@@ -769,6 +769,29 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   ------------------------------------------------------------------------
   -- Strings
 
+  StringContains :: !(e (BaseStringType si))
+                 -> !(e (BaseStringType si))
+                 -> App e BaseBoolType
+
+  StringIsPrefixOf :: !(e (BaseStringType si))
+                 -> !(e (BaseStringType si))
+                 -> App e BaseBoolType
+
+  StringIsSuffixOf :: !(e (BaseStringType si))
+                 -> !(e (BaseStringType si))
+                 -> App e BaseBoolType
+
+  StringIndexOf :: !(e (BaseStringType si))
+                -> !(e (BaseStringType si))
+                -> !(e BaseNatType)
+                -> App e BaseIntegerType
+
+  StringSubstring :: !(StringInfoRepr si)
+                  -> !(e (BaseStringType si))
+                  -> !(e BaseNatType)
+                  -> !(e BaseNatType)
+                  -> App e (BaseStringType si)
+
   StringAppend :: !(StringInfoRepr si)
                -> !(SSeq.StringSeq e si)
                -> App e (BaseStringType si)
@@ -1250,6 +1273,11 @@ appType a =
     RealPart{} -> knownRepr
     ImagPart{} -> knownRepr
 
+    StringContains{} -> knownRepr
+    StringIsPrefixOf{} -> knownRepr
+    StringIsSuffixOf{} -> knownRepr
+    StringIndexOf{} -> knownRepr
+    StringSubstring si _ _ _ -> BaseStringRepr si
     StringAppend si _ -> BaseStringRepr si
     StringLength{} -> knownRepr
 
@@ -1650,12 +1678,17 @@ abstractEval bvParams f a0 = do
     RealPart x -> realPart (f x)
     ImagPart x -> imagPart (f x)
 
+    StringContains x y   -> stringAbsContains (f x) (f y)
+    StringIsPrefixOf x y -> stringAbsIsPrefixOf (f x) (f y)
+    StringIsSuffixOf x y -> stringAbsIsSuffixOf (f x) (f y)
+    StringLength s -> stringAbsLength (f s)
+    StringSubstring _ s t l -> stringAbsSubstring (f s) (f t) (f l)
+    StringIndexOf s t k -> stringAbsIndexOf (f s) (f t) (f k)
     StringAppend _ xs -> foldl' stringAbsConcat stringAbsEmpty $ map h (SSeq.toList xs)
       where
       h (Left l)  = stringAbsSingle l
       h (Right x) = f x
 
-    StringLength s -> stringAbsLength (f s)
 
     StructCtor _ flds -> fmapFC (\v -> AbstractValueWrapper (f v)) flds
     StructField s idx _ -> unwrapAV (f s Ctx.! idx)
@@ -1974,6 +2007,13 @@ ppApp' a0 = do
     ------------------------------------------------------------------------
     -- String operations
 
+    StringIndexOf x y k ->
+       prettyApp "string-index-of" [exprPrettyArg x, exprPrettyArg y, exprPrettyArg k]
+    StringContains x y -> ppSExpr "string-contains" [x, y]
+    StringIsPrefixOf x y -> ppSExpr "string-is-prefix-of" [x, y]
+    StringIsSuffixOf x y -> ppSExpr "string-is-suffix-of" [x, y]
+    StringSubstring _ x off len ->
+       prettyApp "string-substring" [exprPrettyArg x, exprPrettyArg off, exprPrettyArg len]
     StringAppend _ xs -> prettyApp "string-append"
                            (map (either showPrettyArg exprPrettyArg) (SSeq.toList xs))
     StringLength x -> ppSExpr "string-length" [x]
@@ -3240,6 +3280,12 @@ reduceApp sym a0 = do
     Cplx c     -> mkComplex sym c
     RealPart x -> getRealPart sym x
     ImagPart x -> getImagPart sym x
+
+    StringIndexOf x y k -> stringIndexOf sym x y k
+    StringContains x y -> stringContains sym x y
+    StringIsPrefixOf x y -> stringIsPrefixOf sym x y
+    StringIsSuffixOf x y -> stringIsSuffixOf sym x y
+    StringSubstring _ x off len -> stringSubstring sym x off len
 
     StringAppend si xs ->
        do e <- stringEmpty sym si
@@ -5248,6 +5294,43 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = return x
   stringIte sym c x y
     = mkIte sym c x y
+
+  stringIndexOf sym x y k
+    | Just x' <- asString x
+    , Just y' <- asString y
+    , Just k' <- asNat k
+    = intLit sym $! stringLitIndexOf x' y' k'
+  stringIndexOf sym x y k
+    = sbMakeExpr sym $ StringIndexOf x y k
+
+  stringContains sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = return $! backendPred sym (stringLitContains x' y')
+  stringContains sym x y
+    = sbMakeExpr sym $ StringContains x y
+
+  stringIsPrefixOf sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = return $! backendPred sym (stringLitIsPrefixOf x' y')
+  stringIsPrefixOf sym x y
+    = sbMakeExpr sym $ StringIsPrefixOf x y
+
+  stringIsSuffixOf sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = return $! backendPred sym (stringLitIsSuffixOf x' y')
+  stringIsSuffixOf sym x y
+    = sbMakeExpr sym $ StringIsSuffixOf x y
+
+  stringSubstring sym x off len
+    | Just x' <- asString x
+    , Just off' <- asNat off
+    , Just len' <- asNat len
+    = stringLit sym $! stringLitSubstring x' off' len'
+  stringSubstring sym x off len
+    = sbMakeExpr sym $ StringSubstring (stringInfo x) x off len
 
   stringConcat _ x y
     | Just x' <- asString x, stringLitNull x'

@@ -844,6 +844,25 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Compute the length of a term
   stringLength :: Term h -> Term h
 
+  -- | @stringIndexOf s t i@ computes the first index following or at i
+  --   where @t@ appears within @s@ as a substring, or -1 if no such
+  --   index exists
+  stringIndexOf :: Term h -> Term h -> Term h -> Term h
+
+  -- | Test if the first string contains the second string
+  stringContains :: Term h -> Term h -> Term h
+
+  -- | Test if the first string is a prefix of the second string
+  stringIsPrefixOf :: Term h -> Term h -> Term h
+
+  -- | Test if the first string is a suffix of the second string
+  stringIsSuffixOf :: Term h -> Term h -> Term h
+
+  -- | @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
+  --   having length @len@.  The result of this operation is undefined if @off@ and @len@
+  --   to not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  stringSubstring :: Term h -> Term h -> Term h -> Term h
+
   -- | Append the given strings
   stringAppend :: [Term h] -> Term h
 
@@ -2230,6 +2249,53 @@ appSMTExpr ae = do
           x <- mkBaseExpr xe
           freshBoundTerm NatTypeMap $ stringLength @h x
         si -> fail ("Unsupported symbolic string length operation " ++  show si)
+
+    StringIndexOf xe ye ke ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          k <- mkBaseExpr ke
+          freshBoundTerm IntegerTypeMap $ stringIndexOf @h x y k
+        si -> fail ("Unsupported symbolic string index-of operation " ++  show si)
+
+    StringSubstring _ xe offe lene ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          off <- mkBaseExpr offe
+          len <- mkBaseExpr lene
+          freshBoundTerm Char8TypeMap $ stringSubstring @h x off len
+        si -> fail ("Unsupported symbolic string substring operation " ++  show si)
+
+    StringContains xe ye ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          freshBoundTerm BoolTypeMap $ stringContains @h x y
+        si -> fail ("Unsupported symbolic string contains operation " ++  show si)
+
+    StringIsPrefixOf xe ye ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          freshBoundTerm BoolTypeMap $ stringIsPrefixOf @h x y
+        si -> fail ("Unsupported symbolic string is-prefix-of operation " ++  show si)
+
+    StringIsSuffixOf xe ye ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          freshBoundTerm BoolTypeMap $ stringIsSuffixOf @h x y
+        si -> fail ("Unsupported symbolic string is-suffix-of operation " ++  show si)
 
     StringAppend si xes ->
       case si of

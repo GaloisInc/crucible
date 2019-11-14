@@ -227,6 +227,11 @@ appTheory a0 =
     -- String operations
     StringAppend{} -> StringTheory
     StringLength{} -> StringTheory
+    StringContains{} -> StringTheory
+    StringIndexOf{} -> StringTheory
+    StringIsPrefixOf{} -> StringTheory
+    StringIsSuffixOf{} -> StringTheory
+    StringSubstring{} -> StringTheory
 
     ---------------------
     -- Complex operations

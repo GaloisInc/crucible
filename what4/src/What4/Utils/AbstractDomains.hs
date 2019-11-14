@@ -82,6 +82,11 @@ module What4.Utils.AbstractDomains
   , stringAbsOverlap
   , stringAbsLength
   , stringAbsConcat
+  , stringAbsSubstring
+  , stringAbsContains
+  , stringAbsIsPrefixOf
+  , stringAbsIsSuffixOf
+  , stringAbsIndexOf
   , stringAbsEmpty
 
     -- * Abstractable
@@ -637,6 +642,41 @@ stringAbsCheckEq (StringAbs lenx) (StringAbs leny)
 stringAbsConcat :: StringAbstractValue -> StringAbstractValue -> StringAbstractValue
 stringAbsConcat (StringAbs lenx) (StringAbs leny) =
   StringAbs (natRangeAdd lenx leny)
+
+stringAbsSubstring :: StringAbstractValue -> NatValueRange -> NatValueRange -> StringAbstractValue
+stringAbsSubstring _s _off len = StringAbs len
+
+stringAbsContains :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+stringAbsContains = couldContain
+
+stringAbsIsPrefixOf :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+stringAbsIsPrefixOf = flip couldContain
+
+stringAbsIsSuffixOf :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+stringAbsIsSuffixOf = flip couldContain
+
+couldContain :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+couldContain (StringAbs lenx) (StringAbs leny)
+  | Inclusive x <- rangeHiBound rng, x < 0 = Just False
+  | otherwise = Nothing
+
+  where
+  lenx' = natRangeToRange lenx
+  leny' = natRangeToRange leny
+
+  rng = addRange lenx' (negateRange leny')
+
+stringAbsIndexOf :: StringAbstractValue -> StringAbstractValue -> NatValueRange -> ValueRange Integer
+stringAbsIndexOf (StringAbs lenx) (StringAbs leny) _k
+  | Unbounded   <- rangeHiBound rng          = MultiRange (Inclusive (-1)) Unbounded
+  | Inclusive x <- rangeHiBound rng, x >= 0  = MultiRange (Inclusive (-1)) (Inclusive x)
+  | otherwise                                = SingleRange (-1)
+  where
+  lenx' = natRangeToRange lenx
+  leny' = natRangeToRange leny
+
+  rng = addRange lenx' (negateRange leny')
+
 
 stringAbsLength :: StringAbstractValue -> NatValueRange
 stringAbsLength (StringAbs len) = len

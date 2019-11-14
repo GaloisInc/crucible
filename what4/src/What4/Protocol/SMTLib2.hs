@@ -280,6 +280,21 @@ class Show a => SMTLib2Tweaks a where
   smtlib2StringAppend :: [Term] -> Term
   smtlib2StringAppend = SMT2.term_app "str.++"
 
+  smtlib2StringContains :: Term -> Term -> Term
+  smtlib2StringContains = SMT2.bin_app "str.contains"
+
+  smtlib2StringIndexOf :: Term -> Term -> Term -> Term
+  smtlib2StringIndexOf s t i = SMT2.term_app "str.indexof" [s,t,i]
+
+  smtlib2StringIsPrefixOf :: Term -> Term -> Term
+  smtlib2StringIsPrefixOf = SMT2.bin_app "str.prefixof"
+
+  smtlib2StringIsSuffixOf :: Term -> Term -> Term
+  smtlib2StringIsSuffixOf = SMT2.bin_app "str.suffixof"
+
+  smtlib2StringSubstring :: Term -> Term -> Term -> Term
+  smtlib2StringSubstring x off len = SMT2.term_app "str.substr" [x,off,len]
+
   -- | The sort of structs with the given field types.
   --
   -- By default, this uses SMTLIB2 datatypes and are not primitive to the language.
@@ -591,6 +606,11 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   stringTerm bs = smtlib2StringTerm @a bs
   stringLength x = smtlib2StringLength @a x
   stringAppend xs = smtlib2StringAppend @a xs
+  stringContains x y = smtlib2StringContains @a x y
+  stringIsPrefixOf x y = smtlib2StringIsPrefixOf @a x y
+  stringIsSuffixOf x y = smtlib2StringIsSuffixOf @a x y
+  stringIndexOf x y k = smtlib2StringIndexOf @a x y k
+  stringSubstring x off len = smtlib2StringSubstring @a x off len
 
   structCtor _tps vals = smtlib2StructCtor @a vals
 
@@ -598,8 +618,6 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
     let n = Ctx.sizeInt (Ctx.size tps)
         i = Ctx.indexVal idx
      in smtlib2StructProj @a n i v
-
-
 
   resetDeclaredStructs conn = do
     let r = declaredTuples (connState conn)
@@ -790,15 +808,16 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
                                            , sessionResponse = s }
 
   smtSatResult p s =
-    do mb <- try (Streams.parseFromStream parseNextWord s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        case mb of
          Left (SomeException e) ->
             fail $ unlines [ "Could not parse check_sat result."
                            , "*** Exception: " ++ displayException e
                            ]
-         Right "unsat" -> return (Unsat ())
-         Right "sat" -> return (Sat ())
-         Right "unknown" -> return Unknown
+         Right (SAtom "unsat") -> return (Unsat ())
+         Right (SAtom "sat") -> return (Sat ())
+         Right (SAtom "unknown") -> return Unknown
+         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error (head $ reverse (checkCommands p)) msg)
          Right res -> throw $ SMTLib2ParseError (checkCommands p) (Text.pack (show res))
 
   smtUnsatAssumptionsResult p s =

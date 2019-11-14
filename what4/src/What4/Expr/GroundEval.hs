@@ -528,6 +528,11 @@ evalGroundApp f0 a0 = do
     -- String operations
 
     StringLength x -> stringLitLength <$> f x
+    StringContains x y -> stringLitContains <$> f x <*> f y
+    StringIsSuffixOf x y -> stringLitIsSuffixOf <$> f x <*> f y
+    StringIsPrefixOf x y -> stringLitIsPrefixOf <$> f x <*> f y
+    StringIndexOf x y k -> stringLitIndexOf <$> f x <*> f y <*> f k
+    StringSubstring _ x off len -> stringLitSubstring <$> f x <*> f off <*> f len
     StringAppend si xs ->
       do ys <- traverse (either return f) (SSeq.toList xs)
          return $! foldl (<>) (stringLitEmpty si) ys

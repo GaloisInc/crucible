@@ -40,6 +40,7 @@ import What4.Solver.Adapter
 import qualified What4.Solver.CVC4 as CVC4
 import qualified What4.Solver.Z3 as Z3
 import qualified What4.Solver.Yices as Yices
+import What4.Utils.StringLiteral
 
 data State t = State
 data SomePred = forall t . SomePred (BoolExpr t)
@@ -596,6 +597,129 @@ stringTest2 sym solver =
 
        _ -> fail "expected satisfable model"
 
+stringTest3 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest3 sym solver =
+  do let bsz = "qwe\x1crtyQQ\"QQ"
+     z <- stringLit sym (Char8Literal bsz)
+
+     a <- freshConstant sym (userSymbol' "stra") (BaseStringRepr Char8Repr)
+     b <- freshConstant sym (userSymbol' "strb") (BaseStringRepr Char8Repr)
+     c <- freshConstant sym (userSymbol' "strc") (BaseStringRepr Char8Repr)
+
+     pfx <- stringIsPrefixOf sym a z
+     sfx <- stringIsSuffixOf sym b z
+
+     cnt1 <- stringContains sym z c
+     cnt2 <- notPred sym =<< stringContains sym c =<< stringLit sym (Char8Literal "Q")
+     cnt3 <- notPred sym =<< stringContains sym c =<< stringLit sym (Char8Literal "q")
+     cnt  <- andPred sym cnt1 =<< andPred sym cnt2 cnt3
+
+     lena <- stringLength sym a
+     lenb <- stringLength sym b
+     lenc <- stringLength sym c
+
+     n <- natLit sym 9
+
+     rnga <- natEq sym lena n
+     rngb <- natEq sym lenb n
+     rngc <- natEq sym lenc =<< natLit sym 6
+     rng  <- andPred sym rnga =<< andPred sym rngb rngc
+
+     p <- andPred sym pfx =<<
+          andPred sym sfx =<<
+          andPred sym cnt rng
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do alit <- fromChar8Lit <$> groundEval fn a
+            blit <- fromChar8Lit <$> groundEval fn b
+            clit <- fromChar8Lit <$> groundEval fn c
+
+            alit == (BS.take 9 bsz) @? "correct prefix"
+            blit == (BS.drop (BS.length bsz - 9) bsz) @? "correct suffix"
+            clit == (BS.take 6 (BS.drop 1 bsz)) @? "correct middle"
+
+       _ -> fail "expected satisfable model"
+
+
+stringTest4 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest4 sym solver =
+  do let bsx = "str"
+     x <- stringLit sym (Char8Literal bsx)
+     a <- freshConstant sym (userSymbol' "stra") (BaseStringRepr Char8Repr)
+     i <- stringIndexOf sym a x =<< natLit sym 5
+
+     zero <- intLit sym 0
+     p <- intLe sym zero i
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+          do alit <- fromChar8Lit <$> groundEval fn a
+             ilit <- groundEval fn i
+
+             BS.isPrefixOf bsx (BS.drop (fromIntegral ilit) alit) @? "correct index"
+             ilit >= 5 @? "index large enough"
+
+       _ -> fail "expected satisfable model"
+
+     np <- notPred sym p
+     lena <- stringLength sym a
+     fv <- natLit sym 5
+     plen <- natLe sym fv lena
+     q <- andPred sym np plen
+
+     checkSatisfiableWithModel solver "test" q $ \case
+       Sat fn ->
+          do alit <- fromChar8Lit <$> groundEval fn a
+             ilit <- groundEval fn i
+
+             not (BS.isInfixOf bsx alit) @? "substring not found"
+             ilit == (-1) @? "expected neg one"
+
+       _ -> fail "expected satisfable model"
+
+stringTest5 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest5 sym solver =
+  do a <- freshConstant sym (userSymbol' "a") (BaseStringRepr Char8Repr)
+     off <- freshConstant sym (userSymbol' "off") BaseNatRepr
+     len <- freshConstant sym (userSymbol' "len") BaseNatRepr
+
+     n5 <- natLit sym 5
+     n20 <- natLit sym 20
+
+     let qlit = "qwerty"
+
+     sub <- stringSubstring sym a off len
+     p1 <- stringEq sym sub =<< stringLit sym (Char8Literal qlit)
+     p2 <- natLe sym n5 off
+     p3 <- natLe sym n20 =<< stringLength sym a
+
+     p <- andPred sym p1 =<< andPred sym p2 p3
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do alit <- fromChar8Lit <$> groundEval fn a
+            offlit <- groundEval fn off
+            lenlit <- groundEval fn len
+
+            let q = BS.take (fromIntegral lenlit) (BS.drop (fromIntegral offlit) alit)
+
+            q == qlit @? "correct substring"
+
+       _ -> fail "expected satisfable model"
+
 
 forallTest ::
   OnlineSolver t solver =>
@@ -695,8 +819,13 @@ main = defaultMain $ testGroup "Tests"
 
   , testCase "Z3 string1" $ withOnlineZ3 stringTest1
   , testCase "Z3 string2" $ withOnlineZ3 stringTest2
+  , testCase "Z3 string3" $ withOnlineZ3 stringTest3
+  , testCase "Z3 string4" $ withOnlineZ3 stringTest4
+  , testCase "Z3 string5" $ withOnlineZ3 stringTest5
 
   , testCase "CVC4 string1" $ withCVC4 stringTest1
   , testCase "CVC4 string2" $ withCVC4 stringTest2
-
+  , testCase "CVC4 string3" $ withCVC4 stringTest3
+  , testCase "CVC4 string4" $ withCVC4 stringTest4
+  , testCase "CVC4 string5" $ withCVC4 stringTest5
   ]

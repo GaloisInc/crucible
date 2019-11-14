@@ -23,6 +23,11 @@ module What4.Utils.StringLiteral
 , stringLitLength
 , stringLitNull
 , stringLitBounds
+, stringLitContains
+, stringLitIsPrefixOf
+, stringLitIsSuffixOf
+, stringLitSubstring
+, stringLitIndexOf
 ) where
 
 
@@ -129,6 +134,46 @@ stringLitNull :: StringLiteral si -> Bool
 stringLitNull (UnicodeLiteral x) = T.null x
 stringLitNull (Char16Literal x)  = WS.null x
 stringLitNull (Char8Literal x)   = BS.null x
+
+stringLitContains :: StringLiteral si -> StringLiteral si -> Bool
+stringLitContains (UnicodeLiteral x) (UnicodeLiteral y) = T.isInfixOf y x
+stringLitContains (Char16Literal x) (Char16Literal y) = WS.isInfixOf y x
+stringLitContains (Char8Literal x) (Char8Literal y) = BS.isInfixOf y x
+
+stringLitIsPrefixOf :: StringLiteral si -> StringLiteral si -> Bool
+stringLitIsPrefixOf (UnicodeLiteral x) (UnicodeLiteral y) = T.isPrefixOf x y
+stringLitIsPrefixOf (Char16Literal x) (Char16Literal y) = WS.isPrefixOf x y
+stringLitIsPrefixOf (Char8Literal x) (Char8Literal y) = BS.isPrefixOf x y
+
+stringLitIsSuffixOf :: StringLiteral si -> StringLiteral si -> Bool
+stringLitIsSuffixOf (UnicodeLiteral x) (UnicodeLiteral y) = T.isSuffixOf x y
+stringLitIsSuffixOf (Char16Literal x) (Char16Literal y) = WS.isSuffixOf x y
+stringLitIsSuffixOf (Char8Literal x) (Char8Literal y) = BS.isSuffixOf x y
+
+stringLitSubstring :: StringLiteral si -> Natural -> Natural -> StringLiteral si
+stringLitSubstring (UnicodeLiteral x) len off =
+  UnicodeLiteral $ T.take (fromIntegral len)  $ T.drop (fromIntegral off) x
+stringLitSubstring (Char16Literal x) len off =
+  Char16Literal  $ WS.take (fromIntegral len) $ WS.drop (fromIntegral off) x
+stringLitSubstring (Char8Literal x) len off =
+  Char8Literal   $ BS.take (fromIntegral len) $ BS.drop (fromIntegral off) x
+
+stringLitIndexOf :: StringLiteral si -> StringLiteral si -> Natural -> Integer
+stringLitIndexOf (UnicodeLiteral x) (UnicodeLiteral y) k
+   | T.null y = 0
+   | T.null b = -1
+   | otherwise = toInteger (T.length a) + toInteger k
+  where (a,b) = T.breakOn y (T.drop (fromIntegral k) x)
+
+stringLitIndexOf (Char16Literal x) (Char16Literal y) k =
+  case WS.findSubstring y (WS.drop (fromIntegral k) x) of
+    Nothing -> -1
+    Just n  -> toInteger n + toInteger k
+
+stringLitIndexOf (Char8Literal x) (Char8Literal y) k =
+  case BS.findSubstring y (BS.drop (fromIntegral k) x) of
+    Nothing -> -1
+    Just n  -> toInteger n + toInteger k
 
 stringLitBounds :: StringLiteral si -> Maybe (Int, Int)
 stringLitBounds si =

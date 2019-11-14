@@ -104,10 +104,12 @@ instance SMT2.SMTLib2Tweaks CVC4 where
 
 cvc4Features :: ProblemFeatures
 cvc4Features = useComputableReals
+           .|. useIntegerArithmetic
            .|. useSymbolicArrays
            .|. useStrings
            .|. useStructs
            .|. useBitvectors
+           .|. useQuantifiers
 
 writeMultiAsmpCVC4SMT2File
    :: ExprBuilder t st fs
@@ -135,7 +137,7 @@ writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 instance SMT2.SMTLib2GenericSolver CVC4 where
   defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
 
-  defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental"]
+  defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental", "--strings-exp"]
 
   defaultFeatures _ = cvc4Features
 

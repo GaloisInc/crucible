@@ -1557,8 +1557,27 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   -- | Concatenate two strings
   stringConcat :: sym -> SymString sym si -> SymString sym si -> IO (SymString sym si)
 
+  -- | Test if the first string contains the second string as a substring
+  stringContains :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
+
+  -- | Test if the first string is a prefix of the second string
+  stringIsPrefixOf :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
+
+  -- | Test if the first string is a suffix of the second string
+  stringIsSuffixOf :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
+
+  -- | Return the first position at which the second string can be found as a substring
+  --   in the first string, starting from the given index.
+  --   If no such position exists, return a negative value.
+  stringIndexOf :: sym -> SymString sym si -> SymString sym si -> SymNat sym -> IO (SymInteger sym)
+
   -- | Compute the length of a string
   stringLength :: sym -> SymString sym si -> IO (SymNat sym)
+
+  -- | @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
+  --   having length @len@.  The result of this operation is undefined if @off@ and @len@
+  --   do not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  stringSubstring :: sym -> SymString sym si -> SymNat sym -> SymNat sym -> IO (SymString sym si)
 
   ----------------------------------------------------------------------
   -- Real operations

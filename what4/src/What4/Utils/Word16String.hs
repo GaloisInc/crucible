@@ -15,18 +15,25 @@ module What4.Utils.Word16String
 , singleton
 , null
 , index
+, drop
+, take
 , append
 , length
 , foldl'
+, findSubstring
+, isInfixOf
+, isPrefixOf
+, isSuffixOf
 ) where
 
-import           Prelude hiding (null,length)
+import           Prelude hiding (null,length, drop, take)
 import qualified Prelude
 
 import           Data.Bits
 import           Data.Char
 import           Data.Hashable
 import qualified Data.List as List
+import           Data.Maybe (isJust)
 import           Data.Word
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -71,7 +78,7 @@ showsWord16String (Word16String xs0) tl = '"' : go (BS.unpack xs0)
 
   where
   esc = showHex x []
-  zs  = take (4 - Prelude.length esc) (repeat '0')
+  zs  = Prelude.take (4 - Prelude.length esc) (repeat '0')
 
   x :: Word16
   x = fromIntegral lo .|. (fromIntegral hi `shiftL` 8)
@@ -105,6 +112,12 @@ index (Word16String xs) i = (hi `shiftL` 8) .|. lo
  hi = fromIntegral (BS.index xs (2*i + 1))
  lo = fromIntegral (BS.index xs (2*i))
 
+drop :: Int -> Word16String -> Word16String
+drop k (Word16String xs) = Word16String (BS.drop (2*k) xs)
+
+take :: Int -> Word16String -> Word16String
+take k (Word16String xs) = Word16String (BS.take (2*k) xs)
+
 append :: Word16String -> Word16String -> Word16String
 append (Word16String xs) (Word16String ys) =
   Word16String (BS.append xs ys)
@@ -115,3 +128,31 @@ length (Word16String xs) = BS.length xs `shiftR` 1
 foldl' :: (a -> Word16 -> a) -> a -> Word16String -> a
 foldl' f z xs =
   List.foldl' (\x i -> f x (index xs i)) z [ 0 .. (length xs - 1) ]
+
+-- | Find the first index (if it exists) where the first
+--   string appears as a substring in the second
+findSubstring :: Word16String -> Word16String -> Maybe Int
+findSubstring (Word16String xs) _ | BS.null xs = Just 0
+findSubstring (Word16String xs) (Word16String ys) = go 0
+  where
+  brk = BS.breakSubstring xs
+
+  -- search for the first aligned (even) index where the pattern string occurs
+  -- invariant: k is even
+  go k
+    | BS.null b = Nothing
+    | even (BS.length a) = Just ((k + BS.length a) `shiftR` 1)
+    | otherwise = go (k + BS.length a + 1)
+   where
+   (a,b) = brk (BS.drop k ys)
+
+-- | Returns true if the first string appears somewhere
+--   in the second string.
+isInfixOf :: Word16String -> Word16String -> Bool
+isInfixOf xs ys = isJust $ findSubstring xs ys
+
+isPrefixOf :: Word16String -> Word16String -> Bool
+isPrefixOf (Word16String xs) (Word16String ys) = BS.isPrefixOf xs ys
+
+isSuffixOf :: Word16String -> Word16String -> Bool
+isSuffixOf (Word16String xs) (Word16String ys) = BS.isSuffixOf xs ys

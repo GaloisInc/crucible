@@ -527,6 +527,11 @@ instance SMTWriter (Connection s) where
   stringTerm _   = stringFail
   stringLength _ = stringFail
   stringAppend _ = stringFail
+  stringContains _ _ = stringFail
+  stringIndexOf _ _ _ = stringFail
+  stringIsPrefixOf _ _ = stringFail
+  stringIsSuffixOf _ _ = stringFail
+  stringSubstring _ _ _ = stringFail
 
   -- yices has built-in syntax for n-tuples where n > 0,
   -- so we only need to delcare the unit type for 0-tuples
