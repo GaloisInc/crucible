@@ -162,6 +162,7 @@ import           Control.Lens hiding (asIndex, (:>), Empty)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST
+import           Control.Monad.Trans.Writer.Strict (writer, runWriter)
 import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
 import qualified Data.Binary.IEEE754 as IEEE754
@@ -176,6 +177,7 @@ import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
+import           Data.Monoid (Any(..))
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.HashTable as PH
@@ -4601,43 +4603,68 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       bvSelect sb idx n x'
 
       -- select is entirely within the less-significant bits of a concat
-   | Just (BVConcat _w _a b) <- asApp x
-   , Just LeqProof <- testLeq (addNat idx n) (bvWidth b) = do
-     bvSelect sb idx n b
+    | Just (BVConcat _w _a b) <- asApp x
+    , Just LeqProof <- testLeq (addNat idx n) (bvWidth b) = do
+      bvSelect sb idx n b
 
       -- select is entirely within the more-significant bits of a concat
-   | Just (BVConcat _w a b) <- asApp x
-   , Just LeqProof <- testLeq (bvWidth b) idx
-   , Just LeqProof <- isPosNat idx
-   , let diff = subNat idx (bvWidth b)
-   , Just LeqProof <- testLeq (addNat diff n) (bvWidth a) = do
-     bvSelect sb (subNat idx (bvWidth b)) n a
+    | Just (BVConcat _w a b) <- asApp x
+    , Just LeqProof <- testLeq (bvWidth b) idx
+    , Just LeqProof <- isPosNat idx
+    , let diff = subNat idx (bvWidth b)
+    , Just LeqProof <- testLeq (addNat diff n) (bvWidth a) = do
+      bvSelect sb (subNat idx (bvWidth b)) n a
 
-   -- when the selected region overlaps a concat boundary we have:
-   --  select idx n (concat a b) =
-   --      concat (select 0 n1 a) (select idx n2 b)
-   --   where n1 + n2 = n and idx + n2 = width b
-   --
-   -- NB: this case must appear after the two above that check for selects
-   --     entirely within the first or second arguments of a concat, otherwise
-   --     some of the arithmetic checks below may fail
-   | Just (BVConcat _w a b) <- asApp x = do
-     Just LeqProof <- return $ testLeq idx (bvWidth b)
-     let n2 = subNat (bvWidth b) idx
-     Just LeqProof <- return $ testLeq n2 n
-     let n1 = subNat n n2
-     let z  = knownNat :: NatRepr 0
+    -- when the selected region overlaps a concat boundary we have:
+    --  select idx n (concat a b) =
+    --      concat (select 0 n1 a) (select idx n2 b)
+    --   where n1 + n2 = n and idx + n2 = width b
+    --
+    -- NB: this case must appear after the two above that check for selects
+    --     entirely within the first or second arguments of a concat, otherwise
+    --     some of the arithmetic checks below may fail
+    | Just (BVConcat _w a b) <- asApp x = do
+      Just LeqProof <- return $ testLeq idx (bvWidth b)
+      let n2 = subNat (bvWidth b) idx
+      Just LeqProof <- return $ testLeq n2 n
+      let n1 = subNat n n2
+      let z  = knownNat :: NatRepr 0
 
-     Just LeqProof <- return $ isPosNat n1
-     Just LeqProof <- return $ testLeq (addNat z n1) (bvWidth a)
-     a' <- bvSelect sb z   n1 a
+      Just LeqProof <- return $ isPosNat n1
+      Just LeqProof <- return $ testLeq (addNat z n1) (bvWidth a)
+      a' <- bvSelect sb z   n1 a
 
-     Just LeqProof <- return $ isPosNat n2
-     Just LeqProof <- return $ testLeq (addNat idx n2) (bvWidth b)
-     b' <- bvSelect sb idx n2 b
+      Just LeqProof <- return $ isPosNat n2
+      Just LeqProof <- return $ testLeq (addNat idx n2) (bvWidth b)
+      b' <- bvSelect sb idx n2 b
 
-     Just Refl <- return $ testEquality (addNat n1 n2) n
-     bvConcat sb a' b'
+      Just Refl <- return $ testEquality (addNat n1 n2) n
+      bvConcat sb a' b'
+
+    -- Truncate a weighted sum: truncate all the integer coefficients
+    -- and remove terms with coefficients that become zero
+    --
+    -- Truncation of w-bit words down to n bits respects congruence
+    -- modulo 2^n. Furthermore, w-bit addition and multiplication also
+    -- preserve congruence modulo 2^n. This means that it is sound to
+    -- replace coefficients in a weighted sum with new masked ones
+    -- that are congruent modulo 2^n: the final result after
+    -- truncation will be the same.
+    --
+    -- NOTE: This case is carefully designed to preserve sharing. Only
+    -- one App node (the SemiRingSum) is ever deconstructed. The
+    -- 'traverseCoeffs' call does not touch any other App nodes inside
+    -- the WeightedSum. Finally, we only reconstruct a new SemiRingSum
+    -- App node in the event that one of the coefficients has changed;
+    -- the writer monad tracks whether a change has occurred.
+    | Just (SemiRingSum s) <- asApp x
+    , SR.SemiRingBVRepr SR.BVArithRepr _w <- WSum.sumRepr s
+    , Just Refl <- testEquality idx (knownNat :: NatRepr 0) =
+      do let mask = maxUnsigned n
+         let reduce i = let j = i Bits..&. mask in writer (j, Any (i /= j))
+         let (s', Any changed) = runWriter $ WSum.traverseCoeffs reduce s
+         x' <- if changed then sbMakeExpr sb (SemiRingSum s') else return x
+         sbMakeExpr sb $ BVSelect idx n x'
 
 {-  Avoid doing work that may lose sharing...
 

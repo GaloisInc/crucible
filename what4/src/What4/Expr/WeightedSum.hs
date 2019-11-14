@@ -40,6 +40,7 @@ module What4.Expr.WeightedSum
   , asAffineVar
   , isZero
   , traverseVars
+  , traverseCoeffs
   , add
   , addVar
   , addVars
@@ -236,6 +237,17 @@ traverseVars f w =
     Map.filter (not . SR.eq sr (SR.zero sr)) .
     Map.fromListWith (SR.add sr) <$>
       traverse (_1 (traverseWrap f)) (Map.toList (_sumMap w))
+
+-- | Traverse the coefficients in a weighted sum.
+traverseCoeffs :: forall m f sr.
+  (Applicative m, HashableF f) =>
+  (SR.Coefficient sr -> m (SR.Coefficient sr)) ->
+  WeightedSum f sr ->
+  m (WeightedSum f sr)
+traverseCoeffs f w = mkSum <$> traverse f (_sumMap w) <*> f (_sumOffset w)
+  where
+    sr = sumRepr w
+    mkSum m = unfilteredSum sr (Map.filter (not . SR.eq sr (SR.zero sr)) m)
 
 -- | Traverse the expressions in a product.
 traverseProdVars :: forall k j m sr.
