@@ -117,6 +117,7 @@ import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder (decimal)
 import qualified Data.Text.Lazy as Lazy
 import           Data.Word
+import           GHC.Real
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import           System.IO.Streams (OutputStream)
@@ -1955,6 +1956,8 @@ appSMTExpr ae = do
     RealDiv xe ye -> do
       x <- mkBaseExpr xe
       case ye of
+        SemiRingLiteral SR.SemiRingRealRepr r _ | r == 0 -> do
+          freshBoundTerm RealTypeMap $ rationalTerm infinity
         SemiRingLiteral SR.SemiRingRealRepr r _ -> do
           freshBoundTerm RealTypeMap $ x * rationalTerm (recip r)
         _ -> do
