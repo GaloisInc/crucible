@@ -851,6 +851,28 @@ llvmAssertRtnOverride =
           liftIO $ assert sym (falsePred sym) err
   )
 
+llvmAbortOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch EmptyCtx UnitType
+llvmAbortOverride =
+  let nm = "abort" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = []
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  Empty
+  UnitRepr
+  (\_ sym _args ->
+       do let err = AssertFailureSimError "Call to abort"
+          liftIO $ assert sym (falsePred sym) err
+  )
+
 llvmGetenvOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
