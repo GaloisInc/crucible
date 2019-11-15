@@ -5360,11 +5360,11 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just x' <- asString x
     = natLit sym (stringLitLength x')
 
---  stringLength sym x
---    | Just (StringAppend _si xs) <- asApp x
---    = do ns <- mapM (either (natLit sym . stringLitLength) (sbMakeExpr sym . StringLength)) (SSeq.toList xs)
---         z  <- natLit sym 0
---         foldM (natAdd sym) z ns
+  stringLength sym x
+    | Just (StringAppend _si xs) <- asApp x
+    = do ns <- mapM (either (natLit sym . stringLitLength) (sbMakeExpr sym . StringLength)) (SSeq.toList xs)
+         z  <- natLit sym 0
+         foldM (natAdd sym) z ns
 
   stringLength sym x
     = sbMakeExpr sym $ StringLength x
