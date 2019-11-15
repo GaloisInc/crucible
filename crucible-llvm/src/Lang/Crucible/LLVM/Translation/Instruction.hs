@@ -523,15 +523,16 @@ calcGEP_struct ::
   Expr (LLVM arch) s (LLVMPointerType wptr) ->
   LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 calcGEP_struct fi base =
-      do -- Get the field offset and check that it fits
-         -- in the pointer width
-         let ioff = G.bytesToInteger $ fiOffset fi
-         unless (ioff <= maxSigned PtrWidth)
-           (fail $ unwords ["Field offset too large for pointer width in structure:", show ioff])
-         let off  = app $ BVLit PtrWidth $ ioff
+  do -- Get the field offset and check that it fits
+     -- in the pointer width
+     let ioff = G.bytesToInteger $ fiOffset fi
+     unless (ioff <= maxSigned PtrWidth)
+       (fail $ unwords ["Field offset too large for pointer width in structure:", show ioff])
+     let off = app $ BVLit PtrWidth $ ioff
 
-         -- Perform the pointer arithmetic and continue
-         callPtrAddOffset base off
+     -- Perform the pointer arithmetic and continue
+     -- Skip pointer arithmetic when offset is 0
+     if ioff == 0 then return base else callPtrAddOffset base off
 
 
 translateConversion ::
