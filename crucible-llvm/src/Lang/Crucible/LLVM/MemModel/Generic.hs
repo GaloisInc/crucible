@@ -1169,11 +1169,10 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
     go fallback [] = fallback
     go fallback (Alloc _ a asz mut alignment _ : r)
       | mutOk mut && alignment >= minAlign =
+        -- If the block ID matches, then call 'inThisAllocation',
+        -- otherwise search the remainder of the allocation history.
         do sameBlock <- natEq sym blk =<< natLit sym a
-           inRange <- inThisAllocation asz
-           hereOK <- andPred sym sameBlock inRange
-           thereOK <- go fallback r
-           orPred sym hereOK thereOK
+           itePredM sym sameBlock (inThisAllocation asz) (go fallback r)
       | otherwise = go fallback r
     go fallback (MemFree a : r) =
       do notSameBlock <- notPred sym =<< natEq sym blk a
