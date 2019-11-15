@@ -8,7 +8,7 @@
 -- Stability        : provisional
 --
 -- This module represents the workhorse of the LLVM translation.  It
--- is responsable for interpreting the LLVM instruction set into
+-- is responsible for interpreting the LLVM instruction set into
 -- corresponding crucible statements.
 -----------------------------------------------------------------------
 
