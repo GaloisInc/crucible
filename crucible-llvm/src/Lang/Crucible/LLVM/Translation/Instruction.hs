@@ -8,7 +8,7 @@
 -- Stability        : provisional
 --
 -- This module represents the workhorse of the LLVM translation.  It
--- is responsable for interpreting the LLVM instruction set into
+-- is responsible for interpreting the LLVM instruction set into
 -- corresponding crucible statements.
 -----------------------------------------------------------------------
 
@@ -462,6 +462,9 @@ calcGEP_array :: forall wptr arch s ret.
   Expr (LLVM arch) s (LLVMPointerType wptr) {- ^ Base pointer -} ->
   LLVMExpr s arch {- ^ index value -} ->
   LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+calcGEP_array _typ base (ZeroExpr _) = return base
+  -- If the array index is the concrete number 0, then return the base
+  -- pointer unchanged.
 calcGEP_array typ base idx =
   do -- sign-extend the index value if necessary to make it
      -- the same width as a pointer
@@ -520,15 +523,16 @@ calcGEP_struct ::
   Expr (LLVM arch) s (LLVMPointerType wptr) ->
   LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 calcGEP_struct fi base =
-      do -- Get the field offset and check that it fits
-         -- in the pointer width
-         let ioff = G.bytesToInteger $ fiOffset fi
-         unless (ioff <= maxSigned PtrWidth)
-           (fail $ unwords ["Field offset too large for pointer width in structure:", show ioff])
-         let off  = app $ BVLit PtrWidth $ ioff
+  do -- Get the field offset and check that it fits
+     -- in the pointer width
+     let ioff = G.bytesToInteger $ fiOffset fi
+     unless (ioff <= maxSigned PtrWidth)
+       (fail $ unwords ["Field offset too large for pointer width in structure:", show ioff])
+     let off = app $ BVLit PtrWidth $ ioff
 
-         -- Perform the pointer arithmetic and continue
-         callPtrAddOffset base off
+     -- Perform the pointer arithmetic and continue
+     -- Skip pointer arithmetic when offset is 0
+     if ioff == 0 then return base else callPtrAddOffset base off
 
 
 translateConversion ::
