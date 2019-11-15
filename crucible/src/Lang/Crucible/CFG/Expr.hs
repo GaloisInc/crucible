@@ -915,19 +915,54 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- String
 
+  -- Create a concrete string literal
   StringLit :: !(StringLiteral si)
             -> App ext f (StringType si)
 
-  EmptyString :: StringInfoRepr si
+  -- Create an empty string literal
+  StringEmpty :: !(StringInfoRepr si)
               -> App ext f (StringType si)
 
-  AppendString :: StringInfoRepr si
+  StringConcat :: !(StringInfoRepr si)
                -> !(f (StringType si))
                -> !(f (StringType si))
                -> App ext f (StringType si)
 
+  -- Compute the length of a string
   StringLength :: !(f (StringType si))
                -> App ext f NatType
+
+  -- Test if the first string contains the second string as a substring
+  StringContains :: !(f (StringType si))
+                 -> !(f (StringType si))
+                 -> App ext f BoolType
+
+  -- Test if the first string is a prefix of the second string
+  StringIsPrefixOf :: !(f (StringType si))
+                 -> !(f (StringType si))
+                 -> App ext f BoolType
+
+  -- Test if the first string is a suffix of the second string
+  StringIsSuffixOf :: !(f (StringType si))
+                 -> !(f (StringType si))
+                 -> App ext f BoolType
+
+  -- Return the first position at which the second string can be found as a substring
+  -- in the first string, starting from the given index.
+  -- If no such position exists, return a negative value.
+  StringIndexOf :: !(f (StringType si))
+                -> !(f (StringType si))
+                -> !(f NatType)
+                -> App ext f IntegerType
+
+  -- @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
+  -- having length @len@.  The result of this operation is undefined if @off@ and @len@
+  -- do not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  StringSubstring :: !(StringInfoRepr si)
+                  -> !(f (StringType si))
+                  -> !(f NatType)
+                  -> !(f NatType)
+                  -> App ext f (StringType si)
 
   ShowValue :: !(BaseTypeRepr bt)
             -> !(f (BaseToType bt))
@@ -1213,9 +1248,14 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     StringLit s -> StringRepr (stringLiteralInfo s)
     ShowValue{} -> knownRepr
     ShowFloat{} -> knownRepr
-    AppendString si _ _ -> StringRepr si
-    EmptyString si -> StringRepr si
+    StringConcat si _ _ -> StringRepr si
+    StringEmpty si -> StringRepr si
     StringLength _ -> knownRepr
+    StringContains{} -> knownRepr
+    StringIsPrefixOf{} -> knownRepr
+    StringIsSuffixOf{} -> knownRepr
+    StringIndexOf{} -> knownRepr
+    StringSubstring si _ _ _ -> StringRepr si
 
     ------------------------------------------------------------------------
     -- Introspection

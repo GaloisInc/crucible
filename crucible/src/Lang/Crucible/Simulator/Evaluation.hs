@@ -917,7 +917,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
                      Unsupported "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
-    -- Text
+    -- Strings
 
     StringLit x -> stringLit sym x
     ShowValue _bt x_expr -> do
@@ -926,15 +926,37 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ShowFloat _fi x_expr -> do
       x <- evalSub x_expr
       stringLit sym (UnicodeLiteral (Text.pack (show (printSymExpr x))))
-    AppendString _si x y -> do
+    StringConcat _si x y -> do
       x' <- evalSub x
       y' <- evalSub y
       stringConcat sym x' y'
-    EmptyString si ->
+    StringEmpty si ->
       stringEmpty sym si
     StringLength x -> do
       x' <- evalSub x
       stringLength sym x'
+    StringContains x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringContains sym x' y'
+    StringIsPrefixOf x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringIsPrefixOf sym x' y'
+    StringIsSuffixOf x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringIsSuffixOf sym x' y'
+    StringIndexOf x y k -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      k' <- evalSub k
+      stringIndexOf sym x' y' k'
+    StringSubstring _si x off len -> do
+      x' <- evalSub x
+      off' <- evalSub off
+      len' <- evalSub len
+      stringSubstring sym x' off' len'
 
     ---------------------------------------------------------------------
     -- Introspection
