@@ -517,6 +517,17 @@ bitblastExpr h ae = do
     UpdateArray{} -> arrayFail
 
     ------------------------------------------------------------------------
+    -- String operations
+
+    StringAppend{} -> stringFail
+    StringLength{} -> stringFail
+    StringContains{} -> stringFail
+    StringIsPrefixOf{} -> stringFail
+    StringIsSuffixOf{} -> stringFail
+    StringIndexOf{} -> stringFail
+    StringSubstring{} -> stringFail
+
+    ------------------------------------------------------------------------
     -- Conversions.
 
     RealIsInteger{} -> realFail

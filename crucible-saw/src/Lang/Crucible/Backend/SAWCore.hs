@@ -780,6 +780,9 @@ evaluateExpr sym sc cache = f []
     floatFail :: IO a
     floatFail = unsupported sym "SAW backend does not support floating-point values"
 
+    stringFail :: IO a
+    stringFail = unsupported sym "SAW backend does not support string values"
+
     go :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO (SAWExpr tp')
 
     go _ (B.BoolExpr b _) = SAWExpr <$> SC.scBool sc b
@@ -1196,6 +1199,14 @@ evaluateExpr sym sc cache = f []
         B.Cplx{}     -> cplxFail
         B.RealPart{} -> cplxFail
         B.ImagPart{} -> cplxFail
+
+        B.StringLength{} -> stringFail
+        B.StringAppend{} -> stringFail
+        B.StringContains{} -> stringFail
+        B.StringIsPrefixOf{} -> stringFail
+        B.StringIsSuffixOf{} -> stringFail
+        B.StringIndexOf{} -> stringFail
+        B.StringSubstring{} -> stringFail
 
         B.StructCtor{} -> nyi -- FIXME
         B.StructField{} -> nyi -- FIXME
