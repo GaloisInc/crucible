@@ -462,6 +462,9 @@ calcGEP_array :: forall wptr arch s ret.
   Expr (LLVM arch) s (LLVMPointerType wptr) {- ^ Base pointer -} ->
   LLVMExpr s arch {- ^ index value -} ->
   LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+calcGEP_array _typ base (ZeroExpr _) = return base
+  -- If the array index is the concrete number 0, then return the base
+  -- pointer unchanged.
 calcGEP_array typ base idx =
   do -- sign-extend the index value if necessary to make it
      -- the same width as a pointer
