@@ -11,7 +11,7 @@
     (let c $count)
     (set-register! $count (- c 1))
     (let out $out)
-    (set-register! $out (string-append out x))
+    (set-register! $out (string-concat out x))
     (let go (< c 0))
     (branch go loop: done:))
   (defblock done:

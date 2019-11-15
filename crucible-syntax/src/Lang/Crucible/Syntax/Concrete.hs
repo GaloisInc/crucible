@@ -829,17 +829,17 @@ synthExpr typeHint =
                  _ -> later $ describe "string expression" empty)
 
     stringEmpty =
-      unary StringEmpty stringSort <&> \(Some si) -> SomeE (StringRepr si) $ EApp $ EmptyString si
+      unary StringEmpty_ stringSort <&> \(Some si) -> SomeE (StringRepr si) $ EApp $ StringEmpty si
 
     stringAppend =
       do (e1,(e2,())) <-
-           followedBy (kw StringAppend) $
+           followedBy (kw StringConcat_) $
            cons (synthExpr typeHint) $
            cons (synthExpr typeHint) $
            emptyList
          matchingExprs typeHint e1 e2 $ \tp s1 s2 ->
            case tp of
-             StringRepr si -> return $ SomeE (StringRepr si) $ EApp $ AppendString si s1 s2
+             StringRepr si -> return $ SomeE (StringRepr si) $ EApp $ StringConcat si s1 s2
              _ -> later $ describe "string expressions" empty
 
     vecRep =
@@ -1376,7 +1376,7 @@ normStmt' =
 
     printLnStmt =
       do Posd loc e <- unary PrintLn_ (located $ reading $ check (StringRepr UnicodeRepr))
-         strAtom <- eval loc (EApp (AppendString UnicodeRepr e (EApp (StringLit "\n"))))
+         strAtom <- eval loc (EApp (StringConcat UnicodeRepr e (EApp (StringLit "\n"))))
          tell [Posd loc (Print strAtom)]
 
     letStmt =
