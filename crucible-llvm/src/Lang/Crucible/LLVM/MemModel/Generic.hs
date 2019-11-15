@@ -1142,8 +1142,10 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
           -- Unbounded access of an unbounded allocation must start at offset 0.
           bvEq sym off =<< bvLit sym w 0
         Just currSize ->
-          -- Bounded access of an unbounded allocation requires
-          -- that @offset + size <= 2^w@.
+          -- Bounded access of an unbounded allocation requires that
+          -- @offset + size <= 2^w@, or equivalently @offset <= 2^w -
+          -- size@. Note that @bvNeg sym size@ computes @2^w - size@
+          -- for any nonzero @size@.
           do zeroSize <- bvEq sym currSize =<< bvLit sym w 0
              noWrap <- bvUle sym off =<< bvNeg sym currSize
              orPred sym zeroSize noWrap
