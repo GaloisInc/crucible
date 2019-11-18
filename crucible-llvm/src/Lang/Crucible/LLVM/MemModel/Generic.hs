@@ -1135,31 +1135,46 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
     -- @inThisAllocation a allocatedSz@ produces the predicate that
     -- records whether the pointer @ptr@ of size @sz@ falls within the
     -- allocation of block @a@ of size @allocatedSz@.
-    inThisAllocation :: forall w'. Natural -> Maybe (SymBV sym w') -> IO (Pred sym)
-    inThisAllocation a Nothing = isSameBlock sym blk a
-      -- If the allocation is unbounded, we just have to check we are in the right block
-    inThisAllocation a (Just allocSize)
+    inThisAllocation :: forall w'. Maybe (SymBV sym w') -> IO (Pred sym)
+    inThisAllocation Nothing =
+      case sz of
+        Nothing ->
+          -- Unbounded access of an unbounded allocation must start at offset 0.
+          bvEq sym off =<< bvLit sym w 0
+        Just currSize ->
+          -- Bounded access of an unbounded allocation requires that
+          -- @offset + size <= 2^w@, or equivalently @offset <= 2^w -
+          -- size@. Note that @bvNeg sym size@ computes @2^w - size@
+          -- for any nonzero @size@.
+          do zeroSize <- bvEq sym currSize =<< bvLit sym w 0
+             noWrap <- bvUle sym off =<< bvNeg sym currSize
+             orPred sym zeroSize noWrap
+
+    inThisAllocation (Just allocSize)
       -- If the allocation is done at pointer width is equal to @w@, check
       -- if this allocation covers the required range
       | Just Refl <- testEquality w (bvWidth allocSize)
       , Just currSize <- sz =
-        do sameBlock <- isSameBlock sym blk a           -- a == blockname(ptr)
-           smallSize <- bvUle sym currSize allocSize    -- currSize <= allocSize
+        do smallSize <- bvUle sym currSize allocSize    -- currSize <= allocSize
            maxOffset <- bvSub sym allocSize currSize    -- maxOffset = allocSize - currSize
            inRange   <- bvUle sym off maxOffset         -- offset(ptr) <= maxOffset
-           andPred sym sameBlock =<< andPred sym smallSize inRange
-    inThisAllocation a (Just _allocSize)
+           andPred sym smallSize inRange
+
+    inThisAllocation (Just _allocSize)
       -- If the allocation is done at pointer width not equal to @w@,
-      -- check that this allocation is distinct from the base pointer.
-      | otherwise = notPred sym =<< isSameBlock sym blk a
+      -- then this is not the allocation we're looking for. Similarly,
+      -- if @sz@ is @Nothing@ (indicating we are accessing the entire
+      -- address space) then any bounded allocation is too small.
+      | otherwise = return $ falsePred sym
 
     go :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
     go fallback [] = fallback
     go fallback (Alloc _ a asz mut alignment _ : r)
       | mutOk mut && alignment >= minAlign =
-        do hereOK <- inThisAllocation a asz
-           thereOK <- go fallback r
-           orPred sym hereOK thereOK
+        -- If the block ID matches, then call 'inThisAllocation',
+        -- otherwise search the remainder of the allocation history.
+        do sameBlock <- natEq sym blk =<< natLit sym a
+           itePredM sym sameBlock (inThisAllocation asz) (go fallback r)
       | otherwise = go fallback r
     go fallback (MemFree a : r) =
       do notSameBlock <- notPred sym =<< natEq sym blk a
@@ -1170,13 +1185,6 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
          px <- go (return p) xr
          py <- go (return p) yr
          itePred sym c px py
-
-
--- | Checks if the block ID given as a natural number is the same as the block
--- in which the pointer is located
-isSameBlock :: (IsSymInterface sym) => sym -> SymNat sym -> Natural -> IO (Pred sym)
-isSameBlock sym blk n =
-  natEq sym blk =<< natLit sym n
 
 -- | @isAllocated sym w p sz m@ returns the condition required to prove
 -- range @[p..p+sz)@ lies within a single allocation in @m@.
