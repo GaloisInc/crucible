@@ -33,7 +33,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           What4.Config
 import           What4.Interface
 import qualified What4.Protocol.SMTLib2 as SMT2
-import           What4.Protocol.SMTWriter (nullAcknowledgementAction)
 import           What4.SatResult
 import           What4.Solver
 import           What4.Solver.Adapter
@@ -136,7 +135,7 @@ writeSMTLib2Override = do
     case asString file_nm of
       Just (UnicodeLiteral path) -> do
         liftIO $ withFile (Text.unpack path) WriteMode $ \h ->
-          SMT2.writeDefaultSMT2 () nullAcknowledgementAction "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
+          SMT2.writeDefaultSMT2 () "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
       Nothing -> do
         fail "Expected concrete file name in write_SMTLIB2 override"
 
