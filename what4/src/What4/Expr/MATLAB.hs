@@ -37,6 +37,7 @@ module What4.Expr.MATLAB
   ) where
 
 import           Control.Monad (join)
+import           Data.Kind (Type)
 import           Data.Hashable
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
@@ -197,7 +198,7 @@ clampedUIntMul sym x y = do
 -- These functions are expected to be total, but the value returned may not be
 -- specified.  e.g. 'IntegerToNatFn' must return some natural number for every
 -- integer, but for negative integers, the particular number is unspecified.
-data MatlabSolverFn (f :: BaseType -> *) args ret where
+data MatlabSolverFn (f :: BaseType -> Type) args ret where
 
   -- Or two Boolean variables
   BoolOrFn :: MatlabSolverFn f (EmptyCtx ::> BaseBoolType ::> BaseBoolType) BaseBoolType
