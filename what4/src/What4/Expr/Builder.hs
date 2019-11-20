@@ -5961,6 +5961,10 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) wher
   iFloatLit sym _ = realLit sym
   iFloatLitSingle sym = realLit sym . toRational
   iFloatLitDouble sym = realLit sym . toRational
+  iFloatLitLongDouble sym x =
+     case fp80ToRational x of
+       Nothing -> fail ("80-bit floating point value does not represent a rational number: " ++ show x)
+       Just r  -> realLit sym r
   iFloatNeg = realNeg
   iFloatAbs = realAbs
   iFloatSqrt sym _ = realSqrt sym
@@ -6049,6 +6053,10 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpret
   iFloatLitDouble sym x =
     iFloatFromBinary sym DoubleFloatRepr
       =<< (bvLit sym knownNat $ toInteger $ IEEE754.doubleToWord x)
+  iFloatLitLongDouble sym x =
+    iFloatFromBinary sym X86_80FloatRepr
+      =<< (bvLit sym knownNat $ fp80ToBits x)
+
   iFloatNeg = floatUninterpArithUnOp "uninterpreted_float_neg"
   iFloatAbs = floatUninterpArithUnOp "uninterpreted_float_abs"
   iFloatSqrt = floatUninterpArithUnOpR "uninterpreted_float_sqrt"
@@ -6201,6 +6209,14 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) wher
   iFloatLitDouble sym x =
     floatFromBinary sym knownRepr
       =<< (bvLit sym knownNat $ toInteger $ IEEE754.doubleToWord x)
+  iFloatLitLongDouble sym (X86_80Val e s) = do
+    el <- bvLit sym (knownNat @16) $ toInteger e
+    sl <- bvLit sym (knownNat @64) $ toInteger s
+    fl <- bvConcat sym el sl
+    floatFromBinary sym knownRepr fl
+    -- n.b. This may not be valid semantically for operations
+    -- performed on 80-bit values, but it allows them to be present in
+    -- formulas.
   iFloatNeg = floatNeg
   iFloatAbs = floatAbs
   iFloatSqrt = floatSqrt

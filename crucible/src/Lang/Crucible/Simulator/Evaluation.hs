@@ -121,9 +121,8 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
         where msg = "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
     Nothing ->
       do ensureInRange sym l h si "Index outside matrix dimensions."
-         let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-         muxIntegerRange predFn iteFn (subIndex . fromInteger)
-                                      (toInteger l) (toInteger h)
+         let predFn i = natEq sym si =<< natLit sym i
+         muxRange predFn iteFn subIndex l h
 
 
 ensureInRange ::
@@ -179,10 +178,10 @@ indexVectorWithSymNat sym iteFn v si =
     Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
            | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
     Nothing ->
-      do let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-         let getElt i = return (v V.! fromInteger i)
+      do let predFn i = natEq sym si =<< natLit sym i
+         let getElt i = return (v V.! fromIntegral i)
          ensureInRange sym 0 (n - 1) si msg
-         muxIntegerRange predFn iteFn getElt 0 (toInteger (n - 1))
+         muxRange predFn iteFn getElt 0 (n - 1)
   where
   n   = fromIntegral (V.length v)
   msg = "indexVectorWithSymNat given bad value"
@@ -547,6 +546,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
 
     FloatLit f -> iFloatLitSingle sym f
     DoubleLit d -> iFloatLitDouble sym d
+    X86_80Lit ld -> iFloatLitLongDouble sym ld
     FloatNaN fi -> iFloatNaN sym fi
     FloatPInf fi -> iFloatPInf sym fi
     FloatNInf fi -> iFloatNInf sym fi

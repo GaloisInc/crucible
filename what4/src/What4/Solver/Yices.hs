@@ -435,7 +435,7 @@ newConnection stream ack reqFeatures timeout bindings = do
   let efSolver = reqFeatures `hasProblemFeature` useExistForall
   let nlSolver = reqFeatures `hasProblemFeature` useNonlinearArithmetic
   let features | efSolver  = useLinearArithmetic
-               | nlSolver  = useNonlinearArithmetic
+               | nlSolver  = useNonlinearArithmetic .|. useIntegerArithmetic
                | otherwise = useIntegerArithmetic
   let nm | efSolver  = "Yices ef-solver"
          | nlSolver  = "Yices nl-solver"
@@ -919,7 +919,7 @@ yicesAdapter =
        runYicesInOverride sym logData ps
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
-       writeDefaultSMT2 () nullAcknowledgementAction "YICES" yicesSMT2Features
+       writeDefaultSMT2 () "YICES" yicesSMT2Features
    }
 
 -- | Path to yices

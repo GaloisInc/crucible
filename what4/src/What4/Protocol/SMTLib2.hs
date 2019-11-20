@@ -998,7 +998,6 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 --   solver-specific tweaks.
 writeDefaultSMT2 :: SMTLib2Tweaks a
                  => a
-                 -> AcknowledgementAction t (Writer a)
                  -> String
                     -- ^ Name of solver for reporting.
                  -> ProblemFeatures
@@ -1007,10 +1006,10 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                  -> IO.Handle
                  -> [B.BoolExpr t]
                  -> IO ()
-writeDefaultSMT2 a ack nm feat sym h ps = do
+writeDefaultSMT2 a nm feat sym h ps = do
   bindings <- B.getSymbolVarBimap sym
   str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
-  c <- newWriter a str ack nm True feat True bindings
+  c <- newWriter a str nullAcknowledgementAction nm True feat True bindings
   setProduceModels c True
   forM_ ps (SMTWriter.assume c)
   writeCheckSat c
