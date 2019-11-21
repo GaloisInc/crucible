@@ -18,7 +18,15 @@ translate_2015() {
 }
 
 
-translate lib/libcore/lib.rs --crate-name core
+translate lib/libcore/lib.rs --crate-name core \
+    --cfg iter_count --cfg iter_last --cfg iter_min_max \
+    --cfg ascii --cfg char --cfg unicode \
+    --cfg slice_sort \
+    --cfg time --cfg simd --cfg sync
+
+    #--cfg slice_u8 
+    #--cfg str #--cfg str_lossy --cfg memchr --cfg str_pattern
+
 translate lib/compiler_builtins.rs --cfg 'feature="compiler-builtins"' --cfg stage0
 translate lib/crucible/lib.rs --crate-name crucible
 translate lib/int512.rs

@@ -38,6 +38,8 @@ fn check(x: u16, singletonuppers: &[(u8, u8)], singletonlowers: &[u8],
 }
 
 pub(crate) fn is_printable(x: char) -> bool {
+    true
+        /*
     let x = x as u32;
     let lower = x as u16;
     if x < 0x10000 {
@@ -68,6 +70,7 @@ pub(crate) fn is_printable(x: char) -> bool {
         }
         true
     }
+    */
 }
 
 const SINGLETONS0U: &[(u8, u8)] = &[

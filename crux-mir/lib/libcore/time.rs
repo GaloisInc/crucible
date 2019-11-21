@@ -848,6 +848,8 @@ impl<'a> Sum<&'a Duration> for Duration {
 #[stable(feature = "duration_debug_impl", since = "1.27.0")]
 impl fmt::Debug for Duration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unimplemented!()
+            /*
         /// Formats a floating point number in decimal notation.
         ///
         /// The number is given as the `integer_part` and a fractional part.
@@ -958,5 +960,6 @@ impl fmt::Debug for Duration {
             fmt_decimal(f, self.nanos as u64, 0, 1)?;
             f.write_str("ns")
         }
+        */
     }
 }
