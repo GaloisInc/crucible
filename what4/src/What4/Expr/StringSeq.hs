@@ -9,10 +9,10 @@ that are to be concatenated together.
 
 We intend to maintain several invariants. First, that
 no sequence is empty; the empty string literal should
-instead be the unique represntative of empty strings.
+instead be the unique representative of empty strings.
 Second, that string sequences do not contain adjacent
 literals.  In other words, adjacent string literals
-are coallesced.
+are coalesced.
 -}
 
 {-# LANGUAGE DataKinds #-}
