@@ -63,6 +63,9 @@ module What4.Utils.AbstractDomains
   , natRangeToRange
   , natRangeDiv
   , natRangeMod
+  , natRangeMin
+  , natRangeSub
+  , intRangeToNatRange
     -- * RealAbstractValue
   , RealAbstractValue(..)
   , ravUnbounded
@@ -600,6 +603,29 @@ natRangeToRange :: NatValueRange -> ValueRange Integer
 natRangeToRange (NatSingleRange x)  = SingleRange (toInteger x)
 natRangeToRange (NatMultiRange l u) = MultiRange (Inclusive (toInteger l)) (toInteger <$> u)
 
+-- | Clamp an integer range to nonnegative values
+intRangeToNatRange :: ValueRange Integer -> NatValueRange
+intRangeToNatRange (SingleRange c)  = NatSingleRange (fromInteger (max 0 c))
+intRangeToNatRange (MultiRange l u) = natRange lo hi
+  where
+  lo = case l of
+         Unbounded -> 0
+         Inclusive x -> fromInteger (max 0 x)
+  hi = fromInteger . max 0 <$> u
+
+natRangeMin :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeMin x y = natRange lo hi
+ where
+ lo = min (natRangeLow x) (natRangeLow y)
+ hi = case (natRangeHigh x, natRangeHigh y) of
+         (Unbounded, b) -> b
+         (a, Unbounded) -> a
+         (Inclusive a, Inclusive b) -> Inclusive (min a b)
+
+natRangeSub :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeSub x y =
+  intRangeToNatRange $ addRange (natRangeToRange x) (negateRange (natRangeToRange y))
+
 ------------------------------------------------------
 -- String abstract domain
 
@@ -618,8 +644,7 @@ stringAbsEmpty :: StringAbstractValue
 stringAbsEmpty = StringAbs (natSingleRange 0)
 
 stringAbsJoin :: StringAbstractValue -> StringAbstractValue -> StringAbstractValue
-stringAbsJoin (StringAbs lenx) (StringAbs leny) =
-  StringAbs (natJoinRange lenx leny)
+stringAbsJoin (StringAbs lenx) (StringAbs leny) = StringAbs (natJoinRange lenx leny)
 
 stringAbsSingle :: StringLiteral si -> StringAbstractValue
 stringAbsSingle lit = StringAbs (natSingleRange (stringLitLength lit))
@@ -640,25 +665,10 @@ stringAbsCheckEq (StringAbs lenx) (StringAbs leny)
   = Nothing
 
 stringAbsConcat :: StringAbstractValue -> StringAbstractValue -> StringAbstractValue
-stringAbsConcat (StringAbs lenx) (StringAbs leny) =
-  StringAbs (natRangeAdd lenx leny)
+stringAbsConcat (StringAbs lenx) (StringAbs leny) = StringAbs (natRangeAdd lenx leny)
 
 stringAbsSubstring :: StringAbstractValue -> NatValueRange -> NatValueRange -> StringAbstractValue
-stringAbsSubstring (StringAbs s) off len = StringAbs (natRange lo hi)
- where
- rng = addRange (natRangeToRange s) (negateRange (natRangeToRange off))
-
- lo  = case rangeLowBound rng of
-         Unbounded -> 0
-         Inclusive x
-           | x < 0 -> 0
-           | otherwise -> min (fromInteger x) (natRangeLow len)
-
- hi  = case (rangeHiBound rng, natRangeHigh len) of
-         (Unbounded  , y) -> y
-         (Inclusive x, Unbounded)   -> Inclusive (fromInteger (max 0 x))
-         (Inclusive x, Inclusive y) -> Inclusive (min (fromInteger (max 0 x)) y)
-
+stringAbsSubstring (StringAbs s) off len = StringAbs (natRangeMin len (natRangeSub s off))
 
 stringAbsContains :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
 stringAbsContains = couldContain
@@ -671,31 +681,19 @@ stringAbsIsSuffixOf = flip couldContain
 
 couldContain :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
 couldContain (StringAbs lenx) (StringAbs leny)
-  | Inclusive x <- rangeHiBound rng, x < 0 = Just False
+  | Just False <- natCheckLe leny lenx = Just False
   | otherwise = Nothing
-
-  where
-  lenx' = natRangeToRange lenx
-  leny' = natRangeToRange leny
-
-  rng = addRange lenx' (negateRange leny')
 
 stringAbsIndexOf :: StringAbstractValue -> StringAbstractValue -> NatValueRange -> ValueRange Integer
 stringAbsIndexOf (StringAbs lenx) (StringAbs leny) k
-  | Inclusive x <- rangeHiBound shortRng, x < 0 = SingleRange (-1)
+  | Just False <- natCheckLe (natRangeAdd leny k) lenx = SingleRange (-1)
   | otherwise = MultiRange (Inclusive (-1)) (rangeHiBound rng)
   where
   lenx' = natRangeToRange lenx
   leny' = natRangeToRange leny
-  k'    = natRangeToRange k
 
   -- possible values that the final offset could have if the substring exists anywhere
   rng = addRange lenx' (negateRange leny')
-
-  -- compute the values that @off-k@ could have.  If negative,
-  -- the search string could never fit
-  shortRng = addRange lenx' (negateRange (addRange leny' k'))
-
 
 stringAbsLength :: StringAbstractValue -> NatValueRange
 stringAbsLength (StringAbs len) = len

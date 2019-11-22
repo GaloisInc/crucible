@@ -1656,11 +1656,7 @@ abstractEval bvParams f a0 = do
     RoundReal x -> mapRange roundAway (ravRange (f x))
     FloorReal x -> mapRange floor (ravRange (f x))
     CeilReal x  -> mapRange ceiling (ravRange (f x))
-    IntegerToNat x ->
-       case f x of
-         SingleRange c              -> NatSingleRange (fromInteger (max 0 c))
-         MultiRange Unbounded u     -> natRange 0 (fromInteger . max 0 <$> u)
-         MultiRange (Inclusive l) u -> natRange (fromInteger (max 0 l)) (fromInteger . max 0 <$> u)
+    IntegerToNat x -> intRangeToNatRange (f x)
     IntegerToBV x w -> BVD.range w l u
       where rng = f x
             l = case rangeLowBound rng of
