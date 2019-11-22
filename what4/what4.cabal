@@ -106,8 +106,6 @@ library
     What4.Utils.AbstractDomains
     What4.Utils.Arithmetic
     What4.Utils.BVDomain
-    What4.Utils.BVDomain.Empty
-    What4.Utils.BVDomain.Map
     What4.Utils.Complex
     What4.Utils.Endian
     What4.Utils.Environment
