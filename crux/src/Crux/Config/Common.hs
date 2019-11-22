@@ -117,11 +117,9 @@ cruxOptions = Config
             section "output-directory" dirSpec ""
             "Save results in this directory."
 
-
           checkPathSat <-
             section "path-sat" yesOrNoSpec False
             "Enable path satisfiability checking (default: no)."
-
 
           profileCrucibleFunctions <-
             section "profile-crucible" yesOrNoSpec False
