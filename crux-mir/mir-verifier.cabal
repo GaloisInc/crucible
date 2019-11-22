@@ -20,6 +20,7 @@ library
                  ansi-wl-pprint,
                  bytestring,
                  text,
+                 time,
                  unordered-containers,
                  crucible,
                  parameterized-utils >= 1.0.8,

@@ -26,13 +26,16 @@ import Control.Monad.IO.Class
 
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
+import qualified Data.ByteString as BS
 import qualified Data.Map as M
 import qualified Data.Text as T
 
 import System.FilePath
+import System.IO
 import qualified System.Process as Proc
 import           System.Exit (ExitCode(..))
 import           System.Directory (doesFileExist, removeFile, getModificationTime)
+import           Data.Time.Clock (UTCTime)
 
 import GHC.Stack
 
@@ -54,6 +57,85 @@ import qualified Mir.TransCustom as Mir
 import Debug.Trace 
 
 
+getModificationTimeIfExists :: FilePath -> IO (Maybe UTCTime)
+getModificationTimeIfExists path = doesFileExist path >>= \case
+    False -> return Nothing
+    True -> Just <$> getModificationTime path
+
+needsRebuild :: FilePath -> [FilePath] -> IO Bool
+needsRebuild output inputs = do
+    outTime <- getModificationTimeIfExists output
+    inTimes <- mapM getModificationTimeIfExists inputs
+    return $ case (outTime, sequence inTimes) of
+        (Nothing, _) -> True
+        (_, Nothing) -> True
+        (Just outTime, Just inTimes) -> any (> outTime) inTimes
+
+
+mirJsonOutFile :: FilePath -> FilePath
+mirJsonOutFile rustFile = rustFile -<.> "mir"
+
+compileMirJson :: Bool -> FilePath -> IO ()
+compileMirJson keepRlib rustFile = do
+    -- TODO: don't hardcode -L library path
+    (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
+        [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"
+        , "--cfg", "crux", "--cfg", "crux_top_level"] ""
+    case ec of
+        ExitFailure cd -> fail $
+            "Error " ++ show cd ++ " while running mir-json on " ++ rustFile
+        ExitSuccess    -> return ()
+
+    when (not keepRlib) $ do
+        let rlibFile = ("lib" ++ takeBaseName rustFile) <.> "rlib"
+        doesFileExist rlibFile >>= \case
+            True  -> removeFile rlibFile
+            False -> return ()
+
+maybeCompileMirJson :: Bool -> FilePath -> IO ()
+maybeCompileMirJson keepRlib rustFile = do
+    build <- needsRebuild (mirJsonOutFile rustFile) [rustFile]
+    when build $ compileMirJson keepRlib rustFile
+
+
+linkJson :: [FilePath] -> IO B.ByteString
+linkJson jsonFiles = Proc.withCreateProcess cp $
+    \Nothing (Just stdout) Nothing ph -> do
+        hSetBinaryMode stdout True
+        b <- BS.hGetContents stdout
+        ec <- Proc.waitForProcess ph
+        case ec of
+            ExitFailure cd -> fail $
+                "Error " ++ show cd ++ " while running mir-json on " ++ show jsonFiles
+            ExitSuccess    -> return ()
+        return $ B.fromStrict b
+  where
+    cp = (Proc.proc "mir-json-dce" jsonFiles) { Proc.std_out = Proc.CreatePipe }
+
+linkOutFile :: FilePath -> FilePath
+linkOutFile rustFile = rustFile -<.> "all.mir"
+
+maybeLinkJson :: [FilePath] -> FilePath -> IO B.ByteString
+maybeLinkJson jsonFiles cacheFile = do
+    build <- needsRebuild cacheFile jsonFiles
+    if build then do
+        b <- linkJson jsonFiles
+        B.writeFile cacheFile b
+        return b
+    else
+        B.readFile cacheFile
+
+
+libJsonFiles =
+    [ "lib/libcore/lib.mir"
+    , "lib/compiler_builtins.mir"
+    , "lib/int512.mir"
+    , "lib/crucible/lib.mir"
+    , "lib/std/lib.mir"
+    , "lib/bytes.mir"
+    ]
+
+
 -- | Run mir-json on the input, generating lib file on disk
 -- NOTE: If the rust file has not been modified since the
 -- last .mir file was created, this function does nothing
@@ -64,48 +146,22 @@ generateMIR :: (HasCallStack, ?debug::Int) =>
             -> Bool              -- ^ `True` to keep the generated .rlib
             -> IO Collection
 generateMIR dir name keepRlib = do
-
-  let rustFile = dir </> name <.> "rs"
-  let mirFile  = dir </> name <.> "mir"
-
-  doesFileExist rustFile >>= \case
-    True -> return ()
-    False -> fail $ "Cannot read " ++ rustFile 
-
-  rustModTime <- getModificationTime rustFile
-
-  -- TODO: don't hardcode -L library path
-  let runMirJSON = do
-        (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-            [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"
-            , "--cfg", "crux", "--cfg", "crux_top_level"] ""
-        return ec
-
-  ec <- doesFileExist mirFile >>= \case 
-    True  -> do mirModTime <- getModificationTime mirFile
-                if mirModTime >= rustModTime then
-                  return ExitSuccess
-                else runMirJSON
-    False -> runMirJSON
-
-  case ec of
-    ExitFailure cd -> fail $ "Error " ++ show cd ++ " while running mir-json on " ++ dir ++ name
-    ExitSuccess    -> return ()
-
-  when (not keepRlib) $ do
-    let rlibFile = ("lib" ++ name) <.> "rlib"
-    doesFileExist rlibFile >>= \case
-      True  -> removeFile rlibFile
-      False -> return ()
-
-  readMir (dir </> name <.> "mir")
+    let rustFile = dir </> name <.> "rs"
+    maybeCompileMirJson keepRlib rustFile
+    b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonFiles) (linkOutFile rustFile)
+    parseMir (linkOutFile rustFile) b
 
 
 readMir :: (HasCallStack, ?debug::Int) =>
            FilePath
         -> IO Collection
-readMir path = do
-  f <- B.readFile path
+readMir path = B.readFile path >>= parseMir path
+
+parseMir :: (HasCallStack, ?debug::Int) =>
+            FilePath
+         -> B.ByteString
+         -> IO Collection
+parseMir path f = do
   let c = (J.eitherDecode f) :: Either String Collection
   case c of
       Left msg -> fail $ "JSON Decoding of " ++ path ++ " failed: " ++ msg
@@ -117,13 +173,12 @@ readMir path = do
           traceM "--------------------------------------------------------------"  
         return col
 
-
 customLibLoc :: String
 customLibLoc = "lib/"
 
 -- | load the rs file containing the standard library
 loadPrims :: (?debug::Int) => Bool -> IO Collection
-loadPrims useStdLib = do
+loadPrims useStdLib = return mempty
 
   {-
   let coreLib = if useStdLib then "lib" else "lib_func_only"
@@ -142,6 +197,7 @@ loadPrims useStdLib = do
   let col = mconcat $ colCoreLib : colStdLib : colCustoms
   -}
 
+{-
   col <- mconcat <$> mapM readMir
     [ "lib/libcore/lib.mir"
     , "lib/compiler_builtins.mir"
@@ -158,6 +214,7 @@ loadPrims useStdLib = do
     traceM "--------------------------------------------------------------"  
 
   return col
+-}
 
 
 
