@@ -17,6 +17,7 @@ library
     aig,
     ansi-wl-pprint,
     array,
+    attoparsec,
     containers,
     crucible,
     directory,
@@ -35,11 +36,14 @@ library
     what4 >= 0.4.1,
     ansi-terminal,
     data-binary-ieee754,
+    Glob >= 0.10 && < 0.11,
     raw-strings-qq,
     simple-get-opt,
     config-value,
     config-schema,
-    semigroupoids
+    semigroupoids,
+    unordered-containers,
+    yaml >= 0.11 && < 0.12
 
   hs-source-dirs: src
 
@@ -58,6 +62,7 @@ library
     Crux.Config.Common,
     Crux.Config.Solver,
     Crux.Extension,
+    Crux.SVCOMP,
     Crux.Version
 
   other-modules:

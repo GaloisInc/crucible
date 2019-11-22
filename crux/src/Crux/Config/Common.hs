@@ -99,6 +99,10 @@ data CruxOptions = CruxOptions
 
   , proofGoalsFailFast       :: Bool
     -- ^ If true, stop attempting to prove goals as soon as one is disproved
+
+  , svcompMode               :: Bool
+    -- ^ If true, interpret the input files as benchmark sets, and behave as a SV-COMP solver
+
   }
 
 
@@ -113,11 +117,13 @@ cruxOptions = Config
             section "output-directory" dirSpec ""
             "Save results in this directory."
 
+          svcompMode <-
+            section "sv-comp" yesOrNoSpec False
+            "Behave like a SV-COMP solver"
 
           checkPathSat <-
             section "path-sat" yesOrNoSpec False
             "Enable path satisfiability checking (default: no)."
-
 
           profileCrucibleFunctions <-
             section "profile-crucible" yesOrNoSpec False
@@ -223,6 +229,10 @@ cruxOptions = Config
       , Option [] ["profile-solver"]
         "Enable profiling of solver events"
         $ NoArg $ \opts -> Right opts { profileSolver = True }
+
+      , Option "" ["sv-comp"]
+        "Behave like an SV-COMP solver"
+        $ NoArg $ \opts -> Right opts { svcompMode = True }
 
       , Option "t" ["timeout"]
         "Stop executing the simulator after this many seconds (default: 60)"
