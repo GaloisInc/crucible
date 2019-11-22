@@ -1292,23 +1292,17 @@ pub mod property {
 
 pub mod conversions {
     pub fn to_lower(c: char) -> [char; 3] {
-        /*
         match bsearch_case_table(c, to_lowercase_table) {
             None        => [c, '\0', '\0'],
             Some(index) => to_lowercase_table[index].1,
         }
-        */
-        [c, '\0', '\0']
     }
 
     pub fn to_upper(c: char) -> [char; 3] {
-        /*
         match bsearch_case_table(c, to_uppercase_table) {
             None        => [c, '\0', '\0'],
             Some(index) => to_uppercase_table[index].1,
         }
-        */
-        [c, '\0', '\0']
     }
 
     fn bsearch_case_table(c: char, table: &[(char, [char; 3])]) -> Option<usize> {
