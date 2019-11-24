@@ -1,24 +1,24 @@
 (defun
    @rot-cases
-   ((t (Variant Integer Bool String)))
-   (Variant Bool String Integer)
+   ((t (Variant Integer Bool (String Unicode))))
+   (Variant Bool (String Unicode) Integer)
    (start go: (case t int: bool: string:))
    (defblock (int: x Integer)
-      (let i (the (Variant Bool String Integer) (inj 2 x)))
+      (let i (the (Variant Bool (String Unicode) Integer) (inj 2 x)))
       (return i))
    (defblock (bool: y Bool)
-      (let b (the (Variant Bool String Integer) (inj 0 y)))
+      (let b (the (Variant Bool (String Unicode) Integer) (inj 0 y)))
       (let b1 (from-just (proj 0 b) "proj0"))
       (let b2 (from-just (proj 1 b) "proj1"))
       (let b3 (from-just (proj 2 b) "proj2"))
       (return b))
-   (defblock (string: z String)
-      (let s (the (Variant Bool String Integer) (inj 1 z)))
+   (defblock (string: z (String Unicode))
+      (let s (the (Variant Bool (String Unicode) Integer) (inj 1 z)))
       (return s)))
 
 rot-cases
 %0
-  % 3:5
+  % 4:5
   vswitch $0 {
     0 -> %1();
     1 -> %2();
@@ -26,38 +26,38 @@ rot-cases
   }
   % no postdom
 %1
-  % 8:12
-  $1 = injectVariant([BoolRepr, StringRepr, IntegerRepr], 2, $0)
-  % 9:5
+  % 9:12
+  $1 = injectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 2, $0)
+  % 10:5
   return $1
   % no postdom
 %2
-  % 11:12
-  $1 = injectVariant([BoolRepr, StringRepr, IntegerRepr], 0, $0)
-  % 12:13
-  $2 = projectVariant([BoolRepr, StringRepr, IntegerRepr], 0, $1)
-  % 12:13
-  $3 = textLit("proj0")
-  % 12:13
+  % 12:12
+  $1 = injectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 0, $0)
+  % 13:13
+  $2 = projectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 0, $1)
+  % 13:13
+  $3 = stringLit("proj0")
+  % 13:13
   $4 = fromJustValue(BoolRepr, $2, $3)
-  % 13:13
-  $5 = projectVariant([BoolRepr, StringRepr, IntegerRepr], 1, $1)
-  % 13:13
-  $6 = textLit("proj1")
-  % 13:13
-  $7 = fromJustValue(StringRepr, $5, $6)
   % 14:13
-  $8 = projectVariant([BoolRepr, StringRepr, IntegerRepr], 2, $1)
+  $5 = projectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 1, $1)
   % 14:13
-  $9 = textLit("proj2")
+  $6 = stringLit("proj1")
   % 14:13
+  $7 = fromJustValue(StringRepr UnicodeRepr, $5, $6)
+  % 15:13
+  $8 = projectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 2, $1)
+  % 15:13
+  $9 = stringLit("proj2")
+  % 15:13
   $10 = fromJustValue(IntegerRepr, $8, $9)
-  % 15:5
+  % 16:5
   return $1
   % no postdom
 %3
-  % 17:12
-  $1 = injectVariant([BoolRepr, StringRepr, IntegerRepr], 1, $0)
-  % 18:5
+  % 18:12
+  $1 = injectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 1, $0)
+  % 19:5
   return $1
   % no postdom

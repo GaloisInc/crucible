@@ -1,4 +1,4 @@
------------------------------------------------------------------------
+        -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Server.SimpleOverrides
 -- Copyright        : (c) Galois, Inc 2014-2016
@@ -122,7 +122,7 @@ checkSatWithYicesOverride = do
 
 type WriteSMTLIB2Args
    = EmptyCtx
-   ::> StringType
+   ::> StringType Unicode
    ::> BoolType
 
 writeSMTLib2Override :: Override p (SimpleBackend n fs) () WriteSMTLIB2Args UnitType
@@ -133,7 +133,7 @@ writeSMTLib2Override = do
         p       = regValue $ args^._2
     sym <- getSymInterface
     case asString file_nm of
-      Just path -> do
+      Just (UnicodeLiteral path) -> do
         liftIO $ withFile (Text.unpack path) WriteMode $ \h ->
           SMT2.writeDefaultSMT2 () "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
       Nothing -> do
@@ -150,7 +150,7 @@ writeYicesOverride = do
         p       = regValue $ args^._2
     ctx <- getContext
     case asString file_nm of
-      Just path -> do
+      Just (UnicodeLiteral path) -> do
         let sym = ctx^.ctxSymInterface
         liftIO $ Yices.writeYicesFile sym (Text.unpack path) p
       Nothing -> do

@@ -882,7 +882,7 @@ generateInstruction (pc, instr) =
 
               let argRepr' = (Ctx.empty `Ctx.extend` (knownRepr :: TypeRepr JVMRefType)) Ctx.<++> argRepr
               fn     <- assertedJustExpr (App (UnpackAny (FunctionHandleRepr argRepr' retRepr) anym))
-                        (App $ TextLit $ fromString ("invalid method type:"
+                        (App $ StringLit $ fromString ("invalid method type:"
                                       ++ show (FunctionHandleRepr argRepr' retRepr)
                                       ++ " for "
                                       ++ show methodKey))
@@ -942,7 +942,7 @@ generateInstruction (pc, instr) =
          _obj <- throwIfRefNull objectRef
 
          -- For now, we assert that exceptions won't happen
-         lift $ reportError (App (TextLit "athrow"))
+         lift $ reportError (App $ StringLit $ fromString "athrow")
          --throw objectRef
 
 

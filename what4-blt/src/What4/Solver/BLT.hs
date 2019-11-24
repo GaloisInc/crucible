@@ -100,12 +100,12 @@ import           What4.Utils.Complex
 import           BLT.Binding
 
 -- | BLT's parameter string, parsed by the function 'parseBLTParams' below.
-bltParams :: ConfigOption BaseStringType
-bltParams = configOption BaseStringRepr "blt_params"
+bltParams :: ConfigOption (BaseStringType Unicode)
+bltParams = configOption knownRepr "blt_params"
 
 bltOptions :: [ConfigDesc]
 bltOptions =
-  [ opt         bltParams         (ConcreteString "")
+  [ opt         bltParams         (ConcreteString (UnicodeLiteral ""))
     (text "Command-line parameters to send to BLT")
   ]
 
