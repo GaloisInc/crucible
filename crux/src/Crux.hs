@@ -8,6 +8,7 @@ module Crux
   , mainWithOutputConfig
   , runSimulator
   , CruxOptions(..)
+  , loadOptions
   , module Crux.Extension
   , module Crux.Config
   , module Crux.Log
@@ -283,6 +284,36 @@ execFeatureMaybe mb m =
   case mb of
     Nothing -> pure []
     Just a  -> (:[]) <$> m a
+
+prepareExecutionFeatures ::
+  ( OnlineSolver scope solver
+  , IsInterpretedFloatExprBuilder (OnlineBackend scope solver fs)
+  ) =>
+  OnlineBackend scope solver fs ->
+  CruxOptions ->
+  IO (Maybe (ProfData (OnlineBackend scope solver fs)), [ GenericExecutionFeature (OnlineBackend scope solver fs) ])
+prepareExecutionFeatures sym cruxOpts =
+  do -- Setup profiling
+     let profiling = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts
+     profInfo <- if profiling then Just <$> setupProfiling sym cruxOpts
+                              else pure Nothing
+     -- Global timeout
+     tfs <- execFeatureMaybe (globalTimeout cruxOpts) timeoutFeature
+
+     -- Loop bound
+     bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
+             boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
+
+     -- Recursion bound
+     rfs <- execFeatureMaybe (recursionBound cruxOpts) $ \i ->
+             boundedRecursionFeature (\_ -> return (Just i)) False {- side cond: no -}
+
+     -- Check path satisfiability
+     psat_fs <- execFeatureIf (checkPathSat cruxOpts)
+              $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
+
+     return (profInfo, tfs ++ profExecFeatures (fromMaybe noProfiling profInfo) ++ bfs ++ rfs ++ psat_fs)
+
 
 
 data ProgramCompleteness
