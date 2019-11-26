@@ -537,7 +537,6 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 
   -- | Equality of boolean values
   eqPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  eqPred sym x y = notPred sym =<< xorPred sym x y
 
   -- | If-then-else on a predicate.
   itePred :: sym -> Pred sym -> Pred sym -> Pred sym -> IO (Pred sym)
