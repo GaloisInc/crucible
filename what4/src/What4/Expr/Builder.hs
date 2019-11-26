@@ -844,10 +844,12 @@ data AppExpr t (tp :: BaseType)
 ------------------------------------------------------------------------
 -- Expr
 
--- | The main ExprBuilder expression datastructure. We call the type
--- 'Expr' because each 'Expr' is an element of a DAG that represents
--- sub-term sharing. Expressions of type @Expr t tp@ contain nonces of
--- type @'Nonce' t tp@, which are used to identify shared sub-terms.
+-- | The main ExprBuilder expression datastructure.  The non-trivial @Expr@
+-- values constructed by this module are uniquely identified by a
+-- nonce value that is used to explicitly represent sub-term sharing.
+-- When traversing the structure of an @Expr@ it is usually very important
+-- to memoize computations based on the values of these identifiers to avoid
+-- exponential blowups due to shared term structure.
 --
 -- Type parameter @t@ is a phantom type brand used to relate nonces to
 -- a specific nonce generator (similar to the @s@ parameter of the
