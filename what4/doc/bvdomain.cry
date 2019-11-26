@@ -1,0 +1,455 @@
+/*
+
+This file contains a Cryptol implementation of the bitvector abstract
+domain operations from module What4.Utils.BVDomain in what4.
+
+In addition to the algorithms themselves, this file also contains
+specifications of correctness for each of the operations. All of the
+correctness properties can be formally proven (each at some specific
+bit width) by loading this file in cryptol and entering ":prove".
+
+*/
+
+////////////////////////////////////////////////////////////
+// Library
+
+bit : {i, n} (fin n, n > i) => [n]
+bit = 1 # (0 : [i])
+
+mask : {i, n} (fin n, n >= i) => [n]
+mask = 0 # (~ 0 : [i])
+
+/** Checked unsigned addition, asserted not to overflow. */
+infixl 80 .+.
+(.+.) : {n} (fin n) => [n] -> [n] -> [n]
+x .+. y = if carry x y then error "overflow" else x + y
+
+/** Checked unsigned subtraction, asserted not to underflow. */
+infixl 80 .-.
+(.-.) : {n} (fin n) => [n] -> [n] -> [n]
+x .-. y = if x < y then error "underflow" else x - y
+
+////////////////////////////////////////////////////////////
+
+type BVDom n = { lo : [n], sz : [n] }
+
+interval : {n} (fin n) => [n] -> [n] -> BVDom n
+interval l s = { lo = l, sz = s }
+
+mem : {n} (fin n) => BVDom n -> [n] -> Bit
+mem a x = x - a.lo <= a.sz
+
+umem : {n} (fin n) => ([n], [n]) -> [n] -> Bit
+umem (lo, hi) x = lo <= x /\ x <= hi
+
+smem : {n} (fin n, n >= 1) => ([n], [n]) -> [n] -> Bit
+smem (lo, hi) x = lo <=$ x /\ x <=$ hi
+
+top : {n} (fin n) => BVDom n
+top = interval 0 (~ 0)
+
+singleton : {n} (fin n) => [n] -> BVDom n
+singleton x = interval x 0
+
+ubounds : {n} (fin n) => BVDom n -> ([n], [n])
+ubounds a =
+  if carry a.lo a.sz then (0, ~0) else (a.lo, a.lo + a.sz)
+
+sbounds : {n} (fin n, n >= 1) => BVDom n -> ([n], [n])
+sbounds a = (lo - delta, hi - delta)
+  where
+    delta = reverse 1
+    (lo, hi) = ubounds (interval (a.lo + delta) a.sz)
+
+overlap : {n} (fin n) => BVDom n -> BVDom n -> Bit
+overlap a b = diff <= b.sz \/ carry diff a.sz
+  where diff = a.lo - b.lo
+
+union : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+union a b =
+  if cd >= size then top else interval (drop`{2} cl) (drop`{2} cd)
+  where
+    size : [n+2]
+    size = bit`{n}
+    ac = 2 * zext a.lo .+. zext a.sz
+    bc = 2 * zext b.lo .+. zext b.sz
+    al' = if ac .+. size < bc then zext a.lo .+. size else zext a.lo
+    bl' = if bc .+. size < ac then zext b.lo .+. size else zext b.lo
+    ah' = al' .+. zext a.sz
+    bh' = bl' .+. zext b.sz
+    cl = min al' bl'
+    ch = max ah' bh'
+    cd = ch .-. cl
+
+////////////////////////////////////////////////////////////
+
+zero_ext : {m, n} (fin m, m >= n) => BVDom n -> BVDom m
+zero_ext a = interval (zext lo) (zext (hi .-. lo))
+  where (lo, hi) = ubounds a
+
+sign_ext : {m, n} (fin m, m >= n, n >= 1) => BVDom n -> BVDom m
+sign_ext a = interval (sext lo) (zext (hi - lo))
+  where (lo, hi) = sbounds a
+
+concat : {m, n} (fin m, fin n) => BVDom m -> BVDom n -> BVDom (m + n)
+concat a b = interval (a.lo # lo) (a.sz # sz)
+  where
+    (lo, hi) = ubounds b
+    sz = hi .-. lo
+
+shrink : {m, n} (fin m, fin n) => BVDom (m + n) -> BVDom m
+shrink a =
+  if b_sz >= size then top
+  else interval (tail b_lo) (tail b_sz)
+  where
+    size : [1 + m]
+    size = bit`{m}
+    b_lo, b_hi, b_sz : [1 + m]
+    b_lo = take`{back=n} (zext a.lo)
+    b_hi = take`{back=n} (zext a.lo .+. zext a.sz)
+    b_sz = b_hi .-. b_lo
+
+trunc : {m, n} (fin m, fin n) => BVDom (m + n) -> BVDom n
+trunc a =
+  if a.sz > mask`{n} then top
+  else interval (drop`{m} a.lo) (drop`{m} a.sz)
+
+////////////////////////////////////////////////////////////
+// Arithmetic operations
+
+add : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+add a b =
+  if carry a.sz b.sz then top
+  else interval (a.lo + b.lo) (a.sz .+. b.sz)
+
+neg : {n} (fin n) => BVDom n -> BVDom n
+neg a = interval (- (a.lo + a.sz)) a.sz
+
+mul : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+mul a b =
+  if sz >= bit`{n} then top
+  else interval (drop lo) (drop sz)
+  where
+    (lo, hi) = mulRange (zbounds a) (zbounds b)
+    sz = hi - lo
+
+zbounds : {n} (fin n) => BVDom n -> ([1 + n], [1 + n])
+zbounds a = (lo', lo' + zext a.sz)
+  where
+    size : [2 + n]
+    size = bit`{n}
+    lo' = if 2 * zext a.lo .+. zext a.sz >= size then 0b1 # a.lo else 0b0 # a.lo
+
+mulRange : {n} (fin n, n >= 1) => ([n], [n]) -> ([n], [n]) -> ([2*n], [2*n])
+mulRange (xl, xh) (yl, yh) = (zl, zh)
+  where
+    (xlyl, xlyh) = scaleRange xl (yl, yh)
+    (xhyl, xhyh) = scaleRange xh (yl, yh)
+    zl = if xlyl <$ xhyl then xlyl else xhyl
+    zh = if xlyh <$ xhyh then xhyh else xlyh
+
+scaleRange : {n} (fin n, n >= 1) => [n] -> ([n], [n]) -> ([2*n], [2*n])
+scaleRange k (lo, hi) = if k <$ 0 then (hi', lo') else (lo', hi')
+  where
+    lo' = sext k * sext lo
+    hi' = sext k * sext hi
+
+udiv : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> BVDom n
+udiv a b = interval cl (ch - cl)
+  where
+    (al, ah) = ubounds a
+    (bl, bh) = ubounds b
+    bl' = max 1 bl // assume that division by 0 does not happen
+    bh' = max 1 bh // assume that division by 0 does not happen
+    cl = al / bh'
+    ch = ah / bl'
+
+urem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> BVDom n
+urem a b =
+  if ql == qh then interval rl (rh - rl)
+  else interval 0 (bh - 1)
+  where
+    (al, ah) = ubounds a
+    (bl, bh) = ubounds b
+    bl' = max 1 bl // assume that division by 0 does not happen
+    bh' = max 1 bh
+    (ql, rl) = (al / bh', al % bh')
+    (qh, rh) = (ah / bl', ah % bl')
+
+////////////////////////////////////////////////////////////
+// Comparisons
+
+ult : {n} (fin n) => BVDom n -> BVDom n -> Bit
+ult a b = (ubounds a).1 < (ubounds b).0
+
+ule : {n} (fin n) => BVDom n -> BVDom n -> Bit
+ule a b = (ubounds a).1 <= (ubounds b).0
+
+slt : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> Bit
+slt a b = (sbounds a).1 <$ (sbounds b).0
+
+sle : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> Bit
+sle a b = (sbounds a).1 <=$ (sbounds b).0
+
+////////////////////////////////////////////////////////////
+// Bitwise operations
+
+bnot : {n} (fin n) => BVDom n -> BVDom n
+bnot a = interval (~ ah) a.sz
+  where ah = a.lo + a.sz
+
+unknowns : {n} (fin n) => BVDom n -> [n]
+unknowns a =
+  if carry a.lo a.sz then ~0 else bits
+  where bits = tail (scanl (||) False (a.lo ^ (a.lo + a.sz)))
+
+bitbounds : {n} (fin n) => BVDom n -> ([n], [n])
+bitbounds a = (a.lo && ~ u, a.lo || u)
+  where u = unknowns a
+
+bitle : {n} (fin n) => [n] -> [n] -> Bit
+bitle x y = x || y == y
+
+bitmem : {n} (fin n) => ([n], [n]) -> [n] -> Bit
+bitmem (lo, hi) x = bitle lo x /\ bitle x hi
+
+band : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+band a b = interval cl (ch - cl)
+  where
+    (al, ah) = bitbounds a
+    (bl, bh) = bitbounds b
+    (cl, ch) = (al && bl, ah && bh)
+
+bor : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+bor a b = interval cl (ch - cl)
+  where
+    (al, ah) = bitbounds a
+    (bl, bh) = bitbounds b
+    (cl, ch) = (al || bl, ah || bh)
+
+bxor : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+bxor a b = interval cl cu
+  where
+    au = unknowns a
+    bu = unknowns b
+    cu = au || bu
+    cl = (a.lo ^ b.lo) && ~ cu
+
+///////////////////////////////////////////////////////////
+// Syntax for stating properties
+
+infix 20 =@=
+
+/** Equivalence of bitvector domains. */
+(=@=) : {n} (fin n) => BVDom n -> BVDom n -> Bit
+a =@= b = (a.sz == ~0 /\ b.sz == ~0) \/ (a == b)
+
+infix 5 <==>
+
+(<==>) : Bit -> Bit -> Bit
+(<==>) = (==)
+
+////////////////////////////////////////////////////////////
+// Soundness properties
+
+correct_top : {n} (fin n) => [n] -> Bit
+correct_top x = mem top x
+
+correct_ubounds : {n} (fin n) => BVDom n -> [n] -> Bit
+correct_ubounds a x =
+  mem a x ==> umem (ubounds a) x
+
+correct_sbounds : {n} (fin n, n >= 1) => BVDom n -> [n] -> Bit
+correct_sbounds a x =
+  mem a x ==> smem (sbounds a) x
+
+correct_singleton : {n} (fin n) => [n] -> [n] -> Bit
+correct_singleton x y =
+  mem (singleton x) y <==> x == y
+
+correct_overlap : {n} (fin n) => BVDom n -> BVDom n -> [n] -> Bit
+correct_overlap a b x =
+  mem a x ==> mem b x ==> overlap a b
+
+correct_union : {n} (fin n) => BVDom n -> BVDom n -> [n] -> Bit
+correct_union a b x =
+  (mem a x \/ mem b x) ==> mem (union a b) x
+
+correct_zero_ext : {m, n} (fin m, m >= n) => BVDom n -> [n] -> Bit
+correct_zero_ext a x =
+  mem a x ==> mem (zero_ext`{m} a) (zext`{m} x)
+
+correct_sign_ext : {m, n} (fin m, m >= n, n >= 1) => BVDom n -> [n] -> Bit
+correct_sign_ext a x =
+  mem a x ==> mem (sign_ext`{m} a) (sext`{m} x)
+
+correct_concat : {m, n} (fin m, fin n) => BVDom m -> BVDom n -> [m] -> [n] -> Bit
+correct_concat a b x y =
+  mem a x ==> mem b y ==> mem (concat a b) (x # y)
+
+correct_shrink : {m, n} (fin m, fin n) => BVDom (m + n) -> [m + n] -> Bit
+correct_shrink a x =
+  mem a x ==> mem (shrink`{m} a) (take`{m} x)
+
+correct_trunc : {m, n} (fin m, fin n) => BVDom (m + n) -> [m + n] -> Bit
+correct_trunc a x =
+  mem a x ==> mem (trunc`{m} a) (drop`{m} x)
+
+correct_add : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_add a b x y =
+  mem a x ==> mem b y ==> mem (add a b) (x + y)
+
+correct_neg : {n} (fin n) => BVDom n -> [n] -> Bit
+correct_neg a x =
+  mem a x <==> mem (neg a) (- x)
+
+correct_mul : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_mul a b x y =
+  mem a x ==> mem b y ==> mem (mul a b) (x * y)
+
+correct_mulRange : {n} (fin n, n >= 1) => ([n], [n]) -> ([n], [n]) -> [n] -> [n] -> Bit
+correct_mulRange a b x y =
+  smem a x ==> smem b y ==> smem (mulRange a b) (sext x * sext y)
+
+correct_udiv : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_udiv a b x y =
+  mem a x ==> mem b y ==> y != 0 ==> mem (udiv a b) (x / y)
+
+correct_urem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_urem a b x y =
+  mem a x ==> mem b y ==> y != 0 ==> mem (urem a b) (x % y)
+
+correct_slt : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_slt a b x y =
+  slt a b ==> mem a x ==> mem b y ==> x <$ y
+
+correct_sle : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_sle a b x y =
+  sle a b ==> mem a x ==> mem b y ==> x <=$ y
+
+correct_ult : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_ult a b x y =
+  ult a b ==> mem a x ==> mem b y ==> x < y
+
+correct_ule : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_ule a b x y =
+  ule a b ==> mem a x ==> mem b y ==> x <= y
+
+correct_bitbounds : {n} (fin n) => BVDom n -> [n] -> Bit
+correct_bitbounds a x =
+  mem a x ==> bitmem (bitbounds a) x
+
+correct_bnot : {n} (fin n) => BVDom n -> [n] -> Bit
+correct_bnot a x =
+  mem a x ==> mem (bnot a) (~ x)
+
+correct_band : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_band a b x y =
+  mem a x ==> mem b y ==> mem (band a b) (x && y)
+
+correct_bor : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_bor a b x y =
+  mem a x ==> mem b y ==> mem (bor a b) (x || y)
+
+correct_bxor : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_bxor a b x y =
+  mem a x ==> mem b y ==> mem (bxor a b) (x ^ y)
+
+property p1 = correct_top`{16}
+property p2 = correct_ubounds`{16}
+property p3 = correct_sbounds`{16}
+property p4 = correct_singleton`{16}
+property p5 = correct_overlap`{16}
+property p6 = correct_union`{8}
+property p7 = correct_zero_ext`{32, 16}
+property p8 = correct_sign_ext`{32, 16}
+property p9 = correct_concat`{16, 16}
+property p10 = correct_shrink`{8, 8}
+property p11 = correct_trunc`{8, 8}
+
+property a1 = correct_add`{8}
+property a2 = correct_neg`{16}
+property a3 = correct_mul`{4}
+property a4 = correct_udiv`{8}
+property a5 = correct_urem`{6}
+
+property o1 = correct_slt`{16}
+property o2 = correct_sle`{16}
+property o3 = correct_ult`{16}
+property o4 = correct_ule`{16}
+
+property l1 = correct_bitbounds`{16}
+property l2 = correct_bnot`{16}
+property l3 = correct_band`{16}
+property l4 = correct_bor`{16}
+property l5 = correct_bxor`{16}
+
+////////////////////////////////////////////////////////////
+// Associativity/commutativity properties
+
+comm_overlap : {n} (fin n) => BVDom n -> BVDom n -> Bit
+comm_overlap a b = overlap a b <==> overlap b a
+
+comm_add : {n} (fin n) => BVDom n -> BVDom n -> Bit
+comm_add a b = add a b == add b a
+
+assoc_add : {n} (fin n) => BVDom n -> BVDom n -> BVDom n -> Bit
+assoc_add a b c = add a (add b c) =@= add (add a b) c
+
+comm_mul : {n} (fin n) => BVDom n -> BVDom n -> Bit
+comm_mul a b = mul a b == mul b a
+
+/* mul is not associative! */
+assoc_mul : {n} (fin n) => BVDom n -> BVDom n -> BVDom n -> Bit
+assoc_mul a b c = mul a (mul b c) =@= mul (mul a b) c
+
+property c1 = comm_overlap`{16}
+property c2 = comm_add`{16}
+property c3 = assoc_add`{16}
+property c4 = comm_mul`{4}
+
+////////////////////////////////////////////////////////////
+// Additional properties about union
+
+comm_union : {n} (fin n) => BVDom n -> BVDom n -> Bit
+comm_union a b = union a b == union b a
+
+/* union is actually not associative! */
+assoc_union : {n} (fin n) => BVDom n -> BVDom n -> BVDom n -> Bit
+assoc_union a b c = union a (union b c) == union (union a b) c
+
+/* union always has a lower bound equal to one of the input lower bounds */
+lo_union : {n} (fin n) => BVDom n -> BVDom n -> Bit
+lo_union a b =
+  union a b == top \/ (union a b).lo == a.lo \/ (union a b).lo == b.lo
+
+/* union always has an upper bound equal to one of the input upper bounds */
+hi_union : {n} (fin n) => BVDom n -> BVDom n -> Bit
+hi_union a b = c == top \/ c_hi == a_hi \/ c_hi == b_hi
+  where
+    c = union a b
+    a_hi = a.lo + a.sz
+    b_hi = b.lo + b.sz
+    c_hi = c.lo + c.sz
+
+/* union doesn't return top unless necessary */
+nontriv_union : {n} (fin n) => BVDom n -> BVDom n -> [n] -> Bit
+nontriv_union a b x =
+  union a b =@= top ==> mem a x \/ mem b x
+
+/* union of opposite intervals prefers to exclude zero */
+nonzero_union : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+nonzero_union lo sz =
+  mem (union a b) half /\
+  (~ mem a 0 ==> ~ mem b 0 ==> ~ mem (union a b) 0)
+  where
+    half : [n]
+    half = reverse 1
+    a = interval lo sz
+    b = interval (lo + half) sz
+
+property u1 = comm_union`{16}
+property u2 = lo_union`{16}
+property u3 = hi_union`{16}
+property u4 = nontriv_union`{8}
+property u5 = nonzero_union`{16}
