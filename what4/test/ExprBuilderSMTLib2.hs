@@ -801,11 +801,7 @@ main = defaultMain $ testGroup "Tests"
   , testCase "Yices pair"    $ withYices pairTest
 
   , testCase "Z3 0-tuple" $ withOnlineZ3 zeroTupleTest
-
-  -- TODO, enable this test when Z3 releases bugfix
-  -- CF https://github.com/Z3Prover/z3/issues/2647
-  -- , testCase "Z3 1-tuple" $ withOnlineZ3 oneTupleTest
-
+  , testCase "Z3 1-tuple" $ withOnlineZ3 oneTupleTest
   , testCase "Z3 pair"    $ withOnlineZ3 pairTest
 
   -- TODO, enable this test when we figure out why it
