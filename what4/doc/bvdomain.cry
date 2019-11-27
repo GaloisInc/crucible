@@ -140,7 +140,7 @@ zbounds a = (lo', lo' + zext a.sz)
     size = bit`{n}
     lo' = if 2 * zext a.lo .+. zext a.sz >= size then 0b1 # a.lo else 0b0 # a.lo
 
-mulRange : {n} (fin n, n >= 1) => ([n], [n]) -> ([n], [n]) -> ([2*n], [2*n])
+mulRange : {m, n} (fin m, fin n, m >= 1, n >= 1) => ([m], [m]) -> ([n], [n]) -> ([m+n], [m+n])
 mulRange (xl, xh) (yl, yh) = (zl, zh)
   where
     (xlyl, xlyh) = scaleRange xl (yl, yh)
@@ -148,7 +148,7 @@ mulRange (xl, xh) (yl, yh) = (zl, zh)
     zl = if xlyl <$ xhyl then xlyl else xhyl
     zh = if xlyh <$ xhyh then xhyh else xlyh
 
-scaleRange : {n} (fin n, n >= 1) => [n] -> ([n], [n]) -> ([2*n], [2*n])
+scaleRange : {m, n} (fin m, fin n, m >= 1, n >= 1) => [m] -> ([n], [n]) -> ([m+n], [m+n])
 scaleRange k (lo, hi) = if k <$ 0 then (hi', lo') else (lo', hi')
   where
     lo' = sext k * sext lo
@@ -178,6 +178,22 @@ urem a b =
 
 ////////////////////////////////////////////////////////////
 // Shifts
+
+shl : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+shl a b =
+  if sz > mask`{n} then top
+  else interval (drop lo) (drop sz)
+  where
+    al, ah : [n + 1]
+    (al, ah) = zbounds a
+    bl, bh : [n]
+    (bl, bh) = ubounds b
+    // [n + 2] is enough to avoid signed overflow in shift
+    cl, ch : [n + 2]
+    cl = if bl < `n then 1 << bl else bit`{n}
+    ch = if bh < `n then 1 << bh else bit`{n}
+    (lo, hi) = mulRange (al, ah) (cl, ch)
+    sz = hi - lo
 
 lshr : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
 lshr a b = interval cl (ch - cl)
@@ -338,6 +354,10 @@ correct_urem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
 correct_urem a b x y =
   mem a x ==> mem b y ==> y != 0 ==> mem (urem a b) (x % y)
 
+correct_shl : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_shl a b x y =
+  mem a x ==> mem b y ==> mem (shl a b) (x << y)
+
 correct_lshr : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
 correct_lshr a b x y =
   mem a x ==> mem b y ==> mem (lshr a b) (x >> y)
@@ -400,8 +420,9 @@ property a3 = correct_mul`{4}
 property a4 = correct_udiv`{8}
 property a5 = correct_urem`{6}
 
-property s1 = correct_lshr`{8}
-property s2 = correct_ashr`{8}
+property s1 = correct_shl`{8}
+property s2 = correct_lshr`{8}
+property s3 = correct_ashr`{8}
 
 property o1 = correct_slt`{16}
 property o2 = correct_sle`{16}

@@ -339,8 +339,18 @@ sext w a u =
 --------------------------------------------------------------------------------
 -- Shifts
 
-shl :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
-shl w _a _b = any w -- TODO
+shl :: BVDomain w -> BVDomain w -> BVDomain w
+shl a b = interval mask lo (hi - lo)
+  where
+    mask = bvdMask a
+    size = mask + 1
+    (bl, bh) = ubounds b
+    bl' = clamp bl
+    bh' = clamp bh
+    -- compute bounds for c = 2^b
+    cl = if (mask `shiftR` bl' == 0) then size else bit bl'
+    ch = if (mask `shiftR` bh' == 0) then size else bit bh'
+    (lo, hi) = mulRange (zbounds a) (cl, ch)
 
 lshr :: BVDomain w -> BVDomain w -> BVDomain w
 lshr a b = interval mask cl (ch - cl)
@@ -404,15 +414,20 @@ mul a b
   | isSingletonZero b = b
   | isBVDAny a = a
   | isBVDAny b = b
-  | otherwise = interval mask cl cw
+  | otherwise = interval mask cl (ch - cl)
     where
-      (cl, ch) = mulRange (zbounds a) (zbounds b)
-      cw = ch - cl
       mask = bvdMask a
-      size = mask + 1
-      zbounds (BVDAny m) = (0, m)
-      zbounds (BVDInterval _ l w) = (l', l' + w)
-        where l' = if 2*l + w >= size then l - size else l
+      (cl, ch) = mulRange (zbounds a) (zbounds b)
+
+-- | Choose a representative integer range (positive or negative) for
+-- the given bitvector domain such that the endpoints are as close to
+-- zero as possible.
+zbounds :: BVDomain w -> (Integer, Integer)
+zbounds a =
+  case a of
+    BVDAny mask -> (0, mask)
+    BVDInterval mask lo sz -> (lo', lo' + sz)
+      where lo' = if 2*lo + sz > mask then lo - (mask + 1) else lo
 
 mulRange :: (Integer, Integer) -> (Integer, Integer) -> (Integer, Integer)
 mulRange (al, ah) (bl, bh) = (cl, ch)
