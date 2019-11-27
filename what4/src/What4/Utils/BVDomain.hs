@@ -255,8 +255,10 @@ union a b =
           interval mask cl (ch - cl)
           where
             size = mask + 1
-            ac = 2 * al + aw
-            bc = 2 * bl + bw
+            ac = 2 * al + aw -- twice the average value of a
+            bc = 2 * bl + bw -- twice the average value of b
+            -- If the averages are 2^(w-1) or more apart,
+            -- then shift the lower interval up by 2^w.
             al' = if ac + mask < bc then al + size else al
             bl' = if bc + mask < ac then bl + size else bl
             ah' = al' + aw
@@ -370,6 +372,7 @@ ashr w a b = interval mask cl (ch - cl)
     cl = al `shiftR` (if al < 0 then clamp bl else clamp bh)
     ch = ah `shiftR` (if ah < 0 then clamp bh else clamp bl)
 
+-- | Return nearest representable Int, suitable for use as a shift amount.
 clamp :: Integer -> Int
 clamp x
   | x > toInteger (maxBound :: Int) = maxBound
