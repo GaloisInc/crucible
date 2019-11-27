@@ -342,17 +342,21 @@ sext w a u =
 -- Shifts
 
 shl :: BVDomain w -> BVDomain w -> BVDomain w
-shl a b = interval mask lo (hi - lo)
-  where
-    mask = bvdMask a
-    size = mask + 1
-    (bl, bh) = ubounds b
-    bl' = clamp bl
-    bh' = clamp bh
-    -- compute bounds for c = 2^b
-    cl = if (mask `shiftR` bl' == 0) then size else bit bl'
-    ch = if (mask `shiftR` bh' == 0) then size else bit bh'
-    (lo, hi) = mulRange (zbounds a) (cl, ch)
+shl a b
+  | isBVDAny a = a
+  | isSingletonZero a = a
+  | isSingletonZero b = a
+  | otherwise = interval mask lo (hi - lo)
+    where
+      mask = bvdMask a
+      size = mask + 1
+      (bl, bh) = ubounds b
+      bl' = clamp bl
+      bh' = clamp bh
+      -- compute bounds for c = 2^b
+      cl = if (mask `shiftR` bl' == 0) then size else bit bl'
+      ch = if (mask `shiftR` bh' == 0) then size else bit bh'
+      (lo, hi) = mulRange (zbounds a) (cl, ch)
 
 lshr :: BVDomain w -> BVDomain w -> BVDomain w
 lshr a b = interval mask cl (ch - cl)
