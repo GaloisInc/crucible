@@ -342,11 +342,29 @@ sext w a u =
 shl :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
 shl w _a _b = any w -- TODO
 
-lshr :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
-lshr w _a _b = any w -- TODO
+lshr :: BVDomain w -> BVDomain w -> BVDomain w
+lshr a b = interval mask cl (ch - cl)
+  where
+    mask = bvdMask a
+    (al, ah) = ubounds a
+    (bl, bh) = ubounds b
+    cl = al `shiftR` clamp bh
+    ch = ah `shiftR` clamp bl
 
 ashr :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
-ashr w _a _b = any w -- TODO
+ashr w a b = interval mask cl (ch - cl)
+  where
+    mask = bvdMask a
+    (al, ah) = sbounds w a
+    (bl, bh) = ubounds b
+    cl = al `shiftR` (if al < 0 then clamp bl else clamp bh)
+    ch = ah `shiftR` (if ah < 0 then clamp bh else clamp bl)
+
+clamp :: Integer -> Int
+clamp x
+  | x > toInteger (maxBound :: Int) = maxBound
+  | x < toInteger (minBound :: Int) = minBound
+  | otherwise = fromInteger x
 
 --------------------------------------------------------------------------------
 -- Arithmetic

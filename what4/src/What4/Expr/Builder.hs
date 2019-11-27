@@ -1530,7 +1530,7 @@ abstractEval f a0 = do
     BVSrem _ x y -> BVD.srem (f x) (f y)
 
     BVShl  w x y -> BVD.shl w (f x) (f y)
-    BVLshr w x y -> BVD.lshr w (f x) (f y)
+    BVLshr _ x y -> BVD.lshr (f x) (f y)
     BVAshr w x y -> BVD.ashr w (f x) (f y)
     BVRol  w _ _ -> BVD.any w -- TODO?
     BVRor  w _ _ -> BVD.any w -- TODO?

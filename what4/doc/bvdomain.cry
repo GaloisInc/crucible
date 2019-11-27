@@ -177,6 +177,25 @@ urem a b =
     (qh, rh) = (ah / bl', ah % bl')
 
 ////////////////////////////////////////////////////////////
+// Shifts
+
+lshr : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
+lshr a b = interval cl (ch - cl)
+  where
+    (al, ah) = ubounds a
+    (bl, bh) = ubounds b
+    cl = al >> bh
+    ch = ah >> bl
+
+ashr : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> BVDom n
+ashr a b = interval cl (ch - cl)
+  where
+    (al, ah) = sbounds a
+    (bl, bh) = ubounds b
+    cl = al >>$ (if al <$ 0 then bl else bh)
+    ch = ah >>$ (if ah <$ 0 then bh else bl)
+
+////////////////////////////////////////////////////////////
 // Comparisons
 
 ult : {n} (fin n) => BVDom n -> BVDom n -> Bit
@@ -319,6 +338,14 @@ correct_urem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
 correct_urem a b x y =
   mem a x ==> mem b y ==> y != 0 ==> mem (urem a b) (x % y)
 
+correct_lshr : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_lshr a b x y =
+  mem a x ==> mem b y ==> mem (lshr a b) (x >> y)
+
+correct_ashr : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_ashr a b x y =
+  mem a x ==> mem b y ==> mem (ashr a b) (x >>$ y)
+
 correct_slt : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
 correct_slt a b x y =
   slt a b ==> mem a x ==> mem b y ==> x <$ y
@@ -372,6 +399,9 @@ property a2 = correct_neg`{16}
 property a3 = correct_mul`{4}
 property a4 = correct_udiv`{8}
 property a5 = correct_urem`{6}
+
+property s1 = correct_lshr`{8}
+property s2 = correct_ashr`{8}
 
 property o1 = correct_slt`{16}
 property o2 = correct_sle`{16}
