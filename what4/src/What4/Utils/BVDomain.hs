@@ -220,11 +220,11 @@ singleton w x = BVDInterval mask (x .&. mask) 0
 -- from the @w@ low order bits of some @i@ in @[l,u]@.  Note that per
 -- @testBit@, the least significant bit has index @0@.
 range :: NatRepr w -> Integer -> Integer -> BVDomain w
-range w al ah = interval mask al (ah - al)
+range w al ah = interval mask al ((ah - al) .&. mask)
   where mask = maxUnsigned w
 
 -- | Unsafe constructor for internal use only. Caller must ensure that
--- @mask = maxUnsigned w@.
+-- @mask = maxUnsigned w@, and that @aw@ is non-negative.
 interval :: Integer -> Integer -> Integer -> BVDomain w
 interval mask al aw =
   if aw >= mask then BVDAny mask else BVDInterval mask (al .&. mask) aw
