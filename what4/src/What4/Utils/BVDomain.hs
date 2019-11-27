@@ -76,10 +76,10 @@ data BVDomain (w :: Nat)
   -- ^ The set of all bitvectors of width @w@. Argument caches @2^w-1@.
   | BVDInterval !Integer !Integer !Integer
   -- ^ Intervals are represented by a starting value and a size.
-  -- @BVDInterval l d@ represents the set of values of the form @x mod
-  -- 2^w@ for @x@ such that @l <= x <= l + d@. It should satisfy the
-  -- invariants @0 <= l < 2^w@ and @0 <= d < 2^w@. The first argument
-  -- caches the value @2^w-1@.
+  -- @BVDInterval mask l d@ represents the set of values of the form
+  -- @x mod 2^w@ for @x@ such that @l <= x <= l + d@. It should
+  -- satisfy the invariants @0 <= l < 2^w@ and @0 <= d < 2^w@. The
+  -- first argument caches the value @2^w-1@.
   deriving Show
 
 bvdMask :: BVDomain w -> Integer
