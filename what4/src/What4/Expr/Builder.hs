@@ -1494,8 +1494,7 @@ abstractEval f a0 = do
            where smul sm e = ravScalarMul sm (f e)
         SR.SemiRingBVRepr SR.BVArithRepr w -> WSum.eval BVD.add smul (BVD.singleton w) s
            where smul sm e = BVD.scale sm (f e)
-        SR.SemiRingBVRepr SR.BVBitsRepr w -> WSum.eval BVD.xor smul (BVD.singleton w) s
-           where smul sm e = BVD.and (BVD.singleton w sm) (f e)
+        SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
 
     SemiRingProd pd ->
       let sr = WSum.prodRepr pd in
@@ -1504,11 +1503,11 @@ abstractEval f a0 = do
         SR.SemiRingNatRepr     -> fromMaybe (natSingleRange 1) $ WSum.prodEval natRangeMul f pd
         SR.SemiRingRealRepr    -> fromMaybe (ravSingle 1) $ WSum.prodEval ravMul f pd
         SR.SemiRingBVRepr SR.BVArithRepr w -> fromMaybe (BVD.singleton w 1) $ WSum.prodEval BVD.mul f pd
-        SR.SemiRingBVRepr SR.BVBitsRepr w -> fromMaybe (BVD.singleton w (-1)) $ WSum.prodEval BVD.and f pd
+        SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
 
     BVOrBits pd ->
       case WSum.prodRepr pd of
-        SR.SemiRingBVRepr _ w -> fromMaybe (BVD.singleton w 0) $ WSum.prodEval BVD.or f pd
+        SR.SemiRingBVRepr _ w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
 
     RealDiv _ _ -> ravUnbounded
     RealSqrt _  -> ravUnbounded
