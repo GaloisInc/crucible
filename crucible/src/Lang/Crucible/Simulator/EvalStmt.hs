@@ -62,7 +62,6 @@ import           What4.InterpretedFloatingPoint (freshFloatConstant)
 import           What4.Partial
 import           What4.ProgramLoc
 import           What4.Symbol (emptySymbol)
-import           What4.Utils.StringLiteral
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
