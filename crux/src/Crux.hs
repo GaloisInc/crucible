@@ -6,9 +6,10 @@
 module Crux
   ( main
   , mainWithOutputConfig
-  , runSimulator
   , CruxOptions(..)
+  , runSimulator
   , loadOptions
+  , generateReport
   , module Crux.Extension
   , module Crux.Config
   , module Crux.Log
@@ -78,15 +79,29 @@ main = mainWithOutputConfig defaultOutputConfig
 mainWithOutputConfig :: OutputConfig -> Language opts -> IO ExitCode
 mainWithOutputConfig cfg lang =
   do let ?outputConfig = cfg
-     opts <- loadOptions lang
-     opts1@(cruxOpts,_) <- initialize lang opts
+     opts@(cruxOpts,_) <- initialize lang =<< loadOptions lang
 
      let ?outputConfig = cfg & quiet %~ (|| (quietMode cruxOpts))
 
-     -- Run the simulator
+     if (svcompMode cruxOpts) then
+       evaluateSvcompBenchmarks opts lang
+     else
+       evaluateSimpleCrux opts lang
+  `catch` \(e :: Cfg.ConfigError) ->
+      let ?outputConfig = cfg in
+      sayFail "Crux" (displayException e)
+
+evaluateSvcompBenchmarks :: Logs => Options opts -> Language opts -> IO ()
+evaluateSvcompBenchmarks opts@(cruxOpts,_) lang =
+  mapM_ (evaluateBenchmark lang opts) (svcompBenchmarks cruxOpts) 
+
+evaluateSimpleCrux :: Logs => Options opts -> Language opts -> IO ()
+evaluateSimpleCrux opts@(cruxOpts,_) lang =
+  do -- Run the simulator
      let fileText = intercalate ", " (map show (inputFiles cruxOpts))
      when (simVerbose cruxOpts > 1) $
        say "Crux" ("Checking " ++ fileText)
+
      (cmpl, res) <- runSimulator lang opts1
 
      reportStatus cmpl res
@@ -100,11 +115,6 @@ mainWithOutputConfig cfg lang =
        makeCounterExamples lang opts res
 
      return $! computeExitCode cmpl res
-
-  `catch` \(e :: Cfg.ConfigError) ->
-    do let ?outputConfig = cfg
-       sayFail "Crux" (displayException e)
-       return (ExitFailure 1)
 
 -- | Load the options for the given language.
 -- IMPORTANT:  This processes options like @help@ and @version@, which

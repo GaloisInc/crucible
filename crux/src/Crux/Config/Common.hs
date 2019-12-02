@@ -1,6 +1,7 @@
 {-# Language RecordWildCards, OverloadedStrings, ApplicativeDo #-}
 module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
 
+import Control.Monad ((>=>))
 import Data.Functor.Alt
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
@@ -11,6 +12,7 @@ import Data.Text (pack)
 
 import Crux.Config
 import Crux.Log
+import Crux.SVCOMP
 import Config.Schema
 
 data PathStrategy
@@ -25,7 +27,8 @@ pathStrategySpec =
 
 postprocessOptions :: Logs => CruxOptions -> IO CruxOptions
 postprocessOptions =
-  checkPathStrategyInteractions
+  checkPathStrategyInteractions >=>
+  processSVCOMPBenchmarks
 
 checkPathStrategyInteractions :: Logs => CruxOptions -> IO CruxOptions
 checkPathStrategyInteractions crux =
@@ -36,6 +39,17 @@ checkPathStrategyInteractions crux =
          do sayWarn "Crux" "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
             return crux{ profileCrucibleFunctions = False }
      | otherwise -> return crux
+
+processSVCOMPBenchmarks :: Logs => CruxOptions -> IO CruxOptions
+processSVCOMPBenchmarks crux
+  | svcompMode crux =
+      do bss <- mapM loadBenchmarkSet (inputFiles crux)
+         return crux
+                { inputFiles = []
+                , svcompBenchmarks = bss
+                }
+
+  | otherwise = return crux
 
 
 -- | Common options for Crux-based binaries.
@@ -103,6 +117,8 @@ data CruxOptions = CruxOptions
   , svcompMode               :: Bool
     -- ^ If true, interpret the input files as benchmark sets, and behave as a SV-COMP solver
 
+  , svcompBenchmarks         :: [BenchmarkSet]
+    -- ^ Parsed SV-COMP benchmarks to execute
   }
 
 
@@ -194,6 +210,7 @@ cruxOptions = Config
             (pack $ "Select floating point representation,"
              ++ " i.e. one of [real|ieee|uninterpreted|default].\n"
              ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
+          svcompBenchmarks <- pure []
 
           quietMode <-
             section "quiet-mode" yesOrNoSpec False

@@ -42,7 +42,8 @@ data SVCompProperty
 
 data VerificationTask =
   VerificationTask
-  { verificationInputFiles :: [FilePath]
+  { verificationSourceFile :: FilePath
+  , verificationInputFiles :: [FilePath]
   , verificationProperties :: [(SVCompProperty, Maybe Bool)]
   }
  deriving Show
@@ -128,7 +129,8 @@ loadVerificationTask fp =
              Nothing -> fail $ unwords ["No 'properties' section while parsing", show fp]
 
      return VerificationTask
-            { verificationInputFiles = fs
+            { verificationSourceFile = fp
+            , verificationInputFiles = fs
             , verificationProperties = ps
             }
  decodeVT v = fail $ unwords ["Expected Yaml object but got:", show v, "when parsing", show fp]

@@ -20,7 +20,7 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import Data.List(intercalate)
-
+import qualified Data.Text as Text
 
 import Data.Binary.IEEE754 as IEEE754
 import qualified Data.Parameterized.Map as MapF
@@ -31,7 +31,7 @@ import System.IO (Handle, stdout)
 import System.FilePath
   ( takeExtension, dropExtension, takeFileName, (</>)
   , takeDirectory, replaceExtension)
-import System.Directory (createDirectoryIfMissing, removeFile)
+import System.Directory (createDirectoryIfMissing, removeFile, doesFileExist)
 
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
@@ -87,6 +87,7 @@ import Crux.Types
 import Crux.Model
 import Crux.Log
 import Crux.Config.Common
+import Crux.SVCOMP
 
 -- local
 import Crux.LLVM.Overrides
@@ -251,6 +252,19 @@ ppModelC m = unlines
              : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
             where vals = modelVals m
 
+evaluateBenchmarkLLVM :: Logs => Options -> BenchmarkSet -> IO ()
+evaluateBenchmarkLLVM (cruxOpts,llvmOpts) bs =
+    mapM_ evaluateVerificationTask (zip [0::Int ..] (benchmarkTasks bs))
+ where
+ bsRoot = Crux.outDir cruxOpts </> Text.unpack (benchmarkName bs)
+
+ evaluateVerificationTask (num,task) =
+   do let taskRoot = svTaskDirectory bsRoot num task
+      let cruxOpts' = cruxOpts { outDir = taskRoot }
+      putStrLn ("Evaluating: " ++ taskRoot)
+      gls <- Crux.runSimulator cruxLLVM (cruxOpts', llvmOpts)
+      Crux.generateReport cruxOpts' gls
+
 -----------------------------------------------------------------------
 -----------------------------------------------------------------------
 
@@ -265,6 +279,7 @@ data LLVMOptions = LLVMOptions
   , incDirs    :: [FilePath]
   , memOpts    :: MemOptions
   , laxArithmetic :: Bool
+  , lazyCompile :: Bool
   }
 
 cruxLLVM :: Crux.Language LLVMOptions
@@ -301,6 +316,9 @@ cruxLLVM = Crux.Language
              laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
                                "Do not produce proof obligations related to arithmetic overflow, etc."
 
+             lazyCompile <- Crux.section "lazy-compile" Crux.yesOrNoSpec False
+                               "Avoid compiling bitcode from source if intermediate files already exist"
+
              return LLVMOptions { .. }
 
       , Crux.cfgEnv  =
@@ -320,6 +338,11 @@ cruxLLVM = Crux.Language
             $ Crux.ReqArg "DIR"
             $ \d opts -> Right opts { incDirs = d : incDirs opts }
 
+          , Crux.Option [] ["lazy-compile"]
+            "Avoid compiling bitcode from source if intermediate files already exist (default: off)"
+            $ Crux.NoArg
+            $ \opts -> Right opts{ lazyCompile = True }
+
           , Crux.Option [] ["lax-pointers"]
             "Turn on lax rules for pointer comparisons"
             $ Crux.NoArg
@@ -334,35 +357,53 @@ cruxLLVM = Crux.Language
 
   , Crux.initialize = initCruxLLVM
   , Crux.simulate   = simulateLLVM
+  , Crux.evaluateBenchmark = evaluateBenchmarkLLVM
   , Crux.makeCounterExamples = makeCounterExamplesLLVM
   }
 
 initCruxLLVM :: Options -> IO Options
 initCruxLLVM (cruxOpts,llvmOpts) =
   do -- keep looking for clangBin if it is unset
-    clangFilePath <- if clangBin llvmOpts == ""
+     clangFilePath <- if clangBin llvmOpts == ""
                         then getClang
                         else return (clangBin llvmOpts)
 
-    let opts2 = llvmOpts { clangBin = clangFilePath }
+     let opts2 = llvmOpts { clangBin = clangFilePath }
 
-    -- update outDir if unset
-    name <- case Crux.inputFiles cruxOpts of
-              x : _ -> pure (dropExtension (takeFileName x))
-                          -- use the first file as output directory
-              [] -> throwCError NoFiles
+     if svcompMode cruxOpts then
+       svCompInit opts2
+     else
+       simpleInit opts2
 
-    let cruxOpts2 = if Crux.outDir cruxOpts == ""
-                      then cruxOpts { Crux.outDir = "results" </> name }
-                      else cruxOpts
+ where
+ svCompInit opts2 =
+  do let cruxOpts2 = if Crux.outDir cruxOpts == ""
+                        then cruxOpts { Crux.outDir = "results" </> "sv-comp" }
+                        else cruxOpts
+         odir = Crux.outDir cruxOpts2
 
-        odir      = Crux.outDir cruxOpts2
+     createDirectoryIfMissing True odir
+     genSVCOMPBitCode (cruxOpts2, opts2)
+     return (cruxOpts2, opts2)
 
-    createDirectoryIfMissing True odir
+ simpleInit opts2 =
+  do -- update outDir if unset
+     name <- case Crux.inputFiles cruxOpts of
+               x : _ -> pure (dropExtension (takeFileName x))
+                           -- use the first file as output directory
+               [] -> throwCError NoFiles
 
-    genBitCode (cruxOpts2, opts2)
+     let cruxOpts2 = if Crux.outDir cruxOpts == ""
+                       then cruxOpts { Crux.outDir = "results" </> name }
+                       else cruxOpts
 
-    return (cruxOpts2, opts2)
+         odir      = Crux.outDir cruxOpts2
+
+     createDirectoryIfMissing True odir
+
+     genBitCode (cruxOpts2, opts2)
+
+     return (cruxOpts2, opts2)
 
 ---------------------------------------------------------------------
 
@@ -475,6 +516,17 @@ runClang opts params =
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
 
+runClang' :: Options -> [String] -> IO ()
+runClang' opts params =
+  do let clang = clangBin (snd opts)
+         allParams = clangOpts (snd opts) ++ params
+     putStrLn $ unwords ( clang : map show allParams)
+     (res,sout,serr) <- readProcessWithExitCode clang allParams ""
+     case res of
+       ExitSuccess   -> return ()
+       ExitFailure n -> throwCError (ClangError n sout serr)
+
+
 llvmLink :: Options -> [FilePath] -> FilePath -> IO ()
 llvmLink opts ins out =
   do let params = ins ++ [ "-o", out ]
@@ -497,6 +549,65 @@ llvmLinkVersion opts =
        ExitSuccess   -> return (parseLLVMLinkVersion sout)
        ExitFailure n -> throwCError (ClangError n sout serr)
 
+
+svTaskDirectory :: FilePath -> Int -> VerificationTask -> FilePath
+svTaskDirectory base num task = base </> path
+ where
+ files = verificationInputFiles task
+ path  = padTaskNum ++ filebase files
+
+ padWidth = 5
+
+ filebase [] = ""
+ filebase (f:_) = '_' : takeFileName f
+
+ padTaskNum = padding ++ xs
+   where
+   padding = take (padWidth - length xs) (repeat '0')
+   xs = show num
+
+
+genSVCOMPBitCode :: Options -> IO ()
+genSVCOMPBitCode opts@(cruxOpts,llvmOpts) =
+    mapM_ processBenchmark (svcompBenchmarks cruxOpts)
+ where
+ processBenchmark bs =
+   do let nm = benchmarkName bs
+      putStrLn $ unwords ["Preparing", show nm]
+      tgt <- getTarget bs
+      mapM_ (processVerificationTask tgt (Text.unpack nm)) (zip [0::Int ..] (benchmarkTasks bs))
+
+ processVerificationTask tgt benchName (num,task) =
+   do let files = verificationInputFiles task
+          inputBase = takeDirectory (verificationSourceFile task)
+          outputPath  = svTaskDirectory (Crux.outDir cruxOpts </> benchName) num task
+          finalBCFile = outputPath </> "combined.bc"
+          srcBCNames = [ (inputBase </> src, outputPath </> replaceExtension src ".bc") | src <- files ]
+          incs src = [ inputBase </> takeDirectory src
+                     , libDir llvmOpts </> "includes"
+                     ] ++ incDirs llvmOpts
+          params (src, srcBC) =
+            [ "-c", "-g", "-emit-llvm", "-O1", "--target=" ++ tgt ] ++
+            concat [ ["-I", dir] | dir <- incs src ] ++
+            [ "-o", srcBC, src ]
+
+      createDirectoryIfMissing True outputPath
+
+      finalBcExists <- doesFileExist finalBCFile
+      unless (finalBcExists && lazyCompile llvmOpts) $
+        do forM_ srcBCNames $ \(src, srcBC) ->
+              do bcExists <- doesFileExist srcBC
+                 unless (bcExists && lazyCompile llvmOpts) $
+                   runClang' opts (params (src, srcBC))
+           llvmLink opts (map snd srcBCNames) finalBCFile
+
+ getTarget bs =
+   case benchmarkArchWidth bs of
+     Just 32 -> return "i386-unknown-linux-elf"
+     Just 64 -> return "x86_64-unknown-linux-elf"
+     _ -> fail $ "Unexpected or missing architecture width"
+
+
 genBitCode :: Options -> IO ()
 genBitCode opts =
   do let files = (Crux.inputFiles (fst opts))
@@ -509,12 +620,14 @@ genBitCode opts =
            [ "-c", "-g", "-emit-llvm", "-O0" ] ++
            concat [ [ "-I", dir ] | dir <- incs src ] ++
            [ "-o", srcBC, src ]
-     forM_ srcBCNames $ \f -> runClang opts (params f)
-     ver <- llvmLinkVersion opts
-     let libcxxBitcode | anyCPPFiles files = [libDir (snd opts) </> "libcxx-" ++ ver ++ ".bc"]
-                       | otherwise = []
-     llvmLink opts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
-     mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
+     finalBCExists <- doesFileExist finalBCFile
+     unless (finalBCExists && lazyCompile (snd opts)) $
+      do forM_ srcBCNames $ \f -> runClang opts (params f)
+         ver <- llvmLinkVersion opts
+         let libcxxBitcode | anyCPPFiles files = [libDir (snd opts) </> "libcxx-" ++ ver ++ ".bc"]
+                           | otherwise = []
+         llvmLink opts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
+         mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
 
 buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
 buildModelExes opts suff counter_src =

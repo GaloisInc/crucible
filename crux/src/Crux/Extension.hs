@@ -10,6 +10,7 @@ import Crux.Types(Model,Result,ProvedGoals)
 import Crux.Log(Logs)
 import Crux.Config(Config(..))
 import Crux.Config.Common
+import Crux.SVCOMP
 
 data Language opts = Language
   { name :: String
@@ -26,6 +27,8 @@ data Language opts = Language
 
     -- | Call-back to do the actual simulation after initialization.
   , simulate :: SimulateCallback opts
+
+  , evaluateBenchmark :: Logs => Options opts -> BenchmarkSet -> IO ()
 
     -- | Call back to generate counter examples, if needed.
   , makeCounterExamples :: CounterExampleCallback opts
