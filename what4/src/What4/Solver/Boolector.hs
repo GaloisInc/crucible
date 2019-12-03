@@ -50,10 +50,10 @@ import           What4.Utils.Process
 import           What4.Utils.Streams
 import           What4.Utils.HandleReader
 
-data Boolector = Boolector
+data Boolector = Boolector deriving Show
 
 -- | Path to boolector
-boolectorPath :: ConfigOption BaseStringType
+boolectorPath :: ConfigOption (BaseStringType Unicode)
 boolectorPath = configOption knownRepr "boolector_path"
 
 boolectorOptions :: [ConfigDesc]
@@ -74,7 +74,7 @@ boolectorAdapter =
       res <- runBoolectorInOverride sym logData p
       cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
   , solver_adapter_write_smt2 =
-      SMT2.writeDefaultSMT2 () nullAcknowledgementAction "Boolector" defaultWriteSMTLIB2Features
+      SMT2.writeDefaultSMT2 () "Boolector" defaultWriteSMTLIB2Features
   }
 
 instance SMT2.SMTLib2Tweaks Boolector where
@@ -186,11 +186,13 @@ parseBoolectorOutput c out_lines =
       let evalBV w tm = lookupBoolectorVar m (boolectorBVValue w) $ Builder.toLazyText $ SMT2.renderTerm tm
       let evalReal _ = fail "Boolector does not support real variables."
       let evalFloat _ = fail "Boolector does not support floats."
+      let evalStr _ = fail "Boolector does not support strings."
       let evalFns = SMTEvalFunctions { smtEvalBool = evalBool
                                      , smtEvalBV = evalBV
                                      , smtEvalReal = evalReal
                                      , smtEvalFloat = evalFloat
                                      , smtEvalBvArray = Nothing
+                                     , smtEvalString = evalStr
                                      }
       Sat <$> smtExprGroundEvalFn c evalFns
     [] -> fail "Boolector returned no output."

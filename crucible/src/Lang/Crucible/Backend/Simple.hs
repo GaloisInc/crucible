@@ -22,7 +22,8 @@ module Lang.Crucible.Backend.Simple
     -- * SimpleBackendState
   , SimpleBackendState
     -- * Re-exports
-  , B.FloatInterpretation
+  , B.FloatMode
+  , B.FloatModeRepr(..)
   , B.FloatIEEE
   , B.FloatUninterpreted
   , B.FloatReal
@@ -57,11 +58,14 @@ initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
 initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
 
 
-newSimpleBackend :: NonceGenerator IO t
-                 -> IO (SimpleBackend t fs)
-newSimpleBackend gen =
+newSimpleBackend ::
+  B.FloatModeRepr fm
+  -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
+  -> NonceGenerator IO t
+  -> IO (SimpleBackend t (B.Flags fm))
+newSimpleBackend floatMode gen =
   do st <- initialSimpleBackendState gen
-     B.newExprBuilder st gen
+     B.newExprBuilder floatMode st gen
 
 getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)

@@ -56,12 +56,15 @@ module Lang.Crucible.CFG.Expr
   , BaseTerm(..)
   , module Lang.Crucible.CFG.Extension
   , RoundingMode(..)
+
+  , testVector
+  , compareVector
   ) where
 
+import           Control.Lens ((^.))
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
 import           Data.Kind (Type)
-import           Data.Text (Text)
 import           Data.Vector (Vector)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -74,7 +77,8 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 
-import           What4.Interface (RoundingMode(..))
+import           What4.Interface (RoundingMode(..),StringLiteral(..), stringLiteralInfo)
+import           What4.InterpretedFloatingPoint (X86_80Val(..))
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Extension.Safety
@@ -310,6 +314,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Floating point constants
   FloatLit :: !Float -> App ext f (FloatType SingleFloat)
   DoubleLit :: !Double -> App ext f (FloatType DoubleFloat)
+  X86_80Lit :: !X86_80Val -> App ext f (FloatType X86_80Float)
   FloatNaN :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
   FloatPInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
   FloatNInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
@@ -468,7 +473,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- want to assert that the value is defined.
   FromJustValue :: !(TypeRepr tp)
                 -> !(f (MaybeType tp))
-                -> !(f StringType)
+                -> !(f (StringType Unicode))
                 -> App ext f tp
 
 
@@ -598,7 +603,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
            -> !(f (BVType v))       -- Least significant bits
            -> App ext f (BVType (u+v))
 
-  -- BVSelect idx n bv choses bits [idx, .. , idx+n-1] from bitvector bv.
+  -- BVSelect idx n bv chooses bits [idx, .. , idx+n-1] from bitvector bv.
   -- The resulting bitvector will have width n.
   -- Index 0 denotes the least-significant bit.
   BVSelect :: (1 <= w, 1 <= len, idx + len <= w)
@@ -902,34 +907,75 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Lookup the value of a string in a string map.
   LookupStringMapEntry :: !(TypeRepr tp)
                        -> !(f (StringMapType tp))
-                       -> !(f StringType)
+                       -> !(f (StringType Unicode))
                        -> App ext f (MaybeType tp)
 
   -- Update the name of the ident value map with the given value.
   InsertStringMapEntry :: !(TypeRepr tp)
                        -> !(f (StringMapType tp))
-                       -> !(f StringType)
+                       -> !(f (StringType Unicode))
                        -> !(f (MaybeType tp))
                        -> App ext f (StringMapType tp)
 
   ----------------------------------------------------------------------
   -- String
 
-  TextLit :: !Text
-          -> App ext f StringType
+  -- Create a concrete string literal
+  StringLit :: !(StringLiteral si)
+            -> App ext f (StringType si)
+
+  -- Create an empty string literal
+  StringEmpty :: !(StringInfoRepr si)
+              -> App ext f (StringType si)
+
+  StringConcat :: !(StringInfoRepr si)
+               -> !(f (StringType si))
+               -> !(f (StringType si))
+               -> App ext f (StringType si)
+
+  -- Compute the length of a string
+  StringLength :: !(f (StringType si))
+               -> App ext f NatType
+
+  -- Test if the first string contains the second string as a substring
+  StringContains :: !(f (StringType si))
+                 -> !(f (StringType si))
+                 -> App ext f BoolType
+
+  -- Test if the first string is a prefix of the second string
+  StringIsPrefixOf :: !(f (StringType si))
+                 -> !(f (StringType si))
+                 -> App ext f BoolType
+
+  -- Test if the first string is a suffix of the second string
+  StringIsSuffixOf :: !(f (StringType si))
+                 -> !(f (StringType si))
+                 -> App ext f BoolType
+
+  -- Return the first position at which the second string can be found as a substring
+  -- in the first string, starting from the given index.
+  -- If no such position exists, return a negative value.
+  StringIndexOf :: !(f (StringType si))
+                -> !(f (StringType si))
+                -> !(f NatType)
+                -> App ext f IntegerType
+
+  -- @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
+  -- having length @len@.  The result of this operation is undefined if @off@ and @len@
+  -- do not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  StringSubstring :: !(StringInfoRepr si)
+                  -> !(f (StringType si))
+                  -> !(f NatType)
+                  -> !(f NatType)
+                  -> App ext f (StringType si)
 
   ShowValue :: !(BaseTypeRepr bt)
             -> !(f (BaseToType bt))
-            -> App ext f StringType
+            -> App ext f (StringType Unicode)
 
   ShowFloat :: !(FloatInfoRepr fi)
             -> !(f (FloatType fi))
-            -> App ext f StringType
-
-  AppendString :: !(f StringType)
-               -> !(f StringType)
-               -> App ext f StringType
-
+            -> App ext f (StringType Unicode)
 
   ----------------------------------------------------------------------
   -- Arrays (supporting symbolic operations)
@@ -1032,6 +1078,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     -- Float
     FloatLit{} -> knownRepr
     DoubleLit{} -> knownRepr
+    X86_80Lit{} -> knownRepr
     FloatNaN fi -> FloatRepr fi
     FloatPInf fi -> FloatRepr fi
     FloatNInf fi -> FloatRepr fi
@@ -1204,10 +1251,17 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- String
 
-    TextLit{} -> knownRepr
+    StringLit s -> StringRepr (stringLiteralInfo s)
     ShowValue{} -> knownRepr
     ShowFloat{} -> knownRepr
-    AppendString{} -> knownRepr
+    StringConcat si _ _ -> StringRepr si
+    StringEmpty si -> StringRepr si
+    StringLength _ -> knownRepr
+    StringContains{} -> knownRepr
+    StringIsPrefixOf{} -> knownRepr
+    StringIsSuffixOf{} -> knownRepr
+    StringIndexOf{} -> knownRepr
+    StringSubstring si _ _ _ -> StringRepr si
 
     ------------------------------------------------------------------------
     -- Introspection
@@ -1284,10 +1338,11 @@ instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
           , ( U.ConType [t|Vector|] `U.TypeApp` U.AnyType
             , [| \pp v -> brackets (commas (fmap pp v)) |]
             )
-          , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
+          , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.DataArg 0
+                                         `U.TypeApp` U.DataArg 1
                                          `U.TypeApp` U.AnyType
-                                         `U.TypeApp` U.AnyType
-            , [| \_ _ -> text "<some assertion>" |]
+            , [| \pp pe -> text "partialExpr" <>
+                parens (commas [pp (pe ^. value), text "<some assertion>"]) |]
             )
           ])
 
@@ -1348,7 +1403,9 @@ instance ( TestEqualityFC (ExprExtension ext)
         , (U.ConType [t|SymbolRepr |]    `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|TypeRepr|]       `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|StringInfoRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|FloatInfoRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|StringLiteral|] `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
               (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
           , [| testEqualityFC (testEqualityFC testSubterm) |]
@@ -1390,7 +1447,9 @@ instance ( OrdFC (ExprExtension ext)
                    , (U.ConType [t|SymbolRepr |] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+                   , (U.ConType [t|StringInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|FloatInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+                   , (U.ConType [t|StringLiteral|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
                          (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
                      , [| compareFC (compareFC compareSubterm) |]

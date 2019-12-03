@@ -164,8 +164,8 @@ extendReg = Reg . extendIndex . regIndex
 newtype Expr ext (ctx :: Ctx CrucibleType) (tp :: CrucibleType)
       = App (App ext (Reg ctx) tp)
 
-instance IsString (Expr ext ctx StringType) where
-  fromString  = App . TextLit . fromString
+instance IsString (Expr ext ctx (StringType Unicode)) where
+  fromString  = App . StringLit . fromString
 
 instance PrettyApp (ExprExtension ext) => Pretty (Expr ext ctx tp) where
   pretty (App a) = ppApp pretty a
@@ -296,7 +296,7 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
              -> Stmt ext ctx (ctx ::> ret)
 
   -- Print a message out to the console
-  Print :: !(Reg ctx StringType) -> Stmt ext ctx ctx
+  Print :: !(Reg ctx (StringType Unicode)) -> Stmt ext ctx ctx
 
   -- Read a global variable.
   ReadGlobal :: !(GlobalVar tp)
@@ -340,10 +340,10 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
                -> Stmt ext ctx ctx
 
   -- Assert a boolean condition.  If the condition fails, print the given string.
-  Assert :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ext ctx ctx
+  Assert :: !(Reg ctx BoolType) -> !(Reg ctx (StringType Unicode)) -> Stmt ext ctx ctx
 
   -- Assume a boolean condition, remembering the given string as the 'reason' for this assumption.
-  Assume :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ext ctx ctx
+  Assume :: !(Reg ctx BoolType) -> !(Reg ctx (StringType Unicode)) -> Stmt ext ctx ctx
 
 ------------------------------------------------------------------------
 -- TermStmt
@@ -386,7 +386,7 @@ data TermStmt blocks (ret :: CrucibleType) (ctx :: Ctx CrucibleType) where
            -> TermStmt blocks ret ctx
 
   -- Block ends with an error.
-  ErrorStmt :: !(Reg ctx StringType) -> TermStmt blocks ret ctx
+  ErrorStmt :: !(Reg ctx (StringType Unicode)) -> TermStmt blocks ret ctx
 
 #ifndef UNSAFE_OPS
 extendTermStmt :: Diff blocks' blocks -> TermStmt blocks' ret ctx -> TermStmt blocks ret ctx

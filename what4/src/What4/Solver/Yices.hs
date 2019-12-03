@@ -63,6 +63,7 @@ module What4.Solver.Yices
   , yicesGoalTimeout
   ) where
 
+import           Control.Applicative
 import           Control.Exception
                    (assert, SomeException(..), try, throw, displayException, Exception(..))
 import           Control.Lens ((^.), folded)
@@ -89,6 +90,7 @@ import qualified Data.Text.Lazy as Lazy
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
+import           Numeric (readOct)
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -115,7 +117,7 @@ import           What4.Utils.HandleReader
 import           What4.Utils.Process
 
 import Prelude
-
+import GHC.Stack
 
 -- | This is a tag used to indicate that a 'WriterConn' is a connection
 -- to a specific Yices process.
@@ -134,7 +136,7 @@ asYicesConfigValue v = case v of
       return $ decimal (numerator x) <> "/" <> decimal (denominator x)
   ConcreteInteger x ->
       return $ decimal x
-  ConcreteString x ->
+  ConcreteString (UnicodeLiteral x) ->
       return $ Builder.fromText x
   _ ->
       Nothing
@@ -327,8 +329,11 @@ instance SupportTermOps (YicesTerm s) where
 
   fromText t = T (Builder.fromText t)
 
-floatFail :: a
+floatFail :: HasCallStack => a
 floatFail = error "Yices does not support IEEE-754 floating-point numbers"
+
+stringFail :: HasCallStack => a
+stringFail = error "Yices does not support strings"
 
 errorComputableUnsupported :: a
 errorComputableUnsupported = error "computable functions are not supported."
@@ -363,6 +368,7 @@ yicesType IntegerTypeMap = intType
 yicesType RealTypeMap    = realType
 yicesType (BVTypeMap w)  = YicesType (app "bitvector" [fromString (show w)])
 yicesType (FloatTypeMap _) = floatFail
+yicesType Char8TypeMap = stringFail
 yicesType ComplexToStructTypeMap = tupleType [realType, realType]
 yicesType ComplexToArrayTypeMap  = fnType [boolType] realType
 yicesType (PrimArrayTypeMap i r) = fnType (toListFC yicesType i) (yicesType r)
@@ -429,7 +435,7 @@ newConnection stream ack reqFeatures timeout bindings = do
   let efSolver = reqFeatures `hasProblemFeature` useExistForall
   let nlSolver = reqFeatures `hasProblemFeature` useNonlinearArithmetic
   let features | efSolver  = useLinearArithmetic
-               | nlSolver  = useNonlinearArithmetic
+               | nlSolver  = useNonlinearArithmetic .|. useIntegerArithmetic
                | otherwise = useIntegerArithmetic
   let nm | efSolver  = "Yices ef-solver"
          | nlSolver  = "Yices nl-solver"
@@ -513,15 +519,24 @@ instance SMTWriter (Connection s) where
 
   resetDeclaredStructs conn = resetUnitType conn
 
+  structProj _n i s = term_app "select" [s, fromIntegral (Ctx.indexVal i + 1)]
+
+  structCtor _tps []   = T "unit-value"
+  structCtor _tps args = term_app "mk-tuple" args
+
+  stringTerm _   = stringFail
+  stringLength _ = stringFail
+  stringAppend _ = stringFail
+  stringContains _ _ = stringFail
+  stringIndexOf _ _ _ = stringFail
+  stringIsPrefixOf _ _ = stringFail
+  stringIsSuffixOf _ _ = stringFail
+  stringSubstring _ _ _ = stringFail
+
   -- yices has built-in syntax for n-tuples where n > 0,
   -- so we only need to delcare the unit type for 0-tuples
   declareStructDatatype conn Ctx.Empty = declareUnitType conn
   declareStructDatatype _ _ = return ()
-
-  structCtor _conn _tps []   = T "unit-value"
-  structCtor _conn _tps args = term_app "mk-tuple" args
-
-  structProj _conn _n i s = term_app "select" [s, fromIntegral (Ctx.indexVal i + 1)]
 
   writeCommand conn cmdf =
     do isEarlyUnsat <- readIORef (yicesEarlyUnsat (connState conn))
@@ -542,12 +557,13 @@ instance SMTReadWriter (Connection s) where
                      , smtEvalReal    = yicesEvalReal conn resp
                      , smtEvalFloat   = fail "Yices does not support floats."
                      , smtEvalBvArray = Nothing
+                     , smtEvalString  = fail "Yices does not support strings."
                      }
 
   smtSatResult _ = getSatResponse
 
   smtUnsatAssumptionsResult _ s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) s)
        let cmd = safeCmd "(show-unsat-assumptions)"
        case mb of
          Right (asNegAtomList -> Just as) -> return as
@@ -559,7 +575,7 @@ instance SMTReadWriter (Connection s) where
                          ]
 
   smtUnsatCoreResult _ s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) s)
        let cmd = safeCmd "(show-unsat-core)"
        case mb of
          Right (asAtomList -> Just nms) -> return nms
@@ -740,9 +756,14 @@ eval c e = addCommandNoAck c (evalCommand e)
 sendShowModel :: WriterConn t (Connection s) -> IO ()
 sendShowModel c = addCommandNoAck c showModelCommand
 
+
+
+
+
+
 getAckResponse :: Streams.InputStream Text -> IO (Maybe Text)
 getAckResponse resps =
-  do mb <- try (Streams.parseFromStream parseSExp resps)
+  do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) resps)
      case mb of
        Right (SAtom "ok") -> return Nothing
        Right (SAtom txt)  -> return (Just txt)
@@ -759,7 +780,7 @@ getAckResponse resps =
 -- Throws an exception if something goes wrong.
 getSatResponse :: Streams.InputStream Text -> IO (SatResult () ())
 getSatResponse resps =
-  do mb <- try (Streams.parseFromStream parseSExp resps)
+  do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) resps)
      case mb of
        Right (SAtom "unsat")   -> return (Unsat ())
        Right (SAtom "sat")     -> return (Sat ())
@@ -792,6 +813,36 @@ yicesEvalReal conn resp tm =
              , displayException ex
              ]
        Right r -> pure $ Root.approximate r
+
+parseYicesString :: Atto.Parser Text
+parseYicesString = Atto.char '\"' >> go
+ where
+ isStringChar '\"' = False
+ isStringChar '\\' = False
+ isStringChar '\n' = False
+ isStringChar _    = True
+
+ octalDigit = Atto.satisfy (Atto.inClass "01234567")
+
+ octalEscape =
+   do ds <- Atto.choice [ Atto.count i octalDigit | i <- [ 3, 2, 1] ]
+      case readOct ds of
+        (c,""):_ -> return (Text.singleton (toEnum c))
+        _ -> mzero
+
+ escape = Atto.choice
+   [ octalEscape
+   , Atto.char 'n' >> return "\n"
+   , Atto.char 't' >> return "\t"
+   , Text.singleton <$> Atto.anyChar
+   ]
+
+ go = do xs <- Atto.takeWhile isStringChar
+         (Atto.char '\"' >> return xs)
+          <|> (do _ <- Atto.char '\\'
+                  e <- escape
+                  ys <- go
+                  return (xs <> e <> ys))
 
 boolValue :: Atto.Parser Bool
 boolValue =
@@ -857,7 +908,6 @@ yicesDefaultFeatures :: ProblemFeatures
 yicesDefaultFeatures
     = useLinearArithmetic
   .|. useBitvectors
-  .|. useComplexArithmetic
   .|. useStructs
 
 yicesAdapter :: SolverAdapter t
@@ -869,11 +919,11 @@ yicesAdapter =
        runYicesInOverride sym logData ps
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
-       writeDefaultSMT2 () nullAcknowledgementAction "YICES" yicesSMT2Features
+       writeDefaultSMT2 () "YICES" yicesSMT2Features
    }
 
 -- | Path to yices
-yicesPath :: ConfigOption BaseStringType
+yicesPath :: ConfigOption (BaseStringType Unicode)
 yicesPath = configOption knownRepr "yices_path"
 
 -- | Enable the MC-SAT solver
@@ -964,7 +1014,7 @@ intWithRangeOpt nm lo hi =
 
 enumOpt :: String -> Set Text -> ConfigDesc
 enumOpt nm xs =
-  mkOpt (configOption BaseStringRepr $ "yices."++nm)
+  mkOpt (configOption (BaseStringRepr UnicodeRepr) $ "yices."++nm)
         (enumOptSty xs)
         Nothing
         Nothing

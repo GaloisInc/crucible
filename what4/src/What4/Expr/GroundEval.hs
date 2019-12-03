@@ -49,7 +49,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
-import           Data.Text (Text)
 import           Numeric.Natural
 
 import           What4.BaseTypes
@@ -57,11 +56,14 @@ import           What4.Interface
 import qualified What4.SemiRing as SR
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
+import qualified What4.Expr.StringSeq as SSeq
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
+
 import           What4.Utils.Arithmetic ( roundAway, clz, ctz, rotateLeft, rotateRight )
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
+import           What4.Utils.StringLiteral
 
 
 type family GroundValue (tp :: BaseType) where
@@ -72,7 +74,7 @@ type family GroundValue (tp :: BaseType) where
   GroundValue (BaseBVType w)        = Integer
   GroundValue (BaseFloatType fpp)   = Integer
   GroundValue BaseComplexType       = Complex Rational
-  GroundValue BaseStringType        = Text
+  GroundValue (BaseStringType si)   = StringLiteral si
   GroundValue (BaseArrayType idx b) = GroundArray idx b
   GroundValue (BaseStructType ctx)  = Ctx.Assignment GroundValueWrapper ctx
 
@@ -126,7 +128,7 @@ defaultValueForType tp =
     BaseIntegerRepr -> 0
     BaseRealRepr    -> 0
     BaseComplexRepr -> 0 :+ 0
-    BaseStringRepr  -> mempty
+    BaseStringRepr si -> stringLitEmpty si
     BaseArrayRepr _ b -> ArrayConcrete (defaultValueForType b) Map.empty
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
     BaseFloatRepr _ -> 0
@@ -216,7 +218,7 @@ groundEq bt x y = case bt of
   BaseNatRepr     -> mand $ x == y
   BaseBVRepr _    -> mand $ x == y
   BaseFloatRepr _ -> mand $ x == y
-  BaseStringRepr  -> mand $ x == y
+  BaseStringRepr _ -> mand $ x == y
   BaseComplexRepr -> mand $ x == y
   BaseStructRepr flds ->
     coerceMAnd (Ctx.traverseWithIndex
@@ -521,6 +523,19 @@ evalGroundApp f0 a0 = do
     Cplx (x :+ y) -> (:+) <$> f x <*> f y
     RealPart x -> realPart <$> f x
     ImagPart x -> imagPart <$> f x
+
+    ------------------------------------------------------------------------
+    -- String operations
+
+    StringLength x -> stringLitLength <$> f x
+    StringContains x y -> stringLitContains <$> f x <*> f y
+    StringIsSuffixOf x y -> stringLitIsSuffixOf <$> f x <*> f y
+    StringIsPrefixOf x y -> stringLitIsPrefixOf <$> f x <*> f y
+    StringIndexOf x y k -> stringLitIndexOf <$> f x <*> f y <*> f k
+    StringSubstring _ x off len -> stringLitSubstring <$> f x <*> f off <*> f len
+    StringAppend si xs ->
+      do ys <- traverse (either return f) (SSeq.toList xs)
+         return $! foldl (<>) (stringLitEmpty si) ys
 
     ------------------------------------------------------------------------
     -- Structs

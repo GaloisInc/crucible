@@ -13,14 +13,11 @@
 module Crux.Model where
 
 import Data.Binary.IEEE754 as IEEE754
-import Data.List(intercalate)
 import Data.Parameterized.NatRepr(knownNat,natValue)
 import Data.Parameterized.TraversableF(traverseF)
 import Data.Parameterized.Map (MapF)
 import Data.Parameterized.Pair(Pair(..))
 import qualified Data.Parameterized.Map as MapF
-import Data.Semigroup
-import System.Directory(getCurrentDirectory)
 
 import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType,FloatPrecisionRepr(..))
 import Lang.Crucible.Simulator.RegMap(RegValue)
@@ -69,50 +66,8 @@ evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
 --------------------------------------------------------------------------------
 
-ppModel :: GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO ModelViews
-ppModel ev m =
-  do c_code <- ppModelC ev m
-     js_code <- ppModelJS ev m
-     return ModelViews { modelInC  = c_code
-                       , modelInJS = js_code
-                       }
-
 toDouble :: Rational -> Double
 toDouble = fromRational
-
-ppValsC :: BaseTypeRepr ty -> Vals ty -> String
-ppValsC ty (Vals xs) =
-  let (cty, cnm, ppRawVal) = case ty of
-        BaseBVRepr n ->
-          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", show)
-        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
-          | natValue eb == 8, natValue sb == 24
-          -> ("float", "float", show . IEEE754.wordToFloat . fromInteger)
-        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
-          | natValue eb == 11, natValue sb == 53
-          -> ("double", "double", show . IEEE754.wordToDouble . fromInteger)
-        BaseRealRepr -> ("double", "real", (show . toDouble))
-        _ -> error ("Type not implemented: " ++ show ty)
-  in unlines
-      [ "size_t const crucible_values_number_" ++ cnm ++
-                " = " ++ show (length xs) ++ ";"
-
-      , "const char* crucible_names_" ++ cnm ++ "[] = { " ++
-            intercalate "," (map (show . entryName) xs) ++ " };"
-
-      , cty ++ " const crucible_values_" ++ cnm ++ "[] = { " ++
-            intercalate "," (map (ppRawVal . entryValue) xs) ++ " };"
-      ]
-
-ppModelC ::
-  GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO String
-ppModelC ev m =
-  do vals <- evalModel ev m
-     return $ unlines
-            $ "#include <stdint.h>"
-            : "#include <stddef.h>"
-            : ""
-            : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
 
 ppValsJS :: FilePath -> BaseTypeRepr ty -> Vals ty -> [String]
 ppValsJS cwd ty (Vals xs) =
@@ -141,16 +96,13 @@ ppValsJS cwd ty (Vals xs) =
       ]
 
 
-ppModelJS ::
-  GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO String
-ppModelJS ev m =
-  do vals <- evalModel ev m
-     cwd <- getCurrentDirectory
-     let ents = MapF.foldrWithKey (\k v rest -> ppValsJS cwd k v ++ rest) [] vals
-         pre  = "[ " : repeat ", "
-     return $ case ents of
+ppModelJS :: FilePath -> ModelView -> String
+ppModelJS cwd m = case ents of
                 [] -> "[]"
                 _  -> unlines $ zipWith (++) pre ents ++ ["]"]
+  where vals = modelVals m
+        ents = MapF.foldrWithKey (\k v rest -> ppValsJS cwd k v ++ rest) [] vals
+        pre  = "[ " : repeat ", "
 
 
 

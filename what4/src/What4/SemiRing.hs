@@ -4,7 +4,7 @@ Copyright   : (c) Galois Inc, 2019
 License     : BSD3
 Maintainer  : rdockins@galois.com
 
-Definitions related to semi-ring structures over base types.
+Definitions related to semiring structures over base types.
 
 The algebraic assumptions we make about our semirings are that:
 
@@ -51,7 +51,7 @@ module What4.SemiRing
   , semiRingBase
   , orderedSemiRing
 
-    -- * Semiring coefficents
+    -- * Semiring coefficients
   , Coefficient
   , zero
   , one
@@ -85,11 +85,11 @@ import Numeric.Natural
 import What4.BaseTypes
 
 -- | Data-kind indicating the two flavors of bitvector semirings.
---   The ordinary arithmetic semiring consistes of addition and multiplication,
---   and the "bits" semiring consists of biwise xor and bitwise and.
+--   The ordinary arithmetic semiring consists of addition and multiplication,
+--   and the "bits" semiring consists of bitwise xor and bitwise and.
 data BVFlavor = BVArith | BVBits
 
--- | Data-kind representing the semi-rings What4 supports
+-- | Data-kind representing the semirings What4 supports.
 data SemiRing
   = SemiRingNat
   | SemiRingInteger
@@ -120,14 +120,14 @@ data OrderedSemiRingRepr (sr :: SemiRing) where
   OrderedSemiRingIntegerRepr :: OrderedSemiRingRepr SemiRingInteger
   OrderedSemiRingRealRepr    :: OrderedSemiRingRepr SemiRingReal
 
--- | Compute the base type of the given semiring
+-- | Compute the base type of the given semiring.
 semiRingBase :: SemiRingRepr sr -> BaseTypeRepr (SemiRingBase sr)
 semiRingBase SemiRingNatRepr     = BaseNatRepr
 semiRingBase SemiRingIntegerRepr = BaseIntegerRepr
 semiRingBase SemiRingRealRepr    = BaseRealRepr
 semiRingBase (SemiRingBVRepr _fv w)  = BaseBVRepr w
 
--- | Compute the semiring corresponding to the given ordered semiring
+-- | Compute the semiring corresponding to the given ordered semiring.
 orderedSemiRing :: OrderedSemiRingRepr sr -> SemiRingRepr sr
 orderedSemiRing OrderedSemiRingNatRepr     = SemiRingNatRepr
 orderedSemiRing OrderedSemiRingIntegerRepr = SemiRingIntegerRepr
@@ -139,18 +139,18 @@ type family SemiRingBase (sr :: SemiRing) :: BaseType where
   SemiRingBase SemiRingReal      = BaseRealType
   SemiRingBase (SemiRingBV fv w) = BaseBVType w
 
--- | The constant values in the semiring
+-- | The constant values in the semiring.
 type family Coefficient (sr :: SemiRing) :: Type where
   Coefficient SemiRingNat        = Natural
   Coefficient SemiRingInteger    = Integer
   Coefficient SemiRingReal       = Rational
   Coefficient (SemiRingBV fv w)  = Integer
 
--- | The Occurrence family counts how many times a term occurs
---   in a product.  For most semirings, this is just a natural
---   number representing the an exponent.  For the boolean ring
---   of bitvectors, however, it is unit beacause the lattice operations
---   are idempotent.
+-- | The 'Occurrence' family counts how many times a term occurs in a
+--   product. For most semirings, this is just a natural number
+--   representing the exponent. For the boolean ring of bitvectors,
+--   however, it is unit because the lattice operations are
+--   idempotent.
 type family Occurrence (sr :: SemiRing) :: Type where
   Occurrence SemiRingNat            = Natural
   Occurrence SemiRingInteger        = Natural

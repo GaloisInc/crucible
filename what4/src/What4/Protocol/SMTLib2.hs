@@ -78,8 +78,11 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Exception
 import           Control.Monad.State.Strict
-import           Data.Bits (bit, setBit, shiftL)
-import           Data.Char (digitToInt)
+import qualified Data.Attoparsec.Text as AT
+import           Data.Bits (bit, setBit, shiftL, shiftR, (.&.))
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import           Data.Char (digitToInt, isPrint, isAscii)
 import           Data.IORef
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as Lazy
@@ -98,7 +101,8 @@ import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder
-import           Numeric (readDec, readHex, readInt)
+
+import           Numeric (readDec, readHex, readInt, showHex)
 import           Numeric.Natural
 import qualified System.Exit as Exit
 import qualified System.IO as IO
@@ -182,6 +186,54 @@ arraySelect = SMT2.select
 arrayStore :: Term -> Term -> Term -> Term
 arrayStore = SMT2.store
 
+byteStringTerm :: ByteString -> Term
+byteStringTerm bs = SMT2.T ("\"" <> BS.foldr f "\"" bs)
+ where
+ f w x
+   | '\"' == c = "\"\"" <> x
+   | isPrint c = Builder.singleton c <> x
+   | otherwise = "\\x" <> h1 <> h2  <> x
+  where
+  h1 = Builder.fromString (showHex (w `shiftR` 4) "")
+  h2 = Builder.fromString (showHex (w .&. 0xF) "")
+
+  c :: Char
+  c = toEnum (fromEnum w)
+
+
+unescapeText :: Text -> Maybe ByteString
+unescapeText = go mempty
+ where
+ go bs t =
+   case Text.uncons t of
+     Nothing -> Just bs
+     Just (c, t')
+       | not (isAscii c) -> Nothing
+       | c == '\\'       -> readEscape bs t'
+       | otherwise       -> continue bs c t'
+
+ continue bs c t = go (BS.snoc bs (toEnum (fromEnum c))) t
+
+ readEscape bs t =
+   case Text.uncons t of
+     Nothing -> Nothing
+     Just (c, t')
+       | c == 'a'  -> continue bs '\a' t'
+       | c == 'b'  -> continue bs '\b' t'
+       | c == 'e'  -> continue bs '\x1B' t'
+       | c == 'f'  -> continue bs '\f' t'
+       | c == 'n'  -> continue bs '\n' t'
+       | c == 'r'  -> continue bs '\r' t'
+       | c == 't'  -> continue bs '\t' t'
+       | c == 'v'  -> continue bs '\v' t'
+       | c == 'x'  -> readHexEscape bs t'
+       | otherwise -> continue bs c t'
+
+ readHexEscape bs t =
+   case readHex (Text.unpack (Text.take 2 t)) of
+     (n, []):_ | 0 <= n && n < 256 -> go (BS.snoc bs (toEnum n)) (Text.drop 2 t)
+     _ -> Nothing
+
 -- | This class exists so that solvers supporting the SMTLib2 format can support
 --   features that go slightly beyond the standard.
 --
@@ -192,7 +244,7 @@ arrayStore = SMT2.store
 -- representation of complex numbers if necessary.  The default is to represent
 -- complex numbers as "(Array Bool Real)" and to build instances by updating a
 -- constant array.
-class SMTLib2Tweaks a where
+class Show a => SMTLib2Tweaks a where
   smtlib2tweaks :: a
 
   -- | Return a representation of the type associated with a (multi-dimensional) symbolic
@@ -215,6 +267,33 @@ class SMTLib2Tweaks a where
     case i of
       [] -> error "arrayUpdate given empty list"
       i1:ir -> nestedArrayUpdate a (i1, ir) v
+
+  smtlib2StringSort :: SMT2.Sort
+  smtlib2StringSort = SMT2.Sort "String"
+
+  smtlib2StringTerm :: ByteString -> Term
+  smtlib2StringTerm = byteStringTerm
+
+  smtlib2StringLength :: Term -> Term
+  smtlib2StringLength = SMT2.un_app "str.len"
+
+  smtlib2StringAppend :: [Term] -> Term
+  smtlib2StringAppend = SMT2.term_app "str.++"
+
+  smtlib2StringContains :: Term -> Term -> Term
+  smtlib2StringContains = SMT2.bin_app "str.contains"
+
+  smtlib2StringIndexOf :: Term -> Term -> Term -> Term
+  smtlib2StringIndexOf s t i = SMT2.term_app "str.indexof" [s,t,i]
+
+  smtlib2StringIsPrefixOf :: Term -> Term -> Term
+  smtlib2StringIsPrefixOf = SMT2.bin_app "str.prefixof"
+
+  smtlib2StringIsSuffixOf :: Term -> Term -> Term
+  smtlib2StringIsSuffixOf = SMT2.bin_app "str.suffixof"
+
+  smtlib2StringSubstring :: Term -> Term -> Term -> Term
+  smtlib2StringSubstring x off len = SMT2.term_app "str.substr" [x,off,len]
 
   -- | The sort of structs with the given field types.
   --
@@ -266,6 +345,7 @@ asSMT2Type IntegerTypeMap = SMT2.intSort
 asSMT2Type RealTypeMap    = SMT2.realSort
 asSMT2Type (BVTypeMap w)  = SMT2.bvSort (natValue w)
 asSMT2Type (FloatTypeMap fpp) = SMT2.Sort $ mkFloatSymbol "FloatingPoint" (asSMTFloatPrecision fpp)
+asSMT2Type Char8TypeMap = smtlib2StringSort @a
 asSMT2Type ComplexToStructTypeMap =
   smtlib2StructSort @a [ SMT2.realSort, SMT2.realSort ]
 asSMT2Type ComplexToArrayTypeMap =
@@ -523,6 +603,22 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
     let resolveArg (var, Some tp) = (var, asSMT2Type @a tp)
      in SMT2.defineFun f (resolveArg <$> args) (asSMT2Type @a return_type) e
 
+  stringTerm bs = smtlib2StringTerm @a bs
+  stringLength x = smtlib2StringLength @a x
+  stringAppend xs = smtlib2StringAppend @a xs
+  stringContains x y = smtlib2StringContains @a x y
+  stringIsPrefixOf x y = smtlib2StringIsPrefixOf @a x y
+  stringIsSuffixOf x y = smtlib2StringIsSuffixOf @a x y
+  stringIndexOf x y k = smtlib2StringIndexOf @a x y k
+  stringSubstring x off len = smtlib2StringSubstring @a x off len
+
+  structCtor _tps vals = smtlib2StructCtor @a vals
+
+  structProj tps idx v =
+    let n = Ctx.sizeInt (Ctx.size tps)
+        i = Ctx.indexVal idx
+     in smtlib2StructProj @a n i v
+
   resetDeclaredStructs conn = do
     let r = declaredTuples (connState conn)
     writeIORef r mempty
@@ -536,13 +632,6 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
         Nothing -> return ()
         Just cmd -> addCommand conn cmd
       writeIORef r $! Set.insert n s
-
-  structCtor _conn _tps vals = smtlib2StructCtor @a vals
-
-  structProj _conn tps idx v =
-    let n = Ctx.sizeInt (Ctx.size tps)
-        i = Ctx.indexVal idx
-     in smtlib2StructProj @a n i v
 
   writeCommand conn (SMT2.Cmd cmd) =
     do let cmdout = Lazy.toStrict (Builder.toLazyText cmd)
@@ -605,6 +694,10 @@ parseBVLitHelper (SApp ["_", SAtom (Text.unpack -> ('b' : 'v' : n_str)), SAtom (
   | [(n, "")] <- readDec n_str, [(w, "")] <- readDec w_str = (n, w)
 parseBVLitHelper _ = (0, 0)
 
+parseStringSolverValue :: Monad m => SExp -> m ByteString
+parseStringSolverValue (SString t) | Just bs <- unescapeText t = return bs
+parseStringSolverValue x = fail ("Could not parse string solver value:\n  " ++ show x)
+
 parseFloatSolverValue :: Monad m => SExp -> m Integer
 parseFloatSolverValue (SApp ["fp", sign_s, exponent_s, significant_s])
   | (sign_n, 1) <- parseBVLitHelper sign_s
@@ -658,6 +751,17 @@ data Session t a = Session
   , sessionResponse :: !(Streams.InputStream Text)
   }
 
+parseSMTLib2String :: AT.Parser Text
+parseSMTLib2String = AT.char '\"' >> go
+ where
+ go :: AT.Parser Text
+ go = do xs <- AT.takeWhile (not . (=='\"'))
+         _ <- AT.char '\"'
+         (do _ <- AT.char '\"'
+             ys <- go
+             return (xs <> "\"" <> ys)
+          ) <|> return xs
+
 -- | Get a value from a solver (must be called after checkSat)
 runGetValue :: SMTLib2Tweaks a
             => Session t a
@@ -665,7 +769,7 @@ runGetValue :: SMTLib2Tweaks a
             -> IO SExp
 runGetValue s e = do
   writeGetValue (sessionWriter s) [ e ]
-  msexp <- try $ Streams.parseFromStream parseSExp (sessionResponse s)
+  msexp <- try $ Streams.parseFromStream (parseSExp parseSMTLib2String) (sessionResponse s)
   case msexp of
     Left Streams.ParseException{} -> fail $ "Could not parse solver value."
     Right (SApp [SApp [_, b]]) -> return b
@@ -704,19 +808,20 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
                                            , sessionResponse = s }
 
   smtSatResult p s =
-    do mb <- try (Streams.parseFromStream parseNextWord s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        case mb of
          Left (SomeException e) ->
             fail $ unlines [ "Could not parse check_sat result."
                            , "*** Exception: " ++ displayException e
                            ]
-         Right "unsat" -> return (Unsat ())
-         Right "sat" -> return (Sat ())
-         Right "unknown" -> return Unknown
+         Right (SAtom "unsat") -> return (Unsat ())
+         Right (SAtom "sat") -> return (Sat ())
+         Right (SAtom "unknown") -> return Unknown
+         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error (head $ reverse (checkCommands p)) msg)
          Right res -> throw $ SMTLib2ParseError (checkCommands p) (Text.pack (show res))
 
   smtUnsatAssumptionsResult p s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        let cmd = getUnsatAssumptionsCommand p
        case mb of
          Right (asNegAtomList -> Just as) -> return as
@@ -726,7 +831,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
            throwSMTLib2ParseError "unsat assumptions" cmd e
 
   smtUnsatCoreResult p s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        let cmd = getUnsatCoreCommand p
        case mb of
          Right (asAtomList -> Just nms) -> return nms
@@ -767,7 +872,7 @@ instance Exception SMTLib2Exception
 
 smtAckResult :: Streams.InputStream Text -> AcknowledgementAction t (Writer a)
 smtAckResult resp = AckAction $ \_conn cmd ->
-  do mb <- try (Streams.parseFromStream parseSExp resp)
+  do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) resp)
      case mb of
        Right (SAtom "success") -> return ()
        Right (SAtom "unsupported") -> throw (SMTLib2Unsupported cmd)
@@ -786,12 +891,14 @@ smtLibEvalFuns s = SMTEvalFunctions
                   , smtEvalReal = evalReal
                   , smtEvalFloat = evalFloat
                   , smtEvalBvArray = Just (SMTEvalBVArrayWrapper evalBvArray)
+                  , smtEvalString = evalStr
                   }
   where
   evalBool tm = parseBoolSolverValue =<< runGetValue s tm
   evalBV w tm = parseBvSolverValue w =<< runGetValue s tm
   evalReal tm = parseRealSolverValue =<< runGetValue s tm
   evalFloat tm = parseFloatSolverValue =<< runGetValue s tm
+  evalStr tm = parseStringSolverValue =<< runGetValue s tm
 
   evalBvArray :: SMTEvalBVArrayFn (Writer a) w v
   evalBvArray w v tm = parseBvArraySolverValue w v =<< runGetValue s tm
@@ -891,7 +998,6 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 --   solver-specific tweaks.
 writeDefaultSMT2 :: SMTLib2Tweaks a
                  => a
-                 -> AcknowledgementAction t (Writer a)
                  -> String
                     -- ^ Name of solver for reporting.
                  -> ProblemFeatures
@@ -900,10 +1006,10 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                  -> IO.Handle
                  -> [B.BoolExpr t]
                  -> IO ()
-writeDefaultSMT2 a ack nm feat sym h ps = do
+writeDefaultSMT2 a nm feat sym h ps = do
   bindings <- B.getSymbolVarBimap sym
   str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
-  c <- newWriter a str ack nm True feat True bindings
+  c <- newWriter a str nullAcknowledgementAction nm True feat True bindings
   setProduceModels c True
   forM_ ps (SMTWriter.assume c)
   writeCheckSat c
@@ -1029,7 +1135,7 @@ nameResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
 nameResult _ s =
   let cmd = SMT2.getName
   in
-    try (Streams.parseFromStream parseSExp s) >>=
+    try (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
       \case
         Right (SApp [SAtom ":name", SString nm]) -> pure nm
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
@@ -1043,7 +1149,7 @@ versionResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
 versionResult _ s =
   let cmd = SMT2.getVersion
   in
-    try (Streams.parseFromStream parseSExp s) >>=
+    try (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
       \case
         Right (SApp [SAtom ":version", SString ver]) -> pure ver
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)

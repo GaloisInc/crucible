@@ -17,6 +17,7 @@ import Test.Tasty.HUnit
 
 import           Control.Exception (bracket, try, SomeException)
 import           Control.Monad (void)
+import qualified Data.ByteString as BS
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Map as Map (empty, singleton)
@@ -39,6 +40,7 @@ import What4.Solver.Adapter
 import qualified What4.Solver.CVC4 as CVC4
 import qualified What4.Solver.Z3 as Z3
 import qualified What4.Solver.Yices as Yices
+import What4.Utils.StringLiteral
 
 data State t = State
 data SomePred = forall t . SomePred (BoolExpr t)
@@ -60,12 +62,12 @@ userSymbol' s = case userSymbol s of
   Left e       -> error $ show e
   Right symbol -> symbol
 
-withSym :: (forall t . SimpleExprBuilder t fs -> IO a) -> IO a
-withSym pred_gen = withIONonceGenerator $ \gen ->
-  pred_gen =<< newExprBuilder State gen
+withSym :: FloatModeRepr fm -> (forall t . SimpleExprBuilder t (Flags fm) -> IO a) -> IO a
+withSym floatMode pred_gen = withIONonceGenerator $ \gen ->
+  pred_gen =<< newExprBuilder floatMode State gen
 
-withYices :: (forall t. SimpleExprBuilder t fs -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
-withYices action = withSym $ \sym ->
+withYices :: (forall t. SimpleExprBuilder t (Flags FloatReal) -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
+withYices action = withSym FloatRealRepr $ \sym ->
   do extendConfig Yices.yicesOptions (getConfiguration sym)
      bracket
        (do h <- if debugOutputFiles then Just <$> openFile "yices.out" WriteMode else return Nothing
@@ -74,16 +76,16 @@ withYices action = withSym $ \sym ->
        (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
        (\(_,s) -> action sym s)
 
-withZ3 :: (forall t . SimpleExprBuilder t fs -> Session t Z3.Z3 -> IO ()) -> IO ()
+withZ3 :: (forall t . SimpleExprBuilder t (Flags FloatIEEE) -> Session t Z3.Z3 -> IO ()) -> IO ()
 withZ3 action = withIONonceGenerator $ \nonce_gen -> do
-  sym <- newExprBuilder State nonce_gen
+  sym <- newExprBuilder FloatIEEERepr State nonce_gen
   extendConfig Z3.z3Options (getConfiguration sym)
   Z3.withZ3 sym "z3" defaultLogData { logCallbackVerbose = (\_ -> putStrLn) } (action sym)
 
 withOnlineZ3
-  :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3.Z3) -> IO a)
+  :: (forall t . SimpleExprBuilder t (Flags FloatIEEE) -> SolverProcess t (Writer Z3.Z3) -> IO a)
   -> IO a
-withOnlineZ3 action = withSym $ \sym -> do
+withOnlineZ3 action = withSym FloatIEEERepr $ \sym -> do
   extendConfig Z3.z3Options (getConfiguration sym)
   bracket
     (do h <- if debugOutputFiles then Just <$> openFile "z3.out" WriteMode else return Nothing
@@ -93,9 +95,9 @@ withOnlineZ3 action = withSym $ \sym -> do
     (\(_,s) -> action sym s)
 
 withCVC4
-  :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer CVC4.CVC4) -> IO a)
+  :: (forall t . SimpleExprBuilder t (Flags FloatReal) -> SolverProcess t (Writer CVC4.CVC4) -> IO a)
   -> IO a
-withCVC4 action = withSym $ \sym -> do
+withCVC4 action = withSym FloatRealRepr $ \sym -> do
   extendConfig CVC4.cvc4Options (getConfiguration sym)
   bracket
     (do h <- if debugOutputFiles then Just <$> openFile "cvc4.out" WriteMode else return Nothing
@@ -146,8 +148,8 @@ floatDoubleType = BaseFloatRepr floatDoublePrecision
 
 testInterpretedFloatReal :: TestTree
 testInterpretedFloatReal = testCase "Float interpreted as real" $ do
-  actual   <- withSym $ iFloatTestPred @(Flags FloatReal)
-  expected <- withSym $ \sym -> do
+  actual   <- withSym FloatRealRepr iFloatTestPred
+  expected <- withSym FloatRealRepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- realLit sym 2.0
     e1 <- realAdd sym x e0
@@ -159,8 +161,8 @@ testInterpretedFloatReal = testCase "Float interpreted as real" $ do
 
 testFloatUninterpreted :: TestTree
 testFloatUninterpreted = testCase "Float uninterpreted" $ do
-  actual   <- withSym $ iFloatTestPred @(Flags FloatUninterpreted)
-  expected <- withSym $ \sym -> do
+  actual   <- withSym FloatUninterpretedRepr iFloatTestPred
+  expected <- withSym FloatUninterpretedRepr $ \sym -> do
     let bvtp = BaseBVRepr $ knownNat @32
     rne_rm           <- natLit sym $ fromIntegral $ fromEnum RNE
     rtz_rm           <- natLit sym $ fromIntegral $ fromEnum RTZ
@@ -190,8 +192,8 @@ testFloatUninterpreted = testCase "Float uninterpreted" $ do
 
 testInterpretedFloatIEEE :: TestTree
 testInterpretedFloatIEEE = testCase "Float interpreted as IEEE float" $ do
-  actual   <- withSym $ iFloatTestPred @(Flags FloatIEEE)
-  expected <- withSym $ \sym -> do
+  actual   <- withSym FloatIEEERepr iFloatTestPred
+  expected <- withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- floatLit sym floatSinglePrecision 2.0
     e1 <- floatAdd sym RNE x e0
@@ -296,7 +298,7 @@ testFloatFromBinary = testCase "float from binary" $ withZ3 $ \sym s -> do
 
 testFloatBinarySimplification :: TestTree
 testFloatBinarySimplification = testCase "float binary simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- floatToBinary sym x
     e1 <- floatFromBinary sym floatSinglePrecision e0
@@ -305,7 +307,7 @@ testFloatBinarySimplification = testCase "float binary simplification" $
 testRealFloatBinarySimplification :: TestTree
 testRealFloatBinarySimplification =
   testCase "real float binary simplification" $
-    withSym $ \(sym :: SimpleExprBuilder t (Flags FloatReal)) -> do
+    withSym FloatRealRepr $ \sym -> do
       x  <- freshFloatConstant sym (userSymbol' "x") SingleFloatRepr
       e0 <- iFloatToBinary sym SingleFloatRepr x
       e1 <- iFloatFromBinary sym SingleFloatRepr e0
@@ -313,7 +315,7 @@ testRealFloatBinarySimplification =
 
 testFloatCastSimplification :: TestTree
 testFloatCastSimplification = testCase "float cast simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") floatSingleType
     e0 <- floatCast sym floatDoublePrecision RNE x
     e1 <- floatCast sym floatSinglePrecision RNE e0
@@ -321,7 +323,7 @@ testFloatCastSimplification = testCase "float cast simplification" $
 
 testFloatCastNoSimplification :: TestTree
 testFloatCastNoSimplification = testCase "float cast no simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") floatDoubleType
     e0 <- floatCast sym floatSinglePrecision RNE x
     e1 <- floatCast sym floatDoublePrecision RNE e0
@@ -329,7 +331,7 @@ testFloatCastNoSimplification = testCase "float cast no simplification" $
 
 testBVSelectShl :: TestTree
 testBVSelectShl = testCase "select shl simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- bvLit sym (knownNat @64) 0
     e1 <- bvConcat sym e0 x
@@ -339,7 +341,7 @@ testBVSelectShl = testCase "select shl simplification" $
 
 testBVSelectLshr :: TestTree
 testBVSelectLshr = testCase "select lshr simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- bvConcat sym x =<< bvLit sym (knownNat @64) 0
     e1 <- bvLshr sym e0 =<< bvLit sym knownRepr 64
@@ -513,6 +515,212 @@ pairTest sym solver =
        res2 <- checkSatisfiable solver "test" =<< notPred sym p
        isSat res2 @? "neg sat"
 
+stringTest1 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest1 sym solver =
+  do let bsx = "asdf\nasdf"
+     let bsz = "qwe\x1crty"
+     let bsw = "QQ\"QQ"
+
+     x <- stringLit sym (Char8Literal bsx)
+     y <- freshConstant sym (userSymbol' "str") (BaseStringRepr Char8Repr)
+     z <- stringLit sym (Char8Literal bsz)
+     w <- stringLit sym (Char8Literal bsw)
+
+     s <- stringConcat sym x =<< stringConcat sym y z
+     s' <- stringConcat sym s w
+
+     l <- stringLength sym s'
+
+     n <- natLit sym 25
+     p <- natEq sym n l
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do Char8Literal slit <- groundEval fn s'
+            llit <- groundEval fn n
+
+            (fromIntegral (BS.length slit) == llit) @? "model string length"
+            BS.isPrefixOf bsx slit @? "prefix check"
+            BS.isSuffixOf (bsz <> bsw) slit @? "suffix check"
+
+       _ -> fail "expected satisfiable model"
+
+     p2 <- natEq sym l =<< natLit sym 20
+     checkSatisfiableWithModel solver "test" p2 $ \case
+       Unsat () -> return ()
+       _ -> fail "expected unsatifiable model"
+
+
+stringTest2 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest2 sym solver =
+  do let bsx = "asdf\nasdf"
+     let bsz = "qwe\x1crty"
+     let bsw = "QQ\"QQ"
+
+     q <- freshConstant sym (userSymbol' "q") BaseBoolRepr
+
+     x <- stringLit sym (Char8Literal bsx)
+     z <- stringLit sym (Char8Literal bsz)
+     w <- stringLit sym (Char8Literal bsw)
+
+     a <- freshConstant sym (userSymbol' "stra") (BaseStringRepr Char8Repr)
+     b <- freshConstant sym (userSymbol' "strb") (BaseStringRepr Char8Repr)
+
+     ax <- stringConcat sym x a
+
+     zw <- stringIte sym q z w
+     bzw <- stringConcat sym b zw
+
+     l <- stringLength sym zw
+     n <- natLit sym 7
+
+     p1 <- stringEq sym ax bzw
+     p2 <- natLt sym l n
+     p  <- andPred sym p1 p2
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do axlit <- groundEval fn ax
+            bzwlit <- groundEval fn bzw
+            qlit <- groundEval fn q
+
+            qlit == False @? "correct ite"
+            axlit == bzwlit @? "equal strings"
+
+       _ -> fail "expected satisfable model"
+
+stringTest3 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest3 sym solver =
+  do let bsz = "qwe\x1crtyQQ\"QQ"
+     z <- stringLit sym (Char8Literal bsz)
+
+     a <- freshConstant sym (userSymbol' "stra") (BaseStringRepr Char8Repr)
+     b <- freshConstant sym (userSymbol' "strb") (BaseStringRepr Char8Repr)
+     c <- freshConstant sym (userSymbol' "strc") (BaseStringRepr Char8Repr)
+
+     pfx <- stringIsPrefixOf sym a z
+     sfx <- stringIsSuffixOf sym b z
+
+     cnt1 <- stringContains sym z c
+     cnt2 <- notPred sym =<< stringContains sym c =<< stringLit sym (Char8Literal "Q")
+     cnt3 <- notPred sym =<< stringContains sym c =<< stringLit sym (Char8Literal "q")
+     cnt  <- andPred sym cnt1 =<< andPred sym cnt2 cnt3
+
+     lena <- stringLength sym a
+     lenb <- stringLength sym b
+     lenc <- stringLength sym c
+
+     n <- natLit sym 9
+
+     rnga <- natEq sym lena n
+     rngb <- natEq sym lenb n
+     rngc <- natEq sym lenc =<< natLit sym 6
+     rng  <- andPred sym rnga =<< andPred sym rngb rngc
+
+     p <- andPred sym pfx =<<
+          andPred sym sfx =<<
+          andPred sym cnt rng
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do alit <- fromChar8Lit <$> groundEval fn a
+            blit <- fromChar8Lit <$> groundEval fn b
+            clit <- fromChar8Lit <$> groundEval fn c
+
+            alit == (BS.take 9 bsz) @? "correct prefix"
+            blit == (BS.drop (BS.length bsz - 9) bsz) @? "correct suffix"
+            clit == (BS.take 6 (BS.drop 1 bsz)) @? "correct middle"
+
+       _ -> fail "expected satisfable model"
+
+
+stringTest4 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest4 sym solver =
+  do let bsx = "str"
+     x <- stringLit sym (Char8Literal bsx)
+     a <- freshConstant sym (userSymbol' "stra") (BaseStringRepr Char8Repr)
+     i <- stringIndexOf sym a x =<< natLit sym 5
+
+     zero <- intLit sym 0
+     p <- intLe sym zero i
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+          do alit <- fromChar8Lit <$> groundEval fn a
+             ilit <- groundEval fn i
+
+             BS.isPrefixOf bsx (BS.drop (fromIntegral ilit) alit) @? "correct index"
+             ilit >= 5 @? "index large enough"
+
+       _ -> fail "expected satisfable model"
+
+     np <- notPred sym p
+     lena <- stringLength sym a
+     fv <- natLit sym 5
+     plen <- natLe sym fv lena
+     q <- andPred sym np plen
+
+     checkSatisfiableWithModel solver "test" q $ \case
+       Sat fn ->
+          do alit <- fromChar8Lit <$> groundEval fn a
+             ilit <- groundEval fn i
+
+             not (BS.isInfixOf bsx alit) @? "substring not found"
+             ilit == (-1) @? "expected neg one"
+
+       _ -> fail "expected satisfable model"
+
+stringTest5 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest5 sym solver =
+  do a <- freshConstant sym (userSymbol' "a") (BaseStringRepr Char8Repr)
+     off <- freshConstant sym (userSymbol' "off") BaseNatRepr
+     len <- freshConstant sym (userSymbol' "len") BaseNatRepr
+
+     n5 <- natLit sym 5
+     n20 <- natLit sym 20
+
+     let qlit = "qwerty"
+
+     sub <- stringSubstring sym a off len
+     p1 <- stringEq sym sub =<< stringLit sym (Char8Literal qlit)
+     p2 <- natLe sym n5 off
+     p3 <- natLe sym n20 =<< stringLength sym a
+
+     p <- andPred sym p1 =<< andPred sym p2 p3
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do alit <- fromChar8Lit <$> groundEval fn a
+            offlit <- groundEval fn off
+            lenlit <- groundEval fn len
+
+            let q = BS.take (fromIntegral lenlit) (BS.drop (fromIntegral offlit) alit)
+
+            q == qlit @? "correct substring"
+
+       _ -> fail "expected satisfable model"
+
+
 forallTest ::
   OnlineSolver t solver =>
   SimpleExprBuilder t fs ->
@@ -593,11 +801,7 @@ main = defaultMain $ testGroup "Tests"
   , testCase "Yices pair"    $ withYices pairTest
 
   , testCase "Z3 0-tuple" $ withOnlineZ3 zeroTupleTest
-
-  -- TODO, enable this test when Z3 releases bugfix
-  -- CF https://github.com/Z3Prover/z3/issues/2647
-  -- , testCase "Z3 1-tuple" $ withOnlineZ3 oneTupleTest
-
+  , testCase "Z3 1-tuple" $ withOnlineZ3 oneTupleTest
   , testCase "Z3 pair"    $ withOnlineZ3 pairTest
 
   -- TODO, enable this test when we figure out why it
@@ -608,4 +812,16 @@ main = defaultMain $ testGroup "Tests"
 
   , testCase "Z3 forall binder" $ withOnlineZ3 forallTest
   , testCase "CVC4 forall binder" $ withCVC4 forallTest
+
+  , testCase "Z3 string1" $ withOnlineZ3 stringTest1
+  , testCase "Z3 string2" $ withOnlineZ3 stringTest2
+  , testCase "Z3 string3" $ withOnlineZ3 stringTest3
+  , testCase "Z3 string4" $ withOnlineZ3 stringTest4
+  , testCase "Z3 string5" $ withOnlineZ3 stringTest5
+
+  , testCase "CVC4 string1" $ withCVC4 stringTest1
+  , testCase "CVC4 string2" $ withCVC4 stringTest2
+  , testCase "CVC4 string3" $ withCVC4 stringTest3
+  , testCase "CVC4 string4" $ withCVC4 stringTest4
+  , testCase "CVC4 string5" $ withCVC4 stringTest5
   ]

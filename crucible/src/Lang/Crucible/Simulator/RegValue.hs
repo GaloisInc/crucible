@@ -189,7 +189,7 @@ instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> cplxIte s
 
-instance IsExprBuilder sym => CanMux sym StringType where
+instance IsExprBuilder sym => CanMux sym (StringType si) where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> stringIte s
 
@@ -315,7 +315,7 @@ muxStruct recf ctx = \p x y ->
 
 newtype VariantBranch sym tp = VB { unVB :: PartExpr (Pred sym) (RegValue sym tp) }
 
--- | Construct a 'VariantType' value by identifing which branch of
+-- | Construct a 'VariantType' value by identifying which branch of
 --   the variant to construct, and providing a value of the correct type.
 injectVariant ::
   IsExprBuilder sym =>

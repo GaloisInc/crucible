@@ -205,7 +205,7 @@ type BoolType        = BaseToType BaseBoolType    -- ^ @:: 'CrucibleType'@.
 type BVType w        = BaseToType (BaseBVType w)  -- ^ @:: 'Nat' -> 'CrucibleType'@.
 type ComplexRealType = BaseToType BaseComplexType -- ^ @:: 'CrucibleType'@.
 type IntegerType     = BaseToType BaseIntegerType -- ^ @:: 'CrucibleType'@.
-type StringType      = BaseToType BaseStringType  -- ^ @:: 'CrucibleType'@.
+type StringType si   = BaseToType (BaseStringType si) -- ^ @:: 'StringInfo' -> 'CrucibleType'@.
 type NatType         = BaseToType BaseNatType     -- ^ @:: 'CrucibleType'@.
 type RealValType     = BaseToType BaseRealType    -- ^ @:: 'CrucibleType'@.
 type IEEEFloatType p = BaseToType (BaseFloatType p) -- ^ @:: FloatPrecision -> CrucibleType@
@@ -286,7 +286,7 @@ baseToType bt =
     BaseIntegerRepr -> IntegerRepr
     BaseNatRepr -> NatRepr
     BaseRealRepr -> RealValRepr
-    BaseStringRepr -> StringRepr
+    BaseStringRepr si -> StringRepr si
     BaseBVRepr w -> BVRepr w
     BaseComplexRepr -> ComplexRealRepr
     BaseArrayRepr idx xs -> SymbolicArrayRepr idx xs
@@ -304,7 +304,7 @@ asBaseType tp =
     IntegerRepr -> AsBaseType BaseIntegerRepr
     NatRepr -> AsBaseType BaseNatRepr
     RealValRepr -> AsBaseType BaseRealRepr
-    StringRepr -> AsBaseType BaseStringRepr
+    StringRepr si -> AsBaseType (BaseStringRepr si)
     BVRepr w -> AsBaseType (BaseBVRepr w)
     ComplexRealRepr -> AsBaseType BaseComplexRepr
     SymbolicArrayRepr idx xs ->
@@ -346,7 +346,7 @@ data TypeRepr (tp::CrucibleType) where
    IEEEFloatRepr :: !(FloatPrecisionRepr ps) -> TypeRepr (IEEEFloatType ps)
 
    CharRepr :: TypeRepr CharType
-   StringRepr :: TypeRepr StringType
+   StringRepr :: StringInfoRepr si -> TypeRepr (StringType si)
    FunctionHandleRepr :: !(CtxRepr ctx)
                       -> !(TypeRepr ret)
                       -> TypeRepr (FunctionHandleType ctx ret)
@@ -453,6 +453,7 @@ instance TestEquality TypeRepr where
                    , (U.TypeApp (U.ConType [t|FloatPrecisionRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|CtxRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|]) U.AnyType, [|testEquality|])
+                   , (U.TypeApp (U.ConType [t|StringInfoRepr|])  U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.TypeApp (U.ConType [t|Ctx.Assignment|]) U.AnyType) U.AnyType
                      , [|testEquality|])
@@ -466,6 +467,7 @@ instance OrdF TypeRepr where
                    , (U.TypeApp (U.ConType [t|FloatInfoRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|FloatPrecisionRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|])  U.AnyType, [|compareF|])
+                   , (U.TypeApp (U.ConType [t|StringInfoRepr|])  U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|])      U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|CtxRepr|])      U.AnyType, [|compareF|])
                    , (U.TypeApp (U.TypeApp (U.ConType [t|Ctx.Assignment|]) U.AnyType) U.AnyType

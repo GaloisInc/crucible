@@ -96,6 +96,7 @@ import           Control.Monad.Reader
 import           Control.Monad.ST
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
+import           Data.ByteString (ByteString)
 import           Data.Bits (shiftL)
 import           Data.IORef
 import           Data.Kind
@@ -124,11 +125,12 @@ import           System.IO.Streams (OutputStream)
 import qualified System.IO.Streams as Streams
 
 import           What4.BaseTypes
-import           What4.Interface (ArrayResultWrapper(..), IndexLit(..), RoundingMode(..))
+import           What4.Interface (ArrayResultWrapper(..), IndexLit(..), RoundingMode(..), StringLiteral(..), stringInfo)
 import           What4.ProblemFeatures
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
+import qualified What4.Expr.StringSeq as SSeq
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
 import           What4.ProgramLoc
@@ -139,6 +141,7 @@ import           What4.Utils.AbstractDomains
 import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
+import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
 -- Term construction typeclasses
@@ -154,6 +157,8 @@ data TypeMap (tp::BaseType) where
   RealTypeMap    :: TypeMap BaseRealType
   BVTypeMap      :: (1 <= w) => !(NatRepr w) -> TypeMap (BaseBVType w)
   FloatTypeMap   :: !(FloatPrecisionRepr fpp) -> TypeMap (BaseFloatType fpp)
+  Char8TypeMap   :: TypeMap (BaseStringType Char8)
+
   -- A complex number mapped to an SMTLIB struct.
   ComplexToStructTypeMap:: TypeMap BaseComplexType
   -- A complex number mapped to an SMTLIB array from boolean to real.
@@ -190,11 +195,13 @@ instance Show (TypeMap a) where
   show RealTypeMap              = "RealTypeMap"
   show (BVTypeMap n)            = "BVTypeMap " ++ show n
   show (FloatTypeMap x)         = "FloatTypeMap " ++ show x
+  show Char8TypeMap             = "Char8TypeMap"
   show (ComplexToStructTypeMap) = "ComplexToStructTypeMap"
   show ComplexToArrayTypeMap    = "ComplexToArrayTypeMap"
   show (PrimArrayTypeMap ctx a) = "PrimArrayTypeMap " ++ showF ctx ++ " " ++ showF a
   show (FnArrayTypeMap ctx a)   = "FnArrayTypeMap " ++ showF ctx ++ " " ++ showF a
   show (StructTypeMap ctx)      = "StructTypeMap " ++ showF ctx
+
 
 instance Eq (TypeMap tp) where
   x == y = isJust (testEquality x y)
@@ -204,6 +211,7 @@ instance TestEquality TypeMap where
   testEquality NatTypeMap NatTypeMap = Just Refl
   testEquality IntegerTypeMap IntegerTypeMap = Just Refl
   testEquality RealTypeMap RealTypeMap = Just Refl
+  testEquality Char8TypeMap Char8TypeMap = Just Refl
   testEquality (FloatTypeMap x) (FloatTypeMap y) = do
     Refl <- testEquality x y
     return Refl
@@ -241,6 +249,10 @@ type ArrayConstantFn v
      -> v
      -- ^ Constant to assign all values.
      -> v
+
+-- TODO, I'm not convinced it is valuable to have `SupportTermOps`
+-- be a separate class from `SMTWriter`, and I'm really not sold
+-- on the `Num` superclass constraint.
 
 -- | A class of values containing rational and operations.
 class Num v => SupportTermOps v where
@@ -452,11 +464,11 @@ infix 4 .<=
 ------------------------------------------------------------------------
 -- Term
 
-structComplexRealPart :: SMTWriter h => WriterConn t h -> Term h -> Term h
-structComplexRealPart conn c = structProj conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) (Ctx.natIndex @0) c
+structComplexRealPart :: forall h. SMTWriter h => Term h -> Term h
+structComplexRealPart c = structProj @h (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) (Ctx.natIndex @0) c
 
-structComplexImagPart :: SMTWriter h => WriterConn t h -> Term h -> Term h
-structComplexImagPart conn c = structProj conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) (Ctx.natIndex @1) c
+structComplexImagPart :: forall h. SMTWriter h => Term h -> Term h
+structComplexImagPart c = structProj @h (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) (Ctx.natIndex @1) c
 
 arrayComplexRealPart :: forall h . SMTWriter h => Term h -> Term h
 arrayComplexRealPart c = arraySelect @h c [boolExpr False]
@@ -822,10 +834,38 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   declareStructDatatype :: WriterConn t h -> Ctx.Assignment TypeMap args -> IO ()
 
   -- | Build a struct term with the given types and fields
-  structCtor :: WriterConn t h -> Ctx.Assignment TypeMap args -> [Term h] -> Term h
+  structCtor :: Ctx.Assignment TypeMap args -> [Term h] -> Term h
 
   -- | Project a field from a struct with the given types
-  structProj :: WriterConn t h -> Ctx.Assignment TypeMap args -> Ctx.Index args tp -> Term h -> Term h
+  structProj :: Ctx.Assignment TypeMap args -> Ctx.Index args tp -> Term h -> Term h
+
+  -- | Produce a term representing a string literal
+  stringTerm :: ByteString -> Term h
+
+  -- | Compute the length of a term
+  stringLength :: Term h -> Term h
+
+  -- | @stringIndexOf s t i@ computes the first index following or at i
+  --   where @t@ appears within @s@ as a substring, or -1 if no such
+  --   index exists
+  stringIndexOf :: Term h -> Term h -> Term h -> Term h
+
+  -- | Test if the first string contains the second string
+  stringContains :: Term h -> Term h -> Term h
+
+  -- | Test if the first string is a prefix of the second string
+  stringIsPrefixOf :: Term h -> Term h -> Term h
+
+  -- | Test if the first string is a suffix of the second string
+  stringIsSuffixOf :: Term h -> Term h -> Term h
+
+  -- | @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
+  --   having length @len@.  The result of this operation is undefined if @off@ and @len@
+  --   to not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  stringSubstring :: Term h -> Term h -> Term h -> Term h
+
+  -- | Append the given strings
+  stringAppend :: [Term h] -> Term h
 
   -- | Forget all previously-declared struct types.
   resetDeclaredStructs :: WriterConn t h -> IO ()
@@ -907,6 +947,7 @@ declareTypes conn = \case
   RealTypeMap    -> return ()
   BVTypeMap _ -> return ()
   FloatTypeMap _ -> return ()
+  Char8TypeMap -> return ()
   ComplexToStructTypeMap -> declareStructDatatype conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap)
   ComplexToArrayTypeMap  -> return ()
   PrimArrayTypeMap args ret ->
@@ -1002,7 +1043,7 @@ freshConstant nm tpr = do
 
 data BaseTypeError = ComplexTypeUnsupported
                    | ArrayUnsupported
-                   | StringTypeUnsupported
+                   | StringTypeUnsupported (Some StringInfoRepr)
 
 -- | Given a solver connection and a base type repr, 'typeMap' attempts to
 -- find the best encoding for a variable of that type supported by teh solver.
@@ -1031,7 +1072,8 @@ typeMapFirstClass conn tp0 = do
     BaseRealRepr -> Right RealTypeMap
     BaseNatRepr  -> Right NatTypeMap
     BaseIntegerRepr -> Right IntegerTypeMap
-    BaseStringRepr -> Left StringTypeUnsupported
+    BaseStringRepr Char8Repr -> Right Char8TypeMap
+    BaseStringRepr si -> Left (StringTypeUnsupported (Some si))
     BaseComplexRepr
       | feat `hasProblemFeature` useStructs        -> Right ComplexToStructTypeMap
       | feat `hasProblemFeature` useSymbolicArrays -> Right ComplexToArrayTypeMap
@@ -1058,7 +1100,7 @@ getBaseSMT_Type v = do
           <+> text "variable, and we do not support this with"
           <+> text (smtWriterName conn ++ ".")
   case typeMap conn (bvarType v) of
-    Left  StringTypeUnsupported  -> fail $ errMsg "string"
+    Left  (StringTypeUnsupported (Some si)) -> fail $ errMsg ("string " ++ show si)
     Left  ComplexTypeUnsupported -> fail $ errMsg "complex"
     Left  ArrayUnsupported       -> fail $ errMsg "array"
     Right smtType                -> return smtType
@@ -1152,6 +1194,17 @@ addPartialSideCond _ t (BVTypeMap w) (Just rng) = mapM_ assertRange (BVD.ranges 
       when (hi < maxUnsigned w)
            (addSideCondition "bv_range" $ bvULe t (bvTerm w hi))
 
+addPartialSideCond _ t (Char8TypeMap) (Just (StringAbs len)) =
+  do case natRangeLow len of
+       0 -> return ()
+       lo -> addSideCondition "string length low range" $
+               integerTerm (toInteger lo) .<= stringLength @h t
+     case natRangeHigh len of
+       Unbounded -> return ()
+       Inclusive hi ->
+         addSideCondition "string length high range" $
+           stringLength @h t .<= integerTerm (toInteger hi)
+
 addPartialSideCond _ _ (FloatTypeMap _) (Just ()) = return ()
 
 addPartialSideCond conn t ComplexToStructTypeMap (Just (realRng :+ imagRng)) =
@@ -1171,7 +1224,7 @@ addPartialSideCond conn t (StructTypeMap ctx) (Just abvs) =
         (\start i ->
             do start
                addPartialSideCond conn
-                 (structProj conn ctx i t)
+                 (structProj @h ctx i t)
                  (ctx Ctx.! i)
                  (Just (unwrapAV (abvs Ctx.! i))))
         (return ())
@@ -1376,6 +1429,9 @@ checkVarTypeSupport var = do
     BaseIntegerRepr -> checkIntegerSupport t
     BaseRealRepr    -> checkLinearSupport t
     BaseComplexRepr -> checkLinearSupport t
+    BaseStringRepr _ -> checkStringSupport t
+    BaseFloatRepr _  -> checkFloatSupport t
+    BaseBVRepr _     -> checkBitvectorSupport t
     _ -> return ()
 
 theoryUnsupported :: Monad m => WriterConn t h -> String -> Expr t tp -> m a
@@ -1391,6 +1447,24 @@ checkIntegerSupport t = do
   conn <- asks scConn
   unless (supportedFeatures conn `hasProblemFeature` useIntegerArithmetic) $ do
     theoryUnsupported conn "integer arithmetic" t
+
+checkStringSupport :: Expr t tp -> SMTCollector t h ()
+checkStringSupport t = do
+  conn <- asks scConn
+  unless (supportedFeatures conn `hasProblemFeature` useStrings) $ do
+    theoryUnsupported conn "string" t
+
+checkBitvectorSupport :: Expr t tp -> SMTCollector t h ()
+checkBitvectorSupport t = do
+  conn <- asks scConn
+  unless (supportedFeatures conn `hasProblemFeature` useBitvectors) $ do
+    theoryUnsupported conn "bitvectors" t
+
+checkFloatSupport :: Expr t tp -> SMTCollector t h ()
+checkFloatSupport t = do
+  conn <- asks scConn
+  unless (supportedFeatures conn `hasProblemFeature` useFloatingPoint) $ do
+    theoryUnsupported conn "floating-point arithmetic" t
 
 checkLinearSupport :: Expr t tp -> SMTCollector t h ()
 checkLinearSupport t = do
@@ -1435,7 +1509,7 @@ type SMTSource = String -> BaseTypeError -> Doc
 ppBaseTypeError :: BaseTypeError -> Doc
 ppBaseTypeError ComplexTypeUnsupported = text "complex values"
 ppBaseTypeError ArrayUnsupported = text "arrays encoded as a functions"
-ppBaseTypeError StringTypeUnsupported = text "string values"
+ppBaseTypeError (StringTypeUnsupported (Some si)) = text ("string values " ++ show si)
 
 eltSource :: Expr t tp -> SMTSource
 eltSource e solver_name cause =
@@ -1555,7 +1629,7 @@ defineSMTFunction conn var action =
 -- Mutually recursive functions for translating What4 expressions to SMTLIB definitions.
 
 -- | Convert an expression into a SMT Expression.
-mkExpr :: SMTWriter h => Expr t tp -> SMTCollector t h (SMTExpr h tp)
+mkExpr :: forall h t tp. SMTWriter h => Expr t tp -> SMTCollector t h (SMTExpr h tp)
 mkExpr (BoolExpr b _) =
   return (SMTExpr BoolTypeMap (boolExpr b))
 mkExpr t@(SemiRingLiteral SR.SemiRingNatRepr n _) = do
@@ -1570,9 +1644,15 @@ mkExpr t@(SemiRingLiteral SR.SemiRingRealRepr r _) = do
 mkExpr t@(SemiRingLiteral (SR.SemiRingBVRepr _flv w) x _) = do
   checkLinearSupport t
   return $ SMTExpr (BVTypeMap w) $ bvTerm w x
-mkExpr t@(StringExpr{}) =
-  do conn <- asks scConn
-     theoryUnsupported conn "strings" t
+mkExpr t@(StringExpr l _) =
+  case l of
+    Char8Literal bs -> do
+      checkStringSupport t
+      return $ SMTExpr Char8TypeMap $ stringTerm @h bs
+    _ -> do
+      conn <- asks scConn
+      theoryUnsupported conn ("strings " ++ show (stringLiteralInfo l)) t
+
 mkExpr (NonceAppExpr ea) =
   cacheWriterResult (nonceExprId ea) DeleteOnPop $
     predSMTExpr ea
@@ -1759,7 +1839,7 @@ appSMTExpr ae = do
              <+> text "with solver"
              <+> text (smtWriterName conn ++ ".")
       case typeMap conn btp of
-        Left  StringTypeUnsupported  -> fail $ errMsg "string"
+        Left  (StringTypeUnsupported (Some si)) -> fail $ errMsg ("string " ++ show si)
         Left  ComplexTypeUnsupported -> fail $ errMsg "complex"
         Left  ArrayUnsupported       -> fail $ errMsg "array"
         Right FnArrayTypeMap{}       -> fail $ errMsg "function-backed array"
@@ -2163,6 +2243,73 @@ appSMTExpr ae = do
        | otherwise = bvTerm w (intValue w)
 
     ------------------------------------------
+    -- String operations
+
+    StringLength xe -> do
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          freshBoundTerm NatTypeMap $ stringLength @h x
+        si -> fail ("Unsupported symbolic string length operation " ++  show si)
+
+    StringIndexOf xe ye ke ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          k <- mkBaseExpr ke
+          freshBoundTerm IntegerTypeMap $ stringIndexOf @h x y k
+        si -> fail ("Unsupported symbolic string index-of operation " ++  show si)
+
+    StringSubstring _ xe offe lene ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          off <- mkBaseExpr offe
+          len <- mkBaseExpr lene
+          freshBoundTerm Char8TypeMap $ stringSubstring @h x off len
+        si -> fail ("Unsupported symbolic string substring operation " ++  show si)
+
+    StringContains xe ye ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          freshBoundTerm BoolTypeMap $ stringContains @h x y
+        si -> fail ("Unsupported symbolic string contains operation " ++  show si)
+
+    StringIsPrefixOf xe ye ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          freshBoundTerm BoolTypeMap $ stringIsPrefixOf @h x y
+        si -> fail ("Unsupported symbolic string is-prefix-of operation " ++  show si)
+
+    StringIsSuffixOf xe ye ->
+      case stringInfo xe of
+        Char8Repr -> do
+          checkStringSupport i
+          x <- mkBaseExpr xe
+          y <- mkBaseExpr ye
+          freshBoundTerm BoolTypeMap $ stringIsSuffixOf @h x y
+        si -> fail ("Unsupported symbolic string is-suffix-of operation " ++  show si)
+
+    StringAppend si xes ->
+      case si of
+        Char8Repr -> do
+          checkStringSupport i
+          xs <- mapM (either (return . stringTerm @h . fromChar8Lit) mkBaseExpr) $ SSeq.toList xes
+          freshBoundTerm Char8TypeMap $ stringAppend @h xs
+
+        _ -> fail ("Unsupported symbolic string append operation " ++  show si)
+
+    ------------------------------------------
     -- Floating-point operations
     FloatPZero fpp ->
       freshBoundTerm (FloatTypeMap fpp) $ floatPZero fpp
@@ -2498,7 +2645,7 @@ appSMTExpr ae = do
       case () of
         _ | feat `hasProblemFeature` useStructs -> do
             let tp = ComplexToStructTypeMap
-            let tm = structCtor conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) [asBase rl, asBase img]
+            let tm = structCtor @h (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) [asBase rl, asBase img]
             freshBoundTerm tp tm
 
           | feat `hasProblemFeature` useSymbolicArrays -> do
@@ -2521,7 +2668,7 @@ appSMTExpr ae = do
       c <- mkExpr e
       case smtExprType c of
         ComplexToStructTypeMap ->
-          do let prj = structComplexRealPart conn (asBase c)
+          do let prj = structComplexRealPart @h (asBase c)
              freshBoundTerm RealTypeMap prj
         ComplexToArrayTypeMap ->
           freshBoundTerm RealTypeMap $ arrayComplexRealPart @h (asBase c)
@@ -2529,7 +2676,7 @@ appSMTExpr ae = do
       c <- mkExpr e
       case smtExprType c of
         ComplexToStructTypeMap ->
-          do let prj = structComplexImagPart conn (asBase c)
+          do let prj = structComplexImagPart @h (asBase c)
              freshBoundTerm RealTypeMap prj
         ComplexToArrayTypeMap ->
           freshBoundTerm RealTypeMap $ arrayComplexImagPart @h (asBase c)
@@ -2543,7 +2690,7 @@ appSMTExpr ae = do
       let fld_types = fmapFC smtExprType exprs
 
       liftIO $ declareStructDatatype conn fld_types
-      let tm = structCtor conn fld_types (toListFC asBase exprs)
+      let tm = structCtor @h fld_types (toListFC asBase exprs)
       freshBoundTerm (StructTypeMap fld_types) tm
 
     StructField s idx _tp -> do
@@ -2551,7 +2698,7 @@ appSMTExpr ae = do
       case smtExprType expr of
        StructTypeMap flds -> do
          let tp = flds Ctx.! idx
-         let tm = structProj conn flds idx (asBase expr)
+         let tm = structProj @h flds idx (asBase expr)
          freshBoundTerm tp tm
 
 defineFn :: SMTWriter h
@@ -2701,6 +2848,9 @@ data SMTEvalFunctions h
                         -- and codomain are both bitvectors. If 'Nothing',
                         -- signifies that we should fall back to index-selection
                         -- representation of arrays.
+                      , smtEvalString :: Term h -> IO ByteString
+                        -- ^ Given a SMT term representing as sequence of bytes,
+                        -- return the value as a bytestring.
                       }
 
 -- | Used when we need two way communication with the solver.
@@ -2749,6 +2899,7 @@ getSolverVal _ smtFns BoolTypeMap   tm = smtEvalBool smtFns tm
 getSolverVal _ smtFns (BVTypeMap w) tm = smtEvalBV smtFns (widthVal w) tm
 getSolverVal _ smtFns RealTypeMap   tm = smtEvalReal smtFns tm
 getSolverVal _ smtFns (FloatTypeMap _) tm = smtEvalFloat smtFns tm
+getSolverVal _ smtFns Char8TypeMap tm = Char8Literal <$> smtEvalString smtFns tm
 getSolverVal _ smtFns NatTypeMap    tm = do
   r <- smtEvalReal smtFns tm
   when (denominator r /= 1 && numerator r < 0) $ do
@@ -2758,9 +2909,9 @@ getSolverVal _ smtFns IntegerTypeMap tm = do
   r <- smtEvalReal smtFns tm
   when (denominator r /= 1) $ fail "Expected integer value."
   return (numerator r)
-getSolverVal conn smtFns ComplexToStructTypeMap tm =
-  (:+) <$> smtEvalReal smtFns (structComplexRealPart conn tm)
-       <*> smtEvalReal smtFns (structComplexImagPart conn tm)
+getSolverVal _ smtFns ComplexToStructTypeMap tm =
+  (:+) <$> smtEvalReal smtFns (structComplexRealPart @h tm)
+       <*> smtEvalReal smtFns (structComplexImagPart @h tm)
 getSolverVal _ smtFns ComplexToArrayTypeMap tm =
   (:+) <$> smtEvalReal smtFns (arrayComplexRealPart @h tm)
        <*> smtEvalReal smtFns (arrayComplexImagPart @h tm)
@@ -2783,7 +2934,7 @@ getSolverVal conn smtFns (StructTypeMap flds0) tm =
                 -> TypeMap utp
                 -> IO (GroundValueWrapper utp)
               f flds i tp = GVW <$> getSolverVal conn smtFns tp v
-                where v = structProj conn flds i tm
+                where v = structProj @h flds i tm
 
 -- | The function creates a function for evaluating elts to concrete values
 -- given a connection to an SMT solver along with some functions for evaluating

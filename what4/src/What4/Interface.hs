@@ -65,6 +65,7 @@ module What4.Interface
     SymExpr
   , BoundVar
   , SymFn
+
     -- ** Expression recognizers
   , IsExpr(..)
   , IsSymFn(..)
@@ -136,7 +137,7 @@ module What4.Interface
   , isReal
 
     -- ** Indexing
-  , muxIntegerRange
+  , muxRange
 
     -- * Reexports
   , module Data.Parameterized.NatRepr
@@ -147,13 +148,15 @@ module What4.Interface
   , What4.Symbol.safeSymbol
   , NatValueRange(..)
   , ValueRange(..)
+  , StringLiteral(..)
+  , stringLiteralInfo
   ) where
 
 import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad
-import           Data.Bits
 import           Control.Monad.IO.Class
+import           Data.Bits
 import           Data.Coerce (coerce)
 import           Data.Foldable
 import           Data.Hashable
@@ -168,7 +171,6 @@ import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.Vector as Vector
 import           Data.Ratio
 import           Data.Scientific (Scientific)
-import           Data.Text (Text)
 import           GHC.Generics (Generic)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
@@ -183,7 +185,7 @@ import           What4.Utils.AbstractDomains
 import           What4.Utils.Arithmetic
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
-
+import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
 -- SymExpr names
@@ -215,7 +217,7 @@ type SymArray sym idx b = SymExpr sym (BaseArrayType idx b)
 type SymBV sym n = SymExpr sym (BaseBVType n)
 
 -- | Symbolic strings.
-type SymString sym = SymExpr sym BaseStringType
+type SymString sym si = SymExpr sym (BaseStringType si)
 
 ------------------------------------------------------------------------
 -- Type families for the interface.
@@ -228,6 +230,7 @@ type family SymExpr (sym :: Type) :: BaseType -> Type
 --
 -- This type is used by some methods in class 'IsSymExprBuilder'.
 type family BoundVar (sym :: Type) :: BaseType -> Type
+
 
 ------------------------------------------------------------------------
 -- IsBoolSolver
@@ -301,8 +304,13 @@ class IsExpr e where
   asAffineVar :: e tp -> Maybe (ConcreteVal tp, e tp, ConcreteVal tp)
 
   -- | Return the string value if this is a constant string
-  asString :: e BaseStringType -> Maybe Text
+  asString :: e (BaseStringType si) -> Maybe (StringLiteral si)
   asString _ = Nothing
+
+  stringInfo :: e (BaseStringType si) -> StringInfoRepr si
+  stringInfo e =
+    case exprType e of
+      BaseStringRepr si -> si
 
   -- | Return the unique element value if this is a constant array,
   --   such as one made with 'constantArray'.
@@ -434,7 +442,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 
   -- | Install an action that will be invoked before and after calls to
   --   backend solvers.  This action is primarily intended to be used for
-  --   logging/profiling/debugging purposes.  Passing `Nothing` to this
+  --   logging\/profiling\/debugging purposes.  Passing 'Nothing' to this
   --   function disables logging.
   setSolverLogListener :: sym -> Maybe (SolverEvent -> IO ()) -> IO ()
 
@@ -474,7 +482,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
       BaseRealRepr     -> realEq sym x y
       BaseFloatRepr{}  -> floatEq sym x y
       BaseComplexRepr  -> cplxEq sym x y
-      BaseStringRepr   -> stringEq sym x y
+      BaseStringRepr{} -> stringEq sym x y
       BaseStructRepr{} -> structEq sym x y
       BaseArrayRepr{}  -> arrayEq sym x y
 
@@ -495,7 +503,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
       BaseIntegerRepr  -> intIte    sym c x y
       BaseRealRepr     -> realIte   sym c x y
       BaseFloatRepr{}  -> floatIte  sym c x y
-      BaseStringRepr   -> stringIte sym c x y
+      BaseStringRepr{} -> stringIte sym c x y
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
@@ -1534,20 +1542,42 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   ----------------------------------------------------------------------
   -- String operations
 
+  -- | Create an empty string literal
+  stringEmpty :: sym -> StringInfoRepr si -> IO (SymString sym si)
+
   -- | Create a concrete string literal
-  stringLit :: sym -> Text -> IO (SymString sym)
+  stringLit :: sym -> StringLiteral si -> IO (SymString sym si)
 
   -- | Check the equality of two strings
-  stringEq :: sym -> SymString sym -> SymString sym -> IO (Pred sym)
+  stringEq :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
 
   -- | If-then-else on strings
-  stringIte :: sym -> Pred sym -> SymString sym -> SymString sym -> IO (SymString sym)
+  stringIte :: sym -> Pred sym -> SymString sym si -> SymString sym si -> IO (SymString sym si)
 
   -- | Concatenate two strings
-  stringConcat :: sym -> SymString sym -> SymString sym -> IO (SymString sym)
+  stringConcat :: sym -> SymString sym si -> SymString sym si -> IO (SymString sym si)
+
+  -- | Test if the first string contains the second string as a substring
+  stringContains :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
+
+  -- | Test if the first string is a prefix of the second string
+  stringIsPrefixOf :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
+
+  -- | Test if the first string is a suffix of the second string
+  stringIsSuffixOf :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
+
+  -- | Return the first position at which the second string can be found as a substring
+  --   in the first string, starting from the given index.
+  --   If no such position exists, return a negative value.
+  stringIndexOf :: sym -> SymString sym si -> SymString sym si -> SymNat sym -> IO (SymInteger sym)
 
   -- | Compute the length of a string
-  stringLength :: sym -> SymString sym -> IO (SymNat sym)
+  stringLength :: sym -> SymString sym si -> IO (SymNat sym)
+
+  -- | @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
+  --   having length @len@.  The result of this operation is undefined if @off@ and @len@
+  --   do not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  stringSubstring :: sym -> SymString sym si -> SymNat sym -> SymNat sym -> IO (SymString sym si)
 
   ----------------------------------------------------------------------
   -- Real operations
@@ -2253,7 +2283,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 -- apply this newtype.
 newtype SymBV' sym w = MkSymBV' (SymBV sym w)
 
--- | Join a @Vector@ of smaller bitvectors
+-- | Join a @Vector@ of smaller bitvectors.
 bvJoinVector :: forall sym n w. (1 <= w, IsExprBuilder sym)
              => sym
              -> NatRepr w
@@ -2268,7 +2298,7 @@ bvJoinVector sym w =
                   -> IO (SymBV' sym (w + l))
         bvConcat' _ (MkSymBV' x) (MkSymBV' y) = MkSymBV' <$> bvConcat sym x y
 
--- | Split a bitvector to a @Vector@ of smaller bitvectors
+-- | Split a bitvector to a @Vector@ of smaller bitvectors.
 bvSplitVector :: forall sym n w. (IsExprBuilder sym, 1 <= w, 1 <= n)
               => sym
               -> NatRepr n
@@ -2326,7 +2356,7 @@ data RoundingMode
 instance Hashable RoundingMode
 
 
--- | Create a literal from an indexlit.
+-- | Create a literal from an 'IndexLit'.
 indexLit :: IsExprBuilder sym => sym -> IndexLit idx -> IO (SymExpr sym idx)
 indexLit sym (NatIndexLit i)  = natLit sym i
 indexLit sym (BVIndexLit w v) = bvLit sym w v
@@ -2496,7 +2526,7 @@ baseIsConcrete x =
     BaseBVRepr _    -> isJust $ asUnsignedBV x
     BaseRealRepr    -> isJust $ asRational x
     BaseFloatRepr _ -> False
-    BaseStringRepr  -> isJust $ asString x
+    BaseStringRepr{} -> isJust $ asString x
     BaseComplexRepr -> isJust $ asComplex x
     BaseStructRepr _ -> case asStruct x of
         Just flds -> allFC baseIsConcrete flds
@@ -2520,7 +2550,7 @@ baseDefaultValue sym bt =
     BaseRealRepr    -> return $! realZero sym
     BaseFloatRepr fpp -> floatPZero sym fpp
     BaseComplexRepr -> mkComplexLit sym (0 :+ 0)
-    BaseStringRepr  -> stringLit sym mempty
+    BaseStringRepr si -> stringEmpty sym si
     BaseStructRepr flds -> do
       let f :: BaseTypeRepr tp -> IO (SymExpr sym tp)
           f v = baseDefaultValue sym v
@@ -2691,7 +2721,7 @@ asConcrete x =
     BaseNatRepr    -> ConcreteNat <$> asNat x
     BaseIntegerRepr -> ConcreteInteger <$> asInteger x
     BaseRealRepr    -> ConcreteReal <$> asRational x
-    BaseStringRepr -> ConcreteString <$> asString x
+    BaseStringRepr _si -> ConcreteString <$> asString x
     BaseComplexRepr -> ConcreteComplex <$> asComplex x
     BaseBVRepr w    -> ConcreteBV w <$> asUnsignedBV x
     BaseFloatRepr _ -> Nothing
@@ -2721,34 +2751,37 @@ concreteToSym sym = \case
            arrayUpdate sym arr' i' x'
 
 ------------------------------------------------------------------------
--- muxIntegerRange
+-- muxNatRange
 
-{-# INLINABLE muxIntegerRange #-}
+{-# INLINABLE muxRange #-}
 {- | This function is used for selecting a value from among potential
 values in a range.
 
-@muxIntegerRange p ite f l h@ returns an expression denoting the value obtained
+@muxRange p ite f l h@ returns an expression denoting the value obtained
 from the value @f i@ where @i@ is the smallest value in the range @[l..h]@
 such that @p i@ is true.  If @p i@ is true for no such value, then
 this returns the value @f h@. -}
-muxIntegerRange :: Monad m
-                => (Integer -> m (e BaseBoolType))
-                   -- ^ Returns predicate that holds if we have found the value we are looking
-                   -- for.  It is assumed that the predicate must hold for a unique integer in
-                   -- the range.
-                -> (e BaseBoolType -> a -> a -> m a)
-                   -- ^ Ite function
-                -> (Integer -> m a)
-                   -- ^ Function for concrete values.
-                -> Integer -- ^ Lower bound (inclusive)
-                -> Integer -- ^ Upper bound (inclusive)
-                -> m a
-muxIntegerRange predFn iteFn f l h
+muxRange :: (IsExpr e, Monad m) =>
+   (Natural -> m (e BaseBoolType)) 
+      {- ^ Returns predicate that holds if we have found the value we are looking
+           for.  It is assumed that the predicate must hold for a unique integer in
+           the range.
+      -} ->
+   (e BaseBoolType -> a -> a -> m a) {- ^ Ite function -} ->
+   (Natural -> m a) {- ^ Function for concrete values -} ->
+   Natural {- ^ Lower bound (inclusive) -} ->
+   Natural {- ^ Upper bound (inclusive) -} ->
+   m a
+muxRange predFn iteFn f l h
   | l < h = do
     c <- predFn l
-    match_branch <- f l
-    other_branch <- muxIntegerRange predFn iteFn f (succ l) h
-    iteFn c match_branch other_branch
+    case asConstantPred c of
+      Just True  -> f l
+      Just False -> muxRange predFn iteFn f (succ l) h
+      Nothing ->
+        do match_branch <- f l
+           other_branch <- muxRange predFn iteFn f (succ l) h
+           iteFn c match_branch other_branch
   | otherwise = f h
 
 -- | This provides an interface for converting between Haskell values and a

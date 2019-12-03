@@ -20,6 +20,10 @@ module What4.InterpretedFloatingPoint
   , DoubleDoubleFloat
     -- ** Representations of FloatInfo types
   , FloatInfoRepr(..)
+    -- ** extended 80 bit float values ("long double")
+  , X86_80Val(..)
+  , fp80ToBits
+  , fp80ToRational
     -- ** FloatInfo to/from FloatPrecision
   , FloatInfoToPrecision
   , FloatPrecisionToInfo
@@ -38,15 +42,18 @@ module What4.InterpretedFloatingPoint
   , IsInterpretedFloatSymExprBuilder(..)
   ) where
 
-import           Data.Hashable
-import           Data.Kind
-import           Data.Parameterized.Classes
-import           Data.Parameterized.TH.GADT
-import           GHC.TypeNats
-import           Text.PrettyPrint.ANSI.Leijen
+import Data.Bits
+import Data.Hashable
+import Data.Kind
+import Data.Parameterized.Classes
+import Data.Parameterized.TH.GADT
+import Data.Ratio
+import Data.Word ( Word16, Word64 )
+import GHC.TypeNats
+import Text.PrettyPrint.ANSI.Leijen
 
-import           What4.BaseTypes
-import           What4.Interface
+import What4.BaseTypes
+import What4.Interface
 
 -- | This data kind describes the types of floating-point formats.
 -- This consist of the standard IEEE 754-2008 binary floating point formats,
@@ -105,20 +112,22 @@ type family FloatInfoToPrecision (fi :: FloatInfo) :: FloatPrecision where
   FloatInfoToPrecision HalfFloat   = Prec16
   FloatInfoToPrecision SingleFloat = Prec32
   FloatInfoToPrecision DoubleFloat = Prec64
+  FloatInfoToPrecision X86_80Float = Prec80
   FloatInfoToPrecision QuadFloat   = Prec128
 
 type family FloatPrecisionToInfo (fpp :: FloatPrecision) :: FloatInfo where
   FloatPrecisionToInfo Prec16  = HalfFloat
   FloatPrecisionToInfo Prec32  = SingleFloat
   FloatPrecisionToInfo Prec64  = DoubleFloat
+  FloatPrecisionToInfo Prec80  = X86_80Float
   FloatPrecisionToInfo Prec128 = QuadFloat
 
 type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeNats.Nat where
   FloatInfoToBitWidth HalfFloat         = 16
   FloatInfoToBitWidth SingleFloat       = 32
   FloatInfoToBitWidth DoubleFloat       = 64
-  FloatInfoToBitWidth QuadFloat         = 128
   FloatInfoToBitWidth X86_80Float       = 80
+  FloatInfoToBitWidth QuadFloat         = 128
   FloatInfoToBitWidth DoubleDoubleFloat = 128
 
 floatInfoToPrecisionRepr
@@ -128,7 +137,7 @@ floatInfoToPrecisionRepr = \case
   SingleFloatRepr       -> knownRepr
   DoubleFloatRepr       -> knownRepr
   QuadFloatRepr         -> knownRepr
-  X86_80FloatRepr       -> error "x86_80 is not an IEEE-754 format."
+  X86_80FloatRepr       -> knownRepr -- n.b. semantics TBD, not technically an IEEE-754 format.
   DoubleDoubleFloatRepr -> error "double-double is not an IEEE-754 format."
 
 floatPrecisionToInfoRepr
@@ -139,6 +148,8 @@ floatPrecisionToInfoRepr fpp
   | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec32)
   = knownRepr
   | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec64)
+  = knownRepr
+  | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec80)
   = knownRepr
   | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec128)
   = knownRepr
@@ -155,6 +166,37 @@ floatInfoToBVTypeRepr = \case
   X86_80FloatRepr       -> knownRepr
   DoubleDoubleFloatRepr -> knownRepr
 
+
+-- | Representation of 80-bit floating values, since there's no native
+-- Haskell type for these.
+data X86_80Val = X86_80Val
+                 Word16 -- exponent
+                 Word64 -- significand
+               deriving (Show, Eq, Ord)
+
+fp80ToBits :: X86_80Val -> Integer
+fp80ToBits (X86_80Val ex mantissa) =
+  shiftL (toInteger ex) 64 .|. toInteger mantissa
+
+fp80ToRational :: X86_80Val -> Maybe Rational
+fp80ToRational (X86_80Val ex mantissa)
+    -- infinities/NaN/etc
+  | ex' == 0x7FFF = Nothing
+
+    -- denormal/pseudo-denormal/normal/unnormal numbers
+  | otherwise = Just $! (if s then negate else id) (m * (1 % 2^e))
+
+  where
+  s   = testBit ex 15
+  ex' = ex .&. 0x7FFF
+  m   = (toInteger mantissa) % ((2::Integer)^(63::Integer))
+  e   = 16382 - toInteger ex'
+
+-- Note that the long-double package also provides a representation
+-- for 80-bit floating point values but that package includes
+-- significant FFI compatibility elements which may not be necessary
+-- here; in the future that could be used by defining 'type X86_80Val
+-- = LongDouble'.
 
 -- | Interpretation of the floating point type.
 type family SymInterpretedFloatType (sym :: Type) (fi :: FloatInfo) :: BaseType
@@ -187,6 +229,8 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
   iFloatLitSingle :: sym -> Float -> IO (SymInterpretedFloat sym SingleFloat)
   -- | Create a (double precision) floating point literal.
   iFloatLitDouble :: sym -> Double -> IO (SymInterpretedFloat sym DoubleFloat)
+  -- | Create an (extended double precision) floating point literal.
+  iFloatLitLongDouble :: sym -> X86_80Val -> IO (SymInterpretedFloat sym X86_80Float)
 
   -- | Negate a floating point number.
   iFloatNeg

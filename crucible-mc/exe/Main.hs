@@ -14,7 +14,7 @@ import qualified Data.LLVM.BitCode as BC
 import Lang.Crucible.Types(TypeRepr(..))
 import Lang.Crucible.Backend.Online
           ( Z3OnlineBackend, withZ3OnlineBackend, UnsatFeatures(..)
-          , Flags, FloatIEEE
+          , Flags, FloatIEEE, FloatModeRepr(..)
           )
 import Lang.Crucible.Backend(IsSymInterface)
 import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
@@ -73,7 +73,7 @@ runFrom st =
 withZ3 :: (forall s. Z3OnlineBackend s (Flags FloatIEEE) -> IO a) -> IO a
 withZ3 k =
   withIONonceGenerator $ \nonceGen ->
-  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores k
+  withZ3OnlineBackend FloatIEEERepr nonceGen ProduceUnsatCores k
 
 
 -- | This exception is thrown when we fail to parse a bit-code file.

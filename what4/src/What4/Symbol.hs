@@ -86,7 +86,7 @@ ppSolverSymbolError e =
 newtype SolverSymbol = SolverSymbol { solverSymbolAsText :: Text }
   deriving (Eq, Ord, Hashable)
 
--- | Return the empty symbol
+-- | Return the empty symbol.
 emptySymbol :: SolverSymbol
 emptySymbol = SolverSymbol Text.empty
 

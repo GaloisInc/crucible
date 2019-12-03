@@ -35,6 +35,7 @@ import           What4.SatResult
 import           What4.ProblemFeatures
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
+import           What4.Utils.StringLiteral
 
 
 data SolverAdapter st =
@@ -99,8 +100,8 @@ defaultWriteSMTLIB2Features
   .|. useQuantifiers
   .|. useSymbolicArrays
 
-defaultSolverAdapter :: ConfigOption BaseStringType
-defaultSolverAdapter = configOption BaseStringRepr "default_solver"
+defaultSolverAdapter :: ConfigOption (BaseStringType Unicode)
+defaultSolverAdapter = configOption (BaseStringRepr UnicodeRepr) "default_solver"
 
 
 solverAdapterOptions ::
@@ -118,4 +119,4 @@ solverAdapterOptions xs@(def:_) =
  sty ref = mkOpt defaultSolverAdapter
                  (listOptSty (vals ref))
                  (Just (PP.text "Indicates which solver to use for check-sat queries"))
-                 (Just (ConcreteString (T.pack (solver_adapter_name def))))
+                 (Just (ConcreteString (UnicodeLiteral (T.pack (solver_adapter_name def)))))

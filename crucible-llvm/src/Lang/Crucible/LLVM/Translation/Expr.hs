@@ -92,6 +92,8 @@ import           Lang.Crucible.LLVM.TypeContext
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
+import           What4.InterpretedFloatingPoint (X86_80Val(..))
+
 -------------------------------------------------------------------------
 -- LLVMExpr
 
@@ -319,6 +321,8 @@ liftConstant c = case c of
     return $ BaseExpr (FloatRepr SingleFloatRepr) (App (FloatLit f))
   DoubleConst d ->
     return $ BaseExpr (FloatRepr DoubleFloatRepr) (App (DoubleLit d))
+  LongDoubleConst (L.FP80_LongDouble ex man) ->
+    return $ BaseExpr (FloatRepr X86_80FloatRepr) (App (X86_80Lit (X86_80Val ex man)))
   ArrayConst mt vs ->
     do vs' <- mapM liftConstant vs
        return (VecExpr mt $ Seq.fromList vs')

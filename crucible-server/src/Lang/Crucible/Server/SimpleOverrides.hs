@@ -1,4 +1,4 @@
------------------------------------------------------------------------
+        -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Server.SimpleOverrides
 -- Copyright        : (c) Galois, Inc 2014-2016
@@ -33,7 +33,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           What4.Config
 import           What4.Interface
 import qualified What4.Protocol.SMTLib2 as SMT2
-import           What4.Protocol.SMTWriter (nullAcknowledgementAction)
 import           What4.SatResult
 import           What4.Solver
 import           What4.Solver.Adapter
@@ -123,7 +122,7 @@ checkSatWithYicesOverride = do
 
 type WriteSMTLIB2Args
    = EmptyCtx
-   ::> StringType
+   ::> StringType Unicode
    ::> BoolType
 
 writeSMTLib2Override :: Override p (SimpleBackend n fs) () WriteSMTLIB2Args UnitType
@@ -134,9 +133,9 @@ writeSMTLib2Override = do
         p       = regValue $ args^._2
     sym <- getSymInterface
     case asString file_nm of
-      Just path -> do
+      Just (UnicodeLiteral path) -> do
         liftIO $ withFile (Text.unpack path) WriteMode $ \h ->
-          SMT2.writeDefaultSMT2 () nullAcknowledgementAction "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
+          SMT2.writeDefaultSMT2 () "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
       Nothing -> do
         fail "Expected concrete file name in write_SMTLIB2 override"
 
@@ -151,7 +150,7 @@ writeYicesOverride = do
         p       = regValue $ args^._2
     ctx <- getContext
     case asString file_nm of
-      Just path -> do
+      Just (UnicodeLiteral path) -> do
         let sym = ctx^.ctxSymInterface
         liftIO $ Yices.writeYicesFile sym (Text.unpack path) p
       Nothing -> do

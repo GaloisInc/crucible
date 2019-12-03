@@ -211,7 +211,7 @@ class IsBoolSolver sym where
   getProofObligations :: sym -> IO (ProofObligations sym)
 
   -- | Forget the current collection of proof obligations.
-  -- Presumably, we've already used 'getPathConditions' to save them
+  -- Presumably, we've already used 'getProofObligations' to save them
   -- somewhere else.
   clearProofObligations :: sym -> IO ()
 

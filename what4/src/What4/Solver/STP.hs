@@ -40,7 +40,7 @@ import           What4.Utils.Process
 data STP = STP deriving Show
 
 -- | Path to stp
-stpPath :: ConfigOption BaseStringType
+stpPath :: ConfigOption (BaseStringType Unicode)
 stpPath = configOption knownRepr "stp_path"
 
 stpRandomSeed :: ConfigOption BaseIntegerType
@@ -66,7 +66,7 @@ stpAdapter =
   , solver_adapter_config_options = stpOptions
   , solver_adapter_check_sat  = runSTPInOverride
   , solver_adapter_write_smt2 =
-       SMT2.writeDefaultSMT2 STP nullAcknowledgementAction "STP" defaultWriteSMTLIB2Features
+       SMT2.writeDefaultSMT2 STP "STP" defaultWriteSMTLIB2Features
   }
 
 instance SMT2.SMTLib2Tweaks STP where

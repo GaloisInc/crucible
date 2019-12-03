@@ -56,7 +56,7 @@ intWithRangeOpt nm lo hi = mkOpt nm sty Nothing Nothing
 data CVC4 = CVC4 deriving Show
 
 -- | Path to cvc4
-cvc4Path :: ConfigOption BaseStringType
+cvc4Path :: ConfigOption (BaseStringType Unicode)
 cvc4Path = configOption knownRepr "cvc4_path"
 
 cvc4RandomSeed :: ConfigOption BaseIntegerType
@@ -104,7 +104,12 @@ instance SMT2.SMTLib2Tweaks CVC4 where
 
 cvc4Features :: ProblemFeatures
 cvc4Features = useComputableReals
+           .|. useIntegerArithmetic
            .|. useSymbolicArrays
+           .|. useStrings
+           .|. useStructs
+           .|. useBitvectors
+           .|. useQuantifiers
 
 writeMultiAsmpCVC4SMT2File
    :: ExprBuilder t st fs
@@ -132,9 +137,9 @@ writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 instance SMT2.SMTLib2GenericSolver CVC4 where
   defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
 
-  defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental"]
+  defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental", "--strings-exp"]
 
-  defaultFeatures _ = useIntegerArithmetic
+  defaultFeatures _ = cvc4Features
 
   setDefaultLogicAndOptions writer = do
     -- Tell CVC4 to use all supported logics.
