@@ -119,6 +119,9 @@ data CruxOptions = CruxOptions
 
   , svcompBenchmarks         :: [BenchmarkSet]
     -- ^ Parsed SV-COMP benchmarks to execute
+
+  , svcompBlacklist          :: [String]
+    -- ^ SV-COMP benchmarks to skip
   }
 
 
@@ -210,7 +213,6 @@ cruxOptions = Config
             (pack $ "Select floating point representation,"
              ++ " i.e. one of [real|ieee|uninterpreted|default].\n"
              ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
-          svcompBenchmarks <- pure []
 
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
@@ -219,6 +221,12 @@ cruxOptions = Config
           proofGoalsFailFast <-
             section "proof-goals-fail-fast" yesOrNoSpec False
             "If true, stop attempting to prove goals as soon as one of them is disproved"
+
+          svcompBenchmarks <- pure []
+
+          svcompBlacklist <-
+            section "svcomp-blacklist" (listSpec stringSpec) []
+            "SV-COMP benchmark tasks to skip"
 
           pure CruxOptions { .. }
 

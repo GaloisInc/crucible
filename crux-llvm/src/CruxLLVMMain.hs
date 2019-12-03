@@ -19,7 +19,7 @@ import qualified Data.Foldable as Fold
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
-import Data.List(intercalate)
+import Data.List(intercalate, isSuffixOf)
 import qualified Data.Text as Text
 
 import Data.Binary.IEEE754 as IEEE754
@@ -31,7 +31,7 @@ import System.IO (Handle, stdout)
 import System.FilePath
   ( takeExtension, dropExtension, takeFileName, (</>)
   , takeDirectory, replaceExtension)
-import System.Directory (createDirectoryIfMissing, removeFile, doesFileExist)
+import System.Directory (createDirectoryIfMissing, removeFile, doesFileExist, copyFile)
 
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
@@ -83,6 +83,7 @@ import What4.ProgramLoc
 -- crux
 import qualified Crux
 
+import Crux.Goal
 import Crux.Types
 import Crux.Model
 import Crux.Log
@@ -252,18 +253,56 @@ ppModelC m = unlines
              : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
             where vals = modelVals m
 
+propertyVerdict :: VerificationTask -> Maybe Bool
+propertyVerdict task = foldl f Nothing (verificationProperties task)
+ where
+ comb b Nothing  = Just b
+ comb b (Just x) = Just $! b && x
+
+ f v (CheckNoError _nm, Just b)  = comb b v
+ f v (CheckValidFree, Just b)    = comb b v
+ f v (CheckValidDeref, Just b)   = comb b v
+ f v (CheckDefBehavior, Just b)  = comb b v
+ f v (CheckNoOverflow, Just b)   = comb b v
+ f v _ = v
+
 evaluateBenchmarkLLVM :: Logs => Options -> BenchmarkSet -> IO ()
 evaluateBenchmarkLLVM (cruxOpts,llvmOpts) bs =
     mapM_ evaluateVerificationTask (zip [0::Int ..] (benchmarkTasks bs))
  where
  bsRoot = Crux.outDir cruxOpts </> Text.unpack (benchmarkName bs)
 
+ evaluateVerificationTask (_num,task)
+   | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist cruxOpts ]
+   = putStrLn $ unlines
+        [ "Skipping:"
+        , "  " ++ verificationSourceFile task
+        ]
+
  evaluateVerificationTask (num,task) =
    do let taskRoot = svTaskDirectory bsRoot num task
-      let cruxOpts' = cruxOpts { outDir = taskRoot }
-      putStrLn ("Evaluating: " ++ taskRoot)
+      let srcRoot  = takeDirectory (verificationSourceFile task)
+      let inputs   = map (srcRoot </>) (verificationInputFiles task)
+      let cruxOpts' = cruxOpts { outDir = taskRoot, inputFiles = inputs }
+      putStrLn $ unlines
+        [ "Evaluating:"
+        , "  " ++ taskRoot
+        , "  " ++ verificationSourceFile task
+        ]
       gls <- Crux.runSimulator cruxLLVM (cruxOpts', llvmOpts)
       Crux.generateReport cruxOpts' gls
+      case propertyVerdict task of
+        Nothing -> putStrLn $ unlines (["No verdict to evaluate!"] ++ map show (verificationProperties task))
+        Just True ->
+          if sum (fmap countFailedGoals gls) == 0 then
+            putStrLn "CORRECT"
+          else
+            putStrLn $ unwords ["FAILED! benchmark should be verified"]
+        Just False ->
+          if sum (fmap countFailedGoals gls) == 0 then
+            putStrLn $ unwords ["FAILED! benchmark should contain an error!"]
+          else
+            putStrLn "CORRECT"
 
 -----------------------------------------------------------------------
 -----------------------------------------------------------------------
@@ -577,6 +616,10 @@ genSVCOMPBitCode opts@(cruxOpts,llvmOpts) =
       tgt <- getTarget bs
       mapM_ (processVerificationTask tgt (Text.unpack nm)) (zip [0::Int ..] (benchmarkTasks bs))
 
+ processVerificationTask _tgt _benchName (_num,task)
+   | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist cruxOpts ]
+   = return ()
+
  processVerificationTask tgt benchName (num,task) =
    do let files = verificationInputFiles task
           inputBase = takeDirectory (verificationSourceFile task)
@@ -596,9 +639,11 @@ genSVCOMPBitCode opts@(cruxOpts,llvmOpts) =
       finalBcExists <- doesFileExist finalBCFile
       unless (finalBcExists && lazyCompile llvmOpts) $
         do forM_ srcBCNames $ \(src, srcBC) ->
-              do bcExists <- doesFileExist srcBC
+              do copyFile src (takeDirectory srcBC </> takeFileName src)
+                 copyFile (verificationSourceFile task) (takeDirectory srcBC </> takeFileName (verificationSourceFile task))
+                 bcExists <- doesFileExist srcBC
                  unless (bcExists && lazyCompile llvmOpts) $
-                   runClang' opts (params (src, srcBC))
+                   do runClang' opts (params (src, srcBC))
            llvmLink opts (map snd srcBCNames) finalBCFile
 
  getTarget bs =
