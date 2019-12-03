@@ -960,10 +960,14 @@ evaluateExpr sym sc cache = f []
            n <- SC.scNat sc (natValue (bvWidth x))
            join (SC.scBvURem sc n <$> f env x <*> f env y)
         B.BVSdiv _ x y -> fmap SAWExpr $ do
-           n <- SC.scNat sc (natValue (bvWidth x))
+           -- NB: bvSDiv applies 'Succ' to its width argument, so we
+           -- need to subtract 1 to make the types match.
+           n <- SC.scNat sc (natValue (bvWidth x) - 1)
            join (SC.scBvSDiv sc n <$> f env x <*> f env y)
         B.BVSrem _ x y -> fmap SAWExpr $ do
-           n <- SC.scNat sc (natValue (bvWidth x))
+           -- NB: bvSDiv applies 'Succ' to its width argument, so we
+           -- need to subtract 1 to make the types match.
+           n <- SC.scNat sc (natValue (bvWidth x) - 1)
            join (SC.scBvSRem sc n <$> f env x <*> f env y)
         B.BVShl _ x y -> fmap SAWExpr $ do
            let w = natValue (bvWidth x)
