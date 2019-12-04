@@ -23,8 +23,13 @@ translate lib/libcore/lib.rs --crate-name core \
     --cfg ascii --cfg char --cfg unicode \
     --cfg slice_sort \
     --cfg time --cfg simd --cfg sync \
-    --cfg slice_u8 
-    #--cfg str --cfg str_lossy --cfg memchr --cfg str_pattern --cfg str_case
+    --cfg slice_u8 \
+    --cfg str --cfg str_lossy --cfg memchr --cfg str_pattern --cfg str_case \
+    --cfg flt2dec \
+    --cfg from_str --cfg dec2flt \
+    --cfg any_downcast \
+    --cfg hash \
+    # --cfg fmt   # trouble with integer formatting in bounds check panics
 
 translate lib/compiler_builtins.rs --cfg 'feature="compiler-builtins"' --cfg stage0
 translate lib/crucible/lib.rs --crate-name crucible
