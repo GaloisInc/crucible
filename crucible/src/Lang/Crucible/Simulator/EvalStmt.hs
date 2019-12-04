@@ -310,10 +310,10 @@ stepStmt verb stmt rest =
        Assert c_expr msg_expr ->
          do c <- evalReg c_expr
             msg <- evalReg msg_expr
-            let msg' = case asString msg of
-                         Just (UnicodeLiteral txt) -> Text.unpack txt
-                         _ -> show (printSymExpr msg)
-            liftIO $ assert sym c (AssertFailureSimError msg')
+            let err = case asString msg of
+                         Just (UnicodeLiteral txt) -> AssertFailureSimError (Text.unpack txt) ""
+                         _ -> AssertFailureSimError "Symbolic message" (show (printSymExpr msg))
+            liftIO $ assert sym c err
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
        Assume c_expr msg_expr ->

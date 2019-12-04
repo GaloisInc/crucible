@@ -262,6 +262,18 @@ class HasStructuredAssertions (ext :: Type) where
                , "else " <$$> indent 2 doc2
                ])
 
+  summarizeTree :: (IsExprBuilder sym, IsExpr (SymExpr sym))
+                => proxy ext
+                -> AssertionClassifierTree ext (RegValue' sym)
+                -> Doc
+  summarizeTree proxyExt =
+    hsep . punctuate comma .
+    cataMAT
+      (\ac -> [explain proxyExt ac])
+      (\factors -> toList factors)
+      (\summands -> toList summands)
+      (\_cond doc1 doc2 -> [doc1, doc2])
+
 -- | Take a partial value and assert its safety
 assertSafe :: ( MonadIO io
               , IsSymInterface sym
@@ -274,7 +286,7 @@ assertSafe :: ( MonadIO io
 assertSafe proxyExt sym (Partial tree a) = do
   pred <- treeToPredicate proxyExt sym tree
   -- TODO: Should SimErrorReason have another constructor for this?
-  let rsn = AssertFailureSimError (show (explainTree proxyExt (Just sym) tree))
+  let rsn = AssertFailureSimError (show (summarizeTree proxyExt tree)) (show (explainTree proxyExt (Just sym) tree))
   liftIO $ assert sym pred rsn
   pure a
 

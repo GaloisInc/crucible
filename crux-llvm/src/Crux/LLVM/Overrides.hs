@@ -402,7 +402,7 @@ lib_assert mvar =
                      msg = BS8.unpack file ++ lnMsg ++ ": user assertion."
                  cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 let rsn = AssertFailureSimError msg
+                 let rsn = AssertFailureSimError "Call to crucible_assert" msg
                  check <- notPred sym =<< bvEq sym cond zero
                  assert sym check rsn
 
@@ -490,8 +490,8 @@ sv_comp_assert =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 let msg = "call to __VERIFIER_assert"
-                     rsn = AssertFailureSimError msg
+                 let msg = "Call to __VERIFIER_assert"
+                     rsn = AssertFailureSimError msg ""
                  check <- notPred sym =<< bvEq sym cond zero
                  assert sym check rsn
 
@@ -500,5 +500,5 @@ sv_comp_error ::
   Fun sym (LLVM arch) args UnitType
 sv_comp_error =
   do sym  <- getSymInterface
-     let rsn = AssertFailureSimError "call to __VERIFIER_error"
+     let rsn = AssertFailureSimError "Call to __VERIFIER_error" ""
      liftIO $ addFailedAssertion sym rsn

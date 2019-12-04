@@ -45,7 +45,6 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   , UndefinedBehavior(..)
   , cite
   , explain
-  , briefDescription
   , ppReg
   -- , ppExpr
 
@@ -288,43 +287,6 @@ cite = text .
     DereferenceBadAlignment -> "§6.5.3.2 Address and indirection operators"
     ModifiedStringLiteral   -> "§J.2 Undefined behavior"
     -}
-
--- | Give a very brief description for each type of undefined behavior.
---
--- This is typically similar to the text of the data constructor name.
-briefDescription :: UndefinedBehavior e -> Doc
-briefDescription =
-  \case
-
-    -- -------------------------------- Memory management
-
-    FreeBadOffset _           -> "free of non-base pointer"
-    FreeUnallocated _         -> "free of unallocated memory"
-    MemsetInvalidRegion{}     -> "memset of invalid memory region"
-    ReadBadAlignment _ _      -> "incorrectly aligned memory read"
-    ReadUnallocated _         -> "read from unallocated memory"
-
-    -- -------------------------------- Pointer arithmetic
-
-    PtrAddOffsetOutOfBounds _ _ -> "out-of-bounds pointer created"
-    CompareInvalidPointer{}     -> "comparison with invalid pointer"
-    CompareDifferentAllocs _ _  -> "comparison of pointers from different allocations"
-    PtrSubDifferentAllocs _ _   -> "subtraction of pointers from different allocations"
-    ComparePointerToBV _ _      -> "comparison of pointer with non-zero integer"
-    PointerCast _ _             -> "pointer cast to non-integer type"
-
-    -- -------------------------------- LLVM: arithmetic
-
-    UDivByZero _     -> "unsigned division by zero"
-    SDivByZero _     -> "signed division by zero"
-    URemByZero _     -> "unsigned remainder by zero"
-    SRemByZero _     -> "signed remainder by zero"
-    SDivOverflow _ _ -> "signed division overflow"
-    SRemOverflow _ _ -> "signed remainder overflow"
-
-    ----------------------------------- Other
-
-    Other _ -> "other error"
 
 -- | What happened, and why is it a problem?
 --

@@ -692,7 +692,7 @@ callPrintf sym mvar
     mem <- readGlobal mvar
     formatStr <- liftIO $ loadString sym mem strPtr Nothing
     case parseDirectives formatStr of
-      Left err -> overrideError $ AssertFailureSimError err
+      Left err -> overrideError $ AssertFailureSimError "Format string parsing failed" err
       Right ds -> do
         ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
         writeGlobal mvar mem'
@@ -720,12 +720,13 @@ printfOps sym valist =
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords ["Type mismatch in printf.  Expected integer, but got:"
-                        , show tpr]
+                "Type mismatch in printf"
+                (unwords ["Expected integer, but got:", show tpr])
        Nothing ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
+               "Out-of-bounds argument access in printf"
+               (unwords ["Index:", show i])
 
   , printfGetFloat = \i _len ->
      case valist V.!? (i-1) of
@@ -735,12 +736,13 @@ printfOps sym valist =
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected floating-point, but got:", show tpr]
+                "Type mismatch in printf."
+                (unwords ["Expected floating-point, but got:", show tpr])
        Nothing ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
+                "Out-of-bounds argument access in printf:"
+                (unwords ["Index:", show i])
 
   , printfGetString  = \i numchars ->
      case valist V.!? (i-1) of
@@ -750,12 +752,13 @@ printfOps sym valist =
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected char*, but got:", show tpr]
+                "Type mismatch in printf."
+                (unwords ["Expected char*, but got:", show tpr])
        Nothing ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
+                "Out-of-bounds argument access in printf:"
+                (unwords ["Index:", show i])
 
   , printfGetPointer = \i ->
      case valist V.!? (i-1) of
@@ -764,12 +767,13 @@ printfOps sym valist =
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected void*, but got:", show tpr]
+                "Type mismatch in printf."
+                (unwords ["Expected void*, but got:", show tpr])
        Nothing ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
+                "Out-of-bounds argument access in printf:"
+                (unwords ["Index:", show i])
 
   , printfSetInteger = \i len v ->
      case valist V.!? (i-1) of
@@ -808,13 +812,14 @@ printfOps sym valist =
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected void*, but got:", show tpr]
+                "Type mismatch in printf."
+                (unwords ["Expected void*, but got:", show tpr])
 
        Nothing ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
+                "Out-of-bounds argument access in printf:"
+                (unwords ["Index:", show i])
   }
 
 ------------------------------------------------------------------------
@@ -847,7 +852,7 @@ llvmAssertRtnOverride =
   (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> PtrRepr)
   UnitRepr
   (\_ sym _args ->
-       do let err = AssertFailureSimError "Call to __assert_rtn"
+       do let err = AssertFailureSimError "Call to __assert_rtn" ""
           liftIO $ assert sym (falsePred sym) err
   )
 
@@ -869,7 +874,7 @@ llvmAbortOverride =
   Empty
   UnitRepr
   (\_ sym _args ->
-       do let err = AssertFailureSimError "Call to abort"
+       do let err = AssertFailureSimError "Call to abort" ""
           liftIO $ assert sym (falsePred sym) err
   )
 

@@ -125,12 +125,5 @@ jsSideCond cwd path asmps (conc,_) triv status =
           -- , "text" ~> jsStr (show (ppAssumptionReason asmp))
           ]
 
-  goalReason = renderReason (simErrorReasonMsg (simErrorReason conc))
-  renderReason rsn =
-    case lines rsn of
-      l1 : l2 : _ | "Undefined behavior" `isInfixOf` l1 -> l2
-      l1 : _ -> takeFileName l1
-      _ -> "no reason?"
-
-
+  goalReason = simErrorReasonMsg (simErrorReason conc)
 

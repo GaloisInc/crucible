@@ -193,10 +193,8 @@ assertSafe :: (IsSymInterface sym)
            -> IO (LLVMVal sym)
 assertSafe sym (NoErr v) = Safety.assertSafe (Proxy :: Proxy (LLVM arch)) sym v
 assertSafe sym (Err e)   = do
-  let msg = unlines [ "Error during memory load: "
-                    , show (ppMemoryLoadError e)
-                    ]
-  addFailedAssertion sym $ AssertFailureSimError msg
+  let msg = show (ppMemoryLoadError e)
+  addFailedAssertion sym $ AssertFailureSimError "Error during memory load" msg
 
 -- | Get a pretty version of the assertion attached to this value
 ppAssertion :: (IsSymInterface sym)

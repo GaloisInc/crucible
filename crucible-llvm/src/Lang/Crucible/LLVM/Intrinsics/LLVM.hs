@@ -1089,25 +1089,22 @@ callX86_pclmulqdq sym _mvar
   (regValue -> ys)
   (regValue -> imm) =
     do unless (V.length xs == 2) $
-          liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
-           ["Vector length mismatch in llvm.x86.pclmulqdq intrinsic"
-           ,"Expected <2 x i64>, but got vector of length ", show (V.length xs)
-           ]
+          liftIO $ addFailedAssertion sym $ AssertFailureSimError
+           ("Vector length mismatch in llvm.x86.pclmulqdq intrinsic")
+           (unwords ["Expected <2 x i64>, but got vector of length", show (V.length xs)])
        unless (V.length ys == 2) $
-          liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
-           ["Vector length mismatch in llvm.x86.pclmulqdq intrinsic"
-           ,"Expected <2 x i64>, but got vector of length ", show (V.length ys)
-           ]
+          liftIO $ addFailedAssertion sym $ AssertFailureSimError
+           ("Vector length mismatch in llvm.x86.pclmulqdq intrinsic")
+           (unwords ["Expected <2 x i64>, but got vector of length", show (V.length ys)])
        case asUnsignedBV imm of
          Just byte ->
            do let xidx = if byte .&. 0x01 == 0 then 0 else 1
               let yidx = if byte .&. 0x10 == 0 then 0 else 1
               liftIO $ doPcmul (xs V.! xidx) (ys V.! yidx)
          _ ->
-             liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
-                ["Illegal selector argument to llvm.x86.pclmulqdq"
-                ,"  Expected concrete value but got ", show (printSymExpr imm)
-                ]
+             liftIO $ addFailedAssertion sym $ AssertFailureSimError
+                ("Illegal selector argument to llvm.x86.pclmulqdq")
+                (unwords ["Expected concrete value but got", show (printSymExpr imm)])
   where
   doPcmul :: SymBV sym 64 -> SymBV sym 64 -> IO (V.Vector (SymBV sym 64))
   doPcmul x y =
@@ -1129,10 +1126,9 @@ callStoreudq sym mvar
   (regValue -> vec) =
     do mem <- readGlobal mvar
        unless (V.length vec == 16) $
-          liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
-           ["Vector length mismatch in stored_qu intrinsic."
-           ,"Expected <16 x i8>, but got vector of length ", show (V.length vec)
-           ]
+          liftIO $ addFailedAssertion sym $ AssertFailureSimError
+           ("Vector length mismatch in stored_qu intrinsic.")
+           (unwords ["Expected <16 x i8>, but got vector of length", show (V.length vec)])
        mem' <- liftIO $ doStore
                  sym
                  mem
@@ -1208,7 +1204,7 @@ callCtlz sym _mvar
     do isNonzero <- bvIsNonzero sym val
        zeroOK    <- notPred sym =<< bvIsNonzero sym isZeroUndef
        p <- orPred sym isNonzero zeroOK
-       assert sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
+       assert sym p (AssertFailureSimError "Ctlz called with disallowed zero value" "")
        bvCountLeadingZeros sym val
 
 callSaddWithOverflow
@@ -1309,7 +1305,7 @@ callCttz sym _mvar
     do isNonzero <- bvIsNonzero sym val
        zeroOK    <- notPred sym =<< bvIsNonzero sym isZeroUndef
        p <- orPred sym isNonzero zeroOK
-       assert sym p (AssertFailureSimError "Cttz called with disallowed zero value")
+       assert sym p (AssertFailureSimError "Cttz called with disallowed zero value" "")
        bvCountTrailingZeros sym val
 
 callCtpop
