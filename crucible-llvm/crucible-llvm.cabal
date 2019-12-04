@@ -23,6 +23,7 @@ library
     directory,
     ghc-prim,
     extra,
+    filepath,
     hashable,
     hashtables,
     lens,

@@ -679,7 +679,7 @@ bvashr = bin_app "bvashr"
 --
 -- Note. This is in @QF_BV@, but not the bitvector theory.
 bvsdiv :: Term -> Term -> Term
-bvsdiv = bin_app "bvudiv"
+bvsdiv = bin_app "bvsdiv"
 
 -- | @bvsrem x y@ returns @x - y * bvsdiv x y@ when @y != 0@.
 --
