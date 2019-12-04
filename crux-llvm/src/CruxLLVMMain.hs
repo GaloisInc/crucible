@@ -174,6 +174,7 @@ simulateLLVM :: Crux.SimulateCallback LLVMOptions
 simulateLLVM fs (cruxOpts,llvmOpts) sym _p cont = do
     llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
+    let ?laxArith = laxArithmetic llvmOpts
     Some trans <- translateModule halloc llvm_mod
     let llvmCtxt = trans ^. transContext
 
@@ -259,6 +260,7 @@ data LLVMOptions = LLVMOptions
   , libDir     :: FilePath
   , incDirs    :: [FilePath]
   , memOpts    :: MemOptions
+  , laxArithmetic :: Bool
   }
 
 cruxLLVM :: Crux.Language LLVMOptions
@@ -292,6 +294,9 @@ cruxLLVM = Crux.Language
                                "Allow equality comparisons between pointers to constant data"
                            return MemOptions{..}
 
+             laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
+                               "Do not produce proof obligations related to arithmetic overflow, etc."
+
              return LLVMOptions { .. }
 
       , Crux.cfgEnv  =
@@ -315,6 +320,11 @@ cruxLLVM = Crux.Language
             "Turn on lax rules for pointer comparisons"
             $ Crux.NoArg
             $ \opts -> Right opts{ memOpts = laxPointerMemOptions }
+
+          , Crux.Option [] ["lax-arithmetic"]
+            "Turn on lax rules for arithemetic overflow"
+            $ Crux.NoArg
+            $ \opts -> Right opts { laxArithmetic = True }
           ]
       }
 

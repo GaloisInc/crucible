@@ -178,8 +178,8 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 
 
 -- | Generate crucible code for each LLVM statement in turn.
-generateStmts
-        :: TypeRepr ret
+generateStmts :: (?laxArith :: Bool)
+        => TypeRepr ret
         -> L.BlockLabel
         -> [L.Stmt]
         -> LLVMGenerator s arch ret a
@@ -281,7 +281,8 @@ findFile _ = Nothing
 -- | Lookup the block info for the given LLVM block and then define a new crucible block
 --   by translating the given LLVM statements.
 defineLLVMBlock
-        :: TypeRepr ret
+        :: (?laxArith :: Bool)
+        => TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
         -> LLVMGenerator s arch ret ()
@@ -298,7 +299,8 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --
 --   This step introduces a new dummy entry point that simply jumps to the LLVM entry
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
-genDefn :: L.Define
+genDefn :: (?laxArith :: Bool)
+        => L.Define
         -> TypeRepr ret
         -> LLVMGenerator s arch ret (Expr (LLVM arch) s ret)
 genDefn defn retType =
@@ -327,7 +329,7 @@ genDefn defn retType =
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: forall arch wptr.
-               (HasPtrWidth wptr, wptr ~ ArchWidth arch)
+               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool)
             => LLVMContext arch
             -> L.Define
             -> IO (L.Symbol, C.AnyCFG (LLVM arch))
@@ -382,7 +384,8 @@ insDeclareHandle halloc ctx decl = do
 -- | Translate a module into Crucible control-flow graphs.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
-translateModule :: HandleAllocator -- ^ Generator for nonces.
+translateModule :: (?laxArith :: Bool)
+                => HandleAllocator -- ^ Generator for nonces.
                 -> L.Module        -- ^ Module to translate
                 -> IO (Some ModuleTranslation)
 translateModule halloc m = do
