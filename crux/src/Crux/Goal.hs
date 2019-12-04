@@ -109,7 +109,7 @@ proveGoals ::
 
 proveGoals opts _ctxt Nothing =
   do case pathStrategy opts of
-       AlwaysMergePaths -> sayOK "Crux" $ unwords [ "No goals to prove." ]
+       AlwaysMergePaths -> sayOK "Crux" $ unwords [ "All goals discharged through internal simplification." ]
        _ -> return ()
      return Nothing
 
