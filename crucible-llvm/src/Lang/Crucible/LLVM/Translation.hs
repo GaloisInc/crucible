@@ -94,6 +94,7 @@ import Data.Maybe
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text   as Text
+import System.FilePath
 
 import qualified Text.LLVM.AST as L
 
@@ -247,8 +248,10 @@ setLocation (x:xs) =
 
  where
  getFile = Text.pack . maybe "" filenm . findFile
- filenm di = L.difDirectory di ++ "/" ++ L.difFilename di
 
+ filenm di
+   | isRelative (L.difFilename di) = L.difDirectory di </> L.difFilename di
+   | otherwise = L.difFilename di
 
 findFile :: (?lc :: TypeContext) => L.ValMd -> Maybe L.DIFile
 findFile (L.ValMdRef x) = findFile =<< lookupMetadata x
