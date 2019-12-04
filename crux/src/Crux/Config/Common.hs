@@ -77,6 +77,9 @@ data CruxOptions = CruxOptions
     -- ^ Should the MC-SAT Yices solver be enabled (disables unsat cores; default: no)
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
+
+  , proofGoalsFailFast       :: Bool
+    -- ^ If true, stop attempting to prove goals as soon as one is disproved
   }
 
 
@@ -151,6 +154,10 @@ cruxOptions = Config
             (pack $ "Select floating point representation,"
              ++ " i.e. one of [real|ieee|uninterpreted|default].\n"
              ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
+
+          proofGoalsFailFast <-
+            section "proof-goals-fail-fast" yesOrNoSpec False
+            "If true, stop attempting to prove goals as soon as one of them is disproved"
 
           pure CruxOptions { .. }
 
@@ -230,6 +237,10 @@ cruxOptions = Config
       , Option [] ["mcsat"]
         "Enable the MC-SAT solver in Yices (disables unsat cores)"
         $ NoArg $ \opts -> Right opts { yicesMCSat = True }
+
+      , Option [] ["fail-fast"]
+        "Stop attempting to prove goals as soon as one of them is disproved"
+        $ NoArg $ \opts -> Right opts { proofGoalsFailFast = True }
 
       , Option "f" ["floating-point"]
         ("Select floating point representation,"

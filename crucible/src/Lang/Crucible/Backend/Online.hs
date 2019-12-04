@@ -116,7 +116,7 @@ unsatFeaturesToProblemFeatures x =
     ProduceUnsatCores -> useUnsatCores
     ProduceUnsatAssumptions -> useUnsatAssumptions
 
-solverInteractionFile :: ConfigOption BaseStringType
+solverInteractionFile :: ConfigOption (BaseStringType Unicode)
 solverInteractionFile = configOption knownRepr "solverInteractionFile"
 
 onlineBackendOptions :: [ConfigDesc]

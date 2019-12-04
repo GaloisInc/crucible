@@ -5,7 +5,7 @@
 module Crux.Goal where
 
 import Control.Lens ((^.), view)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, when)
 import Data.Either (partitionEithers)
 import Data.IORef
 import Data.Maybe (fromMaybe)
@@ -116,16 +116,18 @@ proveGoals opts _ctxt Nothing =
 proveGoals opts ctxt (Just gs0) =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
-     goalNum <- newIORef (0,0) -- total, proved
+     goalNum <- newIORef (0,0,0) -- total, proved, disproved
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
       sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
-     (tot,proved) <- readIORef goalNum
+     (tot,proved,disproved) <- readIORef goalNum
      if proved /= tot
        then sayFail "Crux" $ unwords
-             [ "Failed to prove", show (tot - proved)
-             , "out of", show tot, "goals." ]
+             [ "Disproved", show disproved
+             , "out of", show tot, "goals."
+             , show (tot - proved - disproved), "goals are unknown."
+             ]
        else sayOK "Crux" $ unwords [ "Proved all", show tot, "goals." ]
      return (Just res)
   where
@@ -134,6 +136,8 @@ proveGoals opts ctxt (Just gs0) =
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
 
   hasUnsatCores = not (yicesMCSat opts)
+
+  failfast = proofGoalsFailFast opts
 
   go sp gn gs nameMap = do
     case gs of
@@ -147,7 +151,7 @@ proveGoals opts ctxt (Just gs0) =
            return (Assuming ps res)
 
       Prove p ->
-        do num <- atomicModifyIORef' gn (\(val,y) -> ((val + 1,y), val))
+        do num <- atomicModifyIORef' gn (\(val,y,z) -> ((val + 1,y,z), val))
            start num
            let sym  = ctxt ^. ctxSymInterface
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
@@ -156,7 +160,7 @@ proveGoals opts ctxt (Just gs0) =
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->
-                        do modifyIORef' gn (\(x,f) -> (x,f+1))
+                        do modifyIORef' gn (\(x,u,s) -> (x,u+1,s))
                            namemap <- readIORef nameMap
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
@@ -164,7 +168,9 @@ proveGoals opts ctxt (Just gs0) =
                            return (Prove (p, (Proved core)))
 
                       Sat ()  ->
-                        do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
+                        do modifyIORef' gn (\(x,u,s) -> (x,u,s+1))
+                           when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
+                           f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
                            vals <- evalModel f model
                            return (Prove (p, NotProved (Just (ModelView vals))))
@@ -177,8 +183,15 @@ proveGoals opts ctxt (Just gs0) =
         do g1' <- inNewFrame sp (go sp gn g1 nameMap)
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
-           g2' <- go sp gn g2 nameMap
-           return (ProveConj g1' g2')
+
+           if failfast then
+             do (_,_,s) <- readIORef gn
+                if s > 0 then
+                  return g1'
+                else
+                  ProveConj g1' <$> go sp gn g2 nameMap
+           else
+             ProveConj g1' <$> go sp gn g2 nameMap
 
     where
     conn = solverConn sp

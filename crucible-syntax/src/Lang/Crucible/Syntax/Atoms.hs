@@ -52,6 +52,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
              | BitvectorT | VectorT | FPT | FunT | MaybeT | VariantT | RefT
              | Half_ | Float_ | Double_ | Quad_ | X86_80_ | DoubleDouble_
+             | Unicode_ | Char8_ | Char16_
              | The
              | Equalp | Integerp
              | If
@@ -59,7 +60,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Mod
              | Lt | Le
              | Show
-             | StringAppend
+             | StringConcat_ | StringEmpty_ | StringLength_
              | ToAny | FromAny
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
@@ -133,6 +134,11 @@ keywords =
   , ("Maybe", MaybeT)
   , ("Variant", VariantT)
 
+    -- string sorts
+  , ("Unicode", Unicode_)
+  , ("Char16", Char16_)
+  , ("Char8", Char8_)
+
     -- floating-point variants
   , ("Half", Half_)
   , ("Float", Float_)
@@ -192,7 +198,9 @@ keywords =
 
     -- strings
   , ("show", Show)
-  , ("string-append", StringAppend)
+  , ("string-concat", StringConcat_)
+  , ("string-empty", StringEmpty_)
+  , ("string-length", StringLength_)
 
     -- bitvector
   , ("bv", BV)

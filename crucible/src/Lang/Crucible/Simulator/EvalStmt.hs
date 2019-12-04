@@ -298,7 +298,7 @@ stepStmt verb stmt rest =
        Print e ->
          do msg <- evalReg e
             let msg' = case asString msg of
-                         Just txt -> Text.unpack txt
+                         Just (UnicodeLiteral txt) -> Text.unpack txt
                          _ -> show (printSymExpr msg)
             liftIO $ do
               let h = printHandle ctx
@@ -310,7 +310,7 @@ stepStmt verb stmt rest =
          do c <- evalReg c_expr
             msg <- evalReg msg_expr
             let msg' = case asString msg of
-                         Just txt -> Text.unpack txt
+                         Just (UnicodeLiteral txt) -> Text.unpack txt
                          _ -> show (printSymExpr msg)
             liftIO $ assert sym c (AssertFailureSimError msg')
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
@@ -319,7 +319,7 @@ stepStmt verb stmt rest =
          do c <- evalReg c_expr
             msg <- evalReg msg_expr
             let msg' = case asString msg of
-                         Just txt -> Text.unpack txt
+                         Just (UnicodeLiteral txt) -> Text.unpack txt
                          _ -> show (printSymExpr msg)
             liftIO $
               do loc <- getCurrentProgramLoc sym
@@ -395,7 +395,8 @@ stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg
      sym <- view stateSymInterface
      liftIO $ case asString msg' of
-       Just txt -> addFailedAssertion sym
+       Just (UnicodeLiteral txt) ->
+                   addFailedAssertion sym
                       $ GenericSimError $ Text.unpack txt
        Nothing  -> addFailedAssertion sym
                       $ GenericSimError $ show (printSymExpr msg')

@@ -177,6 +177,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import           What4.BaseTypes
 import           What4.Concrete
 import qualified What4.Utils.Environment as Env
+import           What4.Utils.StringLiteral
 
 -------------------------------------------------------------------------
 -- ConfigOption
@@ -374,8 +375,8 @@ integerOptSty = OptionStyle BaseIntegerRepr
                   (text "ℤ")
                   Nothing
 
-stringOptSty :: OptionStyle BaseStringType
-stringOptSty = OptionStyle BaseStringRepr
+stringOptSty :: OptionStyle (BaseStringType Unicode)
+stringOptSty = OptionStyle (BaseStringRepr UnicodeRepr)
                   (\_ _ -> return optOK)
                   (text "string")
                   Nothing
@@ -442,12 +443,14 @@ integerWithMaxOptSty :: Bound Integer -> OptionStyle BaseIntegerType
 integerWithMaxOptSty hi = integerWithRangeOptSty Unbounded hi
 
 -- | A configuration style for options that must be one of a fixed set of text values
-enumOptSty :: Set Text -> OptionStyle BaseStringType
+enumOptSty :: Set Text -> OptionStyle (BaseStringType Unicode)
 enumOptSty elts = stringOptSty & set_opt_onset vf
                                & set_opt_help help
   where help = group (text "one of: " <+> align (sep $ map (dquotes . text . Text.unpack) $ Set.toList elts))
-        vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
-        vf _ (ConcreteString x)
+        vf :: Maybe (ConcreteVal (BaseStringType Unicode))
+           -> ConcreteVal (BaseStringType Unicode)
+           -> IO OptionSetResult
+        vf _ (ConcreteString (UnicodeLiteral x))
          | x `Set.member` elts = return optOK
          | otherwise = return $ optErr $
                             text "invalid setting" <+> text (show x) <+>
@@ -459,12 +462,14 @@ enumOptSty elts = stringOptSty & set_opt_onset vf
 --   whenever the named string option is selected.
 listOptSty
   :: Map Text (IO OptionSetResult)
-  -> OptionStyle BaseStringType
+  -> OptionStyle (BaseStringType Unicode)
 listOptSty values =  stringOptSty & set_opt_onset vf
                                   & set_opt_help help
   where help = group (text "one of: " <+> align (sep $ map (dquotes . text . Text.unpack . fst) $ Map.toList values))
-        vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
-        vf _ (ConcreteString x) =
+        vf :: Maybe (ConcreteVal (BaseStringType Unicode))
+           -> ConcreteVal (BaseStringType Unicode)
+           -> IO OptionSetResult
+        vf _ (ConcreteString (UnicodeLiteral x)) =
          fromMaybe
           (return $ optErr $
             text "invalid setting" <+> text (show x) <+>
@@ -477,12 +482,14 @@ listOptSty values =  stringOptSty & set_opt_onset vf
 --   image.  Configuration options with this style generate a warning message if set to a
 --   value that cannot be resolved to an absolute path to an executable file in the
 --   current OS environment.
-executablePathOptSty :: OptionStyle BaseStringType
+executablePathOptSty :: OptionStyle (BaseStringType Unicode)
 executablePathOptSty = stringOptSty & set_opt_onset vf
                                     & set_opt_help help
   where help = text "<path>"
-        vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
-        vf _ (ConcreteString x) =
+        vf :: Maybe (ConcreteVal (BaseStringType Unicode))
+           -> ConcreteVal (BaseStringType Unicode)
+           -> IO OptionSetResult
+        vf _ (ConcreteString (UnicodeLiteral x)) =
                  do me <- try (Env.findExecutable (Text.unpack x))
                     case me of
                        Right{} -> return $ optOK
@@ -721,9 +728,9 @@ checkOptSetResult res =
     Just msg -> fail (show msg)
     Nothing -> return (toList (optionSetWarnings res))
 
-instance Opt BaseStringType Text where
-  getMaybeOpt x = fmap fromConcreteString <$> getOption x
-  trySetOpt x v = setOption x (ConcreteString v)
+instance Opt (BaseStringType Unicode) Text where
+  getMaybeOpt x = fmap (fromUnicodeLit . fromConcreteString) <$> getOption x
+  trySetOpt x v = setOption x (ConcreteString (UnicodeLiteral v))
 
 instance Opt BaseNatType Natural where
   getMaybeOpt x = fmap fromConcreteNat <$> getOption x

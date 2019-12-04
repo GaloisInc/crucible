@@ -63,6 +63,9 @@ module What4.Utils.AbstractDomains
   , natRangeToRange
   , natRangeDiv
   , natRangeMod
+  , natRangeMin
+  , natRangeSub
+  , intRangeToNatRange
     -- * RealAbstractValue
   , RealAbstractValue(..)
   , ravUnbounded
@@ -74,6 +77,21 @@ module What4.Utils.AbstractDomains
   , ravMul
   , ravCheckEq
   , ravCheckLe
+    -- * StringAbstractValue
+  , StringAbstractValue(..)
+  , stringAbsJoin
+  , stringAbsTop
+  , stringAbsSingle
+  , stringAbsOverlap
+  , stringAbsLength
+  , stringAbsConcat
+  , stringAbsSubstring
+  , stringAbsContains
+  , stringAbsIsPrefixOf
+  , stringAbsIsSuffixOf
+  , stringAbsIndexOf
+  , stringAbsEmpty
+
     -- * Abstractable
   , avTop
   , avSingle
@@ -92,13 +110,13 @@ import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio (denominator)
-import           Data.Text (Text)
 import           Numeric.Natural
 
 import           What4.BaseTypes
 import           What4.Utils.BVDomain (BVDomain)
 import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
+import           What4.Utils.StringLiteral
 
 ctxZipWith3 :: (forall (x::k) . a x -> b x -> c x -> d x)
             -> Ctx.Assignment a (ctx::Ctx.Ctx k)
@@ -117,7 +135,7 @@ ctxZipWith3 f a b c =
 data ValueBound tp
    = Unbounded
    | Inclusive !tp
-  deriving (Functor, Show)
+  deriving (Functor, Show, Eq, Ord)
 
 instance Applicative ValueBound where
   pure = Inclusive
@@ -585,6 +603,100 @@ natRangeToRange :: NatValueRange -> ValueRange Integer
 natRangeToRange (NatSingleRange x)  = SingleRange (toInteger x)
 natRangeToRange (NatMultiRange l u) = MultiRange (Inclusive (toInteger l)) (toInteger <$> u)
 
+-- | Clamp an integer range to nonnegative values
+intRangeToNatRange :: ValueRange Integer -> NatValueRange
+intRangeToNatRange (SingleRange c)  = NatSingleRange (fromInteger (max 0 c))
+intRangeToNatRange (MultiRange l u) = natRange lo hi
+  where
+  lo = case l of
+         Unbounded -> 0
+         Inclusive x -> fromInteger (max 0 x)
+  hi = fromInteger . max 0 <$> u
+
+natRangeMin :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeMin x y = natRange lo hi
+ where
+ lo = min (natRangeLow x) (natRangeLow y)
+ hi = case (natRangeHigh x, natRangeHigh y) of
+         (Unbounded, b) -> b
+         (a, Unbounded) -> a
+         (Inclusive a, Inclusive b) -> Inclusive (min a b)
+
+natRangeSub :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeSub x y =
+  intRangeToNatRange $ addRange (natRangeToRange x) (negateRange (natRangeToRange y))
+
+------------------------------------------------------
+-- String abstract domain
+
+-- | The string abstract domain tracks an interval
+--   range for the length of the string.
+newtype StringAbstractValue =
+  StringAbs
+  { _stringAbsLength :: NatValueRange
+     -- ^ The length of the string falls in this range
+  }
+
+stringAbsTop :: StringAbstractValue
+stringAbsTop = StringAbs unboundedNatRange
+
+stringAbsEmpty :: StringAbstractValue
+stringAbsEmpty = StringAbs (natSingleRange 0)
+
+stringAbsJoin :: StringAbstractValue -> StringAbstractValue -> StringAbstractValue
+stringAbsJoin (StringAbs lenx) (StringAbs leny) = StringAbs (natJoinRange lenx leny)
+
+stringAbsSingle :: StringLiteral si -> StringAbstractValue
+stringAbsSingle lit = StringAbs (natSingleRange (stringLitLength lit))
+
+stringAbsOverlap :: StringAbstractValue -> StringAbstractValue -> Bool
+stringAbsOverlap (StringAbs lenx) (StringAbs leny) = avOverlap BaseNatRepr lenx leny
+
+stringAbsCheckEq :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+stringAbsCheckEq (StringAbs lenx) (StringAbs leny)
+  | Just 0 <- asSingleNatRange lenx
+  , Just 0 <- asSingleNatRange leny
+  = Just True
+
+  | not (avOverlap BaseNatRepr lenx leny)
+  = Just False
+
+  | otherwise
+  = Nothing
+
+stringAbsConcat :: StringAbstractValue -> StringAbstractValue -> StringAbstractValue
+stringAbsConcat (StringAbs lenx) (StringAbs leny) = StringAbs (natRangeAdd lenx leny)
+
+stringAbsSubstring :: StringAbstractValue -> NatValueRange -> NatValueRange -> StringAbstractValue
+stringAbsSubstring (StringAbs s) off len = StringAbs (natRangeMin len (natRangeSub s off))
+
+stringAbsContains :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+stringAbsContains = couldContain
+
+stringAbsIsPrefixOf :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+stringAbsIsPrefixOf = flip couldContain
+
+stringAbsIsSuffixOf :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+stringAbsIsSuffixOf = flip couldContain
+
+couldContain :: StringAbstractValue -> StringAbstractValue -> Maybe Bool
+couldContain (StringAbs lenx) (StringAbs leny)
+  | Just False <- natCheckLe leny lenx = Just False
+  | otherwise = Nothing
+
+stringAbsIndexOf :: StringAbstractValue -> StringAbstractValue -> NatValueRange -> ValueRange Integer
+stringAbsIndexOf (StringAbs lenx) (StringAbs leny) k
+  | Just False <- natCheckLe (natRangeAdd leny k) lenx = SingleRange (-1)
+  | otherwise = MultiRange (Inclusive (-1)) (rangeHiBound rng)
+  where
+  lenx' = natRangeToRange lenx
+  leny' = natRangeToRange leny
+
+  -- possible values that the final offset could have if the substring exists anywhere
+  rng = addRange lenx' (negateRange leny')
+
+stringAbsLength :: StringAbstractValue -> NatValueRange
+stringAbsLength (StringAbs len) = len
 
 -- | An abstract value represents a disjoint st of values.
 type family AbstractValue (tp::BaseType) :: Type where
@@ -592,7 +704,7 @@ type family AbstractValue (tp::BaseType) :: Type where
   AbstractValue BaseNatType = NatValueRange
   AbstractValue BaseIntegerType = ValueRange Integer
   AbstractValue BaseRealType = RealAbstractValue
-  AbstractValue BaseStringType = ()
+  AbstractValue (BaseStringType si) = StringAbstractValue
   AbstractValue (BaseBVType w) = BVDomain w
   AbstractValue (BaseFloatType _) = ()
   AbstractValue BaseComplexType = Complex RealAbstractValue
@@ -607,7 +719,7 @@ type family ConcreteValue (tp::BaseType) :: Type where
   ConcreteValue BaseNatType = Natural
   ConcreteValue BaseIntegerType = Integer
   ConcreteValue BaseRealType = Rational
-  ConcreteValue BaseStringType = Text
+  ConcreteValue (BaseStringType si) = StringLiteral si
   ConcreteValue (BaseBVType w) = Integer
   ConcreteValue (BaseFloatType _) = ()
   ConcreteValue BaseComplexType = Complex Rational
@@ -626,7 +738,7 @@ avTop tp =
     BaseIntegerRepr -> unboundedRange
     BaseRealRepr    -> ravUnbounded
     BaseComplexRepr -> ravUnbounded :+ ravUnbounded
-    BaseStringRepr  -> ()
+    BaseStringRepr _ -> stringAbsTop
     BaseBVRepr w    -> BVD.any w
     BaseFloatRepr{} -> ()
     BaseArrayRepr _a b -> avTop b
@@ -640,7 +752,7 @@ avSingle tp =
     BaseNatRepr -> natSingleRange
     BaseIntegerRepr -> singleRange
     BaseRealRepr -> ravSingle
-    BaseStringRepr -> \_ -> ()
+    BaseStringRepr _ -> stringAbsSingle
     BaseComplexRepr -> fmap ravSingle
     BaseBVRepr w -> BVD.singleton w
     BaseFloatRepr _ -> \_ -> ()
@@ -689,10 +801,10 @@ instance Abstractable BaseBoolType where
   avCheckEq _ (Just x) (Just y) = Just $! x == y
   avCheckEq _ _ _ = Nothing
 
-instance Abstractable BaseStringType where
-  avJoin _ _ _ = ()
-  avOverlap _ _ _ = True
-  avCheckEq _ _ _ = Nothing
+instance Abstractable (BaseStringType si) where
+  avJoin _     = stringAbsJoin
+  avOverlap _  = stringAbsOverlap
+  avCheckEq _  = stringAbsCheckEq
 
 -- Natural numbers have a lower and upper bound associated with them.
 instance Abstractable BaseNatType where
@@ -770,7 +882,7 @@ withAbstractable bt k =
     BaseBVRepr _w -> k
     BaseNatRepr -> k
     BaseIntegerRepr -> k
-    BaseStringRepr -> k
+    BaseStringRepr _ -> k
     BaseRealRepr -> k
     BaseComplexRepr -> k
     BaseArrayRepr _a _b -> k

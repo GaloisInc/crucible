@@ -29,7 +29,8 @@ import Lang.Crucible.Utils.PrettyPrint (ppFn, commas)
 -- Contructor cases
 
 -- | @structuralPretty tp@ generates a function with the type
--- @Int -> tp -> Int@ that hashes type.
+--   @forall f. (forall x . f x -> Doc) -> (forall x. tp f x -> Doc)@
+--   suitable for instantiating the @PrettyApp@ class.
 structuralPretty :: TypeQ -> [(TypePat, ExpQ)] -> ExpQ
 structuralPretty tpq pats0 = do
   d <- lookupDataType' =<< asTypeCon "structuralPretty" =<< tpq

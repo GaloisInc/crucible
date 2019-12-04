@@ -420,8 +420,8 @@ instance TypeApp (ExprExtension ext) => IsExpr (Expr ext s) where
   exprType (App a)          = appType a
   exprType (AtomExpr a)     = typeOfAtom a
 
-instance IsString (Expr ext s StringType) where
-  fromString s = App (TextLit (fromString s))
+instance IsString (Expr ext s (StringType Unicode)) where
+  fromString s = App (StringLit (fromString s))
 
 substExpr :: ( Applicative m, TraverseExt ext )
           => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -540,11 +540,11 @@ data Stmt ext s
    | forall tp . WriteRef !(Atom s (ReferenceType tp)) !(Atom s tp)
    | forall tp . DropRef  !(Atom s (ReferenceType tp))
    | forall tp . DefineAtom !(Atom s tp)      !(AtomValue ext s tp)
-   | Print      !(Atom s StringType)
+   | Print      !(Atom s (StringType Unicode))
      -- | Assert that the given expression is true.
-   | Assert !(Atom s BoolType) !(Atom s StringType)
+   | Assert !(Atom s BoolType) !(Atom s (StringType Unicode))
      -- | Assume the given expression.
-   | Assume !(Atom s BoolType) !(Atom s StringType)
+   | Assume !(Atom s BoolType) !(Atom s (StringType Unicode))
    | forall args . Breakpoint BreakpointName !(Assignment (Value s) args)
 
 instance PrettyExt ext => Show (Stmt ext s) where
@@ -652,7 +652,7 @@ data TermStmt s (ret :: CrucibleType) where
            -> TermStmt s ret
 
   -- Block ends because of a translation error.
-  ErrorStmt :: !(Atom s StringType) -> TermStmt s ret
+  ErrorStmt :: !(Atom s (StringType Unicode)) -> TermStmt s ret
 
   -- Jump to the given block, and provide it the
   -- expression as input.

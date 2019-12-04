@@ -91,6 +91,7 @@ import           What4.Utils.Complex
 import qualified What4.Utils.Environment as Env
 import           What4.Utils.MonadST
 import           What4.Utils.Streams
+import           What4.Utils.StringLiteral
 
 abcQbfIterations :: ConfigOption BaseIntegerType
 abcQbfIterations = configOption BaseIntegerRepr "abc.qbf_max_iterations"
@@ -116,8 +117,8 @@ abcAdapter =
 
 
 -- | Command to run sat solver.
-satCommand :: ConfigOption BaseStringType
-satCommand = configOption BaseStringRepr "sat_command"
+satCommand :: ConfigOption (BaseStringType Unicode)
+satCommand = configOption knownRepr "sat_command"
 
 genericSatOptions :: [ConfigDesc]
 genericSatOptions =
@@ -152,7 +153,7 @@ type family LitValue s (tp :: BaseType) where
   LitValue s BaseNatType      = Natural
   LitValue s BaseIntegerType  = Integer
   LitValue s BaseRealType     = Rational
-  LitValue s BaseStringType   = T.Text
+  LitValue s (BaseStringType si) = StringLiteral si
   LitValue s BaseComplexType  = Complex Rational
 
 -- | Newtype wrapper around names.
@@ -162,7 +163,7 @@ data NameType s (tp :: BaseType) where
   GroundNat :: Natural -> NameType s BaseNatType
   GroundInt :: Integer -> NameType s BaseIntegerType
   GroundRat :: Rational -> NameType s BaseRealType
-  GroundString :: T.Text -> NameType s BaseStringType
+  GroundString :: StringLiteral si -> NameType s (BaseStringType si)
   GroundComplex :: Complex Rational -> NameType s BaseComplexType
 
 -- | A variable binding in ABC.
@@ -334,7 +335,7 @@ bitblastExpr h ae = do
         BaseFloatRepr _ -> floatFail
         BaseArrayRepr _ _ -> arrayFail
         BaseStructRepr _ -> structFail
-        BaseStringRepr -> stringFail
+        BaseStringRepr _ -> stringFail
 
     BaseEq bt x y ->
       case bt of
@@ -347,7 +348,7 @@ bitblastExpr h ae = do
         BaseFloatRepr _ -> floatFail
         BaseArrayRepr _ _ -> arrayFail
         BaseStructRepr _ -> structFail
-        BaseStringRepr -> stringFail
+        BaseStringRepr _ -> stringFail
 
     BVTestBit i xe -> assert (i <= fromIntegral (maxBound :: Int)) $
        (\v -> B $ v AIG.! (fromIntegral i)) <$> eval' h xe
@@ -514,6 +515,17 @@ bitblastExpr h ae = do
     ConstantArray{} -> arrayFail
     SelectArray{} -> arrayFail
     UpdateArray{} -> arrayFail
+
+    ------------------------------------------------------------------------
+    -- String operations
+
+    StringAppend{} -> stringFail
+    StringLength{} -> stringFail
+    StringContains{} -> stringFail
+    StringIsPrefixOf{} -> stringFail
+    StringIsSuffixOf{} -> stringFail
+    StringIndexOf{} -> stringFail
+    StringSubstring{} -> stringFail
 
     ------------------------------------------------------------------------
     -- Conversions.
@@ -857,7 +869,7 @@ freshBinding ntk n l tp mbnds = do
     BaseNatRepr     -> failAt l "Natural number variables are not supported by ABC."
     BaseIntegerRepr -> failAt l "Integer variables are not supported by ABC."
     BaseRealRepr    -> failAt l "Real variables are not supported by ABC."
-    BaseStringRepr  -> failAt l "String variables are not supported by ABC."
+    BaseStringRepr _ -> failAt l "String variables are not supported by ABC."
     BaseComplexRepr -> failAt l "Complex variables are not supported by ABC."
     BaseArrayRepr _ _ -> failAt l "Array variables are not supported by ABC."
     BaseStructRepr{}  -> failAt l "Struct variables are not supported by ABC."

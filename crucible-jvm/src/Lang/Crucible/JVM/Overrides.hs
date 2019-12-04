@@ -93,6 +93,7 @@ import qualified What4.InterpretedFloatingPoint        as W4
 import qualified What4.Partial                         as W4
 
 import           What4.Utils.MonadST (liftST)
+import           What4.Utils.StringLiteral
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
@@ -452,7 +453,7 @@ instance Concretize JVMClassType where
     let (C.RV sn)  = (C.unroll x) Ctx.! Ctx.i1of5
     let imp        = (C.unroll x) Ctx.! Ctx.i2of5
     imp' <- concretize @JVMInitStatusType imp
-    return (MkClass <$> W4.asString sn <*> imp')
+    return (MkClass <$> (fromUnicodeLit <$> W4.asString sn) <*> imp')
 
 
 instance Concretize JVMObjectType where

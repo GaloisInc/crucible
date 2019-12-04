@@ -49,7 +49,6 @@ module What4.Concrete
 import           Data.List
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Text (Text)
 import qualified Numeric as N
 import           Numeric.Natural
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -62,6 +61,7 @@ import           Data.Parameterized.TraversableFC
 
 import           What4.BaseTypes
 import           What4.Utils.Complex
+import           What4.Utils.StringLiteral
 
 -- | A data type for representing the concrete values of base types.
 data ConcreteVal tp where
@@ -69,7 +69,7 @@ data ConcreteVal tp where
   ConcreteNat     :: Natural -> ConcreteVal BaseNatType
   ConcreteInteger :: Integer -> ConcreteVal BaseIntegerType
   ConcreteReal    :: Rational -> ConcreteVal BaseRealType
-  ConcreteString  :: Text -> ConcreteVal BaseStringType
+  ConcreteString  :: StringLiteral si -> ConcreteVal (BaseStringType si)
   ConcreteComplex :: Complex Rational -> ConcreteVal BaseComplexType
   ConcreteBV      ::
     (1 <= w) =>
@@ -98,7 +98,7 @@ fromConcreteReal (ConcreteReal x) = x
 fromConcreteComplex :: ConcreteVal BaseComplexType -> Complex Rational
 fromConcreteComplex (ConcreteComplex x) = x
 
-fromConcreteString :: ConcreteVal BaseStringType -> Text
+fromConcreteString :: ConcreteVal (BaseStringType si) -> StringLiteral si
 fromConcreteString (ConcreteString x) = x
 
 fromConcreteUnsignedBV :: ConcreteVal (BaseBVType w) -> Integer
@@ -114,7 +114,7 @@ concreteType = \case
   ConcreteNat{}      -> BaseNatRepr
   ConcreteInteger{}  -> BaseIntegerRepr
   ConcreteReal{}     -> BaseRealRepr
-  ConcreteString{}   -> BaseStringRepr
+  ConcreteString s   -> BaseStringRepr (stringLiteralInfo s)
   ConcreteComplex{}  -> BaseComplexRepr
   ConcreteBV w _     -> BaseBVRepr w
   ConcreteStruct xs  -> BaseStructRepr (fmapFC concreteType xs)
@@ -127,6 +127,7 @@ instance TestEquality ConcreteVal where
      [ (ConType [t|NatRepr|] `TypeApp` AnyType, [|testEquality|])
      , (ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType, [|testEqualityFC testEquality|])
      , (ConType [t|ConcreteVal|] `TypeApp` AnyType, [|testEquality|])
+     , (ConType [t|StringLiteral|] `TypeApp` AnyType, [|testEquality|])
      , (ConType [t|Map|] `TypeApp` AnyType `TypeApp` AnyType, [|\x y -> if x == y then Just Refl else Nothing|])
      ])
 
@@ -138,6 +139,7 @@ instance OrdF ConcreteVal where
      [ (ConType [t|NatRepr|] `TypeApp` AnyType, [|compareF|])
      , (ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType, [|compareFC compareF|])
      , (ConType [t|ConcreteVal|] `TypeApp` AnyType, [|compareF|])
+     , (ConType [t|StringLiteral|] `TypeApp` AnyType, [|compareF|])
      , (ConType [t|Map|] `TypeApp` AnyType `TypeApp` AnyType, [|\x y -> fromOrdering (compare x y)|])
      ])
 

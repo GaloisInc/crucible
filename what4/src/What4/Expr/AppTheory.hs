@@ -56,7 +56,7 @@ typeTheory tp = case tp of
   BaseIntegerRepr   -> LinearArithTheory
   BaseRealRepr      -> LinearArithTheory
   BaseFloatRepr _   -> FloatingPointTheory
-  BaseStringRepr    -> StringTheory
+  BaseStringRepr{}  -> StringTheory
   BaseComplexRepr   -> LinearArithTheory
   BaseStructRepr _  -> StructTheory
   BaseArrayRepr _ _ -> ArrayTheory
@@ -222,6 +222,16 @@ appTheory a0 =
     ConstantArray{} -> ArrayTheory
     SelectArray{} -> ArrayTheory
     UpdateArray{} -> ArrayTheory
+
+    ---------------------
+    -- String operations
+    StringAppend{} -> StringTheory
+    StringLength{} -> StringTheory
+    StringContains{} -> StringTheory
+    StringIndexOf{} -> StringTheory
+    StringIsPrefixOf{} -> StringTheory
+    StringIsSuffixOf{} -> StringTheory
+    StringSubstring{} -> StringTheory
 
     ---------------------
     -- Complex operations

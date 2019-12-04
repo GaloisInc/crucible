@@ -52,28 +52,25 @@ isTokenChar ')' = False
 isTokenChar '"' = False
 isTokenChar c = not (isSpace c)
 
-isStringChar :: Char -> Bool
-isStringChar '"'  = False
-isStringChar '\\' = False
-isStringChar _c   = True
-
 readToken :: Parser Text
 readToken = takeWhile1 isTokenChar
 
-readString :: Parser Text
-readString = takeWhile1 isStringChar
-
-parseSExp :: Parser SExp
-parseSExp = do
+parseSExp ::
+  Parser Text {- ^ A parser for string literals -} ->
+  Parser SExp
+parseSExp readString = do
   skipSpaceOrNewline
-  msum [ char '(' *> skipSpaceOrNewline *> (SApp <$> many parseSExp) <* skipSpaceOrNewline <* char ')'
-       , char '"' *> (SString <$> readString) <* char '"'
+  msum [ char '(' *> skipSpaceOrNewline *> (SApp <$> many (parseSExp readString)) <* skipSpaceOrNewline <* char ')'
+       , SString <$> readString
        , SAtom <$> readToken
        ]
 
-stringToSExp :: Monad m => String -> m [SExp]
-stringToSExp s = do
-  let parseSExpList = many parseSExp <* skipSpace <* endOfInput
+stringToSExp :: Monad m =>
+  Parser Text {- ^ A parser for string literals -} ->
+  String ->
+  m [SExp]
+stringToSExp readString s = do
+  let parseSExpList = many (parseSExp readString) <* skipSpace <* endOfInput
   case parseOnly parseSExpList (Text.pack s) of
     Left e -> fail $ "stringToSExpr error: " ++ e
     Right v -> return v

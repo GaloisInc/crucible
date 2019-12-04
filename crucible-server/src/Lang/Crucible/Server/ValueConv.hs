@@ -169,7 +169,7 @@ fromProtoValue sim v = do
         _ -> error "Width is too large"
     P.StringValue -> do
       let s = v^.P.value_string_lit
-      Some . RegEntry StringRepr <$> stringLit sym s
+      Some . RegEntry (StringRepr UnicodeRepr) <$> stringLit sym (UnicodeLiteral s)
     P.UnitValue -> do
       return $ Some $ RegEntry UnitRepr ()
     P.FnHandleValue -> do
@@ -201,8 +201,8 @@ toProtoValue sim e@(RegEntry tp v) =
       return $ mempty & P.value_code  .~ P.BitvectorValue
                       & P.value_width .~ fromIntegral wv
                       & P.value_data  .~ toByteString (encodeSigned r)
-    StringRepr
-      | Just txt <- asString v -> do
+    StringRepr UnicodeRepr
+      | Just (UnicodeLiteral txt) <- asString v -> do
           return $ mempty & P.value_code .~ P.StringValue
                           & P.value_string_lit .~ txt
     UnitRepr -> do
@@ -593,7 +593,7 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
 
     P.ShowValue -> do
       case result_type of
-        StringRepr -> withOneArg prim_op args $ \x -> do
+        StringRepr UnicodeRepr -> withOneArg prim_op args $ \x -> do
           Some v <- evalVal x
           case asBaseType (getTypeRepr v) of
             AsBaseType bt -> return $ Some $ ShowValue bt v

@@ -1,6 +1,6 @@
-(defun @foo ((x String)) String
+(defun @foo ((x (String Unicode))) (String Unicode)
   (registers
-    ($out String)
+    ($out (String Unicode))
     ($count Integer))
   (start beginning:
     (print x)
@@ -11,7 +11,7 @@
     (let c $count)
     (set-register! $count (- c 1))
     (let out $out)
-    (set-register! $out (string-append out x))
+    (set-register! $out (string-concat out x))
     (let go (< c 0))
     (branch go loop: done:))
   (defblock done:

@@ -81,6 +81,7 @@ library
     What4.Expr.GroundEval
     What4.Expr.MATLAB
     What4.Expr.Simplify
+    What4.Expr.StringSeq
     What4.Expr.VarIdentification
     What4.Expr.WeightedSum
     What4.Expr.UnaryBV
@@ -116,6 +117,8 @@ library
     What4.Utils.OnlyNatRepr
     What4.Utils.Process
     What4.Utils.Streams
+    What4.Utils.StringLiteral
+    What4.Utils.Word16String
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -131,6 +134,7 @@ test-suite expr-builder-smtlib2
 
   build-depends:
     base,
+    bytestring,
     containers,
     data-binary-ieee754,
     parameterized-utils,

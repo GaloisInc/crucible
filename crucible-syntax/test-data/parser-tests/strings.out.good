@@ -1,4 +1,4 @@
-(defun @test-str () String
+(defun @test-str () (String Unicode)
    (start start:
       (let x "a")
       (let y "\\")
@@ -9,13 +9,13 @@
 test-str
 %0
   % 5:12
-  $0 = textLit("a")
+  $0 = stringLit("a")
   % 6:12
-  $1 = textLit("\\")
+  $1 = stringLit("\\")
   % 7:12
-  $2 = textLit("\"")
+  $2 = stringLit("\"")
   % 8:12
-  $3 = textLit("\t\n ")
+  $3 = stringLit("\t\n ")
   % 9:5
   return $0
   % no postdom

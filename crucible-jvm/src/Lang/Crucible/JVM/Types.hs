@@ -232,11 +232,12 @@ type JVMTypeRepImpl =
 type JVMClassType  = RecursiveType "JVM_class"  EmptyCtx
 
 type JVMClassImpl =
-  StructType (EmptyCtx ::> StringType
+  StructType (EmptyCtx
+              ::> StringType Unicode -- TODO should be Char16
               ::> JVMInitStatusType
               ::> MaybeType JVMClassType
               ::> JVMMethodTableType
-              ::> VectorType StringType)
+              ::> VectorType (StringType Unicode)) -- TODO Should be Char16
 
 instance IsRecursiveType "JVM_class" where
   type UnrollType "JVM_class" ctx = JVMClassImpl
@@ -375,7 +376,7 @@ type JVMLong       s = Expr JVM s JVMLongType
 -- | Symbolic references.
 type JVMRef        s = Expr JVM s JVMRefType
 -- | Symbolic strings.
-type JVMString     s = Expr JVM s StringType
+type JVMString     s = Expr JVM s (StringType Unicode) -- TODO, should be Char16
 -- | Symbolic class table.
 type JVMClassTable s = Expr JVM s JVMClassTableType
 -- | Symbolic data structure for class information.

@@ -37,7 +37,7 @@ resolveSolverPath :: FilePath
 resolveSolverPath path = do
   Env.findExecutable =<< Env.expandEnvironmentPath Map.empty path
 
-findSolverPath :: ConfigOption BaseStringType -> Config -> IO FilePath
+findSolverPath :: ConfigOption (BaseStringType Unicode) -> Config -> IO FilePath
 findSolverPath o cfg =
   do v <- getOpt =<< getOptionSetting o cfg
      resolveSolverPath (T.unpack v)

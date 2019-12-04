@@ -59,7 +59,7 @@ module What4.Expr.Builder
   , bvSum
   , scalarMul
 
-    -- ** configuration options
+    -- * configuration options
   , unaryThresholdOption
   , bvdomainRangeLimitOption
   , cacheStartSizeOption
@@ -214,6 +214,7 @@ import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.MATLAB
 import           What4.Expr.WeightedSum (WeightedSum, SemiRingProduct)
 import qualified What4.Expr.WeightedSum as WSum
+import qualified What4.Expr.StringSeq as SSeq
 import           What4.Expr.UnaryBV (UnaryBV)
 import qualified What4.Expr.UnaryBV as UnaryBV
 
@@ -222,6 +223,7 @@ import           What4.Utils.Arithmetic
 import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
+import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -765,6 +767,39 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   ImagPart :: !(e BaseComplexType) -> App e BaseRealType
 
   ------------------------------------------------------------------------
+  -- Strings
+
+  StringContains :: !(e (BaseStringType si))
+                 -> !(e (BaseStringType si))
+                 -> App e BaseBoolType
+
+  StringIsPrefixOf :: !(e (BaseStringType si))
+                 -> !(e (BaseStringType si))
+                 -> App e BaseBoolType
+
+  StringIsSuffixOf :: !(e (BaseStringType si))
+                 -> !(e (BaseStringType si))
+                 -> App e BaseBoolType
+
+  StringIndexOf :: !(e (BaseStringType si))
+                -> !(e (BaseStringType si))
+                -> !(e BaseNatType)
+                -> App e BaseIntegerType
+
+  StringSubstring :: !(StringInfoRepr si)
+                  -> !(e (BaseStringType si))
+                  -> !(e BaseNatType)
+                  -> !(e BaseNatType)
+                  -> App e (BaseStringType si)
+
+  StringAppend :: !(StringInfoRepr si)
+               -> !(SSeq.StringSeq e si)
+               -> App e (BaseStringType si)
+
+  StringLength :: !(e (BaseStringType si))
+               -> App e BaseNatType
+
+  ------------------------------------------------------------------------
   -- Structs
 
   -- A struct with its fields.
@@ -809,10 +844,12 @@ data AppExpr t (tp :: BaseType)
 ------------------------------------------------------------------------
 -- Expr
 
--- | The main ExprBuilder expression datastructure. We call the type
--- 'Expr' because each 'Expr' is an element of a DAG that represents
--- sub-term sharing. Expressions of type @Expr t tp@ contain nonces of
--- type @'Nonce' t tp@, which are used to identify shared sub-terms.
+-- | The main ExprBuilder expression datastructure.  The non-trivial @Expr@
+-- values constructed by this module are uniquely identified by a
+-- nonce value that is used to explicitly represent sub-term sharing.
+-- When traversing the structure of an @Expr@ it is usually very important
+-- to memoize computations based on the values of these identifiers to avoid
+-- exponential blowups due to shared term structure.
 --
 -- Type parameter @t@ is a phantom type brand used to relate nonces to
 -- a specific nonce generator (similar to the @s@ parameter of the
@@ -824,7 +861,7 @@ data AppExpr t (tp :: BaseType)
 data Expr t (tp :: BaseType) where
   SemiRingLiteral :: !(SR.SemiRingRepr sr) -> !(SR.Coefficient sr) -> !ProgramLoc -> Expr t (SR.SemiRingBase sr)
   BoolExpr :: !Bool -> !ProgramLoc -> Expr t BaseBoolType
-  StringExpr :: !Text -> !ProgramLoc -> Expr t BaseStringType
+  StringExpr :: !(StringLiteral si) -> !ProgramLoc -> Expr t (BaseStringType si)
   -- Application
   AppExpr :: {-# UNPACK #-} !(AppExpr t tp) -> Expr t tp
   -- An atomic predicate
@@ -869,7 +906,9 @@ type BVExpr t n = Expr t (BaseBVType n)
 type IntegerExpr t = Expr t BaseIntegerType
 type RealExpr t = Expr t BaseRealType
 type CplxExpr t = Expr t BaseComplexType
-type StringExpr t = Expr t BaseStringType
+type StringExpr t si = Expr t (BaseStringType si)
+
+
 
 iteSize :: Expr t tp -> Integer
 iteSize e =
@@ -902,7 +941,7 @@ instance IsExpr (Expr t) where
 
   exprType (SemiRingLiteral sr _ _) = SR.semiRingBase sr
   exprType (BoolExpr _ _) = BaseBoolRepr
-  exprType (StringExpr _ _) = BaseStringRepr
+  exprType (StringExpr s _) = BaseStringRepr (stringLiteralInfo s)
   exprType (NonceAppExpr e)  = nonceAppType (nonceExprApp e)
   exprType (AppExpr e) = appType (appExprApp e)
   exprType (BoundVarExpr i) = bvarType i
@@ -1235,6 +1274,14 @@ appType a =
     Cplx{} -> knownRepr
     RealPart{} -> knownRepr
     ImagPart{} -> knownRepr
+
+    StringContains{} -> knownRepr
+    StringIsPrefixOf{} -> knownRepr
+    StringIsSuffixOf{} -> knownRepr
+    StringIndexOf{} -> knownRepr
+    StringSubstring si _ _ _ -> BaseStringRepr si
+    StringAppend si _ -> BaseStringRepr si
+    StringLength{} -> knownRepr
 
     StructCtor flds _     -> BaseStructRepr flds
     StructField _ _ tp    -> tp
@@ -1604,11 +1651,7 @@ abstractEval f a0 = do
     RoundReal x -> mapRange roundAway (ravRange (f x))
     FloorReal x -> mapRange floor (ravRange (f x))
     CeilReal x  -> mapRange ceiling (ravRange (f x))
-    IntegerToNat x ->
-       case f x of
-         SingleRange c              -> NatSingleRange (fromInteger (max 0 c))
-         MultiRange Unbounded u     -> natRange 0 (fromInteger . max 0 <$> u)
-         MultiRange (Inclusive l) u -> natRange (fromInteger (max 0 l)) (fromInteger . max 0 <$> u)
+    IntegerToNat x -> intRangeToNatRange (f x)
     IntegerToBV x w -> BVD.range w l u
       where rng = f x
             l = case rangeLowBound rng of
@@ -1626,6 +1669,18 @@ abstractEval f a0 = do
     RealPart x -> realPart (f x)
     ImagPart x -> imagPart (f x)
 
+    StringContains x y   -> stringAbsContains (f x) (f y)
+    StringIsPrefixOf x y -> stringAbsIsPrefixOf (f x) (f y)
+    StringIsSuffixOf x y -> stringAbsIsSuffixOf (f x) (f y)
+    StringLength s -> stringAbsLength (f s)
+    StringSubstring _ s t l -> stringAbsSubstring (f s) (f t) (f l)
+    StringIndexOf s t k -> stringAbsIndexOf (f s) (f t) (f k)
+    StringAppend _ xs -> foldl' stringAbsConcat stringAbsEmpty $ map h (SSeq.toList xs)
+      where
+      h (Left l)  = stringAbsSingle l
+      h (Right x) = f x
+
+
     StructCtor _ flds -> fmapFC (\v -> AbstractValueWrapper (f v)) flds
     StructField s idx _ -> unwrapAV (f s Ctx.! idx)
 
@@ -1639,7 +1694,7 @@ exprAbsValue (SemiRingLiteral sr x _) =
     SR.SemiRingRealRepr -> ravSingle x
     SR.SemiRingBVRepr _ w -> BVD.singleton w x
 
-exprAbsValue (StringExpr{})   = ()
+exprAbsValue (StringExpr l _) = stringAbsSingle l
 exprAbsValue (BoolExpr b _)   = Just b
 exprAbsValue (NonceAppExpr e) = nonceExprAbsValue e
 exprAbsValue (AppExpr e)      = appExprAbsValue e
@@ -1668,7 +1723,7 @@ ppVarTypeCode tp =
     BaseIntegerRepr -> "i"
     BaseRealRepr    -> "r"
     BaseFloatRepr _ -> "f"
-    BaseStringRepr  -> "s"
+    BaseStringRepr _ -> "s"
     BaseComplexRepr -> "c"
     BaseArrayRepr _ _ -> "a"
     BaseStructRepr _ -> "struct"
@@ -1941,6 +1996,20 @@ ppApp' a0 = do
     RealToInteger x   -> ppSExpr "realToInteger" [x]
 
     ------------------------------------------------------------------------
+    -- String operations
+
+    StringIndexOf x y k ->
+       prettyApp "string-index-of" [exprPrettyArg x, exprPrettyArg y, exprPrettyArg k]
+    StringContains x y -> ppSExpr "string-contains" [x, y]
+    StringIsPrefixOf x y -> ppSExpr "string-is-prefix-of" [x, y]
+    StringIsSuffixOf x y -> ppSExpr "string-is-suffix-of" [x, y]
+    StringSubstring _ x off len ->
+       prettyApp "string-substring" [exprPrettyArg x, exprPrettyArg off, exprPrettyArg len]
+    StringAppend _ xs -> prettyApp "string-append"
+                           (map (either showPrettyArg exprPrettyArg) (SSeq.toList xs))
+    StringLength x -> ppSExpr "string-length" [x]
+
+    ------------------------------------------------------------------------
     -- Complex operations
 
     Cplx (r :+ i) -> ppSExpr "complex" [r, i]
@@ -2059,6 +2128,9 @@ traverseApp =
     , ( ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
       , [| WSum.traverseProdVars |]
       )
+    , ( ConType [t|SSeq.StringSeq|] `TypeApp` AnyType `TypeApp` AnyType
+      , [| SSeq.traverseStringSeq |]
+      )
     , ( ConType [t|BoolMap|] `TypeApp` AnyType
       , [| BM.traverseVars |]
       )
@@ -2127,7 +2199,12 @@ compareExpr (SemiRingLiteral srx x _) (SemiRingLiteral sry y _) =
 compareExpr SemiRingLiteral{} _ = LTF
 compareExpr _ SemiRingLiteral{} = GTF
 
-compareExpr (StringExpr x _) (StringExpr y _) = fromOrdering (compare x y)
+compareExpr (StringExpr x _) (StringExpr y _) =
+  case compareF x y of
+    LTF -> LTF
+    EQF -> EQF
+    GTF -> GTF
+
 compareExpr StringExpr{} _ = LTF
 compareExpr _ StringExpr{} = GTF
 
@@ -2649,6 +2726,8 @@ appEqF = $(structuralTypeEquality [t|App|]
            , (ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
            , (ConType [t|Ctx.Index|]      `TypeApp` AnyType `TypeApp` AnyType
+             , [|testEquality|])
+           , (ConType [t|StringInfoRepr|] `TypeApp` AnyType
              , [|testEquality|])
            , (ConType [t|SR.SemiRingRepr|] `TypeApp` AnyType
              , [|testEquality|])
@@ -3191,6 +3270,20 @@ reduceApp sym a0 = do
     Cplx c     -> mkComplex sym c
     RealPart x -> getRealPart sym x
     ImagPart x -> getImagPart sym x
+
+    StringIndexOf x y k -> stringIndexOf sym x y k
+    StringContains x y -> stringContains sym x y
+    StringIsPrefixOf x y -> stringIsPrefixOf sym x y
+    StringIsSuffixOf x y -> stringIsSuffixOf sym x y
+    StringSubstring _ x off len -> stringSubstring sym x off len
+
+    StringAppend si xs ->
+       do e <- stringEmpty sym si
+          let f x (Left l)  = stringConcat sym x =<< stringLit sym l
+              f x (Right y) = stringConcat sym x y
+          foldM f e (SSeq.toList xs)
+
+    StringLength x -> stringLength sym x
 
     StructCtor _ args -> mkStruct sym args
     StructField s i _ -> structField sym s i
@@ -5168,16 +5261,18 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   --------------------------------------------------------------------
   -- String operations
 
-  stringLit sym txt =
+  stringEmpty sym si = stringLit sym (stringLitEmpty si)
+
+  stringLit sym s =
     do l <- curProgramLoc sym
-       return $! StringExpr txt l
+       return $! StringExpr s l
 
   stringEq sym x y
     | Just x' <- asString x
     , Just y' <- asString y
-    = if x' == y' then return (truePred sym) else return (falsePred sym)
-  stringEq _ _ _
-    = fail "Expected concrete strings in stringEq"
+    = return $! backendPred sym (isJust (testEquality x' y'))
+  stringEq sym x y
+    = sbMakeExpr sym $ BaseEq (BaseStringRepr (stringInfo x)) x y
 
   stringIte _sym c x y
     | Just c' <- asConstantPred c
@@ -5185,23 +5280,84 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   stringIte _sym _c x y
     | Just x' <- asString x
     , Just y' <- asString y
-    , x' == y'
+    , isJust (testEquality x' y')
     = return x
-  stringIte _sym _c _x _y
-    = fail "Cannot merge distinct concrete strings"
+  stringIte sym c x y
+    = mkIte sym c x y
 
+  stringIndexOf sym x y k
+    | Just x' <- asString x
+    , Just y' <- asString y
+    , Just k' <- asNat k
+    = intLit sym $! stringLitIndexOf x' y' k'
+  stringIndexOf sym x y k
+    = sbMakeExpr sym $ StringIndexOf x y k
+
+  stringContains sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = return $! backendPred sym (stringLitContains x' y')
+  stringContains sym x y
+    = sbMakeExpr sym $ StringContains x y
+
+  stringIsPrefixOf sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = return $! backendPred sym (stringLitIsPrefixOf x' y')
+  stringIsPrefixOf sym x y
+    = sbMakeExpr sym $ StringIsPrefixOf x y
+
+  stringIsSuffixOf sym x y
+    | Just x' <- asString x
+    , Just y' <- asString y
+    = return $! backendPred sym (stringLitIsSuffixOf x' y')
+  stringIsSuffixOf sym x y
+    = sbMakeExpr sym $ StringIsSuffixOf x y
+
+  stringSubstring sym x off len
+    | Just x' <- asString x
+    , Just off' <- asNat off
+    , Just len' <- asNat len
+    = stringLit sym $! stringLitSubstring x' off' len'
+  stringSubstring sym x off len
+    = sbMakeExpr sym $ StringSubstring (stringInfo x) x off len
+
+  stringConcat _ x y
+    | Just x' <- asString x, stringLitNull x'
+    = return y
+  stringConcat _ x y
+    | Just y' <- asString y, stringLitNull y'
+    = return x
   stringConcat sym x y
     | Just x' <- asString x
     , Just y' <- asString y
     = stringLit sym (x' <> y')
-  stringConcat _ _ _
-    = fail "Expected concrete strings in stringConcat"
+  stringConcat sym x y
+    | Just (StringAppend si xs) <- asApp x
+    , Just (StringAppend _  ys) <- asApp y
+    = sbMakeExpr sym $ StringAppend si (SSeq.append xs ys)
+  stringConcat sym x y
+    | Just (StringAppend si xs) <- asApp x
+    = sbMakeExpr sym $ StringAppend si (SSeq.append xs (SSeq.singleton si y))
+  stringConcat sym x y
+    | Just (StringAppend si ys) <- asApp y
+    = sbMakeExpr sym $ StringAppend si (SSeq.append (SSeq.singleton si x) ys)
+  stringConcat sym x y
+    = let si = stringInfo x in
+      sbMakeExpr sym $ StringAppend si (SSeq.append (SSeq.singleton si x) (SSeq.singleton si y))
 
   stringLength sym x
     | Just x' <- asString x
-    = do natLit sym (fromIntegral (Text.length x'))
-  stringLength _ _
-    = fail "Expected concrete strings in stringLength"
+    = natLit sym (stringLitLength x')
+
+  stringLength sym x
+    | Just (StringAppend _si xs) <- asApp x
+    = do ns <- mapM (either (natLit sym . stringLitLength) (sbMakeExpr sym . StringLength)) (SSeq.toList xs)
+         z  <- natLit sym 0
+         foldM (natAdd sym) z ns
+
+  stringLength sym x
+    = sbMakeExpr sym $ StringLength x
 
   --------------------------------------------------------------------
   -- Symbolic array operations
