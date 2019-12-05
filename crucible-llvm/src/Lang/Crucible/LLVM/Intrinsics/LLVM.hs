@@ -231,6 +231,28 @@ llvmExpectOverride widthRepr =
          Ctx.uncurryAssignment (\val _ -> pure (regValue val)) args)
 
 
+-- | This intrinsic is sometimes inserted by clang, and we interpret it
+--   as an assertion failure, similar to calling @abort()@.
+llvmTrapOverride
+  :: (IsSymInterface sym)
+  => LLVMOverride p sym arch EmptyCtx UnitType
+llvmTrapOverride =
+  let nm = "llvm.trap"
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PrimType $ L.Void
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = []
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      Empty
+      UnitRepr
+      (\_ops sym _args -> liftIO $ addFailedAssertion sym $ AssertFailureSimError $ "llvm.trap() called")
+
+
 -- | This intrinsic asserts that its argument is equal to 1.
 --
 -- We could have this generate a verification condition, but that would catch
