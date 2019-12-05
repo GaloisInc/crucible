@@ -4734,8 +4734,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       Just Refl <- return $ testEquality (addNat n1 n2) n
       bvConcat sb a' b'
 
-    -- Truncate a weighted sum: truncate all the integer coefficients
-    -- and remove terms with coefficients that become zero
+    -- Truncate a weighted sum: Remove terms with coefficients that
+    -- would become zero after truncation.
     --
     -- Truncation of w-bit words down to n bits respects congruence
     -- modulo 2^n. Furthermore, w-bit addition and multiplication also
@@ -4754,7 +4754,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , SR.SemiRingBVRepr SR.BVArithRepr _w <- WSum.sumRepr s
     , Just Refl <- testEquality idx (knownNat :: NatRepr 0) =
       do let mask = maxUnsigned n
-         let reduce i = let j = i Bits..&. mask in writer (j, Any (i /= j))
+         let reduce i
+               | i Bits..&. mask == 0 = writer (0, Any True)
+               | otherwise            = writer (i, Any False)
          let (s', Any changed) = runWriter $ WSum.traverseCoeffs reduce s
          x' <- if changed then sbMakeExpr sb (SemiRingSum s') else return x
          sbMakeExpr sb $ BVSelect idx n x'
