@@ -20,6 +20,7 @@ module What4.Protocol.Online
   , pop
   , reset
   , inNewFrame
+  , inNewFrameWithVars
   , check
   , checkAndGetModel
   , checkWithAssumptions
@@ -35,9 +36,10 @@ module What4.Protocol.Online
 import           Control.Exception
                    ( SomeException(..), catch, try, displayException )
 import           Control.Monad ( unless )
-import           Control.Monad (void, forM)
+import           Control.Monad (void, forM, forM_)
 import           Control.Monad.Catch ( MonadMask, bracket_ )
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
+import           Data.Parameterized.Some
 import           Data.IORef
 import           Data.Text (Text)
 import qualified Data.Text.Lazy as LazyText
@@ -185,8 +187,22 @@ pop p =
 
 -- | Perform an action in the scope of a solver assumption frame.
 inNewFrame :: (MonadIO m, MonadMask m, SMTReadWriter solver) => SolverProcess scope solver -> m a -> m a
-inNewFrame p action =
-  bracket_ (liftIO $ push p) (liftIO $ try @SomeException $ pop p) action
+inNewFrame p action = inNewFrameWithVars p [] action
+
+-- | Perform an action in the scope of a solver assumption frame, where the given
+-- bound variables are considered free within that frame.
+inNewFrameWithVars :: (MonadIO m, MonadMask m, SMTReadWriter solver) 
+                   => SolverProcess scope solver
+                   -> [Some (ExprBoundVar scope)]
+                   -> m a
+                   -> m a
+inNewFrameWithVars p vars action =
+  bracket_ (liftIO $ pushWithVars) (liftIO $ try @SomeException $ pop p) action
+  where
+    conn = solverConn p
+    pushWithVars = do
+      push p
+      forM_ vars (\(Some bv) -> bindVarAsFree conn bv)
 
 checkWithAssumptions ::
   SMTReadWriter solver =>

@@ -69,6 +69,7 @@ module What4.Protocol.SMTWriter
   , addCommandNoAck
   , addCommands
   , mkFreeVar
+  , bindVarAsFree
   , TypeMap(..)
   , freshBoundVarName
   , assumeFormula
@@ -915,6 +916,25 @@ mkFreeVar conn arg_types return_type = do
 
 mkFreeVar' :: SMTWriter h => WriterConn t h -> TypeMap tp -> IO (SMTExpr h tp)
 mkFreeVar' conn tp = SMTName tp <$> mkFreeVar conn Ctx.empty tp
+
+-- | Consider the bound variable as free within the current assumption frame.
+bindVarAsFree :: SMTWriter h
+              => WriterConn t h
+              -> ExprBoundVar t tp
+              -> IO ()
+bindVarAsFree conn var = do
+  cacheLookupExpr conn (bvarId var) >>= \case
+    Just _ -> fail $ "Internal error in SMTLIB exporter: bound variables cannot be made free."
+                ++ show (bvarId var) ++ " defined at "
+                ++ show (plSourceLoc (bvarLoc var)) ++ "."
+    Nothing -> do
+      smt_type <- runOnLiveConnection conn $ do
+        checkVarTypeSupport var
+        getBaseSMT_Type var
+      var_name <- getSymbolName conn (VarSymbolBinding var)
+      declareTypes conn smt_type
+      addCommand conn $ declareCommand conn var_name Ctx.empty smt_type
+      cacheValueExpr conn (bvarId var) DeleteOnPop $ SMTName smt_type var_name
 
 -- | Assume that the given formula holds.
 assumeFormula :: SMTWriter h => WriterConn t h -> Term h -> IO ()
