@@ -440,7 +440,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
         in bitraverse rvEval (traverseF rvEval) assertions
 
       let expl = explainTree pext psym assertions'
-      let err  = AssertFailureSimError (show (summarizeTree pext assertions')) (show expl)
+      let err  = AssertFailureSimError (summarizeTree pext assertions') (show expl)
       addAssertionM sym (treeToPredicate pext sym assertions') err
       evalSub val
 

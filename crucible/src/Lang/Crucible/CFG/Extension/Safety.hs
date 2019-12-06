@@ -53,8 +53,10 @@ import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
 import Data.Functor.Classes (Eq2(liftEq2), Ord2(liftCompare2))
 import Data.Kind (Type)
+import Data.List (intercalate, nub)
 import Data.Maybe (isJust)
 import Data.Type.Equality (TestEquality(..))
+import qualified Data.Set as Set
 import Data.Typeable (Typeable)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -265,14 +267,14 @@ class HasStructuredAssertions (ext :: Type) where
   summarizeTree :: (IsExprBuilder sym, IsExpr (SymExpr sym))
                 => proxy ext
                 -> AssertionClassifierTree ext (RegValue' sym)
-                -> Doc
+                -> String
   summarizeTree proxyExt =
-    hsep . punctuate comma .
+    intercalate ", " . nub .
     cataMAT
-      (\ac -> [explain proxyExt ac])
-      (\factors -> toList factors)
-      (\summands -> toList summands)
-      (\_cond doc1 doc2 -> [doc1, doc2])
+      (\ac -> [show (explain proxyExt ac)])
+      (\factors -> nub (toList factors))
+      (\summands -> nub (toList summands))
+      (\_cond doc1 doc2 -> nub [doc1, doc2])
 
 -- | Take a partial value and assert its safety
 assertSafe :: ( MonadIO io
@@ -286,7 +288,7 @@ assertSafe :: ( MonadIO io
 assertSafe proxyExt sym (Partial tree a) = do
   pred <- treeToPredicate proxyExt sym tree
   -- TODO: Should SimErrorReason have another constructor for this?
-  let rsn = AssertFailureSimError (show (summarizeTree proxyExt tree)) (show (explainTree proxyExt (Just sym) tree))
+  let rsn = AssertFailureSimError (summarizeTree proxyExt tree) (show (explainTree proxyExt (Just sym) tree))
   liftIO $ assert sym pred rsn
   pure a
 
