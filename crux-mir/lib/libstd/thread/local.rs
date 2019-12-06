@@ -140,6 +140,9 @@ macro_rules! thread_local {
     );
 }
 
+// We redefine `__thread_local_inner!` to use `static` in place of `const` for the main definition.
+// This works around limitations on mir-json's handling of constants.
+#[cfg(thread_local_const)]
 #[doc(hidden)]
 #[unstable(feature = "thread_local_internals",
            reason = "should not be necessary",
@@ -183,6 +186,54 @@ macro_rules! __thread_local_inner {
     };
     ($(#[$attr:meta])* $vis:vis $name:ident, $t:ty, $init:expr) => {
         $(#[$attr])* $vis const $name: $crate::thread::LocalKey<$t> =
+            $crate::__thread_local_inner!(@key $(#[$attr])* $vis $name, $t, $init);
+    }
+}
+
+#[cfg(not(thread_local_const))]
+#[doc(hidden)]
+#[unstable(feature = "thread_local_internals",
+           reason = "should not be necessary",
+           issue = "0")]
+#[macro_export]
+#[allow_internal_unstable(thread_local_internals, cfg_target_thread_local, thread_local)]
+#[allow_internal_unsafe]
+macro_rules! __thread_local_inner {
+    (@key $(#[$attr:meta])* $vis:vis $name:ident, $t:ty, $init:expr) => {
+        {
+            #[inline]
+            fn __init() -> $t { $init }
+
+            unsafe fn __getit() -> $crate::option::Option<&'static $t> {
+                #[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
+                static __KEY: $crate::thread::__StaticLocalKeyInner<$t> =
+                    $crate::thread::__StaticLocalKeyInner::new();
+
+                #[thread_local]
+                #[cfg(all(
+                    target_thread_local,
+                    not(all(target_arch = "wasm32", not(target_feature = "atomics"))),
+                ))]
+                static __KEY: $crate::thread::__FastLocalKeyInner<$t> =
+                    $crate::thread::__FastLocalKeyInner::new();
+
+                #[cfg(all(
+                    not(target_thread_local),
+                    not(all(target_arch = "wasm32", not(target_feature = "atomics"))),
+                ))]
+                static __KEY: $crate::thread::__OsLocalKeyInner<$t> =
+                    $crate::thread::__OsLocalKeyInner::new();
+
+                __KEY.get(__init)
+            }
+
+            unsafe {
+                $crate::thread::LocalKey::new(__getit)
+            }
+        }
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident, $t:ty, $init:expr) => {
+        $(#[$attr])* $vis static $name: $crate::thread::LocalKey<$t> =
             $crate::__thread_local_inner!(@key $(#[$attr])* $vis $name, $t, $init);
     }
 }
