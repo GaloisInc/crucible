@@ -217,6 +217,7 @@ instance Pretty Terminator where
       text "switchint" <+> pretty op <+> colon <> pretty ty <+>
       pretty vs <+> arrow <+> pretty bs
     pretty Return = text "return;"
+    pretty Abort = text "abort;"
     pretty Resume = text "resume;"
     pretty Unreachable = text "unreachable;"
     pretty (Drop _l _target _unwind) = text "drop;"
