@@ -7,7 +7,7 @@ import System.FilePath
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory, makeAbsolute)
 import System.IO
 import qualified Data.Foldable as Fold
-import Data.List (partition, isInfixOf)
+import Data.List (partition)
 import Data.Sequence (Seq)
 import Control.Exception (catch, SomeException(..))
 import Control.Monad (forM_)
