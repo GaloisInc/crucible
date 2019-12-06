@@ -131,7 +131,14 @@ libJsonFiles =
     , "lib/compiler_builtins.mir"
     , "lib/int512.mir"
     , "lib/crucible/lib.mir"
-    , "lib/std/lib.mir"
+
+    , "lib/liballoc/lib.mir"
+    , "lib/libstd/lib.mir"
+    , "lib/libunwind/lib.mir"
+    , "lib/cfg-if/src/lib.mir"
+    , "lib/hashbrown/src/lib.mir"
+    , "lib/libc/src/lib.mir"
+
     , "lib/bytes.mir"
     ]
 
