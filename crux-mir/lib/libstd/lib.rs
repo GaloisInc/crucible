@@ -358,6 +358,8 @@ extern crate cfg_if;
 // testing gives test-std access to real-std lang items and globals. See #2912
 #[cfg(test)] extern crate std as realstd;
 
+extern crate crucible;
+
 // The standard macros that are not built-in to the compiler.
 #[macro_use]
 mod macros;
