@@ -131,6 +131,8 @@ extern crate std;
 #[cfg(test)]
 extern crate test;
 
+extern crate crucible;
+
 // Module with internal macros used by other modules (needs to be included before other modules).
 #[macro_use]
 mod macros;

@@ -16,8 +16,10 @@ impl<T: Clone> Clone for Vector<T> {
 }
 
 impl<T> Vector<T> {
-    pub fn new() -> Vector<T> {
-        unimplemented!("Vector::new")
+    pub const fn new() -> Vector<T> {
+        // This lets `new` be a `const fn`.  Unfortunately it also means mir-verifier will loop
+        // instead of crashing if it's ever run without an override.
+        Self::new()
     }
 
     pub fn len(&self) -> usize {
@@ -30,6 +32,10 @@ impl<T> Vector<T> {
 
     pub fn pop(self) -> (Self, Option<T>) {
         unimplemented!("Vector::pop")
+    }
+
+    pub fn pop_front(self) -> (Option<T>, Self) {
+        unimplemented!("Vector::pop_front")
     }
 
     pub fn as_slice(&self) -> &[T] {

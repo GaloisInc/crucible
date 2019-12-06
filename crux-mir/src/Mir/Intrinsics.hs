@@ -497,6 +497,14 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f (VectorType tp)) ->
      !(f tp) ->
      MirStmt f (VectorType tp)
+  VectorHead ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (MaybeType tp)
+  VectorTail ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (VectorType tp)
   VectorInit ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -562,6 +570,8 @@ instance TypeApp MirStmt where
     MirSubindexRef tp _ _ -> MirReferenceRepr tp
     MirSubjustRef tp _ -> MirReferenceRepr tp
     VectorSnoc tp _ _ -> VectorRepr tp
+    VectorHead tp _ -> MaybeRepr tp
+    VectorTail tp _ -> VectorRepr tp
     VectorInit tp _ -> VectorRepr tp
     VectorLast tp _ -> MaybeRepr tp
     VectorConcat tp _ _ -> VectorRepr tp
@@ -580,6 +590,8 @@ instance PrettyApp MirStmt where
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
+    VectorHead _ v -> "vectorHead" <+> pp v
+    VectorTail _ v -> "vectorTail" <+> pp v
     VectorInit _ v -> "vectorInit" <+> pp v
     VectorLast _ v -> "vectorLast" <+> pp v
     VectorConcat _ v1 v2 -> "vectorConcat" <+> pp v1 <+> pp v2
@@ -608,6 +620,8 @@ instance InstantiateFC CrucibleType MirStmt where
       MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)
       MirSubjustRef ty r1 -> MirSubjustRef (instantiate subst ty) (instantiate subst r1)
       VectorSnoc ty v e -> VectorSnoc (instantiate subst ty) (instantiate subst v) (instantiate subst e)
+      VectorHead ty v -> VectorHead (instantiate subst ty) (instantiate subst v)
+      VectorTail ty v -> VectorTail (instantiate subst ty) (instantiate subst v)
       VectorInit ty v -> VectorInit (instantiate subst ty) (instantiate subst v)
       VectorLast ty v -> VectorLast (instantiate subst ty) (instantiate subst v)
       VectorConcat ty v1 v2 -> VectorConcat (instantiate subst ty) (instantiate subst v1) (instantiate subst v2)
@@ -675,6 +689,12 @@ execMirStmt stmt s =
             return (r', s)
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
+       VectorHead _tp (regValue -> vecValue) -> do
+            let val = maybePartExpr sym $
+                    if V.null vecValue then Nothing else Just $ V.head vecValue
+            return (val, s)
+       VectorTail _tp (regValue -> vecValue) ->
+            return (if V.null vecValue then V.empty else V.tail vecValue, s)
        VectorInit _tp (regValue -> vecValue) ->
             return (if V.null vecValue then V.empty else V.init vecValue, s)
        VectorLast _tp (regValue -> vecValue) -> do

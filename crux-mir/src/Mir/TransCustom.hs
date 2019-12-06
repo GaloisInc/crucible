@@ -230,6 +230,16 @@ vector_pop = ( (["crucible","vector","{{impl}}"], "pop", []), ) $ \substs -> cas
         _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
     _ -> Nothing
 
+vector_pop_front :: (ExplodedDefId, CustomRHS)
+vector_pop_front = ( (["crucible","vector","{{impl}}"], "pop_front", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr) eVec] -> do
+            meHead <- vectorHead tpr eVec >>= maybeToOption t tpr
+            meTail <- MirExp (C.VectorRepr tpr) <$> vectorTail tpr eVec
+            return $ buildTupleMaybe [CTyOption t, CTyVector t] [Just meHead, Just meTail]
+        _ -> mirFail $ "bad arguments for Vector::pop_front: " ++ show ops
+    _ -> Nothing
+
 vector_as_slice :: (ExplodedDefId, CustomRHS)
 vector_as_slice = ( (["crucible","vector","{{impl}}"], "as_slice", []), ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
