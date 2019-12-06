@@ -199,30 +199,13 @@ unsafe impl Alloc for Global {
 #[lang = "exchange_malloc"]
 #[inline]
 unsafe fn exchange_malloc(size: usize, align: usize) -> *mut u8 {
-    if size == 0 {
-        align as *mut u8
-    } else {
-        let layout = Layout::from_size_align_unchecked(size, align);
-        let ptr = alloc(layout);
-        if !ptr.is_null() {
-            ptr
-        } else {
-            handle_alloc_error(layout)
-        }
-    }
+    unimplemented!()
 }
 
 #[cfg_attr(not(test), lang = "box_free")]
 #[inline]
 pub(crate) unsafe fn box_free<T: ?Sized>(ptr: Unique<T>) {
-    let ptr = ptr.as_ptr();
-    let size = size_of_val(&*ptr);
-    let align = min_align_of_val(&*ptr);
-    // We do not allocate for Box<T> when T is ZST, so deallocation is also not necessary.
-    if size != 0 {
-        let layout = Layout::from_size_align_unchecked(size, align);
-        dealloc(ptr as *mut u8, layout);
-    }
+    unimplemented!()
 }
 
 /// Abort on memory allocation error or failure.

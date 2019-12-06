@@ -117,7 +117,7 @@ impl<T> Box<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline(always)]
     pub fn new(x: T) -> Box<T> {
-        box x
+        unimplemented!("Box::new()")
     }
 
     /// Constructs a new `Pin<Box<T>>`. If `T` does not implement `Unpin`, then
@@ -125,7 +125,7 @@ impl<T> Box<T> {
     #[stable(feature = "pin", since = "1.33.0")]
     #[inline(always)]
     pub fn pin(x: T) -> Pin<Box<T>> {
-        (box x).into()
+        Box::new(x).into()
     }
 }
 
@@ -344,7 +344,7 @@ unsafe impl<#[may_dangle] T: ?Sized> Drop for Box<T> {
 impl<T: Default> Default for Box<T> {
     /// Creates a `Box<T>`, with the `Default` value for T.
     fn default() -> Box<T> {
-        box Default::default()
+        Box::new(Default::default())
     }
 }
 
@@ -381,7 +381,7 @@ impl<T: Clone> Clone for Box<T> {
     #[rustfmt::skip]
     #[inline]
     fn clone(&self) -> Box<T> {
-        box { (**self).clone() }
+        Box::new((**self).clone())
     }
 
     /// Copies `source`'s contents into `self` without creating a new allocation.

@@ -168,10 +168,10 @@ panicking_panic_fmt = ((["core", "panicking"], "panic_fmt", []), \s -> Just $ Cu
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Box
 
--- Note that std::boxed::Box<T> gets custom translation in `TransTy.tyToRepr`.
+-- Note that alloc::boxed::Box<T> gets custom translation in `TransTy.tyToRepr`.
 
 box_new :: (ExplodedDefId, CustomRHS)
-box_new = ( (["std","boxed","{{impl}}"], "new", []),
+box_new = ( (["alloc","boxed","{{impl}}"], "new", []),
   \_substs -> Just $ CustomOp $ \opTys ops -> case ops of
     [MirExp tpr e] -> do
         r <- newMirRef tpr
