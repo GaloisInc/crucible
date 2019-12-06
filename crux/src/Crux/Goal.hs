@@ -123,12 +123,18 @@ proveGoals opts ctxt (Just gs0) =
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
      (tot,proved,disproved) <- readIORef goalNum
      if proved /= tot
-       then sayFail "Crux" $ unwords
-             [ "Disproved", show disproved
-             , "out of", show tot, "goals."
-             , show (tot - proved - disproved), "goals are unknown."
-             ]
-       else sayOK "Crux" $ unwords [ "Proved all", show tot, "goals." ]
+       then do
+         sayFail "Crux" $ unwords
+           [ "Disproved", show disproved
+           , "out of", show tot, "goals."
+           , show (tot - proved - disproved), "goals are unknown."
+           ]
+         if disproved > 0
+           then sayFail "Crux" "Overall status: Invalid."
+           else say "Crux" "Overall status: Unknown."
+       else do
+         sayOK "Crux" $ unwords [ "Proved all", show tot, "goals." ]
+         sayOK "Crux" "Overall status: Valid."
      return (Just res)
   where
   (start,end) = prepStatus "Checking: " (countGoals gs0)
