@@ -1,0 +1,49 @@
+Name:          what4-serialize
+Version:       0.0.1
+Author:        Galois Inc.
+Maintainer:    dmatichuk@galois.com
+Copyright:     (c) Galois, Inc 2019
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.10
+Category:      Language
+Synopsis:      Package for serialization of What4 terms
+Description:
+            Provides primitives for transforming what4 terms into s-expressions and back again.
+
+library
+  build-depends:
+    base >= 4.8 && < 5,
+    BoundedChan,
+    containers >= 0.5.0.0,
+    directory,
+    located-base,
+    mtl,
+    ordered-containers,
+    parsec >= 3.1 && < 3.2,
+    parameterized-utils >= 1.0.8 && < 2.1,
+    s-cargot >= 0.1.4.0 && < 0.2,
+    s-cargot-letbind >= 0.2.2.0 && < 0.3,
+    stm,
+    text,
+    time,
+    unliftio,
+    what4,
+    ghc-prim
+
+  default-language: Haskell2010
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    What4.Serialize.SETokens
+    What4.Serialize.Printer
+    What4.Serialize.Parser
+    What4.Utils.Log
+    What4.Utils.Util
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+  if impl(ghc >= 8.6)
+    default-extensions: NoStarIsType
