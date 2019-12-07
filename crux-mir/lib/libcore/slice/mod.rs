@@ -924,14 +924,13 @@ impl<T> [T] {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn split_at_mut(&mut self, mid: usize) -> (&mut [T], &mut [T]) {
-        let len = self.len();
-        let ptr = self.as_mut_ptr();
-
         unsafe {
-            assert!(mid <= len);
+            assert!(mid <= self.len());
 
-            (from_raw_parts_mut(ptr, mid),
-             from_raw_parts_mut(ptr.add(mid), len - mid))
+            // Transmute away the lifetimes
+            let a = mem::crucible_identity_transmute::<&mut [T], &mut [T]>(&mut self[..mid]);
+            let b = mem::crucible_identity_transmute::<&mut [T], &mut [T]>(&mut self[mid..]);
+            (a, b)
         }
     }
 

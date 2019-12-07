@@ -1071,9 +1071,8 @@ impl<T> Vec<T> {
     #[inline]
     #[stable(feature = "append", since = "1.4.0")]
     pub fn append(&mut self, other: &mut Self) {
-        unsafe {
-            self.append_elements(other.as_slice() as _);
-            other.set_len(0);
+        while let Some(x) = other.pop_front() {
+            self.push(x);
         }
     }
 
@@ -1763,26 +1762,10 @@ trait SpecExtend<T, I> {
 impl<T, I> SpecExtend<T, I> for Vec<T>
     where I: Iterator<Item=T>,
 {
-    default fn from_iter(mut iterator: I) -> Self {
-        // Unroll the first iteration, as the vector is going to be
-        // expanded on this iteration in every case when the iterable is not
-        // empty, but the loop in extend_desugared() is not going to see the
-        // vector being full in the few subsequent loop iterations.
-        // So we get better branch prediction.
-        let mut vector = match iterator.next() {
-            None => return Vec::new(),
-            Some(element) => {
-                let (lower, _) = iterator.size_hint();
-                let mut vector = Vec::with_capacity(lower.saturating_add(1));
-                unsafe {
-                    ptr::write(vector.get_unchecked_mut(0), element);
-                    vector.set_len(1);
-                }
-                vector
-            }
-        };
-        <Vec<T> as SpecExtend<T, I>>::spec_extend(&mut vector, iterator);
-        vector
+    default fn from_iter(iterator: I) -> Self {
+        let mut v = Vec::new();
+        v.spec_extend(iterator);
+        v
     }
 
     default fn spec_extend(&mut self, iter: I) {
@@ -1831,12 +1814,8 @@ impl<'a, T: 'a> SpecExtend<&'a T, slice::Iter<'a, T>> for Vec<T>
     where T: Copy,
 {
     fn spec_extend(&mut self, iterator: slice::Iter<'a, T>) {
-        let slice = iterator.as_slice();
-        self.reserve(slice.len());
-        unsafe {
-            let len = self.len();
-            self.set_len(len + slice.len());
-            self.get_unchecked_mut(len..).copy_from_slice(slice);
+        for &x in iterator {
+            self.push(x);
         }
     }
 }
@@ -1851,16 +1830,7 @@ impl<T> Vec<T> {
         //          self.push(item);
         //      }
         while let Some(element) = iterator.next() {
-            let len = self.len();
-            if len == self.capacity() {
-                let (lower, _) = iterator.size_hint();
-                self.reserve(lower.saturating_add(1));
-            }
-            unsafe {
-                ptr::write(self.get_unchecked_mut(len), element);
-                // NB can't overflow since we would have had to alloc the address space
-                self.set_len(len + 1);
-            }
+            self.push(element);
         }
     }
 

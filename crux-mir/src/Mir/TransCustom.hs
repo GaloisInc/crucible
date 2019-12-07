@@ -100,6 +100,7 @@ customOpDefs = Map.fromList [
                          , vector_len
                          , vector_push
                          , vector_pop
+                         , vector_pop_front
                          , vector_as_slice
                          , vector_as_mut_slice
                          , vector_concat
@@ -149,8 +150,10 @@ abort = ((["core", "intrinsics"], "abort", []), \s ->
             Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
-panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s ->
-            Just (CustomOpExit $  \ops -> return "panicking::begin_panic"))
+panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s -> Just $ CustomOpExit $ \ops -> do
+    name <- use $ currentFn . fname
+    return $ "panicking::begin_panic, called from " <> M.idText name
+    )
 
 panicking_panic :: (ExplodedDefId, CustomRHS)
 panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpExit $ \ops -> do

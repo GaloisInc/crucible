@@ -73,7 +73,6 @@ enum Repr {
 #[derive(Debug)]
 struct Custom {
     kind: ErrorKind,
-    error: Box<dyn error::Error+Send+Sync>,
 }
 
 /// A list specifying general categories of I/O error.
@@ -246,17 +245,16 @@ impl Error {
     /// let custom_error2 = Error::new(ErrorKind::Interrupted, custom_error);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn new<E>(kind: ErrorKind, error: E) -> Error
+    pub fn new<E>(kind: ErrorKind, _error: E) -> Error
         where E: Into<Box<dyn error::Error+Send+Sync>>
     {
-        Self::_new(kind, error.into())
+        Self::_new(kind)
     }
 
-    fn _new(kind: ErrorKind, error: Box<dyn error::Error+Send+Sync>) -> Error {
+    fn _new(kind: ErrorKind) -> Error {
         Error {
             repr: Repr::Custom(Box::new(Custom {
                 kind,
-                error,
             }))
         }
     }
@@ -374,7 +372,7 @@ impl Error {
         match self.repr {
             Repr::Os(..) => None,
             Repr::Simple(..) => None,
-            Repr::Custom(ref c) => Some(&*c.error),
+            Repr::Custom(..) => None,
         }
     }
 
@@ -445,7 +443,7 @@ impl Error {
         match self.repr {
             Repr::Os(..) => None,
             Repr::Simple(..) => None,
-            Repr::Custom(ref mut c) => Some(&mut *c.error),
+            Repr::Custom(..) => None,
         }
     }
 
@@ -479,7 +477,7 @@ impl Error {
         match self.repr {
             Repr::Os(..) => None,
             Repr::Simple(..) => None,
-            Repr::Custom(c) => Some(c.error)
+            Repr::Custom(..) => None,
         }
     }
 
@@ -533,7 +531,7 @@ impl fmt::Display for Error {
                 let detail = sys::os::error_string(code);
                 write!(fmt, "{} (os error {})", detail, code)
             }
-            Repr::Custom(ref c) => c.error.fmt(fmt),
+            Repr::Custom(ref c) => write!(fmt, "{}", c.kind.as_str()),
             Repr::Simple(kind) => write!(fmt, "{}", kind.as_str()),
         }
     }
@@ -544,7 +542,7 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match self.repr {
             Repr::Os(..) | Repr::Simple(..) => self.kind().as_str(),
-            Repr::Custom(ref c) => c.error.description(),
+            Repr::Custom(..) => self.kind().as_str(),
         }
     }
 
@@ -553,7 +551,7 @@ impl error::Error for Error {
         match self.repr {
             Repr::Os(..) => None,
             Repr::Simple(..) => None,
-            Repr::Custom(ref c) => c.error.cause(),
+            Repr::Custom(..) => None,
         }
     }
 
@@ -561,7 +559,7 @@ impl error::Error for Error {
         match self.repr {
             Repr::Os(..) => None,
             Repr::Simple(..) => None,
-            Repr::Custom(ref c) => c.error.source(),
+            Repr::Custom(..) => None,
         }
     }
 }

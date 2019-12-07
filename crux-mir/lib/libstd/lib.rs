@@ -251,6 +251,7 @@
 #![feature(const_cstr_unchecked)]
 #![feature(const_raw_ptr_deref)]
 #![feature(core_intrinsics)]
+#![feature(crucible_intrinsics)]
 #![feature(custom_test_frameworks)]
 #![feature(doc_alias)]
 #![feature(doc_cfg)]

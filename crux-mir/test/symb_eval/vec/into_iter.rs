@@ -1,13 +1,12 @@
 #![feature(custom_attribute)]
+#![feature(crux)]
 
 #[crux_test]
 pub fn f() {
     let v = vec![1, 2, 3];
-    let mut sum = 0;
-    for x in v.into_iter() {
-        // Easy way to check we're getting elements in the right order.
-        assert!(sum < x * x);
-        sum += x;
-    }
-    assert!(sum == 6);
+    let mut it = v.into_iter();
+    assert!(it.next() == Some(1));
+    assert!(it.next() == Some(2));
+    assert!(it.next() == Some(3));
+    assert!(it.next() == None);
 }

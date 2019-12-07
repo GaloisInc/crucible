@@ -273,9 +273,11 @@ impl Write for &mut [u8] {
     #[inline]
     fn write(&mut self, data: &[u8]) -> io::Result<usize> {
         let amt = cmp::min(data.len(), self.len());
-        let (a, b) = mem::replace(self, &mut []).split_at_mut(amt);
-        a.copy_from_slice(&data[..amt]);
-        *self = b;
+        unsafe {
+            let (a, b) = (*self).split_at_mut(amt);
+            a.copy_from_slice(&data[..amt]);
+            *self = mem::crucible_identity_transmute::<&mut [_], &mut [_]>(b);
+        }
         Ok(amt)
     }
 

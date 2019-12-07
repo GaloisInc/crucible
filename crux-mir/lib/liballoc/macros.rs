@@ -40,7 +40,11 @@ macro_rules! vec {
         $crate::vec::from_elem($elem, $n)
     );
     ($($x:expr),*) => (
-        <[_]>::into_vec(box [$($x),*])
+        {
+            let mut v = Vec::new();
+            $( v.push($x); )*
+            v
+        }
     );
     ($($x:expr,)*) => ($crate::vec![$($x),*])
 }

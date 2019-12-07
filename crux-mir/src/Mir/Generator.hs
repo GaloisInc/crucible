@@ -496,13 +496,13 @@ vectorHead ::
   C.TypeRepr tp ->
   R.Expr MIR s (C.VectorType tp) ->
   MirGenerator h s ret (R.Expr MIR s (C.MaybeType tp))
-vectorHead tp v = G.extensionStmt $ VectorLast tp v
+vectorHead tp v = G.extensionStmt $ VectorHead tp v
 
 vectorTail ::
   C.TypeRepr tp ->
   R.Expr MIR s (C.VectorType tp) ->
   MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
-vectorTail tp v = G.extensionStmt $ VectorInit tp v
+vectorTail tp v = G.extensionStmt $ VectorTail tp v
 
 vectorInit ::
   C.TypeRepr tp ->
