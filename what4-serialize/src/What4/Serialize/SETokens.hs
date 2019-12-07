@@ -9,7 +9,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module SemMC.Formula.SETokens
+module What4.Serialize.SETokens
     ( FAtom(..)
     , string, ident, quoted, int, nat, bitvec
     , string', ident', quoted', int', nat', bitvec'

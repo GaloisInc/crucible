@@ -22,7 +22,7 @@
 --
 -- when defining a new logger, so not a big deal, just something to
 -- watch out for.
-module SemMC.Log (
+module What4.Utils.Log (
   -- * Misc
   LogLevel(..),
   LogEvent(..),
