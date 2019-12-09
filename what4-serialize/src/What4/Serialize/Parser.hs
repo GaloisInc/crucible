@@ -29,29 +29,20 @@ import qualified Control.Monad.Except as E
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
 import qualified Control.Monad.Reader as MR
 import           Control.Monad ( when )
-import           Data.Foldable ( foldrM )
 import           Data.Kind
 import           Data.Map ( Map )
 import qualified Data.Map as Map
-import qualified Data.SCargot as SC
 import qualified Data.SCargot.Repr as SC
 import           Data.Semigroup
-import           Data.Proxy
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import           Text.Printf ( printf )
-import qualified Data.Set as Set
-import           GHC.TypeLits ( Symbol )
-import           Data.Proxy ( Proxy(..) )
 
 import qualified Data.Parameterized.Ctx as Ctx
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.NatRepr as NR
-import           Data.Parameterized.Some ( Some(..), mapSome, viewSome )
-import qualified Data.Parameterized.List as SL
+import           Data.Parameterized.Some ( Some(..), viewSome )
 import           Data.Parameterized.TraversableFC ( traverseFC, allFC )
-import qualified Data.Parameterized.Map as MapF
 import           What4.BaseTypes
 
 import qualified What4.Interface as S
@@ -198,40 +189,41 @@ findArgListIndex x args = Ctx.forIndex (Ctx.size args) getArg Nothing
           
 
 -- | Parse a single parameter, given the list of operands to use as a lookup.
-readVariable :: forall sym tps m. (E.MonadError String m) => (Proxy sym -> T.Text -> Maybe (Some (S.SymExpr sym))) -> Ctx.Assignment ArgData tps -> FAtom -> m (Some (ParsedVariable sym tps))
+readVariable :: forall sym tps m. (E.MonadError String m) => (T.Text -> m (Maybe (Some (S.SymExpr sym)))) -> Ctx.Assignment ArgData tps -> FAtom -> m (Some (ParsedVariable sym tps))
 readVariable lookupGlobal oplist atom =
   readRawVariable atom >>= \case
     RawArgument op ->
       maybe (E.throwError $ printf "couldn't find argument %s" op)
             (viewSome (\(IndexWithType tpRepr idx) -> return $ Some (ParsedArgument tpRepr idx)))
             (findArgListIndex op oplist)
-    RawGlobal glb ->
+    RawGlobal glb -> do
+      glb' <- lookupGlobal (T.pack glb)
       maybe (E.throwError $ printf "%s is an invalid literal for this arch" glb)
             (return . viewSome (Some . ParsedGlobal))
-            (lookupGlobal (Proxy :: Proxy sym) (T.pack glb))
+            glb'
 
 -- ** Parsing definitions
 
 -- | "Global" data stored in the Reader monad throughout parsing the definitions.
-data DefsInfo sym (gtp :: BaseType -> Type) tps = DefsInfo
-                          { getSym :: sym
-                          -- ^ SymInterface/ExprBuilder used to build up symbolic
-                          -- expressions while parsing the definitions.
-                          , getEnv :: SymFnEnv sym
-                          -- ^ Global formula environment
-                          , getGlobalLookup :: Proxy sym -> T.Text -> Maybe (Some (S.SymExpr sym))
-                          -- ^ Function to retrieve the expression corresponding to the
-                          -- given global
-                          , getArgVarList :: Ctx.Assignment (S.BoundVar sym) tps
-                          -- ^ ShapedList used to retrieve the variable
-                          -- corresponding to a given argument.
-                          , getArgNameList :: Ctx.Assignment ArgData tps
-                          -- ^ ShapedList used to look up the index given an
-                          -- argument's name.
-                          , getBindings :: Map.Map FAtom (Some (S.SymExpr sym))
-                          -- ^ Mapping of currently in-scope let-bound variables
-                          --- to their parsed bindings.
-                          }
+data DefsInfo sym tps = DefsInfo
+                        { getSym :: sym
+                        -- ^ SymInterface/ExprBuilder used to build up symbolic
+                        -- expressions while parsing the definitions.
+                        , getEnv :: SymFnEnv sym
+                        -- ^ Global formula environment
+                        , getGlobalLookup :: sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym)))
+                        -- ^ Function to retrieve the expression corresponding to the
+                        -- given global
+                        , getArgVarList :: Ctx.Assignment (S.BoundVar sym) tps
+                        -- ^ ShapedList used to retrieve the variable
+                        -- corresponding to a given argument.
+                        , getArgNameList :: Ctx.Assignment ArgData tps
+                        -- ^ ShapedList used to look up the index given an
+                        -- argument's name.
+                        , getBindings :: Map.Map FAtom (Some (S.SymExpr sym))
+                        -- ^ Mapping of currently in-scope let-bound variables
+                        --- to their parsed bindings.
+                        }
 
 -- | Stores a NatRepr along with proof that its type parameter is a bitvector of
 -- that length. Used for easy pattern matching on the LHS of a binding in a
@@ -429,7 +421,7 @@ lookupOp = \case
 readOneArg ::
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
-    MR.MonadReader (DefsInfo sym gtp sh) m,
+    MR.MonadReader (DefsInfo sym sh) m,
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (S.SymExpr sym))
@@ -444,7 +436,7 @@ readOneArg operands = do
 readTwoArgs ::
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
-    MR.MonadReader (DefsInfo sym gtp sh) m,
+    MR.MonadReader (DefsInfo sym sh) m,
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (S.SymExpr sym), Some (S.SymExpr sym))
@@ -459,7 +451,7 @@ readTwoArgs operands = do
 readThreeArgs ::
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
-    MR.MonadReader (DefsInfo sym gtp sh) m,
+    MR.MonadReader (DefsInfo sym sh) m,
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (S.SymExpr sym), Some (S.SymExpr sym), Some (S.SymExpr sym))
@@ -472,10 +464,10 @@ readThreeArgs operands = do
 
 -- | Reads an "application" form, i.e. @(operator operands ...)@.
 readApp ::
-  forall sym m gtp sh.
+  forall sym m sh.
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
-    MR.MonadReader (DefsInfo sym gtp sh) m,
+    MR.MonadReader (DefsInfo sym sh) m,
     MonadIO m)
   => SC.SExpr FAtom
   -> SC.SExpr FAtom
@@ -799,11 +791,11 @@ exprAssignment tpAssn exs = exprAssignment' tpAssn (reverse exs) 0 (Ctx.sizeInt 
 -- let, parse the bindings into the Reader monad's state and
 -- then parse the body with those newly bound variables.
 readLetExpr ::
-  forall sym m gtp sh
+  forall sym m sh
   . (S.IsSymExprBuilder sym,
       Monad m,
       E.MonadError String m,
-      MR.MonadReader (DefsInfo sym gtp sh) m,
+      MR.MonadReader (DefsInfo sym sh) m,
       MonadIO m)
   => SC.SExpr FAtom
   -- ^ Bindings in a let-expression.
@@ -819,11 +811,11 @@ readLetExpr bindings _body = E.throwError $
   "invalid s-expression for let-bindings: " ++ (show bindings)
 
 -- | Parse an arbitrary expression.
-readExpr :: forall sym m gtp sh
+readExpr :: forall sym m sh
           . (S.IsSymExprBuilder sym,
              Monad m,
              E.MonadError String m,
-             MR.MonadReader (DefsInfo sym gtp sh) m,
+             MR.MonadReader (DefsInfo sym sh) m,
              MonadIO m)
          => SC.SExpr FAtom
          -> m (Some (S.SymExpr sym))
@@ -871,7 +863,7 @@ readExpr (SC.SAtom varRaw) = do
                , getArgVarList = argVars
                , getGlobalLookup = globalLookup
                } <- MR.ask
-      var <- readVariable globalLookup argNames varRaw
+      var <- readVariable @sym (\nm -> liftIO $ globalLookup sym nm) argNames varRaw
       case var of
         Some (ParsedArgument _ idx) ->
           return . Some . S.varExpr sym $ (argVars Ctx.! idx)
@@ -888,7 +880,7 @@ readExpr (SC.SCons operator operands) = do
 readExprs :: (S.IsSymExprBuilder sym,
               Monad m,
               E.MonadError String m,
-              MR.MonadReader (DefsInfo sym gtp sh) m,
+              MR.MonadReader (DefsInfo sym sh) m,
               MonadIO m)
           => SC.SExpr FAtom
           -> m [Some (S.SymExpr sym)]
@@ -900,11 +892,11 @@ readExprs (SC.SCons e rest) = do
   return $ e' : rest'
 
 readExprsAsAssignment ::
-  forall sym m gtp sh .
+  forall sym m sh .
   (S.IsSymExprBuilder sym,
     Monad m,
     E.MonadError String m,
-    MR.MonadReader (DefsInfo sym gtp sh) m,
+    MR.MonadReader (DefsInfo sym sh) m,
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (Ctx.Assignment (S.SymExpr sym)))
@@ -933,7 +925,7 @@ buildArgumentList sexpr =
       Some rest' <- buildArgumentList rest
       return $ Some (rest' Ctx.:> (ArgData operand tp))
 
-readSymFn' :: forall sym gtp m
+readSymFn' :: forall sym m
            . (S.IsExprBuilder sym,
               S.IsSymExprBuilder sym,
               E.MonadError String m,
@@ -942,7 +934,7 @@ readSymFn' :: forall sym gtp m
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
-          -> (Proxy sym -> T.Text -> Maybe (Some (S.SymExpr sym)))
+          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> SC.SExpr FAtom
           -> m (SomeSome (S.SymFn sym))
 readSymFn' sym env globalLookup sexpr = do
@@ -952,6 +944,7 @@ readSymFn' sym env globalLookup sexpr = do
         (SC.SCons (SC.SCons symFnInfoRaw SC.SNil)
           SC.SNil))
       -> return (name, symFnInfoRaw)
+    _ -> E.throwError "invliad top-level function definition structure"
     
     
   let symbol = U.makeSymbol name
@@ -984,7 +977,7 @@ readSymFn' sym env globalLookup sexpr = do
         Some retT <- readBaseType retTRaw
         symFn <- liftIO $ S.freshTotalUninterpFn sym symbol argTs retT
         return $ SomeSome symFn
-    _ -> E.throwError "invalid function definition structure"
+    _ -> E.throwError "invalid function definition info structure"
         
   where    
     mkArgumentVar :: forall tp. ArgData tp -> m (S.BoundVar sym tp)
@@ -1011,7 +1004,7 @@ genRead callnm m text = do
 
 type SymFnEnv t = Map T.Text (SomeSome (S.SymFn t))
 
-readSymFn :: forall sym gtp m
+readSymFn :: forall sym m
            . (S.IsExprBuilder sym,
               S.IsSymExprBuilder sym,
               E.MonadError String m,
@@ -1020,12 +1013,12 @@ readSymFn :: forall sym gtp m
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
-          -> (Proxy sym -> T.Text -> Maybe (Some (S.SymExpr sym)))
+          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> T.Text
           -> m (SomeSome (S.SymFn sym))
 readSymFn sym env globalLookup = genRead "readSymFn" (readSymFn' sym env globalLookup)
 
-readSymFnEnv' :: forall sym gtp m
+readSymFnEnv' :: forall sym m
            . (S.IsExprBuilder sym,
               S.IsSymExprBuilder sym,
               E.MonadError String m,
@@ -1034,7 +1027,7 @@ readSymFnEnv' :: forall sym gtp m
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
-          -> (Proxy sym -> T.Text -> Maybe (Some (S.SymExpr sym)))
+          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> SC.SExpr FAtom
           -> m (SymFnEnv sym)
 readSymFnEnv' sym env globalReads sexpr = do
@@ -1047,7 +1040,7 @@ readSymFnEnv' sym env globalReads sexpr = do
   Map.fromList <$> readSymFns symFnEnvRaw
   where
     readSymFns :: SC.SExpr FAtom -> m [(T.Text, (SomeSome (S.SymFn sym)))]
-    readSymFns sexpr = case sexpr of
+    readSymFns sexpr' = case sexpr' of
       SC.SNil -> return []
       SC.SAtom _ -> E.throwError $ "Expected SNil or SCons but got SAtom: " ++ show sexpr
       SC.SCons s rest -> do
@@ -1056,8 +1049,8 @@ readSymFnEnv' sym env globalReads sexpr = do
         return $ s' : rest'
       
     readSomeSymFn :: SC.SExpr FAtom -> m (T.Text, (SomeSome (S.SymFn sym)))
-    readSomeSymFn sexpr = do
-      (name, rawSymFn) <- case sexpr of
+    readSomeSymFn sexpr' = do
+      (name, rawSymFn) <- case sexpr' of
         SC.SCons (SC.SAtom (AIdent name))
           (SC.SCons rawSymFn
             SC.SNil)
@@ -1066,7 +1059,7 @@ readSymFnEnv' sym env globalReads sexpr = do
       ssymFn <- readSymFn' sym env globalReads rawSymFn
       return (name, ssymFn)
 
-readSymFnEnv :: forall sym gtp m
+readSymFnEnv :: forall sym m
            . (S.IsExprBuilder sym,
               S.IsSymExprBuilder sym,
               E.MonadError String m,
@@ -1075,7 +1068,7 @@ readSymFnEnv :: forall sym gtp m
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
-          -> (Proxy sym -> T.Text -> Maybe (Some (S.SymExpr sym)))
+          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> T.Text
           -> m (SymFnEnv sym)
 readSymFnEnv sym env globalLookup = genRead "readSymFnEnv" (readSymFnEnv' sym env globalLookup)
