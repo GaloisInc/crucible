@@ -53,10 +53,9 @@ import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
 import Data.Functor.Classes (Eq2(liftEq2), Ord2(liftCompare2))
 import Data.Kind (Type)
-import Data.List (intercalate, nub)
+import Data.List (intercalate, nub, isPrefixOf)
 import Data.Maybe (isJust)
 import Data.Type.Equality (TestEquality(..))
-import qualified Data.Set as Set
 import Data.Typeable (Typeable)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -269,7 +268,7 @@ class HasStructuredAssertions (ext :: Type) where
                 -> AssertionClassifierTree ext (RegValue' sym)
                 -> String
   summarizeTree proxyExt =
-    intercalate ", " . nub .
+    intercalate ", " . nub . filter (not . ("muxing" `isPrefixOf`)) .
     cataMAT
       (\ac -> [show (explain proxyExt ac)])
       (\factors -> nub (toList factors))
