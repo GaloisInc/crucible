@@ -1458,7 +1458,7 @@ checkBitvectorSupport :: Expr t tp -> SMTCollector t h ()
 checkBitvectorSupport t = do
   conn <- asks scConn
   unless (supportedFeatures conn `hasProblemFeature` useBitvectors) $ do
-    theoryUnsupported conn "bitvectors" t
+    theoryUnsupported conn "bitvector" t
 
 checkFloatSupport :: Expr t tp -> SMTCollector t h ()
 checkFloatSupport t = do
