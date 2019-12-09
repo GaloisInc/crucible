@@ -1438,8 +1438,8 @@ theoryUnsupported :: Monad m => WriterConn t h -> String -> Expr t tp -> m a
 theoryUnsupported conn theory_name t =
   fail $ show $
     text (smtWriterName conn) <+> text "does not support the" <+> text theory_name
-    <+> text "term generated at" <+> pretty (plSourceLoc (exprLoc t)) <> text ":" <$$>
-    indent 2 (pretty t)
+    <+> text "term generated at" <+> pretty (plSourceLoc (exprLoc t))
+    -- <> text ":" <$$> indent 2 (pretty t)
 
 
 checkIntegerSupport :: Expr t tp -> SMTCollector t h ()
