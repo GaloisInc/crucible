@@ -100,6 +100,7 @@ customOpDefs = Map.fromList [
                          , vector_len
                          , vector_push
                          , vector_pop
+                         , vector_pop_front
                          , vector_as_slice
                          , vector_as_mut_slice
                          , vector_concat
@@ -149,8 +150,10 @@ abort = ((["core", "intrinsics"], "abort", []), \s ->
             Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
-panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s ->
-            Just (CustomOpExit $  \ops -> return "panicking::begin_panic"))
+panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s -> Just $ CustomOpExit $ \ops -> do
+    name <- use $ currentFn . fname
+    return $ "panicking::begin_panic, called from " <> M.idText name
+    )
 
 panicking_panic :: (ExplodedDefId, CustomRHS)
 panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpExit $ \ops -> do
@@ -168,10 +171,10 @@ panicking_panic_fmt = ((["core", "panicking"], "panic_fmt", []), \s -> Just $ Cu
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Box
 
--- Note that std::boxed::Box<T> gets custom translation in `TransTy.tyToRepr`.
+-- Note that alloc::boxed::Box<T> gets custom translation in `TransTy.tyToRepr`.
 
 box_new :: (ExplodedDefId, CustomRHS)
-box_new = ( (["std","boxed","{{impl}}"], "new", []),
+box_new = ( (["alloc","boxed","{{impl}}"], "new", []),
   \_substs -> Just $ CustomOp $ \opTys ops -> case ops of
     [MirExp tpr e] -> do
         r <- newMirRef tpr
@@ -228,6 +231,16 @@ vector_pop = ( (["crucible","vector","{{impl}}"], "pop", []), ) $ \substs -> cas
             meLast <- vectorLast tpr eVec >>= maybeToOption t tpr
             return $ buildTupleMaybe [CTyVector t, CTyOption t] [Just meInit, Just meLast]
         _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
+    _ -> Nothing
+
+vector_pop_front :: (ExplodedDefId, CustomRHS)
+vector_pop_front = ( (["crucible","vector","{{impl}}"], "pop_front", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr) eVec] -> do
+            meHead <- vectorHead tpr eVec >>= maybeToOption t tpr
+            meTail <- MirExp (C.VectorRepr tpr) <$> vectorTail tpr eVec
+            return $ buildTupleMaybe [CTyOption t, CTyVector t] [Just meHead, Just meTail]
+        _ -> mirFail $ "bad arguments for Vector::pop_front: " ++ show ops
     _ -> Nothing
 
 vector_as_slice :: (ExplodedDefId, CustomRHS)

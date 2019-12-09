@@ -54,7 +54,7 @@ macro_rules! crucible_assume {
 #[macro_export]
 macro_rules! crucible_assume_unreachable {
     () => {{
-        crucible_assume!(false);
+        $crate::crucible_assume!(false);
         unreachable!()
     }};
 }
@@ -62,7 +62,7 @@ macro_rules! crucible_assume_unreachable {
 #[macro_export]
 macro_rules! crucible_assert_unreachable {
     () => {{
-        crucible_assert!(false);
+        $crate::crucible_assert!(false);
         unreachable!()
     }};
 }

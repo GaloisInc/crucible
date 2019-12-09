@@ -319,6 +319,7 @@ instance FromJSON Terminator where
                                                     in
                                                     SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets"
                                                   Just (String "Resume") -> pure Resume
+                                                  Just (String "Abort") -> pure Abort
                                                   Just (String "Return") -> pure Return
                                                   Just (String "Unreachable") -> pure Unreachable
                                                   Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind"

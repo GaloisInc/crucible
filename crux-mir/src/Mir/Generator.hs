@@ -492,6 +492,18 @@ vectorSnoc ::
   MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
 vectorSnoc tp v e = G.extensionStmt $ VectorSnoc tp v e
 
+vectorHead ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (C.VectorType tp) ->
+  MirGenerator h s ret (R.Expr MIR s (C.MaybeType tp))
+vectorHead tp v = G.extensionStmt $ VectorHead tp v
+
+vectorTail ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (C.VectorType tp) ->
+  MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
+vectorTail tp v = G.extensionStmt $ VectorTail tp v
+
 vectorInit ::
   C.TypeRepr tp ->
   R.Expr MIR s (C.VectorType tp) ->

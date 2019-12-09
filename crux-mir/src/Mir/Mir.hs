@@ -360,6 +360,7 @@ data Terminator =
                     _stargets  :: [BasicBlockInfo] }
         -- ^ case  
       | Resume
+      | Abort
       | Return
         -- ^ return to caller normally
       | Unreachable

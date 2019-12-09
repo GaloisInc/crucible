@@ -1483,6 +1483,8 @@ transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
 transTerminator (M.Drop _dl dt _dunwind) _ =
     jumpToBlock dt -- FIXME! drop: just keep going
+transTerminator M.Abort tr =
+    G.reportError (S.litExpr "process abort in unwinding")
 transTerminator M.Unreachable tr =
     G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminator t _tr =
