@@ -931,6 +931,7 @@ unsafe fn merge<T, F>(v: &mut [T], mid: usize, buf: *mut T, is_less: &mut F)
 /// 2. for every `i` in `2..runs.len()`: `runs[i - 2].len > runs[i - 1].len + runs[i].len`
 ///
 /// The invariants ensure that the total running time is `O(n log n)` worst-case.
+#[cfg(slice_sort)]
 fn merge_sort<T, F>(v: &mut [T], mut is_less: F)
     where F: FnMut(&T, &T) -> bool
 {
@@ -1057,5 +1058,21 @@ fn merge_sort<T, F>(v: &mut [T], mut is_less: F)
     struct Run {
         start: usize,
         len: usize,
+    }
+}
+
+/// Simple selection sort.  Terrible performance, but avoids using `unsafe`.
+#[cfg(not(slice_sort))]
+fn merge_sort<T, F>(v: &mut [T], mut is_less: F)
+    where F: FnMut(&T, &T) -> bool
+{
+    for i in 0 .. v.len() {
+        let mut best_idx = i;
+        for j in i + 1 .. v.len() {
+            if is_less(&v[j], &v[best_idx]) {
+                best_idx = j;
+            }
+        }
+        v.swap(i, best_idx);
     }
 }
