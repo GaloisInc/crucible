@@ -47,3 +47,25 @@ library
   ghc-prof-options: -O2 -fprof-auto-top
   if impl(ghc >= 8.6)
     default-extensions: NoStarIsType
+
+test-suite what4-serialize-tests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  ghc-options: -Wall -rtsopts -threaded
+  hs-source-dirs: tests
+  main-is: Main.hs
+  other-modules: SymFnTests, TestUtils
+  build-depends:   what4
+                 , what4-serialize
+                 , base
+                 , containers
+                 , directory
+                 , exceptions
+                 , hedgehog
+                 , tasty
+                 , tasty-hunit
+                 , tasty-hedgehog
+                 , text
+                 , parameterized-utils
+                 , async
+                 , directory
