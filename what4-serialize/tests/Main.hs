@@ -2,7 +2,6 @@
 module Main ( main ) where
 
 import qualified Test.Tasty as T
-import qualified Test.Tasty.HUnit as T
 import qualified Control.Exception as CE
 
 import qualified What4.Utils.Util as U
