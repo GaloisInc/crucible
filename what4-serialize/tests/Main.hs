@@ -10,7 +10,7 @@ import           SymFnTests
 
 
 allTests :: (U.HasLogCfg) => T.TestTree
-allTests = T.testGroup "What4" symFnTests
+allTests = T.testGroup "What4" (symFnTests ++ symFnEnvTests)
 
 main :: IO ()
 main = do

@@ -13,6 +13,7 @@
 module SymFnTests where
 
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
+import           Control.Monad ( forM_ )
 
 import           Data.Parameterized.Context ( pattern (:>), (!) )
 import qualified Data.Parameterized.Context as Ctx
@@ -20,6 +21,7 @@ import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import qualified Data.Text as T
+import qualified Data.Map as Map
 import           Hedgehog
 
 import qualified What4.Utils.Log as Log
@@ -53,12 +55,14 @@ data BuilderData t = NoBuilderData
 testBasicArguments :: [TestTree]
 testBasicArguments =
     [ testProperty "same argument type" $
+        withTests 1 $
         property $ mkEquivalenceTest (Ctx.empty :> BaseIntegerRepr :> BaseIntegerRepr) $ \sym bvs -> do
           let i1 = bvs ! Ctx.i1of2
           let i2 = bvs ! Ctx.i2of2
           WI.intAdd sym i1 i2
     , testProperty "different argument types" $
-        property $ mkEquivalenceTest (Ctx.empty :> BaseIntegerRepr :> BaseBoolRepr) $ \sym bvs -> do
+         withTests 1 $
+         property $ mkEquivalenceTest (Ctx.empty :> BaseIntegerRepr :> BaseBoolRepr) $ \sym bvs -> do
           let i1 = bvs ! Ctx.i1of2
           let b1 = bvs ! Ctx.i2of2
           WI.baseTypeIte sym b1 i1 i1
@@ -68,16 +72,19 @@ testBasicArguments =
 testFunctionCalls :: [TestTree]
 testFunctionCalls =
     [ testProperty "no arguments" $
+        withTests 1 $
         property $ mkEquivalenceTest Ctx.empty $ \sym _ -> do
           ufn <- WI.freshTotalUninterpFn sym (WI.safeSymbol "ufn") Ctx.empty BaseBoolRepr
           WI.applySymFn sym ufn Ctx.empty
     , testProperty "two inner arguments" $
+        withTests 1 $
         property $ mkEquivalenceTest Ctx.empty $ \sym _ -> do
           i1 <- WI.intLit sym 0
           let b1 = WI.truePred sym
           ufn <- WI.freshTotalUninterpFn sym (WI.safeSymbol "ufn") (Ctx.empty :> BaseIntegerRepr :> BaseBoolRepr) BaseBoolRepr
           WI.applySymFn sym ufn (Ctx.empty :> i1 :> b1)
     , testProperty "argument passthrough" $
+         withTests 1 $
         property $ mkEquivalenceTest (Ctx.empty :> BaseBoolRepr :> BaseIntegerRepr) $ \sym bvs -> do
           let i1 = bvs ! Ctx.i2of2
           let b1 = bvs ! Ctx.i1of2
@@ -88,10 +95,12 @@ testFunctionCalls =
 testGlobalReplacement :: [TestTree]
 testGlobalReplacement =
     [ testProperty "simple replacement" $
+        withTests 1 $
         property $ mkEquivalenceTest' Ctx.empty $ \sym _ -> do
           i1 <- WI.freshConstant sym (WI.safeSymbol "globalInt") BaseIntegerRepr
           return (i1, i1, [("globalInt", Some i1)])
     ,  testProperty "different input and output expression" $
+        withTests 1 $
         property $ mkEquivalenceTest' Ctx.empty $ \sym _ -> do
           gi1 <- WI.freshConstant sym (WI.safeSymbol "globalInt1") BaseIntegerRepr
           gi2 <- WI.freshConstant sym (WI.safeSymbol "globalInt2") BaseIntegerRepr
@@ -101,14 +110,17 @@ testGlobalReplacement =
 testExpressions :: [TestTree]
 testExpressions =
     [ testProperty "negative ints" $
+        withTests 1 $
         property $ mkEquivalenceTest Ctx.empty $ \sym _ -> do
           WI.intLit sym (-1)
     , testProperty "simple struct" $
+        withTests 1 $
         property $ mkEquivalenceTest Ctx.empty $ \sym _ -> do
           i1 <- WI.intLit sym 0
           let b1 = WI.truePred sym
           WI.mkStruct sym (Ctx.empty :> i1 :> b1)
     , testProperty "struct field access" $
+        withTests 1 $
         property $ mkEquivalenceTest (Ctx.empty :> BaseStructRepr (Ctx.empty :> BaseIntegerRepr :> BaseBoolRepr)) $ \sym bvs -> do
           let struct = bvs ! Ctx.baseIndex
           i1 <- WI.structField sym struct Ctx.i1of2
@@ -119,6 +131,7 @@ testExpressions =
     --      i1 <- WI.intLit sym 1
     --      WI.constantArray sym (Ctx.empty :> BaseIntegerRepr) i1
     , testProperty "array update" $
+        withTests 1 $
         property $ mkEquivalenceTest (Ctx.empty :> BaseArrayRepr (Ctx.empty :> BaseIntegerRepr) BaseIntegerRepr) $ \sym bvs -> do
           i1 <- WI.intLit sym 1
           i2 <- WI.intLit sym 2
@@ -128,6 +141,16 @@ testExpressions =
         property $ mkEquivalenceTest (Ctx.empty :> BaseIntegerRepr) $ \sym bvs -> do
           let i1 = bvs ! Ctx.baseIndex
           WI.integerToBV sym i1 (WI.knownNat @32)
+    ]
+
+testEnvSigs :: [TestTree]
+testEnvSigs =
+    [ testProperty "simple sigs" $
+        withTests 1 $
+        property $ mkSigTest $ \sym -> do
+          intbool_int <- WI.freshTotalUninterpFn sym (WI.safeSymbol "intbool_int") (Ctx.empty :> BaseIntegerRepr :> BaseBoolRepr) BaseIntegerRepr
+          boolint_bool <- WI.freshTotalUninterpFn sym (WI.safeSymbol "boolint_bool") (Ctx.empty :> BaseBoolRepr :> BaseIntegerRepr) BaseBoolRepr
+          return [("intbool_int", U.SomeSome intbool_int), ("boolint_bool", U.SomeSome boolint_bool)]
     ]
 
 mkEquivalenceTest :: forall m args ret
@@ -178,8 +201,32 @@ showSomeSym (Left a) = "Left (" ++ show a ++ ")"
 showSomeSym (Right (U.SomeSome e)) = ("Right (" ++ show e ++ ")")
 
 
-testRoundTripPrintParse :: [TestTree]
-testRoundTripPrintParse =
-    [ testProperty "argument type" $
-        property $ success
-    ]
+symFnEnvTests :: [TestTree]
+symFnEnvTests = [
+  testGroup "SymFnEnv" $
+    testEnvSigs
+  ]
+
+mkSigTest :: forall m
+           . (MonadTest m, MonadIO m)
+          => (forall sym
+               . WI.IsSymExprBuilder sym
+              => sym
+              -> IO [(T.Text, U.SomeSome (WI.SymFn sym))])
+          -> m ()
+mkSigTest getSymFnEnv = do
+  Some r <- liftIO $ newIONonceGenerator
+  sym <- liftIO $ S.newExprBuilder S.FloatRealRepr NoBuilderData r
+  liftIO $ S.startCaching sym
+  fenv1 <- liftIO $ Map.fromList <$> getSymFnEnv sym
+  let fenvText = WP.printSymFnEnv fenv1
+  lcfg <- liftIO $ Log.mkLogCfg "rndtrip"
+  deser <- liftIO $
+              Log.withLogCfg lcfg $
+              WP.readSymFnEnv sym Map.empty (\_ _ -> return Nothing) fenvText
+  fenv2 <- evalEither deser
+  Map.keysSet fenv1 === Map.keysSet fenv2
+  forM_ (Map.assocs fenv1) $ \(key, U.SomeSome fn1) ->
+    case Map.lookup key fenv2 of
+      Just (U.SomeSome fn2) -> symFnEqualityTest sym fn1 fn2
+      _ -> failure

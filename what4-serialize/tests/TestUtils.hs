@@ -50,18 +50,22 @@ symFnEqualityTest sym fn1 fn2 =
     retType1 = WI.fnReturnType fn1
     retType2 = WI.fnReturnType fn2
   in if | Just Refl <- testEquality argTypes1 argTypes2
-        , Just Refl <- testEquality retType1 retType2
-        , S.ExprSymFn _ _ (S.DefinedFnInfo argBVs1 efn1 _) _ <- fn1
-        , S.ExprSymFn _ _ (S.DefinedFnInfo argBVs2 efn2 _) _ <- fn2 -> do
-          args <- traverseFC (\bv -> liftIO $ WI.freshConstant sym (S.bvarName bv) (S.bvarType bv)) argBVs1
-          expr1 <- liftIO $ S.evalBoundVars sym efn1 argBVs1 args
-          expr2 <- liftIO $ S.evalBoundVars sym efn2 argBVs2 args
-          case testEquality expr1 expr2 of
-            Just Refl -> success
-            Nothing -> do
-              debugOut $ "Resulting expressions do not match:\n"
-                ++ "fn1:\n" ++ (show expr1) ++ "\n"
-                ++ "fn2:\n" ++ (show expr2)
+        , Just Refl <- testEquality retType1 retType2 ->
+          case (S.symFnInfo fn1, S.symFnInfo fn2) of
+            (S.DefinedFnInfo argBVs1 efn1 _, S.DefinedFnInfo argBVs2 efn2 _) -> do
+              args <- traverseFC (\bv -> liftIO $ WI.freshConstant sym (S.bvarName bv) (S.bvarType bv)) argBVs1
+              expr1 <- liftIO $ S.evalBoundVars sym efn1 argBVs1 args
+              expr2 <- liftIO $ S.evalBoundVars sym efn2 argBVs2 args
+              case testEquality expr1 expr2 of
+                Just Refl -> success
+                Nothing -> do
+                  debugOut $ "Resulting expressions do not match:\n"
+                    ++ "fn1:\n" ++ (show expr1) ++ "\n"
+                    ++ "fn2:\n" ++ (show expr2)
+                  failure
+            (S.UninterpFnInfo _ _, S.UninterpFnInfo _ _) -> success
+            (_, _) -> do
+              debugOut $ "Mismatch in function kinds."
               failure
         | otherwise -> do
             debugOut $ "Mismatch in function signatures: "
