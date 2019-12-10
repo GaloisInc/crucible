@@ -1,0 +1,74 @@
+[package]
+authors = ["Jorge Aparicio <japaricious@gmail.com>"]
+name = "compiler_builtins"
+version = "0.1.22"
+license = "MIT/Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/rust-lang/compiler-builtins"
+homepage = "https://github.com/rust-lang/compiler-builtins"
+documentation = "https://docs.rs/compiler_builtins"
+description = """
+Compiler intrinsics used by the Rust compiler. Also available for other targets
+if necessary!
+"""
+include = [
+  '/Cargo.toml',
+  '/build.rs',
+  '/src/*',
+  '/examples/*',
+  '/LICENSE.txt',
+  '/README.md',
+  '/compiler-rt/*',
+  '/libm/src/math/*',
+]
+links = 'compiler-rt'
+
+[lib]
+test = false
+
+[dependencies]
+# For more information on this dependency see rust-lang/rust's
+# `src/tools/rustc-std-workspace` folder
+core = { version = "1.0.0", optional = true, package = 'rustc-std-workspace-core' }
+
+[build-dependencies]
+cc = { optional = true, version = "1.0" }
+
+[dev-dependencies]
+panic-handler = { path = 'crates/panic-handler' }
+
+[features]
+default = ["compiler-builtins"]
+
+# Enable compilation of C code in compiler-rt, filling in some more optimized
+# implementations and also filling in unimplemented intrinsics
+c = ["cc"]
+
+# Flag this library as the unstable compiler-builtins lib
+compiler-builtins = []
+
+# Generate memory-related intrinsics like memcpy
+mem = []
+
+# Mangle all names so this can be linked in with other versions or other
+# compiler-rt implementations. Also used for testing
+mangled-names = []
+
+# Don't generate lang items for i128 intrisnics and such
+no-lang-items = []
+
+# Only used in the compiler's build system
+rustc-dep-of-std = ['compiler-builtins', 'core']
+
+[[example]]
+name = "intrinsics"
+required-features = ["compiler-builtins"]
+
+[workspace]
+members = ["testcrate"]
+
+[profile.release]
+panic = 'abort'
+
+[profile.dev]
+panic = 'abort'

@@ -1,0 +1,28 @@
+[package]
+name = "testcrate"
+version = "0.1.0"
+authors = ["Alex Crichton <alex@alexcrichton.com>"]
+edition = "2018"
+
+[lib]
+test = false
+doctest = false
+
+[build-dependencies]
+rand = "0.7"
+
+[dependencies.compiler_builtins]
+path = ".."
+default-features = false
+features = ["no-lang-items"]
+
+[target.'cfg(all(target_arch = "arm", not(any(target_env = "gnu", target_env = "musl")), target_os = "linux"))'.dev-dependencies]
+test = { git = "https://github.com/japaric/utest" }
+utest-cortex-m-qemu = { default-features = false, git = "https://github.com/japaric/utest" }
+utest-macros = { git = "https://github.com/japaric/utest" }
+
+[features]
+c = ["compiler_builtins/c"]
+mem = ["compiler_builtins/mem"]
+mangled-names = ["compiler_builtins/mangled-names"]
+default = ["mangled-names"]
