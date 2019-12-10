@@ -53,7 +53,7 @@ data Z3 = Z3 deriving Show
 z3Path :: ConfigOption (BaseStringType Unicode)
 z3Path = configOption knownRepr "z3_path"
 
--- | Timeout (zero is none)
+-- | Per-check timeout, in milliseconds (zero is none)
 z3Timeout :: ConfigOption BaseIntegerType
 z3Timeout = configOption knownRepr "z3_timeout"
 
@@ -67,7 +67,7 @@ z3Options =
   , mkOpt
       z3Timeout
       integerOptSty
-      (Just (PP.text "Timeout in seconds (zero is none)"))
+      (Just (PP.text "Per-check timeout in milliseconds (zero is none)"))
       (Just (ConcreteInteger 0))
   ]
 
@@ -137,7 +137,7 @@ instance SMT2.SMTLib2GenericSolver Z3 where
     let cfg = getConfiguration sym
     timeout <- getOption =<< getOptionSetting z3Timeout cfg
     let extraOpts = case timeout of
-                      Just (ConcreteInteger n) | n /= 0 -> ["-t:" ++ show n]
+                      Just (ConcreteInteger n) | n > 0 -> ["-t:" ++ show n]
                       _ -> []
     return $ ["-smt2", "-in"] ++ extraOpts
 
