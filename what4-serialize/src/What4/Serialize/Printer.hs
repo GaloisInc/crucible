@@ -104,7 +104,7 @@ convertSymFn paramLookup (S.ExprSymFn _ symFnName symFnInfo _) =
    convertInfo = case symFnInfo of
      S.DefinedFnInfo argVars expr _ ->
        let
-         sArgVars = SE.L $ FC.toListFC getBoundVar argVars
+         sArgVars = SE.L $ reverse $ FC.toListFC getBoundVar argVars
          sExpr = convertExprWithLet paramLookup expr
        in SE.L [ ident' "definedfn", sArgVars, sExpr ]
      S.UninterpFnInfo argTs retT ->

@@ -17,6 +17,7 @@ module What4.Serialize.SETokens
     , fromFoldable, fromFoldable'
     , printAtom, printTokens, printTokens'
     , parseLL
+    , parseNoLet
     )
     where
 
@@ -194,3 +195,6 @@ parseLL :: T.Text -> Either String (SC.SExpr FAtom)
 parseLL t = letExpand getIdent <$> SC.decodeOne parserLL t
     where getIdent (AIdent s) = Just s
           getIdent _ = Nothing
+
+parseNoLet :: T.Text -> Either String (SC.SExpr FAtom)
+parseNoLet t = SC.decodeOne parserLL t

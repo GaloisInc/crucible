@@ -17,9 +17,7 @@
 
 -- | A parser for an s-expression representation of what4 expressions
 module What4.Serialize.Parser
-  ( readExpr
-  -- , readExprFromFile
-  , readSymFn
+  ( readSymFn
   -- , readSymFnFromFile
   , readSymFnEnv
   -- , readSymFnEnvFromFile
@@ -48,7 +46,8 @@ import           What4.BaseTypes
 import qualified What4.Interface as S
 import           What4.Symbol ( userSymbol )
 
-import           What4.Serialize.SETokens
+
+import           What4.Serialize.SETokens ( FAtom(..), printTokens, parseLL, parseNoLet)
 import qualified What4.Utils.Log as U
 import           What4.Utils.Util ( SomeSome(..) )
 import qualified What4.Utils.Util as U
@@ -422,6 +421,7 @@ readOneArg ::
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
     MR.MonadReader (DefsInfo sym sh) m,
+    ShowF (S.SymExpr sym),
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (S.SymExpr sym))
@@ -437,6 +437,7 @@ readTwoArgs ::
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
     MR.MonadReader (DefsInfo sym sh) m,
+    ShowF (S.SymExpr sym),
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (S.SymExpr sym), Some (S.SymExpr sym))
@@ -452,6 +453,7 @@ readThreeArgs ::
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
     MR.MonadReader (DefsInfo sym sh) m,
+    ShowF (S.SymExpr sym),
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (S.SymExpr sym), Some (S.SymExpr sym), Some (S.SymExpr sym))
@@ -468,6 +470,7 @@ readApp ::
   (S.IsSymExprBuilder sym,
     E.MonadError String m,
     MR.MonadReader (DefsInfo sym sh) m,
+    ShowF (S.SymExpr sym),
     MonadIO m)
   => SC.SExpr FAtom
   -> SC.SExpr FAtom
@@ -796,6 +799,7 @@ readLetExpr ::
       Monad m,
       E.MonadError String m,
       MR.MonadReader (DefsInfo sym sh) m,
+      ShowF (S.SymExpr sym),
       MonadIO m)
   => SC.SExpr FAtom
   -- ^ Bindings in a let-expression.
@@ -816,6 +820,7 @@ readExpr :: forall sym m sh
              Monad m,
              E.MonadError String m,
              MR.MonadReader (DefsInfo sym sh) m,
+             ShowF (S.SymExpr sym),
              MonadIO m)
          => SC.SExpr FAtom
          -> m (Some (S.SymExpr sym))
@@ -870,7 +875,8 @@ readExpr (SC.SAtom varRaw) = do
         Some (ParsedGlobal expr) -> return $ Some expr
 readExpr (SC.SCons (SC.SAtom (AIdent "let")) rhs) =
   case rhs of
-    (SC.SCons bindings (SC.SCons body SC.SNil)) -> readLetExpr bindings body
+    (SC.SCons bindings (SC.SCons body SC.SNil)) -> do
+      readLetExpr bindings body
     _ -> E.throwError "ill-formed let s-expression"
 readExpr (SC.SCons operator operands) = do
   readApp operator operands
@@ -881,6 +887,7 @@ readExprs :: (S.IsSymExprBuilder sym,
               Monad m,
               E.MonadError String m,
               MR.MonadReader (DefsInfo sym sh) m,
+              ShowF (S.SymExpr sym),
               MonadIO m)
           => SC.SExpr FAtom
           -> m [Some (S.SymExpr sym)]
@@ -897,6 +904,7 @@ readExprsAsAssignment ::
     Monad m,
     E.MonadError String m,
     MR.MonadReader (DefsInfo sym sh) m,
+    ShowF (S.SymExpr sym),
     MonadIO m)
   => SC.SExpr FAtom
   -> m (Some (Ctx.Assignment (S.SymExpr sym)))
@@ -941,18 +949,16 @@ readSymFn' sym env globalLookup sexpr = do
   (name, symFnInfoRaw) <- case sexpr of
     SC.SCons (SC.SAtom (AIdent "symfn"))
       (SC.SCons (SC.SAtom (AIdent name))
-        (SC.SCons (SC.SCons symFnInfoRaw SC.SNil)
+        (SC.SCons symFnInfoRaw
           SC.SNil))
       -> return (name, symFnInfoRaw)
-    _ -> E.throwError "invliad top-level function definition structure"
-    
-    
+    _ -> E.throwError ("invalid top-level function definition structure:\n" ++ show sexpr)
+
   let symbol = U.makeSymbol name
-  
   case symFnInfoRaw of
     SC.SCons (SC.SAtom (AIdent "definedfn"))
-      (SC.SCons (SC.SCons argVarsRaw SC.SNil)
-        (SC.SCons (SC.SCons exprRaw SC.SNil)
+      (SC.SCons argVarsRaw
+        (SC.SCons exprRaw
            SC.SNil))
       -> do
         Some argNameList <- buildArgumentList @m argVarsRaw
@@ -969,7 +975,7 @@ readSymFn' sym env globalLookup sexpr = do
         symFn <- liftIO $ S.definedFn sym symbol argVarList expr expand
         return $ SomeSome symFn
     SC.SCons (SC.SAtom (AIdent "uninterpfn"))
-      (SC.SCons (SC.SCons argTsRaw SC.SNil)
+      (SC.SCons argTsRaw
         (SC.SCons retTRaw
           SC.SNil))
       -> do
@@ -985,37 +991,35 @@ readSymFn' sym env globalLookup sexpr = do
       let symbol = U.makeSymbol (argumentVarPrefix ++ varName)
       in liftIO $ S.freshBoundVar sym symbol tpRepr
 
-genRead :: forall m a
-         . (MonadIO m,
-            E.MonadError String m,
-            U.HasLogCfg)
+genRead :: forall a
+         . U.HasLogCfg
         => String
-        -> (SC.SExpr FAtom -> m a)
+        -> (SC.SExpr FAtom -> E.ExceptT String IO a)
         -> T.Text
-        -> m a
-genRead callnm m text = do
-  sexpr <- case parseLL text of
-             Left err -> E.throwError err
-             Right res -> return res
-  let firstLine = show $ fmap T.unpack $ take 1 $ T.lines text
-  liftIO $ U.logIO U.Info $
-    callnm ++ " of " ++ (show $ T.length text) ++ " bytes " ++ firstLine
-  m sexpr
+        -> IO (Either String a)
+genRead callnm m text = E.runExceptT $ go
+  where
+    go = do
+      sexpr <- case parseNoLet text of
+                 Left err -> E.throwError err
+                 Right res -> return res
+      let firstLine = show $ fmap T.unpack $ take 1 $ T.lines text
+      liftIO $ U.logIO U.Info $
+        callnm ++ " of " ++ (show $ T.length text) ++ " bytes " ++ firstLine
+      m sexpr
 
 type SymFnEnv t = Map T.Text (SomeSome (S.SymFn t))
 
-readSymFn :: forall sym m
+readSymFn :: forall sym
            . (S.IsExprBuilder sym,
               S.IsSymExprBuilder sym,
-              E.MonadError String m,
-              MonadIO m,
               ShowF (S.SymExpr sym),
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
           -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> T.Text
-          -> m (SomeSome (S.SymFn sym))
+          -> IO (Either String (SomeSome (S.SymFn sym)))
 readSymFn sym env globalLookup = genRead "readSymFn" (readSymFn' sym env globalLookup)
 
 readSymFnEnv' :: forall sym m
@@ -1059,16 +1063,14 @@ readSymFnEnv' sym env globalReads sexpr = do
       ssymFn <- readSymFn' sym env globalReads rawSymFn
       return (name, ssymFn)
 
-readSymFnEnv :: forall sym m
+readSymFnEnv :: forall sym
            . (S.IsExprBuilder sym,
               S.IsSymExprBuilder sym,
-              E.MonadError String m,
-              MonadIO m,
               ShowF (S.SymExpr sym),
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
           -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> T.Text
-          -> m (SymFnEnv sym)
+          -> IO (Either String (SymFnEnv sym))
 readSymFnEnv sym env globalLookup = genRead "readSymFnEnv" (readSymFnEnv' sym env globalLookup)
