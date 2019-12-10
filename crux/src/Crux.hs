@@ -246,11 +246,11 @@ runSimulator lang opts@(cruxOpts,_) =
 
      -- Loop bound
      bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
-             boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
+             boundedExecFeature (\_ -> return (Just i)) True {- side cond: yes -}
 
      -- Recursion bound
      rfs <- execFeatureMaybe (recursionBound cruxOpts) $ \i ->
-             boundedRecursionFeature (\_ -> return (Just i)) False {- side cond: no -}
+             boundedRecursionFeature (\_ -> return (Just i)) True {- side cond: yes -}
 
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
