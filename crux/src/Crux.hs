@@ -36,6 +36,7 @@ import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (IsExprBuilder, getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
+import What4.Solver.CVC4 (cvc4Timeout)
 import What4.Solver.Z3 (z3Timeout)
 import What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
 
@@ -131,7 +132,11 @@ withBackend cruxOpts nonceGen f =
   unsatCores | yicesMCSat cruxOpts = NoUnsatFeatures
              | otherwise           = ProduceUnsatCores
   withSolver fpMode "cvc4" =
-    withCVC4OnlineBackend fpMode nonceGen ProduceUnsatCores f
+    withCVC4OnlineBackend fpMode nonceGen ProduceUnsatCores $ \sym->
+      do case goalTimeout cruxOpts of
+           Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
+           Nothing -> return ()
+         f sym
   withSolver fpMode "yices" =
     withYicesOnlineBackend fpMode nonceGen unsatCores $ \sym ->
       do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
@@ -142,7 +147,7 @@ withBackend cruxOpts nonceGen f =
   withSolver fpMode "z3" =
     withZ3OnlineBackend fpMode nonceGen ProduceUnsatCores $ \sym->
       do case goalTimeout cruxOpts of
-           Just s -> symCfg sym z3Timeout (floor s * 1000)
+           Just s -> symCfg sym z3Timeout (floor (s * 1000))
            Nothing -> return ()
          f sym
   withSolver _fpMode other =
