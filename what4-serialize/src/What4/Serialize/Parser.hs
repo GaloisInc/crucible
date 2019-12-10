@@ -139,34 +139,6 @@ readBaseTypes sexpr0 =
         SC.SAtom _ -> E.throwError $
           "expected list of base types: " ++ show sexpr
 
--- ** Parsing parameters
---
--- By which I mean, handling occurrences in expressions of either operands or
--- literals.
-
--- | Low-level representation of a parameter: no checking done yet on whether
--- they're valid yet or not.
-data RawVariable = RawArgument String
-                 | RawGlobal String
-                 deriving (Show, Eq, Ord)
-
-
-globalVarPrefix :: String
-globalVarPrefix = "glb_"
-
-argumentVarPrefix :: String
-argumentVarPrefix = "arg_"
-
--- | Parses the name of a parameter and whether it's an operand or a literal.
-readRawVariable :: (E.MonadError String m) => FAtom -> m RawVariable
-readRawVariable (AIdent name)
-  | Right _ <- userSymbol (argumentVarPrefix ++ name) = return (RawArgument name)
-  | otherwise = E.throwError $ printf "%s is not a valid argument name" name
-readRawVariable (AQuoted name)
-  | Right _ <- userSymbol (globalVarPrefix ++ name) = return (RawGlobal name)
-  | otherwise = E.throwError $ printf "%s is not a valid argument name" name
-readRawVariable a = E.throwError $ printf "expected argument, found %s" (show a)
-
 -- | Short-lived type that just stores an index with its corresponding type
 -- representation, with the type parameter ensuring they correspond to one another.
 data IndexWithType (sh :: Ctx.Ctx BaseType) (tp :: BaseType) where
@@ -182,24 +154,22 @@ findArgListIndex x args = Ctx.forIndex (Ctx.size args) getArg Nothing
            -> Maybe (Some (IndexWithType sh))
     getArg Nothing idx = case args Ctx.! idx of
       ArgData name tpRepr
-        | name == x -> Just $  Some (IndexWithType tpRepr idx)
+        | name == x -> Just $ Some (IndexWithType tpRepr idx)
       _ -> Nothing
     getArg (Just iwt) _ = Just iwt
           
 
 -- | Parse a single parameter, given the list of operands to use as a lookup.
 readVariable :: forall sym tps m. (E.MonadError String m) => (T.Text -> m (Maybe (Some (S.SymExpr sym)))) -> Ctx.Assignment ArgData tps -> FAtom -> m (Some (ParsedVariable sym tps))
-readVariable lookupGlobal oplist atom =
-  readRawVariable atom >>= \case
-    RawArgument op ->
-      maybe (E.throwError $ printf "couldn't find argument %s" op)
-            (viewSome (\(IndexWithType tpRepr idx) -> return $ Some (ParsedArgument tpRepr idx)))
-            (findArgListIndex op oplist)
-    RawGlobal glb -> do
-      glb' <- lookupGlobal (T.pack glb)
-      maybe (E.throwError $ printf "%s is an invalid literal for this arch" glb)
-            (return . viewSome (Some . ParsedGlobal))
-            glb'
+readVariable lookupGlobal arglist atom = case atom of
+  AIdent name -> do
+    lookupGlobal (T.pack name) >>= \case
+      Just (Some glb) -> return $ Some (ParsedGlobal glb)
+      Nothing
+        | Just (Some (IndexWithType tpRepr idx)) <- findArgListIndex name arglist ->
+          return $ Some (ParsedArgument tpRepr idx)
+      _ -> E.throwError $ printf "couldn't find binding for variable %s" name
+  _ -> E.throwError $ printf "expected variable, found %s" (show atom)
 
 -- ** Parsing definitions
 
@@ -988,7 +958,7 @@ readSymFn' sym env globalLookup sexpr = do
   where    
     mkArgumentVar :: forall tp. ArgData tp -> m (S.BoundVar sym tp)
     mkArgumentVar (ArgData varName tpRepr) =
-      let symbol = U.makeSymbol (argumentVarPrefix ++ varName)
+      let symbol = U.makeSymbol varName
       in liftIO $ S.freshBoundVar sym symbol tpRepr
 
 genRead :: forall a
