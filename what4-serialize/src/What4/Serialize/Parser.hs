@@ -39,7 +39,7 @@ import qualified Data.Parameterized.Ctx as Ctx
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.NatRepr as NR
-import           Data.Parameterized.Some ( Some(..), viewSome )
+import           Data.Parameterized.Some ( Some(..) )
 import           Data.Parameterized.TraversableFC ( traverseFC, allFC )
 import           What4.BaseTypes
 
@@ -47,7 +47,7 @@ import qualified What4.Interface as S
 import           What4.Symbol ( userSymbol )
 
 
-import           What4.Serialize.SETokens ( FAtom(..), printTokens, parseLL, parseNoLet)
+import           What4.Serialize.SETokens ( FAtom(..), printTokens, parseNoLet)
 import qualified What4.Utils.Log as U
 import           What4.Utils.Util ( SomeSome(..) )
 import qualified What4.Utils.Util as U
@@ -1007,7 +1007,7 @@ readSymFnEnv' :: forall sym m
 readSymFnEnv' sym env globalReads sexpr = do
   symFnEnvRaw <- case sexpr of
     SC.SCons (SC.SAtom (AIdent "symfnenv"))
-      (SC.SCons (SC.SCons symFnEnvRaw SC.SNil)
+      (SC.SCons symFnEnvRaw
         SC.SNil)
       -> return symFnEnvRaw
     _ -> E.throwError "invalid top-level function environment structure"
