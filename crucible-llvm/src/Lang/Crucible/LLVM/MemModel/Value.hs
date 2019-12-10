@@ -30,6 +30,7 @@ module Lang.Crucible.LLVM.MemModel.Value
   , Field
   , ptrToPtrVal
   , zeroInt
+  , arbitraryInt
 
   , llvmValStorableType
   , isZero
@@ -128,6 +129,21 @@ zeroInt sym bytes k
           bv  <- bvLit sym w 0
           k (Just (blk, bv))
 zeroInt _ _ k = k @1 Nothing
+
+arbitraryInt ::
+  IsSymInterface sym =>
+  sym ->
+  Bytes ->
+  (forall w. (1 <= w) => Maybe (SymNat sym, SymBV sym w) -> IO a) ->
+  IO a
+arbitraryInt sym bytes k
+   | Some w <- mkNatRepr (bytesToBits bytes)
+   , Just LeqProof <- isPosNat w
+   =   do blk <- natLit sym 0
+          bv  <- freshConstant sym emptySymbol (BaseBVRepr w)
+          k (Just (blk, bv))
+arbitraryInt _ _ k = k @1 Nothing
+
 
 -- | Pretty-print an 'LLVMVal'.
 --

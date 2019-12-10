@@ -198,6 +198,7 @@ import qualified Text.LLVM.AST as L
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
+import qualified What4.Partial as Partial
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
@@ -519,10 +520,19 @@ doLoad ::
   TypeRepr tp      {- ^ crucible type of the result -} ->
   Alignment        {- ^ assumed pointer alignment -} ->
   IO (RegValue sym tp)
+{-
+doLoad sym mem ptr valType tpr alignment = do
+  pv <- loadRaw sym mem ptr valType alignment
+  case pv of
+    Partial.NoErr (Partial.Partial _p v) -> unpackMemValue sym tpr v
+    Partial.Err _e -> unpackArbitraryValue sym valType tpr
+-}
+
 doLoad sym mem ptr valType tpr alignment = do
   unpackMemValue sym tpr =<<
     Partial.assertSafe sym =<<
       loadRaw sym mem ptr valType alignment
+
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
 -- arguments should be computed from a single 'MemType' using
@@ -1170,6 +1180,55 @@ mallocConstRaw sym mem sz alignment =
 ----------------------------------------------------------------------
 -- Packing and unpacking
 --
+
+-- TODO Invent fresh variables for the load!
+unpackArbitraryValue ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  StorageType ->
+  TypeRepr tp ->
+  IO (RegValue sym tp)
+unpackArbitraryValue sym tp tpr =
+ let mismatch = storageTypeMismatch "MemModel.unpackArbitraryValue" tp tpr in
+ case storageTypeF tp of
+  Bitvector bytes ->
+    arbitraryInt sym bytes $ \case
+      Nothing -> fail ("Improper storable type: " ++ show tp)
+      Just (blk, bv) ->
+        case tpr of
+          LLVMPointerRepr w | Just Refl <- testEquality (bvWidth bv) w -> return (LLVMPointer blk bv)
+          _ -> mismatch
+
+  Float  ->
+    case tpr of
+      FloatRepr SingleFloatRepr -> freshFloatConstant sym emptySymbol SingleFloatRepr
+      _ -> mismatch
+
+  Double ->
+    case tpr of
+      FloatRepr DoubleFloatRepr -> freshFloatConstant sym emptySymbol DoubleFloatRepr
+      _ -> mismatch
+
+  X86_FP80 ->
+    case tpr of
+      FloatRepr X86_80FloatRepr -> freshFloatConstant sym emptySymbol X86_80FloatRepr
+      _ -> mismatch
+
+  Array n tp' ->
+    case tpr of
+      VectorRepr tpr' ->
+        V.generateM (fromIntegral n) (\_ -> unpackArbitraryValue sym tp' tpr')
+      _ -> mismatch
+
+  Struct flds ->
+    case tpr of
+      StructRepr fldCtx | V.length flds == Ctx.sizeInt (Ctx.size fldCtx) ->
+        Ctx.traverseWithIndex
+          (\i tpr' -> RV <$> unpackArbitraryValue sym (flds V.! (Ctx.indexVal i) ^. fieldVal) tpr')
+          fldCtx
+
+      _ -> mismatch
+
 
 unpackZero ::
   (HasCallStack, IsSymInterface sym) =>
