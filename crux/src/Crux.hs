@@ -10,6 +10,7 @@ module Crux
   , runSimulator
   , loadOptions
   , generateReport
+  , ProgramCompleteness(..)
   , module Crux.Extension
   , module Crux.Config
   , module Crux.Log
@@ -62,6 +63,7 @@ import Crux.Config
 import Crux.Goal
 import Crux.Model
 import Crux.Report
+import Crux.SVCOMP
 import qualified Crux.Config.Load as Cfg
 import qualified Crux.Config.Solver as CCS
 import Crux.Config.Common
@@ -84,25 +86,30 @@ mainWithOutputConfig cfg lang =
      let ?outputConfig = cfg & quiet %~ (|| (quietMode cruxOpts))
 
      if (svcompMode cruxOpts) then
-       evaluateSvcompBenchmarks opts lang
+       do evaluateSvcompBenchmarks opts lang
+          return ExitSuccess
      else
        evaluateSimpleCrux opts lang
   `catch` \(e :: Cfg.ConfigError) ->
-      let ?outputConfig = cfg in
-      sayFail "Crux" (displayException e)
+     do let ?outputConfig = cfg
+        sayFail "Crux" (displayException e)
+        return (ExitFailure 1)
 
 evaluateSvcompBenchmarks :: Logs => Options opts -> Language opts -> IO ()
-evaluateSvcompBenchmarks opts@(cruxOpts,_) lang =
-  mapM_ (evaluateBenchmark lang opts) (svcompBenchmarks cruxOpts) 
+evaluateSvcompBenchmarks opts@(cruxOpts,_) lang = mapM_ f (svcompBenchmarks cruxOpts)
+  where
+  f bs =
+     do score <- evaluateBenchmark lang opts bs
+        say "Crux" $ unwords ["Overall score for", show (benchmarkName bs) ++ ":", show score ]
 
-evaluateSimpleCrux :: Logs => Options opts -> Language opts -> IO ()
+evaluateSimpleCrux :: Logs => Options opts -> Language opts -> IO ExitCode
 evaluateSimpleCrux opts@(cruxOpts,_) lang =
   do -- Run the simulator
      let fileText = intercalate ", " (map show (inputFiles cruxOpts))
      when (simVerbose cruxOpts > 1) $
        say "Crux" ("Checking " ++ fileText)
 
-     (cmpl, res) <- runSimulator lang opts1
+     (cmpl, res) <- runSimulator lang opts
 
      reportStatus cmpl res
 
@@ -312,19 +319,17 @@ prepareExecutionFeatures sym cruxOpts =
 
      -- Loop bound
      bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
-             boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
+             boundedExecFeature (\_ -> return (Just i)) True {- side cond: yes -}
 
      -- Recursion bound
      rfs <- execFeatureMaybe (recursionBound cruxOpts) $ \i ->
-             boundedRecursionFeature (\_ -> return (Just i)) False {- side cond: no -}
+             boundedRecursionFeature (\_ -> return (Just i)) True {- side cond: yes -}
 
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
               $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
 
      return (profInfo, tfs ++ profExecFeatures (fromMaybe noProfiling profInfo) ++ bfs ++ rfs ++ psat_fs)
-
-
 
 data ProgramCompleteness
  = ProgramComplete

@@ -105,6 +105,7 @@ data CruxOptions = CruxOptions
 
   , yicesMCSat               :: Bool
     -- ^ Should the MC-SAT Yices solver be enabled (disables unsat cores; default: no)
+
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
 

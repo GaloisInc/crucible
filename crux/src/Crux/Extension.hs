@@ -28,7 +28,7 @@ data Language opts = Language
     -- | Call-back to do the actual simulation after initialization.
   , simulate :: SimulateCallback opts
 
-  , evaluateBenchmark :: Logs => Options opts -> BenchmarkSet -> IO ()
+  , evaluateBenchmark :: Logs => Options opts -> BenchmarkSet -> IO Integer
 
     -- | Call back to generate counter examples, if needed.
   , makeCounterExamples :: CounterExampleCallback opts

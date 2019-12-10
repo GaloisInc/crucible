@@ -1,3 +1,4 @@
+
 {-# Language ImplicitParams #-}
 {-# Language OverloadedStrings #-}
 {-# Language PatternSynonyms #-}
@@ -15,6 +16,7 @@ import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad(forM_,unless)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
+import Data.IORef
 import qualified Data.Foldable as Fold
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -266,20 +268,27 @@ propertyVerdict task = foldl f Nothing (verificationProperties task)
  f v (CheckNoOverflow, Just b)   = comb b v
  f v _ = v
 
-evaluateBenchmarkLLVM :: Logs => Options -> BenchmarkSet -> IO ()
+data ComputedVerdict
+  = Verified
+  | Falsified
+  | Unknown
+
+evaluateBenchmarkLLVM :: Logs => Options -> BenchmarkSet -> IO Integer
 evaluateBenchmarkLLVM (cruxOpts,llvmOpts) bs =
-    mapM_ evaluateVerificationTask (zip [0::Int ..] (benchmarkTasks bs))
+   do scoreRef <- newIORef 0
+      mapM_ (evaluateVerificationTask scoreRef) (zip [0::Int ..] (benchmarkTasks bs))
+      readIORef scoreRef
  where
  bsRoot = Crux.outDir cruxOpts </> Text.unpack (benchmarkName bs)
 
- evaluateVerificationTask (_num,task)
+ evaluateVerificationTask _ (_num,task)
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist cruxOpts ]
    = putStrLn $ unlines
         [ "Skipping:"
         , "  " ++ verificationSourceFile task
         ]
 
- evaluateVerificationTask (num,task) =
+ evaluateVerificationTask scoreRef (num,task) =
    do let taskRoot = svTaskDirectory bsRoot num task
       let srcRoot  = takeDirectory (verificationSourceFile task)
       let inputs   = map (srcRoot </>) (verificationInputFiles task)
@@ -289,20 +298,34 @@ evaluateBenchmarkLLVM (cruxOpts,llvmOpts) bs =
         , "  " ++ taskRoot
         , "  " ++ verificationSourceFile task
         ]
-      gls <- Crux.runSimulator cruxLLVM (cruxOpts', llvmOpts)
+      (cmpl, gls) <- Crux.runSimulator cruxLLVM (cruxOpts', llvmOpts)
       Crux.generateReport cruxOpts' gls
+      let verdict
+            | sum (fmap countDisprovedGoals gls) > 0 = Falsified
+            | Crux.ProgramComplete <- cmpl
+            , sum (fmap countUnknownGoals gls) == 0 = Verified
+            | otherwise                             = Unknown
+
       case propertyVerdict task of
         Nothing -> putStrLn $ unlines (["No verdict to evaluate!"] ++ map show (verificationProperties task))
         Just True ->
-          if sum (fmap countFailedGoals gls) == 0 then
-            putStrLn "CORRECT"
-          else
-            putStrLn $ unwords ["FAILED! benchmark should be verified"]
+          case verdict of
+            Verified  ->
+               do modifyIORef' scoreRef (1+)
+                  putStrLn "CORRECT"
+            Falsified ->
+               do modifyIORef' scoreRef (negate 16 +)
+                  putStrLn $ unwords ["FAILED! benchmark should be verified"]
+            Unknown   -> putStrLn "UNKNOWN"
         Just False ->
-          if sum (fmap countFailedGoals gls) == 0 then
-            putStrLn $ unwords ["FAILED! benchmark should contain an error!"]
-          else
-            putStrLn "CORRECT"
+          case verdict of
+            Verified  ->
+               do modifyIORef' scoreRef (negate 32 +)
+                  putStrLn $ unwords ["FAILED! benchmark should contain an error!"]
+            Falsified ->
+               do modifyIORef' scoreRef (1+)
+                  putStrLn "CORRECT"
+            Unknown   -> putStrLn "UNKNOWN"
 
 -----------------------------------------------------------------------
 -----------------------------------------------------------------------
@@ -630,7 +653,7 @@ genSVCOMPBitCode opts@(cruxOpts,llvmOpts) =
                      , libDir llvmOpts </> "includes"
                      ] ++ incDirs llvmOpts
           params (src, srcBC) =
-            [ "-c", "-g", "-emit-llvm", "-O1", "--target=" ++ tgt ] ++
+            [ "-c", "-g", "-emit-llvm", "-O1", "-fsanitize=shift", "-fsanitize-trap=shift", "--target=" ++ tgt ] ++
             concat [ ["-I", dir] | dir <- incs src ] ++
             [ "-o", srcBC, src ]
 
