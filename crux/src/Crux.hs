@@ -1,4 +1,4 @@
-{-# Language RankNTypes, ImplicitParams, TypeApplications #-}
+{-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 module Crux
   ( main
@@ -278,7 +278,9 @@ runSimulator lang opts@(cruxOpts,_) =
                 mgt <- provedGoalsTree ctx' proved
                 case mgt of
                   Nothing -> return ()
-                  Just gt -> modifyIORef gls (Seq.|> gt)
+                  Just gt ->
+                    do reportStatus gt
+                       modifyIORef gls (Seq.|> gt)
 
      when (simVerbose cruxOpts > 1) $
        say "Crux" "Simulation complete."
@@ -287,3 +289,25 @@ runSimulator lang opts@(cruxOpts,_) =
        writeProf profInfo
 
      readIORef gls
+
+reportStatus :: (?outputConfig::OutputConfig) => ProvedGoals a -> IO ()
+reportStatus gls =
+  do let tot = countTotalGoals gls
+         proved = countProvedGoals gls
+         incomplete = countIncompleteGoals gls
+         disproved = countDisprovedGoals gls - incomplete
+         unknown = countUnknownGoals gls
+     say "Crux" "Goal status:"
+     say "Crux" ("  Total: " ++ show tot)
+     say "Crux" ("  Proved: " ++ show proved)
+     say "Crux" ("  Disproved: " ++ show disproved)
+     say "Crux" ("  Incomplete: " ++ show incomplete)
+     say "Crux" ("  Unknown: " ++ show unknown)
+     if | disproved > 0 ->
+            sayFail "Crux" "Overall status: Invalid."
+        | incomplete > 0 ->
+            sayWarn "Crux" "Overall status: Unknown (incomplete)."
+        | unknown > 0 -> sayWarn "Crux" "Overall status: Unknown."
+        | proved == tot -> sayOK "Crux" "Overall status: Valid."
+        | otherwise ->
+            sayFail "Crux" "Internal error computing overall status."
