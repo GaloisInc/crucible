@@ -77,19 +77,21 @@ mirJsonOutFile rustFile = rustFile -<.> "mir"
 
 compileMirJson :: Bool -> FilePath -> IO ()
 compileMirJson keepRlib rustFile = do
+    let outFile = rustFile -<.> "bin"
+
     -- TODO: don't hardcode -L library path
     (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
         [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"
-        , "--cfg", "crux", "--cfg", "crux_top_level"] ""
+        , "--cfg", "crux", "--cfg", "crux_top_level"
+        , "-o", outFile] ""
     case ec of
         ExitFailure cd -> fail $
             "Error " ++ show cd ++ " while running mir-json on " ++ rustFile
         ExitSuccess    -> return ()
 
     when (not keepRlib) $ do
-        let rlibFile = ("lib" ++ takeBaseName rustFile) <.> "rlib"
-        doesFileExist rlibFile >>= \case
-            True  -> removeFile rlibFile
+        doesFileExist outFile >>= \case
+            True  -> removeFile outFile
             False -> return ()
 
 maybeCompileMirJson :: Bool -> FilePath -> IO ()
@@ -127,19 +129,20 @@ maybeLinkJson jsonFiles cacheFile = do
 
 
 libJsonFiles =
-    [ "lib/libcore/lib.mir"
-    , "lib/compiler_builtins.mir"
-    , "lib/int512.mir"
-    , "lib/crucible/lib.mir"
+    [ "rlibs/libcore.mir"
+    , "rlibs/libcompiler_builtins.mir"
+    , "rlibs/libint512.mir"
+    , "rlibs/libcrucible.mir"
 
-    , "lib/liballoc/lib.mir"
-    , "lib/libstd/lib.mir"
-    , "lib/libunwind/lib.mir"
-    , "lib/cfg-if/src/lib.mir"
-    , "lib/hashbrown/src/lib.mir"
-    , "lib/libc/src/lib.mir"
+    , "rlibs/liballoc.mir"
+    , "rlibs/libstd.mir"
+    , "rlibs/libunwind.mir"
+    , "rlibs/libcfg_if.mir"
+    , "rlibs/libhashbrown.mir"
+    , "rlibs/liblibc.mir"
 
-    , "lib/bytes.mir"
+    , "rlibs/libbyteorder.mir"
+    , "rlibs/libbytes.mir"
     ]
 
 
@@ -149,14 +152,24 @@ libJsonFiles =
 -- This function uses 'failIO' if any error occurs
 generateMIR :: (HasCallStack, ?debug::Int) =>
                FilePath          -- ^ location of input file
-            -> String            -- ^ file to processes, without extension
             -> Bool              -- ^ `True` to keep the generated .rlib
             -> IO Collection
-generateMIR dir name keepRlib = do
-    let rustFile = dir </> name <.> "rs"
+generateMIR inputFile keepRlib
+  | ext == ".rs" = do
+    when (?debug > 2) $
+        traceM $ "Generating " ++ stem <.> "mir"
+    let rustFile = inputFile
     maybeCompileMirJson keepRlib rustFile
     b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonFiles) (linkOutFile rustFile)
     parseMir (linkOutFile rustFile) b
+  | ext == ".json" = do
+    b <- B.readFile inputFile
+    parseMir inputFile b
+  -- TODO: support directly reading .mir json+index format
+  | otherwise = error $ show ext ++ " files are not supported"
+  where
+    (stem, ext) = splitExtension inputFile
+
 
 
 readMir :: (HasCallStack, ?debug::Int) =>

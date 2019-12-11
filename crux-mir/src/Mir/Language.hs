@@ -96,7 +96,7 @@ data CruxMIR
 
 instance Crux.Language CruxMIR where
   name = "mir"
-  validExtensions = [".rs", ".rslib" ]
+  validExtensions = [".rs", ".rslib", ".json", ".mir" ]
 
   type LangError CruxMIR = ()
   formatError  _ = ""
@@ -171,12 +171,8 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   let ?assertFalseOnError = True
   let ?printCrucible      = printCrucible mirOpts
   let filename      = Crux.inputFile cruxOpts
-  let (dir,nameExt) = splitFileName filename
-  let (name,_ext)   = splitExtension nameExt
-  when (?debug > 2) $
-    say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
-  col <- generateMIR dir name False
+  col <- generateMIR filename False
 
   when (onlyPP mirOpts) $ do
     -- TODO: make this exit more gracefully somehow
