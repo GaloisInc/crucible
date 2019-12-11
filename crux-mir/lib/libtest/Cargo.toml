@@ -1,0 +1,17 @@
+[package]
+authors = ["The Rust Project Developers"]
+name = "test"
+version = "0.0.0"
+edition = "2018"
+
+[lib]
+name = "test"
+path = "lib.rs"
+crate-type = ["dylib", "rlib"]
+
+[dependencies]
+getopts = "0.2.19"
+term = { path = "../libterm" }
+
+# not actually used but needed to always have proc_macro in the sysroot
+proc_macro = { path = "../libproc_macro" }
