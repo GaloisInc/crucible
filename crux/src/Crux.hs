@@ -25,6 +25,7 @@ import Data.Parameterized.Nonce(withIONonceGenerator, NonceGenerator)
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
+import Lang.Crucible.Simulator.NfaDriver
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.BoundedExec
 import Lang.Crucible.Simulator.Profiling
@@ -243,7 +244,11 @@ runSimulator lang opts@(cruxOpts,_) =
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
               $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
 
-     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs
+     -- Api Checker 
+     gvRef <- newIORef (error "Global variable for NFAData not initialized")
+     apiCheck <- return [apiCheckExecFeat gvRef]
+     
+     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs ++ apiCheck
 
      -- Ready to go!
      gls <- newIORef Seq.empty

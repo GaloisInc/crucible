@@ -19,6 +19,7 @@ library
     array,
     containers,
     crucible,
+    crucible-api-checker,                        
     directory,
     filepath,
     haskeline >= 0.7,

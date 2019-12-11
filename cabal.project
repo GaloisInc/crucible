@@ -15,6 +15,7 @@ packages:
   crucible-saw/
   crucible-server/
   crucible-syntax/
+  crucible-api-checker/
   crux/
   crux-llvm/
   crucible-mc/

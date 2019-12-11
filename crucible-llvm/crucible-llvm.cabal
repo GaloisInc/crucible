@@ -53,6 +53,7 @@ library
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.MemModel
+    Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
@@ -71,7 +72,7 @@ library
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.Partial
-    Lang.Crucible.LLVM.MemModel.Pointer
+    --Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.Translation.Constant

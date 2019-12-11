@@ -1,0 +1,4 @@
+[Crux] Simulating function "main"
+[Crux] Failed to prove 1 out of 1 goals.
+[Crux] Counter example for function dependency error at: _Z1Cvinternal
+in _Z1Cv at internal

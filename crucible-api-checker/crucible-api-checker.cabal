@@ -1,0 +1,42 @@
+cabal-version:       >=1.10
+name:                crucible-api-checker
+version:             0.1.0.0
+-- synopsis:
+-- description:
+-- bug-reports:
+-- license:
+license-file:        LICENSE
+author:              Eric Bond
+maintainer:          bond15@purdue.edu
+-- copyright:
+-- category:
+build-type:          Simple
+extra-source-files:  CHANGELOG.md
+
+library
+  exposed-modules:
+                  Lang.Crucible.Simulator.NfaDriver
+
+  other-extensions:
+                   DataKinds,
+                   FlexibleInstances,
+                   GADTs,
+                   MultiParamTypeClasses,
+                   RankNTypes,
+                   TypeApplications,
+                   TypeFamilies,
+                   TypeOperators
+  build-depends:
+                   crucible-llvm,
+                   base >=4.12 && <4.13,
+                   itanium-abi >=0.1 && <0.2,
+                   lens >=4.17 && <4.18,
+                   parameterized-utils >=2.0 && <2.1,
+                   text >=1.2 && <1.3,
+                   vector >=0.12 && <0.13,
+                   containers >=0.6 && <0.7,
+                   crucible >=0.5 && <0.6,
+                   what4 >=0.4 && <0.5
+
+  hs-source-dirs:  src
+  default-language:    Haskell2010
