@@ -48,8 +48,7 @@ library
 
 
   hs-source-dirs: src
-  exposed-modules: Mir.SAWInterface
-                   Mir.JSON
+  exposed-modules: Mir.JSON
                    Mir.Generator
                    Mir.Language
                    Mir.Mir
@@ -69,7 +68,6 @@ library
   other-modules: 
                  Mir.Intrinsics
                  Mir.Overrides
-                 Mir.Run
                  Mir.TransTy
                  Mir.Trans
                  Mir.TransCustom

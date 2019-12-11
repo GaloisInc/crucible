@@ -32,7 +32,6 @@ import           Test.Tasty.Golden (goldenVsFile, findByExtension)
 import           Test.Tasty.ExpectedFailure (expectFailBecause)
 
 import           Mir.Generate(loadPrims)
-import           Mir.SAWInterface (translateMIR, extractMIR, loadMIR)
 import qualified Mir.Language as Mir
 
 import qualified Lang.Crucible.FunctionHandle as C
@@ -82,20 +81,20 @@ defaultCruxOptions = CruxOpts.CruxOptions {
   , CruxOpts.makeCexes = True
   }
 
-runCrux :: Mir.CachedStdLib -> FilePath -> Handle -> IO ()
-runCrux cachedLib rustFile outHandle = do
+runCrux :: FilePath -> Handle -> IO ()
+runCrux rustFile outHandle = do
     -- goalTimeout is bumped from 60 to 120 because scalar.rs symbolic
     -- verification runs close to the timeout, causing flaky results.
     let options = (defaultCruxOptions { CruxOpts.inputFile = rustFile,
                                         CruxOpts.simVerbose = 0,
                                         CruxOpts.goalTimeout = 120 } ,
-                   Mir.defaultMirOptions { Mir.cachedStdLib = Nothing -- Just cachedLib
+                   Mir.defaultMirOptions { Mir.cachedStdLib = Nothing
                                          , Mir.useStdLib = True } )
     let ?outputConfig = Crux.OutputConfig False outHandle outHandle
     Crux.check options
 
-cruxOracleTest :: Mir.CachedStdLib -> FilePath -> String -> (String -> IO ()) -> Assertion
-cruxOracleTest cachedLib dir name step = do
+cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
+cruxOracleTest dir name step = do
 
   step "Compiling and running oracle program"
   oracleOut <- compileAndRun dir name >>= \case
@@ -108,7 +107,7 @@ cruxOracleTest cachedLib dir name step = do
   let rustFile = dir </> name <.> "rs"
   
   cruxOutFull <- withSystemTempFile name $ \tempName h -> do
-    runCrux cachedLib rustFile h
+    runCrux rustFile h
     hClose h
     h' <- openFile tempName ReadMode
     out <- hGetContents h'
@@ -120,58 +119,14 @@ cruxOracleTest cachedLib dir name step = do
   assertBool "crux doesn't match oracle" (orOut == cruxOut)
 
 
-sawOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
-sawOracleTest dir name step = do
-  sc <- SC.mkSharedContext
-  step "Initializing saw-core Prelude"
-  SC.tcInsertModule sc SC.preludeModule
-
-  step "Compiling and running oracle program"
-  oracleOut <- compileAndRun dir name >>= \case
-    Nothing -> assertFailure "failed to compile and run"
-    Just out -> return out
-
-  step $ "Oracle output: " ++ dropWhileEnd isSpace oracleOut
-
-  step "Generating MIR JSON"
-
-  let ?assertFalseOnError = True
-  let ?printCrucible = False
-  step "Translating MIR to Crucible"
-  mir <- loadMIR sc name
-  
-  step "Extracting function f"
-  f <- extractMIR proxy sc mir "f"
-  step "Extracting argument ARG"
-  arg <- extractMIR proxy sc mir "ARG"
-  step "Typechecking f(ARG)"
-  app <- SC.scApply sc f arg
-  rty <- SC.scTypeCheck sc Nothing app >>= \case
-    Left e -> assertFailure $ "ill-typed result: " ++ unwords (SC.prettyTCError e)
-    Right rty -> return rty
-  ty <- FV.asFiniteType sc rty
-
-  step "Parsing oracle output at inferred type"
-  oracle <- case parse (parseRustFV ty) "oracleOut" oracleOut of
-    Left e -> error $ "error parsing Rust output: " ++ show e
-    Right (Just fv) -> FV.scFiniteValue sc fv
-    Right Nothing -> assertFailure "panics not yet handled"
-
-  step "Comparing oracle output"
-  eq <- SC.scEq sc oracle app
-  mm <- SC.scGetModuleMap sc
-  assertBool "oracle output mismatch"
-    (Conc.toBool (Conc.evalSharedTerm mm Map.empty eq))
-
-
-symbTest :: Mir.CachedStdLib -> FilePath -> IO TestTree
-symbTest cachedLib dir =
+symbTest :: FilePath -> IO TestTree
+symbTest dir =
   do rustFiles <- findByExtension [".rs"] dir
      return $
        testGroup "Output testing"
          [ goldenVsFile (takeBaseName rustFile) goodFile outFile $
            withFile outFile WriteMode $ \h ->
-           runCrux cachedLib rustFile h
+           runCrux rustFile h
          | rustFile <- rustFiles
          , notHidden rustFile
          , let goodFile = replaceExtension rustFile ".good"
@@ -190,14 +145,9 @@ suite = do
   let ?debug = 0
   let ?assertFalseOnError = True
   let ?printCrucible = False
-  halloc <- C.newHandleAllocator
-  prims  <- liftIO $ loadPrims True
-  pmir   <- stToIO $ translateMIR mempty prims halloc
-  let cachedLib = Mir.CachedStdLib pmir halloc
   trees <- sequence 
-           [ --testGroup "saw"  <$> sequence [testDir sawOracleTest "test/conc_eval"  ]
-             testGroup "crux concrete" <$> sequence [ testDir (cruxOracleTest cachedLib) "test/conc_eval/" ]
-           , testGroup "crux symbolic" <$> sequence [ symbTest cachedLib "test/symb_eval" ]
+           [ testGroup "crux concrete" <$> sequence [ testDir cruxOracleTest "test/conc_eval/" ]
+           , testGroup "crux symbolic" <$> sequence [ symbTest "test/symb_eval" ]
            ]
   return $ testGroup "mir-verifier" trees
 
