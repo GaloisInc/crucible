@@ -22,8 +22,6 @@ module What4.Utils.Util
     , withAsyncLinked
     ) where
 
-import           Data.Parameterized.Classes
-import           Data.Parameterized.Some
 import qualified Control.Exception as E
 import           Data.Kind
 import           Text.Printf ( printf )
