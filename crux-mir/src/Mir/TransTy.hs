@@ -42,7 +42,6 @@ import Data.Parameterized.Some
 
 -- crucible
 import qualified Lang.Crucible.Types as C
-import qualified Lang.Crucible.Substitution()
 
 import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Generator as G
@@ -170,9 +169,8 @@ tyToRepr t0 = case t0 of
   M.TyDowncast _adt _i   -> Some C.AnyRepr
 
   M.TyFloat _ -> Some C.RealValRepr
-  M.TyParam i -> case somePeano i of
-    Just (Some nr) -> Some (C.VarRepr nr) 
-    Nothing        -> error "type params must be nonnegative"
+  M.TyParam _i -> error $
+    "BUG: all uses of TyParam should have been eliminated, found " ++ fmt t0
 
   -- non polymorphic function types go to FunctionHandleRepr
   M.TyFnPtr sig@(M.FnSig args ret [] [] _atys _abi _spread) ->
@@ -188,8 +186,8 @@ tyToRepr t0 = case t0 of
   -- should do the same for TySlice and TyStr as well.
   M.TyDynamic _preds -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
 
-  M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
-    ++ fmt t0
+  M.TyProjection _def _tyargs -> error $
+    "BUG: all uses of TyProjection should have been eliminated, found " ++ fmt t0
   M.TyFnDef _def _substs -> Some C.UnitRepr
   M.TyNever -> Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr

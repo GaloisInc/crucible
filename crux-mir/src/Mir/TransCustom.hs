@@ -47,7 +47,6 @@ import Data.Parameterized.WithRepr
 
 -- crucible
 import qualified Lang.Crucible.Types as C
-import qualified Lang.Crucible.Substitution()
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.Syntax as S

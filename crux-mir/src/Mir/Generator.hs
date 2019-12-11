@@ -188,7 +188,7 @@ type CustomRHS = Substs -> Maybe CustomOp
 -- ** Static variables
 
 data StaticVar where
-  StaticVar :: C.Closed ty => G.GlobalVar ty -> StaticVar
+  StaticVar :: G.GlobalVar ty -> StaticVar
 
 
 ---------------------------------------------------------------------------

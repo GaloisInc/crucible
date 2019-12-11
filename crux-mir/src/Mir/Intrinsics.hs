@@ -440,8 +440,6 @@ data MIR
 type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
 type instance AssertionClassifier MIR = NoAssertionClassifier
-type instance Instantiate subst MIR = MIR
-instance ClosedK CrucibleType MIR where closed _ _ = Refl
 
 -- First `Any` is the data pointer - either an immutable or mutable reference.
 -- Second `Any` is the vtable.
@@ -604,29 +602,6 @@ instance FoldableFC MirStmt where
   foldMapFC = foldMapFCDefault
 instance TraversableFC MirStmt where
   traverseFC = traverseMirStmt
-
-type instance Instantiate subst MirStmt = MirStmt
-instance ClosedK CrucibleType MirStmt where closed _ _ = Refl
-instance InstantiateFC CrucibleType MirStmt where
-  instantiateFC subst stmt =
-    case stmt of
-      MirNewRef t -> MirNewRef (instantiate subst t)
-      MirReadRef t r -> MirReadRef (instantiate subst t) (instantiate subst r)
-      MirWriteRef r1 r2 -> MirWriteRef (instantiate subst r1) (instantiate subst r2)
-      MirDropRef r1 -> MirDropRef (instantiate subst r1)
-      MirSubanyRef ty r1 -> MirSubanyRef (instantiate subst ty) (instantiate subst r1)
-      MirSubfieldRef ctx r1 idx -> MirSubfieldRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
-      MirSubvariantRef ctx r1 idx -> MirSubvariantRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
-      MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)
-      MirSubjustRef ty r1 -> MirSubjustRef (instantiate subst ty) (instantiate subst r1)
-      VectorSnoc ty v e -> VectorSnoc (instantiate subst ty) (instantiate subst v) (instantiate subst e)
-      VectorHead ty v -> VectorHead (instantiate subst ty) (instantiate subst v)
-      VectorTail ty v -> VectorTail (instantiate subst ty) (instantiate subst v)
-      VectorInit ty v -> VectorInit (instantiate subst ty) (instantiate subst v)
-      VectorLast ty v -> VectorLast (instantiate subst ty) (instantiate subst v)
-      VectorConcat ty v1 v2 -> VectorConcat (instantiate subst ty) (instantiate subst v1) (instantiate subst v2)
-      VectorTake ty v i -> VectorTake (instantiate subst ty) (instantiate subst v) (instantiate subst i)
-      VectorDrop ty v i -> VectorDrop (instantiate subst ty) (instantiate subst v) (instantiate subst i)
 
 
 instance HasStructuredAssertions MIR where

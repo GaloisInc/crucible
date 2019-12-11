@@ -67,7 +67,6 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Core as Core
 import qualified Lang.Crucible.Syntax as S
 import qualified Lang.Crucible.Types as C
-import qualified Lang.Crucible.Substitution()
 
 
 import qualified Data.Parameterized.Context as Ctx
@@ -695,12 +694,9 @@ mkTraitObject traitName substs preds vtableName e = do
         use (cs . vtableMap . at vtableName)
 
     let mkEntry :: MirHandle -> MirExp s
-        mkEntry (MirHandle hname _ fh)
-          | Just C.Dict <- C.checkClosedCtx (FH.handleArgTypes fh)
-          , Just C.Dict <- C.checkClosed (FH.handleReturnType fh)
-          = MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
+        mkEntry (MirHandle hname _ fh) =
+            MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
                 (R.App $ E.HandleLit fh)
-          | otherwise = error $ "signature is not closed for " ++ show hname
     vtable@(MirExp vtableTy _) <- return $ buildTuple $ map mkEntry handles
 
     -- Check that the vtable we constructed has the appropriate type for the
@@ -1330,9 +1326,7 @@ lookupFunction nm (Substs funsubst)
         | otherwise =
         let fargctx  = FH.handleArgTypes fhandle
             fret     = FH.handleReturnType fhandle
-        in case assertClosedFH fhandle of
-            (C.Dict, C.Dict) ->
-                MirExp (C.FunctionHandleRepr fargctx fret) $ R.App $ E.HandleLit fhandle
+        in MirExp (C.FunctionHandleRepr fargctx fret) $ R.App $ E.HandleLit fhandle
 
   case () of 
     ()
@@ -1937,8 +1931,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
-    buildShimRef recvTy argTys retTy implFH argsA
-      | (C.Dict, C.Dict) <- assertClosedFH implFH = (\x -> ([], x)) $ do
+    buildShimRef recvTy argTys retTy implFH argsA = (\x -> ([], x)) $ do
         let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
 
         callImm <- G.newLambdaLabel' recvTy
@@ -1964,8 +1957,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
-    buildShimMut recvTy argTys retTy implFH argsA
-      | (C.Dict, C.Dict) <- assertClosedFH implFH = (\x -> ([], x)) $ do
+    buildShimMut recvTy argTys retTy implFH argsA = (\x -> ([], x)) $ do
         let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
         recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
             (R.App $ E.TextLit $ "bad receiver type for " <> M.idText fnName)
@@ -1978,16 +1970,6 @@ splitMethodArgs :: forall recvTy argTys s.
 splitMethodArgs args argsSize =
     let (arg0, args') = splitAssignmentLeft args argsSize in
     (R.AtomExpr arg0, fmapFC R.AtomExpr args')
-
-assertClosedFH :: forall args ret.
-    (FH.FnHandle args ret) ->
-    (C.Dict (C.Closed args), C.Dict (C.Closed ret))
-assertClosedFH fh =
-    case C.checkClosedCtx (FH.handleArgTypes fh) of
-        Nothing -> error "impl argument types are not closed"
-        Just argDict -> case C.checkClosed (FH.handleReturnType fh) of
-            Nothing -> error "impl return type is not closed"
-            Just retDict -> (argDict, retDict)
 
 
 type (x :: k) :<: (xs :: Ctx.Ctx k) = Ctx.SingleCtx x Ctx.<+> xs
@@ -2255,9 +2237,7 @@ transCollection col halloc = do
           tyToReprCont (static^.sTy) $ \staticRepr -> do
             let gname =  (M.idText (static^.sName) <> "_global")
             g <- G.freshGlobalVar halloc gname staticRepr
-            case C.checkClosed staticRepr of
-               Just C.Dict -> return $ Map.insert (static^.sName) (StaticVar g) staticMap
-               Nothing -> error $ "BUG: Invalid type for static var: " ++ show staticRepr
+            return $ Map.insert (static^.sName) (StaticVar g) staticMap
 
     sm <- foldrM allocateStatic Map.empty (col^.statics)
 
