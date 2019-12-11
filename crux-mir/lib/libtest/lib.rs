@@ -29,10 +29,8 @@
 #![feature(termination_trait_lib)]
 #![feature(test)]
 
-use getopts;
 #[cfg(any(unix, target_os = "cloudabi"))]
 extern crate libc;
-use term;
 
 // FIXME(#54291): rustc and/or LLVM don't yet support building with panic-unwind
 //                on aarch64-pc-windows-msvc, or thumbv7a-pc-windows-msvc
@@ -46,7 +44,6 @@ extern crate panic_unwind;
 
 pub use self::ColorConfig::*;
 use self::NamePadding::*;
-use self::OutputLocation::*;
 use self::TestEvent::*;
 pub use self::TestFn::*;
 pub use self::TestName::*;
@@ -89,7 +86,7 @@ pub mod test {
 mod formatters;
 pub mod stats;
 
-use crate::formatters::{JsonFormatter, OutputFormatter, PrettyFormatter, TerseFormatter};
+use crate::formatters::OutputFormatter;
 
 /// Whether to execute tests concurrently or not
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -383,114 +380,6 @@ pub struct TestOpts {
 /// Result of parsing the options.
 pub type OptRes = Result<TestOpts, String>;
 
-fn optgroups() -> getopts::Options {
-    let mut opts = getopts::Options::new();
-    opts.optflag("", "include-ignored", "Run ignored and not ignored tests")
-        .optflag("", "ignored", "Run only ignored tests")
-        .optflag("", "exclude-should-panic", "Excludes tests marked as should_panic")
-        .optflag("", "test", "Run tests and not benchmarks")
-        .optflag("", "bench", "Run benchmarks instead of tests")
-        .optflag("", "list", "List all tests and benchmarks")
-        .optflag("h", "help", "Display this message (longer with --help)")
-        .optopt(
-            "",
-            "logfile",
-            "Write logs to the specified file instead \
-             of stdout",
-            "PATH",
-        )
-        .optflag(
-            "",
-            "nocapture",
-            "don't capture stdout/stderr of each \
-             task, allow printing directly",
-        )
-        .optopt(
-            "",
-            "test-threads",
-            "Number of threads used for running tests \
-             in parallel",
-            "n_threads",
-        )
-        .optmulti(
-            "",
-            "skip",
-            "Skip tests whose names contain FILTER (this flag can \
-             be used multiple times)",
-            "FILTER",
-        )
-        .optflag(
-            "q",
-            "quiet",
-            "Display one character per test instead of one line. \
-             Alias to --format=terse",
-        )
-        .optflag(
-            "",
-            "exact",
-            "Exactly match filters rather than by substring",
-        )
-        .optopt(
-            "",
-            "color",
-            "Configure coloring of output:
-            auto   = colorize if stdout is a tty and tests are run on serially (default);
-            always = always colorize output;
-            never  = never colorize output;",
-            "auto|always|never",
-        )
-        .optopt(
-            "",
-            "format",
-            "Configure formatting of output:
-            pretty = Print verbose output;
-            terse  = Display one character per test;
-            json   = Output a json document",
-            "pretty|terse|json",
-        )
-        .optopt(
-            "Z",
-            "",
-            "Enable nightly-only flags:
-            unstable-options = Allow use of experimental features",
-            "unstable-options",
-        );
-    return opts;
-}
-
-fn usage(binary: &str, options: &getopts::Options) {
-    let message = format!("Usage: {} [OPTIONS] [FILTER]", binary);
-    println!(
-        r#"{usage}
-
-The FILTER string is tested against the name of all tests, and only those
-tests whose names contain the filter are run.
-
-By default, all tests are run in parallel. This can be altered with the
---test-threads flag or the RUST_TEST_THREADS environment variable when running
-tests (set it to 1).
-
-All tests have their standard output and standard error captured by default.
-This can be overridden with the --nocapture flag or setting RUST_TEST_NOCAPTURE
-environment variable to a value other than "0". Logging is not captured by default.
-
-Test Attributes:
-
-    `#[test]`        - Indicates a function is a test to be run. This function
-                       takes no arguments.
-    `#[bench]`       - Indicates a function is a benchmark to be run. This
-                       function takes one argument (test::Bencher).
-    `#[should_panic]` - This function (also labeled with `#[test]`) will only pass if
-                        the code causes a panic (an assertion failure or panic!)
-                        A message may be provided, which the failure string must
-                        contain: #[should_panic(expected = "foo")].
-    `#[ignore]`       - When applied to a function which is already attributed as a
-                        test, then the test runner will ignore these tests during
-                        normal test runs. Running with --ignored or --include-ignored will run
-                        these tests."#,
-        usage = options.usage(&message)
-    );
-}
 
 // FIXME: Copied from libsyntax until linkage errors are resolved. Issue #47566
 fn is_nightly() -> bool {
@@ -504,153 +393,7 @@ fn is_nightly() -> bool {
 
 // Parses command line arguments into test options
 pub fn parse_opts(args: &[String]) -> Option<OptRes> {
-    let mut allow_unstable = false;
-    let opts = optgroups();
-    let args = args.get(1..).unwrap_or(args);
-    let matches = match opts.parse(args) {
-        Ok(m) => m,
-        Err(f) => return Some(Err(f.to_string())),
-    };
-
-    if let Some(opt) = matches.opt_str("Z") {
-        if !is_nightly() {
-            return Some(Err(
-                "the option `Z` is only accepted on the nightly compiler".into(),
-            ));
-        }
-
-        match &*opt {
-            "unstable-options" => {
-                allow_unstable = true;
-            }
-            _ => {
-                return Some(Err("Unrecognized option to `Z`".into()));
-            }
-        }
-    };
-
-    if matches.opt_present("h") {
-        usage(&args[0], &opts);
-        return None;
-    }
-
-    let filter = if !matches.free.is_empty() {
-        Some(matches.free[0].clone())
-    } else {
-        None
-    };
-
-    let exclude_should_panic = matches.opt_present("exclude-should-panic");
-    if !allow_unstable && exclude_should_panic {
-        return Some(Err(
-            "The \"exclude-should-panic\" flag is only accepted on the nightly compiler".into(),
-        ));
-    }
-
-    let include_ignored = matches.opt_present("include-ignored");
-    if !allow_unstable && include_ignored {
-        return Some(Err(
-            "The \"include-ignored\" flag is only accepted on the nightly compiler".into(),
-        ));
-    }
-
-    let run_ignored = match (include_ignored, matches.opt_present("ignored")) {
-        (true, true) => {
-            return Some(Err(
-                "the options --include-ignored and --ignored are mutually exclusive".into(),
-            ));
-        }
-        (true, false) => RunIgnored::Yes,
-        (false, true) => RunIgnored::Only,
-        (false, false) => RunIgnored::No,
-    };
-    let quiet = matches.opt_present("quiet");
-    let exact = matches.opt_present("exact");
-    let list = matches.opt_present("list");
-
-    let logfile = matches.opt_str("logfile");
-    let logfile = logfile.map(|s| PathBuf::from(&s));
-
-    let bench_benchmarks = matches.opt_present("bench");
-    let run_tests = !bench_benchmarks || matches.opt_present("test");
-
-    let mut nocapture = matches.opt_present("nocapture");
-    if !nocapture {
-        nocapture = match env::var("RUST_TEST_NOCAPTURE") {
-            Ok(val) => &val != "0",
-            Err(_) => false,
-        };
-    }
-
-    let test_threads = match matches.opt_str("test-threads") {
-        Some(n_str) => match n_str.parse::<usize>() {
-            Ok(0) => return Some(Err("argument for --test-threads must not be 0".to_string())),
-            Ok(n) => Some(n),
-            Err(e) => {
-                return Some(Err(format!(
-                    "argument for --test-threads must be a number > 0 \
-                     (error: {})",
-                    e
-                )));
-            }
-        },
-        None => None,
-    };
-
-    let color = match matches.opt_str("color").as_ref().map(|s| &**s) {
-        Some("auto") | None => AutoColor,
-        Some("always") => AlwaysColor,
-        Some("never") => NeverColor,
-
-        Some(v) => {
-            return Some(Err(format!(
-                "argument for --color must be auto, always, or never (was \
-                 {})",
-                v
-            )));
-        }
-    };
-
-    let format = match matches.opt_str("format").as_ref().map(|s| &**s) {
-        None if quiet => OutputFormat::Terse,
-        Some("pretty") | None => OutputFormat::Pretty,
-        Some("terse") => OutputFormat::Terse,
-        Some("json") => {
-            if !allow_unstable {
-                return Some(Err(
-                    "The \"json\" format is only accepted on the nightly compiler".into(),
-                ));
-            }
-            OutputFormat::Json
-        }
-
-        Some(v) => {
-            return Some(Err(format!(
-                "argument for --format must be pretty, terse, or json (was \
-                 {})",
-                v
-            )));
-        }
-    };
-
-    let test_opts = TestOpts {
-        list,
-        filter,
-        filter_exact: exact,
-        exclude_should_panic,
-        run_ignored,
-        run_tests,
-        bench_benchmarks,
-        logfile,
-        nocapture,
-        color,
-        format,
-        test_threads,
-        skip: matches.opt_strs("skip"),
-        options: Options::new(),
-    };
-
-    Some(Ok(test_opts))
+    unimplemented!()
 }
 
 #[derive(Clone, PartialEq)]
@@ -670,27 +413,6 @@ pub enum TestResult {
 }
 
 unsafe impl Send for TestResult {}
-
-enum OutputLocation<T> {
-    Pretty(Box<term::StdoutTerminal>),
-    Raw(T),
-}
-
-impl<T: Write> Write for OutputLocation<T> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match *self {
-            Pretty(ref mut term) => term.write(buf),
-            Raw(ref mut stdout) => stdout.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match *self {
-            Pretty(ref mut term) => term.flush(),
-            Raw(ref mut stdout) => stdout.flush(),
-        }
-    }
-}
 
 struct ConsoleTestState {
     log_out: Option<File>,
@@ -806,153 +528,12 @@ pub fn fmt_bench_samples(bs: &BenchSamples) -> String {
 
 // List the tests to console, and optionally to logfile. Filters are honored.
 pub fn list_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> io::Result<()> {
-    let mut output = match term::stdout() {
-        None => Raw(io::stdout()),
-        Some(t) => Pretty(t),
-    };
-
-    let quiet = opts.format == OutputFormat::Terse;
-    let mut st = ConsoleTestState::new(opts)?;
-
-    let mut ntest = 0;
-    let mut nbench = 0;
-
-    for test in filter_tests(&opts, tests) {
-        use crate::TestFn::*;
-
-        let TestDescAndFn {
-            desc: TestDesc { name, .. },
-            testfn,
-        } = test;
-
-        let fntype = match testfn {
-            StaticTestFn(..) | DynTestFn(..) => {
-                ntest += 1;
-                "test"
-            }
-            StaticBenchFn(..) | DynBenchFn(..) => {
-                nbench += 1;
-                "benchmark"
-            }
-        };
-
-        writeln!(output, "{}: {}", name, fntype)?;
-        st.write_log(format!("{} {}\n", fntype, name))?;
-    }
-
-    fn plural(count: u32, s: &str) -> String {
-        match count {
-            1 => format!("{} {}", 1, s),
-            n => format!("{} {}s", n, s),
-        }
-    }
-
-    if !quiet {
-        if ntest != 0 || nbench != 0 {
-            writeln!(output, "")?;
-        }
-
-        writeln!(
-            output,
-            "{}, {}",
-            plural(ntest, "test"),
-            plural(nbench, "benchmark")
-        )?;
-    }
-
-    Ok(())
+    unimplemented!()
 }
 
 // A simple console test runner
 pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> io::Result<bool> {
-    fn callback(
-        event: &TestEvent,
-        st: &mut ConsoleTestState,
-        out: &mut dyn OutputFormatter,
-    ) -> io::Result<()> {
-        match (*event).clone() {
-            TeFiltered(ref filtered_tests) => {
-                st.total = filtered_tests.len();
-                out.write_run_start(filtered_tests.len())
-            }
-            TeFilteredOut(filtered_out) => Ok(st.filtered_out = filtered_out),
-            TeWait(ref test) => out.write_test_start(test),
-            TeTimeout(ref test) => out.write_timeout(test),
-            TeResult(test, result, stdout) => {
-                st.write_log_result(&test, &result)?;
-                out.write_result(&test, &result, &*stdout)?;
-                match result {
-                    TrOk => {
-                        st.passed += 1;
-                        st.not_failures.push((test, stdout));
-                    }
-                    TrIgnored => st.ignored += 1,
-                    TrAllowedFail => st.allowed_fail += 1,
-                    TrBench(bs) => {
-                        st.metrics.insert_metric(
-                            test.name.as_slice(),
-                            bs.ns_iter_summ.median,
-                            bs.ns_iter_summ.max - bs.ns_iter_summ.min,
-                        );
-                        st.measured += 1
-                    }
-                    TrFailed => {
-                        st.failed += 1;
-                        st.failures.push((test, stdout));
-                    }
-                    TrFailedMsg(msg) => {
-                        st.failed += 1;
-                        let mut stdout = stdout;
-                        stdout.extend_from_slice(format!("note: {}", msg).as_bytes());
-                        st.failures.push((test, stdout));
-                    }
-                }
-                Ok(())
-            }
-        }
-    }
-
-    let output = match term::stdout() {
-        None => Raw(io::stdout()),
-        Some(t) => Pretty(t),
-    };
-
-    let max_name_len = tests
-        .iter()
-        .max_by_key(|t| len_if_padded(*t))
-        .map(|t| t.desc.name.as_slice().len())
-        .unwrap_or(0);
-
-    let is_multithreaded = opts.test_threads.unwrap_or_else(get_concurrency) > 1;
-
-    let mut out: Box<dyn OutputFormatter> = match opts.format {
-        OutputFormat::Pretty => Box::new(PrettyFormatter::new(
-            output,
-            use_color(opts),
-            max_name_len,
-            is_multithreaded,
-        )),
-        OutputFormat::Terse => Box::new(TerseFormatter::new(
-            output,
-            use_color(opts),
-            max_name_len,
-            is_multithreaded,
-        )),
-        OutputFormat::Json => Box::new(JsonFormatter::new(output)),
-    };
-    let mut st = ConsoleTestState::new(opts)?;
-    fn len_if_padded(t: &TestDescAndFn) -> usize {
-        match t.testfn.padding() {
-            PadNone => 0,
-            PadOnRight => t.desc.name.as_slice().len(),
-        }
-    }
-
-    run_tests(opts, tests, |x| callback(&x, &mut st, &mut *out))?;
-
-    assert!(st.current_test_count() == st.total);
-
-    return out.write_run_finish(&st);
+    unimplemented!()
 }
 
 fn use_color(opts: &TestOpts) -> bool {

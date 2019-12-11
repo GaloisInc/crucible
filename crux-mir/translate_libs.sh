@@ -52,6 +52,7 @@ translate lib/hashbrown/src/lib.rs --crate-name hashbrown \
     --extern rustc_std_workspace_core=rlibs/libcore.rlib
 translate lib/libstd/lib.rs --crate-name std \
     --extern hashbrown=rlibs/libhashbrown.rlib
+translate lib/libtest/lib.rs --crate-name test
 translate_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
 translate lib/bytes.rs
 
