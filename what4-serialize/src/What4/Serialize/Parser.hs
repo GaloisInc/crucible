@@ -18,9 +18,9 @@
 -- | A parser for an s-expression representation of what4 expressions
 module What4.Serialize.Parser
   ( readSymFn
-  -- , readSymFnFromFile
+  , readSymFnFromFile
   , readSymFnEnv
-  -- , readSymFnEnvFromFile
+  , readSymFnEnvFromFile
   ) where
 
 import qualified Control.Monad.Except as E
@@ -33,6 +33,7 @@ import qualified Data.Map as Map
 import qualified Data.SCargot.Repr as SC
 import           Data.Semigroup
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import           Text.Printf ( printf )
 
 import qualified Data.Parameterized.Ctx as Ctx
@@ -45,7 +46,6 @@ import           What4.BaseTypes
 
 import qualified What4.Interface as S
 import           What4.Symbol ( userSymbol )
-
 
 import           What4.Serialize.SETokens ( FAtom(..), printTokens, parseNoLet)
 import qualified What4.Utils.Log as U
@@ -180,7 +180,7 @@ data DefsInfo sym tps = DefsInfo
                         -- expressions while parsing the definitions.
                         , getEnv :: SymFnEnv sym
                         -- ^ Global formula environment
-                        , getGlobalLookup :: sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym)))
+                        , getGlobalLookup :: T.Text -> IO (Maybe (Some (S.SymExpr sym)))
                         -- ^ Function to retrieve the expression corresponding to the
                         -- given global
                         , getArgVarList :: Ctx.Assignment (S.BoundVar sym) tps
@@ -838,7 +838,7 @@ readExpr (SC.SAtom varRaw) = do
                , getArgVarList = argVars
                , getGlobalLookup = globalLookup
                } <- MR.ask
-      var <- readVariable @sym (\nm -> liftIO $ globalLookup sym nm) argNames varRaw
+      var <- readVariable @sym (\nm -> liftIO $ globalLookup nm) argNames varRaw
       case var of
         Some (ParsedArgument _ idx) ->
           return . Some . S.varExpr sym $ (argVars Ctx.! idx)
@@ -912,7 +912,7 @@ readSymFn' :: forall sym m
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
-          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
+          -> (T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> SC.SExpr FAtom
           -> m (SomeSome (S.SymFn sym))
 readSymFn' sym env globalLookup sexpr = do
@@ -987,23 +987,37 @@ readSymFn :: forall sym
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
-          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
+          -> (T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> T.Text
           -> IO (Either String (SomeSome (S.SymFn sym)))
 readSymFn sym env globalLookup = genRead "readSymFn" (readSymFn' sym env globalLookup)
 
+readSymFnFromFile :: forall sym
+                   . (S.IsExprBuilder sym,
+                      S.IsSymExprBuilder sym,
+                      ShowF (S.SymExpr sym),
+                      U.HasLogCfg)
+                  => sym
+                  -> SymFnEnv sym
+                  -> (T.Text -> IO (Maybe (Some (S.SymExpr sym))))
+                  -> FilePath
+                  -> IO (Either String (SomeSome (S.SymFn sym)))
+readSymFnFromFile sym env globalLookup fp = do
+  liftIO $ U.logIO U.Info $ "readSymFnFromFile " ++ fp
+  readSymFn sym env globalLookup =<< T.readFile fp
+
 readSymFnEnv' :: forall sym m
-           . (S.IsExprBuilder sym,
-              S.IsSymExprBuilder sym,
-              E.MonadError String m,
-              MonadIO m,
-              ShowF (S.SymExpr sym),
-              U.HasLogCfg)
-          => sym
-          -> SymFnEnv sym
-          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
-          -> SC.SExpr FAtom
-          -> m (SymFnEnv sym)
+               . (S.IsExprBuilder sym,
+                  S.IsSymExprBuilder sym,
+                  E.MonadError String m,
+                  MonadIO m,
+                  ShowF (S.SymExpr sym),
+                  U.HasLogCfg)
+              => sym
+              -> SymFnEnv sym
+              -> (T.Text -> IO (Maybe (Some (S.SymExpr sym))))
+              -> SC.SExpr FAtom
+              -> m (SymFnEnv sym)
 readSymFnEnv' sym env globalReads sexpr = do
   symFnEnvRaw <- case sexpr of
     SC.SCons (SC.SAtom (AIdent "symfnenv"))
@@ -1040,7 +1054,21 @@ readSymFnEnv :: forall sym
               U.HasLogCfg)
           => sym
           -> SymFnEnv sym
-          -> (sym -> T.Text -> IO (Maybe (Some (S.SymExpr sym))))
+          -> (T.Text -> IO (Maybe (Some (S.SymExpr sym))))
           -> T.Text
           -> IO (Either String (SymFnEnv sym))
 readSymFnEnv sym env globalLookup = genRead "readSymFnEnv" (readSymFnEnv' sym env globalLookup)
+
+readSymFnEnvFromFile :: forall sym
+                   . (S.IsExprBuilder sym,
+                      S.IsSymExprBuilder sym,
+                      ShowF (S.SymExpr sym),
+                      U.HasLogCfg)
+                  => sym
+                  -> SymFnEnv sym
+                  -> (T.Text -> IO (Maybe (Some (S.SymExpr sym))))
+                  -> FilePath
+                  -> IO (Either String (SymFnEnv sym))
+readSymFnEnvFromFile sym env globalLookup fp = do
+  liftIO $ U.logIO U.Info $ "readSymFnEnvFromFile " ++ fp
+  readSymFnEnv sym env globalLookup =<< T.readFile fp

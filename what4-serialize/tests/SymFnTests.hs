@@ -190,7 +190,7 @@ mkEquivalenceTest' argTs getExpr = do
   lcfg <- liftIO $ Log.mkLogCfg "rndtrip"
   deser <- liftIO $
               Log.withLogCfg lcfg $
-              WP.readSymFn sym fenv (\_ nm -> return $ lookup nm globalLookup) fnText
+              WP.readSymFn sym fenv (\nm -> return $ lookup nm globalLookup) fnText
   debugOut $ "deserialized: " <> showSomeSym deser
   U.SomeSome fn2 <- evalEither deser
   fn1out <- liftIO $ WI.definedFn sym (WI.safeSymbol "fn") bvs exprout (const False)
@@ -223,7 +223,7 @@ mkSigTest getSymFnEnv = do
   lcfg <- liftIO $ Log.mkLogCfg "rndtrip"
   deser <- liftIO $
               Log.withLogCfg lcfg $
-              WP.readSymFnEnv sym Map.empty (\_ _ -> return Nothing) fenvText
+              WP.readSymFnEnv sym Map.empty (\_ -> return Nothing) fenvText
   fenv2 <- evalEither deser
   Map.keysSet fenv1 === Map.keysSet fenv2
   forM_ (Map.assocs fenv1) $ \(key, U.SomeSome fn1) ->
