@@ -130,6 +130,7 @@ main = do
   putStrLn "Translating LLVM modules"
   halloc     <- newHandleAllocator
   -- translated :: [ModuleTranslation]
+  let ?laxArith = False
   translated <- traverse (translateModule halloc) parsed
 
   -- Run tests on the results
@@ -321,6 +322,7 @@ withLLVMCtx mod action =
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
         sym <- Crucible.newSimpleBackend What4.FloatRealRepr nonceGen
+        let ?laxArith = False
         Some (ModuleTranslation _ ctx _ _) <- translateModule halloc mod
         case llvmArch ctx                   of { X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
