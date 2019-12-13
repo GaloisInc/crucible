@@ -8,4 +8,5 @@ let -- internal
     -- internal
     v12 = bvZext 32 (bvAnd (ite (floatLe v2 v3) 0x1:[1] 0x0:[1]) v10)
  in bvOr 0x1:[32] (bvShl v12 0x1:[32])
-[Crux] No goals to prove.
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.

@@ -1,3 +1,4 @@
 [Crux] Simulating function "main"
 0x1:[32]
-[Crux] No goals to prove.
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.
