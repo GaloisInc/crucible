@@ -103,20 +103,33 @@ newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
 
 -- | Represents a function closure.
 data FnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
-  ClosureFnVal :: !(FnVal sym (args ::> tp) ret)
-               -> !(TypeRepr tp)
-               -> !(RegValue sym tp)
-               -> FnVal sym args ret
+  ClosureFnVal ::
+    !(FnVal sym (args ::> tp) ret) ->
+    !(TypeRepr tp) ->
+    !(RegValue sym tp) ->
+    FnVal sym args ret
 
-  HandleFnVal :: !(FnHandle a r) -> FnVal sym a r
+  VarargsFnVal ::
+    !(FnHandle (args ::> VectorType AnyType) ret) ->
+    !(CtxRepr addlArgs) ->
+    FnVal sym (args <+> addlArgs) ret
+
+  HandleFnVal ::
+    !(FnHandle a r) ->
+    FnVal sym a r
+
 
 closureFunctionName :: FnVal sym args res -> FunctionName
 closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
 closureFunctionName (HandleFnVal h) = handleName h
+closureFunctionName (VarargsFnVal h _) = handleName h
 
 -- | Extract the runtime representation of the type of the given 'FnVal'
 fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
 fnValType (HandleFnVal h) = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+fnValType (VarargsFnVal h addlArgs) =
+  case handleArgTypes h of
+    args Ctx.:> _ -> FunctionHandleRepr (args Ctx.<++> addlArgs) (handleReturnType h)
 fnValType (ClosureFnVal fn _ _) =
   case fnValType fn of
     FunctionHandleRepr allArgs r ->

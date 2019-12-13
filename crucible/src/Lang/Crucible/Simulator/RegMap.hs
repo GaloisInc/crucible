@@ -37,6 +37,7 @@ module Lang.Crucible.Simulator.RegMap
   , assignReg'
   , appendRegs
   , takeRegs
+  , unconsReg
   , muxRegForType
   , muxReference
   , pushBranchForType
@@ -105,6 +106,10 @@ appendRegs ::
   RegMap sym (ctx <+> ctx')
 appendRegs (RegMap m1) (RegMap m2) = RegMap (m1 Ctx.<++> m2)
 
+unconsReg ::
+  RegMap sym (ctx ::> tp) ->
+  (RegMap sym ctx, RegEntry sym tp)
+unconsReg (RegMap (hd Ctx.:> tl)) = (RegMap hd, tl)
 
 takeRegs ::
   Ctx.Size ctx ->
