@@ -393,7 +393,7 @@ translateModule halloc m = do
   let nonceGen = haCounter halloc
   llvmPtrWidth ctx0 $ \wptr -> withPtrWidth wptr $
     do -- Add handles for all functions declared in module.
-       ctx <- foldM (insDeclareHandle halloc) ctx0 (allModuleDeclares m)
+       ctx <- foldM (insDeclareHandle halloc) ctx0 (declareFromDefine <$> L.modDefines m)
        -- Translate definitions
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.

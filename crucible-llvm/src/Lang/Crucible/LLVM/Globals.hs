@@ -22,6 +22,7 @@
 {-# LANGUAGE ImplicitParams        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PolyKinds             #-}
+{-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeOperators         #-}
@@ -53,6 +54,7 @@ import           Data.Maybe (fromMaybe)
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as LPP
 
+import           Data.Parameterized.Context ( pattern (:>) )
 import           Data.Parameterized.NatRepr as NatRepr
 
 import           Lang.Crucible.LLVM.Bytes
@@ -67,6 +69,8 @@ import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Types
 
 import           GHC.Stack
 
@@ -217,10 +221,15 @@ allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     -> MemImpl sym
                     -> (L.Symbol, Set L.Symbol, LLVMHandleInfo)
                     -> IO (MemImpl sym)
-allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), aliases, LLVMHandleInfo _ h) =
-  do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
-     return $ registerGlobal mem' (symbol:Set.toList aliases) ptr
+allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), aliases, LLVMHandleInfo dec h)
+  | L.decVarArgs dec
+  , (_ :> VectorRepr AnyRepr) <- handleArgTypes h
+  =  do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (VarargsFnHandle h)
+        return $ registerGlobal mem' (symbol:Set.toList aliases) ptr
 
+  | otherwise =
+     do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
+        return $ registerGlobal mem' (symbol:Set.toList aliases) ptr
 
 ------------------------------------------------------------------------
 -- ** populateGlobals

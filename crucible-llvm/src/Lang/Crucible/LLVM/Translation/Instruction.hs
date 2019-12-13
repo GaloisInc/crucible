@@ -58,7 +58,6 @@ import           Text.PrettyPrint.ANSI.Leijen (pretty)
 import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Context ( pattern (:>) )
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
 
@@ -1772,33 +1771,21 @@ callFunction ::
    [L.Typed L.Value] {- ^ argument list -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator s arch ret ()
-callFunction _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f = do
+callFunction _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args assign_f = do
   let ?err = fail
   fnTy'  <- liftMemType' (L.PtrTo fnTy)
   retTy' <- either fail return $ liftRetType lretTy
   fn'    <- transValue fnTy' fn
   args'  <- mapM transTypedValue args
 
-  -- For varargs functions, any arguments beyond the ones found in the function
-  -- declaration are gathered into a vector of 'ANY' type, which is then passed
-  -- as an additional final argument to the underlying Crucible function.  The
-  -- called function is expected to know the types of these additional arguments,
-  -- which it can unpack from the ANY values when it knows those types.
-  let (mainArgs, varArgs) = splitAt (length largTys) args'
-  unpackArgs mainArgs $ \argTypes mainArgs' ->
+  unpackArgs args' $ \argTypes args'' ->
     llvmRetTypeAsRepr retTy' $ \retTy ->
       case asScalar fn' of
         Scalar PtrRepr ptr -> do
           memVar <- getMemVar
-          if varargs
-          then do
-            v   <- extensionStmt (LLVM_LoadHandle memVar ptr (argTypes :> varArgsRepr) retTy)
-            ret <- call v (mainArgs' :> unpackVarArgs varArgs)
-            assign_f (BaseExpr retTy ret)
-          else do
-            v   <- extensionStmt (LLVM_LoadHandle memVar ptr argTypes retTy)
-            ret <- call v mainArgs'
-            assign_f (BaseExpr retTy ret)
+          v   <- extensionStmt (LLVM_LoadHandle memVar ptr argTypes retTy)
+          ret <- call v args''
+          assign_f (BaseExpr retTy ret)
         _ -> fail $ unwords ["unsupported function value", show fn]
 
 callFunction _tailCall fnTy _fn _args _assign_f =

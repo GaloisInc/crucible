@@ -400,17 +400,32 @@ evalStmt sym = eval
   eval (LLVM_LoadHandle mvar (regValue -> ptr) args ret) =
      do mem <- getMem mvar
         mhandle <- liftIO $ doLookupHandle sym mem ptr
+        let expectedTp = FunctionHandleRepr args ret
+            handleTp h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
         case mhandle of
            Left doc -> failedAssert (show doc) ""
+
+           Right (VarargsFnHandle h) ->
+             let err = failedAssert "Failed to load function handle"
+                  (unlines
+                   ["Expected function handle of type " <> show expectedTp
+                   ,"for call to function " <> show (handleName h)
+                   ,"but found varargs handle of non-matching type " ++ show (handleTp h)
+                   ]) in
+             case handleArgTypes h of
+               prefix Ctx.:> VectorRepr AnyRepr
+                 | Just Refl <- testEquality ret (handleReturnType h)
+                 -> Ctx.dropPrefix args prefix err (return . VarargsFnVal h)
+
+               _ -> err
+
            Right (SomeFnHandle h)
-             | Just Refl <- testEquality handleTp expectedTp -> return (HandleFnVal h)
+             | Just Refl <- testEquality (handleTp h) expectedTp -> return (HandleFnVal h)
              | otherwise -> failedAssert
                  "Failed to load function handle"
                  (unlines ["Expected function handle of type " <> show expectedTp
                           , "for call to function " <> show (handleName h)
-                          , "but found calling handle of type " ++ show handleTp])
-            where handleTp   = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
-                  expectedTp = FunctionHandleRepr args ret
+                          , "but found calling handle of type " ++ show (handleTp h)])
 
   eval (LLVM_ResolveGlobal _w mvar (GlobalSymbol symbol)) =
      do mem <- getMem mvar
@@ -468,6 +483,7 @@ evalStmt sym = eval
   eval (LLVM_PtrSubtract _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
        liftIO $ doPtrSubtract sym mem x y
+
 
 mkMemVar :: HandleAllocator
          -> IO (GlobalVar Mem)
@@ -530,8 +546,8 @@ doStore sym mem ptr tpr valType alignment val = do
     storeRaw sym mem ptr valType alignment val'
 
 data SomeFnHandle where
-  SomeFnHandle :: FnHandle args ret -> SomeFnHandle
-
+  SomeFnHandle    :: FnHandle args ret -> SomeFnHandle
+  VarargsFnHandle :: FnHandle (args ::> VectorType AnyType) ret -> SomeFnHandle
 
 sextendBVTo :: (1 <= w, 1 <= w', IsSymInterface sym)
             => sym

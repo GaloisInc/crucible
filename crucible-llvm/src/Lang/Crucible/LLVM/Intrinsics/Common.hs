@@ -297,6 +297,24 @@ basic_llvm_override :: forall p args ret sym arch wptr l a rtp.
 basic_llvm_override ovr = OverrideTemplate (ExactMatch nm) (register_llvm_override ovr)
  where L.Symbol nm = L.decName (llvmOverride_declare ovr)
 
+
+isMatchingDeclaration ::
+  L.Declare {- ^ Requested declaration -} ->
+  L.Declare {- ^ Provided declaration for intrinsic -} ->
+  Bool
+isMatchingDeclaration requested provided = and
+  [ L.decName requested == L.decName provided
+  , matchingArgList (L.decArgs requested) (L.decArgs provided)
+  , L.decRetType requested == L.decRetType provided
+  -- TODO? do we need to pay attention to various attributes?
+  ]
+
+ where
+ matchingArgList [] [] = True
+ matchingArgList [] _  = L.decVarArgs requested
+ matchingArgList _  [] = L.decVarArgs provided
+ matchingArgList (x:xs) (y:ys) = x == y && matchingArgList xs ys
+
 register_llvm_override :: forall p args ret sym arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   LLVMOverride p sym arch args ret ->
@@ -306,7 +324,7 @@ register_llvm_override llvmOverride = do
   llvmctx <- get
   let decl = llvmOverride_declare llvmOverride
 
-  if (requestedDecl /= decl) then
+  if not (isMatchingDeclaration requestedDecl decl) then
     do when (L.decName requestedDecl == L.decName decl) $
          do logFn <- lift $ lift $ lift $ getLogFunction
             liftIO $ logFn 3 $ unlines
