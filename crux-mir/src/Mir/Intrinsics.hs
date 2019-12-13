@@ -619,7 +619,7 @@ execMirStmt stmt s =
       iTypes = ctxIntrinsicTypes ctx
   in case stmt of
        MirNewRef tp ->
-         do r <- liftST (freshRefCell halloc tp)
+         do r <- freshRefCell halloc tp
             let r' = MirReference r Empty_RefPath
             return (r', s)
 

@@ -61,6 +61,7 @@ import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.FunctionHandle as FH
 import qualified What4.ProgramLoc as PL
 import qualified What4.FunctionName as FN
+import qualified What4.Utils.StringLiteral as W4
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.CFG.SSAConversion as SSA
 import qualified Lang.Crucible.CFG.Expr as E
@@ -76,6 +77,7 @@ import Data.Parameterized.Some
 import Data.Parameterized.Peano
 import Data.Parameterized.BoolRepr
 import Data.Parameterized.TraversableFC
+import Data.Parameterized.Nonce (newSTNonceGenerator)
 
 import Mir.Mir
 import Mir.MirTy
@@ -1443,13 +1445,13 @@ doCall funid funsubst cargs cdest retRepr = do
          | Just (CustomOpExit op) <- isCustom -> do
                exps <- mapM evalOperand cargs
                msg  <- op exps
-               G.reportError (S.app $ E.TextLit msg)
+               G.reportError (S.app $ E.StringLit $ W4.UnicodeLiteral msg)
 
         -- other functions that don't return
         | otherwise -> do
             _ <- callExp funid funsubst cargs 
             -- TODO: is this the correct behavior?
-            G.reportError (S.app $ E.TextLit "Program terminated.")
+            G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
 
 
 transTerminator :: HasCallStack => M.Terminator -> C.TypeRepr ret -> MirGenerator h s ret a
@@ -1774,11 +1776,12 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
     Nothing -> fail "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
       let rettype  = FH.handleReturnType handle
-      let def :: G.FunctionDef MIR s2 FnState args ret
+      let def :: G.FunctionDef MIR FnState args ret (ST s2)
           def inputs = (s,f) where
             s = initFnState colState fn handle inputs 
             f = genFn fn rettype
-      (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
+      ng <- newSTNonceGenerator
+      (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng handle def
       when ?printCrucible $ do
           traceM $ unwords [" =======", show fname, "======="]
           traceShowM $ pretty g
@@ -1791,10 +1794,10 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
 -- Fn preds must include *all* predicates necessary for translating
 -- the fbody at this point (i.e. "recursive" predicates for impls)
 -- and these preds must already have their associated types abstracted???
-mkHandleMap :: forall s . (HasCallStack) => Collection -> FH.HandleAllocator s -> ST s HandleMap
+mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMap
 mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
-    mkHandle :: M.Fn -> ST s MirHandle
+    mkHandle :: M.Fn -> IO MirHandle
     mkHandle (M.Fn fname fargs ty _fbody _statics)  =
        let
            targs = map typeOf fargs
@@ -1816,13 +1819,13 @@ vtableShimSig vtableName fnName sig = sig & M.fsarg_tys %~ \xs -> case xs of
     (_ : tys) -> M.TyErased : tys
 
 -- | Allocate method handles for all vtable shims.
-mkVtableMap :: forall s . (HasCallStack) => Collection -> FH.HandleAllocator s -> ST s VtableMap
+mkVtableMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO VtableMap
 mkVtableMap col halloc = mapM mkVtable (col^.vtables)
   where
-    mkVtable :: M.Vtable -> ST s [MirHandle]
+    mkVtable :: M.Vtable -> IO [MirHandle]
     mkVtable (M.Vtable name items) = mapM (mkHandle name) items
 
-    mkHandle :: M.DefId -> M.VtableItem -> ST s MirHandle
+    mkHandle :: M.DefId -> M.VtableItem -> IO MirHandle
     mkHandle vtableName (VtableItem fnName _)
       | Just fn <- Map.lookup fnName (col^.functions) =
         let shimSig = vtableShimSig vtableName fnName (fn ^. M.fsig)
@@ -1888,7 +1891,8 @@ transVtableShim colState vtableName (VtableItem fnName defName)
 
     -- Construct the shim and return it
     withBuildShim implMirArg0 implArg0 implArgs' implRet implFH $ \shimDef -> do
-        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos shimFH shimDef
+        ng <- newSTNonceGenerator
+        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng shimFH shimDef
         case SSA.toSSA g of
             Core.SomeCFG g_ssa -> return (vtableShimName vtableName fnName, Core.AnyCFG g_ssa)
 
@@ -1911,7 +1915,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     withBuildShim :: forall r recvTy argTys retTy.
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
-        (G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy -> r) ->
+        (G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h) -> r) ->
         r
     withBuildShim recvMirTy recvTy argTys retTy implFH k =
         k $ buildShim recvMirTy recvTy argTys retTy implFH
@@ -1919,7 +1923,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     buildShim ::
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
-        G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
+        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
     buildShim recvMirTy recvTy argTys retTy implFH
       | M.TyRef recvMirTy' M.Immut <- recvMirTy =
         buildShimRef recvTy argTys retTy implFH
@@ -1930,7 +1934,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     buildShimRef :: forall recvTy argTys retTy.
         C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
-        G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
+        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
     buildShimRef recvTy argTys retTy implFH argsA = (\x -> ([], x)) $ do
         let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
 
@@ -1951,16 +1955,17 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         G.continue notMut $
             G.branchMaybe (R.App $ E.UnpackAny (C.ReferenceRepr recvTy) recv) callMut notMut
 
-        G.reportError $ R.App $ E.TextLit $ "bad receiver type for " <> M.idText fnName
+        G.reportError $ R.App $ E.StringLit $ fromString $
+            "bad receiver type for " ++ show fnName
 
     buildShimMut :: forall recvTy argTys retTy.
         C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
-        G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
+        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
     buildShimMut recvTy argTys retTy implFH argsA = (\x -> ([], x)) $ do
         let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
         recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
-            (R.App $ E.TextLit $ "bad receiver type for " <> M.idText fnName)
+            (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
         G.tailCall (R.App $ E.HandleLit implFH) (recvDowncast <: args)
 
 splitMethodArgs :: forall recvTy argTys s.
@@ -2040,12 +2045,12 @@ traitMethodSig trait methName = case matchedMethSigs of
 
 -- Generate method handles for all virtual-call shims (IkVirtual intrinsics)
 -- used in the current crate.
-mkVirtCallHandleMap :: forall s . (HasCallStack) =>
-    Collection -> FH.HandleAllocator s -> ST s HandleMap
+mkVirtCallHandleMap :: (HasCallStack) =>
+    Collection -> FH.HandleAllocator -> IO HandleMap
 mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
   where
     mkHandle :: (M.IntrinsicName, M.Intrinsic) ->
-        ST s (Map M.DefId MirHandle)
+        IO (Map M.DefId MirHandle)
     mkHandle (name, intr)
       | IkVirtual _ <- intr ^. M.intrInst ^. M.inKind = liftM (Map.singleton name) $
         tyListToCtx (methSig ^. M.fsarg_tys) $ \argctx ->
@@ -2112,7 +2117,8 @@ transVirtCall colState intrName methName methSubsts methIndex
         $ \eqVtsRetTy@Refl ->
 
     do
-        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos methFH
+        ng <- newSTNonceGenerator
+        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng methFH
             (buildShim argTys retTy vtableTys vtableIdx)
         case SSA.toSSA g of
             Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
@@ -2143,7 +2149,7 @@ transVirtCall colState intrName methName methSubsts methIndex
     buildShim ::
         C.CtxRepr argTys -> C.TypeRepr retTy -> C.CtxRepr vtableTys ->
         Ctx.Index vtableTys (C.FunctionHandleType (C.AnyType :<: argTys) retTy) ->
-        G.FunctionDef MIR h [] (DynRefType :<: argTys) retTy
+        G.FunctionDef MIR [] (DynRefType :<: argTys) retTy (ST h)
     buildShim argTys retTy vtableTys vtableIdx argsA = (\x -> ([], x)) $ do
         let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
 
@@ -2154,8 +2160,9 @@ transVirtCall colState intrName methName methSubsts methIndex
         -- Downcast the vtable to its proper struct type
         errBlk <- G.newLabel
         G.defineBlock errBlk $ do
-            G.reportError $ R.App $ E.TextLit $ Text.unwords ["bad vtable downcast:",
-                M.idText dynTraitName, "to", Text.pack $ show vtableTys]
+            G.reportError $ R.App $ E.StringLit $ fromString $
+                unwords ["bad vtable downcast:", show dynTraitName,
+                    "to", show vtableTys]
 
         let vtableStructTy = C.StructRepr vtableTys
         okBlk <- G.newLambdaLabel' vtableStructTy
@@ -2210,12 +2217,13 @@ mkDiscrMap col = mconcat
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
-transCollection :: forall s. (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool,
-                             ?libCS::CollectionState, ?customOps::CustomOpMap,
-                             ?printCrucible::Bool) 
-      => M.Collection
-      -> FH.HandleAllocator s
-      -> ST s RustModule
+transCollection ::
+    (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool,
+     ?libCS::CollectionState, ?customOps::CustomOpMap,
+     ?printCrucible::Bool) 
+    => M.Collection
+    -> FH.HandleAllocator
+    -> IO RustModule
 transCollection col halloc = do
 
     when (?debug > 3) $ do
@@ -2232,7 +2240,7 @@ transCollection col halloc = do
 
     -- translate the statics and create the initialization code
     -- allocate references for statics
-    let allocateStatic :: Static -> Map M.DefId StaticVar -> ST s (Map M.DefId StaticVar)
+    let allocateStatic :: Static -> Map M.DefId StaticVar -> IO (Map M.DefId StaticVar)
         allocateStatic static staticMap = 
           tyToReprCont (static^.sTy) $ \staticRepr -> do
             let gname =  (M.idText (static^.sName) <> "_global")
@@ -2248,12 +2256,12 @@ transCollection col halloc = do
         colState = CollectionState hmap vm sm dm col
 
     -- translate all of the functions
-    pairs1 <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
-    pairs2 <- mapM (transVtable (?libCS <> colState)) (Map.elems (col^.M.vtables))
+    pairs1 <- mapM (stToIO . transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
+    pairs2 <- mapM (stToIO . transVtable (?libCS <> colState)) (Map.elems (col^.M.vtables))
 
     pairs3 <- Maybe.catMaybes <$> mapM (\intr -> case intr^.M.intrInst of
         Instance (IkVirtual methodIndex) methodId substs ->
-            Just <$> transVirtCall (?libCS <> colState)
+            stToIO $ Just <$> transVirtCall (?libCS <> colState)
                 (intr^.M.intrName) methodId substs methodIndex
         _ -> return Nothing) (Map.elems (col ^. M.intrinsics))
 
@@ -2264,11 +2272,11 @@ transCollection col halloc = do
 
 -- | Produce a crucible CFG that initializes the global variables for the static
 -- part of the crate
-transStatics :: CollectionState -> FH.HandleAllocator s -> ST s (Core.AnyCFG MIR)
+transStatics :: CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
 transStatics colState halloc = do
   let sm = colState^.staticMap
   let hmap = colState^.handleMap
-  let initializeStatic :: forall h s r . Static -> G.Generator MIR h s (Const ()) r ()
+  let initializeStatic :: forall h s r . Static -> G.Generator MIR s (Const ()) r (ST h) ()
       initializeStatic static = do
         case Map.lookup (static^.sName) sm of
           Just (StaticVar g) -> do
@@ -2287,14 +2295,16 @@ transStatics colState halloc = do
   -- TODO: make the name of the static initialization function configurable
   let initName = FN.functionNameFromText "static_initializer"
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
-  let def :: G.FunctionDef MIR w (Const ()) Ctx.EmptyCtx C.UnitType
+  let def :: G.FunctionDef MIR (Const ()) Ctx.EmptyCtx C.UnitType (ST w)
       def inputs = (s, f) where
           s = Const ()
           f = do mapM_ initializeStatic (colState^.collection.statics)
                  return (R.App $ E.EmptyApp)
-  init_cfg <- do (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos initHandle def
-                 case SSA.toSSA g of
-                    Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
+  init_cfg <- stToIO $ do
+    ng <- newSTNonceGenerator
+    (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng initHandle def
+    case SSA.toSSA g of
+        Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
 
   return init_cfg
 

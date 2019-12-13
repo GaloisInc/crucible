@@ -1,4 +1,5 @@
 ()
-[Crux] Failed to prove 1 out of 1 goals.
+[Crux] Disproved 1 out of 1 goals. 0 goals are unknown.
 [Crux] Failure for MIR assertion at test/symb_eval/overrides/override2.rs:10:5:
 	foo + 1 == foo
+in ::override2[0]::f[0] at test/symb_eval/overrides/override2.rs:10:22

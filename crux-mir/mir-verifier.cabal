@@ -44,7 +44,9 @@ library
                  parsec,
                  aig,
                  crux,
-                 scientific       >= 0.3
+                 scientific       >= 0.3,
+                 simple-get-opt,
+                 config-schema
 
 
   hs-source-dirs: src
@@ -141,6 +143,8 @@ test-suite test
                 temporary        >= 1.3,
                 aig,
                 crux,
-                crucible
+                crucible,
+                config-schema,
+                config-value
                 
   default-language: Haskell2010

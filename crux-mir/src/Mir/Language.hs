@@ -12,15 +12,15 @@
 {-# OPTIONS_GHC -Wall #-}
 
 module Mir.Language (main,  mainWithOutputTo,
-                     mirConf,
-                     Crux.defaultOptions,
-                     Crux.LangOptions(..),
+                     mirLanguage,
+                     MIROptions(..),
                      defaultMirOptions,
                      CachedStdLib(..)) where
 
 import qualified Data.Char       as Char
+import qualified Data.Foldable as Fold
 import           Data.Functor.Const (Const(..))
-import           Control.Monad (forM_, when, zipWithM)
+import           Control.Monad (forM_, when, unless, zipWithM)
 import           Control.Monad.ST
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
@@ -28,14 +28,15 @@ import           Data.Semigroup(Semigroup(..))
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, maybe)
+import qualified Data.Sequence   as Seq
 import qualified Data.Vector     as Vector
 import qualified Text.Read       as Read
 import           Control.Lens ((^.), (^?), (^..), ix, each)
 
 import           System.IO (Handle)
 import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
-import qualified System.Console.GetOpt as Console
+import qualified SimpleGetOpt as GetOpt
 import           System.Exit(exitSuccess)
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
@@ -50,6 +51,7 @@ import qualified Data.Parameterized.TraversableFC as Ctx
 
 -- crucible
 import qualified Lang.Crucible.Simulator               as C
+import qualified Lang.Crucible.Simulator.PathSplitting as C
 import qualified Lang.Crucible.CFG.Core                as C
 import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
@@ -61,8 +63,10 @@ import qualified What4.ProgramLoc                      as W4
 import qualified What4.Partial                         as W4
 
 -- crux
-import qualified Crux.Language as Crux
-import qualified Crux.CruxMain as Crux
+import qualified Crux as Crux
+import qualified Crux.Extension as Crux
+import qualified Crux.Config.Common as Crux
+import qualified Crux.Model as Crux
 
 import Crux.Types
 import Crux.Log
@@ -81,75 +85,67 @@ import           Mir.Trans(transStatics, RustModule(..))
 import           Mir.TransTy
 
 main :: IO ()
-main = Crux.main mirConf
+main = Crux.main mirLanguage
 
-mirConf :: [Crux.LangConf]
-mirConf = [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
-
-defaultMirOptions :: Crux.LangOptions CruxMIR
-defaultMirOptions = Crux.defaultOptions
-  
 mainWithOutputTo :: Handle -> IO ()
-mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h) mirConf
+mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h) mirLanguage
 
-data CruxMIR
 
-instance Crux.Language CruxMIR where
-  name = "mir"
-  validExtensions = [".rs", ".rslib", ".json", ".mir" ]
+mirLanguage :: Crux.Language MIROptions
+mirLanguage = Crux.Language
+    { Crux.name = "mir"
+    , Crux.version = "0.1"
+    , Crux.configuration = mirConfig
+    , Crux.initialize = return
+    , Crux.simulate = simulateMIR
+    , Crux.makeCounterExamples = makeCounterExamplesMIR
+    }
 
-  type LangError CruxMIR = ()
-  formatError  _ = ""
 
-  data LangOptions CruxMIR = MIROptions
-     {
-       useStdLib    :: Bool
-     , onlyPP       :: Bool
-     , printCrucible :: Bool
-     , showModel    :: Bool
-     , assertFalse  :: Bool
-     , cachedStdLib :: Maybe CachedStdLib
-     }
+data MIROptions = MIROptions
+    { useStdLib    :: Bool
+    , onlyPP       :: Bool
+    , printCrucible :: Bool
+    , showModel    :: Bool
+    , assertFalse  :: Bool
+    , cachedStdLib :: Maybe CachedStdLib
+    }
 
-  defaultOptions = MIROptions
-    {
-      useStdLib    = True
-    , onlyPP       = False
+defaultMirOptions = MIROptions
+    { useStdLib = True
+    , onlyPP = False
     , printCrucible = False
-    , showModel    = False
-    , assertFalse  = False
+    , showModel = False
+    , assertFalse = False
     , cachedStdLib = Nothing
     }
 
-  envOptions = []
+mirConfig = Crux.Config
+    { Crux.cfgFile = pure defaultMirOptions
+    , Crux.cfgEnv = []
+    , Crux.cfgCmdLineFlag =
+        [ GetOpt.Option ['n'] ["no-std-lib"]
+            "suppress standard library"
+            (GetOpt.NoArg (\opts -> Right opts { useStdLib = False }))
 
-  simulate = simulateMIR
+        , GetOpt.Option []    ["print-mir"]
+            "pretty-print mir and exit"
+            (GetOpt.NoArg (\opts -> Right opts { onlyPP = True }))
 
-  makeCounterExamples = makeCounterExamplesMIR
+        , GetOpt.Option []    ["print-crucible"]
+            "pretty-print crucible after translation"
+            (GetOpt.NoArg (\opts -> Right opts { printCrucible = True }))
 
-  cmdLineOptions =
-    [ Console.Option ['n'] ["no-std-lib"]
-      (Console.NoArg (\opts -> opts { useStdLib = False }))
-      "suppress standard library"
+        , GetOpt.Option ['m']  ["show-model"]
+            "show model on counter-example"
+            (GetOpt.NoArg (\opts -> Right opts { showModel = True }))
 
-    , Console.Option []    ["print-mir"]
-      (Console.NoArg (\opts -> opts { onlyPP = True }))
-      "pretty-print mir and exit"
+        , GetOpt.Option [] ["assert-false-on-error"]
+            "when translation fails, assert false in output and keep going"
+            (GetOpt.NoArg (\opts -> Right opts { assertFalse = True }))
+        ]
+    }
 
-    , Console.Option []    ["print-crucible"]
-      (Console.NoArg (\opts -> opts { printCrucible = True }))
-      "pretty-print crucible after translation"
-
-    , Console.Option ['m']  ["show-model"]
-      (Console.NoArg (\opts -> opts { showModel = True }))
-      "show model on counter-example"
-
-    , Console.Option ['f'] ["assert-false-on-error"]
-      (Console.NoArg (\opts -> opts { assertFalse = True }))
-      "when translation fails, assert false in output and keep going"
-
-    
-    ]
 
 -- | Allow the simulator to use a pre-translated version of the rust library
 -- instead of translating on every invocation of simulateMIR.
@@ -158,19 +154,21 @@ instance Crux.Language CruxMIR where
 data CachedStdLib = CachedStdLib
   {
     libModule :: RustModule
-  , ioHalloc  :: C.HandleAllocator RealWorld
+  , ioHalloc  :: C.HandleAllocator
   }
 
 
 -- | Main function for running the simulator,
 -- This should only be called by crux's 'check' function. 
-simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
-simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
+simulateMIR :: (?outputConfig :: OutputConfig) => Crux.SimulateCallback MIROptions
+simulateMIR execFeatures (cruxOpts, mirOpts) (sym :: sym) initModel cont = do
   let ?debug              = Crux.simVerbose cruxOpts
   --let ?assertFalseOnError = assertFalse mirOpts
   let ?assertFalseOnError = True
   let ?printCrucible      = printCrucible mirOpts
-  let filename      = Crux.inputFile cruxOpts
+  let filename            = case Crux.inputFiles cruxOpts of
+        [x] -> x
+        ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
 
   col <- generateMIR filename False
 
@@ -183,16 +181,16 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
       case cachedStdLib mirOpts of
         Just (CachedStdLib primModule halloc)
           | useStdLib mirOpts -> do
-            mir0 <- stToIO $ translateMIR (primModule^.rmCS) col halloc
+            mir0 <- translateMIR (primModule^.rmCS) col halloc
             let mir = primModule <> mir0
             return (mir, halloc)
         _ -> do
           halloc  <- C.newHandleAllocator
           prims   <- liftIO $ loadPrims (useStdLib mirOpts)
-          mir     <- stToIO $ translateMIR mempty (prims <> col) halloc
+          mir     <- translateMIR mempty (prims <> col) halloc
           return (mir, halloc)
                     
-  C.AnyCFG init_cfg <- stToIO $ transStatics (mir^.rmCS) halloc
+  C.AnyCFG init_cfg <- transStatics (mir^.rmCS) halloc
   let hi = C.cfgHandle init_cfg
   Refl <- failIfNotEqual (C.handleArgTypes hi)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
          $ "Checking input to initializer"
@@ -233,34 +231,37 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
                 liftIO $ outputLn $ str
 
   let outH = view outputHandle ?outputConfig
-  let simctx = C.initSimContext sym mirIntrinsicTypes halloc outH C.emptyHandleMap mirExtImpl p
+  let simctx = C.initSimContext sym mirIntrinsicTypes halloc outH C.emptyHandleMap mirExtImpl initModel
 
-  res <- C.executeCrucible (map C.genericToExecutionFeature execFeatures) $
-         C.InitialState simctx C.emptyGlobals C.defaultAbortHandler $
-         C.runOverrideSim (W4.knownRepr :: C.TypeRepr C.UnitType) osim
+  let initSt = C.InitialState simctx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
+           C.runOverrideSim C.UnitRepr osim
 
-  return $ Result res
+  case Crux.pathStrategy cruxOpts of
+    Crux.AlwaysMergePaths ->
+      do res <- C.executeCrucible (map C.genericToExecutionFeature execFeatures) initSt
+         cont (Result res)
+    Crux.SplitAndExploreDepthFirst ->
+      do (i,ws) <- C.executeCrucibleDFSPaths (map C.genericToExecutionFeature execFeatures) initSt (cont . Result)
+         say "Crux" ("Total paths explored: " ++ show i)
+         unless (null ws) $
+           sayWarn "Crux" (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
 
 
-makeCounterExamplesMIR :: (?outputConfig :: OutputConfig) => Crux.Options CruxMIR -> Maybe (ProvedGoals a) -> IO ()
-makeCounterExamplesMIR (_cruxOpts, mirOpts) = maybe (return ()) go
+makeCounterExamplesMIR :: (?outputConfig :: OutputConfig) => Crux.CounterExampleCallback MIROptions
+makeCounterExamplesMIR (_cruxOpts, mirOpts) = mapM_ go . Fold.toList
   where
     go gs =
       case gs of
         AtLoc _ _ gs1 -> go gs1
         Branch g1 g2 -> go g1 >> go g2
         Goal _ (c, _) _ res ->
-          let _suff =
-                case W4.plSourceLoc (C.simErrorLoc c) of
-                  W4.SourcePos _ l _ -> show l
-                  _                  -> "unknown"
-              msg = show (C.simErrorReason c)
+          let msg = show c
           in case res of
                NotProved (Just m) ->
                  do sayFail "Crux" ("Failure for " ++ msg)
                     when (showModel mirOpts) $ do
                        putStrLn "Model:"
-                       putStrLn (modelInJS m)
+                       putStrLn (Crux.ppModelJS "." m)
                _ -> return ()
 
 -------------------------------------------------------
@@ -290,7 +291,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
     (TyBool, C.BoolRepr) -> return $ case W4.asConstantPred rv of
                      Just b -> if b then "true" else "false"
                      Nothing -> "Symbolic bool"
-    (TyStr, C.StringRepr) -> return $ case W4.asString rv of
+    (TyStr, C.StringRepr W4.UnicodeRepr) -> return $ case W4.asString rv of
                      Just s -> show s
                      Nothing -> "Symbolic string"
 

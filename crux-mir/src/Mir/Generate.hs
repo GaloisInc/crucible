@@ -240,7 +240,7 @@ loadPrims useStdLib = return mempty
 
 -- | Translate a MIR collection to Crucible
 translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool) 
-   => CollectionState -> Collection -> C.HandleAllocator s -> ST s RustModule
+   => CollectionState -> Collection -> C.HandleAllocator -> IO RustModule
 translateMIR lib col halloc =
   let ?customOps = Mir.customOps in
   let col0 = let ?mirLib  = lib^.collection in rewriteCollection col
@@ -251,10 +251,10 @@ translateAll :: (?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool)
              => Bool -> Collection -> IO (RustModule, C.AnyCFG MIR)
 translateAll usePrims col = do
   prims <- liftIO $ loadPrims usePrims
-  let (a,b) = runST $ C.withHandleAllocator $ \halloc -> do
-               pmir     <- translateMIR mempty prims halloc
-               mir      <- translateMIR (pmir^.rmCS) col halloc
-               init_cfg <- transStatics (mir^.rmCS) halloc
-               return $ (pmir <> mir, init_cfg)
+  (a,b) <- C.withHandleAllocator $ \halloc -> do
+    pmir     <- translateMIR mempty prims halloc
+    mir      <- translateMIR (pmir^.rmCS) col halloc
+    init_cfg <- transStatics (mir^.rmCS) halloc
+    return $ (pmir <> mir, init_cfg)
   return $ (a,b)
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# Language OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
 import           Control.Monad.ST
@@ -36,11 +37,17 @@ import qualified Mir.Language as Mir
 
 import qualified Lang.Crucible.FunctionHandle as C
 
-import qualified Crux.Options as CruxOpts
-import qualified Crux.CruxMain as Crux
+import qualified Crux as Crux
+import qualified Crux.Config as Crux
+import qualified Crux.Config.Common as Crux
 import qualified Crux.Log as Crux
 
 import qualified Data.AIG.Interface as AIG
+
+import qualified Config
+import qualified Config.Schema as Config
+import qualified Config.Schema.Load as Config
+import qualified Config.Schema.Spec as Config
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
@@ -64,34 +71,28 @@ expectedFail fn =
 
 -- TODO: remove this - copy-pasted from Crux/Options.hs for compatibility with
 -- old mainline crucible
-defaultCruxOptions :: CruxOpts.CruxOptions
-defaultCruxOptions = CruxOpts.CruxOptions {
-    CruxOpts.showHelp = False
-  , CruxOpts.simVerbose = 1
-  , CruxOpts.outDir = ""
-  , CruxOpts.inputFile = ""
-  , CruxOpts.showVersion = False
-  , CruxOpts.checkPathSat = False
-  , CruxOpts.profileCrucibleFunctions = True
-  , CruxOpts.profileSolver = True
-  , CruxOpts.globalTimeout = Nothing
-  , CruxOpts.goalTimeout = 60
-  , CruxOpts.profileOutputInterval = Nothing
-  , CruxOpts.loopBound = Nothing
-  , CruxOpts.makeCexes = True
-  }
+defaultCruxOptions :: Crux.CruxOptions
+defaultCruxOptions = case res of
+    Left x -> error $ "failed to compute default crux options: " ++ show x
+    Right x -> x
+  where
+    ss = Crux.cfgFile Crux.cruxOptions
+    res = Config.loadValue (Config.sectionsSpec "crux" ss) (Config.Sections () [])
 
 runCrux :: FilePath -> Handle -> IO ()
 runCrux rustFile outHandle = do
     -- goalTimeout is bumped from 60 to 120 because scalar.rs symbolic
     -- verification runs close to the timeout, causing flaky results.
-    let options = (defaultCruxOptions { CruxOpts.inputFile = rustFile,
-                                        CruxOpts.simVerbose = 0,
-                                        CruxOpts.goalTimeout = 120 } ,
+    let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
+                                        Crux.simVerbose = 0,
+                                        Crux.globalTimeout = Just 120,
+                                        Crux.goalTimeout = Just 120,
+                                        Crux.solver = "z3" } ,
                    Mir.defaultMirOptions { Mir.cachedStdLib = Nothing
                                          , Mir.useStdLib = True } )
-    let ?outputConfig = Crux.OutputConfig False outHandle outHandle
-    Crux.check options
+    let language = Mir.mirLanguage { Crux.initialize = \_ -> return options }
+    let outputConfig = Crux.OutputConfig False outHandle outHandle
+    Crux.mainWithOutputConfig outputConfig language
 
 cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
 cruxOracleTest dir name step = do
@@ -114,9 +115,15 @@ cruxOracleTest dir name step = do
     length out `seq` hClose h'
     return out
 
-  let cruxOut = dropWhileEnd isSpace cruxOutFull
+  let cruxOut = filterCruxOut cruxOutFull
   step ("Crux output: " ++ cruxOut ++ "\n")
   assertBool "crux doesn't match oracle" (orOut == cruxOut)
+
+filterCruxOut x =
+    dropWhileEnd isSpace $
+    unlines $
+    filter (\l -> not $ "[Crux]" `isPrefixOf` l) $
+    lines x
 
 
 symbTest :: FilePath -> IO TestTree

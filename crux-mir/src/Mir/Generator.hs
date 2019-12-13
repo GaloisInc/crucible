@@ -73,6 +73,7 @@ import           Data.Functor.Identity
 
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
+import           Control.Monad.ST
 
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -128,7 +129,7 @@ data MirExp s where
 -- * The top-level generator type
 -- h state monad token
 -- s phantom parameter for CFGs
-type MirGenerator h s ret = G.Generator MIR h s FnState ret
+type MirGenerator h s ret = G.Generator MIR s FnState ret (ST h)
 
 --------------------------------------------------------------------------------
 -- * Generator state for MIR translation to Crucible

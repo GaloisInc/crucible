@@ -27,6 +27,7 @@ import Control.Monad
 import Control.Lens
 import qualified Data.Maybe as Maybe
 import qualified Data.String as String
+import           Data.String (fromString)
 import qualified Data.Vector as V
 import qualified Data.Text as Text
 
@@ -374,7 +375,7 @@ unpackAnyC :: HasCallStack => C.TypeRepr tp -> MirExp s -> R.Expr MIR s tp
 unpackAnyC tpr (MirExp C.AnyRepr e) =
     R.App $ E.FromJustValue tpr
         (R.App $ E.UnpackAny tpr e)
-        (R.App $ E.TextLit $ "bad unpack: Any as " <> Text.pack (show tpr))
+        (R.App $ E.StringLit $ fromString $ "bad unpack: Any as " ++ show tpr)
 unpackAnyC _ (MirExp tpr' _) = error $ "bad anytype unpack of " ++ show tpr'
 
 
@@ -405,8 +406,10 @@ accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
       let tpr = ctx Ctx.! idx
       case tpr of
-        C.MaybeRepr tpr' -> let mv = R.App $ E.FromJustValue tpr' (S.getStruct idx ag) (R.App $ E.TextLit "Unitialized aggregate value")
-                             in return $ MirExp tpr' mv
+        C.MaybeRepr tpr' ->
+            let mv = R.App $ E.FromJustValue tpr' (S.getStruct idx ag)
+                    (R.App $ E.StringLit "Unitialized aggregate value")
+            in return $ MirExp tpr' mv
         _ -> mirFail "accessAggregateMaybe: non-maybe struct"
       
 accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at field (maybe) " ++ (show b)
@@ -439,8 +442,8 @@ readAnyE tpr (MirExp tpr' e) = do
     Refl <- testEqualityOrFail tpr' C.AnyRepr $
         "readAnyE: expected Any, but got " ++ show tpr'
     let valOpt = R.App $ E.UnpackAny tpr e
-    val <- G.fromJustExpr valOpt $ R.App $ E.TextLit $
-        "readAnyE: bad unpack at type " <> Text.pack (show tpr) <> ": " <> Text.pack (show e)
+    val <- G.fromJustExpr valOpt $ R.App $ E.StringLit $ fromString $
+        "readAnyE: bad unpack at type " ++ show tpr ++ ": " ++ show e
     return val
 
 buildAnyE :: C.TypeRepr tp -> R.Expr MIR s tp -> MirGenerator h s ret (MirExp s)
@@ -563,7 +566,7 @@ readJust tpr e = readJust' tpr e "readJust: expected Just, but got Nothing"
 readJust' :: C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) -> String ->
     MirGenerator h s ret (R.Expr MIR s tp)
 readJust' tpr e msg = 
-    G.fromJustExpr e $ R.App $ E.TextLit $ Text.pack msg
+    G.fromJustExpr e $ R.App $ E.StringLit $ fromString msg
 
 buildNothing :: C.TypeRepr tp ->
     MirGenerator h s ret (R.Expr MIR s (C.MaybeType tp))
