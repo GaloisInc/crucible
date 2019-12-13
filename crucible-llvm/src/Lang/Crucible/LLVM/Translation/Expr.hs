@@ -35,7 +35,6 @@ module Lang.Crucible.LLVM.Translation.Expr
   , unpackOne
   , unpackVec
   , unpackArgs
-  , unpackVarArgs
   , zeroExpand
   , undefExpand
   , explodeVector
@@ -281,15 +280,6 @@ undefExpand (VecType n tp) k =
 undefExpand tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
 
 --undefExpand (L.PrimType (L.FloatType _ft)) _k = error "FIXME undefExpand: float types"
-
-unpackVarArgs :: forall s arch a
-    . (?err :: String -> a, ?lc :: TypeContext, HasPtrWidth (ArchWidth arch))
-   => [LLVMExpr s arch]
-   -> Expr (LLVM arch) s (VectorType AnyType)
-unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList $ xs'
- where xs' = let ?err = error in
-             map (\x -> unpackOne x (\tp x' -> App (PackAny tp x'))) xs
-
 
 
 explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
