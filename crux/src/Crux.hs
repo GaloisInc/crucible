@@ -70,7 +70,7 @@ mainWithOutputConfig cfg lang =
        say "Crux" ("Checking " ++ fileText)
      (cmpl, res) <- runSimulator lang opts1
 
-     reportStatus res
+     reportStatus cmpl res
 
      -- Generate report
      when (outDir cruxOpts /= "") $
@@ -317,8 +317,12 @@ computeExitCode cmpl = maximum . (base:) . fmap f . toList
      else
        ExitFailure 1
 
-reportStatus :: (?outputConfig::OutputConfig) => Seq.Seq (ProvedGoals a) -> IO ()
-reportStatus gls =
+reportStatus ::
+  (?outputConfig::OutputConfig) =>
+  ProgramCompleteness ->
+  Seq.Seq (ProvedGoals a) ->
+  IO ()
+reportStatus cmpl gls =
   do let tot        = sum (fmap countTotalGoals gls)
          proved     = sum (fmap countProvedGoals gls)
          incomplete = sum (fmap countIncompleteGoals gls)
@@ -332,7 +336,7 @@ reportStatus gls =
      say "Crux" ("  Unknown: " ++ show unknown)
      if | disproved > 0 ->
             sayFail "Crux" "Overall status: Invalid."
-        | incomplete > 0 ->
+        | incomplete > 0 || cmpl == ProgramIncomplete ->
             sayWarn "Crux" "Overall status: Unknown (incomplete)."
         | unknown > 0 -> sayWarn "Crux" "Overall status: Unknown."
         | proved == tot -> sayOK "Crux" "Overall status: Valid."
