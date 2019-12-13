@@ -27,6 +27,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -fprint-explicit-kinds -Wall #-}
 module Lang.Crucible.Simulator.Operations
   ( -- * Control-flow operations
@@ -84,6 +85,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import           Data.Type.Equality hiding (sym)
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -327,6 +329,28 @@ instance Show UnresolvableFunction where
               , "Called at: " ++ show (PP.pretty (plSourceLoc loc))
               ] ++ [ show (ppExceptionContext callStack) ]
 
+
+-- | Utility function that packs the tail of a collection of arguments
+--   into a vector of ANY type values for passing to varargs functions.
+packVarargs ::
+  CtxRepr addlArgs ->
+  RegMap sym (args <+> addlArgs) ->
+  RegMap sym (args ::> VectorType AnyType)
+
+packVarargs = go mempty
+ where
+ go ::
+  V.Vector (AnyValue sym) ->
+  CtxRepr addlArgs ->
+  RegMap sym (args <+> addlArgs) ->
+  RegMap sym (args ::> VectorType AnyType)
+
+ go v (addl Ctx.:> tp) (unconsReg -> (args, x)) =
+   go (V.cons (AnyValue tp (regValue x)) v) addl args
+
+ go v Ctx.Empty args =
+   assignReg knownRepr v args
+
 -- | Given a set of function bindings, a function-
 --   value (which is possibly a closure) and a
 --   collection of arguments, resolve the identity
@@ -346,6 +370,9 @@ resolveCall bindings c0 args loc callStack =
   case c0 of
     ClosureFnVal c tp v -> do
       resolveCall bindings c (assignReg tp v args) loc callStack
+
+    VarargsFnVal h addlTypes ->
+      resolveCall bindings (HandleFnVal h) (packVarargs addlTypes args) loc callStack
 
     HandleFnVal h -> do
       case lookupHandleMap h bindings of
