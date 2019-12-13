@@ -92,15 +92,17 @@ import Crux.LLVM.Overrides
 
 
 main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig
+main = mainWithOutputConfig defaultOutputConfig >>= exitWith
 
-mainWithOutputTo :: Handle -> IO ()
+mainWithOutputTo :: Handle -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h)
 
-mainWithOutputConfig :: OutputConfig -> IO ()
+mainWithOutputConfig :: OutputConfig -> IO ExitCode
 mainWithOutputConfig cfg =
   Crux.mainWithOutputConfig cfg cruxLLVM
-  `catch` \(e :: SomeException) -> sayFail "Crux" (displayException e)
+  `catch` \(e :: SomeException) ->
+      do sayFail "Crux" (displayException e)
+         return (ExitFailure 1)
     where ?outputConfig = cfg
 
 makeCounterExamplesLLVM ::

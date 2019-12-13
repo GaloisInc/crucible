@@ -12,12 +12,13 @@ module Crux
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Foldable
 import Data.IORef
 import Data.List(intercalate)
 import qualified Data.Sequence as Seq
 import Control.Exception(catch, displayException)
 import Control.Monad(when)
-import System.Exit(exitSuccess)
+import System.Exit(exitSuccess, ExitCode(..))
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
 
@@ -53,12 +54,12 @@ import qualified Crux.Version as Crux
 
 -- | Throws 'ConfigError' (in addition to whatever the crucible and the
 -- callbacks may throw)
-main :: Language opts -> IO ()
+main :: Language opts -> IO ExitCode
 main = mainWithOutputConfig defaultOutputConfig
 
 -- | Throws 'ConfigError' (in addition to whatever the crucible and the
 -- callbacks may throw)
-mainWithOutputConfig :: OutputConfig -> Language opts -> IO ()
+mainWithOutputConfig :: OutputConfig -> Language opts -> IO ExitCode
 mainWithOutputConfig cfg lang =
   do opts  <- loadOptions lang
      opts1@(cruxOpts,_) <- initialize lang opts
@@ -67,7 +68,7 @@ mainWithOutputConfig cfg lang =
      let fileText = intercalate ", " (map show (inputFiles cruxOpts))
      when (simVerbose cruxOpts > 1) $
        say "Crux" ("Checking " ++ fileText)
-     res <- runSimulator lang opts1
+     (cmpl, res) <- runSimulator lang opts1
 
      -- Generate report
      when (outDir cruxOpts /= "") $
@@ -76,8 +77,14 @@ mainWithOutputConfig cfg lang =
      -- Generate counter examples
      when (makeCexes cruxOpts) $
        makeCounterExamples lang opts res
-  `catch` \(e :: Cfg.ConfigError) -> sayFail "Crux" (displayException e)
-    where ?outputConfig = cfg
+
+     return $! computeExitCode cmpl res
+
+  `catch` \(e :: Cfg.ConfigError) ->
+    do sayFail "Crux" (displayException e)
+       return (ExitFailure 1)
+
+ where ?outputConfig = cfg
 
 -- | Load the options for the given language.
 -- IMPORTANT:  This processes options like @help@ and @version@, which
@@ -211,13 +218,16 @@ execFeatureMaybe mb m =
     Just a  -> (:[]) <$> m a
 
 
-
+data ProgramCompleteness
+ = ProgramComplete
+ | ProgramIncomplete
+ deriving (Eq,Ord,Show)
 
 runSimulator ::
   Logs =>
   Language opts ->
   Options opts  ->
-  IO (Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
+  IO (ProgramCompleteness, Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
 runSimulator lang opts@(cruxOpts,_) =
   withIONonceGenerator $ \nonceGen ->
   withBackend cruxOpts nonceGen $ \sym ->
@@ -235,6 +245,8 @@ runSimulator lang opts@(cruxOpts,_) =
      frm <- pushAssumptionFrame sym
 
      createDirectoryIfMissing True (outDir cruxOpts)
+
+     compRef <- newIORef ProgramComplete
 
      -- Setup profiling
      let profiling = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts
@@ -264,8 +276,8 @@ runSimulator lang opts@(cruxOpts,_) =
        simulate lang execFeatures opts sym emptyModel $ \(Result res) ->
         do case res of
              TimeoutResult _ ->
-               do outputLn
-                    "Simulation timed out! Program might not be fully verified!"
+               do sayWarn "Crux" "Simulation timed out! Program might not be fully verified!"
+                  writeIORef compRef ProgramIncomplete
              _ -> return ()
 
            popUntilAssumptionFrame sym frm
@@ -288,7 +300,21 @@ runSimulator lang opts@(cruxOpts,_) =
      when profiling $
        writeProf profInfo
 
-     readIORef gls
+     (,) <$> readIORef compRef <*> readIORef gls
+
+computeExitCode :: ProgramCompleteness -> Seq.Seq (ProvedGoals a) -> ExitCode
+computeExitCode cmpl = maximum . (base:) . fmap f . toList
+ where
+ base = case cmpl of
+          ProgramComplete   -> ExitSuccess
+          ProgramIncomplete -> ExitFailure 1
+ f gl =
+  let tot = countTotalGoals gl
+      proved = countProvedGoals gl
+  in if proved == tot then
+       ExitSuccess
+     else
+       ExitFailure 1
 
 reportStatus :: (?outputConfig::OutputConfig) => ProvedGoals a -> IO ()
 reportStatus gls =
