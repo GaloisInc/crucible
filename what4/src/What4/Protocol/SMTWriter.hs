@@ -419,6 +419,8 @@ class Num v => SupportTermOps v where
   -- | Predicate that holds if a real number is an integer.
   realIsInteger :: v -> v
 
+  realDiv :: v -> v -> v
+
   realSin :: v -> v
 
   realCos :: v -> v
@@ -2036,16 +2038,12 @@ appSMTExpr ae = do
     RealDiv xe ye -> do
       x <- mkBaseExpr xe
       case ye of
-        SemiRingLiteral SR.SemiRingRealRepr r _ | r == 0 -> do
-          freshBoundTerm RealTypeMap $ rationalTerm infinity
-        SemiRingLiteral SR.SemiRingRealRepr r _ -> do
+        SemiRingLiteral SR.SemiRingRealRepr r _ | r /= 0 -> do
           freshBoundTerm RealTypeMap $ x * rationalTerm (recip r)
         _ -> do
           checkNonlinearSupport i
           y <- mkBaseExpr ye
-          r <- freshConstant "real divison" RealTypeMap
-          addSideCondition "real division" $ (y * asBase r) .== x .|| y .== 0
-          return r
+          freshBoundTerm RealTypeMap $ realDiv x y
 
     RealSqrt xe -> do
       checkNonlinearSupport i

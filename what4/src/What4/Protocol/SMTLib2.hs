@@ -523,6 +523,7 @@ instance SupportTermOps Term where
 
   realIsInteger = SMT2.isInt
 
+  realDiv x y = x SMT2../ [y]
   realSin = un_app "sin"
   realCos = un_app "cos"
   realATan2 = bin_app "atan2"
