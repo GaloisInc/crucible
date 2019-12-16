@@ -98,7 +98,6 @@ import           Mir.DefId
 import           Mir.Mir
 import           Mir.MirTy
 import           Mir.Intrinsics
-import           Mir.GenericOps(ATDict,tySubst,mkSubsts,matchSubsts)
 import           Mir.PP
 
 import           Unsafe.Coerce(unsafeCoerce)
