@@ -3460,22 +3460,6 @@ evalBoundVars sym e vars exprs = do
                             }
   evalBoundVars' tbls sym e
 
--- | Return true if corresponding expressions in contexts are equivalent.
-allEq :: forall sym ctx
-      .  IsExprBuilder sym
-      => sym
-      -> Ctx.Assignment (SymExpr sym) ctx
-      -> Ctx.Assignment (SymExpr sym) ctx
-      -> IO (Pred sym)
-allEq sym x y = Ctx.forIndex (Ctx.size x) joinEq (pure (truePred sym))
-  where joinEq :: IO (Pred sym) -> Ctx.Index ctx tp -> IO (Pred sym)
-        joinEq mp i = do
-          q <- isEq sym (x Ctx.! i) (y Ctx.! i)
-          case asConstantPred q of
-            Just True -> mp
-            Just False -> return (falsePred sym)
-            Nothing -> andPred sym q =<< mp
-
 -- | This attempts to lookup an entry in a symbolic array.
 --
 -- It patterns maps on the array constructor.
@@ -3492,18 +3476,11 @@ sbConcreteLookup :: forall t st fs d tp range
                  -> IO (Expr t range)
 sbConcreteLookup sym arr0 mcidx idx
     -- Try looking up a write to a concrete address.
-  | Just (ArrayMap _ _ entry_map def) <- asApp arr0 = do
-    case mcidx of
-      Just cidx -> do
-        case Hash.mapLookup cidx entry_map of
-          Just v -> return v
-          Nothing -> sbConcreteLookup sym def mcidx idx
-      Nothing -> Map.foldrWithKey f (sbConcreteLookup sym def mcidx idx) (Hash.hashedMap entry_map)
-        where f updated_cidx c m = do
-                updated_idx <- traverseFC (indexLit sym) updated_cidx
-                p <- allEq sym updated_idx idx
-                iteM baseTypeIte sym p (pure c) m
-
+  | Just (ArrayMap _ _ entry_map def) <- asApp arr0
+  , Just cidx <- mcidx =
+      case Hash.mapLookup cidx entry_map of
+        Just v -> return v
+        Nothing -> sbConcreteLookup sym def mcidx idx
     -- Evaluate function arrays on ground values.
   | Just (ArrayFromFn f) <- asNonceApp arr0 = do
       betaReduce sym f idx
