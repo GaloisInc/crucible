@@ -26,6 +26,7 @@ import Control.Monad.State.Lazy
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import Data.List
+import Data.Maybe
 
 import Mir.Mir
 import Mir.DefId
@@ -218,7 +219,7 @@ mkPreReturnAssgn = do
     mutpairs <- use fnMutArgPairs
     internals <- use fnInternals
     let muts = Map.elems $ Map.map fst mutpairs
-    Just dummyret <- use fnDummyRet
+    dummyret <- fromMaybe (error "fnDummyRet not set") <$> use fnDummyRet
     let (Just retvar) = Map.lookup "_0" internals
     return $ Assign (LBase (Local retvar)) (Aggregate AKTuple $  [Copy (LBase (Local dummyret))] ++ (map (Copy . LBase . Local) muts)) "internal"
 
