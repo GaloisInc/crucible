@@ -32,7 +32,6 @@ import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertF
 import           Test.Tasty.Golden (goldenVsFile, findByExtension)
 import           Test.Tasty.ExpectedFailure (expectFailBecause)
 
-import           Mir.Generate(loadPrims)
 import qualified Mir.Language as Mir
 
 import qualified Lang.Crucible.FunctionHandle as C
@@ -88,8 +87,7 @@ runCrux rustFile outHandle = do
                                         Crux.globalTimeout = Just 120,
                                         Crux.goalTimeout = Just 120,
                                         Crux.solver = "z3" } ,
-                   Mir.defaultMirOptions { Mir.cachedStdLib = Nothing
-                                         , Mir.useStdLib = True } )
+                   Mir.defaultMirOptions)
     let language = Mir.mirLanguage { Crux.initialize = \_ -> return options }
     let outputConfig = Crux.OutputConfig False outHandle outHandle
     Crux.mainWithOutputConfig outputConfig language

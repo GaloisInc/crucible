@@ -14,8 +14,7 @@
 module Mir.Language (main,  mainWithOutputTo,
                      mirLanguage,
                      MIROptions(..),
-                     defaultMirOptions,
-                     CachedStdLib(..)) where
+                     defaultMirOptions) where
 
 import qualified Data.Char       as Char
 import qualified Data.Foldable as Fold
@@ -80,7 +79,7 @@ import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes,
                     pattern RustEnumRepr, RustEnumType)
 import           Mir.DefId(cleanVariantName, parseFieldName, idText)
 import           Mir.Generator
-import           Mir.Generate(generateMIR, translateMIR, loadPrims)
+import           Mir.Generate(generateMIR, translateMIR)
 import           Mir.Trans(transStatics, RustModule(..))
 import           Mir.TransTy
 
@@ -103,32 +102,24 @@ mirLanguage = Crux.Language
 
 
 data MIROptions = MIROptions
-    { useStdLib    :: Bool
-    , onlyPP       :: Bool
+    { onlyPP       :: Bool
     , printCrucible :: Bool
     , showModel    :: Bool
     , assertFalse  :: Bool
-    , cachedStdLib :: Maybe CachedStdLib
     }
 
 defaultMirOptions = MIROptions
-    { useStdLib = True
-    , onlyPP = False
+    { onlyPP = False
     , printCrucible = False
     , showModel = False
     , assertFalse = False
-    , cachedStdLib = Nothing
     }
 
 mirConfig = Crux.Config
     { Crux.cfgFile = pure defaultMirOptions
     , Crux.cfgEnv = []
     , Crux.cfgCmdLineFlag =
-        [ GetOpt.Option ['n'] ["no-std-lib"]
-            "suppress standard library"
-            (GetOpt.NoArg (\opts -> Right opts { useStdLib = False }))
-
-        , GetOpt.Option []    ["print-mir"]
+        [ GetOpt.Option []    ["print-mir"]
             "pretty-print mir and exit"
             (GetOpt.NoArg (\opts -> Right opts { onlyPP = True }))
 
@@ -146,16 +137,6 @@ mirConfig = Crux.Config
         ]
     }
 
-
--- | Allow the simulator to use a pre-translated version of the rust library
--- instead of translating on every invocation of simulateMIR.
--- Currently, incremental translation doesn't work so the 'cachedStdLib' mir option
--- should always be 'Nothing'
-data CachedStdLib = CachedStdLib
-  {
-    libModule :: RustModule
-  , ioHalloc  :: C.HandleAllocator
-  }
 
 
 -- | Main function for running the simulator,
@@ -177,18 +158,8 @@ simulateMIR execFeatures (cruxOpts, mirOpts) (sym :: sym) initModel cont = do
     print $ pretty col
     liftIO $ exitSuccess
 
-  (mir, halloc) <-
-      case cachedStdLib mirOpts of
-        Just (CachedStdLib primModule halloc)
-          | useStdLib mirOpts -> do
-            mir0 <- translateMIR (primModule^.rmCS) col halloc
-            let mir = primModule <> mir0
-            return (mir, halloc)
-        _ -> do
-          halloc  <- C.newHandleAllocator
-          prims   <- liftIO $ loadPrims (useStdLib mirOpts)
-          mir     <- translateMIR mempty (prims <> col) halloc
-          return (mir, halloc)
+  halloc  <- C.newHandleAllocator
+  mir     <- translateMIR mempty col halloc
                     
   C.AnyCFG init_cfg <- transStatics (mir^.rmCS) halloc
   let hi = C.cfgHandle init_cfg

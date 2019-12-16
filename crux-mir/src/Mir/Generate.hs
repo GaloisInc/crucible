@@ -14,7 +14,7 @@
 -----------------------------------------------------------------------
 
 
-module Mir.Generate(generateMIR, translateMIR, translateAll, loadPrims) where
+module Mir.Generate(generateMIR, translateMIR, translateAll) where
 
 import Data.Foldable(fold)
 
@@ -196,47 +196,6 @@ parseMir path f = do
 customLibLoc :: String
 customLibLoc = "lib/"
 
--- | load the rs file containing the standard library
-loadPrims :: (?debug::Int) => Bool -> IO Collection
-loadPrims useStdLib = return mempty
-
-  {-
-  let coreLib = if useStdLib then "lib" else "lib_func_only"
-  -- Only print debugging info in the standard library at high debugging levels
-  colCoreLib <- let ?debug = ?debug - 3 in
-         generateMIR "mir-lib/src/" coreLib False
-
-  colStdLib <- let ?debug = ?debug - 3 in
-         generateMIR "lib/std/" "lib" False
-
-  -- TODO: need to compile these libs *before* running mir-json on the main file
-  let customLibs = ["crucible", "int512"]
-  colCustoms <- let ?debug = ?debug - 3 in
-         mapM (\libName -> generateMIR customLibLoc libName True) customLibs
-
-  let col = mconcat $ colCoreLib : colStdLib : colCustoms
-  -}
-
-{-
-  col <- mconcat <$> mapM readMir
-    [ "lib/libcore/lib.mir"
-    , "lib/compiler_builtins.mir"
-    , "lib/int512.mir"
-    , "lib/crucible/lib.mir"
-    , "lib/std/lib.mir"
-    , "lib/bytes.mir"
-    ]
-
-  when (?debug > 6) $ do
-    traceM "--------------------------------------------------------------"
-    traceM $ "Complete Collection: "
-    traceM $ show (pretty col)
-    traceM "--------------------------------------------------------------"  
-
-  return col
--}
-
-
 
 -- | Translate a MIR collection to Crucible
 translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool) 
@@ -248,13 +207,9 @@ translateMIR lib col halloc =
 
 -- | Translate a MIR crate *and* the standard library all at once
 translateAll :: (?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool)
-             => Bool -> Collection -> IO (RustModule, C.AnyCFG MIR)
-translateAll usePrims col = do
-  prims <- liftIO $ loadPrims usePrims
-  (a,b) <- C.withHandleAllocator $ \halloc -> do
-    pmir     <- translateMIR mempty prims halloc
-    mir      <- translateMIR (pmir^.rmCS) col halloc
+             => Collection -> IO (RustModule, C.AnyCFG MIR)
+translateAll col = C.withHandleAllocator $ \halloc -> do
+    mir      <- translateMIR mempty col halloc
     init_cfg <- transStatics (mir^.rmCS) halloc
-    return $ (pmir <> mir, init_cfg)
-  return $ (a,b)
+    return $ (mir, init_cfg)
 
