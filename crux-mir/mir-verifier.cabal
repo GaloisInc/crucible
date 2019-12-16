@@ -57,11 +57,6 @@ library
                    Mir.GenericOps
                    Mir.Pass
                    Mir.Pass.AllocateEnum
-                   Mir.Pass.CollapseRefs
-                   Mir.Pass.MutRefReturnStatic
-                   Mir.Pass.RewriteMutRef
-                   Mir.Pass.RemoveStorage
-                   Mir.Pass.RemoveBoxNullary
                    Mir.Pass.NoMutParams
                    Mir.PP
                    Mir.Generate

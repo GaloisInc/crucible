@@ -26,10 +26,6 @@ import Mir.MirTy
 import Mir.PP(fmt)
 import Mir.GenericOps
 
-import Mir.Pass.CollapseRefs( passCollapseRefs )
-import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )
-import Mir.Pass.RemoveBoxNullary( passRemoveBoxNullary )
-import Mir.Pass.RemoveStorage( passRemoveStorage )
 import Mir.Pass.AllocateEnum ( passAllocateEnum )
 import Mir.Pass.NoMutParams ( passNoMutParams )
 
