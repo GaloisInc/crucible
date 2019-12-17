@@ -1,10 +1,10 @@
 [![Build Status](https://travis-ci.org/GaloisInc/mir-verifier.svg?branch=master)](https://travis-ci.org/GaloisInc/mir-verifier)
 
-# mir-verifier
+# crux-mir
 
-This is a static simulator for Rust programs.  It includes both a
-command line tool (`crux-mir`) and library bindings that can be
-integrated with saw-script.
+This is a static simulator for Rust programs.  It runs a set of test cases and
+attempts to prove that all assertions pass on all valid inputs.
+
 
 ## Preliminaries
 
@@ -14,31 +14,64 @@ instructions.
 
 [mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
 
-## Compilation
 
-Use ghc-8.4.4
+## Installation
 
-    $ cabal new-build
+Use ghc-8.4.4 or ghc-8.6.5.
 
-Then translate the Rust libraries in `lib/`
+    $ cabal v2-build
+
+Then translate the Rust libraries in `lib/`:
 
     $ ./translate_libs.sh
 
-## Execution
 
-    $ cabal new-exec -- crux-mir test/conc_eval/prim/add1.rs
+## Usage
+
+### Writing test cases
+
+`crux-mir` looks for functions with the `#[crux_test]` attribute and runs them
+as tests.  You may need to add `#![feature(custom_attribute)]` to the crate
+root to use the `#[crux_test]` attribute.  These can both be conditionally
+compiled by checking for `#[cfg(crux)]`.
+
+Test cases can create and manipulate symbolic values using the functions in the
+[`crucible`](lib/crucible) Rust crate.  Please see the files in
+`test/symb_eval/` for examples of creating symbolic values and asserting
+properties about them.
+
+### Running on a single file
+
+To compile and test a single Rust program:
+
+    $ cabal v2-exec -- crux-mir test/conc_eval/prim/add1.rs
 
 (Should print 2.)
 
-## Command line options
+### Running on a Cargo project
 
-    $ cabal new-exec -- crux-mir --help
+First, install the `crux-mir` binary to your `~/.cabal/bin` directory:
+
+    $ cabal v2-install
+
+Set the `CRUX_RUST_LIBRARY_PATH` environment variable to the path to the
+translated libraries:
+
+    $ export CRUX_RUST_LIBRARY_PATH=.../mir-verifier/rlibs
+
+In the directory of a Cargo project, run the project's symbolic tests:
+
+    $ cargo crux-test
+
+`cargo-crux-test` (part of `mir-json`) will translate the code to MIR, then
+invoke `crux-mir` to symbolically simulate the test cases.
+
 
 ## Test suite
 
-To run the tests, use the following command:
+To run the tests:
 
-    $ cabal new-test
+    $ cabal v2-test
 
 ### Expected Failures
 
@@ -50,15 +83,15 @@ Files that are not yet expected to work correctly begin with `// FAIL: ` and
 a brief comment describing the reason for the expected failure.
 
 
-## Test suite with coverage
+## Limitations
 
-The `new-*` family of commands is not yet ready for coverage reports. Please run
+`crux-mir` does not support reasoning about unsafe code.  Many functions in
+the standard library rely on unsafe code; we have reimplemented some of these
+in terms of safe code or custom `crux-mir` intrinsics, but many unsupported
+functions still remain.  Test cases that call into unsafe code will produce
+assertion failures with messages like `don't know how to call
+core::intrinsics::transmute` or `expected reference type in dereference
+TyRawPtr`.
 
-    $ stack test --coverage
-
-for a coverage report.
-
-## Symbolic execution
-
-Please see the files in `text/symb_eval/` for examples of creating
-symbolic values and asserting properties about them.
+Currently, `crux-mir` also has trouble supporting references and function
+pointers in constant expressions and static initializers.

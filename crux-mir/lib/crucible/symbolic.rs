@@ -1,6 +1,10 @@
 pub trait Symbolic: Sized {
+    /// Create a new symbolic value of this type.  `desc` is used to refer to this symbolic value
+    /// when printing counterexamples.
     fn symbolic(desc: &'static str) -> Self;
 
+    /// Create a new symbolic value, subject to constraints.  The result is a symbolic value of
+    /// this type on which `f` returns `true`.
     fn symbolic_where<F: FnOnce(&Self) -> bool>(desc: &'static str, f: F) -> Self {
         let x = Self::symbolic(desc);
         super::crucible_assume!(f(&x));
