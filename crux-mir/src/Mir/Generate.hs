@@ -14,7 +14,7 @@
 -----------------------------------------------------------------------
 
 
-module Mir.Generate(generateMIR, translateMIR, translateAll) where
+module Mir.Generate(generateMIR, translateMIR) where
 
 import Data.Foldable(fold)
 
@@ -172,11 +172,6 @@ generateMIR inputFile keepRlib
 
 
 
-readMir :: (HasCallStack, ?debug::Int) =>
-           FilePath
-        -> IO Collection
-readMir path = B.readFile path >>= parseMir path
-
 parseMir :: (HasCallStack, ?debug::Int) =>
             FilePath
          -> B.ByteString
@@ -193,9 +188,6 @@ parseMir path f = do
           traceM "--------------------------------------------------------------"  
         return col
 
-customLibLoc :: String
-customLibLoc = "lib/"
-
 
 -- | Translate a MIR collection to Crucible
 translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool) 
@@ -204,12 +196,3 @@ translateMIR lib col halloc =
   let ?customOps = Mir.customOps in
   let col0 = let ?mirLib  = lib^.collection in rewriteCollection col
   in let ?libCS = lib in transCollection col0 halloc
-
--- | Translate a MIR crate *and* the standard library all at once
-translateAll :: (?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool)
-             => Collection -> IO (RustModule, C.AnyCFG MIR)
-translateAll col = C.withHandleAllocator $ \halloc -> do
-    mir      <- translateMIR mempty col halloc
-    init_cfg <- transStatics (mir^.rmCS) halloc
-    return $ (mir, init_cfg)
-

@@ -57,7 +57,7 @@ module Mir.Generator
 , traitMap
 , MirValue(..)
 , valueToExpr
-  , getTraitImplementation) 
+)
 -}
 where
 
@@ -314,20 +314,6 @@ mirFail str = do
          G.reportError (S.litExpr (Text.pack msg))
        else fail msg
 
-
-------------------------------------------------------------------------------------
--- extra: Control.Monad.Extra
-
-firstJustM :: Monad m => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
-firstJustM f [] = return Nothing
-firstJustM f (x:xs) = do
-  mx <- f x
-  case mx of
-    Just y  -> return $ Just y
-    Nothing -> firstJustM f xs
-
-firstJust :: (a -> Maybe b) -> [a] -> Maybe b
-firstJust f = Maybe.listToMaybe . Maybe.mapMaybe f
 
 -------------------------------------------------------------------------------------------------------
 --

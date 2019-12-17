@@ -618,16 +618,6 @@ makeLenses ''Instance
 makeLenses ''TraitImpl
 makeLenses ''TraitImplItem
 
-itemName :: Simple Lens TraitItem DefId
-itemName = lens (\ti -> case ti of
-                          TraitMethod did _  -> did
-                          TraitType did -> did
-                          TraitConst did _ -> did)
-              (\ti nd -> case ti of
-                  TraitMethod _ s  -> TraitMethod nd s 
-                  TraitType _ -> TraitType nd
-                  TraitConst _ t -> TraitConst nd t)
-
 --------------------------------------------------------------------------------------
 -- Other instances for ADT types
 --------------------------------------------------------------------------------------
@@ -659,33 +649,6 @@ fromIntegerLit (I32 i)   = i
 fromIntegerLit (I64 i)   = i
 fromIntegerLit (I128 i)  = i
 fromIntegerLit (Isize i) = i
-
-
-
--- | Access *all* of the params of the trait
---traitParamsWithAssocTys :: Trait -> [Param]
---traitParamsWithAssocTys trait =
---   trait^.traitParams ++ map toParam (trait^.traitAssocTys)
-
-
-
-varOfLvalue :: HasCallStack => Lvalue -> Var
-varOfLvalue (LBase (Local v)) = v
-varOfLvalue l = error $ "bad var of lvalue: " ++ show l
-
-
-lValueofOp :: HasCallStack => Operand -> Lvalue
-lValueofOp (Copy lv) = lv
-lValueofOp (Move lv) = lv
-lValueofOp l = error $ "bad lvalue of op: " ++ show l
-
-funcNameofOp :: HasCallStack => Operand -> DefId
-funcNameofOp (OpConstant (Constant _ (Value (ConstFunction id1 _substs)))) = id1
-funcNameofOp _ = error "bad extract func name"
-
-funcSubstsofOp :: HasCallStack => Operand -> Substs
-funcSubstsofOp (OpConstant (Constant _ (Value (ConstFunction _id1 substs)))) = substs
-funcSubstsofOp _ = error "bad extract func name"
 
 
 -- Get the only variant of a struct or union ADT.

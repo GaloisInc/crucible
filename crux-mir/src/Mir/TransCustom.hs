@@ -294,9 +294,9 @@ vector_copy_from_slice :: (ExplodedDefId, CustomRHS)
 vector_copy_from_slice = ( (["crucible","vector","{{impl}}"], "copy_from_slice", []), ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirImmSliceRepr tpr) e] -> do
-            let vec = S.getStruct Ctx.i1of3 e
-            let start = S.getStruct Ctx.i2of3 e
-            let len = S.getStruct Ctx.i3of3 e
+            let vec = getImmSliceVector e
+            let start = getImmSliceLB e
+            let len = getImmSliceLen e
             let end = R.App $ usizeAdd start len
             v <- vectorCopy tpr start end vec
             return $ MirExp (C.VectorRepr tpr) v
@@ -439,9 +439,9 @@ slice_to_array ::  (ExplodedDefId, CustomRHS)
 slice_to_array = ((["core","array"],"slice_to_array", []),
     \substs -> Just $ CustomOp $ \_ ops -> case (substs, ops) of
         (Substs [ty, TyConst], [MirExp (MirImmSliceRepr tpr) e, MirExp UsizeRepr eLen]) -> do
-            let vec = S.getStruct Ctx.i1of3 e
-            let start = S.getStruct Ctx.i2of3 e
-            let len = S.getStruct Ctx.i3of3 e
+            let vec = getImmSliceVector e
+            let start = getImmSliceLB e
+            let len = getImmSliceLen e
             let end = R.App $ usizeAdd start len
             let lenOk = R.App $ usizeEq len eLen
             adt <- findAdt optionDefId
@@ -489,7 +489,7 @@ slice_len =
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
        [MirExp (MirImmSliceRepr _) e] -> do
-            return $ MirExp UsizeRepr $ S.getStruct Ctx.i3of3 e
+            return $ MirExp UsizeRepr $ getImmSliceLen e
        _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
 
 -- These four custom ops implement mutable and immutable unchecked indexing by
@@ -747,42 +747,6 @@ cloneFromShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not i
 
 
 --------------------------------------------------------------------------------------------------------------------------
-
-
-
--- Type-indexed version of "1"
-oneExp :: C.TypeRepr ty -> MirExp s
-oneExp UsizeRepr    = MirExp UsizeRepr (R.App $ usizeLit 1)
-oneExp (C.BVRepr w) = MirExp (C.BVRepr w) (R.App (E.BVLit w 1))
-oneExp ty = error $ "oneExp: unimplemented for type " ++ show ty
-
--- Add one to an expression
-incrExp :: C.TypeRepr ty -> R.Expr MIR s ty -> MirGenerator h s ret (R.Expr MIR s ty)
-incrExp ty e = do res <- evalBinOp Add Nothing (MirExp ty e) (oneExp ty)
-                  case res of 
-                    (MirExp ty' e') | Just Refl <- testEquality ty ty'
-                                    -> return e'
-                    _ -> mirFail "BUG: incrExp should return same type"
-
-
-
-
-performUntil :: R.Expr MIR s C.NatType -> (R.Reg s C.NatType -> MirGenerator h s ret ()) -> MirGenerator h s ret ()
-performUntil n f = do -- perform (f i) for i = 0..n (not inclusive). f takes as input a nat register (but shouldn't increment it)
-    ind <- G.newReg $ S.app $ E.NatLit 0
-    G.while (PL.InternalPos, test n ind) (PL.InternalPos, (run_incr f) ind)
-
-   where test :: R.Expr MIR s C.NatType -> R.Reg s C.NatType -> MirGenerator h s ret (R.Expr MIR s C.BoolType)
-         test n r = do
-             i <- G.readReg r
-             return $ S.app $ E.NatLt i n
-
-         run_incr :: (R.Reg s C.NatType -> MirGenerator h s ret ()) -> (R.Reg s C.NatType -> MirGenerator h s ret ())
-         run_incr f = \r -> do
-             f r
-             i <- G.readReg r
-             G.assignReg r (S.app $ E.NatAdd i (S.app $ E.NatLit 1))
-
 
 unwrapMirExp :: C.TypeRepr tp -> MirExp s -> MirGenerator h s ret (R.Expr MIR s tp)
 unwrapMirExp tpr (MirExp tpr' e)

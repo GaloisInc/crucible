@@ -753,22 +753,6 @@ evalRefLvalue lv =
 
         _ -> mirFail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
 
-getVariant :: HasCallStack => M.Ty -> MirGenerator h s ret (M.Variant, Substs)
-getVariant (M.TyAdt nm args) = do
-    am <- use $ cs.collection
-    case Map.lookup nm (am^.adts) of
-       Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-       Just (M.Adt _ _ [struct_variant]) -> return (struct_variant, args)
-       _      -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
-getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
-    let i = fromInteger ii
-    am <- use $ cs.collection
-    case Map.lookup nm (am^.adts) of
-       Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-       Just (M.Adt _ _ vars) | i < length vars -> return $ (vars !! i, args)
-       _      -> mirFail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
-getVariant ty = mirFail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
-
 evalRefProj :: HasCallStack => M.Lvalue -> M.PlaceElem -> MirGenerator h s ret (MirExp s)
 evalRefProj base projElem =
   do --traceM $ "evalRefProj " ++ show base ++ " " ++ show projElem

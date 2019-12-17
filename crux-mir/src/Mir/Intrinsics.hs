@@ -140,9 +140,6 @@ rustEnumVariant ctx e = GetStruct e i2of2 (VariantRepr ctx)
 
 type SizeBits = 32
 
-sizeBits :: Natural
-sizeBits = 32
-
 type UsizeType = BVType SizeBits
 type IsizeType = BVType SizeBits
 
@@ -793,6 +790,9 @@ mirSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
                            UsizeType)
 mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (VectorRepr tp) :> UsizeRepr :> UsizeRepr)
 
+getSliceVector :: Expr MIR s (MirSlice tp) -> Expr MIR s (MirReferenceType (VectorType tp))
+getSliceVector e = getStruct i1of3 e
+
 getSliceLB :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
 getSliceLB e = getStruct i2of3 e 
 
@@ -831,6 +831,9 @@ mirImmSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
                            UsizeType ::>
                            UsizeType)
 mirImmSliceCtxRepr tp = (Empty :> VectorRepr tp :> UsizeRepr :> UsizeRepr)
+
+getImmSliceVector :: Expr MIR s (MirImmSlice tp) -> Expr MIR s (VectorType tp)
+getImmSliceVector e = getStruct i1of3 e
 
 getImmSliceLB :: Expr MIR s (MirImmSlice tp) -> Expr MIR s UsizeType
 getImmSliceLB e = getStruct i2of3 e
