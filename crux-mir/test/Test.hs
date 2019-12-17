@@ -3,12 +3,9 @@
 {-# Language OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
-import           Control.Monad.ST
-import           Control.Monad.IO.Class
 import           Data.Char (isSpace)
 import           Data.Functor(($>))
 import           Data.List (dropWhileEnd, isPrefixOf)
-import qualified Data.Map as Map
 import           Data.Maybe (catMaybes)
 import           System.Directory (listDirectory, doesDirectoryExist, doesFileExist, removeFile)
 import           System.Exit (ExitCode(..))
@@ -17,15 +14,10 @@ import           System.IO (IOMode(..), Handle, withFile, hClose, hGetContents, 
 import           System.IO.Temp (withSystemTempFile)
 
 import qualified System.Process as Proc
-import           Text.Parsec (parse, (<|>), (<?>), string, many1, digit)
+import           Text.Parsec ((<|>), (<?>), string, many1, digit)
 import           Text.Parsec.String (Parser)
 
 import qualified Verifier.SAW.FiniteValue as FV
-import qualified Verifier.SAW.Prelude as SC
-import qualified Verifier.SAW.SCTypeCheck as SC
-import qualified Verifier.SAW.SharedTerm as SC
-import qualified Verifier.SAW.Typechecker as SC
-import qualified Verifier.SAW.Simulator.Concrete as Conc
 
 import           Test.Tasty (defaultMain, testGroup, TestTree)
 import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
@@ -34,19 +26,13 @@ import           Test.Tasty.ExpectedFailure (expectFailBecause)
 
 import qualified Mir.Language as Mir
 
-import qualified Lang.Crucible.FunctionHandle as C
-
 import qualified Crux as Crux
-import qualified Crux.Config as Crux
 import qualified Crux.Config.Common as Crux
-import qualified Crux.Log as Crux
 
 import qualified Data.AIG.Interface as AIG
 
 import qualified Config
 import qualified Config.Schema as Config
-import qualified Config.Schema.Load as Config
-import qualified Config.Schema.Spec as Config
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
@@ -117,6 +103,7 @@ cruxOracleTest dir name step = do
   step ("Crux output: " ++ cruxOut ++ "\n")
   assertBool "crux doesn't match oracle" (orOut == cruxOut)
 
+filterCruxOut :: String -> String
 filterCruxOut x =
     dropWhileEnd isSpace $
     unlines $
@@ -147,7 +134,7 @@ main = defaultMain =<< suite
 
 suite :: IO TestTree
 suite = do
-  let ?debug = 0
+  let ?debug = 0 :: Int
   let ?assertFalseOnError = True
   let ?printCrucible = False
   trees <- sequence 
