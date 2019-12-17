@@ -35,13 +35,11 @@ import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Vector (Vector)
 
-import Data.Semigroup(Semigroup(..))
+import Data.Semigroup (Semigroup(..))
 
-
-import Control.Lens(makeLenses, Simple, Lens, lens)
+import Control.Lens (makeLenses)
 
 import GHC.Generics 
-import GHC.Stack
 
 import Mir.DefId
 

@@ -7,16 +7,9 @@
                 -fno-warn-unticked-promoted-constructors #-}
 module Mir.MirTy where
 
-import qualified Data.Map.Strict as Map
-import qualified Data.List as List
-import qualified Data.Maybe as Maybe
-
-import Control.Lens
-
 import GHC.Stack(HasCallStack)
 
 import Mir.Mir
-import Mir.DefId
 import Mir.PP(fmt)
 import Mir.GenericOps
 

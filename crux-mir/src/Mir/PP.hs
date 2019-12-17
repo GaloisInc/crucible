@@ -86,6 +86,7 @@ instance Pretty Ty where
     pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> pretty tys)
     pretty TyNever = text "never"
     pretty TyLifetime = text "lifetime"
+    pretty TyConst = text "const"
     pretty TyErased = text "erased"
 
 instance Pretty Adt where
@@ -138,14 +139,14 @@ instance Pretty Fn where
     pretty (Fn fname1 fargs1 fs fbody1 fstatics) =
       vcat $ [text "fn" <+> pretty fname1 <> pparams gens
             <> patys atys <+> tupled (map pretty_arg fargs1)
-                      <+> arrow <+> pretty fty <+> ppreds preds <+> lbrace] 
+                      <+> arrow <+> pretty rty <+> ppreds preds <+> lbrace] 
             ++ (map pretty (V.toList fstatics)) 
             ++ [indent 3 (pretty fbody1),
                 rbrace]
       where
         gens   = fs^.fsgenerics
         atys   = fs^.fsassoc_tys
-        fty    = fs^.fsreturn_ty
+        rty    = fs^.fsreturn_ty
         preds  = fs^.fspredicates
 
 instance Pretty MirBody where

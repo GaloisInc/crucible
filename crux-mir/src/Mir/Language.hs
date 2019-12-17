@@ -20,27 +20,23 @@ import qualified Data.Char       as Char
 import qualified Data.Foldable as Fold
 import           Data.Functor.Const (Const(..))
 import           Control.Monad (forM_, when, unless, zipWithM)
-import           Control.Monad.ST
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
-import           Data.Semigroup(Semigroup(..))
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
-import           Data.Maybe (fromMaybe, maybe)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
 import qualified Data.Vector     as Vector
-import qualified Text.Read       as Read
 import           Control.Lens ((^.), (^?), (^..), ix, each)
 
 import           System.IO (Handle)
-import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
 import qualified SimpleGetOpt as GetOpt
-import           System.Exit(exitSuccess)
+import           System.Exit (exitSuccess)
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
-import           Control.Lens((^.), view)
+import           Control.Lens (view)
 
 --import           GHC.Stack
 
@@ -58,12 +54,10 @@ import qualified Lang.Crucible.Backend                 as C
 -- what4
 import qualified What4.Interface                       as W4
 import qualified What4.Config                          as W4
-import qualified What4.ProgramLoc                      as W4
 import qualified What4.Partial                         as W4
 
 -- crux
 import qualified Crux as Crux
-import qualified Crux.Extension as Crux
 import qualified Crux.Config.Common as Crux
 import qualified Crux.Model as Crux
 
@@ -73,14 +67,14 @@ import Crux.Log
 
 -- mir-verifier
 import           Mir.Mir
-import           Mir.PP()
+import           Mir.PP ()
 import           Mir.Overrides
-import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes,
-                    pattern RustEnumRepr, RustEnumType)
-import           Mir.DefId(cleanVariantName, parseFieldName, idText)
+import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
+                    pattern RustEnumRepr)
+import           Mir.DefId (cleanVariantName, parseFieldName, idText)
 import           Mir.Generator
-import           Mir.Generate(generateMIR, translateMIR)
-import           Mir.Trans(transStatics, RustModule(..))
+import           Mir.Generate (generateMIR, translateMIR)
+import           Mir.Trans (transStatics)
 import           Mir.TransTy
 
 main :: IO ()
@@ -108,6 +102,7 @@ data MIROptions = MIROptions
     , assertFalse  :: Bool
     }
 
+defaultMirOptions :: MIROptions
 defaultMirOptions = MIROptions
     { onlyPP = False
     , printCrucible = False
@@ -115,6 +110,7 @@ defaultMirOptions = MIROptions
     , assertFalse = False
     }
 
+mirConfig :: Crux.Config MIROptions
 mirConfig = Crux.Config
     { Crux.cfgFile = pure defaultMirOptions
     , Crux.cfgEnv = []
@@ -302,6 +298,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                     str <- showRegEntry col mty0 (C.RegEntry tpr e)
                     return (Const str)
                 _ -> return $ Const $ "symbolic tuple element"
+            | otherwise = error $ "expected MaybeRepr, but got " ++ show (ctxr Ctx.! idx)
 
       (cstrs :: Ctx.Assignment (Const String) ctx) <- Ctx.traverseWithIndex go rv'
       let strs = Ctx.toListFC (\(Const str) -> str) cstrs
@@ -431,10 +428,11 @@ showRegEntry col mty (C.RegEntry tp rv) =
         readFields fctx vs ++ [readField fr (C.unRV v)]
 
     readField :: FieldRepr tp -> C.RegValue sym tp -> C.Some (C.RegEntry sym)
-    readField (FieldRepr (FkInit tpr)) rv = C.Some (C.RegEntry tpr rv)
+    readField (FieldRepr (FkInit tpr)) rv' = C.Some (C.RegEntry tpr rv')
     readField (FieldRepr (FkMaybe tpr)) (W4.NoErr (W4.Partial _ v)) =
         C.Some (C.RegEntry tpr v)
-    readField (FieldRepr (FkMaybe tpr)) (W4.Err _) = undefined
+    readField (FieldRepr (FkMaybe tpr)) (W4.Err _) =
+        error $ "readField: W4.Err for type " ++ show tpr
 
 
 data FoundVariant sym ctx tp where

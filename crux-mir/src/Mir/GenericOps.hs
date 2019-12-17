@@ -25,25 +25,19 @@
 module Mir.GenericOps where
 
 import qualified Data.ByteString as B
-import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
 
-import Control.Monad.Except(MonadError(..))
-import Control.Lens((^.),(&),(%~), makeLenses)
+import Control.Lens((^.),(&),(%~))
 
 import Mir.DefId
 import Mir.Mir
 import Mir.PP(fmt)
-import Text.PrettyPrint.ANSI.Leijen(Doc,(<+>),text,pretty,vcat)
 
 import GHC.Generics
 import GHC.Stack
-
-import Debug.Trace
 
 --------------------------------------------------------------------------------------
 --

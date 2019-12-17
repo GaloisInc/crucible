@@ -75,7 +75,6 @@ import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 import Data.Parameterized.Peano
-import Data.Parameterized.BoolRepr
 import Data.Parameterized.TraversableFC
 import Data.Parameterized.Nonce (newSTNonceGenerator)
 
@@ -1577,6 +1576,7 @@ initialValue (M.TyDynamic _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue _ = return Nothing
 
+initField :: Substs -> Field -> MirGenerator h s ret (Maybe (MirExp s))
 initField args (Field _name ty _subst) = initialValue (tySubst args ty)
 
 tyToInitReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
@@ -1671,7 +1671,6 @@ initFnState colState fn handle inputs =
             _assertFalseOnError = ?assertFalseOnError
          }
     where
-      sig = fn^.fsig
       args = fn^.fargs
 
       argtups  = map (\(M.Var n _ t _ _ _) -> (n,t)) args
