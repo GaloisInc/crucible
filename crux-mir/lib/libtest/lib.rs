@@ -24,23 +24,12 @@
 #![cfg_attr(any(unix, target_os = "cloudabi"), feature(libc, rustc_private))]
 #![feature(nll)]
 #![feature(set_stdio)]
-#![feature(panic_unwind)]
 #![feature(staged_api)]
 #![feature(termination_trait_lib)]
 #![feature(test)]
 
 #[cfg(any(unix, target_os = "cloudabi"))]
 extern crate libc;
-
-// FIXME(#54291): rustc and/or LLVM don't yet support building with panic-unwind
-//                on aarch64-pc-windows-msvc, or thumbv7a-pc-windows-msvc
-//                so we don't link libtest against libunwind (for the time being)
-//                even though it means that libtest won't be fully functional on
-//                these platforms.
-//
-// See also: https://github.com/rust-lang/rust/issues/54190#issuecomment-422904437
-#[cfg(not(all(windows, any(target_arch = "aarch64", target_arch = "arm"))))]
-extern crate panic_unwind;
 
 pub use self::ColorConfig::*;
 use self::NamePadding::*;
