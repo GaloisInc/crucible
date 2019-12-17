@@ -19,6 +19,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -49,6 +50,7 @@ import           Lang.Crucible.LLVM.Bytes (Bytes(..))
 import           Lang.Crucible.LLVM.DataLayout (noAlignment)
 import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.QQ( llvmOvr )
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
@@ -66,19 +68,7 @@ llvmLifetimeStartOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
 llvmLifetimeStartOverride =
-  let nm = "llvm.lifetime.start" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer 64, L.PtrTo (L.PrimType $ L.Integer 8) ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> KnownBV @64 :> PtrRepr)
-  UnitRepr
+  [llvmOvr| void @llvm.lifetime.start( i64, i8* ) |]
   (\_ops _sym _args -> return ())
 
 -- | See comment on 'llvmLifetimeStartOverride'
@@ -88,19 +78,7 @@ llvmLifetimeEndOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
 llvmLifetimeEndOverride =
-  let nm = "llvm.lifetime.end" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer 64, L.PtrTo (L.PrimType $ L.Integer 8) ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> KnownBV @64 :> PtrRepr)
-  UnitRepr
+  [llvmOvr| void @llvm.lifetime.end( i64, i8* ) |]
   (\_ops _sym _args -> return ())
 
 -- | This is a no-op.
@@ -115,26 +93,10 @@ llvmLifetimeOverrideOverload
   -> LLVMOverride p sym arch
         (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
         UnitType -- It appears in practice that this is always void
-llvmLifetimeOverrideOverload startOrEnd widthRepr =
-  let
-    width' :: Int
-    width' = widthVal widthRepr
-    nm = "llvm.lifetime." ++ startOrEnd ++ ".p0i" ++ show width'
-  in LLVMOverride
-      ( L.Declare
-        { L.decRetType = L.PrimType $ L.Void
-        , L.decName    = L.Symbol nm
-        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
-                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
-                         ]
-        , L.decVarArgs = False
-        , L.decAttrs   = []
-        , L.decComdat  = mempty
-        }
-      )
-      (Empty :> KnownBV @64 :> PtrRepr)
-      UnitRepr
-      (\_ops _sym _args -> return ())
+llvmLifetimeOverrideOverload startOrEnd w =
+  let nm = L.Symbol ("llvm.lifetime." ++ startOrEnd ++ ".p0i" ++ show (widthVal w)) in
+    [llvmOvr| void $nm ( i64, #w * ) |]
+    (\_ops _sym _args -> return ())
 
 -- | This intrinsic is currently a no-op.
 --
@@ -148,27 +110,10 @@ llvmInvariantStartOverride
   -> LLVMOverride p sym arch
        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
        (LLVMPointerType wptr)
-llvmInvariantStartOverride widthRepr =
-  let
-    width' :: Int
-    width' = widthVal widthRepr
-    nm = "llvm.invariant.start.p0i" ++ show width'
-  in LLVMOverride
-      ( L.Declare
-        { L.decRetType = L.PtrTo (L.Struct [])
-        , L.decName    = L.Symbol nm
-        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
-                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
-                         ]
-        , L.decVarArgs = False
-        , L.decAttrs   = []
-        , L.decComdat  = mempty
-        }
-      )
-      (Empty :> KnownBV @64 :> PtrRepr)
-      PtrRepr
-      (\_ops sym _args -> liftIO (mkNullPointer sym PtrWidth))
-
+llvmInvariantStartOverride w =
+  let nm = L.Symbol ("llvm.invariant.start.p0i" ++ show (widthVal w)) in
+    [llvmOvr| {}* $nm ( i64, #w * ) |]
+    (\_ops sym _args -> liftIO (mkNullPointer sym PtrWidth))
 
 -- | See comment on 'llvmInvariantStartOverride'.
 llvmInvariantEndOverride
@@ -177,26 +122,10 @@ llvmInvariantEndOverride
   -> LLVMOverride p sym arch
        (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
        UnitType
-llvmInvariantEndOverride widthRepr =
-  let
-    width' :: Int
-    width' = widthVal widthRepr
-    nm = "llvm.invariant.start.p0i" ++ show width'
-  in LLVMOverride
-      ( L.Declare
-        { L.decRetType = L.PrimType $ L.Void
-        , L.decName    = L.Symbol nm
-        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
-                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
-                         ]
-        , L.decVarArgs = False
-        , L.decAttrs   = []
-        , L.decComdat  = mempty
-        }
-      )
-      (Empty :> PtrRepr :> KnownBV @64 :> PtrRepr)
-      UnitRepr
-      (\_ops _sym _args -> return ())
+llvmInvariantEndOverride w =
+  let nm = L.Symbol ("llvm.invariant.end.p0i" ++ show (widthVal w)) in
+    [llvmOvr| void $nm ( {}*, i64, #w * ) |]
+    (\_ops _sym _args -> return ())
 
 -- | This instruction is a hint to optimizers, it isn't really useful for us.
 --
@@ -208,50 +137,11 @@ llvmExpectOverride
   -> LLVMOverride p sym arch
        (EmptyCtx ::> BVType width ::> BVType width)
        (BVType width)
-llvmExpectOverride widthRepr =
-  let
-    width' :: Int
-    width' = widthVal widthRepr
-    nm = "llvm.expect.i" ++ show width'
-  in LLVMOverride
-      ( let intType = L.PrimType $ L.Integer $ fromIntegral width'
-        in
-          L.Declare
-          { L.decRetType = intType
-          , L.decName    = L.Symbol nm
-          , L.decArgs    = [ intType, intType ]
-          , L.decVarArgs = False
-          , L.decAttrs   = []
-          , L.decComdat  = mempty
-          }
-      )
-      (Empty :> BVRepr widthRepr :> BVRepr widthRepr)
-      (BVRepr widthRepr)
-      (\_ops _sym args ->
-         Ctx.uncurryAssignment (\val _ -> pure (regValue val)) args)
-
-
--- | This intrinsic is sometimes inserted by clang, and we interpret it
---   as an assertion failure, similar to calling @abort()@.
-llvmTrapOverride
-  :: (IsSymInterface sym)
-  => LLVMOverride p sym arch EmptyCtx UnitType
-llvmTrapOverride =
-  let nm = "llvm.trap"
-  in LLVMOverride
-      ( L.Declare
-        { L.decRetType = L.PrimType $ L.Void
-        , L.decName    = L.Symbol nm
-        , L.decArgs    = []
-        , L.decVarArgs = False
-        , L.decAttrs   = []
-        , L.decComdat  = mempty
-        }
-      )
-      Empty
-      UnitRepr
-      (\_ops sym _args -> liftIO $ addFailedAssertion sym $ AssertFailureSimError "llvm.trap() called" "")
-
+llvmExpectOverride w =
+  let nm = L.Symbol ("llvm.expect.i" ++ show (widthVal w)) in
+    [llvmOvr| #w $nm ( #w, #w ) |]
+    (\_ops _sym args ->
+        Ctx.uncurryAssignment (\val _ -> pure (regValue val)) args)
 
 -- | This intrinsic asserts that its argument is equal to 1.
 --
@@ -261,61 +151,31 @@ llvmAssumeOverride
   :: (IsSymInterface sym)
   => LLVMOverride p sym arch (EmptyCtx ::> BVType 1) UnitType
 llvmAssumeOverride =
-  let nm = "llvm.assume"
-  in LLVMOverride
-      ( L.Declare
-        { L.decRetType = L.PrimType $ L.Void
-        , L.decName    = L.Symbol nm
-        , L.decArgs    = [ L.PrimType $ L.Integer 1 ]
-        , L.decVarArgs = False
-        , L.decAttrs   = []
-        , L.decComdat  = mempty
-        }
-      )
-      (Empty :> KnownBV @1)
-      UnitRepr
-      (\_ops _sym _args -> return ())
+   [llvmOvr| void @llvm.assume ( i1 ) |]
+   (\_ops _sym _args -> return ())
+
+-- | This intrinsic is sometimes inserted by clang, and we interpret it
+--   as an assertion failure, similar to calling @abort()@.
+llvmTrapOverride
+  :: (IsSymInterface sym)
+  => LLVMOverride p sym arch EmptyCtx UnitType
+llvmTrapOverride =
+  [llvmOvr| void @llvm.trap() |]
+  (\_ops sym _args -> liftIO $ addFailedAssertion sym $ AssertFailureSimError "llvm.trap() called" "")
 
 
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch EmptyCtx (LLVMPointerType wptr)
 llvmStacksave =
-  let nm = "llvm.stacksave" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  Empty
-  PtrRepr
+  [llvmOvr| i8* @llvm.stacksave() |]
   (\_memOps sym _args -> liftIO (mkNullPointer sym PtrWidth))
-
 
 llvmStackrestore
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) UnitType
 llvmStackrestore =
-  let nm = "llvm.stackrestore" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr)
-  UnitRepr
+  [llvmOvr| void @llvm.stackrestore( i8* ) |]
   (\_memOps _sym _args -> return ())
 
 llvmMemmoveOverride_8_8_32
@@ -325,24 +185,7 @@ llvmMemmoveOverride_8_8_32
                    ::> BVType 32 ::> BVType 32 ::> BVType 1)
          UnitType
 llvmMemmoveOverride_8_8_32 =
-  let nm = "llvm.memmove.p0i8.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memmove.p0i8.p0i8.i32( i8*, i8*, i32, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemmove sym memOps dst src len v) args)
 
 llvmMemmoveOverride_8_8_32_noalign
@@ -352,23 +195,7 @@ llvmMemmoveOverride_8_8_32_noalign
                    ::> BVType 32 ::> BVType 1)
          UnitType
 llvmMemmoveOverride_8_8_32_noalign =
-  let nm = "llvm.memmove.p0i8.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memmove.p0i8.p0i8.i32( i8*, i8*, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemmove sym memOps) args)
 
 
@@ -379,26 +206,8 @@ llvmMemmoveOverride_8_8_64
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
          UnitType
 llvmMemmoveOverride_8_8_64 =
-  let nm = "llvm.memmove.p0i8.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memmove.p0i8.p0i8.i64( i8*, i8*, i64, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemmove sym memOps dst src len v) args)
-
 
 
 llvmMemmoveOverride_8_8_64_noalign
@@ -408,25 +217,8 @@ llvmMemmoveOverride_8_8_64_noalign
                    ::> BVType 64 ::> BVType 1)
          UnitType
 llvmMemmoveOverride_8_8_64_noalign =
-  let nm = "llvm.memmove.p0i8.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memmove.p0i8.p0i8.i64( i8*, i8*, i64, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemmove sym memOps) args)
-
 
 llvmMemsetOverride_8_64
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -438,24 +230,7 @@ llvmMemsetOverride_8_64
                    ::> BVType 1)
          UnitType
 llvmMemsetOverride_8_64 =
-  let nm = "llvm.memset.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer  8
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer  1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memset.p0i8.i64( i8*, i8, i64, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset sym memOps dst val len v) args)
 
 llvmMemsetOverride_8_64_noalign
@@ -467,23 +242,7 @@ llvmMemsetOverride_8_64_noalign
                    ::> BVType 1)
          UnitType
 llvmMemsetOverride_8_64_noalign =
-  let nm = "llvm.memset.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer  8
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer  1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @64 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memset.p0i8.i64( i8*, i8, i64, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemset sym memOps) args)
 
 
@@ -497,24 +256,7 @@ llvmMemsetOverride_8_32
                    ::> BVType 1)
          UnitType
 llvmMemsetOverride_8_32 =
-  let nm = "llvm.memset.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer  8
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer  1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memset.p0i8.i32( i8*, i8, i32, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset sym memOps dst val len v) args)
 
 llvmMemsetOverride_8_32_noalign
@@ -526,25 +268,8 @@ llvmMemsetOverride_8_32_noalign
                    ::> BVType 1)
          UnitType
 llvmMemsetOverride_8_32_noalign =
-  let nm = "llvm.memset.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer  8
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer  1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memset.p0i8.i32( i8*, i8, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemset sym memOps) args)
-
 
 
 llvmMemcpyOverride_8_8_32
@@ -554,24 +279,7 @@ llvmMemcpyOverride_8_8_32
                     ::> BVType 32 ::> BVType 32 ::> BVType 1)
           UnitType
 llvmMemcpyOverride_8_8_32 =
-  let nm = "llvm.memcpy.p0i8.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memcpy.p0i8.p0i8.i32( i8*, i8*, i32, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemcpy sym memOps dst src len v) args)
 
 llvmMemcpyOverride_8_8_32_noalign
@@ -581,23 +289,7 @@ llvmMemcpyOverride_8_8_32_noalign
                     ::> BVType 32 ::> BVType 1)
           UnitType
 llvmMemcpyOverride_8_8_32_noalign =
-  let nm = "llvm.memcpy.p0i8.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memcpy.p0i8.p0i8.i32( i8*, i8*, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemcpy sym memOps) args)
 
 
@@ -608,24 +300,7 @@ llvmMemcpyOverride_8_8_64
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
          UnitType
 llvmMemcpyOverride_8_8_64 =
-  let nm = "llvm.memcpy.p0i8.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memcpy.p0i8.p0i8.i64( i8*, i8*, i64, i32, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemcpy sym memOps dst src len v) args)
 
 
@@ -636,23 +311,7 @@ llvmMemcpyOverride_8_8_64_noalign
                    ::> BVType 64 ::> BVType 1)
          UnitType
 llvmMemcpyOverride_8_8_64_noalign =
-  let nm = "llvm.memcpy.p0i8.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @1)
-  UnitRepr
+  [llvmOvr| void @llvm.memcpy.p0i8.p0i8.i64( i8*, i8*, i64, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemcpy sym memOps) args)
 
 
@@ -660,86 +319,28 @@ llvmObjectsizeOverride_32
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32 =
-  let nm = "llvm.objectsize.i32.p0i8" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 32
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @1)
-  (KnownBV @32)
+  [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize sym memOps knownNat) args)
 
 llvmObjectsizeOverride_32'
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32' =
-  let nm = "llvm.objectsize.i32.p0i8" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 32
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     , L.PrimType $ L.Integer 1
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @1 :> KnownBV @1)
-  (KnownBV @32)
+  [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize' sym memOps knownNat) args)
 
 llvmObjectsizeOverride_64
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64 =
-  let nm = "llvm.objectsize.i64.p0i8" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 64
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @1)
-  (KnownBV @64)
+  [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize sym memOps knownNat) args)
 
 llvmObjectsizeOverride_64'
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64' =
-  let nm = "llvm.objectsize.i64.p0i8" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 64
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     , L.PrimType $ L.Integer 1
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @1 :> KnownBV @1)
-  (KnownBV @64)
+  [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize' sym memOps knownNat) args)
 
 llvmSaddWithOverflow
@@ -749,26 +350,9 @@ llvmSaddWithOverflow
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmSaddWithOverflow w =
-  let nm = "llvm.sadd.with.overflow.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> BVRepr w)
-  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  let nm = L.Symbol ("llvm.sadd.with.overflow.i" ++ show (natValue w)) in
+  [llvmOvr| { #w, i1 } $nm ( #w, #w ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callSaddWithOverflow sym memOps) args)
-
 
 llvmUaddWithOverflow
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -777,25 +361,9 @@ llvmUaddWithOverflow
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmUaddWithOverflow w =
-  let nm = "llvm.uadd.with.overflow.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> BVRepr w)
-  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
-  (\memOps sym args -> Ctx.uncurryAssignment (callUaddWithOverflow sym memOps) args)
+  let nm = L.Symbol ("llvm.uadd.with.overflow.i" ++ show (natValue w)) in
+    [llvmOvr| { #w, i1 } $nm ( #w, #w ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callUaddWithOverflow sym memOps) args)
 
 
 llvmSsubWithOverflow
@@ -805,25 +373,9 @@ llvmSsubWithOverflow
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmSsubWithOverflow w =
-  let nm = "llvm.ssub.with.overflow.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> BVRepr w)
-  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
-  (\memOps sym args -> Ctx.uncurryAssignment (callSsubWithOverflow sym memOps) args)
+  let nm = L.Symbol ("llvm.ssub.with.overflow.i" ++ show (natValue w)) in
+    [llvmOvr| { #w, i1 } $nm ( #w, #w ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callSsubWithOverflow sym memOps) args)
 
 
 llvmUsubWithOverflow
@@ -833,25 +385,9 @@ llvmUsubWithOverflow
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmUsubWithOverflow w =
-  let nm = "llvm.usub.with.overflow.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> BVRepr w)
-  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
-  (\memOps sym args -> Ctx.uncurryAssignment (callUsubWithOverflow sym memOps) args)
+  let nm = L.Symbol ("llvm.usub.with.overflow.i" ++ show (natValue w)) in
+    [llvmOvr| { #w, i1 } $nm ( #w, #w ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callUsubWithOverflow sym memOps) args)
 
 llvmSmulWithOverflow
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -860,25 +396,9 @@ llvmSmulWithOverflow
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmSmulWithOverflow w =
-  let nm = "llvm.smul.with.overflow.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> BVRepr w)
-  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
-  (\memOps sym args -> Ctx.uncurryAssignment (callSmulWithOverflow sym memOps) args)
+  let nm = L.Symbol ("llvm.smul.with.overflow.i" ++ show (natValue w)) in
+    [llvmOvr| { #w, i1 } $nm ( #w, #w ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callSmulWithOverflow sym memOps) args)
 
 llvmUmulWithOverflow
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -887,26 +407,9 @@ llvmUmulWithOverflow
          (EmptyCtx ::> BVType w ::> BVType w)
          (StructType (EmptyCtx ::> BVType w ::> BVType 1))
 llvmUmulWithOverflow w =
-  let nm = "llvm.umul.with.overflow.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> BVRepr w)
-  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  let nm = L.Symbol ("llvm.umul.with.overflow.i" ++ show (natValue w)) in
+  [llvmOvr| { #w, i1 } $nm ( #w, #w ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callUmulWithOverflow sym memOps) args)
-
 
 llvmCtlz
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -915,23 +418,9 @@ llvmCtlz
          (EmptyCtx ::> BVType w ::> BVType 1)
          (BVType w)
 llvmCtlz w =
-  let nm = "llvm.ctlz.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> KnownBV @1)
-  (BVRepr w)
-  (\memOps sym args -> Ctx.uncurryAssignment (callCtlz sym memOps) args)
-
+  let nm = L.Symbol ("llvm.ctlz.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm ( #w, i1 ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callCtlz sym memOps) args)
 
 llvmCttz
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -940,22 +429,9 @@ llvmCttz
          (EmptyCtx ::> BVType w ::> BVType 1)
          (BVType w)
 llvmCttz w =
-  let nm = "llvm.cttz.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w :> KnownBV @1)
-  (BVRepr w)
-  (\memOps sym args -> Ctx.uncurryAssignment (callCttz sym memOps) args)
+  let nm = L.Symbol ("llvm.cttz.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm ( #w, i1 ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callCttz sym memOps) args)
 
 llvmCtpop
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -964,21 +440,9 @@ llvmCtpop
          (EmptyCtx ::> BVType w)
          (BVType w)
 llvmCtpop w =
-  let nm = "llvm.ctpop.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w)
-  (BVRepr w)
-  (\memOps sym args -> Ctx.uncurryAssignment (callCtpop sym memOps) args)
+  let nm = L.Symbol ("llvm.ctpop.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm( #w ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callCtpop sym memOps) args)
 
 llvmBitreverse
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -987,22 +451,9 @@ llvmBitreverse
          (EmptyCtx ::> BVType w)
          (BVType w)
 llvmBitreverse w =
-  let nm = "llvm.bitreverse.i" ++ show (natValue w) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> BVRepr w)
-  (BVRepr w)
-  (\memOps sym args -> Ctx.uncurryAssignment (callBitreverse sym memOps) args)
-
+  let nm = L.Symbol ("llvm.bitreverse.i" ++ show (natValue w)) in
+    [llvmOvr| #w $nm( #w ) |]
+    (\memOps sym args -> Ctx.uncurryAssignment (callBitreverse sym memOps) args)
 
 -- | <https://llvm.org/docs/LangRef.html#llvm-bswap-intrinsics LLVM docs>
 llvmBSwapOverride
@@ -1014,28 +465,15 @@ llvmBSwapOverride
          (BVType (width * 8))
 llvmBSwapOverride widthRepr =
   let width8 = natMultiply widthRepr (knownNat @8)
-      width' :: Int
-      width' = widthVal width8
-      nm = "llvm.bswap.i" ++ show width'
+      nm = L.Symbol ("llvm.bswap.i" ++ show (widthVal width8))
   in
     case mulComm widthRepr (knownNat @8) of { Refl ->
     case leqMulMono (knownNat @8) widthRepr :: LeqProof width (width * 8) of { LeqProof ->
     case leqTrans (LeqProof :: LeqProof 1 width)
                   (LeqProof :: LeqProof width (width * 8)) of { LeqProof ->
-      LLVMOverride
-        ( -- From the LLVM docs:
-          -- declare i16 @llvm.bswap.i16(i16 <id>)
-          L.Declare
-          { L.decRetType = L.PrimType $ L.Integer $ fromIntegral width'
-          , L.decName    = L.Symbol nm
-          , L.decArgs    = [ L.PrimType $ L.Integer $ fromIntegral width' ]
-          , L.decVarArgs = False
-          , L.decAttrs   = []
-          , L.decComdat  = mempty
-          }
-        )
-        (Empty :> BVRepr width8)
-        (BVRepr width8)
+        -- From the LLVM docs:
+        -- declare i16 @llvm.bswap.i16(i16 <id>)
+        [llvmOvr| #width8 $nm( #width8 ) |]
         (\_ sym args -> liftIO $
             let vec :: SymBV sym (width * 8)
                 vec = regValue (args^._1)
@@ -1052,22 +490,7 @@ llvmX86_pclmulqdq
                    ::> BVType 8)
          (VectorType (BVType 64))
 llvmX86_pclmulqdq =
-  let nm = "llvm.x86.pclmulqdq" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.Vector 2 (L.PrimType $ L.Integer 64)
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.Vector 2 (L.PrimType $ L.Integer 64)
-                     , L.Vector 2 (L.PrimType $ L.Integer 64)
-                     , L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> VectorRepr (KnownBV @64) :> VectorRepr (KnownBV @64) :> KnownBV @8)
-  (VectorRepr (KnownBV @64))
+  [llvmOvr| <2 x i64> @llvm.x86.pclmulqdq(<2 x i64>, <2 x i64>, i8) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callX86_pclmulqdq sym memOps) args)
 
 
@@ -1078,21 +501,7 @@ llvmX86_SSE2_storeu_dq
                    ::> VectorType (BVType 8))
          UnitType
 llvmX86_SSE2_storeu_dq =
-  let nm = "llvm.x86.sse2.storeu.dq" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.Vector 16 (L.PrimType $ L.Integer 8)
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> VectorRepr (KnownBV @8))
-  UnitRepr
+  [llvmOvr| void @llvm.x86.sse2.storeu.dq( i8*, <16 x i8> ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callStoreudq sym memOps) args)
 
 ------------------------------------------------------------------------
