@@ -119,6 +119,7 @@ import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder (decimal)
 import qualified Data.Text.Lazy as Lazy
 import           Data.Word
+import           GHC.Real
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import           System.IO.Streams (OutputStream)
@@ -418,6 +419,8 @@ class Num v => SupportTermOps v where
 
   -- | Predicate that holds if a real number is an integer.
   realIsInteger :: v -> v
+
+  realDiv :: v -> v -> v
 
   realSin :: v -> v
 
@@ -1457,8 +1460,8 @@ theoryUnsupported :: Monad m => WriterConn t h -> String -> Expr t tp -> m a
 theoryUnsupported conn theory_name t =
   fail $ show $
     text (smtWriterName conn) <+> text "does not support the" <+> text theory_name
-    <+> text "term generated at" <+> pretty (plSourceLoc (exprLoc t)) <> text ":" <$$>
-    indent 2 (pretty t)
+    <+> text "term generated at" <+> pretty (plSourceLoc (exprLoc t))
+    -- <> text ":" <$$> indent 2 (pretty t)
 
 
 checkIntegerSupport :: Expr t tp -> SMTCollector t h ()
@@ -1477,7 +1480,7 @@ checkBitvectorSupport :: Expr t tp -> SMTCollector t h ()
 checkBitvectorSupport t = do
   conn <- asks scConn
   unless (supportedFeatures conn `hasProblemFeature` useBitvectors) $ do
-    theoryUnsupported conn "bitvectors" t
+    theoryUnsupported conn "bitvector" t
 
 checkFloatSupport :: Expr t tp -> SMTCollector t h ()
 checkFloatSupport t = do
@@ -2055,14 +2058,12 @@ appSMTExpr ae = do
     RealDiv xe ye -> do
       x <- mkBaseExpr xe
       case ye of
-        SemiRingLiteral SR.SemiRingRealRepr r _ -> do
+        SemiRingLiteral SR.SemiRingRealRepr r _ | r /= 0 -> do
           freshBoundTerm RealTypeMap $ x * rationalTerm (recip r)
         _ -> do
           checkNonlinearSupport i
           y <- mkBaseExpr ye
-          r <- freshConstant "real divison" RealTypeMap
-          addSideCondition "real division" $ (y * asBase r) .== x .|| y .== 0
-          return r
+          freshBoundTerm RealTypeMap $ realDiv x y
 
     RealSqrt xe -> do
       checkNonlinearSupport i

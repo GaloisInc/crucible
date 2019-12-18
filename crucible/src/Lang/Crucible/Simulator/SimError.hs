@@ -38,7 +38,9 @@ data SimErrorReason
    = GenericSimError !String
    | Unsupported !String -- ^ We can't do that (yet?)
    | ReadBeforeWriteSimError !String -- FIXME? include relevant data instead of a string?
-   | AssertFailureSimError !String
+   | AssertFailureSimError !String !String
+     -- ^ An assertion failed. The first parameter is a short
+     -- description. The second is a more detailed explanation.
    | ResourceExhausted String
       -- ^ A loop iteration count, or similar resource limit,
       --   was exceeded.
@@ -55,8 +57,12 @@ simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
 simErrorReasonMsg (Unsupported msg) = "Unsupported feature: " ++ msg
 simErrorReasonMsg (ReadBeforeWriteSimError msg) = msg
-simErrorReasonMsg (AssertFailureSimError msg) = msg
+simErrorReasonMsg (AssertFailureSimError msg _) = msg
 simErrorReasonMsg (ResourceExhausted msg) = "Resource exhausted: " ++ msg
+
+simErrorDetailsMsg :: SimErrorReason -> String
+simErrorDetailsMsg (AssertFailureSimError _ msg) = msg
+simErrorDetailsMsg _ = ""
 
 instance IsString SimErrorReason where
   fromString = GenericSimError
@@ -69,9 +75,15 @@ instance Show SimError where
 
 ppSimError :: SimError -> Doc
 ppSimError er =
-  vcat [ vcat (text <$> lines (show (simErrorReason er)))
-       , text "in" <+> text (show (plFunction loc)) <+> text "at" <+> text (show (plSourceLoc loc))
-       ]
+  vcat $ [ text (simErrorReasonMsg rsn)
+         , text "in" <+> text (show (plFunction loc)) <+> text "at" <+> text (show (plSourceLoc loc))
+         ] ++ if null details
+              then []
+              else [ text "Details:"
+                   , vcat (text <$> lines details)
+                   ]
  where loc = simErrorLoc er
+       details = simErrorDetailsMsg rsn
+       rsn = simErrorReason er
 
 instance Exception SimError

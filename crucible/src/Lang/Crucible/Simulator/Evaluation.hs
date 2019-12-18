@@ -117,8 +117,9 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
   case asNat si of
     Just i
       | l <= i && i <= h -> subIndex i
-      | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
-        where msg = "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
+      | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
+        where msg = "Index outside matrix dimensions." ++ show (l,i,h)
+              details = unwords ["Index", show i, "is outside of range", show (l, h)]
     Nothing ->
       do ensureInRange sym l h si "Index outside matrix dimensions."
          let predFn i = natEq sym si =<< natLit sym i
@@ -137,7 +138,8 @@ ensureInRange sym l h si msg =
   do l_sym <- natLit sym l
      h_sym <- natLit sym h
      inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-     assert sym inRange (AssertFailureSimError msg)
+     assert sym inRange (AssertFailureSimError msg details)
+  where details = unwords ["Range is", show (l, h)]
 
 
 
@@ -176,7 +178,7 @@ indexVectorWithSymNat sym iteFn v si =
   Ex.assert (n > 0) $
   case asNat si of
     Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
-           | otherwise -> addFailedAssertion sym (AssertFailureSimError msg)
+           | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
     Nothing ->
       do let predFn i = natEq sym si =<< natLit sym i
          let getElt i = return (v V.! fromIntegral i)
@@ -184,7 +186,8 @@ indexVectorWithSymNat sym iteFn v si =
          muxRange predFn iteFn getElt 0 (n - 1)
   where
   n   = fromIntegral (V.length v)
-  msg = "indexVectorWithSymNat given bad value"
+  msg = "Vector index out of range"
+  details = unwords ["Range is", show (0 :: Natural, n)]
 
 
 
@@ -226,10 +229,10 @@ adjustVectorWithSymNat sym iteFn v si adj =
            return $ v V.// [(fromIntegral i, new_val)]
 
       | otherwise ->
-        addFailedAssertion sym $ AssertFailureSimError $ msg $ show i ++ " "
+        addFailedAssertion sym $ AssertFailureSimError msg (details i)
 
     Nothing ->
-      do ensureInRange sym 0 (fromIntegral (n-1)) si (msg "")
+      do ensureInRange sym 0 (fromIntegral (n-1)) si msg
          V.generateM n setFn
       where
       setFn j =
@@ -245,8 +248,9 @@ adjustVectorWithSymNat sym iteFn v si adj =
 
 
   where
-  n     = V.length v
-  msg i = "Illegal index " ++ i ++ "given to updateVectorWithSymNat"
+  n = V.length v
+  msg = "Illegal vector index"
+  details i = "Illegal index " ++ show i ++ "given to updateVectorWithSymNat"
 
 type EvalAppFunc sym app = forall f.
   (forall tp. f tp -> IO (RegValue sym tp)) ->
@@ -436,7 +440,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
         in bitraverse rvEval (traverseF rvEval) assertions
 
       let expl = explainTree pext psym assertions'
-      let err  = AssertFailureSimError (show expl)
+      let err  = AssertFailureSimError (summarizeTree pext assertions') (show expl)
       addAssertionM sym (treeToPredicate pext sym assertions') err
       evalSub val
 

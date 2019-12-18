@@ -39,6 +39,7 @@ import Data.List
 import System.Console.GetOpt
 import System.IO
 import System.Environment(getProgName,getArgs)
+import System.Exit (ExitCode(..), exitWith)
 import System.FilePath(takeExtension,takeBaseName)
 import System.FilePath(splitSearchPath)
 
@@ -175,7 +176,9 @@ simulateJVM feats (copts,opts) sym ext cont = do
 
 -- | Entry point, parse command line opions
 main :: IO ()
-main =
+main = exitWith =<<
   Crux.mainWithOutputConfig Crux.defaultOutputConfig cruxJVM
-  `catch` \(e :: SomeException) -> Crux.sayFail "Crux" (displayException e)
+  `catch` \(e :: SomeException) ->
+      do Crux.sayFail "Crux" (displayException e)
+         return (ExitFailure 1)
     where ?outputConfig = Crux.defaultOutputConfig

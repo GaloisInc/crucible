@@ -1,6 +1,7 @@
 {-# Language ImplicitParams #-}
 {-# Language PatternSynonyms #-}
 {-# Language TypeFamilies #-}
+{-# Language MultiWayIf #-}
 
 module Crux.Goal where
 
@@ -25,7 +26,7 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
         ( OnlineBackendState, getSolverProcess )
 import Lang.Crucible.Simulator.SimError
-        ( SimError )
+        ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
 
@@ -68,13 +69,46 @@ countGoals gs =
     Prove _         -> 1
     ProveConj g1 g2 -> countGoals g1 + countGoals g2
 
-countFailedGoals :: ProvedGoals a -> Int
-countFailedGoals gs =
+countTotalGoals :: ProvedGoals a -> Int
+countTotalGoals gs =
   case gs of
-    AtLoc _ _ gs1 -> countFailedGoals gs1
-    Branch gs1 gs2 -> countFailedGoals gs1 + countFailedGoals gs2
-    Goal _ _ _ (NotProved _) -> 1
+    AtLoc _ _ gs1 -> countTotalGoals gs1
+    Branch gs1 gs2 -> countTotalGoals gs1 + countTotalGoals gs2
+    Goal _ _ _ _ -> 1
+
+countDisprovedGoals :: ProvedGoals a -> Int
+countDisprovedGoals gs =
+  case gs of
+    AtLoc _ _ gs1 -> countDisprovedGoals gs1
+    Branch gs1 gs2 -> countDisprovedGoals gs1 + countDisprovedGoals gs2
+    Goal _ _ _ (NotProved (Just _)) -> 1
+    Goal _ _ _ (NotProved Nothing) -> 0
     Goal _ _ _ (Proved _) -> 0
+
+countUnknownGoals :: ProvedGoals a -> Int
+countUnknownGoals gs =
+  case gs of
+    AtLoc _ _ gs1 -> countUnknownGoals gs1
+    Branch gs1 gs2 -> countUnknownGoals gs1 + countUnknownGoals gs2
+    Goal _ _ _ (NotProved Nothing) -> 1
+    Goal _ _ _ (NotProved (Just _)) -> 0
+    Goal _ _ _ (Proved _) -> 0
+
+countProvedGoals :: ProvedGoals a -> Int
+countProvedGoals gs =
+  case gs of
+    AtLoc _ _ gs1 -> countProvedGoals gs1
+    Branch gs1 gs2 -> countProvedGoals gs1 + countProvedGoals gs2
+    Goal _ _ _ (NotProved _) -> 0
+    Goal _ _ _ (Proved _) -> 1
+
+countIncompleteGoals :: ProvedGoals a -> Int
+countIncompleteGoals gs =
+  case gs of
+    AtLoc _ _ gs1 -> countIncompleteGoals gs1
+    Branch gs1 gs2 -> countIncompleteGoals gs1 + countIncompleteGoals gs2
+    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved (Just _)) -> 1
+    Goal _ _ _ _ -> 0
 
 proveToGoal ::
   sym ~ ExprBuilder s (OnlineBackendState solver) fs =>
@@ -109,26 +143,21 @@ proveGoals ::
 
 proveGoals opts _ctxt Nothing =
   do case pathStrategy opts of
-       AlwaysMergePaths -> sayOK "Crux" $ unwords [ "No goals to prove." ]
+       AlwaysMergePaths ->
+         do sayOK "Crux" "All goals discharged through internal simplification."
+            sayOK "Crux" "Overall status: Valid."
        _ -> return ()
      return Nothing
 
 proveGoals opts ctxt (Just gs0) =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
-     goalNum <- newIORef (0,0,0) -- total, proved, disproved
+     let zero = 0 :: Integer
+     goalNum <- newIORef (zero,zero,zero) -- total, proved, disproved
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
       sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
-     (tot,proved,disproved) <- readIORef goalNum
-     if proved /= tot
-       then sayFail "Crux" $ unwords
-             [ "Disproved", show disproved
-             , "out of", show tot, "goals."
-             , show (tot - proved - disproved), "goals are unknown."
-             ]
-       else sayOK "Crux" $ unwords [ "Proved all", show tot, "goals." ]
      return (Just res)
   where
   (start,end) = prepStatus "Checking: " (countGoals gs0)

@@ -153,6 +153,7 @@ function drawGoals() {
                 .removeClass('highlight-unknown')
      jQuery.each(g.assumptions, function(ix,a) {
         var lnName = a.loc
+        if (!lnName) return true
         if (!lnName.file) return true
 
          var obj = fileObjs[lnName.file]

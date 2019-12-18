@@ -343,7 +343,7 @@ serverErrorHandler sim = AH $ \e ->
           case simErrorReason se of
             ReadBeforeWriteSimError msg -> do
               sendCallPathAborted sim P.AbortedReadBeforeWrite (show msg) loc
-            AssertFailureSimError msg -> do
+            AssertFailureSimError msg _details -> do
               sendCallPathAborted sim P.AbortedUserAssertFailure (show msg) loc
             _ -> do
               sendCallPathAborted sim P.AbortedGeneric (show (simErrorReason se)) loc

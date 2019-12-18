@@ -285,9 +285,10 @@ assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 -> Pred sym
                 -> (UB.UndefinedBehavior (RegValue' sym)) -- ^ The undesirable behavior
                 -> IO ()
-assertUndefined sym p ub =
-  assert sym p $
-    (AssertFailureSimError $ show $ UB.ppReg (Just sym) ub)
+assertUndefined sym p ub = assert sym p $ AssertFailureSimError msg details
+  where
+    msg = show (UB.explain ub)
+    details = show (UB.ppReg (Just sym) ub)
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -352,8 +353,9 @@ evalStmt sym = eval
             EvalM p sym ext rtp blocks ret args ()
   setMem mvar mem = stateTree.actFrame.gpGlobals %= insertGlobal mvar mem
 
-  failedAssert :: String -> EvalM p sym ext rtp blocks ret args a
-  failedAssert = lift . addFailedAssertion sym . AssertFailureSimError
+  failedAssert :: String -> String -> EvalM p sym ext rtp blocks ret args a
+  failedAssert msg details =
+    lift $ addFailedAssertion sym $ AssertFailureSimError msg details
 
   eval :: LLVMStmt wptr (RegEntry sym) tp ->
           EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -399,13 +401,14 @@ evalStmt sym = eval
      do mem <- getMem mvar
         mhandle <- liftIO $ doLookupHandle sym mem ptr
         case mhandle of
-           Left doc -> failedAssert (show doc)
+           Left doc -> failedAssert (show doc) ""
            Right (SomeFnHandle h)
              | Just Refl <- testEquality handleTp expectedTp -> return (HandleFnVal h)
              | otherwise -> failedAssert
-                 $ unwords ["Expected function handle of type " <> show expectedTp
-                           ,"for call to function " <> show (handleName h)
-                           ,"but found calling handle of type " ++ show handleTp]
+                 "Failed to load function handle"
+                 (unlines ["Expected function handle of type " <> show expectedTp
+                          , "for call to function " <> show (handleName h)
+                          , "but found calling handle of type " ++ show handleTp])
             where handleTp   = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
                   expectedTp = FunctionHandleRepr args ret
 
@@ -430,11 +433,13 @@ evalStmt sym = eval
              let x_doc = G.ppPtr x
              let y_doc = G.ppPtr y
              -- TODO: Is this undefined behavior? If so, add to the UB module
-             assert sym v3
-               (AssertFailureSimError $ unlines [ "Const pointers compared for equality:"
-                                                , show x_doc
-                                                , show y_doc
-                                                , show allocs_doc])
+             assert sym v3 $
+               AssertFailureSimError
+               "Const pointers compared for equality"
+               (unlines [ show x_doc
+                        , show y_doc
+                        , show allocs_doc
+                        ])
         ptrEq sym PtrWidth x y
 
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
@@ -540,9 +545,11 @@ sextendBVTo sym w w' x
   | otherwise =
     addFailedAssertion sym
         $ AssertFailureSimError
-        $ unwords ["cannot extend bitvector of width", show (natValue w)
-                                                     , "to", show (natValue w') ]
-
+          "Invalid bitvector sign extension"
+          (unwords ["Trying to extend width"
+                   , show (natValue w)
+                   , "to", show (natValue w')
+                   ])
 
 -- | Allocate and zero a memory region with /size * number/ bytes.
 --
@@ -559,7 +566,7 @@ doCalloc sym mem sz num alignment = do
   (ov, sz') <- unsignedWideMultiplyBV sym sz num
   ov_iszero <- notPred sym =<< bvIsNonzero sym ov
   assert sym ov_iszero
-     (AssertFailureSimError "Multiplication overflow in calloc()")
+     (AssertFailureSimError "Multiplication overflow in calloc()" "")
 
   z <- bvLit sym knownNat 0
   (ptr, mem') <- doMalloc sym G.HeapAlloc G.Mutable "<calloc>" mem sz' alignment
@@ -714,12 +721,13 @@ doInvalidate sym w mem dest msg len = do
 
   (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
-  assert sym p . AssertFailureSimError $ mconcat
-    [ "Invalidation of unallocated or immutable region: "
-    , show $ printSymExpr len
-    , " bytes at "
-    , show $ G.ppPtr dest
-    ]
+  assert sym p $ AssertFailureSimError
+    "Invalidation of unallocated or immutable region"
+    (unwords [ "Region of"
+             , show $ printSymExpr len
+             , "bytes at"
+             , show $ G.ppPtr dest
+             ])
 
   return mem{ memImplHeap = heap' }
 
@@ -763,10 +771,10 @@ doArrayStoreSize
 doArrayStoreSize len sym mem ptr alignment arr = do
   (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
-  let errMsg1 = "Array store to unallocated or immutable region: "
-  let errMsg2 = "Array store to improperly aligned region: "
-  assert sym p1 $ AssertFailureSimError $ errMsg1 ++ show (G.ppPtr ptr)
-  assert sym p2 $ AssertFailureSimError $ errMsg2 ++ show (G.ppPtr ptr)
+  let errMsg1 = "Array store to unallocated or immutable region"
+  let errMsg2 = "Array store to improperly aligned region"
+  assert sym p1 $ AssertFailureSimError errMsg1 (show (G.ppPtr ptr))
+  assert sym p2 $ AssertFailureSimError errMsg2 (show (G.ppPtr ptr))
   return mem { memImplHeap = heap' }
 
 -- | Store an array in memory.
@@ -785,10 +793,10 @@ doArrayConstStore
 doArrayConstStore sym mem ptr alignment arr len = do
   (heap', p1, p2) <-
     G.writeArrayConstMem sym PtrWidth ptr alignment arr (Just len) (memImplHeap mem)
-  let errMsg1 = "Array store to unallocated region: "
-  let errMsg2 = "Array store to improperly aligned region: "
-  assert sym p1 $ AssertFailureSimError $ errMsg1 ++ show (G.ppPtr ptr)
-  assert sym p2 $ AssertFailureSimError $ errMsg2 ++ show (G.ppPtr ptr)
+  let errMsg1 = "Array store to unallocated region"
+  let errMsg2 = "Array store to improperly aligned region"
+  assert sym p1 $ AssertFailureSimError errMsg1 (show (G.ppPtr ptr))
+  assert sym p2 $ AssertFailureSimError errMsg2 (show (G.ppPtr ptr))
   return mem { memImplHeap = heap' }
 
 -- | Copy memory from source to destination.
@@ -810,8 +818,7 @@ doMemcpy sym w mem dest src len = do
   (heap', p1, p2) <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
 
   let mkMsg = show . vcat .
-        ([ PP.text "Encountered error in call to memcpy:"
-         , PP.indent 2 $ PP.text "Source pointer:" PP.<+> G.ppPtr src
+        ([ PP.indent 2 $ PP.text "Source pointer:" PP.<+> G.ppPtr src
          , PP.indent 2 $ PP.text "Dest pointer:  " PP.<+> G.ppPtr dest
          , PP.indent 2 $ PP.text "Size of copy:  " PP.<+> printSymExpr len
          , PP.text "The error was:"
@@ -824,8 +831,8 @@ doMemcpy sym w mem dest src len = do
   let errMsg2 = PP.text "Dest region was one of the following:"
               : PP.text "- Not mutable"
               : reasons
-  assert sym p1 (AssertFailureSimError (mkMsg errMsg1))
-  assert sym p2 (AssertFailureSimError (mkMsg errMsg2))
+  assert sym p1 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg1))
+  assert sym p2 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg2))
 
   return mem{ memImplHeap = heap' }
 
@@ -1010,10 +1017,11 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType alignment val = do
     (heap', p1, p2) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg1 = "Invalid memory store: the region wasn't allocated, or wasn't mutable"
-    let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
-    assert sym p1 (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
-    assert sym p2 (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
+    let errMsg1 = "The region wasn't allocated, or wasn't mutable"
+    let errMsg2 = "The region's alignment wasn't correct"
+    let err = AssertFailureSimError "Invalid memory store"
+    assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
+    assert sym p2 (err $ ptrMessage errMsg2 ptr valType)
     return mem{ memImplHeap = heap' }
 
 -- | Store an LLVM value in memory if the condition is true, and
@@ -1031,6 +1039,7 @@ condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 condStoreRaw sym mem cond ptr valType alignment val = do
+  let err = AssertFailureSimError "Invalid memory store"
   -- Get current heap
   let preBranchHeap = memImplHeap mem
   -- Push a branch to the heap
@@ -1039,12 +1048,12 @@ condStoreRaw sym mem cond ptr valType alignment val = do
   (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
   -- Assert is allocated if write executes
   do condIsAllocated <- impliesPred sym cond isAllocated
-     let errMsg1 = "Invalid memory store: the region wasn't allocated, or wasn't mutable"
-     assert sym condIsAllocated (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
+     let errMsg1 = "The region wasn't allocated, or wasn't mutable"
+     assert sym condIsAllocated (err $ ptrMessage errMsg1 ptr valType)
   -- Assert is aligned if write executes
   do condIsAligned <- impliesPred sym cond isAligned
-     let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
-     assert sym condIsAligned (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
+     let errMsg2 = "The region's alignment wasn't correct"
+     assert sym condIsAligned (err $ ptrMessage errMsg2 ptr valType)
   -- Merge the write heap and non-write heap
   let mergedHeap = G.mergeMem cond postWriteHeap postBranchHeap
   -- Return new memory
@@ -1063,10 +1072,11 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (MemImpl sym)
 storeConstRaw sym mem ptr valType alignment val = do
     (heap', p1, p2) <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg1 = "Invalid memory store: the region wasn't allocated"
-    let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
-    assert sym p1 (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
-    assert sym p2 (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
+    let errMsg1 = "The region wasn't allocated"
+    let errMsg2 = "The region's alignment wasn't correct"
+    let err = AssertFailureSimError "Invalid memory store"
+    assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
+    assert sym p2 (err $ ptrMessage errMsg2 ptr valType)
     return mem{ memImplHeap = heap' }
 
 -- | Allocate a memory region on the heap, with no source location info.
@@ -1284,7 +1294,7 @@ assertDisjointRegions' ::
 assertDisjointRegions' lbl sym w dest dlen src slen = do
   c <- buildDisjointRegionsAssertion sym w dest dlen src slen
   assert sym c
-     (AssertFailureSimError ("Memory regions not disjoint in " ++ lbl))
+     (AssertFailureSimError "Memory regions not disjoint" ("In: " ++ lbl))
 
 
 buildDisjointRegionsAssertion ::
@@ -1538,18 +1548,22 @@ doResolveGlobal ::
   IO (LLVMPtr sym wptr)
 doResolveGlobal sym mem symbol@(L.Symbol name) =
   let lookedUp = Map.lookup symbol (memImplGlobalMap mem)
+      msg1 = "Global allocation has incorrect width"
+      msg1Details = mconcat [ "Allocation associated with global symbol \""
+                            , name
+                            , "\" is not a pointer of the correct width"
+                            ]
+      msg2 = "Global symbol not allocated"
+      msg2Details = mconcat [ "Global symbol \""
+                            , name
+                            , "\" has no associated allocation"
+                            ]
   in case lookedUp of
        Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
-       _ -> addFailedAssertion sym . AssertFailureSimError $
+       _ -> addFailedAssertion sym $
          if isJust lookedUp
-         then mconcat [ "Allocation associated with global symbol \""
-                      , name
-                      , "\" is not a pointer of the correct width"
-                      ]
-         else mconcat [ "Global symbol \""
-                      , name
-                      , "\" has no associated allocation"
-                      ]
+         then AssertFailureSimError msg1 msg1Details
+         else AssertFailureSimError msg2 msg2Details
 
 -- | Add an entry to the global map of the given 'MemImpl'.
 --

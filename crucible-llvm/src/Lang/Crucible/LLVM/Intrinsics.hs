@@ -224,6 +224,7 @@ declare_overrides =
       (\w -> SomeLLVMOverride (LLVM.llvmUmulWithOverflow w))
 
   -- C standard library functions
+  , basic_llvm_override Libc.llvmAbortOverride
   , basic_llvm_override Libc.llvmAssertRtnOverride
   , basic_llvm_override Libc.llvmMemcpyOverride
   , basic_llvm_override Libc.llvmMemcpyChkOverride

@@ -270,6 +270,7 @@ instance SupportTermOps (YicesTerm s) where
 
   realIsInteger x = term_app "is-int" [x]
 
+  realDiv x y = term_app "/" [x, y]
   realSin = errorComputableUnsupported
   realCos = errorComputableUnsupported
   realATan2 = errorComputableUnsupported

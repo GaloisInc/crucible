@@ -32,4 +32,5 @@ extra-deps:
   - generic-deriving-1.12.4
   - invariant-0.5.3
   - microlens-th-0.4.2.3
+  - zenc-0.1.1
 resolver: lts-12.26

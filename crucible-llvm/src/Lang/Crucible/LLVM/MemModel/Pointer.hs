@@ -141,10 +141,9 @@ projectLLVM_bv ::
 projectLLVM_bv sym ptr@(LLVMPointer blk bv) =
   do p <- natEq sym blk =<< natLit sym 0
      assert sym p $
-        AssertFailureSimError $ unlines
-          [ "Pointer value coerced to bitvector:"
-          , "*** " ++ show (ppPtr ptr)
-          ]
+        AssertFailureSimError
+        "Pointer value coerced to bitvector"
+        (unwords ["***", show (ppPtr ptr)])
      return bv
 
 -- | Convert a raw bitvector value into an LLVM pointer value.

@@ -22,4 +22,5 @@ extra-deps:
   - config-schema-1.0.0.0
   - config-value-0.6.3.1
   - simple-get-opt-0.3
+  - zenc-0.1.1
 resolver: lts-13.25

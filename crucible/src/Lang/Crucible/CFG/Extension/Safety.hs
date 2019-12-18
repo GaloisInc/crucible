@@ -53,6 +53,7 @@ import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
 import Data.Functor.Classes (Eq2(liftEq2), Ord2(liftCompare2))
 import Data.Kind (Type)
+import Data.List (intercalate, nub, isPrefixOf)
 import Data.Maybe (isJust)
 import Data.Type.Equality (TestEquality(..))
 import Data.Typeable (Typeable)
@@ -262,6 +263,22 @@ class HasStructuredAssertions (ext :: Type) where
                , "else " <$$> indent 2 doc2
                ])
 
+  summarizeTree :: (IsExprBuilder sym, IsExpr (SymExpr sym))
+                => proxy ext
+                -> AssertionClassifierTree ext (RegValue' sym)
+                -> String
+  summarizeTree proxyExt =
+    -- TODO: filtering out "muxing" below is a temporary hack to avoid
+    -- including some not-very-useful messages in the summary of an
+    -- assertion tree. Ultimately we should refactor the way those
+    -- messages are constructed to make them more useful.
+    intercalate ", " . nub . filter (not . ("muxing" `isPrefixOf`)) .
+    cataMAT
+      (\ac -> [show (explain proxyExt ac)])
+      (\factors -> nub (toList factors))
+      (\summands -> nub (toList summands))
+      (\_cond doc1 doc2 -> nub [doc1, doc2])
+
 -- | Take a partial value and assert its safety
 assertSafe :: ( MonadIO io
               , IsSymInterface sym
@@ -274,7 +291,7 @@ assertSafe :: ( MonadIO io
 assertSafe proxyExt sym (Partial tree a) = do
   pred <- treeToPredicate proxyExt sym tree
   -- TODO: Should SimErrorReason have another constructor for this?
-  let rsn = AssertFailureSimError (show (explainTree proxyExt (Just sym) tree))
+  let rsn = AssertFailureSimError (summarizeTree proxyExt tree) (show (explainTree proxyExt (Just sym) tree))
   liftIO $ assert sym pred rsn
   pure a
 

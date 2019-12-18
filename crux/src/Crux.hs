@@ -1,4 +1,4 @@
-{-# Language RankNTypes, ImplicitParams, TypeApplications #-}
+{-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 module Crux
   ( main
@@ -12,12 +12,13 @@ module Crux
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Foldable
 import Data.IORef
 import Data.List(intercalate)
 import qualified Data.Sequence as Seq
 import Control.Exception(catch, displayException)
 import Control.Monad(when)
-import System.Exit(exitSuccess)
+import System.Exit(exitSuccess, ExitCode(..))
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
 
@@ -54,12 +55,12 @@ import qualified Crux.Version as Crux
 
 -- | Throws 'ConfigError' (in addition to whatever the crucible and the
 -- callbacks may throw)
-main :: Language opts -> IO ()
+main :: Language opts -> IO ExitCode
 main = mainWithOutputConfig defaultOutputConfig
 
 -- | Throws 'ConfigError' (in addition to whatever the crucible and the
 -- callbacks may throw)
-mainWithOutputConfig :: OutputConfig -> Language opts -> IO ()
+mainWithOutputConfig :: OutputConfig -> Language opts -> IO ExitCode
 mainWithOutputConfig cfg lang =
   do opts  <- loadOptions lang
      opts1@(cruxOpts,_) <- initialize lang opts
@@ -68,7 +69,9 @@ mainWithOutputConfig cfg lang =
      let fileText = intercalate ", " (map show (inputFiles cruxOpts))
      when (simVerbose cruxOpts > 1) $
        say "Crux" ("Checking " ++ fileText)
-     res <- runSimulator lang opts1
+     (cmpl, res) <- runSimulator lang opts1
+
+     reportStatus cmpl res
 
      -- Generate report
      when (outDir cruxOpts /= "") $
@@ -77,8 +80,14 @@ mainWithOutputConfig cfg lang =
      -- Generate counter examples
      when (makeCexes cruxOpts) $
        makeCounterExamples lang opts res
-  `catch` \(e :: Cfg.ConfigError) -> sayFail "Crux" (displayException e)
-    where ?outputConfig = cfg
+
+     return $! computeExitCode cmpl res
+
+  `catch` \(e :: Cfg.ConfigError) ->
+    do sayFail "Crux" (displayException e)
+       return (ExitFailure 1)
+
+ where ?outputConfig = cfg
 
 -- | Load the options for the given language.
 -- IMPORTANT:  This processes options like @help@ and @version@, which
@@ -216,13 +225,16 @@ execFeatureMaybe mb m =
     Just a  -> (:[]) <$> m a
 
 
-
+data ProgramCompleteness
+ = ProgramComplete
+ | ProgramIncomplete
+ deriving (Eq,Ord,Show)
 
 runSimulator ::
   Logs =>
   Language opts ->
   Options opts  ->
-  IO (Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
+  IO (ProgramCompleteness, Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
 runSimulator lang opts@(cruxOpts,_) =
   withIONonceGenerator $ \nonceGen ->
   withBackend cruxOpts nonceGen $ \sym ->
@@ -241,6 +253,8 @@ runSimulator lang opts@(cruxOpts,_) =
 
      createDirectoryIfMissing True (outDir cruxOpts)
 
+     compRef <- newIORef ProgramComplete
+
      -- Setup profiling
      let profiling = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts
      profInfo <- if profiling then setupProfiling sym cruxOpts
@@ -251,11 +265,11 @@ runSimulator lang opts@(cruxOpts,_) =
 
      -- Loop bound
      bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
-             boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
+             boundedExecFeature (\_ -> return (Just i)) True {- side cond: yes -}
 
      -- Recursion bound
      rfs <- execFeatureMaybe (recursionBound cruxOpts) $ \i ->
-             boundedRecursionFeature (\_ -> return (Just i)) False {- side cond: no -}
+             boundedRecursionFeature (\_ -> return (Just i)) True {- side cond: yes -}
 
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
@@ -269,8 +283,8 @@ runSimulator lang opts@(cruxOpts,_) =
        simulate lang execFeatures opts sym emptyModel $ \(Result res) ->
         do case res of
              TimeoutResult _ ->
-               do outputLn
-                    "Simulation timed out! Program might not be fully verified!"
+               do sayWarn "Crux" "Simulation timed out! Program might not be fully verified!"
+                  writeIORef compRef ProgramIncomplete
              _ -> return ()
 
            popUntilAssumptionFrame sym frm
@@ -283,7 +297,8 @@ runSimulator lang opts@(cruxOpts,_) =
                 mgt <- provedGoalsTree ctx' proved
                 case mgt of
                   Nothing -> return ()
-                  Just gt -> modifyIORef gls (Seq.|> gt)
+                  Just gt ->
+                    modifyIORef gls (Seq.|> gt)
 
      when (simVerbose cruxOpts > 1) $
        say "Crux" "Simulation complete."
@@ -291,4 +306,44 @@ runSimulator lang opts@(cruxOpts,_) =
      when profiling $
        writeProf profInfo
 
-     readIORef gls
+     (,) <$> readIORef compRef <*> readIORef gls
+
+computeExitCode :: ProgramCompleteness -> Seq.Seq (ProvedGoals a) -> ExitCode
+computeExitCode cmpl = maximum . (base:) . fmap f . toList
+ where
+ base = case cmpl of
+          ProgramComplete   -> ExitSuccess
+          ProgramIncomplete -> ExitFailure 1
+ f gl =
+  let tot = countTotalGoals gl
+      proved = countProvedGoals gl
+  in if proved == tot then
+       ExitSuccess
+     else
+       ExitFailure 1
+
+reportStatus ::
+  (?outputConfig::OutputConfig) =>
+  ProgramCompleteness ->
+  Seq.Seq (ProvedGoals a) ->
+  IO ()
+reportStatus cmpl gls =
+  do let tot        = sum (fmap countTotalGoals gls)
+         proved     = sum (fmap countProvedGoals gls)
+         incomplete = sum (fmap countIncompleteGoals gls)
+         disproved  = sum (fmap countDisprovedGoals gls) - incomplete
+         unknown    = sum (fmap countUnknownGoals gls)
+     say "Crux" "Goal status:"
+     say "Crux" ("  Total: " ++ show tot)
+     say "Crux" ("  Proved: " ++ show proved)
+     say "Crux" ("  Disproved: " ++ show disproved)
+     say "Crux" ("  Incomplete: " ++ show incomplete)
+     say "Crux" ("  Unknown: " ++ show unknown)
+     if | disproved > 0 ->
+            sayFail "Crux" "Overall status: Invalid."
+        | incomplete > 0 || cmpl == ProgramIncomplete ->
+            sayWarn "Crux" "Overall status: Unknown (incomplete)."
+        | unknown > 0 -> sayWarn "Crux" "Overall status: Unknown."
+        | proved == tot -> sayOK "Crux" "Overall status: Valid."
+        | otherwise ->
+            sayFail "Crux" "Internal error computing overall status."

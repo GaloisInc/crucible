@@ -7,7 +7,7 @@ import System.FilePath
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory, makeAbsolute)
 import System.IO
 import qualified Data.Foldable as Fold
-import Data.List (partition, isInfixOf)
+import Data.List (partition)
 import Data.Sequence (Seq)
 import Control.Exception (catch, SomeException(..))
 import Control.Monad (forM_)
@@ -125,12 +125,5 @@ jsSideCond cwd path asmps (conc,_) triv status =
           -- , "text" ~> jsStr (show (ppAssumptionReason asmp))
           ]
 
-  goalReason = renderReason (simErrorReasonMsg (simErrorReason conc))
-  renderReason rsn =
-    case lines rsn of
-      l1 : l2 : _ | "Undefined behavior" `isInfixOf` l1 -> l2
-      l1 : _ -> takeFileName l1
-      _ -> "no reason?"
-
-
+  goalReason = simErrorReasonMsg (simErrorReason conc)
 
