@@ -9,7 +9,7 @@ attempts to prove that all assertions pass on all valid inputs.
 ## Preliminaries
 
 You must have the most recent version of the `mir-json` executable in your
-path.  See [the `mir-json` README](mir-json-readme) for installation
+path.  See [the `mir-json` README][mir-json-readme] for installation
 instructions.
 
 [mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
