@@ -31,6 +31,7 @@ module Lang.Crucible.LLVM.Intrinsics
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
+import           Control.Monad ( (>=>) )
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (asum)
@@ -68,6 +69,8 @@ llvmIntrinsicTypes =
 register_llvm_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
+  [OverrideTemplate p sym arch rtp l a] {- ^ Additional "define" overrides -} ->
+  [OverrideTemplate p sym arch rtp l a] {- ^ Additional "declare" overrides -} ->
   LLVMContext arch ->
   OverrideSim p sym (LLVM arch) rtp l a ()
 register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
@@ -120,6 +123,7 @@ register_llvm_overrides_ llvmctx acts decls =
 register_llvm_define_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
+  [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
   OverrideSim p sym (LLVM arch) rtp l a ()
 register_llvm_define_overrides llvmModule addlOvrs llvmctx =
@@ -130,11 +134,12 @@ register_llvm_define_overrides llvmModule addlOvrs llvmctx =
 register_llvm_declare_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
+  [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
   OverrideSim p sym (LLVM arch) rtp l a ()
 register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
   let ?lc = llvmctx^.llvmTypeCtx
-  in register_llvm_overrides_ llvmctx declare_overrides $
+  in register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) $
        L.modDeclares llvmModule
 
 

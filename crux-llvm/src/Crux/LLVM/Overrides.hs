@@ -4,66 +4,60 @@
 {-# Language ImplicitParams #-}
 {-# Language LambdaCase #-}
 {-# Language PatternSynonyms #-}
+{-# Language QuasiQuotes #-}
 {-# Language RankNTypes #-}
 {-# Language TypeApplications #-}
 {-# Language TypeFamilies #-}
 {-# Language TypeOperators #-}
-module Crux.LLVM.Overrides where
+module Crux.LLVM.Overrides
+  ( cruxLLVMOverrides
+  , svCompOverrides
+  , ArchOk
+  ) where
 
-import Data.String(fromString)
-import qualified Data.Map as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import Control.Lens((^.),(%=))
+import Control.Lens((%=))
 import Control.Monad.IO.Class(liftIO)
 import System.IO (hPutStrLn)
+import qualified Data.Text as T
 
-import Data.Parameterized.Classes(showF)
+
 import Data.Parameterized.Context.Unsafe (Assignment)
 import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 
-
-import What4.FunctionName(functionNameFromText)
+import What4.ProgramLoc( Position(..), ProgramLoc(..) )
 import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
-          (freshConstant, bvLit, bvEq, bvAdd, asUnsignedBV,notPred
-          , getCurrentProgramLoc, printSymExpr, arrayUpdate)
+          (freshConstant, bvLit, bvAdd, asUnsignedBV,
+          getCurrentProgramLoc, printSymExpr, arrayUpdate, bvIsNonzero)
 import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(GlobalVar)
-import Lang.Crucible.FunctionHandle (handleArgTypes,handleReturnType)
-import Lang.Crucible.Simulator.RegMap(RegMap(..),regValue,RegValue,RegEntry)
+import Lang.Crucible.Simulator.RegMap(regValue,RegValue,RegEntry)
 import Lang.Crucible.Simulator.ExecutionTree
-        ( FnState(..)
-        , cruciblePersonality
-        , stateContext
-        , printHandle
-        )
+  ( stateContext, cruciblePersonality, printHandle )
 import Lang.Crucible.Simulator.OverrideSim
-        ( mkOverride'
-        , getSymInterface
+        ( getSymInterface
         , getContext
-        , FnBinding(..)
-        , registerFnBinding
-        , getOverrideArgs
         , readGlobal
         , writeGlobal
         )
-import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
+import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
-          (IsSymInterface,addFailedAssertion,assert
+          (IsSymInterface,addAssertion, addFailedAssertion
           , addAssumption, LabeledPred(..), AssumptionReason(..))
-import Lang.Crucible.LLVM.Translation
-        ( LLVMContext, LLVMHandleInfo(..)
-        , symbolMap
-        , llvmMemVar
-        )
+import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
 import Lang.Crucible.LLVM.MemModel
-  (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth, doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
-   llvmPointer_bv, projectLLVM_bv, doArrayStore, doArrayConstStore)
+  (Mem, LLVMPointerType, loadString, HasPtrWidth,
+   doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
+   doArrayStore, doArrayConstStore)
+
+import           Lang.Crucible.LLVM.TypeContext( TypeContext )
+import           Lang.Crucible.LLVM.Intrinsics
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 import Lang.Crucible.LLVM.Extension(ArchWidth)
@@ -74,141 +68,135 @@ import Crux.Model
 -- | This happens quite a lot, so just a shorter name
 type ArchOk arch    = HasPtrWidth (ArchWidth arch)
 type TPtr arch      = LLVMPointerType (ArchWidth arch)
-type TBits n        = LLVMPointerType n
+type TBits n        = BVType n
 
 
-tPtr :: HasPtrWidth w => TypeRepr (LLVMPointerType w)
-tPtr = LLVMPointerRepr ?ptrWidth
+cruxLLVMOverrides ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  [OverrideTemplate (Model sym) sym arch rtp l a]
+cruxLLVMOverrides =
+  [ basic_llvm_override $
+        [llvmOvr| i8 @crucible_int8_t( i8* ) |]
+        (fresh_bits (knownNat @8))
 
-tBVPtrWidth :: (HasPtrWidth w) => TypeRepr (TBits w)
-tBVPtrWidth = LLVMPointerRepr ?ptrWidth
+  , basic_llvm_override $
+        [llvmOvr| i16 @crucible_int16_t( i8* ) |]
+        (fresh_bits (knownNat @16))
 
-setupOverrides ::
-  (ArchOk arch, IsSymInterface b) =>
-  LLVMContext arch -> OverM b (LLVM arch) ()
-setupOverrides ctxt =
-  do let mvar = llvmMemVar ctxt
-     regOver ctxt "crucible_int8_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i8 mvar)
-     regOver ctxt "crucible_int16_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i16 mvar)
-     regOver ctxt "crucible_int32_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i32 mvar)
-     regOver ctxt "crucible_int64_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i64 mvar)
+  , basic_llvm_override $
+        [llvmOvr| i32 @crucible_int32_t( i8* ) |]
+        (fresh_bits (knownNat @32))
 
-     regOver ctxt "crucible_uint8_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i8 mvar)
-     regOver ctxt "crucible_uint16_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i16 mvar)
-     regOver ctxt "crucible_uint32_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i32 mvar)
-     regOver ctxt "crucible_uint64_t"
-        (Empty :> tPtr) knownRepr (lib_fresh_i64 mvar)
+  , basic_llvm_override $
+        [llvmOvr| i64 @crucible_int64_t( i8* ) |]
+        (fresh_bits (knownNat @64))
 
-     regOver ctxt "crucible_float"
-        (Empty :> tPtr) knownRepr (lib_fresh_cfloat mvar)
-     regOver ctxt "crucible_double"
-        (Empty :> tPtr) knownRepr (lib_fresh_cdouble mvar)
+  , basic_llvm_override $
+        [llvmOvr| i8 @crucible_uint8_t( i8* ) |]
+        (fresh_bits (knownNat @8))
 
-     regOver ctxt "crucible_string"
-        (Empty :> tPtr :> tBVPtrWidth) tPtr (lib_fresh_str mvar)
+  , basic_llvm_override $
+        [llvmOvr| i16 @crucible_uint16_t( i8* ) |]
+        (fresh_bits (knownNat @16))
 
-     regOver ctxt "crucible_assume"
-        (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr lib_assume
-     regOver ctxt "crucible_assert"
-        (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr (lib_assert mvar)
+  , basic_llvm_override $
+        [llvmOvr| i32 @crucible_uint32_t( i8* ) |]
+        (fresh_bits (knownNat @32))
 
-     regOver ctxt "crucible_print_uint32"
-        (Empty :> knownRepr) knownRepr lib_print32
+  , basic_llvm_override $
+        [llvmOvr| i64 @crucible_uint64_t( i8* ) |]
+        (fresh_bits (knownNat @64))
 
-     regOver ctxt "crucible_havoc_memory"
-        (Empty :> tPtr :> tPtr) knownRepr (lib_havoc_memory mvar)
+  , basic_llvm_override $
+        [llvmOvr| float @crucible_float( i8* ) |]
+        (fresh_float SingleFloatRepr)
 
-     isVarargs ctxt "__VERIFIER_nondet_ulong" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i64
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i64
-     isVarargs ctxt "__VERIFIER_nondet_long" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i64
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i64
-     isVarargs ctxt "__VERIFIER_nondet_uint" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i32
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i32
-     isVarargs ctxt "__VERIFIER_nondet_int" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i32
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i32
-     isVarargs ctxt "__VERIFIER_nondet_ushort" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i16
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i16
-     isVarargs ctxt "__VERIFIER_nondet_short" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i16
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i16
-     isVarargs ctxt "__VERIFIER_nondet_float" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_float
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_float
-     isVarargs ctxt "__VERIFIER_nondet_double" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_double
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_double
-     isVarargs ctxt "__VERIFIER_nondet_char" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i8
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
-     isVarargs ctxt "__VERIFIER_nondet_uchar" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i8
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
-     isVarargs ctxt "__VERIFIER_nondet_bool" >>= \case
-        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_bool
-        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_bool
+  , basic_llvm_override $
+        [llvmOvr| double @crucible_double( i8* ) |]
+        (fresh_float DoubleFloatRepr)
 
-     regOver ctxt "__VERIFIER_assert"
-        (Empty :> knownRepr) knownRepr sv_comp_assert
-     regOver ctxt "__VERIFIER_assume"
-        (Empty :> knownRepr) knownRepr sv_comp_assume
-     isVarargs ctxt "__VERIFIER_error" >>= \case
-       (False, s) -> regOver ctxt s Empty knownRepr sv_comp_error
-       (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_error
+  , basic_llvm_override $
+        [llvmOvr| i8* @crucible_string( i8*, size_t ) |]
+        fresh_str
 
-isVarargs ::
-  (ArchOk arch, IsSymInterface b) =>
-  LLVMContext arch ->
-  String ->
-  OverM b (LLVM arch) (Bool, String)
-isVarargs ctxt nm =
-  case Map.lookup (fromString nm) (ctxt ^. symbolMap) of
-    Just (LLVMHandleInfo _ h) ->
-      case testEquality (Empty :> VectorRepr AnyRepr) (handleArgTypes h) of
-        Just Refl -> return (True, nm)
-        Nothing -> return (False, nm)
-    Nothing -> return (False, nm)
+  , basic_llvm_override $
+        [llvmOvr| void @crucible_assume( i8, i8*, i32 ) |]
+        do_assume
 
-regOver ::
-  (ArchOk arch, IsSymInterface b) =>
-  LLVMContext arch ->
-  String ->
-  Assignment TypeRepr args ->
-  TypeRepr ret ->
-  Fun b (LLVM arch) args ret ->
-  OverM b (LLVM arch) ()
-regOver ctxt n argT retT x =
-  do let lnm = fromString n
-         nm  = functionNameFromText (fromString n)
-     case Map.lookup lnm (ctxt ^. symbolMap) of
-       Nothing -> return () -- Function not used in this proof.
-                            -- (let's hope we didn't misspell its name :-)
+  , basic_llvm_override $
+        [llvmOvr| void @crucible_assert( i8, i8*, i32 ) |]
+        do_assert
 
-       Just (LLVMHandleInfo _ h) ->
-         case ( testEquality retT (handleReturnType h)
-              , testEquality argT (handleArgTypes h) ) of
-           (Just Refl, Just Refl) ->
-              do let over = mkOverride' nm retT x
-                 registerFnBinding (FnBinding h (UseOverride over))
-           _ ->
-             error $ unlines
-                [ "[bug] Invalid type for implementation of " ++ show n
-                , "*** Expected: " ++ showF (handleArgTypes h) ++
-                            " -> " ++ showF (handleReturnType h)
-                , "*** Actual:   " ++ showF argT ++
-                            " -> " ++ showF retT
-                ]
+  , basic_llvm_override $
+        [llvmOvr| void @crucible_print_uint32( i32 ) |]
+        do_print_uint32
+
+  , basic_llvm_override $
+        [llvmOvr| void @crucible_havoc_memory( i8*, size_t ) |]
+        do_havoc_memory
+  ]
+
+
+svCompOverrides ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  [OverrideTemplate (Model sym) sym arch rtp l a]
+svCompOverrides =
+  [ basic_llvm_override $
+        [llvmOvr| size_t @__VERIFIER_nondet_ulong() |]
+        (sv_comp_fresh_bits ?ptrWidth)
+
+  , basic_llvm_override $
+        [llvmOvr| size_t @__VERIFIER_nondet_long() |]
+        (sv_comp_fresh_bits ?ptrWidth)
+
+  , basic_llvm_override $
+        [llvmOvr| i32 @__VERIFIER_nondet_uint() |]
+        (sv_comp_fresh_bits (knownNat @32))
+
+  , basic_llvm_override $
+        [llvmOvr| i32 @__VERIFIER_nondet_int() |]
+        (sv_comp_fresh_bits (knownNat @32))
+
+  , basic_llvm_override $
+        [llvmOvr| i16 @__VERIFIER_nondet_ushort() |]
+        (sv_comp_fresh_bits (knownNat @16))
+
+  , basic_llvm_override $
+        [llvmOvr| i16 @__VERIFIER_nondet_short() |]
+        (sv_comp_fresh_bits (knownNat @16))
+
+  , basic_llvm_override $
+        [llvmOvr| i8 @__VERIFIER_nondet_uchar() |]
+        (sv_comp_fresh_bits (knownNat @8))
+
+  , basic_llvm_override $
+        [llvmOvr| i8 @__VERIFIER_nondet_char() |]
+        (sv_comp_fresh_bits (knownNat @8))
+
+  , basic_llvm_override $
+        [llvmOvr| i1 @__VERIFIER_nondet_bool() |]
+        (sv_comp_fresh_bits (knownNat @1))
+
+  , basic_llvm_override $
+        [llvmOvr| float @__VERIFIER_nondet_float() |]
+        (sv_comp_fresh_float SingleFloatRepr)
+
+  , basic_llvm_override $
+        [llvmOvr| double @__VERIFIER_nondet_double() |]
+        (sv_comp_fresh_float DoubleFloatRepr)
+
+  , basic_llvm_override $
+        [llvmOvr| void @__VERIFIER_assert( i32 ) |]
+        sv_comp_assert
+
+  , basic_llvm_override $
+        [llvmOvr| void @__VERIFIER_assume( i32 ) |]
+        sv_comp_assume
+
+  , basic_llvm_override $
+        [llvmOvr| void @__VERIFIER_error( ) |]
+        sv_comp_error
+  ]
 
 --------------------------------------------------------------------------------
 
@@ -226,21 +214,6 @@ mkFresh nm ty =
      loc   <- liftIO $ getCurrentProgramLoc sym
      stateContext.cruciblePersonality %= addVar loc nm ty elt
      return elt
-
-mkFreshBool ::
-  (IsSymInterface sym) =>
-  String ->
-  OverM sym (LLVM arch) (RegValue sym (TBits 1))
-mkFreshBool nm =
-  do sym  <- getSymInterface
-     name <- case userSymbol nm of
-               Left err -> fail (show err) -- XXX
-               Right a  -> return a
-     elt <- liftIO $ freshConstant sym name (BaseBVRepr (knownNat @1))
-     loc   <- liftIO $ getCurrentProgramLoc sym
-     stateContext.cruciblePersonality %=
-       addVar loc nm (BaseBVRepr (knownNat @1)) elt
-     liftIO (llvmPointer_bv sym elt)
 
 mkFreshFloat
   ::(IsSymInterface sym)
@@ -267,238 +240,172 @@ lookupString mvar ptr =
      bytes <- liftIO (loadString sym mem (regValue ptr) Nothing)
      return (BS8.unpack (BS.pack bytes))
 
-lib_fresh_bits ::
-  (ArchOk arch, IsSymInterface sym, 1 <= n) =>
-  GlobalVar Mem -> NatRepr n -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits n)
-lib_fresh_bits mvar w =
-  do RegMap args <- getOverrideArgs
-     pName <- case args of Empty :> pName -> pure pName
-     name <- lookupString mvar pName
-     x    <- mkFresh name (BaseBVRepr w)
-     sym  <- getSymInterface
-     liftIO (llvmPointer_bv sym x)
+sv_comp_fresh_bits ::
+  (ArchOk arch, IsSymInterface sym, 1 <= w) =>
+  NatRepr w ->
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) EmptyCtx ->
+  OverM sym (LLVM arch) (RegValue sym (BVType w))
+sv_comp_fresh_bits w _mvar _sym Empty = mkFresh "X" (BaseBVRepr w)
 
-
-lib_fresh_i8 ::
+sv_comp_fresh_float ::
   (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 8)
-lib_fresh_i8 mem = lib_fresh_bits mem knownNat
+  FloatInfoRepr fi ->
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) EmptyCtx ->
+  OverM sym (LLVM arch) (RegValue sym (FloatType fi))
+sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
 
-lib_fresh_i16 ::
-  (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 16)
-lib_fresh_i16 mem = lib_fresh_bits mem knownNat
+fresh_bits ::
+  (ArchOk arch, IsSymInterface sym, 1 <= w) =>
+  NatRepr w ->
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
+  OverM sym (LLVM arch) (RegValue sym (BVType w))
+fresh_bits w mvar _ (Empty :> pName) =
+  do name <- lookupString mvar pName
+     mkFresh name (BaseBVRepr w)
 
-lib_fresh_i32 ::
+fresh_float ::
   (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 32)
-lib_fresh_i32 mem = lib_fresh_bits mem knownNat
-
-lib_fresh_i64 ::
-  (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 64)
-lib_fresh_i64 mem = lib_fresh_bits mem knownNat
-
-lib_fresh_float ::
-  (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> FloatInfoRepr fi -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (FloatType fi)
-lib_fresh_float mvar fi =
-  do RegMap args <- getOverrideArgs
-     pName <- case args of Empty :> pName -> pure pName
-     name <- lookupString mvar pName
+  FloatInfoRepr fi ->
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
+  OverM sym (LLVM arch) (RegValue sym (FloatType fi))
+fresh_float fi mvar _ (Empty :> pName) =
+  do name <- lookupString mvar pName
      mkFreshFloat name fi
 
-lib_fresh_cfloat ::
-  (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (FloatType SingleFloat)
-lib_fresh_cfloat mvar = lib_fresh_float mvar SingleFloatRepr
-
-lib_fresh_cdouble ::
-  (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (FloatType DoubleFloat)
-lib_fresh_cdouble mvar = lib_fresh_float mvar DoubleFloatRepr
-
-lib_fresh_str ::
-  (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) (TPtr arch)
-lib_fresh_str mvar = do
-  RegMap args <- getOverrideArgs
-  case args of
-    Empty :> pName :> maxLen -> do
-      name <- lookupString mvar pName
-      sym <- getSymInterface
-
-      -- Compute the allocation length, which is the requested length plus one
-      -- to hold the NUL terminator
-      one <- liftIO $ bvLit sym ?ptrWidth 1
-      maxLenBV <- liftIO $ projectLLVM_bv sym (regValue maxLen)
-      len <- liftIO $ bvAdd sym maxLenBV one
-      mem0 <- readGlobal mvar
-
-      -- Allocate memory to hold the string
-      (ptr, mem1) <- liftIO $ doMalloc sym HeapAlloc Mutable name mem0 len noAlignment
-
-      -- Allocate contents for the string - we want to make each byte symbolic,
-      -- so we allocate a fresh array (which has unbounded length) with symbolic
-      -- contents and write it into our allocation.  This write does not cover
-      -- the NUL terminator.
-      contentsName <- case userSymbol (name ++ "_contents") of
-        Left err -> fail (show err)
-        Right nm -> return nm
-      let arrayRep = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
-      initContents <- liftIO $ freshConstant sym contentsName arrayRep
-      zeroByte <- liftIO $ bvLit sym (knownNat @8) 0
-      -- Put the NUL terminator in place
-      initContentsZ <- liftIO $ arrayUpdate sym initContents (singleton maxLenBV) zeroByte
-      mem2 <- liftIO $ doArrayConstStore sym mem1 ptr noAlignment initContentsZ len
-
-      writeGlobal mvar mem2
-      return ptr
-
-lib_assume ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32)
-               UnitType
-lib_assume =
-  do RegMap args <- getOverrideArgs
-     p <- case args of Empty :> p :> _file :> _line -> pure p
-     sym  <- getSymInterface
-     liftIO $ do cond <- projectLLVM_bv sym (regValue p)
-                 zero <- bvLit sym knownRepr 0
-                 asmpP <- notPred sym =<< bvEq sym cond zero
-                 loc   <- getCurrentProgramLoc sym
-                 let msg = AssumptionReason loc "(assumption)"
-                 addAssumption sym (LabeledPred asmpP msg)
-
-lib_havoc_memory ::
+fresh_str ::
   (ArchOk arch, IsSymInterface sym) =>
   GlobalVar Mem ->
-  Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) UnitType
-lib_havoc_memory mvar =
-  do RegMap args <- getOverrideArgs
-     (ptr, len) <- case args of Empty :> ptr :> len -> pure (ptr, len)
-     let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
-     sym <- getSymInterface
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> BVType (ArchWidth arch)) ->
+  OverM sym (LLVM arch) (RegValue sym (TPtr arch))
+fresh_str mvar sym (Empty :> pName :> maxLen) =
+  do name <- lookupString mvar pName
+
+     -- Compute the allocation length, which is the requested length plus one
+     -- to hold the NUL terminator
+     one <- liftIO $ bvLit sym ?ptrWidth 1
+     -- maxLenBV <- liftIO $ projectLLVM_bv sym (regValue maxLen)
+     len <- liftIO $ bvAdd sym (regValue maxLen) one
+     mem0 <- readGlobal mvar
+
+     -- Allocate memory to hold the string
+     (ptr, mem1) <- liftIO $ doMalloc sym HeapAlloc Mutable name mem0 len noAlignment
+
+     -- Allocate contents for the string - we want to make each byte symbolic,
+     -- so we allocate a fresh array (which has unbounded length) with symbolic
+     -- contents and write it into our allocation.  This write does not cover
+     -- the NUL terminator.
+     contentsName <- case userSymbol (name ++ "_contents") of
+       Left err -> fail (show err)
+       Right nm -> return nm
+     let arrayRep = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
+     initContents <- liftIO $ freshConstant sym contentsName arrayRep
+     zeroByte <- liftIO $ bvLit sym (knownNat @8) 0
+     -- Put the NUL terminator in place
+     initContentsZ <- liftIO $ arrayUpdate sym initContents (singleton (regValue maxLen)) zeroByte
+     mem2 <- liftIO $ doArrayConstStore sym mem1 ptr noAlignment initContentsZ len
+
+     writeGlobal mvar mem2
+     return ptr
+
+do_assume ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+do_assume mvar sym (Empty :> p :> pFile :> line) =
+  do cond <- liftIO $ bvIsNonzero sym (regValue p)
+     file <- lookupString mvar pFile
+     l <- case asUnsignedBV (regValue line) of
+            Just l  -> return (fromInteger l)
+            Nothing -> return 0
+     let pos = SourcePos (T.pack file) l 0
+     loc <- liftIO $ getCurrentProgramLoc sym
+     let loc' = loc{ plSourceLoc = pos }
+     let msg = AssumptionReason loc' "crucible_assume"
+     liftIO $ addAssumption sym (LabeledPred cond msg)
+
+do_assert ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+do_assert mvar sym (Empty :> p :> pFile :> line) =
+  do cond <- liftIO $ bvIsNonzero sym (regValue p)
+     file <- lookupString mvar pFile
+     l <- case asUnsignedBV (regValue line) of
+            Just l  -> return (fromInteger l)
+            Nothing -> return 0
+     let pos = SourcePos (T.pack file) l 0
+     loc <- liftIO $ getCurrentProgramLoc sym
+     let loc' = loc{ plSourceLoc = pos }
+     let msg = GenericSimError "crucible_assert"
+     liftIO $ addAssertion sym (LabeledPred cond (SimError loc' msg))
+
+do_print_uint32 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+do_print_uint32 _mvar _sym (Empty :> x) =
+  do h <- printHandle <$> getContext
+     liftIO $ hPutStrLn h (show (printSymExpr (regValue x)))
+
+do_havoc_memory ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+do_havoc_memory mvar sym (Empty :> ptr :> len) =
+  do let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
      mem <- readGlobal mvar
      mem' <- liftIO $ do
-               len' <- projectLLVM_bv sym (regValue len)
                arr <- freshConstant sym emptySymbol tp
-               doArrayStore sym mem (regValue ptr) noAlignment arr len'
+               doArrayStore sym mem (regValue ptr) noAlignment arr (regValue len)
      writeGlobal mvar mem'
-
-lib_assert ::
-  (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem ->
-  Fun sym (LLVM arch) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) UnitType
-lib_assert mvar =
-  do RegMap args <- getOverrideArgs
-     (p,pFile,line) <- case args of Empty :> a :> b :> c -> pure (a,b,c)
-     sym  <- getSymInterface
-     file <- BS8.pack <$> lookupString mvar pFile
-     liftIO $ do ln   <- projectLLVM_bv sym (regValue line)
-                 let lnMsg = case asUnsignedBV ln of
-                               Nothing -> ""
-                               Just x  -> ":" ++ show x
-                     msg = BS8.unpack file ++ lnMsg ++ ": user assertion."
-                 cond <- projectLLVM_bv sym (regValue p)
-                 zero <- bvLit sym knownRepr 0
-                 let rsn = AssertFailureSimError "Call to crucible_assert" msg
-                 check <- notPred sym =<< bvEq sym cond zero
-                 assert sym check rsn
-
-lib_print32 ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
-lib_print32 =
-  getOverrideArgs >>= \case
-    RegMap (Empty :> x) -> do
-     sym <- getSymInterface
-     h <- printHandle <$> getContext
-     liftIO $
-       do x' <- projectLLVM_bv sym (regValue x)
-          hPutStrLn h (show (printSymExpr x'))
-
---------------------------------------------------------------------------------
-
-sv_comp_fresh_i8 ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) args (TBits 8)
-sv_comp_fresh_i8 =
-  do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
-     sym <- getSymInterface
-     liftIO (llvmPointer_bv sym x)
-
-sv_comp_fresh_i16 ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) args (TBits 16)
-sv_comp_fresh_i16 =
-  do x <- mkFresh "X" (BaseBVRepr (knownNat @16))
-     sym <- getSymInterface
-     liftIO (llvmPointer_bv sym x)
-
-sv_comp_fresh_i32 ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) args (TBits 32)
-sv_comp_fresh_i32 =
-  do x <- mkFresh "X" (BaseBVRepr (knownNat @32))
-     sym <- getSymInterface
-     liftIO (llvmPointer_bv sym x)
-
-sv_comp_fresh_i64 ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) args (TBits 64)
-sv_comp_fresh_i64 =
-  do x <- mkFresh "X" (BaseBVRepr (knownNat @64))
-     sym <- getSymInterface
-     liftIO (llvmPointer_bv sym x)
-
-sv_comp_fresh_float
-  :: (ArchOk arch, IsSymInterface sym)
-  => Fun sym (LLVM arch) args (FloatType SingleFloat)
-sv_comp_fresh_float = mkFreshFloat "X" SingleFloatRepr
-
-sv_comp_fresh_double
-  :: (ArchOk arch, IsSymInterface sym)
-  => Fun sym (LLVM arch) args (FloatType DoubleFloat)
-sv_comp_fresh_double = mkFreshFloat "X" DoubleFloatRepr
-
-sv_comp_fresh_bool ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) args (TBits 1)
-sv_comp_fresh_bool = mkFreshBool "X"
 
 sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
-sv_comp_assume =
-  do RegMap args <- getOverrideArgs
-     p           <- case args of Empty :> p -> pure p
-     sym  <- getSymInterface
-     liftIO $ do cond <- projectLLVM_bv sym (regValue p)
-                 zero <- bvLit sym knownRepr 0
-                 loc  <- getCurrentProgramLoc sym
-                 let msg = AssumptionReason loc "XXX"
-                 check <- notPred sym =<< bvEq sym cond zero
-                 addAssumption sym (LabeledPred check msg)
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+sv_comp_assume _mvar sym (Empty :> p) = liftIO $
+  do cond <- bvIsNonzero sym (regValue p)
+     loc  <- getCurrentProgramLoc sym
+     let msg = AssumptionReason loc "__VERIFIER_assume"
+     addAssumption sym (LabeledPred cond msg)
 
 sv_comp_assert ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
-sv_comp_assert =
-  do RegMap args <- getOverrideArgs
-     p <- case args of Empty :> p -> pure p
-     sym  <- getSymInterface
-     liftIO $ do cond <- projectLLVM_bv sym (regValue p)
-                 zero <- bvLit sym knownRepr 0
-                 let msg = "Call to __VERIFIER_assert"
-                     rsn = AssertFailureSimError msg ""
-                 check <- notPred sym =<< bvEq sym cond zero
-                 assert sym check rsn
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+sv_comp_assert _mvar sym (Empty :> p) = liftIO $
+  do cond <- bvIsNonzero sym (regValue p)
+     loc  <- getCurrentProgramLoc sym
+     let msg = AssertFailureSimError "__VERIFIER_assert" ""
+     addAssertion sym (LabeledPred cond (SimError loc msg))
 
 sv_comp_error ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) args UnitType
-sv_comp_error =
-  do sym  <- getSymInterface
-     let rsn = AssertFailureSimError "Call to __VERIFIER_error" ""
-     liftIO $ addFailedAssertion sym rsn
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) EmptyCtx ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+sv_comp_error _mvar sym Empty = liftIO $
+  do let rsn = AssertFailureSimError "__VERIFIER_error" ""
+     addFailedAssertion sym rsn
