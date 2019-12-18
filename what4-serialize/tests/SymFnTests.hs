@@ -224,7 +224,13 @@ mkEquivalenceTest' argTs getExpr = do
               Log.withLogCfg lcfg $ do
                 let pcfg = WP.ParserConfig fenv (\nm -> return $ lookup nm globalLookup) (\_ -> Nothing) sym
                 WP.readSymFn pcfg fnText
-  debugOut $ "deserialized: " <> showSomeSym deser
+  case deser of
+    Left err -> do
+      debugOut $ "Unexpected deserialization error: " ++ err ++ "\n S-expression:\n"
+      debugOut $ T.unpack fnText
+      failure
+    Right _ -> return ()
+
   U.SomeSome fn2 <- evalEither deser
   fn1out <- liftIO $ WI.definedFn sym (WI.safeSymbol "fn") bvs exprout (const False)
   symFnEqualityTest sym fn1out fn2

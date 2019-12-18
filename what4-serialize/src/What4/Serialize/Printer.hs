@@ -36,13 +36,10 @@ import qualified Data.Parameterized.Nonce as Nonce
 import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Text as T
 import           Data.Word ( Word64 )
+import           Control.Monad.Trans.RWS.Strict ( RWS )
+import qualified Control.Monad.Trans.RWS.Strict as RWS
 
-import qualified Control.Monad.Trans.Writer.Strict as W
-import           Control.Monad.State (State)
-import qualified Control.Monad.State as State
-import           Control.Monad.Trans.State.Lazy ( StateT )
-import qualified Control.Monad.Trans.State.Lazy as StateT
-
+import qualified Control.Monad.Writer as W
 
 import qualified Data.SCargot.Repr.Rich as SE
 
@@ -104,11 +101,11 @@ convertExprWithLet paramLookup expr = do
                 , bindings
                 , body
                 ]
-  where (body, bindingMap, fenv) = runMemo (convertExpr paramLookup expr)
-        bindings = SE.L
-          $ reverse -- OMap is LIFO, we want FIFO for binding ordering
-          $ (\(key, sexp) -> SE.L [ skeyAtom key, sexp ])
-          <$> OMap.assocs bindingMap
+  where ((body, bindings), _, fenv) = runMemo $ do
+          sexp <- convertExpr paramLookup expr
+          rawbindings <- OMap.assocs <$> RWS.get
+          let sexprs = map (\(idx, (_, sexp')) -> SE.L [ idxAtom idx, sexp' ]) (zip [0..] rawbindings)
+          return $ (sexp, SE.L sexprs)
 
 convertSymFn :: forall t args ret
               . ParamLookup t 
@@ -139,43 +136,53 @@ convertSymFn paramLookup (S.ExprSymFn _ symFnName symFnInfo _) = do
 type ParamLookup t = forall tp. S.ExprBoundVar t tp -> Maybe SExp
 
 
-type Memo t a = W.WriterT (SymFnEnv t) (State (OMap SKey SExp)) a
+type Memo t a = RWS () (SymFnEnv t) (OMap SKey SExp) a
 
-runMemo :: Memo t a -> (a, OMap SKey SExp, SymFnEnv t)
-runMemo m =
-  let
-    ((a, bindings), fenv) = StateT.runState (W.runWriterT m) OMap.empty
-  in (a, fenv, bindings)
+runMemo ::  Memo t a -> (a, OMap SKey SExp, SymFnEnv t)
+runMemo m = RWS.runRWS m () OMap.empty
 
--- | Key for sharing SExp construction (i.e., the underlying
--- nonce 64bit integers in the What4 AST nodes)
+
+-- | Key for sharing SExp construction. Internally indexes are expression nonces,
+-- but the let-binding identifiers are based on insertion order to the OMap
 newtype SKey = SKey {sKeyValue :: Word64}
   deriving (Eq, Ord, Show)
 
 
-skeyAtom :: SKey -> SExp
-skeyAtom key = ident' $ "_g"++(show $ sKeyValue key)
+idxAtom :: Int -> SExp
+idxAtom idx = ident' $ "_g"++(show $ idx)
+
+skeyAtom :: SKey -> Memo t SExp
+skeyAtom key = do
+  cache <- RWS.get
+  case OMap.findIndex key cache of
+    Just idx -> return $ idxAtom idx
+    Nothing -> error $ "Unexpected missing key: " ++ show key
 
 exprSKey :: S.Expr t tp -> Maybe SKey
 exprSKey x = SKey . Nonce.indexValue <$> B.exprMaybeId x
 
+-- | Don't overwrite cache entries, since the ordering needs to be preserved
+addKey :: SKey -> SExp -> Memo t ()
+addKey key sexp = do
+  cache <- RWS.get
+  RWS.put (cache OMap.|> (key, sexp))
 
 convertExpr :: forall t tp . ParamLookup t -> S.Expr t tp -> Memo t SExp
 convertExpr paramLookup initialExpr = do
   case exprSKey initialExpr of
     Nothing -> go initialExpr
     Just key -> do
-      cache <- State.get
+      cache <- RWS.get
       if OMap.member key cache
         then do
-        return $ skeyAtom key
+        skeyAtom key
         else do
         sexp <- go initialExpr
         case sexp of
           SE.A _ -> return sexp -- don't memoize atomic s-expressions
           _ -> do 
-            State.modify ((key, sexp) OMap.<|)
-            return $ skeyAtom key
+            addKey key sexp
+            skeyAtom key
   where go :: S.Expr t tp -> Memo t SExp
         go (S.SemiRingLiteral S.SemiRingNatRepr val _) = return $ SE.A $ ANat val
         go (S.SemiRingLiteral S.SemiRingIntegerRepr val _) = return $ SE.A $ AInt val -- do we need/want these?
