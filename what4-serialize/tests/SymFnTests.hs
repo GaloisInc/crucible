@@ -34,7 +34,7 @@ import qualified What4.Expr.Builder as S
 import           What4.BaseTypes
 import qualified What4.Interface as WI -- ( getConfiguration )
 import qualified What4.Utils.Util as U
-import qualified What4.Serialize.Normalize as WN
+-- import qualified What4.Serialize.Normalize as WN
 
 import qualified What4.Serialize.Printer as WP
 import qualified What4.Serialize.Parser as WP
