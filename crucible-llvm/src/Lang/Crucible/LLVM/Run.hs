@@ -85,9 +85,15 @@ data Setup ext res =
   }
 
 -- | Run Crucible with the given initialization, on the given LLVM module.
-runCruxLLVM :: Module -> MemOptions -> CruxLLVM res -> IO res
-runCruxLLVM llvm_mod memOpts (CruxLLVM setup) =
-  do halloc <- newHandleAllocator
+runCruxLLVM ::
+  Module ->
+  MemOptions ->
+  Bool {- ^ Should we turn on lax arithmetic rules? -}->
+  CruxLLVM res ->
+  IO res
+runCruxLLVM llvm_mod memOpts laxArith (CruxLLVM setup) =
+  do let ?laxArith = laxArith
+     halloc <- newHandleAllocator
      Some trans <- translateModule halloc llvm_mod
      res <- setup trans
      case res of

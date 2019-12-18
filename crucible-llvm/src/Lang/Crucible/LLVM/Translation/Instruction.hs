@@ -536,7 +536,7 @@ calcGEP_struct fi base =
      if ioff == 0 then return base else callPtrAddOffset base off
 
 
-translateConversion ::
+translateConversion :: (?laxArith :: Bool) =>
   L.Instr ->
   L.ConvOp ->
   MemType {- Input type -} ->
@@ -805,7 +805,7 @@ vecSplit elLen expr =
   lay = llvmDataLayout ?lc
 
 
-bitop ::
+bitop :: (?laxArith :: Bool) =>
   L.BitOp ->
   MemType ->
   LLVMExpr s arch ->
@@ -827,7 +827,7 @@ bitop op _ x y =
 
     _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
-raw_bitop :: (1 <= w) =>
+raw_bitop :: (?laxArith :: Bool, 1 <= w) =>
   L.BitOp ->
   NatRepr w ->
   Expr (LLVM arch) s (BVType w) ->
@@ -845,16 +845,16 @@ raw_bitop op w a b =
         let wlit = App (BVLit w (intValue w))
         result <- AtomExpr <$> mkAtom (App (BVShl w a b))
         withSideConds result
-          [ ( True
+          [ ( not ?laxArith
             , pure  $ App (BVUlt w b wlit) -- TODO: is this the right condition?
             , Right $ Poison.ShlOp2Big a b
             )
-          , ( nuw
+          , ( nuw && not ?laxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVLshr w result b)))
             , Right $ Poison.ShlNoUnsignedWrap a b
             )
-          , ( nsw
+          , ( nsw && not ?laxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVAshr w result b)))
             , Right $ Poison.ShlNoSignedWrap a b
@@ -865,11 +865,11 @@ raw_bitop op w a b =
         let wlit = App (BVLit w (intValue w))
         result <- AtomExpr <$> mkAtom (App (BVLshr w a b))
         withSideConds result
-          [ ( True
+          [ ( not ?laxArith
             , pure  $ App (BVUlt w b wlit)
             , Right $ Poison.LshrOp2Big a b
             )
-          , ( exact
+          , ( exact && not ?laxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVShl w result b)))
             , Right $ Poison.LshrExact a b
@@ -881,11 +881,11 @@ raw_bitop op w a b =
             let wlit = App (BVLit w (intValue w))
             result <- AtomExpr <$> mkAtom (App (BVAshr w a b))
             withSideConds result
-              [ ( True
+              [ ( not ?laxArith
                 , pure  $ App (BVUlt w b wlit)
                 , Right $ Poison.AshrOp2Big a b
                 )
-              , ( exact
+              , ( exact && not ?laxArith
                 , fmap (App . BVEq w a)
                        (AtomExpr <$> mkAtom (App (BVShl w result b)))
                 , Right $ Poison.AshrExact a b
@@ -898,7 +898,7 @@ raw_bitop op w a b =
 -- | Translate an LLVM integer operation into a Crucible CFG expression.
 --
 -- Poison values can arise from such operations.
-intop :: forall w arch s ret. (1 <= w)
+intop :: forall w arch s ret. (?laxArith :: Bool, 1 <= w)
       => L.ArithOp
       -> NatRepr w
       -> Expr (LLVM arch) s (BVType w)
@@ -914,22 +914,22 @@ intop op w a b =
       minInt   = App (BVLit w (minSigned w))
   in case op of
        L.Add nuw nsw -> withPoison (App (BVAdd w a b))
-         [ ( nuw
+         [ ( nuw && not ?laxArith
            , notExpr (App (BVCarry w a b))
            , Poison.AddNoUnsignedWrap a b
            )
-         , ( nsw
+         , ( nsw && not ?laxArith
            , notExpr (App (BVSCarry w a b))
            , Poison.AddNoSignedWrap a b
            )
          ]
 
        L.Sub nuw nsw -> withPoison (App (BVSub w a b))
-         [ ( nuw
+         [ ( nuw && not ?laxArith
            , notExpr (App (BVUlt w a b))
            , Poison.SubNoUnsignedWrap a b
            )
-         , ( nsw
+         , ( nsw && not ?laxArith
            , notExpr (App (BVSBorrow w a b))
            , Poison.SubNoSignedWrap a b
            )
@@ -942,7 +942,7 @@ intop op w a b =
 
          prod <- AtomExpr <$> mkAtom (App (BVMul w a b))
          withSideConds prod
-           [ ( nuw
+           [ ( nuw && not ?laxArith
              , do
                  az       <- AtomExpr <$> mkAtom (App (BVZext w' w a))
                  bz       <- AtomExpr <$> mkAtom (App (BVZext w' w b))
@@ -951,7 +951,7 @@ intop op w a b =
                  return (App (BVEq w' wideprod prodz))
              , Right $ Poison.MulNoUnsignedWrap a b
              )
-           , ( nsw
+           , ( nsw && not ?laxArith
              , do
                  as       <- AtomExpr <$> mkAtom (App (BVSext w' w a))
                  bs       <- AtomExpr <$> mkAtom (App (BVSext w' w b))
@@ -965,7 +965,7 @@ intop op w a b =
        L.UDiv exact -> do
          q <- AtomExpr <$> mkAtom (App (BVUdiv w a b))
          withSideConds q
-           [ ( exact
+           [ ( exact && not ?laxArith
              , fmap (App . BVEq w a . AtomExpr)
                     (mkAtom (App (BVMul w q b)))
              , Right $ Poison.UDivExact a b
@@ -977,12 +977,12 @@ intop op w a b =
          | Just LeqProof <- isPosNat w -> do
            q <- AtomExpr <$> mkAtom (App (BVSdiv w a b))
            withSideConds q
-            [ ( exact
+            [ ( exact && not ?laxArith
               , fmap (App . BVEq w a . AtomExpr)
                      (mkAtom (App (BVMul w q b)))
               , Right $ Poison.SDivExact a b
               )
-            , ( True
+            , ( not ?laxArith
               , pure (notExpr (App (BVEq w neg1 b) .&& App (BVEq w minInt a)))
               , Left (UB.SDivOverflow a b)
               )
@@ -995,7 +995,7 @@ intop op w a b =
 
        L.SRem
          | Just LeqProof <- isPosNat w -> withSideConds (App (BVSrem w a b))
-              [ ( True
+              [ ( not ?laxArith
                 , pure (notExpr (App (BVEq w neg1 b) .&& App (BVEq w minInt a)))
                 , Left (UB.SRemOverflow a b)
                 )
@@ -1247,7 +1247,7 @@ pointerCmp op x y =
                 ]
 
 pointerOp
-   :: wptr ~ ArchWidth arch
+   :: (wptr ~ ArchWidth arch, ?laxArith :: Bool)
    => L.ArithOp
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
@@ -1366,6 +1366,7 @@ translateSelect instr _ _ _ _ _ _ =
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
 generateInstr :: forall s arch ret a.
+   (?laxArith :: Bool) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
    L.Instr        {- ^ The instruction to translate -} ->
@@ -1705,7 +1706,7 @@ generateInstr retType lab instr assign_f k =
  unsupported = reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $
                  unwords ["unsupported instruction", showInstr instr]
 
-arithOp ::
+arithOp :: (?laxArith :: Bool) =>
   L.ArithOp ->
   MemType ->
   LLVMExpr s arch ->

@@ -10,6 +10,7 @@
 -- CVC4-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -19,6 +20,7 @@ module What4.Solver.CVC4
   , cvc4Features
   , cvc4Adapter
   , cvc4Path
+  , cvc4Timeout
   , cvc4Options
   , runCVC4InOverride
   , withCVC4
@@ -62,6 +64,10 @@ cvc4Path = configOption knownRepr "cvc4_path"
 cvc4RandomSeed :: ConfigOption BaseIntegerType
 cvc4RandomSeed = configOption knownRepr "cvc4.random-seed"
 
+-- | Per-check timeout, in milliseconds (zero is none)
+cvc4Timeout :: ConfigOption BaseIntegerType
+cvc4Timeout = configOption knownRepr "cvc4_timeout"
+
 cvc4Options :: [ConfigDesc]
 cvc4Options =
   [ mkOpt cvc4Path
@@ -69,6 +75,10 @@ cvc4Options =
           (Just (PP.text "Path to CVC4 executable"))
           (Just (ConcreteString "cvc4"))
   , intWithRangeOpt cvc4RandomSeed (negate (2^(30::Int)-1)) (2^(30::Int)-1)
+  , mkOpt cvc4Timeout
+          integerOptSty
+          (Just (PP.text "Per-check timeout in milliseconds (zero is none)"))
+          (Just (ConcreteInteger 0))
   ]
 
 cvc4Adapter :: SolverAdapter st
@@ -108,6 +118,7 @@ cvc4Features = useComputableReals
            .|. useSymbolicArrays
            .|. useStrings
            .|. useStructs
+           .|. useFloatingPoint
            .|. useBitvectors
            .|. useQuantifiers
 
@@ -137,7 +148,13 @@ writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 instance SMT2.SMTLib2GenericSolver CVC4 where
   defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
 
-  defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental", "--strings-exp"]
+  defaultSolverArgs _ sym = do
+    let cfg = getConfiguration sym
+    timeout <- getOption =<< getOptionSetting cvc4Timeout cfg
+    let extraOpts = case timeout of
+                      Just (ConcreteInteger n) | n > 0 -> ["--tlimit-per=" ++ show n]
+                      _ -> []
+    return $ ["--lang", "smt2", "--incremental", "--strings-exp"] ++ extraOpts
 
   defaultFeatures _ = cvc4Features
 

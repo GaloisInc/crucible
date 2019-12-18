@@ -26,6 +26,7 @@ import qualified Data.Versions as Versions
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
+import           Data.Parameterized.Some
 import           System.IO
 
 import What4.BaseTypes
@@ -448,6 +449,33 @@ testSymbolPrimeCharZ3 = testCase "z3 symbol prime (') char" $
     assume (sessionWriter s) p
     runCheckSat s $ \res -> isSat res @? "sat"
 
+expectFailure :: IO a -> IO ()
+expectFailure f = try @SomeException f >>= \case
+  Left _ -> return ()
+  Right _ -> assertFailure "expectFailure"
+
+testBoundVarAsFree :: TestTree
+testBoundVarAsFree = testCase "boundvarasfree" $ withOnlineZ3 $ \sym s -> do
+  x <- freshBoundVar sym (userSymbol' "x") BaseBoolRepr
+  y <- freshBoundVar sym (userSymbol' "y") BaseBoolRepr
+  pz <- freshConstant sym (userSymbol' "pz") BaseBoolRepr
+
+  let px = varExpr sym x
+  let py = varExpr sym y
+
+  expectFailure $ checkSatisfiable s "test" px
+  expectFailure $ checkSatisfiable s "test" py
+  checkSatisfiable s "test" pz >>= \res -> isSat res @? "sat"
+
+  inNewFrameWithVars s [Some x] $ do
+    checkSatisfiable s "test" px >>= \res -> isSat res @? "sat"
+    expectFailure $ checkSatisfiable s "test" py
+
+  -- Outside the scope of inNewFrameWithVars we can no longer
+  -- use the bound variable as free
+  expectFailure $ checkSatisfiable s "test" px
+  expectFailure $ checkSatisfiable s "test" py
+
 zeroTupleTest ::
   OnlineSolver t solver =>
   SimpleExprBuilder t fs ->
@@ -793,6 +821,7 @@ main = defaultMain $ testGroup "Tests"
   , testRotate2
   , testRotate3
   , testSymbolPrimeCharZ3
+  , testBoundVarAsFree
   , testSolverInfo
   , testSolverVersion
 

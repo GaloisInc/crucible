@@ -437,7 +437,7 @@ newConnection stream ack reqFeatures timeout bindings = do
   let nlSolver = reqFeatures `hasProblemFeature` useNonlinearArithmetic
   let features | efSolver  = useLinearArithmetic
                | nlSolver  = useNonlinearArithmetic .|. useIntegerArithmetic
-               | otherwise = yicesDefaultFeatures
+               | otherwise = reqFeatures
   let nm | efSolver  = "Yices ef-solver"
          | nlSolver  = "Yices nl-solver"
          | otherwise = "Yices"
@@ -907,7 +907,7 @@ yicesSMT2Features
 
 yicesDefaultFeatures :: ProblemFeatures
 yicesDefaultFeatures
-    = useLinearArithmetic
+    = useIntegerArithmetic
   .|. useBitvectors
   .|. useStructs
 
