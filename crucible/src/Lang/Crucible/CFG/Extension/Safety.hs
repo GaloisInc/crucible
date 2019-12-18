@@ -268,6 +268,10 @@ class HasStructuredAssertions (ext :: Type) where
                 -> AssertionClassifierTree ext (RegValue' sym)
                 -> String
   summarizeTree proxyExt =
+    -- TODO: filtering out "muxing" below is a temporary hack to avoid
+    -- including some not-very-useful messages in the summary of an
+    -- assertion tree. Ultimately we should refactor the way those
+    -- messages are constructed to make them more useful.
     intercalate ", " . nub . filter (not . ("muxing" `isPrefixOf`)) .
     cataMAT
       (\ac -> [show (explain proxyExt ac)])
