@@ -9,6 +9,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE LambdaCase #-}
 
 module SymFnTests where
 
@@ -33,6 +34,7 @@ import qualified What4.Expr.Builder as S
 import           What4.BaseTypes
 import qualified What4.Interface as WI -- ( getConfiguration )
 import qualified What4.Utils.Util as U
+import qualified What4.Serialize.Normalize as WN
 
 import qualified What4.Serialize.Printer as WP
 import qualified What4.Serialize.Parser as WP
@@ -153,6 +155,36 @@ testEnvSigs =
           return [("intbool_int", U.SomeSome intbool_int), ("boolint_bool", U.SomeSome boolint_bool)]
     ]
 
+-- FIXME: Unclear how to manually create a term that will change under normalization
+-- testNormalization :: [TestTree]
+-- testNormalization =
+--     [ testProperty "normalization involutive" $
+--         withTests 1 $
+--         property $ do
+--             Some r <- liftIO $ newIONonceGenerator
+--             sym <- liftIO $ S.newExprBuilder S.FloatRealRepr NoBuilderData r
+--             liftIO $ S.startCaching sym
+--             i1 <- liftIO $ WI.intLit sym 1
+--             i2 <- liftIO $ WI.intLit sym 2
+--             expr <- liftIO $ S.sbMakeExpr sym $ S.BaseIte WI.BaseIntegerRepr 1 (WI.truePred sym) i1 i2
+--             expr' <- liftIO $ WN.normExpr sym expr
+--             (liftIO $ WN.testEquivExpr sym expr expr') >>= \case
+--               WN.ExprNormEquivalent -> success
+--               WN.ExprEquivalent -> do
+--                 debugOut $ "Unexpected real equivalence."
+--                 debugOut $ show expr
+--                 debugOut $ show expr'
+--                 failure
+--               WN.ExprUnequal -> do
+--                 debugOut $ "Unexpected inequality."
+--                 failure
+--             (liftIO $ WN.testEquivExpr sym expr' i1) >>= \case
+--               WN.ExprEquivalent -> success
+--               _ -> do
+--                 debugOut $ "Unexpected inexact equality."
+--                 failure
+--     ]
+
 mkEquivalenceTest :: forall m args ret
                    . (MonadTest m, MonadIO m)
                   => Ctx.Assignment BaseTypeRepr args
@@ -189,8 +221,9 @@ mkEquivalenceTest' argTs getExpr = do
   let (fnText, fenv) = WP.printSymFn' fn1
   lcfg <- liftIO $ Log.mkLogCfg "rndtrip"
   deser <- liftIO $
-              Log.withLogCfg lcfg $
-              WP.readSymFn sym fenv (\nm -> return $ lookup nm globalLookup) fnText
+              Log.withLogCfg lcfg $ do
+                let pcfg = WP.ParserConfig fenv (\nm -> return $ lookup nm globalLookup) (\_ -> Nothing) sym
+                WP.readSymFn pcfg fnText
   debugOut $ "deserialized: " <> showSomeSym deser
   U.SomeSome fn2 <- evalEither deser
   fn1out <- liftIO $ WI.definedFn sym (WI.safeSymbol "fn") bvs exprout (const False)
@@ -223,7 +256,7 @@ mkSigTest getSymFnEnv = do
   lcfg <- liftIO $ Log.mkLogCfg "rndtrip"
   deser <- liftIO $
               Log.withLogCfg lcfg $
-              WP.readSymFnEnv sym Map.empty (\_ -> return Nothing) fenvText
+              WP.readSymFnEnv (WP.ParserConfig Map.empty (\_ -> return Nothing) (\_ -> Nothing) sym) fenvText
   fenv2 <- evalEither deser
   Map.keysSet fenv1 === Map.keysSet fenv2
   forM_ (Map.assocs fenv1) $ \(key, U.SomeSome fn1) ->

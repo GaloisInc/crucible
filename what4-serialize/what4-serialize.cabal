@@ -41,11 +41,11 @@ library
     What4.Serialize.SETokens
     What4.Serialize.Printer
     What4.Serialize.Parser
+    What4.Serialize.Normalize
     What4.Utils.Log
     What4.Utils.Util
 
   ghc-options: -Wall
-  ghc-prof-options: -O2 -fprof-auto-top
   if impl(ghc >= 8.6)
     default-extensions: NoStarIsType
 
@@ -53,7 +53,6 @@ test-suite what4-serialize-tests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
   ghc-options: -Wall -rtsopts -threaded
-  ghc-prof-options: -O2 -fprof-auto-top
   hs-source-dirs: tests
   main-is: Main.hs
   other-modules: SymFnTests, TestUtils
