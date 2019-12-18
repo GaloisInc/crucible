@@ -250,7 +250,7 @@ llvmTrapOverride =
       )
       Empty
       UnitRepr
-      (\_ops sym _args -> liftIO $ addFailedAssertion sym $ AssertFailureSimError $ "llvm.trap() called")
+      (\_ops sym _args -> liftIO $ addFailedAssertion sym $ AssertFailureSimError "llvm.trap() called" "")
 
 
 -- | This intrinsic asserts that its argument is equal to 1.
