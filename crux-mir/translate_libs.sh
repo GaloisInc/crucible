@@ -45,7 +45,12 @@ translate_2015 lib/libc/src/lib.rs --crate-name libc \
 translate lib/libunwind/lib.rs --crate-name unwind \
     --extern cfg_if=rlibs/libcfg_if.rlib \
     --extern libc=rlibs/liblibc.rlib
-translate lib/libpanic_abort/lib.rs --crate-name panic_abort \
+translate lib/libpanic_abort/lib.rs --crate-name panic_abort -C panic=abort \
+    --extern libc=rlibs/liblibc.rlib
+translate lib/libpanic_unwind/lib.rs --crate-name panic_unwind -C panic=unwind \
+    --extern alloc=rlibs/liballoc.rlib \
+    --extern cfg_if=rlibs/libcfg_if.rlib \
+    --extern unwind=rlibs/libunwind.rlib \
     --extern libc=rlibs/liblibc.rlib
 translate lib/hashbrown/src/lib.rs --crate-name hashbrown \
     --cfg 'feature="rustc-dep-of-std"' --cfg 'feature="nightly"' \
@@ -55,12 +60,6 @@ translate lib/libstd/lib.rs --crate-name std \
 translate lib/libtest/lib.rs --crate-name test
 translate_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
 translate lib/bytes.rs
-
-#translate lib/libpanic_unwind/lib.rs --crate-name panic_unwind \
-#    --extern alloc=rlibs/liballoc.rlib \
-#    --extern cfg_if=rlibs/libcfg_if.rlib \
-#    --extern unwind=rlibs/libunwind.rlib \
-#    --extern libc=rlibs/liblibc.rlib
 
 # Need native versions of some libs for conc_eval oracle programs
 #compile_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
