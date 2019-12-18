@@ -1661,7 +1661,7 @@ mkExpr t@(SemiRingLiteral SR.SemiRingRealRepr r _) = do
   checkLinearSupport t
   return (SMTExpr RealTypeMap (rationalTerm r))
 mkExpr t@(SemiRingLiteral (SR.SemiRingBVRepr _flv w) x _) = do
-  checkLinearSupport t
+  checkBitvectorSupport t
   return $ SMTExpr (BVTypeMap w) $ bvTerm w x
 mkExpr t@(StringExpr l _) =
   case l of
