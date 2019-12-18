@@ -11,8 +11,6 @@ module TestUtils where
 
 import           Control.Monad ( when )
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
-import           Data.Parameterized.Classes
-import           Data.Parameterized.TraversableFC
 import           Hedgehog
 import           System.Directory
 import qualified What4.Expr.Builder as S

@@ -48,7 +48,6 @@ import qualified What4.Expr as S
 import qualified What4.Expr.BoolMap as BooM
 import qualified What4.Expr.Builder as B
 import qualified What4.Expr.WeightedSum as WSum
-import qualified What4.Expr.BoolMap as BM
 import qualified What4.Interface as S
 import qualified What4.Symbol as S
 import           What4.Utils.Util ( fromJust', SomeSome(..) )
