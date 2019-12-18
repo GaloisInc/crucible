@@ -60,6 +60,7 @@ library
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Run
     Lang.Crucible.LLVM.Translation
+    Lang.Crucible.LLVM.Translation.Aliases
     Lang.Crucible.LLVM.TypeContext
 
   other-modules:

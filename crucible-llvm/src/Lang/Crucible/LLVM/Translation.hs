@@ -115,6 +115,7 @@ import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.Globals
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.Translation.Aliases
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
@@ -398,9 +399,14 @@ translateModule halloc m = do
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.
        let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
+
+       let ctx' = ctx{ llvmGlobalAliases = globalAliases m
+                     , llvmFunctionAliases = functionAliases m
+                     }
+
        nonce <- freshNonce nonceGen
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
-                                       , globalInitMap = makeGlobalMap ctx m
-                                       , _transContext = ctx
+                                       , globalInitMap = makeGlobalMap ctx' m
+                                       , _transContext = ctx'
                                        , modTransNonce = nonce
                                        }))
