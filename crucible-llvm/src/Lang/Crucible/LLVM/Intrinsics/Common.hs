@@ -51,6 +51,7 @@ import           Control.Monad.Trans.Maybe (MaybeT)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.List as List
+import           Data.Set (Set)
 import qualified Data.Text as Text
 import           Numeric (readDec)
 
@@ -146,6 +147,12 @@ data LLVMContext arch
    , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
    , llvmMemVar     :: GlobalVar Mem
    , _llvmTypeCtx   :: TypeContext
+     -- | For each global variable symbol, compute the set of
+     --   aliases to that symbol
+   , llvmGlobalAliases   :: Map L.Symbol (Set L.GlobalAlias)
+     -- | For each function symbol, compute the set of
+     --   aliases to that symbol
+   , llvmFunctionAliases :: Map L.Symbol (Set L.GlobalAlias)
    }
 
 symbolMap :: Simple Lens (LLVMContext arch) SymbolHandleMap
@@ -178,6 +185,8 @@ mkLLVMContext halloc m = do
                      , llvmMemVar   = mvar
                      , llvmPtrWidth = \x -> x wptr
                      , _llvmTypeCtx = typeCtx
+                     , llvmGlobalAliases = mempty   -- these are computed later
+                     , llvmFunctionAliases = mempty -- these are computed later
                      }
            return (Some ctx)
     _ ->

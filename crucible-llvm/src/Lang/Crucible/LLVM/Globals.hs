@@ -105,11 +105,11 @@ makeGlobalMap :: forall arch wptr. (?lc :: TypeContext, HasPtrWidth wptr)
               => LLVMContext arch
               -> L.Module
               -> GlobalInitializerMap
-makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (globalAliases m))
+makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases ctx))
 
   where
    addAliases mp (glob, aliases) =
-        case Map.lookup (L.globalSym glob) mp of
+        case Map.lookup glob mp of
           Just initzr -> insertAll (map L.aliasName (Set.toList aliases)) initzr mp
           Nothing     -> mp -- should this be an error/exception?
 
@@ -178,7 +178,7 @@ initializeMemory predicate sym llvm_ctx m = do
    let endianness = dl^.intLayout
    mem0 <- emptyMem endianness
    -- Allocate function handles
-   let funAliases = Map.mapKeys L.defName (functionAliases m)
+   let funAliases = llvmFunctionAliases llvm_ctx
    let lookupFunAliases symb =
          Set.map L.aliasName $ fromMaybe Set.empty (Map.lookup symb funAliases)
    let handles =
@@ -186,14 +186,14 @@ initializeMemory predicate sym llvm_ctx m = do
            Map.assocs (_symbolMap llvm_ctx)
    mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
    -- Allocate global values
-   let globAliases = globalAliases m
+   let globAliases = llvmGlobalAliases llvm_ctx
    let globals     = L.modGlobals m
    gs_alloc <- mapM (\g -> do
                         ty <- either fail return $ liftMemType $ L.globalType g
                         let sz      = memTypeSize dl ty
                         let tyAlign = memTypeAlign dl ty
                         let aliases = map L.aliasName . Set.toList $
-                              fromMaybe Set.empty (Map.lookup g globAliases)
+                              fromMaybe Set.empty (Map.lookup (L.globalSym g) globAliases)
                         -- LLVM documentation regarding global variable alignment:
                         --
                         -- An explicit alignment may be specified for
