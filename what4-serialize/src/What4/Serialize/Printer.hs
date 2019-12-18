@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 module What4.Serialize.Printer
   (
@@ -39,6 +40,8 @@ import           Data.Word ( Word64 )
 import qualified Control.Monad.Trans.Writer.Strict as W
 import           Control.Monad.State (State)
 import qualified Control.Monad.State as State
+import           Control.Monad.Trans.State.Lazy ( StateT )
+import qualified Control.Monad.Trans.State.Lazy as StateT
 
 
 import qualified Data.SCargot.Repr.Rich as SE
@@ -46,8 +49,9 @@ import qualified Data.SCargot.Repr.Rich as SE
 import           What4.BaseTypes
 import qualified What4.Expr as S
 import qualified What4.Expr.BoolMap as BooM
-import qualified What4.Expr.Builder as S
+import qualified What4.Expr.Builder as B
 import qualified What4.Expr.WeightedSum as WSum
+import qualified What4.Expr.BoolMap as BM
 import qualified What4.Interface as S
 import qualified What4.Symbol as S
 import           What4.Utils.Util ( fromJust', SomeSome(..) )
@@ -127,7 +131,7 @@ convertSymFn paramLookup (S.ExprSymFn _ symFnName symFnInfo _) = do
     getBoundVar :: forall tp. S.ExprBoundVar t tp -> SExp
     getBoundVar var =
        let nameExpr = ident' (T.unpack (S.solverSymbolAsText (S.bvarName var)))
-           typeExpr = convertBaseType (S.bvarType var)
+           typeExpr = convertBaseType (B.bvarType var)
        in SE.L [ nameExpr, typeExpr ]
 
 -- | Used for substituting in the result expression when a variable is
@@ -140,7 +144,7 @@ type Memo t a = W.WriterT (SymFnEnv t) (State (OMap SKey SExp)) a
 runMemo :: Memo t a -> (a, OMap SKey SExp, SymFnEnv t)
 runMemo m =
   let
-    ((a, bindings), fenv) = State.runState (W.runWriterT m) OMap.empty
+    ((a, bindings), fenv) = StateT.runState (W.runWriterT m) OMap.empty
   in (a, fenv, bindings)
 
 -- | Key for sharing SExp construction (i.e., the underlying
@@ -153,7 +157,7 @@ skeyAtom :: SKey -> SExp
 skeyAtom key = ident' $ "_g"++(show $ sKeyValue key)
 
 exprSKey :: S.Expr t tp -> Maybe SKey
-exprSKey x = SKey . Nonce.indexValue <$> S.exprMaybeId x
+exprSKey x = SKey . Nonce.indexValue <$> B.exprMaybeId x
 
 
 convertExpr :: forall t tp . ParamLookup t -> S.Expr t tp -> Memo t SExp
@@ -356,6 +360,9 @@ convertAppExpr' paramLookup = go . S.appExprApp
           s1 <- goE e1
           s2 <- goE e2
           return $ SE.L [ident' "intmod", s1, s2]
+        go (S.IntAbs e1) = do
+          s1 <- goE e1
+          return $ SE.L [ident' "intabs", s1]
         go (S.IntegerToBV e wRepr)  = do
           s <- goE e
           return $ SE.L [ident' "integerToBV"
