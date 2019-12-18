@@ -50,6 +50,7 @@ module Lang.Crucible.LLVM.MemModel
   , LLVMPointerType
   , pattern LLVMPointerRepr
   , pattern PtrRepr
+  , pattern SizeT
   , LLVMPtr
   , pattern LLVMPointer
   , llvmPointerView
