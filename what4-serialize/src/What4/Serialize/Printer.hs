@@ -91,7 +91,7 @@ convertSymFnEnv paramLookup sigs = do
     convertSomeSymFn :: (T.Text, SomeSome (S.ExprSymFn t)) -> W.Writer (SymFnEnv t) SExp
     convertSomeSymFn (name, SomeSome symFn) = do
       sexpr <- convertSymFn paramLookup symFn
-      return $ SE.L [ ident' (T.unpack name), sexpr ]
+      return $ SE.L [ string' (T.unpack name), sexpr ]
 
 convertExprWithLet :: ParamLookup t -> S.Expr t tp -> W.Writer (SymFnEnv t) SExp
 convertExprWithLet paramLookup expr = do
@@ -110,19 +110,21 @@ convertSymFn :: forall t args ret
               . ParamLookup t 
              -> S.ExprSymFn t args ret
              -> W.Writer (SymFnEnv t) SExp
-convertSymFn paramLookup (S.ExprSymFn _ symFnName symFnInfo _) = do
+convertSymFn paramLookup symFn@(S.ExprSymFn _ symFnName symFnInfo _) = do
   sexpr <- case symFnInfo of
      S.DefinedFnInfo argVars expr _ -> do
        let sArgVars = SE.L $ reverse $ FC.toListFC getBoundVar argVars
        sExpr <- convertExprWithLet paramLookup expr
-       return $ SE.L [ ident' "definedfn", sArgVars, sExpr ]
+       let sArgTs = convertBaseTypes (S.fnArgTypes symFn)
+       let sRetT = convertBaseType (S.fnReturnType symFn)
+       return $ SE.L [ ident' "definedfn", sArgTs, sRetT, sArgVars, sExpr ]
      S.UninterpFnInfo argTs retT ->
        let
          sArgTs = convertBaseTypes argTs
          sRetT = convertBaseType retT
        in return $ SE.L [ ident' "uninterpfn", sArgTs, sRetT]
      _ -> error "Unsupported ExprSymFn kind in convertSymFn"
-  return $ SE.L [ ident' "symfn", ident' (T.unpack $ S.solverSymbolAsText symFnName), sexpr ]
+  return $ SE.L [ ident' "symfn", string' (T.unpack $ S.solverSymbolAsText symFnName), sexpr ]
   where
     getBoundVar :: forall tp. S.ExprBoundVar t tp -> SExp
     getBoundVar var =

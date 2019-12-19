@@ -935,7 +935,7 @@ readSymFn' cfg sexpr =
   in do
   (name, symFnInfoRaw) <- case sexpr of
     SC.SCons (SC.SAtom (AIdent "symfn"))
-      (SC.SCons (SC.SAtom (AIdent name))
+      (SC.SCons (SC.SAtom (AString name))
         (SC.SCons symFnInfoRaw
           SC.SNil))
       -> return (name, symFnInfoRaw)
@@ -944,15 +944,30 @@ readSymFn' cfg sexpr =
   let symbol = U.makeSymbol name
   case symFnInfoRaw of
     SC.SCons (SC.SAtom (AIdent "definedfn"))
-      (SC.SCons argVarsRaw
-        (SC.SCons exprRaw
-           SC.SNil))
+      (SC.SCons argTsRaw
+        (SC.SCons retTRaw
+          (SC.SCons argVarsRaw
+            (SC.SCons exprRaw
+               SC.SNil))))
       -> do
+        Some argTs <- readBaseTypes argTsRaw
+        Some retT <- readBaseType retTRaw
+        let ufname = T.pack ("uf." ++ name)
+        -- For recursive calls, we may need an uninterpreted variant of this function
+        env' <- case Map.lookup ufname env of
+          Just (U.SomeSome ufsymFn) ->
+            if | Just Refl <- testEquality argTs (S.fnArgTypes ufsymFn)
+               , Just Refl <- testEquality retT (S.fnReturnType ufsymFn) -> return env
+               | otherwise -> E.throwError $ "Bad signature for existing function: " ++ show name
+          Nothing -> do
+            symFn <- liftIO $ S.freshTotalUninterpFn sym symbol argTs retT
+            return $ Map.insert ufname (U.SomeSome symFn) env
+
         Some argNameList <- buildArgumentList @m argVarsRaw
         argVarList <- traverseFC mkArgumentVar argNameList
         Some expr <- MR.runReaderT (readExpr exprRaw) $
           DefsInfo { getSym = sym
-                   , getEnv = env
+                   , getEnv = env'
                    , getGlobalLookup = globalLookup
                    , getArgVarList = argVarList
                    , getArgNameList = argNameList
@@ -1074,11 +1089,11 @@ readSymFnEnv' cfg sexpr = do
     readSomeSymFn :: SymFnEnv sym -> SC.SExpr FAtom -> m (T.Text, (SomeSome (S.SymFn sym)))
     readSomeSymFn env sexpr' = do
       (name, rawSymFn) <- case sexpr' of
-        SC.SCons (SC.SAtom (AIdent name))
+        SC.SCons (SC.SAtom (AString name))
           (SC.SCons rawSymFn
             SC.SNil)
           -> return (T.pack name, rawSymFn)
-        _ -> E.throwError "invalid function environment structure"
+        _ -> E.throwError $ "invalid function environment structure: " ++ show sexpr'
       ssymFn <- readSymFn' (cfg { pSymFnEnv = env }) rawSymFn
       return (name, ssymFn)
 
