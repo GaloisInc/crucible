@@ -502,6 +502,134 @@ property l4 = correct_bor`{16}
 property l5 = correct_bxor`{16}
 
 ////////////////////////////////////////////////////////////
+// Operations preserve singletons
+
+singleton_overlap : {n} (fin n) => [n] -> [n] -> Bit
+singleton_overlap x y =
+  overlap (singleton x) (singleton y) == (x == y)
+
+singleton_zero_ext : {m, n} (fin m, m >= n) => [n] -> Bit
+singleton_zero_ext x =
+  zero_ext`{m} (singleton x) == singleton (zext`{m} x)
+
+singleton_sign_ext : {m, n} (fin m, m >= n, n >= 1) => [n] -> Bit
+singleton_sign_ext x =
+  sign_ext`{m} (singleton x) == singleton (sext`{m} x)
+
+singleton_concat : {m, n} (fin m, fin n) => [m] -> [n] -> Bit
+singleton_concat x y =
+  concat (singleton x) (singleton y) == singleton (x # y)
+
+singleton_shrink : {m, n} (fin m, fin n) => [m + n] -> Bit
+singleton_shrink x =
+  shrink`{m} (singleton x) == singleton (take`{m} x)
+
+singleton_trunc : {m, n} (fin m, fin n) => [m + n] -> Bit
+singleton_trunc x =
+  trunc`{m} (singleton x) == singleton (drop`{m} x)
+
+singleton_add : {n} (fin n) => [n] -> [n] -> Bit
+singleton_add x y =
+  add (singleton x) (singleton y) == singleton (x + y)
+
+singleton_neg : {n} (fin n) => [n] -> Bit
+singleton_neg x =
+  neg (singleton x) == singleton (- x)
+
+singleton_mul : {n} (fin n) => [n] -> [n] -> Bit
+singleton_mul x y =
+  mul (singleton x) (singleton y) == singleton (x * y)
+
+singleton_mulRange : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_mulRange x y =
+  mulRange (x, x) (y, y) == (sext x * sext y, sext x * sext y)
+
+singleton_udiv : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_udiv x y =
+  y != 0 ==> udiv (singleton x) (singleton y) == singleton (x / y)
+
+singleton_urem : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_urem x y =
+  y != 0 ==> urem (singleton x) (singleton y) == singleton (x % y)
+
+singleton_sdiv : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_sdiv x y =
+  y != 0 ==> sdiv (singleton x) (singleton y) == singleton (x /$ y)
+
+singleton_srem : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_srem x y =
+  y != 0 ==> srem (singleton x) (singleton y) == singleton (x %$ y)
+
+singleton_shl : {n} (fin n) => [n] -> [n] -> Bit
+singleton_shl x y =
+  shl (singleton x) (singleton y) == singleton (x << y)
+
+singleton_lshr : {n} (fin n) => [n] -> [n] -> Bit
+singleton_lshr x y =
+  lshr (singleton x) (singleton y) == singleton (x >> y)
+
+singleton_ashr : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_ashr x y =
+  ashr (singleton x) (singleton y) == singleton (x >>$ y)
+
+singleton_slt : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_slt x y =
+  slt (singleton x) (singleton y) == (x <$ y)
+
+singleton_sle : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_sle x y =
+  sle (singleton x) (singleton y) == (x <=$ y)
+
+singleton_ult : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_ult x y =
+  ult (singleton x) (singleton y) == (x < y)
+
+singleton_ule : {n} (fin n, n >= 1) => [n] -> [n] -> Bit
+singleton_ule x y =
+  ule (singleton x) (singleton y) == (x <= y)
+
+singleton_bnot : {n} (fin n) => [n] -> Bit
+singleton_bnot x =
+  bnot (singleton x) == singleton (~ x)
+
+singleton_band : {n} (fin n) => [n] -> [n] -> Bit
+singleton_band x y =
+  band (singleton x) (singleton y) == singleton (x && y)
+
+singleton_bor : {n} (fin n) => [n] -> [n] -> Bit
+singleton_bor x y =
+  bor (singleton x) (singleton y) == singleton (x || y)
+
+singleton_bxor : {n} (fin n) => [n] -> [n] -> Bit
+singleton_bxor x y =
+  bxor (singleton x) (singleton y) == singleton (x ^ y)
+
+property i01 = singleton_overlap`{16}
+property i02 = singleton_zero_ext`{32, 16}
+property i03 = singleton_sign_ext`{32, 16}
+property i04 = singleton_concat`{16, 16}
+property i05 = singleton_shrink`{8, 8}
+property i06 = singleton_trunc`{8, 8}
+property i07 = singleton_add`{8}
+property i08 = singleton_neg`{16}
+property i09 = singleton_mul`{4}
+property i10 = singleton_udiv`{8}
+property i11 = singleton_urem`{8}
+property i12 = singleton_sdiv`{8}
+property i13 = singleton_srem`{8}
+property i14 = singleton_shl`{8}
+property i15 = singleton_lshr`{8}
+property i16 = singleton_ashr`{8}
+property i17 = singleton_slt`{16}
+property i18 = singleton_sle`{16}
+property i19 = singleton_ult`{16}
+property i20 = singleton_ule`{16}
+property i21 = singleton_bnot`{16}
+property i22 = singleton_band`{16}
+property i23 = singleton_bor`{16}
+property i24 = singleton_bxor`{16}
+
+////////////////////////////////////////////////////////////
 // Associativity/commutativity properties
 
 comm_overlap : {n} (fin n) => BVDom n -> BVDom n -> Bit
