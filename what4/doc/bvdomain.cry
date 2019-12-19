@@ -47,6 +47,8 @@ interval l s = { lo = l, sz = s }
 range : {n} (fin n) => [n] -> [n] -> BVDom n
 range lo hi = interval lo (hi - lo)
 
+/** Membership predicate that defines the set of concrete values
+represented by an abstract domain element. */
 mem : {n} (fin n) => BVDom n -> [n] -> Bit
 mem a x = x - a.lo <= a.sz
 
