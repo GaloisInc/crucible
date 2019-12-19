@@ -454,10 +454,26 @@ comm_mul a b = mul a b == mul b a
 assoc_mul : {n} (fin n) => BVDom n -> BVDom n -> BVDom n -> Bit
 assoc_mul a b c = mul a (mul b c) =@= mul (mul a b) c
 
+comm_mulRange :
+  {i, j} (fin i, fin j, i >= 1, j >= 1) => ([i], [i]) -> ([j], [j]) -> Bit
+comm_mulRange a b =
+  a.0 <=$ a.1 ==> b.0 <=$ b.1 ==> mulRange a b == mulRange b a
+
+assoc_mulRange :
+  {i, j, k} (fin i, fin j, fin k, i >= 1, j >= 1, k >= 1) =>
+  ([i], [i]) -> ([j], [j]) -> ([k], [k]) -> Bit
+assoc_mulRange a b c =
+  a.0 <=$ a.1 ==>
+  b.0 <=$ b.1 ==>
+  c.0 <=$ c.1 ==>
+  mulRange a (mulRange b c) == mulRange (mulRange a b) c
+
 property c1 = comm_overlap`{16}
 property c2 = comm_add`{16}
 property c3 = assoc_add`{16}
 property c4 = comm_mul`{4}
+property c5 = comm_mulRange`{4,4}
+property c6 = assoc_mulRange`{3,3,3}
 
 ////////////////////////////////////////////////////////////
 // Additional properties about union
