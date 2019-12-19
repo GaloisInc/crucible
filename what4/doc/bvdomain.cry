@@ -88,21 +88,25 @@ overlap : {n} (fin n) => BVDom n -> BVDom n -> Bit
 overlap a b = diff <= b.sz \/ carry diff a.sz
   where diff = a.lo - b.lo
 
+// To compute the union of two intervals, we choose representatives of
+// the endpoints modulo 2^n such that their midpoints are no more than
+// 2^(n-1) apart. In the code below, am and bm are equal to twice the
+// midpoints of intervals a and b, respectively.
 union : {n} (fin n) => BVDom n -> BVDom n -> BVDom n
 union a b =
-  if cd >= size then top else interval (drop`{2} cl) (drop`{2} cd)
+  if cw >= size then top else interval (drop`{2} cl) (drop`{2} cw)
   where
     size : [n+2]
     size = bit`{n}
-    ac = 2 * zext a.lo .+. zext a.sz
-    bc = 2 * zext b.lo .+. zext b.sz
-    al' = if ac .+. size < bc then zext a.lo .+. size else zext a.lo
-    bl' = if bc .+. size < ac then zext b.lo .+. size else zext b.lo
+    am = 2 * zext a.lo .+. zext a.sz
+    bm = 2 * zext b.lo .+. zext b.sz
+    al' = if am .+. size < bm then zext a.lo .+. size else zext a.lo
+    bl' = if bm .+. size < am then zext b.lo .+. size else zext b.lo
     ah' = al' .+. zext a.sz
     bh' = bl' .+. zext b.sz
     cl = min al' bl'
     ch = max ah' bh'
-    cd = ch .-. cl
+    cw = ch .-. cl
 
 ////////////////////////////////////////////////////////////
 
