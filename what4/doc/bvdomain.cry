@@ -29,12 +29,23 @@ infixl 80 .-.
 (.-.) : {n} (fin n) => [n] -> [n] -> [n]
 x .-. y = if x < y then error "underflow" else x - y
 
+/** Minimum of two signed values. */
+smin : {a} (SignedCmp a) => a -> a -> a
+smin x y = if x <$ y then x else y
+
+/** Maximum of two signed values. */
+smax : {a} (SignedCmp a) => a -> a -> a
+smax x y = if x >$ y then x else y
+
 ////////////////////////////////////////////////////////////
 
 type BVDom n = { lo : [n], sz : [n] }
 
 interval : {n} (fin n) => [n] -> [n] -> BVDom n
 interval l s = { lo = l, sz = s }
+
+range : {n} (fin n) => [n] -> [n] -> BVDom n
+range lo hi = interval lo (hi - lo)
 
 mem : {n} (fin n) => BVDom n -> [n] -> Bit
 mem a x = x - a.lo <= a.sz
@@ -145,8 +156,8 @@ mulRange (xl, xh) (yl, yh) = (zl, zh)
   where
     (xlyl, xlyh) = scaleRange xl (yl, yh)
     (xhyl, xhyh) = scaleRange xh (yl, yh)
-    zl = if xlyl <$ xhyl then xlyl else xhyl
-    zh = if xlyh <$ xhyh then xhyh else xlyh
+    zl = smin xlyl xhyl
+    zh = smax xlyh xhyh
 
 scaleRange : {m, n} (fin m, fin n, m >= 1, n >= 1) => [m] -> ([n], [n]) -> ([m+n], [m+n])
 scaleRange k (lo, hi) = if k <$ 0 then (hi', lo') else (lo', hi')
@@ -155,7 +166,7 @@ scaleRange k (lo, hi) = if k <$ 0 then (hi', lo') else (lo', hi')
     hi' = sext k * sext hi
 
 udiv : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> BVDom n
-udiv a b = interval cl (ch - cl)
+udiv a b = range cl ch
   where
     (al, ah) = ubounds a
     (bl, bh) = ubounds b
@@ -166,7 +177,7 @@ udiv a b = interval cl (ch - cl)
 
 urem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> BVDom n
 urem a b =
-  if ql == qh then interval rl (rh - rl)
+  if ql == qh then range rl rh
   else interval 0 (bh - 1)
   where
     (al, ah) = ubounds a
