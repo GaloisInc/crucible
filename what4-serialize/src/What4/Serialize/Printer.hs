@@ -73,7 +73,7 @@ printSymFn' symfn =
 printSymFn :: S.ExprSymFn t args ret -> T.Text
 printSymFn = fst . printSymFn'
 
-printSymFnEnv :: SymFnEnv t -> T.Text
+printSymFnEnv :: [(T.Text, SomeSome (S.ExprSymFn t))] -> T.Text
 printSymFnEnv fenv =
   let
     (sexp, _) = W.runWriter $ convertSymFnEnv simpleParamLookup fenv
@@ -83,9 +83,9 @@ simpleParamLookup :: forall t. ParamLookup t
 simpleParamLookup var = Just $ ident' (T.unpack (S.solverSymbolAsText (S.bvarName var)))
 
 
-convertSymFnEnv :: forall t. ParamLookup t -> SymFnEnv t -> W.Writer (SymFnEnv t) SExp
+convertSymFnEnv :: forall t. ParamLookup t -> [(T.Text, SomeSome (S.ExprSymFn t))] -> W.Writer (SymFnEnv t) SExp
 convertSymFnEnv paramLookup sigs = do
-  sexpr <- mapM convertSomeSymFn $ Map.assocs sigs
+  sexpr <- mapM convertSomeSymFn $ sigs
   return $ SE.L [ ident' "symfnenv", SE.L sexpr ]
   where
     convertSomeSymFn :: (T.Text, SomeSome (S.ExprSymFn t)) -> W.Writer (SymFnEnv t) SExp

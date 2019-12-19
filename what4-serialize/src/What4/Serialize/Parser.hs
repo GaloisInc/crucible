@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE MultiWayIf #-}
 
 -- | A parser for an s-expression representation of what4 expressions
 module What4.Serialize.Parser
@@ -22,6 +23,7 @@ module What4.Serialize.Parser
   , readSymFnEnv
   , readSymFnEnvFromFile
   , ParserConfig(..)
+  , defaultParserConfig
   , SymFnEnv
   ) where
 
@@ -967,8 +969,17 @@ readSymFn' cfg sexpr =
       -> do
         Some argTs <- readBaseTypes argTsRaw
         Some retT <- readBaseType retTRaw
-        symFn <- liftIO $ S.freshTotalUninterpFn sym symbol argTs retT
-        return $ SomeSome symFn
+        case Map.lookup (T.pack ("uf." ++ name)) env of
+          Just (SomeSome symFn) -> do
+            let argTs' = S.fnArgTypes symFn
+            let retT' = S.fnReturnType symFn
+            if | Just Refl <- testEquality argTs argTs'
+               , Just Refl <- testEquality retT retT' -> do
+                 return $ SomeSome symFn
+               | otherwise -> E.throwError "invalid function signature in environment"
+          _ -> do
+            symFn <- liftIO $ S.freshTotalUninterpFn sym symbol argTs retT
+            return $ SomeSome symFn
     _ -> E.throwError "invalid function definition info structure"
         
   where    
@@ -1000,6 +1011,13 @@ data ParserConfig t = ParserConfig
   , pOverrides :: String -> Maybe ([Some (S.SymExpr t)] -> IO (Either String (Some (S.SymExpr t))))
   , pSym :: t
   }
+
+defaultParserConfig :: t -> ParserConfig t
+defaultParserConfig t =
+  ParserConfig { pSymFnEnv = Map.empty
+               , pGlobalLookup = \_ -> return Nothing
+               , pOverrides = \_ -> Nothing
+               , pSym = t }
 
 type SymFnEnv t = Map T.Text (SomeSome (S.SymFn t))
 
@@ -1042,26 +1060,26 @@ readSymFnEnv' cfg sexpr = do
         SC.SNil)
       -> return symFnEnvRaw
     _ -> E.throwError "invalid top-level function environment structure"
-  Map.fromList <$> readSymFns symFnEnvRaw
+  readSymFns (pSymFnEnv cfg) symFnEnvRaw
   where
-    readSymFns :: SC.SExpr FAtom -> m [(T.Text, (SomeSome (S.SymFn sym)))]
-    readSymFns sexpr' = case sexpr' of
-      SC.SNil -> return []
+    readSymFns :: SymFnEnv sym -> SC.SExpr FAtom -> m (SymFnEnv sym)
+    readSymFns env sexpr' = case sexpr' of
+      SC.SNil -> return env
       SC.SAtom _ -> E.throwError $ "Expected SNil or SCons but got SAtom: " ++ show sexpr
       SC.SCons s rest -> do
-        rest' <- readSymFns rest
-        s' <- readSomeSymFn s
-        return $ s' : rest'
+        (nm, symFn) <- readSomeSymFn env s
+        let env' = Map.insert nm symFn env
+        readSymFns env' rest
       
-    readSomeSymFn :: SC.SExpr FAtom -> m (T.Text, (SomeSome (S.SymFn sym)))
-    readSomeSymFn sexpr' = do
+    readSomeSymFn :: SymFnEnv sym -> SC.SExpr FAtom -> m (T.Text, (SomeSome (S.SymFn sym)))
+    readSomeSymFn env sexpr' = do
       (name, rawSymFn) <- case sexpr' of
         SC.SCons (SC.SAtom (AIdent name))
           (SC.SCons rawSymFn
             SC.SNil)
           -> return (T.pack name, rawSymFn)
         _ -> E.throwError "invalid function environment structure"
-      ssymFn <- readSymFn' cfg rawSymFn
+      ssymFn <- readSymFn' (cfg { pSymFnEnv = env }) rawSymFn
       return (name, ssymFn)
 
 readSymFnEnv :: forall sym

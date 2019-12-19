@@ -22,6 +22,7 @@ import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import qualified Data.Text as T
+import qualified Data.Set as Set
 import qualified Data.Map as Map
 import           Hedgehog
 
@@ -30,6 +31,7 @@ import           Test.Tasty
 -- import           Test.Tasty.HUnit ( assertEqual, testCase, (@?=) )
 import           Test.Tasty.Hedgehog
 import           TestUtils
+import qualified What4.Serialize.Normalize as WN
 import qualified What4.Expr.Builder as S
 import           What4.BaseTypes
 import qualified What4.Interface as WI -- ( getConfiguration )
@@ -140,6 +142,7 @@ testExpressions =
           let arr = bvs ! Ctx.baseIndex
           WI.arrayUpdate sym arr (Ctx.empty :> i1) i2
     , testProperty "integer to bitvector" $
+        withTests 1 $
         property $ mkEquivalenceTest (Ctx.empty :> BaseIntegerRepr) $ \sym bvs -> do
           let i1 = bvs ! Ctx.baseIndex
           WI.integerToBV sym i1 (WI.knownNat @32)
@@ -152,7 +155,20 @@ testEnvSigs =
         property $ mkSigTest $ \sym -> do
           intbool_int <- WI.freshTotalUninterpFn sym (WI.safeSymbol "intbool_int") (Ctx.empty :> BaseIntegerRepr :> BaseBoolRepr) BaseIntegerRepr
           boolint_bool <- WI.freshTotalUninterpFn sym (WI.safeSymbol "boolint_bool") (Ctx.empty :> BaseBoolRepr :> BaseIntegerRepr) BaseBoolRepr
-          return [("intbool_int", U.SomeSome intbool_int), ("boolint_bool", U.SomeSome boolint_bool)]
+          return ([], [("intbool_int", U.SomeSome intbool_int), ("boolint_bool", U.SomeSome boolint_bool)])
+    , testProperty "dependent sigs" $
+        withTests 1 $
+         property $ mkSigTest $ \sym -> do
+           uf1 <- WI.freshTotalUninterpFn sym (WI.safeSymbol "uf1") (Ctx.empty :> BaseIntegerRepr) BaseIntegerRepr
+           bv1 <- WI.freshBoundVar sym (WI.safeSymbol "bv1") BaseIntegerRepr
+           uf1expr <- WI.applySymFn sym uf1 (Ctx.empty :> WI.varExpr sym bv1)
+           fn1 <- WI.definedFn sym (WI.safeSymbol "fn1") (Ctx.empty :> bv1) uf1expr (const False)
+           bv2 <- WI.freshBoundVar sym (WI.safeSymbol "bv2") BaseIntegerRepr
+           fn1expr <- WI.applySymFn sym fn1 (Ctx.empty :> WI.varExpr sym bv2)
+           fn2 <- WI.definedFn sym (WI.safeSymbol "fn2") (Ctx.empty :> bv2) fn1expr (const False)
+
+           return ([("uf.uf1", U.SomeSome uf1)],
+                   [("df.fn1", U.SomeSome fn1), ("df.fn2", U.SomeSome fn2)])
     ]
 
 -- FIXME: Unclear how to manually create a term that will change under normalization
@@ -251,21 +267,20 @@ mkSigTest :: forall m
           => (forall sym
                . WI.IsSymExprBuilder sym
               => sym
-              -> IO [(T.Text, U.SomeSome (WI.SymFn sym))])
+              -> IO ([(T.Text, U.SomeSome (WI.SymFn sym))], [(T.Text, U.SomeSome (WI.SymFn sym))]))
           -> m ()
 mkSigTest getSymFnEnv = do
   Some r <- liftIO $ newIONonceGenerator
   sym <- liftIO $ S.newExprBuilder S.FloatRealRepr NoBuilderData r
   liftIO $ S.startCaching sym
-  fenv1 <- liftIO $ Map.fromList <$> getSymFnEnv sym
+  (readenv, fenv1) <- liftIO $ getSymFnEnv sym
   let fenvText = WP.printSymFnEnv fenv1
   lcfg <- liftIO $ Log.mkLogCfg "rndtrip"
   deser <- liftIO $
               Log.withLogCfg lcfg $
-              WP.readSymFnEnv (WP.ParserConfig Map.empty (\_ -> return Nothing) (\_ -> Nothing) sym) fenvText
+              WP.readSymFnEnv (WP.defaultParserConfig sym){WP.pSymFnEnv = Map.fromList readenv} fenvText
   fenv2 <- evalEither deser
-  Map.keysSet fenv1 === Map.keysSet fenv2
-  forM_ (Map.assocs fenv1) $ \(key, U.SomeSome fn1) ->
-    case Map.lookup key fenv2 of
+  forM_ fenv1 $ \(nm, U.SomeSome fn1) ->
+    case Map.lookup nm fenv2 of
       Just (U.SomeSome fn2) -> symFnEqualityTest sym fn1 fn2
       _ -> failure

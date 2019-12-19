@@ -25,8 +25,9 @@ module What4.Serialize.Normalize
   , ExprEquivResult(..)
   ) where
 
-
+import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TraversableFC as FC
+
 import qualified What4.Interface as S
 import qualified What4.Expr as S
 import qualified What4.Expr.Builder as B
@@ -34,34 +35,37 @@ import qualified What4.Expr.BoolMap as BooM
 import qualified What4.Expr.WeightedSum as WSum
 import           Data.Parameterized.Classes
 
-normSymFn :: forall sym st fs t args ret. sym ~ B.ExprBuilder t st fs => sym -> B.ExprSymFn t args ret -> IO (B.ExprSymFn t args ret)
-normSymFn sym symFn = case B.symFnInfo symFn of
-  B.DefinedFnInfo args expr evals -> do
-    expr' <- normExpr sym expr
-    S.definedFn sym (B.symFnName symFn) args expr' evals
-  _ -> return symFn
+
+normSymFn :: forall sym st fs t args ret. sym ~ B.ExprBuilder t st fs => sym -> B.ExprSymFn t args ret -> Ctx.Assignment (S.Expr t) args -> IO (S.Expr t ret)
+normSymFn sym symFn argEs = case B.symFnInfo symFn of
+  B.DefinedFnInfo argBVs expr _ -> do
+    argEs' <- FC.traverseFC (normExpr sym) argEs
+    expr' <- B.evalBoundVars sym expr argBVs argEs'
+    normExpr sym expr'
+  _ -> S.applySymFn sym symFn argEs
 
 
-normExpr :: forall sym st fs t tp. sym ~ B.ExprBuilder t st fs =>
-              sym
-
-          -> B.Expr t tp -> IO (B.Expr t tp)
+normExpr :: forall sym st fs t tp
+          . sym ~ B.ExprBuilder t st fs
+         => sym
+         -> B.Expr t tp -> IO (B.Expr t tp)
 normExpr sym e = go e
   where go :: B.Expr t tp -> IO (B.Expr t tp)
         go (B.SemiRingLiteral S.SemiRingIntegerRepr val _) = S.intLit sym val
         go (B.AppExpr appExpr) = normAppExpr sym appExpr
         go x@(B.NonceAppExpr nae) =
           case B.nonceExprApp nae of
-            B.FnApp fn args -> do
-              fn' <- normSymFn sym fn
-              args' <- FC.traverseFC (normExpr sym) args
-              B.sbNonceExpr sym (B.FnApp fn' args')
+            B.FnApp fn args -> normSymFn sym fn args
             _ -> return x
         go x = return x
 
 -- | Normalize an expression by passing it back through the builder
 -- FIXME: incomplete
-normAppExpr :: forall sym st fs t tp. sym ~ S.ExprBuilder t st fs => sym -> S.AppExpr t tp -> IO (S.Expr t tp)
+normAppExpr :: forall sym st fs t tp
+             . sym ~ S.ExprBuilder t st fs
+            => sym
+            -> S.AppExpr t tp
+            -> IO (S.Expr t tp)
 normAppExpr sym ae = do
   e' <- go (S.appExprApp ae)
   B.sbMakeExpr sym e'
