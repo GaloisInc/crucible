@@ -187,6 +187,47 @@ urem a b =
     (ql, rl) = (al / bh', al % bh')
     (qh, rh) = (ah / bl', ah % bl')
 
+// Extra bit of output is to handle the 'INTMIN / -1' overflow case.
+sdivRange : {n} (fin n, n >= 1) => ([n], [n]) -> ([n], [n]) -> ([1+n], [1+n])
+sdivRange (al, ah) (bl, bh) = (ql, qh)
+  where
+    x ./. y = sext x /$ sext y
+    al' = sext al
+    ah' = sext ah
+
+    (ql, qh) =
+      if bl >=$ 0 then
+        ( al ./. smax 1 (if al <$ 0 then bl else bh)
+        , ah ./. smax 1 (if ah >$ 0 then bl else bh)
+        ) else
+      if bh <=$ 0 then
+        ( ah ./. smin (-1) (if ah >$ 0 then bh else bl)
+        , al ./. smin (-1) (if al <$ 0 then bh else bl)
+        ) else
+      if al' <$ -ah' then (al', -al') else (-ah', ah')
+
+sdiv : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> BVDom n
+sdiv a b =
+  if sz >= bit`{n} then top
+  else interval (drop lo) (drop sz)
+  where
+    (lo, hi) = sdivRange (sbounds a) (sbounds b)
+    sz = hi - lo
+
+srem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> BVDom n
+srem a b =
+  if ql == qh then
+    (if ql <$ 0
+     then range (al - drop ql * bl) (ah - drop ql * bh)
+     else range (al - drop ql * bh) (ah - drop ql * bl))
+  else range rl rh
+  where
+    (al, ah) = sbounds a
+    (bl, bh) = sbounds b
+    (ql, qh) = sdivRange (al, ah) (bl, bh)
+    rl = if al <$ 0 then smin (bl+1) (-bh+1) else 0
+    rh = if ah >$ 0 then smax (-bl-1) (bh-1) else 0
+
 ////////////////////////////////////////////////////////////
 // Shifts
 
@@ -365,6 +406,18 @@ correct_urem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
 correct_urem a b x y =
   mem a x ==> mem b y ==> y != 0 ==> mem (urem a b) (x % y)
 
+correct_sdivRange : {n} (fin n, n >= 1) => ([n], [n]) -> ([n], [n]) -> [n] -> [n] -> Bit
+correct_sdivRange a b x y =
+  smem a x ==> smem b y ==> y != 0 ==> smem (sdivRange a b) (sext x /$ sext y)
+
+correct_sdiv : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_sdiv a b x y =
+  mem a x ==> mem b y ==> y != 0 ==> mem (sdiv a b) (x /$ y)
+
+correct_srem : {n} (fin n, n >= 1) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
+correct_srem a b x y =
+  mem a x ==> mem b y ==> y != 0 ==> mem (srem a b) (x %$ y)
+
 correct_shl : {n} (fin n) => BVDom n -> BVDom n -> [n] -> [n] -> Bit
 correct_shl a b x y =
   mem a x ==> mem b y ==> mem (shl a b) (x << y)
@@ -430,6 +483,8 @@ property a2 = correct_neg`{16}
 property a3 = correct_mul`{4}
 property a4 = correct_udiv`{8}
 property a5 = correct_urem`{6}
+property a6 = correct_sdiv`{6}
+property a7 = correct_srem`{6}
 
 property s1 = correct_shl`{8}
 property s2 = correct_lshr`{8}
