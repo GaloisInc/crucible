@@ -23,13 +23,6 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , llvmSizeT
   , OverrideTemplate(..)
   , TemplateMatcher(..)
-    -- ** LLVMContext
-  , LLVMHandleInfo(..)
-  , LLVMContext(..)
-  , SymbolHandleMap
-  , llvmTypeCtx
-  , symbolMap
-  , mkLLVMContext
     -- ** register_llvm_override
   , basic_llvm_override
   , polymorphic1_llvm_override
@@ -42,16 +35,12 @@ module Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Text.LLVM.AST as L
 
 import           Control.Applicative (empty)
-import           Control.Monad (when, unless)
+import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Lens
 import           Control.Monad.Reader (ReaderT, ask, lift)
-import           Control.Monad.State (StateT, get, put)
 import           Control.Monad.Trans.Maybe (MaybeT)
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import qualified Data.List as List
-import           Data.Set (Set)
 import qualified Data.Text as Text
 import           Numeric (readDec)
 
@@ -63,8 +52,7 @@ import           Data.Parameterized.TraversableFC (fmapFC)
 import           Lang.Crucible.Backend (IsSymInterface)
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
-import           Lang.Crucible.FunctionHandle (FnHandle(..), mkHandle')
-import           Lang.Crucible.FunctionHandle (HandleAllocator)
+import           Lang.Crucible.FunctionHandle ( mkHandle' )
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator (stateContext, simHandleAllocator)
 import           Lang.Crucible.Simulator.OverrideSim
@@ -74,10 +62,9 @@ import           Lang.Crucible.Types
 
 import           What4.FunctionName
 
-import           Lang.Crucible.LLVM.DataLayout (ptrBitwidth, ptrSize)
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
-import           Lang.Crucible.LLVM.TypeContext
+import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 
 -- | This type represents an implementation of an LLVM intrinsic function in
@@ -118,79 +105,8 @@ data TemplateMatcher
   | SubstringsMatch [String]
 
 type RegOverrideM p sym arch rtp l a =
-  ReaderT (L.Declare, Maybe ABI.DecodedName)
-    (MaybeT (StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a)))
-
-------------------------------------------------------------------------
--- ** LLVMHandleInfo
-
--- | Information about an LLVM handle, including both its
---   LLVM and Crucible type information as well as the Crucible
---   handle allocated to this symbol.
-data LLVMHandleInfo where
-  LLVMHandleInfo :: L.Declare
-                 -> FnHandle init ret
-                 -> LLVMHandleInfo
-
-------------------------------------------------------------------------
--- ** LLVMContext
-
--- | Maps symbol to information about associated handle.
-type SymbolHandleMap = Map L.Symbol LLVMHandleInfo
-
--- | Information about the LLVM module.
-data LLVMContext arch
-   = LLVMContext
-   { -- | Map LLVM symbols to their associated state.
-     _symbolMap     :: !SymbolHandleMap
-   , llvmArch       :: ArchRepr arch
-   , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
-   , llvmMemVar     :: GlobalVar Mem
-   , _llvmTypeCtx   :: TypeContext
-     -- | For each global variable symbol, compute the set of
-     --   aliases to that symbol
-   , llvmGlobalAliases   :: Map L.Symbol (Set L.GlobalAlias)
-     -- | For each function symbol, compute the set of
-     --   aliases to that symbol
-   , llvmFunctionAliases :: Map L.Symbol (Set L.GlobalAlias)
-   }
-
-symbolMap :: Simple Lens (LLVMContext arch) SymbolHandleMap
-symbolMap = lens _symbolMap (\s v -> s { _symbolMap = v })
-
-llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
-llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
-
-mkLLVMContext :: HandleAllocator
-              -> L.Module
-              -> IO (Some LLVMContext)
-mkLLVMContext halloc m = do
-  let (errs, typeCtx) = typeContextFromModule m
-  unless (null errs) $
-    fail $ unlines
-         $ [ "Failed to construct LLVM type context:" ] ++ map show errs
-  let dl = llvmDataLayout typeCtx
-
-  case mkNatRepr (ptrBitwidth dl) of
-    Some (wptr :: NatRepr wptr) | Just LeqProof <- testLeq (knownNat @16) wptr ->
-      withPtrWidth wptr $
-        do mvar <- mkMemVar halloc
-           let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
-                                       -- the target triple, but llvm-pretty doesn't capture this
-                                       -- currently.
-           let ctx :: LLVMContext (X86 wptr)
-               ctx = LLVMContext
-                     { _symbolMap = Map.empty
-                     , llvmArch     = archRepr
-                     , llvmMemVar   = mvar
-                     , llvmPtrWidth = \x -> x wptr
-                     , _llvmTypeCtx = typeCtx
-                     , llvmGlobalAliases = mempty   -- these are computed later
-                     , llvmFunctionAliases = mempty -- these are computed later
-                     }
-           return (Some ctx)
-    _ ->
-      fail ("Cannot load LLVM bitcode file with illegal pointer width: " ++ show (dl^.ptrSize))
+  ReaderT (L.Declare, Maybe ABI.DecodedName, LLVMContext arch)
+    (MaybeT (OverrideSim p sym (LLVM arch) rtp l a))
 
 ------------------------------------------------------------------------
 -- ** register_llvm_override
@@ -291,7 +207,7 @@ register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
   (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
   RegOverrideM p sym arch rtp l a ()
 register_1arg_polymorphic_override prefix overrideFn =
-  do L.Symbol nm <- L.decName . fst <$> ask
+  do (L.Declare{ L.decName = L.Symbol nm },_,_) <- ask
      case List.stripPrefix prefix nm of
        Just ('.':'i': (readDec -> (sz,[]):_))
          | Some w <- mkNatRepr sz
@@ -329,13 +245,12 @@ register_llvm_override :: forall p args ret sym arch wptr l a rtp.
   LLVMOverride p sym arch args ret ->
   RegOverrideM p sym arch rtp l a ()
 register_llvm_override llvmOverride = do
-  requestedDecl <- fst <$> ask
-  llvmctx <- get
+  (requestedDecl,_,llvmctx) <- ask
   let decl = llvmOverride_declare llvmOverride
 
   if not (isMatchingDeclaration requestedDecl decl) then
     do when (L.decName requestedDecl == L.decName decl) $
-         do logFn <- lift $ lift $ lift $ getLogFunction
+         do logFn <- lift $ lift $ getLogFunction
             liftIO $ logFn 3 $ unlines
               [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
@@ -344,10 +259,10 @@ register_llvm_override llvmOverride = do
               ]
        empty
   else
-   do let nm@(L.Symbol str_nm) = L.decName decl
+   do let (L.Symbol str_nm) = L.decName decl
       let fnm  = functionNameFromText (Text.pack str_nm)
 
-      sym <- lift $ lift $ lift $ getSymInterface
+      sym <- lift $ lift $ getSymInterface
 
       let mvar = llvmMemVar llvmctx
       let overrideArgs = llvmOverride_args llvmOverride
@@ -355,31 +270,16 @@ register_llvm_override llvmOverride = do
 
       let ?lc = llvmctx^.llvmTypeCtx
 
-      decl' <- either fail return $ liftDeclare decl
-      llvmDeclToFunHandleRepr decl' $ \derivedArgs derivedRet -> do
-        o <- lift $ lift $ lift $ build_llvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet
-                      (llvmOverride_def llvmOverride mvar sym)
-        case Map.lookup nm (llvmctx^.symbolMap) of
-          Just (LLVMHandleInfo _decl' h) -> do
-            case testEquality (handleArgTypes h) derivedArgs of
-               Nothing ->
-                 panic "Intrinsics.register_llvm_override"
-                   [ "Argument type mismatch when registering LLVM override."
-                   , "*** Override name: " ++ show nm
-                   , "*** Declared type: " ++ show (handleArgTypes h)
-                   , "*** Expected type: " ++ show derivedArgs
-                   ]
-               Just Refl ->
-                 case testEquality (handleReturnType h) derivedRet of
-                   Nothing ->
-                     panic "Intrinsics.register_llvm_override"
-                       [ "return type mismatch when registering LLVM override"
-                       , "*** Override name: " ++ show nm
-                       ]
-                   Just Refl -> lift $ lift $ lift $ bindFnHandle h (UseOverride o)
-          Nothing ->
-            do ctx <- lift $ lift $ lift $ use stateContext
-               let ha = simHandleAllocator ctx
-               h <- lift $ lift $ liftIO $ mkHandle' ha fnm derivedArgs derivedRet
-               lift $ lift $ lift $ bindFnHandle h (UseOverride o)
-               put (llvmctx & symbolMap %~ Map.insert nm (LLVMHandleInfo decl h))
+      llvmDeclToFunHandleRepr' decl $ \args ret -> do
+        o <- lift $ lift $
+                build_llvm_override sym fnm overrideArgs overrideRet args ret
+                (llvmOverride_def llvmOverride mvar sym)
+        ctx <- lift $ lift $ use stateContext
+        let ha = simHandleAllocator ctx
+        h <- lift $ liftIO $ mkHandle' ha fnm args ret
+
+        lift $ lift $ do
+           bindFnHandle h (UseOverride o)
+           mem <- readGlobal mvar
+           mem' <- liftIO $ bindLLVMFunPtr sym decl h mem
+           writeGlobal mvar mem'

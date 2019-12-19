@@ -61,7 +61,7 @@ import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle (HandleAllocator, mkHandle')
 import           Lang.Crucible.Types (UnitType, TypeRepr(UnitRepr))
 import           Lang.Crucible.LLVM.Extension (LLVM, ArchWidth)
-import           Lang.Crucible.LLVM.Intrinsics (LLVMContext, _llvmTypeCtx)
+import           Lang.Crucible.LLVM.Translation.Monad (LLVMContext, _llvmTypeCtx)
 import           Lang.Crucible.LLVM.Types (HasPtrWidth)
 
 {- Example:

@@ -61,6 +61,7 @@ import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
+import           Lang.Crucible.LLVM.Translation.Aliases
 import           Lang.Crucible.LLVM.TypeContext
 
 doProc :: String -> [String] -> IO (Int, String, String)
@@ -220,13 +221,13 @@ tests int struct uninitialized _ lifetime = do
              let g = mkGlobal "g"
                  a = mkAlias  "a" "g"
              in withInitializedMemory (mkModule [] []) $ \_ ->
-                Map.singleton g (Set.singleton a) @=? globalAliases (mkModule [a] [g])
+                Map.singleton (L.globalSym g) (Set.singleton a) @=? globalAliases (mkModule [a] [g])
          , testCase "globalAliases: two aliases" $
              let g  = mkGlobal "g"
                  a1 = mkAlias  "a1" "g"
                  a2 = mkAlias  "a2" "g"
              in withInitializedMemory (mkModule [] []) $ \_ ->
-                Map.singleton g (Set.fromList [a1, a2]) @=? globalAliases (mkModule [a1, a2] [g])
+                Map.singleton (L.globalSym g) (Set.fromList [a1, a2]) @=? globalAliases (mkModule [a1, a2] [g])
          ]
 
     , -- The following test ensures that SAW treats global aliases properly in that

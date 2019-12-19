@@ -24,6 +24,7 @@ import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
 import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Run
 
+import CruxLLVMMain( registerFunctions )
 import Crux.LLVM.Overrides
 import Crux.Model
 
@@ -51,7 +52,7 @@ main =
             { cruxOutput = stdout
             , cruxBackend = sym
             , cruxInitCodeReturns = UnitRepr
-            , cruxInitCode = do setupOverrides (mt ^. transContext)
+            , cruxInitCode = do registerFunctions llvm_mod mt
                                 _ <- callCFG cfg emptyRegMap
                                 pure ()
             , cruxUserState = emptyModel

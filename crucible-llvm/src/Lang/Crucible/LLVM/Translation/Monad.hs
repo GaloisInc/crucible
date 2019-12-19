@@ -12,10 +12,13 @@
 {-# LANGUAGE ImplicitParams        #-}
 {-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
 
 module Lang.Crucible.LLVM.Translation.Monad
-  ( LLVMGenerator
+  ( -- * Generator monad
+    LLVMGenerator
   , LLVMGenerator'
   , LLVMState(..)
   , identMap
@@ -26,6 +29,11 @@ module Lang.Crucible.LLVM.Translation.Monad
   , initialState
 
   , getMemVar
+
+    -- * LLVMContext
+  , LLVMContext(..)
+  , llvmTypeCtx
+  , mkLLVMContext
   ) where
 
 import Control.Lens hiding (op, (:>) )
@@ -35,6 +43,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import Data.Set (Set)
 
 import qualified Text.LLVM.AST as L
 
@@ -44,14 +53,69 @@ import           Data.Parameterized.Some
 
 import           Lang.Crucible.CFG.Generator
 
+import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
-import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
+import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
+
+------------------------------------------------------------------------
+-- ** LLVMContext
+
+-- | Information about the LLVM module.
+data LLVMContext arch
+   = LLVMContext
+   { -- | Map LLVM symbols to their associated state.
+     llvmArch       :: ArchRepr arch
+   , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
+   , llvmMemVar     :: GlobalVar Mem
+   , _llvmTypeCtx   :: TypeContext
+     -- | For each global variable symbol, compute the set of
+     --   aliases to that symbol
+   , llvmGlobalAliases   :: Map L.Symbol (Set L.GlobalAlias)
+     -- | For each function symbol, compute the set of
+     --   aliases to that symbol
+   , llvmFunctionAliases :: Map L.Symbol (Set L.GlobalAlias)
+   }
+
+llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
+llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
+
+mkLLVMContext :: HandleAllocator
+              -> L.Module
+              -> IO (Some LLVMContext)
+mkLLVMContext halloc m = do
+  let (errs, typeCtx) = typeContextFromModule m
+  unless (null errs) $
+    fail $ unlines
+         $ [ "Failed to construct LLVM type context:" ] ++ map show errs
+  let dl = llvmDataLayout typeCtx
+
+  case mkNatRepr (ptrBitwidth dl) of
+    Some (wptr :: NatRepr wptr) | Just LeqProof <- testLeq (knownNat @16) wptr ->
+      withPtrWidth wptr $
+        do mvar <- mkMemVar halloc
+           let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
+                                       -- the target triple, but llvm-pretty doesn't capture this
+                                       -- currently.
+           let ctx :: LLVMContext (X86 wptr)
+               ctx = LLVMContext
+                     { llvmArch     = archRepr
+                     , llvmMemVar   = mvar
+                     , llvmPtrWidth = \x -> x wptr
+                     , _llvmTypeCtx = typeCtx
+                     , llvmGlobalAliases = mempty   -- these are computed later
+                     , llvmFunctionAliases = mempty -- these are computed later
+                     }
+           return (Some ctx)
+    _ ->
+      fail ("Cannot load LLVM bitcode file with illegal pointer width: " ++ show (dl^.ptrSize))
+
+
 
 -- | A monad providing state and continuations for translating LLVM expressions
 -- to CFGs.

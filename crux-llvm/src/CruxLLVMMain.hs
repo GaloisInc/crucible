@@ -7,7 +7,7 @@
 {-# Language RecordWildCards #-}
 {-# Language ScopedTypeVariables #-}
 
-module CruxLLVMMain (main, mainWithOutputTo) where
+module CruxLLVMMain (main, mainWithOutputTo, registerFunctions) where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
@@ -61,7 +61,7 @@ import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 
 
 -- crucible-llvm
-import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
+import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
@@ -70,9 +70,10 @@ import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
         , transContext, cfgMap
         , LLVMContext, llvmMemVar, ModuleCFGMap
+        , llvmPtrWidth, llvmTypeCtx
         )
 import Lang.Crucible.LLVM.Intrinsics
-        (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides, llvmTypeCtx)
+        (llvmIntrinsicTypes, register_llvm_overrides)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 
@@ -159,16 +160,18 @@ parseLLVM file =
 
 registerFunctions ::
   (ArchOk arch, IsSymInterface sym) =>
-  LLVMContext arch ->
   LLVM.Module ->
   ModuleTranslation arch ->
   OverM sym (LLVM arch) ()
-registerFunctions ctx llvm_module mtrans =
-  do -- register the callable override functions
-     _ctx' <- register_llvm_overrides llvm_module ctx
+registerFunctions llvm_module mtrans =
+  do let llvm_ctx = mtrans ^. transContext
+     let ?lc = llvm_ctx ^. llvmTypeCtx
+
+     -- register the callable override functions
+     register_llvm_overrides llvm_module [] (cruxLLVMOverrides++svCompOverrides) llvm_ctx
 
      -- register all the functions defined in the LLVM module
-     mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
+     mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
 
 -- Returns only non-trivial goals
@@ -190,8 +193,7 @@ simulateLLVM fs (cruxOpts,llvmOpts) sym _p cont = do
 
           let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
                    runOverrideSim UnitRepr $
-                     do registerFunctions llvmCtxt llvm_mod trans
-                        setupOverrides llvmCtxt
+                     do registerFunctions llvm_mod trans
                         checkFun "main" (cfgMap trans)
 
           case pathStrategy cruxOpts of
@@ -208,7 +210,7 @@ checkFun :: (ArchOk arch, Logs) =>
             String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
-    Just (AnyCFG anyCfg) ->
+    Just (_, AnyCFG anyCfg) ->
       case cfgArgTypes anyCfg of
         Empty ->
           do liftIO $ say "Crux" ("Simulating function " ++ show nm)
