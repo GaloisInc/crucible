@@ -1573,8 +1573,8 @@ abstractEval f a0 = do
     BVSelect i n x -> BVD.select i n (f x)
     BVUdiv _ x y -> BVD.udiv (f x) (f y)
     BVUrem _ x y -> BVD.urem (f x) (f y)
-    BVSdiv _ x y -> BVD.sdiv (f x) (f y)
-    BVSrem _ x y -> BVD.srem (f x) (f y)
+    BVSdiv w x y -> BVD.sdiv w (f x) (f y)
+    BVSrem w x y -> BVD.srem w (f x) (f y)
 
     BVShl  _ x y -> BVD.shl (f x) (f y)
     BVLshr _ x y -> BVD.lshr (f x) (f y)

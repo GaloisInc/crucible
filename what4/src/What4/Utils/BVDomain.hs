@@ -469,11 +469,43 @@ urem a b
     (ql, rl) = al `divMod` max 1 bh -- assume that division by 0 does not happen
     (qh, rh) = ah `divMod` max 1 bl -- assume that division by 0 does not happen
 
-sdiv :: (1 <= w) => BVDomain w -> BVDomain w -> BVDomain w
-sdiv a _b = BVDAny (bvdMask a) -- TODO
+-- | Interval arithmetic for integer division (rounding towards 0).
+-- Given @a@ in @[al..ah]@ and @b@ in @[bl..bh]@, @sdivRange (al, ah)
+-- (bl, bh)@ returns @(ql, qh)@ such that @a `quot` b@ is in
+-- @[ql..qh]@.
+sdivRange :: (Integer, Integer) -> (Integer, Integer) -> (Integer, Integer)
+sdivRange (al, ah) (bl, bh)
+  | bl >= 0 =
+    (al `quot` max 1 (if al < 0 then bl else bh),
+     ah `quot` max 1 (if ah > 0 then bl else bh))
+  | bh <= 0 =
+    (ah `quot` min (-1) (if ah > 0 then bh else bl),
+     al `quot` min (-1) (if al < 0 then bh else bl))
+  | otherwise = -- interval [bl..bh] includes [-1..+1]
+    (min al (-ah), max (-al) ah)
 
-srem :: (1 <= w) => BVDomain w -> BVDomain w -> BVDomain w
-srem a _b = BVDAny (bvdMask a) -- TODO
+sdiv :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
+sdiv w a b = interval mask ql (qh - ql)
+  where
+    mask = bvdMask a
+    (ql, qh) = sdivRange (sbounds w a) (sbounds w b)
+
+srem :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
+srem w a b =
+  if ql == qh then
+    (if ql < 0
+     then interval mask (al - ql * bl) (aw - ql * bw)
+     else interval mask (al - ql * bh) (aw + ql * bw))
+  else interval mask rl (rh - rl)
+  where
+    mask = bvdMask a
+    (al, ah) = sbounds w a
+    (bl, bh) = sbounds w b
+    (ql, qh) = sdivRange (al, ah) (bl, bh)
+    rl = if al < 0 then min (bl+1) (-bh+1) else 0
+    rh = if ah > 0 then max (-bl-1) (bh-1) else 0
+    aw = ah - al
+    bw = bh - bl
 
 --------------------------------------------------------------------------------
 -- Bitwise logical
