@@ -45,7 +45,6 @@ import           Control.Monad.Except
 import           Control.Lens hiding (op, (:>) )
 import           Data.List (foldl')
 import qualified Data.Set as Set
-import           Data.Set (Set)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Control.Monad.State (StateT, runStateT, get, put)
@@ -54,23 +53,22 @@ import           Data.Maybe (fromMaybe)
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as LPP
 
-import           Data.Parameterized.Context ( pattern (:>) )
 import           Data.Parameterized.NatRepr as NatRepr
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
-import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Translation.Constant
+import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Backend (IsSymInterface)
-import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.Types
+
+import           What4.Interface
 
 import           GHC.Stack
 
@@ -177,14 +175,12 @@ initializeMemory predicate sym llvm_ctx m = do
    let dl = llvmDataLayout ?lc
    let endianness = dl^.intLayout
    mem0 <- emptyMem endianness
-   -- Allocate function handles
-   let funAliases = llvmFunctionAliases llvm_ctx
-   let lookupFunAliases symb =
-         Set.map L.aliasName $ fromMaybe Set.empty (Map.lookup symb funAliases)
-   let handles =
-         map (\(symb, hinfo) -> (symb, lookupFunAliases symb, hinfo)) $
-           Map.assocs (_symbolMap llvm_ctx)
-   mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
+
+   -- allocate pointers values for function symbols, but do not
+   -- yet bind them to function handles
+   let decls = allModuleDeclares m
+   mem <- foldM (allocLLVMFunPtr sym llvm_ctx) mem0 decls
+
    -- Allocate global values
    let globAliases = llvmGlobalAliases llvm_ctx
    let globals     = L.modGlobals m
@@ -216,20 +212,21 @@ initializeMemory predicate sym llvm_ctx m = do
                     globals
    allocGlobals sym (filter (\(g, _, _, _) -> predicate g) gs_alloc) mem
 
-allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
-                    => sym
-                    -> MemImpl sym
-                    -> (L.Symbol, Set L.Symbol, LLVMHandleInfo)
-                    -> IO (MemImpl sym)
-allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), aliases, LLVMHandleInfo dec h)
-  | L.decVarArgs dec
-  , (_ :> VectorRepr AnyRepr) <- handleArgTypes h
-  =  do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (VarargsFnHandle h)
-        return $ registerGlobal mem' (symbol:Set.toList aliases) ptr
 
-  | otherwise =
-     do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
-        return $ registerGlobal mem' (symbol:Set.toList aliases) ptr
+allocLLVMFunPtr ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  sym ->
+  LLVMContext arch ->
+  MemImpl sym ->
+  L.Declare ->
+  IO (MemImpl sym)
+allocLLVMFunPtr sym llvm_ctx mem decl =
+  do let symbol@(L.Symbol sym_str) = L.decName decl
+     let funAliases = llvmFunctionAliases llvm_ctx
+     let aliases = map L.aliasName $ maybe [] Set.toList $ Map.lookup symbol funAliases
+     z <- bvLit sym ?ptrWidth 0
+     (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Immutable sym_str mem z noAlignment
+     return $ registerGlobal mem' (symbol:aliases) ptr
 
 ------------------------------------------------------------------------
 -- ** populateGlobals

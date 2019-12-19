@@ -50,10 +50,9 @@ import qualified Lang.Crucible.Simulator.Intrinsics as C
 import qualified Lang.Crucible.Simulator.RegMap as C
 
 import qualified Lang.Crucible.LLVM.Extension as C
-import qualified Lang.Crucible.LLVM.Intrinsics.Common as C
 import qualified Lang.Crucible.LLVM.MemModel as C
-
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
+import qualified Lang.Crucible.LLVM.Translation.Monad as C
 
 import qualified What4.Interface as W4
 

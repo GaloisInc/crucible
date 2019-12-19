@@ -66,6 +66,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.Mutability(..)
   , doMallocHandle
   , doLookupHandle
+  , doInstallHandle
   , doMemcpy
   , doMemset
   , doInvalidate
@@ -80,6 +81,7 @@ module Lang.Crucible.LLVM.MemModel
   , loadMaybeString
   , strLen
   , uncheckedMemcpy
+  , bindLLVMFunPtr
 
     -- * \"Raw\" operations with LLVMVal
   , LLVMVal(..)
@@ -175,6 +177,7 @@ import qualified Data.Map as Map
 import           Data.Text (Text)
 import           Data.Word
 import           GHC.TypeNats
+import           Numeric.Natural
 import           System.IO (Handle, hPutStrLn)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP hiding ((<$>))
@@ -221,10 +224,10 @@ import           GHC.Stack
 -- The MemImpl type
 --
 
-newtype BlockSource = BlockSource (IORef Integer)
+newtype BlockSource = BlockSource (IORef Natural)
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
 
-nextBlock :: BlockSource -> IO Integer
+nextBlock :: BlockSource -> IO Natural
 nextBlock (BlockSource ref) =
   atomicModifyIORef' ref (\n -> (n+1, n))
 
@@ -234,7 +237,7 @@ data MemImpl sym =
   MemImpl
   { memImplBlockSource :: BlockSource
   , memImplGlobalMap   :: GlobalMap sym
-  , memImplHandleMap   :: Map Integer Dynamic
+  , memImplHandleMap   :: Map Natural Dynamic
   , memImplHeap        :: G.Mem sym
   }
 
@@ -362,10 +365,10 @@ evalStmt sym = eval
   eval (LLVM_Alloca _w mvar (regValue -> sz) alignment loc) =
      do mem <- getMem mvar
         blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
-        blk <- liftIO $ natLit sym (fromIntegral blkNum)
+        blk <- liftIO $ natLit sym blkNum
         z <- liftIO $ bvLit sym PtrWidth 0
 
-        let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) (Just sz) alignment G.Mutable (show loc) (memImplHeap mem)
+        let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable (show loc) (memImplHeap mem)
         let ptr = LLVMPointer blk z
 
         setMem mvar mem{ memImplHeap = heap' }
@@ -614,11 +617,47 @@ doMallocSize
   -> IO (LLVMPtr sym wptr, MemImpl sym)
 doMallocSize sz sym allocType mut loc mem alignment = do
   blkNum <- nextBlock (memImplBlockSource mem)
-  blk    <- natLit sym (fromIntegral blkNum)
+  blk    <- natLit sym blkNum
   z      <- bvLit sym PtrWidth 0
-  let heap' = G.allocMem allocType (fromInteger blkNum) sz alignment mut loc (memImplHeap mem)
+  let heap' = G.allocMem allocType blkNum sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
+
+bindLLVMFunPtr ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  L.Declare ->
+  FnHandle args ret ->
+  MemImpl sym ->
+  IO (MemImpl sym)
+bindLLVMFunPtr sym dec h mem
+  | L.decVarArgs dec
+  , (_ Ctx.:> VectorRepr AnyRepr) <- handleArgTypes h
+
+  = do ptr <- doResolveGlobal sym mem (L.decName dec)
+       doInstallHandle sym ptr (VarargsFnHandle h) mem
+
+  | otherwise
+  = do ptr <- doResolveGlobal sym mem (L.decName dec)
+       doInstallHandle sym ptr (SomeFnHandle h) mem
+
+doInstallHandle
+  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> LLVMPtr sym wptr
+  -> a {- ^ handle -}
+  -> MemImpl sym
+  -> IO (MemImpl sym)
+doInstallHandle _sym ptr x mem =
+  case asNat (llvmPointerBlock ptr) of
+    Just blkNum ->
+      do let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
+         return mem{ memImplHandleMap = hMap' }
+    Nothing ->
+      panic "MemModel.doInstallHandle"
+        [ "Attempted to install handle for symbolic pointer"
+        , "  " ++ show (ppPtr ptr)
+        ]
 
 -- | Allocate a memory region for the given handle.
 doMallocHandle
@@ -631,10 +670,10 @@ doMallocHandle
   -> IO (LLVMPtr sym wptr, MemImpl sym)
 doMallocHandle sym allocType loc mem x = do
   blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- natLit sym (fromIntegral blkNum)
+  blk <- natLit sym blkNum
   z <- bvLit sym PtrWidth 0
 
-  let heap' = G.allocMem allocType (fromInteger blkNum) (Just z) noAlignment G.Immutable loc (memImplHeap mem)
+  let heap' = G.allocMem allocType blkNum (Just z) noAlignment G.Immutable loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
@@ -653,7 +692,7 @@ doLookupHandle _sym mem ptr = do
     Just i
       | i == 0 -> return (Left (text "Cannot treat raw bitvector as function pointer:" <$$> ppPtr ptr))
       | otherwise ->
-          case Map.lookup (toInteger i) (memImplHandleMap mem) of
+          case Map.lookup i (memImplHandleMap mem) of
             Nothing -> return (Left ("Pointer is not a function pointer:" <$$> ppPtr ptr))
             Just x ->
               case fromDynamic x of
@@ -677,7 +716,7 @@ doFree sym mem ptr = do
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
        case asNat blk of
-         Just i  -> Map.delete (toInteger i) (memImplHandleMap mem)
+         Just i  -> Map.delete i (memImplHandleMap mem)
          Nothing -> memImplHandleMap mem
 
   -- NB: free is defined and has no effect if passed a null pointer

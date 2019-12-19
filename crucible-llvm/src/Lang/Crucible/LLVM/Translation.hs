@@ -79,9 +79,7 @@ module Lang.Crucible.LLVM.Translation
   , transContext
   , ModuleCFGMap
   , LLVMContext(..)
-  , LLVMHandleInfo(..)
-  , SymbolHandleMap
-  , symbolMap
+  , llvmTypeCtx
   , translateModule
 
   , module Lang.Crucible.LLVM.Translation.Constant
@@ -112,7 +110,7 @@ import           Lang.Crucible.CFG.SSAConversion( toSSA )
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
-import           Lang.Crucible.LLVM.Intrinsics
+--import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.Globals
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Aliases
@@ -129,7 +127,7 @@ import           Lang.Crucible.Types
 ------------------------------------------------------------------------
 -- Translation results
 
-type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
+type ModuleCFGMap arch = Map L.Symbol (L.Declare, C.AnyCFG (LLVM arch))
 
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation arch
@@ -331,56 +329,29 @@ genDefn defn retType =
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: forall arch wptr.
                (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool)
-            => LLVMContext arch
+            => HandleAllocator
+            -> LLVMContext arch
             -> L.Define
-            -> IO (L.Symbol, C.AnyCFG (LLVM arch))
-transDefine ctx d = do
-  let sym = L.defName d
+            -> IO (L.Symbol, (L.Declare, C.AnyCFG (LLVM arch)))
+transDefine halloc ctx d = do
   let ?lc = ctx^.llvmTypeCtx
-  case ctx^.symbolMap^.at sym of
-    Nothing -> fail "internal error: Could not find symbol"
-    Just (LLVMHandleInfo _ (h :: FnHandle args ret)) -> do
-      let argTypes = handleArgTypes h
-      let retType  = handleReturnType h
-      let def :: FunctionDef (LLVM arch) (LLVMState arch) args ret IO
-          def inputs = (s, f)
+  let decl = declareFromDefine d
+  let symb@(L.Symbol symb_str) = L.defName d
+  let fn_name = functionNameFromText $ Text.pack symb_str
+
+  llvmDeclToFunHandleRepr' decl $ \(argTypes :: CtxRepr args) (retType :: TypeRepr ret) -> do
+    h <- mkHandle' halloc fn_name argTypes retType
+    let def :: FunctionDef (LLVM arch) (LLVMState arch) args ret IO
+        def inputs = (s, f)
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType
-      sng <- newIONonceGenerator
-      (SomeCFG g,[]) <- defineFunction InternalPos sng h def
-      case toSSA g of
-        C.SomeCFG g_ssa -> return (sym, C.AnyCFG g_ssa)
+    sng <- newIONonceGenerator
+    (SomeCFG g,[]) <- defineFunction InternalPos sng h def
+    case toSSA g of
+      C.SomeCFG g_ssa -> return (symb, (decl, C.AnyCFG g_ssa))
 
 ------------------------------------------------------------------------
 -- translateModule
-
--- | Insert a declaration into the symbol handleMap if a handle for that
---   symbol does not already exist.
-insDeclareHandle :: (HasPtrWidth wptr, wptr ~ ArchWidth arch)
-                 => HandleAllocator
-                 -> LLVMContext arch
-                 -> L.Declare
-                 -> IO (LLVMContext arch)
-insDeclareHandle halloc ctx decl = do
-   let s@(L.Symbol sbl) = L.decName decl
-   case Map.lookup s (ctx^.symbolMap) of
-     Just (LLVMHandleInfo _decl' _) ->
-       -- FIXME check that decl and decl' are compatible...
-       return ctx
-     Nothing -> do
-       let ?lc = ctx^.llvmTypeCtx
-       args <- traverse (either fail return . liftMemType) (L.decArgs decl)
-       ret  <- either fail return $ liftRetType (L.decRetType decl)
-       let fn_name = functionNameFromText $ Text.pack sbl
-       let decl' = FunDecl
-                   { fdRetType  = ret
-                   , fdArgTypes = args
-                   , fdVarArgs  = L.decVarArgs decl
-                   }
-       llvmDeclToFunHandleRepr decl' $ \argTypes retType -> do
-         h <- mkHandle' halloc fn_name argTypes retType
-         let hinfo = LLVMHandleInfo decl h
-         return (symbolMap %~ (Map.insert s hinfo) $ ctx)
 
 -- | Translate a module into Crucible control-flow graphs.
 -- Note: We may want to add a map from symbols to existing function handles
@@ -390,20 +361,15 @@ translateModule :: (?laxArith :: Bool)
                 -> L.Module        -- ^ Module to translate
                 -> IO (Some ModuleTranslation)
 translateModule halloc m = do
-  Some ctx0 <- mkLLVMContext halloc m
+  Some ctx <- mkLLVMContext halloc m
   let nonceGen = haCounter halloc
-  llvmPtrWidth ctx0 $ \wptr -> withPtrWidth wptr $
-    do -- Add handles for all functions declared in module.
-       ctx <- foldM (insDeclareHandle halloc) ctx0 (declareFromDefine <$> L.modDefines m)
-       -- Translate definitions
-       pairs <- mapM (transDefine ctx) (L.modDefines m)
-       -- Return result.
-       let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
+  llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
+    do pairs <- mapM (transDefine halloc ctx) (L.modDefines m)
 
+       let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
        let ctx' = ctx{ llvmGlobalAliases = globalAliases m
                      , llvmFunctionAliases = functionAliases m
                      }
-
        nonce <- freshNonce nonceGen
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
                                        , globalInitMap = makeGlobalMap ctx' m

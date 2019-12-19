@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -36,6 +37,7 @@ module Lang.Crucible.LLVM.Translation.Types
 , llvmTypeAsRepr
 , llvmRetTypeAsRepr
 , llvmDeclToFunHandleRepr
+, llvmDeclToFunHandleRepr'
 , LLVMPointerType
 , pattern PtrWidth
 , pattern LLVMPointerRepr
@@ -155,4 +157,12 @@ llvmDeclToFunHandleRepr decl k =
         k args ret
 
 
-
+llvmDeclToFunHandleRepr' ::
+   (?lc :: TypeContext, HasPtrWidth wptr, Monad m) =>
+   L.Declare ->
+   (forall args ret. CtxRepr args -> TypeRepr ret -> m a) ->
+   m a
+llvmDeclToFunHandleRepr' decl k =
+  case liftDeclare decl of
+    Left msg -> fail msg
+    Right fd -> llvmDeclToFunHandleRepr fd k

@@ -41,10 +41,10 @@ import Lang.Crucible.FunctionHandle(newHandleAllocator)
 import Text.LLVM.AST (Module)
 
 import Lang.Crucible.LLVM.Intrinsics
-        (llvmIntrinsicTypes, llvmPtrWidth, llvmTypeCtx , LLVM)
+        (llvmIntrinsicTypes, LLVM)
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals)
 import Lang.Crucible.LLVM.Translation
-        (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap)
+        (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap,llvmPtrWidth,llvmTypeCtx)
 import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeAllMemory)
 
 import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth,MemOptions)
@@ -130,5 +130,5 @@ withPtrWidthOf trans k =
 
 
 findCFG :: ModuleTranslation arch -> String -> Maybe (AnyCFG (LLVM arch))
-findCFG trans fun = Map.lookup (fromString fun) (cfgMap trans)
+findCFG trans fun = snd <$> Map.lookup (fromString fun) (cfgMap trans)
 
