@@ -469,20 +469,39 @@ urem a b
     (ql, rl) = al `divMod` max 1 bh -- assume that division by 0 does not happen
     (qh, rh) = ah `divMod` max 1 bl -- assume that division by 0 does not happen
 
+-- | Least and greatest nonzero values in a domain, according to the
+-- unsigned ordering.
+rbounds :: BVDomain w -> (Integer, Integer)
+rbounds a =
+  case a of
+    BVDAny mask -> (1, mask)
+    BVDInterval mask al aw
+      | ah > mask + 1 -> (1, mask)
+      | otherwise     -> (max 1 al, min mask aw)
+      where ah = al + aw
+
 -- | Interval arithmetic for integer division (rounding towards 0).
--- Given @a@ in @[al..ah]@ and @b@ in @[bl..bh]@, @sdivRange (al, ah)
--- (bl, bh)@ returns @(ql, qh)@ such that @a `quot` b@ is in
--- @[ql..qh]@.
+-- The argument ranges @(al, ah)@ and @(bl, bh)@ should satisfy @al <=
+-- ah@ and @1\/bl >= 1\/bh@. That is, if @bl@ and @bh@ have the same
+-- sign, then we require @bl <= bh@, but if they have opposite signs
+-- then we require @bl > bh@. Given @a@ and @b@ with @al <= a <= ah@
+-- and @1\/bl >= 1\/b >= 1/bh@, @sdivRange (al, ah) (bl, bh)@ returns
+-- @(ql, qh)@ such that @ql <= a `quot` b <= qh@.
 sdivRange :: (Integer, Integer) -> (Integer, Integer) -> (Integer, Integer)
-sdivRange (al, ah) (bl, bh)
-  | bl >= 0 =
-    (al `quot` max 1 (if al < 0 then bl else bh),
-     ah `quot` max 1 (if ah > 0 then bl else bh))
-  | bh <= 0 =
-    (ah `quot` min (-1) (if ah > 0 then bh else bl),
-     al `quot` min (-1) (if al < 0 then bh else bl))
-  | otherwise = -- interval [bl..bh] includes [-1..+1]
-    (min al (-ah), max (-al) ah)
+sdivRange (al, ah) (bl, bh) = (ql, qh)
+  where
+    (ql1, qh1) = scaleDownRange (al, ah) bl
+    (ql2, qh2) = scaleDownRange (al, ah) bh
+    ql = min ql1 ql2
+    qh = max qh1 qh2
+
+-- | @scaleDownRange (lo, hi) k@ returns an interval @(ql, qh)@ such that for any
+-- @x@ in @[lo..hi]@, @x `quot` k@ is in @[ql..qh]@.
+scaleDownRange :: (Integer, Integer) -> Integer -> (Integer, Integer)
+scaleDownRange (lo, hi) k
+  | k > 0 = (lo `quot` k, hi `quot` k)
+  | k < 0 = (hi `quot` k, lo `quot` k)
+  | otherwise = (lo, hi) -- assume k is nonzero
 
 sdiv :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
 sdiv w a b = interval mask ql (qh - ql)
@@ -492,16 +511,20 @@ sdiv w a b = interval mask ql (qh - ql)
 
 srem :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
 srem w a b =
+  -- If the quotient is a singleton @q@, then we compute the remainder
+  -- @r = a - q*b@.
   if ql == qh then
     (if ql < 0
      then interval mask (al - ql * bl) (aw - ql * bw)
      else interval mask (al - ql * bh) (aw + ql * bw))
+  -- Otherwise the range of possible remainders is determined by the
+  -- modulus and the sign of the first argument.
   else interval mask rl (rh - rl)
   where
     mask = bvdMask a
     (al, ah) = sbounds w a
     (bl, bh) = sbounds w b
-    (ql, qh) = sdivRange (al, ah) (bl, bh)
+    (ql, qh) = sdivRange (al, ah) (rbounds b)
     rl = if al < 0 then min (bl+1) (-bh+1) else 0
     rh = if ah > 0 then max (-bl-1) (bh-1) else 0
     aw = ah - al
