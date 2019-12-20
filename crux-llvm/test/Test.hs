@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Exception (bracket)
+import Control.Monad (void)
 
 import GHC.IO.Handle (hDuplicate, hDuplicateTo, hSetBuffering, Handle, BufferMode(..))
 
@@ -29,8 +30,8 @@ goldenTests dir =
        testGroup "Golden testing of crux-llvm"
          [ goldenVsFile (takeBaseName cFile) goodFile outFile $
            withArgs ["--solver=z3",cFile] $
-           withFile outFile WriteMode $
-           C.mainWithOutputTo
+           withFile outFile WriteMode $ \h ->
+           void $ C.mainWithOutputTo h
          | cFile <- cFiles
          , notHidden cFile
          , let goodFile = replaceExtension cFile ".good"
