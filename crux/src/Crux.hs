@@ -333,12 +333,15 @@ reportStatus cmpl gls =
          incomplete = sum (fmap countIncompleteGoals gls)
          disproved  = sum (fmap countDisprovedGoals gls) - incomplete
          unknown    = sum (fmap countUnknownGoals gls)
-     say "Crux" "Goal status:"
-     say "Crux" ("  Total: " ++ show tot)
-     say "Crux" ("  Proved: " ++ show proved)
-     say "Crux" ("  Disproved: " ++ show disproved)
-     say "Crux" ("  Incomplete: " ++ show incomplete)
-     say "Crux" ("  Unknown: " ++ show unknown)
+     if tot == 0 then
+       do say "Crux" "All goals discharged through internal simplification."
+     else
+       do say "Crux" "Goal status:"
+          say "Crux" ("  Total: " ++ show tot)
+          say "Crux" ("  Proved: " ++ show proved)
+          say "Crux" ("  Disproved: " ++ show disproved)
+          say "Crux" ("  Incomplete: " ++ show incomplete)
+          say "Crux" ("  Unknown: " ++ show unknown)
      if | disproved > 0 ->
             sayFail "Crux" "Overall status: Invalid."
         | incomplete > 0 || cmpl == ProgramIncomplete ->

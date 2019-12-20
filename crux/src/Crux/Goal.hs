@@ -141,12 +141,7 @@ proveGoals ::
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
-proveGoals opts _ctxt Nothing =
-  do case pathStrategy opts of
-       AlwaysMergePaths ->
-         do sayOK "Crux" "All goals discharged through internal simplification."
-            sayOK "Crux" "Overall status: Valid."
-       _ -> return ()
+proveGoals _opts _ctxt Nothing =
      return Nothing
 
 proveGoals opts ctxt (Just gs0) =
