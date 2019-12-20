@@ -238,11 +238,10 @@ instantiate f u = fin <$> traverse f (unaryBVMap u)
 -- | Return potential values for abstract domain.
 domain :: forall p n
         . (1 <= n)
-       => BVD.BVDomainParams
-       -> (p -> Maybe Bool)
+       => (p -> Maybe Bool)
        -> UnaryBV p n
        -> BVDomain n
-domain params f u = BVD.fromAscEltList params (width u) (go (unaryBVMap u))
+domain f u = BVD.fromAscEltList (width u) (go (unaryBVMap u))
   where go :: IntMap p -> [Integer]
         go m =
           case splitEntry m of

@@ -826,7 +826,7 @@ instance Abstractable BaseRealType where
 
 -- Bitvectors always have a lower and upper bound (represented as unsigned numbers)
 instance (1 <= w) => Abstractable (BaseBVType w) where
-  avJoin (BaseBVRepr w) = BVD.union BVD.defaultBVDomainParams w
+  avJoin (BaseBVRepr _) = BVD.union
   avOverlap _ = BVD.domainsOverlap
   avCheckEq _ = BVD.eq
 

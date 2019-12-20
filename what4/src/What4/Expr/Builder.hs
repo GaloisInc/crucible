@@ -951,8 +951,8 @@ instance IsExpr (Expr t) where
 
   asSignedBV x = toSigned (bvWidth x) <$> asUnsignedBV x
 
-  unsignedBVBounds x = BVD.ubounds (bvWidth x) $ exprAbsValue x
-  signedBVBounds x = BVD.sbounds (bvWidth x) $ exprAbsValue x
+  unsignedBVBounds x = Just $ BVD.ubounds $ exprAbsValue x
+  signedBVBounds x = Just $ BVD.sbounds (bvWidth x) $ exprAbsValue x
 
   asAffineVar e = case exprType e of
     BaseNatRepr
@@ -1451,12 +1451,6 @@ type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
 type instance SymExpr (ExprBuilder t st fs) = Expr t
 type instance BoundVar (ExprBuilder t st fs) = ExprBoundVar t
 
-sbBVDomainParams :: ExprBuilder t st fs -> IO (BVD.BVDomainParams)
-sbBVDomainParams sym =
-  do rl <- CFG.getOpt (sbBVDomainRangeLimit sym)
-     return BVD.DP { BVD.rangeLimit = fromInteger rl }
-
-
 ------------------------------------------------------------------------
 -- abstractEval
 
@@ -1475,11 +1469,10 @@ quantAbsEval _ f q =
     ArrayTrueOnEntries _ a -> f a
     FnApp g _           -> unconstrainedAbsValue (symFnReturnType g)
 
-abstractEval :: BVD.BVDomainParams
-             -> (forall u . Expr t u -> AbstractValue u)
+abstractEval :: (forall u . Expr t u -> AbstractValue u)
              -> App (Expr t) tp
              -> AbstractValue tp
-abstractEval bvParams f a0 = do
+abstractEval f a0 = do
   case a0 of
 
     BaseIte BaseBoolRepr _ c x y
@@ -1546,8 +1539,8 @@ abstractEval bvParams f a0 = do
            where smul sm e = natRangeScalarMul sm (f e)
         SR.SemiRingRealRepr -> WSum.eval ravAdd smul ravSingle s
            where smul sm e = ravScalarMul sm (f e)
-        SR.SemiRingBVRepr SR.BVArithRepr w -> WSum.eval (BVD.add bvParams w) smul (BVD.singleton w) s
-           where smul sm e = BVD.mul bvParams w (BVD.singleton w sm) (f e)
+        SR.SemiRingBVRepr SR.BVArithRepr w -> WSum.eval BVD.add smul (BVD.singleton w) s
+           where smul sm e = BVD.scale sm (f e)
         SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
 
     SemiRingProd pd ->
@@ -1556,7 +1549,7 @@ abstractEval bvParams f a0 = do
         SR.SemiRingIntegerRepr -> fromMaybe (SingleRange 1) $ WSum.prodEval mulRange f pd
         SR.SemiRingNatRepr     -> fromMaybe (natSingleRange 1) $ WSum.prodEval natRangeMul f pd
         SR.SemiRingRealRepr    -> fromMaybe (ravSingle 1) $ WSum.prodEval ravMul f pd
-        SR.SemiRingBVRepr SR.BVArithRepr w -> fromMaybe (BVD.singleton w 1) $ WSum.prodEval (BVD.mul bvParams w) f pd
+        SR.SemiRingBVRepr SR.BVArithRepr w -> fromMaybe (BVD.singleton w 1) $ WSum.prodEval BVD.mul f pd
         SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
 
     BVOrBits pd ->
@@ -1574,22 +1567,22 @@ abstractEval bvParams f a0 = do
     RealExp _ -> ravUnbounded
     RealLog _ -> ravUnbounded
 
-    BVUnaryTerm u -> UnaryBV.domain bvParams f u
-    BVConcat _ x y -> BVD.concat bvParams (bvWidth x) (f x) (bvWidth y) (f y)
+    BVUnaryTerm u -> UnaryBV.domain f u
+    BVConcat _ x y -> BVD.concat (bvWidth x) (f x) (bvWidth y) (f y)
 
-    BVSelect i n x -> BVD.select bvParams i n (f x)
-    BVUdiv w x y -> BVD.udiv w (f x) (f y)
-    BVUrem w x y -> BVD.urem w (f x) (f y)
+    BVSelect i n x -> BVD.select i n (f x)
+    BVUdiv _ x y -> BVD.udiv (f x) (f y)
+    BVUrem _ x y -> BVD.urem (f x) (f y)
     BVSdiv w x y -> BVD.sdiv w (f x) (f y)
     BVSrem w x y -> BVD.srem w (f x) (f y)
 
-    BVShl  w x y -> BVD.shl w (f x) (f y)
-    BVLshr w x y -> BVD.lshr w (f x) (f y)
+    BVShl  _ x y -> BVD.shl (f x) (f y)
+    BVLshr _ x y -> BVD.lshr (f x) (f y)
     BVAshr w x y -> BVD.ashr w (f x) (f y)
     BVRol  w _ _ -> BVD.any w -- TODO?
     BVRor  w _ _ -> BVD.any w -- TODO?
     BVZext w x   -> BVD.zext (f x) w
-    BVSext w x   -> BVD.sext bvParams (bvWidth x) (f x) w
+    BVSext w x   -> BVD.sext (bvWidth x) (f x) w
     BVFill w p   ->
       case f p of
         Just True  -> BVD.singleton w (maxUnsigned w)
@@ -1650,11 +1643,11 @@ abstractEval bvParams f a0 = do
     NatToInteger x -> natRangeToRange (f x)
     IntegerToReal x -> RAV (mapRange toRational (f x)) (Just True)
     BVToNat x -> natRange (fromInteger lx) (Inclusive (fromInteger ux))
-      where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
+      where (lx, ux) = BVD.ubounds (f x)
     BVToInteger x -> valueRange (Inclusive lx) (Inclusive ux)
-      where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
+      where (lx, ux) = BVD.ubounds (f x)
     SBVToInteger x -> valueRange (Inclusive lx) (Inclusive ux)
-      where Just (lx, ux) = BVD.sbounds (bvWidth x) (f x)
+      where (lx, ux) = BVD.sbounds (bvWidth x) (f x)
     RoundReal x -> mapRange roundAway (ravRange (f x))
     FloorReal x -> mapRange floor (ravRange (f x))
     CeilReal x  -> mapRange ceiling (ravRange (f x))
@@ -2866,9 +2859,8 @@ semiRingLit sb sr x = do
 sbMakeExpr :: ExprBuilder t st fs -> App (Expr t) tp -> IO (Expr t tp)
 sbMakeExpr sym a = do
   s <- readIORef (curAllocator sym)
-  params <- sbBVDomainParams sym
   pc <- curProgramLoc sym
-  let v = abstractEval params exprAbsValue a
+  let v = abstractEval exprAbsValue a
   when (isNonLinearApp a) $
     modifyIORef' (sbNonLinearOps sym) (+1)
   case appType a of
@@ -4955,7 +4947,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just xc <- asUnsignedBV x
     , Just yc <- asUnsignedBV y = do
       return $! backendPred sym (xc < yc)
-    | Just b <- BVD.ult (bvWidth x) (exprAbsValue x) (exprAbsValue y) =
+    | Just b <- BVD.ult (exprAbsValue x) (exprAbsValue y) =
       return $! backendPred sym b
     | x == y =
       return $! falsePred sym
@@ -5232,7 +5224,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
   bvUdiv = bvBinDivOp quot BVUdiv
   bvUrem sym x y
-    | Just True <- BVD.ult (bvWidth x) (exprAbsValue x) (exprAbsValue y) = return x
+    | Just True <- BVD.ult (exprAbsValue x) (exprAbsValue y) = return x
     | otherwise = bvBinDivOp rem BVUrem sym x y
   bvSdiv = bvSignedBinDivOp quot BVSdiv
   bvSrem = bvSignedBinDivOp rem BVSrem
