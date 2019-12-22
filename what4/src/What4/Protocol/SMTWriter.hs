@@ -2005,9 +2005,10 @@ appSMTExpr ae = do
                 | otherwise = (:[]) . (integerTerm (toInteger c) *) <$> mkBaseExpr e
               cnst 0 = []
               cnst x = [integerTerm (toInteger x)]
+              add x y = pure (y ++ x) -- reversed for efficiency when grouped to the left
           in
           freshBoundTerm NatTypeMap . sumExpr
-            =<< WSum.evalM (\x y -> pure (x++y)) smul (pure . cnst) s
+            =<< WSum.evalM add smul (pure . cnst) s
 
         SR.SemiRingIntegerRepr ->
           let smul c e
@@ -2016,9 +2017,10 @@ appSMTExpr ae = do
                 | otherwise = (:[]) . (integerTerm c *) <$> mkBaseExpr e
               cnst 0 = []
               cnst x = [integerTerm x]
+              add x y = pure (y ++ x) -- reversed for efficiency when grouped to the left
           in
           freshBoundTerm IntegerTypeMap . sumExpr
-            =<< WSum.evalM (\x y -> pure (x++y)) smul (pure . cnst) s
+            =<< WSum.evalM add smul (pure . cnst) s
 
         SR.SemiRingRealRepr ->
           let smul c e
@@ -2027,9 +2029,10 @@ appSMTExpr ae = do
                 | otherwise = (:[]) . (rationalTerm c *) <$> mkBaseExpr e
               cnst 0 = []
               cnst x = [rationalTerm x]
+              add x y = pure (y ++ x) -- reversed for efficiency when grouped to the left
           in
           freshBoundTerm RealTypeMap . sumExpr
-            =<< WSum.evalM (\x y -> pure (x++y)) smul (pure . cnst) s
+            =<< WSum.evalM add smul (pure . cnst) s
 
         SR.SemiRingBVRepr SR.BVArithRepr w ->
           let smul c e
@@ -2038,9 +2041,10 @@ appSMTExpr ae = do
                 | otherwise = (:[]) <$> (bvMul (bvTerm w c)) <$> mkBaseExpr e
               cnst 0 = []
               cnst x = [bvTerm w x]
+              add x y = pure (y ++ x) -- reversed for efficiency when grouped to the left
            in
            freshBoundTerm (BVTypeMap w) . bvSumExpr w
-             =<< WSum.evalM (\x y -> pure (x++y)) smul (pure . cnst) s
+             =<< WSum.evalM add smul (pure . cnst) s
 
         SR.SemiRingBVRepr SR.BVBitsRepr w ->
           let smul c e
@@ -2048,12 +2052,12 @@ appSMTExpr ae = do
                 | otherwise          = (:[]) <$> (bvAnd (bvTerm w c)) <$> mkBaseExpr e
               cnst 0 = []
               cnst x = [bvTerm w x]
-
+              add x y = pure (y ++ x) -- reversed for efficiency when grouped to the left
               xorsum [] = bvTerm w 0
               xorsum xs = foldr1 bvXor xs
            in
            freshBoundTerm (BVTypeMap w) . xorsum
-             =<< WSum.evalM (\x y -> pure (x++y)) smul (pure . cnst) s
+             =<< WSum.evalM add smul (pure . cnst) s
 
     RealDiv xe ye -> do
       x <- mkBaseExpr xe
