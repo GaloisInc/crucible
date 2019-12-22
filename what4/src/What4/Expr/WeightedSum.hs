@@ -468,8 +468,10 @@ transformSum sr' transCoef transTm s = fromTerms sr' <$> tms <*> c
     c   = transCoef (_sumOffset s)
 
 
--- | Evaluate a sum given interpretations of addition, scalar multiplication, and
--- a constant.  This evaluation is threaded through a monad.
+-- | Evaluate a sum given interpretations of addition, scalar
+-- multiplication, and a constant. This evaluation is threaded through
+-- a monad. The addition function is associated to the left, as in
+-- 'foldlM'.
 evalM :: Monad m =>
   (r -> r -> m r) {- ^ Addition function -} ->
   (SR.Coefficient sr -> f (SR.SemiRingBase sr) -> m r) {- ^ Scalar multiply -} ->
