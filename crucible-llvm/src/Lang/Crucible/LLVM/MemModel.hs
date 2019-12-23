@@ -533,7 +533,7 @@ data SomeFnHandle where
   SomeFnHandle :: FnHandle args ret -> SomeFnHandle
 
 
-sextendBVTo :: (1 <= w, IsSymInterface sym)
+sextendBVTo :: (1 <= w, 1 <= w', IsSymInterface sym)
             => sym
             -> NatRepr w
             -> NatRepr w'
@@ -542,14 +542,12 @@ sextendBVTo :: (1 <= w, IsSymInterface sym)
 sextendBVTo sym w w' x
   | Just Refl <- testEquality w w' = return x
   | Just LeqProof <- testLeq (incNat w) w' = bvSext sym w' x
-  | otherwise =
-    addFailedAssertion sym
-        $ AssertFailureSimError
-          "Invalid bitvector sign extension"
-          (unwords ["Trying to extend width"
-                   , show (natValue w)
-                   , "to", show (natValue w')
-                   ])
+  | Just LeqProof <- testLeq (incNat w') w = bvTrunc sym w' x
+  | otherwise = panic "sextendBVTo"
+                  [ "Impossible widths!"
+                  , show w
+                  , show w'
+                  ]
 
 -- | Allocate and zero a memory region with /size * number/ bytes.
 --
