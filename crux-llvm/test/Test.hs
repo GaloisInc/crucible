@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Main where
 
 import Control.Exception (bracket)
@@ -5,22 +6,36 @@ import Control.Monad (void)
 
 import GHC.IO.Handle (hDuplicate, hDuplicateTo, hSetBuffering, Handle, BufferMode(..))
 
-import System.Environment (withArgs)
+import Data.List ( isPrefixOf )
+import System.Environment ( withArgs, lookupEnv )
 import System.FilePath (takeBaseName, replaceExtension)
 import System.IO --(IOMode(..), hFlush, withFile, stdout, stderr)
+import System.Process ( readProcess )
 
 import Test.Tasty (defaultMain, testGroup, TestTree)
 import Test.Tasty.Golden (goldenVsFile, findByExtension)
 
-
 import qualified CruxLLVMMain as C
 
 main :: IO ()
-main = defaultMain =<< suite
+main = do
 
-suite :: IO TestTree
-suite =
-  testGroup "crux-llvm" . pure <$> goldenTests "test-data/golden"
+  -- Determine which version of clang will be used for these tests.
+  -- An exception (E.g. in the readProcess if clang is not found) will
+  -- result in termination (test failure).  Uses partial 'head' but
+  -- this is just tests, and failure is captured.
+  clangBin <- lookupEnv "CLANG" >>= \case
+    Just x -> return x
+    Nothing -> return "clang"
+  let isVerLine = isPrefixOf "clang version"
+      getVer = head . drop 2 . words . head . filter isVerLine . lines
+  ver <- getVer <$> readProcess "clang" [ "--version" ] ""
+
+  defaultMain =<< suite ver
+
+suite :: String -> IO TestTree
+suite clangVer =
+  testGroup "crux-llvm" . pure . testGroup ("clang " <> clangVer) . pure <$> goldenTests "test-data/golden"
 
 
 goldenTests :: FilePath -> IO TestTree
