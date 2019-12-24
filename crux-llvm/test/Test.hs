@@ -29,7 +29,7 @@ main = do
     Nothing -> return "clang"
   let isVerLine = isPrefixOf "clang version"
       getVer = head . drop 2 . words . head . filter isVerLine . lines
-  ver <- getVer <$> readProcess "clang" [ "--version" ] ""
+  ver <- getVer <$> readProcess clangBin [ "--version" ] ""
 
   defaultMain =<< suite ver
 
