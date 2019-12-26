@@ -247,8 +247,10 @@ sumAbsValue :: OrdF f => WeightedSum f sr -> AD.AbstractValue (SR.SemiRingBase s
 sumAbsValue wsum =
   fromSRAbsValue $
   case AM.annotation (_sumMap wsum) of
-    Nothing -> let sr = sumRepr wsum in abstractScalar sr (SR.zero sr)
-    Just (Note _ v) -> v
+    Nothing         -> absOffset
+    Just (Note _ v) -> absOffset <> v
+  where
+    absOffset = abstractScalar (sumRepr wsum) (_sumOffset wsum)
 
 instance OrdF f => TestEquality (SemiRingProduct f) where
   testEquality x y
