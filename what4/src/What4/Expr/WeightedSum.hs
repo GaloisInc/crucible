@@ -237,8 +237,9 @@ mapEqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (Map.toAscLis
 amapEqBy :: Ord k => (a -> a -> Bool) -> AnnotatedMap k v a -> AnnotatedMap k v a -> Bool
 amapEqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (AM.toList x) (AM.toList y)
 
-sumHash :: OrdF f => WeightedSum f sr -> Int
-sumHash x =
+-- | Return the hash of the 'SumMap' part of the 'WeightedSum'.
+sumMapHash :: OrdF f => WeightedSum f sr -> Int
+sumMapHash x =
   case AM.annotation (_sumMap x) of
     Nothing -> 0
     Just (Note h _) -> h
@@ -262,7 +263,7 @@ instance OrdF f => TestEquality (SemiRingProduct f) where
 
 instance OrdF f => TestEquality (WeightedSum f) where
   testEquality x y
-    | sumHash x /= sumHash y = Nothing
+    | sumMapHash x /= sumMapHash y = Nothing
     | otherwise =
          do Refl <- testEquality (sumRepr x) (sumRepr y)
             unless (SR.eq (sumRepr x) (_sumOffset x) (_sumOffset y)) Nothing
@@ -291,7 +292,7 @@ sumOffset = lens _sumOffset (\s v -> s { _sumOffset = v })
 
 instance OrdF f => Hashable (WeightedSum f sr) where
   hashWithSalt s0 w =
-    hashWithSalt (SR.sr_hashWithSalt (sumRepr w) s0 (_sumOffset w)) (sumHash w)
+    hashWithSalt (SR.sr_hashWithSalt (sumRepr w) s0 (_sumOffset w)) (sumMapHash w)
 
 instance Hashable (SemiRingProduct f sr) where
   hashWithSalt s0 w = hashWithSalt s0 (_prodHash w)
