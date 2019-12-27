@@ -19,10 +19,13 @@ module What4.Utils.AnnotatedMap
   , empty
   , singleton
   , size
+  , lookup
+  , delete
   , annotation
   , toList
   , insert
   , alter
+  , alterF
   , union
   , unionWith
   , unionWithKeyMaybe
@@ -31,11 +34,15 @@ module What4.Utils.AnnotatedMap
   , traverseMaybeWithKey
   , difference
   , mergeWithKey
+  , mergeA
+  , listEqBy
+  , eqBy
   ) where
 
+import           Data.Functor.Identity
 import qualified Data.Foldable as Foldable
 import           Data.Foldable (foldl')
-import           Prelude hiding (null, filter)
+import           Prelude hiding (null, filter, lookup)
 
 import qualified Data.FingerTree as FT
 import           Data.FingerTree ((><), (<|))
@@ -121,6 +128,15 @@ toList :: AnnotatedMap k v a -> [(k, a)]
 toList (AnnotatedMap ft) =
   [ (k, a) | Entry k _ a <- Foldable.toList ft ]
 
+listEqBy :: (a -> a -> Bool) -> [a] -> [a] -> Bool
+listEqBy _ [] [] = True
+listEqBy f (x:xs) (y:ys)
+  | f x y = listEqBy f xs ys
+listEqBy _ _ _ = False
+
+eqBy :: Ord k => (a -> a -> Bool) -> AnnotatedMap k v a -> AnnotatedMap k v a -> Bool
+eqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (toList x) (toList y)
+
 null :: AnnotatedMap k v a -> Bool
 null (AnnotatedMap ft) = FT.null ft
 
@@ -161,6 +177,17 @@ insert k v a (AnnotatedMap ft) =
   where
     (l, _, r) = splitAtKey k ft
 
+lookup :: (Ord k, Semigroup v) => k -> AnnotatedMap k v a -> Maybe (v, a)
+lookup k (AnnotatedMap ft) = valOf <$> m
+  where
+  (_, m, _) = splitAtKey k ft
+
+delete :: (Ord k, Semigroup v) => k -> AnnotatedMap k v a -> AnnotatedMap k v a
+delete k m@(AnnotatedMap ft) =
+  case splitAtKey k ft of
+    (_, Nothing, _) -> m
+    (l, Just _, r)  -> AnnotatedMap (l >< r)
+
 alter ::
   (Ord k, Semigroup v) =>
   (Maybe (v, a) -> Maybe (v, a)) -> k -> AnnotatedMap k v a -> AnnotatedMap k v a
@@ -170,6 +197,17 @@ alter f k (AnnotatedMap ft) =
     Just (v, a) -> AnnotatedMap (l >< (Entry k v a <| r))
   where
     (l, m, r) = splitAtKey k ft
+
+alterF ::
+  (Functor f, Ord k, Semigroup v) =>
+  (Maybe (v, a) -> f (Maybe (v, a))) -> k -> AnnotatedMap k v a -> f (AnnotatedMap k v a)
+alterF f k (AnnotatedMap ft) = rebuild <$> f (fmap valOf m)
+  where
+  (l, m, r) = splitAtKey k ft
+
+  rebuild Nothing      = AnnotatedMap (l >< r)
+  rebuild (Just (v,a)) = AnnotatedMap (l >< (Entry k v a) <| r)
+
 
 union ::
   (Ord k, Semigroup v) =>
@@ -250,7 +288,7 @@ traverseMaybeWithKey f (AnnotatedMap ft) =
 difference ::
   (Ord k, Semigroup v, Semigroup w) =>
   AnnotatedMap k v a -> AnnotatedMap k w b -> AnnotatedMap k v a
-difference = mergeGeneric (\_ _ -> Nothing) id (const empty)
+difference a b = runIdentity $ mergeGeneric (\_ _ -> Identity Nothing) id (const empty) a b
 
 mergeWithKey ::
   (Ord k, Semigroup u, Semigroup v, Semigroup w) =>
@@ -258,44 +296,50 @@ mergeWithKey ::
   (AnnotatedMap k u a -> AnnotatedMap k w c) {- ^ for subtrees only in first map -} ->
   (AnnotatedMap k v b -> AnnotatedMap k w c) {- ^ for subtrees only in second map -} ->
   AnnotatedMap k u a -> AnnotatedMap k v b -> AnnotatedMap k w c
-mergeWithKey f = mergeGeneric g
+mergeWithKey f g1 g2 m1 m2 = runIdentity $ mergeGeneric f' g1 g2 m1 m2
   where
-    g (Entry k u a) (Entry _ v b) =
+    f' (Entry k u a) (Entry _ v b) = Identity $
       case f k (u, a) (v, b) of
         Nothing -> Nothing
         Just (w, c) -> Just (Entry k w c)
 
+mergeA ::
+  (Ord k, Semigroup v, Applicative f) =>
+  (k -> (v, a) -> (v, a) -> f (v,a)) ->
+  AnnotatedMap k v a -> AnnotatedMap k v a -> f (AnnotatedMap k v a)
+mergeA f m1 m2 = mergeGeneric f' id id m1 m2
+ where
+ f' (Entry k v1 x1) (Entry _ v2 x2) = g k <$> f k (v1,x1) (v2,x2)
+ g k (v,x) = Just (Entry k v x)
+
 mergeGeneric ::
-  (Ord k, Semigroup u, Semigroup v, Semigroup w) =>
-  (Entry k u a -> Entry k v b -> Maybe (Entry k w c)) {- ^ for keys present in both maps -} ->
+  (Ord k, Semigroup u, Semigroup v, Semigroup w, Applicative m) =>
+  (Entry k u a -> Entry k v b -> m (Maybe (Entry k w c))) {- ^ for keys present in both maps -} ->
   (AnnotatedMap k u a -> AnnotatedMap k w c) {- ^ for subtrees only in first map -} ->
   (AnnotatedMap k v b -> AnnotatedMap k w c) {- ^ for subtrees only in second map -} ->
-  AnnotatedMap k u a -> AnnotatedMap k v b -> AnnotatedMap k w c
-mergeGeneric f g1 g2 (AnnotatedMap ft1) (AnnotatedMap ft2) = AnnotatedMap (merge1 ft1 ft2)
+  AnnotatedMap k u a -> AnnotatedMap k v b -> m (AnnotatedMap k w c)
+mergeGeneric f g1 g2 (AnnotatedMap ft1) (AnnotatedMap ft2) = AnnotatedMap <$> (merge1 ft1 ft2)
   where
     g1' ft = case g1 (AnnotatedMap ft) of AnnotatedMap ft' -> ft'
     g2' ft = case g2 (AnnotatedMap ft) of AnnotatedMap ft' -> ft'
 
+    rebuild l Nothing r  = l >< r
+    rebuild l (Just x) r = l >< (x <| r)
+
     merge1 xs ys =
       case FT.viewl xs of
-        FT.EmptyL -> g2' ys
+        FT.EmptyL -> pure (g2' ys)
         x FT.:< xs' ->
           let (ys1, ym, ys2) = splitAtKey (keyOf x) ys in
           case ym of
-            Nothing -> g2' ys1 >< merge2 xs ys2
-            Just y ->
-              case f x y of
-                Nothing -> g2' ys1 >< merge2 xs' ys2
-                Just z -> g2' ys1 >< (z <| merge2 xs' ys2)
+            Nothing -> rebuild (g2' ys1) Nothing <$> merge2 xs ys2
+            Just y  -> rebuild (g2' ys1) <$> f x y <*> merge2 xs' ys2
 
     merge2 xs ys =
       case FT.viewl ys of
-        FT.EmptyL -> g1' xs
+        FT.EmptyL -> pure (g1' xs)
         y FT.:< ys' ->
           let (xs1, xm, xs2) = splitAtKey (keyOf y) xs in
           case xm of
-            Nothing -> g1' xs1 >< merge1 xs2 ys
-            Just x ->
-              case f x y of
-                Nothing -> g1' xs1 >< merge1 xs2 ys'
-                Just z -> g1' xs1 >< (z <| merge1 xs2 ys')
+            Nothing -> rebuild (g1' xs1) Nothing <$> merge1 xs2 ys
+            Just x  -> rebuild (g1' xs1) <$> f x y <*> merge1 xs2 ys'

@@ -224,18 +224,8 @@ data SemiRingProduct (f :: BaseType -> Type) (sr :: SR.SemiRing)
                      , prodRepr  :: !(SR.SemiRingRepr sr)
                          -- ^ Runtime representation of the semiring for this product
                      }
-
-listEqBy :: (a -> a -> Bool) -> [a] -> [a] -> Bool
-listEqBy _ [] [] = True
-listEqBy f (x:xs) (y:ys)
-  | f x y = listEqBy f xs ys
-listEqBy _ _ _ = False
-
 mapEqBy :: Ord k => (a -> a -> Bool) -> Map k a -> Map k a -> Bool
-mapEqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (Map.toAscList x) (Map.toAscList y)
-
-amapEqBy :: Ord k => (a -> a -> Bool) -> AnnotatedMap k v a -> AnnotatedMap k v a -> Bool
-amapEqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (AM.toList x) (AM.toList y)
+mapEqBy f x y = AM.listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (Map.toAscList x) (Map.toAscList y)
 
 -- | Return the hash of the 'SumMap' part of the 'WeightedSum'.
 sumMapHash :: OrdF f => WeightedSum f sr -> Int
@@ -267,7 +257,7 @@ instance OrdF f => TestEquality (WeightedSum f) where
     | otherwise =
          do Refl <- testEquality (sumRepr x) (sumRepr y)
             unless (SR.eq (sumRepr x) (_sumOffset x) (_sumOffset y)) Nothing
-            unless (amapEqBy (SR.eq (sumRepr x)) (_sumMap x) (_sumMap y)) Nothing
+            unless (AM.eqBy (SR.eq (sumRepr x)) (_sumMap x) (_sumMap y)) Nothing
             return Refl
 
 
