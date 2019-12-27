@@ -1530,18 +1530,7 @@ abstractEval f a0 = do
     IntDivisible x 0 -> rangeCheckEq (SingleRange 0) (f x)
     IntDivisible x n -> rangeCheckEq (SingleRange 0) (intModRange (f x) (SingleRange (toInteger n)))
 
-    SemiRingSum s ->
-      let sr = WSum.sumRepr s in
-      case sr of
-        SR.SemiRingIntegerRepr -> WSum.eval addRange smul SingleRange s
-           where smul sm e = rangeScalarMul sm (f e)
-        SR.SemiRingNatRepr -> WSum.eval natRangeAdd smul natSingleRange s
-           where smul sm e = natRangeScalarMul sm (f e)
-        SR.SemiRingRealRepr -> WSum.eval ravAdd smul ravSingle s
-           where smul sm e = ravScalarMul sm (f e)
-        SR.SemiRingBVRepr SR.BVArithRepr w -> WSum.eval BVD.add smul (BVD.singleton w) s
-           where smul sm e = BVD.scale sm (f e)
-        SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
+    SemiRingSum s -> WSum.sumAbsValue s
 
     SemiRingProd pd ->
       let sr = WSum.prodRepr pd in
@@ -1700,6 +1689,9 @@ exprAbsValue (NonceAppExpr e) = nonceExprAbsValue e
 exprAbsValue (AppExpr e)      = appExprAbsValue e
 exprAbsValue (BoundVarExpr v) =
   fromMaybe (unconstrainedAbsValue (bvarType v)) (bvarAbstractValue v)
+
+instance WSum.HasAbsValue (Expr t) where
+  getAbsValue = exprAbsValue
 
 -- | Return an unconstrained abstract value.
 unconstrainedAbsValue :: BaseTypeRepr tp -> AbstractValue tp
@@ -2106,12 +2098,15 @@ instance OrdF Dummy where
 instance HashableF Dummy where
   hashWithSaltF _ _ = 0
 
+instance WSum.HasAbsValue Dummy where
+  getAbsValue _ = error "you made a magic Dummy value!"
+
 instance FoldableFC App where
   foldMapFC f0 t = getConst (traverseApp (g f0) t)
     where g :: (f tp -> a) -> f tp -> Const a (Dummy tp)
           g f v = Const (f v)
 
-traverseApp :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f)
+traverseApp :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f, WSum.HasAbsValue f)
             => (forall tp. e tp -> m (f tp))
             -> App e utp -> m ((App f) utp)
 traverseApp =

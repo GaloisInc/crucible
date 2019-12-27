@@ -10,13 +10,14 @@ semiring products.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -25,12 +26,13 @@ semiring products.
 {-# OPTIONS_GHC -Wwarn #-}
 module What4.Expr.WeightedSum
   ( -- * Utilities
-    WrapF(..)
+    HasAbsValue(..)
   , Tm
     -- * Weighted sums
   , WeightedSum
   , sumRepr
   , sumOffset
+  , sumAbsValue
   , constant
   , var
   , scaledVar
@@ -78,27 +80,139 @@ import           Data.Parameterized.Classes
 
 import           What4.BaseTypes
 import qualified What4.SemiRing as SR
+import           What4.Utils.AnnotatedMap (AnnotatedMap)
+import qualified What4.Utils.AnnotatedMap as AM
+import qualified What4.Utils.AbstractDomains as AD
+import qualified What4.Utils.BVDomain as BVD
 
-type Tm f = (HashableF f, OrdF f)
+--------------------------------------------------------------------------------
+
+data SRAbsValue :: SR.SemiRing -> Type where
+  SRAbsNatAdd  :: AD.NatValueRange           -> SRAbsValue SR.SemiRingNat
+  SRAbsIntAdd  :: AD.ValueRange Integer      -> SRAbsValue SR.SemiRingInteger
+  SRAbsRealAdd :: AD.RealAbstractValue       -> SRAbsValue SR.SemiRingReal
+  SRAbsBVAdd   :: (1 <= w) => BVD.BVDomain w -> SRAbsValue (SR.SemiRingBV SR.BVArith w)
+  SRAbsBVXor   :: (1 <= w) => NatRepr w      -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
+  SRAbsBVOr    :: (1 <= w) => NatRepr w      -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
+
+instance Semigroup (SRAbsValue sr) where
+  SRAbsNatAdd  x <> SRAbsNatAdd  y = SRAbsNatAdd  (AD.natRangeAdd x y)
+  SRAbsIntAdd  x <> SRAbsIntAdd  y = SRAbsIntAdd  (AD.addRange x y)
+  SRAbsRealAdd x <> SRAbsRealAdd y = SRAbsRealAdd (AD.ravAdd x y)
+  SRAbsBVAdd   x <> SRAbsBVAdd   y = SRAbsBVAdd   (BVD.add x y)
+  SRAbsBVXor   w <> SRAbsBVXor   _ = SRAbsBVXor w
+  SRAbsBVOr    w <> SRAbsBVOr    _ = SRAbsBVOr w
+  _              <> _              = error "internal error: WeightedSum abstract domain mismatch"
+
+class HasAbsValue f where
+  getAbsValue :: f tp -> AD.AbstractValue tp
+
+abstractTerm ::
+  HasAbsValue f =>
+  SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> SRAbsValue sr
+abstractTerm sr c e =
+  case sr of
+    SR.SemiRingNatRepr     -> SRAbsNatAdd (AD.natRangeScalarMul c (getAbsValue e))
+    SR.SemiRingIntegerRepr -> SRAbsIntAdd (AD.rangeScalarMul c (getAbsValue e))
+    SR.SemiRingRealRepr    -> SRAbsRealAdd (AD.ravScalarMul c (getAbsValue e))
+    SR.SemiRingBVRepr fv w ->
+      case fv of
+        SR.BVArithRepr -> SRAbsBVAdd (BVD.scale c (getAbsValue e))
+        SR.BVBitsRepr  -> SRAbsBVXor w
+
+abstractScalar ::
+  SR.SemiRingRepr sr -> SR.Coefficient sr -> SRAbsValue sr
+abstractScalar sr c =
+  case sr of
+    SR.SemiRingNatRepr     -> SRAbsNatAdd (AD.natSingleRange c)
+    SR.SemiRingIntegerRepr -> SRAbsIntAdd (AD.SingleRange c)
+    SR.SemiRingRealRepr    -> SRAbsRealAdd (AD.ravSingle c)
+    SR.SemiRingBVRepr fv w ->
+      case fv of
+        SR.BVArithRepr -> SRAbsBVAdd (BVD.singleton w c)
+        SR.BVBitsRepr  -> SRAbsBVXor w
+
+fromSRAbsValue ::
+  SRAbsValue sr -> AD.AbstractValue (SR.SemiRingBase sr)
+fromSRAbsValue v =
+  case v of
+    SRAbsNatAdd  x -> x
+    SRAbsIntAdd  x -> x
+    SRAbsRealAdd x -> x
+    SRAbsBVAdd   x -> x
+    SRAbsBVXor   w -> BVD.any w
+    SRAbsBVOr    w -> BVD.any w
+
+--------------------------------------------------------------------------------
+
+type Tm f = (HashableF f, OrdF f, HasAbsValue f)
 
 newtype WrapF (f :: BaseType -> Type) (i :: SR.SemiRing) = WrapF (f (SR.SemiRingBase i))
 
 instance OrdF f => Ord (WrapF f i) where
   compare (WrapF x) (WrapF y) = toOrdering $ compareF x y
+
 instance TestEquality f => Eq (WrapF f i) where
   (WrapF x) == (WrapF y) = isJust $ testEquality x y
+
 instance HashableF f => Hashable (WrapF f i) where
   hashWithSalt s (WrapF x) = hashWithSaltF s x
 
 traverseWrap :: Functor m => (f (SR.SemiRingBase i) -> m (g (SR.SemiRingBase i))) -> WrapF f i -> m (WrapF g i)
 traverseWrap f (WrapF x) = WrapF <$> f x
 
+-- | The annotation type used for the annotated map. It consists of
+-- the hash value and the abstract domain representation of type @d@
+-- for each submap.
+data Note sr = Note !Int !(SRAbsValue sr)
+
+instance Semigroup (Note sr) where
+  Note h1 d1 <> Note h2 d2 = Note (h1 `xor` h2) (d1 <> d2)
+
+-- | Construct the annotation for a single map entry.
+mkNote ::
+  (HashableF f, HasAbsValue f) =>
+  SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> Note sr
+mkNote sr c t = Note h d
+  where
+    h = SR.sr_hashWithSalt sr (hashF t) c
+    d = abstractTerm sr c t
+
+type SumMap f sr = AnnotatedMap (WrapF f sr) (Note sr) (SR.Coefficient sr)
+
+insertSumMap ::
+  Tm f =>
+  SR.SemiRingRepr sr ->
+  SR.Coefficient sr -> f (SR.SemiRingBase sr) -> SumMap f sr -> SumMap f sr
+insertSumMap sr c t = AM.alter f (WrapF t)
+  where
+    f Nothing = Just (mkNote sr c t, c)
+    f (Just (_, c0))
+      | SR.eq sr (SR.zero sr) c' = Nothing
+      | otherwise = Just (mkNote sr c' t, c')
+      where c' = SR.add sr c0 c
+
+singletonSumMap ::
+  Tm f =>
+  SR.SemiRingRepr sr ->
+  SR.Coefficient sr -> f (SR.SemiRingBase sr) -> SumMap f sr
+singletonSumMap sr c t = AM.singleton (WrapF t) (mkNote sr c t) c
+
+fromListSumMap ::
+  Tm f =>
+  SR.SemiRingRepr sr ->
+  [(f (SR.SemiRingBase sr), SR.Coefficient sr)] -> SumMap f sr
+fromListSumMap _ [] = AM.empty
+fromListSumMap sr ((t, c) : xs) = insertSumMap sr c t (fromListSumMap sr xs)
+
+toListSumMap :: SumMap f sr -> [(f (SR.SemiRingBase sr), SR.Coefficient sr)]
+toListSumMap am = [ (t, c) | (WrapF t, c) <- AM.toList am ]
+
 -- | A weighted sum of semiring values.  Mathematically, this represents
 --   an affine operation on the underlying expressions.
 data WeightedSum (f :: BaseType -> Type) (sr :: SR.SemiRing)
-   = WeightedSum { _sumMap     :: !(Map (WrapF f sr) (SR.Coefficient sr))
+   = WeightedSum { _sumMap     :: !(SumMap f sr)
                  , _sumOffset  :: !(SR.Coefficient sr)
-                 , _sumHash    :: Int -- ^ precomputed hash of the map part of the weighted sum
                  , sumRepr     :: !(SR.SemiRingRepr sr)
                      -- ^ Runtime representation of the semiring for this sum.
                  }
@@ -120,6 +234,25 @@ listEqBy _ _ _ = False
 mapEqBy :: Ord k => (a -> a -> Bool) -> Map k a -> Map k a -> Bool
 mapEqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (Map.toAscList x) (Map.toAscList y)
 
+amapEqBy :: Ord k => (a -> a -> Bool) -> AnnotatedMap k v a -> AnnotatedMap k v a -> Bool
+amapEqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (AM.toList x) (AM.toList y)
+
+-- | Return the hash of the 'SumMap' part of the 'WeightedSum'.
+sumMapHash :: OrdF f => WeightedSum f sr -> Int
+sumMapHash x =
+  case AM.annotation (_sumMap x) of
+    Nothing -> 0
+    Just (Note h _) -> h
+
+sumAbsValue :: OrdF f => WeightedSum f sr -> AD.AbstractValue (SR.SemiRingBase sr)
+sumAbsValue wsum =
+  fromSRAbsValue $
+  case AM.annotation (_sumMap wsum) of
+    Nothing         -> absOffset
+    Just (Note _ v) -> absOffset <> v
+  where
+    absOffset = abstractScalar (sumRepr wsum) (_sumOffset wsum)
+
 instance OrdF f => TestEquality (SemiRingProduct f) where
   testEquality x y
     | _prodHash x /= _prodHash y = Nothing
@@ -130,11 +263,11 @@ instance OrdF f => TestEquality (SemiRingProduct f) where
 
 instance OrdF f => TestEquality (WeightedSum f) where
   testEquality x y
-    | _sumHash x /= _sumHash y = Nothing
+    | sumMapHash x /= sumMapHash y = Nothing
     | otherwise =
          do Refl <- testEquality (sumRepr x) (sumRepr y)
             unless (SR.eq (sumRepr x) (_sumOffset x) (_sumOffset y)) Nothing
-            unless (mapEqBy (SR.eq (sumRepr x)) (_sumMap x) (_sumMap y)) Nothing
+            unless (amapEqBy (SR.eq (sumRepr x)) (_sumMap x) (_sumMap y)) Nothing
             return Refl
 
 
@@ -143,31 +276,26 @@ instance OrdF f => TestEquality (WeightedSum f) where
 -- Note. When calling this, one should ensure map values equal to '0'
 -- have been removed.
 unfilteredSum ::
-  HashableF f =>
   SR.SemiRingRepr sr ->
-  Map (WrapF f sr) (SR.Coefficient sr) ->
+  SumMap f sr ->
   SR.Coefficient sr ->
   WeightedSum f sr
-unfilteredSum sr m c = WeightedSum m c (computeHash sr m) sr
+unfilteredSum sr m c = WeightedSum m c sr
 
 -- | Retrieve the mapping from terms to coefficients.
-sumMap :: HashableF f => Simple Lens (WeightedSum f sr) (Map (WrapF f sr) (SR.Coefficient sr))
-sumMap = lens _sumMap (\w m -> w{ _sumMap = m, _sumHash = computeHash (sumRepr w) m })
+sumMap :: HashableF f => Simple Lens (WeightedSum f sr) (SumMap f sr)
+sumMap = lens _sumMap (\w m -> w{ _sumMap = m })
 
 -- | Retrieve the constant addend of the weighted sum.
 sumOffset :: Simple Lens (WeightedSum f sr) (SR.Coefficient sr)
 sumOffset = lens _sumOffset (\s v -> s { _sumOffset = v })
 
-instance Hashable (WeightedSum f sr) where
+instance OrdF f => Hashable (WeightedSum f sr) where
   hashWithSalt s0 w =
-    hashWithSalt (SR.sr_hashWithSalt (sumRepr w) s0 (_sumOffset w)) (_sumHash w)
+    hashWithSalt (SR.sr_hashWithSalt (sumRepr w) s0 (_sumOffset w)) (sumMapHash w)
 
 instance Hashable (SemiRingProduct f sr) where
   hashWithSalt s0 w = hashWithSalt s0 (_prodHash w)
-
-computeHash :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Coefficient sr) -> Int
-computeHash sr m = Map.foldlWithKey' h 0 m
-    where h s k v = s `xor` SR.sr_hashWithSalt sr (hash k) v
 
 computeProdHash :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Occurrence sr) -> Int
 computeProdHash sr m = Map.foldlWithKey' h 0 m
@@ -176,7 +304,7 @@ computeProdHash sr m = Map.foldlWithKey' h 0 m
 -- | Attempt to parse a weighted sum as a constant.
 asConstant :: WeightedSum f sr -> Maybe (SR.Coefficient sr)
 asConstant w
-  | Map.null (_sumMap w) = Just (_sumOffset w)
+  | AM.null (_sumMap w) = Just (_sumOffset w)
   | otherwise = Nothing
 
 -- | Return true if a weighted sum is equal to constant 0.
@@ -190,7 +318,7 @@ isZero sr s =
 --   @asAffineVar w = Just (c,r,o)@ when @denotation(w) = c*r + o@.
 asAffineVar :: WeightedSum f sr -> Maybe (SR.Coefficient sr, f (SR.SemiRingBase sr), SR.Coefficient sr)
 asAffineVar w
-  | [(WrapF r,c)] <- Map.toList (_sumMap w)
+  | [(WrapF r, c)] <- AM.toList (_sumMap w)
   = Just (c,r,_sumOffset w)
 
   | otherwise
@@ -200,7 +328,7 @@ asAffineVar w
 --   @asWeightedVar w = Just (c,r)@ when @denotation(w) = c*r@.
 asWeightedVar :: WeightedSum f sr -> Maybe (SR.Coefficient sr, f (SR.SemiRingBase sr))
 asWeightedVar w
-  | [(WrapF r,c)] <- Map.toList (_sumMap w)
+  | [(WrapF r, c)] <- AM.toList (_sumMap w)
   , let sr = sumRepr w
   , SR.eq sr (SR.zero sr) (_sumOffset w)
   = Just (c,r)
@@ -212,7 +340,7 @@ asWeightedVar w
 --   @asVar w = Just r@ when @denotation(w) = r@
 asVar :: WeightedSum f sr -> Maybe (f (SR.SemiRingBase sr))
 asVar w
-  | [(WrapF r,c)] <- Map.toList (_sumMap w)
+  | [(WrapF r, c)] <- AM.toList (_sumMap w)
   , let sr = sumRepr w
   , SR.eq sr (SR.one sr) c
   , SR.eq sr (SR.zero sr) (_sumOffset w)
@@ -223,7 +351,7 @@ asVar w
 
 -- | Create a sum from a constant coefficient value.
 constant :: Tm f => SR.SemiRingRepr sr -> SR.Coefficient sr -> WeightedSum f sr
-constant sr = unfilteredSum sr Map.empty
+constant sr c = unfilteredSum sr AM.empty c
 
 -- | Traverse the expressions in a weighted sum.
 traverseVars :: forall k j m sr.
@@ -232,22 +360,22 @@ traverseVars :: forall k j m sr.
   WeightedSum j sr ->
   m (WeightedSum k sr)
 traverseVars f w =
-  let sr = sumRepr w in
-    (\m -> unfilteredSum sr m (_sumOffset w)) .
-    Map.filter (not . SR.eq sr (SR.zero sr)) .
-    Map.fromListWith (SR.add sr) <$>
-      traverse (_1 (traverseWrap f)) (Map.toList (_sumMap w))
+  (\tms -> fromTerms sr tms (_sumOffset w)) <$>
+  traverse (_1 f) (toListSumMap (_sumMap w))
+  where sr = sumRepr w
 
 -- | Traverse the coefficients in a weighted sum.
 traverseCoeffs :: forall m f sr.
-  (Applicative m, HashableF f) =>
+  (Applicative m, Tm f) =>
   (SR.Coefficient sr -> m (SR.Coefficient sr)) ->
   WeightedSum f sr ->
   m (WeightedSum f sr)
-traverseCoeffs f w = mkSum <$> traverse f (_sumMap w) <*> f (_sumOffset w)
+traverseCoeffs f w =
+  unfilteredSum sr <$> AM.traverseMaybeWithKey g (_sumMap w) <*> f (_sumOffset w)
   where
     sr = sumRepr w
-    mkSum m = unfilteredSum sr (Map.filter (not . SR.eq sr (SR.zero sr)) m)
+    g (WrapF t) _ c = mk t <$> f c
+    mk t c = if SR.eq sr (SR.zero sr) c then Nothing else Just (mkNote sr c t, c)
 
 -- | Traverse the expressions in a product.
 traverseProdVars :: forall k j m sr.
@@ -264,13 +392,12 @@ traverseProdVars f pd =
 -- | This returns a variable times a constant.
 scaledVar :: Tm f => SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> WeightedSum f sr
 scaledVar sr s t
-  | SR.eq sr (SR.zero sr) s = unfilteredSum sr Map.empty (SR.zero sr)
-  | otherwise = unfilteredSum sr (Map.singleton (WrapF t) s) (SR.zero sr)
+  | SR.eq sr (SR.zero sr) s = unfilteredSum sr AM.empty (SR.zero sr)
+  | otherwise = unfilteredSum sr (singletonSumMap sr s t) (SR.zero sr)
 
 -- | Create a weighted sum corresponding to the given variable.
 var :: Tm f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> WeightedSum f sr
-var sr t = unfilteredSum sr (Map.singleton (WrapF t) (SR.one sr)) (SR.zero sr)
-
+var sr t = unfilteredSum sr (singletonSumMap sr (SR.one sr) t) (SR.zero sr)
 
 -- | Add two sums, collecting terms as necessary and deleting terms whose
 --   coefficients sum to 0.
@@ -281,11 +408,12 @@ add ::
   WeightedSum f sr ->
   WeightedSum f sr
 add sr x y = unfilteredSum sr zm zc
-  where merge _ u v | SR.eq sr r (SR.zero sr) = Nothing
-                    | otherwise               = Just r
-          where r = SR.add sr u v
-        zm = Map.mergeWithKey merge id id (_sumMap x) (_sumMap y)
-        zc = SR.add sr (x^.sumOffset) (y^.sumOffset)
+  where
+    merge (WrapF k) u v | SR.eq sr r (SR.zero sr) = Nothing
+                        | otherwise               = Just (mkNote sr r k, r)
+      where r = SR.add sr u v
+    zm = AM.unionWithKeyMaybe merge (_sumMap x) (_sumMap y)
+    zc = SR.add sr (x^.sumOffset) (y^.sumOffset)
 
 -- | Create a weighted sum that represents the sum of two terms.
 addVars ::
@@ -294,36 +422,15 @@ addVars ::
   f (SR.SemiRingBase sr) ->
   f (SR.SemiRingBase sr) ->
   WeightedSum f sr
-addVars sr x y
-  | x' == y'  = scaledVar sr (SR.add sr (SR.one sr) (SR.one sr)) x
-  | otherwise = unfilteredSum sr (Map.fromList [(x', SR.one sr),(y', SR.one sr)]) (SR.zero sr)
- where
- x' = WrapF x
- y' = WrapF y
+addVars sr x y = fromTerms sr [(x, SR.one sr), (y, SR.one sr)] (SR.zero sr)
 
 -- | Add a variable to the sum.
 addVar ::
   Tm f =>
   SR.SemiRingRepr sr ->
   WeightedSum f sr -> f (SR.SemiRingBase sr) -> WeightedSum f sr
-addVar sr x y = x{ _sumMap  = m'
-                 , _sumHash = _sumHash x `xor` hashAdjust
-                 }
-  where
-   (m', hashAdjust) = runState (Map.alterF f y' (_sumMap x)) 0
-
-   f Nothing  = do put (SR.sr_hashWithSalt sr (hash y') (SR.one sr))
-                   return (Just (SR.one sr))
-
-   f (Just c) = let c' = SR.add sr c (SR.one sr) in
-                if SR.eq sr c' (SR.zero sr) then
-                  do put (SR.sr_hashWithSalt sr (hash y') c)
-                     return Nothing
-                else
-                  do put (SR.sr_hashWithSalt sr (hash y') c `xor` SR.sr_hashWithSalt sr (hash y') c')
-                     return (Just c')
-
-   y' = WrapF y
+addVar sr wsum x = wsum { _sumMap = m' }
+  where m' = insertSumMap sr (SR.one sr) x (_sumMap wsum)
 
 -- | Add a constant to the sum.
 addConstant :: SR.SemiRingRepr sr -> WeightedSum f sr -> SR.Coefficient sr -> WeightedSum f sr
@@ -331,21 +438,24 @@ addConstant sr x r = x & sumOffset %~ SR.add sr r
 
 -- | Multiply a sum by a constant coefficient.
 scale :: Tm f => SR.SemiRingRepr sr -> SR.Coefficient sr -> WeightedSum f sr -> WeightedSum f sr
-scale sr c x
- | SR.eq sr c (SR.zero sr) = constant sr (SR.zero sr)
- | otherwise = unfilteredSum sr m' (SR.mul sr c (x^.sumOffset))
-      where m' = Map.filter (not . SR.eq sr (SR.zero sr)) (fmap (SR.mul sr c) (x^.sumMap))
+scale sr c wsum
+  | SR.eq sr c (SR.zero sr) = constant sr (SR.zero sr)
+  | otherwise = unfilteredSum sr m' (SR.mul sr c (wsum^.sumOffset))
+  where
+    m' = runIdentity (AM.traverseMaybeWithKey f (wsum^.sumMap))
+    f (WrapF t) _ x
+      | SR.eq sr (SR.zero sr) cx = return Nothing
+      | otherwise = return (Just (mkNote sr cx t, cx))
+      where cx = SR.mul sr c x
 
 -- | Produce a weighted sum from a list of terms and an offset.
 fromTerms ::
   Tm f =>
   SR.SemiRingRepr sr ->
-  [(WrapF f sr, SR.Coefficient sr)] ->
+  [(f (SR.SemiRingBase sr), SR.Coefficient sr)] ->
   SR.Coefficient sr ->
   WeightedSum f sr
-fromTerms sr tms offset = unfilteredSum sr m offset
-  where
-  m = Map.filter (not . SR.eq sr (SR.zero sr)) (Map.fromListWith (SR.add sr) tms)
+fromTerms sr tms offset = unfilteredSum sr (fromListSumMap sr tms) offset
 
 -- | Apply update functions to the terms and coefficients of a weighted sum.
 transformSum :: (Applicative m, Tm g) =>
@@ -356,13 +466,15 @@ transformSum :: (Applicative m, Tm g) =>
   m (WeightedSum g sr')
 transformSum sr' transCoef transTm s = fromTerms sr' <$> tms <*> c
   where
-  f (WrapF t, x) = (\t' x' -> (WrapF t', x')) <$> transTm t <*> transCoef x
-  tms = traverse f (Map.toList (_sumMap s))
-  c   = transCoef (_sumOffset s)
+    f (t, x) = (,) <$> transTm t <*> transCoef x
+    tms = traverse f (toListSumMap (_sumMap s))
+    c   = transCoef (_sumOffset s)
 
 
--- | Evaluate a sum given interpretations of addition, scalar multiplication, and
--- a constant.  This evaluation is threaded through a monad.
+-- | Evaluate a sum given interpretations of addition, scalar
+-- multiplication, and a constant. This evaluation is threaded through
+-- a monad. The addition function is associated to the left, as in
+-- 'foldlM'.
 evalM :: Monad m =>
   (r -> r -> m r) {- ^ Addition function -} ->
   (SR.Coefficient sr -> f (SR.SemiRingBase sr) -> m r) {- ^ Scalar multiply -} ->
@@ -370,23 +482,19 @@ evalM :: Monad m =>
   WeightedSum f sr ->
   m r
 evalM addFn smul cnst sm
-   | SR.eq sr (_sumOffset sm) (SR.zero sr) =
+  | SR.eq sr (_sumOffset sm) (SR.zero sr) =
+      case toListSumMap (_sumMap sm) of
+        []             -> cnst (SR.zero sr)
+        ((e, s) : tms) -> go tms =<< smul s e
 
-     case Map.minViewWithKey (_sumMap sm) of
-       Nothing ->
-         cnst (SR.zero sr)
-
-       Just ((WrapF e,s),m') ->
-         go (Map.toList m') =<< smul s e
-
-   | otherwise =
-         go (Map.toList (_sumMap sm)) =<< cnst (_sumOffset sm)
+  | otherwise =
+      go (toListSumMap (_sumMap sm)) =<< cnst (_sumOffset sm)
 
   where
-  sr = sumRepr sm
+    sr = sumRepr sm
 
-  go [] x = return x
-  go ((WrapF e, s):xs) x = go xs =<< addFn x =<< smul s e
+    go [] x = return x
+    go ((e, s) : tms) x = go tms =<< addFn x =<< smul s e
 
 -- | Evaluate a sum given interpretations of addition, scalar multiplication, and
 -- a constant rational.
@@ -397,36 +505,40 @@ eval ::
   WeightedSum f sr ->
   r
 eval addFn smul cnst w
-   | SR.eq sr (_sumOffset w) (SR.zero sr) =
-     case Map.minViewWithKey (_sumMap w) of
-       Nothing -> cnst (SR.zero sr)
-       Just ((WrapF e,s),m') -> Map.foldrWithKey' merge (smul s e) m'
+  | SR.eq sr (_sumOffset w) (SR.zero sr) =
+      case toListSumMap (_sumMap w) of
+        []             -> cnst (SR.zero sr)
+        ((e, s) : tms) -> go tms (smul s e)
 
-   | otherwise = Map.foldrWithKey' merge (cnst (_sumOffset w)) (_sumMap w)
+  | otherwise =
+      go (toListSumMap (_sumMap w)) (cnst (_sumOffset w))
 
   where
-  merge (WrapF e) s r = addFn (smul s e) r
-  sr = sumRepr w
+    sr = sumRepr w
 
+    go [] x = x
+    go ((e, s) : tms) x = go tms (addFn (smul s e) x)
 
 {-# INLINABLE eval #-}
+
 
 -- | Reduce a weighted sum of integers modulo a concrete integer.
 --   This reduces each of the coefficients modulo the given integer,
 --   removing any that are congruent to 0; the offset value is
 --   also reduced.
-reduceIntSumMod :: (OrdF f, HashableF f) =>
+reduceIntSumMod ::
+  Tm f =>
   WeightedSum f SR.SemiRingInteger {- ^ The sum to reduce -} ->
   Integer {- ^ The modulus, must not be 0 -} ->
   WeightedSum f SR.SemiRingInteger
 reduceIntSumMod ws k = unfilteredSum SR.SemiRingIntegerRepr m (ws^.sumOffset `mod` k)
   where
-  m = runIdentity (Map.traverseMaybeWithKey f (ws^.sumMap))
-  f _key x
-    | x' == 0   = return (Nothing)
-    | otherwise = return (Just x')
-   where x' = x `mod` k
-
+    sr = sumRepr ws
+    m = runIdentity (AM.traverseMaybeWithKey f (ws^.sumMap))
+    f (WrapF t) _ x
+      | x' == 0   = return Nothing
+      | otherwise = return (Just (mkNote sr x' t, x'))
+      where x' = x `mod` k
 
 {-# INLINABLE extractCommon #-}
 
@@ -442,22 +554,22 @@ extractCommon ::
   WeightedSum f sr ->
   WeightedSum f sr ->
   (WeightedSum f sr, WeightedSum f sr, WeightedSum f sr)
-extractCommon (WeightedSum xm xc _ sr) (WeightedSum ym yc _ _) = (z, x', y')
+extractCommon (WeightedSum xm xc sr) (WeightedSum ym yc _) = (z, x', y')
+  where
+    mergeCommon (WrapF t) (_, xv) (_, yv)
+      | SR.eq sr xv yv  = Just (mkNote sr xv t, xv)
+      | otherwise       = Nothing
 
-  where mergeCommon _ xv yv
-          | SR.eq sr xv yv  = Just xv
-          | otherwise       = Nothing
+    zm = AM.mergeWithKey mergeCommon (const AM.empty) (const AM.empty) xm ym
 
-        zm = Map.mergeWithKey mergeCommon (const Map.empty) (const Map.empty) xm ym
+    (zc, xc', yc')
+      | SR.eq sr xc yc = (xc, SR.zero sr, SR.zero sr)
+      | otherwise      = (SR.zero sr, xc, yc)
 
-        (zc,xc',yc')
-           | SR.eq sr xc yc = (xc, SR.zero sr, SR.zero sr)
-           | otherwise      = (SR.zero sr, xc, yc)
+    z = unfilteredSum sr zm zc
 
-        z = unfilteredSum sr zm zc
-
-        x' = unfilteredSum sr (xm `Map.difference` zm) xc'
-        y' = unfilteredSum sr (ym `Map.difference` zm) yc'
+    x' = unfilteredSum sr (xm `AM.difference` zm) xc'
+    y' = unfilteredSum sr (ym `AM.difference` zm) yc'
 
 
 -- | Returns true if the product is trivial (contains no terms).
