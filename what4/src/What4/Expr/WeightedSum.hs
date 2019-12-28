@@ -73,9 +73,8 @@ import           Control.Monad.State
 import           Data.Bits
 import           Data.Hashable
 import           Data.Kind
+import           Data.List (foldl')
 import           Data.Maybe
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import           Data.Parameterized.Classes
 
 import           What4.BaseTypes
@@ -104,6 +103,17 @@ instance Semigroup (SRAbsValue sr) where
   SRAbsBVOr    w <> SRAbsBVOr    _ = SRAbsBVOr w
   _              <> _              = error "internal error: WeightedSum abstract domain mismatch"
 
+
+(.**) :: SRAbsValue sr -> SRAbsValue sr -> SRAbsValue sr
+SRAbsNatAdd  x .** SRAbsNatAdd  y = SRAbsNatAdd  (AD.natRangeMul x y)
+SRAbsIntAdd  x .** SRAbsIntAdd  y = SRAbsIntAdd  (AD.mulRange x y)
+SRAbsRealAdd x .** SRAbsRealAdd y = SRAbsRealAdd (AD.ravMul x y)
+SRAbsBVAdd   x .** SRAbsBVAdd   y = SRAbsBVAdd   (BVD.mul x y)
+SRAbsBVXor   w .** SRAbsBVXor   _ = SRAbsBVXor w
+SRAbsBVOr    w .** SRAbsBVOr    _ = SRAbsBVOr w
+_              .** _              = error "internal error: WeightedSum abstract domain mismatch in **"
+
+
 class HasAbsValue f where
   getAbsValue :: f tp -> AD.AbstractValue tp
 
@@ -118,6 +128,17 @@ abstractTerm sr c e =
     SR.SemiRingBVRepr fv w ->
       case fv of
         SR.BVArithRepr -> SRAbsBVAdd (BVD.scale c (getAbsValue e))
+        SR.BVBitsRepr  -> SRAbsBVXor w
+
+abstractVal :: HasAbsValue f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SRAbsValue sr
+abstractVal sr e =
+  case sr of
+    SR.SemiRingNatRepr     -> SRAbsNatAdd (getAbsValue e)
+    SR.SemiRingIntegerRepr -> SRAbsIntAdd (getAbsValue e)
+    SR.SemiRingRealRepr    -> SRAbsRealAdd (getAbsValue e)
+    SR.SemiRingBVRepr fv w ->
+      case fv of
+        SR.BVArithRepr -> SRAbsBVAdd (getAbsValue e)
         SR.BVBitsRepr  -> SRAbsBVXor w
 
 abstractScalar ::
@@ -169,6 +190,18 @@ data Note sr = Note !Int !(SRAbsValue sr)
 instance Semigroup (Note sr) where
   Note h1 d1 <> Note h2 d2 = Note (h1 `xor` h2) (d1 <> d2)
 
+data ProdNote sr = ProdNote !Int !(SRAbsValue sr)
+
+-- | The annotation type used for the annotated map for products.
+-- It consists of the hash value and the abstract domain representation
+-- of type @d@ for each submap.  NOTE! that the multiplication operation
+-- on abstract values is not always associative.  This, however, is
+-- acceptable because all associative groupings lead to sound (but perhaps not best)
+-- approximate values.
+
+instance Semigroup (ProdNote sr) where
+  ProdNote h1 d1 <> ProdNote h2 d2 = ProdNote (h1 `xor` h2) (d1 .** d2)
+
 -- | Construct the annotation for a single map entry.
 mkNote ::
   (HashableF f, HasAbsValue f) =>
@@ -178,7 +211,25 @@ mkNote sr c t = Note h d
     h = SR.sr_hashWithSalt sr (hashF t) c
     d = abstractTerm sr c t
 
-type SumMap f sr = AnnotatedMap (WrapF f sr) (Note sr) (SR.Coefficient sr)
+mkProdNote ::
+  (HashableF f, HasAbsValue f) =>
+  SR.SemiRingRepr sr ->
+  SR.Occurrence sr ->
+  f (SR.SemiRingBase sr) ->
+  ProdNote sr
+mkProdNote sr occ t = ProdNote h d
+  where
+    h = SR.occ_hashWithSalt sr (hashF t) occ
+    v = abstractVal sr t
+    power = fromIntegral (SR.occ_count sr occ)
+    d = go (power - 1) v
+
+    go (n::Integer) x
+      | n > 0     = go (n-1) (v .** x)
+      | otherwise = x
+
+type SumMap f sr  = AnnotatedMap (WrapF f sr) (Note sr) (SR.Coefficient sr)
+type ProdMap f sr = AnnotatedMap (WrapF f sr) (ProdNote sr) (SR.Occurrence sr)
 
 insertSumMap ::
   Tm f =>
@@ -197,6 +248,14 @@ singletonSumMap ::
   SR.SemiRingRepr sr ->
   SR.Coefficient sr -> f (SR.SemiRingBase sr) -> SumMap f sr
 singletonSumMap sr c t = AM.singleton (WrapF t) (mkNote sr c t) c
+
+singletonProdMap ::
+  Tm f =>
+  SR.SemiRingRepr sr ->
+  SR.Occurrence sr ->
+  f (SR.SemiRingBase sr) ->
+  ProdMap f sr
+singletonProdMap sr occ t = AM.singleton (WrapF t) (mkProdNote sr occ t) occ
 
 fromListSumMap ::
   Tm f =>
@@ -219,13 +278,10 @@ data WeightedSum (f :: BaseType -> Type) (sr :: SR.SemiRing)
 
 -- | A product of semiring values.
 data SemiRingProduct (f :: BaseType -> Type) (sr :: SR.SemiRing)
-   = SemiRingProduct { _prodMap  :: !(Map (WrapF f sr) (SR.Occurrence sr))
-                     , _prodHash :: Int
+   = SemiRingProduct { _prodMap  :: !(ProdMap f sr)
                      , prodRepr  :: !(SR.SemiRingRepr sr)
                          -- ^ Runtime representation of the semiring for this product
                      }
-mapEqBy :: Ord k => (a -> a -> Bool) -> Map k a -> Map k a -> Bool
-mapEqBy f x y = AM.listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (Map.toAscList x) (Map.toAscList y)
 
 -- | Return the hash of the 'SumMap' part of the 'WeightedSum'.
 sumMapHash :: OrdF f => WeightedSum f sr -> Int
@@ -233,6 +289,12 @@ sumMapHash x =
   case AM.annotation (_sumMap x) of
     Nothing -> 0
     Just (Note h _) -> h
+
+prodMapHash :: OrdF f => SemiRingProduct f sr -> Int
+prodMapHash pd =
+  case AM.annotation (_prodMap pd) of
+    Nothing -> 0
+    Just (ProdNote h _) -> h
 
 sumAbsValue :: OrdF f => WeightedSum f sr -> AD.AbstractValue (SR.SemiRingBase sr)
 sumAbsValue wsum =
@@ -245,10 +307,10 @@ sumAbsValue wsum =
 
 instance OrdF f => TestEquality (SemiRingProduct f) where
   testEquality x y
-    | _prodHash x /= _prodHash y = Nothing
+    | prodMapHash x /= prodMapHash y = Nothing
     | otherwise =
         do Refl <- testEquality (prodRepr x) (prodRepr y)
-           unless (mapEqBy (SR.occ_eq (prodRepr x)) (_prodMap x) (_prodMap y)) Nothing
+           unless (AM.eqBy (SR.occ_eq (prodRepr x)) (_prodMap x) (_prodMap y)) Nothing
            return Refl
 
 instance OrdF f => TestEquality (WeightedSum f) where
@@ -284,12 +346,8 @@ instance OrdF f => Hashable (WeightedSum f sr) where
   hashWithSalt s0 w =
     hashWithSalt (SR.sr_hashWithSalt (sumRepr w) s0 (_sumOffset w)) (sumMapHash w)
 
-instance Hashable (SemiRingProduct f sr) where
-  hashWithSalt s0 w = hashWithSalt s0 (_prodHash w)
-
-computeProdHash :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Occurrence sr) -> Int
-computeProdHash sr m = Map.foldlWithKey' h 0 m
-    where h s k v = s `xor` SR.occ_hashWithSalt sr (hash k) v
+instance OrdF f => Hashable (SemiRingProduct f sr) where
+  hashWithSalt s0 w = hashWithSalt s0 (prodMapHash w)
 
 -- | Attempt to parse a weighted sum as a constant.
 asConstant :: WeightedSum f sr -> Maybe (SR.Coefficient sr)
@@ -374,10 +432,12 @@ traverseProdVars :: forall k j m sr.
   SemiRingProduct j sr ->
   m (SemiRingProduct k sr)
 traverseProdVars f pd =
-  let sr = prodRepr pd in
-    mkProd (prodRepr pd) .
-    Map.fromListWith (SR.occ_add sr) <$>
-      traverse (_1 (traverseWrap f)) (Map.toList (_prodMap pd))
+  mkProd sr . rebuild <$>
+    traverse (_1 (traverseWrap f)) (AM.toList (_prodMap pd))
+ where
+  sr = prodRepr pd
+  rebuild = foldl' (\m (WrapF t, occ) -> AM.insert (WrapF t) (mkProdNote sr occ t) occ m) AM.empty
+
 
 -- | This returns a variable times a constant.
 scaledVar :: Tm f => SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> WeightedSum f sr
@@ -564,36 +624,36 @@ extractCommon (WeightedSum xm xc sr) (WeightedSum ym yc _) = (z, x', y')
 
 -- | Returns true if the product is trivial (contains no terms).
 nullProd :: SemiRingProduct f sr -> Bool
-nullProd pd = Map.null (_prodMap pd)
+nullProd pd = AM.null (_prodMap pd)
 
 -- | If the product consists of exactly on term, return it.
 asProdVar :: SemiRingProduct f sr -> Maybe (f (SR.SemiRingBase sr))
 asProdVar pd
-  | [(WrapF x, SR.occ_count sr -> 1)] <- Map.toList (_prodMap pd) = Just x
+  | [(WrapF x, SR.occ_count sr -> 1)] <- AM.toList (_prodMap pd) = Just x
   | otherwise = Nothing
  where
  sr = prodRepr pd
 
 -- | Returns true if the product contains at least on occurence of the given term.
 prodContains :: OrdF f => SemiRingProduct f sr -> f (SR.SemiRingBase sr) -> Bool
-prodContains pd x = Map.member (WrapF x) (_prodMap pd)
+prodContains pd x = isJust $ AM.lookup (WrapF x) (_prodMap pd)
 
 -- | Produce a product map from a raw map of terms to occurences.
 --   PRECONDITION: the occurence value for each term should be non-zero.
-mkProd :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Occurrence sr) -> SemiRingProduct f sr
-mkProd sr m = SemiRingProduct m (computeProdHash sr m) sr
+mkProd :: HashableF f => SR.SemiRingRepr sr -> ProdMap f sr -> SemiRingProduct f sr
+mkProd sr m = SemiRingProduct m sr
 
 -- | Produce a product representing the single given term.
 prodVar :: Tm f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SemiRingProduct f sr
-prodVar sr x = mkProd sr (Map.singleton (WrapF x) (SR.occ_one sr))
+prodVar sr x = mkProd sr (singletonProdMap sr (SR.occ_one sr) x)
 
 -- | Multiply two products, collecting terms and adding occurences.
 prodMul :: Tm f => SemiRingProduct f sr -> SemiRingProduct f sr -> SemiRingProduct f sr
 prodMul x y = mkProd sr m
   where
   sr = prodRepr x
-  mergeCommon _ a b = Just (SR.occ_add sr a b)
-  m = Map.mergeWithKey mergeCommon id id (_prodMap x) (_prodMap y)
+  mergeCommon _ (u,a) (v,b) = Just (u <> v, SR.occ_add sr a b)
+  m = AM.mergeWithKey mergeCommon id id (_prodMap x) (_prodMap y)
 
 -- | Evaluate a product, given a function representing multiplication
 --   and a function to evaluate terms.
@@ -613,7 +673,7 @@ prodEvalM :: Monad m =>
   (f (SR.SemiRingBase sr) -> m r) {-^ term evaluation -} ->
   SemiRingProduct f sr ->
   m (Maybe r)
-prodEvalM mul tm om = f (Map.toList (_prodMap om))
+prodEvalM mul tm om = f (AM.toList (_prodMap om))
   where
   sr = prodRepr om
 

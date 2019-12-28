@@ -35,7 +35,6 @@ module What4.Utils.AnnotatedMap
   , difference
   , mergeWithKey
   , mergeA
-  , listEqBy
   , eqBy
   ) where
 
