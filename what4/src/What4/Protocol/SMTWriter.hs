@@ -1181,10 +1181,10 @@ addPartialSideCond _ t NatTypeMap Nothing =
 -- in all other cases, no abstract domain information means unconstrained values
 addPartialSideCond _ _ _ Nothing = return ()
 
-addPartialSideCond _ t BoolTypeMap (Just abv) =
-  case abv of
-    Nothing -> return ()
-    Just b  -> addSideCondition "bool_val" $ t .== boolExpr b
+addPartialSideCond _ _ BoolTypeMap (Just Nothing) = return ()
+addPartialSideCond _ t BoolTypeMap (Just (Just b)) =
+   -- This is a weird case, but technically possible, so...
+  addSideCondition "bool_val" $ t .== boolExpr b
 
 addPartialSideCond _ t NatTypeMap (Just rng) =
   do addSideCondition "nat_range" $ t .>= integerTerm (toInteger (natRangeLow rng))

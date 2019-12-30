@@ -1475,42 +1475,12 @@ abstractEval :: (forall u . Expr t u -> AbstractValue u)
 abstractEval f a0 = do
   case a0 of
 
-    BaseIte BaseBoolRepr _ c x y
-      | Just True  <- f c -> f x
-      | Just False <- f c -> f y
-      | Just True  <- f x -> absOr  (f c) (f y)
-      | Just False <- f x -> absAnd (not <$> f c) (f y)
-      | Just True  <- f y -> absOr  (not <$> f c) (f x)
-      | Just False <- f y -> absAnd (f c) (f x)
-      | otherwise -> Nothing
+    BaseIte tp _ _c x y -> withAbstractable tp $ avJoin tp (f x) (f y)
+    BaseEq{} -> Nothing
 
-    BaseIte tp _ c x y
-      | Just True  <- f c -> f x
-      | Just False <- f c -> f y
-      | otherwise -> withAbstractable tp $ avJoin tp (f x) (f y)
-
-    BaseEq tp x y -> withAbstractable tp $ avCheckEq tp (f x) (f y)
-
-    NotPred x -> not <$> (f x)
-    DisjPred xs ->
-      let pol (x,Positive) = f x
-          pol (x,Negative) = not <$> f x
-      in
-      case BM.viewBoolMap xs of
-        BoolMapUnit -> Just False
-        BoolMapDualUnit -> Just True
-        BoolMapTerms (tm:|tms) ->
-          foldr absOr (pol tm) (map pol tms)
-
-    ConjPred xs ->
-      let pol (x,Positive) = f x
-          pol (x,Negative) = not <$> f x
-      in
-      case BM.viewBoolMap xs of
-        BoolMapUnit -> Just True
-        BoolMapDualUnit -> Just False
-        BoolMapTerms (tm:|tms) ->
-          foldr absAnd (pol tm) $ map pol tms
+    NotPred{} -> Nothing
+    DisjPred{} -> Nothing
+    ConjPred{} -> Nothing
 
     SemiRingLe{} -> Nothing
     RealIsInteger{} -> Nothing
@@ -1527,8 +1497,8 @@ abstractEval f a0 = do
     IntAbs x -> intAbsRange (f x)
     IntDiv x y -> intDivRange (f x) (f y)
     IntMod x y -> intModRange (f x) (f y)
-    IntDivisible x 0 -> rangeCheckEq (SingleRange 0) (f x)
-    IntDivisible x n -> rangeCheckEq (SingleRange 0) (intModRange (f x) (SingleRange (toInteger n)))
+
+    IntDivisible{} -> Nothing
 
     SemiRingSum s -> WSum.sumAbsValue s
     SemiRingProd pd -> WSum.prodAbsValue pd
@@ -1548,7 +1518,7 @@ abstractEval f a0 = do
     RealExp _ -> ravUnbounded
     RealLog _ -> ravUnbounded
 
-    BVUnaryTerm u -> UnaryBV.domain f u
+    BVUnaryTerm u -> UnaryBV.domain asConstantPred u
     BVConcat _ x y -> BVD.concat (bvWidth x) (f x) (bvWidth y) (f y)
 
     BVSelect i n x -> BVD.select i n (f x)
@@ -1564,12 +1534,9 @@ abstractEval f a0 = do
     BVRor  w _ _ -> BVD.any w -- TODO?
     BVZext w x   -> BVD.zext (f x) w
     BVSext w x   -> BVD.sext (bvWidth x) (f x) w
-    BVFill w p   ->
-      case f p of
-        Just True  -> BVD.singleton w (maxUnsigned w)
-        Just False -> BVD.singleton w 0
-        Nothing    -> BVD.any w
+    BVFill w _   -> BVD.range w (-1) 0
 
+    -- TODO: pretty sure we can do better for popcount, ctz and clz
     BVPopcount w _ -> BVD.range w 0 (intValue w)
     BVCountLeadingZeros w _ -> BVD.range w 0 (intValue w)
     BVCountTrailingZeros w _ -> BVD.range w 0 (intValue w)
@@ -1605,12 +1572,12 @@ abstractEval f a0 = do
     FloatRound{} -> ()
     FloatFromBinary{} -> ()
     FloatToBinary fpp _ -> case floatPrecisionToBVType fpp of
-      BaseBVRepr w -> BVD.range w (minUnsigned w) (maxUnsigned w)
+      BaseBVRepr w -> BVD.any w
     BVToFloat{} -> ()
     SBVToFloat{} -> ()
     RealToFloat{} -> ()
-    FloatToBV w _ _ -> BVD.range w (minUnsigned w) (maxUnsigned w)
-    FloatToSBV w _ _ -> BVD.range w (minSigned w) (maxSigned w)
+    FloatToBV w _ _ -> BVD.any w
+    FloatToSBV w _ _ -> BVD.any w
     FloatToReal{} -> ravUnbounded
 
     ArrayMap _ bRepr m d ->
@@ -1650,9 +1617,9 @@ abstractEval f a0 = do
     RealPart x -> realPart (f x)
     ImagPart x -> imagPart (f x)
 
-    StringContains x y   -> stringAbsContains (f x) (f y)
-    StringIsPrefixOf x y -> stringAbsIsPrefixOf (f x) (f y)
-    StringIsSuffixOf x y -> stringAbsIsSuffixOf (f x) (f y)
+    StringContains{} -> Nothing
+    StringIsPrefixOf{} -> Nothing
+    StringIsSuffixOf{} -> Nothing
     StringLength s -> stringAbsLength (f s)
     StringSubstring _ s t l -> stringAbsSubstring (f s) (f t) (f l)
     StringIndexOf s t k -> stringAbsIndexOf (f s) (f t) (f k)
@@ -1660,7 +1627,6 @@ abstractEval f a0 = do
       where
       h (Left l)  = stringAbsSingle l
       h (Right x) = f x
-
 
     StructCtor _ flds -> fmapFC (\v -> AbstractValueWrapper (f v)) flds
     StructField s idx _ -> unwrapAV (f s Ctx.! idx)
@@ -2852,9 +2818,7 @@ sbMakeExpr sym a = do
     modifyIORef' (sbNonLinearOps sym) (+1)
   case appType a of
     -- Check if abstract interpretation concludes this is a constant.
-    BaseBoolRepr | Just b <- v -> return $ backendPred sym b
     BaseNatRepr  | Just c <- asSingleNatRange v -> natLit sym c
-
     BaseIntegerRepr | Just c <- asSingleRange v -> intLit sym c
     BaseRealRepr | Just c <- asSingleRange (ravRange v) -> realLit sym c
     BaseBVRepr w | Just LeqProof <- isPosNat w
@@ -5263,21 +5227,31 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just x' <- asString x
     , Just y' <- asString y
     = return $! backendPred sym (stringLitContains x' y')
-  stringContains sym x y
+    | Just b <- stringAbsContains (getAbsValue x) (getAbsValue y)
+    = return $! backendPred sym b
+    | otherwise
     = sbMakeExpr sym $ StringContains x y
 
   stringIsPrefixOf sym x y
     | Just x' <- asString x
     , Just y' <- asString y
     = return $! backendPred sym (stringLitIsPrefixOf x' y')
-  stringIsPrefixOf sym x y
+
+    | Just b <- stringAbsIsPrefixOf (getAbsValue x) (getAbsValue y)
+    = return $! backendPred sym b
+
+    | otherwise
     = sbMakeExpr sym $ StringIsPrefixOf x y
 
   stringIsSuffixOf sym x y
     | Just x' <- asString x
     , Just y' <- asString y
     = return $! backendPred sym (stringLitIsSuffixOf x' y')
-  stringIsSuffixOf sym x y
+
+    | Just b <- stringAbsIsSuffixOf (getAbsValue x) (getAbsValue y)
+    = return $! backendPred sym b
+
+    | otherwise
     = sbMakeExpr sym $ StringIsSuffixOf x y
 
   stringSubstring sym x off len
@@ -5285,30 +5259,32 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just off' <- asNat off
     , Just len' <- asNat len
     = stringLit sym $! stringLitSubstring x' off' len'
-  stringSubstring sym x off len
+
+    | otherwise
     = sbMakeExpr sym $ StringSubstring (stringInfo x) x off len
 
-  stringConcat _ x y
+  stringConcat sym x y
     | Just x' <- asString x, stringLitNull x'
     = return y
-  stringConcat _ x y
+
     | Just y' <- asString y, stringLitNull y'
     = return x
-  stringConcat sym x y
+
     | Just x' <- asString x
     , Just y' <- asString y
     = stringLit sym (x' <> y')
-  stringConcat sym x y
+
     | Just (StringAppend si xs) <- asApp x
     , Just (StringAppend _  ys) <- asApp y
     = sbMakeExpr sym $ StringAppend si (SSeq.append xs ys)
-  stringConcat sym x y
+
     | Just (StringAppend si xs) <- asApp x
     = sbMakeExpr sym $ StringAppend si (SSeq.append xs (SSeq.singleton si y))
-  stringConcat sym x y
+
     | Just (StringAppend si ys) <- asApp y
     = sbMakeExpr sym $ StringAppend si (SSeq.append (SSeq.singleton si x) ys)
-  stringConcat sym x y
+
+    | otherwise
     = let si = stringInfo x in
       sbMakeExpr sym $ StringAppend si (SSeq.append (SSeq.singleton si x) (SSeq.singleton si y))
 
@@ -5316,13 +5292,12 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just x' <- asString x
     = natLit sym (stringLitLength x')
 
-  stringLength sym x
     | Just (StringAppend _si xs) <- asApp x
     = do ns <- mapM (either (natLit sym . stringLitLength) (sbMakeExpr sym . StringLength)) (SSeq.toList xs)
          z  <- natLit sym 0
          foldM (natAdd sym) z ns
 
-  stringLength sym x
+    | otherwise
     = sbMakeExpr sym $ StringLength x
 
   --------------------------------------------------------------------
