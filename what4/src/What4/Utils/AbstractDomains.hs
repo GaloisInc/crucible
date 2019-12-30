@@ -102,6 +102,7 @@ module What4.Utils.AbstractDomains
   , withAbstractable
   , AbstractValueWrapper(..)
   , ConcreteValueWrapper(..)
+  , HasAbsValue(..)
   ) where
 
 import           Control.Exception (assert)
@@ -710,6 +711,11 @@ type family AbstractValue (tp::BaseType) :: Type where
   AbstractValue BaseComplexType = Complex RealAbstractValue
   AbstractValue (BaseArrayType idx b) = AbstractValue b
   AbstractValue (BaseStructType ctx) = Ctx.Assignment AbstractValueWrapper ctx
+
+
+-- | A utility class for values that contain abstract values
+class HasAbsValue f where
+  getAbsValue :: f tp -> AbstractValue tp
 
 newtype AbstractValueWrapper tp
       = AbstractValueWrapper { unwrapAV :: AbstractValue tp }

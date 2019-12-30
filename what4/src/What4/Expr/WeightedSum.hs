@@ -26,8 +26,7 @@ semiring products.
 {-# OPTIONS_GHC -Wwarn #-}
 module What4.Expr.WeightedSum
   ( -- * Utilities
-    HasAbsValue(..)
-  , Tm
+    Tm
     -- * Weighted sums
   , WeightedSum
   , sumRepr
@@ -115,31 +114,28 @@ SRAbsBVOr    w .** SRAbsBVOr    _ = SRAbsBVOr w
 _              .** _              = error "internal error: WeightedSum abstract domain mismatch in **"
 
 
-class HasAbsValue f where
-  getAbsValue :: f tp -> AD.AbstractValue tp
-
 abstractTerm ::
-  HasAbsValue f =>
+  AD.HasAbsValue f =>
   SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> SRAbsValue sr
 abstractTerm sr c e =
   case sr of
-    SR.SemiRingNatRepr     -> SRAbsNatAdd (AD.natRangeScalarMul c (getAbsValue e))
-    SR.SemiRingIntegerRepr -> SRAbsIntAdd (AD.rangeScalarMul c (getAbsValue e))
-    SR.SemiRingRealRepr    -> SRAbsRealAdd (AD.ravScalarMul c (getAbsValue e))
+    SR.SemiRingNatRepr     -> SRAbsNatAdd (AD.natRangeScalarMul c (AD.getAbsValue e))
+    SR.SemiRingIntegerRepr -> SRAbsIntAdd (AD.rangeScalarMul c (AD.getAbsValue e))
+    SR.SemiRingRealRepr    -> SRAbsRealAdd (AD.ravScalarMul c (AD.getAbsValue e))
     SR.SemiRingBVRepr fv w ->
       case fv of
-        SR.BVArithRepr -> SRAbsBVAdd (BVD.scale c (getAbsValue e))
+        SR.BVArithRepr -> SRAbsBVAdd (BVD.scale c (AD.getAbsValue e))
         SR.BVBitsRepr  -> SRAbsBVXor w
 
-abstractVal :: HasAbsValue f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SRAbsValue sr
+abstractVal :: AD.HasAbsValue f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SRAbsValue sr
 abstractVal sr e =
   case sr of
-    SR.SemiRingNatRepr     -> SRAbsNatAdd (getAbsValue e)
-    SR.SemiRingIntegerRepr -> SRAbsIntAdd (getAbsValue e)
-    SR.SemiRingRealRepr    -> SRAbsRealAdd (getAbsValue e)
+    SR.SemiRingNatRepr     -> SRAbsNatAdd (AD.getAbsValue e)
+    SR.SemiRingIntegerRepr -> SRAbsIntAdd (AD.getAbsValue e)
+    SR.SemiRingRealRepr    -> SRAbsRealAdd (AD.getAbsValue e)
     SR.SemiRingBVRepr fv w ->
       case fv of
-        SR.BVArithRepr -> SRAbsBVAdd (getAbsValue e)
+        SR.BVArithRepr -> SRAbsBVAdd (AD.getAbsValue e)
         SR.BVBitsRepr  -> SRAbsBVXor w
 
 abstractScalar ::
@@ -167,7 +163,7 @@ fromSRAbsValue v =
 
 --------------------------------------------------------------------------------
 
-type Tm f = (HashableF f, OrdF f, HasAbsValue f)
+type Tm f = (HashableF f, OrdF f, AD.HasAbsValue f)
 
 newtype WrapF (f :: BaseType -> Type) (i :: SR.SemiRing) = WrapF (f (SR.SemiRingBase i))
 
@@ -205,7 +201,7 @@ instance Semigroup (ProdNote sr) where
 
 -- | Construct the annotation for a single map entry.
 mkNote ::
-  (HashableF f, HasAbsValue f) =>
+  (HashableF f, AD.HasAbsValue f) =>
   SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> Note sr
 mkNote sr c t = Note h d
   where
@@ -213,7 +209,7 @@ mkNote sr c t = Note h d
     d = abstractTerm sr c t
 
 mkProdNote ::
-  (HashableF f, HasAbsValue f) =>
+  (HashableF f, AD.HasAbsValue f) =>
   SR.SemiRingRepr sr ->
   SR.Occurrence sr ->
   f (SR.SemiRingBase sr) ->
