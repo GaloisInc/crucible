@@ -739,7 +739,7 @@ newtype ConcreteValueWrapper tp
 avTop :: BaseTypeRepr tp -> AbstractValue tp
 avTop tp =
   case tp of
-    BaseBoolRepr    ->  Nothing
+    BaseBoolRepr    -> Nothing
     BaseNatRepr     -> unboundedNatRange
     BaseIntegerRepr -> unboundedRange
     BaseRealRepr    -> ravUnbounded
@@ -781,7 +781,6 @@ class Abstractable (tp::BaseType) where
   -- value.
   avOverlap  :: BaseTypeRepr tp -> AbstractValue tp -> AbstractValue tp -> Bool
 
-
   -- | Check equality on two abstract values.  Return true or false if we can definitively
   --   determine the equality of the two elements, and nothing otherwise.
   avCheckEq :: BaseTypeRepr tp -> AbstractValue tp -> AbstractValue tp -> Maybe Bool
@@ -795,16 +794,13 @@ avJoin' tp x y = withAbstractable tp $
 
 -- Abstraction captures whether Boolean is constant true or false or Nothing
 instance Abstractable BaseBoolType where
-  avJoin _ x y
-    | x == y = x
-    | otherwise = Nothing
+  avJoin _ x y | x == y = x
+               | otherwise = Nothing
 
-  avOverlap _ = f
-    where f Nothing _ = True
-          f _ Nothing = True
-          f (Just x) (Just y) = x == y
+  avOverlap _ (Just x) (Just y) | x /= y = False
+  avOverlap _ _ _ = True
 
-  avCheckEq _ (Just x) (Just y) = Just $! x == y
+  avCheckEq _ (Just x) (Just y) = Just (x == y)
   avCheckEq _ _ _ = Nothing
 
 instance Abstractable (BaseStringType si) where
@@ -898,9 +894,4 @@ withAbstractable bt k =
 -- | Returns true if the concrete value is a member of the set represented
 -- by the abstract value.
 avContains :: BaseTypeRepr tp -> ConcreteValue tp -> AbstractValue tp -> Bool
-avContains tp =
-  case tp of
-    BaseBoolRepr -> f
-      where f _ Nothing = True
-            f x (Just y) = x == y
-    _ -> withAbstractable tp $ \x y -> avOverlap tp (avSingle tp x) y
+avContains tp = withAbstractable tp $ \x y -> avOverlap tp (avSingle tp x) y
