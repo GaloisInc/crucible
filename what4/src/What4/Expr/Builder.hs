@@ -1682,7 +1682,7 @@ exprAbsValue (AppExpr e)      = appExprAbsValue e
 exprAbsValue (BoundVarExpr v) =
   fromMaybe (unconstrainedAbsValue (bvarType v)) (bvarAbstractValue v)
 
-instance WSum.HasAbsValue (Expr t) where
+instance HasAbsValue (Expr t) where
   getAbsValue = exprAbsValue
 
 -- | Return an unconstrained abstract value.
@@ -2090,7 +2090,7 @@ instance OrdF Dummy where
 instance HashableF Dummy where
   hashWithSaltF _ _ = 0
 
-instance WSum.HasAbsValue Dummy where
+instance HasAbsValue Dummy where
   getAbsValue _ = error "you made a magic Dummy value!"
 
 instance FoldableFC App where
@@ -2098,7 +2098,7 @@ instance FoldableFC App where
     where g :: (f tp -> a) -> f tp -> Const a (Dummy tp)
           g f v = Const (f v)
 
-traverseApp :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f, WSum.HasAbsValue f)
+traverseApp :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f, HasAbsValue f)
             => (forall tp. e tp -> m (f tp))
             -> App e utp -> m ((App f) utp)
 traverseApp =
