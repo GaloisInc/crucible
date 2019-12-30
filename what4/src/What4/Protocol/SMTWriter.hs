@@ -119,7 +119,7 @@ import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder (decimal)
 import qualified Data.Text.Lazy as Lazy
 import           Data.Word
-import           GHC.Real
+
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import           System.IO.Streams (OutputStream)
