@@ -1531,15 +1531,7 @@ abstractEval f a0 = do
     IntDivisible x n -> rangeCheckEq (SingleRange 0) (intModRange (f x) (SingleRange (toInteger n)))
 
     SemiRingSum s -> WSum.sumAbsValue s
-
-    SemiRingProd pd ->
-      let sr = WSum.prodRepr pd in
-      case sr of
-        SR.SemiRingIntegerRepr -> fromMaybe (SingleRange 1) $ WSum.prodEval mulRange f pd
-        SR.SemiRingNatRepr     -> fromMaybe (natSingleRange 1) $ WSum.prodEval natRangeMul f pd
-        SR.SemiRingRealRepr    -> fromMaybe (ravSingle 1) $ WSum.prodEval ravMul f pd
-        SR.SemiRingBVRepr SR.BVArithRepr w -> fromMaybe (BVD.singleton w 1) $ WSum.prodEval BVD.mul f pd
-        SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
+    SemiRingProd pd -> WSum.prodAbsValue pd
 
     BVOrBits pd ->
       case WSum.prodRepr pd of
