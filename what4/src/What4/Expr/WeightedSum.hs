@@ -62,6 +62,7 @@ module What4.Expr.WeightedSum
   , asProdVar
   , prodRepr
   , prodVar
+  , prodAbsValue
   , prodMul
   , prodEval
   , prodEvalM
@@ -633,6 +634,13 @@ asProdVar pd
   | otherwise = Nothing
  where
  sr = prodRepr pd
+
+prodAbsValue :: OrdF f => SemiRingProduct f sr -> AD.AbstractValue (SR.SemiRingBase sr)
+prodAbsValue pd =
+  fromSRAbsValue $
+  case AM.annotation (_prodMap pd) of
+    Nothing             -> abstractScalar (prodRepr pd) (SR.one (prodRepr pd))
+    Just (ProdNote _ v) -> v
 
 -- | Returns true if the product contains at least on occurence of the given term.
 prodContains :: OrdF f => SemiRingProduct f sr -> f (SR.SemiRingBase sr) -> Bool
