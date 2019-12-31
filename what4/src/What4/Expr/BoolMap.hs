@@ -31,7 +31,6 @@ module What4.Expr.BoolMap
   ) where
 
 import           Control.Lens (_1, over)
-import           Data.Bits
 import           Data.Hashable
 import           Data.List (foldl')
 import           Data.List.NonEmpty (NonEmpty(..))
@@ -40,7 +39,7 @@ import           Data.Parameterized.Classes
 
 import           What4.BaseTypes
 import qualified What4.Utils.AnnotatedMap as AM
-
+import           What4.Utils.IncrHash
 
 -- | Describes the occurence of a variable or expression, whether it is
 --   negated or not.
@@ -65,16 +64,6 @@ instance OrdF f => Ord (Wrap f x) where
 instance HashableF f => Hashable (Wrap f x) where
   hashWithSalt s (Wrap a) = hashWithSaltF s a
 
-
-newtype XorHash = XorHash Int
-
-instance Semigroup XorHash where
-  (XorHash x) <> (XorHash y) = XorHash (x `xor` y)
-
-instance Monoid XorHash where
-  mempty = XorHash 0
-  mappend = (<>)
-
 -- | This data structure keeps track of a collection of expressions
 --   together with their polarities. Such a collection might represent
 --   either a conjunction or a disjunction of expressions.  The
@@ -90,7 +79,7 @@ instance Monoid XorHash where
 
 data BoolMap (f :: BaseType -> Type)
   = InconsistentMap
-  | BoolMap !(AM.AnnotatedMap (Wrap f BaseBoolType) XorHash Polarity)
+  | BoolMap !(AM.AnnotatedMap (Wrap f BaseBoolType) IncrHash Polarity)
 
 instance OrdF f => Eq (BoolMap f) where
   InconsistentMap == InconsistentMap = True
@@ -106,15 +95,15 @@ traverseVars _ InconsistentMap = pure InconsistentMap
 traverseVars f (BoolMap m) =
   fromVars <$> traverse (_1 (f . unWrap)) (AM.toList m)
 
-elementHash :: HashableF f => f BaseBoolType -> Polarity -> XorHash
-elementHash x p = XorHash (hashWithSaltF (hash p) x)
+elementHash :: HashableF f => f BaseBoolType -> Polarity -> IncrHash
+elementHash x p = mkIncrHash (hashWithSaltF (hash p) x)
 
 instance (OrdF f, HashableF f) => Hashable (BoolMap f) where
   hashWithSalt s InconsistentMap = hashWithSalt s (0::Int)
   hashWithSalt s (BoolMap m) =
     case AM.annotation m of
-      Nothing          -> hashWithSalt s (1::Int)
-      Just (XorHash h) -> hashWithSalt (hashWithSalt s (1::Int)) h
+      Nothing -> hashWithSalt s (1::Int)
+      Just h  -> hashWithSalt (hashWithSalt s (1::Int)) h
 
 -- | Represents the state of a bool map
 data BoolMapView f

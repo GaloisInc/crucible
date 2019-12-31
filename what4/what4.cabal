@@ -115,6 +115,7 @@ library
     What4.Utils.Endian
     What4.Utils.Environment
     What4.Utils.HandleReader
+    What4.Utils.IncrHash
     What4.Utils.LeqMap
     What4.Utils.MonadST
     What4.Utils.OnlyNatRepr

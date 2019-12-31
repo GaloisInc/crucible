@@ -70,7 +70,6 @@ module What4.Expr.WeightedSum
 
 import           Control.Lens
 import           Control.Monad.State
-import           Data.Bits
 import           Data.Hashable
 import           Data.Kind
 import           Data.List (foldl')
@@ -83,6 +82,7 @@ import           What4.Utils.AnnotatedMap (AnnotatedMap)
 import qualified What4.Utils.AnnotatedMap as AM
 import qualified What4.Utils.AbstractDomains as AD
 import qualified What4.Utils.BVDomain as BVD
+import           What4.Utils.IncrHash
 
 --------------------------------------------------------------------------------
 
@@ -182,12 +182,12 @@ traverseWrap f (WrapF x) = WrapF <$> f x
 -- | The annotation type used for the annotated map. It consists of
 -- the hash value and the abstract domain representation of type @d@
 -- for each submap.
-data Note sr = Note !Int !(SRAbsValue sr)
+data Note sr = Note !IncrHash !(SRAbsValue sr)
 
 instance Semigroup (Note sr) where
-  Note h1 d1 <> Note h2 d2 = Note (h1 `xor` h2) (d1 <> d2)
+  Note h1 d1 <> Note h2 d2 = Note (h1 <> h2) (d1 <> d2)
 
-data ProdNote sr = ProdNote !Int !(SRAbsValue sr)
+data ProdNote sr = ProdNote !IncrHash !(SRAbsValue sr)
 
 -- | The annotation type used for the annotated map for products.
 -- It consists of the hash value and the abstract domain representation
@@ -197,13 +197,13 @@ data ProdNote sr = ProdNote !Int !(SRAbsValue sr)
 -- approximate values.
 
 instance Semigroup (ProdNote sr) where
-  ProdNote h1 d1 <> ProdNote h2 d2 = ProdNote (h1 `xor` h2) (d1 .** d2)
+  ProdNote h1 d1 <> ProdNote h2 d2 = ProdNote (h1 <> h2) (d1 .** d2)
 
 -- | Construct the annotation for a single map entry.
 mkNote ::
   (HashableF f, AD.HasAbsValue f) =>
   SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> Note sr
-mkNote sr c t = Note h d
+mkNote sr c t = Note (mkIncrHash h) d
   where
     h = SR.sr_hashWithSalt sr (hashF t) c
     d = abstractTerm sr c t
@@ -214,7 +214,7 @@ mkProdNote ::
   SR.Occurrence sr ->
   f (SR.SemiRingBase sr) ->
   ProdNote sr
-mkProdNote sr occ t = ProdNote h d
+mkProdNote sr occ t = ProdNote (mkIncrHash h) d
   where
     h = SR.occ_hashWithSalt sr (hashF t) occ
     v = abstractVal sr t
@@ -281,16 +281,16 @@ data SemiRingProduct (f :: BaseType -> Type) (sr :: SR.SemiRing)
                      }
 
 -- | Return the hash of the 'SumMap' part of the 'WeightedSum'.
-sumMapHash :: OrdF f => WeightedSum f sr -> Int
+sumMapHash :: OrdF f => WeightedSum f sr -> IncrHash
 sumMapHash x =
   case AM.annotation (_sumMap x) of
-    Nothing -> 0
+    Nothing -> mempty
     Just (Note h _) -> h
 
-prodMapHash :: OrdF f => SemiRingProduct f sr -> Int
+prodMapHash :: OrdF f => SemiRingProduct f sr -> IncrHash
 prodMapHash pd =
   case AM.annotation (_prodMap pd) of
-    Nothing -> 0
+    Nothing -> mempty
     Just (ProdNote h _) -> h
 
 sumAbsValue :: OrdF f => WeightedSum f sr -> AD.AbstractValue (SR.SemiRingBase sr)
