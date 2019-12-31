@@ -30,7 +30,6 @@ module What4.Expr.ArrayUpdateMap
 
 import           Prelude hiding (lookup, null, filter)
 
-import           Data.Bits
 import           Data.Functor.Identity
 import           Data.Hashable
 import           Data.Maybe
@@ -43,20 +42,21 @@ import           What4.BaseTypes
 import           What4.IndexLit
 import           What4.Utils.AbstractDomains
 import qualified What4.Utils.AnnotatedMap as AM
+import           What4.Utils.IncrHash
 
 ------------------------------------------------------------------------
 -- ArrayUpdateMap
 
 data ArrayUpdateNote tp =
   ArrayUpdateNote
-  { aunHash :: !Int
+  { aunHash :: !IncrHash
   , _aunRepr :: !(BaseTypeRepr tp)
   , aunAbs  :: !(AbstractValue tp)
   }
 
 instance Semigroup (ArrayUpdateNote tp) where
   ArrayUpdateNote hx tpr ax <> ArrayUpdateNote hy _ ay =
-    ArrayUpdateNote (hx `xor` hy) tpr (withAbstractable tpr $ avJoin tpr ax ay)
+    ArrayUpdateNote (hx <> hy) tpr (withAbstractable tpr $ avJoin tpr ax ay)
 
 newtype ArrayUpdateMap e ctx tp =
   ArrayUpdateMap ( AM.AnnotatedMap (Ctx.Assignment IndexLit ctx) (ArrayUpdateNote tp) (e tp) )
@@ -70,8 +70,8 @@ instance Hashable (ArrayUpdateMap e ctx tp) where
       Nothing  -> hashWithSalt s (111::Int)
       Just aun -> hashWithSalt s (aunHash aun)
 
-mkNote :: (HashableF e, HasAbsValue e) => BaseTypeRepr tp -> e tp -> ArrayUpdateNote tp
-mkNote tpr e = ArrayUpdateNote (hashWithSaltF 112 e) tpr (getAbsValue e)
+mkNote :: (HashableF e, HasAbsValue e) => BaseTypeRepr tp -> Ctx.Assignment IndexLit ctx -> e tp -> ArrayUpdateNote tp
+mkNote tpr idx e = ArrayUpdateNote (mkIncrHash (hashWithSaltF (hash idx) e)) tpr (getAbsValue e)
 
 arrayUpdateAbs :: ArrayUpdateMap e ct tp -> Maybe (AbstractValue tp)
 arrayUpdateAbs (ArrayUpdateMap m) = aunAbs <$> AM.annotation m
@@ -80,7 +80,7 @@ fromAscList :: (HasAbsValue e, HashableF e) =>
   BaseTypeRepr tp -> [(Ctx.Assignment IndexLit ctx, e tp)] -> ArrayUpdateMap e ctx tp
 fromAscList tpr xs = ArrayUpdateMap (AM.fromAscList (fmap f xs))
  where
- f (k,e) = (k, mkNote tpr e, e)
+ f (k,e) = (k, mkNote tpr k e, e)
 
 toList :: ArrayUpdateMap e ctx tp -> [(Ctx.Assignment IndexLit ctx, e tp)]
 toList (ArrayUpdateMap m) = AM.toList m
@@ -113,7 +113,7 @@ singleton ::
   Ctx.Assignment IndexLit ctx ->
   e tp ->
   ArrayUpdateMap e ctx tp
-singleton tpr idx e = ArrayUpdateMap (AM.singleton idx (mkNote tpr e) e)
+singleton tpr idx e = ArrayUpdateMap (AM.singleton idx (mkNote tpr idx e) e)
 
 insert ::
   (HashableF e, HasAbsValue e) =>
@@ -122,7 +122,7 @@ insert ::
   e tp ->
   ArrayUpdateMap e ctx tp ->
   ArrayUpdateMap e ctx tp
-insert tpr idx e (ArrayUpdateMap m) =  ArrayUpdateMap (AM.insert idx (mkNote tpr e) e m)
+insert tpr idx e (ArrayUpdateMap m) =  ArrayUpdateMap (AM.insert idx (mkNote tpr idx e) e m)
 
 empty :: ArrayUpdateMap e ctx tp
 empty = ArrayUpdateMap AM.empty
@@ -138,11 +138,11 @@ mergeM :: (Applicative m, HashableF g, HasAbsValue g) =>
 mergeM tpr both left right (ArrayUpdateMap ml) (ArrayUpdateMap mr) =
   ArrayUpdateMap <$> AM.mergeWithKeyM both' left' right' ml mr
  where
- mk x = (mkNote tpr x, x)
+ mk k x = (mkNote tpr k x, x)
 
- both' k (_,x) (_,y) = mk <$> both k x y
- left' k (_,x) = mk <$> left k x
- right' k (_,y) = mk <$> right k y
+ both' k (_,x) (_,y) = mk k <$> both k x y
+ left' k (_,x) = mk k <$> left k x
+ right' k (_,y) = mk k <$> right k y
 
 keysSet :: ArrayUpdateMap e ctx tp -> Set.Set (Ctx.Assignment IndexLit ctx)
 keysSet (ArrayUpdateMap m) = Set.fromAscList (fst <$> AM.toList m)

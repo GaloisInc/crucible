@@ -31,7 +31,6 @@ module What4.Expr.StringSeq
 , traverseStringSeq
 ) where
 
-import           Data.Bits
 import           Data.Kind
 import qualified Data.Foldable as F
 
@@ -42,18 +41,19 @@ import           Data.Parameterized.Classes
 import           What4.BaseTypes
 import           What4.Interface
 import           What4.Utils.AbstractDomains
+import           What4.Utils.IncrHash
 
 -- | Annotation value for string sequences.
 --   First value is the XOR hash of the sequence
 --   Second value is the string abstract domain.
-data StringSeqNote = StringSeqNote !Int !StringAbstractValue
+data StringSeqNote = StringSeqNote !IncrHash !StringAbstractValue
 
 instance Semigroup StringSeqNote where
   StringSeqNote xh xabs <> StringSeqNote yh yabs =
-    StringSeqNote (xh `xor` yh) (stringAbsConcat xabs yabs)
+    StringSeqNote (xh <> yh) (stringAbsConcat xabs yabs)
 
 instance Monoid StringSeqNote where
-  mempty = StringSeqNote 0 stringAbsEmpty
+  mempty = StringSeqNote mempty stringAbsEmpty
   mappend = (<>)
 
 data StringSeqEntry e si
@@ -61,12 +61,12 @@ data StringSeqEntry e si
   | StringSeqTerm !(e (BaseStringType si))
 
 instance (HasAbsValue e, HashableF e) => FT.Measured StringSeqNote (StringSeqEntry e si) where
-  measure (StringSeqLiteral l) = StringSeqNote (hash l) (stringAbsSingle l)
-  measure (StringSeqTerm e) = StringSeqNote (hashWithSaltF 0 e) (getAbsValue e)
+  measure (StringSeqLiteral l) = StringSeqNote (toIncrHashWithSalt 1 l) (stringAbsSingle l)
+  measure (StringSeqTerm e) = StringSeqNote (mkIncrHash (hashWithSaltF 2 e)) (getAbsValue e)
 
 type StringFT e si = FT.FingerTree StringSeqNote (StringSeqEntry e si)
 
-sft_hash :: (HashableF e, HasAbsValue e) => StringFT e si -> Int
+sft_hash :: (HashableF e, HasAbsValue e) => StringFT e si -> IncrHash
 sft_hash ft =
   case FT.measure ft of
     StringSeqNote h _abs -> h
