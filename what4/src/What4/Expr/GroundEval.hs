@@ -534,8 +534,9 @@ evalGroundApp f0 a0 = do
     StringIndexOf x y k -> stringLitIndexOf <$> f x <*> f y <*> f k
     StringSubstring _ x off len -> stringLitSubstring <$> f x <*> f off <*> f len
     StringAppend si xs ->
-      do ys <- traverse (either return f) (SSeq.toList xs)
-         return $! foldl (<>) (stringLitEmpty si) ys
+      do let g x (SSeq.StringSeqLiteral l) = pure (x <> l)
+             g x (SSeq.StringSeqTerm t)    = (x <>) <$> f t
+         foldM g (stringLitEmpty si) (SSeq.toList xs)
 
     ------------------------------------------------------------------------
     -- Structs
