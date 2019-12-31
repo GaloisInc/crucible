@@ -18,79 +18,122 @@ are coalesced.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 
 module What4.Expr.StringSeq
 ( StringSeq
+, StringSeqEntry(..)
 , singleton
 , append
+, stringSeqAbs
 , toList
 , traverseStringSeq
 ) where
 
+import           Data.Bits
 import           Data.Kind
-import qualified Data.Sequence as Seq
 import qualified Data.Foldable as F
 
+import qualified Data.FingerTree as FT
+
 import           Data.Parameterized.Classes
-import           Data.Parameterized.TraversableFC
 
 import           What4.BaseTypes
 import           What4.Interface
+import           What4.Utils.AbstractDomains
+
+-- | Annotation value for string sequences.
+--   First value is the XOR hash of the sequence
+--   Second value is the string abstract domain.
+data StringSeqNote = StringSeqNote !Int !StringAbstractValue
+
+instance Semigroup StringSeqNote where
+  StringSeqNote xh xabs <> StringSeqNote yh yabs =
+    StringSeqNote (xh `xor` yh) (stringAbsConcat xabs yabs)
+
+instance Monoid StringSeqNote where
+  mempty = StringSeqNote 0 stringAbsEmpty
+  mappend = (<>)
+
+data StringSeqEntry e si
+  = StringSeqLiteral !(StringLiteral si)
+  | StringSeqTerm !(e (BaseStringType si))
+
+instance (HasAbsValue e, HashableF e) => FT.Measured StringSeqNote (StringSeqEntry e si) where
+  measure (StringSeqLiteral l) = StringSeqNote (hash l) (stringAbsSingle l)
+  measure (StringSeqTerm e) = StringSeqNote (hashWithSaltF 0 e) (getAbsValue e)
+
+type StringFT e si = FT.FingerTree StringSeqNote (StringSeqEntry e si)
+
+sft_hash :: (HashableF e, HasAbsValue e) => StringFT e si -> Int
+sft_hash ft =
+  case FT.measure ft of
+    StringSeqNote h _abs -> h
+
+ft_eqBy :: FT.Measured v a => (a -> a -> Bool) -> FT.FingerTree v a -> FT.FingerTree v a -> Bool
+ft_eqBy eq xs0 ys0 = go (FT.viewl xs0) (FT.viewl ys0)
+ where
+ go FT.EmptyL FT.EmptyL = True
+ go (x FT.:< xs) (y FT.:< ys) = eq x y && go (FT.viewl xs) (FT.viewl ys)
+ go _ _ = False
 
 data StringSeq
   (e  :: BaseType -> Type)
   (si :: StringInfo) =
   StringSeq
   { _stringSeqRepr :: StringInfoRepr si
-  , stringSeq :: Seq.Seq (Either (StringLiteral si) (e (BaseStringType si)))
+  , stringSeq :: FT.FingerTree StringSeqNote (StringSeqEntry e si)
   }
 
-instance TestEqualityFC StringSeq where
-  testEqualityFC test (StringSeq xi xs) (StringSeq yi ys)
+instance (TestEquality e, HasAbsValue e, HashableF e) => TestEquality (StringSeq e) where
+  testEquality (StringSeq xi xs) (StringSeq yi ys)
     | Just Refl <- testEquality xi yi
-    , Seq.length xs == Seq.length ys
-    = let f (Left a) (Left b)  = a == b
-          f (Right a) (Right b) = isJust (test a b)
+    , sft_hash xs == sft_hash ys
+
+    = let f (StringSeqLiteral a) (StringSeqLiteral b) = a == b
+          f (StringSeqTerm a) (StringSeqTerm b) = isJust (testEquality a b)
           f _ _ = False
 
-          eq = F.and (Seq.zipWith f xs ys)
+       in if ft_eqBy f xs ys then Just Refl else Nothing
 
-       in if eq then Just Refl else Nothing
+  testEquality _ _ = Nothing
 
-  testEqualityFC _ _ _ = Nothing
-
-instance TestEquality e => TestEquality (StringSeq e) where
-  testEquality = testEqualityFC testEquality
-
-instance TestEquality e => Eq (StringSeq e si) where
+instance (TestEquality e, HasAbsValue e, HashableF e) => Eq (StringSeq e si) where
   x == y = isJust (testEquality x y)
 
-instance HashableF e => HashableF (StringSeq e) where
-  hashWithSaltF s0 (StringSeq si xs) =
-    F.foldl (\s x -> either (hashWithSaltF s) (hashWithSaltF s) x) (hashWithSaltF s0 si) xs
+instance (HasAbsValue e, HashableF e) => HashableF (StringSeq e) where
+  hashWithSaltF s (StringSeq _si xs) = hashWithSalt s (sft_hash xs)
 
-instance HashableF e => Hashable (StringSeq e si) where
+instance (HasAbsValue e, HashableF e) => Hashable (StringSeq e si) where
   hashWithSalt = hashWithSaltF
 
-singleton :: IsExpr e => StringInfoRepr si -> e (BaseStringType si) -> StringSeq e si
+singleton :: (HasAbsValue e, HashableF e, IsExpr e) => StringInfoRepr si -> e (BaseStringType si) -> StringSeq e si
 singleton si x
-  | Just l <- asString x = StringSeq si (Seq.singleton (Left l))
-  | otherwise = StringSeq si (Seq.singleton (Right x))
+  | Just l <- asString x = StringSeq si (FT.singleton (StringSeqLiteral l))
+  | otherwise            = StringSeq si (FT.singleton (StringSeqTerm x))
 
-append :: StringSeq e si -> StringSeq e si -> StringSeq e si
+append :: (HasAbsValue e, HashableF e) => StringSeq e si -> StringSeq e si -> StringSeq e si
 append (StringSeq si xs) (StringSeq _ ys) =
-  case (Seq.viewr xs, Seq.viewl ys) of
-    (xs' Seq.:> Left xlit, Left ylit Seq.:< ys')
-      -> StringSeq si (xs' <> (Left (xlit <> ylit) Seq.<| ys'))
+  case (FT.viewr xs, FT.viewl ys) of
+    (xs' FT.:> StringSeqLiteral xlit, StringSeqLiteral ylit FT.:< ys')
+      -> StringSeq si (xs' <> (StringSeqLiteral (xlit <> ylit) FT.<| ys'))
 
     _ -> StringSeq si (xs <> ys)
 
-toList :: StringSeq e si -> [Either (StringLiteral si) (e (BaseStringType si))]
+stringSeqAbs :: (HasAbsValue e, HashableF e) => StringSeq e si -> StringAbstractValue
+stringSeqAbs (StringSeq _ xs) =
+  case FT.measure xs of
+    StringSeqNote _ a -> a
+
+toList :: StringSeq e si -> [StringSeqEntry e si]
 toList = F.toList . stringSeq
 
-traverseStringSeq :: Applicative m =>
+traverseStringSeq :: (HasAbsValue f, HashableF f, Applicative m) =>
   (forall x. e x -> m (f x)) ->
   StringSeq e si -> m (StringSeq f si)
 traverseStringSeq f (StringSeq si xs) =
-  StringSeq si <$> traverse (either (pure . Left) (\x -> Right <$> f x)) xs
+  StringSeq si <$> F.foldl' (\m x -> (FT.|>) <$> m <*> g x) (pure FT.empty) xs
+ where
+ g (StringSeqLiteral l) = pure (StringSeqLiteral l)
+ g (StringSeqTerm x) = StringSeqTerm <$> f x

@@ -2326,7 +2326,9 @@ appSMTExpr ae = do
       case si of
         Char8Repr -> do
           checkStringSupport i
-          xs <- mapM (either (return . stringTerm @h . fromChar8Lit) mkBaseExpr) $ SSeq.toList xes
+          let f (SSeq.StringSeqLiteral l) = return $ stringTerm @h $ fromChar8Lit l
+              f (SSeq.StringSeqTerm t)    = mkBaseExpr t
+          xs <- mapM f $ SSeq.toList xes
           freshBoundTerm Char8TypeMap $ stringAppend @h xs
 
         _ -> fail ("Unsupported symbolic string append operation " ++  show si)

@@ -1623,10 +1623,7 @@ abstractEval f a0 = do
     StringLength s -> stringAbsLength (f s)
     StringSubstring _ s t l -> stringAbsSubstring (f s) (f t) (f l)
     StringIndexOf s t k -> stringAbsIndexOf (f s) (f t) (f k)
-    StringAppend _ xs -> foldl' stringAbsConcat stringAbsEmpty $ map h (SSeq.toList xs)
-      where
-      h (Left l)  = stringAbsSingle l
-      h (Right x) = f x
+    StringAppend _ xs -> SSeq.stringSeqAbs xs
 
     StructCtor _ flds -> fmapFC (\v -> AbstractValueWrapper (f v)) flds
     StructField s idx _ -> unwrapAV (f s Ctx.! idx)
@@ -1955,8 +1952,9 @@ ppApp' a0 = do
     StringIsSuffixOf x y -> ppSExpr "string-is-suffix-of" [x, y]
     StringSubstring _ x off len ->
        prettyApp "string-substring" [exprPrettyArg x, exprPrettyArg off, exprPrettyArg len]
-    StringAppend _ xs -> prettyApp "string-append"
-                           (map (either showPrettyArg exprPrettyArg) (SSeq.toList xs))
+    StringAppend _ xs -> prettyApp "string-append" (map f (SSeq.toList xs))
+          where f (SSeq.StringSeqLiteral l) = showPrettyArg l
+                f (SSeq.StringSeqTerm t)    = exprPrettyArg t
     StringLength x -> ppSExpr "string-length" [x]
 
     ------------------------------------------------------------------------
@@ -3230,8 +3228,8 @@ reduceApp sym a0 = do
 
     StringAppend si xs ->
        do e <- stringEmpty sym si
-          let f x (Left l)  = stringConcat sym x =<< stringLit sym l
-              f x (Right y) = stringConcat sym x y
+          let f x (SSeq.StringSeqLiteral l) = stringConcat sym x =<< stringLit sym l
+              f x (SSeq.StringSeqTerm y) = stringConcat sym x y
           foldM f e (SSeq.toList xs)
 
     StringLength x -> stringLength sym x
@@ -5293,9 +5291,10 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = natLit sym (stringLitLength x')
 
     | Just (StringAppend _si xs) <- asApp x
-    = do ns <- mapM (either (natLit sym . stringLitLength) (sbMakeExpr sym . StringLength)) (SSeq.toList xs)
+    = do let f sm (SSeq.StringSeqLiteral l) = natAdd sym sm =<< natLit sym (stringLitLength l)
+             f sm (SSeq.StringSeqTerm t)    = natAdd sym sm =<< sbMakeExpr sym (StringLength t)
          z  <- natLit sym 0
-         foldM (natAdd sym) z ns
+         foldM f z (SSeq.toList xs)
 
     | otherwise
     = sbMakeExpr sym $ StringLength x
