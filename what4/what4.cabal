@@ -63,6 +63,7 @@ library
     What4.Concrete
     What4.Config
     What4.FunctionName
+    What4.IndexLit
     What4.Interface
     What4.InterpretedFloatingPoint
     What4.LabeledPred
@@ -76,6 +77,7 @@ library
     What4.WordMap
 
     What4.Expr
+    What4.Expr.ArrayUpdateMap
     What4.Expr.AppTheory
     What4.Expr.BoolMap
     What4.Expr.Builder
@@ -113,7 +115,6 @@ library
     What4.Utils.Endian
     What4.Utils.Environment
     What4.Utils.HandleReader
-    What4.Utils.Hashable
     What4.Utils.LeqMap
     What4.Utils.MonadST
     What4.Utils.OnlyNatRepr

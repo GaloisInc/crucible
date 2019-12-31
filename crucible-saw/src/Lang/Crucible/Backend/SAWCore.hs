@@ -42,6 +42,7 @@ import           Numeric.Natural
 import           What4.BaseTypes
 import           What4.Config
 import           What4.Interface
+import qualified What4.Expr.ArrayUpdateMap as AUM
 import qualified What4.Expr.Builder as B
 import qualified What4.Expr.BoolMap as BM
 import qualified What4.Expr.WeightedSum as WSum
@@ -51,7 +52,6 @@ import           What4.SatResult
 import qualified What4.SemiRing as B
 import qualified What4.Solver.Yices as Yices
 import           What4.Symbol
-import           What4.Utils.Hashable (hashedMap)
 
 import           Lang.Crucible.Panic(panic)
 import           Lang.Crucible.Backend
@@ -1034,7 +1034,7 @@ evaluateExpr sym sc cache = f []
              SAWExpr <$> SC.scBvCountTrailingZeros sc n x'
 
         B.ArrayMap indexTypes range updates arr ->
-          do let m = hashedMap updates
+          do let m = AUM.toMap updates
              let maxidx = foldr1 (Ctx.zipWith maxIndexLit) (Map.keys m)
              let sizes = toListFC sizeIndexLit maxidx
              case 2 * toInteger (Map.size m) >= product sizes of

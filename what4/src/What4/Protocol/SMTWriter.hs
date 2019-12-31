@@ -102,7 +102,6 @@ import           Data.Bits (shiftL)
 import           Data.IORef
 import           Data.Kind
 import           Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes (ShowF(..))
 import qualified Data.Parameterized.Context as Ctx
@@ -128,6 +127,7 @@ import qualified System.IO.Streams as Streams
 import           What4.BaseTypes
 import           What4.Interface (ArrayResultWrapper(..), IndexLit(..), RoundingMode(..), StringLiteral(..), stringInfo)
 import           What4.ProblemFeatures
+import qualified What4.Expr.ArrayUpdateMap as AUM
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
@@ -141,7 +141,6 @@ import           What4.Symbol
 import           What4.Utils.AbstractDomains
 import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
-import qualified What4.Utils.Hashable as Hash
 import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
@@ -2477,31 +2476,29 @@ appSMTExpr ae = do
 
     ArrayMap _ _ elts def -> do
       base_array <- mkExpr def
-      elt_exprs <- traverse mkBaseExpr (Hash.hashedMap elts)
+      elt_exprs <- (traverse._2) mkBaseExpr (AUM.toList elts)
       let array_type = smtExprType base_array
       case array_type of
         PrimArrayTypeMap{} -> do
           let set_at_index :: Term h
-                           -> Ctx.Assignment IndexLit ctx
+                           -> (Ctx.Assignment IndexLit ctx, Term h)
                            -> Term h
-                           -> Term h
-              set_at_index ma idx elt =
+              set_at_index ma (idx, elt) =
                 arrayUpdate @h ma (mkIndexLitTerms idx) elt
           freshBoundTerm array_type $
-            Map.foldlWithKey set_at_index (asBase base_array) elt_exprs
+            foldl set_at_index (asBase base_array) elt_exprs
 
         FnArrayTypeMap idx_types resType -> do
           case smtFnUpdate of
             Just updateFn -> do
 
               let set_at_index :: Term h
-                               -> Ctx.Assignment IndexLit ctx
+                               -> (Ctx.Assignment IndexLit ctx, Term h)
                                -> Term h
-                               -> Term h
-                  set_at_index ma idx elt =
+                  set_at_index ma (idx, elt) =
                     updateFn ma (toListFC mkIndexLitTerm idx) elt
               freshBoundTerm array_type $
-                Map.foldlWithKey set_at_index (asBase base_array) elt_exprs
+                foldl set_at_index (asBase base_array) elt_exprs
             Nothing -> do
               -- Supporting arrays as functons requires that we can create
               -- function definitions.
@@ -2515,12 +2512,12 @@ appSMTExpr ae = do
               -- Return value at index in base_array.
               let base_lookup = smtFnApp (asBase base_array) idx_terms
               -- Return if-then-else structure for next elements.
-              let set_at_index prev_value idx_lits elt =
+              let set_at_index prev_value (idx_lits, elt) =
                     let update_idx = toListFC mkIndexLitTerm idx_lits
                         cond = andAll (zipWith (.==) update_idx idx_terms)
                      in ite cond elt prev_value
               -- Get final expression for definition.
-              let expr = Map.foldlWithKey set_at_index base_lookup elt_exprs
+              let expr = foldl set_at_index base_lookup elt_exprs
               -- Add command
               SMTName array_type <$> freshBoundFn args resType expr
 

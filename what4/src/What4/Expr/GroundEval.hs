@@ -54,6 +54,7 @@ import           Numeric.Natural
 import           What4.BaseTypes
 import           What4.Interface
 import qualified What4.SemiRing as SR
+import qualified What4.Expr.ArrayUpdateMap as AUM
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import qualified What4.Expr.StringSeq as SSeq
@@ -62,7 +63,6 @@ import qualified What4.Expr.UnaryBV as UnaryBV
 
 import           What4.Utils.Arithmetic ( roundAway, clz, ctz, rotateLeft, rotateRight )
 import           What4.Utils.Complex
-import qualified What4.Utils.Hashable as Hash
 import           What4.Utils.StringLiteral
 
 
@@ -452,7 +452,7 @@ evalGroundApp f0 a0 = do
     -- Array Operations
 
     ArrayMap idx_types _ m def -> lift $ do
-      m' <- traverse f0 (Hash.hashedMap m)
+      m' <- traverse f0 (AUM.toMap m)
       h <- f0 def
       return $ case h of
         ArrayMapping h' -> ArrayMapping $ \idx ->
