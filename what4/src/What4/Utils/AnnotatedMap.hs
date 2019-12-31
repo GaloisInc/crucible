@@ -23,6 +23,7 @@ module What4.Utils.AnnotatedMap
   , delete
   , annotation
   , toList
+  , fromAscList
   , insert
   , alter
   , alterF
@@ -34,6 +35,7 @@ module What4.Utils.AnnotatedMap
   , traverseMaybeWithKey
   , difference
   , mergeWithKey
+  , mergeWithKeyM
   , mergeA
   , eqBy
   ) where
@@ -65,7 +67,10 @@ traverseMaybeFingerTree ::
   (Applicative f, FT.Measured v1 a1, FT.Measured v2 a2) =>
   (a1 -> f (Maybe a2)) -> FT.FingerTree v1 a1 -> f (FT.FingerTree v2 a2)
 traverseMaybeFingerTree f =
-  foldl' (\m x -> (\y ys -> maybe ys (ys FT.|>) y) <$> f x <*> m) (pure FT.empty)
+   foldl' (\m x -> rebuild <$> m <*> f x) (pure FT.empty)
+ where
+ rebuild ys Nothing  = ys
+ rebuild ys (Just y) = ys FT.|> y
 
 ----------------------------------------------------------------------
 -- Tags
@@ -89,7 +94,7 @@ unionTag (Tag ix _ vx) (Tag iy ky vy) =
 ----------------------------------------------------------------------
 
 newtype AnnotatedMap k v a =
-  AnnotatedMap (FT.FingerTree (Tag k v) (Entry k v a))
+  AnnotatedMap { annotatedMap :: FT.FingerTree (Tag k v) (Entry k v a) }
   -- Invariant: The entries in the fingertree must be sorted by key,
   -- strictly increasing from left to right.
 
@@ -126,6 +131,11 @@ annotation (AnnotatedMap ft) =
 toList :: AnnotatedMap k v a -> [(k, a)]
 toList (AnnotatedMap ft) =
   [ (k, a) | Entry k _ a <- Foldable.toList ft ]
+
+fromAscList :: (Ord k, Semigroup v) => [(k,v,a)] -> AnnotatedMap k v a
+fromAscList = AnnotatedMap . FT.fromList . fmap f
+ where
+ f (k,v,a) = Entry k v a
 
 listEqBy :: (a -> a -> Bool) -> [a] -> [a] -> Bool
 listEqBy _ [] [] = True
@@ -287,7 +297,7 @@ traverseMaybeWithKey f (AnnotatedMap ft) =
 difference ::
   (Ord k, Semigroup v, Semigroup w) =>
   AnnotatedMap k v a -> AnnotatedMap k w b -> AnnotatedMap k v a
-difference a b = runIdentity $ mergeGeneric (\_ _ -> Identity Nothing) id (const empty) a b
+difference a b = runIdentity $ mergeGeneric (\_ _ -> Identity Nothing) pure (const (pure empty)) a b
 
 mergeWithKey ::
   (Ord k, Semigroup u, Semigroup v, Semigroup w) =>
@@ -295,7 +305,7 @@ mergeWithKey ::
   (AnnotatedMap k u a -> AnnotatedMap k w c) {- ^ for subtrees only in first map -} ->
   (AnnotatedMap k v b -> AnnotatedMap k w c) {- ^ for subtrees only in second map -} ->
   AnnotatedMap k u a -> AnnotatedMap k v b -> AnnotatedMap k w c
-mergeWithKey f g1 g2 m1 m2 = runIdentity $ mergeGeneric f' g1 g2 m1 m2
+mergeWithKey f g1 g2 m1 m2 = runIdentity $ mergeGeneric f' (pure . g1) (pure . g2) m1 m2
   where
     f' (Entry k u a) (Entry _ v b) = Identity $
       case f k (u, a) (v, b) of
@@ -306,39 +316,56 @@ mergeA ::
   (Ord k, Semigroup v, Applicative f) =>
   (k -> (v, a) -> (v, a) -> f (v,a)) ->
   AnnotatedMap k v a -> AnnotatedMap k v a -> f (AnnotatedMap k v a)
-mergeA f m1 m2 = mergeGeneric f' id id m1 m2
+mergeA f m1 m2 = mergeGeneric f' pure pure m1 m2
  where
  f' (Entry k v1 x1) (Entry _ v2 x2) = g k <$> f k (v1,x1) (v2,x2)
  g k (v,x) = Just (Entry k v x)
 
+mergeWithKeyM :: (Ord k, Semigroup u, Semigroup v, Semigroup w, Applicative m) =>
+  (k -> (u,a) -> (v,b) -> m (w,c)) ->
+  (k -> (u,a) -> m (w,c)) ->
+  (k -> (v,b) -> m (w,c)) ->
+  AnnotatedMap k u a -> AnnotatedMap k v b -> m (AnnotatedMap k w c)
+mergeWithKeyM both left right = mergeGeneric both' left' right'
+ where
+ both' (Entry k u a) (Entry _ v b) = q k <$> both k (u,a) (v,b)
+ left'  m = AnnotatedMap <$> traverseMaybeFingerTree fl (annotatedMap m)
+ right' m = AnnotatedMap <$> traverseMaybeFingerTree fr (annotatedMap m)
+
+ fl (Entry k v x) = q k <$> left k (v,x)
+ fr (Entry k v x) = q k <$> right k (v,x)
+
+ q k (a,b) = Just (Entry k a b)
+
+
 mergeGeneric ::
   (Ord k, Semigroup u, Semigroup v, Semigroup w, Applicative m) =>
   (Entry k u a -> Entry k v b -> m (Maybe (Entry k w c))) {- ^ for keys present in both maps -} ->
-  (AnnotatedMap k u a -> AnnotatedMap k w c) {- ^ for subtrees only in first map -} ->
-  (AnnotatedMap k v b -> AnnotatedMap k w c) {- ^ for subtrees only in second map -} ->
+  (AnnotatedMap k u a -> m (AnnotatedMap k w c)) {- ^ for subtrees only in first map -} ->
+  (AnnotatedMap k v b -> m (AnnotatedMap k w c)) {- ^ for subtrees only in second map -} ->
   AnnotatedMap k u a -> AnnotatedMap k v b -> m (AnnotatedMap k w c)
 mergeGeneric f g1 g2 (AnnotatedMap ft1) (AnnotatedMap ft2) = AnnotatedMap <$> (merge1 ft1 ft2)
   where
-    g1' ft = case g1 (AnnotatedMap ft) of AnnotatedMap ft' -> ft'
-    g2' ft = case g2 (AnnotatedMap ft) of AnnotatedMap ft' -> ft'
+    g1' ft = annotatedMap <$> g1 (AnnotatedMap ft)
+    g2' ft = annotatedMap <$> g2 (AnnotatedMap ft)
 
     rebuild l Nothing r  = l >< r
     rebuild l (Just x) r = l >< (x <| r)
 
     merge1 xs ys =
       case FT.viewl xs of
-        FT.EmptyL -> pure (g2' ys)
+        FT.EmptyL -> g2' ys
         x FT.:< xs' ->
           let (ys1, ym, ys2) = splitAtKey (keyOf x) ys in
           case ym of
-            Nothing -> rebuild (g2' ys1) Nothing <$> merge2 xs ys2
-            Just y  -> rebuild (g2' ys1) <$> f x y <*> merge2 xs' ys2
+            Nothing -> (><) <$> g2' ys1 <*> merge2 xs ys2
+            Just y  -> rebuild <$> g2' ys1 <*> f x y <*> merge2 xs' ys2
 
     merge2 xs ys =
       case FT.viewl ys of
-        FT.EmptyL -> pure (g1' xs)
+        FT.EmptyL -> g1' xs
         y FT.:< ys' ->
           let (xs1, xm, xs2) = splitAtKey (keyOf y) xs in
           case xm of
-            Nothing -> rebuild (g1' xs1) Nothing <$> merge1 xs2 ys
-            Just x  -> rebuild (g1' xs1) <$> f x y <*> merge1 xs2 ys'
+            Nothing -> (><) <$> g1' xs1 <*> merge1 xs2 ys
+            Just x  -> rebuild <$> g1' xs1 <*> f x y <*> merge1 xs2 ys'

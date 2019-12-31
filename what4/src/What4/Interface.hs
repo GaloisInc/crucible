@@ -177,6 +177,8 @@ import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 import           What4.BaseTypes
 import           What4.Config
+import qualified What4.Expr.ArrayUpdateMap as AUM
+import           What4.IndexLit
 import           What4.ProgramLoc
 import           What4.Concrete
 import           What4.SatResult
@@ -184,7 +186,6 @@ import           What4.Symbol
 import           What4.Utils.AbstractDomains
 import           What4.Utils.Arithmetic
 import           What4.Utils.Complex
-import qualified What4.Utils.Hashable as Hash
 import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
@@ -333,62 +334,6 @@ class IsExpr e where
   -- | Print a sym expression for debugging or display purposes.
   printSymExpr :: e tp -> Doc
 
-------------------------------------------------------------------------
--- IndexLit
-
--- | This represents a concrete index value, and is used for creating
--- arrays.
-data IndexLit idx where
-  NatIndexLit :: !Natural -> IndexLit BaseNatType
-  BVIndexLit :: (1 <= w) => !(NatRepr w) -> !Integer ->  IndexLit (BaseBVType w)
-
-instance Eq (IndexLit tp) where
-  x == y = isJust (testEquality x y)
-
-instance TestEquality IndexLit where
-  testEquality (NatIndexLit x) (NatIndexLit y) =
-    if x == y then
-     Just Refl
-     else
-     Nothing
-  testEquality (BVIndexLit wx x) (BVIndexLit wy y) = do
-    Refl <- testEquality wx wy
-    if x == y then Just Refl else Nothing
-  testEquality _ _ =
-    Nothing
-
-instance OrdF IndexLit where
-  compareF (NatIndexLit x) (NatIndexLit y) = fromOrdering (compare x y)
-  compareF NatIndexLit{} _ = LTF
-  compareF _ NatIndexLit{} = GTF
-  compareF (BVIndexLit wx x) (BVIndexLit wy y) =
-    case compareF wx wy of
-      LTF -> LTF
-      GTF -> GTF
-      EQF -> fromOrdering (compare x y)
-
-instance Hashable (IndexLit tp) where
-  hashWithSalt = hashIndexLit
-  {-# INLINE hashWithSalt #-}
-
-
-hashIndexLit :: Int -> IndexLit idx -> Int
-s `hashIndexLit` (NatIndexLit i) =
-    s `hashWithSalt` (0::Int)
-      `hashWithSalt` i
-s `hashIndexLit` (BVIndexLit w i) =
-    s `hashWithSalt` (1::Int)
-      `hashWithSalt` w
-      `hashWithSalt` i
-
-instance HashableF IndexLit where
-  hashWithSaltF = hashIndexLit
-
-instance Show (IndexLit tp) where
-  showsPrec p (NatIndexLit i) s = showsPrec p i s
-  showsPrec p (BVIndexLit w i) s = showsPrec p i ("::[" ++ shows w (']' : s))
-
-instance ShowF IndexLit
 
 newtype ArrayResultWrapper f idx tp =
   ArrayResultWrapper { unwrapArrayResult :: f (BaseArrayType idx tp) }
@@ -1262,7 +1207,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   arrayFromMap :: sym
                -> Ctx.Assignment BaseTypeRepr (idx ::> itp)
                   -- ^ Types for indices
-               -> Hash.Map IndexLit (idx ::> itp) (SymExpr sym) tp
+               -> AUM.ArrayUpdateMap (SymExpr sym) (idx ::> itp) tp
                   -- ^ Value for known indices.
                -> SymExpr sym tp
                   -- ^ Value for other entries.
@@ -1275,7 +1220,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   --
   -- This is implemented, but designed to be overriden for efficiency.
   arrayUpdateAtIdxLits :: sym
-                       -> Hash.Map IndexLit (idx ::> itp) (SymExpr sym) tp
+                       -> AUM.ArrayUpdateMap (SymExpr sym) (idx ::> itp) tp
                        -- ^ Value for known indices.
                        -> SymArray sym (idx ::> itp) tp
                        -- ^ Value for existing array.
@@ -1284,7 +1229,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     let updateAt a (i,v) = do
           idx <-  traverseFC (indexLit sym) i
           arrayUpdate sym a idx v
-    foldlM updateAt a0 (Map.toList (Hash.hashedMap m))
+    foldlM updateAt a0 (AUM.toList m)
 
   -- | If-then-else applied to arrays.
   arrayIte :: sym

@@ -209,6 +209,7 @@ import           What4.InterpretedFloatingPoint
 import           What4.ProgramLoc
 import qualified What4.SemiRing as SR
 import           What4.Symbol
+import qualified What4.Expr.ArrayUpdateMap as AUM
 import           What4.Expr.BoolMap (BoolMap, Polarity(..), BoolMapView(..))
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.MATLAB
@@ -222,7 +223,6 @@ import           What4.Utils.AbstractDomains
 import           What4.Utils.Arithmetic
 import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
-import qualified What4.Utils.Hashable as Hash
 import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
@@ -709,7 +709,7 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   ArrayMap :: !(Ctx.Assignment BaseTypeRepr (i ::> itp))
            -> !(BaseTypeRepr tp)
                 -- /\ The type of the array.
-           -> !(Hash.Map IndexLit (i ::> itp) e tp)
+           -> !(AUM.ArrayUpdateMap e (i ::> itp) tp)
               -- /\ Maps indices that are updated to the associated value.
            -> !(e (BaseArrayType (i::> itp) tp))
               -- /\ The underlying array that has been updated.
@@ -1582,7 +1582,9 @@ abstractEval f a0 = do
 
     ArrayMap _ bRepr m d ->
       withAbstractable bRepr $
-        Map.foldl' (\av e -> avJoin bRepr (f e) av) (f d) (Hash.hashedMap m)
+      case AUM.arrayUpdateAbs m of
+        Nothing -> f d
+        Just a -> avJoin bRepr (f d) a
     ConstantArray _idxRepr _bRepr v -> f v
 
     SelectArray _bRepr a _i -> f a  -- FIXME?
@@ -1915,8 +1917,8 @@ ppApp' a0 = do
     -- Arrays
 
     ArrayMap _ _ m d ->
-        prettyApp "arrayMap" (Map.foldrWithKey ppEntry [exprPrettyArg d] (Hash.hashedMap m))
-      where ppEntry k e l = showPrettyArg k : exprPrettyArg e : l
+        prettyApp "arrayMap" (foldr ppEntry [exprPrettyArg d] (AUM.toList m))
+      where ppEntry (k,e) l = showPrettyArg k : exprPrettyArg e : l
     ConstantArray _ _ v ->
       prettyApp "constArray" [exprPrettyArg v]
     SelectArray _ a i ->
@@ -2079,14 +2081,14 @@ traverseApp =
     , ( ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
       , [| WSum.traverseProdVars |]
       )
+    , ( ConType [t|AUM.ArrayUpdateMap|] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
+      , [| AUM.traverseArrayUpdateMap |]
+      )
     , ( ConType [t|SSeq.StringSeq|] `TypeApp` AnyType `TypeApp` AnyType
       , [| SSeq.traverseStringSeq |]
       )
     , ( ConType [t|BoolMap|] `TypeApp` AnyType
       , [| BM.traverseVars |]
-      )
-    , ( ConType [t|Hash.Map |] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
-      , [| Hash.traverseHashedMap |]
       )
     , ( ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
       , [|traverseFC|]
@@ -2667,13 +2669,11 @@ appEqF = $(structuralTypeEquality [t|App|]
            [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
-           , (ConType [t|Hash.Vector|] `TypeApp` AnyType
-             , [|\x y -> if x == y then Just Refl else Nothing|])
-           , (ConType [t|Hash.Map |] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
-             , [|\x y -> if x == y then Just Refl else Nothing|])
            , (DataArg 0 `TypeApp` AnyType, [|testEquality|])
            , (ConType [t|UnaryBV|]        `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
+           , (ConType [t|AUM.ArrayUpdateMap|] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
+             , [|\x y -> if x == y then Just Refl else Nothing|])
            , (ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
            , (ConType [t|Ctx.Index|]      `TypeApp` AnyType `TypeApp` AnyType
@@ -3432,7 +3432,7 @@ sbConcreteLookup sym arr0 mcidx idx
     -- Try looking up a write to a concrete address.
   | Just (ArrayMap _ _ entry_map def) <- asApp arr0
   , Just cidx <- mcidx =
-      case Hash.mapLookup cidx entry_map of
+      case AUM.lookup cidx entry_map of
         Just v -> return v
         Nothing -> sbConcreteLookup sym def mcidx idx
     -- Evaluate function arrays on ground values.
@@ -3829,7 +3829,7 @@ arrayResultIdxType (BaseArrayRepr idx _) = idx
 -- | This decomposes A ExprBuilder array expression into a set of indices that
 -- have been updated, and an underlying index.
 data ArrayMapView i f tp
-   = ArrayMapView { _arrayMapViewIndices :: !(Hash.Map IndexLit i f tp)
+   = ArrayMapView { _arrayMapViewIndices :: !(AUM.ArrayUpdateMap f i tp)
                   , _arrayMapViewExpr    :: !(f (BaseArrayType i tp))
                   }
 
@@ -3838,7 +3838,7 @@ viewArrayMap :: Expr t (BaseArrayType i tp)
              -> ArrayMapView i (Expr t) tp
 viewArrayMap  x
   | Just (ArrayMap _ _ m c) <- asApp x = ArrayMapView m c
-  | otherwise = ArrayMapView Hash.mapEmpty x
+  | otherwise = ArrayMapView AUM.empty x
 
 -- | Construct an 'ArrayMapView' for an element.
 underlyingArrayMapExpr :: ArrayResultWrapper (Expr t) i tp
@@ -3857,7 +3857,7 @@ concreteArrayEntries = foldlFC' f Set.empty
           -> Set (Ctx.Assignment IndexLit i)
         f s e
           | Just (ArrayMap _ _ m _) <- asApp (unwrapArrayResult  e) =
-            Set.union s (Map.keysSet (Hash.hashedMap m))
+            Set.union s (AUM.keysSet m)
           | otherwise = s
 
 data NatLit tp = (tp ~ BaseNatType) => NatLit Natural
@@ -5330,6 +5330,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         -- It is ok because we don't care what the value of base is at any index
         -- in s.
         base <- arrayMap sym f (fmapFC underlyingArrayMapExpr arrays)
+        BaseArrayRepr _ ret <- return (exprType base)
 
         -- This lookups a given index in an array used as an argument.
         let evalArgs :: Ctx.Assignment IndexLit (idx ::> itp)
@@ -5348,7 +5349,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
             evalIndex g arrays0 const_idx = do
               sym_idx <- traverseFC (indexLit sym) const_idx
               applySymFn sym g =<< traverseFC (evalArgs const_idx sym_idx) arrays0
-        m <- fmap Hash.mkMap $ sequence $ Map.fromSet (evalIndex f arrays) s
+        m <- AUM.fromAscList ret <$> mapM (\k -> (k,) <$> evalIndex f arrays k) (Set.toAscList s)
         arrayUpdateAtIdxLits sym m base
       -- When entries are constants, then just evaluate constant.
     | Just cns <-  traverseFC (\a -> asConstantArray (unwrapArrayResult a)) arrays = do
@@ -5368,14 +5369,14 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         Just (ArrayMap idx tp m def) -> do
           let new_map =
                 case asApp def of
-                  Just (ConstantArray _ _ cns) | v == cns -> Hash.mapDelete ci m
-                  _ -> Hash.mapInsert ci v m
+                  Just (ConstantArray _ _ cns) | v == cns -> AUM.delete ci m
+                  _ -> AUM.insert tp ci v m
           sbMakeExpr sym $ ArrayMap idx tp new_map def
         _ -> do
           let idx = fmapFC exprType  i
           let bRepr = exprType v
-          let new_map = Map.singleton ci v
-          sbMakeExpr sym $ ArrayMap idx bRepr (Hash.mkMap new_map) arr
+          let new_map = AUM.singleton bRepr ci v
+          sbMakeExpr sym $ ArrayMap idx bRepr new_map arr
     | otherwise = do
       let bRepr = exprType v
       sbMakeExpr sym (UpdateArray bRepr (fmapFC exprType i)  arr i v)
@@ -5388,9 +5389,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     BaseArrayRepr idx_tps baseRepr <- return $ exprType def_map
     let new_map
           | Just (ConstantArray _ _ default_value) <- asApp def_map =
-            Hash.mapFilter (/= default_value) m
+            AUM.filter (/= default_value) m
           | otherwise = m
-    if Hash.mapNull new_map then
+    if AUM.null new_map then
       return def_map
      else
       sbMakeExpr sym $ ArrayMap idx_tps baseRepr new_map def_map
@@ -5399,7 +5400,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
        -- Extract all concrete updates out.
      | ArrayMapView mx x' <- viewArrayMap x
      , ArrayMapView my y' <- viewArrayMap y
-     , not (Hash.mapNull mx) || not (Hash.mapNull my) = do
+     , not (AUM.null mx) || not (AUM.null my) = do
        case exprType x of
          BaseArrayRepr idxRepr bRepr -> do
            let both_fn _ u v = baseTypeIte sym p u v
@@ -5409,7 +5410,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
                right_fn idx v = do
                  u <- sbConcreteLookup sym x' (Just idx) =<< symbolicIndices sym idx
                  both_fn idx u v
-           mz <- Hash.mergeMapWithM both_fn left_fn right_fn mx my
+           mz <- AUM.mergeM bRepr both_fn left_fn right_fn mx my
            z' <- arrayIte sym p x' y'
 
            sbMakeExpr sym $ ArrayMap idxRepr bRepr mz z'
