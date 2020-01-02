@@ -91,14 +91,14 @@ data SRAbsValue :: SR.SemiRing -> Type where
   SRAbsIntAdd  :: AD.ValueRange Integer      -> SRAbsValue SR.SemiRingInteger
   SRAbsRealAdd :: AD.RealAbstractValue       -> SRAbsValue SR.SemiRingReal
   SRAbsBVAdd   :: (1 <= w) => BVD.BVDomain w -> SRAbsValue (SR.SemiRingBV SR.BVArith w)
-  SRAbsBVXor   :: (1 <= w) => NatRepr w      -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
+  SRAbsBVXor   :: (1 <= w) => BVD.BVDomain w -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
 
 instance Semigroup (SRAbsValue sr) where
   SRAbsNatAdd  x <> SRAbsNatAdd  y = SRAbsNatAdd  (AD.natRangeAdd x y)
   SRAbsIntAdd  x <> SRAbsIntAdd  y = SRAbsIntAdd  (AD.addRange x y)
   SRAbsRealAdd x <> SRAbsRealAdd y = SRAbsRealAdd (AD.ravAdd x y)
   SRAbsBVAdd   x <> SRAbsBVAdd   y = SRAbsBVAdd   (BVD.add x y)
-  SRAbsBVXor   w <> SRAbsBVXor   _ = SRAbsBVXor w
+  SRAbsBVXor   x <> SRAbsBVXor   y = SRAbsBVXor   (BVD.xor x y)
 
 
 (.**) :: SRAbsValue sr -> SRAbsValue sr -> SRAbsValue sr
@@ -106,7 +106,7 @@ SRAbsNatAdd  x .** SRAbsNatAdd  y = SRAbsNatAdd  (AD.natRangeMul x y)
 SRAbsIntAdd  x .** SRAbsIntAdd  y = SRAbsIntAdd  (AD.mulRange x y)
 SRAbsRealAdd x .** SRAbsRealAdd y = SRAbsRealAdd (AD.ravMul x y)
 SRAbsBVAdd   x .** SRAbsBVAdd   y = SRAbsBVAdd   (BVD.mul x y)
-SRAbsBVXor   w .** SRAbsBVXor   _ = SRAbsBVXor w
+SRAbsBVXor   x .** SRAbsBVXor   y = SRAbsBVXor   (BVD.and x y)
 
 abstractTerm ::
   AD.HasAbsValue f =>
@@ -119,7 +119,7 @@ abstractTerm sr c e =
     SR.SemiRingBVRepr fv w ->
       case fv of
         SR.BVArithRepr -> SRAbsBVAdd (BVD.scale c (AD.getAbsValue e))
-        SR.BVBitsRepr  -> SRAbsBVXor w
+        SR.BVBitsRepr  -> SRAbsBVXor (BVD.and (BVD.singleton w c) (AD.getAbsValue e))
 
 abstractVal :: AD.HasAbsValue f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SRAbsValue sr
 abstractVal sr e =
@@ -127,10 +127,10 @@ abstractVal sr e =
     SR.SemiRingNatRepr     -> SRAbsNatAdd (AD.getAbsValue e)
     SR.SemiRingIntegerRepr -> SRAbsIntAdd (AD.getAbsValue e)
     SR.SemiRingRealRepr    -> SRAbsRealAdd (AD.getAbsValue e)
-    SR.SemiRingBVRepr fv w ->
+    SR.SemiRingBVRepr fv _w ->
       case fv of
         SR.BVArithRepr -> SRAbsBVAdd (AD.getAbsValue e)
-        SR.BVBitsRepr  -> SRAbsBVXor w
+        SR.BVBitsRepr  -> SRAbsBVXor (AD.getAbsValue e)
 
 abstractScalar ::
   SR.SemiRingRepr sr -> SR.Coefficient sr -> SRAbsValue sr
@@ -142,7 +142,7 @@ abstractScalar sr c =
     SR.SemiRingBVRepr fv w ->
       case fv of
         SR.BVArithRepr -> SRAbsBVAdd (BVD.singleton w c)
-        SR.BVBitsRepr  -> SRAbsBVXor w
+        SR.BVBitsRepr  -> SRAbsBVXor (BVD.singleton w c)
 
 fromSRAbsValue ::
   SRAbsValue sr -> AD.AbstractValue (SR.SemiRingBase sr)
@@ -152,7 +152,7 @@ fromSRAbsValue v =
     SRAbsIntAdd  x -> x
     SRAbsRealAdd x -> x
     SRAbsBVAdd   x -> x
-    SRAbsBVXor   w -> BVD.any w
+    SRAbsBVXor   x -> x
 
 --------------------------------------------------------------------------------
 
