@@ -435,9 +435,9 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
     {-# UNPACK #-} !(WeightedSum e sr) ->
     App e (SR.SemiRingBase sr)
 
-  -- A product Multiplication of semiring values
+  -- A product of semiring values
   --
-  -- The ExprBuilder should maintain the invariant that none of the values value is
+  -- The ExprBuilder should maintain the invariant that none of the values is
   -- a constant, and hence this denotes a non-linear expression.
   -- Multiplications by scalars should use the 'SemiRingSum' constructor.
   SemiRingProd ::
@@ -5103,7 +5103,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = let sr = SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x)
        in semiRingMul sym sr x y
 
-  -- XOR by the all-1 constant of the GF2 semiring.
+  -- XOR by the all-1 constant of the bitwise semiring.
   -- This is equivalant to negation
   bvNotBits sym x
     | Just i <- asUnsignedBV x
