@@ -149,6 +149,15 @@ module What4.Expr.Builder
   , FloatReal
   , Flags
 
+    -- * BV Or Set
+  , BVOrSet
+  , bvOrToList
+  , bvOrSingleton
+  , bvOrInsert
+  , bvOrUnion
+  , bvOrAbs
+  , traverseBVOrSet
+
     -- * Re-exports
   , SymExpr
   , What4.Interface.bvWidth
@@ -210,7 +219,7 @@ import           What4.ProgramLoc
 import qualified What4.SemiRing as SR
 import           What4.Symbol
 import qualified What4.Expr.ArrayUpdateMap as AUM
-import           What4.Expr.BoolMap (BoolMap, Polarity(..), BoolMapView(..))
+import           What4.Expr.BoolMap (BoolMap, Polarity(..), BoolMapView(..), Wrap(..))
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.MATLAB
 import           What4.Expr.WeightedSum (WeightedSum, SemiRingProduct)
@@ -224,6 +233,8 @@ import           What4.Utils.Arithmetic
 import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
 import           What4.Utils.StringLiteral
+import           What4.Utils.IncrHash
+import qualified What4.Utils.AnnotatedMap as AM
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -334,6 +345,53 @@ data NonceApp t (e :: BaseType -> Type) (tp :: BaseType) where
         -> !(Ctx.Assignment e args)
         -> NonceApp t e ret
 
+
+-------------------------------------------------------------------------------
+-- BVOrSet
+
+data BVOrNote w = BVOrNote !IncrHash !(BVD.BVDomain w)
+
+instance Semigroup (BVOrNote w) where
+  BVOrNote xh xa <> BVOrNote yh ya = BVOrNote (xh <> yh) (BVD.or xa ya)
+
+newtype BVOrSet e w = BVOrSet (AM.AnnotatedMap (Wrap e (BaseBVType w)) (BVOrNote w) ())
+
+traverseBVOrSet :: (HashableF f, HasAbsValue f, OrdF f, Applicative m) =>
+  (forall tp. e tp -> m (f tp)) ->
+  (BVOrSet e w -> m (BVOrSet f w))
+traverseBVOrSet f (BVOrSet m) =
+  foldr bvOrInsert (BVOrSet AM.empty) <$> traverse (f . unWrap . fst) (AM.toList m)
+
+bvOrInsert :: (OrdF e, HashableF e, HasAbsValue e) => e (BaseBVType w) -> BVOrSet e w -> BVOrSet e w
+bvOrInsert e (BVOrSet m) = BVOrSet $ AM.insert (Wrap e) (BVOrNote (mkIncrHash (hashF e)) (getAbsValue e)) () m
+
+bvOrSingleton :: (OrdF e, HashableF e, HasAbsValue e) => e (BaseBVType w) -> BVOrSet e w
+bvOrSingleton e = bvOrInsert e (BVOrSet AM.empty)
+
+bvOrContains :: OrdF e => e (BaseBVType w) -> BVOrSet e w -> Bool
+bvOrContains x (BVOrSet m) = isJust $ AM.lookup (Wrap x) m
+
+bvOrUnion :: OrdF e => BVOrSet e w -> BVOrSet e w -> BVOrSet e w
+bvOrUnion (BVOrSet x) (BVOrSet y) = BVOrSet (AM.union x y)
+
+bvOrToList :: BVOrSet e w -> [e (BaseBVType w)]
+bvOrToList (BVOrSet m) = unWrap . fst <$> AM.toList m
+
+bvOrAbs :: (OrdF e, 1 <= w) => NatRepr w -> BVOrSet e w -> BVD.BVDomain w
+bvOrAbs w (BVOrSet m) =
+  case AM.annotation m of
+    Just (BVOrNote _ a) -> a
+    Nothing -> BVD.singleton w 0
+
+instance (OrdF e, TestEquality e) => Eq (BVOrSet e w) where
+  BVOrSet x == BVOrSet y = AM.eqBy (\_ _ -> True) x y
+
+instance OrdF e => Hashable (BVOrSet e w) where
+  hashWithSalt s (BVOrSet m) =
+    case AM.annotation m of
+      Just (BVOrNote h _) -> hashWithSalt s h
+      Nothing -> s
+
 ------------------------------------------------------------------------
 -- App
 
@@ -443,12 +501,7 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
         -> !(e (BaseBVType w))
         -> App e BaseBoolType
 
-  -- Note, we're abusing the semiring product data structure here.  OR
-  -- has exactly the same algebraic structure as AND, so we can get away
-  -- with this as long as we don't get them mixed up.
-  BVOrBits ::
-    {-# UNPACK #-} !(WSum.SemiRingProduct e (SR.SemiRingBV SR.BVBits w)) ->
-    App e (BaseBVType w)
+  BVOrBits :: (1 <= w) => !(NatRepr w) -> !(BVOrSet e w) -> App e (BaseBVType w)
 
   -- A unary representation of terms where an integer @i@ is mapped to a
   -- predicate that is true if the unsigned encoding of the value is greater
@@ -1198,7 +1251,7 @@ appType a =
     RealLog{} -> knownRepr
 
     BVUnaryTerm u  -> BaseBVRepr (UnaryBV.width u)
-    BVOrBits pd -> SR.semiRingBase (WSum.prodRepr pd)
+    BVOrBits w _ -> BaseBVRepr w
     BVConcat w _ _ -> BaseBVRepr w
     BVSelect _ n _ -> BaseBVRepr n
     BVUdiv w _ _ -> BaseBVRepr w
@@ -1503,9 +1556,7 @@ abstractEval f a0 = do
     SemiRingSum s -> WSum.sumAbsValue s
     SemiRingProd pd -> WSum.prodAbsValue pd
 
-    BVOrBits pd ->
-      case WSum.prodRepr pd of
-        SR.SemiRingBVRepr _ w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
+    BVOrBits w m -> bvOrAbs w m
 
     RealDiv _ _ -> ravUnbounded
     RealSqrt _  -> ravUnbounded
@@ -1851,7 +1902,8 @@ ppApp' a0 = do
     BVUnaryTerm u -> prettyApp "bvUnary" (concatMap go $ UnaryBV.unsignedEntries u)
       where go :: (Integer, e BaseBoolType) -> [PrettyArg e]
             go (k,v) = [ exprPrettyArg v, showPrettyArg k ]
-    BVOrBits pd -> prettyApp "bvOr" $ fromMaybe [] (WSum.prodEval (++) ((:[]) . exprPrettyArg) pd)
+    BVOrBits _ bs -> prettyApp "bvOr" $ map exprPrettyArg $ bvOrToList bs
+
     BVConcat _ x y -> prettyApp "bvConcat" [exprPrettyArg x, exprPrettyArg y]
     BVSelect idx n x -> prettyApp "bvSelect" [showPrettyArg idx, showPrettyArg n, exprPrettyArg x]
     BVUdiv _ x y -> ppSExpr "bvUdiv" [x, y]
@@ -2077,6 +2129,9 @@ traverseApp =
       )
     , ( ConType [t|WeightedSum|] `TypeApp` AnyType `TypeApp` AnyType
       , [| WSum.traverseVars |]
+      )
+    , ( ConType [t|BVOrSet|] `TypeApp` AnyType `TypeApp` AnyType
+      , [| traverseBVOrSet |]
       )
     , ( ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
       , [| WSum.traverseProdVars |]
@@ -3128,11 +3183,10 @@ reduceApp sym a0 = do
     RealExp x -> realExp sym x
     RealLog x -> realLog sym x
 
-    BVOrBits pd ->
-      case WSum.prodRepr pd of
-        SR.SemiRingBVRepr _ w ->
-          do pd' <- WSum.prodEvalM (bvOrBits sym) return pd
-             maybe (bvLit sym w 0) return pd'
+    BVOrBits w bs ->
+      case bvOrToList bs of
+        [] -> bvLit sym w 0
+        (x:xs) -> foldM (bvOrBits sym) x xs
 
     BVTestBit i e -> testBitBV sym i e
     BVSlt x y -> bvSlt sym x y
@@ -5037,12 +5091,12 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   bvAndBits sym x y
     | x == y = return x -- Special case: idempotency of and
 
-    | Just (BVOrBits xs) <- asApp x
-    , WSum.prodContains xs y
+    | Just (BVOrBits _ bs) <- asApp x
+    , bvOrContains y bs
     = return y -- absorption law
 
-    | Just (BVOrBits ys) <- asApp y
-    , WSum.prodContains ys x
+    | Just (BVOrBits _ bs) <- asApp y
+    , bvOrContains x bs
     = return x -- absorption law
 
     | otherwise
@@ -5060,12 +5114,6 @@ instance IsExprBuilder (ExprBuilder t st fs) where
        in semiRingSum sym $ WSum.addConstant sr (asWeightedSum sr x) (maxUnsigned (bvWidth x))
 
   bvOrBits sym x y =
-    let sr = (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x))
-        mkOr pd
-          | WSum.nullProd pd = bvLit sym (bvWidth x) 0
-          | Just z <- WSum.asProdVar pd = return z
-          | otherwise = sbMakeExpr sym $ BVOrBits pd
-    in
     case (asUnsignedBV x, asUnsignedBV y) of
       (Just xi, Just yi) -> bvLit sym (bvWidth x) (xi Bits..|. yi)
       (Just xi , _)
@@ -5089,18 +5137,18 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         , WSum.prodContains ys x
         -> return x   -- absorption law
 
-        | Just (BVOrBits xs) <- asApp x
-        , Just (BVOrBits ys) <- asApp y
-        -> mkOr (WSum.prodMul xs ys)
+        | Just (BVOrBits w xs) <- asApp x
+        , Just (BVOrBits _ ys) <- asApp y
+        -> sbMakeExpr sym $ BVOrBits w $ bvOrUnion xs ys
 
-        | Just (BVOrBits xs) <- asApp x
-        -> mkOr (WSum.prodMul xs (WSum.prodVar sr y))
+        | Just (BVOrBits w xs) <- asApp x
+        -> sbMakeExpr sym $ BVOrBits w $ bvOrInsert y xs
 
-        | Just (BVOrBits ys) <- asApp y
-        -> mkOr (WSum.prodMul (WSum.prodVar sr x) ys)
+        | Just (BVOrBits w ys) <- asApp y
+        -> sbMakeExpr sym $ BVOrBits w $ bvOrInsert x ys
 
         | otherwise
-        -> mkOr (WSum.prodMul (WSum.prodVar sr x) (WSum.prodVar sr y))
+        -> sbMakeExpr sym $ BVOrBits (bvWidth x) $ bvOrInsert x $ bvOrSingleton y
 
   bvAdd sym x y = semiRingAdd sym sr x y
      where sr = SR.SemiRingBVRepr SR.BVArithRepr (bvWidth x)

@@ -360,8 +360,7 @@ evalGroundApp f0 a0 = do
     ------------------------------------------------------------------------
     -- Bitvector Operations
 
-    BVOrBits pd ->
-      fromMaybe 0 <$> WSum.prodEvalM (\x y -> pure (x .|. y)) f pd
+    BVOrBits _w bs -> foldl' (.|.) 0 <$> traverse f (bvOrToList bs)
     BVUnaryTerm u -> do
       UnaryBV.evaluate f u
     BVConcat w x y -> cat <$> f x <*> f y

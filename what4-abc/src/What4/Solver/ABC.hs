@@ -427,11 +427,11 @@ bitblastExpr h ae = do
         SemiRingIntegerRepr -> intFail
         SemiRingRealRepr -> realFail
 
-    BVOrBits pd ->
-      case WSum.prodRepr pd of
-        SemiRingBVRepr _ w ->
-          maybe (BV (AIG.bvFromInteger g (widthVal w) 0)) BV <$>
-            WSum.prodEvalM (AIG.zipWithM (AIG.lOr' g)) (eval' h) pd
+    BVOrBits w bs ->
+      do bs' <- traverse (eval' h) (bvOrToList bs)
+         case bs' of
+           [] -> return (BV (AIG.bvFromInteger g (widthVal w) 0))
+           x:xs -> BV <$> foldM (AIG.zipWithM (AIG.lOr' g)) x xs
 
     BVUdiv _w x y -> do
      BV <$> join (AIG.uquot g <$> eval' h x <*> eval' h y)

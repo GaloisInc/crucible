@@ -2136,13 +2136,12 @@ appSMTExpr ae = do
           return ()
       return nm
 
-    BVOrBits pd ->
-      case WSum.prodRepr pd of
-        SR.SemiRingBVRepr _ w ->
-          do pd' <- WSum.prodEvalM (\a b -> pure (bvOr a b)) mkBaseExpr pd
-             maybe (return $ SMTExpr (BVTypeMap w) $ bvTerm w 0)
-                   (freshBoundTerm (BVTypeMap w))
-                   pd'
+    BVOrBits w bs ->
+       do bs' <- traverse mkBaseExpr (bvOrToList bs)
+          freshBoundTerm (BVTypeMap w) $!
+            case bs' of
+              [] -> bvTerm w 0
+              x:xs -> foldl bvOr x xs
 
     BVConcat w xe ye -> do
       x <- mkBaseExpr xe
