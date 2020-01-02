@@ -28,6 +28,7 @@ module What4.Expr.BoolMap
   , traverseVars
   , reversePolarities
   , removeVar
+  , Wrap(..)
   ) where
 
 import           Control.Lens (_1, over)

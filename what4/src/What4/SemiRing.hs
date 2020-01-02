@@ -18,8 +18,8 @@ Note that we do not assume the existence of additive inverses (hence,
 semirings), but we do assume commutativity of multiplication.
 
 Note, moreover, that bitvectors can be equipped with two different
-semirings (the usual arithmetic one and the XOR/AND semiring imposed
-by the structure of @GF(2^n)@), which occasionally requires some care.
+semirings (the usual arithmetic one and the XOR/AND boolean ring imposed
+by the boolean algebra structure), which occasionally requires some care.
 
 In addition, some semirings are "ordered" semirings.  These are equipped
 with a total ordering relation such that addition is both order-preserving

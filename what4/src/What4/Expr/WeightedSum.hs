@@ -92,7 +92,6 @@ data SRAbsValue :: SR.SemiRing -> Type where
   SRAbsRealAdd :: AD.RealAbstractValue       -> SRAbsValue SR.SemiRingReal
   SRAbsBVAdd   :: (1 <= w) => BVD.BVDomain w -> SRAbsValue (SR.SemiRingBV SR.BVArith w)
   SRAbsBVXor   :: (1 <= w) => NatRepr w      -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
-  SRAbsBVOr    :: (1 <= w) => NatRepr w      -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
 
 instance Semigroup (SRAbsValue sr) where
   SRAbsNatAdd  x <> SRAbsNatAdd  y = SRAbsNatAdd  (AD.natRangeAdd x y)
@@ -100,8 +99,6 @@ instance Semigroup (SRAbsValue sr) where
   SRAbsRealAdd x <> SRAbsRealAdd y = SRAbsRealAdd (AD.ravAdd x y)
   SRAbsBVAdd   x <> SRAbsBVAdd   y = SRAbsBVAdd   (BVD.add x y)
   SRAbsBVXor   w <> SRAbsBVXor   _ = SRAbsBVXor w
-  SRAbsBVOr    w <> SRAbsBVOr    _ = SRAbsBVOr w
-  _              <> _              = error "internal error: WeightedSum abstract domain mismatch"
 
 
 (.**) :: SRAbsValue sr -> SRAbsValue sr -> SRAbsValue sr
@@ -110,9 +107,6 @@ SRAbsIntAdd  x .** SRAbsIntAdd  y = SRAbsIntAdd  (AD.mulRange x y)
 SRAbsRealAdd x .** SRAbsRealAdd y = SRAbsRealAdd (AD.ravMul x y)
 SRAbsBVAdd   x .** SRAbsBVAdd   y = SRAbsBVAdd   (BVD.mul x y)
 SRAbsBVXor   w .** SRAbsBVXor   _ = SRAbsBVXor w
-SRAbsBVOr    w .** SRAbsBVOr    _ = SRAbsBVOr w
-_              .** _              = error "internal error: WeightedSum abstract domain mismatch in **"
-
 
 abstractTerm ::
   AD.HasAbsValue f =>
@@ -159,7 +153,6 @@ fromSRAbsValue v =
     SRAbsRealAdd x -> x
     SRAbsBVAdd   x -> x
     SRAbsBVXor   w -> BVD.any w
-    SRAbsBVOr    w -> BVD.any w
 
 --------------------------------------------------------------------------------
 

@@ -915,11 +915,11 @@ evaluateExpr sym sc cache = f []
                      smul 1  e = eval env e
                      smul sm e = join (scBvMul sc w <$> scBvLit sc w sm <*> eval env e)
             B.SemiRingBVRepr B.BVBitsRepr w
-               | ss^.WSum.sumOffset == one -> scBvNot sc w =<< gf2_eval (ss & WSum.sumOffset .~ 0)
-               | otherwise -> gf2_eval ss
+               | ss^.WSum.sumOffset == one -> scBvNot sc w =<< bitwise_eval (ss & WSum.sumOffset .~ 0)
+               | otherwise -> bitwise_eval ss
 
               where one = maxUnsigned w
-                    gf2_eval = WSum.evalM add smul (scBvLit sc w)
+                    bitwise_eval = WSum.evalM add smul (scBvLit sc w)
                     add x y = scBvXor sc w x y
                     smul sm e
                        | sm == one = eval env e
@@ -927,12 +927,12 @@ evaluateExpr sym sc cache = f []
 
         B.RealIsInteger{} -> unsupported sym "SAW backend does not support real values"
 
-        B.BVOrBits pd ->
-          case WSum.prodRepr pd of
-            B.SemiRingBVRepr _ w ->
-              do n <- SC.scNat sc (natValue w)
-                 pd' <- WSum.prodEvalM (SC.scBvOr sc n) (f env) pd
-                 maybe (scBvLit sc w 0) (return . SAWExpr) pd'
+        B.BVOrBits w bs ->
+          do n <- SC.scNat sc (natValue w)
+             bs' <- traverse (f env) (B.bvOrToList bs)
+             case bs' of
+               [] -> scBvLit sc w 0
+               x:xs -> SAWExpr <$> foldM (SC.scBvOr sc n) x xs
 
         B.BVFill w p ->
           do bit <- SC.scBoolType sc
