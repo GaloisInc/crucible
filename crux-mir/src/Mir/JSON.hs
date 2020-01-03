@@ -396,7 +396,7 @@ instance FromJSON BinOp where
 
 instance FromJSON VtableItem where
     parseJSON = withObject "VtableItem" $ \v ->
-        VtableItem <$> v .: "def_id" <*> (_inDefId <$> v .: "instance")
+        VtableItem <$> v .: "def_id" <*> (v .: "trait_item")
 
 instance FromJSON Vtable where
     parseJSON = withObject "Vtable" $ \v ->
