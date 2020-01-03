@@ -49,6 +49,7 @@ import Mir.Mir
 import Mir.JSON
 import Mir.Intrinsics(MIR)
 import Mir.PP()
+import Mir.GenericOps (uninternTys)
 import Mir.Pass(rewriteCollection)
 import Mir.Generator(RustModule(..),CollectionState(..), rmCS, rmCFGs, collection)
 import Mir.Trans(transCollection, transStatics)
@@ -186,7 +187,18 @@ parseMir path f = do
           traceM $ "Loaded module: " ++ path
           traceM $ show (pretty col)
           traceM "--------------------------------------------------------------"  
-        return col
+        return $ uninternMir col
+
+uninternMir :: Collection -> Collection
+uninternMir col = uninternTys unintern (col { _namedTys = mempty })
+  where
+    -- NB: knot-tying is happening here.  Some values in `tyMap` depend on
+    -- other values.  This should be okay: the original `rustc::ty::Ty`s are
+    -- acyclic, so the entries in `tyMap` should be too.
+    tyMap = fmap (uninternTys unintern) (col^.namedTys)
+    unintern name = case M.lookup name tyMap of
+        Nothing -> error $ "missing " ++ show name ++ " in type map"
+        Just ty -> ty
 
 
 -- | Translate a MIR collection to Crucible
