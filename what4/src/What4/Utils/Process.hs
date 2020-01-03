@@ -20,6 +20,7 @@ module What4.Utils.Process
   ) where
 
 import           Control.Exception
+import           Control.Monad (void)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import           System.IO
@@ -66,9 +67,14 @@ withProcessHandles path args mcwd action = do
         case x of
           (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
           _ -> fail "Internal error in withProcessHandles: Failed to create handle."
+  let cleanup (in_h,out_h,err_h,ph) = do
+        catch (do hClose in_h
+                  hClose out_h
+                  hClose err_h
+                  void $ waitForProcess ph)
+              (\(_ :: SomeException) -> return ())
   let onError (_,_,_,ph) = do
         -- Interrupt process; suppress any exceptions that occur.
         catch (interruptProcessGroupOf ph) (\(_ :: SomeException) -> return ())
-        waitForProcess ph
 
-  bracketOnError startProcess onError action
+  bracket startProcess cleanup (\hs -> onException (action hs) (onError hs))
