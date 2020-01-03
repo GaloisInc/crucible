@@ -407,53 +407,89 @@ instance FromJSON Literal where
       case HML.lookup "kind" v of
         Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
         Just (String "Const") -> do
-          ty  <- v.: "ty"
-          lit <- parseConst ty v
-          pure $ Value lit
+          rend <- v .:? "rendered"
+          init <- v .:? "initializer"
+          case (rend, init) of
+            (Just (RustcRenderedConst rend), _) ->
+                pure $ Value rend
+            (Nothing, Just (RustcConstInitializer defid substs)) ->
+                pure $ Value $ ConstInitializer defid substs
+            (Nothing, Nothing) ->
+                fail $ "need either rendered value or initializer in constant literal"
         Just (String "Promoted") -> LitPromoted <$> v .: "index"
         x -> fail ("bad Literal: " ++ show x)
 
 
--- | Need to look at both the val and the ty objects to figure out
--- how to parse the constant
-parseConst :: Ty -> HML.HashMap Text Value -> Aeson.Parser ConstVal
-parseConst ty v = do
-  case ty of
-    TyInt _bs  -> (v .: "int_val") >>= \t -> ConstInt <$> (convertInt ty t)
-    TyUint _bs -> (v .: "int_val") >>= \t -> ConstInt <$> (convertInt ty t)
-    TyFloat fk -> (v .: "float_val") >>= \t -> ConstFloat <$> (convertFloat fk t)
-    TyBool     -> (v .: "int_val") >>= \t -> ConstBool <$> convertBool t
-    TyChar     -> (v .: "int_val") >>= \t -> ConstChar <$> convertChar t
-    TyRef t Immut -> parseConst t v
-    TyStr        -> (v .: "str_val") >>= \t -> ConstStr <$> convertString t
-    TyFnDef d ps -> pure $ ConstFunction d ps
-    TyTuple ts   -> (v .: "initializer") >>= parseInitializer
-    TyArray t n  -> parseArray t n v
-    TyAdt d ss   -> (v .: "initializer") >>= parseInitializer
-    r            -> fail $ "TODO: Don't know how to parse literals of type " ++ show ty
-                             ++ "\nin JSON value " ++ show v
+data RustcConstInitializer = RustcConstInitializer DefId Substs
 
-parseArray :: Ty -> Int -> HML.HashMap Text Value -> Aeson.Parser ConstVal
-parseArray t n v =
-  do mvec  <- v .:? "bstr_val"
-     minit <- v .:? "initializer"
-     case mvec of
-       Just (arr :: Array) -> do
-         let f sci = case Scientific.toBoundedInteger sci of
-                       Just b -> pure (ConstInt $ U8 $ toInteger (b :: Int))
-                       Nothing -> fail $ "cannot read " ++ show sci
-         bytes <- mapM (withScientific "byte" f) arr
-         return $ ConstArray $ V.toList bytes
+instance FromJSON RustcConstInitializer where
+    parseJSON = withObject "Initializer" $ \v ->
+        RustcConstInitializer <$> v .: "def_id" <*> v .: "substs"
 
-       Nothing -> case minit of
-         Just init -> parseInitializer init
-         Nothing -> fail "either need bstr_val or initializer for array literals"
-   
+newtype RustcRenderedConst = RustcRenderedConst ConstVal
 
--- | Constant value from initializer code
-parseInitializer :: Value -> Aeson.Parser ConstVal
-parseInitializer = withObject "Initializer" $ \v ->
-  ConstInitializer <$> v .: "def_id" <*> v.: "substs"
+instance FromJSON RustcRenderedConst where
+    parseJSON = withObject "RenderedConst" $ \v ->
+      RustcRenderedConst <$> case HML.lookup "kind" v of
+        Just (String "int") -> do
+            size :: Int <- v .: "size"
+            val <- convertIntegerText =<< v .: "val"
+            ConstInt <$> case size of
+                1 -> pure $ I8 val
+                2 -> pure $ I16 val
+                4 -> pure $ I32 val
+                8 -> pure $ I64 val
+                16 -> pure $ I128 val
+                _ -> fail $ "bad size " ++ show size ++ " for int literal"
+
+        Just (String "uint") -> do
+            size :: Int <- v .: "size"
+            val <- convertIntegerText =<< v .: "val"
+            ConstInt <$> case size of
+                1 -> pure $ U8 val
+                2 -> pure $ U16 val
+                4 -> pure $ U32 val
+                8 -> pure $ U64 val
+                16 -> pure $ U128 val
+                _ -> fail $ "bad size " ++ show size ++ " for uint literal"
+
+        Just (String "bool") -> do
+            val :: String <- v .: "val"
+            ConstBool <$> case val of
+                "0" -> pure False
+                "1" -> pure True
+                _ -> fail $ "bad value " ++ show val ++ " for bool literal"
+
+        Just (String "char") -> do
+            val <- convertIntegerText =<< v .: "val"
+            pure $ ConstChar $ Char.chr (fromInteger val)
+
+        Just (String "float") -> do
+            size :: Int <- v .: "size"
+            val <- v .: "val"
+            fk <- case size of
+                4 -> pure F32
+                8 -> pure F64
+                _ -> fail $ "bad size " ++ show size ++ " for float literal"
+            pure $ ConstFloat $ FloatLit fk (T.unpack val)
+
+        Just (String "str") -> do
+            val <- v .: "val"
+            let f sci = case Scientific.toBoundedInteger sci of
+                    Just b -> pure (Char.chr b)
+                    Nothing -> fail $ "cannot read " ++ show sci
+            bytes <- mapM (withScientific "byte" f) val
+            return $ ConstStr $ V.toList bytes
+
+        Just (String "bstr") -> do
+            val <- v .: "val"
+            let f sci = case Scientific.toBoundedInteger sci of
+                    Just b -> pure (ConstInt $ U8 $ toInteger (b :: Int))
+                    Nothing -> fail $ "cannot read " ++ show sci
+            bytes <- mapM (withScientific "byte" f) val
+            return $ ConstArray $ V.toList bytes
+
+        Just (String "fndef") -> ConstFunction <$> v .: "def_id" <*> v .: "substs"
 
 -- mir-json integers are expressed as strings of 128-bit unsigned values
 -- for example, -1 is displayed as "18446744073709551615"
@@ -462,127 +498,9 @@ parseInitializer = withObject "Initializer" $ \v ->
 convertIntegerText :: Text -> Aeson.Parser Integer
 convertIntegerText t = do
   case (T.signed T.decimal) t of
-    Right ((i :: Word64), _) ->
-      if testBit i 63 then do
-        let ans = -1 * (toInteger (complement i + 1)) 
-        return $ ans
-      else do
-        return $ toInteger i
+    Right ((i :: Integer), _) -> return i
     Left _       -> fail $ "Cannot parse Integer value: " ++ T.unpack t
-    
-convertInt :: Ty -> Text -> Aeson.Parser IntLit
-convertInt ty val = 
-  case ty of
-    (TyUint B8)    -> U8    <$> convertIntegerText val
-    (TyUint B16)   -> U16   <$> convertIntegerText val
-    (TyUint B32)   -> U32   <$> convertIntegerText val
-    (TyUint B64)   -> U64   <$> convertIntegerText val
-    (TyUint B128)  -> U128  <$> convertIntegerText val
-    (TyUint USize) -> Usize <$> convertIntegerText val
-    (TyInt B8)     -> I8    <$> convertIntegerText val
-    (TyInt B16)    -> I16   <$> convertIntegerText val
-    (TyInt B32)    -> I32   <$> convertIntegerText val
-    (TyInt B64)    -> I64   <$> convertIntegerText val
-    (TyInt B128)   -> I128  <$> convertIntegerText val
-    (TyInt USize)  -> Isize <$> convertIntegerText val
-    _ -> fail "invalid int literal"
 
-convertBool :: Text -> Aeson.Parser Bool
-convertBool txt = if txt == "1" then pure True else if txt == "0" then pure False else fail $ "Cannot parse boolean value " ++ (T.unpack txt)
-
-convertChar :: Text -> Aeson.Parser Char
-convertChar txt = do
-  i <- convertIntegerText txt
-  return $ Char.chr (fromInteger i)
-
-convertFloat :: FloatKind -> Text -> Aeson.Parser FloatLit
-convertFloat fk val = 
-    FloatLit <$> pure fk <*> pure (T.unpack val)
-  
-convertString :: Array -> Aeson.Parser String
-convertString arr = do
-    let f sci = case Scientific.toBoundedInteger sci of
-                   Just b -> pure (Char.chr b)
-                   Nothing -> fail $ "cannot read " ++ show sci
-    bytes <- mapM (withScientific "byte" f) arr
-    return $ V.toList bytes
-
-{-
-
--- | Need to look at both the val and the ty objects to figure out
--- how to parse the constant
-parseConst :: Ty -> Value -> Aeson.Parser ConstVal
-parseConst ty v = do
-  case ty of
-    TyInt _bs  -> ConstInt   <$> parseInt ty v
-    TyUint _bs -> ConstInt   <$> parseInt ty v
-    TyFloat fk -> ConstFloat <$> parseFloat fk v
-    TyBool     -> ConstBool  <$> parseBoolText v
-    TyChar     -> ConstChar  <$> parseChar v
-    TyRef t Immut -> parseConst t v
-    TyStr      -> ConstStr   <$> parseJSON v
-    TyFnDef d ps -> pure $ ConstFunction d ps   -- TODO : don't need v?
-    TyTuple ts   -> ConstTuple <$> parseConsts ts v
-    TyArray t n  -> ConstArray <$> parseConsts (replicate n t)  v
-    r            -> fail $ "TODO: don't know how to parse literals of type " ++ show r
-
-
--- FromJSON instance for booleans assumes a "Bool" variant of the Value datatype
--- not a "String" variant
-parseBoolText :: Value -> Aeson.Parser Bool
-parseBoolText = withText "Bool" $ \t -> case t of
-        "true"  -> pure True
-        "false" -> pure False
-        _       -> fail $ "Cannot parse key into Bool: " ++ T.unpack t
-
-parseIntegerText :: Value -> Aeson.Parser Integer
-parseIntegerText = withText "Integer" convertIntegerText
-
-parseChar :: Value -> Aeson.Parser Char
-parseChar = withText "Char" $ \t ->
-  case Char.readLitChar (T.unpack t) of
-    (c , _):_  -> return c
-    _          -> fail $ "Don't know how to parse Text " ++ T.unpack t ++ " into a Char"
-
-parseString :: Value -> Aeson.Parser String
-parseString = withText "String" (pure . T.unpack)
-
-parseArray :: Ty -> Value -> Aeson.Parser [ConstVal]
-parseArray ty = withArray "expecting array"
-  (\array -> V.foldM go [] array) where
-     go :: [ConstVal] -> Value -> Aeson.Parser [ConstVal]
-     go vals val = do
-       v <- parseConst ty val
-       return (v : vals)
-
-parseConsts :: [Ty] -> Value -> Aeson.Parser [ConstVal]
-parseConsts tys (String txt) = fail $ "TODO: parse consts " ++ show txt
-
-parseInt :: Ty -> Value -> Aeson.Parser IntLit
-parseInt ty val = 
-  case ty of
-    (TyUint B8)    -> U8    <$> parseIntegerText val
-    (TyUint B16)   -> U16   <$> parseIntegerText val
-    (TyUint B32)   -> U32   <$> parseIntegerText val
-    (TyUint B64)   -> U64   <$> parseIntegerText val
-    (TyUint B128)  -> U128  <$> parseIntegerText val
-    (TyUint USize) -> Usize <$> parseIntegerText val
-    (TyInt B8)     -> I8    <$> parseIntegerText val
-    (TyInt B16)    -> I16   <$> parseIntegerText val
-    (TyInt B32)    -> I32   <$> parseIntegerText val
-    (TyInt B64)    -> I64   <$> parseIntegerText val
-    (TyInt B128)   -> I128  <$> parseIntegerText val
-    (TyInt USize)  -> Isize <$> parseIntegerText val
-    _ -> fail "invalid int literal"
-
-parseFloat :: FloatKind -> Value -> Aeson.Parser FloatLit
-parseFloat fk val = 
-    FloatLit <$> pure fk <*> parseJSON val
-
--}
-
-instance FromJSON FloatLit where
-    parseJSON = withObject "FloatLit" $ \v -> FloatLit <$> v .: "ty" <*> v.: "bits"
 
 instance FromJSON AggregateKind where
     parseJSON = withObject "AggregateKind" $ \v -> case HML.lookup "kind" v of
