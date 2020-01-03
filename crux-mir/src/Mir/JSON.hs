@@ -67,7 +67,10 @@ instance FromJSON Substs where
         Nothing -> fail "invalid type argument found in substs"
 
 instance FromJSON Ty where
-    parseJSON = withText "Ty" $ \v -> pure $ TyInterned v
+    parseJSON = withText "Ty" $ \v -> case v of
+        "nonty::Lifetime" -> pure TyLifetime
+        "nonty::Const" -> pure TyConst
+        _ -> pure $ TyInterned v
 
 newtype InlineTy = InlineTy { getInlineTy :: Ty }
 
