@@ -88,6 +88,7 @@ instance Pretty Ty where
     pretty TyLifetime = text "lifetime"
     pretty TyConst = text "const"
     pretty TyErased = text "erased"
+    pretty (TyInterned s) = text $ unpack s
 
 instance Pretty Adt where
    pretty (Adt nm kind vs) = pretty kind <+> pretty nm <> tupled (map pretty vs)

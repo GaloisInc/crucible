@@ -67,36 +67,45 @@ instance FromJSON Substs where
         Nothing -> fail "invalid type argument found in substs"
 
 instance FromJSON Ty where
-    parseJSON = withObject "Ty" $ \v -> case HML.lookup "kind" v of
-                                          Just (String "Bool") -> pure TyBool
-                                          Just (String "Char") -> pure TyChar
-                                          Just (String "Int") -> TyInt <$> v .: "intkind"
-                                          Just (String "Uint") -> TyUint <$> v .: "uintkind"
-                                          Just (String "Unsupported") -> pure TyUnsupported
-                                          Just (String "Tuple") -> TyTuple <$> v .: "tys"
-                                          Just (String "Slice") -> TySlice <$> v .: "ty"
-                                          Just (String "Array") -> do
-                                            lit <- v .: "size"
-                                            case lit of
-                                              Value (ConstInt (Usize i)) ->
-                                                 TyArray <$> v .: "ty" <*> pure (fromInteger i)
-                                              _ -> fail $ "unsupported array size: " ++ show lit
-                                          Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
-                                          Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
-                                          Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
-                                          Just (String "Param") -> TyParam <$> v .: "param"
-                                          Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
-                                          Just (String "Str") -> pure TyStr
-                                          Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
-                                          Just (String "Dynamic") -> TyDynamic <$>
-                                                (v .: "predicates" >>= \xs -> mapM parsePred xs)
-                                          Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
-                                          Just (String "Float") -> TyFloat <$> v .: "size"
-                                          Just (String "Never") -> pure TyNever
-                                          Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
-                                          Just (String "Lifetime") -> pure TyLifetime
-                                          Just (String "Const") -> pure TyConst
-                                          r -> fail $ "unsupported ty: " ++ show r
+    parseJSON = withText "Ty" $ \v -> pure $ TyInterned v
+
+newtype InlineTy = InlineTy { getInlineTy :: Ty }
+
+instance FromJSON InlineTy where
+    parseJSON = withObject "InlineTy" $ \v -> InlineTy <$> case HML.lookup "kind" v of
+      Just (String "Bool") -> pure TyBool
+      Just (String "Char") -> pure TyChar
+      Just (String "Int") -> TyInt <$> v .: "intkind"
+      Just (String "Uint") -> TyUint <$> v .: "uintkind"
+      Just (String "Unsupported") -> pure TyUnsupported
+      Just (String "Tuple") -> TyTuple <$> v .: "tys"
+      Just (String "Slice") -> TySlice <$> v .: "ty"
+      Just (String "Array") -> do
+        lit <- v .: "size"
+        case lit of
+          Value (ConstInt (Usize i)) ->
+             TyArray <$> v .: "ty" <*> pure (fromInteger i)
+          _ -> fail $ "unsupported array size: " ++ show lit
+      Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
+      Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
+      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
+      Just (String "Param") -> TyParam <$> v .: "param"
+      Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
+      Just (String "Str") -> pure TyStr
+      Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
+      Just (String "Dynamic") -> TyDynamic <$>
+            (v .: "predicates" >>= \xs -> mapM parsePred xs)
+      Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
+      Just (String "Float") -> TyFloat <$> v .: "size"
+      Just (String "Never") -> pure TyNever
+      Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
+      Just (String "Lifetime") -> pure TyLifetime
+      Just (String "Const") -> pure TyConst
+      r -> fail $ "unsupported ty: " ++ show r
+
+instance FromJSON NamedTy where
+    parseJSON = withObject "NamedTy" $ \v ->
+        NamedTy <$> v .: "name" <*> (getInlineTy <$> v .: "ty")
 
 instance FromJSON Instance where
     parseJSON = withObject "Instance" $ \v -> case HML.lookup "kind" v of
@@ -187,6 +196,7 @@ instance FromJSON Collection where
       (statics :: [Static]  ) <- v .: "statics"
       (vtables :: [Vtable]  ) <- v .: "vtables"
       (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
+      (tys    :: [NamedTy])   <- v .: "tys"
       (roots :: [MethName])   <- v .: "roots"
       return $ Collection
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
@@ -196,6 +206,7 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
         (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
         (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
+        (foldr (\ x m -> Map.insert (x^.ntName) (x^.ntTy) m) Map.empty tys)
         roots
 
 
