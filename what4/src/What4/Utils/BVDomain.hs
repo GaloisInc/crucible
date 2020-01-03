@@ -571,7 +571,7 @@ xor a b =
             au = unknowns al (al + aw)
             bu = unknowns bl (bl + bw)
             cu = au .|. bu
-            cl = (al `Bits.xor` cl) .&. complement cu
+            cl = (al `Bits.xor` bl) .&. complement cu
 
 -- | Return bitwise bounds for domain (i.e. logical AND of all
 -- possible values, paired with logical OR of all possible values).
