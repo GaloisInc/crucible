@@ -48,6 +48,7 @@ module Lang.Crucible.LLVM.Translation.Types
 , liftDeclare
 ) where
 
+import           Control.Monad.Fail (MonadFail)
 import           Data.Foldable
 
 import qualified Text.LLVM.AST as L
@@ -158,7 +159,7 @@ llvmDeclToFunHandleRepr decl k =
 
 
 llvmDeclToFunHandleRepr' ::
-   (?lc :: TypeContext, HasPtrWidth wptr, Monad m) =>
+   (?lc :: TypeContext, HasPtrWidth wptr, MonadFail m) =>
    L.Declare ->
    (forall args ret. CtxRepr args -> TypeRepr ret -> m a) ->
    m a
