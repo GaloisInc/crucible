@@ -445,6 +445,10 @@ newtype RustcRenderedConst = RustcRenderedConst ConstVal
 instance FromJSON RustcRenderedConst where
     parseJSON = withObject "RenderedConst" $ \v ->
       RustcRenderedConst <$> case HML.lookup "kind" v of
+        Just (String "isize") -> do
+            val <- convertIntegerText =<< v .: "val"
+            pure $ ConstInt $ Isize val
+
         Just (String "int") -> do
             size :: Int <- v .: "size"
             val <- convertIntegerText =<< v .: "val"
@@ -455,6 +459,10 @@ instance FromJSON RustcRenderedConst where
                 8 -> pure $ I64 val
                 16 -> pure $ I128 val
                 _ -> fail $ "bad size " ++ show size ++ " for int literal"
+
+        Just (String "usize") -> do
+            val <- convertIntegerText =<< v .: "val"
+            pure $ ConstInt $ Usize val
 
         Just (String "uint") -> do
             size :: Int <- v .: "size"
