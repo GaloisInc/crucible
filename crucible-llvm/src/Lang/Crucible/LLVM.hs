@@ -47,7 +47,7 @@ registerModuleFn
    LLVMContext arch ->
    (L.Declare, AnyCFG (LLVM arch)) ->
    OverrideSim p sym (LLVM arch) rtp l a ()
-registerModuleFn llvm_ctx (decl,AnyCFG cfg) = do
+registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
   binds <- use (stateContext . functionBindings)

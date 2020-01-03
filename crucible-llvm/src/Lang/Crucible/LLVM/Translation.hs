@@ -346,7 +346,7 @@ transDefine halloc ctx d = do
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType
     sng <- newIONonceGenerator
-    (SomeCFG g,[]) <- defineFunction InternalPos sng h def
+    (SomeCFG g, []) <- defineFunction InternalPos sng h def
     case toSSA g of
       C.SomeCFG g_ssa -> return (symb, (decl, C.AnyCFG g_ssa))
 
