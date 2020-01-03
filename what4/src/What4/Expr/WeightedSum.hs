@@ -87,11 +87,11 @@ import           What4.Utils.IncrHash
 --------------------------------------------------------------------------------
 
 data SRAbsValue :: SR.SemiRing -> Type where
-  SRAbsNatAdd  :: AD.NatValueRange           -> SRAbsValue SR.SemiRingNat
-  SRAbsIntAdd  :: AD.ValueRange Integer      -> SRAbsValue SR.SemiRingInteger
-  SRAbsRealAdd :: AD.RealAbstractValue       -> SRAbsValue SR.SemiRingReal
-  SRAbsBVAdd   :: (1 <= w) => BVD.BVDomain w -> SRAbsValue (SR.SemiRingBV SR.BVArith w)
-  SRAbsBVXor   :: (1 <= w) => BVD.BVDomain w -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
+  SRAbsNatAdd  :: !AD.NatValueRange             -> SRAbsValue SR.SemiRingNat
+  SRAbsIntAdd  :: !(AD.ValueRange Integer)      -> SRAbsValue SR.SemiRingInteger
+  SRAbsRealAdd :: !AD.RealAbstractValue         -> SRAbsValue SR.SemiRingReal
+  SRAbsBVAdd   :: (1 <= w) => !(BVD.BVDomain w) -> SRAbsValue (SR.SemiRingBV SR.BVArith w)
+  SRAbsBVXor   :: (1 <= w) => !(BVD.BVDomain w) -> SRAbsValue (SR.SemiRingBV SR.BVBits w)
 
 instance Semigroup (SRAbsValue sr) where
   SRAbsNatAdd  x <> SRAbsNatAdd  y = SRAbsNatAdd  (AD.natRangeAdd x y)
