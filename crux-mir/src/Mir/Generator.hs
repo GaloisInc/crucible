@@ -166,7 +166,6 @@ data CustomOpMap = CustomOpMap
     , _cloneFromShimOp :: Ty -> [DefId] -> CustomOp
     }
 
-type ExplodedDefId = ([Text], Text, [Text])
 data CustomOp      =
     CustomOp (forall h s ret. HasCallStack 
                  => [Ty]       -- ^ argument types
@@ -361,9 +360,7 @@ resolveCustom instDefId _substs = do
             _ -> do
                 let origDefId = intr ^. intrInst . inDefId
                 let origSubsts = intr ^. intrInst . inSubsts
-                let edid = (map fst (did_path origDefId),
-                        fst (did_name origDefId),
-                        map fst (did_extra origDefId))
+                let edid = idKey origDefId
                 optOp <- use $ customOps . opDefs .  at edid
                 case optOp of
                     Nothing -> return Nothing

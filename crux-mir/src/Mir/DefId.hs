@@ -6,7 +6,17 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
-module Mir.DefId where
+module Mir.DefId
+( DefId
+, textId
+, idText
+, ExplodedDefId
+, idKey
+
+, getTraitName
+, cleanVariantName
+, parseFieldName
+) where
 
 import Data.Aeson
 
@@ -133,26 +143,6 @@ getTraitName :: DefId -> DefId
 getTraitName (DefId p n _e) = (DefId p n [])
 
 
-isImpl :: DefId -> Bool
-isImpl defid =
-  not (null (did_path defid)) &&
-  fst (last (did_path defid)) == "{{impl}}"
-
--- | If we have a static call for a trait, we need to mangle the format so that it looks
--- like a normal function call (and we can find the function handle)
-mangleTraitId :: DefId -> DefId
-mangleTraitId d@(DefId path _name extra)
-  | not (null extra) = DefId (path ++ [("{{impl}}", 0)]) (head extra) (tail extra)
-  | otherwise        = d
-
--- | If we have a static call for a trait, we need to mangle the format so that it looks
--- like a normal function call (and we can find the function handle)
-makeImpl0 :: DefId -> DefId
-makeImpl0 (DefId path name extra) =
-  DefId (changeImpl path) name extra where
-     changeImpl p | not (null p) && fst (last p) == ("{{impl}}"::Text) = init p ++ [("{{impl}}",0)]
-                  | otherwise = p
-
 
 
 -- | Find the variant name and return it, without any decoration
@@ -170,20 +160,6 @@ parseFieldName defid = case (did_extra defid) of
   [ _ , (num, _m)] -> Just num
   _ -> Nothing
 
--- | Detect a defid is in an {{impl}} and pull out the method name.
--- 
-parseImplName :: DefId -> Maybe Entry
-parseImplName (DefId path@(_:_) name _)
-  | fst (last path) == "{{impl}}" = Just name
-parseImplName _ = Nothing
-
-
--- | Is this entry the same as the method name?
--- NOTE: trait methods have the Trait as the name, and the specific
--- method afterwards
-sameTraitMethod :: Entry -> DefId -> Bool
-sameTraitMethod meth1 (DefId _ _ (meth2:_)) = meth1 == meth2
-sameTraitMethod _     (DefId _ _ []) = False
 
 
 --  divide the input into components separated by double colons
@@ -230,6 +206,14 @@ textId txt = case splitInput (unpack txt) of
 idText :: DefId -> Text
 idText (DefId mods nm ex) =
   intercalate "::" ("" : map showEntry (mods++nm:ex))
+
+type ExplodedDefId = ([Text], Text, [Text])
+idKey :: DefId -> ExplodedDefId
+idKey did =
+    ( map fst (did_path did)
+    , fst (did_name did)
+    , map fst (did_extra did)
+    )
 
 -- ignores filename and entry #s
 instance Pretty DefId where
