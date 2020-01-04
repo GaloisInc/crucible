@@ -88,6 +88,7 @@ instance Pretty Ty where
     pretty TyLifetime = text "lifetime"
     pretty TyConst = text "const"
     pretty TyErased = text "erased"
+    pretty (TyInterned s) = text $ unpack s
 
 instance Pretty Adt where
    pretty (Adt nm kind vs) = pretty kind <+> pretty nm <> tupled (map pretty vs)
@@ -407,6 +408,15 @@ instance Pretty Static where
 instance Pretty Promoted where
   pretty (Promoted i) = text "{{promoted}}" <> brackets (pretty i)
 
+instance Pretty Intrinsic where
+  pretty (Intrinsic name inst) = pretty name <+> text "=" <+> pretty inst
+
+instance Pretty Instance where
+  pretty (Instance kind defid substs) = pretty kind <+> pretty defid <> text "<" <> pretty substs <> text ">"
+
+instance Pretty InstanceKind where
+  pretty x = text $ show x
+
 instance Pretty Collection where
   pretty col =
     vcat ([text "FNs"] ++
@@ -415,6 +425,8 @@ instance Pretty Collection where
           map pretty (Map.elems (col^.adts)) ++
           [text "TRAITs"] ++
           map pretty (Map.elems (col^.traits)) ++
+          [text "INTRINSICSs"] ++
+          map pretty (Map.elems (col^.intrinsics)) ++
           [text "IMPLs"] ++
           map pretty (col^.impls) ++
           [text "STATICS"] ++

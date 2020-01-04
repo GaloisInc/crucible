@@ -112,7 +112,15 @@ data Ty =
       -- downcasts to the concrete receiver type and passes to the
       -- implementation of the trait method.
       | TyErased
+
+      -- | Special variant used during deserialization to represent interned
+      -- types.  These are all replaced with other variants in `uninternTys`,
+      -- which runs just after JSON decoding is done.
+      | TyInterned TyName
       deriving (Eq, Ord, Show, Generic)
+
+data NamedTy = NamedTy { _ntName :: Text, _ntTy :: Ty }
+  deriving (Eq, Ord, Show, Generic)
 
 data FnSig = FnSig {
     _fsarg_tys    :: ![Ty]
@@ -222,6 +230,7 @@ data Collection = Collection {
     _statics   :: !(Map DefId Static),
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
+    _namedTys  :: !(Map TyName Ty),
     _roots     :: !([MethName])
 } deriving (Show, Eq, Ord, Generic)
 
@@ -589,6 +598,7 @@ type VisibilityScope = Text
 type AssertMessage = Text
 type ClosureSubsts = Text
 type BasicBlockInfo = Text
+type TyName     = Text
 
 
 --------------------------------------------------------------------------------------
@@ -612,6 +622,7 @@ makeLenses ''Static
 makeLenses ''Vtable
 makeLenses ''Intrinsic
 makeLenses ''Instance
+makeLenses ''NamedTy
 
 makeLenses ''TraitImpl
 makeLenses ''TraitImplItem
@@ -621,10 +632,10 @@ makeLenses ''TraitImplItem
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1 i1 s1 v1 n1 r1) <> (Collection f2 a2 t2 i2 s2 v2 n2 r2) =
-    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (r1 <> r2)
+  (Collection f1 a1 t1 i1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 t2 i2 s2 v2 n2 tys2 r2) =
+    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   
