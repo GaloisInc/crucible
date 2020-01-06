@@ -23,6 +23,7 @@ module What4.Protocol.SMTLib2.Syntax
   , getInfo
   , getVersion
   , getName
+  , getErrorBehavior
   , exit
      -- * Declarations
   , declareSort
@@ -835,6 +836,7 @@ pop n =  Cmd $ "(pop " <> Builder.decimal n <> ")"
 data SMTInfoFlag =
     Name
   | Version
+  | ErrorBehavior
   | InfoKeyword Text
   deriving (Data, Eq, Ord, Generic, Show, Typeable)
 
@@ -843,6 +845,7 @@ flagToSExp = (cons ':') .
   \case
     Name -> "name"
     Version -> "version"
+    ErrorBehavior -> "error-behavior"
     InfoKeyword s -> s
 
 -- | A @get-info@ command
@@ -854,3 +857,6 @@ getVersion = getInfo Version
 
 getName :: Command
 getName = getInfo Name
+
+getErrorBehavior :: Command
+getErrorBehavior = getInfo ErrorBehavior

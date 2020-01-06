@@ -1051,6 +1051,9 @@ startSolver solver ack setup feats auxOutput sym = do
   -- Set solver logic and solver-specific options
   setup writer
 
+  -- Query the solver for it's error behavior
+  errBeh <- queryErrorBehavior writer out_stream
+
   earlyUnsatRef <- newIORef Nothing
 
   return $! SolverProcess
@@ -1058,12 +1061,14 @@ startSolver solver ack setup feats auxOutput sym = do
     , solverStdin    = in_stream
     , solverStderr   = err_reader
     , solverHandle   = ph
+    , solverErrorBehavior = errBeh
     , solverResponse = out_stream
     , solverEvalFuns = smtEvalFuns writer out_stream
     , solverLogFn    = I.logSolverEvent sym
     , solverName     = show solver
     , solverEarlyUnsat = earlyUnsatRef
     }
+
 
 shutdownSolver
   :: SMTLib2GenericSolver a => a -> SolverProcess t (Writer a) -> IO (Exit.ExitCode, Lazy.Text)
@@ -1143,6 +1148,20 @@ nameResult _ s =
         Right res -> throw (SMTLib2ParseError [cmd] (Text.pack (show res)))
         Left (SomeException e) ->
           throwSMTLib2ParseError "name query" cmd e
+
+
+-- | Query the solver's error behavior setting
+queryErrorBehavior :: SMTLib2Tweaks a =>
+  WriterConn t (Writer a) -> Streams.InputStream Text -> IO ErrorBehavior
+queryErrorBehavior conn resp =
+  do let cmd = SMT2.getErrorBehavior
+     writeCommand conn cmd
+     try (Streams.parseFromStream (parseSExp parseSMTLib2String) resp) >>=
+       \case
+         Right (SApp [SAtom ":error-behavior", SAtom "continued-execution"]) -> return ContinueOnError
+         Right (SApp [SAtom ":error-behavior", SAtom "immediate-exit"]) -> return ImmediateExit
+         Right res -> throw (SMTLib2ParseError [cmd] (Text.pack (show res)))
+         Left (SomeException e) -> throwSMTLib2ParseError "error behavior query" cmd e
 
 
 -- | Get the result of a version query
