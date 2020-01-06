@@ -57,6 +57,7 @@ import qualified What4.ProgramLoc as PL
 
 
 import qualified Mir.DefId as M
+import           Mir.DefId (ExplodedDefId)
 import           Mir.Mir
 import qualified Mir.MirTy as M
 
@@ -141,27 +142,27 @@ customOpDefs = Map.fromList [
 -- ** Custom: Exit
 
 exit :: (ExplodedDefId, CustomRHS)
-exit = ((["std", "process"], "exit", []), \s ->
+exit = (["std", "process", "exit"], \s ->
            Just (CustomOpExit $ \ops -> return "process::exit"))
 
 abort :: (ExplodedDefId, CustomRHS)
-abort = ((["core", "intrinsics"], "abort", []), \s ->
+abort = (["core", "intrinsics", "", "abort"], \s ->
             Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
-panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s -> Just $ CustomOpExit $ \ops -> do
+panicking_begin_panic = (["std", "panicking", "begin_panic"], \s -> Just $ CustomOpExit $ \ops -> do
     name <- use $ currentFn . fname
     return $ "panicking::begin_panic, called from " <> M.idText name
     )
 
 panicking_panic :: (ExplodedDefId, CustomRHS)
-panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpExit $ \ops -> do
+panicking_panic = (["core", "panicking", "panic"], \s -> Just $ CustomOpExit $ \ops -> do
     name <- use $ currentFn . fname
     return $ "panicking::panic, called from " <> M.idText name
     )
 
 panicking_panic_fmt :: (ExplodedDefId, CustomRHS)
-panicking_panic_fmt = ((["core", "panicking"], "panic_fmt", []), \s -> Just $ CustomOpExit $ \ops -> do
+panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \s -> Just $ CustomOpExit $ \ops -> do
     name <- use $ currentFn . fname
     return $ "panicking::panic_fmt, called from " <> M.idText name
     )
@@ -173,7 +174,7 @@ panicking_panic_fmt = ((["core", "panicking"], "panic_fmt", []), \s -> Just $ Cu
 -- Note that alloc::boxed::Box<T> gets custom translation in `TransTy.tyToRepr`.
 
 box_new :: (ExplodedDefId, CustomRHS)
-box_new = ( (["alloc","boxed","{{impl}}"], "new", []),
+box_new = ( ["alloc","boxed","{{impl}}", "new"],
   \_substs -> Just $ CustomOp $ \opTys ops -> case ops of
     [MirExp tpr e] -> do
         r <- newMirRef tpr
@@ -189,14 +190,14 @@ box_new = ( (["alloc","boxed","{{impl}}"], "new", []),
 -- Methods for crucible::vector::Vector<T> (which has custom representation)
 
 vector_new :: (ExplodedDefId, CustomRHS)
-vector_new = ( (["crucible","vector","{{impl}}"], "new", []), ) $ \substs -> case substs of
+vector_new = ( ["crucible","vector","{{impl}}", "new"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ -> do
         Some tpr <- return $ tyToRepr t
         return $ MirExp (C.VectorRepr tpr) (R.App $ E.VectorLit tpr V.empty)
     _ -> Nothing
 
 vector_replicate :: (ExplodedDefId, CustomRHS)
-vector_replicate = ( (["crucible","vector","{{impl}}"], "replicate", []), ) $ \substs -> case substs of
+vector_replicate = ( ["crucible","vector","{{impl}}", "replicate"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp tpr eVal, MirExp UsizeRepr eLen] -> do
             let eLenNat = R.App $ usizeToNat eLen
@@ -205,7 +206,7 @@ vector_replicate = ( (["crucible","vector","{{impl}}"], "replicate", []), ) $ \s
     _ -> Nothing
 
 vector_len :: (ExplodedDefId, CustomRHS)
-vector_len = ( (["crucible","vector","{{impl}}"], "len", []), ) $ \substs -> case substs of
+vector_len = ( ["crucible","vector","{{impl}}", "len"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) e] -> do
             return $ MirExp UsizeRepr (R.App $ vectorSizeUsize R.App e)
@@ -213,7 +214,7 @@ vector_len = ( (["crucible","vector","{{impl}}"], "len", []), ) $ \substs -> cas
     _ -> Nothing
 
 vector_push :: (ExplodedDefId, CustomRHS)
-vector_push = ( (["crucible","vector","{{impl}}"], "push", []), ) $ \substs -> case substs of
+vector_push = ( ["crucible","vector","{{impl}}", "push"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec, MirExp tpr' eItem]
           | Just Refl <- testEquality tpr tpr' -> do
@@ -223,7 +224,7 @@ vector_push = ( (["crucible","vector","{{impl}}"], "push", []), ) $ \substs -> c
     _ -> Nothing
 
 vector_pop :: (ExplodedDefId, CustomRHS)
-vector_pop = ( (["crucible","vector","{{impl}}"], "pop", []), ) $ \substs -> case substs of
+vector_pop = ( ["crucible","vector","{{impl}}", "pop"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
             meInit <- MirExp (C.VectorRepr tpr) <$> vectorInit tpr eVec
@@ -233,7 +234,7 @@ vector_pop = ( (["crucible","vector","{{impl}}"], "pop", []), ) $ \substs -> cas
     _ -> Nothing
 
 vector_pop_front :: (ExplodedDefId, CustomRHS)
-vector_pop_front = ( (["crucible","vector","{{impl}}"], "pop_front", []), ) $ \substs -> case substs of
+vector_pop_front = ( ["crucible","vector","{{impl}}", "pop_front"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
             meHead <- vectorHead tpr eVec >>= maybeToOption t tpr
@@ -243,7 +244,7 @@ vector_pop_front = ( (["crucible","vector","{{impl}}"], "pop_front", []), ) $ \s
     _ -> Nothing
 
 vector_as_slice :: (ExplodedDefId, CustomRHS)
-vector_as_slice = ( (["crucible","vector","{{impl}}"], "as_slice", []), ) $ \substs -> case substs of
+vector_as_slice = ( ["crucible","vector","{{impl}}", "as_slice"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) v] -> do
             let start = R.App $ usizeLit 0
@@ -256,7 +257,7 @@ vector_as_slice = ( (["crucible","vector","{{impl}}"], "as_slice", []), ) $ \sub
     _ -> Nothing
 
 vector_as_mut_slice :: (ExplodedDefId, CustomRHS)
-vector_as_mut_slice = ( (["crucible","vector","{{impl}}"], "as_mut_slice", []), ) $ \substs -> case substs of
+vector_as_mut_slice = ( ["crucible","vector","{{impl}}", "as_mut_slice"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirReferenceRepr (C.VectorRepr tpr)) e] -> do
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
@@ -271,7 +272,7 @@ vector_as_mut_slice = ( (["crucible","vector","{{impl}}"], "as_mut_slice", []), 
     _ -> Nothing
 
 vector_concat :: (ExplodedDefId, CustomRHS)
-vector_concat = ( (["crucible","vector","{{impl}}"], "concat", []), ) $ \substs -> case substs of
+vector_concat = ( ["crucible","vector","{{impl}}", "concat"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr1) e1, MirExp (C.VectorRepr tpr2) e2]
           | Just Refl <- testEquality tpr1 tpr2 -> do
@@ -280,7 +281,7 @@ vector_concat = ( (["crucible","vector","{{impl}}"], "concat", []), ) $ \substs 
     _ -> Nothing
 
 vector_split_at :: (ExplodedDefId, CustomRHS)
-vector_split_at = ( (["crucible","vector","{{impl}}"], "split_at", []), ) $ \substs -> case substs of
+vector_split_at = ( ["crucible","vector","{{impl}}", "split_at"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec, MirExp UsizeRepr eIdx] -> do
             let eIdxNat = R.App $ usizeToNat eIdx
@@ -291,7 +292,7 @@ vector_split_at = ( (["crucible","vector","{{impl}}"], "split_at", []), ) $ \sub
     _ -> Nothing
 
 vector_copy_from_slice :: (ExplodedDefId, CustomRHS)
-vector_copy_from_slice = ( (["crucible","vector","{{impl}}"], "copy_from_slice", []), ) $ \substs -> case substs of
+vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirImmSliceRepr tpr) e] -> do
             let vec = getImmSliceVector e
@@ -310,7 +311,7 @@ vector_copy_from_slice = ( (["crucible","vector","{{impl}}"], "copy_from_slice",
 -- TODO: this should return (a * b) mod 2N
 -- however it does whatever Crucible does for BVMul
 wrapping_mul :: (ExplodedDefId, CustomRHS)
-wrapping_mul = ( (["core","num","{{impl}}"], "wrapping_mul", []),
+wrapping_mul = ( ["core","num","{{impl}}", "wrapping_mul"],
    \ _substs -> Just $ CustomOp $ \ _opTys  ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
@@ -330,7 +331,7 @@ wrapping_mul = ( (["core","num","{{impl}}"], "wrapping_mul", []),
 -- ** Custom: wrapping_sub
 
 wrapping_sub :: (ExplodedDefId, CustomRHS)
-wrapping_sub = ( (["core","num","{{impl}}"], "wrapping_sub", []),
+wrapping_sub = ( ["core","num","{{impl}}", "wrapping_sub"],
    \ _substs -> Just $ CustomOp $ \ _opTys ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
@@ -361,7 +362,7 @@ with_overflow_result ty x b = buildTuple
     ]
 
 add_with_overflow ::  (ExplodedDefId, CustomRHS)
-add_with_overflow = ((["core","intrinsics"],"add_with_overflow", []),
+add_with_overflow = (["core","intrinsics", "", "add_with_overflow"],
     \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
         ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
           | Just Refl <- testEquality w1 w2 -> do
@@ -371,7 +372,7 @@ add_with_overflow = ((["core","intrinsics"],"add_with_overflow", []),
     )
 
 sub_with_overflow ::  (ExplodedDefId, CustomRHS)
-sub_with_overflow = ((["core","intrinsics"],"sub_with_overflow", []),
+sub_with_overflow = (["core","intrinsics", "", "sub_with_overflow"],
     \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
         ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
           | Just Refl <- testEquality w1 w2 -> do
@@ -385,7 +386,7 @@ sub_with_overflow = ((["core","intrinsics"],"sub_with_overflow", []),
 -- ** Custom ::intrinsics::discriminant_value
 
 discriminant_value ::  (ExplodedDefId, CustomRHS)
-discriminant_value = ((["core","intrinsics"],"discriminant_value", []),
+discriminant_value = (["core","intrinsics", "", "discriminant_value"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
         ([TyRef (TyAdt nm args) Immut], [e]) -> do
@@ -398,7 +399,7 @@ discriminant_value = ((["core","intrinsics"],"discriminant_value", []),
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 type_id ::  (ExplodedDefId, CustomRHS)
-type_id = ((["core","intrinsics"],"type_id", []),
+type_id = (["core","intrinsics", "", "type_id"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
     -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
     return $ MirExp knownRepr $ R.App (E.BVLit (knownRepr :: NatRepr 64) 0))
@@ -408,7 +409,7 @@ type_id = ((["core","intrinsics"],"type_id", []),
 -- reintepreting casts.  Fortunately, it requires `T: Sized`, so it's almost
 -- trivial to implement as a custom op.
 mem_swap ::  (ExplodedDefId, CustomRHS)
-mem_swap = ((["core","mem"],"swap", []),
+mem_swap = (["core","mem", "swap"],
     \ _substs -> Just $ CustomOp $ \ opTys ops -> case ops of
         [MirExp (MirReferenceRepr ty1) e1, MirExp (MirReferenceRepr ty2) e2]
           | Just Refl <- testEquality ty1 ty2 -> do
@@ -424,7 +425,7 @@ mem_swap = ((["core","mem"],"swap", []),
 -- This is like normal mem::transmute, but requires source and target types to
 -- have identical Crucible `TypeRepr`s.
 mem_crucible_identity_transmute ::  (ExplodedDefId, CustomRHS)
-mem_crucible_identity_transmute = ((["core","mem"],"crucible_identity_transmute", []),
+mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"],
     \ substs -> case substs of
       Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
         [e@(MirExp argTy _)]
@@ -436,7 +437,7 @@ mem_crucible_identity_transmute = ((["core","mem"],"crucible_identity_transmute"
     )
 
 slice_to_array ::  (ExplodedDefId, CustomRHS)
-slice_to_array = ((["core","array"],"slice_to_array", []),
+slice_to_array = (["core","array", "slice_to_array"],
     \substs -> Just $ CustomOp $ \_ ops -> case (substs, ops) of
         (Substs [ty, TyConst], [MirExp (MirImmSliceRepr tpr) e, MirExp UsizeRepr eLen]) -> do
             let vec = getImmSliceVector e
@@ -467,7 +468,7 @@ slice_to_array = ((["core","array"],"slice_to_array", []),
 --
 str_len :: (ExplodedDefId, CustomRHS)
 str_len =
-  ((["core","str","{{impl}}"], "len", [])
+  (["core","str","{{impl}}", "len"]
   , \subs -> case subs of
                (Substs []) -> Just $ CustomOp $ \ _optys  ops -> 
                  case ops of 
@@ -485,7 +486,7 @@ str_len =
 
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
-  ((["core","slice","{{impl}}","len"], "crucible_slice_len_hook", [])
+  (["core","slice","{{impl}}","len", "crucible_slice_len_hook"]
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
        [MirExp (MirImmSliceRepr _) e] -> do
@@ -499,7 +500,7 @@ slice_len =
 -- the impl for Range.
 
 slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_index_usize_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"], "crucible_hook_usize", []), \subs ->
+slice_index_usize_get_unchecked = (["core","slice","{{impl}}","get_unchecked", "crucible_hook_usize"], \subs ->
    case subs of
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -513,7 +514,7 @@ slice_index_usize_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"],
      _ -> Nothing)
 
 slice_index_range_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_index_range_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"], "crucible_hook_range", []), \subs ->
+slice_index_range_get_unchecked = (["core","slice","{{impl}}","get_unchecked", "crucible_hook_range"], \subs ->
    case subs of
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -532,7 +533,7 @@ slice_index_range_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"],
 
 
 slice_index_usize_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_index_usize_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecked_mut"], "crucible_hook_usize", []), \subs ->
+slice_index_usize_get_unchecked_mut = (["core","slice","{{impl}}","get_unchecked_mut", "crucible_hook_usize"], \subs ->
    case subs of
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -547,7 +548,7 @@ slice_index_usize_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecke
      _ -> Nothing)
 
 slice_index_range_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_index_range_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecked_mut"], "crucible_hook_range", []), \subs ->
+slice_index_range_get_unchecked_mut = (["core","slice","{{impl}}","get_unchecked_mut", "crucible_hook_range"], \subs ->
    case subs of
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -570,13 +571,13 @@ slice_index_range_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecke
 integerWidth = knownNat :: NatRepr 512
 
 integer_from_u8 :: (ExplodedDefId, CustomRHS)
-integer_from_u8 = ((["int512", "u8"], "from_prim", []), integerFromUnsigned)
+integer_from_u8 = (["int512", "u8", "from_prim"], integerFromUnsigned)
 
 integer_from_i32 :: (ExplodedDefId, CustomRHS)
-integer_from_i32 = ((["int512", "i32"], "from_prim", []), integerFromSigned)
+integer_from_i32 = (["int512", "i32", "from_prim"], integerFromSigned)
 
 integer_from_u64 :: (ExplodedDefId, CustomRHS)
-integer_from_u64 = ((["int512", "u64"], "from_prim", []), integerFromUnsigned)
+integer_from_u64 = (["int512", "u64", "from_prim"], integerFromUnsigned)
 
 integerFromSigned :: CustomRHS
 integerFromSigned (Substs []) =
@@ -596,11 +597,11 @@ integerFromUnsigned (Substs []) =
 
 
 integer_as_u8 :: (ExplodedDefId, CustomRHS)
-integer_as_u8 = ((["int512", "u8"], "as_prim", []),
+integer_as_u8 = (["int512", "u8", "as_prim"],
     integerAsUnsigned (knownNat :: NatRepr 8))
 
 integer_as_u64 :: (ExplodedDefId, CustomRHS)
-integer_as_u64 = ((["int512", "u64"], "as_prim", []),
+integer_as_u64 = (["int512", "u64", "as_prim"],
     integerAsUnsigned (knownNat :: NatRepr 64))
 
 integerAsUnsigned :: 1 <= w => NatRepr w -> CustomRHS
@@ -612,7 +613,7 @@ integerAsUnsigned w (Substs []) =
 
 
 integer_shl :: (ExplodedDefId, CustomRHS)
-integer_shl = ((["int512"], "shl", []), \(Substs []) ->
+integer_shl = (["int512", "shl"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
           | Just LeqProof <- testLeq (incNat w) w' ->
@@ -622,7 +623,7 @@ integer_shl = ((["int512"], "shl", []), \(Substs []) ->
     )
 
 integer_shr :: (ExplodedDefId, CustomRHS)
-integer_shr = ((["int512"], "shr", []), \(Substs []) ->
+integer_shr = (["int512", "shr"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
           | Just LeqProof <- testLeq (incNat w) w' ->
@@ -632,7 +633,7 @@ integer_shr = ((["int512"], "shr", []), \(Substs []) ->
     )
 
 integer_bitand :: (ExplodedDefId, CustomRHS)
-integer_bitand = ((["int512"], "bitand", []), \(Substs []) ->
+integer_bitand = (["int512", "bitand"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -641,7 +642,7 @@ integer_bitand = ((["int512"], "bitand", []), \(Substs []) ->
     )
 
 integer_bitor :: (ExplodedDefId, CustomRHS)
-integer_bitor = ((["int512"], "bitor", []), \(Substs []) ->
+integer_bitor = (["int512", "bitor"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -650,7 +651,7 @@ integer_bitor = ((["int512"], "bitor", []), \(Substs []) ->
     )
 
 integer_eq :: (ExplodedDefId, CustomRHS)
-integer_eq = ((["int512"], "eq", []), \(Substs []) ->
+integer_eq = (["int512", "eq"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -659,7 +660,7 @@ integer_eq = ((["int512"], "eq", []), \(Substs []) ->
     )
 
 integer_lt :: (ExplodedDefId, CustomRHS)
-integer_lt = ((["int512"], "lt", []), \(Substs []) ->
+integer_lt = (["int512", "lt"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -668,7 +669,7 @@ integer_lt = ((["int512"], "lt", []), \(Substs []) ->
     )
 
 integer_add :: (ExplodedDefId, CustomRHS)
-integer_add = ((["int512"], "add", []), \(Substs []) ->
+integer_add = (["int512", "add"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -677,7 +678,7 @@ integer_add = ((["int512"], "add", []), \(Substs []) ->
     )
 
 integer_sub :: (ExplodedDefId, CustomRHS)
-integer_sub = ((["int512"], "sub", []), \(Substs []) ->
+integer_sub = (["int512", "sub"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -686,7 +687,7 @@ integer_sub = ((["int512"], "sub", []), \(Substs []) ->
     )
 
 integer_rem :: (ExplodedDefId, CustomRHS)
-integer_rem = ((["int512"], "rem", []), \(Substs []) ->
+integer_rem = (["int512", "rem"], \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->

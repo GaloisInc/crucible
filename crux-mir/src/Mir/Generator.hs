@@ -166,7 +166,6 @@ data CustomOpMap = CustomOpMap
     , _cloneFromShimOp :: Ty -> [DefId] -> CustomOp
     }
 
-type ExplodedDefId = ([Text], Text, [Text])
 data CustomOp      =
     CustomOp (forall h s ret. HasCallStack 
                  => [Ty]       -- ^ argument types
@@ -349,10 +348,10 @@ resolveCustom instDefId _substs = do
                 f <- use $ customOps . fnPtrShimOp
                 return $ Just $ f ty
             IkCloneShim ty parts
-              | intr ^. intrInst . inDefId == textId "core[0]::clone[0]::Clone[0]::clone[0]" -> do
+              | intr ^. intrInst . inDefId == textId "core::clone::Clone::clone" -> do
                 f <- use $ customOps . cloneShimOp
                 return $ Just $ f ty parts
-              | intr ^. intrInst . inDefId == textId "core[0]::clone[0]::Clone[0]::clone_from[0]" -> do
+              | intr ^. intrInst . inDefId == textId "core::clone::Clone::clone_from" -> do
                 f <- use $ customOps . cloneFromShimOp
                 return $ Just $ f ty parts
               | otherwise -> mirFail $
@@ -361,9 +360,7 @@ resolveCustom instDefId _substs = do
             _ -> do
                 let origDefId = intr ^. intrInst . inDefId
                 let origSubsts = intr ^. intrInst . inSubsts
-                let edid = (map fst (did_path origDefId),
-                        fst (did_name origDefId),
-                        map fst (did_extra origDefId))
+                let edid = idKey origDefId
                 optOp <- use $ customOps . opDefs .  at edid
                 case optOp of
                     Nothing -> return Nothing

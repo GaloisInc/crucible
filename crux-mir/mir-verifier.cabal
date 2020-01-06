@@ -46,7 +46,8 @@ library
                  crux,
                  scientific       >= 0.3,
                  simple-get-opt,
-                 config-schema
+                 config-schema,
+                 template-haskell
 
 
   hs-source-dirs: src
