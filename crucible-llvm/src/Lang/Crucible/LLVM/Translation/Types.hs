@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -50,18 +51,24 @@ module Lang.Crucible.LLVM.Translation.Types
 
 import           Control.Monad.Fail (MonadFail)
 import           Data.Foldable
+import           Data.String
 
 import qualified Text.LLVM.AST as L
+import qualified Text.LLVM.PP as L
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+
 
 import           Lang.Crucible.Panic(panic)
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemType
+import           Lang.Crucible.LLVM.MalformedLLVMModule
 import           Lang.Crucible.LLVM.TypeContext as TyCtx
+
 
 
 type VarArgs   = VectorType AnyType
@@ -165,5 +172,11 @@ llvmDeclToFunHandleRepr' ::
    m a
 llvmDeclToFunHandleRepr' decl k =
   case liftDeclare decl of
-    Left msg -> fail msg
+    Left msg ->
+      malformedLLVMModule
+        ( "Invalid declaration for:" <+> fromString (show (L.decName decl)) )
+        [ fromString (show (L.ppDeclare decl))
+        , fromString msg
+        ]
+
     Right fd -> llvmDeclToFunHandleRepr fd k

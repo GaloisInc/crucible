@@ -27,6 +27,7 @@ module Lang.Crucible.LLVM.Ctors
   ) where
 
 import           Data.Data (Data)
+import           Data.String(fromString)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           Data.Parameterized.Nonce
@@ -61,7 +62,7 @@ import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle (HandleAllocator, mkHandle')
 import           Lang.Crucible.Types (UnitType, TypeRepr(UnitRepr))
 import           Lang.Crucible.LLVM.Extension (LLVM, ArchWidth)
-import           Lang.Crucible.LLVM.Translation.Monad (LLVMContext, _llvmTypeCtx)
+import           Lang.Crucible.LLVM.Translation.Monad (LLVMContext, _llvmTypeCtx, malformedLLVMModule)
 import           Lang.Crucible.LLVM.Types (HasPtrWidth)
 
 {- Example:
@@ -118,7 +119,9 @@ globalCtors mod_ =
       -- Sort the values by priority, highest to lowest.
       pure (sortBy (comparing (Down . ctorPriority)) vs')
 
-    Nothing -> throwError "Couldn't find global llvm.global_ctors"
+    -- @llvm.ctors value not found, assume there are no global_ctors to run
+    Nothing -> return []
+
     Just v  -> throwError $ unlines $
       [ "llvm.global_ctors wasn't an array"
       , "Value: " ++ show v
@@ -132,10 +135,12 @@ callCtors :: (Ctor -> Bool) -- ^ Filter function
           -> L.Module
           -> LLVMGenerator s arch UnitType (Expr (LLVM arch) s UnitType)
 callCtors select mod_ = do
-  ctors <- either fail (pure . filter select) (globalCtors mod_)
-  _ <- forM ctors $ \ctor ->
-    let ty = L.FunTy (L.PrimType L.Void) [] False
-    in callFunction False ty (L.ValSymbol (ctorFunction ctor)) [] (const (pure ()))
+  let err msg = malformedLLVMModule "Error loading @llvm.global_ctors" [fromString msg]
+  let ty = L.FunTy (L.PrimType L.Void) [] False
+
+  ctors <- either err (pure . filter select) (globalCtors mod_)
+  forM_ ctors $ \ctor ->
+    callFunction Nothing False ty (L.ValSymbol (ctorFunction ctor)) [] (const (pure ()))
   return (App EmptyApp)
 
 -- | Call each function in @llvm.global_ctors@ in order of decreasing priority

@@ -42,6 +42,7 @@ module Lang.Crucible.LLVM.Translation.Expr
   , constToLLVMVal
   , transValue
   , transTypedValue
+  , transTypeAndValue
   , liftConstant
 
   , callIsNull
@@ -336,11 +337,21 @@ liftConstant c = case c of
        ptr  <- extensionStmt (LLVM_PtrAddOffset ?ptrWidth memVar base off')
        return (BaseExpr PtrRepr ptr)
 
-transTypedValue :: L.Typed L.Value
-                -> LLVMGenerator s arch ret (LLVMExpr s arch)
-transTypedValue v = do
-   tp <- either fail return $ liftMemType $ L.typedType v
-   transValue tp (L.typedValue v)
+transTypeAndValue ::
+  L.Typed L.Value ->
+  LLVMGenerator s arch ret (MemType, LLVMExpr s arch)
+transTypeAndValue v =
+ do let err msg =
+         malformedLLVMModule
+           "Invalid value type"
+           [ fromString msg ]
+    tp <- either err return $ liftMemType $ L.typedType v
+    (\ex -> (tp, ex)) <$> transValue tp (L.typedValue v)
+
+transTypedValue ::
+  L.Typed L.Value ->
+  LLVMGenerator s arch ret (LLVMExpr s arch)
+transTypedValue v = snd <$> transTypeAndValue v
 
 -- | Translate an LLVM Value into an expression.
 transValue :: forall s arch ret.
@@ -398,14 +409,12 @@ transValue DoubleType (L.ValDouble d) =
   liftConstant (DoubleConst d)
 
 transValue (StructType _) (L.ValStruct vs) = do
-     vs' <- mapM transTypedValue vs
-     xs <- mapM (either fail return . liftMemType . L.typedType) vs
-     return (StructExpr $ Seq.fromList $ zip xs vs')
+     vs' <- mapM transTypeAndValue vs
+     return (StructExpr $ Seq.fromList $ vs')
 
 transValue (StructType _) (L.ValPackedStruct vs) =  do
-     vs' <- mapM transTypedValue vs
-     xs <- mapM (either fail return . liftMemType . L.typedType) vs
-     return (StructExpr $ Seq.fromList $ zip xs vs')
+     vs' <- mapM transTypeAndValue vs
+     return (StructExpr $ Seq.fromList $ vs')
 
 transValue (ArrayType _ tp) (L.ValArray _ vs) = do
      vs' <- mapM (transValue tp) vs

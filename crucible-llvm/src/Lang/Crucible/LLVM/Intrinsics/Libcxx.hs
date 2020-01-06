@@ -134,9 +134,8 @@ mkOverride substrings ov filt =
   SomeCPPOverride substrings $ \requestedDecl decodedName llvmctx ->
     let ?lc = llvmctx^.llvmTypeCtx in
     matchSymbolName filt requestedDecl decodedName $
-      do decl' <- either fail return $ liftDeclare requestedDecl
-         llvmDeclToFunHandleRepr decl' $ \argTys retTy ->
-           ov requestedDecl argTys retTy
+      llvmDeclToFunHandleRepr' requestedDecl $ \argTys retTy ->
+        ov requestedDecl argTys retTy
 
 ------------------------------------------------------------------------
 -- *** No-op override builders

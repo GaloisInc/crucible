@@ -221,11 +221,6 @@ instrResultType instr =
 
     _ -> fail $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
 
-
-
-liftMemType' :: (?lc::TypeContext, Monad m) => L.Type -> m MemType
-liftMemType' = either fail return . liftMemType
-
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
     :: forall s arch ret.
@@ -1558,12 +1553,12 @@ generateInstr retType lab instr assign_f k =
          k
 
     L.Call tailcall (L.PtrTo fnTy) fn args ->
-      callFunctionWithCont tailcall fnTy fn args assign_f k
+      callFunctionWithCont instr tailcall fnTy fn args assign_f k
     L.Call _ ty _ _ ->
       fail $ unwords ["unexpected function type in call:", show ty]
 
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
-        callFunctionWithCont False fnTy fn args assign_f $ definePhiBlock lab normLabel
+        callFunctionWithCont instr False fnTy fn args assign_f $ definePhiBlock lab normLabel
 
     L.Bit op x y ->
       do tp <- liftMemType' (L.typedType x)
@@ -1702,6 +1697,14 @@ generateInstr retType lab instr assign_f k =
     L.VaArg{} -> unsupported
 
  where
+ liftMemType' = either typeErr return . liftMemType
+
+ typeErr msg =
+    malformedLLVMModule "Invalid type when translating instruction"
+       [ fromString (showInstr instr)
+       , fromString msg
+       ]
+
  unsupported = reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $
                  unwords ["unsupported instruction", showInstr instr]
 
@@ -1765,19 +1768,26 @@ arithOp op _ x y =
 
 -- | Generate a call to an LLVM function.
 callFunction ::
+   Maybe L.Instr {- ^ The instruction causing this call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
    [L.Typed L.Value] {- ^ argument list -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator s arch ret ()
-callFunction _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args assign_f = do
-  let ?err = fail
-  fnTy'  <- liftMemType' (L.PtrTo fnTy)
-  retTy' <- either fail return $ liftRetType lretTy
+callFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args assign_f = do
+  let err :: String -> a
+      err = \msg -> malformedLLVMModule "Invalid type in function call" $
+                       [ fromString msg ]
+                       ++
+                       maybe [] ((:[]) . fromString . showInstr) instr
+
+  fnTy'  <- either err return $ liftMemType (L.PtrTo fnTy)
+  retTy' <- either err return $ liftRetType lretTy
   fn'    <- transValue fnTy' fn
   args'  <- mapM transTypedValue args
 
+  let ?err = err
   unpackArgs args' $ \argTypes args'' ->
     llvmRetTypeAsRepr retTy' $ \retTy ->
       case asScalar fn' of
@@ -1788,16 +1798,17 @@ callFunction _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args assign_f 
           assign_f (BaseExpr retTy ret)
         _ -> fail $ unwords ["unsupported function value", show fn]
 
-callFunction _tailCall fnTy _fn _args _assign_f =
-  reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $ unwords $
-    [ "[callFunction] Unsupported function type"
-    , show fnTy
-    ]
+callFunction instr _tailCall fnTy _fn _args _assign_f =
+  reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $ unlines $
+    [ "[callFunction] Unsupported function type: " ++ show fnTy ]
+    ++
+    maybe [] ( (:[]) . show) instr
 
 
 -- | Generate a call to an LLVM function, with a continuation to fetch more
 -- instructions.
 callFunctionWithCont :: forall s arch ret a.
+   L.Instr {- ^ Source instruction o the call -} -> 
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
@@ -1805,7 +1816,7 @@ callFunctionWithCont :: forall s arch ret a.
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator s arch ret a {- ^ continuation for next instructions -} ->
    LLVMGenerator s arch ret a
-callFunctionWithCont tailCall_ fnTy fn args assign_f k
+callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
      -- would require some work to support.
@@ -1830,7 +1841,7 @@ callFunctionWithCont tailCall_ fnTy fn args assign_f k
             addBreakpointStmt (Text.pack nm) val_args
             k
 
-     | otherwise = callFunction tailCall_ fnTy fn args assign_f >> k
+     | otherwise = callFunction (Just instr) tailCall_ fnTy fn args assign_f >> k
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->
