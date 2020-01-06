@@ -120,19 +120,19 @@ bindFn fn cfg =
 
     overrides :: sym -> Map Text (FunctionName -> SomeOverride (Model sym) sym)
     overrides s =
-      fromList [ override "::crucible[0]::one[0]" Empty (BVRepr (knownNat @ 8)) $
+      fromList [ override "crucible/0::one[0]" Empty (BVRepr (knownNat @ 8)) $
                  do h <- printHandle <$> getContext
                     liftIO (hPutStrLn h "Hello, I'm an override")
                     v <- liftIO $ bvLit (s :: sym) knownNat 1
                     return v
-               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u8[0]"  (knownNat @ 8)
-               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u16[0]" (knownNat @ 16)
-               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u32[0]" (knownNat @ 32)
-               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u64[0]" (knownNat @ 64)
-               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u128[0]" (knownNat @ 128)
-               , symb_bv "::int512[0]::symbolic[0]" (knownNat @ 512)
+               , symb_bv "crucible/0::symbolic[0]::symbolic_u8[0]"  (knownNat @ 8)
+               , symb_bv "crucible/0::symbolic[0]::symbolic_u16[0]" (knownNat @ 16)
+               , symb_bv "crucible/0::symbolic[0]::symbolic_u32[0]" (knownNat @ 32)
+               , symb_bv "crucible/0::symbolic[0]::symbolic_u64[0]" (knownNat @ 64)
+               , symb_bv "crucible/0::symbolic[0]::symbolic_u128[0]" (knownNat @ 128)
+               , symb_bv "int512/0::symbolic[0]" (knownNat @ 512)
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
-                 in override "::crucible[0]::crucible_assert_impl[0]" argTys UnitRepr $
+                 in override "crucible/0::crucible_assert_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        src <- maybe (fail "not a constant src string")
@@ -146,7 +146,7 @@ bindFn fn cfg =
                        liftIO $ assert s (regValue c) reason
                        return ()
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
-                 in override "::crucible[0]::crucible_assume_impl[0]" argTys UnitRepr $
+                 in override "crucible/0::crucible_assume_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        loc <- liftIO $ getCurrentProgramLoc s

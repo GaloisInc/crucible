@@ -1,3 +1,3 @@
 [Crux] Disproved 1 out of 1 goals. 0 goals are unknown.
-[Crux] Failure for panicking::begin_panic, called from ::bytes[0]::{{impl}}[4]::put_slice[0]
-in ::bytes[0]::{{impl}}[4]::put_slice[0] at <::std::macros::panic macros>:4:15: 4:70
+[Crux] Failure for panicking::begin_panic, called from bytes/0::{{impl}}[4]::put_slice[0]
+in bytes/0::{{impl}}[4]::put_slice[0] at <::std::macros::panic macros>:4:15: 4:70
