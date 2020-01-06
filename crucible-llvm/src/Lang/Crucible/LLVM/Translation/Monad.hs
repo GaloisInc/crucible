@@ -12,6 +12,7 @@
 {-# LANGUAGE ImplicitParams        #-}
 {-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
@@ -29,6 +30,11 @@ module Lang.Crucible.LLVM.Translation.Monad
   , initialState
 
   , getMemVar
+
+    -- * Malformed modules
+  , MalformedLLVMModule(..)
+  , malformedLLVMModule
+  , renderMalformedLLVMModule
 
     -- * LLVMContext
   , LLVMContext(..)
@@ -55,6 +61,7 @@ import           Lang.Crucible.CFG.Generator
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
+import           Lang.Crucible.LLVM.MalformedLLVMModule
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Types
@@ -91,8 +98,7 @@ mkLLVMContext :: HandleAllocator
 mkLLVMContext halloc m = do
   let (errs, typeCtx) = typeContextFromModule m
   unless (null errs) $
-    fail $ unlines
-         $ [ "Failed to construct LLVM type context:" ] ++ map show errs
+    malformedLLVMModule "Failed to construct LLVM type context" errs
   let dl = llvmDataLayout typeCtx
 
   case mkNatRepr (ptrBitwidth dl) of
@@ -114,7 +120,6 @@ mkLLVMContext halloc m = do
            return (Some ctx)
     _ ->
       fail ("Cannot load LLVM bitcode file with illegal pointer width: " ++ show (dl^.ptrSize))
-
 
 
 -- | A monad providing state and continuations for translating LLVM expressions

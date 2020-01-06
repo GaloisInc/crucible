@@ -86,13 +86,14 @@ module Lang.Crucible.LLVM.Translation
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
-import Control.Monad.Except
-import Control.Lens hiding (op, (:>) )
-import Data.Maybe
-import Data.Map.Strict (Map)
+import           Control.Lens hiding (op, (:>) )
+import           Control.Monad.Except
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Maybe
+import           Data.String
 import qualified Data.Text   as Text
-import System.FilePath
+import           System.FilePath
 
 import qualified Text.LLVM.AST as L
 
@@ -110,7 +111,6 @@ import           Lang.Crucible.CFG.SSAConversion( toSSA )
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
---import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.Globals
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Aliases
@@ -167,12 +167,23 @@ buildRegTypeMap :: IdentMap s
                 -> L.BasicBlock
                 -> LLVMGenerator s arch ret (IdentMap s)
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
- where stmt m (L.Effect _ _) = return m
-       stmt m (L.Result ident instr _) = do
-         ty <- either fail return $ instrResultType instr
+ where
+    err instr msg =
+       malformedLLVMModule "Invalid type in instruction result"
+          [ fromString (showInstr instr)
+          , fromString msg
+          ]
+
+    stmt m (L.Effect _ _) = return m
+    stmt m (L.Result ident instr _) = do
+         ty <- either (err instr) return $ instrResultType instr
          ex <- typeToRegExpr ty
          case Map.lookup ident m of
-           Just _ -> fail $ unwords ["register not used in SSA fashion:", show ident]
+           Just _ ->
+             malformedLLVMModule "Register not used in SSA fashion"
+              [ fromString (show ident)
+              , fromString (showInstr instr)
+              ]
            Nothing -> return $ Map.insert ident (Left ex) m
 
 

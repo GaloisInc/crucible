@@ -44,9 +44,10 @@ import           Control.Arrow ((&&&))
 import           Control.Monad.Except
 import           Control.Lens hiding (op, (:>) )
 import           Data.List (foldl')
-import qualified Data.Set as Set
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import           Data.String
 import           Control.Monad.State (StateT, runStateT, get, put)
 import           Data.Maybe (fromMaybe)
 
@@ -185,7 +186,10 @@ initializeMemory predicate sym llvm_ctx m = do
    let globAliases = llvmGlobalAliases llvm_ctx
    let globals     = L.modGlobals m
    gs_alloc <- mapM (\g -> do
-                        ty <- either fail return $ liftMemType $ L.globalType g
+                        let err msg = malformedLLVMModule
+                                    ("Invalid type for global" <> fromString (show (L.globalSym g)))
+                                    [fromString msg]
+                        ty <- either err return $ liftMemType $ L.globalType g
                         let sz      = memTypeSize dl ty
                         let tyAlign = memTypeAlign dl ty
                         let aliases = map L.aliasName . Set.toList $
