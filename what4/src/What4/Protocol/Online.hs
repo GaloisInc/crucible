@@ -15,6 +15,7 @@ solvers that support online interaction modes.
 module What4.Protocol.Online
   ( OnlineSolver(..)
   , SolverProcess(..)
+  , ErrorBehavior(..)
   , killSolver
   , push
   , pop
@@ -70,6 +71,14 @@ class SMTReadWriter solver => OnlineSolver scope solver where
   --   via a signal.
   shutdownSolverProcess :: SolverProcess scope solver -> IO (ExitCode, LazyText.Text)
 
+
+-- | This datatype describes how a solver will behave following an error.
+data ErrorBehavior
+  = ImmediateExit -- ^ This indicates the solver will immediately exit following an error
+  | ContinueOnError
+     -- ^ This indicates the solver will remain live and respond to further
+     --   commmands following an error
+
 -- | A live connection to a running solver process.
 data SolverProcess scope solver = SolverProcess
   { solverConn  :: !(WriterConn scope solver)
@@ -83,6 +92,9 @@ data SolverProcess scope solver = SolverProcess
 
   , solverResponse :: !(Streams.InputStream Text)
     -- ^ Wrap the solver's stdout, for easier parsing of responses.
+
+  , solverErrorBehavior :: !ErrorBehavior
+    -- ^ Indicate this solver's behavior following an error response
 
   , solverStderr :: !HandleReader
     -- ^ Standard error for the solver process
@@ -196,8 +208,17 @@ inNewFrameWithVars :: (MonadIO m, MonadMask m, SMTReadWriter solver)
                    -> [Some (ExprBoundVar scope)]
                    -> m a
                    -> m a
-inNewFrameWithVars p vars action =
-  bracket_ (liftIO $ pushWithVars) (liftIO $ try @SomeException $ pop p) action
+inNewFrameWithVars p vars action
+  case solverErrorBehavior p of
+    ContinueOnError ->
+      bracket_ (liftIO $ pushWithVars)
+               (liftIO $ try @SomeException $ pop p)
+               action
+    ImmediateExit ->
+      do liftIO $ pushWithVars
+         action
+         pop p
+
   where
     conn = solverConn p
     pushWithVars = do
