@@ -348,10 +348,10 @@ resolveCustom instDefId _substs = do
                 f <- use $ customOps . fnPtrShimOp
                 return $ Just $ f ty
             IkCloneShim ty parts
-              | intr ^. intrInst . inDefId == textId "core/0::clone[0]::Clone[0]::clone[0]" -> do
+              | intr ^. intrInst . inDefId == textId "core::clone::Clone::clone" -> do
                 f <- use $ customOps . cloneShimOp
                 return $ Just $ f ty parts
-              | intr ^. intrInst . inDefId == textId "core/0::clone[0]::Clone[0]::clone_from[0]" -> do
+              | intr ^. intrInst . inDefId == textId "core::clone::Clone::clone_from" -> do
                 f <- use $ customOps . cloneFromShimOp
                 return $ Just $ f ty parts
               | otherwise -> mirFail $

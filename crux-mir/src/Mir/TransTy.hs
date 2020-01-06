@@ -20,6 +20,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Mir.TransTy where
 
@@ -96,16 +97,16 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 
 -- Custom type aliases
-pattern CTyInt512 = M.TyAdt "int512/0::Int512[0]" (M.Substs [])
-pattern CTyBox t = M.TyAdt "alloc/0::boxed[0]::Box[0]" (M.Substs [t])
-pattern CTyVector t = M.TyAdt "crucible/0::vector[0]::Vector[0]" (M.Substs [t])
+pattern CTyInt512 = M.TyAdt $(M.normDefIdPat "int512::Int512") (M.Substs [])
+pattern CTyBox t = M.TyAdt $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t])
+pattern CTyVector t = M.TyAdt $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
 
 -- These don't have custom representation, but are referenced in various
 -- places.
-pattern CTyOption t = M.TyAdt "core/0::option[0]::Option[0]" (M.Substs [t])
+pattern CTyOption t = M.TyAdt $(M.normDefIdPat "core::option::Option") (M.Substs [t])
 
 optionDefId :: M.DefId
-optionDefId = M.textId "core/0::option[0]::Option[0]"
+optionDefId = M.textId "core::option::Option"
 optionDiscrNone :: Int
 optionDiscrNone = 0
 optionDiscrSome :: Int
