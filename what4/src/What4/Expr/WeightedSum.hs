@@ -656,7 +656,8 @@ prodMul :: Tm f => SemiRingProduct f sr -> SemiRingProduct f sr -> SemiRingProdu
 prodMul x y = mkProd sr m
   where
   sr = prodRepr x
-  mergeCommon _ (u,a) (v,b) = Just (u <> v, SR.occ_add sr a b)
+  mergeCommon (WrapF k) (_,a) (_,b) = Just (mkProdNote sr c k, c)
+     where c = SR.occ_add sr a b
   m = AM.mergeWithKey mergeCommon id id (_prodMap x) (_prodMap y)
 
 -- | Evaluate a product, given a function representing multiplication
