@@ -134,17 +134,17 @@ toList (AnnotatedMap ft) =
 
 fromAscList :: (Ord k, Semigroup v) => [(k,v,a)] -> AnnotatedMap k v a
 fromAscList = AnnotatedMap . FT.fromList . fmap f
- where
- f (k,v,a) = Entry k v a
+  where
+    f (k, v, a) = Entry k v a
 
 listEqBy :: (a -> a -> Bool) -> [a] -> [a] -> Bool
 listEqBy _ [] [] = True
-listEqBy f (x:xs) (y:ys)
+listEqBy f (x : xs) (y : ys)
   | f x y = listEqBy f xs ys
 listEqBy _ _ _ = False
 
 eqBy :: Ord k => (a -> a -> Bool) -> AnnotatedMap k v a -> AnnotatedMap k v a -> Bool
-eqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (toList x) (toList y)
+eqBy f x y = listEqBy (\(kx, ax) (ky, ay) -> kx == ky && f ax ay) (toList x) (toList y)
 
 null :: AnnotatedMap k v a -> Bool
 null (AnnotatedMap ft) = FT.null ft
@@ -189,7 +189,7 @@ insert k v a (AnnotatedMap ft) =
 lookup :: (Ord k, Semigroup v) => k -> AnnotatedMap k v a -> Maybe (v, a)
 lookup k (AnnotatedMap ft) = valOf <$> m
   where
-  (_, m, _) = splitAtKey k ft
+    (_, m, _) = splitAtKey k ft
 
 delete :: (Ord k, Semigroup v) => k -> AnnotatedMap k v a -> AnnotatedMap k v a
 delete k m@(AnnotatedMap ft) =
@@ -212,10 +212,10 @@ alterF ::
   (Maybe (v, a) -> f (Maybe (v, a))) -> k -> AnnotatedMap k v a -> f (AnnotatedMap k v a)
 alterF f k (AnnotatedMap ft) = rebuild <$> f (fmap valOf m)
   where
-  (l, m, r) = splitAtKey k ft
+    (l, m, r) = splitAtKey k ft
 
-  rebuild Nothing      = AnnotatedMap (l >< r)
-  rebuild (Just (v,a)) = AnnotatedMap (l >< (Entry k v a) <| r)
+    rebuild Nothing       = AnnotatedMap (l >< r)
+    rebuild (Just (v, a)) = AnnotatedMap (l >< (Entry k v a) <| r)
 
 
 union ::
@@ -307,7 +307,8 @@ mergeWithKey ::
   AnnotatedMap k u a -> AnnotatedMap k v b -> AnnotatedMap k w c
 mergeWithKey f g1 g2 m1 m2 = runIdentity $ mergeGeneric f' (pure . g1) (pure . g2) m1 m2
   where
-    f' (Entry k u a) (Entry _ v b) = Identity $
+    f' (Entry k u a) (Entry _ v b) =
+      Identity $
       case f k (u, a) (v, b) of
         Nothing -> Nothing
         Just (w, c) -> Just (Entry k w c)
@@ -317,25 +318,25 @@ mergeA ::
   (k -> (v, a) -> (v, a) -> f (v,a)) ->
   AnnotatedMap k v a -> AnnotatedMap k v a -> f (AnnotatedMap k v a)
 mergeA f m1 m2 = mergeGeneric f' pure pure m1 m2
- where
- f' (Entry k v1 x1) (Entry _ v2 x2) = g k <$> f k (v1,x1) (v2,x2)
- g k (v,x) = Just (Entry k v x)
+  where
+    f' (Entry k v1 x1) (Entry _ v2 x2) = g k <$> f k (v1, x1) (v2, x2)
+    g k (v, x) = Just (Entry k v x)
 
 mergeWithKeyM :: (Ord k, Semigroup u, Semigroup v, Semigroup w, Applicative m) =>
-  (k -> (u,a) -> (v,b) -> m (w,c)) ->
-  (k -> (u,a) -> m (w,c)) ->
-  (k -> (v,b) -> m (w,c)) ->
+  (k -> (u, a) -> (v, b) -> m (w, c)) ->
+  (k -> (u, a) -> m (w, c)) ->
+  (k -> (v, b) -> m (w, c)) ->
   AnnotatedMap k u a -> AnnotatedMap k v b -> m (AnnotatedMap k w c)
 mergeWithKeyM both left right = mergeGeneric both' left' right'
- where
- both' (Entry k u a) (Entry _ v b) = q k <$> both k (u,a) (v,b)
- left'  m = AnnotatedMap <$> traverseMaybeFingerTree fl (annotatedMap m)
- right' m = AnnotatedMap <$> traverseMaybeFingerTree fr (annotatedMap m)
+  where
+    both' (Entry k u a) (Entry _ v b) = q k <$> both k (u, a) (v, b)
+    left'  m = AnnotatedMap <$> traverseMaybeFingerTree fl (annotatedMap m)
+    right' m = AnnotatedMap <$> traverseMaybeFingerTree fr (annotatedMap m)
 
- fl (Entry k v x) = q k <$> left k (v,x)
- fr (Entry k v x) = q k <$> right k (v,x)
+    fl (Entry k v x) = q k <$> left k (v, x)
+    fr (Entry k v x) = q k <$> right k (v, x)
 
- q k (a,b) = Just (Entry k a b)
+    q k (a, b) = Just (Entry k a b)
 
 
 mergeGeneric ::
