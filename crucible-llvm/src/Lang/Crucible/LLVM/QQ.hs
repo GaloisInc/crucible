@@ -41,7 +41,7 @@ import           Lang.Crucible.LLVM.Types
 --   quasiquoter metavariables.
 data QQType
   = QQVar String     -- ^ This constructor represents a type metavariable, e.g. @$var@
-  | QQIntVar String  -- ^ This constructor represents a integer type metavaraible, e.g. @#var@
+  | QQIntVar String  -- ^ This constructor represents a integer type metavariable, e.g. @#var@
   | QQSizeT          -- ^ This constructor represents an integer type that is the same width as a pointer
   | QQPrim L.PrimType
   | QQPtrTo QQType
@@ -59,7 +59,7 @@ data QQType
 data QQDeclare =
   QQDeclare
   { qqDecRet     :: QQType
-  , qqDecName    :: Either String L.Symbol -- ^ a @Left@ value is a metavaraible; @Right@ is a symbol
+  , qqDecName    :: Either String L.Symbol -- ^ a @Left@ value is a metavariable; @Right@ is a symbol
   , qqDecArgs    :: [QQType]
   , qqDecVarArgs :: Bool
   }
@@ -296,7 +296,7 @@ liftQQDeclToOverride qqd@(QQDeclare ret _nm args varargs) =
   [| IC.LLVMOverride $(liftQQDecl qqd) $(liftArgs args varargs) $(liftTypeRepr ret) |]
 
 -- | This quasiquoter parses values in LLVM type syntax, extended
---   with metavaraibles, and builds values of @Text.LLVM.AST.Type@.
+--   with metavariables, and builds values of @Text.LLVM.AST.Type@.
 --
 --   Type metavariables start with a @$@ and splice in the named
 --   program variable, which is expected to have type @Type@.
@@ -318,7 +318,7 @@ llvmType =
   }
 
 -- | This quasiquoter parses values in LLVM function declaration syntax,
---   extended with metavaraibles, and builds values of @Text.LLVM.AST.Declare@.
+--   extended with metavariables, and builds values of @Text.LLVM.AST.Declare@.
 --
 --   Type metavariables start with a @$@ and splice in the named
 --   program variable, which is expected to have type @Type@.
@@ -327,7 +327,7 @@ llvmType =
 --   type whose width is given by the named program variable, which
 --   is expected to be a @NatRepr@.
 --
---   The name of the declaration may also be a @$@ metavaraible, in which
+--   The name of the declaration may also be a @$@ metavariable, in which
 --   case the named variable is expeted to be a @Symbol@.
 llvmDecl :: QuasiQuoter
 llvmDecl =
@@ -343,7 +343,7 @@ llvmDecl =
   }
 
 -- | This quasiquoter parses values in LLVM function declaration syntax,
---   extended with metavaraibles, and partially applies the
+--   extended with metavariables, and partially applies the
 --   @LLVMOverride@ constructor so that it expectes a single remaining
 --   argument to populate the @llvmOverride_def@ field.
 --
@@ -358,7 +358,7 @@ llvmDecl =
 --   is expected to be a @NatRepr@.  Both the LLVM type and the Crucible
 --   @TypeRepr@ are built from the @NatRepr@.
 --
---   The name of the declaration may also be a @$@ metavaraible, in which
+--   The name of the declaration may also be a @$@ metavariable, in which
 --   case the named variable is expeted to be a @Symbol@.
 llvmOvr :: QuasiQuoter
 llvmOvr =
