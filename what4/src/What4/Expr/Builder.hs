@@ -2816,14 +2816,12 @@ sbMakeExpr sym a = do
     modifyIORef' (sbNonLinearOps sym) (+1)
   case appType a of
     -- Check if abstract interpretation concludes this is a constant.
+    BaseBoolRepr | Just b <- v -> return $ backendPred sym b
     BaseNatRepr  | Just c <- asSingleNatRange v -> natLit sym c
     BaseIntegerRepr | Just c <- asSingleRange v -> intLit sym c
     BaseRealRepr | Just c <- asSingleRange (ravRange v) -> realLit sym c
-    BaseBVRepr w | Just LeqProof <- isPosNat w
-                 , Just x <- BVD.asSingleton v ->
-      bvLit sym w x
-    _ -> do
-      appExpr s pc a v
+    BaseBVRepr w | Just x <- BVD.asSingleton v -> bvLit sym w x
+    _ -> appExpr s pc a v
 
 -- | Update the binding to point to the current variable.
 updateVarBinding :: ExprBuilder t st fs
