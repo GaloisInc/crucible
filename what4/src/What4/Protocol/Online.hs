@@ -38,7 +38,7 @@ import           Control.Exception
                    ( SomeException(..), catch, try, displayException )
 import           Control.Monad ( unless )
 import           Control.Monad (void, forM, forM_)
-import           Control.Monad.Catch ( MonadMask, bracket_ )
+import           Control.Monad.Catch ( MonadMask, bracket_, onException )
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
 import           Data.Parameterized.Some
 import           Data.IORef
@@ -197,6 +197,21 @@ pop p =
                      addCommand c (popCommand c)
       | otherwise -> writeIORef (solverEarlyUnsat p) $! (Just $! i-1)
 
+-- | Pop a previous solver assumption frame, but don't communicate
+--   the pop command to the solver.  This is really only useful in
+--   error recovery code when we know the solver has already exited.
+popStackOnly :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+popStackOnly p =
+  readIORef (solverEarlyUnsat p) >>= \case
+    Nothing -> do let c = solverConn p
+                  popEntryStack c
+    Just i
+      | i <= 1 -> do let c = solverConn p
+                     popEntryStack c
+                     writeIORef (solverEarlyUnsat p) Nothing
+      | otherwise -> writeIORef (solverEarlyUnsat p) $! (Just $! i-1)
+
+
 -- | Perform an action in the scope of a solver assumption frame.
 inNewFrame :: (MonadIO m, MonadMask m, SMTReadWriter solver) => SolverProcess scope solver -> m a -> m a
 inNewFrame p action = inNewFrameWithVars p [] action
@@ -208,17 +223,17 @@ inNewFrameWithVars :: (MonadIO m, MonadMask m, SMTReadWriter solver)
                    -> [Some (ExprBoundVar scope)]
                    -> m a
                    -> m a
-inNewFrameWithVars p vars action
+inNewFrameWithVars p vars action =
   case solverErrorBehavior p of
     ContinueOnError ->
       bracket_ (liftIO $ pushWithVars)
-               (liftIO $ try @SomeException $ pop p)
+               (liftIO $ pop p)
                action
     ImmediateExit ->
       do liftIO $ pushWithVars
-         action
-         pop p
-
+         x <- (onException action (liftIO $ popStackOnly p))
+         liftIO $ pop p
+         return x
   where
     conn = solverConn p
     pushWithVars = do

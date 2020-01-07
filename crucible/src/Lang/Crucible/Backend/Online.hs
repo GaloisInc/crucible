@@ -33,8 +33,8 @@ module Lang.Crucible.Backend.Online
   , initialOnlineBackendState
   , checkSatisfiable
   , checkSatisfiableWithModel
-  , getSolverProcess
-  , getSolverProcess'
+  , withSolverProcess
+  , withSolverProcess'
   , resetSolverProcess
   , UnsatFeatures(..)
   , unsatFeaturesToProblemFeatures
@@ -99,6 +99,7 @@ import qualified What4.Solver.Z3 as Z3
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
+import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 
 data UnsatFeatures
@@ -130,10 +131,12 @@ onlineBackendOptions =
 
 
 -- | Get the connection for sending commands to the solver.
-getSolverConn ::
+withSolverConn ::
   OnlineSolver scope solver =>
-  OnlineBackend scope solver fs -> IO (WriterConn scope solver)
-getSolverConn sym = solverConn <$> getSolverProcess sym
+  OnlineBackend scope solver fs ->
+  (WriterConn scope solver -> IO a) ->
+  IO a
+withSolverConn sym k = withSolverProcess sym (k . solverConn)
 
 --------------------------------------------------------------------------------
 type OnlineBackend scope solver fs =
@@ -298,36 +301,57 @@ resetSolverProcess sym = do
 
 -- | Get the solver process.
 --   Starts the solver, if that hasn't happened already.
-getSolverProcess' ::
+withSolverProcess' ::
   OnlineSolver scope solver =>
   (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver scope)) ->
   B.ExprBuilder scope s fs ->
-  IO (SolverProcess scope solver)
-getSolverProcess' getSolver sym = do
+  (SolverProcess scope solver -> IO a) ->
+  IO a
+withSolverProcess' getSolver sym action = do
   st <- getSolver sym
+  let stk = assumptionStack st
   mproc <- readIORef (solverProc st)
   auxOutSetting <- getOptionSetting solverInteractionFile (getConfiguration sym)
-  case mproc of
-    SolverStarted p _ -> return p
-    SolverNotStarted ->
-      do feats <- readIORef (currentFeatures st)
-         auxh <-
-           getMaybeOpt auxOutSetting >>= \case
-             Nothing -> return Nothing
-             Just fn
-               | Text.null fn -> return Nothing
-               | otherwise    -> Just <$> openFile (Text.unpack fn) WriteMode
-         p <- startSolverProcess feats auxh sym
-         push p
-         writeIORef (solverProc st) (SolverStarted p auxh)
-         return p
+  (p, auxh) <-
+       case mproc of
+         SolverStarted p auxh -> return (p, auxh)
+         SolverNotStarted ->
+           do feats <- readIORef (currentFeatures st)
+              auxh <-
+                getMaybeOpt auxOutSetting >>= \case
+                  Nothing -> return Nothing
+                  Just fn
+                    | Text.null fn -> return Nothing
+                    | otherwise    -> Just <$> openFile (Text.unpack fn) WriteMode
+              p <- startSolverProcess feats auxh sym
+              -- set up the solver in the same assumption state as specified
+              -- by the current assumption stack
+              (do frms <- AS.allAssumptionFrames stk
+                  restoreAssumptionFrames p frms
+                ) `onException`
+                (killSolver p `finally` maybe (return ()) hClose auxh)
+              writeIORef (solverProc st) (SolverStarted p auxh)
+              return (p, auxh)
+
+  case solverErrorBehavior p of
+    ContinueOnError ->
+      action p
+    ImmediateExit ->
+      onException
+        (action p)
+        ((killSolver p)
+          `finally`
+         (maybe (return ()) hClose auxh)
+          `finally`
+         (writeIORef (solverProc st) SolverNotStarted))
 
 -- | Get the solver process, specialized to @OnlineBackend@.
-getSolverProcess ::
+withSolverProcess ::
   OnlineSolver scope solver =>
   OnlineBackend scope solver fs ->
-  IO (SolverProcess scope solver)
-getSolverProcess = getSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
+  (SolverProcess scope solver -> IO a) ->
+  IO a
+withSolverProcess = withSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult
@@ -346,6 +370,19 @@ data BranchResult
    deriving (Data, Eq, Generic, Ord, Typeable)
 
 
+restoreAssumptionFrames ::
+  (OnlineSolver scope solver) =>
+  SolverProcess scope solver ->
+  AssumptionFrames (LabeledPred (B.BoolExpr scope) AssumptionReason) ->
+  IO ()
+restoreAssumptionFrames proc (AssumptionFrames base frms) =
+  do -- assume the base-level assumptions
+     mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList base)
+
+     -- populate the pushed frames
+     forM_ (map snd $ toList frms) $ \frm ->
+      do push proc
+         mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList frm)
 
 considerSatisfiability ::
   (OnlineSolver scope solver) =>
@@ -354,19 +391,19 @@ considerSatisfiability ::
   B.BoolExpr scope ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
-  do proc <- getSolverProcess sym
-     pnot <- notPred sym p
-     let locDesc = case mbPloc of
-           Just ploc -> show (plSourceLoc ploc)
-           Nothing -> "(unknown location)"
-     let rsn = "branch sat: " ++ locDesc
-     p_res <- checkSatisfiable proc rsn p
-     pnot_res <- checkSatisfiable proc rsn pnot
-     case (p_res, pnot_res) of
-       (Unsat{}, Unsat{}) -> return UnsatisfiableContext
-       (_      , Unsat{}) -> return (NoBranch True)
-       (Unsat{}, _      ) -> return (NoBranch False)
-       _                  -> return IndeterminateBranchResult
+  withSolverProcess sym $ \proc ->
+   do pnot <- notPred sym p
+      let locDesc = case mbPloc of
+            Just ploc -> show (plSourceLoc ploc)
+            Nothing -> "(unknown location)"
+      let rsn = "branch sat: " ++ locDesc
+      p_res <- checkSatisfiable proc rsn p
+      pnot_res <- checkSatisfiable proc rsn pnot
+      case (p_res, pnot_res) of
+        (Unsat{}, Unsat{}) -> return UnsatisfiableContext
+        (_      , Unsat{}) -> return (NoBranch True)
+        (Unsat{}, _      ) -> return (NoBranch False)
+        _                  -> return IndeterminateBranchResult
 
 -- | Do something with an online backend.
 --   The backend is only valid in the continuation.
@@ -391,40 +428,43 @@ withOnlineBackend floatMode gen feats action = do
     (liftIO $ readIORef (solverProc st) >>= \case
         SolverNotStarted {} -> return ()
         SolverStarted p auxh ->
-         do _ <- shutdownSolverProcess p
-            maybe (return ()) hClose auxh
+          ((void $ shutdownSolverProcess p) `onException` (killSolver p))
+            `finally`
+          (maybe (return ()) hClose auxh)
     )
 
 
 instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver fs) where
   addProofObligation sym a =
     case asConstantPred (a^.labeledPred) of
-      Just True  -> return ()
+      Just True -> return ()
       _ -> AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
     let cond = asConstantPred (a^.labeledPred)
     in case cond of
          Just False -> abortExecBecause (AssumedFalse (a^.labeledPredMsg))
-         _ -> do stk  <- getAssumptionStack sym
-                 -- Record assumption, even if trivial.
-                 -- This allows us to keep track of the full path we are on.
-                 AS.assume a stk
+         _ -> -- Send assertion to the solver, unless it is trivial.
+              -- NB, don't add the assumption to the assumption stack unless
+              -- the solver assumptions succeeded
+              withSolverConn sym $ \conn ->
+               do case cond of
+                    Just True -> return ()
+                    _ -> SMT.assume conn (a^.labeledPred)
 
-                 -- Send assertion to the solver, unless it is trivial.
-                 case cond of
-                   Just True -> return ()
-                   _ -> do conn <- getSolverConn sym
-                           SMT.assume conn (a^.labeledPred)
-
+                  -- Record assumption, even if trivial.
+                  -- This allows us to keep track of the full path we are on.
+                  AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym a =
-    do -- Tell the solver of assertions
-       conn <- getSolverConn sym
-       mapM_ (SMT.assume conn . view labeledPred) (toList a)
-       -- Add assertions to list
-       stk <- getAssumptionStack sym
-       appendAssumptions a stk
+    -- NB, don't add the assumption to the assumption stack unless
+    -- the solver assumptions succeeded
+    withSolverConn sym $ \conn ->
+      do -- Tell the solver of assertions
+         mapM_ (SMT.assume conn . view labeledPred) (toList a)
+         -- Add assertions to list
+         stk <- getAssumptionStack sym
+         appendAssumptions a stk
 
   getPathCondition sym =
     do stk <- getAssumptionStack sym
@@ -435,29 +475,28 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
     AS.collectAssumptions =<< getAssumptionStack sym
 
   pushAssumptionFrame sym =
-    do proc <- getSolverProcess sym
-       stk  <- getAssumptionStack sym
-       push proc
-       pushFrame stk
+    -- NB, don't push a frame in the assumption stack unless
+    -- pushing to the solver succeeded
+    withSolverProcess sym $ \proc ->
+      do push proc
+         pushFrame =<< getAssumptionStack sym
 
   popAssumptionFrame sym ident =
-    do proc <- getSolverProcess sym
-       stk <- getAssumptionStack sym
-       frm <- popFrame ident stk
-       pop proc
+    -- NB, pop the frame whether or not the solver pop succeeds
+    do frm <- popFrame ident =<< getAssumptionStack sym
+       withSolverProcess sym pop
        return frm
 
   popUntilAssumptionFrame sym ident =
-    do proc <- getSolverProcess sym
-       stk <- getAssumptionStack sym
-       n <- AS.popFramesUntil ident stk
-       forM_ [0..(n-1)] $ \_ -> pop proc
+    -- NB, pop the frames whether or not the solver pop succeeds
+    do n <- AS.popFramesUntil ident =<< getAssumptionStack sym
+       withSolverProcess sym $ \proc ->
+         forM_ [0..(n-1)] $ \_ -> pop proc
 
   popAssumptionFrameAndObligations sym ident = do
-    do proc <- getSolverProcess sym
-       stk <- getAssumptionStack sym
-       frmAndGls <- popFrameAndGoals ident stk
-       pop proc
+    -- NB, pop the frames whether or not the solver pop succeeds
+    do frmAndGls <- popFrameAndGoals ident =<< getAssumptionStack sym
+       withSolverProcess sym pop
        return frmAndGls
 
   getProofObligations sym =
@@ -473,20 +512,25 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
        AS.saveAssumptionStack stk
 
   restoreAssumptionState sym gc =
-    do proc <- getSolverProcess sym
-       stk  <- getAssumptionStack sym
+    do st <- readIORef (B.sbStateManager sym)
+       mproc <- readIORef (solverProc st)
+       let stk = assumptionStack st
 
        -- restore the previous assumption stack
        AS.restoreAssumptionStack gc stk
 
-       -- Retrieve the assumptions from the state to restore
-       AssumptionFrames base frms <- AS.allAssumptionFrames stk
+       case mproc of
+         -- Nothing to do, state will be restored next time we start the process
+         SolverNotStarted -> return ()
 
-       -- reset the solver state
-       reset proc
-       -- assume the base-level assumptions
-       mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList base)
-       -- populate the pushed frames
-       forM_ (map snd $ toList frms) $ \frm ->
-         do push proc
-            mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList frm)
+         SolverStarted proc auxh ->
+           (do -- reset the solver state
+               reset proc
+               -- restore the assumption structure
+               restoreAssumptionFrames proc (PG.gcFrames gc))
+             `onException`
+            ((killSolver proc)
+               `finally`
+             (maybe (return ()) hClose auxh)
+               `finally`
+             (writeIORef (solverProc st) SolverNotStarted))

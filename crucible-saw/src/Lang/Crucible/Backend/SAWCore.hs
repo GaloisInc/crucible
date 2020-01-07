@@ -733,19 +733,19 @@ considerSatisfiability ::
   B.BoolExpr n ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
-  do proc <- getSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym
-     pnot <- notPred sym p
-     let locDesc = case mbPloc of
-           Just ploc -> show (plSourceLoc ploc)
-           Nothing -> "(unknown location)"
-     let rsn = "branch sat: " ++ locDesc
-     p_res <- checkSatisfiable proc rsn p
-     pnot_res <- checkSatisfiable proc rsn pnot
-     case (p_res, pnot_res) of
-       (Unsat{}, Unsat{}) -> return UnsatisfiableContext
-       (_      , Unsat{}) -> return (NoBranch True)
-       (Unsat{}, _      ) -> return (NoBranch False)
-       _                  -> return IndeterminateBranchResult
+  withSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym $ \proc ->
+    do pnot <- notPred sym p
+       let locDesc = case mbPloc of
+             Just ploc -> show (plSourceLoc ploc)
+             Nothing -> "(unknown location)"
+       let rsn = "branch sat: " ++ locDesc
+       p_res <- checkSatisfiable proc rsn p
+       pnot_res <- checkSatisfiable proc rsn pnot
+       case (p_res, pnot_res) of
+         (Unsat{}, Unsat{}) -> return UnsatisfiableContext
+         (_      , Unsat{}) -> return (NoBranch True)
+         (Unsat{}, _      ) -> return (NoBranch False)
+         _                  -> return IndeterminateBranchResult
 
 {- | Declare that we don't support something or other.
 This aborts the current path of execution, and adds a proof

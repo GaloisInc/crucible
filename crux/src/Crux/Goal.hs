@@ -24,7 +24,7 @@ import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
                                , assumeFormula, smtExprGroundEvalFn )
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-        ( OnlineBackendState, getSolverProcess )
+        ( OnlineBackendState, withSolverProcess )
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
@@ -146,13 +146,13 @@ proveGoals _opts _ctxt Nothing =
 
 proveGoals opts ctxt (Just gs0) =
   do let sym = ctxt ^. ctxSymInterface
-     sp <- getSolverProcess sym
      let zero = 0 :: Integer
      goalNum <- newIORef (zero,zero,zero) -- total, proved, disproved
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
        sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
-     res <- inNewFrame sp (go sp goalNum gs0 nameMap)
+     res <- withSolverProcess sym $ \sp ->
+              inNewFrame sp (go sp goalNum gs0 nameMap)
      return (Just res)
   where
   (start,end)

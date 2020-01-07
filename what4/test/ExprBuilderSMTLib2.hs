@@ -15,7 +15,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 
-import           Control.Exception (bracket, try, SomeException)
+import           Control.Exception (bracket, try, finally, SomeException)
 import           Control.Monad (void)
 import qualified Data.ByteString as BS
 import qualified Data.Binary.IEEE754 as IEEE754
@@ -74,7 +74,7 @@ withYices action = withSym FloatRealRepr $ \sym ->
        (do h <- if debugOutputFiles then Just <$> openFile "yices.out" WriteMode else return Nothing
            s <- startSolverProcess Yices.yicesDefaultFeatures h sym
            return (h,s))
-       (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
+       (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s `finally` maybeClose h))
        (\(_,s) -> action sym s)
 
 withZ3 :: (forall t . SimpleExprBuilder t (Flags FloatIEEE) -> Session t Z3.Z3 -> IO ()) -> IO ()
@@ -92,7 +92,7 @@ withOnlineZ3 action = withSym FloatIEEERepr $ \sym -> do
     (do h <- if debugOutputFiles then Just <$> openFile "z3.out" WriteMode else return Nothing
         s <- startSolverProcess (defaultFeatures Z3.Z3) h sym
         return (h,s))
-    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
+    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s `finally` maybeClose h))
     (\(_,s) -> action sym s)
 
 withCVC4
@@ -104,7 +104,7 @@ withCVC4 action = withSym FloatRealRepr $ \sym -> do
     (do h <- if debugOutputFiles then Just <$> openFile "cvc4.out" WriteMode else return Nothing
         s <- startSolverProcess (defaultFeatures CVC4.CVC4) h sym
         return (h,s))
-    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
+    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s `finally` maybeClose h))
     (\(_,s) -> action sym s)
 
 withModel

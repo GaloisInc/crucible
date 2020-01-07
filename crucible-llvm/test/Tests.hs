@@ -381,8 +381,8 @@ checkSat ::
   What4.BoolExpr scope ->
   IO (What4.SatResult () ())
 checkSat sym p = do
-  proc <- Crucible.getSolverProcess sym
-  What4.checkSatisfiable proc "" p
+  Crucible.withSolverProcess sym $ \proc ->
+     What4.checkSatisfiable proc "" p
 
 testArrayStride :: TestTree
 testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do

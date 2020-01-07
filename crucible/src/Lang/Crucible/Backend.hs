@@ -67,6 +67,7 @@ import           What4.Partial
 import           What4.ProgramLoc
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
+import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 
 data AssumptionReason =
@@ -223,6 +224,9 @@ class IsBoolSolver sym where
   -- | Restore the assumption state to a previous snapshot.
   restoreAssumptionState :: sym -> AssumptionState sym -> IO ()
 
+  -- | Reset the assumption state to a fresh, blank state
+  resetAssumptionState :: sym -> IO ()
+  resetAssumptionState sym = restoreAssumptionState sym PG.emptyGoalCollector
 
 -- | Add a proof obligation for the given predicate, and then assume it.
 -- Note that assuming the prediate might cause the current execution
