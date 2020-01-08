@@ -356,6 +356,20 @@ impl<T> Vec<T> {
         Self::new()
     }
 
+    /// Convert this `Vec` into a raw `crucible::Vector`.
+    #[unstable(feature = "crux", issue = "0")]
+    pub fn into_crucible_vector(mut self) -> Vector<T> {
+        mem::replace(&mut self.data, Vector::new())
+    }
+
+    /// Convert a raw `crucible::Vector` into a `Vec`.
+    #[unstable(feature = "crux", issue = "0")]
+    pub fn from_crucible_vector(v: Vector<T>) -> Self {
+        Vec {
+            data: v,
+        }
+    }
+
     /// Creates a `Vec<T>` directly from the raw components of another vector.
     ///
     /// # Safety

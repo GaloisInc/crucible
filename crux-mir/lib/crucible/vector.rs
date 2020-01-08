@@ -30,6 +30,10 @@ impl<T> Vector<T> {
         unimplemented!("Vector::push")
     }
 
+    pub fn push_front(self, x: T) -> Self {
+        unimplemented!("Vector::push_front")
+    }
+
     pub fn pop(self) -> (Self, Option<T>) {
         unimplemented!("Vector::pop")
     }

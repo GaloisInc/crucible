@@ -99,6 +99,7 @@ customOpDefs = Map.fromList [
                          , vector_replicate
                          , vector_len
                          , vector_push
+                         , vector_push_front
                          , vector_pop
                          , vector_pop_front
                          , vector_as_slice
@@ -221,6 +222,16 @@ vector_push = ( ["crucible","vector","{{impl}}", "push"], ) $ \substs -> case su
             eSnoc <- vectorSnoc tpr eVec eItem
             return $ MirExp (C.VectorRepr tpr) eSnoc
         _ -> mirFail $ "bad arguments for Vector::push: " ++ show ops
+    _ -> Nothing
+
+vector_push_front :: (ExplodedDefId, CustomRHS)
+vector_push_front = ( ["crucible","vector","{{impl}}", "push_front"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr) eVec, MirExp tpr' eItem]
+          | Just Refl <- testEquality tpr tpr' -> do
+            let eSnoc = R.App $ E.VectorCons tpr eItem eVec
+            return $ MirExp (C.VectorRepr tpr) eSnoc
+        _ -> mirFail $ "bad arguments for Vector::push_front: " ++ show ops
     _ -> Nothing
 
 vector_pop :: (ExplodedDefId, CustomRHS)
