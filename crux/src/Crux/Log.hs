@@ -3,7 +3,7 @@
 module Crux.Log (
   -- * Configuring output
   Logs,
-  OutputConfig(..), showColors, outputHandle, errorHandle, defaultOutputConfig,
+  OutputConfig(..), showColors, outputHandle, errorHandle, defaultOutputConfig, quiet,
   -- * Performing output
   say, sayOK, sayWarn, sayFail, output, outputLn
   ) where
@@ -24,6 +24,7 @@ data OutputConfig =
   OutputConfig { _showColors :: Bool
                , _outputHandle :: Handle
                , _errorHandle :: Handle
+               , _quiet :: Bool
                }
 
 showColors :: Lens' OutputConfig Bool
@@ -35,9 +36,11 @@ outputHandle = lens _outputHandle (\ o h -> o { _outputHandle = h })
 errorHandle :: Lens' OutputConfig Handle
 errorHandle = lens _errorHandle (\ o h -> o { _errorHandle = h })
 
-defaultOutputConfig :: OutputConfig
-defaultOutputConfig = OutputConfig True stdout stderr
+quiet :: Lens' OutputConfig Bool
+quiet = lens _quiet (\ o b -> o { _quiet = b })
 
+defaultOutputConfig :: OutputConfig
+defaultOutputConfig = OutputConfig True stdout stderr False
 
 output :: Logs => String -> IO ()
 output str = hPutStr (view outputHandle ?outputConfig) str
@@ -66,12 +69,12 @@ sayFail :: Logs => String -> String -> IO ()
 sayFail = sayCol Red
 
 say :: Logs => String -> String -> IO ()
-say x y = outputLn ("[" ++ x ++ "] " ++ y)
+say x y
+  | view quiet ?outputConfig = return ()
+  | otherwise = outputLn ("[" ++ x ++ "] " ++ y)
 
 sayCol :: Logs => Color -> String -> String -> IO ()
 sayCol col x y =
   do output "["
      outputColored col x
      outputLn ("] " ++ y)
-
-

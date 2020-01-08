@@ -15,6 +15,7 @@ import System.Process ( readProcess )
 import Test.Tasty (defaultMain, testGroup, TestTree)
 import Test.Tasty.Golden (goldenVsFile, findByExtension)
 
+import qualified Crux.Log as C
 import qualified CruxLLVMMain as C
 
 main :: IO ()
@@ -46,7 +47,9 @@ goldenTests dir =
          [ goldenVsFile (takeBaseName cFile) goodFile outFile $
            withArgs ["--solver=z3",cFile] $
            withFile outFile WriteMode $ \h ->
-           void $ C.mainWithOutputTo h
+             let cfg = C.OutputConfig False h h True in -- Quiet mode, don't print colors
+             void $ C.mainWithOutputConfig cfg
+
          | cFile <- cFiles
          , notHidden cFile
          , let goodFile = replaceExtension cFile ".good"

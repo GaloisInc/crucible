@@ -10,6 +10,7 @@ module Crux
   , module Crux.Log
   ) where
 
+import Control.Lens
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Foldable
@@ -62,8 +63,11 @@ main = mainWithOutputConfig defaultOutputConfig
 -- callbacks may throw)
 mainWithOutputConfig :: OutputConfig -> Language opts -> IO ExitCode
 mainWithOutputConfig cfg lang =
-  do opts  <- loadOptions lang
+  do let ?outputConfig = cfg
+     opts <- loadOptions lang
      opts1@(cruxOpts,_) <- initialize lang opts
+
+     let ?outputConfig = cfg & quiet %~ (|| (quietMode cruxOpts))
 
      -- Run the simulator
      let fileText = intercalate ", " (map show (inputFiles cruxOpts))
@@ -84,10 +88,9 @@ mainWithOutputConfig cfg lang =
      return $! computeExitCode cmpl res
 
   `catch` \(e :: Cfg.ConfigError) ->
-    do sayFail "Crux" (displayException e)
+    do let ?outputConfig = cfg
+       sayFail "Crux" (displayException e)
        return (ExitFailure 1)
-
- where ?outputConfig = cfg
 
 -- | Load the options for the given language.
 -- IMPORTANT:  This processes options like @help@ and @version@, which

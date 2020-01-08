@@ -1,4 +1,2 @@
-[Crux] Simulating function "main"
 bvZext 32 (ite (floatIsNaN cX@1:f) 0x0:[1] 0x1:[1])
-[Crux] All goals discharged through internal simplification.
 [Crux] Overall status: Valid.

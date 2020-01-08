@@ -78,6 +78,9 @@ data CruxOptions = CruxOptions
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
 
+  , quietMode                :: Bool
+    -- ^ If true, produce minimal output
+
   , proofGoalsFailFast       :: Bool
     -- ^ If true, stop attempting to prove goals as soon as one is disproved
   }
@@ -136,7 +139,6 @@ cruxOptions = Config
             section "make-executables" yesOrNoSpec True
             "Should we generate counter-example executables. (default: yes)"
 
-
           solver <-
             section "solver" stringSpec "yices"
             "Select solver to use. (default: \"yices\")"
@@ -155,12 +157,15 @@ cruxOptions = Config
              ++ " i.e. one of [real|ieee|uninterpreted|default].\n"
              ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
 
+          quietMode <-
+            section "quiet-mode" yesOrNoSpec False
+            "If true, produce minimal output"
+
           proofGoalsFailFast <-
             section "proof-goals-fail-fast" yesOrNoSpec False
             "If true, stop attempting to prove goals as soon as one of them is disproved"
 
           pure CruxOptions { .. }
-
 
 
   , cfgEnv = []
@@ -241,6 +246,10 @@ cruxOptions = Config
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
         $ NoArg $ \opts -> Right opts { proofGoalsFailFast = True }
+
+      , Option "q" ["quiet"]
+        "Quiet mode; produce minimal output"
+        $ NoArg $ \opts -> Right opts{ quietMode = True }
 
       , Option "f" ["floating-point"]
         ("Select floating point representation,"
