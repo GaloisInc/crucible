@@ -7,7 +7,7 @@
 {-# Language RecordWildCards #-}
 {-# Language ScopedTypeVariables #-}
 
-module CruxLLVMMain (main, mainWithOutputTo, registerFunctions) where
+module CruxLLVMMain (main, mainWithOutputTo, mainWithOutputConfig, registerFunctions) where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
@@ -96,7 +96,7 @@ main :: IO ()
 main = mainWithOutputConfig defaultOutputConfig >>= exitWith
 
 mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h)
+mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
 
 mainWithOutputConfig :: OutputConfig -> IO ExitCode
 mainWithOutputConfig cfg =

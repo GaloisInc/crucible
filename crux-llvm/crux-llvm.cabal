@@ -97,6 +97,7 @@ test-suite crux-llvm-test
                 base             >= 4.7,
                 containers,
                 crucible,
+                crux,
                 crux-llvm,
                 deepseq,
                 directory,

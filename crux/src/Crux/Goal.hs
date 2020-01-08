@@ -151,11 +151,13 @@ proveGoals opts ctxt (Just gs0) =
      goalNum <- newIORef (zero,zero,zero) -- total, proved, disproved
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
-      sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
+       sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
      return (Just res)
   where
-  (start,end) = prepStatus "Checking: " (countGoals gs0)
+  (start,end)
+    | view quiet ?outputConfig = (\_ -> return (), return ())
+    | otherwise = prepStatus "Checking: " (countGoals gs0)
 
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
 
