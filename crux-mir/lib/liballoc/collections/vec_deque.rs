@@ -1206,7 +1206,6 @@ fn count(tail: usize, head: usize, size: usize) -> usize {
 /// [`iter`]: struct.VecDeque.html#method.iter
 /// [`VecDeque`]: struct.VecDeque.html
 #[stable(feature = "rust1", since = "1.0.0")]
-#[derive(Clone)]
 pub struct Iter<'a, T: 'a> {
     inner: slice::Iter<'a, T>,
 }
@@ -1215,6 +1214,16 @@ pub struct Iter<'a, T: 'a> {
 impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Iter").finish()
+    }
+}
+
+// FIXME(#26925) Remove in favor of `#[derive(Clone)]`
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T> Clone for Iter<'_, T> {
+    fn clone(&self) -> Self {
+        Iter {
+            inner: self.inner.clone(),
+        }
     }
 }
 
