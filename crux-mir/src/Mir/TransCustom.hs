@@ -23,6 +23,7 @@
 
 module Mir.TransCustom(customOps) where
 
+import Data.Bits (shift)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
@@ -85,10 +86,16 @@ customOpDefs = Map.fromList [
                          , slice_index_range_get_unchecked_mut
                          , slice_len
 
+                         , discriminant_value
                          , type_id
                          , mem_swap
                          , add_with_overflow
                          , sub_with_overflow
+                         , overflowing_add
+                         , overflowing_sub
+                         , overflowing_mul
+                         , saturating_add
+                         , saturating_sub
 
                          , mem_crucible_identity_transmute
                          , slice_to_array
@@ -110,9 +117,6 @@ customOpDefs = Map.fromList [
 
                          , str_len
 
-                         , wrapping_mul
-                         , wrapping_sub
-                         , discriminant_value
 
                          , exit
                          , abort
@@ -319,10 +323,68 @@ vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul
 
+
+-- ** Custom: wrapping_sub
+
+
+data ArithOp f tp = ArithOp
+    { aoPerform :: f tp -> f tp -> E.App MIR f tp
+    , aoCheck :: f tp -> f tp -> E.App MIR f C.BoolType
+    , aoSaturated :: E.App MIR f tp
+    }
+
+data PolyArithOp = PolyArithOp
+    { paoInt :: forall s w. (1 <= w) => NatRepr w -> ArithOp (R.Expr MIR s) (C.BVType w)
+    , paoUint :: forall s w. (1 <= w) => NatRepr w -> ArithOp (R.Expr MIR s) (C.BVType w)
+    }
+
+arithAdd = PolyArithOp
+    { paoInt = \w -> ArithOp (E.BVAdd w) (E.BVSCarry w)
+        (E.BVLit w (shift 1 (fromInteger $ C.intValue w - 1) - 1))
+    , paoUint = \w -> ArithOp (E.BVAdd w) (E.BVCarry w)
+        (E.BVLit w (shift 1 (fromInteger $ C.intValue w) - 1))
+    }
+
+arithSub = PolyArithOp
+    { paoInt = \w -> ArithOp (E.BVSub w) (E.BVSBorrow w)
+        (E.BVLit w (negate $ shift 1 (fromInteger $ C.intValue w - 1)))
+    , paoUint = \w -> ArithOp (E.BVSub w) (E.BVUlt w)
+        (E.BVLit w 0)
+    }
+
+
+-- Note the naming: `overflowing` means `T -> T -> T`, with the output wrapped
+-- mod 2^N.  `with_overflow` means `T -> T -> (T, Bool)`, returning both the
+-- wrapped output and an overflow flag.
+
+makeOverflowingArith :: String -> PolyArithOp -> CustomRHS
+makeOverflowingArith name arith =
+    \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        -- TODO: special cases for usize + isize
+        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            return $ MirExp (C.BVRepr w1) $ R.App $ aoPerform (paoUint arith w1) e1 e2
+        ([TyInt _, TyInt _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            return $ MirExp (C.BVRepr w1) $ R.App $ aoPerform (paoInt arith w1) e1 e2
+        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
+
+overflowing_add ::  (ExplodedDefId, CustomRHS)
+overflowing_add =
+    ( ["core","intrinsics", "", "overflowing_add"]
+    , makeOverflowingArith "overflowing_add" arithAdd
+    )
+
+overflowing_sub ::  (ExplodedDefId, CustomRHS)
+overflowing_sub =
+    ( ["core","intrinsics", "", "overflowing_sub"]
+    , makeOverflowingArith "overflowing_sub" arithSub
+    )
+
 -- TODO: this should return (a * b) mod 2N
 -- however it does whatever Crucible does for BVMul
-wrapping_mul :: (ExplodedDefId, CustomRHS)
-wrapping_mul = ( ["core","num","{{impl}}", "wrapping_mul"],
+overflowing_mul :: (ExplodedDefId, CustomRHS)
+overflowing_mul = ( ["core","intrinsics","", "overflowing_mul"],
    \ _substs -> Just $ CustomOp $ \ _opTys  ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
@@ -339,57 +401,82 @@ wrapping_mul = ( ["core","num","{{impl}}", "wrapping_mul"],
        _ -> mirFail $ "BUG: invalid arguments for wrapping_mul")
 
 
--- ** Custom: wrapping_sub
-
-wrapping_sub :: (ExplodedDefId, CustomRHS)
-wrapping_sub = ( ["core","num","{{impl}}", "wrapping_sub"],
-   \ _substs -> Just $ CustomOp $ \ _opTys ops ->
-     case ops of 
-       [MirExp aty a, MirExp bty b] ->
-         -- return (a - b) mod 2N  (this is the default behavior for BVSub)
-         case (aty, bty) of
-           (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
-               let sub = R.App $ E.BVSub wa a b 
-               return (MirExp aty sub)
-           (UsizeRepr, UsizeRepr) -> do
-               let sub = R.App $ usizeSub a b
-               return (MirExp aty sub)
-           (_,_) -> mirFail $ "wrapping_sub: cannot call with types " ++ show aty ++ " and " ++ show bty
-
-       _ -> mirFail $ "BUG: invalid arguments for wrapping_sub")
-
-with_overflow_result ::
-    C.TypeRepr ty ->
-    E.App MIR (R.Expr MIR s) ty ->
+overflowResult :: C.TypeRepr tp ->
+    E.App MIR (R.Expr MIR s) tp ->
     E.App MIR (R.Expr MIR s) C.BoolType ->
-    MirExp s
-with_overflow_result ty x b = buildTuple
-    [ MirExp (C.MaybeRepr ty) $
-        R.App $ E.JustValue ty $
-        R.App $ x
-    , MirExp (C.MaybeRepr C.BoolRepr) $
-        R.App $ E.JustValue C.BoolRepr $
-        R.App $ b
+    MirGenerator h s ret (MirExp s)
+overflowResult tpr value over = return $ buildTuple
+    [ MirExp (C.MaybeRepr tpr) $ R.App $ E.JustValue tpr $ R.App value
+    , MirExp (C.MaybeRepr C.BoolRepr) $ R.App $ E.JustValue C.BoolRepr $ R.App over
     ]
 
-add_with_overflow ::  (ExplodedDefId, CustomRHS)
-add_with_overflow = (["core","intrinsics", "", "add_with_overflow"],
-    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
+makeArithWithOverflow :: String -> PolyArithOp -> CustomRHS
+makeArithWithOverflow name arith =
+    \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        -- TODO: special cases for usize + isize
         ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
           | Just Refl <- testEquality w1 w2 -> do
-            return $ with_overflow_result
-                (C.BVRepr w1) (E.BVAdd w1 e1 e2) (E.BVCarry w1 e1 e2)
-        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
+            let arithOp = paoUint arith w1
+            let value = aoPerform arithOp e1 e2
+            let over = aoCheck arithOp e1 e2
+            overflowResult (C.BVRepr w1) value over
+        ([TyInt _, TyInt _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            let arithOp = paoInt arith w1
+            let value = aoPerform arithOp e1 e2
+            let over = aoCheck arithOp e1 e2
+            overflowResult (C.BVRepr w1) value over
+        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
+
+add_with_overflow ::  (ExplodedDefId, CustomRHS)
+add_with_overflow =
+    ( ["core","intrinsics", "", "add_with_overflow"]
+    , makeArithWithOverflow "add_with_overflow" arithAdd
     )
 
 sub_with_overflow ::  (ExplodedDefId, CustomRHS)
-sub_with_overflow = (["core","intrinsics", "", "sub_with_overflow"],
-    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
+sub_with_overflow =
+    ( ["core","intrinsics", "", "sub_with_overflow"]
+    , makeArithWithOverflow "sub_with_overflow" arithSub
+    )
+
+
+saturatingResultBV :: (1 <= w) => NatRepr w ->
+    E.App MIR (R.Expr MIR s) (C.BVType w) ->
+    E.App MIR (R.Expr MIR s) (C.BVType w) ->
+    E.App MIR (R.Expr MIR s) C.BoolType ->
+    MirGenerator h s ret (MirExp s)
+saturatingResultBV w satValue value over = return $ MirExp (C.BVRepr w) $
+    R.App $ E.BVIte (R.App over) w (R.App satValue) (R.App value)
+
+makeSaturatingArith :: String -> PolyArithOp -> CustomRHS
+makeSaturatingArith name arith =
+    \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        -- TODO: special cases for usize + isize
         ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
           | Just Refl <- testEquality w1 w2 -> do
-            return $ with_overflow_result
-                (C.BVRepr w1) (E.BVSub w1 e1 e2) (E.BVUlt w1 e1 e2)
-        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
+            let arithOp = paoUint arith w1
+            let value = aoPerform arithOp e1 e2
+            let over = aoCheck arithOp e1 e2
+            saturatingResultBV w1 (aoSaturated arithOp) value over
+        ([TyInt _, TyInt _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            let arithOp = paoInt arith w1
+            let value = aoPerform arithOp e1 e2
+            let over = aoCheck arithOp e1 e2
+            saturatingResultBV w1 (aoSaturated arithOp) value over
+        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
+
+saturating_add ::  (ExplodedDefId, CustomRHS)
+saturating_add =
+    ( ["core","intrinsics", "", "saturating_add"]
+    , makeSaturatingArith "saturating_add" arithAdd
+    )
+
+saturating_sub ::  (ExplodedDefId, CustomRHS)
+saturating_sub =
+    ( ["core","intrinsics", "", "saturating_sub"]
+    , makeSaturatingArith "saturating_sub" arithSub
     )
 
 
