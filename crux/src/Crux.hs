@@ -114,7 +114,7 @@ evaluateSimpleCrux opts@(cruxOpts,_) lang =
      reportStatus cmpl res
 
      -- Generate report
-     when (outDir cruxOpts /= "") $
+     when (outDir cruxOpts /= "" && not (skipReport cruxOpts)) $
         generateReport cruxOpts res
 
      -- Generate counter examples

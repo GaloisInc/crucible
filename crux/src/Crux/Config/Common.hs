@@ -115,6 +115,9 @@ data CruxOptions = CruxOptions
   , proofGoalsFailFast       :: Bool
     -- ^ If true, stop attempting to prove goals as soon as one is disproved
 
+  , skipReport               :: Bool
+    -- ^ Don't produce the HTML reports that describe the verification task
+
   , svcompMode               :: Bool
     -- ^ If true, interpret the input files as benchmark sets, and behave as a SV-COMP solver
 
@@ -214,6 +217,10 @@ cruxOptions = Config
             (pack $ "Select floating point representation,"
              ++ " i.e. one of [real|ieee|uninterpreted|default].\n"
              ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
+
+          skipReport <-
+            section "skip-report" yesOrNoSpec False
+            "Skip producing the HTML report after verification"
 
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
@@ -326,6 +333,10 @@ cruxOptions = Config
       , Option [] ["mcsat"]
         "Enable the MC-SAT solver in Yices (disables unsat cores)"
         $ NoArg $ \opts -> Right opts { yicesMCSat = True }
+
+      , Option [] ["skip-report"]
+        "Skip producing the HTML report following verificaion"
+        $ NoArg $ \opts -> Right opts { skipReport = True }
 
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
