@@ -17,6 +17,7 @@ macro_rules! uint_impls {
     ($($ty:ty, $func:ident;)*) => {
         $(
             /// Hook for a crucible override that creates a symbolic instance of $ty.
+            #[allow(unused)]
             fn $func(desc: &'static str) -> $ty { unimplemented!(stringify!($func)); }
 
             impl Symbolic for $ty {
@@ -96,6 +97,37 @@ array_impls! {
     10 11 12 13 14 15 16 17 18 19
     20 21 22 23 24 25 26 27 28 29
     30 31 32
+}
+
+macro_rules! tuple_impls {
+    ($($($name:ident)*;)*) => {
+        $(
+            #[allow(unused)] #[allow(bad_style)]
+            impl<$($name: Symbolic,)*> Symbolic for ($($name,)*) {
+                fn symbolic(desc: &'static str) -> ($($name,)*) {
+                    (
+                        $($name::symbolic(desc),)*
+                    )
+                }
+            }
+        )*
+    };
+}
+
+tuple_impls! {
+    ;
+    A;
+    A B;
+    A B C;
+    A B C D;
+    A B C D E;
+    A B C D E F;
+    A B C D E F G;
+    A B C D E F G H;
+    A B C D E F G H I;
+    A B C D E F G H I J;
+    A B C D E F G H I J K;
+    A B C D E F G H I J K L;
 }
 
 

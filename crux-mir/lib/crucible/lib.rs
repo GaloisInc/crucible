@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod bitvector;
 pub mod symbolic;
 pub mod vector;
 

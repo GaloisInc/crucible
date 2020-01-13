@@ -79,7 +79,7 @@ import Debug.Trace
 customOps = CustomOpMap customOpDefs fnPtrShimDef cloneShimDef cloneFromShimDef
 
 customOpDefs :: Map ExplodedDefId CustomRHS
-customOpDefs = Map.fromList [
+customOpDefs = Map.fromList $ [
                            slice_index_usize_get_unchecked
                          , slice_index_range_get_unchecked
                          , slice_index_usize_get_unchecked_mut
@@ -139,7 +139,7 @@ customOpDefs = Map.fromList [
                          , integer_rem
                          , integer_eq
                          , integer_lt
-                         ]
+                         ] ++ bv_funcs
 
 
  
@@ -792,6 +792,97 @@ integer_rem = (["int512", "rem"], \(Substs []) ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSrem w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_rem: " ++ show ops
     )
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- crucible::bitvector::Bv implementation
+
+bv_convert :: (ExplodedDefId, CustomRHS)
+bv_convert = (["crucible", "bitvector", "convert"], \(Substs [_, u]) ->
+    Just $ CustomOp $ \_optys ops -> impl u ops)
+  where
+    impl :: HasCallStack => Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
+    impl u ops
+      | [MirExp (C.BVRepr w1) v] <- ops
+      , Some (C.BVRepr w2) <- tyToRepr u
+      = case compareNat w1 w2 of
+            NatLT _ -> return $ MirExp (C.BVRepr w2) $
+                S.app $ E.BVZext w2 w1 v
+            NatGT _ -> return $ MirExp (C.BVRepr w2) $
+                S.app $ E.BVTrunc w2 w1 v
+            NatEQ -> return $ MirExp (C.BVRepr w2) v
+      | otherwise = mirFail $
+        "BUG: invalid arguments to bv_convert: " ++ show ops
+
+bv_funcs :: [(ExplodedDefId, CustomRHS)]
+bv_funcs =
+    [ bv_convert
+    , bv_unop "neg" E.BVNeg
+    , bv_unop "not" E.BVNot
+    , bv_binop "add" E.BVAdd
+    , bv_binop "sub" E.BVSub
+    , bv_binop "mul" E.BVMul
+    , bv_binop "div" E.BVUdiv
+    , bv_binop "rem" E.BVUrem
+    , bv_binop "bitand" E.BVAnd
+    , bv_binop "bitor" E.BVOr
+    , bv_binop "bitxor" E.BVXor
+    , bv_shift_op "shl" E.BVShl
+    , bv_shift_op "shr" E.BVLshr
+    , bv_eq
+    , bv_lt
+    ]
+
+type BVUnOp = forall ext f w. (1 <= w)
+        => (NatRepr w)
+        -> (f (C.BVType w))
+        -> E.App ext f (C.BVType w)
+
+bv_unop :: Text -> BVUnOp -> (ExplodedDefId, CustomRHS)
+bv_unop name op = (["crucible", "bitvector", "{{impl}}", name], \(Substs [_sz]) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) v1] ->
+            return $ MirExp (C.BVRepr w1) (S.app $ op w1 v1)
+        _ -> mirFail $ "BUG: invalid arguments to bv_" ++ Text.unpack name ++ ": " ++ show ops
+    )
+
+type BVBinOp = forall ext f w. (1 <= w)
+        => (NatRepr w)
+        -> (f (C.BVType w))
+        -> (f (C.BVType w))
+        -> E.App ext f (C.BVType w)
+
+bv_binop :: Text -> BVBinOp -> (ExplodedDefId, CustomRHS)
+bv_binop name op = (["crucible", "bitvector", "{{impl}}", name], bv_binop_impl name op)
+
+bv_binop_impl :: Text -> BVBinOp -> CustomRHS
+bv_binop_impl name op (Substs [_sz]) = Just $ CustomOp $ \_optys ops -> case ops of
+    [MirExp (C.BVRepr w1) v1, MirExp (C.BVRepr w2) v2]
+      | Just Refl <- testEquality w1 w2 ->
+        return $ MirExp (C.BVRepr w1) (S.app $ op w1 v1 v2)
+    _ -> mirFail $ "BUG: invalid arguments to bv_" ++ Text.unpack name ++ ": " ++ show ops
+
+bv_shift_op :: Text -> BVBinOp -> (ExplodedDefId, CustomRHS)
+bv_shift_op name op = (["crucible", "bitvector", name], bv_binop_impl name op)
+
+bv_eq :: (ExplodedDefId, CustomRHS)
+bv_eq = (["crucible", "bitvector", "{{impl}}", "eq"], \(Substs [_sz]) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) v1, MirExp (C.BVRepr w2) v2]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp C.BoolRepr $ S.app $ E.BVEq w1 v1 v2
+        _ -> mirFail $ "BUG: invalid arguments to bv_eq: " ++ show ops)
+
+bv_lt :: (ExplodedDefId, CustomRHS)
+bv_lt = (["crucible", "bitvector", "{{impl}}", "lt"], \(Substs [_sz]) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) v1, MirExp (C.BVRepr w2) v2]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp C.BoolRepr $ S.app $ E.BVUlt w1 v1 v2
+        _ -> mirFail $ "BUG: invalid arguments to bv_lt: " ++ show ops)
+
+
+
 
 
 --------------------------------------------------------------------------------------------------------------------------
