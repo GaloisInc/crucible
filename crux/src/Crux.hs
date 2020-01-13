@@ -507,10 +507,9 @@ doSimWithResults lang opts@(cruxOpts, _) compRef glsRef sym execFeatures profInf
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
         proved <- goalProver cruxOpts ctx' todo
-        mgt <- provedGoalsTree ctx' proved
-        case mgt of
+        case proved of
           Nothing -> return ()
-          Just gt -> modifyIORef glsRef (Seq.|> gt)
+          Just gt -> modifyIORef glsRef (Seq.|> provedGoalsTree ctx' gt)
   when (simVerbose cruxOpts > 1) $ do
     say "Crux" "Simulation complete."
   when (isProfiling cruxOpts) $ writeProf profInfo

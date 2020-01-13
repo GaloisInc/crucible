@@ -49,22 +49,22 @@ provedGoalsTree ::
   ( IsSymInterface sym
   ) =>
   SimCtxt sym p ->
-  Maybe (Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym)))) ->
-  IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
-provedGoalsTree ctxt = traverse (go [])
+  Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym))) ->
+  ProvedGoals (Either AssumptionReason SimError)
+provedGoalsTree ctxt = go []
   where
   go asmps gs =
     case gs of
       Assuming ps gs1 -> goAsmp asmps ps gs1
 
-      Prove (p,r) -> return $ proveToGoal ctxt asmps p r
+      Prove (p,r) -> proveToGoal ctxt asmps p r
 
-      ProveConj g1 g2 -> Branch <$> go asmps g1 <*> go asmps g2
+      ProveConj g1 g2 -> Branch (go asmps g1) (go asmps g2)
 
   goAsmp asmps Seq.Empty gs = go asmps gs
   goAsmp asmps (ps Seq.:|> p) gs =
         case p ^. labeledPredMsg of
-          ExploringAPath from to -> AtLoc from to <$> goAsmp (p : asmps) ps gs
+          ExploringAPath from to -> AtLoc from to (goAsmp (p : asmps) ps gs)
           _                      -> goAsmp (p : asmps) ps gs
 
 
