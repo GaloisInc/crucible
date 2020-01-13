@@ -2,20 +2,30 @@ use core::cmp::Ordering;
 use core::marker::PhantomData;
 use core::ops::{Neg, Not, Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
 
-pub struct Bv<S: Size> {
+use crate::symbolic::Symbolic;
+
+pub struct Bv<S: Size + ?Sized> {
     _marker: PhantomData<S>,
 }
 
-pub trait Size {}
+pub trait Size {
+    fn make_symbolic(desc: &'static str) -> Bv<Self>;
+}
 
 pub struct _128;
-impl Size for _128 {}
+impl Size for _128 {
+    fn make_symbolic(desc: &'static str) -> Bv<Self> { make_symbolic_128(desc) }
+}
 
 pub struct _256;
-impl Size for _256 {}
+impl Size for _256 {
+    fn make_symbolic(desc: &'static str) -> Bv<Self> { make_symbolic_256(desc) }
+}
 
 pub struct _512;
-impl Size for _512 {}
+impl Size for _512 {
+    fn make_symbolic(desc: &'static str) -> Bv<Self> { make_symbolic_512(desc) }
+}
 
 
 pub type Bv128 = Bv<_128>;
@@ -199,3 +209,13 @@ impl<S: Size> Ord for Bv<S> {
         else { Ordering::Greater }
     }
 }
+
+impl<S: Size> Symbolic for Bv<S> {
+    fn symbolic(desc: &'static str) -> Bv<S> {
+        S::make_symbolic(desc)
+    }
+}
+
+fn make_symbolic_128(desc: &'static str) -> Bv<_128> { unimplemented!() }
+fn make_symbolic_256(desc: &'static str) -> Bv<_256> { unimplemented!() }
+fn make_symbolic_512(desc: &'static str) -> Bv<_512> { unimplemented!() }
