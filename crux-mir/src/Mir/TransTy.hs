@@ -101,6 +101,14 @@ pattern CTyInt512 = M.TyAdt $(M.normDefIdPat "int512::Int512") (M.Substs [])
 pattern CTyBox t = M.TyAdt $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t])
 pattern CTyVector t = M.TyAdt $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
 
+pattern CTyBvSize128 = M.TyAdt $(M.normDefIdPat "crucible::bitvector::_128") (M.Substs [])
+pattern CTyBvSize256 = M.TyAdt $(M.normDefIdPat "crucible::bitvector::_256") (M.Substs [])
+pattern CTyBvSize512 = M.TyAdt $(M.normDefIdPat "crucible::bitvector::_512") (M.Substs [])
+pattern CTyBv t = M.TyAdt $(M.normDefIdPat "crucible::bitvector::Bv") (M.Substs [t])
+pattern CTyBv128 = CTyBv CTyBvSize128
+pattern CTyBv256 = CTyBv CTyBvSize256
+pattern CTyBv512 = CTyBv CTyBvSize512
+
 -- These don't have custom representation, but are referenced in various
 -- places.
 pattern CTyOption t = M.TyAdt $(M.normDefIdPat "core::option::Option") (M.Substs [t])
@@ -116,6 +124,9 @@ optionDiscrSome = 1
 tyToRepr :: TransTyConstraint => M.Ty -> Some C.TypeRepr
 tyToRepr t0 = case t0 of
   CTyInt512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
+  CTyBv128 -> Some $ C.BVRepr (knownNat :: NatRepr 128)
+  CTyBv256 -> Some $ C.BVRepr (knownNat :: NatRepr 256)
+  CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
   CTyBox t -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   CTyVector t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
 

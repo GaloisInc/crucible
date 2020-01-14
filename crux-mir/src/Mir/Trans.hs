@@ -1500,6 +1500,10 @@ initialValue (CTyBox t) = do
 initialValue (CTyVector t) = do
     tyToReprCont t $ \ tr ->
       return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
+initialValue ty@(CTyBv _sz)
+  | Some (C.BVRepr w) <- tyToRepr ty
+  = return $ Just $ MirExp (C.BVRepr w) $ S.app $ E.BVLit w 0
+  | otherwise = mirFail $ "Bv type " ++ show ty ++ " does not have BVRepr"
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = do

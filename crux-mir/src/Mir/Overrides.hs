@@ -138,6 +138,9 @@ bindFn fn cfg =
                , symb_bv "crucible::symbolic::symbolic_u64" (knownNat @ 64)
                , symb_bv "crucible::symbolic::symbolic_u128" (knownNat @ 128)
                , symb_bv "int512::symbolic" (knownNat @ 512)
+               , symb_bv "crucible::bitvector::make_symbolic_128" (knownNat @ 128)
+               , symb_bv "crucible::bitvector::make_symbolic_256" (knownNat @ 256)
+               , symb_bv "crucible::bitvector::make_symbolic_512" (knownNat @ 512)
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override "crucible::crucible_assert_impl" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs

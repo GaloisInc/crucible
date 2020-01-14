@@ -79,13 +79,14 @@ import Debug.Trace
 customOps = CustomOpMap customOpDefs fnPtrShimDef cloneShimDef cloneFromShimDef
 
 customOpDefs :: Map ExplodedDefId CustomRHS
-customOpDefs = Map.fromList [
+customOpDefs = Map.fromList $ [
                            slice_index_usize_get_unchecked
                          , slice_index_range_get_unchecked
                          , slice_index_usize_get_unchecked_mut
                          , slice_index_range_get_unchecked_mut
                          , slice_len
 
+                         -- core::intrinsics
                          , discriminant_value
                          , type_id
                          , mem_swap
@@ -96,6 +97,8 @@ customOpDefs = Map.fromList [
                          , overflowing_mul
                          , saturating_add
                          , saturating_sub
+                         , ctlz
+                         , ctlz_nonzero
 
                          , mem_crucible_identity_transmute
                          , slice_to_array
@@ -139,7 +142,7 @@ customOpDefs = Map.fromList [
                          , integer_rem
                          , integer_eq
                          , integer_lt
-                         ]
+                         ] ++ bv_funcs
 
 
  
@@ -412,21 +415,29 @@ overflowResult tpr value over = return $ buildTuple
 
 makeArithWithOverflow :: String -> PolyArithOp -> CustomRHS
 makeArithWithOverflow name arith =
-    \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    \(Substs [t]) -> Just $ CustomOp $ \_opTys ops -> case ops of
         -- TODO: special cases for usize + isize
-        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
-          | Just Refl <- testEquality w1 w2 -> do
+        [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2]
+          | Just False <- isSigned t
+          , Just Refl <- testEquality w1 w2 -> do
             let arithOp = paoUint arith w1
             let value = aoPerform arithOp e1 e2
             let over = aoCheck arithOp e1 e2
             overflowResult (C.BVRepr w1) value over
-        ([TyInt _, TyInt _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
-          | Just Refl <- testEquality w1 w2 -> do
+          | Just True <- isSigned t
+          , Just Refl <- testEquality w1 w2 -> do
             let arithOp = paoInt arith w1
             let value = aoPerform arithOp e1 e2
             let over = aoCheck arithOp e1 e2
             overflowResult (C.BVRepr w1) value over
-        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
+        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (t, ops)
+  where
+    isSigned (TyInt _) = Just True
+    isSigned (TyUint _) = Just False
+    -- Includes `Bv<_>` support so that `makeArithWithOverflow` can also be
+    -- used to implement `Bv::overflowing_add` etc.
+    isSigned (CTyBv _) = Just False
+    isSigned _ = Nothing
 
 add_with_overflow ::  (ExplodedDefId, CustomRHS)
 add_with_overflow =
@@ -478,6 +489,60 @@ saturating_sub =
     ( ["core","intrinsics", "", "saturating_sub"]
     , makeSaturatingArith "saturating_sub" arithSub
     )
+
+-- Build a "count leading zeros" implementation.  The function will be
+-- polymorphic, accepting bitvectors of any width.  The `NatRepr` is the width
+-- of the output, or `Nothing` to return a bitvector of the same width as the
+-- input.
+ctlz_impl :: Text -> Maybe (Some NatRepr) -> CustomRHS
+ctlz_impl name optFixedWidth _substs = Just $ CustomOp $ \_optys ops -> case ops of
+    [MirExp (C.BVRepr w) v] -> case optFixedWidth of
+        Nothing ->
+            return $ MirExp (C.BVRepr w) $ S.app $ buildMux w w w v
+        Just (Some w')
+          | Just LeqProof <- isPosNat w' ->
+            return $ MirExp (C.BVRepr w') $ S.app $ buildMux w w w' v
+          | otherwise -> error $ "bad output width "++ show w' ++ " for ctlz_impl"
+    _ -> mirFail $ "BUG: invalid arguments to " ++ Text.unpack name ++ ": " ++ show ops
+  where
+    getBit :: (1 <= w, i + 1 <= w) =>
+        NatRepr w -> NatRepr i ->
+        R.Expr MIR s (C.BVType w) ->
+        E.App MIR (R.Expr MIR s) C.BoolType
+    getBit w i bv =
+        E.BVNonzero knownRepr $ R.App $
+        E.BVSelect i (knownNat @1) w $ bv
+
+    -- Build a mux tree that computes the number of leading zeros in `bv`,
+    -- assuming that all bits at positions >= i are already known to be zero.
+    -- The result is returned as a bitvector of width `w'`.
+    buildMux :: (1 <= w, i <= w, 1 <= w') =>
+        NatRepr w -> NatRepr i -> NatRepr w' ->
+        R.Expr MIR s (C.BVType w) ->
+        E.App MIR (R.Expr MIR s) (C.BVType w')
+    buildMux w i w' bv = case isZeroNat i of
+        ZeroNat ->
+            -- Bits 0..w are all known to be zero.  There are `w` leading
+            -- zeros.
+            E.BVLit w' $ intValue w
+        NonZeroNat
+          | i' <- predNat i
+          , LeqProof <- addIsLeq i' (knownNat @1)
+          , LeqProof <- leqTrans (leqProof i' i) (leqProof i w)
+          -- Bits i..w are known to be zero, so inspect bit `i-1` next.
+          -> E.BVIte (R.App $ getBit w i' bv) w'
+                (R.App $ E.BVLit w' $ intValue w - intValue i)
+                (R.App $ buildMux w i' w' bv)
+
+ctlz :: (ExplodedDefId, CustomRHS)
+ctlz =
+    ( ["core","intrinsics", "", "ctlz"]
+    , ctlz_impl "ctlz" Nothing )
+
+ctlz_nonzero :: (ExplodedDefId, CustomRHS)
+ctlz_nonzero =
+    ( ["core","intrinsics", "", "ctlz_nonzero"]
+    , ctlz_impl "ctlz_nonzero" Nothing )
 
 
 ---------------------------------------------------------------------------------------
@@ -792,6 +857,122 @@ integer_rem = (["int512", "rem"], \(Substs []) ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSrem w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_rem: " ++ show ops
     )
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- crucible::bitvector::Bv implementation
+
+bv_convert :: (ExplodedDefId, CustomRHS)
+bv_convert = (["crucible", "bitvector", "convert"], \(Substs [_, u]) ->
+    Just $ CustomOp $ \_optys ops -> impl u ops)
+  where
+    impl :: HasCallStack => Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
+    impl u ops
+      | [MirExp (C.BVRepr w1) v] <- ops
+      , Some (C.BVRepr w2) <- tyToRepr u
+      = case compareNat w1 w2 of
+            NatLT _ -> return $ MirExp (C.BVRepr w2) $
+                S.app $ E.BVZext w2 w1 v
+            NatGT _ -> return $ MirExp (C.BVRepr w2) $
+                S.app $ E.BVTrunc w2 w1 v
+            NatEQ -> return $ MirExp (C.BVRepr w2) v
+      | otherwise = mirFail $
+        "BUG: invalid arguments to bv_convert: " ++ show ops
+
+bv_funcs :: [(ExplodedDefId, CustomRHS)]
+bv_funcs =
+    [ bv_convert
+    , bv_unop "neg" E.BVNeg
+    , bv_unop "not" E.BVNot
+    , bv_binop "add" E.BVAdd
+    , bv_binop "sub" E.BVSub
+    , bv_binop "mul" E.BVMul
+    , bv_binop "div" E.BVUdiv
+    , bv_binop "rem" E.BVUrem
+    , bv_binop "bitand" E.BVAnd
+    , bv_binop "bitor" E.BVOr
+    , bv_binop "bitxor" E.BVXor
+    , bv_shift_op "shl" E.BVShl
+    , bv_shift_op "shr" E.BVLshr
+    , bv_overflowing_binop "add" arithAdd
+    , bv_overflowing_binop "sub" arithSub
+    , bv_eq
+    , bv_lt
+    , bv_literal "ZERO" (\w -> E.BVLit w 0)
+    , bv_literal "ONE" (\w -> E.BVLit w 1)
+    , bv_literal "MAX" (\w -> E.BVLit w $ (1 `shift` fromIntegral (intValue w)) - 1)
+    , bv_leading_zeros
+    ]
+
+type BVUnOp = forall ext f w. (1 <= w)
+        => (NatRepr w)
+        -> (f (C.BVType w))
+        -> E.App ext f (C.BVType w)
+
+bv_unop :: Text -> BVUnOp -> (ExplodedDefId, CustomRHS)
+bv_unop name op = (["crucible", "bitvector", "{{impl}}", name], \(Substs [_sz]) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) v1] ->
+            return $ MirExp (C.BVRepr w1) (S.app $ op w1 v1)
+        _ -> mirFail $ "BUG: invalid arguments to bv_" ++ Text.unpack name ++ ": " ++ show ops
+    )
+
+type BVBinOp = forall ext f w. (1 <= w)
+        => (NatRepr w)
+        -> (f (C.BVType w))
+        -> (f (C.BVType w))
+        -> E.App ext f (C.BVType w)
+
+bv_binop :: Text -> BVBinOp -> (ExplodedDefId, CustomRHS)
+bv_binop name op = (["crucible", "bitvector", "{{impl}}", name], bv_binop_impl name op)
+
+bv_binop_impl :: Text -> BVBinOp -> CustomRHS
+bv_binop_impl name op (Substs [_sz]) = Just $ CustomOp $ \_optys ops -> case ops of
+    [MirExp (C.BVRepr w1) v1, MirExp (C.BVRepr w2) v2]
+      | Just Refl <- testEquality w1 w2 ->
+        return $ MirExp (C.BVRepr w1) (S.app $ op w1 v1 v2)
+    _ -> mirFail $ "BUG: invalid arguments to bv_" ++ Text.unpack name ++ ": " ++ show ops
+
+bv_shift_op :: Text -> BVBinOp -> (ExplodedDefId, CustomRHS)
+bv_shift_op name op = (["crucible", "bitvector", name], bv_binop_impl name op)
+
+bv_overflowing_binop :: Text -> PolyArithOp -> (ExplodedDefId, CustomRHS)
+bv_overflowing_binop name arith =
+    ( ["crucible", "bitvector", "{{impl}}", "overflowing_" <> name]
+    , makeArithWithOverflow ("bv_overflowing_" ++ Text.unpack name) arith
+    )
+
+bv_eq :: (ExplodedDefId, CustomRHS)
+bv_eq = (["crucible", "bitvector", "{{impl}}", "eq"], \(Substs [_sz]) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) v1, MirExp (C.BVRepr w2) v2]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp C.BoolRepr $ S.app $ E.BVEq w1 v1 v2
+        _ -> mirFail $ "BUG: invalid arguments to bv_eq: " ++ show ops)
+
+bv_lt :: (ExplodedDefId, CustomRHS)
+bv_lt = (["crucible", "bitvector", "{{impl}}", "lt"], \(Substs [_sz]) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) v1, MirExp (C.BVRepr w2) v2]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp C.BoolRepr $ S.app $ E.BVUlt w1 v1 v2
+        _ -> mirFail $ "BUG: invalid arguments to bv_lt: " ++ show ops)
+
+type BVMakeLiteral = forall ext f w.
+    (1 <= w) => NatRepr w -> E.App ext f (C.BVType w)
+
+bv_literal :: Text -> BVMakeLiteral -> (ExplodedDefId, CustomRHS)
+bv_literal name op = (["crucible", "bitvector", "{{impl}}", name], \(Substs [sz]) ->
+    Just $ CustomOp $ \_optys _ops -> case tyToRepr (CTyBv sz) of
+        Some (C.BVRepr w) ->
+            return $ MirExp (C.BVRepr w) $ S.app $ op w
+        _ -> mirFail $
+            "BUG: invalid type param for bv_" ++ Text.unpack name ++ ": " ++ show sz)
+
+bv_leading_zeros :: (ExplodedDefId, CustomRHS)
+bv_leading_zeros =
+    ( ["crucible", "bitvector", "{{impl}}", "leading_zeros"]
+    , ctlz_impl "bv_leading_zeros" (Just $ Some $ knownNat @32) )
 
 
 --------------------------------------------------------------------------------------------------------------------------

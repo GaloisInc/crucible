@@ -1,5 +1,7 @@
 #![no_std]
+#![feature(core_intrinsics)]
 
+pub mod bitvector;
 pub mod symbolic;
 pub mod vector;
 
