@@ -32,8 +32,6 @@
 use core::{str, mem};
 use core::ops::{Shr, Shl, BitAnd, BitOr, BitXor, Not, Div, Rem, Mul, Add, Sub};
 
-use byteorder::{ByteOrder, BigEndian, LittleEndian};
-
 use crucible::Symbolic;
 
 mod crucible_uint {
