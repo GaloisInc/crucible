@@ -1,4 +1,5 @@
 use core::cmp::Ordering;
+use core::intrinsics;
 use core::marker::PhantomData;
 use core::ops::{Neg, Not, Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
 
@@ -36,6 +37,7 @@ pub type Bv512 = Bv<_512>;
 impl<S: Size> Bv<S> {
     pub const ZERO: Self = Bv { _marker: PhantomData };
     pub const ONE: Self = Bv { _marker: PhantomData };
+    pub const MAX: Self = Bv { _marker: PhantomData };
 }
 
 
@@ -175,6 +177,26 @@ impl_shift_ops! {
     Shl, shl;
     Shr, shr;
 }
+
+
+impl<S: Size> Bv<S> {
+    pub fn overflowing_add(self, other: Bv<S>) -> (Bv<S>, bool) {
+        unimplemented!()
+    }
+
+    pub fn overflowing_sub(self, other: Bv<S>) -> (Bv<S>, bool) {
+        unimplemented!()
+    }
+
+    pub fn overflowing_mul(self, other: Bv<S>) -> (Bv<S>, bool) {
+        unimplemented!()
+    }
+
+    pub fn leading_zeros(self) -> u32 {
+        unimplemented!()
+    }
+}
+
 
 impl<S: Size> Clone for Bv<S> {
     fn clone(&self) -> Bv<S> {
