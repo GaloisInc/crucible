@@ -34,6 +34,14 @@ use core::ops::{Shr, Shl, BitAnd, BitOr, BitXor, Not, Div, Rem, Mul, Add, Sub};
 
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 
+use crucible::Symbolic;
+
+mod crucible_uint {
+    pub use crucible::bitvector::Bv128 as U128;
+    pub use crucible::bitvector::Bv256 as U256;
+    pub use crucible::bitvector::Bv512 as U512;
+}
+
 /// Conversion from decimal string error
 #[derive(Debug, PartialEq)]
 pub enum FromDecStrErr {
@@ -61,13 +69,8 @@ macro_rules! uint_overflowing_add {
 
 macro_rules! uint_overflowing_add_reg {
 	($name:ident, $n_words:tt, $self_expr: expr, $other: expr) => ({
-		uint_overflowing_binop!(
-			$name,
-			$n_words,
-			$self_expr,
-			$other,
-			u64::overflowing_add
-		)
+        let (raw, over) = crucible_uint::$name::overflowing_add($self_expr.raw, $other.raw);
+        ($name { raw }, over)
 	})
 }
 
@@ -77,58 +80,10 @@ macro_rules! uint_overflowing_sub {
 	})
 }
 
-macro_rules! uint_overflowing_binop {
-	($name:ident, $n_words:tt, $self_expr: expr, $other: expr, $fn:expr) => ({
-		let $name(ref me) = $self_expr;
-		let $name(ref you) = $other;
-
-		let mut ret = unsafe { ::core::mem::uninitialized() };
-		let ret_ptr = &mut ret as *mut [u64; $n_words] as *mut u64;
-		let mut carry = 0u64;
-
-		unroll! {
-			for i in 0..$n_words {
-				use ::core::ptr;
-
-				if carry != 0 {
-					let (res1, overflow1) = ($fn)(me[i], you[i]);
-					let (res2, overflow2) = ($fn)(res1, carry);
-
-					unsafe {
-						ptr::write(
-							ret_ptr.offset(i as _),
-							res2
-						);
-					}
-					carry = (overflow1 as u8 + overflow2 as u8) as u64;
-				} else {
-					let (res, overflow) = ($fn)(me[i], you[i]);
-
-					unsafe {
-						ptr::write(
-							ret_ptr.offset(i as _),
-							res
-						);
-					}
-
-					carry = overflow as u64;
-				}
-			}
-		}
-
-		($name(ret), carry > 0)
-	})
-}
-
 macro_rules! uint_overflowing_sub_reg {
 	($name:ident, $n_words:tt, $self_expr: expr, $other: expr) => ({
-		uint_overflowing_binop!(
-			$name,
-			$n_words,
-			$self_expr,
-			$other,
-			u64::overflowing_sub
-		)
+        let (raw, over) = crucible_uint::$name::overflowing_sub($self_expr.raw, $other.raw);
+        ($name { raw }, over)
 	})
 }
 
@@ -138,80 +93,10 @@ macro_rules! uint_overflowing_mul {
 	})
 }
 
-macro_rules! uint_full_mul_reg {
-	($name:ident, 8, $self_expr:expr, $other:expr) => {
-		uint_full_mul_reg!($name, 8, $self_expr, $other, |a, b| a != 0 || b != 0);
-	};
-	($name:ident, $n_words:tt, $self_expr:expr, $other:expr) => {
-		uint_full_mul_reg!($name, $n_words, $self_expr, $other, |_, _| true);
-	};
-	($name:ident, $n_words:tt, $self_expr:expr, $other:expr, $check:expr) => ({{
-		#![allow(unused_assignments)]
-
-		let $name(ref me) = $self_expr;
-		let $name(ref you) = $other;
-		let mut ret = [0u64; $n_words * 2];
-
-		unroll! {
-			for i in 0..$n_words {
-				let mut carry = 0u64;
-				let b = you[i];
-
-				unroll! {
-					for j in 0..$n_words {
-						if $check(me[j], carry) {
-							let a = me[j];
-
-							let (hi, low) = split_u128(a as u128 * b as u128);
-
-							let overflow = {
-								let existing_low = &mut ret[i + j];
-								let (low, o) = low.overflowing_add(*existing_low);
-								*existing_low = low;
-								o
-							};
-
-							carry = {
-								let existing_hi = &mut ret[i + j + 1];
-								let hi = hi + overflow as u64;
-								let (hi, o0) = hi.overflowing_add(carry);
-								let (hi, o1) = hi.overflowing_add(*existing_hi);
-								*existing_hi = hi;
-
-								(o0 | o1) as u64
-							}
-						}
-					}
-				}
-			}
-		}
-
-		ret
-	}});
-}
-
 macro_rules! uint_overflowing_mul_reg {
 	($name:ident, $n_words:tt, $self_expr: expr, $other: expr) => ({
-		let ret: [u64; $n_words * 2] = uint_full_mul_reg!($name, $n_words, $self_expr, $other);
-
-		// The safety of this is enforced by the compiler
-		let ret: [[u64; $n_words]; 2] = unsafe { mem::transmute(ret) };
-
-		// The compiler WILL NOT inline this if you remove this annotation.
-		#[inline(always)]
-		fn any_nonzero(arr: &[u64; $n_words]) -> bool {
-			unroll! {
-				for i in 0..$n_words {
-					if arr[i] != 0 {
-						return true;
-					}
-				}
-			}
-
-			false
-		}
-
-		($name(ret[0]), any_nonzero(&ret[1]))
+        let (raw, over) = crucible_uint::$name::overflowing_mul($self_expr.raw, $other.raw);
+        ($name { raw }, over)
 	})
 }
 
@@ -265,12 +150,17 @@ macro_rules! construct_uint {
 	($name:ident, $n_words:tt) => (
 		/// Little-endian large integer type
 		#[repr(C)]
-		#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+		#[derive(Copy, Clone, Eq, PartialEq)]
+        // TODO: #[derive(Hash)]
 		#[cfg_attr(feature="serialize", derive(Serialize, Deserialize))]
-		pub struct $name(pub [u64; $n_words]);
+		pub struct $name {
+            raw: crucible_uint::$name,
+        }
 
 		impl $name {
-			pub const MAX: $name = $name([u64::max_value(); $n_words]);
+			pub const MAX: $name = $name {
+                raw: crucible_uint::$name::MAX,
+            };
 
 			/// Convert from a decimal string.
 			pub fn from_dec_str(value: &str) -> Result<Self, FromDecStrErr> {
@@ -296,15 +186,13 @@ macro_rules! construct_uint {
 			/// Conversion to u32
 			#[inline]
 			pub fn low_u32(&self) -> u32 {
-				let &$name(ref arr) = self;
-				arr[0] as u32
+                self.raw.into()
 			}
 
 			/// Conversion to u64
 			#[inline]
 			pub fn low_u64(&self) -> u64 {
-				let &$name(ref arr) = self;
-				arr[0]
+                self.raw.into()
 			}
 
 			/// Conversion to u32 with overflow checking
@@ -314,11 +202,10 @@ macro_rules! construct_uint {
 			/// Panics if the number is larger than 2^32.
 			#[inline]
 			pub fn as_u32(&self) -> u32 {
-				let &$name(ref arr) = self;
-				if (arr[0] & (0xffffffffu64 << 32)) != 0 {
+                if self.raw >> 32 != crucible_uint::$name::ZERO {
 					panic!("Integer overflow when casting U256")
 				}
-				self.as_u64() as u32
+                self.low_u32()
 			}
 
 			/// Conversion to u64 with overflow checking
@@ -328,31 +215,22 @@ macro_rules! construct_uint {
 			/// Panics if the number is larger than 2^64.
 			#[inline]
 			pub fn as_u64(&self) -> u64 {
-				let &$name(ref arr) = self;
-				for i in 1..$n_words {
-					if arr[i] != 0 {
-						panic!("Integer overflow when casting U256")
-					}
+                if self.raw >> 64 != crucible_uint::$name::ZERO {
+					panic!("Integer overflow when casting U256")
 				}
-				arr[0]
+                self.low_u64()
 			}
 
 			/// Whether this is zero.
 			#[inline]
 			pub fn is_zero(&self) -> bool {
-				let &$name(ref arr) = self;
-				for i in 0..$n_words { if arr[i] != 0 { return false; } }
-				return true;
+                self.raw == crucible_uint::$name::ZERO
 			}
 
 			/// Return the least number of bits needed to represent the number
 			#[inline]
 			pub fn bits(&self) -> usize {
-				let &$name(ref arr) = self;
-				for i in 1..$n_words {
-					if arr[$n_words - i] > 0 { return (0x40 * ($n_words - i + 1)) - arr[$n_words - i].leading_zeros() as usize; }
-				}
-				0x40 - arr[0].leading_zeros() as usize
+                $n_words * 64 - self.leading_zeros() as usize
 			}
 
 			/// Return if specific bit is set.
@@ -362,38 +240,17 @@ macro_rules! construct_uint {
 			/// Panics if `index` exceeds the bit width of the number.
 			#[inline]
 			pub fn bit(&self, index: usize) -> bool {
-				let &$name(ref arr) = self;
-				arr[index / 64] & (1 << (index % 64)) != 0
+                u8::from((self.raw >> index) & crucible_uint::$name::ONE) != 0
 			}
 
 			/// Returns the number of leading zeros in the binary representation of self.
 			pub fn leading_zeros(&self) -> u32 {
-				let mut r = 0;
-				for i in 0..$n_words {
-					let w = self.0[$n_words - i - 1];
-					if w == 0 {
-						r += 64;
-					} else {
-						r += w.leading_zeros();
-						break;
-					}
-				}
-				r
+                self.raw.leading_zeros()
 			}
 
 			/// Returns the number of leading zeros in the binary representation of self.
 			pub fn trailing_zeros(&self) -> u32 {
-				let mut r = 0;
-				for i in 0..$n_words {
-					let w = self.0[i];
-					if w == 0 {
-						r += 64;
-					} else {
-						r += w.trailing_zeros();
-						break;
-					}
-				}
-				r
+                unimplemented!()
 			}
 
 			/// Return specific byte.
@@ -403,16 +260,15 @@ macro_rules! construct_uint {
 			/// Panics if `index` exceeds the byte width of the number.
 			#[inline]
 			pub fn byte(&self, index: usize) -> u8 {
-				let &$name(ref arr) = self;
-				(arr[index / 8] >> (((index % 8)) * 8)) as u8
+                (self.raw >> (index * 8)).into()
 			}
 
 			/// Write to the slice in big-endian format.
 			#[inline]
 			pub fn to_big_endian(&self, bytes: &mut [u8]) {
 				debug_assert!($n_words * 8 == bytes.len());
-				for i in 0..$n_words {
-					BigEndian::write_u64(&mut bytes[8 * i..], self.0[$n_words - i - 1]);
+				for i in 0..bytes.len() {
+                    bytes[bytes.len() - i - 1] = self.byte(i);
 				}
 			}
 
@@ -420,8 +276,8 @@ macro_rules! construct_uint {
 			#[inline]
 			pub fn to_little_endian(&self, bytes: &mut [u8]) {
 				debug_assert!($n_words * 8 == bytes.len());
-				for i in 0..$n_words {
-					LittleEndian::write_u64(&mut bytes[8 * i..], self.0[i]);
+				for i in 0..bytes.len() {
+                    bytes[i] = self.byte(i);
 				}
 			}
 
@@ -457,23 +313,23 @@ macro_rules! construct_uint {
 			/// Zero (additive identity) of this type.
 			#[inline]
 			pub fn zero() -> Self {
-				From::from(0u64)
+                Self {
+                    raw: crucible_uint::$name::ZERO,
+                }
 			}
 
 			/// One (multiplicative identity) of this type.
 			#[inline]
 			pub fn one() -> Self {
-				From::from(1u64)
+                Self {
+                    raw: crucible_uint::$name::ONE,
+                }
 			}
 
 			/// The maximum value which can be inhabited by this type.
 			#[inline]
 			pub fn max_value() -> Self {
-				let mut result = [0; $n_words];
-				for i in 0..$n_words {
-					result[i] = u64::max_value();
-				}
-				$name(result)
+                !Self::zero()
 			}
 
 			/// Fast exponentation by squaring
@@ -499,9 +355,7 @@ macro_rules! construct_uint {
 					} else {
 						y = x * y;
 						x = x * x;
-						// to reduce odd number by 1 we should just clear the last bit
-						n.0[$n_words-1] = n.0[$n_words-1] & ((!0u64)>>1);
-						n = n >> 1;
+						n = (n - u_one) >> 1;
 					}
 				}
 				x * y
@@ -602,18 +456,7 @@ macro_rules! construct_uint {
 			/// Overflowing multiplication by u32
 			#[allow(dead_code)] // not used when multiplied with inline assembly
 			fn overflowing_mul_u32(self, other: u32) -> (Self, bool) {
-				let $name(ref arr) = self;
-				let mut ret = [0u64; $n_words];
-				let mut carry = 0;
-				let o = other as u64;
-
-				for i in 0..$n_words {
-					let (res, carry2) = mul_u32(split(arr[i]), o, carry);
-					ret[i] = res;
-					carry = carry2;
-				}
-
-				($name(ret), carry > 0)
+                self.overflowing_mul(other.into())
 			}
 
 			/// Converts from big endian representation bytes in memory
@@ -621,33 +464,21 @@ macro_rules! construct_uint {
 			/// slice implementation for U256
 			pub fn from_big_endian(slice: &[u8]) -> Self {
 				assert!($n_words * 8 >= slice.len());
-
-				let mut ret = [0; $n_words];
-				unsafe {
-					let ret_u8: &mut [u8; $n_words * 8] = mem::transmute(&mut ret);
-					let mut ret_ptr = ret_u8.as_mut_ptr();
-					let mut slice_ptr = slice.as_ptr().offset(slice.len() as isize - 1);
-					for _ in 0..slice.len() {
-						*ret_ptr = *slice_ptr;
-						ret_ptr = ret_ptr.offset(1);
-						slice_ptr = slice_ptr.offset(-1);
-					}
-				}
-
-				$name(ret)
+                let mut result = Self::zero();
+                for i in 0..slice.len() {
+                    result = result | Self::from(slice[i]) << (8 * (slice.len() - i - 1));
+                }
+                result
 			}
 
 			/// Converts from little endian representation bytes in memory
 			pub fn from_little_endian(slice: &[u8]) -> Self {
 				assert!($n_words * 8 >= slice.len());
-
-				let mut ret = [0; $n_words];
-				unsafe {
-					let ret_u8: &mut [u8; $n_words * 8] = mem::transmute(&mut ret);
-					ret_u8[0..slice.len()].copy_from_slice(&slice);
-				}
-
-				$name(ret)
+                let mut result = Self::zero();
+                for i in 0..slice.len() {
+                    result = result | Self::from(slice[i]) << (8 * i);
+                }
+                result
 			}
 		}
 
@@ -659,9 +490,9 @@ macro_rules! construct_uint {
 
 		impl From<u64> for $name {
 			fn from(value: u64) -> $name {
-				let mut ret = [0; $n_words];
-				ret[0] = value;
-				$name(ret)
+                $name {
+                    raw: crucible_uint::$name::from(value),
+                }
 			}
 		}
 
@@ -744,35 +575,9 @@ macro_rules! construct_uint {
 			type Output = $name;
 
 			fn div(self, other: $name) -> $name {
-				let mut sub_copy = self;
-				let mut shift_copy = other;
-				let mut ret = [0u64; $n_words];
-
-				let my_bits = self.bits();
-				let your_bits = other.bits();
-
-				// Check for division by 0
-				assert!(your_bits != 0);
-
-				// Early return in case we are dividing by a larger number than us
-				if my_bits < your_bits {
-					return $name(ret);
-				}
-
-				// Bitwise long division
-				let mut shift = my_bits - your_bits;
-				shift_copy = shift_copy << shift;
-				loop {
-					if sub_copy >= shift_copy {
-						ret[shift / 64] |= 1 << (shift % 64);
-						sub_copy = overflowing!(sub_copy.overflowing_sub(shift_copy));
-					}
-					shift_copy = shift_copy >> 1;
-					if shift == 0 { break; }
-					shift -= 1;
-				}
-
-				$name(ret)
+                $name {
+                    raw: self.raw.div(other.raw),
+                }
 			}
 		}
 
@@ -780,8 +585,9 @@ macro_rules! construct_uint {
 			type Output = $name;
 
 			fn rem(self, other: $name) -> $name {
-				let times = self / other;
-				self - (times * other)
+                $name {
+                    raw: self.raw.rem(other.raw),
+                }
 			}
 		}
 
@@ -790,13 +596,9 @@ macro_rules! construct_uint {
 
 			#[inline]
 			fn bitand(self, other: $name) -> $name {
-				let $name(ref arr1) = self;
-				let $name(ref arr2) = other;
-				let mut ret = [0u64; $n_words];
-				for i in 0..$n_words {
-					ret[i] = arr1[i] & arr2[i];
-				}
-				$name(ret)
+                $name {
+                    raw: self.raw.bitand(other.raw),
+                }
 			}
 		}
 
@@ -805,13 +607,9 @@ macro_rules! construct_uint {
 
 			#[inline]
 			fn bitxor(self, other: $name) -> $name {
-				let $name(ref arr1) = self;
-				let $name(ref arr2) = other;
-				let mut ret = [0u64; $n_words];
-				for i in 0..$n_words {
-					ret[i] = arr1[i] ^ arr2[i];
-				}
-				$name(ret)
+                $name {
+                    raw: self.raw.bitxor(other.raw),
+                }
 			}
 		}
 
@@ -820,13 +618,9 @@ macro_rules! construct_uint {
 
 			#[inline]
 			fn bitor(self, other: $name) -> $name {
-				let $name(ref arr1) = self;
-				let $name(ref arr2) = other;
-				let mut ret = [0u64; $n_words];
-				for i in 0..$n_words {
-					ret[i] = arr1[i] | arr2[i];
-				}
-				$name(ret)
+                $name {
+                    raw: self.raw.bitor(other.raw),
+                }
 			}
 		}
 
@@ -835,12 +629,9 @@ macro_rules! construct_uint {
 
 			#[inline]
 			fn not(self) -> $name {
-				let $name(ref arr) = self;
-				let mut ret = [0u64; $n_words];
-				for i in 0..$n_words {
-					ret[i] = !arr[i];
-				}
-				$name(ret)
+                $name {
+                    raw: self.raw.not(),
+                }
 			}
 		}
 
@@ -848,22 +639,9 @@ macro_rules! construct_uint {
 			type Output = $name;
 
 			fn shl(self, shift: usize) -> $name {
-				let $name(ref original) = self;
-				let mut ret = [0u64; $n_words];
-				let word_shift = shift / 64;
-				let bit_shift = shift % 64;
-
-				// shift
-				for i in word_shift..$n_words {
-					ret[i] = original[i - word_shift] << bit_shift;
-				}
-				// carry
-				if bit_shift > 0 {
-					for i in word_shift+1..$n_words {
-						ret[i] += original[i - 1 - word_shift] >> (64 - bit_shift);
-					}
-				}
-				$name(ret)
+                $name {
+                    raw: self.raw.shl(shift),
+                }
 			}
 		}
 
@@ -871,38 +649,15 @@ macro_rules! construct_uint {
 			type Output = $name;
 
 			fn shr(self, shift: usize) -> $name {
-				let $name(ref original) = self;
-				let mut ret = [0u64; $n_words];
-				let word_shift = shift / 64;
-				let bit_shift = shift % 64;
-
-				// shift
-				for i in word_shift..$n_words {
-					ret[i - word_shift] = original[i] >> bit_shift;
-				}
-
-				// Carry
-				if bit_shift > 0 {
-					for i in word_shift+1..$n_words {
-						ret[i - word_shift - 1] += original[i] << (64 - bit_shift);
-					}
-				}
-
-				$name(ret)
+                $name {
+                    raw: self.raw.shr(shift),
+                }
 			}
 		}
 
 		impl Ord for $name {
 			fn cmp(&self, other: &$name) -> ::core::cmp::Ordering {
-				let &$name(ref me) = self;
-				let &$name(ref you) = other;
-				let mut i = $n_words;
-				while i > 0 {
-					i -= 1;
-					if me[i] < you[i] { return ::core::cmp::Ordering::Less; }
-					if me[i] > you[i] { return ::core::cmp::Ordering::Greater; }
-				}
-				::core::cmp::Ordering::Equal
+                self.raw.cmp(&other.raw)
 			}
 		}
 
@@ -947,19 +702,7 @@ macro_rules! construct_uint {
 
 		impl ::core::fmt::LowerHex for $name {
 			fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-				let &$name(ref data) = self;
-				try!(write!(f, "0x"));
-				let mut latch = false;
-				for ch in data.iter().rev() {
-					for x in 0..16 {
-						let nibble = (ch & (15u64 << ((15 - x) * 4) as u64)) >> (((15 - x) * 4) as u64);
-						if !latch { latch = nibble != 0 }
-						if latch {
-							try!(write!(f, "{:x}", nibble));
-						}
-					}
-				}
-				Ok(())
+                unimplemented!()
 			}
 		}
 
@@ -969,6 +712,14 @@ macro_rules! construct_uint {
 				s.parse().unwrap()
 			}
 		}
+
+        impl Symbolic for $name {
+            fn symbolic(desc: &'static str) -> Self {
+                $name {
+                    raw: crucible_uint::$name::symbolic(desc),
+                }
+            }
+        }
 	);
 }
 
@@ -981,7 +732,7 @@ impl U256 {
 	/// No overflow possible
 	#[inline(always)]
 	pub fn full_mul(self, other: U256) -> U512 {
-		U512(uint_full_mul_reg!(U256, 4, self, other))
+        U512::from(self) * U512::from(other)
 	}
 
 	/// Find modular inverse by modulo p
@@ -1005,101 +756,64 @@ impl U256 {
 
 impl From<U256> for U512 {
 	fn from(value: U256) -> U512 {
-		let U256(ref arr) = value;
-		let mut ret = [0; 8];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		ret[2] = arr[2];
-		ret[3] = arr[3];
-		U512(ret)
+        (&value).into()
 	}
 }
 
 impl From<U512> for U256 {
 	fn from(value: U512) -> U256 {
-		let U512(ref arr) = value;
-		if arr[4] | arr[5] | arr[6] | arr[7] != 0 {
-			panic!("Overflow");
-		}
-		let mut ret = [0; 4];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		ret[2] = arr[2];
-		ret[3] = arr[3];
-		U256(ret)
+        (&value).into()
 	}
 }
 
 impl<'a> From<&'a U256> for U512 {
 	fn from(value: &'a U256) -> U512 {
-		let U256(ref arr) = *value;
-		let mut ret = [0; 8];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		ret[2] = arr[2];
-		ret[3] = arr[3];
-		U512(ret)
+        U512 {
+            raw: value.raw.into(),
+        }
 	}
 }
 
 impl<'a> From<&'a U512> for U256 {
 	fn from(value: &'a U512) -> U256 {
-		let U512(ref arr) = *value;
-		if arr[4] | arr[5] | arr[6] | arr[7] != 0 {
-			panic!("Overflow");
-		}
-		let mut ret = [0; 4];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		ret[2] = arr[2];
-		ret[3] = arr[3];
-		U256(ret)
+        assert!(value.raw >> 256 == crucible_uint::U512::ZERO, "Overflow");
+        U256 {
+            raw: value.raw.into(),
+        }
 	}
 }
 
 impl From<U256> for U128 {
 	fn from(value: U256) -> U128 {
-		let U256(ref arr) = value;
-		if arr[2] | arr[3] != 0 {
-			panic!("Overflow");
-		}
-		let mut ret = [0; 2];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		U128(ret)
+        assert!(value.raw >> 128 == crucible_uint::U256::ZERO, "Overflow");
+        U128 {
+            raw: value.raw.into(),
+        }
 	}
 }
 
 impl From<U512> for U128 {
 	fn from(value: U512) -> U128 {
-		let U512(ref arr) = value;
-		if arr[2] | arr[3] | arr[4] | arr[5] | arr[6] | arr[7] != 0 {
-			panic!("Overflow");
-		}
-		let mut ret = [0; 2];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		U128(ret)
+        assert!(value.raw >> 128 == crucible_uint::U512::ZERO, "Overflow");
+        U128 {
+            raw: value.raw.into(),
+        }
 	}
 }
 
 impl From<U128> for U512 {
 	fn from(value: U128) -> U512 {
-		let U128(ref arr) = value;
-		let mut ret = [0; 8];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		U512(ret)
+        U512 {
+            raw: value.raw.into(),
+        }
 	}
 }
 
 impl From<U128> for U256 {
 	fn from(value: U128) -> U256 {
-		let U128(ref arr) = value;
-		let mut ret = [0; 4];
-		ret[0] = arr[0];
-		ret[1] = arr[1];
-		U256(ret)
+        U256 {
+            raw: value.raw.into(),
+        }
 	}
 }
 

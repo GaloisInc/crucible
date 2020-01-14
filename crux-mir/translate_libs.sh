@@ -60,6 +60,7 @@ translate lib/libstd/lib.rs --crate-name std \
 translate lib/libtest/lib.rs --crate-name test
 translate_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
 translate lib/bytes.rs
+translate_2015 lib/bigint/src/lib.rs --crate-name bigint
 
 # Need native versions of some libs for conc_eval oracle programs
 #compile_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'

@@ -13,6 +13,7 @@
 
 extern crate byteorder;
 
+/*
 #[cfg(feature="std")]
 extern crate rustc_hex;
 
@@ -39,6 +40,9 @@ extern crate quickcheck;
 #[cfg(all(not(feature = "std"), test))]
 #[macro_use]
 extern crate alloc;
+*/
+
+extern crate crucible;
 
 pub mod uint;
 pub use ::uint::*;
