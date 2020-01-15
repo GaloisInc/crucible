@@ -466,7 +466,9 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirNewRef ::
      !(TypeRepr tp) ->
      MirStmt f (MirReferenceType tp)
-  -- TODO: add MirGlobalRef
+  MirGlobalRef ::
+     GlobalVar tp ->
+     MirStmt f (MirReferenceType tp)
   MirReadRef ::
      !(TypeRepr tp) ->
      !(f (MirReferenceType tp)) ->
@@ -554,6 +556,7 @@ instance TestEqualityFC MirStmt where
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
+       , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
        ])
 instance TestEquality f => TestEquality (MirStmt f) where
   testEquality = testEqualityFC testEquality
@@ -565,11 +568,13 @@ instance OrdFC MirStmt where
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
+       , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
        ])
 
 instance TypeApp MirStmt where
   appType = \case
     MirNewRef tp    -> MirReferenceRepr tp
+    MirGlobalRef gv -> MirReferenceRepr (globalType gv)
     MirReadRef tp _ -> tp
     MirWriteRef _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
@@ -590,6 +595,7 @@ instance TypeApp MirStmt where
 instance PrettyApp MirStmt where
   ppApp pp = \case 
     MirNewRef tp -> "newMirRef" <+> pretty tp
+    MirGlobalRef gv -> "globalMirRef" <+> pretty gv
     MirReadRef _ x  -> "readMirRef" <+> pp x
     MirWriteRef x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
@@ -661,6 +667,10 @@ execMirStmt stmt s =
             let r' = MirReference (RefCell_RefRoot r) Empty_RefPath
             return (r', s)
 
+       MirGlobalRef gv ->
+         do let r = MirReference (GlobalVar_RefRoot gv) Empty_RefPath
+            return (r, s)
+
        MirDropRef (regValue -> MirReference r path) ->
          case path of
            Empty_RefPath ->
@@ -681,9 +691,7 @@ execMirStmt stmt s =
          do let s' = writeRefRoot s sym r x
             return ((), s')
        MirWriteRef (regValue -> MirReference r path) (regValue -> x) ->
-         do let msg = ReadBeforeWriteSimError
-                       "Attempted to read uninitialized reference cell"
-            v <- readRefRoot s sym r
+         do v <- readRefRoot s sym r
             v' <- writeRefPath sym iTypes v path x
             let s' = writeRefRoot s sym r v'
             return ((), s')
