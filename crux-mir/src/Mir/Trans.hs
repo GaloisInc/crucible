@@ -750,7 +750,13 @@ evalRefLvalue lv =
                 _ -> return e
         M.LProj lv elm -> evalRefProj lv elm
 
-        _ -> mirFail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
+        M.LBase (M.PStatic did _t) -> lookupStaticRef did
+        M.LBase (M.PPromoted idx _t) -> do
+            fn <- use currentFn
+            let st = fn^.fpromoted
+            case st V.!? idx of
+                Just did -> lookupStaticRef did
+                Nothing  -> mirFail $ "Promoted index " ++ show idx ++ " out of range "
 
 evalRefProj :: HasCallStack => M.Lvalue -> M.PlaceElem -> MirGenerator h s ret (MirExp s)
 evalRefProj base projElem =
@@ -1013,6 +1019,14 @@ assignStaticExp did (MirExp rhsTy rhs) = do
           Just Refl -> G.writeGlobal gv rhs
           Nothing -> mirFail $ "BUG: invalid type for assignment to stat mut " ++ fmt did
      Nothing -> mirFail $ "BUG: cannot find static variable: " ++ fmt did
+
+lookupStaticRef :: M.DefId -> MirGenerator h s ret (MirExp s)
+lookupStaticRef did = do
+    sm <- use (cs.staticMap)
+    case Map.lookup did sm of
+        Just (StaticVar gv) ->
+            MirExp (MirReferenceRepr $ G.globalType gv) <$> globalMirRef gv
+        Nothing -> mirFail $ "BUG: cannot find static variable: " ++ fmt did
 
 --------------------------------------------------------------------------------------
 -- ** Statements
