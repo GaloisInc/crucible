@@ -42,7 +42,7 @@ import           What4.BaseTypes
 import qualified What4.Utils.AnnotatedMap as AM
 import           What4.Utils.IncrHash
 
--- | Describes the occurence of a variable or expression, whether it is
+-- | Describes the occurrence of a variable or expression, whether it is
 --   negated or not.
 data Polarity = Positive | Negative
  deriving (Eq,Ord,Show)

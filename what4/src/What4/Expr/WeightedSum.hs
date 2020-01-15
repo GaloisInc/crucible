@@ -631,12 +631,12 @@ prodAbsValue pd =
     Nothing             -> abstractScalar (prodRepr pd) (SR.one (prodRepr pd))
     Just (ProdNote _ v) -> v
 
--- | Returns true if the product contains at least on occurence of the given term.
+-- | Returns true if the product contains at least on occurrence of the given term.
 prodContains :: OrdF f => SemiRingProduct f sr -> f (SR.SemiRingBase sr) -> Bool
 prodContains pd x = isJust $ AM.lookup (WrapF x) (_prodMap pd)
 
--- | Produce a product map from a raw map of terms to occurences.
---   PRECONDITION: the occurence value for each term should be non-zero.
+-- | Produce a product map from a raw map of terms to occurrences.
+--   PRECONDITION: the occurrence value for each term should be non-zero.
 mkProd :: HashableF f => SR.SemiRingRepr sr -> ProdMap f sr -> SemiRingProduct f sr
 mkProd sr m = SemiRingProduct m sr
 
@@ -644,7 +644,7 @@ mkProd sr m = SemiRingProduct m sr
 prodVar :: Tm f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SemiRingProduct f sr
 prodVar sr x = mkProd sr (singletonProdMap sr (SR.occ_one sr) x)
 
--- | Multiply two products, collecting terms and adding occurences.
+-- | Multiply two products, collecting terms and adding occurrences.
 prodMul :: Tm f => SemiRingProduct f sr -> SemiRingProduct f sr -> SemiRingProduct f sr
 prodMul x y = mkProd sr m
   where
@@ -675,7 +675,7 @@ prodEvalM mul tm om = f (AM.toList (_prodMap om))
   where
   sr = prodRepr om
 
-  -- we have not yet encountered a term with non-zero occurences
+  -- we have not yet encountered a term with non-zero occurrences
   f [] = return Nothing
   f ((WrapF x, SR.occ_count sr -> n):xs)
     | n == 0    = f xs
