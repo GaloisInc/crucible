@@ -5,7 +5,7 @@ License     : BSD3
 Maintainer  : rdockins@galois.com
 
 Declares a datatype for representing n-way conjunctions or disjunctions
-in a way that efficently captures important algebraic
+in a way that efficiently captures important algebraic
 laws like commutativity, associativity and resolution.
 -}
 

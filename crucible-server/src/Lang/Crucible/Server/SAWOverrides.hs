@@ -209,7 +209,7 @@ handleSingleProofObligation ::
   IO ()
 handleSingleProofObligation _sim sym dir obls =
   do createDirectoryIfMissing True {- create parents -} dir
-     -- TODO: there is probably a much more efficent way to do this
+     -- TODO: there is probably a much more efficient way to do this
      -- that more directly follows the structure of the proof goal tree
      preds <- mapM (sequentToSC sym) (proofGoalsToList obls)
      totalPred <- andAllOf sym folded preds
