@@ -1948,21 +1948,6 @@ appSMTExpr ae = do
 
     NotPred x -> freshBoundTerm BoolTypeMap . notExpr =<< mkBaseExpr x
 
-    DisjPred xs ->
-      let pol (x,Positive) = mkBaseExpr x
-          pol (x,Negative) = notExpr <$> mkBaseExpr x
-      in
-      case BM.viewBoolMap xs of
-        BM.BoolMapUnit ->
-          return $ SMTExpr BoolTypeMap $ boolExpr False
-        BM.BoolMapDualUnit ->
-          return $ SMTExpr BoolTypeMap $ boolExpr True
-        BM.BoolMapTerms (t:|[]) ->
-          SMTExpr BoolTypeMap <$> pol t
-        BM.BoolMapTerms (t:|ts) ->
-          do cnj <- orAll <$> mapM pol (t:ts)
-             freshBoundTerm BoolTypeMap cnj
-
     ConjPred xs ->
       let pol (x,Positive) = mkBaseExpr x
           pol (x,Negative) = notExpr <$> mkBaseExpr x

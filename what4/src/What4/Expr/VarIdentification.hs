@@ -314,15 +314,6 @@ recurseAssertedAppExprVars scope p e = go e
      BM.BoolMapDualUnit -> return ()
      BM.BoolMapTerms (t:|ts) -> mapM_ pol (t:ts)
 
- go (asApp -> Just (DisjPred xs)) =
-   let pol (x,Positive) = recordAssertionVars scope p x
-       pol (x,Negative) = recordAssertionVars scope (negatePolarity p) x
-   in
-   case BM.viewBoolMap xs of
-     BM.BoolMapUnit -> return ()
-     BM.BoolMapDualUnit -> return ()
-     BM.BoolMapTerms (t:|ts) -> mapM_ pol (t:ts)
-
  go (asApp -> Just (BaseIte BaseBoolRepr _ c x y)) =
    do recordExprVars scope c
       recordAssertionVars scope p x
