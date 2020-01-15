@@ -177,39 +177,39 @@ data DataLayout
 instance Show DataLayout where
    show _ = "<<DataLayout>>"
 
-intLayout :: Simple Lens DataLayout EndianForm
+intLayout :: Lens' DataLayout EndianForm
 intLayout = lens _intLayout (\s v -> s { _intLayout = v})
 
-stackAlignment :: Simple Lens DataLayout Alignment
+stackAlignment :: Lens' DataLayout Alignment
 stackAlignment = lens _stackAlignment (\s v -> s { _stackAlignment = v})
 
 -- | Size of pointers in bytes.
-ptrSize :: Simple Lens DataLayout Bytes
+ptrSize :: Lens' DataLayout Bytes
 ptrSize = lens _ptrSize (\s v -> s { _ptrSize = v})
 
 -- | ABI pointer alignment in bytes.
-ptrAlign :: Simple Lens DataLayout Alignment
+ptrAlign :: Lens' DataLayout Alignment
 ptrAlign = lens _ptrAlign (\s v -> s { _ptrAlign = v})
 
-integerInfo :: Simple Lens DataLayout AlignInfo
+integerInfo :: Lens' DataLayout AlignInfo
 integerInfo = lens _integerInfo (\s v -> s { _integerInfo = v})
 
-vectorInfo :: Simple Lens DataLayout AlignInfo
+vectorInfo :: Lens' DataLayout AlignInfo
 vectorInfo = lens _vectorInfo (\s v -> s { _vectorInfo = v})
 
-floatInfo :: Simple Lens DataLayout AlignInfo
+floatInfo :: Lens' DataLayout AlignInfo
 floatInfo = lens _floatInfo (\s v -> s { _floatInfo = v})
 
 -- | Information about aggregate size.
-aggInfo :: Simple Lens DataLayout AlignInfo
+aggInfo :: Lens' DataLayout AlignInfo
 aggInfo = lens _aggInfo (\s v -> s { _aggInfo = v})
 
 -- | Layout constraints on a stack object with the given size.
-stackInfo :: Simple Lens DataLayout AlignInfo
+stackInfo :: Lens' DataLayout AlignInfo
 stackInfo = lens _stackInfo (\s v -> s { _stackInfo = v})
 
 -- | Layout specs that could not be parsed.
-layoutWarnings :: Simple Lens DataLayout [L.LayoutSpec]
+layoutWarnings :: Lens' DataLayout [L.LayoutSpec]
 layoutWarnings = lens _layoutWarnings (\s v -> s { _layoutWarnings = v})
 
 ptrBitwidth :: DataLayout -> Natural
@@ -225,7 +225,7 @@ fromBits a | w <= 0 = Left $ "Alignment must be a positive number."
   where (w,r) = toInteger a `divMod` 8
 
 -- | Insert alignment into spec.
-setAt :: Simple Lens DataLayout AlignInfo -> Natural -> Alignment -> State DataLayout ()
+setAt :: Lens' DataLayout AlignInfo -> Natural -> Alignment -> State DataLayout ()
 setAt f sz a = f . at sz ?= a
 
 -- | The default data layout if no spec is defined. From the LLVM
@@ -281,14 +281,14 @@ fromSize i | i < 0 = error $ "Negative size given in data layout."
            | otherwise = fromIntegral i
 
 -- | Insert alignment into spec.
-setAtBits :: Simple Lens DataLayout AlignInfo -> L.LayoutSpec -> Int -> Int -> State DataLayout ()
+setAtBits :: Lens' DataLayout AlignInfo -> L.LayoutSpec -> Int -> Int -> State DataLayout ()
 setAtBits f spec sz a =
   case fromBits a of
     Left{} -> layoutWarnings %= (spec:)
     Right w -> f . at (fromSize sz) .= Just w
 
 -- | Insert alignment into spec.
-setBits :: Simple Lens DataLayout Alignment -> L.LayoutSpec -> Int -> State DataLayout ()
+setBits :: Lens' DataLayout Alignment -> L.LayoutSpec -> Int -> State DataLayout ()
 setBits f spec a =
   case fromBits a of
     Left{} -> layoutWarnings %= (spec:)

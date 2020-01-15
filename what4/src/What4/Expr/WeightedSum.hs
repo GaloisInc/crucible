@@ -325,11 +325,11 @@ unfilteredSum ::
 unfilteredSum sr m c = WeightedSum m c sr
 
 -- | Retrieve the mapping from terms to coefficients.
-sumMap :: HashableF f => Simple Lens (WeightedSum f sr) (SumMap f sr)
+sumMap :: HashableF f => Lens' (WeightedSum f sr) (SumMap f sr)
 sumMap = lens _sumMap (\w m -> w{ _sumMap = m })
 
 -- | Retrieve the constant addend of the weighted sum.
-sumOffset :: Simple Lens (WeightedSum f sr) (SR.Coefficient sr)
+sumOffset :: Lens' (WeightedSum f sr) (SR.Coefficient sr)
 sumOffset = lens _sumOffset (\s v -> s { _sumOffset = v })
 
 instance OrdF f => Hashable (WeightedSum f sr) where

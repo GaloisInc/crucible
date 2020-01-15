@@ -128,4 +128,4 @@ mkProgramLoc = ProgramLoc
 -- HasProgramLoc
 
 class HasProgramLoc v where
-  programLoc :: Simple Lens v ProgramLoc
+  programLoc :: Lens' v ProgramLoc

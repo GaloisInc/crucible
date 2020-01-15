@@ -526,15 +526,15 @@ data WriterState = WriterState { _nextTermIdx :: !Word64
                                }
 
 -- | The next index to use in dynamically generating a variable name.
-nextTermIdx :: Simple Lens WriterState Word64
+nextTermIdx :: Lens' WriterState Word64
 nextTermIdx = lens _nextTermIdx (\s v -> s { _nextTermIdx = v })
 
 -- | Last position written to file.
-lastPosition :: Simple Lens WriterState Position
+lastPosition :: Lens' WriterState Position
 lastPosition = lens _lastPosition (\s v -> s { _lastPosition = v })
 
 -- | Position written to file.
-position :: Simple Lens WriterState Position
+position :: Lens' WriterState Position
 position = lens _position (\s v -> s { _position = v })
 
 emptyState :: WriterState

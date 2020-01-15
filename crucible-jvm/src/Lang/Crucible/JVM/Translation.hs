@@ -301,7 +301,7 @@ saveStack _ _ = jvmFail "saveStack"
 -- Create the register on-the-fly if it does not exist yet.
 lookupLocalReg ::
   KnownRepr TypeRepr tp =>
-  Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s tp)) ->
+  Lens' (JVMState ret s) (Map J.LocalVariableIndex (Reg s tp)) ->
   J.LocalVariableIndex -> JVMGenerator s ret (Reg s tp)
 lookupLocalReg l idx =
   do m <- use l
