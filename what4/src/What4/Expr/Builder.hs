@@ -426,7 +426,7 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
 
   NotPred :: !(e BaseBoolType) -> App e BaseBoolType
   ConjPred :: !(BoolMap e) -> App e BaseBoolType
-  DisjPred :: !(BoolMap e) -> App e BaseBoolType
+  NandPred :: !(BoolMap e) -> App e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Semiring operations
@@ -1169,23 +1169,12 @@ asConjunction (asApp -> Just (ConjPred xs)) =
    BoolMapUnit     -> []
    BoolMapDualUnit -> [(BoolExpr False initializationLoc, Positive)]
    BoolMapTerms (tm:|tms) -> tm:tms
-asConjunction (asApp -> Just (NotPred (asApp -> Just (DisjPred xs)))) =
- case BM.viewBoolMap xs of
-   BoolMapUnit     -> []
-   BoolMapDualUnit -> [(BoolExpr False initializationLoc, Positive)]
-   BoolMapTerms (tm:|tms) -> map (over _2 BM.negatePolarity) (tm:tms)
 asConjunction x = [(x,Positive)]
 
 
 asDisjunction :: Expr t BaseBoolType -> [(Expr t BaseBoolType, Polarity)]
 asDisjunction (BoolExpr False _) = []
-asDisjunction (asApp -> Just (DisjPred xs)) =
- case BM.viewBoolMap xs of
-   BoolMapUnit     -> []
-   BoolMapDualUnit -> [(BoolExpr True initializationLoc, Positive)]
-   BoolMapTerms (tm:|tms) -> tm:tms
-
-asDisjunction (asApp -> Just (NotPred (asApp -> Just (ConjPred xs)))) =
+asDisjunction (asApp -> Just (NandPred xs)) =
  case BM.viewBoolMap xs of
    BoolMapUnit     -> []
    BoolMapDualUnit -> [(BoolExpr True initializationLoc, Positive)]
@@ -1214,7 +1203,7 @@ appType a =
 
     NotPred{} -> knownRepr
     ConjPred{} -> knownRepr
-    DisjPred{} -> knownRepr
+    NandPred{} -> knownRepr
 
     RealIsInteger{} -> knownRepr
     BVTestBit{} -> knownRepr
@@ -1532,7 +1521,7 @@ abstractEval f a0 = do
     BaseEq{} -> Nothing
 
     NotPred{} -> Nothing
-    DisjPred{} -> Nothing
+    NandPred{} -> Nothing
     ConjPred{} -> Nothing
 
     SemiRingLe{} -> Nothing
@@ -1793,9 +1782,9 @@ ppApp' a0 = do
 
     NotPred x -> ppSExpr "not" [x]
 
-    DisjPred xs ->
-      let pol (x,Positive) = exprPrettyArg x
-          pol (x,Negative) = PrettyFunc "not" [ exprPrettyArg x ]
+    NandPred xs ->
+      let pol (x, Negative) = exprPrettyArg x
+          pol (x, Positive) = PrettyFunc "not" [ exprPrettyArg x ]
        in
        case BM.viewBoolMap xs of
          BoolMapUnit      -> prettyApp "false" []
@@ -3152,7 +3141,7 @@ reduceApp sym a0 = do
 
     NotPred x -> notPred sym x
     ConjPred xs -> conjPred sym xs
-    DisjPred xs -> disjPred sym xs
+    NandPred xs -> nandPred sym xs
 
     SemiRingSum s -> semiRingSum sym s
     SemiRingProd pd -> semiRingProd sym pd
@@ -3539,16 +3528,17 @@ conjPred sym bm =
         Negative -> notPred sym x
     _ -> sbMakeExpr sym $ ConjPred bm
 
-disjPred :: ExprBuilder t st fs -> BoolMap (Expr t) -> IO (BoolExpr t)
-disjPred sym bm =
+-- | @nandPred sym bm@ returns the same result as @notPred sym =<< conjPred sym bm@.
+nandPred :: ExprBuilder t st fs -> BoolMap (Expr t) -> IO (BoolExpr t)
+nandPred sym bm =
   case BM.viewBoolMap bm of
-    BoolMapUnit     -> return $ falsePred sym
-    BoolMapDualUnit -> return $ truePred sym
+    BoolMapUnit     -> return $ truePred sym
+    BoolMapDualUnit -> return $ falsePred sym
     BoolMapTerms ((x,p):|[]) ->
       case p of
-        Positive -> return x
-        Negative -> notPred sym x
-    _ -> sbMakeExpr sym $ DisjPred bm
+        Positive -> notPred sym x
+        Negative -> return x
+    _ -> sbMakeExpr sym $ NandPred bm
 
 bvUnary :: (1 <= w) => ExprBuilder t st fs -> UnaryBV (BoolExpr t) w -> IO (BVExpr t w)
 bvUnary sym u
@@ -3968,38 +3958,28 @@ checkAbsorption bm ((x,p):_)
   | Just p' <- BM.contains bm x, p == p' = True
 checkAbsorption bm (_:xs) = checkAbsorption bm xs
 
+-- | If @tryAndAbsorption x y@ returns @True@, that means that @y@
+-- implies @x@, so that the conjunction @x AND y = y@. A @False@
+-- result gives no information.
 tryAndAbsorption ::
   BoolExpr t ->
-  Polarity ->
   BoolExpr t ->
-  Polarity ->
   Bool
-tryAndAbsorption (asApp -> Just (DisjPred as)) Positive (asConjunction -> bs) Positive
-  = checkAbsorption as bs
-tryAndAbsorption (asApp -> Just (DisjPred as)) Positive (asDisjunction -> bs) Negative
-  = checkAbsorption as (map (over _2 BM.negatePolarity) bs)
-tryAndAbsorption (asApp -> Just (ConjPred as)) Negative (asConjunction -> bs) Positive
+tryAndAbsorption (asApp -> Just (NandPred as)) (asConjunction -> bs)
   = checkAbsorption (BM.reversePolarities as) bs
-tryAndAbsorption (asApp -> Just (ConjPred as)) Negative (asDisjunction -> bs) Negative
-  = checkAbsorption (BM.reversePolarities as) (map (over _2 BM.negatePolarity) bs)
-tryAndAbsorption _ _ _ _ = False
+tryAndAbsorption _ _ = False
 
 
+-- | If @tryOrAbsorption x y@ returns @True@, that means that @x@
+-- implies @y@, so that the disjunction @x OR y = y@. A @False@
+-- result gives no information.
 tryOrAbsorption ::
   BoolExpr t ->
-  Polarity ->
   BoolExpr t ->
-  Polarity ->
   Bool
-tryOrAbsorption (asApp -> Just (ConjPred as)) Positive (asDisjunction -> bs) Positive
+tryOrAbsorption (asApp -> Just (ConjPred as)) (asDisjunction -> bs)
   = checkAbsorption as bs
-tryOrAbsorption (asApp -> Just (ConjPred as)) Positive (asConjunction -> bs) Negative
-  = checkAbsorption as (map (over _2 BM.negatePolarity) bs)
-tryOrAbsorption (asApp -> Just (DisjPred as)) Negative (asDisjunction -> bs) Positive
-  = checkAbsorption (BM.reversePolarities as) bs
-tryOrAbsorption (asApp -> Just (DisjPred as)) Negative (asConjunction -> bs) Negative
-  = checkAbsorption (BM.reversePolarities as) (map (over _2 BM.negatePolarity) bs)
-tryOrAbsorption _ _ _ _ = False
+tryOrAbsorption _ _ = False
 
 
 -- | A slightly more aggressive syntactic equality check than testEquality,
@@ -4049,6 +4029,12 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just (NotPred x') <- asApp x
     = return x'
 
+    | Just (ConjPred bm) <- asApp x
+    = sbMakeExpr sym (NandPred bm)
+
+    | Just (NandPred bm) <- asApp x
+    = sbMakeExpr sym (ConjPred bm)
+
     | otherwise
     = sbMakeExpr sym (NotPred x)
 
@@ -4079,68 +4065,28 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       (_, Just True)  -> return x
       (_, Just False) -> return y
       _ | x == y -> return x -- and is idempotent
-        | otherwise -> go x Positive y Positive
+        | otherwise -> go x y
 
    where
-   go a pa b pb
-     | Just (NotPred a') <- asApp a
-     = go a' (BM.negatePolarity pa) b pb
-
-     | Just (NotPred b') <- asApp b
-     = go a pa b' (BM.negatePolarity pb)
-
+   go a b
      | Just (ConjPred as) <- asApp a
      , Just (ConjPred bs) <- asApp b
-     , pa == Positive
-     , pb == Positive
      = conjPred sym $ BM.combine as bs
 
-     | Just (DisjPred as) <- asApp a
-     , Just (ConjPred bs) <- asApp b
-     , pa == Negative
-     , pb == Positive
-     = conjPred sym $ BM.combine (BM.reversePolarities as) bs
+     | tryAndAbsorption a b
+     = return b
+
+     | tryAndAbsorption b a
+     = return a
 
      | Just (ConjPred as) <- asApp a
-     , Just (DisjPred bs) <- asApp b
-     , pa == Positive
-     , pb == Negative
-     = conjPred sym $ BM.combine as (BM.reversePolarities bs)
-
-     | Just (DisjPred as) <- asApp a
-     , Just (DisjPred bs) <- asApp b
-     , pa == Negative
-     , pb == Negative
-     = notPred sym =<< disjPred sym (BM.combine as bs)
-
-     | tryAndAbsorption a pa b pb
-     = case pb of
-         Positive -> return b
-         Negative -> notPred sym b
-
-     | tryAndAbsorption b pb a pa
-     = case pa of
-         Positive -> return a
-         Negative -> notPred sym a
-
-     | Just (ConjPred as) <- asApp a
-     , pa == Positive
-     = conjPred sym $ BM.addVar b pb as
+     = conjPred sym $ BM.addVar b Positive as
 
      | Just (ConjPred bs) <- asApp b
-     , pb == Positive
-     = conjPred sym $ BM.addVar a pa bs
-
-     | Just (DisjPred as) <- asApp a
-     , pa == Negative
-     = notPred sym =<< disjPred sym (BM.addVar b (BM.negatePolarity pb) as)
-
-     | Just (DisjPred bs) <- asApp b
-     , pb == Negative
-     = notPred sym =<< disjPred sym (BM.addVar a (BM.negatePolarity pa) bs)
+     = conjPred sym $ BM.addVar a Positive bs
 
      | otherwise
-     = conjPred sym $ BM.fromVars [(a,pa),(b,pb)]
+     = conjPred sym $ BM.fromVars [(a, Positive), (b, Positive)]
 
   orPred sym x y =
     case (asConstantPred x, asConstantPred y) of
@@ -4149,68 +4095,28 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       (_, Just True)  -> return y
       (_, Just False) -> return x
       _ | x == y -> return x -- or is idempotent
-        | otherwise -> go x Positive y Positive
+        | otherwise -> go x y
 
    where
-   go a pa b pb
-     | Just (NotPred a') <- asApp a
-     = go a' (BM.negatePolarity pa) b pb
+   go a b
+     | Just (NandPred as) <- asApp a
+     , Just (NandPred bs) <- asApp b
+     = nandPred sym $ BM.combine as bs
 
-     | Just (NotPred b') <- asApp b
-     = go a pa b' (BM.negatePolarity pb)
+     | tryOrAbsorption a b
+     = return b
 
-     | Just (DisjPred as) <- asApp a
-     , Just (DisjPred bs) <- asApp b
-     , pa == Positive
-     , pb == Positive
-     = disjPred sym $ BM.combine as bs
+     | tryOrAbsorption b a
+     = return a
 
-     | Just (ConjPred as) <- asApp a
-     , Just (DisjPred bs) <- asApp b
-     , pa == Negative
-     , pb == Positive
-     = disjPred sym $ BM.combine (BM.reversePolarities as) bs
+     | Just (NandPred as) <- asApp a
+     = nandPred sym $ BM.addVar b Negative as
 
-     | Just (DisjPred as) <- asApp a
-     , Just (ConjPred bs) <- asApp b
-     , pa == Positive
-     , pb == Negative
-     = disjPred sym $ BM.combine as (BM.reversePolarities bs)
-
-     | Just (ConjPred as) <- asApp a
-     , Just (ConjPred bs) <- asApp b
-     , pa == Negative
-     , pb == Negative
-     = notPred sym =<< conjPred sym (BM.combine as bs)
-
-     | tryOrAbsorption a pa b pb
-     = case pb of
-         Positive -> return b
-         Negative -> notPred sym b
-
-     | tryOrAbsorption b pb a pa
-     = case pa of
-         Positive -> return a
-         Negative -> notPred sym a
-
-     | Just (DisjPred as) <- asApp a
-     , pa == Positive
-     = disjPred sym $ BM.addVar b pb as
-
-     | Just (DisjPred bs) <- asApp b
-     , pb == Positive
-     = disjPred sym $ BM.addVar a pa bs
-
-     | Just (ConjPred as) <- asApp a
-     , pa == Negative
-     = notPred sym =<< conjPred sym (BM.addVar b (BM.negatePolarity pb) as)
-
-     | Just (ConjPred bs) <- asApp b
-     , pb == Negative
-     = notPred sym =<< conjPred sym (BM.addVar a (BM.negatePolarity pa) bs)
+     | Just (NandPred bs) <- asApp b
+     = nandPred sym $ BM.addVar a Negative bs
 
      | otherwise
-     = disjPred sym $ BM.fromVars [(a,pa),(b,pb)]
+     = nandPred sym $ BM.fromVars [(a, Negative), (b, Negative)]
 
   itePred sb c x y
       -- ite c c y = c || y

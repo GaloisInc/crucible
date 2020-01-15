@@ -423,15 +423,6 @@ assume h (BoolExpr b l)
 assume h b@(AppExpr ba) =
   let a = appExprApp ba in
     case a of
-      NotPred (asApp -> Just (DisjPred xs)) ->
-        case BM.viewBoolMap xs of
-          BM.BoolMapUnit -> return ()
-          BM.BoolMapDualUnit ->
-               do when (isVerb h) $ warnAt l "problem assumes False"
-                  setUNSAT h
-          BM.BoolMapTerms (t:|ts) -> mapM_ f (t:ts)
-            where f (x,BM.Negative) = assume h x
-                  f (_,BM.Positive) = unsupported
       ConjPred xs ->
         case BM.viewBoolMap xs of
           BM.BoolMapUnit -> return ()

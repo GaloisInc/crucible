@@ -256,9 +256,9 @@ evalGroundApp f0 a0 = do
         BM.BoolMapTerms (t:|ts) ->
           foldl' (&&) <$> pol t <*> mapM pol ts
 
-    DisjPred xs ->
-      let pol (x,Positive) = f x
-          pol (x,Negative) = not <$> f x
+    NandPred xs ->
+      let pol (x, Negative) = f x
+          pol (x, Positive) = not <$> f x
       in
       case BM.viewBoolMap xs of
         BM.BoolMapUnit -> return False

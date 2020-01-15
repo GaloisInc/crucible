@@ -1943,9 +1943,9 @@ appSMTExpr ae = do
 
     NotPred x -> freshBoundTerm BoolTypeMap . notExpr =<< mkBaseExpr x
 
-    DisjPred xs ->
-      let pol (x,Positive) = mkBaseExpr x
-          pol (x,Negative) = notExpr <$> mkBaseExpr x
+    NandPred xs ->
+      let pol (x, Negative) = mkBaseExpr x
+          pol (x, Positive) = notExpr <$> mkBaseExpr x
       in
       case BM.viewBoolMap xs of
         BM.BoolMapUnit ->
