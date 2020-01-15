@@ -48,7 +48,7 @@ import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
 import           System.Process
-                   (ProcessHandle, interruptProcessGroupOf, waitForProcess)
+                   (ProcessHandle, terminateProcess, waitForProcess)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 
 import           What4.Expr
@@ -121,7 +121,7 @@ data SolverProcess scope solver = SolverProcess
 --   or in some unrecoverable error state.
 killSolver :: SolverProcess t solver -> IO ()
 killSolver p =
-  do catch (interruptProcessGroupOf (solverHandle p)) (\(_ :: SomeException) -> return ())
+  do catch (terminateProcess (solverHandle p)) (\(_ :: SomeException) -> return ())
      void $ waitForProcess (solverHandle p)
 
 -- | Check if the given formula is satisfiable in the current
@@ -353,7 +353,7 @@ getSatResult yp = do
     Left (SomeException e) ->
        do txt <- readAllLines err_reader
           -- Interrupt process; suppress any exceptions that occur.
-          catch (interruptProcessGroupOf ph) (\(_ :: IOError) -> return ())
+          catch (terminateProcess ph) (\(_ :: IOError) -> return ())
           -- Wait for process to end
           ec <- waitForProcess ph
           let ec_code = case ec of
