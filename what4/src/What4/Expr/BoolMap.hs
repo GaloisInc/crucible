@@ -70,7 +70,7 @@ instance HashableF f => Hashable (Wrap f x) where
 --   either a conjunction or a disjunction of expressions.  The
 --   implementation uses a map from expression values to their
 --   polarities, and thus automatically implements the associative,
---   commutative and idempotencey laws common to both conjunctions and
+--   commutative and idempotency laws common to both conjunctions and
 --   disjunctions.  Moreover, if the same expression occurs in the
 --   collection with opposite polarities, the entire collection
 --   collapses via a resolution step to an \"inconsistent\" map.  For
