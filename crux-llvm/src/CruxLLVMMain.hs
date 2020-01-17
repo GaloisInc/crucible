@@ -168,7 +168,7 @@ registerFunctions llvm_module mtrans =
      let ?lc = llvm_ctx ^. llvmTypeCtx
 
      -- register the callable override functions
-     register_llvm_overrides llvm_module [] (cruxLLVMOverrides++svCompOverrides) llvm_ctx
+     register_llvm_overrides llvm_module [] (cruxLLVMOverrides++svCompOverrides++cbmcOverrides) llvm_ctx
 
      -- register all the functions defined in the LLVM module
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans

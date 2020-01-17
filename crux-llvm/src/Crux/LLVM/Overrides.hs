@@ -12,6 +12,7 @@
 module Crux.LLVM.Overrides
   ( cruxLLVMOverrides
   , svCompOverrides
+  , cbmcOverrides
   , ArchOk
   ) where
 
@@ -134,6 +135,93 @@ cruxLLVMOverrides =
   , basic_llvm_override $
         [llvmOvr| void @crucible_havoc_memory( i8*, size_t ) |]
         do_havoc_memory
+  ]
+
+
+cbmcOverrides ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  [OverrideTemplate (Model sym) sym arch rtp l a]
+cbmcOverrides =
+  [ basic_llvm_override $
+      [llvmOvr| void @__CPROVER_assume( i32 ) |]
+      cprover_assume
+  , basic_llvm_override $
+      [llvmOvr| void @__CPROVER_assert( i32, i8* ) |]
+      cprover_assert
+
+  , basic_llvm_override $
+      [llvmOvr| i1 @nondet_bool() |]
+      (sv_comp_fresh_bits (knownNat @1))
+
+  , basic_llvm_override $
+      [llvmOvr| i8 @nondet_char() |]
+      (sv_comp_fresh_bits (knownNat @8))
+  , basic_llvm_override $
+      [llvmOvr| i8 @nondet_uchar() |]
+      (sv_comp_fresh_bits (knownNat @8))
+  , basic_llvm_override $
+      [llvmOvr| i8 @nondet_uint8_t() |]
+      (sv_comp_fresh_bits (knownNat @8))
+  , basic_llvm_override $
+      [llvmOvr| i8 @nondet_int8_t() |]
+      (sv_comp_fresh_bits (knownNat @8))
+
+  , basic_llvm_override $
+      [llvmOvr| i16 @nondet_short() |]
+      (sv_comp_fresh_bits (knownNat @16))
+  , basic_llvm_override $
+      [llvmOvr| i16 @nondet_ushort() |]
+      (sv_comp_fresh_bits (knownNat @16))
+  , basic_llvm_override $
+      [llvmOvr| i16 @nondet_int16_t() |]
+      (sv_comp_fresh_bits (knownNat @16))
+  , basic_llvm_override $
+      [llvmOvr| i16 @nondet_uint16_t() |]
+      (sv_comp_fresh_bits (knownNat @16))
+
+  , basic_llvm_override $
+      [llvmOvr| i32 @nondet_int() |]
+      (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+      [llvmOvr| i32 @nondet_uint() |]
+      (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+      [llvmOvr| i32 @nondet_int32_t() |]
+      (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+      [llvmOvr| i32 @nondet_uint32_t() |]
+      (sv_comp_fresh_bits (knownNat @32))
+
+  , basic_llvm_override $
+      [llvmOvr| i64 @nondet_int64_t() |]
+      (sv_comp_fresh_bits (knownNat @64))
+  , basic_llvm_override $
+      [llvmOvr| i64 @nondet_uint64_t() |]
+      (sv_comp_fresh_bits (knownNat @64))
+
+  , basic_llvm_override $
+      [llvmOvr| size_t @nondet_long() |]
+      (sv_comp_fresh_bits ?ptrWidth)
+  , basic_llvm_override $
+      [llvmOvr| size_t @nondet_ulong() |]
+      (sv_comp_fresh_bits ?ptrWidth)
+  , basic_llvm_override $
+      [llvmOvr| size_t @nondet_size_t() |]
+      (sv_comp_fresh_bits ?ptrWidth)
+
+  , basic_llvm_override $
+        [llvmOvr| float @nondet_float() |]
+        (sv_comp_fresh_float SingleFloatRepr)
+
+  , basic_llvm_override $
+        [llvmOvr| double @nondet_double() |]
+        (sv_comp_fresh_float DoubleFloatRepr)
+
+{-
+  , basic_llvm_override $
+      [llvmOvr| i8* @nondet_voidp() |]
+      (sv_comp_fresh_bits ?ptrWidth)
+-}
   ]
 
 
@@ -375,6 +463,31 @@ do_havoc_memory mvar sym (Empty :> ptr :> len) =
                arr <- freshConstant sym emptySymbol tp
                doArrayStore sym mem (regValue ptr) noAlignment arr (regValue len)
      writeGlobal mvar mem'
+
+cprover_assume ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+cprover_assume _mvar sym (Empty :> p) = liftIO $
+  do cond <- bvIsNonzero sym (regValue p)
+     loc  <- getCurrentProgramLoc sym
+     let msg = AssumptionReason loc "__CPROVER_assume"
+     addAssumption sym (LabeledPred cond msg)
+
+cprover_assert ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
+  OverM sym (LLVM arch) (RegValue sym UnitType)
+cprover_assert mvar sym (Empty :> p :> pMsg) =
+  do cond <- liftIO $ bvIsNonzero sym (regValue p)
+     str <- lookupString mvar pMsg
+     loc <- liftIO $ getCurrentProgramLoc sym
+     let msg = AssertFailureSimError "__CPROVER_assert" str
+     liftIO $ addAssertion sym (LabeledPred cond (SimError loc msg))
 
 sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>
