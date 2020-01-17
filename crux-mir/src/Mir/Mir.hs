@@ -95,7 +95,7 @@ data Ty =
       | TyClosure [Ty]      -- the Tys are the types of the upvars
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
-      | TyDynamic [Predicate]       -- trait object (defid is trait name)
+      | TyDynamic !TraitName [Predicate] -- trait object (defid is trait name)
       | TyRawPtr !Ty !Mutability    -- Written as *mut T or *const T
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
@@ -172,7 +172,7 @@ data InstanceKind =
     | IkIntrinsic
     | IkVtableShim
     | IkFnPtrShim Ty
-    | IkVirtual !Integer
+    | IkVirtual !TraitName !Integer
     | IkClosureOnceShim
     | IkDropGlue (Maybe Ty)
     | IkCloneShim Ty [DefId]

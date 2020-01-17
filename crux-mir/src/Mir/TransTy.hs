@@ -156,10 +156,10 @@ tyToRepr t0 = case t0 of
   -- type-erased (`AnyRepr`), the first because it has to be, and the second
   -- because we'd need to thread the `Collection` into this function (which we
   -- don't want to do) in order to construct the precise vtable type.
-  M.TyRef (M.TyDynamic _) _ -> Some $ C.StructRepr $
+  M.TyRef (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-  M.TyRawPtr (M.TyDynamic _) _ -> Some $ C.StructRepr $
+  M.TyRawPtr (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
   -- NOTE: we cannot mutate this vector. Hmmmm....
@@ -197,7 +197,7 @@ tyToRepr t0 = case t0 of
   -- We don't support unsized rvalues.  Currently we error only for standalone
   -- standalone (i.e., not under `TyRef`/`TyRawPtr`) use of `TyDynamic` - we
   -- should do the same for TySlice and TyStr as well.
-  M.TyDynamic _preds -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
+  M.TyDynamic _trait _preds -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
 
   M.TyProjection _def _tyargs -> error $
     "BUG: all uses of TyProjection should have been eliminated, found " ++ fmt t0
@@ -892,46 +892,10 @@ isAutoTraitPredicate _ = False
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
 traitVtableType :: (HasCallStack) =>
-    M.TraitName -> M.Trait -> M.Substs -> [M.Predicate] -> Some C.TypeRepr
-traitVtableType tname _ _ ps
-  | any (not . isAutoTraitPredicate) ps =
-    -- We don't yet support things like `dyn Iterator<Item = u8>`, which
-    -- manifests as `TraitProjection` predicates constraining the type of
-    -- `Iterator::Item<Self>`.
-    error $ unwords ["unsupported predicate(s)",
-        show $ filter (not . isAutoTraitPredicate) ps,
-        "for trait", show tname]
-traitVtableType tname trait substs _
-  | not $ all (== tname) $ trait ^. M.traitSupers =
-    -- We don't yet support traits with supertraits.  This would require
-    -- collecting up all the trait items from the entire tree into one big
-    -- vtable.
-    error $ unwords ["trait", show tname, "has nonempty supertraits (unsupported):",
-        show $ trait ^. M.traitSupers]
-  | not $ all (== M.TraitPredicate tname dummySubsts) $ trait ^. M.traitPredicates =
-    -- A predicate `Self: OtherTrait` works the same as a supertrait.  Other
-    -- predicates might be okay.
-    error $ unwords ["trait", show tname, "has nonempty predicates (unsupported):",
-        show $ trait ^. M.traitPredicates, show tname, show dummySubsts]
+    M.TraitName -> M.Trait -> Some C.TypeRepr
+traitVtableType tname trait = vtableTy
   where
-    -- NB: no -1 on the length.  The `substs` arguments is the substs for the
-    -- trait, not including Self - but Self *is* included in `dummySubsts`.
-    dummySubsts = M.Substs [M.TyParam (fromIntegral i) | i <- [0 .. M.lengthSubsts substs]]
-traitVtableType tname trait substs _ = vtableTy
-  where
-    -- The substitutions that turn the method signature (generic, from the
-    -- trait declaration) into the signature of the vtable shim.  These are the
-    -- `substs` from the TraitPredicate, plus one more type to use for `Self`.
-    shimSubsts = M.insertAtSubsts (M.Substs [dummySelf]) 0 substs
-
-    -- We specially replace the receiver argument with TyErased, and that's the
-    -- only place `Self` (`TyParam 0`) should appear, assuming the method is
-    -- properly object-safe.  Thus, the first entry in the `shimSubsts` should
-    -- never be evaluated.
-    dummySelf :: M.Ty
-    dummySelf = errNotObjectSafe ["tried to use Self outside receiver position"]
-
-    convertShimSig sig = tySubst shimSubsts $ clearSigGenerics $ eraseSigReceiver sig
+    convertShimSig sig = clearSigGenerics $ eraseSigReceiver sig
 
     methodSigs = Maybe.mapMaybe (\ti -> case ti of
         M.TraitMethod name sig -> Just sig
@@ -940,10 +904,6 @@ traitVtableType tname trait substs _ = vtableTy
 
     vtableTy = tyListToCtx (map M.TyFnPtr shimSigs) $ \ctx ->
         Some $ C.StructRepr ctx
-
-    errNotObjectSafe :: [String] -> a
-    errNotObjectSafe parts = error $ unwords $
-        ["a method of trait", show tname, "is not object safe:"] ++ parts
 
 eraseSigReceiver :: M.FnSig -> M.FnSig
 eraseSigReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of

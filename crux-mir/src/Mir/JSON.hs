@@ -97,6 +97,7 @@ instance FromJSON InlineTy where
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
       Just (String "Dynamic") -> TyDynamic <$>
+            (v .: "trait_id") <*>
             (v .: "predicates" >>= \xs -> mapM parsePred xs)
       Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
       Just (String "Float") -> TyFloat <$> v .: "size"
@@ -121,7 +122,7 @@ instance FromJSON Instance where
         Just (String "FnPtrShim") -> Instance
             <$> (IkFnPtrShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
         Just (String "Virtual") -> Instance
-            <$> (IkVirtual <$> v .: "index") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkVirtual <$> v .: "trait_id" <*> v .: "index") <*> v .: "item_id" <*> pure mempty
         Just (String "ClosureOnceShim") -> Instance IkClosureOnceShim
             <$> v .: "call_once" <*> v .: "substs"
         Just (String "DropGlue") -> Instance
@@ -399,7 +400,7 @@ instance FromJSON BinOp where
 
 instance FromJSON VtableItem where
     parseJSON = withObject "VtableItem" $ \v ->
-        VtableItem <$> v .: "def_id" <*> (v .: "trait_item")
+        VtableItem <$> v .: "def_id" <*> (v .: "item_id")
 
 instance FromJSON Vtable where
     parseJSON = withObject "Vtable" $ \v ->
@@ -555,7 +556,7 @@ instance FromJSON TraitItem where
                     preds  <- withObject "Predicates" (\u -> u .: "predicates") pp
                     let sig' = sig & fsgenerics   .~ params
                                    & fspredicates .~ preds
-                    TraitMethod <$> v .: "name" <*> return sig'
+                    TraitMethod <$> v .: "item_id" <*> return sig'
                   Just (String "Type") -> TraitType <$> v .: "name"
                   Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk

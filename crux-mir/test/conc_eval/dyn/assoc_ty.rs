@@ -1,4 +1,3 @@
-// FAIL: dyn trait with associated type predicate
 #![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 

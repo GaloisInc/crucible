@@ -79,7 +79,7 @@ instance Pretty Ty where
     pretty (TyClosure tys)       = text "closure" <+> pretty tys
     pretty TyStr                 = text "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
-    pretty (TyDynamic preds)     = text "dynamic" <+> pretty preds
+    pretty (TyDynamic trait preds) = text "dynamic" <+> pretty trait <+> pretty preds
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
