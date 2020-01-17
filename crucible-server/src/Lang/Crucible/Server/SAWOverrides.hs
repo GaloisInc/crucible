@@ -312,13 +312,15 @@ symbolicOverride sc dims0 sawTp0 tpr0 = do
            NotBaseType -> fail $ "Unsupported SAW base type" ++ show tpr
 
        buildVecs (x:xs) sym sawTp (VectorRepr tpr) t = do
-          (n SAW.:*: sawTp') <- SAW.asVecType sawTp
-          V.generateM x (\i -> do
-                    n' <- SAW.scNat sc n
-                    i' <- SAW.scNat sc (fromIntegral i)
-                    t' <- SAW.scAt sc n' sawTp' t i'
-                    buildVecs xs sym sawTp' tpr t'
-                 )
+          case SAW.asVecType sawTp of
+            Nothing -> fail $ "Expected vector type, but got " ++ show sawTp
+            Just (n SAW.:*: sawTp') ->
+               V.generateM x (\i -> do
+                         n' <- SAW.scNat sc n
+                         i' <- SAW.scNat sc (fromIntegral i)
+                         t' <- SAW.scAt sc n' sawTp' t i'
+                         buildVecs xs sym sawTp' tpr t'
+                      )
 
        buildVecs _ _ _ tpr _ = do
           fail $ "Unsupported SAW variable type: " ++ show tpr
