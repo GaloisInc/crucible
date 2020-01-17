@@ -630,14 +630,14 @@ evalCast' ck ty1 e ty2  =
 
       -- Trait object creation from a ref
       (M.UnsizeVtable vtbl, M.TyRef baseType _,
-        M.TyRef (M.TyDynamic (M.TraitPredicate traitName substs : preds)) _) ->
-          mkTraitObject traitName substs preds vtbl e
+        M.TyRef (M.TyDynamic traitName _preds) _) ->
+          mkTraitObject traitName vtbl e
 
       -- Casting between TyDynamics that vary only in their auto traits
       -- TODO: this should also normalize the TraitProjection predicates, to
       -- allow casting between equivalent descriptions of the same trait object
-      (M.Unsize, M.TyRef (M.TyDynamic ps1) _, M.TyRef (M.TyDynamic ps2) _)
-        | filter (not . isAutoTraitPredicate) ps1 == filter (not . isAutoTraitPredicate) ps2
+      (M.Unsize, M.TyRef (M.TyDynamic t1 _) _, M.TyRef (M.TyDynamic t2 _) _)
+        | t1 == t2
         -> return e
 
       -- C-style adts, casting an enum value to a TyInt
@@ -687,10 +687,10 @@ evalCast ck op ty = do
 -- | Create a new trait object by combining `e` with the named vtable.  This is
 -- only valid when `e` is TyRef or TyRawPtr.  Coercions via the `CoerceUnsized`
 -- trait require unpacking and repacking structs, which we don't handle here.
-mkTraitObject :: HasCallStack => M.TraitName -> M.Substs -> [M.Predicate] ->
+mkTraitObject :: HasCallStack => M.TraitName ->
     M.VtableName -> MirExp s ->
     MirGenerator h s ret (MirExp s)
-mkTraitObject traitName substs preds vtableName e = do
+mkTraitObject traitName vtableName e = do
     handles <- Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) <$>
         use (cs . vtableMap . at vtableName)
 
@@ -704,7 +704,7 @@ mkTraitObject traitName substs preds vtableName e = do
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
     trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName) <$>
         use (cs . collection . M.traits . at traitName)
-    Some vtableTy' <- return $ traitVtableType traitName trait substs preds
+    Some vtableTy' <- return $ traitVtableType traitName trait
     case testEquality vtableTy vtableTy' of
         Just _ -> return ()
         Nothing -> error $ unwords
@@ -1547,11 +1547,11 @@ initialValue (M.TyRef (M.TySlice t) M.Mut) = do
       let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
       return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
       -- fail ("don't know how to initialize slices for " ++ show t)
-initialValue (M.TyRef (M.TyDynamic _) _) = do
+initialValue (M.TyRef (M.TyDynamic _ _) _) = do
     let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
         Ctx.Empty Ctx.:> x Ctx.:> x
-initialValue (M.TyRawPtr (M.TyDynamic _) _) = do
+initialValue (M.TyRawPtr (M.TyDynamic _ _) _) = do
     let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
         Ctx.Empty Ctx.:> x Ctx.:> x
@@ -1590,7 +1590,7 @@ initialValue (M.TyAdt nm args) = do
                 Just <$> buildEnum' adt args 0 fldExps 
         Union -> return Nothing
 initialValue (M.TyFnPtr _) = return $ Nothing
-initialValue (M.TyDynamic _) = return $ Nothing
+initialValue (M.TyDynamic _ _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue _ = return Nothing
 
@@ -2029,8 +2029,8 @@ lookupTrait col traitName = case col ^. M.traits . at traitName of
     Just x -> x
     Nothing -> error $ "undefined trait " ++ show traitName
 
--- Get the (generic) function signature of the declaration of a trait method.
--- Raises an error if the method is not found in the trait.
+-- Get the function signature of the declaration of a trait method.  Raises an
+-- error if the method is not found in the trait.
 traitMethodSig :: M.Trait -> M.MethName -> M.FnSig
 traitMethodSig trait methName = case matchedMethSigs of
     [sig] -> sig
@@ -2053,20 +2053,20 @@ mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. 
     mkHandle :: (M.IntrinsicName, M.Intrinsic) ->
         IO (Map M.DefId MirHandle)
     mkHandle (name, intr)
-      | IkVirtual _ <- intr ^. M.intrInst ^. M.inKind = liftM (Map.singleton name) $
-        tyListToCtx (methSig ^. M.fsarg_tys) $ \argctx ->
-        tyToReprCont (methSig ^. M.fsreturn_ty) $ \retrepr -> do
-             h <- FH.mkHandle' halloc handleName argctx retrepr
-             return $ MirHandle (intr ^. M.intrName) methSig h
+      | IkVirtual dynTraitName _ <- intr ^. M.intrInst . M.inKind =
+        let methName = intr ^. M.intrInst ^. M.inDefId
+            methSubsts = intr ^. M.intrInst ^. M.inSubsts
+            trait = lookupTrait col dynTraitName
+            methSig = tySubst methSubsts $ clearSigGenerics $ traitMethodSig trait methName
+
+            handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
+        in liftM (Map.singleton name) $
+            tyListToCtx (methSig ^. M.fsarg_tys) $ \argctx ->
+            tyToReprCont (methSig ^. M.fsreturn_ty) $ \retrepr -> do
+                 h <- FH.mkHandle' halloc handleName argctx retrepr
+                 return $ MirHandle (intr ^. M.intrName) methSig h
       | otherwise = return Map.empty
       where
-        methName = intr ^. M.intrInst ^. M.inDefId
-        methSubsts = intr ^. M.intrInst ^. M.inSubsts
-        traitName = M.getTraitName methName
-        trait = lookupTrait col traitName
-        methSig = tySubst methSubsts $ clearSigGenerics $ traitMethodSig trait methName
-
-        handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
 
 -- Generate a virtual-call shim.  The shim takes (&dyn Foo, args...), splits
 -- the `&dyn` into its data-pointer and vtable components, looks up the
@@ -2076,10 +2076,10 @@ transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, 
   => CollectionState
   -> M.IntrinsicName
   -> M.MethName
-  -> M.Substs
+  -> M.TraitName
   -> Integer
   -> ST h (Text, Core.AnyCFG MIR)
-transVirtCall colState intrName methName methSubsts methIndex
+transVirtCall colState intrName methName dynTraitName methIndex
   | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
     -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
     elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
@@ -2130,10 +2130,6 @@ transVirtCall colState intrName methName methSubsts methIndex
         (["failed to generate virtual-call shim for", show methName,
             "(intrinsic", show intrName, "):"] ++ words)
 
-    (dynTraitName, dynSubsts, dynPreds) = case methSubsts of
-        Substs (TyDynamic (TraitPredicate tname substs : preds) : _) -> (tname, substs, preds)
-        _ -> die ["bad method substs", show methSubsts]
-
     dynTrait = case colState ^. collection . M.traits . at dynTraitName of
         Just x -> x
         Nothing -> die ["undefined trait " ++ show dynTraitName]
@@ -2141,7 +2137,7 @@ transVirtCall colState intrName methName methSubsts methIndex
     -- The type of the entire vtable.  Note `traitVtableType` wants the trait
     -- substs only, omitting the Self type.
     vtableType :: Some C.TypeRepr
-    vtableType = traitVtableType dynTraitName dynTrait dynSubsts dynPreds
+    vtableType = traitVtableType dynTraitName dynTrait
 
     methMH = case Map.lookup intrName (colState ^. handleMap) of
         Just x -> x
@@ -2261,9 +2257,9 @@ transCollection col halloc = do
     pairs2 <- mapM (stToIO . transVtable (?libCS <> colState)) (Map.elems (col^.M.vtables))
 
     pairs3 <- Maybe.catMaybes <$> mapM (\intr -> case intr^.M.intrInst of
-        Instance (IkVirtual methodIndex) methodId substs ->
+        Instance (IkVirtual dynTraitName methodIndex) methodId substs ->
             stToIO $ Just <$> transVirtCall (?libCS <> colState)
-                (intr^.M.intrName) methodId substs methodIndex
+                (intr^.M.intrName) methodId dynTraitName methodIndex
         _ -> return Nothing) (Map.elems (col ^. M.intrinsics))
 
     return $ RustModule
