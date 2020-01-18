@@ -319,7 +319,6 @@ findAdt name = do
 findAdtInst :: DefId -> Substs -> MirGenerator h s ret Adt
 findAdtInst origName substs = do
     insts <- use $ cs . collection . adtsOrig . at origName . to (Maybe.fromMaybe [])
-    traceShowM ("looking at insts", map (\x -> (x ^. adtOrigDefId, x ^. adtOrigSubsts)) insts)
     case List.find (\adt -> adt ^. adtOrigSubsts == substs) insts of
         Just x -> return x
         Nothing -> mirFail $ "unknown ADT " ++ show (origName, substs)
