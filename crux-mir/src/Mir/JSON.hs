@@ -210,6 +210,7 @@ instance FromJSON Collection where
       return $ Collection
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
+        (foldr (\ x m -> Map.insertWith (++) (x^.adtOrigDefId) [x] m) Map.empty adts)
         (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
         impls
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)

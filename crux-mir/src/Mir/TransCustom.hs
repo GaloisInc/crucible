@@ -246,6 +246,7 @@ vector_pop = ( ["crucible","vector","{{impl}}", "pop"], ) $ \substs -> case subs
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
             meInit <- MirExp (C.VectorRepr tpr) <$> vectorInit tpr eVec
+            -- `Option<T>` must exist because it appears in the return type.
             meLast <- vectorLast tpr eVec >>= maybeToOption t tpr
             return $ buildTupleMaybe [CTyVector t, CTyOption t] [Just meInit, Just meLast]
         _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
@@ -255,6 +256,7 @@ vector_pop_front :: (ExplodedDefId, CustomRHS)
 vector_pop_front = ( ["crucible","vector","{{impl}}", "pop_front"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
+            -- `Option<T>` must exist because it appears in the return type.
             meHead <- vectorHead tpr eVec >>= maybeToOption t tpr
             meTail <- MirExp (C.VectorRepr tpr) <$> vectorTail tpr eVec
             return $ buildTupleMaybe [CTyOption t, CTyVector t] [Just meHead, Just meTail]
@@ -1035,10 +1037,12 @@ unwrapMirExp tpr (MirExp tpr' e)
     ", but got " ++ show tpr'
 
 -- Convert a Crucible `MaybeType` into a Rust `Option`.
+--
+-- The caller is responsible for ensuring that `Option<T>` exists in the crate.
 maybeToOption :: Ty -> C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) ->
     MirGenerator h s ret (MirExp s)
 maybeToOption ty tpr e = do
-    adt <- findAdt optionDefId
+    adt <- findAdtInst optionDefId (Substs [ty])
     let args = Substs [ty]
     e' <- G.caseMaybe e C.AnyRepr $ G.MatchMaybe
         (\val -> buildEnum adt args optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)

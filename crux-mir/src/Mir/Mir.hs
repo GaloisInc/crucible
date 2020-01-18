@@ -236,6 +236,8 @@ instance Ord Var where
 data Collection = Collection {
     _functions :: !(Map MethName Fn),
     _adts      :: !(Map AdtName Adt),
+    -- ADTs, indexed by original (pre-monomorphization) DefId
+    _adtsOrig  :: !(Map AdtName [Adt]),
     _traits    :: !(Map TraitName Trait),
     _impls     :: !([TraitImpl]),
     _statics   :: !(Map DefId Static),
@@ -643,10 +645,10 @@ makeLenses ''TraitImplItem
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1 i1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 t2 i2 s2 v2 n2 tys2 r2) =
-    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
+  (Collection f1 a1 a1' t1 i1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 a2' t2 i2 s2 v2 n2 tys2 r2) =
+    Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   

@@ -298,6 +298,18 @@ findAdt name = do
         Just x -> return x
         Nothing -> mirFail $ "unknown ADT " ++ show name
 
+-- Find the ADT definition that is monomorphized from `origName` with `substs`.
+-- This should only be used on types that are known to be present in the crate
+-- after dead code elimination - for example, because the type appears in the
+-- signature of a function that's being translated.
+findAdtInst :: DefId -> Substs -> MirGenerator h s ret Adt
+findAdtInst origName substs = do
+    insts <- use $ cs . collection . adtsOrig . at origName . to (Maybe.fromMaybe [])
+    traceShowM ("looking at insts", map (\x -> (x ^. adtOrigDefId, x ^. adtOrigSubsts)) insts)
+    case List.find (\adt -> adt ^. adtOrigSubsts == substs) insts of
+        Just x -> return x
+        Nothing -> mirFail $ "unknown ADT " ++ show (origName, substs)
+
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a
 mirFail str = do
