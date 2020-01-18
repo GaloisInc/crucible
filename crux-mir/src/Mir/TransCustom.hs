@@ -246,6 +246,7 @@ vector_pop = ( ["crucible","vector","{{impl}}", "pop"], ) $ \substs -> case subs
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
             meInit <- MirExp (C.VectorRepr tpr) <$> vectorInit tpr eVec
+            -- `Option<T>` must exist because it appears in the return type.
             meLast <- vectorLast tpr eVec >>= maybeToOption t tpr
             return $ buildTupleMaybe [CTyVector t, CTyOption t] [Just meInit, Just meLast]
         _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
@@ -255,6 +256,7 @@ vector_pop_front :: (ExplodedDefId, CustomRHS)
 vector_pop_front = ( ["crucible","vector","{{impl}}", "pop_front"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (C.VectorRepr tpr) eVec] -> do
+            -- `Option<T>` must exist because it appears in the return type.
             meHead <- vectorHead tpr eVec >>= maybeToOption t tpr
             meTail <- MirExp (C.VectorRepr tpr) <$> vectorTail tpr eVec
             return $ buildTupleMaybe [CTyOption t, CTyVector t] [Just meHead, Just meTail]
@@ -552,11 +554,11 @@ discriminant_value ::  (ExplodedDefId, CustomRHS)
 discriminant_value = (["core","intrinsics", "", "discriminant_value"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
-        ([TyRef (TyAdt nm args) Immut], [e]) -> do
+        ([TyRef (TyAdt nm _ _) Immut], [e]) -> do
             adt <- findAdt nm
             -- `&T` has the same representation as `T`, so we don't need to
             -- explicitly dereference.
-            MirExp IsizeRepr e' <- enumDiscriminant adt args e
+            MirExp IsizeRepr e' <- enumDiscriminant adt mempty e
             return $ MirExp (C.BVRepr (knownRepr :: NatRepr 64)) $
                 isizeToBv knownRepr R.App e'
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
@@ -601,25 +603,30 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
 
 slice_to_array ::  (ExplodedDefId, CustomRHS)
 slice_to_array = (["core","array", "slice_to_array"],
-    \substs -> Just $ CustomOp $ \_ ops -> case (substs, ops) of
-        (Substs [ty, TyConst], [MirExp (MirImmSliceRepr tpr) e, MirExp UsizeRepr eLen]) -> do
-            let vec = getImmSliceVector e
-            let start = getImmSliceLB e
-            let len = getImmSliceLen e
-            let end = R.App $ usizeAdd start len
-            let lenOk = R.App $ usizeEq len eLen
-            adt <- findAdt optionDefId
+    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+        fn <- findFn fnName
+        case (fn ^. fsig . fsreturn_ty, ops) of
+            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty _) Immut]),
+              [MirExp (MirImmSliceRepr tpr) e, MirExp UsizeRepr eLen] ) -> do
+                let vec = getImmSliceVector e
+                let start = getImmSliceLB e
+                let len = getImmSliceLen e
+                let end = R.App $ usizeAdd start len
+                let lenOk = R.App $ usizeEq len eLen
+                -- Get the Adt info for the return type, which should be
+                -- Option<&[T; N]>.
+                adt <- findAdt optionMonoName
 
-            let args = Substs [TyArray ty 0]
-            MirExp C.AnyRepr <$> G.ifte lenOk
-                (do v <- vectorCopy tpr start end vec
-                    let vMir = MirExp (C.VectorRepr tpr) v
-                    enum <- buildEnum adt args optionDiscrSome [vMir]
-                    unwrapMirExp C.AnyRepr enum)
-                (do enum <- buildEnum adt args optionDiscrNone []
-                    unwrapMirExp C.AnyRepr enum)
+                let args = Substs [TyArray ty 0]
+                MirExp C.AnyRepr <$> G.ifte lenOk
+                    (do v <- vectorCopy tpr start end vec
+                        let vMir = MirExp (C.VectorRepr tpr) v
+                        enum <- buildEnum adt args optionDiscrSome [vMir]
+                        unwrapMirExp C.AnyRepr enum)
+                    (do enum <- buildEnum adt args optionDiscrNone []
+                        unwrapMirExp C.AnyRepr enum)
 
-        _ -> mirFail $ "bad arguments to slice_to_array: " ++ show (substs, ops)
+            _ -> mirFail $ "bad monomorphization of slice_to_array: " ++ show (fnName, fn ^. fsig, ops)
     )
 
 
@@ -1035,10 +1042,12 @@ unwrapMirExp tpr (MirExp tpr' e)
     ", but got " ++ show tpr'
 
 -- Convert a Crucible `MaybeType` into a Rust `Option`.
+--
+-- The caller is responsible for ensuring that `Option<T>` exists in the crate.
 maybeToOption :: Ty -> C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) ->
     MirGenerator h s ret (MirExp s)
 maybeToOption ty tpr e = do
-    adt <- findAdt optionDefId
+    adt <- findAdtInst optionDefId (Substs [ty])
     let args = Substs [ty]
     e' <- G.caseMaybe e C.AnyRepr $ G.MatchMaybe
         (\val -> buildEnum adt args optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)

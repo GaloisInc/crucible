@@ -72,7 +72,7 @@ instance Pretty Ty where
     pretty (TySlice ty)   = brackets (pretty ty)
     pretty (TyArray ty i) = brackets (pretty ty <> semi <+> int i)
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
-    pretty (TyAdt defId tys)    = pr_id defId <> pretty tys
+    pretty (TyAdt _ origDefId tys)    = pr_id origDefId <> pretty tys
     pretty TyUnsupported         = text "Unsupported"
     pretty (TyParam i)           = text ("_" ++ show i)
     pretty (TyFnDef defId tys)   = text "fnDef" <+> pr_id defId <> pretty tys
@@ -91,7 +91,9 @@ instance Pretty Ty where
     pretty (TyInterned s) = text $ unpack s
 
 instance Pretty Adt where
-   pretty (Adt nm kind vs) = pretty kind <+> pretty nm <> tupled (map pretty vs)
+   pretty (Adt nm kind vs origName origSubsts) =
+    pretty kind <+> pretty nm <> brackets (pretty origName <+> pretty origSubsts)
+        <> tupled (map pretty vs)
 
 instance Pretty AdtKind where
   pretty = text . show
@@ -210,7 +212,7 @@ instance Pretty Rvalue where
     pretty (RAdtAg a) = pretty a
 
 instance Pretty AdtAg where
-  pretty (AdtAg (Adt nm _kind _vs) i ops _) = pretty_fn3 "AdtAg" (pr_id nm) i ops
+  pretty (AdtAg (Adt nm _kind _vs _ _) i ops _) = pretty_fn3 "AdtAg" (pr_id nm) i ops
 
 
 instance Pretty Terminator where
@@ -353,14 +355,10 @@ instance Pretty TraitItem where
   pretty (TraitConst name ty)     = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
-  pretty (Trait name items supers params preds _numParams) =
-    let sd = case supers of
-              [ _self ] -> mempty
-              ( _self : rest ) -> pretty rest
-              [] -> error "BUG: supertrait list should always start with self"
-        ps = pparams params
+  pretty (Trait name items _supers params preds _numParams) =
+    let ps = pparams params
     in                    
-        vcat [text "trait" <+> pretty name <+> ps <+> sd <+> ppreds preds <+> lbrace ,
+        vcat [text "trait" <+> pretty name <+> ps <+> ppreds preds <+> lbrace ,
               indent 3 (vcat (map pretty items)),
               rbrace]
 

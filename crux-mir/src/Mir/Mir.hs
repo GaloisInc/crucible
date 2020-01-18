@@ -88,7 +88,12 @@ data Ty =
       | TySlice !Ty
       | TyArray !Ty !Int
       | TyRef !Ty !Mutability  -- Written &'a mut T or &'a T
-      | TyAdt !DefId !Substs 
+      -- For TyAdt, we keep both the monomorphized name and the pre-mono name +
+      -- substs because the Ty patterns in Mir.TransTy (such as `CTyVector`)
+      -- need to consult the pre-mono information.  This duplicates information
+      -- that's present in the `Adt` entry, but the `Adt` (actually the whole
+      -- `Collection`) is not accessible inside `tyToRepr`.
+      | TyAdt !DefId !DefId !Substs -- first DefId is the monomorphized name, second is pre-mono
       | TyUnsupported
       | TyParam !Integer
       | TyFnDef !DefId !Substs
@@ -178,7 +183,13 @@ data InstanceKind =
     | IkCloneShim Ty [DefId]
     deriving (Eq, Ord, Show, Generic)
 
-data Adt = Adt {_adtname :: DefId, _adtkind :: AdtKind, _adtvariants :: [Variant]}
+data Adt = Adt
+    { _adtname :: DefId
+    , _adtkind :: AdtKind
+    , _adtvariants :: [Variant]
+    , _adtOrigDefId :: DefId
+    , _adtOrigSubsts :: Substs
+    }
     deriving (Eq, Ord, Show, Generic)
 
 data AdtKind = Struct | Enum | Union
@@ -225,6 +236,8 @@ instance Ord Var where
 data Collection = Collection {
     _functions :: !(Map MethName Fn),
     _adts      :: !(Map AdtName Adt),
+    -- ADTs, indexed by original (pre-monomorphization) DefId
+    _adtsOrig  :: !(Map AdtName [Adt]),
     _traits    :: !(Map TraitName Trait),
     _impls     :: !([TraitImpl]),
     _statics   :: !(Map DefId Static),
@@ -632,10 +645,10 @@ makeLenses ''TraitImplItem
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1 i1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 t2 i2 s2 v2 n2 tys2 r2) =
-    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
+  (Collection f1 a1 a1' t1 i1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 a2' t2 i2 s2 v2 n2 tys2 r2) =
+    Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   
@@ -662,8 +675,8 @@ fromIntegerLit (Isize i) = i
 
 -- Get the only variant of a struct or union ADT.
 onlyVariant :: Adt -> Variant
-onlyVariant (Adt _ _ [v]) = v
-onlyVariant (Adt name kind _) = error $
+onlyVariant (Adt _ _ [v] _ _) = v
+onlyVariant (Adt name kind _ _ _) = error $
     "expected " ++ show kind ++ " " ++ show name ++ " to have only one variant"
 
 

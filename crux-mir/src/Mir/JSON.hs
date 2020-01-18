@@ -91,7 +91,7 @@ instance FromJSON InlineTy where
           _ -> fail $ "unsupported array size: " ++ show lit
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
       Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
-      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
+      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "substs"
       Just (String "Param") -> TyParam <$> v .: "param"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
@@ -146,7 +146,12 @@ instance FromJSON FnSig where
                <*> spread
                
 instance FromJSON Adt where
-    parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "kind" <*> v .: "variants"
+    parseJSON = withObject "Adt" $ \v -> Adt
+        <$> v .: "name"
+        <*> v .: "kind"
+        <*> v .: "variants"
+        <*> v .: "orig_def_id"
+        <*> v .: "orig_substs"
 
 instance FromJSON AdtKind where
     parseJSON x = case x of
@@ -205,6 +210,7 @@ instance FromJSON Collection where
       return $ Collection
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
+        (foldr (\ x m -> Map.insertWith (++) (x^.adtOrigDefId) [x] m) Map.empty adts)
         (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
         impls
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
