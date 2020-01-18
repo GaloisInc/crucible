@@ -17,6 +17,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.Backend.SAWCore where
 
@@ -497,28 +498,34 @@ scAllEq sym sc (ctx Ctx.:> tp) (xs Ctx.:> x) (ys Ctx.:> y)
        SAWExpr q <- scEq sym sc tp x y
        SAWExpr <$> SC.scAnd sc p q
 
-scRealLe ::
+scRealLe, scRealLt ::
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
   IO (SAWExpr BaseBoolType)
 scRealLe = scRealCmpop scIntLe
+scRealLt = scRealCmpop scIntLt
 
-scIntLe :: SC.SharedContext
-        -> SAWExpr BaseIntegerType
-        -> SAWExpr BaseIntegerType
-        -> IO (SAWExpr BaseBoolType)
+scIntLe, scIntLt ::
+  SC.SharedContext ->
+  SAWExpr BaseIntegerType ->
+  SAWExpr BaseIntegerType ->
+  IO (SAWExpr BaseBoolType)
 scIntLe = scIntCmpop scNatLe SC.scIntLe
+scIntLt = scIntCmpop scNatLt SC.scIntLt
 
-scNatLe :: SC.SharedContext
-        -> SAWExpr BaseNatType
-        -> SAWExpr BaseNatType
-        -> IO (SAWExpr BaseBoolType)
+scNatLe, scNatLt ::
+  SC.SharedContext ->
+  SAWExpr BaseNatType ->
+  SAWExpr BaseNatType ->
+  IO (SAWExpr BaseBoolType)
 scNatLe sc (SAWExpr x) (SAWExpr y) =
   do lt <- SC.scLtNat sc x y
      eq <- SC.scEqualNat sc x y
      SAWExpr <$> SC.scOr sc lt eq
+scNatLt sc (SAWExpr x) (SAWExpr y) =
+  SAWExpr <$> SC.scLtNat sc x y
 
 scBvAdd ::
   SC.SharedContext ->
@@ -856,7 +863,7 @@ evaluateExpr sym sc cache = f []
             B.OrderedSemiRingNatRepr     -> join (scNatLe sc <$> eval env xe <*> eval env ye)
 
         B.NotPred x ->
-          SAWExpr <$> (SC.scNot sc =<< f env x)
+          goNeg env x
 
         B.ConjPred xs ->
           case BM.viewBoolMap xs of
@@ -1205,6 +1212,30 @@ evaluateExpr sym sc cache = f []
 
         B.StructCtor{} -> nyi -- FIXME
         B.StructField{} -> nyi -- FIXME
+
+    -- returns the logical negation of the result of 'go'
+    goNeg :: [Maybe SolverSymbol] -> B.Expr n BaseBoolType -> IO (SAWExpr BaseBoolType)
+    goNeg env expr =
+      case expr of
+        -- negation of (x <= y) becomes (y < x)
+        B.AppExpr (B.appExprApp -> B.SemiRingLe sr xe ye) ->
+          case sr of
+            B.OrderedSemiRingRealRepr    -> join (scRealLt sym sc <$> eval env ye <*> eval env xe)
+            B.OrderedSemiRingIntegerRepr -> join (scIntLt sc <$> eval env ye <*> eval env xe)
+            B.OrderedSemiRingNatRepr     -> join (scNatLt sc <$> eval env ye <*> eval env xe)
+
+        -- negation of (x /\ y) becomes (~x \/ ~y)
+        B.AppExpr (B.appExprApp -> B.ConjPred xs) ->
+          case BM.viewBoolMap xs of
+            BM.BoolMapUnit -> SAWExpr <$> SC.scBool sc False
+            BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc True
+            BM.BoolMapTerms (t:|ts) ->
+              let pol (x, BM.Positive) = termOfSAWExpr sym sc =<< goNeg env x
+                  pol (x, BM.Negative) = f env x
+              in SAWExpr <$> join (foldM (SC.scOr sc) <$> pol t <*> mapM pol ts)
+
+        _ -> SAWExpr <$> (SC.scNot sc =<< f env expr)
+
 
 getAssumptionStack ::
   SAWCoreBackend s solver fs ->
