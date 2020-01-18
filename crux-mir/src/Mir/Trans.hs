@@ -1375,6 +1375,15 @@ callExp funid funsubst cargs = do
           let opTys = map M.typeOf cargs
           op opTys ops
 
+        | Just (CustomOpNamed op) <- isCustom -> do
+          when (db > 3) $
+            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
+                 pretty funid, PP.text "with arguments", pretty cargs,
+                 PP.text "and type parameters:", pretty funsubst])
+
+          ops <- mapM evalOperand cargs
+          op funid ops
+
        | Just (CustomMirOp op) <- isCustom -> do
           when (db > 3) $
             traceM $ fmt (PP.fillSep [PP.text "At custom function call of",

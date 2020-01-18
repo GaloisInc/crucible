@@ -171,6 +171,13 @@ data CustomOp      =
                  => [Ty]       -- ^ argument types
                  -> [MirExp s] -- ^ operand values
                  -> MirGenerator h s ret (MirExp s))
+  -- | Similar to CustomOp, but receives the name of the monomorphic function
+  -- it's replacing.  This way, the implementation can look up the original
+  -- definition of the function and extract details such as the return type.
+  | CustomOpNamed (forall h s ret. HasCallStack
+                 => DefId     -- ^ the name of the monomorphized function
+                 -> [MirExp s] -- ^ operand values
+                 -> MirGenerator h s ret (MirExp s))
   | CustomMirOp (forall h s ret. HasCallStack
       => [Operand] -> MirGenerator h s ret (MirExp s))
     -- ^ custom operations that dispatch to other functions
@@ -290,6 +297,13 @@ varInfoRepr (VarReference reg0) =
     MirReferenceRepr tp -> tp
     _ -> error "impossible: varInfoRepr"
 varInfoRepr (VarAtom a) = R.typeOfAtom a
+
+findFn :: DefId -> MirGenerator h s ret Fn
+findFn name = do
+    optFn <- use $ cs . collection . functions . at name
+    case optFn of
+        Just x -> return x
+        Nothing -> mirFail $ "unknown Fn " ++ show name
 
 findAdt :: DefId -> MirGenerator h s ret Adt
 findAdt name = do

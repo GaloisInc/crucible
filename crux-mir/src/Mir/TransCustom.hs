@@ -603,25 +603,30 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
 
 slice_to_array ::  (ExplodedDefId, CustomRHS)
 slice_to_array = (["core","array", "slice_to_array"],
-    \substs -> Just $ CustomOp $ \_ ops -> case (substs, ops) of
-        (Substs [ty, TyConst], [MirExp (MirImmSliceRepr tpr) e, MirExp UsizeRepr eLen]) -> do
-            let vec = getImmSliceVector e
-            let start = getImmSliceLB e
-            let len = getImmSliceLen e
-            let end = R.App $ usizeAdd start len
-            let lenOk = R.App $ usizeEq len eLen
-            adt <- findAdt optionDefId
+    \substs -> Just $ CustomOpNamed $ \fnName ops -> do
+        fn <- findFn fnName
+        case (fn ^. fsig . fsreturn_ty, ops) of
+            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty _) Immut]),
+              [MirExp (MirImmSliceRepr tpr) e, MirExp UsizeRepr eLen] ) -> do
+                let vec = getImmSliceVector e
+                let start = getImmSliceLB e
+                let len = getImmSliceLen e
+                let end = R.App $ usizeAdd start len
+                let lenOk = R.App $ usizeEq len eLen
+                -- Get the Adt info for the return type, which should be
+                -- Option<&[T; N]>.
+                adt <- findAdt optionMonoName
 
-            let args = Substs [TyArray ty 0]
-            MirExp C.AnyRepr <$> G.ifte lenOk
-                (do v <- vectorCopy tpr start end vec
-                    let vMir = MirExp (C.VectorRepr tpr) v
-                    enum <- buildEnum adt args optionDiscrSome [vMir]
-                    unwrapMirExp C.AnyRepr enum)
-                (do enum <- buildEnum adt args optionDiscrNone []
-                    unwrapMirExp C.AnyRepr enum)
+                let args = Substs [TyArray ty 0]
+                MirExp C.AnyRepr <$> G.ifte lenOk
+                    (do v <- vectorCopy tpr start end vec
+                        let vMir = MirExp (C.VectorRepr tpr) v
+                        enum <- buildEnum adt args optionDiscrSome [vMir]
+                        unwrapMirExp C.AnyRepr enum)
+                    (do enum <- buildEnum adt args optionDiscrNone []
+                        unwrapMirExp C.AnyRepr enum)
 
-        _ -> mirFail $ "bad arguments to slice_to_array: " ++ show (substs, ops)
+            _ -> mirFail $ "bad monomorphization of slice_to_array: " ++ show (fnName, fn ^. fsig, ops)
     )
 
 
