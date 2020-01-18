@@ -88,7 +88,12 @@ data Ty =
       | TySlice !Ty
       | TyArray !Ty !Int
       | TyRef !Ty !Mutability  -- Written &'a mut T or &'a T
-      | TyAdt !DefId !Substs 
+      -- For TyAdt, we keep both the monomorphized name and the pre-mono name +
+      -- substs because the Ty patterns in Mir.TransTy (such as `CTyVector`)
+      -- need to consult the pre-mono information.  This duplicates information
+      -- that's present in the `Adt` entry, but the `Adt` (actually the whole
+      -- `Collection`) is not accessible inside `tyToRepr`.
+      | TyAdt !DefId !DefId !Substs -- first DefId is the monomorphized name, second is pre-mono
       | TyUnsupported
       | TyParam !Integer
       | TyFnDef !DefId !Substs

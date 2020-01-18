@@ -97,21 +97,29 @@ baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 
 -- Custom type aliases
-pattern CTyInt512 = M.TyAdt $(M.normDefIdPat "int512::Int512") (M.Substs [])
-pattern CTyBox t = M.TyAdt $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t])
-pattern CTyVector t = M.TyAdt $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
+pattern CTyInt512 <- M.TyAdt _ $(M.normDefIdPat "int512::Int512") (M.Substs [])
+  where CTyInt512 = M.TyAdt (M.textId "type::adt") (M.textId "int512::Int512") (M.Substs [])
+pattern CTyBox t <- M.TyAdt _ $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t])
+  where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
+pattern CTyVector t <- M.TyAdt _ $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
+  where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
 
-pattern CTyBvSize128 = M.TyAdt $(M.normDefIdPat "crucible::bitvector::_128") (M.Substs [])
-pattern CTyBvSize256 = M.TyAdt $(M.normDefIdPat "crucible::bitvector::_256") (M.Substs [])
-pattern CTyBvSize512 = M.TyAdt $(M.normDefIdPat "crucible::bitvector::_512") (M.Substs [])
-pattern CTyBv t = M.TyAdt $(M.normDefIdPat "crucible::bitvector::Bv") (M.Substs [t])
+pattern CTyBvSize128 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_128") (M.Substs [])
+  where CTyBvSize128 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_128") (M.Substs [])
+pattern CTyBvSize256 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_256") (M.Substs [])
+  where CTyBvSize256 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_256") (M.Substs [])
+pattern CTyBvSize512 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_512") (M.Substs [])
+  where CTyBvSize512 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_512") (M.Substs [])
+pattern CTyBv t <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::Bv") (M.Substs [t])
+  where CTyBv t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::Bv") (M.Substs [t])
 pattern CTyBv128 = CTyBv CTyBvSize128
 pattern CTyBv256 = CTyBv CTyBvSize256
 pattern CTyBv512 = CTyBv CTyBvSize512
 
 -- These don't have custom representation, but are referenced in various
 -- places.
-pattern CTyOption t = M.TyAdt $(M.normDefIdPat "core::option::Option") (M.Substs [t])
+pattern CTyOption t <- M.TyAdt _ $(M.normDefIdPat "core::option::Option") (M.Substs [t])
+  where CTyOption t = M.TyAdt (M.textId "type::adt") (M.textId "core::option::Option") (M.Substs [t])
 
 optionDefId :: M.DefId
 optionDefId = M.textId "core::option::Option"
@@ -178,7 +186,7 @@ tyToRepr t0 = case t0 of
   M.TyStr -> Some (C.VectorRepr (C.BVRepr (knownNat :: NatRepr 32)))
 
   -- An ADT is a `concreteAdtRepr` wrapped in `ANY`
-  M.TyAdt _defid _tyargs -> Some C.AnyRepr
+  M.TyAdt _ _defid _tyargs -> Some C.AnyRepr
   M.TyDowncast _adt _i   -> Some C.AnyRepr
 
   M.TyFloat _ -> Some C.RealValRepr
@@ -228,7 +236,7 @@ canInitialize ty = case ty of
     M.TyUint _ -> True
     -- ADTs and related data structures
     M.TyTuple _ -> True
-    M.TyAdt _ _ -> True
+    M.TyAdt _ _ _ -> True
     M.TyClosure _ -> True
     -- Others
     M.TyArray _ _ -> True

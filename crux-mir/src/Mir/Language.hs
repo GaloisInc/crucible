@@ -305,17 +305,17 @@ showRegEntry col mty (C.RegEntry tp rv) =
       return $ "(" ++ List.intercalate ", " strs ++ ")"
 
     -- Tagged union type
-    (TyAdt name args, C.AnyRepr)
+    (TyAdt name _ _, C.AnyRepr)
       | Just adt <- List.find (\(Adt n _ _) -> name == n) (col^.adts) -> do
         optParts <- case adt^.adtkind of
             Struct -> do
                 let var = onlyVariant adt
-                C.Some fctx <- return $ variantFields' var args
+                C.Some fctx <- return $ variantFields' var mempty
                 let ctx = fieldCtxType fctx
                 let fields = unpackAnyValue rv (C.StructRepr ctx)
                 return $ Right (var, readFields fctx fields)
             Enum -> do
-                C.Some vctx <- return $ enumVariants adt args
+                C.Some vctx <- return $ enumVariants adt mempty
                 let enumVal = unpackAnyValue rv (RustEnumRepr vctx)
                 -- Note we don't look at the discriminant here, because mapping
                 -- a discriminant value to a variant index is somewhat complex.
@@ -325,7 +325,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                         let i = Ctx.indexVal idx
                         let var = fromMaybe (error "bad index from findVariant?") $
                                 adt ^? adtvariants . ix i
-                        C.Some fctx <- return $ variantFields' var args
+                        C.Some fctx <- return $ variantFields' var mempty
                         Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
                             ("when printing enum type " ++ show name)
                         return $ Right (var, readFields fctx fields)

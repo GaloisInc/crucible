@@ -91,7 +91,7 @@ instance FromJSON InlineTy where
           _ -> fail $ "unsupported array size: " ++ show lit
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
       Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
-      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
+      Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "substs"
       Just (String "Param") -> TyParam <$> v .: "param"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr

@@ -76,7 +76,7 @@ isAdtFieldUpdate _ = Nothing
 isSetDiscriminant :: (?col :: Collection) => Statement -> Maybe (Lvalue, Int, Adt)
 isSetDiscriminant (SetDiscriminant lv i) =
   case typeOf lv of
-    TyAdt defid args -> case (lookupAdt defid) of
+    TyAdt defid _ _ -> case (lookupAdt defid) of
                           Just adt -> Just (lv,i,adt)
                           Nothing  -> Nothing
     _ -> Nothing

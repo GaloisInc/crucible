@@ -641,13 +641,13 @@ evalCast' ck ty1 e ty2  =
         -> return e
 
       -- C-style adts, casting an enum value to a TyInt
-      (M.Misc, M.TyAdt aname args, M.TyInt sz) -> do
+      (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
         adt <- findAdt aname
-        discr <- enumDiscriminant adt args e
+        discr <- enumDiscriminant adt mempty e
         evalCast' M.Misc (M.TyInt M.USize) discr (M.TyInt sz)
-      (M.Misc, M.TyAdt aname args, M.TyUint sz) -> do
+      (M.Misc, M.TyAdt aname _ _, M.TyUint sz) -> do
         adt <- findAdt aname
-        discr <- enumDiscriminant adt args e
+        discr <- enumDiscriminant adt mempty e
         evalCast' M.Misc (M.TyInt M.USize) discr (M.TyUint sz)
 
       -- References have the same representation as Raw pointers
@@ -775,17 +775,17 @@ evalRefProj base projElem =
             _ -> return $ MirExp tp ref
 
           M.PField idx _mirTy -> case M.typeOf base of
-              M.TyAdt nm args -> do
+              M.TyAdt nm _ _ -> do
                 adt <- findAdt nm
                 case adt^.adtkind of
-                    Struct -> structFieldRef adt args idx elty ref
+                    Struct -> structFieldRef adt mempty idx elty ref
                     Enum -> mirFail $ "tried to access field of non-downcast enum " ++
                         show base ++ ": " ++ show (M.typeOf base)
                     Union -> mirFail $ "evalLvalue (PField, Union) NYI"
 
-              M.TyDowncast (M.TyAdt nm args) i -> do
+              M.TyDowncast (M.TyAdt nm _ _) i -> do
                 adt <- findAdt nm
-                enumFieldRef adt args (fromInteger i) idx elty ref
+                enumFieldRef adt mempty (fromInteger i) idx elty ref
 
               M.TyTuple ts -> tupleFieldRef ts idx elty ref
               M.TyClosure ts -> tupleFieldRef ts idx elty ref
@@ -866,9 +866,9 @@ evalRval (M.Discriminant lv) = do
     e <- evalLvalue lv
     let ty = typeOf lv 
     case ty of
-      TyAdt aname args -> do
+      TyAdt aname _ _ -> do
         adt <- findAdt aname
-        enumDiscriminant adt args e
+        enumDiscriminant adt mempty e
       _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show ty
 
 evalRval (M.Aggregate ak ops) = case ak of
@@ -886,11 +886,11 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        return $ buildTuple args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
     case ty of
-      TyAdt _ args -> do
+      TyAdt _ _ _ -> do
         es <- mapM evalOperand ops
         case adt^.adtkind of
-            M.Struct -> buildStruct adt args es
-            M.Enum -> buildEnum adt args (fromInteger agv) es
+            M.Struct -> buildStruct adt mempty es
+            M.Enum -> buildEnum adt mempty (fromInteger agv) es
             M.Union -> do
                 mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
@@ -902,20 +902,20 @@ evalLvalue (M.LProj lv (M.PField field _ty)) = do
     db <- use debugLevel
     case M.typeOf lv of
 
-      M.TyAdt nm args -> do
+      M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
             Struct -> do
                 e <- evalLvalue lv
-                getStructField adt args field e
+                getStructField adt mempty field e
             Enum -> mirFail $ "tried to access field of non-downcast enum " ++
                 show lv ++ ": " ++ show (M.typeOf lv)
             Union -> mirFail $ "evalLvalue (PField, Union) NYI"
 
-      M.TyDowncast (M.TyAdt nm args) i -> do
+      M.TyDowncast (M.TyAdt nm _ _) i -> do
         adt <- findAdt nm
         e <- evalLvalue lv
-        getEnumField adt args (fromInteger i) field e
+        getEnumField adt mempty (fromInteger i) field e
 
       _ -> do -- otherwise, lv is a tuple (or a closure, which has the same translation)
         ag <- evalLvalue lv
@@ -1086,21 +1086,21 @@ assignLvExp lv re = do
                  
         M.LProj lv (M.PField field _ty) -> do
             case M.typeOf lv of
-              M.TyAdt nm args -> do
+              M.TyAdt nm _ _ -> do
                 adt <- findAdt nm
                 case adt^.adtkind of
                     Struct -> do
                         old <- evalLvalue lv
-                        new <- setStructField adt args field old re
+                        new <- setStructField adt mempty field old re
                         assignLvExp lv new
                     Enum -> mirFail $ "tried to assign to field of non-downcast enum " ++
                         show lv ++ ": " ++ show (M.typeOf lv)
                     Union -> mirFail $ "assignLvExp (PField, Union) NYI"
 
-              M.TyDowncast (M.TyAdt nm args) i -> do
+              M.TyDowncast (M.TyAdt nm _ _) i -> do
                 adt <- findAdt nm
                 old <- evalLvalue lv
-                new <- setEnumField adt args (fromInteger i) field old re
+                new <- setEnumField adt mempty (fromInteger i) field old re
                 assignLvExp lv new
 
               _ -> do
@@ -1574,20 +1574,20 @@ initialValue (M.TyClosure tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps
 
-initialValue (M.TyAdt nm args) = do
+initialValue (M.TyAdt nm _ _) = do
     adt <- findAdt nm
     case adt ^. adtkind of
         Struct -> do
             let var = M.onlyVariant adt
-            fldExps <- mapM (initField args) (var^.M.vfields)
-            Just <$> buildStruct' adt args fldExps 
+            fldExps <- mapM (initField mempty) (var^.M.vfields)
+            Just <$> buildStruct' adt mempty fldExps
         Enum -> case adt ^. adtvariants of
             -- Uninhabited enums can't be initialized.
             [] -> return Nothing
             -- Inhabited enums get initialized to their first variant.
             (var : _) -> do
-                fldExps <- mapM (initField args) (var^.M.vfields)
-                Just <$> buildEnum' adt args 0 fldExps 
+                fldExps <- mapM (initField mempty) (var^.M.vfields)
+                Just <$> buildEnum' adt mempty 0 fldExps
         Union -> return Nothing
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyDynamic _ _) = return $ Nothing
@@ -1656,7 +1656,7 @@ buildIdentMapRegs (M.MirBody localvars blocks) extravars =
 
    -- Does MIR allow initializing the local field-by-field?
    allowsFieldwiseInit (M.Var _ _ (M.TyTuple (_:_)) _ _ _) = True
-   allowsFieldwiseInit (M.Var _ _ (M.TyAdt _ _) _ _ _) = True
+   allowsFieldwiseInit (M.Var _ _ (M.TyAdt _ _ _) _ _ _) = True
    allowsFieldwiseInit _ = False
 
    needsInit v = v ^. varIsZST || allowsFieldwiseInit v

@@ -72,7 +72,7 @@ instance Pretty Ty where
     pretty (TySlice ty)   = brackets (pretty ty)
     pretty (TyArray ty i) = brackets (pretty ty <> semi <+> int i)
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
-    pretty (TyAdt defId tys)    = pr_id defId <> pretty tys
+    pretty (TyAdt _ origDefId tys)    = pr_id origDefId <> pretty tys
     pretty TyUnsupported         = text "Unsupported"
     pretty (TyParam i)           = text ("_" ++ show i)
     pretty (TyFnDef defId tys)   = text "fnDef" <+> pr_id defId <> pretty tys
