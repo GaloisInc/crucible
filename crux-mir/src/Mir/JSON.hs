@@ -146,7 +146,12 @@ instance FromJSON FnSig where
                <*> spread
                
 instance FromJSON Adt where
-    parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "kind" <*> v .: "variants"
+    parseJSON = withObject "Adt" $ \v -> Adt
+        <$> v .: "name"
+        <*> v .: "kind"
+        <*> v .: "variants"
+        <*> v .: "orig_def_id"
+        <*> v .: "orig_substs"
 
 instance FromJSON AdtKind where
     parseJSON x = case x of

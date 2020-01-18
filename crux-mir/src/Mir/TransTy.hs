@@ -281,7 +281,7 @@ variantFields' (M.Variant _vn _vd vfs _vct) args =
         (\x -> Some x)
 
 enumVariants :: TransTyConstraint => M.Adt -> M.Substs -> Some C.CtxRepr
-enumVariants (M.Adt name kind vs) args
+enumVariants (M.Adt name kind vs _ _) args
   | kind /= M.Enum = error $ "expected " ++ show name ++ " to have kind Enum"
   | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
   where

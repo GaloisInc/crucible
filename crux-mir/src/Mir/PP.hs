@@ -91,7 +91,9 @@ instance Pretty Ty where
     pretty (TyInterned s) = text $ unpack s
 
 instance Pretty Adt where
-   pretty (Adt nm kind vs) = pretty kind <+> pretty nm <> tupled (map pretty vs)
+   pretty (Adt nm kind vs origName origSubsts) =
+    pretty kind <+> pretty nm <> brackets (pretty origName <+> pretty origSubsts)
+        <> tupled (map pretty vs)
 
 instance Pretty AdtKind where
   pretty = text . show
@@ -210,7 +212,7 @@ instance Pretty Rvalue where
     pretty (RAdtAg a) = pretty a
 
 instance Pretty AdtAg where
-  pretty (AdtAg (Adt nm _kind _vs) i ops _) = pretty_fn3 "AdtAg" (pr_id nm) i ops
+  pretty (AdtAg (Adt nm _kind _vs _ _) i ops _) = pretty_fn3 "AdtAg" (pr_id nm) i ops
 
 
 instance Pretty Terminator where
