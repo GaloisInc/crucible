@@ -355,14 +355,10 @@ instance Pretty TraitItem where
   pretty (TraitConst name ty)     = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
-  pretty (Trait name items supers params preds _numParams) =
-    let sd = case supers of
-              [ _self ] -> mempty
-              ( _self : rest ) -> pretty rest
-              [] -> error "BUG: supertrait list should always start with self"
-        ps = pparams params
+  pretty (Trait name items _supers params preds _numParams) =
+    let ps = pparams params
     in                    
-        vcat [text "trait" <+> pretty name <+> ps <+> sd <+> ppreds preds <+> lbrace ,
+        vcat [text "trait" <+> pretty name <+> ps <+> ppreds preds <+> lbrace ,
               indent 3 (vcat (map pretty items)),
               rbrace]
 
