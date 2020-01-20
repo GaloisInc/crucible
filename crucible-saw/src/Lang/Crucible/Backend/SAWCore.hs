@@ -871,7 +871,7 @@ evaluateExpr sym sc cache = f []
             BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc False
             BM.BoolMapTerms (t:|ts) ->
               let pol (x,BM.Positive) = f env x
-                  pol (x,BM.Negative) = SC.scNot sc =<< f env x
+                  pol (x,BM.Negative) = termOfSAWExpr sym sc =<< goNeg env x
               in SAWExpr <$> join (foldM (SC.scAnd sc) <$> pol t <*> mapM pol ts)
 
         B.SemiRingProd pd ->
