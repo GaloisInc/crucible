@@ -832,7 +832,19 @@ evalRval (M.Ref bk lv _) =
   case bk of
     M.Shared  -> evalLvalue lv
     M.Mutable -> evalRefLvalue lv
-    M.Unique  -> evalRefLvalue lv
+    -- &unique is a special non-shared, non-mutable borrow used in mutable
+    -- closures.  The type of `&unique x` as reported by rustc is `&mut T`, but
+    -- `x` is not required to be mutable.  This means we need to construct a
+    -- mutable `MirReference` from a non-mutable local.  Normally this wouldn't
+    -- be possible, since the local won't be a `VarReference`.  However, since
+    -- we know no mutation is done through the unique ref, we can instead
+    -- create a new, temporary MirReference, with no worries about mutations
+    -- being lost.
+    M.Unique  -> do
+        MirExp tp v <- evalLvalue lv
+        ref <- newMirRef tp
+        writeMirRef ref v
+        return $ MirExp (MirReferenceRepr tp) ref
 
 evalRval (M.Len lv) =
   case lv of

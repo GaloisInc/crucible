@@ -1,4 +1,3 @@
-// FAIL: bad translation of &unique borrows in closure envs
 #![feature(custom_attribute)]
 
 #[crux_test]
