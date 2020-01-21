@@ -565,8 +565,10 @@ evalCast' ck ty1 e ty2  =
       (M.Misc, M.TyUint _, M.TyInt s) -> baseSizeToNatCont s $ extendUnsignedBV e
 
       -- signed to unsigned (TODO: check for negative numbers)
-      (M.Misc, M.TyInt _,  M.TyUint s) ->
-         mirFail "Cannot convert signed integer to unsigned integer"
+      (M.Misc, M.TyInt s1,  M.TyUint s2)
+        | s1 == s2 -> return e      -- Reinterpret the bitvector as a different signedness
+        | otherwise -> mirFail
+          "unimplemented: cast changes signedness and size simultaneously"
 
        -- boolean to nat
       (M.Misc, TyBool, TyUint M.USize)
