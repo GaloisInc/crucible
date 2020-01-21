@@ -415,8 +415,8 @@ overflowResult tpr value over = return $ buildTuple
     , MirExp (C.MaybeRepr C.BoolRepr) $ R.App $ E.JustValue C.BoolRepr $ R.App over
     ]
 
-makeArithWithOverflow :: String -> PolyArithOp -> CustomRHS
-makeArithWithOverflow name arith =
+makeArithWithOverflow :: String -> Maybe Bool -> PolyArithOp -> CustomRHS
+makeArithWithOverflow name isSignedOverride arith =
     \(Substs [t]) -> Just $ CustomOp $ \_opTys ops -> case ops of
         -- TODO: special cases for usize + isize
         [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2]
@@ -434,6 +434,7 @@ makeArithWithOverflow name arith =
             overflowResult (C.BVRepr w1) value over
         _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (t, ops)
   where
+    isSigned _ | Just s <- isSignedOverride = Just s
     isSigned (TyInt _) = Just True
     isSigned (TyUint _) = Just False
     -- Includes `Bv<_>` support so that `makeArithWithOverflow` can also be
@@ -444,13 +445,13 @@ makeArithWithOverflow name arith =
 add_with_overflow ::  (ExplodedDefId, CustomRHS)
 add_with_overflow =
     ( ["core","intrinsics", "", "add_with_overflow"]
-    , makeArithWithOverflow "add_with_overflow" arithAdd
+    , makeArithWithOverflow "add_with_overflow" Nothing arithAdd
     )
 
 sub_with_overflow ::  (ExplodedDefId, CustomRHS)
 sub_with_overflow =
     ( ["core","intrinsics", "", "sub_with_overflow"]
-    , makeArithWithOverflow "sub_with_overflow" arithSub
+    , makeArithWithOverflow "sub_with_overflow" Nothing arithSub
     )
 
 
@@ -946,7 +947,7 @@ bv_shift_op name op = (["crucible", "bitvector", name], bv_binop_impl name op)
 bv_overflowing_binop :: Text -> PolyArithOp -> (ExplodedDefId, CustomRHS)
 bv_overflowing_binop name arith =
     ( ["crucible", "bitvector", "{{impl}}", "overflowing_" <> name]
-    , makeArithWithOverflow ("bv_overflowing_" ++ Text.unpack name) arith
+    , makeArithWithOverflow ("bv_overflowing_" ++ Text.unpack name) (Just False) arith
     )
 
 bv_eq :: (ExplodedDefId, CustomRHS)
