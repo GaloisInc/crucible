@@ -75,6 +75,13 @@ int_impls! {
     isize, usize;
 }
 
+impl Symbolic for bool {
+    fn symbolic(desc: &'static str) -> bool {
+        let val = u8::symbolic_where(desc, |&x| x < 2);
+        val == 1
+    }
+}
+
 
 macro_rules! array_impls {
     ($($size:expr)*) => {
