@@ -9,6 +9,7 @@
 -- Encoding and decoding utilities for numeric data.
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 module Lang.Crucible.Server.Encoding
   ( decodeSigned
   , encodeSigned
@@ -17,6 +18,10 @@ module Lang.Crucible.Server.Encoding
   , encodeRational
   , decodeRational
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as Builder
@@ -105,9 +110,9 @@ encodeUnsignedVarint w
 
 -- | Decode a unsigned integer in Google protocol buffers varint format
 -- from the head of a bytestring.
-decodeUnsignedVarint :: Monad m => BS.ByteString -> m (Integer, BS.ByteString)
+decodeUnsignedVarint :: MonadFail m => BS.ByteString -> m (Integer, BS.ByteString)
 decodeUnsignedVarint = go 0
-  where go :: Monad m => Integer -> BS.ByteString -> m (Integer, BS.ByteString)
+  where go :: MonadFail m => Integer -> BS.ByteString -> m (Integer, BS.ByteString)
         go v bs0 =
           case BS.uncons bs0 of
             Nothing -> fail "Unexpected premature end of unsigned varint."
@@ -125,7 +130,7 @@ encodeRational r = d <> n
 
 -- | Encode a rational as a pair with a unsigned denominator followed by a
 -- signed numerator.
-decodeRational :: Monad m => BS.ByteString -> m Rational
+decodeRational :: MonadFail m => BS.ByteString -> m Rational
 decodeRational bs0 = do
   (d, bs) <- decodeUnsignedVarint bs0
   return $ decodeSigned bs % d

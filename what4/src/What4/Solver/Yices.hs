@@ -12,9 +12,9 @@
 -- compatible.
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
-
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -62,6 +62,10 @@ module What4.Solver.Yices
   , yicesEnableInteractive
   , yicesGoalTimeout
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Applicative
 import           Control.Exception
@@ -556,9 +560,9 @@ instance SMTReadWriter (Connection s) where
     SMTEvalFunctions { smtEvalBool    = yicesEvalBool conn resp
                      , smtEvalBV      = \w -> yicesEvalBV w conn resp
                      , smtEvalReal    = yicesEvalReal conn resp
-                     , smtEvalFloat   = fail "Yices does not support floats."
+                     , smtEvalFloat   = \_ -> fail "Yices does not support floats."
                      , smtEvalBvArray = Nothing
-                     , smtEvalString  = fail "Yices does not support strings."
+                     , smtEvalString  = \_ -> fail "Yices does not support strings."
                      }
 
   smtSatResult _ = getSatResponse
@@ -885,7 +889,7 @@ yicesEvalBV w conn resp tm =
              ]
        Right b -> pure b
 
-readBit :: Monad m => Int -> String -> m Integer
+readBit :: MonadFail m => Int -> String -> m Integer
 readBit w0 = go 0 0
   where go n v "" = do
           when (n /= w0) $ fail "Value has a different number of bits than we expected."

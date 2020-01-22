@@ -227,7 +227,7 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
            return (Set.union s1 s2)
 
        transfer_term (VariantElim _ctx _ex _switch) (_asgn, _c) = do
-           fail "FIXME: transfer_term for VariantElim not implemented"
+           error "FIXME: transfer_term for VariantElim not implemented"
 
        transfer_switch :: forall ctx' tp
                         . SwitchTarget blocks ctx' tp

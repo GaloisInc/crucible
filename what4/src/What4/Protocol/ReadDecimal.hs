@@ -7,10 +7,15 @@ Maintainer       : Joe Hendrix <jhendrix@galois.com>
 Provides a function for reading decimal numbers returned
 by Z3 or Yices.
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternGuards #-}
 module What4.Protocol.ReadDecimal
   ( readDecimal
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import Control.Lens (over, _1)
 import Data.Ratio
@@ -19,7 +24,7 @@ import Data.Ratio
 -- message if first character is not a digit.
 --
 -- A decimal number has the form (-)([0..9])+([0..9])+'.'([0.9]'*('?')?
-readDecimal :: Monad m => String -> m (Rational, String)
+readDecimal :: MonadFail m => String -> m (Rational, String)
 readDecimal ('-':c:r) | Just i <- asDigit c =
   return $! over _1 negate $ readDecimal' (toRational i) r
 readDecimal (c:r) | Just i <- asDigit c =

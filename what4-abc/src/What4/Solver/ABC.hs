@@ -9,6 +9,7 @@ Crucible simple builder backend to the ABC And-Inverter Graph (AIG)
 representation.
 -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE GADTs #-}
@@ -36,6 +37,10 @@ module What4.Solver.ABC
   , genericSatOptions
   , genericSatAdapter
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Concurrent
 import           Control.Exception hiding (evaluate)
@@ -714,7 +719,7 @@ getForallPred ntk (Some b) p e_binding a_binding = do
       GIA.and g c1 c2
 
 -- | Check variables are supported by ABC.
-checkSupportedByAbc :: Monad m => CollectedVarInfo t -> m ()
+checkSupportedByAbc :: MonadFail m => CollectedVarInfo t -> m ()
 checkSupportedByAbc vars = do
   let errors = Fold.toList (vars^.varErrors)
   -- Check no errors where reported in result.
@@ -722,13 +727,13 @@ checkSupportedByAbc vars = do
     fail $ show $ text "This formula is not supported by abc:" <$$>
                   indent 2 (vcat errors)
 
-checkNoLatches :: Monad m => CollectedVarInfo t -> m ()
+checkNoLatches :: MonadFail m => CollectedVarInfo t -> m ()
 checkNoLatches vars = do
   when (not (Set.null (vars^.latches))) $ do
     fail "Cannot check satisfiability of circuits with latches."
 
 -- | Check that var result contains no universally quantified variables.
-checkNoForallVars :: Monad m => CollectedVarInfo t -> m ()
+checkNoForallVars :: MonadFail m => CollectedVarInfo t -> m ()
 checkNoForallVars vars = do
   unless (Map.null (vars^.forallQuantifiers)) $ do
     fail "This operation does not support universally quantified variables."

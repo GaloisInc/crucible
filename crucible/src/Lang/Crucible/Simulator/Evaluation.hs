@@ -9,6 +9,7 @@
 --
 -- This module provides operations evaluating Crucible expressions.
 ------------------------------------------------------------------------
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -33,6 +34,10 @@ module Lang.Crucible.Simulator.Evaluation
   ) where
 
 import           Prelude hiding (pred)
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import qualified Control.Exception as Ex
 import           Control.Lens
@@ -85,7 +90,7 @@ selectedIndices l = catMaybes $ Prelude.zipWith selectIndex l [1..]
 integerAsChar :: Integer -> Word16
 integerAsChar i = fromInteger ((i `max` 0) `min` (2^(16::Int)-1))
 
-complexRealAsChar :: (Monad m, IsExpr val)
+complexRealAsChar :: (MonadFail m, IsExpr val)
                   => val BaseComplexType
                   -> m Word16
 complexRealAsChar v = do

@@ -25,6 +25,11 @@ module Lang.Crucible.Server.Translation
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative
 #endif
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
+
 import           Control.Lens
 import           Control.Monad
 import qualified Data.Foldable as Fold
@@ -69,6 +74,7 @@ newtype Gen s (ret :: CrucibleType) a =
   deriving ( Functor
            , Applicative
            , Monad
+           , MonadFail
            )
 
 newAtomIdx :: Gen s ret (Nonce s (tp :: CrucibleType))
@@ -156,6 +162,7 @@ newtype Trans s (ret :: CrucibleType) a = Trans { unTrans :: StateT (TransState 
   deriving ( Functor
            , Applicative
            , Monad
+           , MonadFail
            , MonadState (TransState s)
            , X.MonadThrow
            , MonadIO
@@ -230,7 +237,7 @@ getStmtResultWithType block_idx stmt_idx tp = do
     Just Refl -> return r
     Nothing -> fail $ "Statement result does not match type."
 
-transNatExpr :: Monad m => P.Expr -> m (Some NatRepr)
+transNatExpr :: MonadFail m => P.Expr -> m (Some NatRepr)
 transNatExpr pe = do
   case pe^.P.expr_code of
     P.NatExpr -> do

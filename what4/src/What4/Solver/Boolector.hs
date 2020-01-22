@@ -10,6 +10,7 @@
 -- This module provides an interface for running Boolector and parsing
 -- the results back.
 ------------------------------------------------------------------------
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Solver.Boolector
   ( Boolector
@@ -18,6 +19,10 @@ module What4.Solver.Boolector
   , boolectorAdapter
   , runBoolectorInOverride
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Concurrent
 import           Control.Lens(folded)
@@ -139,18 +144,18 @@ runBoolectorInOverride sym logData ps = do
          }
       return res
 
-parseBoolectorOutputLine :: Monad m => String -> m (Text, String)
+parseBoolectorOutputLine :: MonadFail m => String -> m (Text, String)
 parseBoolectorOutputLine s =
   case words s of
     [nm,v] -> return (Text.pack nm,v)
     _ -> fail $ "Could not parse Boolector output:\n  " ++ show s
 
-boolectorBoolValue :: Monad m => String -> m Bool
+boolectorBoolValue :: MonadFail m => String -> m Bool
 boolectorBoolValue "1" = return True
 boolectorBoolValue "0" = return False
 boolectorBoolValue s = fail $ "Could not parse " ++ s ++ " as a Boolean."
 
-boolectorBVValue :: Monad m => Int -> String -> m Integer
+boolectorBVValue :: MonadFail m => Int -> String -> m Integer
 boolectorBVValue w0 s0 = go 0 0 s0
   where go w r [] = do
           when (w /= w0) $ fail "Unexpected number of bits in output."
@@ -159,7 +164,7 @@ boolectorBVValue w0 s0 = go 0 0 s0
         go w r ('0':s) = go (w+1) (2 * r) s
         go _ _ _ = fail $ "Could not parse " ++ s0 ++ " as a bitvector."
 
-lookupBoolectorVar :: Monad m
+lookupBoolectorVar :: MonadFail m
                    => Map Text String
                       -- ^ Map from variable names to value
                    -> (String -> m r)

@@ -11,6 +11,7 @@
 -- an expression, this module computes the ground value.
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
@@ -35,6 +36,10 @@ module What4.Expr.GroundEval
   , evalGroundNonceApp
   , defaultValueForType
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Exception
 import           Control.Monad
@@ -176,7 +181,7 @@ tryEvalGroundExpr _ (BoundVarExpr v) =
 -- | Helper function for evaluating @NonceApp@ expressions.
 --
 --   This function is intended for implementers of symbolic backends.
-evalGroundNonceApp :: Monad m
+evalGroundNonceApp :: MonadFail m
                    => (forall u . Expr t u -> MaybeT m (GroundValue u))
                    -> NonceApp t (Expr t) tp
                    -> MaybeT m (GroundValue tp)

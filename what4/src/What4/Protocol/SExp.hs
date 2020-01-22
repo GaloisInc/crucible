@@ -7,6 +7,7 @@ Maintainer       : Joe Hendrix <jhendrix@galois.com>
 Provides an interface for parsing simple SExpressions
 returned by SMT solvers.
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Protocol.SExp
   ( SExp(..)
@@ -17,6 +18,10 @@ module What4.Protocol.SExp
   , asNegAtomList
   , skipSpaceOrNewline
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Applicative
 import           Control.Monad (msum)
@@ -65,7 +70,7 @@ parseSExp readString = do
        , SAtom <$> readToken
        ]
 
-stringToSExp :: Monad m =>
+stringToSExp :: MonadFail m =>
   Parser Text {- ^ A parser for string literals -} ->
   String ->
   m [SExp]

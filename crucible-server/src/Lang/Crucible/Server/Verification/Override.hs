@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -44,6 +45,10 @@ module Lang.Crucible.Server.Verification.Override
   , assertConditions
   , simulateHarness
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Lens (folded)
 import           Control.Monad
@@ -373,7 +378,7 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
           fail (show (PP.text "Base pointer not defined" PP.<+> PP.pp base))
 
 substTermAsArray ::
-   (MonadIO m, 1 <= x) =>
+   (MonadIO m, MonadFail m, 1 <= x) =>
    SAWBack n ->
    Word64 ->
    NatRepr x ->
@@ -627,7 +632,7 @@ termToSubstTerm _ _ (HarnessVarArray _ _) tm = return (SubstTerm tm)
 
 
 substTermAsBV ::
-   (1 <= x, MonadIO m) =>
+   (1 <= x, MonadIO m, MonadFail m) =>
    SAWBack n ->
    NatRepr x ->
    SubstTerm (SAWBack n) ->
@@ -815,7 +820,7 @@ data SomeBV sym where
 
 
 assumeEquiv ::
-   MonadIO m =>
+   (MonadIO m, MonadFail m) =>
    SAWBack n ->
    HarnessVarType ->
    Term ->
@@ -845,7 +850,7 @@ assumeEquiv sym hvt tm subTm =
          | otherwise -> fail ("Invalid word width in assumeEquiv" ++ show n)
 
 assertEquiv ::
-   MonadIO m =>
+   (MonadIO m, MonadFail m) =>
    SAWBack n ->
    HarnessVarType ->
    Term ->

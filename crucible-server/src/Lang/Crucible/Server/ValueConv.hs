@@ -26,6 +26,11 @@ module Lang.Crucible.Server.ValueConv where
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative
 #endif
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
+
 import           Control.Lens
 import           Control.Monad
 import qualified Data.Sequence as Seq
@@ -137,7 +142,7 @@ instance HasTypeRepr (R.Expr () s) where
 instance HasTypeRepr (R.Atom s) where
   getTypeRepr = R.typeOfAtom
 
-checkedRegEntry :: (Monad m, HasTypeRepr f)
+checkedRegEntry :: (MonadFail m, HasTypeRepr f)
                 => TypeRepr tp -> Some f -> m (f tp)
 checkedRegEntry tp (Some r) =
   case testEquality tp (getTypeRepr r) of
@@ -257,7 +262,7 @@ type BVBinOp f n r = NatRepr n -> f (BVType n) -> f (BVType n) -> App () f r
 -- | A symbolic bitvector expression with some bitwidth.
 data SomeBV f = forall n . (1 <= n) => SomeBV (NatRepr n) (f (BVType n))
 
-convertToCrucibleApp :: (Applicative m, Monad m, HasTypeRepr f, X.MonadThrow m)
+convertToCrucibleApp :: (Applicative m, MonadFail m, HasTypeRepr f, X.MonadThrow m)
                      => (a -> m (Some f))
                      -> (a -> m (Some NatRepr))
                      -> P.PrimitiveOp
@@ -269,7 +274,7 @@ convertToCrucibleApp evalVal evalNatRepr prim_op args res_type = do
   convertToCrucibleApp' evalVal evalNatRepr prim_op args res_tp
 
 convertToCrucibleApp' :: forall a f res_tp m
-                       . (Applicative m, Monad m, HasTypeRepr f, X.MonadThrow m)
+                       . (Applicative m, MonadFail m, HasTypeRepr f, X.MonadThrow m)
                       => (a -> m (Some f))
                       -> (a -> m (Some NatRepr))
                          -- ^ Parse argument as a concrete nat.

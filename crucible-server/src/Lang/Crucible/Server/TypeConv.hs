@@ -19,6 +19,10 @@
 
 module Lang.Crucible.Server.TypeConv where
 
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
+
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
@@ -41,7 +45,7 @@ import qualified Lang.Crucible.Proto as P
 
 
 
-getTail :: Monad m => String -> Seq a -> m (Seq a, a)
+getTail :: MonadFail m => String -> Seq a -> m (Seq a, a)
 getTail msg s =
   case Seq.viewr s of
     Seq.EmptyR -> fail msg
@@ -97,7 +101,7 @@ toProtoPos pl =
 -- Type conversion
 
 -- | Convert protocol var type to Interface type.
-varTypeFromProto :: Monad m => P.VarType -> m (Some BaseTypeRepr)
+varTypeFromProto :: MonadFail m => P.VarType -> m (Some BaseTypeRepr)
 varTypeFromProto tp =
   case tp^.P.varType_id of
     P.BitvectorVarType -> do
@@ -115,7 +119,7 @@ varTypeFromProto tp =
 
 -- Given a protocol vartype, wrap a "Vector" type operator
 -- for each dimension on top of the base type
-crucibleTypeFromProtoVarType :: Monad m => P.VarType -> m (Some TypeRepr)
+crucibleTypeFromProtoVarType :: MonadFail m => P.VarType -> m (Some TypeRepr)
 crucibleTypeFromProtoVarType tp = do
    let dims = tp^.P.varType_dimensions
    Some vtp <- varTypeFromProto tp
@@ -130,7 +134,7 @@ crucibleTypeFromProtoVarType tp = do
 ------------------------------------------------------------------------
 -- Converting from a protocol buffer type.
 
-fromProtoTypeSeq :: Monad m => Seq P.CrucibleType -> m (Some CtxRepr)
+fromProtoTypeSeq :: MonadFail m => Seq P.CrucibleType -> m (Some CtxRepr)
 fromProtoTypeSeq s0 = do
   case Seq.viewr s0 of
     Seq.EmptyR -> return (Some Ctx.empty)
@@ -139,7 +143,7 @@ fromProtoTypeSeq s0 = do
       Some rep <- fromProtoType tp
       return $ Some $ ctx Ctx.:> rep
 
-fromProtoType :: Monad m => P.CrucibleType -> m (Some TypeRepr)
+fromProtoType :: MonadFail m => P.CrucibleType -> m (Some TypeRepr)
 fromProtoType tp = do
   let params = tp^.P.crucibleType_params
   case tp^.P.crucibleType_id of

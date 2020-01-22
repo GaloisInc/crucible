@@ -12,10 +12,15 @@
 -- Provides functions for finding an executable, and expanding a path
 -- with referenced to environment variables.
 ------------------------------------------------------------------------
+{-# LANGUAGE CPP #-}
 module What4.Utils.Environment
   ( findExecutable
   , expandEnvironmentPath
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import Control.Monad.IO.Class
 import Data.Char
@@ -29,10 +34,10 @@ import System.FilePath
 -- | Given a mapping of variables to values, this replaces
 -- substrings of the form $VAR with the associated value
 -- in a string.
-expandVars :: Monad m => Map String String -> String -> m String
+expandVars :: MonadFail m => Map String String -> String -> m String
 expandVars m = outsideVar id
   where -- Parse characters not part of a var.
-        outsideVar :: Monad m => ShowS -> String -> m String
+        outsideVar :: MonadFail m => ShowS -> String -> m String
         outsideVar res s =
           case s of
             [] -> return (res [])
@@ -46,7 +51,7 @@ expandVars m = outsideVar id
         isVarChar '_' = True
         isVarChar c = isAlphaNum c
 
-        matchVarName :: Monad m => ShowS -> ShowS -> String -> m String
+        matchVarName :: MonadFail m => ShowS -> ShowS -> String -> m String
         matchVarName res rnm s =
           case s of
             [] -> expandVar res rnm s
@@ -58,6 +63,7 @@ expandVars m = outsideVar id
             [] -> fail "Missing '}' to close variable name."
             '}':r -> expandVar res rnm r
             c  :r -> matchBracketedVar res (rnm . showChar c) r
+
         expandVar res rnm r = do
           let nm = rnm []
           case Map.lookup nm m of
@@ -80,7 +86,7 @@ expandEnvironmentPath base_map path = do
   expandVars (Map.union base_map expanded_map) path
 
 -- | Find an executable from a string.
-findExecutable :: MonadIO m
+findExecutable :: (MonadIO m, MonadFail m)
                => FilePath
                   -- ^ Path to expand
                -> m FilePath

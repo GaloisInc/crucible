@@ -12,6 +12,7 @@
 -- an input language.
 ------------------------------------------------------------------------
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -74,6 +75,10 @@ module What4.Protocol.SMTLib2
   , SMTWriter.WriterConn
   , SMTWriter.assume
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Applicative
 import           Control.Exception
@@ -666,12 +671,12 @@ setProduceModels w b = addCommand w $ SMT2.setProduceModels b
 writeGetValue :: SMTLib2Tweaks a => WriterConn t (Writer a) -> [Term] -> IO ()
 writeGetValue w l = addCommandNoAck w $ SMT2.getValue l
 
-parseBoolSolverValue :: Monad m => SExp -> m Bool
+parseBoolSolverValue :: MonadFail m => SExp -> m Bool
 parseBoolSolverValue (SAtom "true")  = return True
 parseBoolSolverValue (SAtom "false") = return False
 parseBoolSolverValue s = fail $ "Could not parse solver value: " ++ show s
 
-parseRealSolverValue :: (Applicative m, Monad m) => SExp -> m Rational
+parseRealSolverValue :: MonadFail m => SExp -> m Rational
 parseRealSolverValue (SAtom v) | Just (r,"") <- readDecimal (Text.unpack v) =
   return r
 parseRealSolverValue (SApp ["-", x]) = do
@@ -681,7 +686,7 @@ parseRealSolverValue (SApp ["/", x , y]) = do
       <*> parseRealSolverValue y
 parseRealSolverValue s = fail $ "Could not parse solver value: " ++ show s
 
-parseBvSolverValue :: Monad m => Int -> SExp -> m Integer
+parseBvSolverValue :: MonadFail m => Int -> SExp -> m Integer
 parseBvSolverValue _ s
   | (n, _) <- parseBVLitHelper s = return n
   | otherwise = fail $ "Could not parse solver value: " ++ show s
@@ -695,11 +700,11 @@ parseBVLitHelper (SApp ["_", SAtom (Text.unpack -> ('b' : 'v' : n_str)), SAtom (
   | [(n, "")] <- readDec n_str, [(w, "")] <- readDec w_str = (n, w)
 parseBVLitHelper _ = (0, 0)
 
-parseStringSolverValue :: Monad m => SExp -> m ByteString
+parseStringSolverValue :: MonadFail m => SExp -> m ByteString
 parseStringSolverValue (SString t) | Just bs <- unescapeText t = return bs
 parseStringSolverValue x = fail ("Could not parse string solver value:\n  " ++ show x)
 
-parseFloatSolverValue :: Monad m => SExp -> m Integer
+parseFloatSolverValue :: MonadFail m => SExp -> m Integer
 parseFloatSolverValue (SApp ["fp", sign_s, exponent_s, significant_s])
   | (sign_n, 1) <- parseBVLitHelper sign_s
   , (exponent_n, eb) <- parseBVLitHelper exponent_s
@@ -723,7 +728,7 @@ parseFloatSolverValue s =
 ones :: Int -> Integer
 ones n = foldl setBit 0 ([0..(n - 1)] :: [Int])
 
-parseBvArraySolverValue :: (Monad m,
+parseBvArraySolverValue :: (MonadFail m,
                             1 <= w,
                             1 <= v)
                         => NatRepr w

@@ -25,7 +25,7 @@ library
     ansi-terminal,
     ansi-wl-pprint,
     bytestring,
-    base >= 4.8 && < 4.13,
+    base >= 4.8 && < 4.14,
     config-schema,
     containers,
     crucible,
@@ -58,7 +58,7 @@ executable crux-llvm
   build-depends:
     ansi-terminal,
     ansi-wl-pprint,
-    base >= 4.8 && < 4.13,
+    base >= 4.8 && < 4.14,
     bytestring,
     containers,
     crucible,

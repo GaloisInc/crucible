@@ -33,6 +33,11 @@ module Lang.Crucible.Server.Requests
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative
 #endif
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
+
 import           Control.Exception
 import           Control.Lens
 import           Control.Monad
@@ -102,7 +107,7 @@ instance Exception FunctionNotFoundException where
 nyi :: String -> a
 nyi nm = throw $ CrucibleNotImplemented (nm ++ " unimplemented.")
 
-getHead :: Monad m => Seq a -> m (a, Seq a)
+getHead :: MonadFail m => Seq a -> m (a, Seq a)
 getHead s =
   case Seq.viewl s of
     Seq.EmptyL -> fail "Unexpected end of arguments."

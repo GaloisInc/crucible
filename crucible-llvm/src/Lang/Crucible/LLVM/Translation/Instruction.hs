@@ -147,13 +147,13 @@ instrResultType instr =
     L.Bit _ x _   -> liftMemType (L.typedType x)
     L.Conv _ _ ty -> liftMemType ty
     L.Call _ (L.PtrTo (L.FunTy ty _ _)) _ _ -> liftMemType ty
-    L.Call _ ty _ _ ->  fail $ unwords ["unexpected function type in call:", show ty]
+    L.Call _ ty _ _ -> throwError $ unwords ["unexpected function type in call:", show ty]
     L.Invoke (L.FunTy ty _ _) _ _ _ _ -> liftMemType ty
-    L.Invoke ty _ _ _ _ -> fail $ unwords ["unexpected function type in invoke:", show ty]
+    L.Invoke ty _ _ _ _ -> throwError $ unwords ["unexpected function type in invoke:", show ty]
     L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
     L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> liftMemType ty
-                   _ -> fail $ unwords ["load through non-pointer type", show (L.typedType x)]
+                   _ -> throwError $ unwords ["load through non-pointer type", show (L.typedType x)]
     L.ICmp _op tv _ -> do
       inpType <- liftMemType (L.typedType tv)
       case inpType of
@@ -169,7 +169,7 @@ instrResultType instr =
     L.GEP inbounds base elts ->
        do gepRes <- runExceptT (translateGEP inbounds base elts)
           case gepRes of
-            Left err -> fail err
+            Left err -> throwError err
             Right (GEPResult lanes tp _gep) ->
               let n = natValue lanes in
               if n == 1 then
@@ -183,12 +183,12 @@ instrResultType instr =
          where go [] tp = return tp
                go (i:is) (ArrayType n tp')
                    | i < fromIntegral n = go is tp'
-                   | otherwise = fail $ unwords ["invalid index into array type", showInstr instr]
+                   | otherwise = throwError $ unwords ["invalid index into array type", showInstr instr]
                go (i:is) (StructType si) =
                       case siFields si V.!? (fromIntegral i) of
                         Just fi -> go is (fiType fi)
-                        Nothing -> error $ unwords ["invalid index into struct type", showInstr instr]
-               go _ _ = fail $ unwords ["invalid type in extract value instruction", showInstr instr]
+                        Nothing -> throwError $ unwords ["invalid index into struct type", showInstr instr]
+               go _ _ = throwError $ unwords ["invalid type in extract value instruction", showInstr instr]
 
     L.InsertValue x _ _ -> liftMemType (L.typedType x)
 
@@ -196,7 +196,7 @@ instrResultType instr =
        do tp <- liftMemType (L.typedType x)
           case tp of
             VecType _n tp' -> return tp'
-            _ -> fail $ unwords ["extract element of non-vector type", showInstr instr]
+            _ -> throwError $ unwords ["extract element of non-vector type", showInstr instr]
 
     L.InsertElt x _ _ -> liftMemType (L.typedType x)
 
@@ -205,21 +205,21 @@ instrResultType instr =
          itp <- liftMemType (L.typedType i)
          case (xtp, itp) of
            (VecType _n ty, VecType m _) -> return (VecType m ty)
-           _ -> fail $ unwords ["invalid shufflevector:", showInstr instr]
+           _ -> throwError $ unwords ["invalid shufflevector:", showInstr instr]
 
     L.LandingPad x _ _ _ -> liftMemType x
 
     -- LLVM Language Reference: "The original value at the location is returned."
     L.AtomicRW _ _ x _ _ _ -> case L.typedType x of
                    L.PtrTo ty -> liftMemType ty
-                   _ -> fail $ unwords ["atomicrmw through non-pointer type", show (L.typedType x)]
+                   _ -> throwError $ unwords ["atomicrmw through non-pointer type", show (L.typedType x)]
 
     L.CmpXchg _weak _volatile _ptr _old new _ _ _ ->
       do let dl = llvmDataLayout ?lc
          tp <- liftMemType (L.typedType new)
          return (StructType (mkStructInfo dl False [tp, i1]))
 
-    _ -> fail $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
+    _ -> throwError $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
