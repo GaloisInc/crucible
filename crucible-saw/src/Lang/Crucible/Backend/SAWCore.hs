@@ -1214,8 +1214,25 @@ evaluateExpr sym sc cache = f []
         B.StructField{} -> nyi -- FIXME
 
     -- returns the logical negation of the result of 'go'
+    -- negations are pushed inside conjunctions and less-than-or-equal
     goNeg :: [Maybe SolverSymbol] -> B.Expr n BaseBoolType -> IO (SAWExpr BaseBoolType)
     goNeg env expr =
+      case expr of
+        -- negation of (x /\ y) becomes (~x \/ ~y)
+        B.AppExpr (B.appExprApp -> B.ConjPred xs) ->
+          case BM.viewBoolMap xs of
+            BM.BoolMapUnit -> SAWExpr <$> SC.scBool sc False
+            BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc True
+            BM.BoolMapTerms (t:|ts) ->
+              let pol (x, BM.Positive) = termOfSAWExpr sym sc =<< goNegAtom env x
+                  pol (x, BM.Negative) = f env x
+              in SAWExpr <$> join (foldM (SC.scOr sc) <$> pol t <*> mapM pol ts)
+        _ -> goNegAtom env expr
+
+    -- returns the logical negation of the result of 'go'
+    -- negations are pushed inside less-than-or-equal
+    goNegAtom :: [Maybe SolverSymbol] -> B.Expr n BaseBoolType -> IO (SAWExpr BaseBoolType)
+    goNegAtom env expr =
       case expr of
         -- negation of (x <= y) becomes (y < x)
         B.AppExpr (B.appExprApp -> B.SemiRingLe sr xe ye) ->
@@ -1223,17 +1240,6 @@ evaluateExpr sym sc cache = f []
             B.OrderedSemiRingRealRepr    -> join (scRealLt sym sc <$> eval env ye <*> eval env xe)
             B.OrderedSemiRingIntegerRepr -> join (scIntLt sc <$> eval env ye <*> eval env xe)
             B.OrderedSemiRingNatRepr     -> join (scNatLt sc <$> eval env ye <*> eval env xe)
-
-        -- negation of (x /\ y) becomes (~x \/ ~y)
-        B.AppExpr (B.appExprApp -> B.ConjPred xs) ->
-          case BM.viewBoolMap xs of
-            BM.BoolMapUnit -> SAWExpr <$> SC.scBool sc False
-            BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc True
-            BM.BoolMapTerms (t:|ts) ->
-              let pol (x, BM.Positive) = termOfSAWExpr sym sc =<< goNeg env x
-                  pol (x, BM.Negative) = f env x
-              in SAWExpr <$> join (foldM (SC.scOr sc) <$> pol t <*> mapM pol ts)
-
         _ -> SAWExpr <$> (SC.scNot sc =<< f env expr)
 
 
