@@ -5932,9 +5932,9 @@ type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatReal)) fi =
 instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
   iFloatPZero sym _ = return $ realZero sym
   iFloatNZero sym _ = return $ realZero sym
-  iFloatNaN = fail "NaN cannot be represented as a real value."
-  iFloatPInf = fail "+Infinity cannot be represented as a real value."
-  iFloatNInf = fail "-Infinity cannot be represented as a real value."
+  iFloatNaN _ _ = fail "NaN cannot be represented as a real value."
+  iFloatPInf _ _ = fail "+Infinity cannot be represented as a real value."
+  iFloatNInf _ _ = fail "-Infinity cannot be represented as a real value."
   iFloatLit sym _ = realLit sym
   iFloatLitSingle sym = realLit sym . toRational
   iFloatLitDouble sym = realLit sym . toRational

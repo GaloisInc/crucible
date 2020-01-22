@@ -7,6 +7,7 @@ on the What4 formula interface.  All the type constructors are exposed
 so that clients can generate new values that are not exposed through
 this interface.
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -32,6 +33,11 @@ module What4.Protocol.SMTLib2.Parse
     -- ** Terms
   , Term(..)
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+import qualified Control.Monad.Fail
+#endif
 
 import           Control.Monad.Reader
 import qualified Data.ByteString as BS
@@ -64,6 +70,11 @@ newtype Parser a = Parser { unParser :: ReaderT Handle IO a }
 
 instance Monad Parser where
   Parser m >>= h = Parser $ m >>= unParser . h
+#if !MIN_VERSION_base(4,13,0)
+  fail = Control.Monad.Fail.fail
+#endif
+
+instance MonadFail Parser where
   fail = error
 
 runParser :: Handle -> Parser a -> IO a

@@ -39,11 +39,9 @@ provide several type family definitions and class instances for @sym@:
 
 The canonical implementation of these interface classes is found in "What4.Expr.Builder".
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-
-
-
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -151,6 +149,10 @@ module What4.Interface
   , StringLiteral(..)
   , stringLiteralInfo
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Exception (assert)
 import           Control.Lens
@@ -2524,7 +2526,7 @@ predToReal sym p = do
 
 -- | Extract the value of a rational expression; fail if the
 --   value is not a constant.
-realExprAsRational :: (Monad m, IsExpr e) => e BaseRealType -> m Rational
+realExprAsRational :: (MonadFail m, IsExpr e) => e BaseRealType -> m Rational
 realExprAsRational x = do
   case asRational x of
     Just r -> return r
@@ -2533,7 +2535,7 @@ realExprAsRational x = do
 -- | Extract the value of a complex expression, which is assumed
 --   to be a constant real number.  Fail if the number has nonzero
 --   imaginary component, or if it is not a constant.
-cplxExprAsRational :: (Monad m, IsExpr e) => e BaseComplexType -> m Rational
+cplxExprAsRational :: (MonadFail m, IsExpr e) => e BaseComplexType -> m Rational
 cplxExprAsRational x = do
   case asComplex x of
     Just (r :+ i) -> do
@@ -2544,18 +2546,18 @@ cplxExprAsRational x = do
       fail "Complex value is not a constant expression."
 
 -- | Return a complex value as a constant integer if it exists.
-cplxExprAsInteger :: (Monad m, IsExpr e) => e BaseComplexType -> m Integer
+cplxExprAsInteger :: (MonadFail m, IsExpr e) => e BaseComplexType -> m Integer
 cplxExprAsInteger x = rationalAsInteger =<< cplxExprAsRational x
 
 -- | Return value as a constant integer if it exists.
-rationalAsInteger :: Monad m => Rational -> m Integer
+rationalAsInteger :: MonadFail m => Rational -> m Integer
 rationalAsInteger r = do
   when (denominator r /= 1) $ do
     fail "Value is not an integer."
   return (numerator r)
 
 -- | Return value as a constant integer if it exists.
-realExprAsInteger :: (IsExpr e, Monad m) => e BaseRealType -> m Integer
+realExprAsInteger :: (IsExpr e, MonadFail m) => e BaseRealType -> m Integer
 realExprAsInteger x =
   rationalAsInteger =<< realExprAsRational x
 

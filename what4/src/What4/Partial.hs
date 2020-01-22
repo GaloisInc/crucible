@@ -12,7 +12,7 @@ type allows for packaging values together with predicates that express their
 partiality: the value is only valid if the predicate is true.
 
 -}
-
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -59,6 +59,11 @@ module What4.Partial
  , mergePartial
  , mergePartials
  ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+import qualified Control.Monad.Fail
+#endif
 
 import GHC.Generics (Generic, Generic1)
 import Data.Data (Data)
@@ -252,6 +257,12 @@ instance (IsExpr (SymExpr sym), Monad m) => Monad (PartialT sym m) where
       case pr of
         Unassigned -> pure Unassigned
         PE q r -> unPartial (h r) sym q
+
+#if !MIN_VERSION_base(4,13,0)
+  fail msg = PartialT $ \_ _ -> fail msg
+#endif
+
+instance (IsExpr (SymExpr sym), MonadFail m) => MonadFail (PartialT sym m) where
   fail msg = PartialT $ \_ _ -> fail msg
 
 instance MonadTrans (PartialT sym) where

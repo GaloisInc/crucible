@@ -6,6 +6,7 @@ License          : BSD3
 Maintainer       : sweirich@galois.com
 Stability        : provisional
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -21,6 +22,10 @@ Stability        : provisional
 module Lang.Crucible.JVM.Simulate where
 
 -- base
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
+
 import           Data.Maybe (maybeToList)
 import           Data.Semigroup (Semigroup(..),(<>))
 import           Control.Monad.State.Strict
@@ -621,7 +626,7 @@ setupCrucibleJVMCrux cb verbosity sym p cname mname args = do
 
 
      let failIfNotEqual :: forall f m a (b :: k).
-                           (Monad m, Show (f a), Show (f b), TestEquality f)
+                           (MonadFail m, Show (f a), Show (f b), TestEquality f)
                         => f a -> f b -> String -> m (a :~: b)
          failIfNotEqual r1 r2 str
            | Just Refl <- testEquality r1 r2 = return Refl

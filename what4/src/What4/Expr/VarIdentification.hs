@@ -8,6 +8,7 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -36,6 +37,10 @@ module What4.Expr.VarIdentification
   , predicateVarInfo
   ) where
 
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
+
 import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Monad.ST
@@ -55,7 +60,6 @@ import           Data.Word
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           What4.BaseTypes
-import           What4.Interface (ArrayResultWrapper(..))
 import           What4.Expr.AppTheory
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
@@ -132,6 +136,7 @@ newtype VarRecorder s t a
   deriving ( Functor
            , Applicative
            , Monad
+           , MonadFail
            , MonadST s
            )
 

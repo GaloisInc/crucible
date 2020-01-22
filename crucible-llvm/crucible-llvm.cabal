@@ -12,7 +12,7 @@ Synopsis:      Support for translating and executing LLVM code in Crucible
 
 library
   build-depends:
-    base >= 4.7 && < 4.13,
+    base >= 4.7 && < 4.14,
     ansi-wl-pprint,
     attoparsec,
     bytestring,

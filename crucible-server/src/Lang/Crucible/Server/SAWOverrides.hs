@@ -70,7 +70,7 @@ data SAWCrucibleServerPersonality =
    { _sawServerCryptolEnv :: CryptolEnv
    }
 
-sawServerCryptolEnv :: Simple Lens SAWCrucibleServerPersonality CryptolEnv
+sawServerCryptolEnv :: Lens' SAWCrucibleServerPersonality CryptolEnv
 sawServerCryptolEnv = lens _sawServerCryptolEnv (\s v -> s{ _sawServerCryptolEnv = v })
 
 initSAWServerPersonality ::

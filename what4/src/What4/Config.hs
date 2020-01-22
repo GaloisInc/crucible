@@ -65,6 +65,7 @@
 --   * a method for removing options from a configuration altogether
 --       (i.e., to undo extendConfig)
 ------------------------------------------------------------------------------
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -145,6 +146,10 @@ module What4.Config
   , verbosity
   , verbosityLogger
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Applicative (Const(..))
 import           Control.Exception
@@ -638,7 +643,7 @@ traverseSubtree ps0 f = go ps0 []
 
 
 -- | Add an option to the given @ConfigMap@.
-insertOption :: MonadIO m => ConfigDesc -> ConfigMap -> m ConfigMap
+insertOption :: (MonadIO m, MonadFail m) => ConfigDesc -> ConfigMap -> m ConfigMap
 insertOption (ConfigDesc (ConfigOption _tp (p:|ps)) sty h) m = adjustConfigMap p ps f m
   where
   f Nothing  =

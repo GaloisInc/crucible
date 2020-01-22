@@ -9,6 +9,7 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -165,6 +166,10 @@ module Lang.Crucible.LLVM.MemModel
   ) where
 
 import           Prelude hiding (seq)
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad
@@ -1014,7 +1019,7 @@ loadMaybeString sym mem ptr n = do
 
 
 
-toStorableType :: (Monad m, HasPtrWidth wptr)
+toStorableType :: (MonadFail m, HasPtrWidth wptr)
                => MemType
                -> m StorageType
 toStorableType mt =
@@ -1028,7 +1033,7 @@ toStorableType mt =
     VecType n x -> arrayType (fromIntegral n) <$> toStorableType x
     MetadataType -> fail "toStorableType: Cannot store metadata values"
     StructType si -> mkStructType <$> traverse transField (siFields si)
-      where transField :: Monad m => FieldInfo -> m (StorageType, Bytes)
+      where transField :: MonadFail m => FieldInfo -> m (StorageType, Bytes)
             transField fi = do
                t <- toStorableType $ fiType fi
                return (t, fiPadding fi)
@@ -1390,6 +1395,7 @@ assertDisjointRegions sym w dest src len =
 -- to recursively populate globals that may reference one another.
 constToLLVMValP :: forall wptr sym io.
   ( MonadIO io
+  , MonadFail io
   , HasPtrWidth wptr
   , IsSymInterface sym
   , HasCallStack
@@ -1447,6 +1453,7 @@ constToLLVMValP _sym _look (UndefConst memty) = liftIO $
 -- globals have already been populated into the @'MemImpl'@.
 constToLLVMVal :: forall wptr sym io.
   ( MonadIO io
+  , MonadFail io
   , HasPtrWidth wptr
   , IsSymInterface sym
   , HasCallStack
@@ -1460,7 +1467,7 @@ constToLLVMVal sym mem =
   constToLLVMValP sym (\symb -> liftIO $ doResolveGlobal sym mem symb)
 
 -- TODO are these types just identical? Maybe we should combine them.
-fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (Field StorageType)
+fiToFT :: (HasPtrWidth wptr, MonadFail m) => FieldInfo -> m (Field StorageType)
 fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
                  (toStorableType $ fiType fi)
 

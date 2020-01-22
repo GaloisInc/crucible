@@ -408,7 +408,9 @@ setUNSAT h = do
 assume :: Handle t -> BoolExpr t -> IO ()
 assume _ (BoundVarExpr v) =
   failAt' (bvarLoc v) "Boolean variables are not supported by BLT."
+#if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
 assume _ (SemiRingLiteral sr _ _) = case sr of {}
+#endif
 assume _ (NonceAppExpr e) =
   fail . show $
     text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
@@ -649,7 +651,9 @@ evalInteger' h (AppExpr epa) = do
 -- | Evaluate complex symbolic expressions to their ModelExpr type.
 evalCplx :: Handle t -> CplxExpr t -> IO (Complex BLTExpr)
 evalCplx _ (BoundVarExpr i) = failAt (bvarLoc i) "Complex variables"
+#if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
 evalCplx _ (SemiRingLiteral sr _ _) = case sr of {}
+#endif
 evalCplx _ (NonceAppExpr ea) =
   failAt (nonceExprLoc ea) "symbolic functions"
 evalCplx h (AppExpr ea) =
@@ -658,8 +662,10 @@ evalCplx h (AppExpr ea) =
       r' <- evalReal h r
       i' <- evalReal h i
       return (r' :+ i')
+#if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
     SemiRingSum s -> case WSum.sumRepr s of {}
     SemiRingProd pd -> case WSum.prodRepr pd of {}
+#endif
     BaseIte{} -> failAt (appExprLoc ea) "complex if/then/else"
     SelectArray{} -> failAt (appExprLoc ea) "symbolic arrays"
     StructField{} -> failAt (appExprLoc ea) "symbolic arrays"

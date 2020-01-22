@@ -22,6 +22,7 @@ error rather than sending invalid output to a file.
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -88,6 +89,10 @@ module What4.Protocol.SMTWriter
     -- * Reexports
   , What4.Interface.RoundingMode(..)
   ) where
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
 
 import           Control.Exception
 import           Control.Lens hiding ((.>))
@@ -1431,7 +1436,7 @@ sbvIntTerm w0 x0 = sumExpr (signed_offset : go w0 x0 (natValue w0 - 2))
                          (fromInteger (2^d))
                          0
 
-unsupportedTerm  :: Monad m => Expr t tp -> m a
+unsupportedTerm  :: MonadFail m => Expr t tp -> m a
 unsupportedTerm e =
   fail $ show $
     text "Cannot generate solver output for term generated at"
@@ -1455,7 +1460,7 @@ checkVarTypeSupport var = do
     BaseBVRepr _     -> checkBitvectorSupport t
     _ -> return ()
 
-theoryUnsupported :: Monad m => WriterConn t h -> String -> Expr t tp -> m a
+theoryUnsupported :: MonadFail m => WriterConn t h -> String -> Expr t tp -> m a
 theoryUnsupported conn theory_name t =
   fail $ show $
     text (smtWriterName conn) <+> text "does not support the" <+> text theory_name
@@ -1551,7 +1556,7 @@ fnSource fn_name loc solver_name cause =
 --
 -- First class types are those that can be passed as function arguments and
 -- returned by functions.
-evalFirstClassTypeRepr :: Monad m
+evalFirstClassTypeRepr :: MonadFail m
                        => WriterConn t h
                        -> SMTSource
                        -> BaseTypeRepr tp
