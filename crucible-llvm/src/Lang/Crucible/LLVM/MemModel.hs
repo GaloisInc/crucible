@@ -136,6 +136,7 @@ module Lang.Crucible.LLVM.MemModel
   , doPtrSubtract
   , isValidPointer
   , muxLLVMPtr
+  , G.isAligned
 
     -- * Disjointness
   , assertDisjointRegions
