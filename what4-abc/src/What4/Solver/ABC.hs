@@ -391,16 +391,6 @@ bitblastExpr h ae = do
         BM.BoolMapTerms (t:|ts) ->
           B <$> join (foldM (AIG.lAnd' g) <$> pol t <*> mapM pol ts)
 
-    DisjPred xs ->
-      let pol (x,BM.Positive) = eval' h x
-          pol (x,BM.Negative) = AIG.not <$> eval' h x
-      in
-      case BM.viewBoolMap xs of
-        BM.BoolMapUnit -> return (B GIA.false)
-        BM.BoolMapDualUnit -> return (B GIA.true)
-        BM.BoolMapTerms (t:|ts) ->
-          B <$> join (foldM (AIG.lOr' g) <$> pol t <*> mapM pol ts)
-
     SemiRingSum s ->
       case WSum.sumRepr s of
         SemiRingBVRepr BVArithRepr w -> BV <$> WSum.evalM (AIG.add g) smul cnst s
