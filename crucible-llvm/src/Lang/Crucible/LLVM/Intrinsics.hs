@@ -31,7 +31,6 @@ module Lang.Crucible.LLVM.Intrinsics
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
-import           Control.Monad ( (>=>) )
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (asum)
