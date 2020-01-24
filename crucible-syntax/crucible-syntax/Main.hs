@@ -2,7 +2,6 @@
 module Main where
 
 import System.IO
-import Data.Monoid
 import qualified Data.Text.IO as T
 
 import Lang.Crucible.Syntax.Prog

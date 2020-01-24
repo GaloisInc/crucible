@@ -27,7 +27,6 @@ import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString as BS
 import Data.Bits
-import Data.Monoid
 import Data.Ratio
 import Data.Word
 

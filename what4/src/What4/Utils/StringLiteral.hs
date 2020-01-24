@@ -171,9 +171,23 @@ stringLitIndexOf (Char16Literal x) (Char16Literal y) k =
     Just n  -> toInteger n + toInteger k
 
 stringLitIndexOf (Char8Literal x) (Char8Literal y) k =
-  case BS.findSubstring y (BS.drop (fromIntegral k) x) of
+  case bsFindSubstring y (BS.drop (fromIntegral k) x) of
     Nothing -> -1
     Just n  -> toInteger n + toInteger k
+
+-- | Get the first index of a substring in another string,
+--   or 'Nothing' if the string is not found.
+--
+--   Copy/pasted from the old `bytestring` implementation because it was
+--   deprecated/removed for some reason.
+bsFindSubstring :: BS.ByteString -- ^ String to search for.
+              -> BS.ByteString -- ^ String to seach in.
+              -> Maybe Int
+bsFindSubstring pat src
+    | BS.null pat && BS.null src = Just 0
+    | BS.null b = Nothing
+    | otherwise = Just (BS.length a)
+  where (a, b) = BS.breakSubstring pat src
 
 stringLitBounds :: StringLiteral si -> Maybe (Int, Int)
 stringLitBounds si =
