@@ -27,14 +27,6 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
--- GHC 8.0 doesn't understand the COMPLETE pragma,
--- so we just kill the incomplete pattern warning
--- instead :-(
-#if MIN_VERSION_base(4,10,0)
-#else
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
-#endif
-
 module Lang.Crucible.LLVM.MemModel.Pointer
   ( -- * Pointer bitwidth
     HasPtrWidth

@@ -16,7 +16,6 @@ turned into complete logical statements by assuming the current context
 and be stashed in a collection of remembered goals for later dispatch to
 solvers.
 -}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
@@ -74,10 +73,6 @@ import           Lang.Crucible.Backend.ProofGoals
 import           Lang.Crucible.Panic (panic)
 
 import           What4.LabeledPred
-
-#if !MIN_VERSION_base(4,11,0)
-import           Data.Semigroup
-#endif
 
 -- | A single @AssumptionFrame@ represents a collection
 --   of assumtptions.  They will later be recinded when
