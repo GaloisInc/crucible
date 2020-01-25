@@ -10,7 +10,6 @@
 -- recursive functional representations from Crucible programs.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -22,10 +21,6 @@
 
 
 module Lang.Crucible.Solver.ExtractSAWCore where
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
-#endif
 
 import Control.Monad.ST
 import qualified Data.Text as Text
