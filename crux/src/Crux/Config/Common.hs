@@ -71,7 +71,23 @@ data CruxOptions = CruxOptions
   , simVerbose               :: Int
 
   , solver                   :: String
-    -- ^ Solver to user for the online backend
+    -- ^ Solver to use to discharge proof obligations
+  , pathSatSolver            :: Maybe String
+    -- ^ A separate solver to use for path satisfiability checking if that
+    -- feature is enabled and if the path satisfiability checking solver should
+    -- differ from the solver used to discharge proof obligations (default: use
+    -- the proof obligation solver)
+  , forceOfflineGoalSolving  :: Bool
+    -- ^ Force goals to be verified using an offline solver instance, even if it
+    -- would have been possible to use the same solver in online mode
+
+  , pathSatSolverOutput      :: Maybe FilePath
+    -- ^ The file to store the interaction session between the path
+    -- satisfiability checker and the solver (if path satisfiability checking is
+    -- enabled)
+  , onlineSolverOutput       :: Maybe FilePath
+    -- ^ The file to store the interaction with the online goal solver (if
+    -- solving is being performed online)
 
   , yicesMCSat               :: Bool
     -- ^ Should the MC-SAT Yices solver be enabled (disables unsat cores; default: no)
@@ -141,7 +157,23 @@ cruxOptions = Config
 
           solver <-
             section "solver" stringSpec "yices"
-            "Select solver to use. (default: \"yices\")"
+            "Select the solver to use to discharge proof obligations. (default: \"yices\")"
+
+          pathSatSolver <-
+            sectionMaybe "path-sat-solver" stringSpec
+            "Select the solver to use for path satisfiability checking (if different from `solver` and required by the `path-sat` option). (default: use `solver`)"
+
+          forceOfflineGoalSolving <-
+            section "force-offline-goal-solving" yesOrNoSpec False
+            "Force goals to be solved using an offline solver, even if the selected solver could have been used in online mode (default: no)"
+
+          pathSatSolverOutput <-
+            sectionMaybe "path-sat-solver-output" stringSpec
+            "The file to store the interaction with the path satisfiability solver (if enabled and different from the main solver) (default: none)"
+
+          onlineSolverOutput <-
+            sectionMaybe "online-solver-output" stringSpec
+            "The file to store the interaction with the online goal solver (if any) (default: none)"
 
           simVerbose <-
             section "sim-verbose" numSpec 1
@@ -236,8 +268,24 @@ cruxOptions = Config
         $ NoArg $ \opts -> Right opts { makeCexes = False }
 
       , Option "s" ["solver"]
-        "Select solver to use"
+        "Select the solver to use to discharge proof obligations"
         $ ReqArg "solver" $ \v opts -> Right opts { solver = map toLower v }
+
+      , Option [] ["path-sat-solver"]
+        "Select the solver to use for path satisfiability checking (if different from `solver` and required by the `path-sat` option). (default: use `solver`)"
+        $ OptArg "solver" $ \ms opts -> Right opts { pathSatSolver = ms }
+
+      , Option [] ["force-offline-goal-solving"]
+        "Force goals to be solved using an offline solver, even if the selected solver could have been used in online mode (default: no)"
+        $ NoArg $ \opts -> Right opts { forceOfflineGoalSolving = True }
+
+      , Option [] ["path-sat-solver-output"]
+        "The file to store the interaction with the path satisfiability solver (if enabled and different from the main solver) (default: none)"
+        $ ReqArg "FILE" $ \f opts -> Right opts { pathSatSolverOutput = Just f }
+
+      , Option [] ["online-solver-output"]
+        "The file to store the interaction with the online goal solver (if any) (default: none)"
+        $ ReqArg "FILE" $ \f opts -> Right opts { onlineSolverOutput = Just f }
 
       , Option [] ["mcsat"]
         "Enable the MC-SAT solver in Yices (disables unsat cores)"

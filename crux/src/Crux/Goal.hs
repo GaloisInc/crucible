@@ -1,13 +1,17 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# Language ImplicitParams #-}
+{-# Language MultiWayIf #-}
 {-# Language PatternSynonyms #-}
 {-# Language TypeFamilies #-}
-{-# Language MultiWayIf #-}
 
 module Crux.Goal where
 
 import Control.Lens ((^.), view)
+import qualified Control.Lens as L
 import Control.Monad (forM_, unless, when)
 import Data.Either (partitionEithers)
+import qualified Data.Foldable as F
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
@@ -16,12 +20,14 @@ import qualified Data.Text as Text
 
 
 import What4.Interface (notPred, printSymExpr,asConstantPred)
+import qualified What4.Interface as WI
 import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
                                , assumeFormula, smtExprGroundEvalFn )
+import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
         ( OnlineBackendState, withSolverProcess )
@@ -39,8 +45,7 @@ import Crux.ProgressBar
 
 -- | Simplify the proved goals.
 provedGoalsTree ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
-  , OnlineSolver s solver
+  ( IsSymInterface sym
   ) =>
   SimCtxt sym p ->
   Maybe (Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym)))) ->
@@ -111,7 +116,7 @@ countIncompleteGoals gs =
     Goal _ _ _ _ -> 0
 
 proveToGoal ::
-  sym ~ ExprBuilder s (OnlineBackendState solver) fs =>
+  (IsSymInterface sym) =>
   SimCtxt sym p ->
   [Assumption sym] ->
   Assertion sym ->
@@ -129,24 +134,108 @@ proveToGoal _ allAsmps p pr =
  where
  showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
 
+-- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
+--
+-- This function traverses the 'Goals' tree while keeping track of a collection
+-- of assumptions in scope for each goal.  For each proof goal encountered in
+-- the tree, it creates a fresh solver connection using the provided solver
+-- adapter.
+--
+-- This is in contrast to 'proveGoalsOnline', which uses an online solver
+-- connection with scoped assumption frames.  This function allows using a wider
+-- variety of solvers (i.e., ones that don't have support for online solving)
+-- and would in principle enable parallel goal evaluation (though the tree
+-- structure makes that a bit trickier, it isn't too hard).
+--
+-- Note that this function uses the same symbolic backend ('ExprBuilder') as the
+-- symbolic execution phase, which should not be a problem.
+proveGoalsOffline :: forall st sym p asmp ast t fs
+                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs)
+                  => WS.SolverAdapter st
+                  -> CruxOptions
+                  -> SimCtxt sym p
+                  -> Maybe (Goals (LPred sym asmp) (LPred sym ast))
+                  -> IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
+proveGoalsOffline _adapter _opts _ctx Nothing = return Nothing
+proveGoalsOffline adapter opts ctx (Just gs0) = do
+  goalNum <- newIORef (0, 0, 0)
+  unless hasUnsatCores $ do
+    sayWarn "Crux" "Warning: Skipping unsat cores because MC-SAT is enabled."
+  Just <$> go goalNum [] gs0
+  where
+    hasUnsatCores = not (yicesMCSat opts)
+    failfast = proofGoalsFailFast opts
+
+    go :: IORef (Integer, Integer, Integer)
+       -> [Seq.Seq (LPred sym asmp)]
+       -> Goals (LPred sym asmp) (LPred sym ast)
+       -> IO (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast))))
+    go goalNum assumptionsInScope gs =
+      case gs of
+        Assuming ps gs1 -> do
+          res <- go goalNum (ps : assumptionsInScope) gs1
+          return (Assuming ps res)
+
+        ProveConj g1 g2 -> do
+          g1' <- go goalNum assumptionsInScope g1
+          (_, _, s) <- readIORef goalNum
+          if failfast && s > 0
+            then return g1'
+            else ProveConj g1' <$> go goalNum assumptionsInScope g2
+
+        Prove p -> do
+          -- Conjoin all of the in-scope assumptions, the goal, then negate and
+          -- check sat with the adapter
+          let sym = ctx ^. ctxSymInterface
+          assumptions <- WI.andAllOf sym (L.folded . id) (fmap (^. labeledPred) (mconcat assumptionsInScope))
+          goal <- notPred sym (p ^. labeledPred)
+          -- NOTE: We don't currently provide a method for capturing the output
+          -- sent to offline solvers.  We would probably want a file per goal.
+          let logData = WS.defaultLogData
+          res <- WS.solver_adapter_check_sat adapter sym logData [assumptions, goal] $ \satRes ->
+            case satRes of
+              Unsat _ -> do
+                atomicModifyIORef' goalNum (\(x, u, s) -> ((x, u, s+1), ()))
+                -- NOTE: We don't have an easy way to get an unsat core here
+                -- because we don't have a solver connection.
+                let core = fmap Left (F.toList (mconcat assumptionsInScope))
+                return (Prove (p, Proved core))
+              Sat (evalFn, _) -> do
+                atomicModifyIORef' goalNum (\(x, u, s) -> ((x, u+1, s), ()))
+                when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
+                let model = ctx ^. cruciblePersonality
+                vals <- evalModel evalFn model
+                return (Prove (p, NotProved (Just (ModelView vals))))
+              Unknown -> return (Prove (p, NotProved Nothing))
+          return res
+
+
+
 -- | Prove a collection of goals.  The result is a goal tree, where
 -- each goal is annotated with the outcome of the proof.
-proveGoals ::
+--
+-- NOTE: This function takes an explicit symbolic backend as an argument, even
+-- though the symbolic backend used for symbolic execution is available in the
+-- 'SimCtxt'.  We do that so that we can use separate solvers for path
+-- satisfiability checking and goal discharge.
+proveGoalsOnline ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , OnlineSolver s solver
+  , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
+  , OnlineSolver s goalSolver
   , ?outputConfig :: OutputConfig
   ) =>
+  goalSym ->
   CruxOptions ->
   SimCtxt sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
-proveGoals _opts _ctxt Nothing =
+proveGoalsOnline _ _opts _ctxt Nothing =
      return Nothing
 
-proveGoals opts ctxt (Just gs0) =
-  do let sym = ctxt ^. ctxSymInterface
-     let zero = 0 :: Integer
+proveGoalsOnline sym opts ctxt (Just gs0) =
+  do let zero = 0 :: Integer
      goalNum <- newIORef (zero,zero,zero) -- total, proved, disproved
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
@@ -179,7 +268,6 @@ proveGoals opts ctxt (Just gs0) =
       Prove p ->
         do num <- atomicModifyIORef' gn (\(val,y,z) -> ((val + 1,y,z), val))
            start num
-           let sym  = ctxt ^. ctxSymInterface
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
 
