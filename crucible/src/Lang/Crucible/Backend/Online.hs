@@ -438,7 +438,10 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
   addProofObligation sym a =
     case asConstantPred (a^.labeledPred) of
       Just True -> return ()
-      _ -> AS.addProofObligation a =<< getAssumptionStack sym
+      _ -> addDurableProofObligation sym a
+
+  addDurableProofObligation sym a =
+     AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
     let cond = asConstantPred (a^.labeledPred)

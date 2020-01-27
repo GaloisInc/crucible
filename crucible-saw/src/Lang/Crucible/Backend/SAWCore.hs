@@ -1253,7 +1253,10 @@ instance IsBoolSolver (SAWCoreBackend n solver fs) where
   addProofObligation sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
-      _          -> AS.addProofObligation a =<< getAssumptionStack sym
+      _          -> addDurableProofObligation sym a
+
+  addDurableProofObligation sym a =
+     AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a = do
     case asConstantPred (a^.labeledPred) of
