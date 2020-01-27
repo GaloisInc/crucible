@@ -40,7 +40,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , allocAndWriteMem
   , readMem
   , isValidPointer
-  , isAligned
+  , isAllocatedAlignedPointer
   , notAliasable
   , writeMem
   , writeConstMem
@@ -1204,10 +1204,36 @@ isAllocated ::
   IO (Pred sym)
 isAllocated = isAllocatedMut (const True)
 
+-- | @isAllocatedMutable sym w p sz m@ returns the condition required
+-- to prove range @[p..p+sz)@ lies within a single /mutable/
+-- allocation in @m@.
 isAllocatedMutable ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)
 isAllocatedMutable = isAllocatedMut (== Mutable)
+
+-- | Return the condition required to prove that the pointer points to
+-- a range of 'size' bytes that falls within an allocated region of
+-- the appropriate mutability, and also that the pointer is
+-- sufficiently aligned.
+isAllocatedAlignedPointer ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  Alignment           {- ^ minimum required pointer alignment                 -} ->
+  Mutability          {- ^ 'Mutable' means pointed-to region must be writable -} ->
+  LLVMPtr sym w       {- ^ pointer                                            -} ->
+  Maybe (SymBV sym w) {- ^ size (@Nothing@ means entire address space)        -} ->
+  Mem sym             {- ^ memory                                             -} ->
+  IO (Pred sym)
+isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
+  do p1 <- isAllocatedMut mutOk sym w alignment ptr size mem
+     p2 <- isAligned sym w ptr alignment
+     andPred sym p1 p2
+  where
+    mutOk m =
+      case mutability of
+        Mutable -> m == Mutable
+        Immutable -> True
 
 -- | @isValidPointer sym w b m@ returns the condition required to prove that @p@
 --   is a valid pointer in @m@. This means that @p@ is in the range of some
