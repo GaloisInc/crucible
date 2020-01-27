@@ -204,10 +204,18 @@ class IsBoolSolver sym where
   collectAssumptions :: sym -> IO (Seq (Assumption sym))
 
   -- | Add a new proof obligation to the system.
-  -- The proof may use the current path condition and assumptions.
-  -- Note that this *DOES NOT* add the goal as an assumption.
-  -- See also 'addAssertion'.
-  addProofObligation :: sym -> Assertion sym -> IO ()
+  -- The proof may use the current path condition and assumptions. Note
+  -- that this *DOES NOT* add the goal as an assumption. See also
+  -- 'addAssertion'. Also note that predicates that concretely evaluate
+  -- to True will be silently discarded. See 'addDurableProofObligation'
+  -- to avoid discarding goals.
+  addProofObligation ::
+    (IsExprBuilder sym) =>
+    sym -> Assertion sym -> IO ()
+  addProofObligation sym a =
+    case asConstantPred (a ^. AS.labeledPred) of
+      Just True -> return ()
+      _ -> addDurableProofObligation sym a
 
   -- | Add a new proof obligation to the system which will persist
   -- throughout symbolic execution even if it is concretely valid.

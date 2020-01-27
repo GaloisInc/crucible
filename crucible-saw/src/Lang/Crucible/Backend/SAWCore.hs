@@ -1250,10 +1250,6 @@ getAssumptionStack sym =
   (assumptionStack . saw_online_state) <$> readIORef (B.sbStateManager sym)
 
 instance IsBoolSolver (SAWCoreBackend n solver fs) where
-  addProofObligation sym a =
-    case asConstantPred (a^.labeledPred) of
-      Just True  -> return ()
-      _          -> addDurableProofObligation sym a
 
   addDurableProofObligation sym a =
      AS.addProofObligation a =<< getAssumptionStack sym
