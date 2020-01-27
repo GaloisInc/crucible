@@ -39,6 +39,8 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , allocMem
   , allocAndWriteMem
   , readMem
+  , isAllocated
+  , isAllocatedMutable
   , isValidPointer
   , isAligned
   , notAliasable
@@ -1204,6 +1206,9 @@ isAllocated ::
   IO (Pred sym)
 isAllocated = isAllocatedMut (const True)
 
+-- | @isAllocatedMutable sym w p sz m@ returns the condition required
+-- to prove range @[p..p+sz)@ lies within a single /mutable/
+-- allocation in @m@.
 isAllocatedMutable ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)
