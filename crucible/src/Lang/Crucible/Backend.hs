@@ -213,7 +213,7 @@ class IsBoolSolver sym where
   -- throughout symbolic execution even if it is concretely valid.
   -- The proof may use the current path condition and assumptions. Note
   -- that this *DOES NOT* add the goal as an assumption. See also
-  -- 'addAssertion'.
+  -- 'addDurableAssertion'.
   addDurableProofObligation :: sym -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.

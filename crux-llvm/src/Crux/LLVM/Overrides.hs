@@ -47,8 +47,8 @@ import Lang.Crucible.Simulator.OverrideSim
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
-          ( IsSymInterface, addFailedAssertion, addDurableAssertion
-          , addAssumption , LabeledPred(..), AssumptionReason(..))
+          ( IsSymInterface, addDurableAssertion, addFailedAssertion
+          , addAssumption, LabeledPred(..), AssumptionReason(..))
 import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
