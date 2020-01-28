@@ -135,8 +135,8 @@ module Lang.Crucible.LLVM.MemModel
   , doPtrAddOffset
   , doPtrSubtract
   , isValidPointer
+  , isAllocatedAlignedPointer
   , muxLLVMPtr
-  , G.isAligned
 
     -- * Disjointness
   , assertDisjointRegions
@@ -944,6 +944,22 @@ isValidPointer sym p mem =
         Just True  -> return np
         Just False -> G.isValidPointer sym PtrWidth p (memImplHeap mem)
         _ -> orPred sym np =<< G.isValidPointer sym PtrWidth p (memImplHeap mem)
+
+-- | Return the condition required to prove that the pointer points to
+-- a range of 'size' bytes that falls within an allocated region of
+-- the appropriate mutability, and also that the pointer is
+-- sufficiently aligned.
+isAllocatedAlignedPointer ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  Alignment           {- ^ minimum required pointer alignment                 -} ->
+  G.Mutability        {- ^ 'Mutable' means pointed-to region must be writable -} ->
+  LLVMPtr sym w       {- ^ pointer                                            -} ->
+  Maybe (SymBV sym w) {- ^ size (@Nothing@ means entire address space)        -} ->
+  MemImpl sym         {- ^ memory                                             -} ->
+  IO (Pred sym)
+isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
+  G.isAllocatedAlignedPointer sym w alignment mutability ptr size (memImplHeap mem)
 
 -- | Compute the length of a null-terminated string.
 --
