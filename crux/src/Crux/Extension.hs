@@ -10,6 +10,7 @@ import Crux.Types(Model,Result,ProvedGoals)
 import Crux.Log(Logs)
 import Crux.Config(Config(..))
 import Crux.Config.Common
+import Crux.Online
 
 data Language opts = Language
   { name :: String
@@ -36,7 +37,7 @@ type Options opts = (CruxOptions, opts)
 
 -- | Type of the 'simulate' method.
 type SimulateCallback opts =
-    forall sym.  (IsSymInterface sym, Logs) =>
+    forall sym.  (IsSymInterface sym, MaybeOnlineSolver sym, Logs) =>
     [GenericExecutionFeature sym] {- ^ Execution features -} ->
     Options opts {- ^ Configuration -} ->
     sym          {- ^ The backend -} ->
@@ -51,5 +52,3 @@ type CounterExampleCallback opts =
   Seq (ProvedGoals (Either AssumptionReason SimError))
   {- ^ The goals we looked at, and if they were proved. -} ->
   IO ()
-
-

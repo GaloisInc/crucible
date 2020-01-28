@@ -66,6 +66,7 @@ import Crux.Config.Common
 import Crux.Config.Doc
 import Crux.Extension
 import qualified Crux.Version as Crux
+import Crux.Online
 
 -- | Throws 'ConfigError' (in addition to whatever the crucible and the
 -- callbacks may throw)
@@ -302,26 +303,18 @@ setupSolver cruxOpts mInteractionFile sym = do
                                        then simVerbose cruxOpts - 1
                                        else 0
 
--- | A GADT to capture the online solver constraints when we need them
-data SomeOnlineSolver sym where
-  SomeOnlineSolver :: (sym ~ OnlineBackend scope solver fs
-                      , OnlineSolver scope solver
-                      ) => SomeOnlineSolver sym
-
 -- | Common code for initializing all of the requested execution features
 --
 -- This function is a bit funny because one feature, path satisfiability
--- checking, requires on online solver while the others do not.  In order to
--- maximally reuse code, we pass in the necessary online constraints as an extra
--- argument when we have them available (i.e., when we build an online solver)
--- and elide them otherwise.
-setupExecutionFeatures :: (IsSymInterface sym)
+-- checking, requires on online solver while the others do not.  We handle this
+-- by adding a `MaybeOnlineSolver` constraint and enabling the path sat feature
+-- only when the online solver is present.
+setupExecutionFeatures :: forall sym. (IsSymInterface sym, MaybeOnlineSolver sym)
                        => CruxOptions
                        -> sym
-                       -> Maybe (SomeOnlineSolver sym)
                        -> IO
                        ([GenericExecutionFeature sym], ProfData sym)
-setupExecutionFeatures cruxOpts sym maybeOnline = do
+setupExecutionFeatures cruxOpts sym = do
   -- Setup profiling
   let profiling = isProfiling cruxOpts
   profInfo <- if profiling then setupProfiling sym cruxOpts
@@ -339,7 +332,7 @@ setupExecutionFeatures cruxOpts sym maybeOnline = do
           boundedRecursionFeature (\_ -> return (Just i)) True {- side cond: yes -}
 
   -- Check path satisfiability
-  psat_fs <- case maybeOnline of
+  psat_fs <- case maybeOnlineSolver @sym of
     Just SomeOnlineSolver -> execFeatureIf (checkPathSat cruxOpts)
            $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
     Nothing -> return []
@@ -378,12 +371,12 @@ runSimulator lang opts@(cruxOpts, _) = do
     Right (CCS.SingleOnlineSolver onSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (onlineSolverOutput cruxOpts) sym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym (Just SomeOnlineSolver)
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym
         doSimWithResults lang opts compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym (Just SomeOnlineSolver)
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym
         withSolverAdapter offSolver $ \adapter -> do
           -- We have to add the configuration options from the solver adapter,
           -- since they weren't included in the symbolic backend configuration
@@ -403,7 +396,7 @@ runSimulator lang opts@(cruxOpts, _) = do
           -- Since we have a bare SimpleBackend here, we have to initialize it
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
+          (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym
           doSimWithResults lang opts compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
       -- This case is probably the most complicated because it needs two
@@ -411,7 +404,7 @@ runSimulator lang opts@(cruxOpts, _) = do
       -- mode.
       withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing $ \floatRepr1 pathSatSym -> do
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) pathSatSym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatSym (Just SomeOnlineSolver)
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatSym
         withSelectedOnlineBackend cruxOpts nonceGen goalSolver (Just (floatReprString floatRepr1)) $ \floatRepr2 goalSym -> do
           setupSolver cruxOpts (onlineSolverOutput cruxOpts) goalSym
           -- NOTE: We pass in an explicit requested float mode in our second
@@ -433,7 +426,7 @@ runSimulator lang opts@(cruxOpts, _) = do
 --
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
-doSimWithResults :: (Logs, IsSymInterface sym)
+doSimWithResults :: (Logs, IsSymInterface sym, MaybeOnlineSolver sym)
                  => Language opts
                  -> Options opts
                  -> IORef ProgramCompleteness
