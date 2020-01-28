@@ -6,7 +6,8 @@ import Control.Monad (void)
 
 import GHC.IO.Handle (hDuplicate, hDuplicateTo, hSetBuffering, Handle, BufferMode(..))
 
-import Data.List ( isPrefixOf )
+import Data.Char ( isLetter )
+import Data.List ( isInfixOf )
 import System.Environment ( withArgs, lookupEnv )
 import System.FilePath (takeBaseName, replaceExtension)
 import System.IO --(IOMode(..), hFlush, withFile, stdout, stderr)
@@ -28,8 +29,9 @@ main = do
   clangBin <- lookupEnv "CLANG" >>= \case
     Just x -> return x
     Nothing -> return "clang"
-  let isVerLine = isPrefixOf "clang version"
-      getVer = head . drop 2 . words . head . filter isVerLine . lines
+  let isVerLine = isInfixOf "clang version"
+      dropLetter = dropWhile (all isLetter)
+      getVer = head . dropLetter . words . head . filter isVerLine . lines
   ver <- getVer <$> readProcess clangBin [ "--version" ] ""
 
   defaultMain =<< suite ver

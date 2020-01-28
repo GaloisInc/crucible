@@ -435,10 +435,9 @@ withOnlineBackend floatMode gen feats action = do
 
 
 instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver fs) where
-  addProofObligation sym a =
-    case asConstantPred (a^.labeledPred) of
-      Just True -> return ()
-      _ -> AS.addProofObligation a =<< getAssumptionStack sym
+
+  addDurableProofObligation sym a =
+     AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
     let cond = asConstantPred (a^.labeledPred)

@@ -3,8 +3,7 @@
 The `crux-llvm` tool (and corresponding C library) are intended for
 verifying C programs containing inline specifications (in the form of
 function calls to create non-deterministic values and assert
-properties). The API defined by SV-COMP is supported, as is an
-alternative, slightly more flexible API.
+properties).
 
 # Prerequisites
 
@@ -130,6 +129,13 @@ following alternative API is available.
 * The `__VERIFIER_nondet_*` functions create non-deterministic values of
   the corresponding type. These symbolic values all have the name `x`.
   To supply distinct names, use the `crucible_*_t` functions, instead.
+
+Note that support for the SV-COMP API exists primarily for backward
+compatibility, since a large number of benchmarks already exist in that
+form. The `crucible.h` API allows for better explanations by a) allowing
+user-specified names for non-deterministic variables, and b) ensuring
+that the conditions used in assertions are directly available and not
+obscured by a conditional wrapper around an error function.
 
 # Standard C and C++ Libraries
 

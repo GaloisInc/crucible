@@ -47,7 +47,7 @@ import Lang.Crucible.Simulator.OverrideSim
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
-          (IsSymInterface,addAssertion, addFailedAssertion
+          ( IsSymInterface, addDurableAssertion, addFailedAssertion
           , addAssumption, LabeledPred(..), AssumptionReason(..))
 import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
@@ -438,7 +438,7 @@ do_assert mvar sym (Empty :> p :> pFile :> line) =
      loc <- liftIO $ getCurrentProgramLoc sym
      let loc' = loc{ plSourceLoc = pos }
      let msg = GenericSimError "crucible_assert"
-     liftIO $ addAssertion sym (LabeledPred cond (SimError loc' msg))
+     liftIO $ addDurableAssertion sym (LabeledPred cond (SimError loc' msg))
 
 do_print_uint32 ::
   (ArchOk arch, IsSymInterface sym) =>
@@ -487,7 +487,7 @@ cprover_assert mvar sym (Empty :> p :> pMsg) =
      str <- lookupString mvar pMsg
      loc <- liftIO $ getCurrentProgramLoc sym
      let msg = AssertFailureSimError "__CPROVER_assert" str
-     liftIO $ addAssertion sym (LabeledPred cond (SimError loc msg))
+     liftIO $ addDurableAssertion sym (LabeledPred cond (SimError loc msg))
 
 sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>
@@ -511,7 +511,7 @@ sv_comp_assert _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
      let msg = AssertFailureSimError "__VERIFIER_assert" ""
-     addAssertion sym (LabeledPred cond (SimError loc msg))
+     addDurableAssertion sym (LabeledPred cond (SimError loc msg))
 
 sv_comp_error ::
   (ArchOk arch, IsSymInterface sym) =>
