@@ -1764,9 +1764,18 @@ ppMerge vpp c x y =
   where ppAllocList [] = (<+> text "<none>")
         ppAllocList xs = (<$$> indent 2 (vcat $ map vpp xs))
 
+ppAlignment :: Alignment -> Doc
+ppAlignment a =
+  text $ show (fromAlignment a) ++ "-byte-aligned"
+
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
-ppAlloc (Alloc atp base sz mut _alignment loc) =
-  text (show atp) <+> text (show base) <+> (pretty $ printSymExpr <$> sz) <+> text (show mut) <+> text loc
+ppAlloc (Alloc atp base sz mut alignment loc) =
+  text (show atp)
+  <+> text (show base)
+  <+> (pretty $ printSymExpr <$> sz)
+  <+> text (show mut)
+  <+> ppAlignment alignment
+  <+> text loc
 ppAlloc (MemFree base) =
   text "Free" <+> printSymExpr base
 ppAlloc (AllocMerge c x y) = do
