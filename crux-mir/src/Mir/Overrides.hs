@@ -13,32 +13,51 @@
 
 module Mir.Overrides (bindFn) where
 
-import Control.Lens ((%=))
+import Control.Lens ((^.), (%=), use)
+import Control.Monad
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
-import Data.Vector(Vector)
-import qualified Data.Vector as V
-import Data.Word
-
-import Data.Parameterized.Context (pattern Empty, pattern (:>))
-import Data.Parameterized.NatRepr
-
 import Data.Semigroup
-
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+import Data.Word
 
 import System.IO (hPutStrLn)
 
+import Data.Parameterized.Context (pattern Empty, pattern (:>))
+import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
+import Data.Parameterized.NatRepr
+import Data.Parameterized.Nonce(withIONonceGenerator, NonceGenerator)
+import Data.Parameterized.Some
+import Data.Parameterized.TraversableF
+import Data.Parameterized.TraversableFC
+
+import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..))
+import What4.FunctionName (FunctionName, functionNameFromText)
+import What4.Interface
+import What4.LabeledPred (LabeledPred(..))
+import What4.Partial (PartExpr, pattern PE, pattern Unassigned)
+import What4.Protocol.Online
+    ( OnlineSolver, inNewFrame, solverEvalFuns , solverConn, check
+    , getUnsatCore , checkWithAssumptionsAndModel )
+import What4.Protocol.SMTWriter
+    ( mkFormula, assumeFormulaWithFreshName , assumeFormula
+    , smtExprGroundEvalFn )
+import What4.SatResult (SatResult(..))
+
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
-    ( AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption, assert
-    , addFailedAssertion )
+    ( AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption
+    , assert, getPathCondition, Assumption(..), addFailedAssertion )
+import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.Simulator (SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
@@ -46,19 +65,15 @@ import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.RegMap
 import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.SimError
-
 import Lang.Crucible.Types
 
-import What4.FunctionName (FunctionName, functionNameFromText)
-import What4.Interface
+import Crux (SomeOnlineSolver(..))
+import Crux.Model (addVar, evalModel)
+import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 
-import Crux.Model (addVar)
-import Crux.Types (Model)
-
-import Mir.Intrinsics
 import Mir.DefId
+import Mir.Intrinsics
 
-import Debug.Trace
 
 getString :: forall sym. (IsSymExprBuilder sym) => sym -> RegValue sym (MirImmSlice (BVType 8)) -> Maybe Text
 getString _ (Empty :> RV mirVec :> RV startExpr :> RV lenExpr)
@@ -107,19 +122,112 @@ array_symbolic btpr = do
     RegMap (Empty :> nameReg) <- getOverrideArgs
     makeSymbolicVar nameReg $ BaseArrayRepr (Empty :> BaseUsizeRepr) btpr
 
+concretize ::
+  forall sym rtp tp .
+  (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
+  Maybe (SomeOnlineSolver sym) ->
+  OverrideSim (Model sym) sym MIR rtp (EmptyCtx ::> tp) tp (RegValue sym tp)
+concretize (Just SomeOnlineSolver) = do
+    (sym :: sym) <- getSymInterface
+
+    GroundEvalFn evalGround <- liftIO $ withSolverProcess sym $ \sp -> do
+        cond <- getPathCondition sym
+        result <- checkWithAssumptionsAndModel sp "concretize" [cond]
+        case result of
+            Sat f -> return f
+            _ -> addFailedAssertion sym $
+                GenericSimError "path is already unreachable"
+    let evalBase :: forall bt . BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)
+        evalBase btr v = evalGround v >>= groundExpr sym btr
+
+    RegMap (Empty :> RegEntry tpr val) <- getOverrideArgs
+    liftIO $ regEval sym evalBase tpr val
+concretize Nothing = fail "`concretize` requires an online solver backend"
+
+groundExpr :: (IsExprBuilder sym, IsBoolSolver sym) => sym ->
+    BaseTypeRepr tp -> GroundValue tp -> IO (SymExpr sym tp)
+groundExpr sym tpr v = case tpr of
+    BaseBoolRepr -> return $ if v then truePred sym else falsePred sym
+    BaseNatRepr -> natLit sym v
+    BaseIntegerRepr -> intLit sym v
+    BaseRealRepr -> realLit sym v
+    BaseBVRepr w -> bvLit sym w v
+    BaseComplexRepr -> mkComplexLit sym v
+    BaseStringRepr _ -> stringLit sym v
+    _ -> addFailedAssertion sym $ GenericSimError $
+        "groundExpr: conversion of " ++ show tpr ++ " is not yet implemented"
+
+regEval ::
+    forall sym tp .
+    (IsExprBuilder sym, IsBoolSolver sym) =>
+    sym ->
+    (forall bt. BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)) ->
+    TypeRepr tp ->
+    RegValue sym tp ->
+    IO (RegValue sym tp)
+regEval sym baseEval tpr v = go tpr v
+  where
+    go :: forall tp' . TypeRepr tp' -> RegValue sym tp' -> IO (RegValue sym tp')
+    go tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
+    go (FloatRepr fi) v = pure v
+    go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
+    go UnitRepr () = pure ()
+    go CharRepr c = pure c
+    go (FunctionHandleRepr args ret) v = goFnVal args ret v
+    go (MaybeRepr tpr) pe = goPartExpr tpr pe
+    go (VectorRepr tpr) vec = traverse (go tpr) vec
+    go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
+    go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
+    -- TODO: ReferenceRepr
+    -- TODO: WordMapRepr
+    -- TODO: RecursiveRepr
+    -- TODO: MirReferenceRepr (intrinsic)
+    go (MirVectorRepr tpr') vec = case vec of
+        MirVector_Vector v -> MirVector_Vector <$> go (VectorRepr tpr') v
+        MirVector_Array a
+          | AsBaseType btpr' <- asBaseType tpr' ->
+            MirVector_Array <$> go (UsizeArrayRepr btpr') a
+          | otherwise -> error "unreachable: MirVector_Array elem type is always a base type"
+    -- TODO: StringMapRepr
+    go tpr v = addFailedAssertion sym $ GenericSimError $
+        "evaluation of " ++ show tpr ++ " is not yet implemented"
+
+    go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' -> IO (RegValue' sym tp')
+    go' tpr (RV v) = RV <$> go tpr v
+
+    goFnVal :: forall args ret .
+        CtxRepr args -> TypeRepr ret -> FnVal sym args ret -> IO (FnVal sym args ret)
+    goFnVal args ret (ClosureFnVal fv tpr v) =
+        ClosureFnVal <$> goFnVal (args :> tpr) ret fv <*> pure tpr <*> go tpr v
+    goFnVal _ _ (HandleFnVal fh) = pure $ HandleFnVal fh
+
+    goPartExpr :: forall tp' . TypeRepr tp' ->
+        PartExpr (Pred sym) (RegValue sym tp') ->
+        IO (PartExpr (Pred sym) (RegValue sym tp'))
+    goPartExpr tpr Unassigned = pure Unassigned
+    goPartExpr tpr (PE p v) = PE <$> baseEval BaseBoolRepr p <*> go tpr v
+
+    goVariantBranch :: forall tp' . TypeRepr tp' ->
+        VariantBranch sym tp' -> IO (VariantBranch sym tp')
+    goVariantBranch tpr (VB pe) = VB <$> goPartExpr tpr pe
+
 bindFn ::
   forall args ret blocks sym rtp a r .
   (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
-  Text -> CFG MIR blocks args ret ->
+  Maybe (SomeOnlineSolver sym) -> Text -> CFG MIR blocks args ret ->
   OverrideSim (Model sym) sym MIR rtp a r ()
-bindFn name cfg
+bindFn symOnline name cfg
   | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> MirImmSliceRepr (BVRepr w) <- cfgArgTypes cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
   , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "array::symbolic" (UsizeArrayRepr btpr) (array_symbolic btpr)
-bindFn fn cfg =
+  | (normDefId "crucible::concretize" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> tpr <- cfgArgTypes cfg
+  , Just Refl <- testEquality tpr (cfgReturnType cfg)
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
+bindFn _symOnline fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
     Nothing ->

@@ -72,3 +72,13 @@ macro_rules! crucible_assert_unreachable {
         unreachable!()
     }};
 }
+
+
+/// Make a symbolic value concrete.
+///
+/// This is intended for use in printing counterexamples, where the current execution path is
+/// terminated shortly after the `concretize()` call.  It's probably unwise to use this on paths
+/// that will later be joined with others.
+pub fn concretize<T>(x: T) -> T {
+    x
+}
