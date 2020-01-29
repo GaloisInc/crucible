@@ -28,6 +28,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.String as String
+import           Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as V
@@ -117,6 +118,9 @@ customOpDefs = Map.fromList $ [
                          , vector_concat
                          , vector_split_at
                          , vector_copy_from_slice
+
+                         , any_new
+                         , any_downcast
 
                          , exit
                          , abort
@@ -320,6 +324,36 @@ vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], 
             return $ MirExp (C.VectorRepr tpr) v
         _ -> mirFail $ "bad arguments for Vector::copy_from_slice: " ++ show ops
     _ -> Nothing
+
+
+-----------------------------------------------------------------------------------------------------
+-- ** Custom: Any
+
+-- Methods for crucible::any::Any (which has custom representation)
+
+any_new :: (ExplodedDefId, CustomRHS)
+any_new = ( ["crucible", "any", "{{impl}}", "new"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp tpr e] -> do
+            return $ MirExp C.AnyRepr $ R.App $ E.PackAny tpr e
+        _ -> mirFail $ "bad arguments for Any::new: " ++ show ops
+    _ -> Nothing
+    )
+
+any_downcast :: (ExplodedDefId, CustomRHS)
+any_downcast = ( ["crucible", "any", "{{impl}}", "downcast"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp C.AnyRepr e]
+          | Some tpr <- tyToRepr t -> do
+            let maybeVal = R.App $ E.UnpackAny tpr e
+            let errMsg = R.App $ E.StringLit $ fromString $
+                    "failed to downcast Any as " ++ show tpr
+            let val = R.App $ E.FromJustValue tpr maybeVal errMsg
+            return $ MirExp tpr val
+        _ -> mirFail $ "bad arguments for Any::downcast: " ++ show ops
+    _ -> Nothing
+    )
+
 
 
 -----------------------------------------------------------------------------------------------------

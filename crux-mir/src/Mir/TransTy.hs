@@ -116,6 +116,10 @@ pattern CTyBv128 = CTyBv CTyBvSize128
 pattern CTyBv256 = CTyBv CTyBvSize256
 pattern CTyBv512 = CTyBv CTyBvSize512
 
+pattern CTyAny <- M.TyAdt _ $(M.normDefIdPat "crucible::any::Any") (M.Substs [])
+  where CTyAny = M.TyAdt (M.textId "type::adt") (M.textId "crucible::any::Any") (M.Substs [])
+
+
 -- These don't have custom representation, but are referenced in various
 -- places.
 pattern CTyOption t <- M.TyAdt _ $(M.normDefIdPat "core::option::Option") (M.Substs [t])
@@ -137,6 +141,7 @@ tyToRepr t0 = case t0 of
   CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
   CTyBox t -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   CTyVector t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
+  CTyAny -> Some C.AnyRepr
 
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr
