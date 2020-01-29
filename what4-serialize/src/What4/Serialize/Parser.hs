@@ -279,7 +279,6 @@ lookupOp :: forall sym . S.IsSymExprBuilder sym => String -> Maybe (Op sym)
 lookupOp = \case
   -- -- -- Boolean ops -- -- --
   "andp" -> Just $ Op2 knownRepr $ S.andPred
-  "orp"  -> Just $ Op2 knownRepr $ S.orPred
   "xorp" -> Just $ Op2 knownRepr $ S.xorPred
   "notp" -> Just $ Op1 knownRepr $ S.notPred
   -- -- -- Natural ops -- -- --

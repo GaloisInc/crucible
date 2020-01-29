@@ -31,7 +31,6 @@ import qualified Data.Parameterized.TraversableFC as FC
 import qualified What4.Interface as S
 import qualified What4.Expr as S
 import qualified What4.Expr.Builder as B
-import qualified What4.Expr.BoolMap as BooM
 import qualified What4.Expr.WeightedSum as WSum
 import           Data.Parameterized.Classes
 
@@ -78,9 +77,6 @@ normAppExpr sym ae = do
           f e1' e2'
 
         go :: forall tp'. S.App (S.Expr t) tp' -> IO (S.App (S.Expr t) tp')
-        go (S.DisjPred bm) = do
-          bm' <- BooM.traverseVars (normExpr sym) bm
-          return (S.DisjPred bm')
         go (S.BaseIte _ _ test then_ else_) = do
           test' <- normExpr sym test
           then' <- normExpr sym then_
