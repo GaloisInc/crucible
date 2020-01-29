@@ -61,6 +61,8 @@ use crate::boxed::Box;
 use crate::str::{self, from_boxed_utf8_unchecked, FromStr, Utf8Error, Chars};
 use crate::vec::Vec;
 
+use crucible::crucible_assert_unreachable;
+
 /// A UTF-8 encoded, growable string.
 ///
 /// The `String` type is the most common string type that has ownership over the
@@ -1149,9 +1151,7 @@ impl String {
     pub fn pop(&mut self) -> Option<char> {
         let ch = self.chars().rev().next()?;
         let newlen = self.len() - ch.len_utf8();
-        unsafe {
-            self.vec.set_len(newlen);
-        }
+        self.vec.truncate(newlen);
         Some(ch)
     }
 
@@ -1187,13 +1187,7 @@ impl String {
         };
 
         let next = idx + ch.len_utf8();
-        let len = self.len();
-        unsafe {
-            ptr::copy(self.vec.as_ptr().add(next),
-                      self.vec.as_mut_ptr().add(idx),
-                      len - next);
-            self.vec.set_len(len - (next - idx));
-        }
+        self.vec.drain(idx .. next);
         ch
     }
 
@@ -1227,33 +1221,7 @@ impl String {
     pub fn retain<F>(&mut self, mut f: F)
         where F: FnMut(char) -> bool
     {
-        let len = self.len();
-        let mut del_bytes = 0;
-        let mut idx = 0;
-
-        while idx < len {
-            let ch = unsafe {
-                self.get_unchecked(idx..len).chars().next().unwrap()
-            };
-            let ch_len = ch.len_utf8();
-
-            if !f(ch) {
-                del_bytes += ch_len;
-            } else if del_bytes > 0 {
-                unsafe {
-                    ptr::copy(self.vec.as_ptr().add(idx),
-                              self.vec.as_mut_ptr().add(idx - del_bytes),
-                              ch_len);
-                }
-            }
-
-            // Point idx to the next char
-            idx += ch_len;
-        }
-
-        if del_bytes > 0 {
-            unsafe { self.vec.set_len(len - del_bytes); }
-        }
+        crucible_assert_unreachable!()
     }
 
     /// Inserts a character into this `String` at a byte position.
@@ -1294,17 +1262,7 @@ impl String {
     }
 
     unsafe fn insert_bytes(&mut self, idx: usize, bytes: &[u8]) {
-        let len = self.len();
-        let amt = bytes.len();
-        self.vec.reserve(amt);
-
-        ptr::copy(self.vec.as_ptr().add(idx),
-                  self.vec.as_mut_ptr().add(idx + amt),
-                  len - idx);
-        ptr::copy(bytes.as_ptr(),
-                  self.vec.as_mut_ptr().add(idx),
-                  amt);
-        self.vec.set_len(len + amt);
+        crucible_assert_unreachable!()
     }
 
     /// Inserts a string slice into this `String` at a byte position.
