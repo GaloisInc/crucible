@@ -72,10 +72,8 @@ getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
 
 instance IsBoolSolver (SimpleBackend t fs) where
 
-  addProofObligation sym a =
-    case asConstantPred (a^.labeledPred) of
-      Just True -> return ()    -- no trivialities
-      _         -> AS.addProofObligation a =<< getAssumptionStack sym
+  addDurableProofObligation sym a =
+     AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
     case asConstantPred (a^.labeledPred) of

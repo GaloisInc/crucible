@@ -164,6 +164,10 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
 
                   exec_res <- executeCrucible (map genericToExecutionFeature (simExecFeatures sim)) simSt
                   case exec_res of
+                    TimeoutResult exst -> do
+                      let ctx' = execStateContext exst
+                      sendTextResponse sim "Simulation timed out!"
+                      writeIORef (simContext sim) $! ctx'
                     FinishedResult ctx' (TotalRes (GlobalPair _r _globals)) -> do
                       sendTextResponse sim "Finished!"
                       writeIORef (simContext sim) $! ctx'
@@ -199,7 +203,7 @@ handleSeparateProofObligations ::
   FilePath ->
   ProofObligations (SAWBack n) ->
   IO ()
-handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
+handleSeparateProofObligations _sim _sym _dir _obls = fail "FIXME separate proof obligations!"
 
 handleSingleProofObligation ::
   Simulator SAWCrucibleServerPersonality (SAWBack n) ->

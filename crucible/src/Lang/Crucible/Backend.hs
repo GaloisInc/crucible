@@ -48,6 +48,7 @@ module Lang.Crucible.Backend
 
     -- * Utilities
   , addAssertion
+  , addDurableAssertion
   , addAssertionM
   , addFailedAssertion
   , assertIsInteger
@@ -203,10 +204,25 @@ class IsBoolSolver sym where
   collectAssumptions :: sym -> IO (Seq (Assumption sym))
 
   -- | Add a new proof obligation to the system.
-  -- The proof may use the current path condition and assumptions.
-  -- Note that this *DOES NOT* add the goal as an assumption.
-  -- See also 'addAssertion'.
-  addProofObligation :: sym -> Assertion sym -> IO ()
+  -- The proof may use the current path condition and assumptions. Note
+  -- that this *DOES NOT* add the goal as an assumption. See also
+  -- 'addAssertion'. Also note that predicates that concretely evaluate
+  -- to True will be silently discarded. See 'addDurableProofObligation'
+  -- to avoid discarding goals.
+  addProofObligation ::
+    (IsExprBuilder sym) =>
+    sym -> Assertion sym -> IO ()
+  addProofObligation sym a =
+    case asConstantPred (a ^. AS.labeledPred) of
+      Just True -> return ()
+      _ -> addDurableProofObligation sym a
+
+  -- | Add a new proof obligation to the system which will persist
+  -- throughout symbolic execution even if it is concretely valid.
+  -- The proof may use the current path condition and assumptions. Note
+  -- that this *DOES NOT* add the goal as an assumption. See also
+  -- 'addDurableAssertion'.
+  addDurableProofObligation :: sym -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.
   getProofObligations :: sym -> IO (ProofObligations sym)
@@ -238,6 +254,16 @@ addAssertion sym a@(AS.LabeledPred p msg) =
   do addProofObligation sym a
      addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
 
+-- | Add a durable proof obligation for the given predicate, and then
+-- assume it.
+-- Note that assuming the prediate might cause the current execution
+-- path to abort, if we happened to assume something that is obviously false.
+addDurableAssertion ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym -> Assertion sym -> IO ()
+addDurableAssertion sym a@(AS.LabeledPred p msg) =
+  do addDurableProofObligation sym a
+     addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
 
 -- | Throw an exception, thus aborting the current execution path.
 abortExecBecause :: AbortExecReason -> IO a

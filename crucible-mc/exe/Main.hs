@@ -4,7 +4,6 @@ module Main(main) where
 
 import System.IO(stdout)
 import Control.Exception(throwIO,Exception(..))
-import Control.Lens((^.))
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Context (pattern Empty)
@@ -21,11 +20,9 @@ import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
 import Lang.Crucible.Simulator
 
 import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
-import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Run
 
 import CruxLLVMMain( registerFunctions )
-import Crux.LLVM.Overrides
 import Crux.Model
 
 import Print

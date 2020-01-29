@@ -10,7 +10,6 @@ Point-of-contact : jhendrix
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DoAndIfThenElse #-}
-{-# LANGUAGE CPP #-}
 module Lang.JVM.Codebase
   ( Codebase
   , getClasses
@@ -26,9 +25,6 @@ module Lang.JVM.Codebase
   , module Language.JVM.Parser
   ) where
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative ((<$>))
-#endif
 import Control.Monad
 import qualified Data.Map as M
 import Data.IORef

@@ -36,6 +36,7 @@ import qualified Data.Parameterized.Nonce as Nonce
 import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Text as T
 import           Data.Word ( Word64 )
+import qualified Control.Monad as M
 import           Control.Monad.Trans.RWS.Strict ( RWS )
 import qualified Control.Monad.Trans.RWS.Strict as RWS
 
@@ -219,7 +220,6 @@ convertAppExpr' paramLookup = go . S.appExprApp
           s <- goE e
           return $ SE.L [ident' "notp", s]
         go (S.ConjPred bm) = convertBoolMap "andp" True bm
-        go (S.DisjPred bm) = convertBoolMap "orp" False bm
         go (S.BVSlt e1 e2) = do
           s1 <- goE e1
           s2 <- goE e2
@@ -313,14 +313,16 @@ convertAppExpr' paramLookup = go . S.appExprApp
               return $ SE.L [ ident' "natle", s1, s2]
             S.OrderedSemiRingRealRepr -> error $ "Printer: SemiRingLe is not supported for reals"
 
-        go (S.BVOrBits pd) =
-          case WSum.prodRepr pd of
-            S.SemiRingBVRepr _ w -> do
-              let pmul x y = return $ SE.L [ ident' "bvor", x, y ]
-              maybeS <- WSum.prodEvalM pmul goE pd
-              case maybeS of
-                Just s -> return s
-                Nothing -> return $ bitvec' (natValue w) 0
+        go (S.BVOrBits width bs) = do
+          let op = ident' "bvor"
+          case B.bvOrToList bs of
+            [] -> return $ bitvec' (NR.natValue width) 0
+            (x:xs) -> do
+              e <- goE x
+              let f = (\acc b -> do
+                          b' <- goE b
+                          return $ SE.L [op, b', acc])
+              M.foldM f e xs
         go (S.BVUdiv _ e1 e2) = do
           s1 <- goE e1
           s2 <- goE e2

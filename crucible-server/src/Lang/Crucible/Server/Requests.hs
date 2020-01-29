@@ -30,10 +30,6 @@ module Lang.Crucible.Server.Requests
   , BackendSpecificRequests(..)
   ) where
 
-#if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative
-#endif
-
 #if !MIN_VERSION_base(4,13,0)
 import Control.Monad.Fail( MonadFail )
 #endif

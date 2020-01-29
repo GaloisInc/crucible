@@ -3928,11 +3928,6 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
             h f i a j = do
               je <- natLit sym j
               f a (i Ctx.:> je)
-#if !MIN_VERSION_base(4,10,0)
-    -- This should never happen, but silences a warning.
-    _ -> error "internal: invalid index to foldIndicesInRangeBounds"
-#endif
-
 
 -- | Examine the list of terms, and determine if any one of them
 --   appears in the given @BoolMap@ with the same polarity.

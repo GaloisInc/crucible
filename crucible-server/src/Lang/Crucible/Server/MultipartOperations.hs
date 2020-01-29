@@ -10,7 +10,6 @@
 -- memory strucutures.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -20,9 +19,6 @@
 
 module Lang.Crucible.Server.MultipartOperations where
 
-#if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative
-#endif
 import           Control.Lens
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
