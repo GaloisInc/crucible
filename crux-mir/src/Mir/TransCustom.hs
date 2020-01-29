@@ -118,9 +118,6 @@ customOpDefs = Map.fromList $ [
                          , vector_split_at
                          , vector_copy_from_slice
 
-                         , str_len
-
-
                          , exit
                          , abort
                          , panicking_begin_panic
@@ -631,24 +628,6 @@ slice_to_array = (["core","array", "slice_to_array"],
     )
 
 
-
-
-
--------------------------------------------------------------------------------------------------------
--- ** Custom: string operations
---
-str_len :: (ExplodedDefId, CustomRHS)
-str_len =
-  (["core","str","{{impl}}", "len"]
-  , \subs -> case subs of
-               (Substs []) -> Just $ CustomOp $ \ _optys  ops -> 
-                 case ops of 
-                    -- type of the structure is &str == TyStr ==> C.VectorRepr BV32
-                   [MirExp (C.VectorRepr _) vec_e] -> do
-                        return (MirExp UsizeRepr  (G.App $ vectorSizeUsize R.App vec_e))
-                   _ -> mirFail $ "BUG: invalid arguments to " ++ "string len"
-
-               _ -> Nothing)
 
 
 -------------------------------------------------------------------------------------------------------

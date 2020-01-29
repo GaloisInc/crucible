@@ -2,7 +2,7 @@
 
 use crate::convert::TryFrom;
 use crate::fmt;
-use crate::mem::transmute;
+use crate::mem::crucible_identity_transmute;
 #[cfg(from_str)] use crate::str::FromStr;
 
 use super::MAX;
@@ -99,7 +99,7 @@ pub fn from_u32(i: u32) -> Option<char> {
 #[inline]
 #[stable(feature = "char_from_unchecked", since = "1.5.0")]
 pub unsafe fn from_u32_unchecked(i: u32) -> char {
-    transmute(i)
+    crucible_identity_transmute(i)
 }
 
 #[stable(feature = "char_convert", since = "1.13.0")]
