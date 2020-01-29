@@ -2782,11 +2782,12 @@ insertIdxValue :: MonadIO m => IdxCache t f -> Nonce t tp -> f tp -> m ()
 insertIdxValue c e v = seq v $ liftIO $ stToIO $ PH.insert (cMap c) e v
 
 {-# INLINE deleteIdxValue #-}
--- | Bind the value to the given expr in the index.
+-- | Remove a value from the IdxCache
 deleteIdxValue :: MonadIO m => IdxCache t f -> Nonce t (tp :: BaseType) -> m ()
 deleteIdxValue c e = liftIO $ stToIO $ do
   PH.delete (cMap c) e
 
+-- | Remove all values from the IdxCache
 clearIdxCache :: IdxCache t f -> IO ()
 clearIdxCache c = stToIO $ PH.clear (cMap c)
 
