@@ -42,6 +42,7 @@ import Control.Monad.ST
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
 
+import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Map.Strict (Map)
@@ -52,6 +53,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as V
 import Data.String (fromString)
 import Numeric
@@ -152,9 +154,6 @@ setPosition = G.setPosition . parsePosition
 --------------------------------------------------------------------------------------
 -- ** Expressions
 
-charToBV32 :: Char -> R.Expr MIR s (C.BVType 32)
-charToBV32 c = R.App (E.BVLit knownRepr (toInteger (Char.ord c)))
-
 u8ToBV8 :: ConstVal -> R.Expr MIR s (C.BVType 8)
 u8ToBV8 (ConstInt (U8 c)) = R.App (E.BVLit knownRepr c)
 u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
@@ -170,10 +169,18 @@ transConstVal (Some (UsizeRepr)) (M.ConstInt i) =
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
 transConstVal (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (Some (C.VectorRepr _w)) (M.ConstStr str)
-      = do let u32    = C.BVRepr (knownRepr :: NatRepr 32)
-           let bytes  = V.fromList (map charToBV32 str)
-           return $ MirExp (C.VectorRepr u32) (R.App $ E.VectorLit u32 bytes)
+transConstVal (Some (MirImmSliceRepr (C.BVRepr w))) (M.ConstStr str)
+  | Just Refl <- testEquality w (knownNat @8) = do
+    let u8Repr = C.BVRepr $ knownNat @8
+    let bs = Text.encodeUtf8 $ Text.pack str
+    let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
+    let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
+    let start = R.App $ usizeLit 0
+    let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
+    let struct = S.mkStruct
+            knownRepr
+            (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
+    return $ MirExp (MirImmSliceRepr u8Repr) struct
 transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
       = do let bytes = V.fromList (map u8ToBV8 arr)
@@ -1570,6 +1577,16 @@ initialValue (M.TyRef (M.TySlice t) M.Mut) = do
       let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
       return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
       -- fail ("don't know how to initialize slices for " ++ show t)
+initialValue (M.TyRef M.TyStr M.Immut) = do
+    let tr = C.BVRepr $ knownNat @8
+    let vec = MirExp (C.VectorRepr tr) $ R.App $ E.VectorLit tr V.empty
+    let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
+    return $ Just $ buildTuple [vec, i, i]
+initialValue (M.TyRef M.TyStr M.Mut) = do
+    let tr = C.BVRepr $ knownNat @8
+    ref <- newMirRef (C.VectorRepr tr)
+    let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
+    return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
 initialValue (M.TyRef (M.TyDynamic _ _) _) = do
     let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
@@ -1590,9 +1607,6 @@ initialValue (M.TyRef t M.Mut) = do
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
-initialValue M.TyStr = do
-    let w = C.BVRepr (knownNat :: NatRepr 32)
-    return $ Just $ (MirExp (C.VectorRepr w) (S.app (E.VectorLit w V.empty)))
 initialValue (M.TyClosure tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps
