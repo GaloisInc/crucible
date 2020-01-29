@@ -596,6 +596,12 @@ evalCast' ck ty1 e ty2  =
        -> baseSizeToNatCont bsz $ \w -> 
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ E.BVLit w 1) (R.App $ E.BVLit w 0))
 
+      -- char to uint
+      (M.Misc, M.TyChar, M.TyUint  M.USize)
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> return $ MirExp UsizeRepr (bvToUsize sz R.App e0)
+      (M.Misc, M.TyChar, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
+
 
 
 
