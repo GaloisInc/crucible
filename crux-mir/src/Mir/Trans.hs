@@ -1083,6 +1083,16 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _ _pos)
                     (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
             assignVarExp v (MirExp (MirImmSliceRepr e_ty) struct)
 
+assignVarExp v@(M.Var _vnamd _ (M.TyRef M.TyStr M.Immut) _ _ _pos)
+               (MirExp (MirSliceRepr e_ty) e) =
+
+         do let rvec  = S.getStruct Ctx.i1of3 e
+            let start = S.getStruct Ctx.i2of3 e
+            let len   = S.getStruct Ctx.i3of3 e
+            vec <- readMirRef (C.VectorRepr e_ty) rvec
+            let struct = S.mkStruct (mirImmSliceCtxRepr e_ty)
+                    (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
+            assignVarExp v (MirExp (MirImmSliceRepr e_ty) struct)
 
 assignVarExp (M.Var vname _ vty _ _ pos) me@(MirExp e_ty e) = do
     vm <- use varMap
