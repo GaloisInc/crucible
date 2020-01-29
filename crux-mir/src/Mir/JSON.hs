@@ -15,8 +15,9 @@ import qualified Data.HashMap.Lazy as HML
 import qualified Data.Map.Strict   as Map
 import qualified Data.Scientific   as Scientific
 
-import Data.Word(Word64)
+import Data.Word (Word64, Word8)
 import Data.Bits
+import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import Data.Text (Text,  unpack)
 import qualified Data.Text as T
@@ -505,10 +506,10 @@ instance FromJSON RustcRenderedConst where
         Just (String "str") -> do
             val <- v .: "val"
             let f sci = case Scientific.toBoundedInteger sci of
-                    Just b -> pure (Char.chr b)
+                    Just b -> pure (b :: Word8)
                     Nothing -> fail $ "cannot read " ++ show sci
             bytes <- mapM (withScientific "byte" f) val
-            return $ ConstStr $ V.toList bytes
+            return $ ConstStr $ BS.pack bytes
 
         Just (String "bstr") -> do
             val <- v .: "val"

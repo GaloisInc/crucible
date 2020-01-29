@@ -169,10 +169,9 @@ transConstVal (Some (UsizeRepr)) (M.ConstInt i) =
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
 transConstVal (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (Some (MirImmSliceRepr (C.BVRepr w))) (M.ConstStr str)
+transConstVal (Some (MirImmSliceRepr (C.BVRepr w))) (M.ConstStr bs)
   | Just Refl <- testEquality w (knownNat @8) = do
     let u8Repr = C.BVRepr $ knownNat @8
-    let bs = Text.encodeUtf8 $ Text.pack str
     let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
     let start = R.App $ usizeLit 0
