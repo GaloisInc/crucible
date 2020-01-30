@@ -3160,7 +3160,7 @@ reduceApp sym a0 = do
         SR.SemiRingRealRepr ->
           WSum.evalM (realAdd sym) (\c x -> realMul sym x =<< realLit sym c) (realLit sym) s
         SR.SemiRingBVRepr SR.BVArithRepr w ->
-          WSum.evalM (bvAdd sym) (\c x -> bvAdd sym x =<< bvLit sym w c) (bvLit sym w) s
+          WSum.evalM (bvAdd sym) (\c x -> bvMul sym x =<< bvLit sym w c) (bvLit sym w) s
         SR.SemiRingBVRepr SR.BVBitsRepr w ->
           WSum.evalM (bvXorBits sym) (\c x -> bvAndBits sym x =<< bvLit sym w c) (bvLit sym w) s
 
