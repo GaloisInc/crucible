@@ -1389,6 +1389,48 @@ lookupFunction nm (Substs funsubst)
                traceM $ "***lookupFunction: Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
             return Nothing
 
+callHandle :: HasCallStack =>
+    MirExp s -> Abi -> Maybe Int -> [M.Operand] -> MirGenerator h s ret (MirExp s)
+callHandle e abi spreadArg cargs
+  | MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst <- e = do
+    db    <- use debugLevel
+    when (db > 3) $
+       traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
+           PP.text (show e), PP.text "with arguments", pretty cargs,
+           PP.text "abi:",pretty abi])
+
+    exps <- mapM evalOperand cargs
+    exps' <- case abi of
+      RustCall
+        -- If the target has `spread_arg` set, then it expects a tuple
+        -- instead of individual arguments.  This is a hack - see comment
+        -- on the definition of Mir.Mir.FnSig for details.
+        | isJust $ spreadArg -> return exps
+
+        -- Empty tuples use UnitRepr instead of StructRepr
+        | [selfExp, MirExp C.UnitRepr _] <- exps -> do
+          return [selfExp]
+
+        | [selfExp, tupleExp@(MirExp (C.StructRepr tupleTys) _)] <- exps -> do
+          tupleParts <- mapM (accessAggregateMaybe tupleExp)
+              [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
+          return $ selfExp : tupleParts
+
+        | otherwise -> mirFail $
+          "callExp: RustCall arguments are the wrong shape: " ++ show cargs
+
+      _ -> return exps
+
+    exp_to_assgn exps' $ \ctx asgn -> do
+      case (testEquality ctx ifargctx) of
+        Just Refl -> do
+          ret_e <- G.call polyinst asgn
+          return (MirExp ifret ret_e)
+        _ -> mirFail $ "type error in call of " ++ show e
+                      ++ "\n    args      " ++ show ctx
+                      ++ "\n vs fn params " ++ show ifargctx
+  | otherwise = mirFail $ "don't know how to call handle " ++ show e
+
 -- need to construct any dictionary arguments for predicates (if present)
 callExp :: HasCallStack =>
            M.DefId
@@ -1426,43 +1468,8 @@ callExp funid funsubst cargs = do
                PP.text "and type parameters:", pretty funsubst])
           op cargs
 
-       | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
-          when (db > 3) $
-             traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
-                 pretty funid, PP.text "with arguments", pretty cargs,
-                 PP.text "sig:",pretty sig,
-                 PP.text "and type parameters:", pretty funsubst])
-
-          exps <- mapM evalOperand cargs
-          exps' <- case sig^.fsabi of
-            RustCall
-              -- If the target has `spread_arg` set, then it expects a tuple
-              -- instead of individual arguments.  This is a hack - see comment
-              -- on the definition of Mir.Mir.FnSig for details.
-              | isJust $ sig^.fsspreadarg -> return exps
-
-              -- Empty tuples use UnitRepr instead of StructRepr
-              | [selfExp, MirExp C.UnitRepr _] <- exps -> do
-                return [selfExp]
-
-              | [selfExp, tupleExp@(MirExp (C.StructRepr tupleTys) _)] <- exps -> do
-                tupleParts <- mapM (accessAggregateMaybe tupleExp)
-                    [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
-                return $ selfExp : tupleParts
-
-              | otherwise -> mirFail $
-                "callExp: RustCall arguments are the wrong shape: " ++ show cargs
-
-            _ -> return exps
-
-          exp_to_assgn exps' $ \ctx asgn -> do
-            case (testEquality ctx ifargctx) of
-              Just Refl -> do
-                ret_e <- G.call polyinst asgn
-                return (MirExp ifret ret_e)
-              _ -> mirFail $ "type error in call of " ++ fmt funid ++ fmt funsubst
-                            ++ "\n    args      " ++ show ctx
-                            ++ "\n vs fn params " ++ show ifargctx
+       | Just (hand, sig) <- mhand -> do
+         callHandle hand (sig^.fsabi) (sig^.fsspreadarg) cargs
 
      _ -> mirFail $ "callExp: Don't know how to call " ++ fmt funid ++ fmt funsubst
 
@@ -1510,7 +1517,17 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid funsubsts
     doCall funid funsubsts cargs cretdest tr -- cleanup ignored
-        
+
+transTerminator (M.Call funcOp cargs cretdest _) tr = do
+    func <- evalOperand funcOp
+    ret <- callHandle func RustAbi Nothing cargs
+    case cretdest of
+      Just (dest_lv, jdest) -> do
+          assignLvExp dest_lv ret
+          jumpToBlock jdest
+      Nothing -> do
+          G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
+
 transTerminator (M.Assert cond _expected _msg target _cleanup) _ = do
     db <- use $ debugLevel
     when (db > 5) $ do
