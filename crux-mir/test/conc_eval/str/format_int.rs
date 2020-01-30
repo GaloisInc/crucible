@@ -1,0 +1,11 @@
+#![feature(custom_attribute)]
+
+#[crux_test]
+fn crux_test() -> bool {
+    let s = format!("a{}c", 123);
+    &s == "a123c"
+}
+
+pub fn main() {
+    println!("{:?}", crux_test());
+}

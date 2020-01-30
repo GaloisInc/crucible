@@ -3,6 +3,7 @@
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::cell::{UnsafeCell, Cell, RefCell, Ref, RefMut};
+use crate::crucible::any::Any;
 use crate::marker::PhantomData;
 use crate::mem;
 #[cfg(flt2dec)] use crate::num::flt2dec;
@@ -262,8 +263,19 @@ struct Void {
            issue = "0")]
 #[doc(hidden)]
 pub struct ArgumentV1<'a> {
-    value: &'a Void,
-    formatter: fn(&Void, &mut Formatter<'_>) -> Result,
+    value: Any,
+    formatter: Any,
+    dispatch: fn(Any, Any, &mut Formatter<'_>) -> Result,
+    is_usize: bool,
+    _marker: PhantomData<&'a ()>,
+}
+
+fn dispatch<T>(value: Any, formatter: Any, fmt: &mut Formatter<'_>) -> Result {
+    unsafe {
+        let value = value.downcast::<&T>();
+        let formatter = formatter.downcast::<fn(&T, &mut Formatter<'_>) -> Result>();
+        formatter(value, fmt)
+    }
 }
 
 impl<'a> ArgumentV1<'a> {
@@ -277,11 +289,12 @@ impl<'a> ArgumentV1<'a> {
                issue = "0")]
     pub fn new<'b, T>(x: &'b T,
                       f: fn(&T, &mut Formatter<'_>) -> Result) -> ArgumentV1<'b> {
-        unsafe {
-            ArgumentV1 {
-                formatter: mem::transmute(f),
-                value: mem::transmute(x)
-            }
+        ArgumentV1 {
+            value: Any::new(x),
+            formatter: Any::new(f),
+            dispatch: dispatch::<T>,
+            is_usize: false,
+            _marker: PhantomData,
         }
     }
 
@@ -289,12 +302,14 @@ impl<'a> ArgumentV1<'a> {
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!",
                issue = "0")]
     pub fn from_usize(x: &usize) -> ArgumentV1<'_> {
-        ArgumentV1::new(x, ArgumentV1::show_usize)
+        let mut arg = Self::new(x, ArgumentV1::show_usize);
+        arg.is_usize = true;
+        arg
     }
 
     fn as_usize(&self) -> Option<usize> {
-        if self.formatter as usize == ArgumentV1::show_usize as usize {
-            Some(unsafe { *(self.value as *const _ as *const usize) })
+        if self.is_usize {
+            Some(unsafe { *self.value.downcast::<&usize>() })
         } else {
             None
         }
@@ -347,22 +362,8 @@ impl<'a> Arguments<'a> {
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!",
                issue = "0")]
     pub fn estimated_capacity(&self) -> usize {
-        let pieces_length: usize = self.pieces.iter()
-            .map(|x| x.len()).sum();
-
-        if self.args.is_empty() {
-            pieces_length
-        } else if self.pieces[0] == "" && pieces_length < 16 {
-            // If the format string starts with an argument,
-            // don't preallocate anything, unless length
-            // of pieces is significant.
-            0
-        } else {
-            // There are some arguments, so any additional push
-            // will reallocate the string. To avoid that,
-            // we're "pre-doubling" the capacity here.
-            pieces_length.checked_mul(2).unwrap_or(0)
-        }
+        // Capacity is not used in our current implementation of Vec.
+        0
     }
 }
 
@@ -1013,7 +1014,7 @@ pub fn write(output: &mut dyn Write, args: Arguments<'_>) -> Result {
             // We can use default formatting parameters for all arguments.
             for (arg, piece) in args.args.iter().zip(args.pieces.iter()) {
                 formatter.buf.write_str(*piece)?;
-                (arg.formatter)(arg.value, &mut formatter)?;
+                (arg.dispatch)(arg.value, arg.formatter, &mut formatter)?;
                 idx += 1;
             }
         }
@@ -1097,7 +1098,7 @@ impl<'a> Formatter<'a> {
         };
 
         // Then actually do some printing
-        (value.formatter)(value.value, self)
+        (value.dispatch)(value.value, value.formatter, self)
     }
 
     fn getcount(&mut self, cnt: &rt::v1::Count) -> Option<usize> {
