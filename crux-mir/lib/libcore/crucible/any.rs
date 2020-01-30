@@ -1,8 +1,12 @@
+/// Dynamically-typed wrapper, corresponding to Crucible's `AnyType`.
+#[unstable(feature = "crucible_intrinsics", issue = "0")]
+#[derive(Clone, Copy)]
 pub struct Any(());
 
 impl Any {
     /// Wrap an arbitrary value in `Any`.
-    pub fn new<T>(x: T) -> Any {
+    #[unstable(feature = "crucible_intrinsics", issue = "0")]
+    pub fn new<T: Copy>(x: T) -> Any {
         unimplemented!()
     }
 
@@ -13,7 +17,9 @@ impl Any {
     ///
     /// This function is unsafe because `new` + `downcast` is equivalent to
     /// `crucible_identity_transmute`.
+    #[unstable(feature = "crucible_intrinsics", issue = "0")]
     pub unsafe fn downcast<T>(self) -> T {
         unimplemented!()
     }
 }
+

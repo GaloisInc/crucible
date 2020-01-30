@@ -332,7 +332,7 @@ vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], 
 -- Methods for crucible::any::Any (which has custom representation)
 
 any_new :: (ExplodedDefId, CustomRHS)
-any_new = ( ["crucible", "any", "{{impl}}", "new"], \substs -> case substs of
+any_new = ( ["core", "crucible", "any", "{{impl}}", "new"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp tpr e] -> do
             return $ MirExp C.AnyRepr $ R.App $ E.PackAny tpr e
@@ -341,7 +341,7 @@ any_new = ( ["crucible", "any", "{{impl}}", "new"], \substs -> case substs of
     )
 
 any_downcast :: (ExplodedDefId, CustomRHS)
-any_downcast = ( ["crucible", "any", "{{impl}}", "downcast"], \substs -> case substs of
+any_downcast = ( ["core", "crucible", "any", "{{impl}}", "downcast"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp C.AnyRepr e]
           | Some tpr <- tyToRepr t -> do

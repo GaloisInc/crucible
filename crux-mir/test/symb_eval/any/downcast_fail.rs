@@ -1,4 +1,5 @@
 #![feature(custom_attribute)]
+#![feature(crucible_intrinsics)]
 
 extern crate crucible;
 use crucible::any::Any;
