@@ -567,13 +567,10 @@ evalCast' ck ty1 e ty2  =
       (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
 
       -- unsigned to signed (nothing to do except fix sizes)
-      (M.Misc, M.TyUint _, M.TyInt s) -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.Misc, M.TyUint _, M.TyInt s)  -> baseSizeToNatCont s $ extendUnsignedBV e
 
-      -- signed to unsigned (TODO: check for negative numbers)
-      (M.Misc, M.TyInt s1,  M.TyUint s2)
-        | s1 == s2 -> return e      -- Reinterpret the bitvector as a different signedness
-        | otherwise -> mirFail
-          "unimplemented: cast changes signedness and size simultaneously"
+      -- signed to unsigned.  Testing indicates that this sign-extends.
+      (M.Misc, M.TyInt _,  M.TyUint s) -> baseSizeToNatCont s $ extendSignedBV e
 
        -- boolean to nat
       (M.Misc, TyBool, TyUint M.USize)
