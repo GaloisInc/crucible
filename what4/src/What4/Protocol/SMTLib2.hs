@@ -924,7 +924,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     a ->
     AcknowledgementAction t fs (Writer a) ->
     ProblemFeatures ->
-    B.ExprBuilder t st fs ->
+    B.ExprBuilder st t fs ->
     Streams.OutputStream Text ->
     IO (WriterConn t fs (Writer a))
   newDefaultWriter solver ack feats sym h =
@@ -936,7 +936,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     a ->
     AcknowledgementAction t fs (Writer a) ->
     ProblemFeatures ->
-    B.ExprBuilder t st fs ->
+    B.ExprBuilder st t fs ->
     FilePath {- ^ Path to solver executable -} ->
     LogData ->
     (Session t fs a -> IO b) {- ^ Action to run -} ->
@@ -975,7 +975,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     a ->
     AcknowledgementAction t fs (Writer a) ->
     ProblemFeatures ->
-    B.ExprBuilder t st fs ->
+    B.ExprBuilder st t fs ->
     LogData ->
     [B.BoolExpr t fs] ->
     (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO b) ->
@@ -1006,7 +1006,7 @@ writeDefaultSMT2 ::
   a ->
   String {- ^ Name of solver for reporting. -} ->
   ProblemFeatures {- ^ Features supported by solver -} ->
-  B.ExprBuilder t st fs ->
+  B.ExprBuilder st t fs ->
   IO.Handle ->
   [B.BoolExpr t fs] ->
   IO ()
@@ -1028,7 +1028,7 @@ startSolver ::
      {- ^ Action for setting start-up-time options and logic -} ->
   ProblemFeatures ->
   Maybe IO.Handle ->
-  B.ExprBuilder t st fs ->
+  B.ExprBuilder st t fs ->
   IO (SolverProcess t fs (Writer a))
 startSolver solver ack setup feats auxOutput sym = do
   path <- defaultSolverPath solver sym

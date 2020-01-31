@@ -23,7 +23,6 @@ import qualified System.Timeout as ST
 import What4.Interface (notPred, printSymExpr,asConstantPred)
 import qualified What4.Interface as WI
 import What4.SatResult(SatResult(..))
-import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
@@ -31,7 +30,7 @@ import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-        ( OnlineBackendState, withSolverProcess )
+        ( withSolverProcess, OnlineBackend )
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
@@ -236,7 +235,7 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
 -- 'SimCtxt'.  We do that so that we can use separate solvers for path
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
+  ( sym ~ ExprBuilder (OnlineBackendState solver) s fs
   , OnlineSolver s solver
   , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
   , OnlineSolver s goalSolver

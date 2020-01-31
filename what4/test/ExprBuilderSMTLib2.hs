@@ -46,7 +46,7 @@ import What4.Utils.StringLiteral
 data State t fs = State
 data SomePred = forall t fs. SomePred (BoolExpr t fs)
 deriving instance Show SomePred
-type SimpleExprBuilder t fs = ExprBuilder t State fs
+type SimpleExprBuilder = ExprBuilder State
 
 
 debugOutputFiles :: Bool

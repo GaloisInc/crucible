@@ -42,7 +42,7 @@ import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
 
-type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
+type SimpleBackend = B.ExprBuilder SimpleBackendState
 
 ------------------------------------------------------------------------
 -- SimpleBackendState

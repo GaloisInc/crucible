@@ -361,7 +361,7 @@ userSymbol' s = case What4.userSymbol s of
 
 withMem ::
   EndianForm ->
-  (forall sym scope solver fs wptr . (sym ~ Crucible.OnlineBackend scope solver fs, Crucible.IsSymInterface sym, What4.OnlineSolver scope solver, HasPtrWidth wptr) => sym -> MemImpl sym -> IO a) ->
+  (forall sym scope solver fs wptr . (sym ~ Crucible.OnlineBackend solver scope fs, Crucible.IsSymInterface sym, What4.OnlineSolver scope solver, HasPtrWidth wptr) => sym -> MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
   Crucible.withZ3OnlineBackend What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures $ \sym -> do
@@ -377,7 +377,7 @@ assume sym p = do
 
 checkSat ::
   What4.OnlineSolver scope solver =>
-  Crucible.OnlineBackend scope solver fs ->
+  Crucible.OnlineBackend solver scope fs ->
   What4.BoolExpr scope fs ->
   IO (What4.SatResult () ())
 checkSat sym p = do

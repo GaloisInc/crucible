@@ -94,7 +94,7 @@ data SAWExpr (bt :: BaseType) where
   -- implicit nat-to-integer conversion.
   NatToIntSAWExpr :: !(SAWExpr BaseNatType) -> SAWExpr BaseIntegerType
 
-type SAWCoreBackend n solver fs = B.ExprBuilder n (SAWCoreState solver) fs
+type SAWCoreBackend solver n fs = B.ExprBuilder (SAWCoreState solver) n fs
 
 
 -- | Run the given IO action with the given SAW backend.
@@ -104,7 +104,7 @@ type SAWCoreBackend n solver fs = B.ExprBuilder n (SAWCoreState solver) fs
 --   assertions and proof obligations start empty while
 --   running the action.  After the action completes, the
 --   state of these fields is restored.
-inFreshNamingContext :: SAWCoreBackend n solver fs -> IO a -> IO a
+inFreshNamingContext :: SAWCoreBackend solver n fs -> IO a -> IO a
 inFreshNamingContext sym f =
   do old <- readIORef (B.sbStateManager sym)
      bracket (mkNew (B.exprCounter sym) old) (restore old) action
@@ -129,13 +129,13 @@ inFreshNamingContext sym f =
                 }
       return new
 
-getInputs :: SAWCoreBackend n solver fs -> IO (Seq (SC.ExtCns SC.Term))
+getInputs :: SAWCoreBackend solver n fs -> IO (Seq (SC.ExtCns SC.Term))
 getInputs sym =
   do st <- readIORef (B.sbStateManager sym)
      readIORef (saw_inputs st)
 
 baseSCType ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   BaseTypeRepr tp ->
   IO SC.Term
@@ -168,7 +168,7 @@ baseSCType sym sc bt =
          return (ts ++ [t])
 
 -- | Create a new symbolic variable.
-sawCreateVar :: SAWCoreBackend n solver fs
+sawCreateVar :: SAWCoreBackend solver n fs
              -> String                                       -- ^ the name of the variable
              -> SC.Term
              -> IO SC.Term
@@ -181,7 +181,7 @@ sawCreateVar sym nm tp = do
   modifyIORef (saw_inputs st) (\xs -> xs Seq.|> ec)
   return t
 
-bindSAWTerm :: SAWCoreBackend n solver fs
+bindSAWTerm :: SAWCoreBackend solver n fs
             -> BaseTypeRepr bt
             -> SC.Term
             -> IO (B.Expr n fs bt)
@@ -195,7 +195,7 @@ newSAWCoreBackend ::
   FloatModeRepr fm ->
   SC.SharedContext ->
   NonceGenerator IO s ->
-  IO (SAWCoreBackend s (Yices.Connection s) (Flags fm))
+  IO (SAWCoreBackend (Yices.Connection s) s (Flags fm))
 newSAWCoreBackend fm sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache
@@ -220,7 +220,7 @@ newSAWCoreBackend fm sc gen = do
 -- values back into SAW. The interpretation function takes a list of
 -- arguments in regular (left-to-right) order.
 sawRegisterSymFunInterp ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   B.ExprSymFn n fs args ret ->
   (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
   IO ()
@@ -229,12 +229,12 @@ sawRegisterSymFunInterp sym f i =
       s { saw_symMap = Map.insert (indexValue (B.symFnId f)) i (saw_symMap s) }
 
 
-sawBackendSharedContext :: SAWCoreBackend n solver fs -> IO SC.SharedContext
+sawBackendSharedContext :: SAWCoreBackend solver n fs -> IO SC.SharedContext
 sawBackendSharedContext sym =
   saw_ctx <$> readIORef (B.sbStateManager sym)
 
 
-toSC :: SAWCoreBackend n solver fs -> B.Expr n fs tp -> IO SC.Term
+toSC :: SAWCoreBackend solver n fs -> B.Expr n fs tp -> IO SC.Term
 toSC sym elt =
   do st <- readIORef $ B.sbStateManager sym
      evaluateExpr sym (saw_ctx st) (saw_elt_cache st) elt
@@ -242,7 +242,7 @@ toSC sym elt =
 
 -- | Return a shared term with type nat from a SAWExpr.
 scAsIntExpr ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   IO SC.Term
@@ -255,7 +255,7 @@ scAsIntExpr sym _ SAWExpr{} = unsupported sym
 --
 -- This fails on non-integer expressions.
 scRealLit ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   Rational ->
   IO (SAWExpr BaseRealType)
@@ -285,7 +285,7 @@ scBvLit sc w x = SAWExpr <$> SC.scBvConst sc (natValue w) x
 
 scRealCmpop ::
   (SC.SharedContext -> SAWExpr BaseIntegerType -> SAWExpr BaseIntegerType -> IO (SAWExpr BaseBoolType)) ->
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -297,7 +297,7 @@ scRealCmpop _ sym _ _ _ =
 
 scRealBinop ::
   (SC.SharedContext -> SAWExpr BaseIntegerType -> SAWExpr BaseIntegerType -> IO (SAWExpr BaseIntegerType)) ->
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -343,7 +343,7 @@ scIntCmpop _natOp intOp sc (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> intOp sc x y
 
 scAddReal ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -364,7 +364,7 @@ scAddNat sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scAddNat sc x y
 
 
 scMulReal ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -384,7 +384,7 @@ scMulNat :: SC.SharedContext
 scMulNat sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scMulNat sc x y
 
 scIteReal ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SC.Term ->
   SAWExpr BaseRealType ->
@@ -411,7 +411,7 @@ scIteNat sc p (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> (SC.scNatType sc >>= \tp -> SC.scIte sc tp p x y)
 
 scIte ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   BaseTypeRepr tp ->
   SAWExpr BaseBoolType ->
@@ -436,7 +436,7 @@ scIte sym sc tp (SAWExpr p) x y =
 
 
 scRealEq ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -463,7 +463,7 @@ scBoolEq ::
 scBoolEq sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scBoolEq sc x y
 
 scEq ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   BaseTypeRepr tp ->
   SAWExpr tp ->
@@ -484,7 +484,7 @@ scEq sym sc tp x y =
 
 
 scAllEq ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   Ctx.Assignment BaseTypeRepr ctx ->
   Ctx.Assignment SAWExpr ctx ->
@@ -499,7 +499,7 @@ scAllEq sym sc (ctx Ctx.:> tp) (xs Ctx.:> x) (ys Ctx.:> y)
        SAWExpr <$> SC.scAnd sc p q
 
 scRealLe, scRealLt ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -577,7 +577,7 @@ scBvXor sc w (SAWExpr x) (SAWExpr y) =
      SAWExpr <$> SC.scBvXor sc n x y
 
 termOfSAWExpr ::
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr tp -> IO SC.Term
 termOfSAWExpr sym sc expr =
@@ -589,7 +589,7 @@ termOfSAWExpr sym sc expr =
 
 makeArray ::
   forall n solver fs idx tp.
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   Ctx.Assignment BaseTypeRepr idx ->
   [Maybe SolverSymbol] ->
@@ -617,7 +617,7 @@ makeArray sym sc idx env k =
 
 applyArray ::
   forall n solver fs idx tp.
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SAWExpr (BaseArrayType idx tp) ->
   Ctx.Assignment SAWExpr idx ->
@@ -673,7 +673,7 @@ makeTable sc (idxs Ctx.:> idx) mkElem elemTy =
 
 applyTable ::
   forall n solver fs ctx ret.
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   SC.Term {- ^ table (nested vectors) -} ->
   Ctx.Assignment IndexLit ctx {- ^ maximum index -} ->
@@ -708,7 +708,7 @@ applyTable sym sc t0 maxidx vars ret fallback =
 
 applyExprSymFn ::
   forall n solver fs args ret.
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   B.ExprSymFn n fs args ret ->
   Ctx.Assignment SAWExpr args ->
@@ -735,7 +735,7 @@ applyExprSymFn sym sc fn args =
 
 considerSatisfiability ::
   (OnlineSolver n solver) =>
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   Maybe ProgramLoc ->
   B.BoolExpr n fs ->
   IO BranchResult
@@ -760,11 +760,11 @@ obligation to ensure that we won't get there.
 These proof obligations are all tagged with "Unsupported", so that
 users of the library can choose if they will try to discharge them,
 fail in some other way, or just ignore them. -}
-unsupported :: SAWCoreBackend n solver fs -> String -> IO a
+unsupported :: SAWCoreBackend solver n fs -> String -> IO a
 unsupported sym x = addFailedAssertion sym (Unsupported x)
 
 evaluateExpr :: forall n solver tp fs.
-  SAWCoreBackend n solver fs ->
+  SAWCoreBackend solver n fs ->
   SC.SharedContext ->
   B.IdxCache n SAWExpr ->
   B.Expr n fs tp ->
@@ -1244,12 +1244,12 @@ evaluateExpr sym sc cache = f []
 
 
 getAssumptionStack ::
-  SAWCoreBackend s solver fs ->
+  SAWCoreBackend solver s fs ->
   IO (AssumptionStack (B.BoolExpr s fs) AssumptionReason SimError)
 getAssumptionStack sym =
   (assumptionStack . saw_online_state) <$> readIORef (B.sbStateManager sym)
 
-instance IsBoolSolver (SAWCoreBackend n solver fs) where
+instance IsBoolSolver (SAWCoreBackend solver n fs) where
 
   addDurableProofObligation sym a =
      AS.addProofObligation a =<< getAssumptionStack sym

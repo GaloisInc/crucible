@@ -136,7 +136,7 @@ verificationHarnessOverrideHandle sim rw w cryEnv harness =
            (mkOverride' nm (StructRepr (verifStateRepr rw w))
               (verificationHarnessOverride sim rw w sc cryEnv harness))
 
-type SAWBack n = SAW.SAWCoreBackend n (Yices.Connection n) (Flags FloatReal)
+type SAWBack n = SAW.SAWCoreBackend (Yices.Connection n) n (Flags FloatReal)
 type N p n r args ret a = OverrideSim p (SAWBack n) () r args ret a
 
 ----------------------------------------------------------------------

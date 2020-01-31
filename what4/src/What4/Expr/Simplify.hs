@@ -37,12 +37,12 @@ import qualified What4.Expr.WeightedSum as WSum
 ------------------------------------------------------------------------
 -- simplify
 
-data NormCache t st fs
-   = NormCache { ncBuilder :: !(ExprBuilder t st fs)
+data NormCache st t fs
+   = NormCache { ncBuilder :: !(ExprBuilder st t fs)
                , ncTable :: !(PH.HashTable RealWorld (Expr t fs) (Expr t fs))
                }
 
-norm :: NormCache t st fs -> Expr t fs tp -> IO (Expr t fs tp)
+norm :: NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm c e = do
   mr <- stToIO $ PH.lookup (ncTable c) e
   case mr of
@@ -70,7 +70,7 @@ instance Applicative Or where
   pure _ = Or False
   (Or a) <*> (Or b) = Or (a || b)
 
-norm' :: forall t st fs tp . PH.HashableF (Expr t fs) => NormCache t st fs -> Expr t fs tp -> IO (Expr t fs tp)
+norm' :: forall t st fs tp . PH.HashableF (Expr t fs) => NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm' nc (AppExpr a0) = do
   let sb = ncBuilder nc
   case appExprApp a0 of
@@ -119,7 +119,7 @@ norm' nc (NonceAppExpr p0) = do
 norm' _ e = return e
 
 -- | Simplify a Boolean expression by distributing over ite.
-simplify :: ExprBuilder t st fs -> BoolExpr t fs -> IO (BoolExpr t fs)
+simplify :: ExprBuilder st t fs -> BoolExpr t fs -> IO (BoolExpr t fs)
 simplify sb p = do
   tbl <- stToIO $ PH.new
   let nc = NormCache { ncBuilder = sb

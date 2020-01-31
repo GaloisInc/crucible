@@ -123,7 +123,7 @@ cvc4Features = useComputableReals
            .|. useQuantifiers
 
 writeMultiAsmpCVC4SMT2File
-   :: ExprBuilder t st fs
+   :: ExprBuilder st t fs
    -> Handle
    -> [BoolExpr t fs]
    -> IO ()
@@ -139,7 +139,7 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
   SMT2.writeExit c
 
 writeCVC4SMT2File
-   :: ExprBuilder t st fs
+   :: ExprBuilder st t fs
    -> Handle
    -> [BoolExpr t fs]
    -> IO ()
@@ -165,7 +165,7 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
     SMT2.setProduceModels writer True
 
 runCVC4InOverride
-  :: ExprBuilder t st fs
+  :: ExprBuilder st t fs
   -> LogData
   -> [BoolExpr t fs]
   -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
@@ -175,7 +175,7 @@ runCVC4InOverride = SMT2.runSolverInOverride CVC4 nullAcknowledgementAction (SMT
 -- | Run CVC4 in a session. CVC4 will be configured to produce models, but
 -- otherwise left with the default configuration.
 withCVC4
-  :: ExprBuilder t st fs
+  :: ExprBuilder st t fs
   -> FilePath
     -- ^ Path to CVC4 executable
   -> LogData

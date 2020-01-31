@@ -178,9 +178,9 @@ withSelectedOnlineBackend ::
   -- the configuration (probably due to using two different online connections)
   (forall solver fm .
     ( OnlineSolver scope solver
-    , IsInterpretedFloatExprBuilder (OnlineBackend scope solver (Flags fm))
+    , IsInterpretedFloatExprBuilder (OnlineBackend solver scope (Flags fm ann))
     ) =>
-    FloatModeRepr fm -> OnlineBackend scope solver (Flags fm) -> IO a) -> IO a
+    FloatModeRepr fm -> OnlineBackend scope solver (Flags fm ann) -> IO a) -> IO a
 withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMode k =
   case fromMaybe (floatMode cruxOpts) maybeExplicitFloatMode of
     "real" -> withOnlineBackendFM FloatRealRepr

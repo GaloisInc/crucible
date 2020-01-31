@@ -124,7 +124,7 @@ z3Features = useNonlinearArithmetic
          .|. useBitvectors
 
 writeZ3SMT2File
-   :: ExprBuilder t st fs
+   :: ExprBuilder st t fs
    -> Handle
    -> [BoolExpr t fs]
    -> IO ()
@@ -153,7 +153,7 @@ instance SMT2.SMTLib2GenericSolver Z3 where
       SMT2.setOption writer "produce-unsat-cores" "true"
 
 runZ3InOverride
-  :: ExprBuilder t st fs
+  :: ExprBuilder st t fs
   -> LogData
   -> [BoolExpr t fs]
   -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
@@ -163,7 +163,7 @@ runZ3InOverride = SMT2.runSolverInOverride Z3 nullAcknowledgementAction z3Featur
 -- | Run Z3 in a session. Z3 will be configured to produce models, but
 -- otherwise left with the default configuration.
 withZ3
-  :: ExprBuilder t st fs
+  :: ExprBuilder st t fs
   -> FilePath
     -- ^ Path to CVC4 executable
   -> LogData

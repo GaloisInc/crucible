@@ -54,7 +54,7 @@ data SolverAdapter st =
     --   them before returning.
   , solver_adapter_check_sat
         :: !(forall t fs a.
-           ExprBuilder t st fs
+           ExprBuilder st t fs
         -> LogData
         -> [BoolExpr t fs]
         -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
@@ -62,7 +62,7 @@ data SolverAdapter st =
 
     -- | Write an SMTLib2 problem instance onto the given handle, incorporating
     --   any solver-specific tweaks appropriate to this solver
-  , solver_adapter_write_smt2 :: !(forall t fs . ExprBuilder t st fs -> Handle -> [BoolExpr t fs] -> IO ())
+  , solver_adapter_write_smt2 :: !(forall t fs . ExprBuilder st t fs -> Handle -> [BoolExpr t fs] -> IO ())
   }
 
 data LogData = LogData { logCallbackVerbose :: Int -> String -> IO ()
