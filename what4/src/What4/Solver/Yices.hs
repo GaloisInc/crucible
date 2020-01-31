@@ -418,12 +418,12 @@ declareUnitTypeCommand _conn = safeCmd $
   app "define-type" [ Builder.fromString "unit-type", app "scalar" [ Builder.fromString "unit-value" ] ]
 
 
-declareUnitType :: WriterConn t (Connection s) -> IO ()
+declareUnitType :: WriterConn t fs (Connection s) -> IO ()
 declareUnitType conn =
   do done <- atomicModifyIORef (yicesUnitDeclared (connState conn)) (\x -> (True, x))
      unless done $ addCommand conn declareUnitTypeCommand
 
-resetUnitType :: WriterConn t (Connection s) -> IO ()
+resetUnitType :: WriterConn t fs (Connection s) -> IO ()
 resetUnitType conn =
   writeIORef (yicesUnitDeclared (connState conn)) False
 
@@ -431,11 +431,11 @@ resetUnitType conn =
 -- Connection
 
 newConnection :: Streams.OutputStream Text
-              -> (IORef (Maybe Int) -> AcknowledgementAction t (Connection s))
+              -> (IORef (Maybe Int) -> AcknowledgementAction t fs (Connection s))
               -> ProblemFeatures -- ^ Indicates the problem features to support.
               -> Integer
-              -> B.SymbolVarBimap t
-              -> IO (WriterConn t (Connection s))
+              -> B.SymbolVarBimap t fs
+              -> IO (WriterConn t fs (Connection s))
 newConnection stream ack reqFeatures timeout bindings = do
   let efSolver = reqFeatures `hasProblemFeature` useExistForall
   let nlSolver = reqFeatures `hasProblemFeature` useNonlinearArithmetic
@@ -627,7 +627,7 @@ instance OnlineSolver s (Connection s) where
   startSolverProcess = yicesStartSolver
   shutdownSolverProcess = yicesShutdownSolver
 
-yicesShutdownSolver :: SolverProcess s (Connection s) -> IO (ExitCode, Lazy.Text)
+yicesShutdownSolver :: SolverProcess s fs (Connection s) -> IO (ExitCode, Lazy.Text)
 yicesShutdownSolver p =
    do addCommandNoAck (solverConn p) exitCommand
       Streams.write Nothing (solverStdin p)
@@ -643,7 +643,7 @@ yicesShutdownSolver p =
 yicesAck ::
   Streams.InputStream Text ->
   IORef (Maybe Int) ->
-  AcknowledgementAction s (Connection s)
+  AcknowledgementAction s fs (Connection s)
 yicesAck resp earlyUnsatRef = AckAction $ \conn cmdf ->
   do isEarlyUnsat <- readIORef earlyUnsatRef
      let cmd = cmdf (connState conn)
@@ -671,7 +671,7 @@ yicesStartSolver ::
   ProblemFeatures ->
   Maybe Handle ->
   B.ExprBuilder s st fs ->
-  IO (SolverProcess s (Connection s))
+  IO (SolverProcess s fs (Connection s))
 yicesStartSolver features auxOutput sym = do -- FIXME
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
@@ -730,16 +730,16 @@ yicesStartSolver features auxOutput sym = do -- FIXME
 -- Translation code
 
 -- | Send a check command to Yices.
-sendCheck :: WriterConn t (Connection s) -> IO ()
+sendCheck :: WriterConn t fs (Connection s) -> IO ()
 sendCheck c = addCommands c (checkCommands c)
 
-sendCheckExistsForall :: WriterConn t (Connection s) -> IO ()
+sendCheckExistsForall :: WriterConn t fs (Connection s) -> IO ()
 sendCheckExistsForall c = addCommandNoAck c checkExistsForallCommand
 
-assertForall :: WriterConn t (Connection s) -> [(Text, YicesType)] -> Expr s -> IO ()
+assertForall :: WriterConn t fs (Connection s) -> [(Text, YicesType)] -> Expr s -> IO ()
 assertForall c vars e = addCommand c (assertForallCommand vars e)
 
-setParam :: WriterConn t (Connection s) -> ConfigValue -> IO ()
+setParam :: WriterConn t fs (Connection s) -> ConfigValue -> IO ()
 setParam c (ConfigValue o val) =
   case configOptionNameParts o of
     [yicesName, nm] | yicesName == "yices" ->
@@ -750,21 +750,17 @@ setParam c (ConfigValue o val) =
           fail $ unwords ["Unknown Yices parameter type:", show nm]
     _ -> fail $ unwords ["not a Yices parameter", configOptionName o]
 
-setYicesParams :: WriterConn t (Connection s) -> Config -> IO ()
+setYicesParams :: WriterConn t fs (Connection s) -> Config -> IO ()
 setYicesParams conn cfg = do
    params <- getConfigValues "yices" cfg
    forM_ params $ setParam conn
 
-eval :: WriterConn t (Connection s) -> Term (Connection s) -> IO ()
+eval :: WriterConn t fs (Connection s) -> Term (Connection s) -> IO ()
 eval c e = addCommandNoAck c (evalCommand e)
 
 -- | Print a command to show the model.
-sendShowModel :: WriterConn t (Connection s) -> IO ()
+sendShowModel :: WriterConn t fs (Connection s) -> IO ()
 sendShowModel c = addCommandNoAck c showModelCommand
-
-
-
-
 
 
 getAckResponse :: Streams.InputStream Text -> IO (Maybe Text)
@@ -801,14 +797,14 @@ getSatResponse resps =
                        , "*** Exception: " ++ displayException e
                        ]
 
-type Eval scope solver ty =
-  WriterConn scope (Connection solver) ->
+type Eval scope fs solver ty =
+  WriterConn scope fs (Connection solver) ->
   Streams.InputStream Text ->
   Term (Connection solver) ->
   IO ty
 
 -- | Call eval to get a Rational term
-yicesEvalReal :: Eval s t Rational
+yicesEvalReal :: Eval s t fs Rational
 yicesEvalReal conn resp tm =
   do eval conn tm
      mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> Root.parseYicesRoot) resp)
@@ -858,7 +854,7 @@ boolValue =
   ]
 
 -- | Call eval to get a Boolean term.
-yicesEvalBool :: Eval s t Bool
+yicesEvalBool :: Eval s t fs Bool
 yicesEvalBool conn resp tm =
   do eval conn tm
      mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> boolValue) resp)
@@ -877,7 +873,7 @@ yicesBV w =
      readBit w (Text.unpack digits)
 
 -- | Send eval command and get result back.
-yicesEvalBV :: Int -> Eval s t Integer
+yicesEvalBV :: Int -> Eval s t fs Integer
 yicesEvalBV w conn resp tm =
   do eval conn tm
      mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> yicesBV w) resp)
@@ -1080,7 +1076,7 @@ yicesInternalOptions =
 
 -- | This checks that the element is in a logic fragment supported by Yices,
 -- and returns whether the exists-forall solver should be used.
-checkSupportedByYices :: B.BoolExpr t -> IO ProblemFeatures
+checkSupportedByYices :: B.BoolExpr t fs -> IO ProblemFeatures
 checkSupportedByYices p = do
   let varInfo = predicateVarInfo p
 
@@ -1095,7 +1091,7 @@ checkSupportedByYices p = do
 -- | Write a yices file that checks the satisfiability of the given predicate.
 writeYicesFile :: B.ExprBuilder t st fs -- ^ Builder for getting current bindings.
                -> FilePath              -- ^ Path to file
-               -> B.BoolExpr t          -- ^ Predicate to check
+               -> B.BoolExpr t fs       -- ^ Predicate to check
                -> IO ()
 writeYicesFile sym path p = do
   withFile path WriteMode $ \h -> do
@@ -1120,8 +1116,8 @@ writeYicesFile sym path p = do
 -- | Run writer and get a yices result.
 runYicesInOverride :: B.ExprBuilder t st fs
                    -> LogData
-                   -> [B.BoolExpr t]
-                   -> (SatResult (GroundEvalFn t) () -> IO a)
+                   -> [B.BoolExpr t fs]
+                   -> (SatResult (GroundEvalFn t fs) () -> IO a)
                    -> IO a
 runYicesInOverride sym logData conditions resultFn = do
   let cfg = getConfiguration sym

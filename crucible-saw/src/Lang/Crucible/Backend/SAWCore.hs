@@ -68,7 +68,7 @@ data SAWCruciblePersonality sym = SAWCruciblePersonality
 
 -- | The SAWCoreBackend is a crucible backend that represents symbolic values
 --   as SAWCore terms.
-data SAWCoreState solver n
+data SAWCoreState solver n fs
   = SAWCoreState
     { saw_ctx       :: SC.SharedContext                         -- ^ the main SAWCore datastructure for building shared terms
     , saw_inputs    :: IORef (Seq (SC.ExtCns SC.Term ))
@@ -81,7 +81,7 @@ data SAWCoreState solver n
 
     , saw_elt_cache :: B.IdxCache n SAWExpr
 
-    , saw_online_state :: OnlineBackendState solver n
+    , saw_online_state :: OnlineBackendState solver n fs
     }
 
 data SAWExpr (bt :: BaseType) where
@@ -184,7 +184,7 @@ sawCreateVar sym nm tp = do
 bindSAWTerm :: SAWCoreBackend n solver fs
             -> BaseTypeRepr bt
             -> SC.Term
-            -> IO (B.Expr n bt)
+            -> IO (B.Expr n fs bt)
 bindSAWTerm sym bt t = do
   st <- readIORef $ B.sbStateManager sym
   sbVar@(B.BoundVarExpr bv) <- freshConstant sym emptySymbol bt
@@ -221,7 +221,7 @@ newSAWCoreBackend fm sc gen = do
 -- arguments in regular (left-to-right) order.
 sawRegisterSymFunInterp ::
   SAWCoreBackend n solver fs ->
-  B.ExprSymFn n args ret ->
+  B.ExprSymFn n fs args ret ->
   (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
   IO ()
 sawRegisterSymFunInterp sym f i =
@@ -234,7 +234,7 @@ sawBackendSharedContext sym =
   saw_ctx <$> readIORef (B.sbStateManager sym)
 
 
-toSC :: SAWCoreBackend n solver fs -> B.Expr n tp -> IO SC.Term
+toSC :: SAWCoreBackend n solver fs -> B.Expr n fs tp -> IO SC.Term
 toSC sym elt =
   do st <- readIORef $ B.sbStateManager sym
      evaluateExpr sym (saw_ctx st) (saw_elt_cache st) elt
@@ -710,7 +710,7 @@ applyExprSymFn ::
   forall n solver fs args ret.
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
-  B.ExprSymFn n args ret ->
+  B.ExprSymFn n fs args ret ->
   Ctx.Assignment SAWExpr args ->
   IO (SAWExpr ret)
 applyExprSymFn sym sc fn args =
@@ -737,7 +737,7 @@ considerSatisfiability ::
   (OnlineSolver n solver) =>
   SAWCoreBackend n solver fs ->
   Maybe ProgramLoc ->
-  B.BoolExpr n ->
+  B.BoolExpr n fs ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
   withSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym $ \proc ->
@@ -767,15 +767,15 @@ evaluateExpr :: forall n solver tp fs.
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   B.IdxCache n SAWExpr ->
-  B.Expr n tp ->
+  B.Expr n fs tp ->
   IO SC.Term
 evaluateExpr sym sc cache = f []
   where
     -- Evaluate the element, and expect the result to have the same type.
-    f :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO SC.Term
+    f :: [Maybe SolverSymbol] -> B.Expr n fs tp' -> IO SC.Term
     f env elt = termOfSAWExpr sym sc =<< eval env elt
 
-    eval :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO (SAWExpr tp')
+    eval :: [Maybe SolverSymbol] -> B.Expr n fs tp' -> IO (SAWExpr tp')
     eval env elt = B.idxCacheEval cache elt (go env elt)
 
     realFail :: IO a
@@ -790,7 +790,7 @@ evaluateExpr sym sc cache = f []
     stringFail :: IO a
     stringFail = unsupported sym "SAW backend does not support string values"
 
-    go :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO (SAWExpr tp')
+    go :: [Maybe SolverSymbol] -> B.Expr n fs tp' -> IO (SAWExpr tp')
 
     go _ (B.BoolExpr b _) = SAWExpr <$> SC.scBool sc b
 
@@ -1215,7 +1215,7 @@ evaluateExpr sym sc cache = f []
 
     -- returns the logical negation of the result of 'go'
     -- negations are pushed inside conjunctions and less-than-or-equal
-    goNeg :: [Maybe SolverSymbol] -> B.Expr n BaseBoolType -> IO (SAWExpr BaseBoolType)
+    goNeg :: [Maybe SolverSymbol] -> B.Expr n fs BaseBoolType -> IO (SAWExpr BaseBoolType)
     goNeg env expr =
       case expr of
         -- negation of (x /\ y) becomes (~x \/ ~y)
@@ -1231,7 +1231,7 @@ evaluateExpr sym sc cache = f []
 
     -- returns the logical negation of the result of 'go'
     -- negations are pushed inside less-than-or-equal
-    goNegAtom :: [Maybe SolverSymbol] -> B.Expr n BaseBoolType -> IO (SAWExpr BaseBoolType)
+    goNegAtom :: [Maybe SolverSymbol] -> B.Expr n fs BaseBoolType -> IO (SAWExpr BaseBoolType)
     goNegAtom env expr =
       case expr of
         -- negation of (x <= y) becomes (y < x)
@@ -1245,7 +1245,7 @@ evaluateExpr sym sc cache = f []
 
 getAssumptionStack ::
   SAWCoreBackend s solver fs ->
-  IO (AssumptionStack (B.BoolExpr s) AssumptionReason SimError)
+  IO (AssumptionStack (B.BoolExpr s fs) AssumptionReason SimError)
 getAssumptionStack sym =
   (assumptionStack . saw_online_state) <$> readIORef (B.sbStateManager sym)
 

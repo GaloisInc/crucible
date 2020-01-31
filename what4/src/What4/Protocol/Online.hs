@@ -63,13 +63,14 @@ import           What4.Utils.HandleReader
 --   online interaction modes.
 class SMTReadWriter solver => OnlineSolver scope solver where
   -- | Start a new solver process attached to the given `ExprBuilder`.
-  startSolverProcess    :: ProblemFeatures -> Maybe Handle -> ExprBuilder scope st fs -> IO (SolverProcess scope solver)
+  startSolverProcess ::
+     ProblemFeatures -> Maybe Handle -> ExprBuilder scope st fs -> IO (SolverProcess scope fs solver)
 
   -- | Shut down a solver process.  The process will be asked to shut down in
   --   a "polite" way, e.g., by sending an `(exit)` message, or by closing
   --   the process's `stdin`.  Use `killProcess` instead to shutdown a process
   --   via a signal.
-  shutdownSolverProcess :: SolverProcess scope solver -> IO (ExitCode, LazyText.Text)
+  shutdownSolverProcess :: SolverProcess scope fs solver -> IO (ExitCode, LazyText.Text)
 
 
 -- | This datatype describes how a solver will behave following an error.
@@ -80,8 +81,8 @@ data ErrorBehavior
      --   commmands following an error
 
 -- | A live connection to a running solver process.
-data SolverProcess scope solver = SolverProcess
-  { solverConn  :: !(WriterConn scope solver)
+data SolverProcess scope fs solver = SolverProcess
+  { solverConn  :: !(WriterConn scope fs solver)
     -- ^ Writer for sending commands to the solver
 
   , solverHandle :: !ProcessHandle
@@ -119,7 +120,7 @@ data SolverProcess scope solver = SolverProcess
 -- | An impolite way to shut down a solver.  Prefer to use
 --   `shutdownSolverProcess`, unless the solver is unresponsive
 --   or in some unrecoverable error state.
-killSolver :: SolverProcess t solver -> IO ()
+killSolver :: SolverProcess t fs solver -> IO ()
 killSolver p =
   do catch (terminateProcess (solverHandle p)) (\(_ :: SomeException) -> return ())
      void $ waitForProcess (solverHandle p)
@@ -129,9 +130,9 @@ killSolver p =
 --   fresh frame, which is exited after the check call.
 checkSatisfiable ::
   SMTReadWriter solver =>
-  SolverProcess scope solver ->
+  SolverProcess scope fs solver ->
   String ->
-  BoolExpr scope ->
+  BoolExpr scope fs ->
   IO (SatResult () ())
 checkSatisfiable proc rsn p =
   readIORef (solverEarlyUnsat proc) >>= \case
@@ -149,10 +150,10 @@ checkSatisfiable proc rsn p =
 --   The model is valid only in the given continuation.
 checkSatisfiableWithModel ::
   SMTReadWriter solver =>
-  SolverProcess scope solver ->
+  SolverProcess scope fs solver ->
   String ->
-  BoolExpr scope ->
-  (SatResult (GroundEvalFn scope) () -> IO a) ->
+  BoolExpr scope fs ->
+  (SatResult (GroundEvalFn scope fs) () -> IO a) ->
   IO a
 checkSatisfiableWithModel proc rsn p k =
   readIORef (solverEarlyUnsat proc) >>= \case
@@ -166,7 +167,7 @@ checkSatisfiableWithModel proc rsn p k =
 --------------------------------------------------------------------------------
 -- Basic solver interaction.
 
-reset :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+reset :: SMTReadWriter solver => SolverProcess scope fs solver -> IO ()
 reset p =
   do let c = solverConn p
      resetEntryStack c
@@ -175,7 +176,7 @@ reset p =
      addCommand c (resetCommand c)
 
 -- | Push a new solver assumption frame.
-push :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+push :: SMTReadWriter solver => SolverProcess scope fs solver -> IO ()
 push p =
   readIORef (solverEarlyUnsat p) >>= \case
     Nothing -> do let c = solverConn p
@@ -184,7 +185,7 @@ push p =
     Just i  -> writeIORef (solverEarlyUnsat p) $! (Just $! i+1)
 
 -- | Pop a previous solver assumption frame.
-pop :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+pop :: SMTReadWriter solver => SolverProcess scope fs solver -> IO ()
 pop p =
   readIORef (solverEarlyUnsat p) >>= \case
     Nothing -> do let c = solverConn p
@@ -200,7 +201,7 @@ pop p =
 -- | Pop a previous solver assumption frame, but don't communicate
 --   the pop command to the solver.  This is really only useful in
 --   error recovery code when we know the solver has already exited.
-popStackOnly :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+popStackOnly :: SMTReadWriter solver => SolverProcess scope fs solver -> IO ()
 popStackOnly p =
   readIORef (solverEarlyUnsat p) >>= \case
     Nothing -> do let c = solverConn p
@@ -213,13 +214,13 @@ popStackOnly p =
 
 
 -- | Perform an action in the scope of a solver assumption frame.
-inNewFrame :: (MonadIO m, MonadMask m, SMTReadWriter solver) => SolverProcess scope solver -> m a -> m a
+inNewFrame :: (MonadIO m, MonadMask m, SMTReadWriter solver) => SolverProcess scope fs solver -> m a -> m a
 inNewFrame p action = inNewFrameWithVars p [] action
 
 -- | Perform an action in the scope of a solver assumption frame, where the given
 -- bound variables are considered free within that frame.
 inNewFrameWithVars :: (MonadIO m, MonadMask m, SMTReadWriter solver) 
-                   => SolverProcess scope solver
+                   => SolverProcess scope fs solver
                    -> [Some (ExprBoundVar scope)]
                    -> m a
                    -> m a
@@ -242,9 +243,9 @@ inNewFrameWithVars p vars action =
 
 checkWithAssumptions ::
   SMTReadWriter solver =>
-  SolverProcess scope solver ->
+  SolverProcess scope fs solver ->
   String ->
-  [BoolExpr scope] ->
+  [BoolExpr scope fs] ->
   IO ([Text], SatResult () ())
 checkWithAssumptions proc rsn ps =
   do let conn = solverConn proc
@@ -269,10 +270,10 @@ checkWithAssumptions proc rsn ps =
 
 checkWithAssumptionsAndModel ::
   SMTReadWriter solver =>
-  SolverProcess scope solver ->
+  SolverProcess scope fs solver ->
   String ->
-  [BoolExpr scope] ->
-  IO (SatResult (GroundEvalFn scope) ())
+  [BoolExpr scope fs] ->
+  IO (SatResult (GroundEvalFn scope fs) ())
 checkWithAssumptionsAndModel proc rsn ps =
   do (_nms, sat_result) <- checkWithAssumptions proc rsn ps
      case sat_result of
@@ -282,7 +283,7 @@ checkWithAssumptionsAndModel proc rsn ps =
 
 -- | Send a check command to the solver, and get the SatResult without asking
 --   a model.
-check :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult () ())
+check :: SMTReadWriter solver => SolverProcess scope fs solver -> String -> IO (SatResult () ())
 check p rsn =
   readIORef (solverEarlyUnsat p) >>= \case
     Just _  -> return (Unsat ())
@@ -303,7 +304,11 @@ check p rsn =
          return sat_result
 
 -- | Send a check command to the solver and get the model in the case of a SAT result.
-checkAndGetModel :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult (GroundEvalFn scope) ())
+checkAndGetModel ::
+  SMTReadWriter solver =>
+  SolverProcess scope fs solver ->
+  String ->
+  IO (SatResult (GroundEvalFn scope fs) ())
 checkAndGetModel yp rsn = do
   sat_result <- check yp rsn
   case sat_result of
@@ -313,7 +318,7 @@ checkAndGetModel yp rsn = do
 
 -- | Following a successful check-sat command, build a ground evaulation function
 --   that will evaluate terms in the context of the current model.
-getModel :: SMTReadWriter solver => SolverProcess scope solver -> IO (GroundEvalFn scope)
+getModel :: SMTReadWriter solver => SolverProcess scope fs solver -> IO (GroundEvalFn scope fs)
 getModel p = smtExprGroundEvalFn (solverConn p)
              $ smtEvalFuns (solverConn p) (solverResponse p)
 
@@ -322,7 +327,7 @@ getModel p = smtExprGroundEvalFn (solverConn p)
 --   Note: the returned unsatisfiable set might not be minimal.  The boolean value
 --   returned along with the name indicates if the assumption was negated or not:
 --   @True@ indidcates a positive atom, and @False@ represents a negated atom.
-getUnsatAssumptions :: SMTReadWriter solver => SolverProcess scope solver -> IO [(Bool,Text)]
+getUnsatAssumptions :: SMTReadWriter solver => SolverProcess scope fs solver -> IO [(Bool,Text)]
 getUnsatAssumptions proc =
   do let conn = solverConn proc
      unless (supportedFeatures conn `hasProblemFeature` useUnsatAssumptions) $
@@ -333,7 +338,7 @@ getUnsatAssumptions proc =
 -- | After an unsatisfiable check-sat command, compute a set of the named assertions
 --   that (together with all the unnamed assertions) form an unsatisfiable core.
 --   Note: the returned unsatisfiable core might not be minimal.
-getUnsatCore :: SMTReadWriter solver => SolverProcess scope solver -> IO [Text]
+getUnsatCore :: SMTReadWriter solver => SolverProcess scope fs solver -> IO [Text]
 getUnsatCore proc =
   do let conn = solverConn proc
      unless (supportedFeatures conn `hasProblemFeature` useUnsatCores) $
@@ -342,7 +347,7 @@ getUnsatCore proc =
      smtUnsatCoreResult conn (solverResponse proc)
 
 -- | Get the sat result from a previous SAT command.
-getSatResult :: SMTReadWriter s => SolverProcess t s -> IO (SatResult () ())
+getSatResult :: SMTReadWriter s => SolverProcess t fs s -> IO (SatResult () ())
 getSatResult yp = do
   let ph = solverHandle yp
   let err_reader = solverStderr yp

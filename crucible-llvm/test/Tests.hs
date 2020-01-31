@@ -378,7 +378,7 @@ assume sym p = do
 checkSat ::
   What4.OnlineSolver scope solver =>
   Crucible.OnlineBackend scope solver fs ->
-  What4.BoolExpr scope ->
+  What4.BoolExpr scope fs ->
   IO (What4.SatResult () ())
 checkSat sym p = do
   Crucible.withSolverProcess sym $ \proc ->

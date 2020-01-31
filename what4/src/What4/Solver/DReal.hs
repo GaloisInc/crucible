@@ -105,7 +105,7 @@ instance SMT2.SMTLib2Tweaks DReal where
 writeDRealSMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> [BoolExpr t]
+   -> [BoolExpr t fs]
    -> IO ()
 writeDRealSMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
@@ -128,9 +128,9 @@ parseDRealModel h = do
    let ls = drop 1 $ UTF8.lines str
    Map.fromList <$> mapM parseDRealBinding ls
 
-getAvgBindings :: SMT2.WriterConn t (SMT2.Writer DReal)
+getAvgBindings :: SMT2.WriterConn t fs (SMT2.Writer DReal)
                -> DRealBindings
-               -> IO (GroundEvalFn t)
+               -> IO (GroundEvalFn t fs)
 getAvgBindings c m = do
   let evalBool _ = fail "dReal does not support Boolean vars"
       evalBV _ _ = fail "dReal does not support bitvectors."
@@ -148,9 +148,9 @@ getAvgBindings c m = do
   SMTWriter.smtExprGroundEvalFn c evalFns
 
 getMaybeEval :: ((Maybe Rational, Maybe Rational) -> Maybe Rational)
-             -> SMT2.WriterConn t (SMT2.Writer DReal)
+             -> SMT2.WriterConn t fs (SMT2.Writer DReal)
              -> DRealBindings
-             -> IO (RealExpr t -> IO (Maybe Rational))
+             -> IO (RealExpr t fs -> IO (Maybe Rational))
 getMaybeEval proj c m = do
   let evalBool _ = fail "dReal does not return Boolean value"
       evalBV _ _ = fail "dReal does not return Bitvector values."
@@ -174,9 +174,9 @@ getMaybeEval proj c m = do
       handler e = throwIO e
   return $ \elt -> (Just <$> evalFn elt) `catch` handler
 
-getBoundBindings :: SMT2.WriterConn t (SMT2.Writer DReal)
+getBoundBindings :: SMT2.WriterConn t fs (SMT2.Writer DReal)
                  -> DRealBindings
-                 -> IO (ExprRangeBindings t)
+                 -> IO (ExprRangeBindings t fs)
 getBoundBindings c m = do
   l_evalFn <- getMaybeEval fst c m
   h_evalFn <- getMaybeEval snd c m
@@ -251,8 +251,8 @@ parseNextWord = do
 runDRealInOverride
    :: ExprBuilder t st fs
    -> LogData
-   -> [BoolExpr t]   -- ^ propositions to check
-   -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) () -> IO a)
+   -> [BoolExpr t fs]   -- ^ propositions to check
+   -> (SatResult (SMT2.WriterConn t fs (SMT2.Writer DReal), DRealBindings) () -> IO a)
    -> IO a
 runDRealInOverride sym logData ps modelFn = do
   p <- andAllOf sym folded ps

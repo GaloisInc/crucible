@@ -125,7 +125,7 @@ cvc4Features = useComputableReals
 writeMultiAsmpCVC4SMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> [BoolExpr t]
+   -> [BoolExpr t fs]
    -> IO ()
 writeMultiAsmpCVC4SMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
@@ -141,7 +141,7 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
 writeCVC4SMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> [BoolExpr t]
+   -> [BoolExpr t fs]
    -> IO ()
 writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 
@@ -167,8 +167,8 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
 runCVC4InOverride
   :: ExprBuilder t st fs
   -> LogData
-  -> [BoolExpr t]
-  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
+  -> [BoolExpr t fs]
+  -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
   -> IO a
 runCVC4InOverride = SMT2.runSolverInOverride CVC4 nullAcknowledgementAction (SMT2.defaultFeatures CVC4)
 
@@ -179,14 +179,14 @@ withCVC4
   -> FilePath
     -- ^ Path to CVC4 executable
   -> LogData
-  -> (SMT2.Session t CVC4 -> IO a)
+  -> (SMT2.Session t fs CVC4 -> IO a)
     -- ^ Action to run
   -> IO a
 withCVC4 = SMT2.withSolver CVC4 nullAcknowledgementAction (SMT2.defaultFeatures CVC4)
 
 setInteractiveLogicAndOptions ::
   SMT2.SMTLib2Tweaks a =>
-  WriterConn t (SMT2.Writer a) ->
+  WriterConn t fs (SMT2.Writer a) ->
   IO ()
 setInteractiveLogicAndOptions writer = do
     -- Tell CVC4 to acknowledge successful commands

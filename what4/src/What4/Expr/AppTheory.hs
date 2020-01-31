@@ -38,7 +38,7 @@ data AppTheory
      -- ^ Theory attributed application functions.
    deriving (Eq, Ord)
 
-quantTheory :: NonceApp t (Expr t) tp -> AppTheory
+quantTheory :: NonceApp t fs (Expr t fs) tp -> AppTheory
 quantTheory a0 =
   case a0 of
     Forall{} -> QuantifierTheory
@@ -61,7 +61,7 @@ typeTheory tp = case tp of
   BaseStructRepr _  -> StructTheory
   BaseArrayRepr _ _ -> ArrayTheory
 
-appTheory :: App (Expr t) tp -> AppTheory
+appTheory :: App fs (Expr t fs) tp -> AppTheory
 appTheory a0 =
   case a0 of
     ----------------------------

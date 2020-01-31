@@ -39,10 +39,10 @@ import qualified What4.Expr.WeightedSum as WSum
 
 data NormCache t st fs
    = NormCache { ncBuilder :: !(ExprBuilder t st fs)
-               , ncTable :: !(PH.HashTable RealWorld (Expr t) (Expr t))
+               , ncTable :: !(PH.HashTable RealWorld (Expr t fs) (Expr t fs))
                }
 
-norm :: NormCache t st fs -> Expr t tp -> IO (Expr t tp)
+norm :: NormCache t st fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm c e = do
   mr <- stToIO $ PH.lookup (ncTable c) e
   case mr of
@@ -52,9 +52,9 @@ norm c e = do
       stToIO $ PH.insert (ncTable c) e r
       return r
 
-bvIteDist :: (BoolExpr t -> r -> r -> IO r)
-          -> Expr t i
-          -> (Expr t i -> IO r)
+bvIteDist :: (BoolExpr t fs -> r -> r -> IO r)
+          -> Expr t fs i
+          -> (Expr t fs i -> IO r)
           -> IO r
 bvIteDist muxFn (asApp -> Just (BaseIte _ _ c t f)) atomFn = do
   t' <- bvIteDist muxFn t atomFn
@@ -70,14 +70,14 @@ instance Applicative Or where
   pure _ = Or False
   (Or a) <*> (Or b) = Or (a || b)
 
-norm' :: forall t st fs tp . PH.HashableF (Expr t) => NormCache t st fs -> Expr t tp -> IO (Expr t tp)
+norm' :: forall t st fs tp . PH.HashableF (Expr t fs) => NormCache t st fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm' nc (AppExpr a0) = do
   let sb = ncBuilder nc
   case appExprApp a0 of
     SemiRingSum s
       | let sr = WSum.sumRepr s
       , SR.SemiRingBVRepr SR.BVArithRepr w <- sr
-      , unOr (WSum.traverseVars @(Expr t) (\x -> Or (iteSize x >= 1)) s)
+      , unOr (WSum.traverseVars @(Expr t fs) (\x -> Or (iteSize x >= 1)) s)
       -> do let tms = WSum.eval (++) (\c x -> [(c,x)]) (const []) s
             let f [] k = bvLit sb w (s^.WSum.sumOffset) >>= k
                 f ((c,x):xs) k =
@@ -119,7 +119,7 @@ norm' nc (NonceAppExpr p0) = do
 norm' _ e = return e
 
 -- | Simplify a Boolean expression by distributing over ite.
-simplify :: ExprBuilder t st fs -> BoolExpr t -> IO (BoolExpr t)
+simplify :: ExprBuilder t st fs -> BoolExpr t fs -> IO (BoolExpr t fs)
 simplify sb p = do
   tbl <- stToIO $ PH.new
   let nc = NormCache { ncBuilder = sb
@@ -140,7 +140,7 @@ recordExpr n = do
   put $ m'
   return $! isNothing mr
 
-count_subterms' :: Expr t tp -> Counter ()
+count_subterms' :: Expr t fs tp -> Counter ()
 count_subterms' e0 =
   case e0 of
     BoolExpr{} -> pure () 
@@ -159,7 +159,7 @@ count_subterms' e0 =
 
 -- | Return a map from nonce indices to the number of times an elt with that
 -- nonce appears in the subterm.
-count_subterms :: Expr t tp -> Map Word64 Int
+count_subterms :: Expr t fs tp -> Map Word64 Int
 count_subterms e = execState (count_subterms' e) Map.empty
 
 {-

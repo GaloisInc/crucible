@@ -90,8 +90,8 @@ instance SMT2.SMTLib2GenericSolver STP where
 runSTPInOverride
   :: ExprBuilder t st fs
   -> LogData
-  -> [BoolExpr t]
-  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
+  -> [BoolExpr t fs]
+  -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
   -> IO a
 runSTPInOverride = SMT2.runSolverInOverride STP nullAcknowledgementAction (SMT2.defaultFeatures STP)
 
@@ -102,7 +102,7 @@ withSTP
   -> FilePath
     -- ^ Path to STP executable
   -> LogData
-  -> (SMT2.Session t STP -> IO a)
+  -> (SMT2.Session t fs STP -> IO a)
     -- ^ Action to run
   -> IO a
 withSTP = SMT2.withSolver STP nullAcknowledgementAction (SMT2.defaultFeatures STP)

@@ -544,22 +544,23 @@ instance SupportTermOps Term where
 ------------------------------------------------------------------------
 -- Writer
 
-newWriter :: a
-          -> Streams.OutputStream Text
-          -> AcknowledgementAction t (Writer a)
-             -- ^ Action to run for consuming acknowledgement messages
-          -> String
-             -- ^ Name of solver for reporting purposes.
-          -> Bool
-             -- ^ Flag indicating if it is permitted to use
-             -- "define-fun" when generating SMTLIB
-          -> ProblemFeatures
-             -- ^ Indicates what level of arithmetic is supported by solver.
-          -> Bool
-             -- ^ Indicates if quantifiers are supported.
-          -> B.SymbolVarBimap t
-             -- ^ Variable bindings for names.
-          -> IO (WriterConn t (Writer a))
+newWriter ::
+  a ->
+  Streams.OutputStream Text ->
+  AcknowledgementAction t fs (Writer a)
+   {- ^ Action to run for consuming acknowledgement messages -} ->
+  String
+   {- ^ Name of solver for reporting purposes. -} ->
+  Bool
+   {- ^ Flag indicating if it is permitted to use
+        "define-fun" when generating SMTLIB -} ->
+  ProblemFeatures
+   {- ^ Indicates what level of arithmetic is supported by solver. -} ->
+  Bool
+   {- ^ Indicates if quantifiers are supported. -} ->
+  B.SymbolVarBimap t fs
+   {- ^ Variable bindings for names. -} ->
+  IO (WriterConn t fs (Writer a))
 newWriter _ h ack solver_name permitDefineFun arithOption quantSupport bindings = do
   r <- newIORef Set.empty
   let initWriter =
@@ -646,29 +647,29 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
        Streams.write (Just "") (connHandle conn)
 
 -- | Write check sat command
-writeCheckSat :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
+writeCheckSat :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> IO ()
 writeCheckSat w = addCommandNoAck w SMT2.checkSat
 
-writeExit :: forall a t. SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
+writeExit :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> IO ()
 writeExit w = addCommand w SMT2.exit
 
-setLogic :: SMTLib2Tweaks a => WriterConn t (Writer a) -> SMT2.Logic -> IO ()
+setLogic :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> SMT2.Logic -> IO ()
 setLogic w l = addCommand w $ SMT2.setLogic l
 
-setOption :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Text -> Text -> IO ()
+setOption :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> Text -> Text -> IO ()
 setOption w nm val = addCommand w $ SMT2.setOption nm val
 
-getVersion :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
+getVersion :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> IO ()
 getVersion w = writeCommand w $ SMT2.getVersion
 
-getName :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
+getName :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> IO ()
 getName w = writeCommand w $ SMT2.getName
 
 -- | Set the produce models option (We typically want this)
-setProduceModels :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Bool -> IO ()
+setProduceModels :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> Bool -> IO ()
 setProduceModels w b = addCommand w $ SMT2.setProduceModels b
 
-writeGetValue :: SMTLib2Tweaks a => WriterConn t (Writer a) -> [Term] -> IO ()
+writeGetValue :: SMTLib2Tweaks a => WriterConn t fs (Writer a) -> [Term] -> IO ()
 writeGetValue w l = addCommandNoAck w $ SMT2.getValue l
 
 parseBoolSolverValue :: MonadFail m => SExp -> m Bool
@@ -752,8 +753,8 @@ parseBvArraySolverValue _ _ _ = return Nothing
 -- Session
 
 -- | This is an interactive session with an SMT solver
-data Session t a = Session
-  { sessionWriter   :: !(WriterConn t (Writer a))
+data Session t fs a = Session
+  { sessionWriter   :: !(WriterConn t fs (Writer a))
   , sessionResponse :: !(Streams.InputStream Text)
   }
 
@@ -770,7 +771,7 @@ parseSMTLib2String = AT.char '\"' >> go
 
 -- | Get a value from a solver (must be called after checkSat)
 runGetValue :: SMTLib2Tweaks a
-            => Session t a
+            => Session t fs a
             -> Term
             -> IO SExp
 runGetValue s e = do
@@ -782,10 +783,10 @@ runGetValue s e = do
     Right sexp -> fail $ "Could not parse solver value:\n  " ++ show sexp
 
 -- | This function runs a check sat command
-runCheckSat :: forall b t a.
+runCheckSat :: forall b t fs a.
                SMTLib2Tweaks b
-            => Session t b
-            -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
+            => Session t fs b
+            -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
                -- ^ Function for evaluating model.
                -- The evaluation should be complete before
             -> IO a
@@ -802,7 +803,7 @@ runCheckSat s doEval =
             doEval (Sat (evalFn, Nothing))
 
 -- | Called when methods in the following instance encounter an exception
-throwSMTLib2ParseError :: (Exception e) => Text -> SMT2.Command -> e -> m a
+throwSMTLib2ParseError :: Exception e => Text -> SMT2.Command -> e -> m a
 throwSMTLib2ParseError what cmd e =
   throw $ SMTLib2ParseError [cmd] $ Text.unlines
     [ Text.unwords ["Could not parse result from", what, "."]
@@ -876,7 +877,7 @@ instance Show SMTLib2Exception where
 
 instance Exception SMTLib2Exception
 
-smtAckResult :: Streams.InputStream Text -> AcknowledgementAction t (Writer a)
+smtAckResult :: Streams.InputStream Text -> AcknowledgementAction t fs (Writer a)
 smtAckResult resp = AckAction $ \_conn cmd ->
   do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) resp)
      case mb of
@@ -890,7 +891,7 @@ smtAckResult resp = AckAction $ \_conn cmd ->
                        ]
 
 smtLibEvalFuns ::
-  forall t a. SMTLib2Tweaks a => Session t a -> SMTEvalFunctions (Writer a)
+  SMTLib2Tweaks a => Session t fs a -> SMTEvalFunctions (Writer a)
 smtLibEvalFuns s = SMTEvalFunctions
                   { smtEvalBool = evalBool
                   , smtEvalBV = evalBV
@@ -917,31 +918,29 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 
   defaultFeatures :: a -> ProblemFeatures
 
-  setDefaultLogicAndOptions :: WriterConn t (Writer a) -> IO()
+  setDefaultLogicAndOptions :: WriterConn t fs (Writer a) -> IO()
 
-  newDefaultWriter
-    :: a ->
-       AcknowledgementAction t (Writer a) ->
-       ProblemFeatures ->
-       B.ExprBuilder t st fs ->
-       Streams.OutputStream Text ->
-       IO (WriterConn t (Writer a))
+  newDefaultWriter ::
+    a ->
+    AcknowledgementAction t fs (Writer a) ->
+    ProblemFeatures ->
+    B.ExprBuilder t st fs ->
+    Streams.OutputStream Text ->
+    IO (WriterConn t fs (Writer a))
   newDefaultWriter solver ack feats sym h =
     newWriter solver h ack (show solver) True feats True
       =<< B.getSymbolVarBimap sym
 
   -- | Run the solver in a session.
-  withSolver
-    :: a
-    -> AcknowledgementAction t (Writer a)
-    -> ProblemFeatures
-    -> B.ExprBuilder t st fs
-    -> FilePath
-      -- ^ Path to solver executable
-    -> LogData
-    -> (Session t a -> IO b)
-      -- ^ Action to run
-    -> IO b
+  withSolver ::
+    a ->
+    AcknowledgementAction t fs (Writer a) ->
+    ProblemFeatures ->
+    B.ExprBuilder t st fs ->
+    FilePath {- ^ Path to solver executable -} ->
+    LogData ->
+    (Session t fs a -> IO b) {- ^ Action to run -} ->
+    IO b
   withSolver solver ack feats sym path logData action = do
     args <- defaultSolverArgs solver sym
     withProcessHandles path args Nothing $
@@ -972,15 +971,15 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
           Exit.ExitFailure exit_code -> fail $
             show solver ++ " exited with unexpected code: " ++ show exit_code
 
-  runSolverInOverride
-    :: a
-    -> AcknowledgementAction t (Writer a)
-    -> ProblemFeatures
-    -> B.ExprBuilder t st fs
-    -> LogData
-    -> [B.BoolExpr t]
-    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO b)
-    -> IO b
+  runSolverInOverride ::
+    a ->
+    AcknowledgementAction t fs (Writer a) ->
+    ProblemFeatures ->
+    B.ExprBuilder t st fs ->
+    LogData ->
+    [B.BoolExpr t fs] ->
+    (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO b) ->
+    IO b
   runSolverInOverride solver ack feats sym logData predicates cont = do
     I.logSolverEvent sym
       I.SolverStartSATQuery
@@ -1002,16 +1001,15 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 
 -- | A default method for writing SMTLib2 problems without any
 --   solver-specific tweaks.
-writeDefaultSMT2 :: SMTLib2Tweaks a
-                 => a
-                 -> String
-                    -- ^ Name of solver for reporting.
-                 -> ProblemFeatures
-                    -- ^ Features supported by solver
-                 -> B.ExprBuilder t st fs
-                 -> IO.Handle
-                 -> [B.BoolExpr t]
-                 -> IO ()
+writeDefaultSMT2 ::
+  SMTLib2Tweaks a =>
+  a ->
+  String {- ^ Name of solver for reporting. -} ->
+  ProblemFeatures {- ^ Features supported by solver -} ->
+  B.ExprBuilder t st fs ->
+  IO.Handle ->
+  [B.BoolExpr t fs] ->
+  IO ()
 writeDefaultSMT2 a nm feat sym h ps = do
   bindings <- B.getSymbolVarBimap sym
   str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
@@ -1021,16 +1019,17 @@ writeDefaultSMT2 a nm feat sym h ps = do
   writeCheckSat c
   writeExit c
 
-startSolver
-  :: SMTLib2GenericSolver a
-  => a
-  -> (Streams.InputStream Text -> AcknowledgementAction t (Writer a))
-        -- ^ Action for acknowledging command responses
-  -> (WriterConn t (Writer a) -> IO ()) -- ^ Action for setting start-up-time options and logic
-  -> ProblemFeatures
-  -> Maybe IO.Handle
-  -> B.ExprBuilder t st fs
-  -> IO (SolverProcess t (Writer a))
+startSolver ::
+  SMTLib2GenericSolver a =>
+  a ->
+  (Streams.InputStream Text -> AcknowledgementAction t fs (Writer a))
+     {- ^ Action for acknowledging command responses -} ->
+  (WriterConn t fs (Writer a) -> IO ())
+     {- ^ Action for setting start-up-time options and logic -} ->
+  ProblemFeatures ->
+  Maybe IO.Handle ->
+  B.ExprBuilder t st fs ->
+  IO (SolverProcess t fs (Writer a))
 startSolver solver ack setup feats auxOutput sym = do
   path <- defaultSolverPath solver sym
   args <- defaultSolverArgs solver sym
@@ -1076,7 +1075,7 @@ startSolver solver ack setup feats auxOutput sym = do
 
 
 shutdownSolver
-  :: SMTLib2GenericSolver a => a -> SolverProcess t (Writer a) -> IO (Exit.ExitCode, Lazy.Text)
+  :: SMTLib2GenericSolver a => a -> SolverProcess t fs (Writer a) -> IO (Exit.ExitCode, Lazy.Text)
 shutdownSolver _solver p = do
   -- Tell solver to exit
   writeExit (solverConn p)
@@ -1157,7 +1156,7 @@ nameResult _ s =
 
 -- | Query the solver's error behavior setting
 queryErrorBehavior :: SMTLib2Tweaks a =>
-  WriterConn t (Writer a) -> Streams.InputStream Text -> IO ErrorBehavior
+  WriterConn t fs (Writer a) -> Streams.InputStream Text -> IO ErrorBehavior
 queryErrorBehavior conn resp =
   do let cmd = SMT2.getErrorBehavior
      writeCommand conn cmd
@@ -1186,7 +1185,7 @@ versionResult _ s =
 checkSolverVersion' :: SMTLib2Tweaks solver =>
   Map String Version {- ^ min version bounds (inclusive) -} ->
   Map String Version {- ^ max version bounds (non-inclusive) -} ->
-  SolverProcess scope (Writer solver) ->
+  SolverProcess scope fs (Writer solver) ->
   IO (Either SolverVersionCheckError (Maybe SolverVersionError))
 checkSolverVersion' mins maxes proc =
   let conn = solverConn proc
@@ -1218,8 +1217,9 @@ checkSolverVersion' mins maxes proc =
 
 
 -- | Ensure the solver's version falls within a known-good range.
-checkSolverVersion :: SMTLib2Tweaks solver =>
-  SolverProcess scope (Writer solver) ->
+checkSolverVersion ::
+  SMTLib2Tweaks solver =>
+  SolverProcess scope fs (Writer solver) ->
   IO (Either SolverVersionCheckError (Maybe SolverVersionError))
 checkSolverVersion =
   checkSolverVersion' solverMinVersions solverMaxVersions

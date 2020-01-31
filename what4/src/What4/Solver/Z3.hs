@@ -126,7 +126,7 @@ z3Features = useNonlinearArithmetic
 writeZ3SMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> [BoolExpr t]
+   -> [BoolExpr t fs]
    -> IO ()
 writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 
@@ -155,8 +155,8 @@ instance SMT2.SMTLib2GenericSolver Z3 where
 runZ3InOverride
   :: ExprBuilder t st fs
   -> LogData
-  -> [BoolExpr t]
-  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
+  -> [BoolExpr t fs]
+  -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
   -> IO a
 runZ3InOverride = SMT2.runSolverInOverride Z3 nullAcknowledgementAction z3Features
 
@@ -167,7 +167,7 @@ withZ3
   -> FilePath
     -- ^ Path to CVC4 executable
   -> LogData
-  -> (SMT2.Session t Z3 -> IO a)
+  -> (SMT2.Session t fs Z3 -> IO a)
     -- ^ Action to run
   -> IO a
 withZ3 = SMT2.withSolver Z3 nullAcknowledgementAction z3Features
@@ -175,7 +175,7 @@ withZ3 = SMT2.withSolver Z3 nullAcknowledgementAction z3Features
 
 setInteractiveLogicAndOptions ::
   SMT2.SMTLib2Tweaks a =>
-  WriterConn t (SMT2.Writer a) ->
+  WriterConn t fs (SMT2.Writer a) ->
   IO ()
 setInteractiveLogicAndOptions writer = do
     -- Tell Z3 to acknowledge successful commands

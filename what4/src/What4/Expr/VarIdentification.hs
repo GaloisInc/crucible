@@ -71,66 +71,66 @@ data BoundQuant = ForallBound | ExistBound
 
 -- | Contains all information about a bound variable appearing in the
 -- expression.
-data QuantifierInfo t tp
+data QuantifierInfo t fs tp
    = BVI { -- | The outer term containing the binding (e.g., Ax.f(x))
-           boundTopTerm :: !(NonceAppExpr t BaseBoolType)
+           boundTopTerm :: !(NonceAppExpr t fs BaseBoolType)
            -- | The type of quantifier that appears
          , boundQuant :: !BoundQuant
            -- | The variable that is bound
            -- Variables may be bound multiple times.
          , boundVar   :: !(ExprBoundVar t tp)
            -- | The term that appears inside the binding.
-         , boundInnerTerm :: !(Expr t BaseBoolType)
+         , boundInnerTerm :: !(Expr t fs BaseBoolType)
          }
 
 -- This is a map from quantified formulas to the information about the
 -- formula.
-type QuantifierInfoMap t = Map (NonceAppExpr t BaseBoolType) (Some (QuantifierInfo t))
+type QuantifierInfoMap t fs = Map (NonceAppExpr t fs BaseBoolType) (Some (QuantifierInfo t fs))
 
 -- Due to sharing, a variable may be both existentially and universally quantified even
 -- though it is technically bound once.
-data CollectedVarInfo t
+data CollectedVarInfo t fs
    = CollectedVarInfo { _problemFeatures :: !ProblemFeatures
                       , _uninterpConstants :: !(Set (Some (ExprBoundVar t)))
-                      , _existQuantifiers  :: !(QuantifierInfoMap t)
-                      , _forallQuantifiers :: !(QuantifierInfoMap t)
+                      , _existQuantifiers  :: !(QuantifierInfoMap t fs)
+                      , _forallQuantifiers :: !(QuantifierInfoMap t fs)
                       , _latches  :: !(Set (Some (ExprBoundVar t)))
                         -- | List of errors found during parsing.
                       , _varErrors :: !(Seq Doc)
                       }
 
 -- | Describes types of functionality required by solver based on the problem.
-problemFeatures :: Simple Lens (CollectedVarInfo t) ProblemFeatures
+problemFeatures :: Lens' (CollectedVarInfo t fs) ProblemFeatures
 problemFeatures = lens _problemFeatures (\s v -> s { _problemFeatures = v })
 
-uninterpConstants :: Simple Lens (CollectedVarInfo t) (Set (Some (ExprBoundVar t)))
+uninterpConstants :: Lens' (CollectedVarInfo t fs) (Set (Some (ExprBoundVar t)))
 uninterpConstants = lens _uninterpConstants (\s v -> s { _uninterpConstants = v })
 
 -- | Expressions appearing in the problem as existentially quantified when
 -- the problem is expressed in negation normal form.  This is a map
 -- from the existential quantifier element to the info.
-existQuantifiers :: Simple Lens (CollectedVarInfo t) (QuantifierInfoMap t)
+existQuantifiers :: Lens' (CollectedVarInfo t fs) (QuantifierInfoMap t fs)
 existQuantifiers = lens _existQuantifiers (\s v -> s { _existQuantifiers = v })
 
 -- | Expressions appearing in the problem as existentially quantified when
 -- the problem is expressed in negation normal form.  This is a map
 -- from the existential quantifier element to the info.
-forallQuantifiers :: Simple Lens (CollectedVarInfo t) (QuantifierInfoMap t)
+forallQuantifiers :: Lens' (CollectedVarInfo t fs) (QuantifierInfoMap t fs)
 forallQuantifiers = lens _forallQuantifiers (\s v -> s { _forallQuantifiers = v })
 
-latches :: Simple Lens (CollectedVarInfo t) (Set (Some (ExprBoundVar t)))
+latches :: Lens' (CollectedVarInfo t fs) (Set (Some (ExprBoundVar t)))
 latches = lens _latches (\s v -> s { _latches = v })
 
-varErrors :: Simple Lens (CollectedVarInfo t) (Seq Doc)
+varErrors :: Lens' (CollectedVarInfo t fs) (Seq Doc)
 varErrors = lens _varErrors (\s v -> s { _varErrors = v })
 
 -- | Return variables needed to define element as a predicate
-predicateVarInfo :: Expr t BaseBoolType -> CollectedVarInfo t
+predicateVarInfo :: Expr t fs BaseBoolType -> CollectedVarInfo t fs
 predicateVarInfo e = runST $ collectVarInfo $ recordAssertionVars ExistsOnly Positive e
 
-newtype VarRecorder s t a
+newtype VarRecorder s t fs a
       = VR { unVR :: ReaderT (H.HashTable s Word64 (Maybe Polarity))
-                             (StateT (CollectedVarInfo t) (ST s))
+                             (StateT (CollectedVarInfo t fs) (ST s))
                              a
            }
   deriving ( Functor
@@ -140,7 +140,7 @@ newtype VarRecorder s t a
            , MonadST s
            )
 
-collectVarInfo :: VarRecorder s t () -> ST s (CollectedVarInfo t)
+collectVarInfo :: VarRecorder s t fs () -> ST s (CollectedVarInfo t fs)
 collectVarInfo m = do
   h <- H.new
   let s = CollectedVarInfo { _problemFeatures = noFeatures
@@ -152,11 +152,11 @@ collectVarInfo m = do
                     }
   execStateT (runReaderT (unVR m) h) s
 
-addFeatures :: ProblemFeatures -> VarRecorder s t ()
+addFeatures :: ProblemFeatures -> VarRecorder s t fs ()
 addFeatures f = VR $ problemFeatures %= (.|. f)
 
 -- | Add the featured expected by a variable with the given type.
-addFeaturesForVarType :: BaseTypeRepr tp -> VarRecorder s t ()
+addFeaturesForVarType :: BaseTypeRepr tp -> VarRecorder s t fs ()
 addFeaturesForVarType tp =
   case tp of
     BaseBoolRepr     -> return ()
@@ -179,11 +179,11 @@ data Scope
 
 addExistVar :: Scope -- ^ Quantifier scope
             -> Polarity -- ^ Polarity of variable
-            -> NonceAppExpr t BaseBoolType -- ^ Top term
+            -> NonceAppExpr t fs BaseBoolType -- ^ Top term
             -> BoundQuant                 -- ^ Quantifier appearing in top term.
             -> ExprBoundVar t tp
-            -> Expr t BaseBoolType
-            -> VarRecorder s t ()
+            -> Expr t fs BaseBoolType
+            -> VarRecorder s t fs ()
 addExistVar ExistsOnly p e q v x = do
   let info = BVI { boundTopTerm = e
                  , boundQuant = q
@@ -196,11 +196,11 @@ addExistVar ExistsForall _ _ _ _ _ = do
   fail $ "what4 does not allow existental variables to appear inside forall quantifier."
 
 addForallVar :: Polarity -- ^ Polarity of formula
-             -> NonceAppExpr t BaseBoolType -- ^ Top term
+             -> NonceAppExpr t fs BaseBoolType -- ^ Top term
              -> BoundQuant            -- ^ Quantifier appearing in top term.
              -> ExprBoundVar t tp   -- ^ Bound variable
-             -> Expr t BaseBoolType    -- ^ Expression inside quant
-             -> VarRecorder s t ()
+             -> Expr t fs BaseBoolType    -- ^ Expression inside quant
+             -> VarRecorder s t fs ()
 addForallVar p e q v x = do
   let info = BVI { boundTopTerm = e
                  , boundQuant = q
@@ -213,11 +213,11 @@ addForallVar p e q v x = do
 -- | Record a Forall/Exists quantifier is found in a context where
 -- it will appear both positively and negatively.
 addBothVar :: Scope                 -- ^ Scope where binding is seen.
-           -> NonceAppExpr t BaseBoolType -- ^ Top term
+           -> NonceAppExpr t fs BaseBoolType -- ^ Top term
            -> BoundQuant            -- ^ Quantifier appearing in top term.
            -> ExprBoundVar t tp   -- ^ Variable that is bound.
-           -> Expr t BaseBoolType    -- ^ Predicate over bound variable.
-           -> VarRecorder s t ()
+           -> Expr t fs BaseBoolType    -- ^ Predicate over bound variable.
+           -> VarRecorder s t fs ()
 addBothVar ExistsOnly e q v x = do
   let info = BVI { boundTopTerm = e
                  , boundQuant = q
@@ -235,9 +235,9 @@ recordAssertionVars :: Scope
                        -- ^ Scope of assertion
                     -> Polarity
                        -- ^ Polarity of this formula.
-                    -> Expr t BaseBoolType
+                    -> Expr t fs BaseBoolType
                        -- ^ Predicate to assert
-                    -> VarRecorder s t ()
+                    -> VarRecorder s t fs ()
 recordAssertionVars scope p e@(AppExpr ae) = do
   ht <- VR ask
   let idx = indexValue (appExprId ae)
@@ -276,8 +276,8 @@ recordAssertionVars scope _ e = do
 -- | This records asserted variables in an app expr.
 recurseAssertedNonceAppExprVars :: Scope
                            -> Polarity
-                           -> NonceAppExpr t BaseBoolType
-                           -> VarRecorder s t ()
+                           -> NonceAppExpr t fs BaseBoolType
+                           -> VarRecorder s t fs ()
 recurseAssertedNonceAppExprVars scope p ea0 =
   case nonceExprApp ea0 of
     Forall v x -> do
@@ -297,7 +297,7 @@ recurseAssertedNonceAppExprVars scope p ea0 =
     _ -> recurseNonceAppVars scope ea0
 
 -- | This records asserted variables in an app expr.
-recurseAssertedAppExprVars :: Scope -> Polarity -> Expr t BaseBoolType -> VarRecorder s t ()
+recurseAssertedAppExprVars :: Scope -> Polarity -> Expr t fs BaseBoolType -> VarRecorder s t fs ()
 recurseAssertedAppExprVars scope p e = go e
  where
  go BoolExpr{} = return ()
@@ -322,7 +322,7 @@ recurseAssertedAppExprVars scope p e = go e
  go _ = recordExprVars scope e
 
 
-memoExprVars :: Nonce t (tp::BaseType) -> VarRecorder s t () -> VarRecorder s t ()
+memoExprVars :: Nonce t (tp::BaseType) -> VarRecorder s t fs () -> VarRecorder s t fs ()
 memoExprVars n recurse = do
   let idx = indexValue n
   ht <- VR ask
@@ -334,7 +334,7 @@ memoExprVars n recurse = do
       liftST $ H.insert ht idx Nothing
 
 -- | Record the variables in an element.
-recordExprVars :: Scope -> Expr t tp -> VarRecorder s t ()
+recordExprVars :: Scope -> Expr t fs tp -> VarRecorder s t fs ()
 recordExprVars _ (SemiRingLiteral sr _ _) =
   case sr of
     SR.SemiRingBVRepr _ _ -> addFeatures useBitvectors
@@ -357,7 +357,7 @@ recordExprVars _ (BoundVarExpr info) = do
     UninterpVarKind ->
       VR $ uninterpConstants %= Set.insert (Some info)
 
-recordFnVars :: ExprSymFn t args ret -> VarRecorder s t ()
+recordFnVars :: ExprSymFn t fs args ret -> VarRecorder s t fs ()
 recordFnVars f = do
   case symFnInfo f of
     UninterpFnInfo{}  -> return ()
@@ -367,7 +367,7 @@ recordFnVars f = do
 
 -- | Recurse through the variables in the element, adding bound variables
 -- as both exist and forall vars.
-recurseNonceAppVars :: forall s t tp. Scope -> NonceAppExpr t tp -> VarRecorder s t ()
+recurseNonceAppVars :: forall s t fs tp. Scope -> NonceAppExpr t fs tp -> VarRecorder s t fs ()
 recurseNonceAppVars scope ea0 = do
   let a0 = nonceExprApp ea0
   case a0 of
@@ -388,7 +388,7 @@ recurseNonceAppVars scope ea0 = do
       recordFnVars f
       traverseFC_ (recordExprVars scope) a
 
-addTheoryFeatures :: AppTheory -> VarRecorder s t ()
+addTheoryFeatures :: AppTheory -> VarRecorder s t fs ()
 addTheoryFeatures th =
   case th of
     BoolTheory -> return ()
@@ -405,7 +405,7 @@ addTheoryFeatures th =
 
 -- | Recurse through the variables in the element, adding bound variables
 -- as both exist and forall vars.
-recurseExprVars :: forall s t tp. Scope -> AppExpr t tp -> VarRecorder s t ()
+recurseExprVars :: forall s t fs tp. Scope -> AppExpr t fs tp -> VarRecorder s t fs ()
 recurseExprVars scope ea0 = do
   addTheoryFeatures (appTheory (appExprApp ea0))
   traverseFC_ (recordExprVars scope) (appExprApp ea0)

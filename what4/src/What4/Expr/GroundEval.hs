@@ -86,11 +86,11 @@ type family GroundValue (tp :: BaseType) where
 -- | A function that calculates ground values for elements.
 --   Clients of solvers should use the @groundEval@ function for computing
 --   values in models.
-newtype GroundEvalFn t = GroundEvalFn { groundEval :: forall tp . Expr t tp -> IO (GroundValue tp) }
+newtype GroundEvalFn t fs = GroundEvalFn { groundEval :: forall tp . Expr t fs tp -> IO (GroundValue tp) }
 
 -- | Function that calculates upper and lower bounds for real-valued elements.
 --   This type is used for solvers (e.g., dReal) that give only approximate solutions.
-type ExprRangeBindings t = RealExpr t -> IO (Maybe Rational, Maybe Rational)
+type ExprRangeBindings t fs = RealExpr t fs -> IO (Maybe Rational, Maybe Rational)
 
 -- | A newtype wrapper around ground value for use in a cache.
 newtype GroundValueWrapper tp = GVW { unGVW :: GroundValue tp }
@@ -142,8 +142,8 @@ defaultValueForType tp =
 -- | Helper function for evaluating @Expr@ expressions in a model.
 --
 --   This function is intended for implementers of symbolic backends.
-evalGroundExpr :: (forall u . Expr t u -> IO (GroundValue u))
-              -> Expr t tp
+evalGroundExpr :: (forall u . Expr t fs u -> IO (GroundValue u))
+              -> Expr t fs tp
               -> IO (GroundValue tp)
 evalGroundExpr f e =
  runMaybeT (tryEvalGroundExpr f e) >>= \case
@@ -160,8 +160,8 @@ evalGroundExpr f e =
 --   the solver.  In these cases, this function will return `Nothing`
 --   in the `MaybeT IO` monad.  In these cases, the caller should instead
 --   query the solver directly to evaluate the expression, if possible.
-tryEvalGroundExpr :: (forall u . Expr t u -> IO (GroundValue u))
-                 -> Expr t tp
+tryEvalGroundExpr :: (forall u . Expr t fs u -> IO (GroundValue u))
+                 -> Expr t fs tp
                  -> MaybeT IO (GroundValue tp)
 tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingNatRepr c _) = return c
 tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingIntegerRepr c _) = return c
@@ -182,8 +182,8 @@ tryEvalGroundExpr _ (BoundVarExpr v) =
 --
 --   This function is intended for implementers of symbolic backends.
 evalGroundNonceApp :: MonadFail m
-                   => (forall u . Expr t u -> MaybeT m (GroundValue u))
-                   -> NonceApp t (Expr t) tp
+                   => (forall u . Expr t fs u -> MaybeT m (GroundValue u))
+                   -> NonceApp t fs (Expr t fs) tp
                    -> MaybeT m (GroundValue tp)
 evalGroundNonceApp _ a0 = lift $ fail $
   case a0 of
@@ -233,12 +233,12 @@ groundEq bt x y = case bt of
 -- | Helper function for evaluating @App@ expressions.
 --
 --   This function is intended for implementers of symbolic backends.
-evalGroundApp :: forall t tp
-               . (forall u . Expr t u -> IO (GroundValue u))
-              -> App (Expr t) tp
+evalGroundApp :: forall t fs tp
+               . (forall u . Expr t fs u -> IO (GroundValue u))
+              -> App fs (Expr t fs) tp
               -> MaybeT IO (GroundValue tp)
 evalGroundApp f0 a0 = do
-  let f :: forall u . Expr t u -> MaybeT IO (GroundValue u)
+  let f :: forall u . Expr t fs u -> MaybeT IO (GroundValue u)
       f = lift . f0
   case a0 of
     BaseEq bt x y ->

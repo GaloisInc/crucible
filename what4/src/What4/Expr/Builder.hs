@@ -316,34 +316,34 @@ instance HashableF (ExprBoundVar t) where
 -- Parameter @e@ is used everywhere a recursive sub-expression would
 -- go. Uses of the 'NonceApp' type will tie the knot through this
 -- parameter. Parameter @tp@ indicates the type of the expression.
-data NonceApp t (e :: BaseType -> Type) (tp :: BaseType) where
+data NonceApp (t :: Type) (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
   Forall :: !(ExprBoundVar t tp)
          -> !(e BaseBoolType)
-         -> NonceApp t e BaseBoolType
+         -> NonceApp t fs e BaseBoolType
   Exists :: !(ExprBoundVar t tp)
          -> !(e BaseBoolType)
-         -> NonceApp t e BaseBoolType
+         -> NonceApp t fs e BaseBoolType
 
   -- Create an array from a function
-  ArrayFromFn :: !(ExprSymFn t (idx ::> itp) ret)
-              -> NonceApp t e (BaseArrayType (idx ::> itp) ret)
+  ArrayFromFn :: !(ExprSymFn t fs (idx ::> itp) ret)
+              -> NonceApp t fs e (BaseArrayType (idx ::> itp) ret)
 
   -- Create an array by mapping over one or more existing arrays.
-  MapOverArrays :: !(ExprSymFn t (ctx::>d) r)
+  MapOverArrays :: !(ExprSymFn t fs (ctx::>d) r)
                 -> !(Ctx.Assignment BaseTypeRepr (idx ::> itp))
                 -> !(Ctx.Assignment (ArrayResultWrapper e (idx ::> itp)) (ctx::>d))
-                -> NonceApp t e (BaseArrayType (idx ::> itp) r)
+                -> NonceApp t fs e (BaseArrayType (idx ::> itp) r)
 
   -- This returns true if all the indices satisfying the given predicate equal true.
   ArrayTrueOnEntries
-    :: !(ExprSymFn t (idx ::> itp) BaseBoolType)
+    :: !(ExprSymFn t fs (idx ::> itp) BaseBoolType)
     -> !(e (BaseArrayType (idx ::> itp) BaseBoolType))
-    -> NonceApp t e BaseBoolType
+    -> NonceApp t fs e BaseBoolType
 
   -- Apply a function to some arguments
-  FnApp :: !(ExprSymFn t args ret)
+  FnApp :: !(ExprSymFn t fs args ret)
         -> !(Ctx.Assignment e args)
-        -> NonceApp t e ret
+        -> NonceApp t fs e ret
 
 
 -------------------------------------------------------------------------------
@@ -402,7 +402,7 @@ instance OrdF e => Hashable (BVOrSet e w) where
 -- Parameter @e@ is used everywhere a recursive sub-expression would
 -- go. Uses of the 'App' type will tie the knot through this
 -- parameter. Parameter @tp@ indicates the type of the expression.
-data App (e :: BaseType -> Type) (tp :: BaseType) where
+data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
 
   ------------------------------------------------------------------------
   -- Generic operations
@@ -413,31 +413,31 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
     !(e BaseBoolType) ->
     !(e tp) ->
     !(e tp) ->
-    App e tp
+    App fs e tp
 
   BaseEq ::
     !(BaseTypeRepr tp) ->
     !(e tp) ->
     !(e tp) ->
-    App e BaseBoolType
+    App fs e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Boolean operations
 
   -- Invariant: The argument to a NotPred must not be another NotPred.
-  NotPred :: !(e BaseBoolType) -> App e BaseBoolType
+  NotPred :: !(e BaseBoolType) -> App fs e BaseBoolType
 
   -- Invariant: The BoolMap must contain at least two elements. No
   -- element may be a NotPred; negated elements must be represented
   -- with Negative element polarity.
-  ConjPred :: !(BoolMap e) -> App e BaseBoolType
+  ConjPred :: !(BoolMap e) -> App fs e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Semiring operations
 
   SemiRingSum ::
     {-# UNPACK #-} !(WeightedSum e sr) ->
-    App e (SR.SemiRingBase sr)
+    App fs e (SR.SemiRingBase sr)
 
   -- A product of semiring values
   --
@@ -446,46 +446,46 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   -- Multiplications by scalars should use the 'SemiRingSum' constructor.
   SemiRingProd ::
      {-# UNPACK #-} !(SemiRingProduct e sr) ->
-     App e (SR.SemiRingBase sr)
+     App fs e (SR.SemiRingBase sr)
 
   SemiRingLe
      :: !(SR.OrderedSemiRingRepr sr)
      -> !(e (SR.SemiRingBase sr))
      -> !(e (SR.SemiRingBase sr))
-     -> App e BaseBoolType
+     -> App fs e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Basic arithmetic operations
 
-  RealIsInteger :: !(e BaseRealType) -> App e BaseBoolType
+  RealIsInteger :: !(e BaseRealType) -> App fs e BaseBoolType
 
   -- This does natural number division rounded to zero.
-  NatDiv :: !(e BaseNatType)  -> !(e BaseNatType) -> App e BaseNatType
-  NatMod :: !(e BaseNatType)  -> !(e BaseNatType) -> App e BaseNatType
+  NatDiv :: !(e BaseNatType)  -> !(e BaseNatType) -> App fs e BaseNatType
+  NatMod :: !(e BaseNatType)  -> !(e BaseNatType) -> App fs e BaseNatType
 
-  IntDiv :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseIntegerType
-  IntMod :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseIntegerType
-  IntAbs :: !(e BaseIntegerType)  -> App e BaseIntegerType
-  IntDivisible :: !(e BaseIntegerType) -> Natural -> App e BaseBoolType
+  IntDiv :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App fs e BaseIntegerType
+  IntMod :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App fs e BaseIntegerType
+  IntAbs :: !(e BaseIntegerType)  -> App fs e BaseIntegerType
+  IntDivisible :: !(e BaseIntegerType) -> Natural -> App fs e BaseBoolType
 
-  RealDiv :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
+  RealDiv :: !(e BaseRealType) -> !(e BaseRealType) -> App fs e BaseRealType
 
   -- Returns @sqrt(x)@, result is not defined if @x@ is negative.
-  RealSqrt :: !(e BaseRealType) -> App e BaseRealType
+  RealSqrt :: !(e BaseRealType) -> App fs e BaseRealType
 
   ------------------------------------------------------------------------
   -- Operations that introduce irrational numbers.
 
-  Pi :: App e BaseRealType
+  Pi :: App fs e BaseRealType
 
-  RealSin   :: !(e BaseRealType) -> App e BaseRealType
-  RealCos   :: !(e BaseRealType) -> App e BaseRealType
-  RealATan2 :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
-  RealSinh  :: !(e BaseRealType) -> App e BaseRealType
-  RealCosh  :: !(e BaseRealType) -> App e BaseRealType
+  RealSin   :: !(e BaseRealType) -> App fs e BaseRealType
+  RealCos   :: !(e BaseRealType) -> App fs e BaseRealType
+  RealATan2 :: !(e BaseRealType) -> !(e BaseRealType) -> App fs e BaseRealType
+  RealSinh  :: !(e BaseRealType) -> App fs e BaseRealType
+  RealCosh  :: !(e BaseRealType) -> App fs e BaseRealType
 
-  RealExp :: !(e BaseRealType) -> App e BaseRealType
-  RealLog :: !(e BaseRealType) -> App e BaseRealType
+  RealExp :: !(e BaseRealType) -> App fs e BaseRealType
+  RealLog :: !(e BaseRealType) -> App fs e BaseRealType
 
   --------------------------------
   -- Bitvector operations
@@ -495,17 +495,17 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
             => !Natural -- Index of bit to test
                         -- (least-significant bit has index 0)
             -> !(e (BaseBVType w))
-            -> App e BaseBoolType
+            -> App fs e BaseBoolType
   BVSlt :: (1 <= w)
         => !(e (BaseBVType w))
         -> !(e (BaseBVType w))
-        -> App e BaseBoolType
+        -> App fs e BaseBoolType
   BVUlt :: (1 <= w)
         => !(e (BaseBVType w))
         -> !(e (BaseBVType w))
-        -> App e BaseBoolType
+        -> App fs e BaseBoolType
 
-  BVOrBits :: (1 <= w) => !(NatRepr w) -> !(BVOrSet e w) -> App e (BaseBVType w)
+  BVOrBits :: (1 <= w) => !(NatRepr w) -> !(BVOrSet e w) -> App fs e (BaseBVType w)
 
   -- A unary representation of terms where an integer @i@ is mapped to a
   -- predicate that is true if the unsigned encoding of the value is greater
@@ -517,13 +517,13 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   --   { 0 => true ; 2 => false }
   BVUnaryTerm :: (1 <= n)
               => !(UnaryBV (e BaseBoolType) n)
-              -> App e (BaseBVType n)
+              -> App fs e (BaseBVType n)
 
   BVConcat :: (1 <= u, 1 <= v, 1 <= (u+v))
            => !(NatRepr (u+v))
            -> !(e (BaseBVType u))
            -> !(e (BaseBVType v))
-           -> App e (BaseBVType (u+v))
+           -> App fs e (BaseBVType (u+v))
 
   BVSelect :: (1 <= n, idx + n <= w)
               -- First bit to select from (least-significant bit has index 0)
@@ -532,232 +532,232 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
            -> !(NatRepr n)
               -- Bitvector to select from.
            -> !(e (BaseBVType w))
-           -> App e (BaseBVType n)
+           -> App fs e (BaseBVType n)
 
   BVFill :: (1 <= w)
          => !(NatRepr w)
          -> !(e BaseBoolType)
-         -> App e (BaseBVType w)
+         -> App fs e (BaseBVType w)
 
   BVUdiv :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType w)
+         -> App fs e (BaseBVType w)
   BVUrem :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType w)
+         -> App fs e (BaseBVType w)
   BVSdiv :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType w)
+         -> App fs e (BaseBVType w)
   BVSrem :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType w)
+         -> App fs e (BaseBVType w)
 
   BVShl :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w))
         -> !(e (BaseBVType w))
-        -> App e (BaseBVType w)
+        -> App fs e (BaseBVType w)
 
   BVLshr :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType w)
+         -> App fs e (BaseBVType w)
 
   BVAshr :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType w)
+         -> App fs e (BaseBVType w)
 
   BVRol :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w)) -- bitvector to rotate
         -> !(e (BaseBVType w)) -- rotate amount
-        -> App e (BaseBVType w)
+        -> App fs e (BaseBVType w)
 
   BVRor :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w))   -- bitvector to rotate
         -> !(e (BaseBVType w))   -- rotate amount
-        -> App e (BaseBVType w)
+        -> App fs e (BaseBVType w)
 
   BVZext :: (1 <= w, w+1 <= r, 1 <= r)
          => !(NatRepr r)
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType r)
+         -> App fs e (BaseBVType r)
 
   BVSext :: (1 <= w, w+1 <= r, 1 <= r)
          => !(NatRepr r)
          -> !(e (BaseBVType w))
-         -> App e (BaseBVType r)
+         -> App fs e (BaseBVType r)
 
   BVPopcount ::
     (1 <= w) =>
     !(NatRepr w) ->
     !(e (BaseBVType w)) ->
-    App e (BaseBVType w)
+    App fs e (BaseBVType w)
 
   BVCountTrailingZeros ::
     (1 <= w) =>
     !(NatRepr w) ->
     !(e (BaseBVType w)) ->
-    App e (BaseBVType w)
+    App fs e (BaseBVType w)
 
   BVCountLeadingZeros ::
     (1 <= w) =>
     !(NatRepr w) ->
     !(e (BaseBVType w)) ->
-    App e (BaseBVType w)
+    App fs e (BaseBVType w)
 
   --------------------------------
   -- Float operations
 
-  FloatPZero :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
-  FloatNZero :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
-  FloatNaN :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
-  FloatPInf :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
-  FloatNInf :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatPZero :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
+  FloatNZero :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
+  FloatNaN :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
+  FloatPInf :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
+  FloatNInf :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
   FloatNeg
     :: !(FloatPrecisionRepr fpp)
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatAbs
     :: !(FloatPrecisionRepr fpp)
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatSqrt
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatAdd
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatSub
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatMul
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatDiv
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatRem
     :: !(FloatPrecisionRepr fpp)
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatMin
     :: !(FloatPrecisionRepr fpp)
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatMax
     :: !(FloatPrecisionRepr fpp)
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatFMA
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatFpEq
     :: !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e BaseBoolType
+    -> App fs e BaseBoolType
   FloatFpNe
     :: !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e BaseBoolType
+    -> App fs e BaseBoolType
   FloatLe
     :: !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e BaseBoolType
+    -> App fs e BaseBoolType
   FloatLt
     :: !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
-    -> App e BaseBoolType
-  FloatIsNaN :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
-  FloatIsInf :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
-  FloatIsZero :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
-  FloatIsPos :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
-  FloatIsNeg :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
-  FloatIsSubnorm :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
-  FloatIsNorm :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+    -> App fs e BaseBoolType
+  FloatIsNaN :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
+  FloatIsInf :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
+  FloatIsZero :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
+  FloatIsPos :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
+  FloatIsNeg :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
+  FloatIsSubnorm :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
+  FloatIsNorm :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
   FloatCast
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp'))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatRound
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatFromBinary
     :: (2 <= eb, 2 <= sb)
     => !(FloatPrecisionRepr (FloatingPointPrecision eb sb))
     -> !(e (BaseBVType (eb + sb)))
-    -> App e (BaseFloatType (FloatingPointPrecision eb sb))
+    -> App fs e (BaseFloatType (FloatingPointPrecision eb sb))
   FloatToBinary
     :: (2 <= eb, 2 <= sb, 1 <= eb + sb)
     => !(FloatPrecisionRepr (FloatingPointPrecision eb sb))
     -> !(e (BaseFloatType (FloatingPointPrecision eb sb)))
-    -> App e (BaseBVType (eb + sb))
+    -> App fs e (BaseBVType (eb + sb))
   BVToFloat
     :: (1 <= w)
     => !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseBVType w))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   SBVToFloat
     :: (1 <= w)
     => !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e (BaseBVType w))
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   RealToFloat
     :: !(FloatPrecisionRepr fpp)
     -> !RoundingMode
     -> !(e BaseRealType)
-    -> App e (BaseFloatType fpp)
+    -> App fs e (BaseFloatType fpp)
   FloatToBV
     :: (1 <= w)
     => !(NatRepr w)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseBVType w)
+    -> App fs e (BaseBVType w)
   FloatToSBV
     :: (1 <= w)
     => !(NatRepr w)
     -> !RoundingMode
     -> !(e (BaseFloatType fpp))
-    -> App e (BaseBVType w)
-  FloatToReal :: !(e (BaseFloatType fpp)) -> App e BaseRealType
+    -> App fs e (BaseBVType w)
+  FloatToReal :: !(e (BaseFloatType fpp)) -> App fs e BaseRealType
 
   ------------------------------------------------------------------------
   -- Array operations
@@ -770,91 +770,91 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
               -- /\ Maps indices that are updated to the associated value.
            -> !(e (BaseArrayType (i::> itp) tp))
               -- /\ The underlying array that has been updated.
-           -> App e (BaseArrayType (i ::> itp) tp)
+           -> App fs e (BaseArrayType (i ::> itp) tp)
 
   -- Constant array
   ConstantArray :: !(Ctx.Assignment BaseTypeRepr (i ::> tp))
                 -> !(BaseTypeRepr b)
                 -> !(e b)
-                -> App e (BaseArrayType (i::>tp) b)
+                -> App fs e (BaseArrayType (i::>tp) b)
 
   UpdateArray :: !(BaseTypeRepr b)
               -> !(Ctx.Assignment BaseTypeRepr (i::>tp))
               -> !(e (BaseArrayType (i::>tp) b))
               -> !(Ctx.Assignment e (i::>tp))
               -> !(e b)
-              -> App e (BaseArrayType (i::>tp) b)
+              -> App fs e (BaseArrayType (i::>tp) b)
 
   SelectArray :: !(BaseTypeRepr b)
               -> !(e (BaseArrayType (i::>tp) b))
               -> !(Ctx.Assignment e (i::>tp))
-              -> App e b
+              -> App fs e b
 
   ------------------------------------------------------------------------
   -- Conversions.
 
-  NatToInteger  :: !(e BaseNatType)  -> App e BaseIntegerType
+  NatToInteger  :: !(e BaseNatType)  -> App fs e BaseIntegerType
   -- Converts non-negative integer to nat.
   -- Not defined on negative values.
-  IntegerToNat :: !(e BaseIntegerType) -> App e BaseNatType
+  IntegerToNat :: !(e BaseIntegerType) -> App fs e BaseNatType
 
-  IntegerToReal :: !(e BaseIntegerType) -> App e BaseRealType
+  IntegerToReal :: !(e BaseIntegerType) -> App fs e BaseRealType
 
   -- Convert a real value to an integer
   --
   -- Not defined on non-integral reals.
-  RealToInteger :: !(e BaseRealType) -> App e BaseIntegerType
+  RealToInteger :: !(e BaseRealType) -> App fs e BaseIntegerType
 
-  BVToNat       :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseNatType
-  BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
-  SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
+  BVToNat       :: (1 <= w) => !(e (BaseBVType w)) -> App fs e BaseNatType
+  BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App fs e BaseIntegerType
+  SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App fs e BaseIntegerType
 
   -- Converts integer to a bitvector.  The number is interpreted modulo 2^n.
-  IntegerToBV  :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App e (BaseBVType w)
+  IntegerToBV  :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App fs e (BaseBVType w)
 
-  RoundReal :: !(e BaseRealType) -> App e BaseIntegerType
-  FloorReal :: !(e BaseRealType) -> App e BaseIntegerType
-  CeilReal  :: !(e BaseRealType) -> App e BaseIntegerType
+  RoundReal :: !(e BaseRealType) -> App fs e BaseIntegerType
+  FloorReal :: !(e BaseRealType) -> App fs e BaseIntegerType
+  CeilReal  :: !(e BaseRealType) -> App fs e BaseIntegerType
 
   ------------------------------------------------------------------------
   -- Complex operations
 
-  Cplx  :: {-# UNPACK #-} !(Complex (e BaseRealType)) -> App e BaseComplexType
-  RealPart :: !(e BaseComplexType) -> App e BaseRealType
-  ImagPart :: !(e BaseComplexType) -> App e BaseRealType
+  Cplx  :: {-# UNPACK #-} !(Complex (e BaseRealType)) -> App fs e BaseComplexType
+  RealPart :: !(e BaseComplexType) -> App fs e BaseRealType
+  ImagPart :: !(e BaseComplexType) -> App fs e BaseRealType
 
   ------------------------------------------------------------------------
   -- Strings
 
   StringContains :: !(e (BaseStringType si))
                  -> !(e (BaseStringType si))
-                 -> App e BaseBoolType
+                 -> App fs e BaseBoolType
 
   StringIsPrefixOf :: !(e (BaseStringType si))
                  -> !(e (BaseStringType si))
-                 -> App e BaseBoolType
+                 -> App fs e BaseBoolType
 
   StringIsSuffixOf :: !(e (BaseStringType si))
                  -> !(e (BaseStringType si))
-                 -> App e BaseBoolType
+                 -> App fs e BaseBoolType
 
   StringIndexOf :: !(e (BaseStringType si))
                 -> !(e (BaseStringType si))
                 -> !(e BaseNatType)
-                -> App e BaseIntegerType
+                -> App fs e BaseIntegerType
 
   StringSubstring :: !(StringInfoRepr si)
                   -> !(e (BaseStringType si))
                   -> !(e BaseNatType)
                   -> !(e BaseNatType)
-                  -> App e (BaseStringType si)
+                  -> App fs e (BaseStringType si)
 
   StringAppend :: !(StringInfoRepr si)
                -> !(SSeq.StringSeq e si)
-               -> App e (BaseStringType si)
+               -> App fs e (BaseStringType si)
 
   StringLength :: !(e (BaseStringType si))
-               -> App e BaseNatType
+               -> App fs e BaseNatType
 
   ------------------------------------------------------------------------
   -- Structs
@@ -862,12 +862,12 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   -- A struct with its fields.
   StructCtor :: !(Ctx.Assignment BaseTypeRepr flds)
              -> !(Ctx.Assignment e flds)
-             -> App e (BaseStructType flds)
+             -> App fs e (BaseStructType flds)
 
   StructField :: !(e (BaseStructType flds))
               -> !(Ctx.Index flds tp)
               -> !(BaseTypeRepr tp)
-              -> App e tp
+              -> App fs e tp
 
 -- | This type represents 'Expr' values that were built from a
 -- 'NonceApp'.
@@ -877,10 +877,10 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
 -- Selector functions are provided to destruct 'NonceAppExpr' values,
 -- but the constructor is kept hidden. The preferred way to construct
 -- an 'Expr' from a 'NonceApp' is to use 'sbNonceExpr'.
-data NonceAppExpr t (tp :: BaseType)
+data NonceAppExpr t fs (tp :: BaseType)
    = NonceAppExprCtor { nonceExprId  :: {-# UNPACK #-} !(Nonce t tp)
                      , nonceExprLoc :: !ProgramLoc
-                     , nonceExprApp :: !(NonceApp t (Expr t) tp)
+                     , nonceExprApp :: !(NonceApp t fs (Expr t fs) tp)
                      , nonceExprAbsValue :: !(AbstractValue tp)
                      }
 
@@ -891,10 +891,10 @@ data NonceAppExpr t (tp :: BaseType)
 -- Selector functions are provided to destruct 'AppExpr' values, but
 -- the constructor is kept hidden. The preferred way to construct an
 -- 'Expr' from an 'App' is to use 'sbMakeExpr'.
-data AppExpr t (tp :: BaseType)
+data AppExpr t fs (tp :: BaseType)
    = AppExprCtor { appExprId  :: {-# UNPACK #-} !(Nonce t tp)
                 , appExprLoc :: !ProgramLoc
-                , appExprApp :: !(App (Expr t) tp)
+                , appExprApp :: !(App fs (Expr t fs) tp)
                 , appExprAbsValue :: !(AbstractValue tp)
                 }
 
@@ -915,30 +915,30 @@ data AppExpr t (tp :: BaseType)
 --
 -- Type @'Expr' t@ instantiates the type family @'SymExpr'
 -- ('ExprBuilder' t st)@.
-data Expr t (tp :: BaseType) where
-  SemiRingLiteral :: !(SR.SemiRingRepr sr) -> !(SR.Coefficient sr) -> !ProgramLoc -> Expr t (SR.SemiRingBase sr)
-  BoolExpr :: !Bool -> !ProgramLoc -> Expr t BaseBoolType
-  StringExpr :: !(StringLiteral si) -> !ProgramLoc -> Expr t (BaseStringType si)
+data Expr t fs (tp :: BaseType) where
+  SemiRingLiteral :: !(SR.SemiRingRepr sr) -> !(SR.Coefficient sr) -> !ProgramLoc -> Expr t fs (SR.SemiRingBase sr)
+  BoolExpr :: !Bool -> !ProgramLoc -> Expr t fs BaseBoolType
+  StringExpr :: !(StringLiteral si) -> !ProgramLoc -> Expr t fs (BaseStringType si)
   -- Application
-  AppExpr :: {-# UNPACK #-} !(AppExpr t tp) -> Expr t tp
+  AppExpr :: {-# UNPACK #-} !(AppExpr t fs tp) -> Expr t fs tp
   -- An atomic predicate
-  NonceAppExpr :: {-# UNPACK #-} !(NonceAppExpr t tp) -> Expr t tp
+  NonceAppExpr :: {-# UNPACK #-} !(NonceAppExpr t fs tp) -> Expr t fs tp
   -- A bound variable
-  BoundVarExpr :: !(ExprBoundVar t tp) -> Expr t tp
+  BoundVarExpr :: !(ExprBoundVar t tp) -> Expr t fs tp
 
 -- | Destructor for the 'AppExpr' constructor.
 {-# INLINE asApp #-}
-asApp :: Expr t tp -> Maybe (App (Expr t) tp)
+asApp :: Expr t fs tp -> Maybe (App fs (Expr t fs) tp)
 asApp (AppExpr a) = Just (appExprApp a)
 asApp _ = Nothing
 
 -- | Destructor for the 'NonceAppExpr' constructor.
 {-# INLINE asNonceApp #-}
-asNonceApp :: Expr t tp -> Maybe (NonceApp t (Expr t) tp)
+asNonceApp :: Expr t fs tp -> Maybe (NonceApp t fs (Expr t fs) tp)
 asNonceApp (NonceAppExpr a) = Just (nonceExprApp a)
 asNonceApp _ = Nothing
 
-exprLoc :: Expr t tp -> ProgramLoc
+exprLoc :: Expr t fs tp -> ProgramLoc
 exprLoc (SemiRingLiteral _ _ l) = l
 exprLoc (BoolExpr _ l) = l
 exprLoc (StringExpr _ l) = l
@@ -948,32 +948,32 @@ exprLoc (BoundVarExpr v) = bvarLoc v
 
 mkExpr :: Nonce t tp
       -> ProgramLoc
-      -> App (Expr t) tp
+      -> App fs (Expr t fs) tp
       -> AbstractValue tp
-      -> Expr t tp
+      -> Expr t fs tp
 mkExpr n l a v = AppExpr $ AppExprCtor { appExprId  = n
                                     , appExprLoc = l
                                     , appExprApp = a
                                     , appExprAbsValue = v
                                     }
 
-type BoolExpr t = Expr t BaseBoolType
-type NatExpr  t = Expr t BaseNatType
-type BVExpr t n = Expr t (BaseBVType n)
-type IntegerExpr t = Expr t BaseIntegerType
-type RealExpr t = Expr t BaseRealType
-type CplxExpr t = Expr t BaseComplexType
-type StringExpr t si = Expr t (BaseStringType si)
+type BoolExpr t fs = Expr t fs BaseBoolType
+type NatExpr  t fs = Expr t fs BaseNatType
+type BVExpr t fs n = Expr t fs (BaseBVType n)
+type IntegerExpr t fs = Expr t fs BaseIntegerType
+type RealExpr t fs = Expr t fs BaseRealType
+type CplxExpr t fs = Expr t fs BaseComplexType
+type StringExpr t fs si = Expr t fs (BaseStringType si)
 
 
 
-iteSize :: Expr t tp -> Integer
+iteSize :: Expr t fs tp -> Integer
 iteSize e =
   case asApp e of
     Just (BaseIte _ sz _ _ _) -> sz
     _ -> 0
 
-instance IsExpr (Expr t) where
+instance IsExpr (Expr t fs) where
   asConstantPred (BoolExpr b _) = Just b
   asConstantPred _ = Nothing
 
@@ -1042,7 +1042,7 @@ instance IsExpr (Expr t) where
   printSymExpr = pretty
 
 
-asSemiRingLit :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (SR.Coefficient sr)
+asSemiRingLit :: SR.SemiRingRepr sr -> Expr t fs (SR.SemiRingBase sr) -> Maybe (SR.Coefficient sr)
 asSemiRingLit sr (SemiRingLiteral sr' x _loc)
   | Just Refl <- testEquality sr sr'
   = Just x
@@ -1055,32 +1055,32 @@ asSemiRingLit sr (SemiRingLiteral sr' x _loc)
 
 asSemiRingLit _ _ = Nothing
 
-asSemiRingSum :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (WeightedSum (Expr t) sr)
+asSemiRingSum :: SR.SemiRingRepr sr -> Expr t fs (SR.SemiRingBase sr) -> Maybe (WeightedSum (Expr t fs) sr)
 asSemiRingSum sr (asSemiRingLit sr -> Just x) = Just (WSum.constant sr x)
 asSemiRingSum sr (asApp -> Just (SemiRingSum x))
    | Just Refl <- testEquality sr (WSum.sumRepr x) = Just x
 asSemiRingSum _ _ = Nothing
 
-asSemiRingProd :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (SemiRingProduct (Expr t) sr)
+asSemiRingProd :: SR.SemiRingRepr sr -> Expr t fs (SR.SemiRingBase sr) -> Maybe (SemiRingProduct (Expr t fs) sr)
 asSemiRingProd sr (asApp -> Just (SemiRingProd x))
   | Just Refl <- testEquality sr (WSum.prodRepr x) = Just x
 asSemiRingProd _ _ = Nothing
 
 -- | This privides a view of a semiring expr as a weighted sum of values.
-data SemiRingView t sr
+data SemiRingView t fs sr
    = SR_Constant !(SR.Coefficient sr)
-   | SR_Sum  !(WeightedSum (Expr t) sr)
-   | SR_Prod !(SemiRingProduct (Expr t) sr)
+   | SR_Sum  !(WeightedSum (Expr t fs) sr)
+   | SR_Prod !(SemiRingProduct (Expr t fs) sr)
    | SR_General
 
-viewSemiRing:: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> SemiRingView t sr
+viewSemiRing:: SR.SemiRingRepr sr -> Expr t fs (SR.SemiRingBase sr) -> SemiRingView t fs sr
 viewSemiRing sr x
   | Just r <- asSemiRingLit sr x  = SR_Constant r
   | Just s <- asSemiRingSum sr x  = SR_Sum s
   | Just p <- asSemiRingProd sr x = SR_Prod p
   | otherwise = SR_General
 
-asWeightedSum :: HashableF (Expr t) => SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> WeightedSum (Expr t) sr
+asWeightedSum :: HashableF (Expr t fs) => SR.SemiRingRepr sr -> Expr t fs (SR.SemiRingBase sr) -> WeightedSum (Expr t fs) sr
 asWeightedSum sr x
   | Just r <- asSemiRingLit sr x = WSum.constant sr r
   | Just s <- asSemiRingSum sr x = s
@@ -1091,21 +1091,21 @@ asWeightedSum sr x
 
 -- | This describes information about an undefined or defined function.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-data SymFnInfo t (args :: Ctx BaseType) (ret :: BaseType)
+data SymFnInfo (t :: Type) (fs :: Type) (args :: Ctx BaseType) (ret :: BaseType)
    = UninterpFnInfo !(Ctx.Assignment BaseTypeRepr args)
                     !(BaseTypeRepr ret)
      -- ^ Information about the argument type and return type of an uninterpreted function.
 
    | DefinedFnInfo !(Ctx.Assignment (ExprBoundVar t) args)
-                   !(Expr t ret)
-                   !(Ctx.Assignment (Expr t) args -> Bool)
+                   !(Expr t fs ret)
+                   !(Ctx.Assignment (Expr t fs) args -> Bool)
      -- ^ Information about a defined function.
      -- Includes bound variables, expression associated to a defined function, and
      -- an assignment for determining when to instantiate values.
 
-   | MatlabSolverFnInfo !(MatlabSolverFn (Expr t) args ret)
+   | MatlabSolverFnInfo !(MatlabSolverFn (Expr t fs) args ret)
                         !(Ctx.Assignment (ExprBoundVar t) args)
-                        !(Expr t ret)
+                        !(Expr t fs ret)
      -- ^ This is a function that corresponds to a matlab solver function.
      --   It includes the definition as a ExprBuilder expr to
      --   enable export to other solvers.
@@ -1115,30 +1115,30 @@ data SymFnInfo t (args :: Ctx BaseType) (ret :: BaseType)
 --
 -- Type @'ExprSymFn' t@ instantiates the type family @'SymFn'
 -- ('ExprBuilder' t st)@.
-data ExprSymFn t (args :: Ctx BaseType) (ret :: BaseType)
+data ExprSymFn t fs (args :: Ctx BaseType) (ret :: BaseType)
    = ExprSymFn { symFnId :: !(Nonce t (args ::> ret))
                  -- /\ A unique identifier for the function
                  , symFnName :: !SolverSymbol
                  -- /\ Name of the function
-                 , symFnInfo :: !(SymFnInfo t args ret)
+                 , symFnInfo :: !(SymFnInfo t fs args ret)
                  -- /\ Information about function
                  , symFnLoc  :: !ProgramLoc
                  -- /\ Location where function was defined.
                  }
 
-instance Show (ExprSymFn t args ret) where
+instance Show (ExprSymFn t fs args ret) where
   show f | symFnName f == emptySymbol = "f" ++ show (indexValue (symFnId f))
          | otherwise                  = show (symFnName f)
 
 
-symFnArgTypes :: ExprSymFn t args ret -> Ctx.Assignment BaseTypeRepr args
+symFnArgTypes :: ExprSymFn t fs args ret -> Ctx.Assignment BaseTypeRepr args
 symFnArgTypes f =
   case symFnInfo f of
     UninterpFnInfo tps _ -> tps
     DefinedFnInfo vars _ _ -> fmapFC bvarType vars
     MatlabSolverFnInfo fn_id _ _ -> matlabSolverArgTypes fn_id
 
-symFnReturnType :: ExprSymFn t args ret -> BaseTypeRepr ret
+symFnReturnType :: ExprSymFn t fs args ret -> BaseTypeRepr ret
 symFnReturnType f =
   case symFnInfo f of
     UninterpFnInfo _ tp -> tp
@@ -1146,27 +1146,28 @@ symFnReturnType f =
     MatlabSolverFnInfo fn_id _ _ -> matlabSolverReturnType fn_id
 
 -- | Return solver function associated with ExprSymFn if any.
-asMatlabSolverFn :: ExprSymFn t args ret -> Maybe (MatlabSolverFn (Expr t) args ret)
+asMatlabSolverFn :: ExprSymFn t fs args ret -> Maybe (MatlabSolverFn (Expr t fs) args ret)
 asMatlabSolverFn f
   | MatlabSolverFnInfo g _ _ <- symFnInfo f = Just g
   | otherwise = Nothing
 
 
 
-instance Hashable (ExprSymFn t args tp) where
+instance Hashable (ExprSymFn t fs args tp) where
   hashWithSalt s f = s `hashWithSalt` symFnId f
 
-testExprSymFnEq :: ExprSymFn t a1 r1
-                  -> ExprSymFn t a2 r2
-                  -> Maybe ((a1::>r1) :~: (a2::>r2))
+testExprSymFnEq ::
+  ExprSymFn t fs a1 r1 ->
+  ExprSymFn t fs a2 r2 ->
+  Maybe ((a1::>r1) :~: (a2::>r2))
 testExprSymFnEq f g = testEquality (symFnId f) (symFnId g)
 
 
-instance IsSymFn (ExprSymFn t) where
+instance IsSymFn (ExprSymFn t fs) where
   fnArgTypes = symFnArgTypes
   fnReturnType = symFnReturnType
 
-asConjunction :: Expr t BaseBoolType -> [(Expr t BaseBoolType, Polarity)]
+asConjunction :: Expr t fs BaseBoolType -> [(Expr t fs BaseBoolType, Polarity)]
 asConjunction (BoolExpr True _) = []
 asConjunction (asApp -> Just (ConjPred xs)) =
  case BM.viewBoolMap xs of
@@ -1176,7 +1177,7 @@ asConjunction (asApp -> Just (ConjPred xs)) =
 asConjunction x = [(x,Positive)]
 
 
-asDisjunction :: Expr t BaseBoolType -> [(Expr t BaseBoolType, Polarity)]
+asDisjunction :: Expr t fs BaseBoolType -> [(Expr t fs BaseBoolType, Polarity)]
 asDisjunction (BoolExpr False _) = []
 asDisjunction (asApp -> Just (NotPred (asApp -> Just (ConjPred xs)))) =
  case BM.viewBoolMap xs of
@@ -1185,18 +1186,18 @@ asDisjunction (asApp -> Just (NotPred (asApp -> Just (ConjPred xs)))) =
    BoolMapTerms (tm:|tms) -> map (over _2 BM.negatePolarity) (tm:tms)
 asDisjunction x = [(x,Positive)]
 
-asPosAtom :: Expr t BaseBoolType -> (Expr t BaseBoolType, Polarity)
+asPosAtom :: Expr t fs BaseBoolType -> (Expr t fs BaseBoolType, Polarity)
 asPosAtom (asApp -> Just (NotPred x)) = (x, Negative)
 asPosAtom x                           = (x, Positive)
 
-asNegAtom :: Expr t BaseBoolType -> (Expr t BaseBoolType, Polarity)
+asNegAtom :: Expr t fs BaseBoolType -> (Expr t fs BaseBoolType, Polarity)
 asNegAtom (asApp -> Just (NotPred x)) = (x, Positive)
 asNegAtom x                           = (x, Negative)
 
 ------------------------------------------------------------------------
 -- Types
 
-nonceAppType :: NonceApp t e tp -> BaseTypeRepr tp
+nonceAppType :: NonceApp t fs e tp -> BaseTypeRepr tp
 nonceAppType a =
   case a of
     Forall{} -> knownRepr
@@ -1206,7 +1207,7 @@ nonceAppType a =
     ArrayTrueOnEntries _ _ -> knownRepr
     FnApp f _ ->  symFnReturnType f
 
-appType :: App e tp -> BaseTypeRepr tp
+appType :: App fs e tp -> BaseTypeRepr tp
 appType a =
   case a of
     BaseIte tp _ _ _ _ -> tp
@@ -1344,17 +1345,17 @@ appType a =
 -- | ExprAllocator provides an interface for creating expressions from
 -- an applications.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-data ExprAllocator t
+data ExprAllocator t fs
    = ExprAllocator { appExpr  :: forall tp
                             .  ProgramLoc
-                            -> App (Expr t) tp
+                            -> App fs (Expr t fs) tp
                             -> AbstractValue tp
-                            -> IO (Expr t tp)
+                            -> IO (Expr t fs tp)
                   , nonceExpr :: forall tp
                              .  ProgramLoc
-                             -> NonceApp t (Expr t) tp
+                             -> NonceApp t fs (Expr t fs) tp
                              -> AbstractValue tp
-                             -> IO (Expr t tp)
+                             -> IO (Expr t fs tp)
                   }
 
 ------------------------------------------------------------------------
@@ -1363,21 +1364,21 @@ data ExprAllocator t
 -- | A bijective map between vars and their canonical name for printing
 -- purposes.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-newtype SymbolVarBimap t = SymbolVarBimap (Bimap SolverSymbol (SymbolBinding t))
+newtype SymbolVarBimap t fs = SymbolVarBimap (Bimap SolverSymbol (SymbolBinding t fs))
 
 -- | This describes what a given SolverSymbol is associated with.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-data SymbolBinding t
+data SymbolBinding t fs
    = forall tp . VarSymbolBinding !(ExprBoundVar t tp)
      -- ^ Solver
-   | forall args ret . FnSymbolBinding  !(ExprSymFn t args ret)
+   | forall args ret . FnSymbolBinding  !(ExprSymFn t fs args ret)
 
-instance Eq (SymbolBinding t) where
+instance Eq (SymbolBinding t fs) where
   VarSymbolBinding x == VarSymbolBinding y = isJust (testEquality x y)
   FnSymbolBinding  x == FnSymbolBinding  y = isJust (testEquality (symFnId x) (symFnId y))
   _ == _ = False
 
-instance Ord (SymbolBinding t) where
+instance Ord (SymbolBinding t fs) where
   compare (VarSymbolBinding x) (VarSymbolBinding y) =
     toOrdering (compareF x y)
   compare VarSymbolBinding{} _ = LT
@@ -1386,33 +1387,32 @@ instance Ord (SymbolBinding t) where
     toOrdering (compareF (symFnId x) (symFnId y))
 
 -- | Empty symbol var bimap
-emptySymbolVarBimap :: SymbolVarBimap t
+emptySymbolVarBimap :: SymbolVarBimap t fs
 emptySymbolVarBimap = SymbolVarBimap Bimap.empty
 
-lookupBindingOfSymbol :: SolverSymbol -> SymbolVarBimap t -> Maybe (SymbolBinding t)
+lookupBindingOfSymbol :: SolverSymbol -> SymbolVarBimap t fs -> Maybe (SymbolBinding t fs)
 lookupBindingOfSymbol s (SymbolVarBimap m) = Bimap.lookup s m
 
-lookupSymbolOfBinding :: SymbolBinding t -> SymbolVarBimap t -> Maybe SolverSymbol
+lookupSymbolOfBinding :: SymbolBinding t fs -> SymbolVarBimap t fs -> Maybe SolverSymbol
 lookupSymbolOfBinding b (SymbolVarBimap m) = Bimap.lookupR b m
 
 ------------------------------------------------------------------------
 -- MatlabSolverFn
 
 -- Parameter @t@ is a phantom type brand used to track nonces.
-data MatlabFnWrapper t c where
-   MatlabFnWrapper :: !(MatlabSolverFn (Expr t) a r) -> MatlabFnWrapper t (a::> r)
+data MatlabFnWrapper t fs c where
+   MatlabFnWrapper :: !(MatlabSolverFn (Expr t fs) a r) -> MatlabFnWrapper t fs (a::> r)
 
-instance TestEquality (MatlabFnWrapper t) where
+instance TestEquality (MatlabFnWrapper t fs) where
   testEquality (MatlabFnWrapper f) (MatlabFnWrapper g) = do
     Refl <- testSolverFnEq f g
     return Refl
 
-
-instance HashableF (MatlabFnWrapper t) where
+instance HashableF (MatlabFnWrapper t fs) where
   hashWithSaltF s (MatlabFnWrapper f) = hashWithSalt s f
 
-data ExprSymFnWrapper t c
-   = forall a r . (c ~ (a ::> r)) => ExprSymFnWrapper (ExprSymFn t a r)
+data ExprSymFnWrapper t fs c
+   = forall a r . (c ~ (a ::> r)) => ExprSymFnWrapper (ExprSymFn t fs a r)
 
 data SomeSymFn sym = forall args ret . SomeSymFn (SymFn sym args ret)
 
@@ -1430,6 +1430,8 @@ type FloatReal = 'FloatReal
 
 data Flags (fi :: FloatMode)
 
+type family FM (flags :: Type) :: FloatMode where
+  FM (Flags fi) = fi
 
 data FloatModeRepr :: FloatMode -> Type where
   FloatIEEERepr          :: FloatModeRepr FloatIEEE
@@ -1456,12 +1458,11 @@ instance TestEquality FloatModeRepr where
 
 -- | Cache for storing dag terms.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-data ExprBuilder t (st :: Type -> Type) (fs :: Type)
-   = forall fm. (fs ~ (Flags fm)) =>
-     SB { sbTrue  :: !(BoolExpr t)
-        , sbFalse :: !(BoolExpr t)
+data ExprBuilder t (st :: Type -> Type -> Type) (fs :: Type)
+   = SB { sbTrue  :: !(BoolExpr t fs)
+        , sbFalse :: !(BoolExpr t fs)
           -- | Constant zero.
-        , sbZero  :: !(RealExpr t)
+        , sbZero  :: !(RealExpr t fs)
           -- | Configuration object for this symbolic backend
         , sbConfiguration :: !CFG.Config
           -- | Flag used to tell the backend whether to evaluate
@@ -1478,29 +1479,29 @@ data ExprBuilder t (st :: Type -> Type) (fs :: Type)
           -- | Counter to generate new unique identifiers for elements and functions.
         , exprCounter :: !(NonceGenerator IO t)
           -- | Reference to current allocator for expressions.
-        , curAllocator :: !(IORef (ExprAllocator t))
+        , curAllocator :: !(IORef (ExprAllocator t fs))
           -- | Number of times an 'Expr' for a non-linear operation has been
           -- created.
         , sbNonLinearOps :: !(IORef Integer)
           -- | The current program location
         , sbProgramLoc :: !(IORef ProgramLoc)
           -- | Additional state maintained by the state manager
-        , sbStateManager :: !(IORef (st t))
+        , sbStateManager :: !(IORef (st t fs))
 
-        , sbVarBindings :: !(IORef (SymbolVarBimap t))
+        , sbVarBindings :: !(IORef (SymbolVarBimap t fs))
         , sbUninterpFnCache :: !(IORef (Map (SolverSymbol, Some (Ctx.Assignment BaseTypeRepr)) (SomeSymFn (ExprBuilder t st fs))))
           -- | Cache for Matlab functions
         , sbMatlabFnCache
-          :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (ExprSymFnWrapper t))
+          :: !(PH.HashTable RealWorld (MatlabFnWrapper t fs) (ExprSymFnWrapper t fs))
         , sbSolverLogger
           :: !(IORef (Maybe (SolverEvent -> IO ())))
           -- | Flag dictating how floating-point values/operations are translated
           -- when passed to the solver.
-        , sbFloatMode :: !(FloatModeRepr fm)
+        , sbFloatMode :: !(FloatModeRepr (FM fs))
         }
 
-type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
-type instance SymExpr (ExprBuilder t st fs) = Expr t
+type instance SymFn (ExprBuilder t st fs) = ExprSymFn t fs
+type instance SymExpr (ExprBuilder t st fs) = Expr t fs
 type instance BoundVar (ExprBuilder t st fs) = ExprBoundVar t
 
 ------------------------------------------------------------------------
@@ -1508,8 +1509,8 @@ type instance BoundVar (ExprBuilder t st fs) = ExprBoundVar t
 
 -- | Return abstract domain associated with a nonce app
 quantAbsEval :: ExprBuilder t st fs
-             -> (forall u . Expr t u -> AbstractValue u)
-             -> NonceApp t (Expr t) tp
+             -> (forall u . Expr t fs u -> AbstractValue u)
+             -> NonceApp t fs (Expr t fs) tp
              -> AbstractValue tp
 quantAbsEval _ f q =
   case q of
@@ -1521,8 +1522,8 @@ quantAbsEval _ f q =
     ArrayTrueOnEntries _ a -> f a
     FnApp g _           -> unconstrainedAbsValue (symFnReturnType g)
 
-abstractEval :: (forall u . Expr t u -> AbstractValue u)
-             -> App (Expr t) tp
+abstractEval :: (forall u . Expr t fs u -> AbstractValue u)
+             -> App fs (Expr t fs) tp
              -> AbstractValue tp
 abstractEval f a0 = do
   case a0 of
@@ -1681,7 +1682,7 @@ abstractEval f a0 = do
 
 
 -- | Get abstract value associated with element.
-exprAbsValue :: Expr t tp -> AbstractValue tp
+exprAbsValue :: Expr t fs tp -> AbstractValue tp
 exprAbsValue (SemiRingLiteral sr x _) =
   case sr of
     SR.SemiRingNatRepr  -> natSingleRange x
@@ -1696,7 +1697,7 @@ exprAbsValue (AppExpr e)      = appExprAbsValue e
 exprAbsValue (BoundVarExpr v) =
   fromMaybe (unconstrainedAbsValue (bvarType v)) (bvarAbstractValue v)
 
-instance HasAbsValue (Expr t) where
+instance HasAbsValue (Expr t fs) where
   getAbsValue = exprAbsValue
 
 -- | Return an unconstrained abstract value.
@@ -1749,10 +1750,10 @@ type PrettyApp e = (Text, [PrettyArg e])
 prettyApp :: Text -> [PrettyArg e] -> PrettyApp e
 prettyApp nm args = (nm, args)
 
-ppNonceApp :: forall m t e tp
+ppNonceApp :: forall m t fs e tp
            . Applicative m
-           => (forall ctx r . ExprSymFn t ctx r -> m (PrettyArg e))
-           -> NonceApp t e tp
+           => (forall ctx r . ExprSymFn t fs ctx r -> m (PrettyArg e))
+           -> NonceApp t fs e tp
            -> m (PrettyApp e)
 ppNonceApp ppFn a0 = do
   case a0 of
@@ -1769,7 +1770,7 @@ ppNonceApp ppFn a0 = do
     FnApp f a -> resolve <$> ppFn f
       where resolve f_nm = prettyApp "apply" (f_nm : toListFC exprPrettyArg a)
 
-instance ShowF e => Pretty (App e u) where
+instance ShowF e => Pretty (App fs e u) where
   pretty a = text (Text.unpack nm) <+> sep (ppArg <$> args)
     where (nm, args) = ppApp' a
           ppArg :: PrettyArg e -> Doc
@@ -1777,10 +1778,10 @@ instance ShowF e => Pretty (App e u) where
           ppArg (PrettyText txt) = text (Text.unpack txt)
           ppArg (PrettyFunc fnm fargs) = parens (text (Text.unpack fnm) <+> sep (ppArg <$> fargs))
 
-instance ShowF e => Show (App e u) where
+instance ShowF e => Show (App fs e u) where
   show = show . pretty
 
-ppApp' :: forall e u . App e u -> PrettyApp e
+ppApp' :: forall fs e u . App fs e u -> PrettyApp e
 ppApp' a0 = do
   let ppSExpr :: Text -> [e x] -> PrettyApp e
       ppSExpr f l = prettyApp f (exprPrettyArg <$> l)
@@ -2015,18 +2016,17 @@ ppApp' a0 = do
       prettyApp "field" [exprPrettyArg s, showPrettyArg idx]
 
 
-instance Eq (NonceApp t (Expr t) tp) where
+instance Eq (NonceApp t fs (Expr t fs) tp) where
   x == y = isJust (testEquality x y)
 
-instance TestEquality (NonceApp t (Expr t)) where
+instance TestEquality (NonceApp t fs (Expr t fs)) where
   testEquality =
     $(structuralTypeEquality [t|NonceApp|]
-           [ (DataArg 0 `TypeApp` AnyType, [|testEquality|])
-           , (DataArg 1 `TypeApp` AnyType, [|testEquality|])
+           [ (DataArg 2 `TypeApp` AnyType, [|testEquality|])
            , ( ConType [t|ExprBoundVar|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|]
              )
-           , ( ConType [t|ExprSymFn|] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
+           , ( ConType [t|ExprSymFn|] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
               , [|testExprSymFnEq|]
               )
            , ( ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
@@ -2035,13 +2035,13 @@ instance TestEquality (NonceApp t (Expr t)) where
            ]
           )
 
-instance HashableF (NonceApp t (Expr t)) where
+instance HashableF (NonceApp t fs (Expr t fs)) where
   hashWithSaltF = $(structuralHashWithSalt [t|NonceApp|] [])
 
-instance FunctorFC (NonceApp t)  where
+instance FunctorFC (NonceApp t fs)  where
   fmapFC = fmapFCDefault
 
-instance FoldableFC (NonceApp t) where
+instance FoldableFC (NonceApp t fs) where
   foldMapFC = foldMapFCDefault
 
 traverseArrayResultWrapper
@@ -2059,7 +2059,7 @@ traverseArrayResultWrapperAssignment
      -> m (Ctx.Assignment (ArrayResultWrapper f (idx ::> itp)) c)
 traverseArrayResultWrapperAssignment f = traverseFC (\e -> traverseArrayResultWrapper f e)
 
-instance TraversableFC (NonceApp t) where
+instance TraversableFC (NonceApp t fs) where
   traverseFC =
     $(structuralTraversal [t|NonceApp|]
       [ ( ConType [t|Ctx.Assignment|]
@@ -2100,14 +2100,14 @@ instance HashableF Dummy where
 instance HasAbsValue Dummy where
   getAbsValue _ = error "you made a magic Dummy value!"
 
-instance FoldableFC App where
+instance FoldableFC (App fs) where
   foldMapFC f0 t = getConst (traverseApp (g f0) t)
     where g :: (f tp -> a) -> f tp -> Const a (Dummy tp)
           g f v = Const (f v)
 
 traverseApp :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f, HasAbsValue f)
             => (forall tp. e tp -> m (f tp))
-            -> App e utp -> m ((App f) utp)
+            -> App fs e utp -> m ((App fs f) utp)
 traverseApp =
   $(structuralTraversal [t|App|]
     [ ( ConType [t|UnaryBV|] `TypeApp` AnyType `TypeApp` AnyType
@@ -2143,7 +2143,7 @@ traverseApp =
 -- | Return 'true' if an app represents a non-linear operation.
 -- Controls whether the non-linear counter ticks upward in the
 -- 'Statistics'.
-isNonLinearApp :: App e tp -> Bool
+isNonLinearApp :: App fs e tp -> Bool
 isNonLinearApp app = case app of
   -- FIXME: These are just guesses; someone who knows what's actually
   -- slow in the solvers should correct them.
@@ -2180,7 +2180,7 @@ isNonLinearApp app = case app of
 -- Expr operations
 
 {-# INLINE compareExpr #-}
-compareExpr :: Expr t x -> Expr t y -> OrderingF x y
+compareExpr :: Expr t fs x -> Expr t fs y -> OrderingF x y
 
 -- Special case, ignore the BV semiring flavor for this purpose
 compareExpr (SemiRingLiteral (SR.SemiRingBVRepr _ wx) x _) (SemiRingLiteral (SR.SemiRingBVRepr _ wy) y _) =
@@ -2219,37 +2219,37 @@ compareExpr _ AppExpr{} = GTF
 
 compareExpr (BoundVarExpr x) (BoundVarExpr y) = compareF x y
 
-instance TestEquality (NonceAppExpr t) where
+instance TestEquality (NonceAppExpr t fs) where
   testEquality x y =
     case compareF x y of
       EQF -> Just Refl
       _ -> Nothing
 
-instance OrdF (NonceAppExpr t)  where
+instance OrdF (NonceAppExpr t fs)  where
   compareF x y = compareF (nonceExprId x) (nonceExprId y)
 
-instance Eq (NonceAppExpr t tp) where
+instance Eq (NonceAppExpr t fs tp) where
   x == y = isJust (testEquality x y)
 
-instance Ord (NonceAppExpr t tp) where
+instance Ord (NonceAppExpr t fs tp) where
   compare x y = toOrdering (compareF x y)
 
-instance TestEquality (Expr t) where
+instance TestEquality (Expr t fs) where
   testEquality x y =
     case compareF x y of
       EQF -> Just Refl
       _ -> Nothing
 
-instance OrdF (Expr t)  where
+instance OrdF (Expr t fs)  where
   compareF = compareExpr
 
-instance Eq (Expr t tp) where
+instance Eq (Expr t fs tp) where
   x == y = isJust (testEquality x y)
 
-instance Ord (Expr t tp) where
+instance Ord (Expr t fs tp) where
   compare x y = toOrdering (compareF x y)
 
-instance Hashable (Expr t tp) where
+instance Hashable (Expr t fs tp) where
   hashWithSalt s (BoolExpr b _) = hashWithSalt (hashWithSalt s (0::Int)) b
   hashWithSalt s (SemiRingLiteral sr x _) =
     case sr of
@@ -2263,7 +2263,7 @@ instance Hashable (Expr t tp) where
   hashWithSalt s (NonceAppExpr x) = hashWithSalt (hashWithSalt s (7::Int)) (nonceExprId x)
   hashWithSalt s (BoundVarExpr x) = hashWithSalt (hashWithSalt s (8::Int)) x
 
-instance PH.HashableF (Expr t) where
+instance PH.HashableF (Expr t fs) where
   hashWithSaltF = hashWithSalt
 
 ------------------------------------------------------------------------
@@ -2279,7 +2279,7 @@ instance Hashable PPIndex
 ------------------------------------------------------------------------
 -- countOccurrences
 
-countOccurrences :: Expr t tp -> Map.Map PPIndex Int
+countOccurrences :: Expr t fs tp -> Map.Map PPIndex Int
 countOccurrences e0 = runST $ do
   visited <- H.new
   countOccurrences' visited e0
@@ -2296,7 +2296,7 @@ incOccurrence visited idx sub = do
     Nothing -> sub >> H.insert visited idx 1
 
 -- FIXME... why does this ignore Nat and Int literals?
-countOccurrences' :: forall t tp s . OccurrenceTable s -> Expr t tp -> ST s ()
+countOccurrences' :: forall t fs tp s . OccurrenceTable s -> Expr t fs tp -> ST s ()
 countOccurrences' visited (SemiRingLiteral SR.SemiRingRealRepr r _) = do
   incOccurrence visited (RatPPIndex r) $
     return ()
@@ -2326,14 +2326,14 @@ cache h k m = do
       return r
 
 
-boundVars :: Expr t tp -> ST s (BoundVarMap s t)
+boundVars :: Expr t fs tp -> ST s (BoundVarMap s t)
 boundVars e0 = do
   visited <- H.new
   _ <- boundVars' visited e0
   return visited
 
 boundVars' :: BoundVarMap s t
-           -> Expr t tp
+           -> Expr t fs tp
            -> ST s (Set (Some (ExprBoundVar t)))
 boundVars' visited (AppExpr e) = do
   let idx = indexValue (appExprId e)
@@ -2358,10 +2358,10 @@ boundVars' _ _ = return Set.empty
 ppVar :: String -> SolverSymbol -> Nonce t tp -> BaseTypeRepr tp -> String
 ppVar pr sym i tp = pr ++ show sym ++ "@" ++ show (indexValue i) ++ ":" ++ ppVarTypeCode tp
 
-instance Show (Expr t tp) where
+instance Show (Expr t fs tp) where
   show = show . ppExpr
 
-instance Pretty (Expr t tp) where
+instance Pretty (Expr t fs tp) where
   pretty = ppExpr
 
 ppBoundVar :: ExprBoundVar t tp -> String
@@ -2429,7 +2429,7 @@ defaultPPExprOpts =
             }
 
 -- | Pretty print an 'Expr' using let bindings to create the term.
-ppExpr :: Expr t tp -> Doc
+ppExpr :: Expr t fs tp -> Doc
 ppExpr e
      | Prelude.null bindings = ppExprDoc False r
      | otherwise =
@@ -2437,10 +2437,10 @@ ppExpr e
          text " in" <+> align (ppExprDoc False r)
   where (bindings,r) = runST (ppExpr' e defaultPPExprOpts)
 
-instance ShowF (Expr t)
+instance ShowF (Expr t fs)
 
 -- | Pretty print the top part of an element.
-ppExprTop :: Expr t tp -> Doc
+ppExprTop :: Expr t fs tp -> Doc
 ppExprTop e = ppExprDoc False r
   where (_,r) = runST (ppExpr' e defaultPPExprOpts)
 
@@ -2460,7 +2460,7 @@ findExprToRemove exprs0 = go [] exprs0 Nothing
           go (AppPPExpr a:prev) exprs (Just (reverse prev, a, exprs))
 
 
-ppExpr' :: forall t tp s . Expr t tp -> PPExprOpts -> ST s ([Doc], PPExpr)
+ppExpr' :: forall t fs tp s . Expr t fs tp -> PPExprOpts -> ST s ([Doc], PPExpr)
 ppExpr' e0 o = do
   let max_width = ppExpr_maxWidth o
   let use_decimal = ppExpr_useDecimal o
@@ -2513,7 +2513,7 @@ ppExpr' e0 o = do
         return $! (exprs, cur_width)
 
   -- Pretty print an argument.
-  let renderArg :: PrettyArg (Expr t) -> ST s PPExpr
+  let renderArg :: PrettyArg (Expr t fs) -> ST s PPExpr
       renderArg (PrettyArg e) = getBindings e
       renderArg (PrettyText txt) = return (textPPExpr txt)
       renderArg (PrettyFunc nm args) =
@@ -2526,7 +2526,7 @@ ppExpr' e0 o = do
       renderApp :: PPIndex
                 -> ProgramLoc
                 -> Text
-                -> [PrettyArg (Expr t)]
+                -> [PrettyArg (Expr t fs)]
                 -> ST s AppPPExpr
       renderApp idx loc nm args = Ex.assert (not (Prelude.null args)) $ do
         exprs0 <- traverse renderArg args
@@ -2542,7 +2542,7 @@ ppExpr' e0 o = do
 
       cacheResult :: PPIndex
                   -> ProgramLoc
-                  -> PrettyApp (Expr t)
+                  -> PrettyApp (Expr t fs)
                   -> ST s PPExpr
       cacheResult _ _ (nm,[]) = do
         return (textPPExpr nm)
@@ -2557,7 +2557,7 @@ ppExpr' e0 o = do
              else
               return (AppPPExpr a)
 
-      bindFn :: ExprSymFn t idx ret -> ST s (PrettyArg (Expr t))
+      bindFn :: ExprSymFn t fs idx ret -> ST s (PrettyArg (Expr t fs))
       bindFn f = do
         let idx = indexValue (symFnId f)
         mr <- H.lookup visited_fns idx
@@ -2582,7 +2582,7 @@ ppExpr' e0 o = do
 
       -- Collect definitions for all applications that occur multiple times
       -- in term.
-      getBindings :: Expr t u -> ST s PPExpr
+      getBindings :: Expr t fs u -> ST s PPExpr
       getBindings (SemiRingLiteral sr x l) =
         case sr of
           SR.SemiRingNatRepr ->
@@ -2620,7 +2620,7 @@ ppExpr' e0 o = do
 -- Uncached storage
 
 -- | Create a new storage that does not do hash consing.
-newStorage :: NonceGenerator IO t -> IO (ExprAllocator t)
+newStorage :: NonceGenerator IO t -> IO (ExprAllocator t fs)
 newStorage g = do
   return $! ExprAllocator { appExpr = uncachedExprFn g
                          , nonceExpr = uncachedNonceExpr g
@@ -2628,18 +2628,18 @@ newStorage g = do
 
 uncachedExprFn :: NonceGenerator IO t
               -> ProgramLoc
-              -> App (Expr t) tp
+              -> App fs (Expr t fs) tp
               -> AbstractValue tp
-              -> IO (Expr t tp)
+              -> IO (Expr t fs tp)
 uncachedExprFn g pc a v = do
   n <- freshNonce g
   return $! mkExpr n pc a v
 
 uncachedNonceExpr :: NonceGenerator IO t
                  -> ProgramLoc
-                 -> NonceApp t (Expr t) tp
+                 -> NonceApp t fs (Expr t fs) tp
                  -> AbstractValue tp
-                 -> IO (Expr t tp)
+                 -> IO (Expr t fs tp)
 uncachedNonceExpr g pc p v = do
   n <- freshNonce g
   return $! NonceAppExpr $ NonceAppExprCtor { nonceExprId = n
@@ -2652,11 +2652,11 @@ uncachedNonceExpr g pc p v = do
 -- Cached storage
 
 cachedNonceExpr :: NonceGenerator IO t
-               -> PH.HashTable RealWorld (NonceApp t (Expr t)) (Expr t)
+               -> PH.HashTable RealWorld (NonceApp t fs (Expr t fs)) (Expr t fs)
                -> ProgramLoc
-               -> NonceApp t (Expr t) tp
+               -> NonceApp t fs (Expr t fs) tp
                -> AbstractValue tp
-               -> IO (Expr t tp)
+               -> IO (Expr t fs tp)
 cachedNonceExpr g h pc p v = do
   me <- stToIO $ PH.lookup h p
   case me of
@@ -2672,13 +2672,13 @@ cachedNonceExpr g h pc p v = do
       return $! e
 
 
-cachedAppExpr :: forall t tp
+cachedAppExpr :: forall t fs tp
                . NonceGenerator IO t
-              -> PH.HashTable RealWorld (App (Expr t)) (Expr t)
+              -> PH.HashTable RealWorld (App fs (Expr t fs)) (Expr t fs)
               -> ProgramLoc
-              -> App (Expr t) tp
+              -> App fs (Expr t fs) tp
               -> AbstractValue tp
-              -> IO (Expr t tp)
+              -> IO (Expr t fs tp)
 cachedAppExpr g h pc a v = do
   me <- stToIO $ PH.lookup h a
   case me of
@@ -2690,10 +2690,10 @@ cachedAppExpr g h pc a v = do
       return e
 
 -- | Create a storage that does hash consing.
-newCachedStorage :: forall t
+newCachedStorage :: forall t fs
                   . NonceGenerator IO t
                  -> Int
-                 -> IO (ExprAllocator t)
+                 -> IO (ExprAllocator t fs)
 newCachedStorage g sz = stToIO $ do
   appCache  <- PH.newSized sz
   predCache <- PH.newSized sz
@@ -2701,19 +2701,19 @@ newCachedStorage g sz = stToIO $ do
                         , nonceExpr = cachedNonceExpr g predCache
                         }
 
-instance PolyEq (Expr t x) (Expr t y) where
+instance PolyEq (Expr t fs x) (Expr t fs y) where
   polyEqF x y = do
     Refl <- testEquality x y
     return Refl
 
 {-# NOINLINE appEqF #-}
 -- | Check if two applications are equal.
-appEqF :: App (Expr t) x -> App (Expr t) y -> Maybe (x :~: y)
+appEqF :: App fs (Expr t fs) x -> App fs (Expr t fs) y -> Maybe (x :~: y)
 appEqF = $(structuralTypeEquality [t|App|]
            [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
-           , (DataArg 0 `TypeApp` AnyType, [|testEquality|])
+           , (DataArg 1 `TypeApp` AnyType, [|testEquality|])
            , (ConType [t|UnaryBV|]        `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
            , (ConType [t|AUM.ArrayUpdateMap|] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
@@ -2737,16 +2737,16 @@ appEqF = $(structuralTypeEquality [t|App|]
 
 {-# NOINLINE hashApp #-}
 -- | Hash an an application.
-hashApp :: Int -> App (Expr t) s -> Int
+hashApp :: Int -> App fs (Expr t fs) s -> Int
 hashApp = $(structuralHashWithSalt [t|App|] [])
 
-instance Eq (App (Expr t) tp) where
+instance Eq (App fs (Expr t fs) tp) where
   x == y = isJust (testEquality x y)
 
-instance TestEquality (App (Expr t)) where
+instance TestEquality (App fs (Expr t fs)) where
   testEquality = appEqF
 
-instance HashableF (App (Expr t)) where
+instance HashableF (App fs (Expr t fs)) where
   hashWithSaltF = hashApp
 
 ------------------------------------------------------------------------
@@ -2765,7 +2765,7 @@ newIdxCache = stToIO $ IdxCache <$> PH.new
 
 {-# INLINE lookupIdxValue #-}
 -- | Return the value associated to the expr in the index.
-lookupIdxValue :: MonadIO m => IdxCache t f -> Expr t tp -> m (Maybe (f tp))
+lookupIdxValue :: MonadIO m => IdxCache t f -> Expr t fs tp -> m (Maybe (f tp))
 lookupIdxValue _ SemiRingLiteral{} = return Nothing
 lookupIdxValue _ StringExpr{} = return Nothing
 lookupIdxValue _ BoolExpr{} = return Nothing
@@ -2791,7 +2791,7 @@ deleteIdxValue c e = liftIO $ stToIO $ do
 clearIdxCache :: IdxCache t f -> IO ()
 clearIdxCache c = stToIO $ PH.clear (cMap c)
 
-exprMaybeId :: Expr t tp -> Maybe (Nonce t tp)
+exprMaybeId :: Expr t fs tp -> Maybe (Nonce t tp)
 exprMaybeId SemiRingLiteral{} = Nothing
 exprMaybeId StringExpr{} = Nothing
 exprMaybeId BoolExpr{} = Nothing
@@ -2804,7 +2804,7 @@ exprMaybeId (BoundVarExpr e) = Just $! bvarId e
 -- calls the evaluation function, stores the result in the cache, and
 -- returns the value.
 idxCacheEval :: IdxCache t f
-             -> Expr t tp
+             -> Expr t fs tp
              -> IO (f tp)
              -> IO (f tp)
 idxCacheEval c e m = do
@@ -2837,8 +2837,8 @@ curProgramLoc sym = readIORef (sbProgramLoc sym)
 
 -- | Create an element from a nonce app.
 sbNonceExpr :: ExprBuilder t st fs
-           -> NonceApp t (Expr t) tp
-           -> IO (Expr t tp)
+           -> NonceApp t fs (Expr t fs) tp
+           -> IO (Expr t fs tp)
 sbNonceExpr sym a = do
   s <- readIORef (curAllocator sym)
   pc <- curProgramLoc sym
@@ -2847,12 +2847,12 @@ sbNonceExpr sym a = do
 semiRingLit :: ExprBuilder t st fs
             -> SR.SemiRingRepr sr
             -> SR.Coefficient sr
-            -> IO (Expr t (SR.SemiRingBase sr))
+            -> IO (Expr t fs (SR.SemiRingBase sr))
 semiRingLit sb sr x = do
   l <- curProgramLoc sb
   return $! SemiRingLiteral sr x l
 
-sbMakeExpr :: ExprBuilder t st fs -> App (Expr t) tp -> IO (Expr t tp)
+sbMakeExpr :: ExprBuilder t st fs -> App fs (Expr t fs) tp -> IO (Expr t fs tp)
 sbMakeExpr sym a = do
   s <- readIORef (curAllocator sym)
   pc <- curProgramLoc sym
@@ -2871,7 +2871,7 @@ sbMakeExpr sym a = do
 -- | Update the binding to point to the current variable.
 updateVarBinding :: ExprBuilder t st fs
                  -> SolverSymbol
-                 -> SymbolBinding t
+                 -> SymbolBinding t fs
                  -> IO ()
 updateVarBinding sym nm v
   | nm == emptySymbol = return ()
@@ -2964,7 +2964,7 @@ cacheTerms = CFG.configOption BaseBoolRepr "use_cache"
 
 cacheOptStyle ::
   NonceGenerator IO t ->
-  IORef (ExprAllocator t) ->
+  IORef (ExprAllocator t fs) ->
   CFG.OptionSetting BaseIntegerType ->
   CFG.OptionStyle BaseBoolType
 cacheOptStyle gen storageRef szSetting =
@@ -2984,7 +2984,7 @@ cacheOptStyle gen storageRef szSetting =
 
 cacheOptDesc ::
   NonceGenerator IO t ->
-  IORef (ExprAllocator t) ->
+  IORef (ExprAllocator t fs) ->
   CFG.OptionSetting BaseIntegerType ->
   CFG.ConfigDesc
 cacheOptDesc gen storageRef szSetting =
@@ -2996,13 +2996,13 @@ cacheOptDesc gen storageRef szSetting =
 
 
 newExprBuilder ::
-  FloatModeRepr fm
+  FloatModeRepr (FM fs)
   -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
-  -> st t
+  -> st t fs
   -- ^ Current state for simple builder.
   -> NonceGenerator IO t
   -- ^ Nonce generator for names
-  ->  IO (ExprBuilder t st (Flags fm))
+  ->  IO (ExprBuilder t st fs)
 newExprBuilder floatMode st gen = do
   st_ref <- newIORef st
   es <- newStorage gen
@@ -3051,7 +3051,7 @@ newExprBuilder floatMode st gen = do
                }
 
 -- | Get current variable bindings.
-getSymbolVarBimap :: ExprBuilder t st fs -> IO (SymbolVarBimap t)
+getSymbolVarBimap :: ExprBuilder t st fs -> IO (SymbolVarBimap t fs)
 getSymbolVarBimap sym = readIORef (sbVarBindings sym)
 
 -- | Stop caching applications in backend.
@@ -3069,11 +3069,11 @@ startCaching sb = do
 
 bvBinDivOp :: (1 <= w)
             => (Integer -> Integer -> Integer)
-            -> (NatRepr w -> BVExpr t w -> BVExpr t w -> App (Expr t) (BaseBVType w))
+            -> (NatRepr w -> BVExpr t fs w -> BVExpr t fs w -> App fs (Expr t fs) (BaseBVType w))
             -> ExprBuilder t st fs
-            -> BVExpr t w
-            -> BVExpr t w
-            -> IO (BVExpr t w)
+            -> BVExpr t fs w
+            -> BVExpr t fs w
+            -> IO (BVExpr t fs w)
 bvBinDivOp f c sb x y = do
   let w = bvWidth x
   case (asUnsignedBV x, asUnsignedBV y) of
@@ -3082,13 +3082,13 @@ bvBinDivOp f c sb x y = do
 
 bvSignedBinDivOp :: (1 <= w)
                  => (Integer -> Integer -> Integer)
-                 -> (NatRepr w -> BVExpr t w
-                               -> BVExpr t w
-                               -> App (Expr t) (BaseBVType w))
+                 -> (NatRepr w -> BVExpr t fs w
+                               -> BVExpr t fs w
+                               -> App fs (Expr t fs) (BaseBVType w))
                  -> ExprBuilder t st fs
-                 -> BVExpr t w
-                 -> BVExpr t w
-                 -> IO (BVExpr t w)
+                 -> BVExpr t fs w
+                 -> BVExpr t fs w
+                 -> IO (BVExpr t fs w)
 bvSignedBinDivOp f c sym x y = do
   let w = bvWidth x
   case (asSignedBV x, asSignedBV y) of
@@ -3119,9 +3119,9 @@ symbolicIndices sym = traverseFC f
 
 -- | This evaluate a symbolic function against a set of arguments.
 betaReduce :: ExprBuilder t st fs
-           -> ExprSymFn t args ret
-           -> Ctx.Assignment (Expr t) args
-           -> IO (Expr t ret)
+           -> ExprSymFn t fs args ret
+           -> Ctx.Assignment (Expr t fs) args
+           -> IO (Expr t fs ret)
 betaReduce sym f args =
   case symFnInfo f of
     UninterpFnInfo{} ->
@@ -3133,7 +3133,7 @@ betaReduce sym f args =
 
 reduceApp :: (IsExprBuilder sym, sym ~ ExprBuilder t st fs)
           => sym
-          -> App (SymExpr sym) tp
+          -> App fs (SymExpr sym) tp
           -> IO (SymExpr sym tp)
 reduceApp sym a0 = do
   case a0 of
@@ -3330,7 +3330,7 @@ runIfChanged x f unChanged onChange = do
 
 -- | This adds a binding from the variable to itself in the hashtable
 -- to ensure it can't be rebound.
-recordBoundVar :: PH.HashTable RealWorld (Expr t) (Expr t)
+recordBoundVar :: PH.HashTable RealWorld (Expr t fs) (Expr t fs)
                   -> ExprBoundVar t tp
                   -> IO ()
 recordBoundVar tbl v = do
@@ -3353,24 +3353,24 @@ recordBoundVar tbl v = do
 -- after evaluation.
 --
 -- The second arguments contains the arguments with the return type appended.
-data CachedSymFn t c
+data CachedSymFn t fs c
   = forall a r
     . (c ~ (a ::> r))
-    => CachedSymFn Bool (ExprSymFn t a r)
+    => CachedSymFn Bool (ExprSymFn t fs a r)
 
 -- | Data structure used for caching evaluation.
-data EvalHashTables t
-   = EvalHashTables { exprTable :: !(PH.HashTable RealWorld (Expr t) (Expr t))
-                    , fnTable  :: !(PH.HashTable RealWorld (Nonce t) (CachedSymFn t))
+data EvalHashTables t fs
+   = EvalHashTables { exprTable :: !(PH.HashTable RealWorld (Expr t fs) (Expr t fs))
+                    , fnTable  :: !(PH.HashTable RealWorld (Nonce t) (CachedSymFn t fs))
                     }
 
 -- | Evaluate a simple function.
 --
 -- This returns whether the function changed as a Boolean and the function itself.
-evalSimpleFn :: EvalHashTables t
+evalSimpleFn :: EvalHashTables t fs
              -> ExprBuilder t st fs
-             -> ExprSymFn t idx ret
-             -> IO (Bool,ExprSymFn t idx ret)
+             -> ExprSymFn t fs idx ret
+             -> IO (Bool, ExprSymFn t fs idx ret)
 evalSimpleFn tbl sym f =
   case symFnInfo f of
     UninterpFnInfo{} -> return (False, f)
@@ -3389,10 +3389,10 @@ evalSimpleFn tbl sym f =
     MatlabSolverFnInfo{} -> return (False, f)
 
 evalBoundVars' :: forall t st fs ret
-               .  EvalHashTables t
+               .  EvalHashTables t fs
                -> ExprBuilder t st fs
-               -> Expr t ret
-               -> IO (Expr t ret)
+               -> Expr t fs ret
+               -> IO (Expr t fs ret)
 evalBoundVars' tbls sym e0 =
   case e0 of
     SemiRingLiteral{} -> return e0
@@ -3423,8 +3423,8 @@ evalBoundVars' tbls sym e0 =
             arrayFromFn sym f'
         MapOverArrays f _ args -> do
           (changed, f') <- evalSimpleFn tbls sym f
-          let evalWrapper :: ArrayResultWrapper (Expr t) (idx ::> itp) utp
-                          -> IO (ArrayResultWrapper (Expr t) (idx ::> itp) utp)
+          let evalWrapper :: ArrayResultWrapper (Expr t fs) (idx ::> itp) utp
+                          -> IO (ArrayResultWrapper (Expr t fs) (idx ::> itp) utp)
               evalWrapper (ArrayResultWrapper a) =
                 ArrayResultWrapper <$> evalBoundVars' tbls sym a
           args' <- traverseFC evalWrapper args
@@ -3474,10 +3474,10 @@ initHashTable keys vals = do
 -- If this is not respected, then 'evalBoundVars' will call 'fail' with an
 -- error message.
 evalBoundVars :: ExprBuilder t st fs
-              -> Expr t ret
+              -> Expr t fs ret
               -> Ctx.Assignment (ExprBoundVar t) args
-              -> Ctx.Assignment (Expr t) args
-              -> IO (Expr t ret)
+              -> Ctx.Assignment (Expr t fs) args
+              -> IO (Expr t fs ret)
 evalBoundVars sym e vars exprs = do
   expr_tbl <- stToIO $ initHashTable (fmapFC BoundVarExpr vars) exprs
   fn_tbl  <- stToIO $ PH.new
@@ -3492,14 +3492,14 @@ evalBoundVars sym e vars exprs = do
 sbConcreteLookup :: forall t st fs d tp range
                  . ExprBuilder t st fs
                    -- ^ Simple builder for creating terms.
-                 -> Expr t (BaseArrayType (d::>tp) range)
+                 -> Expr t fs (BaseArrayType (d::>tp) range)
                     -- ^ Array to lookup value in.
                  -> Maybe (Ctx.Assignment IndexLit (d::>tp))
                     -- ^ A concrete index that corresponds to the index or nothing
                     -- if the index is symbolic.
-                 -> Ctx.Assignment (Expr t) (d::>tp)
+                 -> Ctx.Assignment (Expr t fs) (d::>tp)
                     -- ^ The index to lookup.
-                 -> IO (Expr t range)
+                 -> IO (Expr t fs range)
 sbConcreteLookup sym arr0 mcidx idx
     -- Try looking up a write to a concrete address.
   | Just (ArrayMap _ _ entry_map def) <- asApp arr0
@@ -3520,8 +3520,8 @@ sbConcreteLookup sym arr0 mcidx idx
       yv <- sbConcreteLookup sym y mcidx idx
       baseTypeIte sym p xv yv
   | Just (MapOverArrays f _ args) <- asNonceApp arr0 = do
-      let eval :: ArrayResultWrapper (Expr t) (d::>tp) utp
-               -> IO (Expr t utp)
+      let eval :: ArrayResultWrapper (Expr t fs) (d::>tp) utp
+               -> IO (Expr t fs utp)
           eval a = sbConcreteLookup sym (unwrapArrayResult a) mcidx idx
       betaReduce sym f =<< traverseFC eval args
     -- Create select index.
@@ -3534,21 +3534,21 @@ sbConcreteLookup sym arr0 mcidx idx
 -- Expression builder instances
 
 -- | Evaluate a weighted sum of natural number values.
-natSum :: ExprBuilder t st fs -> WeightedSum (Expr t) SR.SemiRingNat -> IO (NatExpr t)
+natSum :: ExprBuilder t st fs -> WeightedSum (Expr t fs) SR.SemiRingNat -> IO (NatExpr t fs)
 natSum sym s = semiRingSum sym s
 
 -- | Evaluate a weighted sum of integer values.
-intSum :: ExprBuilder t st fs -> WeightedSum (Expr t) SR.SemiRingInteger -> IO (IntegerExpr t)
+intSum :: ExprBuilder t st fs -> WeightedSum (Expr t fs) SR.SemiRingInteger -> IO (IntegerExpr t fs)
 intSum sym s = semiRingSum sym s
 
 -- | Evaluate a weighted sum of real values.
-realSum :: ExprBuilder t st fs -> WeightedSum (Expr t) SR.SemiRingReal -> IO (RealExpr t)
+realSum :: ExprBuilder t st fs -> WeightedSum (Expr t fs) SR.SemiRingReal -> IO (RealExpr t fs)
 realSum sym s = semiRingSum sym s
 
-bvSum :: ExprBuilder t st fs -> WeightedSum (Expr t) (SR.SemiRingBV flv w) -> IO (BVExpr t w)
+bvSum :: ExprBuilder t st fs -> WeightedSum (Expr t fs) (SR.SemiRingBV flv w) -> IO (BVExpr t fs w)
 bvSum sym s = semiRingSum sym s
 
-conjPred :: ExprBuilder t st fs -> BoolMap (Expr t) -> IO (BoolExpr t)
+conjPred :: ExprBuilder t st fs -> BoolMap (Expr t fs) -> IO (BoolExpr t fs)
 conjPred sym bm =
   case BM.viewBoolMap bm of
     BoolMapUnit     -> return $ truePred sym
@@ -3559,7 +3559,7 @@ conjPred sym bm =
         Negative -> notPred sym x
     _ -> sbMakeExpr sym $ ConjPred bm
 
-bvUnary :: (1 <= w) => ExprBuilder t st fs -> UnaryBV (BoolExpr t) w -> IO (BVExpr t w)
+bvUnary :: (1 <= w) => ExprBuilder t st fs -> UnaryBV (BoolExpr t fs) w -> IO (BVExpr t fs w)
 bvUnary sym u
     | Just v <-  UnaryBV.asConstant u =
       bvLit sym (UnaryBV.width u) v
@@ -3568,8 +3568,8 @@ bvUnary sym u
 
 asUnaryBV :: (?unaryThreshold :: Int)
           => ExprBuilder t st fs
-          -> BVExpr t n
-          -> Maybe (UnaryBV (BoolExpr t) n)
+          -> BVExpr t fs n
+          -> Maybe (UnaryBV (BoolExpr t fs) n)
 asUnaryBV sym e
   | Just (BVUnaryTerm u) <- asApp e = Just u
   | ?unaryThreshold == 0 = Nothing
@@ -3579,9 +3579,9 @@ asUnaryBV sym e
 -- | This create a unary bitvector representing if the size is not too large.
 sbTryUnaryTerm :: (1 <= w, ?unaryThreshold :: Int)
                => ExprBuilder t st fs
-               -> Maybe (IO (UnaryBV (BoolExpr t) w))
-               -> IO (BVExpr t w)
-               -> IO (BVExpr t w)
+               -> Maybe (IO (UnaryBV (BoolExpr t fs) w))
+               -> IO (BVExpr t fs w)
+               -> IO (BVExpr t fs w)
 sbTryUnaryTerm _sym Nothing fallback = fallback
 sbTryUnaryTerm sym (Just mku) fallback =
   do u <- mku
@@ -3592,8 +3592,8 @@ sbTryUnaryTerm sym (Just mku) fallback =
 
 semiRingProd ::
   ExprBuilder t st fs ->
-  SemiRingProduct (Expr t) sr ->
-  IO (Expr t (SR.SemiRingBase sr))
+  SemiRingProduct (Expr t fs) sr ->
+  IO (Expr t fs (SR.SemiRingBase sr))
 semiRingProd sym pd
   | WSum.nullProd pd = semiRingLit sym (WSum.prodRepr pd) (SR.one (WSum.prodRepr pd))
   | Just v <- WSum.asProdVar pd = return v
@@ -3601,8 +3601,8 @@ semiRingProd sym pd
 
 semiRingSum ::
   ExprBuilder t st fs ->
-  WeightedSum (Expr t) sr ->
-  IO (Expr t (SR.SemiRingBase sr))
+  WeightedSum (Expr t fs) sr ->
+  IO (Expr t fs (SR.SemiRingBase sr))
 semiRingSum sym s
     | Just c <- WSum.asConstant s = semiRingLit sym (WSum.sumRepr s) c
     | Just r <- WSum.asVar s      = return r
@@ -3610,8 +3610,8 @@ semiRingSum sym s
 
 sum' ::
   ExprBuilder t st fs ->
-  WeightedSum (Expr t) sr ->
-  IO (Expr t (SR.SemiRingBase sr))
+  WeightedSum (Expr t fs) sr ->
+  IO (Expr t fs (SR.SemiRingBase sr))
 sum' sym s = sbMakeExpr sym $ SemiRingSum s
 {-# INLINE sum' #-}
 
@@ -3619,8 +3619,8 @@ scalarMul ::
    ExprBuilder t st fs ->
    SR.SemiRingRepr sr ->
    SR.Coefficient sr ->
-   Expr t (SR.SemiRingBase sr) ->
-   IO (Expr t (SR.SemiRingBase sr))
+   Expr t fs (SR.SemiRingBase sr) ->
+   IO (Expr t fs (SR.SemiRingBase sr))
 scalarMul sym sr c x
   | SR.eq sr (SR.zero sr) c = semiRingLit sym sr (SR.zero sr)
   | SR.eq sr (SR.one sr)  c = return x
@@ -3634,10 +3634,10 @@ scalarMul sym sr c x
 semiRingIte ::
   ExprBuilder t st fs ->
   SR.SemiRingRepr sr ->
-  Expr t BaseBoolType ->
-  Expr t (SR.SemiRingBase sr) ->
-  Expr t (SR.SemiRingBase sr) ->
-  IO (Expr t (SR.SemiRingBase sr))
+  Expr t fs BaseBoolType ->
+  Expr t fs (SR.SemiRingBase sr) ->
+  Expr t fs (SR.SemiRingBase sr) ->
+  IO (Expr t fs (SR.SemiRingBase sr))
 semiRingIte sym sr c x y
     -- evaluate as constants
   | Just True  <- asConstantPred c = return x
@@ -3667,10 +3667,10 @@ semiRingIte sym sr c x y
 
 mkIte ::
   ExprBuilder t st fs ->
-  Expr t BaseBoolType ->
-  Expr t bt ->
-  Expr t bt ->
-  IO (Expr t bt)
+  Expr t fs BaseBoolType ->
+  Expr t fs bt ->
+  Expr t fs bt ->
+  IO (Expr t fs bt)
 mkIte sym c x y
     -- evaluate as constants
   | Just True  <- asConstantPred c = return x
@@ -3690,11 +3690,11 @@ mkIte sym c x y
 semiRingLe ::
   ExprBuilder t st fs ->
   SR.OrderedSemiRingRepr sr ->
-  (Expr t (SR.SemiRingBase sr) -> Expr t (SR.SemiRingBase sr) -> IO (Expr t BaseBoolType))
+  (Expr t fs (SR.SemiRingBase sr) -> Expr t fs (SR.SemiRingBase sr) -> IO (Expr t fs BaseBoolType))
       {- ^ recursive call for simplifications -} ->
-  Expr t (SR.SemiRingBase sr) ->
-  Expr t (SR.SemiRingBase sr) ->
-  IO (Expr t BaseBoolType)
+  Expr t fs (SR.SemiRingBase sr) ->
+  Expr t fs (SR.SemiRingBase sr) ->
+  IO (Expr t fs BaseBoolType)
 semiRingLe sym osr rec x y
       -- Check for syntactic equality.
     | x == y = return (truePred sym)
@@ -3740,11 +3740,11 @@ semiRingLe sym osr rec x y
 semiRingEq ::
   ExprBuilder t st fs ->
   SR.SemiRingRepr sr ->
-  (Expr t (SR.SemiRingBase sr) -> Expr t (SR.SemiRingBase sr) -> IO (Expr t BaseBoolType))
+  (Expr t fs (SR.SemiRingBase sr) -> Expr t fs (SR.SemiRingBase sr) -> IO (Expr t fs BaseBoolType))
     {- ^ recursive call for simplifications -} ->
-  Expr t (SR.SemiRingBase sr) ->
-  Expr t (SR.SemiRingBase sr) ->
-  IO (Expr t BaseBoolType)
+  Expr t fs (SR.SemiRingBase sr) ->
+  Expr t fs (SR.SemiRingBase sr) ->
+  IO (Expr t fs BaseBoolType)
 semiRingEq sym sr rec x y
   -- Check for syntactic equality.
   | x == y = return (truePred sym)
@@ -3774,9 +3774,9 @@ semiRingAdd ::
   forall t st fs sr.
   ExprBuilder t st fs ->
   SR.SemiRingRepr sr ->
-  Expr t (SR.SemiRingBase sr) ->
-  Expr t (SR.SemiRingBase sr) ->
-  IO (Expr t (SR.SemiRingBase sr))
+  Expr t fs (SR.SemiRingBase sr) ->
+  Expr t fs (SR.SemiRingBase sr) ->
+  IO (Expr t fs (SR.SemiRingBase sr))
 semiRingAdd sym sr x y =
     case (viewSemiRing sr x, viewSemiRing sr y) of
       (SR_Constant c, _) | SR.eq sr c (SR.zero sr) -> return y
@@ -3812,16 +3812,16 @@ semiRingAdd sym sr x y =
       (SR_Sum xs, _)         -> semiRingSum sym (WSum.addVar sr xs y)
       (_ , SR_Sum ys)        -> semiRingSum sym (WSum.addVar sr ys x)
       _                      -> semiRingSum sym (WSum.addVars sr x y)
-  where isConstantSemiRingExpr :: Expr t (SR.SemiRingBase sr) -> Bool
+  where isConstantSemiRingExpr :: Expr t fs (SR.SemiRingBase sr) -> Bool
         isConstantSemiRingExpr (viewSemiRing sr -> SR_Constant _) = True
         isConstantSemiRingExpr _ = False
 
 semiRingMul ::
   ExprBuilder t st fs ->
   SR.SemiRingRepr sr ->
-  Expr t (SR.SemiRingBase sr) ->
-  Expr t (SR.SemiRingBase sr) ->
-  IO (Expr t (SR.SemiRingBase sr))
+  Expr t fs(SR.SemiRingBase sr) ->
+  Expr t fs (SR.SemiRingBase sr) ->
+  IO (Expr t fs (SR.SemiRingBase sr))
 semiRingMul sym sr x y =
   case (viewSemiRing sr x, viewSemiRing sr y) of
     (SR_Constant c, _) -> scalarMul sym sr c y
@@ -3846,8 +3846,8 @@ semiRingMul sym sr x y =
 prodNonneg ::
   ExprBuilder t st fs ->
   SR.OrderedSemiRingRepr sr ->
-  WSum.SemiRingProduct (Expr t) sr ->
-  IO (Expr t BaseBoolType)
+  WSum.SemiRingProduct (Expr t fs) sr ->
+  IO (Expr t fs BaseBoolType)
 prodNonneg sym osr pd =
   do let sr = SR.orderedSemiRing osr
      zero <- semiRingLit sym sr (SR.zero sr)
@@ -3856,8 +3856,8 @@ prodNonneg sym osr pd =
 prodNonpos ::
   ExprBuilder t st fs ->
   SR.OrderedSemiRingRepr sr ->
-  WSum.SemiRingProduct (Expr t) sr ->
-  IO (Expr t BaseBoolType)
+  WSum.SemiRingProduct (Expr t fs) sr ->
+  IO (Expr t fs BaseBoolType)
 prodNonpos sym osr pd =
   do let sr = SR.orderedSemiRing osr
      zero <- semiRingLit sym sr (SR.zero sr)
@@ -3866,9 +3866,9 @@ prodNonpos sym osr pd =
 computeNonnegNonpos ::
   ExprBuilder t st fs ->
   SR.OrderedSemiRingRepr sr ->
-  Expr t (SR.SemiRingBase sr) {- zero element -} ->
-  WSum.SemiRingProduct (Expr t) sr ->
-  IO (Expr t BaseBoolType, Expr t BaseBoolType)
+  Expr t fs (SR.SemiRingBase sr) {- zero element -} ->
+  WSum.SemiRingProduct (Expr t fs) sr ->
+  IO (Expr t fs BaseBoolType, Expr t fs BaseBoolType)
 computeNonnegNonpos sym osr zero pd =
    fromMaybe (truePred sym, falsePred sym) <$> WSum.prodEvalM merge single pd
  where
@@ -3895,37 +3895,37 @@ data ArrayMapView i f tp
                   }
 
 -- | Construct an 'ArrayMapView' for an element.
-viewArrayMap :: Expr t (BaseArrayType i tp)
-             -> ArrayMapView i (Expr t) tp
+viewArrayMap :: Expr t fs (BaseArrayType i tp)
+             -> ArrayMapView i (Expr t fs) tp
 viewArrayMap  x
   | Just (ArrayMap _ _ m c) <- asApp x = ArrayMapView m c
   | otherwise = ArrayMapView AUM.empty x
 
 -- | Construct an 'ArrayMapView' for an element.
-underlyingArrayMapExpr :: ArrayResultWrapper (Expr t) i tp
-                      -> ArrayResultWrapper (Expr t) i tp
+underlyingArrayMapExpr :: ArrayResultWrapper (Expr t fs) i tp
+                      -> ArrayResultWrapper (Expr t fs) i tp
 underlyingArrayMapExpr x
   | Just (ArrayMap _ _ _ c) <- asApp (unwrapArrayResult x) = ArrayResultWrapper c
   | otherwise = x
 
 -- | Return set of addresss in assignment that are written to by at least one expr
-concreteArrayEntries :: forall t i ctx
-                     .  Ctx.Assignment (ArrayResultWrapper (Expr t) i) ctx
+concreteArrayEntries :: forall t fs i ctx
+                     .  Ctx.Assignment (ArrayResultWrapper (Expr t fs) i) ctx
                      -> Set (Ctx.Assignment IndexLit i)
 concreteArrayEntries = foldlFC' f Set.empty
   where f :: Set (Ctx.Assignment IndexLit i)
-          -> ArrayResultWrapper (Expr t) i tp
+          -> ArrayResultWrapper (Expr t fs) i tp
           -> Set (Ctx.Assignment IndexLit i)
         f s e
-          | Just (ArrayMap _ _ m _) <- asApp (unwrapArrayResult  e) =
+          | Just (ArrayMap _ _ m _) <- asApp (unwrapArrayResult e) =
             Set.union s (AUM.keysSet m)
           | otherwise = s
 
 data NatLit tp = (tp ~ BaseNatType) => NatLit Natural
 
-asNatBounds :: Ctx.Assignment (Expr t) idx -> Maybe (Ctx.Assignment NatLit idx)
+asNatBounds :: Ctx.Assignment (Expr t fs) idx -> Maybe (Ctx.Assignment NatLit idx)
 asNatBounds = traverseFC f
-  where f :: Expr t tp -> Maybe (NatLit tp)
+  where f :: Expr t fs tp -> Maybe (NatLit tp)
         f (SemiRingLiteral SR.SemiRingNatRepr n _) = Just (NatLit n)
         f _ = Nothing
 
@@ -3964,8 +3964,8 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
 -- | Examine the list of terms, and determine if any one of them
 --   appears in the given @BoolMap@ with the same polarity.
 checkAbsorption ::
-  BoolMap (Expr t) ->
-  [(BoolExpr t, Polarity)] ->
+  BoolMap (Expr t fs) ->
+  [(BoolExpr t fs, Polarity)] ->
   Bool
 checkAbsorption _bm [] = False
 checkAbsorption bm ((x,p):_)
@@ -3976,8 +3976,8 @@ checkAbsorption bm (_:xs) = checkAbsorption bm xs
 -- implies @x@, so that the conjunction @x AND y = y@. A @False@
 -- result gives no information.
 tryAndAbsorption ::
-  BoolExpr t ->
-  BoolExpr t ->
+  BoolExpr t fs ->
+  BoolExpr t fs ->
   Bool
 tryAndAbsorption (asApp -> Just (NotPred (asApp -> Just (ConjPred as)))) (asConjunction -> bs)
   = checkAbsorption (BM.reversePolarities as) bs
@@ -3988,8 +3988,8 @@ tryAndAbsorption _ _ = False
 -- implies @y@, so that the disjunction @x OR y = y@. A @False@
 -- result gives no information.
 tryOrAbsorption ::
-  BoolExpr t ->
-  BoolExpr t ->
+  BoolExpr t fs ->
+  BoolExpr t fs ->
   Bool
 tryOrAbsorption (asApp -> Just (ConjPred as)) (asDisjunction -> bs)
   = checkAbsorption as bs
@@ -3998,7 +3998,7 @@ tryOrAbsorption _ _ = False
 
 -- | A slightly more aggressive syntactic equality check than testEquality,
 --   `sameTerm` will recurse through a small collection of known syntax formers.
-sameTerm :: Expr t a -> Expr t b -> Maybe (a :~: b)
+sameTerm :: Expr t fs a -> Expr t fs b -> Maybe (a :~: b)
 
 sameTerm (asApp -> Just (FloatToBinary fppx x)) (asApp -> Just (FloatToBinary fppy y)) =
   do Refl <- testEquality fppx fppy
@@ -4006,6 +4006,7 @@ sameTerm (asApp -> Just (FloatToBinary fppx x)) (asApp -> Just (FloatToBinary fp
      return Refl
 
 sameTerm x y = testEquality x y
+
 
 instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
@@ -5295,17 +5296,17 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         -- This lookups a given index in an array used as an argument.
         let evalArgs :: Ctx.Assignment IndexLit (idx ::> itp)
                         -- ^ A representatio of the concrete index (if defined).
-                        -> Ctx.Assignment (Expr t)  (idx ::> itp)
+                        -> Ctx.Assignment (Expr t fs) (idx ::> itp)
                            -- ^ The index to use.
-                        -> ArrayResultWrapper (Expr t) (idx ::> itp) d
+                        -> ArrayResultWrapper (Expr t fs) (idx ::> itp) d
                            -- ^ The array to get the value at.
-                        -> IO (Expr t d)
+                        -> IO (Expr t fs d)
             evalArgs const_idx sym_idx a = do
               sbConcreteLookup sym (unwrapArrayResult a) (Just const_idx) sym_idx
-        let evalIndex :: ExprSymFn t ctx ret
-                      -> Ctx.Assignment (ArrayResultWrapper (Expr t) (i::>itp)) ctx
+        let evalIndex :: ExprSymFn t fs ctx ret
+                      -> Ctx.Assignment (ArrayResultWrapper (Expr t fs) (i::>itp)) ctx
                       -> Ctx.Assignment IndexLit (i::>itp)
-                      -> IO (Expr t ret)
+                      -> IO (Expr t fs ret)
             evalIndex g arrays0 const_idx = do
               sym_idx <- traverseFC (indexLit sym) const_idx
               applySymFn sym g =<< traverseFC (evalArgs const_idx sym_idx) arrays0
@@ -5388,10 +5389,10 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       return $ truePred sym
     | Just (IndicesInRange _ bnds) <- asMatlabSolverFn f
     , Just v <- asNatBounds bnds = do
-      let h :: Expr t (BaseArrayType (i::>it) BaseBoolType)
-            -> BoolExpr t
-            -> Ctx.Assignment (Expr t) (i::>it)
-            -> IO (BoolExpr t)
+      let h :: Expr t fs (BaseArrayType (i::>it) BaseBoolType)
+            -> BoolExpr t fs
+            -> Ctx.Assignment (Expr t fs) (i::>it)
+            -> IO (BoolExpr t fs)
           h a0 p i = andPred sym p =<< arrayLookup sym a0 i
       foldIndicesInRangeBounds sym (h a) (truePred sym) v
 
@@ -5749,7 +5750,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
 
 
-inSameBVSemiRing :: Expr t (BaseBVType w) -> Expr t (BaseBVType w) -> Maybe (Some SR.BVFlavorRepr)
+inSameBVSemiRing :: Expr t fs (BaseBVType w) -> Expr t fs (BaseBVType w) -> Maybe (Some SR.BVFlavorRepr)
 inSameBVSemiRing x y
   | Just (SemiRingSum s1) <- asApp x
   , Just (SemiRingSum s2) <- asApp y
@@ -5762,11 +5763,11 @@ inSameBVSemiRing x y
   = Nothing
 
 floatIEEEArithBinOp
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => (  FloatPrecisionRepr fpp
      -> e (BaseFloatType fpp)
      -> e (BaseFloatType fpp)
-     -> App e (BaseFloatType fpp)
+     -> App fs e (BaseFloatType fpp)
      )
   -> ExprBuilder t st fs
   -> e (BaseFloatType fpp)
@@ -5775,12 +5776,12 @@ floatIEEEArithBinOp
 floatIEEEArithBinOp ctor sym x y =
   let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp x y
 floatIEEEArithBinOpR
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => (  FloatPrecisionRepr fpp
      -> RoundingMode
      -> e (BaseFloatType fpp)
      -> e (BaseFloatType fpp)
-     -> App e (BaseFloatType fpp)
+     -> App fs e (BaseFloatType fpp)
      )
   -> ExprBuilder t st fs
   -> RoundingMode
@@ -5790,10 +5791,10 @@ floatIEEEArithBinOpR
 floatIEEEArithBinOpR ctor sym r x y =
   let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp r x y
 floatIEEEArithUnOp
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => (  FloatPrecisionRepr fpp
      -> e (BaseFloatType fpp)
-     -> App e (BaseFloatType fpp)
+     -> App fs e (BaseFloatType fpp)
      )
   -> ExprBuilder t st fs
   -> e (BaseFloatType fpp)
@@ -5801,11 +5802,11 @@ floatIEEEArithUnOp
 floatIEEEArithUnOp ctor sym x =
   let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp x
 floatIEEEArithUnOpR
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => (  FloatPrecisionRepr fpp
      -> RoundingMode
      -> e (BaseFloatType fpp)
-     -> App e (BaseFloatType fpp)
+     -> App fs e (BaseFloatType fpp)
      )
   -> ExprBuilder t st fs
   -> RoundingMode
@@ -5814,23 +5815,23 @@ floatIEEEArithUnOpR
 floatIEEEArithUnOpR ctor sym r x =
   let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp r x
 floatIEEEArithCt
-  :: (e ~ Expr t)
-  => (FloatPrecisionRepr fpp -> App e (BaseFloatType fpp))
+  :: (e ~ Expr t fs)
+  => (FloatPrecisionRepr fpp -> App fs e (BaseFloatType fpp))
   -> ExprBuilder t st fs
   -> FloatPrecisionRepr fpp
   -> IO (e (BaseFloatType fpp))
 floatIEEEArithCt ctor sym fpp = sbMakeExpr sym $ ctor fpp
 floatIEEELogicBinOp
-  :: (e ~ Expr t)
-  => (e (BaseFloatType fpp) -> e (BaseFloatType fpp) -> App e BaseBoolType)
+  :: (e ~ Expr t fs)
+  => (e (BaseFloatType fpp) -> e (BaseFloatType fpp) -> App fs e BaseBoolType)
   -> ExprBuilder t st fs
   -> e (BaseFloatType fpp)
   -> e (BaseFloatType fpp)
   -> IO (e BaseBoolType)
 floatIEEELogicBinOp ctor sym x y = sbMakeExpr sym $ ctor x y
 floatIEEELogicUnOp
-  :: (e ~ Expr t)
-  => (e (BaseFloatType fpp) -> App e BaseBoolType)
+  :: (e ~ Expr t fs)
+  => (e (BaseFloatType fpp) -> App fs e BaseBoolType)
   -> ExprBuilder t st fs
   -> e (BaseFloatType fpp)
   -> IO (e BaseBoolType)
@@ -6004,13 +6005,13 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpret
   iFloatBaseTypeRepr _ = floatInfoToBVTypeRepr
 
 floatUninterpArithBinOp
-  :: (e ~ Expr t) => String -> ExprBuilder t st fs -> e bt -> e bt -> IO (e bt)
+  :: (e ~ Expr t fs) => String -> ExprBuilder t st fs -> e bt -> e bt -> IO (e bt)
 floatUninterpArithBinOp fn sym x y =
   let ret_type = exprType x
   in  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x Ctx.:> y) ret_type
 
 floatUninterpArithBinOpR
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => String
   -> ExprBuilder t st fs
   -> RoundingMode
@@ -6023,12 +6024,12 @@ floatUninterpArithBinOpR fn sym r x y = do
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x Ctx.:> y) ret_type
 
 floatUninterpArithUnOp
-  :: (e ~ Expr t) => String -> ExprBuilder t st fs -> e bt -> IO (e bt)
+  :: (e ~ Expr t fs) => String -> ExprBuilder t st fs -> e bt -> IO (e bt)
 floatUninterpArithUnOp fn sym x =
   let ret_type = exprType x
   in  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x) ret_type
 floatUninterpArithUnOpR
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => String
   -> ExprBuilder t st fs
   -> RoundingMode
@@ -6040,7 +6041,7 @@ floatUninterpArithUnOpR fn sym r x = do
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x) ret_type
 
 floatUninterpArithCt
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => String
   -> ExprBuilder t st fs
   -> BaseTypeRepr bt
@@ -6049,7 +6050,7 @@ floatUninterpArithCt fn sym ret_type =
   mkUninterpFnApp sym fn Ctx.empty ret_type
 
 floatUninterpLogicBinOp
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => String
   -> ExprBuilder t st fs
   -> e bt
@@ -6059,7 +6060,7 @@ floatUninterpLogicBinOp fn sym x y =
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x Ctx.:> y) knownRepr
 
 floatUninterpLogicUnOp
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => String
   -> ExprBuilder t st fs
   -> e bt
@@ -6068,7 +6069,7 @@ floatUninterpLogicUnOp fn sym x =
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x) knownRepr
 
 floatUninterpCastOp
-  :: (e ~ Expr t)
+  :: (e ~ Expr t fs)
   => String
   -> ExprBuilder t st fs
   -> BaseTypeRepr bt

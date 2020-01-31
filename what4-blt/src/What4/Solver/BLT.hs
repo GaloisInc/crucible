@@ -124,8 +124,8 @@ bltAdapter =
 runBLTInOverride :: IsExprBuilder sym
                  => sym
                  -> LogData
-                 -> [BoolExpr t] -- ^ propositions to check
-                 -> (SatResult (GroundEvalFn t) () -> IO a)
+                 -> [BoolExpr t fs] -- ^ propositions to check
+                 -> (SatResult (GroundEvalFn t fs) () -> IO a)
                  -> IO a
 runBLTInOverride sym logData ps contFn = do
   let cfg = getConfiguration sym
@@ -405,7 +405,7 @@ setUNSAT h = do
 ------------------------------------------------------------------------
 
 -- | Parse given Expr Bool as a conjunction of inequalities and record them
-assume :: Handle t -> BoolExpr t -> IO ()
+assume :: Handle t -> BoolExpr t fs -> IO ()
 assume _ (BoundVarExpr v) =
   failAt' (bvarLoc v) "Boolean variables are not supported by BLT."
 #if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
@@ -529,12 +529,12 @@ recordUpperBound h r e = assert (isBLTHomog e && leadingCoeff e > 0) $ do
 
 -- | Cached version of evalReal'. We wrap and unwrap the NameType to be
 -- compatible with IdxCache functions in Core.
-evalReal :: Handle t -> RealExpr t -> IO BLTExpr
+evalReal :: Handle t -> RealExpr t fs -> IO BLTExpr
 evalReal h e = asName <$> idxCacheEval (exprCache h) e (N <$> evalReal' h e)
 
 -- | Parse a RealVal expression, flattening it to a (new) BLTExpr.
 
-evalReal' :: Handle t -> RealExpr t -> IO BLTExpr
+evalReal' :: Handle t -> RealExpr t fs -> IO BLTExpr
 -- Integer variables are supported, but not Real
 evalReal' _ (BoundVarExpr v) =
   failAt (bvarLoc v) "Real variables are not supported by BLT."
@@ -587,11 +587,11 @@ evalReal' h epr@(AppExpr epa) = do
 
 -- | Cached version of evalInteger'. We wrap and unwrap the NameType to be
 -- compatible with IdxCache functions in Core.
-evalInteger :: Handle t -> IntegerExpr t -> IO BLTExpr
+evalInteger :: Handle t -> IntegerExpr t fs -> IO BLTExpr
 evalInteger h e = asName <$> idxCacheEval (exprCache h) e (N <$> evalInteger' h e)
 
 -- | Parse an IntegerType element, flattening it to a (new) BLTExpr.
-evalInteger' :: Handle t -> IntegerExpr t -> IO BLTExpr
+evalInteger' :: Handle t -> IntegerExpr t fs -> IO BLTExpr
 -- Match integer variable.
 evalInteger' h (BoundVarExpr info) =
   case bvarKind info of
@@ -640,7 +640,7 @@ evalInteger' h (AppExpr epa) = do
     _ -> failAt l "The given integer expressions"
 
 -- | Evaluate complex symbolic expressions to their ModelExpr type.
-evalCplx :: Handle t -> CplxExpr t -> IO (Complex BLTExpr)
+evalCplx :: Handle t -> CplxExpr t fs -> IO (Complex BLTExpr)
 evalCplx _ (BoundVarExpr i) = failAt (bvarLoc i) "Complex variables"
 #if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
 evalCplx _ (SemiRingLiteral sr _ _) = case sr of {}
@@ -666,7 +666,7 @@ evalCplx h (AppExpr ea) =
 ------------------------------------------------------------------------
 
 -- | check here for lwr, upr bounds
-checkSat :: forall t . Handle t -> IO (SatResult (GroundEvalFn t) ())
+checkSat :: forall t fs. Handle t -> IO (SatResult (GroundEvalFn t fs) ())
 checkSat h = do
     let ctx = getCtx h
     bnds <- readIORef (boundMap h)
@@ -709,7 +709,7 @@ checkSat h = do
       _ | bltUNSAT == rc -> return (Unsat ())
         | bltSAT   == rc -> do
           groundCache <- newIdxCache
-          let f :: Expr t tp -> IO (GroundValue tp)
+          let f :: Expr t fs tp -> IO (GroundValue tp)
               f (BoundVarExpr info) = do
                 -- See what this was bound to.
                 me <- stToIO $ PH.lookup (varIndices h) (bvarId info)

@@ -87,8 +87,8 @@ instance SMT2.SMTLib2Tweaks Boolector where
 
 runBoolectorInOverride :: ExprBuilder t st fs
                        -> LogData
-                       -> [BoolExpr t]
-                       -> IO (SatResult (GroundEvalFn t) ())
+                       -> [BoolExpr t fs]
+                       -> IO (SatResult (GroundEvalFn t fs) ())
 runBoolectorInOverride sym logData ps = do
   -- Get boolector path.
   path <- findSolverPath boolectorPath (getConfiguration sym)
@@ -178,9 +178,9 @@ lookupBoolectorVar m evalFn nm =
     Nothing -> fail $ "Could not find variable "
                    ++ Text.unpack nm ++ " in Boolector output."
 
-parseBoolectorOutput :: SMT2.WriterConn t (SMT2.Writer Boolector)
+parseBoolectorOutput :: SMT2.WriterConn t fs (SMT2.Writer Boolector)
                      -> [String]
-                     -> IO (SatResult (GroundEvalFn t) ())
+                     -> IO (SatResult (GroundEvalFn t fs) ())
 parseBoolectorOutput c out_lines =
   case out_lines of
     "unsat":_ -> return (Unsat ())

@@ -134,7 +134,7 @@ onlineBackendOptions =
 withSolverConn ::
   OnlineSolver scope solver =>
   OnlineBackend scope solver fs ->
-  (WriterConn scope solver -> IO a) ->
+  (WriterConn scope fs solver -> IO a) ->
   IO a
 withSolverConn sym k = withSolverProcess sym (k . solverConn)
 
@@ -245,17 +245,17 @@ withSTPOnlineBackend fm gen action =
 -- OnlineBackendState: implementation details.
 
 -- | Is the solver running or not?
-data SolverState scope solver =
+data SolverState scope fs solver =
     SolverNotStarted
-  | SolverStarted (SolverProcess scope solver) (Maybe Handle)
+  | SolverStarted (SolverProcess scope fs solver) (Maybe Handle)
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
-data OnlineBackendState solver scope = OnlineBackendState
+data OnlineBackendState solver scope fs = OnlineBackendState
   { assumptionStack ::
-      !(AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+      !(AssumptionStack (B.BoolExpr scope fs) AssumptionReason SimError)
       -- ^ Number of times we have pushed
-  , solverProc :: !(IORef (SolverState scope solver))
+  , solverProc :: !(IORef (SolverState scope fs solver))
     -- ^ The solver process, if any.
   , currentFeatures :: !(IORef ProblemFeatures)
   }
@@ -264,7 +264,7 @@ data OnlineBackendState solver scope = OnlineBackendState
 initialOnlineBackendState ::
   NonceGenerator IO scope ->
   ProblemFeatures ->
-  IO (OnlineBackendState solver scope)
+  IO (OnlineBackendState solver scope fs)
 initialOnlineBackendState gen feats =
   do stk <- initAssumptionStack gen
      procref <- newIORef SolverNotStarted
@@ -277,7 +277,7 @@ initialOnlineBackendState gen feats =
 
 getAssumptionStack ::
   OnlineBackend scope solver fs ->
-  IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+  IO (AssumptionStack (B.BoolExpr scope fs) AssumptionReason SimError)
 getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
 
 
@@ -303,9 +303,9 @@ resetSolverProcess sym = do
 --   Starts the solver, if that hasn't happened already.
 withSolverProcess' ::
   OnlineSolver scope solver =>
-  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver scope)) ->
+  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver scope fs)) ->
   B.ExprBuilder scope s fs ->
-  (SolverProcess scope solver -> IO a) ->
+  (SolverProcess scope fs solver -> IO a) ->
   IO a
 withSolverProcess' getSolver sym action = do
   st <- getSolver sym
@@ -349,7 +349,7 @@ withSolverProcess' getSolver sym action = do
 withSolverProcess ::
   OnlineSolver scope solver =>
   OnlineBackend scope solver fs ->
-  (SolverProcess scope solver -> IO a) ->
+  (SolverProcess scope fs solver -> IO a) ->
   IO a
 withSolverProcess = withSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
 
@@ -372,8 +372,8 @@ data BranchResult
 
 restoreAssumptionFrames ::
   (OnlineSolver scope solver) =>
-  SolverProcess scope solver ->
-  AssumptionFrames (LabeledPred (B.BoolExpr scope) AssumptionReason) ->
+  SolverProcess scope fs solver ->
+  AssumptionFrames (LabeledPred (B.BoolExpr scope fs) AssumptionReason) ->
   IO ()
 restoreAssumptionFrames proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
@@ -388,7 +388,7 @@ considerSatisfiability ::
   (OnlineSolver scope solver) =>
   OnlineBackend scope solver fs ->
   Maybe ProgramLoc ->
-  B.BoolExpr scope ->
+  B.BoolExpr scope fs ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
   withSolverProcess sym $ \proc ->

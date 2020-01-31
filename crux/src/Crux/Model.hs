@@ -52,13 +52,13 @@ addVar l nm k v (Model mp) = Model (MapF.insertWith jn k (Vars [ ent ]) mp)
   where jn (Vars new) (Vars old) = Vars (new ++ old)
         ent = Entry { entryName = nm, entryLoc = l, entryValue = v }
 
-evalVars :: GroundEvalFn s -> Vars (ExprBuilder s t fs) ty -> IO (Vals ty)
+evalVars :: GroundEvalFn s fs -> Vars (ExprBuilder s t fs) ty -> IO (Vals ty)
 evalVars ev (Vars xs) = Vals . reverse <$> mapM evEntry xs
   where evEntry e = do v <- groundEval ev (entryValue e)
                        return e { entryValue = v }
 
 evalModel ::
-  GroundEvalFn s ->
+  GroundEvalFn s fs ->
   Model (ExprBuilder s t fs) ->
   IO (MapF BaseTypeRepr Vals)
 evalModel ev (Model mp) = traverseF (evalVars ev) mp

@@ -50,11 +50,11 @@ type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertion stack.
 
-newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason SimError }
+newtype SimpleBackendState t fs
+      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t fs) AssumptionReason SimError }
 
 -- | Returns an initial execution state.
-initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
+initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t fs)
 initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
 
 
@@ -67,7 +67,7 @@ newSimpleBackend floatMode gen =
   do st <- initialSimpleBackendState gen
      B.newExprBuilder floatMode st gen
 
-getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t fs) AssumptionReason SimError)
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
 
 instance IsBoolSolver (SimpleBackend t fs) where
