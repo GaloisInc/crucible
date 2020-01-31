@@ -263,7 +263,7 @@ runDRealInOverride sym logData ps modelFn = do
     , satQueryReason = logReason logData
     }
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
-      withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
+      withProcessHandles solver_path ["--model", "--in", "--format", "smt2"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h
