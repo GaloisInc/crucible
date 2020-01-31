@@ -163,6 +163,9 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
     sayWarn "Crux" "Warning: Skipping unsat cores because MC-SAT is enabled."
   Just <$> go goalNum [] gs0
   where
+    (start,end)
+      | view quiet ?outputConfig = (\_ -> return (), return ())
+      | otherwise = prepStatus "Checking: " (countGoals gs0)
     hasUnsatCores = not (yicesMCSat opts)
     failfast = proofGoalsFailFast opts
 
@@ -184,6 +187,8 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
             else ProveConj g1' <$> go goalNum assumptionsInScope g2
 
         Prove p -> do
+          num <- atomicModifyIORef' goalNum (\(val,y,z) -> ((val + 1,y,z), val))
+          start num
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
           let sym = ctx ^. ctxSymInterface
@@ -207,6 +212,7 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
                 vals <- evalModel evalFn model
                 return (Prove (p, NotProved (Just (ModelView vals))))
               Unknown -> return (Prove (p, NotProved Nothing))
+          end
           return res
 
 
