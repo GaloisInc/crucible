@@ -8,4 +8,4 @@
 [Crux] Overall status: Invalid.
 [Crux] Failure for MIR assertion at test/symb_eval/overrides/override2.rs:10:5:
 	foo + 1 == foo
-in override2/3a1fbbbh::f[0] at test/symb_eval/overrides/override2.rs:10:22
+in override2/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
