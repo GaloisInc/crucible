@@ -322,8 +322,6 @@ runDRealInOverride sym logData ps modelFn = do
 
       r <- modelFn res
 
-      -- Log outstream as error messages.
-      void $ forkIO $ logErrorStream out_stream (logCallbackVerbose logData 2)
       -- Check error code.
       logCallbackVerbose logData 2 "Waiting for dReal to exit"
 
