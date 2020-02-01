@@ -17,6 +17,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
+import qualified System.Timeout as ST
 
 
 import What4.Interface (notPred, printSymExpr,asConstantPred)
@@ -166,6 +167,11 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
     (start,end)
       | view quiet ?outputConfig = (\_ -> return (), return ())
       | otherwise = prepStatus "Checking: " (countGoals gs0)
+
+    withTimeout action
+      | Just seconds <- goalTimeout opts = ST.timeout (round seconds * 1000000) action
+      | otherwise = Just <$> action
+
     hasUnsatCores = not (yicesMCSat opts)
     failfast = proofGoalsFailFast opts
 
@@ -197,7 +203,7 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
           -- NOTE: We don't currently provide a method for capturing the output
           -- sent to offline solvers.  We would probably want a file per goal.
           let logData = WS.defaultLogData
-          res <- WS.solver_adapter_check_sat adapter sym logData [assumptions, goal] $ \satRes ->
+          mres <- withTimeout $ WS.solver_adapter_check_sat adapter sym logData [assumptions, goal] $ \satRes ->
             case satRes of
               Unsat _ -> do
                 atomicModifyIORef' goalNum (\(x, u, s) -> ((x, u, s+1), ()))
@@ -213,7 +219,9 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
                 return (Prove (p, NotProved (Just (ModelView vals))))
               Unknown -> return (Prove (p, NotProved Nothing))
           end
-          return res
+          case mres of
+            Just res -> return res
+            Nothing -> return (Prove (p, NotProved Nothing))
 
 
 
