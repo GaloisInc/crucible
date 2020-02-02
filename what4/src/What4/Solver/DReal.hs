@@ -246,7 +246,7 @@ dRealHiBound = choice
 parseNextWord :: Parser String
 parseNextWord = do
   skipSpace
-  UTF8.toString <$> takeWhile1 isAlphaNum
+  UTF8.toString <$> takeWhile1 (\c -> isAlphaNum c || c == '-')
 
 runDRealInOverride
    :: ExprBuilder t st fs
@@ -263,7 +263,7 @@ runDRealInOverride sym logData ps modelFn = do
     , satQueryReason = logReason logData
     }
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
-      withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
+      withProcessHandles solver_path ["--model", "--in", "--format", "smt2"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h
@@ -309,7 +309,7 @@ runDRealInOverride sym logData ps modelFn = do
         case msat_result of
           Left Streams.ParseException{} -> fail "Could not parse sat result."
           Right "unsat" -> return (Unsat ())
-          Right "sat" -> do
+          Right "delta-sat" -> do
               ex <- doesFileExist modelfile
               m <- if ex
                       then withFile modelfile ReadMode parseDRealModel
@@ -322,8 +322,6 @@ runDRealInOverride sym logData ps modelFn = do
 
       r <- modelFn res
 
-      -- Log outstream as error messages.
-      void $ forkIO $ logErrorStream out_stream (logCallbackVerbose logData 2)
       -- Check error code.
       logCallbackVerbose logData 2 "Waiting for dReal to exit"
 
