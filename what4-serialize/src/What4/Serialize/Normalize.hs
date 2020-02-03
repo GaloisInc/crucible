@@ -42,7 +42,6 @@ import           Data.Parameterized.Classes
 
 import           Control.Monad ( zipWithM )
 import           Control.Monad.Fail as MF
-import           Control.Monad.Trans ( liftIO, MonadIO )
 import           Control.Monad.Reader ( ReaderT, MonadReader )
 import qualified Control.Monad.Reader as MR
 import           Control.Monad.Except ( throwError, ExceptT, MonadError )
@@ -145,7 +144,6 @@ newtype EqCheckM t a = EqCheckM (ReaderT (ExpressionContext t) (ExceptT (Express
            , Monad
            , MonadReader (ExpressionContext t)
            , MonadError (ExpressionMismatch t)
-           , MonadIO
            )
 
 instance MF.MonadFail (EqCheckM t) where
