@@ -195,7 +195,7 @@ newSAWCoreBackend ::
   FloatModeRepr fm ->
   SC.SharedContext ->
   NonceGenerator IO s ->
-  IO (SAWCoreBackend (Yices.Connection s) s (Flags fm))
+  IO (SAWCoreBackend (Yices.Connection s) s (Flags fm ann))
 newSAWCoreBackend fm sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache

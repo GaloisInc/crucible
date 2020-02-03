@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternGuards #-}
@@ -136,7 +137,8 @@ verificationHarnessOverrideHandle sim rw w cryEnv harness =
            (mkOverride' nm (StructRepr (verifStateRepr rw w))
               (verificationHarnessOverride sim rw w sc cryEnv harness))
 
-type SAWBack n = SAW.SAWCoreBackend (Yices.Connection n) n (Flags FloatReal)
+data DummyAnn ( tp :: BaseType )
+type SAWBack n = SAW.SAWCoreBackend (Yices.Connection n) n (Flags FloatReal DummyAnn)
 type N p n r args ret a = OverrideSim p (SAWBack n) () r args ret a
 
 ----------------------------------------------------------------------

@@ -155,12 +155,12 @@ type YicesOnlineBackend scope fs = OnlineBackend (Yices.Connection scope) scope 
 --   Example:
 --
 --   > withYicesOnlineBackend FloatRealRepr ng f'
-withYicesOnlineBackend :: forall fm scope m a.
+withYicesOnlineBackend :: forall ann fm scope m a.
   (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   UnsatFeatures ->
-  (YicesOnlineBackend scope (B.Flags fm) -> m a) ->
+  (YicesOnlineBackend scope (B.Flags fm ann) -> m a) ->
   m a
 withYicesOnlineBackend fm gen unsatFeat action =
   let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
@@ -181,12 +181,12 @@ type Z3OnlineBackend scope fs = OnlineBackend (SMT2.Writer Z3.Z3) scope fs
 --   Example:
 --
 --   > withz3OnlineBackend FloatRealRepr ng f'
-withZ3OnlineBackend :: forall fm scope m a.
+withZ3OnlineBackend :: forall ann fm scope m a.
   (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   UnsatFeatures ->
-  (Z3OnlineBackend scope (B.Flags fm) -> m a) ->
+  (Z3OnlineBackend scope (B.Flags fm ann) -> m a) ->
   m a
 withZ3OnlineBackend fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
@@ -207,12 +207,12 @@ type CVC4OnlineBackend scope fs = OnlineBackend  (SMT2.Writer CVC4.CVC4) scope f
 --   Example:
 --
 --   > withCVC4OnlineBackend FloatRealRepr ng f'
-withCVC4OnlineBackend :: forall fm scope m a.
+withCVC4OnlineBackend :: forall ann fm scope m a.
   (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   UnsatFeatures ->
-  (CVC4OnlineBackend scope (B.Flags fm) -> m a) ->
+  (CVC4OnlineBackend scope (B.Flags fm ann) -> m a) ->
   m a
 withCVC4OnlineBackend fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat) in
@@ -233,11 +233,11 @@ type STPOnlineBackend scope fs = OnlineBackend (SMT2.Writer STP.STP) scope fs
 --   Example:
 --
 --   > withSTPOnlineBackend FloatRealRepr ng f'
-withSTPOnlineBackend :: forall fm scope m a .
+withSTPOnlineBackend :: forall ann fm scope m a .
   (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
-  (STPOnlineBackend scope (B.Flags fm) -> m a) ->
+  (STPOnlineBackend scope (B.Flags fm ann) -> m a) ->
   m a
 withSTPOnlineBackend fm gen action =
   withOnlineBackend fm gen (SMT2.defaultFeatures STP.STP) $ \sym -> do
@@ -418,7 +418,7 @@ withOnlineBackend ::
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   ProblemFeatures ->
-  (OnlineBackend solver scope (B.Flags fm) -> m a) ->
+  (OnlineBackend solver scope (B.Flags fm ann) -> m a) ->
   m a
 withOnlineBackend floatMode gen feats action = do
   st  <- liftIO $ initialOnlineBackendState gen feats

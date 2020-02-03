@@ -1,5 +1,5 @@
 {-# Language RankNTypes, TypeApplications, TypeFamilies #-}
-{-# Language PatternSynonyms #-}
+{-# Language PatternSynonyms, DataKinds, KindSignatures #-}
 module Main(main) where
 
 import System.IO(stdout)
@@ -21,6 +21,8 @@ import Lang.Crucible.Simulator
 
 import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
 import Lang.Crucible.LLVM.Run
+
+import What4.Interface( BaseType )
 
 import CruxLLVMMain( registerFunctions )
 import Crux.Model
@@ -66,9 +68,10 @@ runFrom st =
      st1 <- singleStepCrucible 5 st
      runFrom st1
 
+data DummyAnn (tp :: BaseType)
 
 -- | Create a Z3 backend for the simulator.
-withZ3 :: (forall s. Z3OnlineBackend s (Flags FloatIEEE) -> IO a) -> IO a
+withZ3 :: (forall s. Z3OnlineBackend s (Flags FloatIEEE DummyAnn) -> IO a) -> IO a
 withZ3 k =
   withIONonceGenerator $ \nonceGen ->
   withZ3OnlineBackend FloatIEEERepr nonceGen ProduceUnsatCores k

@@ -62,7 +62,7 @@ newSimpleBackend ::
   B.FloatModeRepr fm
   -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
   -> NonceGenerator IO t
-  -> IO (SimpleBackend t (B.Flags fm))
+  -> IO (SimpleBackend t (B.Flags fm ann))
 newSimpleBackend floatMode gen =
   do st <- initialSimpleBackendState gen
      B.newExprBuilder floatMode st gen
