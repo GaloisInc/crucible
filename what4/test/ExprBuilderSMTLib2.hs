@@ -3,6 +3,7 @@
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -48,6 +49,7 @@ data SomePred = forall t fs. SomePred (BoolExpr t fs)
 deriving instance Show SomePred
 type SimpleExprBuilder = ExprBuilder State
 
+data DummyAnn (x :: BaseType)
 
 debugOutputFiles :: Bool
 debugOutputFiles = False
@@ -63,14 +65,14 @@ userSymbol' s = case userSymbol s of
   Left e       -> error $ show e
   Right symbol -> symbol
 
-withSym :: FloatModeRepr fm -> (forall t . SimpleExprBuilder t (Flags fm) -> IO a) -> IO a
+withSym :: FloatModeRepr fm -> (forall t . SimpleExprBuilder t (Flags fm DummyAnn) -> IO a) -> IO a
 withSym floatMode pred_gen = withIONonceGenerator $ \gen ->
   pred_gen =<< newExprBuilder floatMode State gen
 
 withYices ::
   (forall t.
-    SimpleExprBuilder t (Flags FloatReal) ->
-    SolverProcess t (Flags FloatReal) (Yices.Connection t) ->
+    SimpleExprBuilder t (Flags FloatReal DummyAnn) ->
+    SolverProcess t (Flags FloatReal DummyAnn) (Yices.Connection t) ->
     IO ()) ->
   IO ()
 withYices action = withSym FloatRealRepr $ \sym ->
@@ -84,8 +86,8 @@ withYices action = withSym FloatRealRepr $ \sym ->
 
 withZ3 ::
   (forall t .
-    SimpleExprBuilder t (Flags FloatIEEE) ->
-    Session t (Flags FloatIEEE) Z3.Z3 ->
+    SimpleExprBuilder t (Flags FloatIEEE DummyAnn) ->
+    Session t (Flags FloatIEEE DummyAnn) Z3.Z3 ->
     IO ()) ->
   IO ()
 withZ3 action = withIONonceGenerator $ \nonce_gen -> do
@@ -95,8 +97,8 @@ withZ3 action = withIONonceGenerator $ \nonce_gen -> do
 
 withOnlineZ3
   :: (forall t .
-       SimpleExprBuilder t (Flags FloatIEEE) ->
-       SolverProcess t (Flags FloatIEEE) (Writer Z3.Z3) ->
+       SimpleExprBuilder t (Flags FloatIEEE DummyAnn) ->
+       SolverProcess t (Flags FloatIEEE DummyAnn) (Writer Z3.Z3) ->
        IO a)
   -> IO a
 withOnlineZ3 action = withSym FloatIEEERepr $ \sym -> do
@@ -110,8 +112,8 @@ withOnlineZ3 action = withSym FloatIEEERepr $ \sym -> do
 
 withCVC4 ::
   (forall t .
-    SimpleExprBuilder t (Flags FloatReal) ->
-    SolverProcess t (Flags FloatReal) (Writer CVC4.CVC4) ->
+    SimpleExprBuilder t (Flags FloatReal DummyAnn) ->
+    SolverProcess t (Flags FloatReal DummyAnn) (Writer CVC4.CVC4) ->
     IO a) ->
   IO a
 withCVC4 action = withSym FloatRealRepr $ \sym -> do

@@ -63,6 +63,7 @@ module What4.Interface
     SymExpr
   , BoundVar
   , SymFn
+  , SymAnnotation
 
     -- ** Expression recognizers
   , IsExpr(..)
@@ -227,6 +228,9 @@ type SymString sym si = SymExpr sym (BaseStringType si)
 
 -- | The class for expressions.
 type family SymExpr (sym :: Type) :: BaseType -> Type
+
+-- | The class of term annotations
+type family SymAnnotation (sym :: Type) :: BaseType -> Type
 
 ------------------------------------------------------------------------
 -- | Type of bound variable associated with symbolic state.
@@ -454,6 +458,12 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
+
+
+  -- | Add an annotation to the given symbolic expression.  This annotation
+  --   does not affect the semantics of the term, but can later be
+  --   accessed when the term is traversed.
+--  annotateTerm :: sym -> SymAnnotation sym tp -> SymExpr sym tp -> IO (SymExpr tp)
 
   ----------------------------------------------------------------------
   -- Boolean operations.

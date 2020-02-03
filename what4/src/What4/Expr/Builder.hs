@@ -148,6 +148,8 @@ module What4.Expr.Builder
   , FloatUninterpreted
   , FloatReal
   , Flags
+  , FM
+  , Ann
 
     -- * BV Or Set
   , BVOrSet
@@ -1428,10 +1430,13 @@ type FloatIEEE = 'FloatIEEE
 type FloatUninterpreted = 'FloatUninterpreted
 type FloatReal = 'FloatReal
 
-data Flags (fi :: FloatMode)
+data Flags (fi :: FloatMode) (ann :: BaseType -> Type)
 
 type family FM (flags :: Type) :: FloatMode where
-  FM (Flags fi) = fi
+  FM (Flags fi ann) = fi
+
+type family Ann (flags :: Type) :: BaseType -> Type where
+  FM (Flags fi ann) = ann
 
 data FloatModeRepr :: FloatMode -> Type where
   FloatIEEERepr          :: FloatModeRepr FloatIEEE
@@ -1502,6 +1507,7 @@ data ExprBuilder (st :: Type -> Type -> Type) (t :: Type) (fs :: Type)
 
 type instance SymFn (ExprBuilder st t fs) = ExprSymFn t fs
 type instance SymExpr (ExprBuilder st t fs) = Expr t fs
+type instance SymAnnotation (ExprBuilder st t fs) = Ann fs
 type instance BoundVar (ExprBuilder st t fs) = ExprBoundVar t
 
 ------------------------------------------------------------------------
@@ -5841,10 +5847,10 @@ floatIEEELogicUnOp ctor sym x = sbMakeExpr sym $ ctor x
 ----------------------------------------------------------------------
 -- Float interpretations
 
-type instance SymInterpretedFloatType (ExprBuilder st t (Flags FloatReal)) fi =
+type instance SymInterpretedFloatType (ExprBuilder st t (Flags FloatReal ann)) fi =
   BaseRealType
 
-instance IsInterpretedFloatExprBuilder (ExprBuilder st t (Flags FloatReal)) where
+instance IsInterpretedFloatExprBuilder (ExprBuilder st t (Flags FloatReal ann)) where
   iFloatPZero sym _ = return $ realZero sym
   iFloatNZero sym _ = return $ realZero sym
   iFloatNaN _ _ = fail "NaN cannot be represented as a real value."
@@ -5924,10 +5930,10 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder st t (Flags FloatReal)) wher
   iFloatToReal _ = return
   iFloatBaseTypeRepr _ _ = knownRepr
 
-type instance SymInterpretedFloatType (ExprBuilder st t (Flags FloatUninterpreted)) fi =
+type instance SymInterpretedFloatType (ExprBuilder st t (Flags FloatUninterpreted ann)) fi =
   BaseBVType (FloatInfoToBitWidth fi)
 
-instance IsInterpretedFloatExprBuilder (ExprBuilder st t (Flags FloatUninterpreted)) where
+instance IsInterpretedFloatExprBuilder (ExprBuilder st t (Flags FloatUninterpreted ann)) where
   iFloatPZero sym =
     floatUninterpArithCt "uninterpreted_float_pzero" sym . iFloatBaseTypeRepr sym
   iFloatNZero sym =
@@ -6085,10 +6091,10 @@ roundingModeToSymNat
 roundingModeToSymNat sym = natLit sym . fromIntegral . fromEnum
 
 
-type instance SymInterpretedFloatType (ExprBuilder st t (Flags FloatIEEE)) fi =
+type instance SymInterpretedFloatType (ExprBuilder st t (Flags FloatIEEE ann)) fi =
   BaseFloatType (FloatInfoToPrecision fi)
 
-instance IsInterpretedFloatExprBuilder (ExprBuilder st t (Flags FloatIEEE)) where
+instance IsInterpretedFloatExprBuilder (ExprBuilder st t (Flags FloatIEEE ann)) where
   iFloatPZero sym = floatPZero sym . floatInfoToPrecisionRepr
   iFloatNZero sym = floatNZero sym . floatInfoToPrecisionRepr
   iFloatNaN sym = floatNaN sym . floatInfoToPrecisionRepr
