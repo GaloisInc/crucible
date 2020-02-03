@@ -19,10 +19,8 @@ those.
 -}
 
 import           Control.Monad.IO.Class ( liftIO )
--- import           Data.Bits
 import           Data.List ( isInfixOf )
 import           Data.Parameterized.Nonce
--- import           GHC.Natural
 import           GenWhat4Expr
 import           Hedgehog
 import qualified Hedgehog.Gen as Gen
@@ -294,48 +292,6 @@ testConcretePredProps = testGroup "generated concrete predicates" $
   , tt "bv16" calcBVIte
   ]
 
-
--- | Test natDiv and natMod properties described at their declaration
--- site in What4.Interface
-testNatDivModProps :: TestTree
-testNatDivModProps =
-  testProperty "d <- natDiv sym x y; m <- natMod sym x y ===> y * d + m == x and m < y" $
-  property $ do
-    xn <- forAll $ Gen.integral $ Range.constant 0 1000
-    yn <- forAll $ Gen.integral $ Range.constant 1 2000  -- no zero; avoid div-by-zero
-    dm <- liftIO $ withTestSolver $ \sym -> do
-      x <- natLit sym xn
-      y <- natLit sym yn
-      d <- natDiv sym x y
-      m <- natMod sym x y
-      return (asConcrete d, asConcrete m)
-    case dm of
-      (Just dnc, Just mnc) -> do
-        let dn = fromConcreteNat dnc
-        let mn = fromConcreteNat mnc
-        annotateShow (xn, yn, dn, mn)
-        yn * dn + mn === xn
-        diff mn (<) yn
-      _ -> failure
-
--- testBvIsNeg :: TestTree
--- testBvIsNeg = testGroup "bvIsNeg"
---   [
---     checkIte $ ITETestCond "b32.bvIsNeg -2^32" Then $ \sym ->
---       bvIsNeg sym =<< bvLit sym (knownRepr :: NatRepr 32) (((-1) * 2^32) :: Integer)
---   , checkIte $ ITETestCond "b32.bvIsNeg 2^32" Then $ \sym ->
---       bvIsNeg sym =<< bvLit sym (knownRepr :: NatRepr 32) (2^32 :: Integer)
---   , checkIte $ ITETestCond "b32.bvIsNeg -(2^32 - 2)" Then $ \sym -> do
---       bvIsNeg sym =<< bvLit sym (knownRepr :: NatRepr 32) (-4294967294 :: Integer)
-
---   , checkIte $ ITETestCond "b16.bvIsNeg -2^16" Then $ \sym ->
---       bvIsNeg sym =<< bvLit sym (knownRepr :: NatRepr 16) (((-1) * 2^16) :: Integer)
---   , checkIte $ ITETestCond "b16.bvIsNeg 2^16" Then $ \sym ->
---       bvIsNeg sym =<< bvLit sym (knownRepr :: NatRepr 32) (2^32 :: Integer)
---   , checkIte $ ITETestCond "b16.bvIsNeg -(2^16 - 2)" Then $ \sym -> do
---       bvIsNeg sym =<< bvLit sym (knownRepr :: NatRepr 32) (-4294967294 :: Integer)
---   ]
-
 ----------------------------------------------------------------------
 
 main :: IO ()
@@ -350,6 +306,4 @@ main = defaultMain $ testGroup "Ite Expressions"
   , testConcreteEqPred
   , testConcreteXORPred
   , testConcretePredProps
-  , testNatDivModProps
---  , testBvIsNeg
   ]
