@@ -783,32 +783,33 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
      zro <- bvLit sym w 0
      notPred sym  =<< bvEq sym x zro
 
-  -- | Left shift.
+  -- | Left shift.  The shift amount is treated as an unsigned value.
   bvShl :: (1 <= w) => sym ->
                        SymBV sym w {- ^ Shift this -} ->
                        SymBV sym w {- ^ Amount to shift by -} ->
                        IO (SymBV sym w)
 
-  -- | Logical right shift.
+  -- | Logical right shift.  The shift amount is treated as an unsigned value.
   bvLshr :: (1 <= w) => sym ->
                         SymBV sym w {- ^ Shift this -} ->
                         SymBV sym w {- ^ Amount to shift by -} ->
                         IO (SymBV sym w)
 
-  -- | Arithmetic right shift.
+  -- | Arithmetic right shift.  The shift amount is treated as a
+  -- signed value, and a negative shift value indicates a left shift.
   bvAshr :: (1 <= w) => sym ->
                         SymBV sym w {- ^ Shift this -} ->
                         SymBV sym w {- ^ Amount to shift by -} ->
                         IO (SymBV sym w)
 
-  -- | Rotate left.
+  -- | Rotate left.  The rotate amount is treated as an unsigned value.
   bvRol :: (1 <= w) =>
     sym ->
     SymBV sym w {- ^ bitvector to rotate -} ->
     SymBV sym w {- ^ amount to rotate by -} ->
     IO (SymBV sym w)
 
-  -- | Rotate right.
+  -- | Rotate right.  The rotate amount is treated as an unsigned value.
   bvRor :: (1 <= w) =>
     sym ->
     SymBV sym w {- ^ bitvector to rotate -} ->
@@ -862,7 +863,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   bvSet :: forall w
          . (1 <= w)
         => sym         -- ^ Symbolic interface
-        -> SymBV sym w -- ^ Bitvector to updaate
+        -> SymBV sym w -- ^ Bitvector to update
         -> Natural     -- ^ 0-based index to set
         -> Pred sym    -- ^ Predicate to set.
         -> IO (SymBV sym w)
