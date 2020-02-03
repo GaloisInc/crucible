@@ -15,6 +15,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -25,6 +26,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -82,6 +84,9 @@ data ConcreteVal tp where
     ConcreteVal b {- A default value -} ->
     Map (Ctx.Assignment ConcreteVal (idx ::> i)) (ConcreteVal b) {- A collection of point-updates -} ->
     ConcreteVal (BaseArrayType (idx ::> i) b)
+
+deriving instance ShowF ConcreteVal
+deriving instance Show (ConcreteVal tp)
 
 fromConcreteBool :: ConcreteVal BaseBoolType -> Bool
 fromConcreteBool (ConcreteBool x) = x
