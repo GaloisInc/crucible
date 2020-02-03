@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -27,13 +28,26 @@ module What4.Serialize.Normalize
 
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TraversableFC as FC
+import           Data.Parameterized.Some ( Some (..) )
+
+import qualified Data.List.NonEmpty as NE
 
 import qualified What4.Interface as S
 import qualified What4.Expr as S
 import qualified What4.Expr.Builder as B
 import qualified What4.Expr.WeightedSum as WSum
+import qualified What4.Expr.BoolMap as BooM
+import qualified What4.SemiRing as SR
 import           Data.Parameterized.Classes
 
+import           Control.Monad ( zipWithM )
+import           Control.Monad.Fail as MF
+import           Control.Monad.Trans ( liftIO, MonadIO )
+import           Control.Monad.Reader ( ReaderT, MonadReader )
+import qualified Control.Monad.Reader as MR
+import           Control.Monad.Except ( throwError, ExceptT, MonadError )
+import qualified Control.Monad.Except as ME
+import qualified Control.Monad.Writer as MW
 
 normSymFn :: forall sym st fs t args ret. sym ~ B.ExprBuilder t st fs => sym -> B.ExprSymFn t args ret -> Ctx.Assignment (S.Expr t) args -> IO (S.Expr t ret)
 normSymFn sym symFn argEs = case B.symFnInfo symFn of
@@ -83,6 +97,16 @@ normAppExpr sym ae = do
           else' <- normExpr sym else_
           Just sm' <- B.asApp <$> S.baseTypeIte sym test' then' else'
           return sm'
+
+        go (S.ConjPred bm) = do
+          bm' <- BooM.traverseVars (normExpr sym) bm
+          Just sm' <- B.asApp <$> B.sbMakeExpr sym (B.ConjPred bm')
+          return sm'
+
+        go (S.BVOrBits width bs) = do
+          bs' <- B.traverseBVOrSet (normExpr sym) bs
+          return $ B.BVOrBits width bs'
+
         go x@(S.SemiRingSum sm) =
           case WSum.sumRepr sm of
             S.SemiRingIntegerRepr -> do
