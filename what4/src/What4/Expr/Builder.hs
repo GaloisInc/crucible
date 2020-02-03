@@ -2782,11 +2782,12 @@ insertIdxValue :: MonadIO m => IdxCache t f -> Nonce t tp -> f tp -> m ()
 insertIdxValue c e v = seq v $ liftIO $ stToIO $ PH.insert (cMap c) e v
 
 {-# INLINE deleteIdxValue #-}
--- | Bind the value to the given expr in the index.
+-- | Remove a value from the IdxCache
 deleteIdxValue :: MonadIO m => IdxCache t f -> Nonce t (tp :: BaseType) -> m ()
 deleteIdxValue c e = liftIO $ stToIO $ do
   PH.delete (cMap c) e
 
+-- | Remove all values from the IdxCache
 clearIdxCache :: IdxCache t f -> IO ()
 clearIdxCache c = stToIO $ PH.clear (cMap c)
 
@@ -3140,10 +3141,41 @@ reduceApp sym a0 = do
     BaseEq _ x y -> isEq sym x y
 
     NotPred x -> notPred sym x
-    ConjPred xs -> conjPred sym xs
+    ConjPred bm ->
+      case BM.viewBoolMap bm of
+        BoolMapDualUnit -> return $ falsePred sym
+        BoolMapUnit     -> return $ truePred sym
+        BoolMapTerms tms ->
+          do let pol (p, Positive) = return p
+                 pol (p, Negative) = notPred sym p
+             x:|xs <- mapM pol tms
+             foldM (andPred sym) x xs
 
-    SemiRingSum s -> semiRingSum sym s
-    SemiRingProd pd -> semiRingProd sym pd
+    SemiRingSum s ->
+      case WSum.sumRepr s of
+        SR.SemiRingNatRepr ->
+          WSum.evalM (natAdd sym) (\c x -> natMul sym x =<< natLit sym c) (natLit sym) s
+        SR.SemiRingIntegerRepr ->
+          WSum.evalM (intAdd sym) (\c x -> intMul sym x =<< intLit sym c) (intLit sym) s
+        SR.SemiRingRealRepr ->
+          WSum.evalM (realAdd sym) (\c x -> realMul sym x =<< realLit sym c) (realLit sym) s
+        SR.SemiRingBVRepr SR.BVArithRepr w ->
+          WSum.evalM (bvAdd sym) (\c x -> bvMul sym x =<< bvLit sym w c) (bvLit sym w) s
+        SR.SemiRingBVRepr SR.BVBitsRepr w ->
+          WSum.evalM (bvXorBits sym) (\c x -> bvAndBits sym x =<< bvLit sym w c) (bvLit sym w) s
+
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingNatRepr ->
+          maybe (natLit sym 1) return =<< WSum.prodEvalM (natMul sym) return pd
+        SR.SemiRingIntegerRepr ->
+          maybe (intLit sym 1) return =<< WSum.prodEvalM (intMul sym) return pd
+        SR.SemiRingRealRepr ->
+          maybe (realLit sym 1) return =<< WSum.prodEvalM (realMul sym) return pd
+        SR.SemiRingBVRepr SR.BVArithRepr w ->
+          maybe (bvLit sym w 1) return =<< WSum.prodEvalM (bvMul sym) return pd
+        SR.SemiRingBVRepr SR.BVBitsRepr w ->
+          maybe (bvLit sym w (maxUnsigned w)) return =<< WSum.prodEvalM (bvAndBits sym) return pd
 
     SemiRingLe SR.OrderedSemiRingRealRepr x y -> realLe sym x y
     SemiRingLe SR.OrderedSemiRingIntegerRepr x y -> intLe sym x y
