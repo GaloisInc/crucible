@@ -23,9 +23,7 @@ import           Data.List ( isInfixOf )
 import           Data.Parameterized.Nonce
 import           GenWhat4Expr
 import           Hedgehog
-import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Internal.Gen as IGen
-import qualified Hedgehog.Range as Range
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.Hedgehog
@@ -34,10 +32,11 @@ import           What4.Expr
 import           What4.Interface
 
 
-data State t = State
-type IteExprBuilder t fs = ExprBuilder t State fs
+data State t fs = State
+type IteExprBuilder t fs = ExprBuilder State t fs
+data DummyAnn (tp :: BaseType)
 
-withTestSolver :: (forall t. IteExprBuilder t (Flags FloatIEEE) -> IO a) -> IO a
+withTestSolver :: (forall t. IteExprBuilder t (Flags FloatIEEE DummyAnn) -> IO a) -> IO a
 withTestSolver f = withIONonceGenerator $ \nonce_gen ->
   f =<< newExprBuilder FloatIEEERepr State nonce_gen
 
