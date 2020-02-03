@@ -1572,6 +1572,12 @@ initialValue (CTyBox t) = do
 initialValue (CTyVector t) = do
     tyToReprCont t $ \ tr ->
       return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
+initialValue (CTyArray t) = case tyToRepr t of
+    Some (C.BVRepr w) -> do
+        let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
+        v <- arrayZeroed idxs w
+        return $ Just $ MirExp (C.SymbolicArrayRepr idxs (C.BaseBVRepr w)) v
+    _ -> error $ "can't initialize array of " ++ show t ++ " (expected BVRepr)"
 initialValue ty@(CTyBv _sz)
   | Some (C.BVRepr w) <- tyToRepr ty
   = return $ Just $ MirExp (C.BVRepr w) $ S.app $ E.BVLit w 0

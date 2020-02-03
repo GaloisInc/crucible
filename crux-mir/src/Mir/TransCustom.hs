@@ -119,6 +119,10 @@ customOpDefs = Map.fromList $ [
                          , vector_split_at
                          , vector_copy_from_slice
 
+                         , array_zeroed
+                         , array_lookup
+                         , array_update
+
                          , any_new
                          , any_downcast
 
@@ -327,6 +331,46 @@ vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], 
 
 
 -----------------------------------------------------------------------------------------------------
+-- ** Custom: Array
+
+-- Methods for crucible::array::Array<T> (which has custom representation)
+
+array_zeroed :: (ExplodedDefId, CustomRHS)
+array_zeroed = ( ["crucible","array","{{impl}}", "zeroed"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ _ -> case tyToRepr t of
+        Some (C.BVRepr w) -> do
+            let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
+            v <- arrayZeroed idxs w
+            return $ MirExp (C.SymbolicArrayRepr idxs (C.BaseBVRepr w)) v
+        _ -> mirFail $ "bad substs for Array::zeroed: " ++ show t
+    _ -> Nothing
+
+array_lookup :: (ExplodedDefId, CustomRHS)
+array_lookup = ( ["crucible","array","{{impl}}", "lookup"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> BaseUsizeRepr) btr) eArr,
+          MirExp UsizeRepr eIdx ] -> do
+            let idx = E.BaseTerm BaseUsizeRepr eIdx
+            let idxs = Ctx.Empty Ctx.:> idx
+            return $ MirExp (C.baseToType btr) (R.App $ E.SymArrayLookup btr eArr idxs)
+        _ -> mirFail $ "bad arguments for Array::lookup: " ++ show ops
+    _ -> Nothing
+
+array_update :: (ExplodedDefId, CustomRHS)
+array_update = ( ["crucible","array","{{impl}}", "update"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp arrTpr@(C.SymbolicArrayRepr (Ctx.Empty Ctx.:> BaseUsizeRepr) btr) eArr,
+          MirExp UsizeRepr eIdx,
+          MirExp (C.asBaseType -> C.AsBaseType btr') eVal ]
+          | Just Refl <- testEquality btr btr' -> do
+            let idx = E.BaseTerm BaseUsizeRepr eIdx
+            let idxs = Ctx.Empty Ctx.:> idx
+            return $ MirExp arrTpr (R.App $ E.SymArrayUpdate btr eArr idxs eVal)
+        _ -> mirFail $ "bad arguments for Array::lookup: " ++ show ops
+    _ -> Nothing
+
+
+-----------------------------------------------------------------------------------------------------
 -- ** Custom: Any
 
 -- Methods for crucible::any::Any (which has custom representation)
@@ -353,7 +397,6 @@ any_downcast = ( ["core", "crucible", "any", "{{impl}}", "downcast"], \substs ->
         _ -> mirFail $ "bad arguments for Any::downcast: " ++ show ops
     _ -> Nothing
     )
-
 
 
 -----------------------------------------------------------------------------------------------------

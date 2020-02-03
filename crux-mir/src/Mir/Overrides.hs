@@ -52,7 +52,7 @@ import What4.Interface
 import Crux.Model (addVar)
 import Crux.Types (Model)
 
-import Mir.Intrinsics (MIR, MirImmSlice, pattern MirImmSliceRepr)
+import Mir.Intrinsics (MIR, SizeBits, MirImmSlice, pattern MirImmSliceRepr)
 import Mir.DefId
 
 import Debug.Trace
@@ -72,7 +72,6 @@ getString _ (Empty :> RV vec :> RV startExpr :> RV lenExpr) = do
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
-
 
 bindFn ::
   forall args ret blocks sym rtp a r .

@@ -142,6 +142,8 @@ type SizeBits = 32
 
 type UsizeType = BVType SizeBits
 type IsizeType = BVType SizeBits
+type BaseUsizeType = BaseBVType SizeBits
+type BaseIsizeType = BaseBVType SizeBits
 
 pattern UsizeRepr :: () => tp ~ UsizeType => TypeRepr tp
 pattern UsizeRepr <- BVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
@@ -150,6 +152,14 @@ pattern UsizeRepr <- BVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> J
 pattern IsizeRepr :: () => tp ~ IsizeType => TypeRepr tp
 pattern IsizeRepr <- BVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
   where IsizeRepr = BVRepr (knownRepr :: N.NatRepr SizeBits)
+
+pattern BaseUsizeRepr :: () => tp ~ BaseUsizeType => BaseTypeRepr tp
+pattern BaseUsizeRepr <- BaseBVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
+  where BaseUsizeRepr = BaseBVRepr (knownRepr :: N.NatRepr SizeBits)
+
+pattern BaseIsizeRepr :: () => tp ~ BaseIsizeType => BaseTypeRepr tp
+pattern BaseIsizeRepr <- BaseBVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
+  where BaseIsizeRepr = BaseBVRepr (knownRepr :: N.NatRepr SizeBits)
 
 
 usizeLit :: Integer -> App ext f UsizeType
@@ -539,6 +549,11 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f (VectorType tp)) ->
      !(f NatType) ->
      MirStmt f (VectorType tp)
+  ArrayZeroed ::
+     (1 <= w) =>
+     !(Assignment BaseTypeRepr (idxs ::> idx)) ->
+     !(NatRepr w) ->
+     MirStmt f (SymbolicArrayType (idxs ::> idx) (BaseBVType w))
 
 $(return [])
 
@@ -557,6 +572,8 @@ instance TestEqualityFC MirStmt where
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
+       , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+       , (U.ConType [t|Assignment|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
        ])
 instance TestEquality f => TestEquality (MirStmt f) where
   testEquality = testEqualityFC testEquality
@@ -569,6 +586,8 @@ instance OrdFC MirStmt where
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
+       , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+       , (U.ConType [t|Assignment|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
        ])
 
 instance TypeApp MirStmt where
@@ -591,6 +610,7 @@ instance TypeApp MirStmt where
     VectorConcat tp _ _ -> VectorRepr tp
     VectorTake tp _ _ -> VectorRepr tp
     VectorDrop tp _ _ -> VectorRepr tp
+    ArrayZeroed idxs w -> SymbolicArrayRepr idxs (BaseBVRepr w)
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -612,6 +632,7 @@ instance PrettyApp MirStmt where
     VectorConcat _ v1 v2 -> "vectorConcat" <+> pp v1 <+> pp v2
     VectorTake _ v i -> "vectorTake" <+> pp v <+> pp i
     VectorDrop _ v i -> "vectorDrop" <+> pp v <+> pp i
+    ArrayZeroed idxs w -> "arrayZeroed" <+> text (show idxs) <+> text (show w)
 
 instance FunctorFC MirStmt where
   fmapFC = fmapFCDefault
@@ -734,6 +755,10 @@ execMirStmt stmt s =
             Just (ConcreteNat idx') -> return (V.drop (fromIntegral idx') v, s)
             Nothing -> addFailedAssertion sym $
                 GenericSimError "VectorDrop index must be concrete"
+       ArrayZeroed idxs w -> do
+            zero <- bvLit sym w 0
+            val <- constantArray sym idxs zero
+            return (val, s)
 
 writeRefPath :: IsSymInterface sym =>
   sym ->

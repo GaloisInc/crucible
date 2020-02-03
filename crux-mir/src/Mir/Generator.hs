@@ -83,6 +83,7 @@ import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
 import           Data.Parameterized.Peano
 import           Data.Parameterized.BoolRepr
+import           Data.Parameterized.NatRepr
 
 import qualified Lang.Crucible.FunctionHandle as FH
 import qualified Lang.Crucible.Types as C
@@ -549,6 +550,13 @@ vectorDrop ::
   R.Expr MIR s C.NatType ->
   MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
 vectorDrop tp v e = G.extensionStmt $ VectorDrop tp v e
+
+arrayZeroed ::
+  (1 <= w) =>
+  Assignment C.BaseTypeRepr (idxs ::> idx) ->
+  NatRepr w ->
+  MirGenerator h s ret (R.Expr MIR s (C.SymbolicArrayType (idxs ::> idx) (C.BaseBVType w)))
+arrayZeroed idxs w = G.extensionStmt $ ArrayZeroed idxs w
 
 
 
