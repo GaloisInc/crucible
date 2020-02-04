@@ -135,6 +135,12 @@ proveToGoal _ allAsmps p pr =
  where
  showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
 
+data ProcessedGoals =
+  ProcessedGoals { totalProcessedGoals :: !Integer
+                 , provedGoals :: !Integer
+                 , disprovedGoals :: !Integer
+                 }
+
 -- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
 --
 -- This function traverses the 'Goals' tree while keeping track of a collection
@@ -159,7 +165,7 @@ proveGoalsOffline :: forall st sym p asmp ast t fs
                   -> IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 proveGoalsOffline _adapter _opts _ctx Nothing = return Nothing
 proveGoalsOffline adapter opts ctx (Just gs0) = do
-  goalNum <- newIORef (0, 0, 0)
+  goalNum <- newIORef (ProcessedGoals 0 0 0)
   unless hasUnsatCores $ do
     sayWarn "Crux" "Warning: Skipping unsat cores because MC-SAT is enabled."
   Just <$> go goalNum [] gs0
@@ -175,7 +181,7 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
     hasUnsatCores = not (yicesMCSat opts)
     failfast = proofGoalsFailFast opts
 
-    go :: IORef (Integer, Integer, Integer)
+    go :: IORef ProcessedGoals
        -> [Seq.Seq (LPred sym asmp)]
        -> Goals (LPred sym asmp) (LPred sym ast)
        -> IO (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast))))
@@ -187,13 +193,13 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
 
         ProveConj g1 g2 -> do
           g1' <- go goalNum assumptionsInScope g1
-          (_, _, s) <- readIORef goalNum
-          if failfast && s > 0
+          numDisproved <- disprovedGoals <$> readIORef goalNum
+          if failfast && numDisproved > 0
             then return g1'
             else ProveConj g1' <$> go goalNum assumptionsInScope g2
 
         Prove p -> do
-          num <- atomicModifyIORef' goalNum (\(val,y,z) -> ((val + 1,y,z), val))
+          num <- atomicModifyIORef' goalNum (\pg -> (pg { totalProcessedGoals = totalProcessedGoals pg + 1 }, totalProcessedGoals pg))
           start num
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
@@ -206,13 +212,13 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
           mres <- withTimeout $ WS.solver_adapter_check_sat adapter sym logData [assumptions, goal] $ \satRes ->
             case satRes of
               Unsat _ -> do
-                atomicModifyIORef' goalNum (\(x, u, s) -> ((x, u, s+1), ()))
+                modifyIORef' goalNum (\pg -> pg { provedGoals = provedGoals pg + 1 })
                 -- NOTE: We don't have an easy way to get an unsat core here
                 -- because we don't have a solver connection.
                 let core = fmap Left (F.toList (mconcat assumptionsInScope))
                 return (Prove (p, Proved core))
               Sat (evalFn, _) -> do
-                atomicModifyIORef' goalNum (\(x, u, s) -> ((x, u+1, s), ()))
+                modifyIORef' goalNum (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
                 when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
                 let model = ctx ^. cruciblePersonality
                 vals <- evalModel evalFn model
@@ -249,8 +255,7 @@ proveGoalsOnline _ _opts _ctxt Nothing =
      return Nothing
 
 proveGoalsOnline sym opts ctxt (Just gs0) =
-  do let zero = 0 :: Integer
-     goalNum <- newIORef (zero,zero,zero) -- total, proved, disproved
+  do goalNum <- newIORef (ProcessedGoals 0 0 0)
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
        sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
@@ -280,7 +285,7 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
            return (Assuming ps res)
 
       Prove p ->
-        do num <- atomicModifyIORef' gn (\(val,y,z) -> ((val + 1,y,z), val))
+        do num <- atomicModifyIORef' gn (\pg -> (pg { totalProcessedGoals = totalProcessedGoals pg + 1 }, totalProcessedGoals pg))
            start num
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
@@ -288,7 +293,7 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->
-                        do modifyIORef' gn (\(x,u,s) -> (x,u+1,s))
+                        do modifyIORef' gn (\pg -> pg { provedGoals = provedGoals pg + 1 })
                            namemap <- readIORef nameMap
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
@@ -296,7 +301,7 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                            return (Prove (p, (Proved core)))
 
                       Sat ()  ->
-                        do modifyIORef' gn (\(x,u,s) -> (x,u,s+1))
+                        do modifyIORef' gn (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
                            when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
@@ -313,8 +318,8 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
            --  we don't need to back up to this point again.
 
            if failfast then
-             do (_,_,s) <- readIORef gn
-                if s > 0 then
+             do numDisproved <- disprovedGoals <$> readIORef gn
+                if numDisproved > 0 then
                   return g1'
                 else
                   ProveConj g1' <$> go sp gn g2 nameMap
