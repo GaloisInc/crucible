@@ -166,8 +166,6 @@ proveGoalsOffline :: forall st sym p asmp ast t fs
 proveGoalsOffline _adapter _opts _ctx Nothing = return Nothing
 proveGoalsOffline adapter opts ctx (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0)
-  unless hasUnsatCores $ do
-    sayWarn "Crux" "Warning: Skipping unsat cores because MC-SAT is enabled."
   Just <$> go goalNum [] gs0
   where
     (start,end)
@@ -178,7 +176,6 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
       | Just seconds <- goalTimeout opts = ST.timeout (round seconds * 1000000) action
       | otherwise = Just <$> action
 
-    hasUnsatCores = not (yicesMCSat opts)
     failfast = proofGoalsFailFast opts
 
     go :: IORef ProcessedGoals
