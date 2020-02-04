@@ -41,7 +41,7 @@ import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
-import What4.Expr.Builder (ExprBuilder)
+import What4.Expr.Builder (ExprBuilder,DummyAnn)
 import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
@@ -94,7 +94,7 @@ simulateProgram fn theInput outh profh opts setup =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do sym <- newSimpleBackend FloatIEEERepr nonceGen
+         do sym <- newSimpleBackend @DummyAnn FloatIEEERepr nonceGen
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]

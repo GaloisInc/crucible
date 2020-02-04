@@ -22,7 +22,7 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
 import Lang.Crucible.LLVM.Run
 
-import What4.Interface( BaseType )
+import What4.Expr.Builder( DummyAnn )
 
 import CruxLLVMMain( registerFunctions )
 import Crux.Model
@@ -67,8 +67,6 @@ runFrom st =
      _ <- getLine
      st1 <- singleStepCrucible 5 st
      runFrom st1
-
-data DummyAnn (tp :: BaseType)
 
 -- | Create a Z3 backend for the simulator.
 withZ3 :: (forall s. Z3OnlineBackend s (Flags FloatIEEE DummyAnn) -> IO a) -> IO a

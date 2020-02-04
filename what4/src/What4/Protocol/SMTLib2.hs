@@ -14,6 +14,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -784,12 +785,12 @@ runGetValue s e = do
 
 -- | This function runs a check sat command
 runCheckSat :: forall b t fs a.
-               SMTLib2Tweaks b
-            => Session t fs b
-            -> (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
-               -- ^ Function for evaluating model.
-               -- The evaluation should be complete before
-            -> IO a
+   SMTLib2Tweaks b =>
+   Session t fs b ->
+   (SatResult (GroundEvalFn t fs, Maybe (ExprRangeBindings t fs)) () -> IO a)
+    {- ^ Function for evaluating model. The function should finish using
+         the provided ground evaluation function before returning. -} ->
+   IO a
 runCheckSat s doEval =
   do let w = sessionWriter s
          r = sessionResponse s

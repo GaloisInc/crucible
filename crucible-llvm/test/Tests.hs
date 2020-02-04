@@ -322,7 +322,7 @@ withLLVMCtx mod action =
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
-        sym <- Crucible.newSimpleBackend What4.FloatRealRepr nonceGen
+        sym <- Crucible.newSimpleBackend @What4.DummyAnn What4.FloatRealRepr nonceGen
         let ?laxArith = False
         Some (ModuleTranslation _ ctx _ _) <- translateModule halloc mod
         case llvmArch ctx                   of { X86Repr width ->
@@ -364,7 +364,7 @@ withMem ::
   (forall sym scope solver fs wptr . (sym ~ Crucible.OnlineBackend solver scope fs, Crucible.IsSymInterface sym, What4.OnlineSolver scope solver, HasPtrWidth wptr) => sym -> MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
-  Crucible.withZ3OnlineBackend What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures $ \sym -> do
+  Crucible.withZ3OnlineBackend @What4.DummyAnn What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures $ \sym -> do
     let ?ptrWidth = knownNat @64
     mem <- emptyMem endianess
     action sym mem

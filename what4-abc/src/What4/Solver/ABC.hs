@@ -285,6 +285,7 @@ bitblastExpr h ae = do
       stringFail = failTerm (AppExpr ae) "string expression"
 
   case appExprApp ae of
+    AnnotateTerm _ _ x -> eval h x
 
     ------------------------------------------------------------------------
     -- Nat operations

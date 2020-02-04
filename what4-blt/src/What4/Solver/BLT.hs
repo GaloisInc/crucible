@@ -425,6 +425,8 @@ assume h (BoolExpr b l)
 assume h b@(AppExpr ba) =
   let a = appExprApp ba in
     case a of
+      AnnotateTerm _ _ x -> assume h x
+
       ConjPred xs ->
         case BM.viewBoolMap xs of
           BM.BoolMapUnit -> return ()
@@ -571,6 +573,8 @@ evalReal' h epr@(AppExpr epa) = do
     IntegerToReal x ->
       evalInteger h x
 
+    AnnotateTerm _ _ x -> evalReal h x
+
     -- support only linear expressions
     RealDiv x y -> do
       x' <- evalReal h x
@@ -637,6 +641,8 @@ evalInteger' h (AppExpr epa) = do
 
     RealToInteger x -> evalReal h x
 
+    AnnotateTerm _ _ x -> evalInteger h x
+
     _ -> failAt l "The given integer expressions"
 
 -- | Evaluate complex symbolic expressions to their ModelExpr type.
@@ -657,6 +663,7 @@ evalCplx h (AppExpr ea) =
     SemiRingSum s -> case WSum.sumRepr s of {}
     SemiRingProd pd -> case WSum.prodRepr pd of {}
 #endif
+    AnnotateTerm _ _ x -> evalCplx h x
     BaseIte{} -> failAt (appExprLoc ea) "complex if/then/else"
     SelectArray{} -> failAt (appExprLoc ea) "symbolic arrays"
     StructField{} -> failAt (appExprLoc ea) "symbolic arrays"

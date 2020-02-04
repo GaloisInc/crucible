@@ -73,6 +73,8 @@ appTheory a0 =
     NotPred{} -> BoolTheory
     ConjPred{} -> BoolTheory
 
+    AnnotateTerm _ _ _ -> BoolTheory
+
     RealIsInteger{} -> LinearArithTheory
 
     BVTestBit{} -> BitvectorTheory

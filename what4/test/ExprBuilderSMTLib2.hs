@@ -33,6 +33,7 @@ import           System.IO
 import What4.BaseTypes
 import What4.Config
 import What4.Expr
+import What4.Expr.Builder
 import What4.Interface
 import What4.InterpretedFloatingPoint
 import What4.Protocol.Online
@@ -48,8 +49,6 @@ data State t fs = State
 data SomePred = forall t fs. SomePred (BoolExpr t fs)
 deriving instance Show SomePred
 type SimpleExprBuilder = ExprBuilder State
-
-data DummyAnn (x :: BaseType)
 
 debugOutputFiles :: Bool
 debugOutputFiles = False

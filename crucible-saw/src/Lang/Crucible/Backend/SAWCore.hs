@@ -29,6 +29,7 @@ import           Data.List (elemIndex)
 import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map ( Map )
 import qualified Data.Map as Map
+import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.TraversableFC
@@ -192,6 +193,7 @@ bindSAWTerm sym bt t = do
   return sbVar
 
 newSAWCoreBackend ::
+  (EqF ann, HashableF ann) =>
   FloatModeRepr fm ->
   SC.SharedContext ->
   NonceGenerator IO s ->
@@ -855,6 +857,8 @@ evaluateExpr sym sc cache = f []
       case B.appExprApp a of
         B.BaseIte bt _ c xe ye -> join (scIte sym sc bt <$> eval env c <*> eval env xe <*> eval env ye)
         B.BaseEq bt xe ye -> join (scEq sym sc bt <$> eval env xe <*> eval env ye)
+
+        B.AnnotateTerm _ _ xe -> eval env xe
 
         B.SemiRingLe sr xe ye ->
           case sr of

@@ -70,7 +70,7 @@ import qualified Cryptol.TypeCheck.AST as CT
 import qualified Cryptol.Utils.PP as PP
 
 import           What4.Interface
-import           What4.Expr.Builder (Flags, FloatReal)
+import           What4.Expr.Builder (Flags, FloatReal, DummyAnn)
 import           What4.FunctionName
 import           What4.Partial
 import qualified What4.Solver.Yices as Yices
@@ -137,7 +137,6 @@ verificationHarnessOverrideHandle sim rw w cryEnv harness =
            (mkOverride' nm (StructRepr (verifStateRepr rw w))
               (verificationHarnessOverride sim rw w sc cryEnv harness))
 
-data DummyAnn ( tp :: BaseType )
 type SAWBack n = SAW.SAWCoreBackend (Yices.Connection n) n (Flags FloatReal DummyAnn)
 type N p n r args ret a = OverrideSim p (SAWBack n) () r args ret a
 

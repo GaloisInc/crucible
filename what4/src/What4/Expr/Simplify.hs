@@ -25,6 +25,7 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import qualified Data.Parameterized.HashTable as PH
+import           Data.Parameterized.Classes (EqF)
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.TraversableFC
 import           Data.Word
@@ -42,7 +43,7 @@ data NormCache st t fs
                , ncTable :: !(PH.HashTable RealWorld (Expr t fs) (Expr t fs))
                }
 
-norm :: NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
+norm :: EqF (Ann fs) => NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm c e = do
   mr <- stToIO $ PH.lookup (ncTable c) e
   case mr of
@@ -70,7 +71,9 @@ instance Applicative Or where
   pure _ = Or False
   (Or a) <*> (Or b) = Or (a || b)
 
-norm' :: forall t st fs tp . PH.HashableF (Expr t fs) => NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
+norm' :: forall t st fs tp .
+  (EqF (Ann fs), PH.HashableF (Expr t fs)) =>
+  NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm' nc (AppExpr a0) = do
   let sb = ncBuilder nc
   case appExprApp a0 of
@@ -121,6 +124,7 @@ norm' _ e = return e
 -- | Simplify a Boolean expression by distributing over ite.
 simplify :: ExprBuilder st t fs -> BoolExpr t fs -> IO (BoolExpr t fs)
 simplify sb p = do
+  AnnotationDictionary <- return $ sbAnnDict sb
   tbl <- stToIO $ PH.new
   let nc = NormCache { ncBuilder = sb
                      , ncTable = tbl

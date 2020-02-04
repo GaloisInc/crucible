@@ -463,7 +463,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   -- | Add an annotation to the given symbolic expression.  This annotation
   --   does not affect the semantics of the term, but can later be
   --   accessed when the term is traversed.
---  annotateTerm :: sym -> SymAnnotation sym tp -> SymExpr sym tp -> IO (SymExpr tp)
+  annotateTerm :: sym -> SymAnnotation sym tp -> SymExpr sym tp -> IO (SymExpr sym tp)
 
   ----------------------------------------------------------------------
   -- Boolean operations.

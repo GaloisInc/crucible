@@ -8,6 +8,7 @@ This module defines an API for interacting with
 solvers that support online interaction modes.
 
 -}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}

@@ -1875,6 +1875,8 @@ appSMTExpr ae = do
              yb <- mkBaseExpr y
              freshBoundTerm tym $ ite cb xb yb
 
+    AnnotateTerm _ _ x -> mkExpr x
+
     SemiRingLe _sr x y -> do
       xb <- mkBaseExpr x
       yb <- mkBaseExpr y

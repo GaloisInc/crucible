@@ -33,6 +33,7 @@ module Lang.Crucible.Backend.Simple
 import           Control.Lens
 import           Control.Monad (void)
 import           Data.IORef
+import           Data.Parameterized.Classes
 import           Data.Parameterized.Nonce
 
 import           What4.Interface
@@ -59,10 +60,11 @@ initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack ge
 
 
 newSimpleBackend ::
+  (EqF ann, HashableF ann) =>
   B.FloatModeRepr fm
-  -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
-  -> NonceGenerator IO t
-  -> IO (SimpleBackend t (B.Flags fm ann))
+   {- ^ Float interpretation mode (i.e., how are floats translated for the solver) -} ->
+  NonceGenerator IO t ->
+  IO (SimpleBackend t (B.Flags fm ann))
 newSimpleBackend floatMode gen =
   do st <- initialSimpleBackendState gen
      B.newExprBuilder floatMode st gen

@@ -47,6 +47,7 @@ import What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, ext
 import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (IsExprBuilder, getConfiguration)
 import qualified What4.Expr.Builder as WEB
+import What4.Expr.Builder( DummyAnn )
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
 import qualified What4.Solver as WS

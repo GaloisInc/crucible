@@ -11,6 +11,7 @@
 -- the results back.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 module What4.Solver.DReal
@@ -36,6 +37,7 @@ import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Char hiding (isSpace)
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Parameterized.Classes
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
 import qualified Data.Text.Lazy.Builder as Builder
@@ -87,14 +89,14 @@ drealAdapter =
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
   , solver_adapter_check_sat = \sym logData ps cont ->
-      runDRealInOverride sym logData ps $ \res ->
-         case res of
-           Sat (c,m) -> do
-             evalFn <- getAvgBindings c m
-             rangeFn <- getBoundBindings c m
-             cont (Sat (evalFn, Just rangeFn))
-           Unsat x -> cont (Unsat x)
-           Unknown -> cont Unknown
+        runDRealInOverride sym logData ps $ \res ->
+            case res of
+              Sat (c,m) -> do
+                evalFn <- getAvgBindings c m
+                rangeFn <- getBoundBindings c m
+                cont (Sat (evalFn, Just rangeFn))
+              Unsat x -> cont (Unsat x)
+              Unknown -> cont Unknown
 
   , solver_adapter_write_smt2 = writeDRealSMT2File
   }
@@ -128,9 +130,10 @@ parseDRealModel h = do
    let ls = drop 1 $ UTF8.lines str
    Map.fromList <$> mapM parseDRealBinding ls
 
-getAvgBindings :: SMT2.WriterConn t fs (SMT2.Writer DReal)
-               -> DRealBindings
-               -> IO (GroundEvalFn t fs)
+getAvgBindings ::
+  SMT2.WriterConn t fs (SMT2.Writer DReal) ->
+  DRealBindings ->
+  IO (GroundEvalFn t fs)
 getAvgBindings c m = do
   let evalBool _ = fail "dReal does not support Boolean vars"
       evalBV _ _ = fail "dReal does not support bitvectors."
@@ -147,10 +150,11 @@ getAvgBindings c m = do
                                            }
   SMTWriter.smtExprGroundEvalFn c evalFns
 
-getMaybeEval :: ((Maybe Rational, Maybe Rational) -> Maybe Rational)
-             -> SMT2.WriterConn t fs (SMT2.Writer DReal)
-             -> DRealBindings
-             -> IO (RealExpr t fs -> IO (Maybe Rational))
+getMaybeEval ::
+  ((Maybe Rational, Maybe Rational) -> Maybe Rational) ->
+  SMT2.WriterConn t fs (SMT2.Writer DReal) ->
+  DRealBindings ->
+  IO (RealExpr t fs -> IO (Maybe Rational))
 getMaybeEval proj c m = do
   let evalBool _ = fail "dReal does not return Boolean value"
       evalBV _ _ = fail "dReal does not return Bitvector values."
@@ -174,9 +178,10 @@ getMaybeEval proj c m = do
       handler e = throwIO e
   return $ \elt -> (Just <$> evalFn elt) `catch` handler
 
-getBoundBindings :: SMT2.WriterConn t fs (SMT2.Writer DReal)
-                 -> DRealBindings
-                 -> IO (ExprRangeBindings t fs)
+getBoundBindings ::
+  SMT2.WriterConn t fs (SMT2.Writer DReal) ->
+  DRealBindings ->
+  IO (ExprRangeBindings t fs)
 getBoundBindings c m = do
   l_evalFn <- getMaybeEval fst c m
   h_evalFn <- getMaybeEval snd c m

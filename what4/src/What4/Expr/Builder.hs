@@ -12,6 +12,7 @@ an instance of the classes 'IsExprBuilder' and 'IsSymExprBuilder'.
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -50,6 +51,9 @@ module What4.Expr.Builder
   , exprCounter
   , startCaching
   , stopCaching
+  , sbAnnDict
+  , AnnotationDictionary(..)
+  , DummyAnn
 
     -- * Specialized representations
   , bvUnary
@@ -259,6 +263,14 @@ cachedEval tbl k action = do
       stToIO $ PH.insert tbl k r
       return r
 
+
+-- | A dummy annotation type for cases where the client
+--   has no interesting notion of annotations.
+data DummyAnn (tp :: BaseType)
+instance EqF DummyAnn where eqF = \case
+instance HashableF DummyAnn where hashWithSaltF _s = \case
+
+
 ------------------------------------------------------------------------
 -- ExprBoundVar
 
@@ -270,6 +282,12 @@ data VarKind
     -- ^ A variable appearing as a latch input.
   | UninterpVarKind
     -- ^ A variable appearing in a uninterpreted constant
+
+
+data AnnotationDictionary fs where
+  AnnotationDictionary ::
+    (EqF (Ann fs), HashableF (Ann fs)) => AnnotationDictionary fs
+
 
 -- | Information about bound variables.
 -- Parameter @t@ is a phantom type brand used to track nonces.
@@ -422,6 +440,12 @@ data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
     !(e tp) ->
     !(e tp) ->
     App fs e BaseBoolType
+
+  AnnotateTerm ::
+    !(BaseTypeRepr tp) ->
+    !(Ann fs tp) ->
+    !(e tp) ->
+    App fs e tp
 
   ------------------------------------------------------------------------
   -- Boolean operations
@@ -976,8 +1000,7 @@ iteSize e =
     _ -> 0
 
 instance IsExpr (Expr t fs) where
-  asConstantPred (BoolExpr b _) = Just b
-  asConstantPred _ = Nothing
+  asConstantPred = exprAbsValue
 
   asNat (SemiRingLiteral SR.SemiRingNatRepr n _) = Just n
   asNat _ = Nothing
@@ -1214,6 +1237,7 @@ appType a =
   case a of
     BaseIte tp _ _ _ _ -> tp
     BaseEq{} -> knownRepr
+    AnnotateTerm tp _ _ -> tp
 
     NotPred{} -> knownRepr
     ConjPred{} -> knownRepr
@@ -1503,6 +1527,8 @@ data ExprBuilder (st :: Type -> Type -> Type) (t :: Type) (fs :: Type)
           -- | Flag dictating how floating-point values/operations are translated
           -- when passed to the solver.
         , sbFloatMode :: !(FloatModeRepr (FM fs))
+
+        , sbAnnDict :: !(AnnotationDictionary fs)
         }
 
 type instance SymFn (ExprBuilder st t fs) = ExprSymFn t fs
@@ -1536,8 +1562,9 @@ abstractEval f a0 = do
 
     BaseIte tp _ _c x y -> withAbstractable tp $ avJoin tp (f x) (f y)
     BaseEq{} -> Nothing
+    AnnotateTerm _ _ x -> f x
 
-    NotPred{} -> Nothing
+    NotPred x -> not <$> f x
     ConjPred{} -> Nothing
 
     SemiRingLe{} -> Nothing
@@ -1776,7 +1803,7 @@ ppNonceApp ppFn a0 = do
     FnApp f a -> resolve <$> ppFn f
       where resolve f_nm = prettyApp "apply" (f_nm : toListFC exprPrettyArg a)
 
-instance ShowF e => Pretty (App fs e u) where
+instance (ShowF e) => Pretty (App fs e u) where
   pretty a = text (Text.unpack nm) <+> sep (ppArg <$> args)
     where (nm, args) = ppApp' a
           ppArg :: PrettyArg e -> Doc
@@ -1784,7 +1811,7 @@ instance ShowF e => Pretty (App fs e u) where
           ppArg (PrettyText txt) = text (Text.unpack txt)
           ppArg (PrettyFunc fnm fargs) = parens (text (Text.unpack fnm) <+> sep (ppArg <$> fargs))
 
-instance ShowF e => Show (App fs e u) where
+instance (ShowF e) => Show (App fs e u) where
   show = show . pretty
 
 ppApp' :: forall fs e u . App fs e u -> PrettyApp e
@@ -1795,6 +1822,7 @@ ppApp' a0 = do
   case a0 of
     BaseIte _ _ c x y -> prettyApp "ite" [exprPrettyArg c, exprPrettyArg x, exprPrettyArg y]
     BaseEq _ x y -> ppSExpr "eq" [x, y]
+    AnnotateTerm _ _ann x -> prettyApp "annotate" [ exprPrettyArg x ]
 
     NotPred x -> ppSExpr "not" [x]
 
@@ -2579,7 +2607,7 @@ ppExpr' e0 o = do
                 let def_doc = text (show f) <+> hsep pp_vars <+> text "=" <+> ppExpr rhs
                 modifySTRef' bindingsRef (Seq.|> def_doc)
               MatlabSolverFnInfo fn_id _ _ -> do
-                let def_doc = text (show f) <+> text "=" <+> ppMatlabSolverFn fn_id
+                let def_doc = text (show f) <+> text "=" <+> ppMatlabSolverFn ppExpr fn_id
                 modifySTRef' bindingsRef (Seq.|> def_doc)
 
             let d = Text.pack (show f)
@@ -2678,13 +2706,14 @@ cachedNonceExpr g h pc p v = do
       return $! e
 
 
-cachedAppExpr :: forall t fs tp
-               . NonceGenerator IO t
-              -> PH.HashTable RealWorld (App fs (Expr t fs)) (Expr t fs)
-              -> ProgramLoc
-              -> App fs (Expr t fs) tp
-              -> AbstractValue tp
-              -> IO (Expr t fs tp)
+cachedAppExpr :: forall t fs tp.
+  (EqF (Ann fs), HashableF (Ann fs)) =>
+  NonceGenerator IO t ->
+  PH.HashTable RealWorld (App fs (Expr t fs)) (Expr t fs) ->
+  ProgramLoc ->
+  App fs (Expr t fs) tp ->
+  AbstractValue tp ->
+  IO (Expr t fs tp)
 cachedAppExpr g h pc a v = do
   me <- stToIO $ PH.lookup h a
   case me of
@@ -2696,10 +2725,11 @@ cachedAppExpr g h pc a v = do
       return e
 
 -- | Create a storage that does hash consing.
-newCachedStorage :: forall t fs
-                  . NonceGenerator IO t
-                 -> Int
-                 -> IO (ExprAllocator t fs)
+newCachedStorage :: forall t fs.
+  (EqF (Ann fs), HashableF (Ann fs)) =>
+  NonceGenerator IO t ->
+  Int ->
+  IO (ExprAllocator t fs)
 newCachedStorage g sz = stToIO $ do
   appCache  <- PH.newSized sz
   predCache <- PH.newSized sz
@@ -2714,7 +2744,7 @@ instance PolyEq (Expr t fs x) (Expr t fs y) where
 
 {-# NOINLINE appEqF #-}
 -- | Check if two applications are equal.
-appEqF :: App fs (Expr t fs) x -> App fs (Expr t fs) y -> Maybe (x :~: y)
+appEqF :: EqF (Ann fs) => App fs (Expr t fs) x -> App fs (Expr t fs) y -> Maybe (x :~: y)
 appEqF = $(structuralTypeEquality [t|App|]
            [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|testEquality|])
@@ -2738,21 +2768,28 @@ appEqF = $(structuralTypeEquality [t|App|]
              , [|testEquality|])
            , (ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
+           , (ConType [t|Ann|] `TypeApp` AnyType `TypeApp` AnyType
+             , [| \x y -> if eqF x y then Just Refl else Nothing |]
+             )
            ]
           )
 
 {-# NOINLINE hashApp #-}
 -- | Hash an an application.
-hashApp :: Int -> App fs (Expr t fs) s -> Int
-hashApp = $(structuralHashWithSalt [t|App|] [])
+hashApp :: HashableF (Ann fs) => Int -> App fs (Expr t fs) s -> Int
+hashApp = $(structuralHashWithSalt [t|App|]
+             [(ConType [t|Ann|] `TypeApp` AnyType `TypeApp` AnyType
+              , [| hashWithSaltF |]
+              )
+             ]
+           )
 
-instance Eq (App fs (Expr t fs) tp) where
+instance EqF (Ann fs) => Eq (App fs (Expr t fs) tp) where
   x == y = isJust (testEquality x y)
 
-instance TestEquality (App fs (Expr t fs)) where
+instance EqF (Ann fs) => TestEquality (App fs (Expr t fs)) where
   testEquality = appEqF
-
-instance HashableF (App fs (Expr t fs)) where
+instance HashableF (Ann fs) => HashableF (App fs (Expr t fs)) where
   hashWithSaltF = hashApp
 
 ------------------------------------------------------------------------
@@ -2969,6 +3006,7 @@ cacheTerms :: CFG.ConfigOption BaseBoolType
 cacheTerms = CFG.configOption BaseBoolRepr "use_cache"
 
 cacheOptStyle ::
+  (EqF (Ann fs), HashableF (Ann fs)) =>
   NonceGenerator IO t ->
   IORef (ExprAllocator t fs) ->
   CFG.OptionSetting BaseIntegerType ->
@@ -2989,6 +3027,7 @@ cacheOptStyle gen storageRef szSetting =
             writeIORef storageRef s
 
 cacheOptDesc ::
+  (EqF (Ann fs), HashableF (Ann fs)) =>
   NonceGenerator IO t ->
   IORef (ExprAllocator t fs) ->
   CFG.OptionSetting BaseIntegerType ->
@@ -3002,6 +3041,7 @@ cacheOptDesc gen storageRef szSetting =
 
 
 newExprBuilder ::
+  (EqF (Ann fs), HashableF (Ann fs)) =>
   FloatModeRepr (FM fs)
   -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
   -> st t fs
@@ -3054,6 +3094,7 @@ newExprBuilder floatMode st gen = do
                , sbMatlabFnCache = matlabFnCache
                , sbSolverLogger = loggerRef
                , sbFloatMode = floatMode
+               , sbAnnDict = AnnotationDictionary
                }
 
 -- | Get current variable bindings.
@@ -3067,7 +3108,7 @@ stopCaching sb = do
   writeIORef (curAllocator sb) s
 
 -- | Restart caching applications in backend (clears cache if it is currently caching).
-startCaching :: ExprBuilder st t fs -> IO ()
+startCaching :: (EqF (Ann fs), HashableF (Ann fs)) => ExprBuilder st t fs -> IO ()
 startCaching sb = do
   sz <- CFG.getOpt (sbCacheStartSize sb)
   s <- newCachedStorage (exprCounter sb) (fromInteger sz)
@@ -3124,18 +3165,21 @@ symbolicIndices sym = traverseFC f
         f (BVIndexLit w i) = bvLit sym w i
 
 -- | This evaluate a symbolic function against a set of arguments.
-betaReduce :: ExprBuilder st t fs
-           -> ExprSymFn t fs args ret
-           -> Ctx.Assignment (Expr t fs) args
-           -> IO (Expr t fs ret)
+betaReduce ::
+  ExprBuilder st t fs  ->
+  ExprSymFn t fs args ret ->
+  Ctx.Assignment (Expr t fs) args ->
+  IO (Expr t fs ret)
 betaReduce sym f args =
-  case symFnInfo f of
-    UninterpFnInfo{} ->
-      sbNonceExpr sym $! FnApp f args
-    DefinedFnInfo bound_vars e _ -> do
-      evalBoundVars sym e bound_vars args
-    MatlabSolverFnInfo fn_id _ _ -> do
-      evalMatlabSolverFn fn_id sym args
+  case sbAnnDict sym of
+    AnnotationDictionary ->
+      case symFnInfo f of
+        UninterpFnInfo{} ->
+          sbNonceExpr sym $! FnApp f args
+        DefinedFnInfo bound_vars e _ -> do
+          evalBoundVars sym e bound_vars args
+        MatlabSolverFnInfo fn_id _ _ -> do
+          evalMatlabSolverFn fn_id sym args
 
 reduceApp :: (IsExprBuilder sym, sym ~ ExprBuilder st t fs)
           => sym
@@ -3145,6 +3189,7 @@ reduceApp sym a0 = do
   case a0 of
     BaseIte _ _ c x y -> baseTypeIte sym c x y
     BaseEq _ x y -> isEq sym x y
+    AnnotateTerm _ ann x -> annotateTerm sym ann x
 
     NotPred x -> notPred sym x
     ConjPred bm ->
@@ -3373,10 +3418,12 @@ data EvalHashTables t fs
 -- | Evaluate a simple function.
 --
 -- This returns whether the function changed as a Boolean and the function itself.
-evalSimpleFn :: EvalHashTables t fs
-             -> ExprBuilder st t fs
-             -> ExprSymFn t fs idx ret
-             -> IO (Bool, ExprSymFn t fs idx ret)
+evalSimpleFn ::
+  (EqF (Ann fs), HashableF (Ann fs)) =>
+  EvalHashTables t fs ->
+  ExprBuilder st t fs ->
+  ExprSymFn t fs idx ret ->
+  IO (Bool, ExprSymFn t fs idx ret)
 evalSimpleFn tbl sym f =
   case symFnInfo f of
     UninterpFnInfo{} -> return (False, f)
@@ -3394,11 +3441,12 @@ evalSimpleFn tbl sym f =
       return (changed, f')
     MatlabSolverFnInfo{} -> return (False, f)
 
-evalBoundVars' :: forall t st fs ret
-               .  EvalHashTables t fs
-               -> ExprBuilder st t fs
-               -> Expr t fs ret
-               -> IO (Expr t fs ret)
+evalBoundVars' :: forall t st fs ret.
+  (EqF (Ann fs), HashableF (Ann fs)) =>
+  EvalHashTables t fs ->
+  ExprBuilder st t fs ->
+  Expr t fs ret ->
+  IO (Expr t fs ret)
 evalBoundVars' tbls sym e0 =
   case e0 of
     SemiRingLiteral{} -> return e0
@@ -3479,33 +3527,36 @@ initHashTable keys vals = do
 -- themselves bound in the term (e.g. in a function definition or quantifier).
 -- If this is not respected, then 'evalBoundVars' will call 'fail' with an
 -- error message.
-evalBoundVars :: ExprBuilder st t fs
-              -> Expr t fs ret
-              -> Ctx.Assignment (ExprBoundVar t) args
-              -> Ctx.Assignment (Expr t fs) args
-              -> IO (Expr t fs ret)
-evalBoundVars sym e vars exprs = do
-  expr_tbl <- stToIO $ initHashTable (fmapFC BoundVarExpr vars) exprs
-  fn_tbl  <- stToIO $ PH.new
-  let tbls = EvalHashTables { exprTable = expr_tbl
-                            , fnTable  = fn_tbl
-                            }
-  evalBoundVars' tbls sym e
+evalBoundVars ::
+  ExprBuilder st t fs ->
+  Expr t fs ret ->
+  Ctx.Assignment (ExprBoundVar t) args ->
+  Ctx.Assignment (Expr t fs) args ->
+  IO (Expr t fs ret)
+evalBoundVars sym e vars exprs =
+  case sbAnnDict sym of
+    AnnotationDictionary ->
+      do expr_tbl <- stToIO $ initHashTable (fmapFC BoundVarExpr vars) exprs
+         fn_tbl  <- stToIO $ PH.new
+         let tbls = EvalHashTables { exprTable = expr_tbl
+                                   , fnTable  = fn_tbl
+                                   }
+         evalBoundVars' tbls sym e
 
 -- | This attempts to lookup an entry in a symbolic array.
 --
 -- It patterns maps on the array constructor.
-sbConcreteLookup :: forall t st fs d tp range
-                 . ExprBuilder st t fs
-                   -- ^ Simple builder for creating terms.
-                 -> Expr t fs (BaseArrayType (d::>tp) range)
-                    -- ^ Array to lookup value in.
-                 -> Maybe (Ctx.Assignment IndexLit (d::>tp))
-                    -- ^ A concrete index that corresponds to the index or nothing
-                    -- if the index is symbolic.
-                 -> Ctx.Assignment (Expr t fs) (d::>tp)
-                    -- ^ The index to lookup.
-                 -> IO (Expr t fs range)
+sbConcreteLookup :: forall t st fs d tp range.
+  ExprBuilder st t fs
+   {- ^ Simple builder for creating terms -} ->
+  Expr t fs (BaseArrayType (d::>tp) range)
+   {- ^ Array to lookup value in -} ->
+  Maybe (Ctx.Assignment IndexLit (d::>tp))
+   {- ^ A concrete index that corresponds to the index or nothing
+        if the index is symbolic. -} ->
+  Ctx.Assignment (Expr t fs) (d::>tp)
+   {- ^ The index to lookup -} ->
+  IO (Expr t fs range)
 sbConcreteLookup sym arr0 mcidx idx
     -- Try looking up a write to a concrete address.
   | Just (ArrayMap _ _ entry_map def) <- asApp arr0
@@ -4030,6 +4081,10 @@ instance IsExprBuilder (ExprBuilder st t fs) where
     nonLinearOps <- readIORef (sbNonLinearOps sb)
     return $ Statistics { statAllocs = allocs
                         , statNonLinearOps = nonLinearOps }
+
+
+  annotateTerm sym ann x =
+    sbMakeExpr sym (AnnotateTerm (exprType x) ann x)
 
   ----------------------------------------------------------------------
   -- Program location operations

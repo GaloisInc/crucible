@@ -29,12 +29,12 @@ import           Test.Tasty.HUnit
 import           Test.Tasty.Hedgehog
 import           What4.Concrete
 import           What4.Expr
+import           What4.Expr.Builder
 import           What4.Interface
 
 
 data State t fs = State
 type IteExprBuilder t fs = ExprBuilder State t fs
-data DummyAnn (tp :: BaseType)
 
 withTestSolver :: (forall t. IteExprBuilder t (Flags FloatIEEE DummyAnn) -> IO a) -> IO a
 withTestSolver f = withIONonceGenerator $ \nonce_gen ->

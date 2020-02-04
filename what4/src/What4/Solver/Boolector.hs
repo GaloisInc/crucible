@@ -11,6 +11,7 @@
 -- the results back.
 ------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Solver.Boolector
   ( Boolector
@@ -31,6 +32,7 @@ import           Control.Monad.Identity
 import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Parameterized.Classes
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
 import qualified Data.Text.Lazy.Builder as Builder
@@ -178,9 +180,10 @@ lookupBoolectorVar m evalFn nm =
     Nothing -> fail $ "Could not find variable "
                    ++ Text.unpack nm ++ " in Boolector output."
 
-parseBoolectorOutput :: SMT2.WriterConn t fs (SMT2.Writer Boolector)
-                     -> [String]
-                     -> IO (SatResult (GroundEvalFn t fs) ())
+parseBoolectorOutput ::
+  SMT2.WriterConn t fs (SMT2.Writer Boolector) ->
+  [String] ->
+  IO (SatResult (GroundEvalFn t fs) ())
 parseBoolectorOutput c out_lines =
   case out_lines of
     "unsat":_ -> return (Unsat ())

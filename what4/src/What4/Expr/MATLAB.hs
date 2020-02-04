@@ -662,8 +662,10 @@ matlabSolverReturnType f =
     CplxCosFn            -> knownRepr
     CplxTanFn            -> knownRepr
 
-ppMatlabSolverFn :: IsExpr f => MatlabSolverFn f a r -> Doc
-ppMatlabSolverFn f =
+ppMatlabSolverFn ::
+  (forall tp. f tp -> Doc) ->
+  MatlabSolverFn f a r -> Doc
+ppMatlabSolverFn printSub f =
   case f of
     BoolOrFn             -> text "bool_or"
     IsIntegerFn          -> text "is_integer"
@@ -676,10 +678,10 @@ ppMatlabSolverFn f =
     IntegerToRealFn      -> text "integer_to_real"
     RealToIntegerFn      -> text "real_to_integer"
     PredToIntegerFn      -> text "pred_to_integer"
-    NatSeqFn  b i        -> parens $ text "nat_seq"  <+> printSymExpr b <+> printSymExpr i
-    RealSeqFn b i        -> parens $ text "real_seq" <+> printSymExpr b <+> printSymExpr i
+    NatSeqFn  b i        -> parens $ text "nat_seq"  <+> printSub b <+> printSub i
+    RealSeqFn b i        -> parens $ text "real_seq" <+> printSub b <+> printSub i
     IndicesInRange _ bnds ->
-      parens (text "indices_in_range" <+> sep (toListFC printSymExpr bnds))
+      parens (text "indices_in_range" <+> sep (toListFC printSub bnds))
     IsEqFn{}             -> text "is_eq"
 
     BVIsNonZeroFn w      -> parens $ text "bv_is_nonzero" <+> text (show w)

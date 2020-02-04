@@ -7,6 +7,7 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Main (main) where
@@ -22,6 +23,8 @@ import           System.IO
 import           Data.HPB
 
 import           Data.Parameterized.Nonce
+
+import           What4.Expr.Builder( DummyAnn )
 
 import           Lang.Crucible.Backend.Simple
 import qualified Lang.Crucible.Backend.SAWCore as SAW
@@ -100,7 +103,7 @@ runSimpleSimulator hin hout = do
   withIONonceGenerator $ \gen -> do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
-    sym <- newSimpleBackend FloatRealRepr gen
+    sym <- newSimpleBackend @DummyAnn FloatRealRepr gen
     s <- newSimulator sym simpleServerOptions CrucibleServerPersonality [] simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp
