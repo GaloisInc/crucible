@@ -381,7 +381,7 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
     MirReferencePath sym tp_base tp
   Index_RefPath ::
     !(TypeRepr tp) ->
-    !(MirReferencePath sym tp_base (VectorType tp)) ->
+    !(MirReferencePath sym tp_base (MirVectorType tp)) ->
     !(RegValue sym UsizeType) ->
     MirReferencePath sym tp_base tp
   Just_RefPath ::
@@ -529,6 +529,35 @@ muxMirVector sym itefns (asBaseType -> AsBaseType btpr) c
 muxMirVector sym _ _ _ _ _ =
     addFailedAssertion sym $ Unsupported $ "Cannot merge dissimilar MirVectors."
 
+indexMirVectorWithSymIndex ::
+    IsSymInterface sym =>
+    sym ->
+    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+    MirVector sym tp ->
+    RegValue sym UsizeType ->
+    IO (RegValue sym tp)
+indexMirVectorWithSymIndex sym iteFn (MirVector_Vector v) i = do
+    i' <- bvToNat sym i
+    indexVectorWithSymNat sym iteFn v i'
+indexMirVectorWithSymIndex sym _ (MirVector_Array a) i =
+    arrayLookup sym a (Empty :> i)
+
+adjustMirVectorWithSymIndex ::
+    IsSymInterface sym =>
+    sym ->
+    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+    MirVector sym tp ->
+    RegValue sym UsizeType ->
+    (RegValue sym tp -> IO (RegValue sym tp)) ->
+    IO (MirVector sym tp)
+adjustMirVectorWithSymIndex sym iteFn (MirVector_Vector v) i adj = do
+    i' <- bvToNat sym i
+    MirVector_Vector <$> adjustVectorWithSymNat sym iteFn v i' adj
+adjustMirVectorWithSymIndex sym _ (MirVector_Array a) i adj = do
+    x <- arrayLookup sym a (Empty :> i)
+    x' <- adj x
+    MirVector_Array <$> arrayUpdate sym a (Empty :> i) x'
+
 
 
 -- | Sigil type indicating the MIR syntax extension
@@ -582,7 +611,7 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      MirStmt f (MirReferenceType tp)
   MirSubindexRef ::
      !(TypeRepr tp) ->
-     !(f (MirReferenceType (VectorType tp))) ->
+     !(f (MirReferenceType (MirVectorType tp))) ->
      !(f UsizeType) ->
      MirStmt f (MirReferenceType tp)
   MirSubjustRef ::
@@ -940,8 +969,7 @@ adjustRefPath sym iTypes v path0 adj = case path0 of
         RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
   Index_RefPath tp path idx ->
       adjustRefPath sym iTypes v path (\v' -> do
-        idx' <- bvToNat sym idx
-        adjustVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx' adj)
+        adjustMirVectorWithSymIndex sym (muxRegForType sym iTypes tp) v' idx adj)
   Just_RefPath _tp path ->
       adjustRefPath sym iTypes v path (\v' -> mapM adj v')
   VectorAsMirVector_RefPath _ path -> do
@@ -984,8 +1012,7 @@ readRefPath sym iTypes v = \case
        readPartExpr sym (unVB $ variant ! fld) msg
   Index_RefPath tp path idx ->
     do v' <- readRefPath sym iTypes v path
-       idx' <- bvToNat sym idx
-       indexVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx'
+       indexMirVectorWithSymIndex sym (muxRegForType sym iTypes tp) v' idx
   Just_RefPath tp path ->
     do v' <- readRefPath sym iTypes v path
        let msg = ReadBeforeWriteSimError $
@@ -1010,25 +1037,25 @@ mirExtImpl = ExtensionImpl
 -- and a length.
 
 type MirSlice tp     = StructType (EmptyCtx ::>
-                           MirReferenceType (VectorType tp) ::> -- values
+                           MirReferenceType (MirVectorType tp) ::> -- values
                            UsizeType ::>    --- first element
                            UsizeType)       --- length
 
 pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirSliceRepr tp <- StructRepr
      (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
-         (MirReferenceRepr (VectorRepr tp)))
+         (MirReferenceRepr (MirVectorRepr tp)))
          UsizeRepr)
          UsizeRepr)
- where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> UsizeRepr :> UsizeRepr)
+ where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (MirVectorRepr tp) :> UsizeRepr :> UsizeRepr)
 
 mirSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
-                           MirReferenceType (VectorType tp) ::>
+                           MirReferenceType (MirVectorType tp) ::>
                            UsizeType ::>
                            UsizeType)
-mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (VectorRepr tp) :> UsizeRepr :> UsizeRepr)
+mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (MirVectorRepr tp) :> UsizeRepr :> UsizeRepr)
 
-getSliceVector :: Expr MIR s (MirSlice tp) -> Expr MIR s (MirReferenceType (VectorType tp))
+getSliceVector :: Expr MIR s (MirSlice tp) -> Expr MIR s (MirReferenceType (MirVectorType tp))
 getSliceVector e = getStruct i1of3 e
 
 getSliceLB :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
@@ -1052,25 +1079,25 @@ updateSliceLen tp e end = setStruct (mirSliceCtxRepr tp) e i3of3 end where
 -- and a length.
 
 type MirImmSlice tp     = StructType (EmptyCtx ::>
-                           VectorType tp ::> -- values
+                           MirVectorType tp ::> -- values
                            UsizeType ::>    --- first element
                            UsizeType)       --- length
 
 pattern MirImmSliceRepr :: () => tp' ~ MirImmSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirImmSliceRepr tp <- StructRepr
      (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
-         (VectorRepr tp))
+         (MirVectorRepr tp))
          UsizeRepr)
          UsizeRepr)
- where MirImmSliceRepr tp = StructRepr (Empty :> VectorRepr tp :> UsizeRepr :> UsizeRepr)
+ where MirImmSliceRepr tp = StructRepr (Empty :> MirVectorRepr tp :> UsizeRepr :> UsizeRepr)
 
 mirImmSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
-                           VectorType tp ::>
+                           MirVectorType tp ::>
                            UsizeType ::>
                            UsizeType)
-mirImmSliceCtxRepr tp = (Empty :> VectorRepr tp :> UsizeRepr :> UsizeRepr)
+mirImmSliceCtxRepr tp = (Empty :> MirVectorRepr tp :> UsizeRepr :> UsizeRepr)
 
-getImmSliceVector :: Expr MIR s (MirImmSlice tp) -> Expr MIR s (VectorType tp)
+getImmSliceVector :: Expr MIR s (MirImmSlice tp) -> Expr MIR s (MirVectorType tp)
 getImmSliceVector e = getStruct i1of3 e
 
 getImmSliceLB :: Expr MIR s (MirImmSlice tp) -> Expr MIR s UsizeType

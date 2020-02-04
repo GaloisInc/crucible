@@ -484,7 +484,7 @@ subvariantRef ctx ref idx = G.extensionStmt (MirSubvariantRef ctx ref idx)
 
 subindexRef ::
   C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType (C.VectorType tp)) ->
+  R.Expr MIR s (MirReferenceType (MirVectorType tp)) ->
   R.Expr MIR s UsizeType ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)

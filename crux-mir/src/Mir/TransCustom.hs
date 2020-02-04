@@ -274,9 +274,10 @@ vector_as_slice = ( ["crucible","vector","{{impl}}", "as_slice"], ) $ \substs ->
         [MirExp (C.VectorRepr tpr) v] -> do
             let start = R.App $ usizeLit 0
             let end = R.App $ vectorSizeUsize R.App v
+            v' <- mirVector_fromVector tpr v
             let tup = S.mkStruct
-                    (Ctx.Empty Ctx.:> C.VectorRepr tpr Ctx.:> knownRepr Ctx.:> knownRepr)
-                    (Ctx.Empty Ctx.:> v Ctx.:> start Ctx.:> end)
+                    (Ctx.Empty Ctx.:> MirVectorRepr tpr Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> v' Ctx.:> start Ctx.:> end)
             return $ MirExp (MirImmSliceRepr tpr) tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
     _ -> Nothing
@@ -289,9 +290,10 @@ vector_as_mut_slice = ( ["crucible","vector","{{impl}}", "as_mut_slice"], ) $ \s
             let start = R.App $ usizeLit 0
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
+            e' <- mirRef_vectorAsMirVector tpr e
             let tup = S.mkStruct
-                    (Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
-                    (Ctx.Empty Ctx.:> e Ctx.:> start Ctx.:> end)
+                    (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> e' Ctx.:> start Ctx.:> end)
             return $ MirExp (MirSliceRepr tpr) tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
     _ -> Nothing
@@ -736,7 +738,8 @@ slice_index_usize_get_unchecked = (["core","slice","{{impl}}","get_unchecked", "
                 let arr   = S.getStruct (Ctx.natIndex @0) slice
                 let start = S.getStruct (Ctx.natIndex @1) slice
                 let ind'  = R.App $ usizeAdd start ind
-                return $ (MirExp el_tp (S.app $ vectorGetUsize el_tp R.App arr ind'))
+                x <- mirVector_lookup el_tp arr ind'
+                return $ MirExp el_tp x
             _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
      _ -> Nothing)
 

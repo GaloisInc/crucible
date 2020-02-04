@@ -52,13 +52,14 @@ import What4.Interface
 import Crux.Model (addVar)
 import Crux.Types (Model)
 
-import Mir.Intrinsics (MIR, SizeBits, MirImmSlice, pattern MirImmSliceRepr)
+import Mir.Intrinsics (MIR, SizeBits, MirImmSlice, pattern MirImmSliceRepr, MirVector(..))
 import Mir.DefId
 
 import Debug.Trace
 
 getString :: forall sym. (IsSymExprBuilder sym) => sym -> RegValue sym (MirImmSlice (BVType 8)) -> Maybe Text
-getString _ (Empty :> RV vec :> RV startExpr :> RV lenExpr) = do
+getString _ (Empty :> RV mirVec :> RV startExpr :> RV lenExpr)
+  | MirVector_Vector vec <- mirVec = do
     start <- asUnsignedBV startExpr
     len <- asUnsignedBV lenExpr
     let slice = V.slice (fromInteger start) (fromInteger len) vec
@@ -69,6 +70,7 @@ getString _ (Empty :> RV vec :> RV startExpr :> RV lenExpr) = do
                       Nothing -> Nothing
     bs <- BS.pack <$> mapM f (V.toList slice)
     return $ Text.decodeUtf8 bs
+  | otherwise = Nothing
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
