@@ -315,7 +315,7 @@ instance Pretty Substs where
 instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
     pretty (ConstInt i)     = pretty i
-    pretty (ConstStr i)     = char '\"' <> pretty i <> char '\"'
+    pretty (ConstStr i)     = char '\"' <> text (show i) <> char '\"'
     pretty (ConstByteStr i) = text (show i)
     pretty (ConstBool i)    = pretty i
     pretty (ConstChar i)    = pretty i

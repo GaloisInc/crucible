@@ -42,6 +42,7 @@ import Control.Monad.ST
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
 
+import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Map.Strict (Map)
@@ -152,9 +153,6 @@ setPosition = G.setPosition . parsePosition
 --------------------------------------------------------------------------------------
 -- ** Expressions
 
-charToBV32 :: Char -> R.Expr MIR s (C.BVType 32)
-charToBV32 c = R.App (E.BVLit knownRepr (toInteger (Char.ord c)))
-
 u8ToBV8 :: ConstVal -> R.Expr MIR s (C.BVType 8)
 u8ToBV8 (ConstInt (U8 c)) = R.App (E.BVLit knownRepr c)
 u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
@@ -170,10 +168,17 @@ transConstVal (Some (UsizeRepr)) (M.ConstInt i) =
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
 transConstVal (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (Some (C.VectorRepr _w)) (M.ConstStr str)
-      = do let u32    = C.BVRepr (knownRepr :: NatRepr 32)
-           let bytes  = V.fromList (map charToBV32 str)
-           return $ MirExp (C.VectorRepr u32) (R.App $ E.VectorLit u32 bytes)
+transConstVal (Some (MirImmSliceRepr (C.BVRepr w))) (M.ConstStr bs)
+  | Just Refl <- testEquality w (knownNat @8) = do
+    let u8Repr = C.BVRepr $ knownNat @8
+    let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
+    let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
+    let start = R.App $ usizeLit 0
+    let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
+    let struct = S.mkStruct
+            knownRepr
+            (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
+    return $ MirExp (MirImmSliceRepr u8Repr) struct
 transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
       = do let bytes = V.fromList (map u8ToBV8 arr)
@@ -562,13 +567,10 @@ evalCast' ck ty1 e ty2  =
       (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
 
       -- unsigned to signed (nothing to do except fix sizes)
-      (M.Misc, M.TyUint _, M.TyInt s) -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.Misc, M.TyUint _, M.TyInt s)  -> baseSizeToNatCont s $ extendUnsignedBV e
 
-      -- signed to unsigned (TODO: check for negative numbers)
-      (M.Misc, M.TyInt s1,  M.TyUint s2)
-        | s1 == s2 -> return e      -- Reinterpret the bitvector as a different signedness
-        | otherwise -> mirFail
-          "unimplemented: cast changes signedness and size simultaneously"
+      -- signed to unsigned.  Testing indicates that this sign-extends.
+      (M.Misc, M.TyInt _,  M.TyUint s) -> baseSizeToNatCont s $ extendSignedBV e
 
        -- boolean to nat
       (M.Misc, TyBool, TyUint M.USize)
@@ -589,6 +591,12 @@ evalCast' ck ty1 e ty2  =
        | MirExp C.BoolRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> 
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ E.BVLit w 1) (R.App $ E.BVLit w 0))
+
+      -- char to uint
+      (M.Misc, M.TyChar, M.TyUint  M.USize)
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> return $ MirExp UsizeRepr (bvToUsize sz R.App e0)
+      (M.Misc, M.TyChar, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
 
 
 
@@ -1071,6 +1079,16 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _ _pos)
                     (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
             assignVarExp v (MirExp (MirImmSliceRepr e_ty) struct)
 
+assignVarExp v@(M.Var _vnamd _ (M.TyRef M.TyStr M.Immut) _ _ _pos)
+               (MirExp (MirSliceRepr e_ty) e) =
+
+         do let rvec  = S.getStruct Ctx.i1of3 e
+            let start = S.getStruct Ctx.i2of3 e
+            let len   = S.getStruct Ctx.i3of3 e
+            vec <- readMirRef (C.VectorRepr e_ty) rvec
+            let struct = S.mkStruct (mirImmSliceCtxRepr e_ty)
+                    (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
+            assignVarExp v (MirExp (MirImmSliceRepr e_ty) struct)
 
 assignVarExp (M.Var vname _ vty _ _ pos) me@(MirExp e_ty e) = do
     vm <- use varMap
@@ -1368,6 +1386,48 @@ lookupFunction nm (Substs funsubst)
                traceM $ "***lookupFunction: Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
             return Nothing
 
+callHandle :: HasCallStack =>
+    MirExp s -> Abi -> Maybe Int -> [M.Operand] -> MirGenerator h s ret (MirExp s)
+callHandle e abi spreadArg cargs
+  | MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst <- e = do
+    db    <- use debugLevel
+    when (db > 3) $
+       traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
+           PP.text (show e), PP.text "with arguments", pretty cargs,
+           PP.text "abi:",pretty abi])
+
+    exps <- mapM evalOperand cargs
+    exps' <- case abi of
+      RustCall
+        -- If the target has `spread_arg` set, then it expects a tuple
+        -- instead of individual arguments.  This is a hack - see comment
+        -- on the definition of Mir.Mir.FnSig for details.
+        | isJust $ spreadArg -> return exps
+
+        -- Empty tuples use UnitRepr instead of StructRepr
+        | [selfExp, MirExp C.UnitRepr _] <- exps -> do
+          return [selfExp]
+
+        | [selfExp, tupleExp@(MirExp (C.StructRepr tupleTys) _)] <- exps -> do
+          tupleParts <- mapM (accessAggregateMaybe tupleExp)
+              [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
+          return $ selfExp : tupleParts
+
+        | otherwise -> mirFail $
+          "callExp: RustCall arguments are the wrong shape: " ++ show cargs
+
+      _ -> return exps
+
+    exp_to_assgn exps' $ \ctx asgn -> do
+      case (testEquality ctx ifargctx) of
+        Just Refl -> do
+          ret_e <- G.call polyinst asgn
+          return (MirExp ifret ret_e)
+        _ -> mirFail $ "type error in call of " ++ show e
+                      ++ "\n    args      " ++ show ctx
+                      ++ "\n vs fn params " ++ show ifargctx
+  | otherwise = mirFail $ "don't know how to call handle " ++ show e
+
 -- need to construct any dictionary arguments for predicates (if present)
 callExp :: HasCallStack =>
            M.DefId
@@ -1405,43 +1465,8 @@ callExp funid funsubst cargs = do
                PP.text "and type parameters:", pretty funsubst])
           op cargs
 
-       | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
-          when (db > 3) $
-             traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
-                 pretty funid, PP.text "with arguments", pretty cargs,
-                 PP.text "sig:",pretty sig,
-                 PP.text "and type parameters:", pretty funsubst])
-
-          exps <- mapM evalOperand cargs
-          exps' <- case sig^.fsabi of
-            RustCall
-              -- If the target has `spread_arg` set, then it expects a tuple
-              -- instead of individual arguments.  This is a hack - see comment
-              -- on the definition of Mir.Mir.FnSig for details.
-              | isJust $ sig^.fsspreadarg -> return exps
-
-              -- Empty tuples use UnitRepr instead of StructRepr
-              | [selfExp, MirExp C.UnitRepr _] <- exps -> do
-                return [selfExp]
-
-              | [selfExp, tupleExp@(MirExp (C.StructRepr tupleTys) _)] <- exps -> do
-                tupleParts <- mapM (accessAggregateMaybe tupleExp)
-                    [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
-                return $ selfExp : tupleParts
-
-              | otherwise -> mirFail $
-                "callExp: RustCall arguments are the wrong shape: " ++ show cargs
-
-            _ -> return exps
-
-          exp_to_assgn exps' $ \ctx asgn -> do
-            case (testEquality ctx ifargctx) of
-              Just Refl -> do
-                ret_e <- G.call polyinst asgn
-                return (MirExp ifret ret_e)
-              _ -> mirFail $ "type error in call of " ++ fmt funid ++ fmt funsubst
-                            ++ "\n    args      " ++ show ctx
-                            ++ "\n vs fn params " ++ show ifargctx
+       | Just (hand, sig) <- mhand -> do
+         callHandle hand (sig^.fsabi) (sig^.fsspreadarg) cargs
 
      _ -> mirFail $ "callExp: Don't know how to call " ++ fmt funid ++ fmt funsubst
 
@@ -1489,7 +1514,17 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid funsubsts
     doCall funid funsubsts cargs cretdest tr -- cleanup ignored
-        
+
+transTerminator (M.Call funcOp cargs cretdest _) tr = do
+    func <- evalOperand funcOp
+    ret <- callHandle func RustAbi Nothing cargs
+    case cretdest of
+      Just (dest_lv, jdest) -> do
+          assignLvExp dest_lv ret
+          jumpToBlock jdest
+      Nothing -> do
+          G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
+
 transTerminator (M.Assert cond _expected _msg target _cleanup) _ = do
     db <- use $ debugLevel
     when (db > 5) $ do
@@ -1570,6 +1605,16 @@ initialValue (M.TyRef (M.TySlice t) M.Mut) = do
       let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
       return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
       -- fail ("don't know how to initialize slices for " ++ show t)
+initialValue (M.TyRef M.TyStr M.Immut) = do
+    let tr = C.BVRepr $ knownNat @8
+    let vec = MirExp (C.VectorRepr tr) $ R.App $ E.VectorLit tr V.empty
+    let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
+    return $ Just $ buildTuple [vec, i, i]
+initialValue (M.TyRef M.TyStr M.Mut) = do
+    let tr = C.BVRepr $ knownNat @8
+    ref <- newMirRef (C.VectorRepr tr)
+    let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
+    return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
 initialValue (M.TyRef (M.TyDynamic _ _) _) = do
     let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
@@ -1590,9 +1635,6 @@ initialValue (M.TyRef t M.Mut) = do
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
-initialValue M.TyStr = do
-    let w = C.BVRepr (knownNat :: NatRepr 32)
-    return $ Just $ (MirExp (C.VectorRepr w) (S.app (E.VectorLit w V.empty)))
 initialValue (M.TyClosure tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps

@@ -5229,6 +5229,7 @@ impl<A> SliceOrd<A> for [A]
 
 // memcmp compares a sequence of unsigned bytes lexicographically.
 // this matches the order we want for [u8], but no others (not even [i8]).
+/* crux: use default impl instead of unsafe memcmp
 impl SliceOrd<u8> for [u8] {
     #[inline]
     fn compare(&self, other: &[u8]) -> Ordering {
@@ -5245,6 +5246,7 @@ impl SliceOrd<u8> for [u8] {
         }
     }
 }
+*/
 
 #[doc(hidden)]
 /// Trait implemented for types that can be compared for equality using
@@ -5289,6 +5291,7 @@ impl<T> SliceContains for T where T: PartialEq {
     }
 }
 
+/* crux: use default impl instead of unsafe memchr
 #[cfg(memchr)]
 impl SliceContains for u8 {
     fn slice_contains(&self, x: &[Self]) -> bool {
@@ -5304,3 +5307,4 @@ impl SliceContains for i8 {
         memchr::memchr(byte, bytes).is_some()
     }
 }
+*/

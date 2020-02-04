@@ -29,7 +29,7 @@ translate lib/libcore/lib.rs --crate-name core \
     --cfg from_str --cfg dec2flt \
     --cfg any_downcast \
     --cfg hash \
-    # --cfg fmt   # trouble with integer formatting in bounds check panics
+    --cfg fmt   # trouble with integer formatting in bounds check panics
 
 translate_2015 lib/compiler-builtins/src/lib.rs --crate-name compiler_builtins \
     --cfg 'feature="compiler-builtins"'

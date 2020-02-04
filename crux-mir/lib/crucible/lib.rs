@@ -1,6 +1,8 @@
 #![no_std]
 #![feature(core_intrinsics)]
+#![feature(crucible_intrinsics)]
 
+pub use core::crucible::any;
 pub mod bitvector;
 pub mod symbolic;
 pub mod vector;

@@ -16,11 +16,13 @@ module Mir.Overrides (bindFn) where
 import Control.Lens ((%=))
 import Control.Monad.IO.Class
 
+import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
 import Data.Vector(Vector)
 import qualified Data.Vector as V
+import Data.Word
 
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import Data.Parameterized.NatRepr
@@ -29,6 +31,7 @@ import Data.Semigroup
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 
 import System.IO (hPutStrLn)
 
@@ -49,19 +52,23 @@ import What4.Interface
 import Crux.Model (addVar)
 import Crux.Types (Model)
 
-import Mir.Intrinsics (MIR)
+import Mir.Intrinsics (MIR, MirImmSlice, pattern MirImmSliceRepr)
 import Mir.DefId
 
 import Debug.Trace
 
-getString :: forall sym. (IsSymExprBuilder sym) => sym -> Vector (RegValue sym (BVType 32)) -> Maybe Text
-getString _ rv = do
-   let f :: RegValue sym (BVType 32) -> Maybe Char
-       f rv = case asUnsignedBV rv of
-                     Just i  -> Just (Char.chr (fromInteger i))
-                     Nothing -> Nothing
-   (vv :: (Vector Char)) <- V.mapM f rv
-   return $ Text.pack (V.toList vv)
+getString :: forall sym. (IsSymExprBuilder sym) => sym -> RegValue sym (MirImmSlice (BVType 8)) -> Maybe Text
+getString _ (Empty :> RV vec :> RV startExpr :> RV lenExpr) = do
+    start <- asUnsignedBV startExpr
+    len <- asUnsignedBV lenExpr
+    let slice = V.slice (fromInteger start) (fromInteger len) vec
+
+    let f :: RegValue sym (BVType 8) -> Maybe Word8
+        f rv = case asUnsignedBV rv of
+                      Just i  -> Just (fromInteger i)
+                      Nothing -> Nothing
+    bs <- BS.pack <$> mapM f (V.toList slice)
+    return $ Text.decodeUtf8 bs
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
@@ -104,7 +111,7 @@ bindFn fn cfg =
     u32repr :: TypeRepr (BaseToType (BaseBVType 32))
     u32repr = knownRepr
 
-    strrepr :: TypeRepr (VectorType (BVType 32))
+    strrepr :: TypeRepr (MirImmSlice (BVType 8))
     strrepr = knownRepr
 
     symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (Model sym) sym)
@@ -170,5 +177,4 @@ bindFn fn cfg =
                        let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
                        liftIO $ addAssumption s (LabeledPred (regValue c) reason)
                        return ()
-                  
                ]

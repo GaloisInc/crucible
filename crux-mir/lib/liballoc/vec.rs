@@ -686,9 +686,12 @@ impl<T> Vec<T> {
     /// [`drain`]: #method.drain
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn truncate(&mut self, len: usize) {
-        while self.len() > len {
-            self.pop();
+        if len >= self.len() {
+            return;
         }
+        let old = mem::replace(&mut self.data, Vector::new());
+        let (before, after) = old.split_at(len);
+        self.data = before;
     }
 
     /// Extracts a slice containing the entire vector.

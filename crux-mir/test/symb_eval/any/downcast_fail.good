@@ -1,0 +1,3 @@
+[Crux] Disproved 1 out of 1 goals. 0 goals are unknown.
+[Crux] Failure for failed to downcast Any as BVRepr 32
+in downcast_fail/3a1fbbbh::crux_test[0] at test/symb_eval/any/downcast_fail.rs:11:14

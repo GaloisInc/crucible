@@ -122,6 +122,7 @@
 #![feature(alloc_layout_extra)]
 #![feature(try_trait)]
 #![feature(mem_take)]
+#![feature(crucible_intrinsics)]
 
 // Allow testing this library
 

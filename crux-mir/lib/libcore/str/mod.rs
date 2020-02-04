@@ -415,7 +415,8 @@ pub fn from_utf8_mut(v: &mut [u8]) -> Result<&mut str, Utf8Error> {
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub unsafe fn from_utf8_unchecked(v: &[u8]) -> &str {
-    &*(v as *const [u8] as *const str)
+    // `&str` and `&[u8]` have the same Crucible representation
+    unsafe { mem::crucible_identity_transmute(v) }
 }
 
 /// Converts a slice of bytes to a string slice without checking
@@ -440,7 +441,8 @@ pub unsafe fn from_utf8_unchecked(v: &[u8]) -> &str {
 #[inline]
 #[stable(feature = "str_mut_extras", since = "1.20.0")]
 pub unsafe fn from_utf8_unchecked_mut(v: &mut [u8]) -> &mut str {
-    &mut *(v as *mut [u8] as *mut str)
+    // `&mut str` and `&mut [u8]` have the same Crucible representation
+    unsafe { mem::crucible_identity_transmute(v) }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1565,6 +1567,7 @@ fn run_utf8_validation(v: &[u8]) -> Result<(), Utf8Error> {
             }
             index += 1;
         } else {
+            /*
             // Ascii case, try to skip forward quickly.
             // When the pointer is aligned, read 2 words of data per iteration
             // until we find a word containing a non-ascii byte.
@@ -1589,6 +1592,8 @@ fn run_utf8_validation(v: &[u8]) -> Result<(), Utf8Error> {
             } else {
                 index += 1;
             }
+            */
+            index += 1;
         }
     }
 
@@ -1810,15 +1815,11 @@ mod traits {
         }
         #[inline]
         unsafe fn get_unchecked(self, slice: &str) -> &Self::Output {
-            let ptr = slice.as_ptr().add(self.start);
-            let len = self.end - self.start;
-            super::from_utf8_unchecked(slice::from_raw_parts(ptr, len))
+            super::from_utf8_unchecked(slice.as_bytes().get_unchecked(self))
         }
         #[inline]
         unsafe fn get_unchecked_mut(self, slice: &mut str) -> &mut Self::Output {
-            let ptr = slice.as_mut_ptr().add(self.start);
-            let len = self.end - self.start;
-            super::from_utf8_unchecked_mut(slice::from_raw_parts_mut(ptr, len))
+            super::from_utf8_unchecked_mut(slice.as_bytes_mut().get_unchecked_mut(self))
         }
         #[inline]
         fn index(self, slice: &str) -> &Self::Output {
@@ -1875,13 +1876,11 @@ mod traits {
         }
         #[inline]
         unsafe fn get_unchecked(self, slice: &str) -> &Self::Output {
-            let ptr = slice.as_ptr();
-            super::from_utf8_unchecked(slice::from_raw_parts(ptr, self.end))
+            super::from_utf8_unchecked(slice.as_bytes().get_unchecked(self))
         }
         #[inline]
         unsafe fn get_unchecked_mut(self, slice: &mut str) -> &mut Self::Output {
-            let ptr = slice.as_mut_ptr();
-            super::from_utf8_unchecked_mut(slice::from_raw_parts_mut(ptr, self.end))
+            super::from_utf8_unchecked_mut(slice.as_bytes_mut().get_unchecked_mut(self))
         }
         #[inline]
         fn index(self, slice: &str) -> &Self::Output {
@@ -1936,15 +1935,11 @@ mod traits {
         }
         #[inline]
         unsafe fn get_unchecked(self, slice: &str) -> &Self::Output {
-            let ptr = slice.as_ptr().add(self.start);
-            let len = slice.len() - self.start;
-            super::from_utf8_unchecked(slice::from_raw_parts(ptr, len))
+            super::from_utf8_unchecked(slice.as_bytes().get_unchecked(self))
         }
         #[inline]
         unsafe fn get_unchecked_mut(self, slice: &mut str) -> &mut Self::Output {
-            let ptr = slice.as_mut_ptr().add(self.start);
-            let len = slice.len() - self.start;
-            super::from_utf8_unchecked_mut(slice::from_raw_parts_mut(ptr, len))
+            super::from_utf8_unchecked_mut(slice.as_bytes_mut().get_unchecked_mut(self))
         }
         #[inline]
         fn index(self, slice: &str) -> &Self::Output {
@@ -2204,11 +2199,8 @@ impl str {
     #[inline(always)]
     #[rustc_const_unstable(feature="const_str_as_bytes")]
     pub const fn as_bytes(&self) -> &[u8] {
-        union Slices<'a> {
-            str: &'a str,
-            slice: &'a [u8],
-        }
-        unsafe { Slices { str: self }.slice }
+        // `&str` and `&[u8]` have the same Crucible representation
+        unsafe { mem::crucible_identity_transmute(self) }
     }
 
     /// Converts a mutable string slice to a mutable byte slice. To convert the
@@ -2247,7 +2239,8 @@ impl str {
     #[stable(feature = "str_mut_extras", since = "1.20.0")]
     #[inline(always)]
     pub unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
-        &mut *(self as *mut str as *mut [u8])
+        // `&mut str` and `&mut [u8]` have the same Crucible representation
+        unsafe { mem::crucible_identity_transmute(self) }
     }
 
     /// Converts a string slice to a raw pointer.
@@ -2578,14 +2571,10 @@ impl str {
     pub fn split_at_mut(&mut self, mid: usize) -> (&mut str, &mut str) {
         // is_char_boundary checks that the index is in [0, .len()]
         if self.is_char_boundary(mid) {
-            let len = self.len();
-            let ptr = self.as_mut_ptr();
             unsafe {
-                (from_utf8_unchecked_mut(slice::from_raw_parts_mut(ptr, mid)),
-                 from_utf8_unchecked_mut(slice::from_raw_parts_mut(
-                    ptr.add(mid),
-                    len - mid
-                 )))
+                let (a, b) = self.as_bytes_mut().split_at_mut(mid);
+                (from_utf8_unchecked_mut(a),
+                 from_utf8_unchecked_mut(b))
             }
         } else {
             slice_error_fail(self, 0, mid)

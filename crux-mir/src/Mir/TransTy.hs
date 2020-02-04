@@ -116,6 +116,10 @@ pattern CTyBv128 = CTyBv CTyBvSize128
 pattern CTyBv256 = CTyBv CTyBvSize256
 pattern CTyBv512 = CTyBv CTyBvSize512
 
+pattern CTyAny <- M.TyAdt _ $(M.normDefIdPat "core::crucible::any::Any") (M.Substs [])
+  where CTyAny = M.TyAdt (M.textId "type::adt") (M.textId "core::crucible::any::Any") (M.Substs [])
+
+
 -- These don't have custom representation, but are referenced in various
 -- places.
 pattern CTyOption t <- M.TyAdt _ $(M.normDefIdPat "core::option::Option") (M.Substs [t])
@@ -137,6 +141,7 @@ tyToRepr t0 = case t0 of
   CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
   CTyBox t -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   CTyVector t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
+  CTyAny -> Some C.AnyRepr
 
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr
@@ -158,6 +163,8 @@ tyToRepr t0 = case t0 of
   -- These definitions are *not* compositional
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+  M.TyRef M.TyStr M.Immut -> Some (MirImmSliceRepr (C.BVRepr (knownNat @8)))
+  M.TyRef M.TyStr M.Mut   -> Some (MirSliceRepr (C.BVRepr (knownNat @8)))
 
   -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
   -- data value (which is either `&Ty` or `&mut Ty`) and a vtable.  Both are
@@ -172,6 +179,8 @@ tyToRepr t0 = case t0 of
 
   -- NOTE: we cannot mutate this vector. Hmmmm....
   M.TySlice t -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
+  -- Strings are vectors of bytes, UTF-8 encoded
+  M.TyStr -> Some (MirImmSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
 
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
   M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
@@ -180,10 +189,6 @@ tyToRepr t0 = case t0 of
   M.TyRawPtr t M.Mut -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
-
-  -- Strings are vectors of chars
-  -- This is not the actual representation (which is packed into u8s)
-  M.TyStr -> Some (C.VectorRepr (C.BVRepr (knownNat :: NatRepr 32)))
 
   -- An ADT is a `concreteAdtRepr` wrapped in `ANY`
   M.TyAdt _ _defid _tyargs -> Some C.AnyRepr
