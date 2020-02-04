@@ -388,6 +388,16 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
     !(TypeRepr tp) ->
     !(MirReferencePath sym tp_base (MaybeType tp)) ->
     MirReferencePath sym tp_base tp
+  -- | Present `&mut Vector` as `&mut MirVector`.
+  VectorAsMirVector_RefPath ::
+    !(TypeRepr tp) ->
+    !(MirReferencePath sym tp_base (VectorType tp)) ->
+    MirReferencePath sym tp_base (MirVectorType tp)
+  -- | Present `&mut Array` as `&mut MirVector`.
+  ArrayAsMirVector_RefPath ::
+    !(BaseTypeRepr btp) ->
+    !(MirReferencePath sym tp_base (UsizeArrayType btp)) ->
+    MirReferencePath sym tp_base (MirVectorType (BaseToType btp))
 
 data MirReference sym (tp :: CrucibleType) where
   MirReference ::
@@ -434,6 +444,12 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
   (Just_RefPath tp p1, Just_RefPath _ p2) ->
          do p' <- muxRefPath sym c p1 p2
             return (Just_RefPath tp p')
+  (VectorAsMirVector_RefPath tp p1, VectorAsMirVector_RefPath _ p2) ->
+         do p' <- muxRefPath sym c p1 p2
+            return (VectorAsMirVector_RefPath tp p')
+  (ArrayAsMirVector_RefPath tp p1, ArrayAsMirVector_RefPath _ p2) ->
+         do p' <- muxRefPath sym c p1 p2
+            return (ArrayAsMirVector_RefPath tp p')
   _ -> mzero
 
 muxRef :: forall sym tp.
@@ -573,6 +589,14 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(TypeRepr tp) ->
      !(f (MirReferenceType (MaybeType tp))) ->
      MirStmt f (MirReferenceType tp)
+  MirRef_VectorAsMirVector ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType (VectorType tp))) ->
+     MirStmt f (MirReferenceType (MirVectorType tp))
+  MirRef_ArrayAsMirVector ::
+     !(BaseTypeRepr btp) ->
+     !(f (MirReferenceType (UsizeArrayType btp))) ->
+     MirStmt f (MirReferenceType (MirVectorType (BaseToType btp)))
   VectorSnoc ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -683,6 +707,8 @@ instance TypeApp MirStmt where
     MirSubvariantRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
     MirSubindexRef tp _ _ -> MirReferenceRepr tp
     MirSubjustRef tp _ -> MirReferenceRepr tp
+    MirRef_VectorAsMirVector tp _ -> MirReferenceRepr (MirVectorRepr tp)
+    MirRef_ArrayAsMirVector btp _ -> MirReferenceRepr (MirVectorRepr $ baseToType btp)
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -709,6 +735,8 @@ instance PrettyApp MirStmt where
     MirSubvariantRef _ x idx -> "subvariantRef" <+> pp x <+> text (show idx)
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
+    MirRef_VectorAsMirVector _ v -> "mirRef_vectorAsMirVector" <+> pp v
+    MirRef_ArrayAsMirVector _ a -> "mirRef_arrayAsMirVector" <+> pp a
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -821,6 +849,13 @@ execMirStmt stmt s =
        MirSubjustRef tp (regValue -> MirReference r path) ->
          do let r' = MirReference r (Just_RefPath tp path)
             return (r', s)
+       MirRef_VectorAsMirVector tp (regValue -> MirReference r path) -> do
+            let r' = MirReference r (VectorAsMirVector_RefPath tp path)
+            return (r', s)
+       MirRef_ArrayAsMirVector btp (regValue -> MirReference r path) -> do
+            let r' = MirReference r (ArrayAsMirVector_RefPath btp path)
+            return (r', s)
+
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
        VectorHead _tp (regValue -> vecValue) -> do
@@ -909,6 +944,20 @@ adjustRefPath sym iTypes v path0 adj = case path0 of
         adjustVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx' adj)
   Just_RefPath _tp path ->
       adjustRefPath sym iTypes v path (\v' -> mapM adj v')
+  VectorAsMirVector_RefPath _ path -> do
+    adjustRefPath sym iTypes v path $ \v' -> do
+        mv <- adj $ MirVector_Vector v'
+        case mv of
+            MirVector_Vector v'' -> return v''
+            _ -> addFailedAssertion sym $ Unsupported $
+                "tried to change underlying type of MirVector ref"
+  ArrayAsMirVector_RefPath _ path -> do
+    adjustRefPath sym iTypes v path $ \v' -> do
+        mv <- adj $ MirVector_Array v'
+        case mv of
+            MirVector_Array v'' -> return v''
+            _ -> addFailedAssertion sym $ Unsupported $
+                "tried to change underlying type of MirVector ref"
 
 
 readRefPath :: IsSymInterface sym =>
@@ -942,6 +991,10 @@ readRefPath sym iTypes v = \case
        let msg = ReadBeforeWriteSimError $
                "attempted to read from uninitialized Maybe of type " ++ show tp
        readPartExpr sym v' msg
+  VectorAsMirVector_RefPath _ path -> do
+    MirVector_Vector <$> readRefPath sym iTypes v path
+  ArrayAsMirVector_RefPath _ path -> do
+    MirVector_Array <$> readRefPath sym iTypes v path
 
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR

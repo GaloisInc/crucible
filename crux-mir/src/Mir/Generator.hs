@@ -495,6 +495,18 @@ subjustRef ::
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
+mirRef_vectorAsMirVector ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType (C.VectorType tp)) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType tp)))
+mirRef_vectorAsMirVector tpr ref = G.extensionStmt $ MirRef_VectorAsMirVector tpr ref
+
+mirRef_arrayAsMirVector ::
+  C.BaseTypeRepr btp ->
+  R.Expr MIR s (MirReferenceType (UsizeArrayType btp)) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType (C.BaseToType btp))))
+mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
+
 -----------------------------------------------------------------------
 
 
