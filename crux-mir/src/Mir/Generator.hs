@@ -559,6 +559,34 @@ arrayZeroed ::
 arrayZeroed idxs w = G.extensionStmt $ ArrayZeroed idxs w
 
 
+mirVector_fromVector ::
+    C.TypeRepr tp ->
+    R.Expr MIR s (C.VectorType tp) ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
+mirVector_fromVector tpr v = G.extensionStmt $ MirVector_FromVector tpr v
+
+mirVector_fromArray ::
+    C.BaseTypeRepr btp ->
+    R.Expr MIR s (UsizeArrayType btp) ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType (C.BaseToType btp)))
+mirVector_fromArray tpr a = G.extensionStmt $ MirVector_FromArray tpr a
+
+mirVector_lookup ::
+    C.TypeRepr tp ->
+    R.Expr MIR s (MirVectorType tp) ->
+    R.Expr MIR s UsizeType ->
+    MirGenerator h s ret (R.Expr MIR s tp)
+mirVector_lookup tpr v i = G.extensionStmt $ MirVector_Lookup tpr v i
+
+mirVector_update ::
+    C.TypeRepr tp ->
+    R.Expr MIR s (MirVectorType tp) ->
+    R.Expr MIR s UsizeType ->
+    R.Expr MIR s tp ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
+mirVector_update tpr v i x = G.extensionStmt $ MirVector_Update tpr v i x
+
+
 
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct

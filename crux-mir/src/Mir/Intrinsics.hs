@@ -110,7 +110,8 @@ import           Unsafe.Coerce
 
 mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 mirIntrinsicTypes =
-   MapF.insert (knownSymbol :: SymbolRepr "MirReference") IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
    MapF.empty
 
 
@@ -455,6 +456,65 @@ muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
        p' <- muxRefPath sym c p1 p2
        return (MirReference r1 p')
 
+
+--------------------------------------------------------------
+-- A MirVectorType is dynamically either a VectorType or a SymbolicArrayType.
+-- We use this in `MirSlice` to allow taking slices of either
+-- `crucible::vector::Vector` or `crucible::array::Array`.
+
+-- Aliases for working with MIR arrays, which have a single usize index.
+type UsizeArrayType btp = SymbolicArrayType (EmptyCtx ::> BaseUsizeType) btp
+pattern UsizeArrayRepr :: () => tp' ~ UsizeArrayType btp => BaseTypeRepr btp -> TypeRepr tp'
+pattern UsizeArrayRepr btp <-
+    SymbolicArrayRepr (testEquality (Empty :> BaseUsizeRepr) -> Just Refl) btp
+  where UsizeArrayRepr btp = SymbolicArrayRepr (Empty :> BaseUsizeRepr) btp
+
+
+type MirVectorSymbol = "MirVector"
+type MirVectorType tp = IntrinsicType MirVectorSymbol (EmptyCtx ::> tp)
+
+pattern MirVectorRepr :: () => tp' ~ MirVectorType tp => TypeRepr tp -> TypeRepr tp'
+pattern MirVectorRepr tp <-
+     IntrinsicRepr (testEquality (knownSymbol @MirVectorSymbol) -> Just Refl) (Empty :> tp)
+ where MirVectorRepr tp = IntrinsicRepr (knownSymbol @MirVectorSymbol) (Empty :> tp)
+
+type family MirVectorFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MirVectorFam sym (EmptyCtx ::> tp) = MirVector sym tp
+  MirVectorFam sym ctx = TypeError ('Text "MirVector expects a single argument, but was given" ':<>:
+                                       'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MirVectorSymbol where
+  type Intrinsic sym MirVectorSymbol ctx = MirVectorFam sym ctx
+
+  muxIntrinsic sym tys _nm (Empty :> tpr) = muxMirVector sym tys tpr
+  muxIntrinsic _sym _tys nm ctx = typeError nm ctx
+
+data MirVector sym (tp :: CrucibleType) where
+  MirVector_Vector ::
+    !(RegValue sym (VectorType tp)) ->
+    MirVector sym tp
+  MirVector_Array ::
+    !(RegValue sym (UsizeArrayType btp)) ->
+    MirVector sym (BaseToType btp)
+
+muxMirVector :: forall sym tp.
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  TypeRepr tp ->
+  Pred sym ->
+  MirVector sym tp ->
+  MirVector sym tp ->
+  IO (MirVector sym tp)
+muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2) =
+    MirVector_Vector <$> muxRegForType sym itefns (VectorRepr tpr) c v1 v2
+muxMirVector sym itefns (asBaseType -> AsBaseType btpr) c
+        (MirVector_Array a1) (MirVector_Array a2) =
+    MirVector_Array <$> muxRegForType sym itefns (UsizeArrayRepr btpr) c a1 a2
+muxMirVector sym _ _ _ _ _ =
+    addFailedAssertion sym $ Unsupported $ "Cannot merge dissimilar MirVectors."
+
+
+
 -- | Sigil type indicating the MIR syntax extension
 data MIR
 type instance ExprExtension MIR = EmptyExprExtension
@@ -554,6 +614,25 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(Assignment BaseTypeRepr (idxs ::> idx)) ->
      !(NatRepr w) ->
      MirStmt f (SymbolicArrayType (idxs ::> idx) (BaseBVType w))
+  MirVector_FromVector ::
+    !(TypeRepr tp) ->
+    !(f (VectorType tp)) ->
+    MirStmt f (MirVectorType tp)
+  MirVector_FromArray ::
+    !(BaseTypeRepr btp) ->
+    !(f (UsizeArrayType btp)) ->
+    MirStmt f (MirVectorType (BaseToType btp))
+  MirVector_Lookup ::
+    !(TypeRepr tp) ->
+    !(f (MirVectorType tp)) ->
+    !(f UsizeType) ->
+    MirStmt f tp
+  MirVector_Update ::
+    !(TypeRepr tp) ->
+    !(f (MirVectorType tp)) ->
+    !(f UsizeType) ->
+    !(f tp) ->
+    MirStmt f (MirVectorType tp)
 
 $(return [])
 
@@ -569,6 +648,7 @@ instance TestEqualityFC MirStmt where
     $(U.structuralTypeEquality [t|MirStmt|]
        [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|testSubterm|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+       , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|testEquality|])
@@ -583,6 +663,7 @@ instance OrdFC MirStmt where
     $(U.structuralTypeOrd [t|MirStmt|]
        [ (U.DataArg 0 `U.TypeApp` U.AnyType, [|compareSubterm|])
        , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+       , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|GlobalVar|] `U.TypeApp` U.AnyType, [|compareF|])
@@ -611,6 +692,10 @@ instance TypeApp MirStmt where
     VectorTake tp _ _ -> VectorRepr tp
     VectorDrop tp _ _ -> VectorRepr tp
     ArrayZeroed idxs w -> SymbolicArrayRepr idxs (BaseBVRepr w)
+    MirVector_FromVector tp _ -> MirVectorRepr tp
+    MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
+    MirVector_Lookup tp _ _ -> tp
+    MirVector_Update tp _ _ _ -> MirVectorRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -633,6 +718,11 @@ instance PrettyApp MirStmt where
     VectorTake _ v i -> "vectorTake" <+> pp v <+> pp i
     VectorDrop _ v i -> "vectorDrop" <+> pp v <+> pp i
     ArrayZeroed idxs w -> "arrayZeroed" <+> text (show idxs) <+> text (show w)
+    MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
+    MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
+    MirVector_Lookup _ v i -> "mirVector_lookup" <+> pp v <+> pp i
+    MirVector_Update _ v i x -> "mirVector_update" <+> pp v <+> pp i <+> pp x
+
 
 instance FunctorFC MirStmt where
   fmapFC = fmapFCDefault
@@ -759,6 +849,25 @@ execMirStmt stmt s =
             zero <- bvLit sym w 0
             val <- constantArray sym idxs zero
             return (val, s)
+
+       MirVector_FromVector _tp (regValue -> v) ->
+            return (MirVector_Vector v, s)
+       MirVector_FromArray _tp (regValue -> a) ->
+            return (MirVector_Array a, s)
+       MirVector_Lookup tpr (regValue -> MirVector_Vector v) (regValue -> i) -> do
+            i' <- bvToNat sym i
+            x <- indexVectorWithSymNat sym (muxRegForType sym iTypes tpr) v i'
+            return (x, s)
+       MirVector_Lookup _tp (regValue -> MirVector_Array a) (regValue -> i) -> do
+            x <- arrayLookup sym a (Empty :> i)
+            return (x, s)
+       MirVector_Update tpr (regValue -> MirVector_Vector v) (regValue -> i) (regValue -> x) -> do
+            i' <- bvToNat sym i
+            v' <- updateVectorWithSymNat sym (muxRegForType sym iTypes tpr) v i' x
+            return (MirVector_Vector v', s)
+       MirVector_Update _tp (regValue -> MirVector_Array a) (regValue -> i) (regValue -> x) -> do
+            a' <- arrayUpdate sym a (Empty :> i) x
+            return (MirVector_Array a', s)
 
 writeRefPath :: IsSymInterface sym =>
   sym ->
