@@ -122,6 +122,8 @@ customOpDefs = Map.fromList $ [
                          , array_zeroed
                          , array_lookup
                          , array_update
+                         , array_as_slice
+                         , array_as_mut_slice
 
                          , any_new
                          , any_downcast
@@ -350,7 +352,7 @@ array_zeroed = ( ["crucible","array","{{impl}}", "zeroed"], ) $ \substs -> case 
 array_lookup :: (ExplodedDefId, CustomRHS)
 array_lookup = ( ["crucible","array","{{impl}}", "lookup"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [ MirExp (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> BaseUsizeRepr) btr) eArr,
+        [ MirExp (UsizeArrayRepr btr) eArr,
           MirExp UsizeRepr eIdx ] -> do
             let idx = E.BaseTerm BaseUsizeRepr eIdx
             let idxs = Ctx.Empty Ctx.:> idx
@@ -361,7 +363,7 @@ array_lookup = ( ["crucible","array","{{impl}}", "lookup"], ) $ \substs -> case 
 array_update :: (ExplodedDefId, CustomRHS)
 array_update = ( ["crucible","array","{{impl}}", "update"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [ MirExp arrTpr@(C.SymbolicArrayRepr (Ctx.Empty Ctx.:> BaseUsizeRepr) btr) eArr,
+        [ MirExp arrTpr@(UsizeArrayRepr btr) eArr,
           MirExp UsizeRepr eIdx,
           MirExp (C.asBaseType -> C.AsBaseType btr') eVal ]
           | Just Refl <- testEquality btr btr' -> do
@@ -370,6 +372,37 @@ array_update = ( ["crucible","array","{{impl}}", "update"], ) $ \substs -> case 
             return $ MirExp arrTpr (R.App $ E.SymArrayUpdate btr eArr idxs eVal)
         _ -> mirFail $ "bad arguments for Array::lookup: " ++ show ops
     _ -> Nothing
+
+array_as_slice :: (ExplodedDefId, CustomRHS)
+array_as_slice = ( ["crucible","array","{{impl}}", "as_slice"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (UsizeArrayRepr btpr) a,
+          MirExp UsizeRepr start,
+          MirExp UsizeRepr len ] -> do
+            v' <- mirVector_fromArray btpr a
+            let tpr = C.baseToType btpr
+            let tup = S.mkStruct
+                    (Ctx.Empty Ctx.:> MirVectorRepr tpr Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> v' Ctx.:> start Ctx.:> len)
+            return $ MirExp (MirImmSliceRepr tpr) tup
+        _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
+    _ -> Nothing
+
+array_as_mut_slice :: (ExplodedDefId, CustomRHS)
+array_as_mut_slice = ( ["crucible","array","{{impl}}", "as_mut_slice"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (MirReferenceRepr (UsizeArrayRepr btpr)) e,
+          MirExp UsizeRepr start,
+          MirExp UsizeRepr len ] -> do
+            e' <- mirRef_arrayAsMirVector btpr e
+            let tpr = C.baseToType btpr
+            let tup = S.mkStruct
+                    (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> e' Ctx.:> start Ctx.:> len)
+            return $ MirExp (MirSliceRepr tpr) tup
+        _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
+    _ -> Nothing
+
 
 
 -----------------------------------------------------------------------------------------------------

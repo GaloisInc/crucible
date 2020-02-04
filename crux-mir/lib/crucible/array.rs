@@ -24,11 +24,21 @@ impl<T> Array<T> {
 
 impl<T: Copy> Array<T> {
     pub fn lookup(self, idx: usize) -> T {
-        unimplemented!()
+        unimplemented!("Array::lookup")
     }
 
     pub fn update(self, idx: usize, x: T) -> Self {
-        unimplemented!()
+        unimplemented!("Array::update")
+    }
+
+    /// Take a slice of this array.  Symbolic arrays have unbounded size, so the caller can request
+    /// any offset and bounds they want for the resulting slice.
+    pub fn as_slice(&self, start: usize, len: usize) -> &[T] {
+        unimplemented!("Array::as_slice")
+    }
+
+    pub fn as_mut_slice(&mut self, start: usize, len: usize) -> &mut [T] {
+        unimplemented!("Array::as_mut_slice")
     }
 }
 
