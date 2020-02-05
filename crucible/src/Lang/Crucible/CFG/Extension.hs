@@ -40,14 +40,10 @@ module Lang.Crucible.CFG.Extension
 ) where
 
 import           Data.Kind (Type)
-import           Data.Parameterized.ClassesC (OrdC(..))
-import           Data.Parameterized.TraversableF (TraversableF)
 import           Data.Parameterized.TraversableFC
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 import           Lang.Crucible.Types
-import           Lang.Crucible.CFG.Extension.Safety
-
 
 class PrettyApp (app :: (k -> Type) -> k -> Type) where
   ppApp :: (forall x. f x -> Doc) -> (forall x. app f x -> Doc)
@@ -66,7 +62,6 @@ type PrettyExt ext =
 type TraverseExt ext =
   ( TraversableFC (ExprExtension ext)
   , TraversableFC (StmtExtension ext)
-  , TraversableF  (AssertionClassifier ext)
   )
 
 -- | This class captures all the grungy technical capabilities
@@ -86,10 +81,6 @@ class
    , TraversableFC (StmtExtension ext)
    , PrettyApp (StmtExtension ext)
    , TypeApp (StmtExtension ext)
-   --
-   , OrdC (AssertionClassifier ext)
-   , TraversableF (AssertionClassifier ext)
-   , HasStructuredAssertions ext
    ) =>
    IsSyntaxExtension ext
 

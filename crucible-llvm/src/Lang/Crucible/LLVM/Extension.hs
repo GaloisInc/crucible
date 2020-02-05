@@ -34,13 +34,14 @@ import           GHC.Generics (Generic, Generic1)
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Simulator.RegValue (RegValue'(unRV))
-import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.Extension.Arch
 import           Lang.Crucible.LLVM.Extension.Safety (LLVMSafetyAssertion)
 import qualified Lang.Crucible.LLVM.Extension.Safety as LLVMSafe
 import           Lang.Crucible.LLVM.Extension.Syntax
+
+import           Lang.Crucible.CFG.Extension.Safety( AssertionClassifier, HasStructuredAssertions(..) )
 
 -- | The Crucible extension type marker for LLVM.
 data LLVM (arch :: LLVMArch)

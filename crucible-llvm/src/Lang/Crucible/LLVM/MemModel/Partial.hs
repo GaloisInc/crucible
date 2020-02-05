@@ -89,6 +89,7 @@ import           What4.Partial
 import           What4.Partial.AssertionTree (AssertionTree(..))
 import           What4.Partial.AssertionTree as W4AT
 
+
 ------------------------------------------------------------------------
 -- ** MemoryLoadError
 

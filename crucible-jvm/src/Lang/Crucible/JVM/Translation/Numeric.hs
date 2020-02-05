@@ -15,11 +15,9 @@ Stability        : provisional
 module Lang.Crucible.JVM.Translation.Numeric where
 
 import Lang.Crucible.CFG.Expr
-import Lang.Crucible.CFG.Extension.Safety (pattern PartialExp)
 import Lang.Crucible.CFG.Reg (Expr(..))
 import Lang.Crucible.Types
 
-import qualified What4.Partial.AssertionTree as W4AT
 import Lang.Crucible.JVM.Types
 
 ----------------------------------------------------------------------

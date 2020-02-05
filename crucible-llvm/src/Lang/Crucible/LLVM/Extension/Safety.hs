@@ -63,6 +63,7 @@ import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 
+
 -- -----------------------------------------------------------------------
 -- ** BadBehavior
 
