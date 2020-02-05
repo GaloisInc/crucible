@@ -57,7 +57,8 @@ before_install:
   - cd mir-json
   # Show which mir-json revision we're building
   - git rev-parse HEAD
-  - RUSTC_WRAPPER=./rustc-rpath.sh cargo install --force
+  # Use `--locked` to respect Cargo.lock dependency versions
+  - RUSTC_WRAPPER=./rustc-rpath.sh cargo install --path . --locked --force
   - popd
 
 install:
