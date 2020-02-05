@@ -12,6 +12,10 @@ You must have the most recent version of the `mir-json` executable in your
 path.  See [the `mir-json` README][mir-json-readme] for installation
 instructions.
 
+`mir-verifier` uses several submodules, so make sure they're initialized:
+
+    $ git submodule update --init
+
 [mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
 
 

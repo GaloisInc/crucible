@@ -2,11 +2,8 @@ packages:
 	mir-verifier.cabal
 	deps/crucible/what4
 	deps/crucible/crucible
-	deps/crucible/crucible-saw
 	deps/crucible/crux
-	deps/saw-core
 	deps/parameterized-utils
-	deps/saw-core-aig
 	deps/aig
 
 	

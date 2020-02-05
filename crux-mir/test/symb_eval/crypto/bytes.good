@@ -1,5 +1,11 @@
 ()
-[Crux] Disproved 5 out of 5 goals. 0 goals are unknown.
+[Crux] Goal status:
+[Crux]   Total: 5
+[Crux]   Proved: 0
+[Crux]   Disproved: 5
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
 [Crux] Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:86:7:
 	a[i] == b[i]
 in bytes/3a1fbbbh::f[0] at test/symb_eval/crypto/bytes.rs:86:24
