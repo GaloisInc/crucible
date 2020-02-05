@@ -38,10 +38,8 @@ import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.Extension.Arch
-import           Lang.Crucible.LLVM.Extension.Safety (BadBehavior(..), LLVMSafetyAssertion)
+import           Lang.Crucible.LLVM.Extension.Safety (LLVMSafetyAssertion)
 import qualified Lang.Crucible.LLVM.Extension.Safety as LLVMSafe
-import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension.Syntax
 
 -- | The Crucible extension type marker for LLVM.
@@ -65,13 +63,7 @@ instance HasStructuredAssertions (LLVM arch) where
   toPredicate _proxy _sym cls = cls ^. LLVMSafe.predicate & pure . unRV
 
   explain _proxyExt assertion =
-    case assertion ^. LLVMSafe.classifier of
-      BBUndefinedBehavior ub -> UB.explain ub
-      BBPoison poison        -> Poison.explain poison
-      BBSafe                 -> "A value that's always safe"
+    LLVMSafe.explainBB (assertion ^. LLVMSafe.classifier)
 
-  detail _proxyExt proxySym assertion =
-    case assertion ^. LLVMSafe.classifier of
-      BBUndefinedBehavior ub -> UB.ppReg proxySym ub
-      BBPoison poison        -> Poison.ppReg proxySym poison
-      BBSafe                 -> "A value that's always safe"
+  detail _proxyExt _proxySym assertion =
+    LLVMSafe.detailBB (assertion ^. LLVMSafe.classifier)

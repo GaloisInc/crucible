@@ -71,10 +71,8 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Data.Vector as V
 
 import           Data.Parameterized.Classes
-import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 
 import           What4.Interface (RoundingMode(..),StringLiteral(..), stringLiteralInfo)
@@ -474,14 +472,6 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   FromJustValue :: !(TypeRepr tp)
                 -> !(f (MaybeType tp))
                 -> !(f (StringType Unicode))
-                -> App ext f tp
-
-
-  ----------------------------------------------------------------------
-  -- Side conditions
-
-  WithAssertion :: !(TypeRepr tp)
-                -> !(PartialExpr ext f tp)
                 -> App ext f tp
 
   ----------------------------------------------------------------------
@@ -1130,10 +1120,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     FromJustValue tp _ _ -> tp
 
     ----------------------------------------------------------------------
-    -- Side conditions
-    WithAssertion tp _ -> tp
-
-    ----------------------------------------------------------------------
     -- Recursive Types
 
     RollRecursive nm ctx _ -> RecursiveRepr nm ctx
@@ -1359,7 +1345,6 @@ traverseBaseTerm f = traverseFC (traverseFC f)
 -- subterm of an application. Used for the 'TraversableFC' instance.
 traverseApp :: forall ext m f g tp.
                ( TraversableFC (ExprExtension ext)
-               , TraversableF (AssertionClassifier ext)
                , Applicative m
                )
             => (forall u . f u -> m (g u))
@@ -1390,7 +1375,6 @@ traverseApp =
 -- Parameterized Eq and Ord instances
 
 instance ( TestEqualityFC (ExprExtension ext)
-         , TestEqualityC (AssertionClassifier ext)
          ) => TestEqualityFC (App ext) where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|App|]
@@ -1427,14 +1411,11 @@ instance ( TestEqualityFC (ExprExtension ext)
         ])
 
 instance ( TestEqualityFC (ExprExtension ext)
-         , TestEqualityC (AssertionClassifier ext)
          , TestEquality f
          ) => TestEquality (App ext f) where
   testEquality = testEqualityFC testEquality
 
 instance ( OrdFC (ExprExtension ext)
-         , OrdC  (AssertionClassifier ext)
-         , TestEqualityC (AssertionClassifier ext)
          ) => OrdFC (App ext) where
   compareFC compareSubterm
         = $(U.structuralTypeOrd [t|App|]
@@ -1472,8 +1453,6 @@ instance ( OrdFC (ExprExtension ext)
                   )
 
 instance ( OrdFC (ExprExtension ext)
-         , OrdC (AssertionClassifier ext)
-         , TestEqualityC (AssertionClassifier ext)
          , OrdF f
          ) => OrdF (App ext f) where
   compareF = compareFC compareF
@@ -1482,23 +1461,19 @@ instance ( OrdFC (ExprExtension ext)
 -- Traversals and such
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (AssertionClassifier ext)
          ) => FunctorFC (App ext) where
   fmapFC = fmapFCDefault
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (AssertionClassifier ext)
          ) => FoldableFC (App ext) where
   foldMapFC = foldMapFCDefault
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (AssertionClassifier ext)
          ) => TraversableFC (App ext) where
   traverseFC = traverseApp
 
 -- | Fold over an application.
 foldApp :: ( TraversableFC (ExprExtension ext)
-           , TraversableF (AssertionClassifier ext)
            )
         => (forall x . f x -> r -> r)
         -> r
@@ -1510,7 +1485,6 @@ foldApp f0 r0 a = execState (traverseApp (go f0) a) r0
 -- | Map a Crucible-type-preserving function over the immediate
 -- subterms of an application.
 mapApp :: ( TraversableFC (ExprExtension ext)
-          , TraversableF (AssertionClassifier ext)
           )
        => (forall u . f u -> g u) -> App ext f tp -> App ext g tp
 mapApp f a = runIdentity (traverseApp (pure . f) a)

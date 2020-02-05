@@ -465,8 +465,20 @@ popType2 =
 iPop :: JVMStmtGen s ret (JVMInt s)
 iPop = popValue >>= lift . fromIValue
 
+iPopNonzero :: JVMStmtGen s ret (JVMInt s)
+iPopNonzero =
+  do v <- iPop
+     lift $ assertExpr (App (BVNonzero knownNat v)) "java/lang/ArithmeticException"
+     return v
+
 lPop :: JVMStmtGen s ret (JVMLong s)
 lPop = popValue >>= lift . fromLValue
+
+lPopNonzero :: JVMStmtGen s ret (JVMLong s)
+lPopNonzero =
+  do v <- lPop
+     lift $ assertExpr (App (BVNonzero knownNat v)) "java/lang/ArithmeticException"
+     return v
 
 rPop :: HasCallStack => JVMStmtGen s ret (JVMRef s)
 rPop = popValue >>= lift . fromRValue
@@ -638,8 +650,8 @@ generateInstruction (pc, instr) =
     J.Iadd  -> binary iPop iPop iPush iAdd
     J.Isub  -> binary iPop iPop iPush iSub
     J.Imul  -> binary iPop iPop iPush iMul
-    J.Idiv  -> binary iPop iPop iPush iDiv
-    J.Irem  -> binary iPop iPop iPush iRem
+    J.Idiv  -> binary iPop iPopNonzero iPush iDiv
+    J.Irem  -> binary iPop iPopNonzero iPush iRem
     J.Ineg  -> unary iPop iPush iNeg
     J.Iand  -> binary iPop iPop iPush iAnd
     J.Ior   -> binary iPop iPop iPush iOr
@@ -651,8 +663,8 @@ generateInstruction (pc, instr) =
     J.Lsub  -> binary lPop lPop lPush lSub
     J.Lmul  -> binary lPop lPop lPush lMul
     J.Lneg  -> unary lPop lPush lNeg
-    J.Ldiv  -> binary lPop lPop lPush lDiv
-    J.Lrem  -> binary lPop lPop lPush lRem
+    J.Ldiv  -> binary lPop lPopNonzero lPush lDiv
+    J.Lrem  -> binary lPop lPopNonzero lPush lRem
     J.Land  -> binary lPop lPop lPush lAnd
     J.Lor   -> binary lPop lPop lPush lOr
     J.Lxor  -> binary lPop lPop lPush lXor
