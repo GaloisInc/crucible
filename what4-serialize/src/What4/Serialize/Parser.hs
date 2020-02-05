@@ -1015,7 +1015,7 @@ genRead callnm m text = E.runExceptT $ go
                  Left err -> E.throwError err
                  Right res -> return res
       let firstLine = show $ fmap T.unpack $ take 1 $ T.lines text
-      liftIO $ U.logIO U.Info $
+      liftIO $ U.logIO U.Debug $
         callnm ++ " of " ++ (show $ T.length text) ++ " bytes " ++ firstLine
       m sexpr
 
@@ -1054,7 +1054,7 @@ readSymFnFromFile :: forall sym
                   -> FilePath
                   -> IO (Either String (SomeSome (S.SymFn sym)))
 readSymFnFromFile cfg fp = do
-  liftIO $ U.logIO U.Info $ "readSymFnFromFile " ++ fp
+  liftIO $ U.logIO U.Debug $ "readSymFnFromFile " ++ fp
   readSymFn cfg =<< T.readFile fp
 
 readSymFnEnv' :: forall sym m
@@ -1115,5 +1115,5 @@ readSymFnEnvFromFile :: forall sym
                   -> FilePath
                   -> IO (Either String (SymFnEnv sym))
 readSymFnEnvFromFile cfg fp = do
-  liftIO $ U.logIO U.Info $ "readSymFnEnvFromFile " ++ fp
+  liftIO $ U.logIO U.Debug $ "readSymFnEnvFromFile " ++ fp
   readSymFnEnv cfg =<< T.readFile fp
