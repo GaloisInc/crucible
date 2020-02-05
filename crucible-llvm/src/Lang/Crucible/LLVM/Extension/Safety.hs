@@ -11,6 +11,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -29,6 +30,8 @@ module Lang.Crucible.LLVM.Extension.Safety
   , poison
   , poison'
   , safe
+  , detailBB
+  , explainBB
     -- ** Lenses
   , classifier
   , predicate
@@ -43,6 +46,7 @@ import           Data.Text (Text)
 import           Data.Maybe (isJust)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified What4.Interface as W4I
 import           What4.Partial.AssertionTree
@@ -248,3 +252,17 @@ predicate = lens _predicate (\s v -> s { _predicate = v})
 
 extra :: Simple Lens (LLVMSafetyAssertion e) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
+
+
+
+explainBB :: BadBehavior e -> Doc
+explainBB = \case
+  BBUndefinedBehavior ub -> UB.explain ub
+  BBPoison p             -> Poison.explain p
+  BBSafe                 -> text "A value that's always safe"
+
+detailBB :: W4I.IsExpr (W4I.SymExpr sym) => BadBehavior (RegValue' sym) -> Doc
+detailBB = \case
+  BBUndefinedBehavior ub -> UB.ppReg ub
+  BBPoison p             -> Poison.ppReg p
+  BBSafe                 -> text "A value that's always safe"

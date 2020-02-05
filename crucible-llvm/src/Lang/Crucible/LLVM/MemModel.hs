@@ -290,7 +290,7 @@ assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
 assertUndefined sym p ub = assert sym p $ AssertFailureSimError msg details
   where
     msg = show (UB.explain ub)
-    details = show (UB.ppReg (Just sym) ub)
+    details = show (UB.ppReg ub)
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym

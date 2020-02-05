@@ -42,10 +42,8 @@ import Control.Monad.Fail( MonadFail )
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
-import           Data.Bitraversable (bitraverse)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
@@ -54,7 +52,6 @@ import           Numeric.Natural
 
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
-import           Data.Parameterized.TraversableF (TraversableF(traverseF))
 import           Data.Parameterized.TraversableFC
 
 import           What4.Interface
@@ -66,7 +63,6 @@ import           What4.WordMap
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
-import           Lang.Crucible.CFG.Extension.Safety as Safety
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
@@ -265,9 +261,6 @@ type EvalAppFunc sym app = forall f.
 -- | Evaluate the application.
 evalApp :: forall sym ext.
            ( IsSymInterface sym
-           , HasStructuredAssertions ext
-           , TraversableF (AssertionClassifier ext)
-           , TraversableFC (PartialExpr ext)
            )
         => sym
         -> IntrinsicTypes sym
@@ -429,27 +422,6 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
             Nothing ->
               addFailedAssertion sym $
                 Unsupported "Symbolic string in fromJustValue"
-
-    ----------------------------------------------------------------------
-    -- Side conditions
-
-    WithAssertion _tyRep (Safety.PartialExp assertions val) -> do
-      let (pext, psym) = (Proxy :: Proxy ext, Proxy :: Proxy sym)
-
-      -- Evaluate any subexpressions and massage the type parameter into
-      -- @'SymExpr' sym@. This works because
-      -- @RegValue sym (BaseToType BaseBoolType) = SymExpr sym BaseBoolType@
-      assertions' <-
-        let rvEval :: forall tp. f tp -> IO (RegValue' sym tp)
-            rvEval x = RV <$> evalSub x
-        in bitraverse rvEval (traverseF rvEval) assertions
-
-      let expl = explainTree pext psym assertions'
-      let err  = AssertFailureSimError (summarizeTree pext assertions') (show expl)
-      addAssertionM sym (treeToPredicate pext sym assertions') err
-      evalSub val
-
-    WithAssertion _tyRep _ -> error "evalApp: Impossible"
 
     ----------------------------------------------------------------------
     -- Recursive Types
