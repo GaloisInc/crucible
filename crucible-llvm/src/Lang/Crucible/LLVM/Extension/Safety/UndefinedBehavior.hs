@@ -356,11 +356,9 @@ explain =
 -- | Pretty-print the additional information held by the constructors
 -- (for symbolic expressions)
 detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
-           => proxy sym
-           -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-           -> UndefinedBehavior (RegValue' sym)
+           => UndefinedBehavior (RegValue' sym)
            -> [Doc]
-detailsReg proxySym =
+detailsReg =
   \case
 
     -------------------------------- Memory management
@@ -382,7 +380,7 @@ detailsReg proxySym =
 
     PtrAddOffsetOutOfBounds ptr offset ->
       [ ppPtr1 ptr
-      , ppOffset proxySym (unRV offset)
+      , ppOffset (unRV offset)
       ]
     CompareInvalidPointer comparison invalid other ->
       [ "Comparison:                    " <+> ppPtrComparison comparison
@@ -426,9 +424,8 @@ detailsReg proxySym =
                                 , "Pointer 2:" <+>  ppPointerPair ptr2
                                 ]
 
-        ppOffset :: W4I.IsExpr (W4I.SymExpr sym)
-                 => proxy sym -> W4I.SymExpr sym (BaseBVType w) -> Doc
-        ppOffset _ = ("Offset:" <+>) . W4I.printSymExpr
+        ppOffset :: W4I.IsExpr e => e (BaseBVType w) -> Doc
+        ppOffset = ("Offset:" <+>) . W4I.printSymExpr
 
 pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
@@ -446,12 +443,11 @@ pp extra ub = vcat $
          Nothing  -> []
 
 -- | Pretty-printer for symbolic backends
-ppReg :: W4I.IsExpr (W4I.SymExpr sym)
-      => proxy sym
-      -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-      -> UndefinedBehavior (RegValue' sym)
-      -> Doc
-ppReg proxySym = pp (detailsReg proxySym)
+ppReg ::
+  W4I.IsExpr (W4I.SymExpr sym) =>
+  UndefinedBehavior (RegValue' sym) ->
+  Doc
+ppReg = pp (detailsReg)
 
 -- -----------------------------------------------------------------------
 -- ** Instances
