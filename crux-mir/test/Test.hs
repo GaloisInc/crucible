@@ -4,7 +4,6 @@
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
 import           Data.Char (isSpace)
-import           Data.Functor(($>))
 import           Data.List (dropWhileEnd, isPrefixOf)
 import           Data.Maybe (catMaybes)
 import           System.Directory (listDirectory, doesDirectoryExist, doesFileExist, removeFile)
@@ -14,10 +13,6 @@ import           System.IO (IOMode(..), Handle, withFile, hClose, hGetContents, 
 import           System.IO.Temp (withSystemTempFile)
 
 import qualified System.Process as Proc
-import           Text.Parsec ((<|>), (<?>), string, many1, digit)
-import           Text.Parsec.String (Parser)
-
-import qualified Verifier.SAW.FiniteValue as FV
 
 import           Test.Tasty (defaultMain, testGroup, TestTree)
 import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
@@ -75,8 +70,9 @@ runCrux rustFile outHandle = do
                                         Crux.solver = "z3" } ,
                    Mir.defaultMirOptions)
     let language = Mir.mirLanguage { Crux.initialize = \_ -> return options }
-    let outputConfig = Crux.OutputConfig False outHandle outHandle
-    Crux.mainWithOutputConfig outputConfig language
+    let outputConfig = Crux.OutputConfig False outHandle outHandle False
+    _exitCode <- Crux.mainWithOutputConfig outputConfig language
+    return ()
 
 cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
 cruxOracleTest dir name step = do
@@ -192,20 +188,3 @@ testDir oracleTest dir = do
   fs <- listDirectory dir
   tcs <- mapM gen fs
   return (testGroup (takeBaseName dir) (catMaybes tcs))
-
--- | Parse the Rust program output into a finite value at a given type
-parseRustFV :: FV.FiniteType -> Parser (Maybe FV.FiniteValue)
-parseRustFV ft = panic <|> (Just <$> p)
-  where
-    panic = string "<<PANIC>>" $> Nothing
-    p = case ft of
-          FV.FTBit ->
-                string "true"  $> FV.FVBit True
-            <|> string "false" $> FV.FVBit False
-            <?> "boolean"
-          FV.FTVec w FV.FTBit -> do
-            i <- read <$> many1 digit
-            return (FV.FVWord w i)
-          FV.FTVec _n _elt -> error "unimplemented"
-          FV.FTTuple _elts -> error "unimplemented"
-          FV.FTRec _fields -> error "unimplemented"

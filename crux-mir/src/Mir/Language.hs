@@ -32,7 +32,7 @@ import           Control.Lens ((^.), (^?), (^..), ix, each)
 
 import           System.IO (Handle)
 import qualified SimpleGetOpt as GetOpt
-import           System.Exit (exitSuccess)
+import           System.Exit (exitSuccess, exitWith, ExitCode)
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
@@ -78,10 +78,10 @@ import           Mir.Trans (transStatics)
 import           Mir.TransTy
 
 main :: IO ()
-main = Crux.main mirLanguage
+main = Crux.main mirLanguage >>= exitWith
 
-mainWithOutputTo :: Handle -> IO ()
-mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h) mirLanguage
+mainWithOutputTo :: Handle -> IO ExitCode
+mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h False) mirLanguage
 
 
 mirLanguage :: Crux.Language MIROptions

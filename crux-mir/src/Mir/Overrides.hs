@@ -159,7 +159,7 @@ bindFn fn cfg =
                        line <- maybe (fail "not a constant line number") pure (asUnsignedBV (regValue lineArg))
                        col <- maybe (fail "not a constant column number") pure (asUnsignedBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
-                       let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src)
+                       let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src) ""
                        liftIO $ assert s (regValue c) reason
                        return ()
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
