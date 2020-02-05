@@ -75,6 +75,6 @@ withProcessHandles path args mcwd action = do
               (\(_ :: SomeException) -> return ())
   let onError (_,_,_,ph) = do
         -- Interrupt process; suppress any exceptions that occur.
-        catch (interruptProcessGroupOf ph) (\(_ :: SomeException) -> return ())
+        catch (terminateProcess ph) (\(_ :: SomeException) -> return ())
 
   bracket startProcess cleanup (\hs -> onException (action hs) (onError hs))
