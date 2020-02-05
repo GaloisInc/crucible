@@ -48,10 +48,9 @@ before_install:
   - ghcup -c install 8.4.4
   - ghcup -c set 8.4.4
   # Rust
-  - curl https://sh.rustup.rs -sSf | sh -s -- -y
+  # `--profile minimal` is needed to avoid trying to install clippy
+  - curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2019-08-05 --profile minimal
   - source $HOME/.cargo/env
-  - rustup toolchain install nightly-2019-08-05
-  - rustup default nightly-2019-08-05
   - pushd .
   - cd ..
   - git clone https://github.com/GaloisInc/mir-json.git
