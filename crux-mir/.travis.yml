@@ -55,6 +55,8 @@ before_install:
   - cd ..
   - git clone https://github.com/GaloisInc/mir-json.git
   - cd mir-json
+  # Show which mir-json revision we're building
+  - git rev-parse HEAD
   - RUSTC_WRAPPER=./rustc-rpath.sh cargo install --force
   - popd
 
