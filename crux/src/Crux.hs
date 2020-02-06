@@ -174,7 +174,7 @@ withSelectedOnlineBackend ::
   NonceGenerator IO scope ->
   CCS.SolverOnline ->
   Maybe String ->
-  -- ^ An optional explicitly-requested float mode that supersedes the choice in
+  -- The string is an optional explicitly-requested float mode that supersedes the choice in
   -- the configuration (probably due to using two different online connections)
   (forall solver fm .
     ( OnlineSolver scope solver
