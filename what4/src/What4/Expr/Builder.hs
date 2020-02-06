@@ -1460,7 +1460,7 @@ type family FM (flags :: Type) :: FloatMode where
   FM (Flags fi ann) = fi
 
 type family Ann (flags :: Type) :: BaseType -> Type where
-  FM (Flags fi ann) = ann
+  Ann (Flags fi ann) = ann
 
 data FloatModeRepr :: FloatMode -> Type where
   FloatIEEERepr          :: FloatModeRepr FloatIEEE
