@@ -23,6 +23,7 @@ import qualified System.Timeout as ST
 import What4.Interface (notPred, printSymExpr,asConstantPred)
 import qualified What4.Interface as WI
 import What4.SatResult(SatResult(..))
+import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
@@ -30,7 +31,7 @@ import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-        ( withSolverProcess, OnlineBackend )
+        ( withSolverProcess, OnlineBackendState )
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
@@ -156,7 +157,7 @@ data ProcessedGoals =
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
 proveGoalsOffline :: forall st sym p asmp ast t fs
-                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs)
+                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder st t fs)
                   => WS.SolverAdapter st
                   -> CruxOptions
                   -> SimCtxt sym p
@@ -237,7 +238,7 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
 proveGoalsOnline ::
   ( sym ~ ExprBuilder (OnlineBackendState solver) s fs
   , OnlineSolver s solver
-  , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
+  , goalSym ~ ExprBuilder (OnlineBackendState goalSolver) s fs
   , OnlineSolver s goalSolver
   , ?outputConfig :: OutputConfig
   ) =>
