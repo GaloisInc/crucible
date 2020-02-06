@@ -1,10 +1,13 @@
 {-# Language RankNTypes, TypeApplications, TypeFamilies #-}
+{-# Language ImplicitParams #-}
 {-# Language PatternSynonyms #-}
 module Main(main) where
 
 import System.IO(stdout)
 import Control.Exception(throwIO,Exception(..))
 
+import Data.IORef (newIORef)
+import qualified Data.Map as Map
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Context (pattern Empty)
 
@@ -19,7 +22,7 @@ import Lang.Crucible.Backend(IsSymInterface)
 import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
 import Lang.Crucible.Simulator
 
-import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
+import Lang.Crucible.LLVM.MemModel(defaultMemOptions, LLVMAnnMap)
 import Lang.Crucible.LLVM.Run
 
 import Crux.LLVM.Simulate( registerFunctions )
@@ -45,16 +48,18 @@ main =
     Just (AnyCFG cfg) ->
       case (cfgArgTypes cfg, cfgReturnType cfg) of
         (Empty, UnitRepr) ->
-          pure Setup
-            { cruxOutput = stdout
-            , cruxBackend = sym
-            , cruxInitCodeReturns = UnitRepr
-            , cruxInitCode = do registerFunctions llvm_mod mt
-                                _ <- callCFG cfg emptyRegMap
-                                pure ()
-            , cruxUserState = emptyModel
-            , cruxGo  = runFrom
-            }
+          do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+             let ?badBehaviorMap = bbMapRef in
+               pure Setup
+                 { cruxOutput = stdout
+                 , cruxBackend = sym
+                 , cruxInitCodeReturns = UnitRepr
+                 , cruxInitCode = do registerFunctions llvm_mod mt
+                                     _ <- callCFG cfg emptyRegMap
+                                     pure ()
+                 , cruxUserState = emptyModel
+                 , cruxGo  = runFrom
+                 }
 
         _ -> throwIO (UnsupportedFunType test_fun)
 
