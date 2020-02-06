@@ -68,7 +68,10 @@ llvmGlobals
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ ctx
 
-llvmExtensionImpl :: (HasPtrWidth (ArchWidth arch)) => MemOptions -> ExtensionImpl p sym (LLVM arch)
+llvmExtensionImpl ::
+  (HasPtrWidth (ArchWidth arch), HasLLVMAnn sym) =>
+  MemOptions ->
+  ExtensionImpl p sym (LLVM arch)
 llvmExtensionImpl mo =
   let ?memOpts = mo in
   ExtensionImpl

@@ -8,6 +8,7 @@ module Crux.LLVM.Simulate where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
+import Data.IORef
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
@@ -44,7 +45,9 @@ import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
-        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount, MemOptions(..) )
+        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
+        , MemOptions(..), HasLLVMAnn, LLVMAnnMap
+        )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
         , transContext, cfgMap
@@ -69,7 +72,7 @@ import Crux.LLVM.Overrides
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   HandleAllocator ->
   sym ->
   MemOptions ->
@@ -95,7 +98,7 @@ parseLLVM file =
        Right m  -> return m
 
 registerFunctions ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   LLVM.Module ->
   ModuleTranslation arch ->
   OverM sym (LLVM arch) ()
@@ -119,20 +122,24 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
 
     llvmPtrWidth llvmCtxt $ \ptrW ->
       withPtrWidth ptrW $
-        do let ?lc = llvmCtxt^.llvmTypeCtx
-           let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
-                          { printHandle = view outputHandle ?outputConfig }
-           mem <- populateAllGlobals sym (globalInitMap trans)
-                     =<< initializeAllMemory sym llvmCtxt llvm_mod
+        do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+           let ?lc = llvmCtxt^.llvmTypeCtx
+           -- shrug... some weird interaction between do notation and implicit parameters here...
+           -- not sure why I have to let/in this expression...
+           let ?badBehaviorMap = bbMapRef in
+             do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
+                               { printHandle = view outputHandle ?outputConfig }
+                mem <- populateAllGlobals sym (globalInitMap trans)
+                          =<< initializeAllMemory sym llvmCtxt llvm_mod
 
-           let globSt = llvmGlobals llvmCtxt mem
+                let globSt = llvmGlobals llvmCtxt mem
 
-           let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                    runOverrideSim UnitRepr $
-                      do registerFunctions llvm_mod trans
-                         checkFun (entryPoint llvmOpts) (cfgMap trans)
+                let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
+                         runOverrideSim UnitRepr $
+                           do registerFunctions llvm_mod trans
+                              checkFun (entryPoint llvmOpts) (cfgMap trans)
 
-           return $ Crux.RunnableState initSt
+                return $ Crux.RunnableState initSt
 
 
 checkFun ::

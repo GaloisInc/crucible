@@ -101,7 +101,6 @@ module Lang.Crucible.LLVM.MemModel
   , constToLLVMValP
   , ptrMessage
   , Partial.PartLLVMVal
-  , pattern Partial.PartLLVMVal
   , Partial.assertSafe
     -- Re-exports from MemModel.Value
   , isZero
@@ -161,6 +160,9 @@ module Lang.Crucible.LLVM.MemModel
   , G.ppSomeAlloc
   , doConditionalWriteOperation
   , mergeWriteOperations
+  , Partial.HasLLVMAnn
+  , Partial.LLVMAnnMap
+  , Partial.lookupBBAnnotation
 
     -- * PtrWidth (re-exports)
   , HasPtrWidth
@@ -319,7 +321,9 @@ instance IntrinsicClass sym "LLVM_memory" where
 
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
-llvmStatementExec :: (HasPtrWidth (ArchWidth arch), ?memOpts :: MemOptions) => EvalStmtFunc p sym (LLVM arch)
+llvmStatementExec ::
+  (HasPtrWidth (ArchWidth arch), Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  EvalStmtFunc p sym (LLVM arch)
 llvmStatementExec stmt cst =
   let sym = cst^.stateSymInterface
    in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
@@ -332,7 +336,7 @@ type EvalM p sym ext rtp blocks ret args a =
 --   that modifes the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
 evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
-  (IsSymInterface sym, HasPtrWidth wptr, HasCallStack, ?memOpts :: MemOptions) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
   sym ->
   LLVMStmt wptr (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -513,7 +517,7 @@ ptrMessage msg ptr ty =
 --
 -- Precondition: the pointer is valid and aligned, and the loaded value is defined.
 doLoad ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to load from      -} ->
@@ -533,7 +537,7 @@ doLoad sym mem ptr valType tpr alignment = do
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doStore ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to store into  -} ->
@@ -969,7 +973,7 @@ isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
 --   of the string may be symbolic; HOWEVER, this function will not terminate
 --   unless there it eventually reaches a concete null-terminator.
 strLen :: forall sym wptr.
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -994,7 +998,7 @@ strLen sym mem = go 0
 -- `loadString` will stop reading if it encounters a null-terminator.
 loadString ::
   forall sym wptr.
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -1022,7 +1026,7 @@ loadString sym mem = go id
 --   the string as with 'loadString' and return it.
 loadMaybeString ::
   forall sym wptr.
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -1063,19 +1067,19 @@ toStorableType mt =
 
 -- | Load an LLVM value from memory. Asserts that the pointer is valid and the
 -- result value is not undefined.
-loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
+loadRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
         => sym
         -> MemImpl sym
         -> LLVMPtr sym wptr
         -> StorageType
         -> Alignment
-        -> IO (Partial.PartLLVMVal arch sym)
+        -> IO (Partial.PartLLVMVal sym)
 loadRaw sym mem ptr valType alignment = do
   G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
 -- to a mutable memory region.
-storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
+storeRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
@@ -1145,7 +1149,7 @@ mergeWriteOperations sym mem cond true_write_op false_write_op = do
 --
 -- Asserts that the pointer is valid and points to a mutable memory
 -- region when cond is true.
-condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr)
+condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => sym
   -> MemImpl sym
   -> Pred sym {- ^ Predicate that determines if we actually write. -}
@@ -1178,7 +1182,7 @@ condStoreRaw sym mem cond ptr valType alignment val = do
 -- | Store an LLVM value in memory. The pointed-to memory region may
 -- be either mutable or immutable; thus 'storeConstRaw' can be used to
 -- initialize read-only memory regions.
-storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr)
+storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}

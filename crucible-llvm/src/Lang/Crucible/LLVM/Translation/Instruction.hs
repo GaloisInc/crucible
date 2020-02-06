@@ -71,7 +71,6 @@ import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.Extension.Safety as Safety
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
@@ -94,8 +93,7 @@ sideConditionsA :: forall f arch ty s. Applicative f
                     -- ^ Expression with side-condition
                 -> [( Bool
                     , f (Expr (LLVM arch) s BoolType)
-                    , Either (UB.UndefinedBehavior (Expr (LLVM arch) s))
-                             (Poison.Poison (Expr (LLVM arch) s))
+                    , UB.UndefinedBehavior (Expr (LLVM arch) s)
                     )]
                     -- ^ Conditions to (conditionally) assert
                 -> f (Expr (LLVM arch) s ty)
@@ -106,12 +104,10 @@ sideConditionsA tyRepr expr conds =
       fmapMaybe :: Functor g => g [a] -> (a -> Maybe b) -> g [b]
       fmapMaybe gs h = fmap (mapMaybe h) gs
 
-      conds' :: f [Safety.LLVMSafetyAssertion (Expr (LLVM arch) s)]
+      conds' :: f [LLVMSideCondition (Expr (LLVM arch) s)]
       conds' = fmapMaybe (traverse middle conds) $ \(b, pred, classifier) ->
                 (if b then Just else const Nothing) $
-                  case classifier of
-                    Left  ub  -> Safety.undefinedBehavior ub pred
-                    Right poi -> Safety.poison poi pred
+                  LLVMSideCondition pred classifier
   in flip fmap conds' $
       \case
         []     -> expr -- No assertions left, nothing to do.
@@ -126,7 +122,7 @@ poisonSideCondition :: TypeRepr ty
                        -- ^ Condition to assert
                     -> Expr (LLVM arch) s ty
 poisonSideCondition tyRepr poison expr cond =
-  runIdentity $ sideConditionsA tyRepr expr [(True, pure cond, Right poison)]
+  runIdentity $ sideConditionsA tyRepr expr [(True, pure cond, UB.PoisonValueCreated poison)]
 
 --------------------------------------------------------------------------------
 -- Translation
@@ -477,7 +473,7 @@ calcGEP_array typ base idx =
        (fail $ unwords ["Type size too large for pointer width:", show typ])
 
      -- Perform the multiply
-     let off0 = app $ BVMul PtrWidth (app $ BVLit PtrWidth isz) idx'
+     off0 <- AtomExpr <$> (mkAtom $ app $ BVMul PtrWidth (app $ BVLit PtrWidth isz) idx')
      let off  =
            if isz == 0
            then off0
@@ -837,17 +833,17 @@ raw_bitop op w a b =
         withSideConds result
           [ ( not ?laxArith
             , pure  $ App (BVUlt w b wlit) -- TODO: is this the right condition?
-            , Right $ Poison.ShlOp2Big a b
+            , UB.PoisonValueCreated $ Poison.ShlOp2Big a b
             )
           , ( nuw && not ?laxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVLshr w result b)))
-            , Right $ Poison.ShlNoUnsignedWrap a b
+            , UB.PoisonValueCreated $ Poison.ShlNoUnsignedWrap a b
             )
           , ( nsw && not ?laxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVAshr w result b)))
-            , Right $ Poison.ShlNoSignedWrap a b
+            , UB.PoisonValueCreated $ Poison.ShlNoSignedWrap a b
             )
           ]
 
@@ -857,12 +853,12 @@ raw_bitop op w a b =
         withSideConds result
           [ ( not ?laxArith
             , pure  $ App (BVUlt w b wlit)
-            , Right $ Poison.LshrOp2Big a b
+            , UB.PoisonValueCreated $ Poison.LshrOp2Big a b
             )
           , ( exact && not ?laxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVShl w result b)))
-            , Right $ Poison.LshrExact a b
+            , UB.PoisonValueCreated $ Poison.LshrExact a b
             )
           ]
 
@@ -873,12 +869,12 @@ raw_bitop op w a b =
             withSideConds result
               [ ( not ?laxArith
                 , pure  $ App (BVUlt w b wlit)
-                , Right $ Poison.AshrOp2Big a b
+                , UB.PoisonValueCreated $ Poison.AshrOp2Big a b
                 )
               , ( exact && not ?laxArith
                 , fmap (App . BVEq w a)
                        (AtomExpr <$> mkAtom (App (BVShl w result b)))
-                , Right $ Poison.AshrExact a b
+                , UB.PoisonValueCreated $ Poison.AshrExact a b
                 )
               ]
 
@@ -896,10 +892,12 @@ intop :: forall w arch s ret. (?laxArith :: Bool, 1 <= w)
       -> LLVMGenerator s arch ret (Expr (LLVM arch) s (BVType w))
 intop op w a b =
   let withSideConds val lst = sideConditionsA (BVRepr w) val lst
-      withPoison val = withSideConds val . map (\(d, e, c) -> (d, pure e, Right c))
-      --
+      withPoison val xs =
+        do v <- AtomExpr <$> mkAtom val
+           withSideConds v $ map (\(d, e, c) -> (d, pure e, UB.PoisonValueCreated c)) xs
+
       z        = App (BVLit w 0)
-      bNeqZero = \ub -> (True, pure (notExpr (App (BVEq w z b))), Left ub)
+      bNeqZero = \ub -> (True, pure (notExpr (App (BVEq w z b))), ub)
       neg1     = App (BVLit w (-1))
       minInt   = App (BVLit w (minSigned w))
   in case op of
@@ -939,7 +937,7 @@ intop op w a b =
                  wideprod <- AtomExpr <$> mkAtom (App (BVMul w' az bz))
                  prodz    <- AtomExpr <$> mkAtom (App (BVZext w' w prod))
                  return (App (BVEq w' wideprod prodz))
-             , Right $ Poison.MulNoUnsignedWrap a b
+             , UB.PoisonValueCreated $ Poison.MulNoUnsignedWrap a b
              )
            , ( nsw && not ?laxArith
              , do
@@ -948,7 +946,7 @@ intop op w a b =
                  wideprod <- AtomExpr <$> mkAtom (App (BVMul w' as bs))
                  prods    <- AtomExpr <$> mkAtom (App (BVSext w' w prod))
                  return (App (BVEq w' wideprod prods))
-             , Right $ Poison.MulNoSignedWrap a b
+             , UB.PoisonValueCreated $ Poison.MulNoSignedWrap a b
              )
            ]
 
@@ -958,9 +956,9 @@ intop op w a b =
            [ ( exact && not ?laxArith
              , fmap (App . BVEq w a . AtomExpr)
                     (mkAtom (App (BVMul w q b)))
-             , Right $ Poison.UDivExact a b
+             , UB.PoisonValueCreated $ Poison.UDivExact a b
              )
-           , bNeqZero (UB.UDivByZero a)
+           , bNeqZero (UB.UDivByZero a b)
            ]
 
        L.SDiv exact
@@ -970,27 +968,29 @@ intop op w a b =
             [ ( exact && not ?laxArith
               , fmap (App . BVEq w a . AtomExpr)
                      (mkAtom (App (BVMul w q b)))
-              , Right $ Poison.SDivExact a b
+              , UB.PoisonValueCreated $ Poison.SDivExact a b
               )
             , ( not ?laxArith
               , pure (notExpr (App (BVEq w neg1 b) .&& App (BVEq w minInt a)))
-              , Left (UB.SDivOverflow a b)
+              , UB.SDivOverflow a b
               )
-            , bNeqZero (UB.SDivByZero a)
+            , bNeqZero (UB.SDivByZero a b)
             ]
 
          | otherwise -> fail "cannot take the signed quotient of a 0-width bitvector"
 
-       L.URem -> withSideConds (App (BVUrem w a b)) [ bNeqZero (UB.URemByZero a) ]
+       L.URem -> withSideConds (App (BVUrem w a b)) [ bNeqZero (UB.URemByZero a b) ]
 
        L.SRem
-         | Just LeqProof <- isPosNat w -> withSideConds (App (BVSrem w a b))
-              [ ( not ?laxArith
-                , pure (notExpr (App (BVEq w neg1 b) .&& App (BVEq w minInt a)))
-                , Left (UB.SRemOverflow a b)
-                )
-              , bNeqZero (UB.SRemByZero a)
-              ]
+         | Just LeqProof <- isPosNat w ->
+            do r <- AtomExpr <$> mkAtom (App (BVSrem w a b))
+               withSideConds r
+                 [ ( not ?laxArith
+                   , pure (notExpr (App (BVEq w neg1 b) .&& App (BVEq w minInt a)))
+                   , UB.SRemOverflow a b
+                   )
+                 , bNeqZero (UB.SRemByZero a b)
+                 ]
 
          | otherwise -> fail "cannot take the signed remainder of a 0-width bitvector"
 
