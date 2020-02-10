@@ -51,9 +51,8 @@ module What4.Expr.Builder
   , exprCounter
   , startCaching
   , stopCaching
-  , sbAnnDict
-  , AnnotationDictionary(..)
   , DummyAnn
+  , AnnotationWrapper(..)
 
     -- * Specialized representations
   , bvUnary
@@ -267,9 +266,27 @@ cachedEval tbl k action = do
 -- | A dummy annotation type for cases where the client
 --   has no interesting notion of annotations.
 data DummyAnn (tp :: BaseType)
-instance EqF DummyAnn where eqF = \case
-instance HashableF DummyAnn where hashWithSaltF _s = \case
 
+-- | Wrapper datatype around annotations that contains a nonce.  The
+--   nonce is used for equlity testing and hashing.  A fresh nonce
+--   is generated on each call to `annotateTerm`.
+data AnnotationWrapper t (ann :: BaseType -> Type) (tp :: BaseType) :: Type where
+  AnnotationWrapper :: Nonce t tp -> ann tp -> AnnotationWrapper t ann tp
+
+instance TestEquality (AnnotationWrapper t ann) where
+  testEquality (AnnotationWrapper x _) (AnnotationWrapper y _) =
+    do Refl <- testEquality x y
+       return Refl
+
+instance OrdF (AnnotationWrapper t ann) where
+  compareF (AnnotationWrapper x _) (AnnotationWrapper y _) =
+    case compareF x y of
+      LTF -> LTF
+      EQF -> EQF
+      GTF -> GTF
+
+instance HashableF (AnnotationWrapper t ann) where
+  hashWithSaltF s (AnnotationWrapper x _) = hashWithSaltF s x
 
 ------------------------------------------------------------------------
 -- ExprBoundVar
@@ -282,11 +299,6 @@ data VarKind
     -- ^ A variable appearing as a latch input.
   | UninterpVarKind
     -- ^ A variable appearing in a uninterpreted constant
-
-
-data AnnotationDictionary fs where
-  AnnotationDictionary ::
-    (EqF (Ann fs), HashableF (Ann fs)) => AnnotationDictionary fs
 
 
 -- | Information about bound variables.
@@ -422,7 +434,7 @@ instance OrdF e => Hashable (BVOrSet e w) where
 -- Parameter @e@ is used everywhere a recursive sub-expression would
 -- go. Uses of the 'App' type will tie the knot through this
 -- parameter. Parameter @tp@ indicates the type of the expression.
-data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
+data App (e :: BaseType -> Type) (tp :: BaseType) where
 
   ------------------------------------------------------------------------
   -- Generic operations
@@ -433,37 +445,31 @@ data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
     !(e BaseBoolType) ->
     !(e tp) ->
     !(e tp) ->
-    App fs e tp
+    App e tp
 
   BaseEq ::
     !(BaseTypeRepr tp) ->
     !(e tp) ->
     !(e tp) ->
-    App fs e BaseBoolType
-
-  AnnotateTerm ::
-    !(BaseTypeRepr tp) ->
-    !(Ann fs tp) ->
-    !(e tp) ->
-    App fs e tp
+    App e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Boolean operations
 
   -- Invariant: The argument to a NotPred must not be another NotPred.
-  NotPred :: !(e BaseBoolType) -> App fs e BaseBoolType
+  NotPred :: !(e BaseBoolType) -> App e BaseBoolType
 
   -- Invariant: The BoolMap must contain at least two elements. No
   -- element may be a NotPred; negated elements must be represented
   -- with Negative element polarity.
-  ConjPred :: !(BoolMap e) -> App fs e BaseBoolType
+  ConjPred :: !(BoolMap e) -> App e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Semiring operations
 
   SemiRingSum ::
     {-# UNPACK #-} !(WeightedSum e sr) ->
-    App fs e (SR.SemiRingBase sr)
+    App e (SR.SemiRingBase sr)
 
   -- A product of semiring values
   --
@@ -472,46 +478,46 @@ data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
   -- Multiplications by scalars should use the 'SemiRingSum' constructor.
   SemiRingProd ::
      {-# UNPACK #-} !(SemiRingProduct e sr) ->
-     App fs e (SR.SemiRingBase sr)
+     App e (SR.SemiRingBase sr)
 
-  SemiRingLe
-     :: !(SR.OrderedSemiRingRepr sr)
-     -> !(e (SR.SemiRingBase sr))
-     -> !(e (SR.SemiRingBase sr))
-     -> App fs e BaseBoolType
+  SemiRingLe ::
+     !(SR.OrderedSemiRingRepr sr) ->
+     !(e (SR.SemiRingBase sr)) ->
+     !(e (SR.SemiRingBase sr)) ->
+     App e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Basic arithmetic operations
 
-  RealIsInteger :: !(e BaseRealType) -> App fs e BaseBoolType
+  RealIsInteger :: !(e BaseRealType) -> App e BaseBoolType
 
   -- This does natural number division rounded to zero.
-  NatDiv :: !(e BaseNatType)  -> !(e BaseNatType) -> App fs e BaseNatType
-  NatMod :: !(e BaseNatType)  -> !(e BaseNatType) -> App fs e BaseNatType
+  NatDiv :: !(e BaseNatType)  -> !(e BaseNatType) -> App e BaseNatType
+  NatMod :: !(e BaseNatType)  -> !(e BaseNatType) -> App e BaseNatType
 
-  IntDiv :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App fs e BaseIntegerType
-  IntMod :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App fs e BaseIntegerType
-  IntAbs :: !(e BaseIntegerType)  -> App fs e BaseIntegerType
-  IntDivisible :: !(e BaseIntegerType) -> Natural -> App fs e BaseBoolType
+  IntDiv :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseIntegerType
+  IntMod :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseIntegerType
+  IntAbs :: !(e BaseIntegerType)  -> App e BaseIntegerType
+  IntDivisible :: !(e BaseIntegerType) -> Natural -> App e BaseBoolType
 
-  RealDiv :: !(e BaseRealType) -> !(e BaseRealType) -> App fs e BaseRealType
+  RealDiv :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
 
   -- Returns @sqrt(x)@, result is not defined if @x@ is negative.
-  RealSqrt :: !(e BaseRealType) -> App fs e BaseRealType
+  RealSqrt :: !(e BaseRealType) -> App e BaseRealType
 
   ------------------------------------------------------------------------
   -- Operations that introduce irrational numbers.
 
-  Pi :: App fs e BaseRealType
+  Pi :: App e BaseRealType
 
-  RealSin   :: !(e BaseRealType) -> App fs e BaseRealType
-  RealCos   :: !(e BaseRealType) -> App fs e BaseRealType
-  RealATan2 :: !(e BaseRealType) -> !(e BaseRealType) -> App fs e BaseRealType
-  RealSinh  :: !(e BaseRealType) -> App fs e BaseRealType
-  RealCosh  :: !(e BaseRealType) -> App fs e BaseRealType
+  RealSin   :: !(e BaseRealType) -> App e BaseRealType
+  RealCos   :: !(e BaseRealType) -> App e BaseRealType
+  RealATan2 :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
+  RealSinh  :: !(e BaseRealType) -> App e BaseRealType
+  RealCosh  :: !(e BaseRealType) -> App e BaseRealType
 
-  RealExp :: !(e BaseRealType) -> App fs e BaseRealType
-  RealLog :: !(e BaseRealType) -> App fs e BaseRealType
+  RealExp :: !(e BaseRealType) -> App e BaseRealType
+  RealLog :: !(e BaseRealType) -> App e BaseRealType
 
   --------------------------------
   -- Bitvector operations
@@ -521,17 +527,17 @@ data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
             => !Natural -- Index of bit to test
                         -- (least-significant bit has index 0)
             -> !(e (BaseBVType w))
-            -> App fs e BaseBoolType
+            -> App e BaseBoolType
   BVSlt :: (1 <= w)
         => !(e (BaseBVType w))
         -> !(e (BaseBVType w))
-        -> App fs e BaseBoolType
+        -> App e BaseBoolType
   BVUlt :: (1 <= w)
         => !(e (BaseBVType w))
         -> !(e (BaseBVType w))
-        -> App fs e BaseBoolType
+        -> App e BaseBoolType
 
-  BVOrBits :: (1 <= w) => !(NatRepr w) -> !(BVOrSet e w) -> App fs e (BaseBVType w)
+  BVOrBits :: (1 <= w) => !(NatRepr w) -> !(BVOrSet e w) -> App e (BaseBVType w)
 
   -- A unary representation of terms where an integer @i@ is mapped to a
   -- predicate that is true if the unsigned encoding of the value is greater
@@ -543,13 +549,13 @@ data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
   --   { 0 => true ; 2 => false }
   BVUnaryTerm :: (1 <= n)
               => !(UnaryBV (e BaseBoolType) n)
-              -> App fs e (BaseBVType n)
+              -> App e (BaseBVType n)
 
   BVConcat :: (1 <= u, 1 <= v, 1 <= (u+v))
            => !(NatRepr (u+v))
            -> !(e (BaseBVType u))
            -> !(e (BaseBVType v))
-           -> App fs e (BaseBVType (u+v))
+           -> App e (BaseBVType (u+v))
 
   BVSelect :: (1 <= n, idx + n <= w)
               -- First bit to select from (least-significant bit has index 0)
@@ -558,342 +564,349 @@ data App (fs :: Type) (e :: BaseType -> Type) (tp :: BaseType) where
            -> !(NatRepr n)
               -- Bitvector to select from.
            -> !(e (BaseBVType w))
-           -> App fs e (BaseBVType n)
+           -> App e (BaseBVType n)
 
   BVFill :: (1 <= w)
          => !(NatRepr w)
          -> !(e BaseBoolType)
-         -> App fs e (BaseBVType w)
+         -> App e (BaseBVType w)
 
   BVUdiv :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType w)
+         -> App e (BaseBVType w)
   BVUrem :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType w)
+         -> App e (BaseBVType w)
   BVSdiv :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType w)
+         -> App e (BaseBVType w)
   BVSrem :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType w)
+         -> App e (BaseBVType w)
 
   BVShl :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w))
         -> !(e (BaseBVType w))
-        -> App fs e (BaseBVType w)
+        -> App e (BaseBVType w)
 
   BVLshr :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType w)
+         -> App e (BaseBVType w)
 
   BVAshr :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType w)
+         -> App e (BaseBVType w)
 
   BVRol :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w)) -- bitvector to rotate
         -> !(e (BaseBVType w)) -- rotate amount
-        -> App fs e (BaseBVType w)
+        -> App e (BaseBVType w)
 
   BVRor :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w))   -- bitvector to rotate
         -> !(e (BaseBVType w))   -- rotate amount
-        -> App fs e (BaseBVType w)
+        -> App e (BaseBVType w)
 
   BVZext :: (1 <= w, w+1 <= r, 1 <= r)
          => !(NatRepr r)
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType r)
+         -> App e (BaseBVType r)
 
   BVSext :: (1 <= w, w+1 <= r, 1 <= r)
          => !(NatRepr r)
          -> !(e (BaseBVType w))
-         -> App fs e (BaseBVType r)
+         -> App e (BaseBVType r)
 
   BVPopcount ::
     (1 <= w) =>
     !(NatRepr w) ->
     !(e (BaseBVType w)) ->
-    App fs e (BaseBVType w)
+    App e (BaseBVType w)
 
   BVCountTrailingZeros ::
     (1 <= w) =>
     !(NatRepr w) ->
     !(e (BaseBVType w)) ->
-    App fs e (BaseBVType w)
+    App e (BaseBVType w)
 
   BVCountLeadingZeros ::
     (1 <= w) =>
     !(NatRepr w) ->
     !(e (BaseBVType w)) ->
-    App fs e (BaseBVType w)
+    App e (BaseBVType w)
 
   --------------------------------
   -- Float operations
 
-  FloatPZero :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
-  FloatNZero :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
-  FloatNaN :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
-  FloatPInf :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
-  FloatNInf :: !(FloatPrecisionRepr fpp) -> App fs e (BaseFloatType fpp)
-  FloatNeg
-    :: !(FloatPrecisionRepr fpp)
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatAbs
-    :: !(FloatPrecisionRepr fpp)
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatSqrt
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatAdd
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatSub
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatMul
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatDiv
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatRem
-    :: !(FloatPrecisionRepr fpp)
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatMin
-    :: !(FloatPrecisionRepr fpp)
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatMax
-    :: !(FloatPrecisionRepr fpp)
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatFMA
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatFpEq
-    :: !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e BaseBoolType
-  FloatFpNe
-    :: !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e BaseBoolType
-  FloatLe
-    :: !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e BaseBoolType
-  FloatLt
-    :: !(e (BaseFloatType fpp))
-    -> !(e (BaseFloatType fpp))
-    -> App fs e BaseBoolType
-  FloatIsNaN :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
-  FloatIsInf :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
-  FloatIsZero :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
-  FloatIsPos :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
-  FloatIsNeg :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
-  FloatIsSubnorm :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
-  FloatIsNorm :: !(e (BaseFloatType fpp)) -> App fs e BaseBoolType
-  FloatCast
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp'))
-    -> App fs e (BaseFloatType fpp)
-  FloatRound
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseFloatType fpp)
-  FloatFromBinary
-    :: (2 <= eb, 2 <= sb)
-    => !(FloatPrecisionRepr (FloatingPointPrecision eb sb))
-    -> !(e (BaseBVType (eb + sb)))
-    -> App fs e (BaseFloatType (FloatingPointPrecision eb sb))
-  FloatToBinary
-    :: (2 <= eb, 2 <= sb, 1 <= eb + sb)
-    => !(FloatPrecisionRepr (FloatingPointPrecision eb sb))
-    -> !(e (BaseFloatType (FloatingPointPrecision eb sb)))
-    -> App fs e (BaseBVType (eb + sb))
-  BVToFloat
-    :: (1 <= w)
-    => !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseBVType w))
-    -> App fs e (BaseFloatType fpp)
-  SBVToFloat
-    :: (1 <= w)
-    => !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e (BaseBVType w))
-    -> App fs e (BaseFloatType fpp)
-  RealToFloat
-    :: !(FloatPrecisionRepr fpp)
-    -> !RoundingMode
-    -> !(e BaseRealType)
-    -> App fs e (BaseFloatType fpp)
-  FloatToBV
-    :: (1 <= w)
-    => !(NatRepr w)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseBVType w)
-  FloatToSBV
-    :: (1 <= w)
-    => !(NatRepr w)
-    -> !RoundingMode
-    -> !(e (BaseFloatType fpp))
-    -> App fs e (BaseBVType w)
-  FloatToReal :: !(e (BaseFloatType fpp)) -> App fs e BaseRealType
+  FloatPZero :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNZero :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNaN :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatPInf :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNInf :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNeg ::
+    !(FloatPrecisionRepr fpp) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatAbs ::
+    !(FloatPrecisionRepr fpp) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatSqrt ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatAdd ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatSub ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatMul ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatDiv ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatRem ::
+    !(FloatPrecisionRepr fpp) ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatMin ::
+    !(FloatPrecisionRepr fpp) ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatMax ::
+    !(FloatPrecisionRepr fpp) ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatFMA ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatFpEq ::
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e BaseBoolType
+  FloatFpNe ::
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e BaseBoolType
+  FloatLe ::
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e BaseBoolType
+  FloatLt ::
+    !(e (BaseFloatType fpp)) ->
+    !(e (BaseFloatType fpp)) ->
+    App e BaseBoolType
+  FloatIsNaN :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsInf :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsZero :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsPos :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsNeg :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsSubnorm :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsNorm :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatCast ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp')) ->
+    App e (BaseFloatType fpp)
+  FloatRound ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseFloatType fpp)
+  FloatFromBinary :: (2 <= eb, 2 <= sb) =>
+    !(FloatPrecisionRepr (FloatingPointPrecision eb sb)) ->
+    !(e (BaseBVType (eb + sb))) ->
+    App e (BaseFloatType (FloatingPointPrecision eb sb))
+  FloatToBinary :: (2 <= eb, 2 <= sb, 1 <= eb + sb) =>
+    !(FloatPrecisionRepr (FloatingPointPrecision eb sb)) ->
+    !(e (BaseFloatType (FloatingPointPrecision eb sb))) ->
+    App e (BaseBVType (eb + sb))
+  BVToFloat :: (1 <= w) =>
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseBVType w)) ->
+    App e (BaseFloatType fpp)
+  SBVToFloat :: (1 <= w) =>
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e (BaseBVType w)) ->
+    App e (BaseFloatType fpp)
+  RealToFloat ::
+    !(FloatPrecisionRepr fpp) ->
+    !RoundingMode ->
+    !(e BaseRealType) ->
+    App e (BaseFloatType fpp)
+  FloatToBV :: (1 <= w) =>
+    !(NatRepr w) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseBVType w)
+  FloatToSBV :: (1 <= w) =>
+    !(NatRepr w) ->
+    !RoundingMode ->
+    !(e (BaseFloatType fpp)) ->
+    App e (BaseBVType w)
+  FloatToReal :: !(e (BaseFloatType fpp)) -> App e BaseRealType
 
   ------------------------------------------------------------------------
   -- Array operations
 
   -- Partial map from concrete indices to array values over another array.
-  ArrayMap :: !(Ctx.Assignment BaseTypeRepr (i ::> itp))
-           -> !(BaseTypeRepr tp)
-                -- /\ The type of the array.
-           -> !(AUM.ArrayUpdateMap e (i ::> itp) tp)
-              -- /\ Maps indices that are updated to the associated value.
-           -> !(e (BaseArrayType (i::> itp) tp))
-              -- /\ The underlying array that has been updated.
-           -> App fs e (BaseArrayType (i ::> itp) tp)
+  ArrayMap ::
+    !(Ctx.Assignment BaseTypeRepr (i ::> itp)) ->
+    !(BaseTypeRepr tp)
+      {- /\ The type of the array. -} ->
+    !(AUM.ArrayUpdateMap e (i ::> itp) tp)
+      {- /\ Maps indices that are updated to the associated value. -} ->
+    !(e (BaseArrayType (i::> itp) tp))
+      {- /\ The underlying array that has been updated. -} ->
+    App e (BaseArrayType (i ::> itp) tp)
 
   -- Constant array
-  ConstantArray :: !(Ctx.Assignment BaseTypeRepr (i ::> tp))
-                -> !(BaseTypeRepr b)
-                -> !(e b)
-                -> App fs e (BaseArrayType (i::>tp) b)
+  ConstantArray ::
+    !(Ctx.Assignment BaseTypeRepr (i ::> tp)) ->
+    !(BaseTypeRepr b) ->
+    !(e b) ->
+    App e (BaseArrayType (i::>tp) b)
 
-  UpdateArray :: !(BaseTypeRepr b)
-              -> !(Ctx.Assignment BaseTypeRepr (i::>tp))
-              -> !(e (BaseArrayType (i::>tp) b))
-              -> !(Ctx.Assignment e (i::>tp))
-              -> !(e b)
-              -> App fs e (BaseArrayType (i::>tp) b)
+  UpdateArray ::
+    !(BaseTypeRepr b) ->
+    !(Ctx.Assignment BaseTypeRepr (i::>tp)) ->
+    !(e (BaseArrayType (i::>tp) b)) ->
+    !(Ctx.Assignment e (i::>tp)) ->
+    !(e b) ->
+    App e (BaseArrayType (i::>tp) b)
 
-  SelectArray :: !(BaseTypeRepr b)
-              -> !(e (BaseArrayType (i::>tp) b))
-              -> !(Ctx.Assignment e (i::>tp))
-              -> App fs e b
+  SelectArray ::
+    !(BaseTypeRepr b) ->
+    !(e (BaseArrayType (i::>tp) b)) ->
+    !(Ctx.Assignment e (i::>tp)) ->
+    App e b
 
   ------------------------------------------------------------------------
   -- Conversions.
 
-  NatToInteger  :: !(e BaseNatType)  -> App fs e BaseIntegerType
+  NatToInteger  :: !(e BaseNatType)  -> App e BaseIntegerType
   -- Converts non-negative integer to nat.
   -- Not defined on negative values.
-  IntegerToNat :: !(e BaseIntegerType) -> App fs e BaseNatType
+  IntegerToNat :: !(e BaseIntegerType) -> App e BaseNatType
 
-  IntegerToReal :: !(e BaseIntegerType) -> App fs e BaseRealType
+  IntegerToReal :: !(e BaseIntegerType) -> App e BaseRealType
 
   -- Convert a real value to an integer
   --
   -- Not defined on non-integral reals.
-  RealToInteger :: !(e BaseRealType) -> App fs e BaseIntegerType
+  RealToInteger :: !(e BaseRealType) -> App e BaseIntegerType
 
-  BVToNat       :: (1 <= w) => !(e (BaseBVType w)) -> App fs e BaseNatType
-  BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App fs e BaseIntegerType
-  SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App fs e BaseIntegerType
+  BVToNat       :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseNatType
+  BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
+  SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
 
   -- Converts integer to a bitvector.  The number is interpreted modulo 2^n.
-  IntegerToBV  :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App fs e (BaseBVType w)
+  IntegerToBV  :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App e (BaseBVType w)
 
-  RoundReal :: !(e BaseRealType) -> App fs e BaseIntegerType
-  FloorReal :: !(e BaseRealType) -> App fs e BaseIntegerType
-  CeilReal  :: !(e BaseRealType) -> App fs e BaseIntegerType
+  RoundReal :: !(e BaseRealType) -> App e BaseIntegerType
+  FloorReal :: !(e BaseRealType) -> App e BaseIntegerType
+  CeilReal  :: !(e BaseRealType) -> App e BaseIntegerType
 
   ------------------------------------------------------------------------
   -- Complex operations
 
-  Cplx  :: {-# UNPACK #-} !(Complex (e BaseRealType)) -> App fs e BaseComplexType
-  RealPart :: !(e BaseComplexType) -> App fs e BaseRealType
-  ImagPart :: !(e BaseComplexType) -> App fs e BaseRealType
+  Cplx  :: {-# UNPACK #-} !(Complex (e BaseRealType)) -> App e BaseComplexType
+  RealPart :: !(e BaseComplexType) -> App e BaseRealType
+  ImagPart :: !(e BaseComplexType) -> App e BaseRealType
 
   ------------------------------------------------------------------------
   -- Strings
 
-  StringContains :: !(e (BaseStringType si))
-                 -> !(e (BaseStringType si))
-                 -> App fs e BaseBoolType
+  StringContains ::
+    !(e (BaseStringType si)) ->
+    !(e (BaseStringType si)) ->
+    App e BaseBoolType
 
-  StringIsPrefixOf :: !(e (BaseStringType si))
-                 -> !(e (BaseStringType si))
-                 -> App fs e BaseBoolType
+  StringIsPrefixOf ::
+    !(e (BaseStringType si)) ->
+    !(e (BaseStringType si)) ->
+    App e BaseBoolType
 
-  StringIsSuffixOf :: !(e (BaseStringType si))
-                 -> !(e (BaseStringType si))
-                 -> App fs e BaseBoolType
+  StringIsSuffixOf ::
+    !(e (BaseStringType si)) ->
+    !(e (BaseStringType si)) ->
+    App e BaseBoolType
 
-  StringIndexOf :: !(e (BaseStringType si))
-                -> !(e (BaseStringType si))
-                -> !(e BaseNatType)
-                -> App fs e BaseIntegerType
+  StringIndexOf ::
+    !(e (BaseStringType si)) ->
+    !(e (BaseStringType si)) ->
+    !(e BaseNatType) ->
+    App e BaseIntegerType
 
-  StringSubstring :: !(StringInfoRepr si)
-                  -> !(e (BaseStringType si))
-                  -> !(e BaseNatType)
-                  -> !(e BaseNatType)
-                  -> App fs e (BaseStringType si)
+  StringSubstring ::
+    !(StringInfoRepr si) ->
+    !(e (BaseStringType si)) ->
+    !(e BaseNatType) ->
+    !(e BaseNatType) ->
+    App e (BaseStringType si)
 
-  StringAppend :: !(StringInfoRepr si)
-               -> !(SSeq.StringSeq e si)
-               -> App fs e (BaseStringType si)
+  StringAppend ::
+    !(StringInfoRepr si) ->
+    !(SSeq.StringSeq e si) ->
+    App e (BaseStringType si)
 
-  StringLength :: !(e (BaseStringType si))
-               -> App fs e BaseNatType
+  StringLength ::
+    !(e (BaseStringType si)) ->
+    App e BaseNatType
 
   ------------------------------------------------------------------------
   -- Structs
 
   -- A struct with its fields.
-  StructCtor :: !(Ctx.Assignment BaseTypeRepr flds)
-             -> !(Ctx.Assignment e flds)
-             -> App fs e (BaseStructType flds)
+  StructCtor ::
+    !(Ctx.Assignment BaseTypeRepr flds) ->
+    !(Ctx.Assignment e flds) ->
+    App e (BaseStructType flds)
 
-  StructField :: !(e (BaseStructType flds))
-              -> !(Ctx.Index flds tp)
-              -> !(BaseTypeRepr tp)
-              -> App fs e tp
+  StructField ::
+    !(e (BaseStructType flds)) ->
+    !(Ctx.Index flds tp) ->
+    !(BaseTypeRepr tp) ->
+    App e tp
 
 -- | This type represents 'Expr' values that were built from a
 -- 'NonceApp'.
@@ -920,7 +933,7 @@ data NonceAppExpr t fs (tp :: BaseType)
 data AppExpr t fs (tp :: BaseType)
    = AppExprCtor { appExprId  :: {-# UNPACK #-} !(Nonce t tp)
                 , appExprLoc :: !ProgramLoc
-                , appExprApp :: !(App fs (Expr t fs) tp)
+                , appExprApp :: !(App (Expr t fs) tp)
                 , appExprAbsValue :: !(AbstractValue tp)
                 }
 
@@ -945,6 +958,12 @@ data Expr t fs (tp :: BaseType) where
   SemiRingLiteral :: !(SR.SemiRingRepr sr) -> !(SR.Coefficient sr) -> !ProgramLoc -> Expr t fs (SR.SemiRingBase sr)
   BoolExpr :: !Bool -> !ProgramLoc -> Expr t fs BaseBoolType
   StringExpr :: !(StringLiteral si) -> !ProgramLoc -> Expr t fs (BaseStringType si)
+  -- Annotated term
+  AnnotationExpr ::
+    {-# UNPACK #-} !(AnnotationWrapper t (Ann fs) tp) ->
+    !(Expr t fs tp) ->
+    !ProgramLoc ->
+    Expr t fs tp
   -- Application
   AppExpr :: {-# UNPACK #-} !(AppExpr t fs tp) -> Expr t fs tp
   -- An atomic predicate
@@ -954,7 +973,7 @@ data Expr t fs (tp :: BaseType) where
 
 -- | Destructor for the 'AppExpr' constructor.
 {-# INLINE asApp #-}
-asApp :: Expr t fs tp -> Maybe (App fs (Expr t fs) tp)
+asApp :: Expr t fs tp -> Maybe (App (Expr t fs) tp)
 asApp (AppExpr a) = Just (appExprApp a)
 asApp _ = Nothing
 
@@ -971,10 +990,11 @@ exprLoc (StringExpr _ l) = l
 exprLoc (NonceAppExpr a)  = nonceExprLoc a
 exprLoc (AppExpr a)   = appExprLoc a
 exprLoc (BoundVarExpr v) = bvarLoc v
+exprLoc (AnnotationExpr _ann _t l) = l
 
 mkExpr :: Nonce t tp
       -> ProgramLoc
-      -> App fs (Expr t fs) tp
+      -> App (Expr t fs) tp
       -> AbstractValue tp
       -> Expr t fs tp
 mkExpr n l a v = AppExpr $ AppExprCtor { appExprId  = n
@@ -1027,6 +1047,7 @@ instance IsExpr (Expr t fs) where
   exprType (NonceAppExpr e)  = nonceAppType (nonceExprApp e)
   exprType (AppExpr e) = appType (appExprApp e)
   exprType (BoundVarExpr i) = bvarType i
+  exprType (AnnotationExpr _ t _) = exprType t
 
   asUnsignedBV (SemiRingLiteral (SR.SemiRingBVRepr _ _) i _) = Just i
   asUnsignedBV _ = Nothing
@@ -1232,12 +1253,11 @@ nonceAppType a =
     ArrayTrueOnEntries _ _ -> knownRepr
     FnApp f _ ->  symFnReturnType f
 
-appType :: App fs e tp -> BaseTypeRepr tp
+appType :: App e tp -> BaseTypeRepr tp
 appType a =
   case a of
     BaseIte tp _ _ _ _ -> tp
     BaseEq{} -> knownRepr
-    AnnotateTerm tp _ _ -> tp
 
     NotPred{} -> knownRepr
     ConjPred{} -> knownRepr
@@ -1374,7 +1394,7 @@ appType a =
 data ExprAllocator t fs
    = ExprAllocator { appExpr  :: forall tp
                             .  ProgramLoc
-                            -> App fs (Expr t fs) tp
+                            -> App (Expr t fs) tp
                             -> AbstractValue tp
                             -> IO (Expr t fs tp)
                   , nonceExpr :: forall tp
@@ -1528,7 +1548,6 @@ data ExprBuilder (st :: Type -> Type -> Type) (t :: Type) (fs :: Type)
           -- when passed to the solver.
         , sbFloatMode :: !(FloatModeRepr (FM fs))
 
-        , sbAnnDict :: !(AnnotationDictionary fs)
         }
 
 type instance SymFn (ExprBuilder st t fs) = ExprSymFn t fs
@@ -1555,14 +1574,13 @@ quantAbsEval _ f q =
     FnApp g _           -> unconstrainedAbsValue (symFnReturnType g)
 
 abstractEval :: (forall u . Expr t fs u -> AbstractValue u)
-             -> App fs (Expr t fs) tp
+             -> App (Expr t fs) tp
              -> AbstractValue tp
 abstractEval f a0 = do
   case a0 of
 
     BaseIte tp _ _c x y -> withAbstractable tp $ avJoin tp (f x) (f y)
     BaseEq{} -> Nothing
-    AnnotateTerm _ _ x -> f x
 
     NotPred x -> not <$> f x
     ConjPred{} -> Nothing
@@ -1725,6 +1743,7 @@ exprAbsValue (SemiRingLiteral sr x _) =
 
 exprAbsValue (StringExpr l _) = stringAbsSingle l
 exprAbsValue (BoolExpr b _)   = Just b
+exprAbsValue (AnnotationExpr _ t _) = exprAbsValue t
 exprAbsValue (NonceAppExpr e) = nonceExprAbsValue e
 exprAbsValue (AppExpr e)      = appExprAbsValue e
 exprAbsValue (BoundVarExpr v) =
@@ -1803,7 +1822,7 @@ ppNonceApp ppFn a0 = do
     FnApp f a -> resolve <$> ppFn f
       where resolve f_nm = prettyApp "apply" (f_nm : toListFC exprPrettyArg a)
 
-instance (ShowF e) => Pretty (App fs e u) where
+instance (ShowF e) => Pretty (App e u) where
   pretty a = text (Text.unpack nm) <+> sep (ppArg <$> args)
     where (nm, args) = ppApp' a
           ppArg :: PrettyArg e -> Doc
@@ -1811,10 +1830,10 @@ instance (ShowF e) => Pretty (App fs e u) where
           ppArg (PrettyText txt) = text (Text.unpack txt)
           ppArg (PrettyFunc fnm fargs) = parens (text (Text.unpack fnm) <+> sep (ppArg <$> fargs))
 
-instance (ShowF e) => Show (App fs e u) where
+instance (ShowF e) => Show (App e u) where
   show = show . pretty
 
-ppApp' :: forall fs e u . App fs e u -> PrettyApp e
+ppApp' :: forall e u . App e u -> PrettyApp e
 ppApp' a0 = do
   let ppSExpr :: Text -> [e x] -> PrettyApp e
       ppSExpr f l = prettyApp f (exprPrettyArg <$> l)
@@ -1822,7 +1841,6 @@ ppApp' a0 = do
   case a0 of
     BaseIte _ _ c x y -> prettyApp "ite" [exprPrettyArg c, exprPrettyArg x, exprPrettyArg y]
     BaseEq _ x y -> ppSExpr "eq" [x, y]
-    AnnotateTerm _ _ann x -> prettyApp "annotate" [ exprPrettyArg x ]
 
     NotPred x -> ppSExpr "not" [x]
 
@@ -2134,14 +2152,14 @@ instance HashableF Dummy where
 instance HasAbsValue Dummy where
   getAbsValue _ = error "you made a magic Dummy value!"
 
-instance FoldableFC (App fs) where
+instance FoldableFC App where
   foldMapFC f0 t = getConst (traverseApp (g f0) t)
     where g :: (f tp -> a) -> f tp -> Const a (Dummy tp)
           g f v = Const (f v)
 
 traverseApp :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f, HasAbsValue f)
             => (forall tp. e tp -> m (f tp))
-            -> App fs e utp -> m ((App fs f) utp)
+            -> App e utp -> m ((App f) utp)
 traverseApp =
   $(structuralTraversal [t|App|]
     [ ( ConType [t|UnaryBV|] `TypeApp` AnyType `TypeApp` AnyType
@@ -2177,7 +2195,7 @@ traverseApp =
 -- | Return 'true' if an app represents a non-linear operation.
 -- Controls whether the non-linear counter ticks upward in the
 -- 'Statistics'.
-isNonLinearApp :: App fs e tp -> Bool
+isNonLinearApp :: App e tp -> Bool
 isNonLinearApp app = case app of
   -- FIXME: These are just guesses; someone who knows what's actually
   -- slow in the solvers should correct them.
@@ -2243,6 +2261,14 @@ compareExpr (BoolExpr x _) (BoolExpr y _) = fromOrdering (compare x y)
 compareExpr BoolExpr{} _ = LTF
 compareExpr _ BoolExpr{} = GTF
 
+compareExpr (AnnotationExpr ax x _) (AnnotationExpr ay y _) =
+  case compareF ax ay of
+    LTF -> LTF
+    EQF -> compareExpr x y
+    GTF -> GTF
+compareExpr AnnotationExpr{} _ = LTF
+compareExpr _ AnnotationExpr{} = GTF
+
 compareExpr (NonceAppExpr x) (NonceAppExpr y) = compareF x y
 compareExpr NonceAppExpr{} _ = LTF
 compareExpr _ NonceAppExpr{} = GTF
@@ -2293,9 +2319,12 @@ instance Hashable (Expr t fs tp) where
       SR.SemiRingBVRepr _ w  -> hashWithSalt (hashWithSaltF (hashWithSalt s (4::Int)) w) x
 
   hashWithSalt s (StringExpr x _) = hashWithSalt (hashWithSalt s (5::Int)) x
-  hashWithSalt s (AppExpr x)      = hashWithSalt (hashWithSalt s (6::Int)) (appExprId x)
-  hashWithSalt s (NonceAppExpr x) = hashWithSalt (hashWithSalt s (7::Int)) (nonceExprId x)
-  hashWithSalt s (BoundVarExpr x) = hashWithSalt (hashWithSalt s (8::Int)) x
+  hashWithSalt s (AnnotationExpr ann x _) =
+    hashWithSalt (hashWithSaltF (hashWithSalt s (6::Int)) ann) x
+
+  hashWithSalt s (AppExpr x)      = hashWithSalt (hashWithSalt s (7::Int)) (appExprId x)
+  hashWithSalt s (NonceAppExpr x) = hashWithSalt (hashWithSalt s (8::Int)) (nonceExprId x)
+  hashWithSalt s (BoundVarExpr x) = hashWithSalt (hashWithSalt s (9::Int)) x
 
 instance PH.HashableF (Expr t fs) where
   hashWithSaltF = hashWithSalt
@@ -2639,6 +2668,9 @@ ppExpr' e0 o = do
       getBindings (NonceAppExpr e) =
         cacheResult (ExprPPIndex (indexValue (nonceExprId e))) (nonceExprLoc e)
           =<< ppNonceApp bindFn (nonceExprApp e)
+      getBindings (AnnotationExpr (AnnotationWrapper i _ann) t loc) =
+        cacheResult (ExprPPIndex (indexValue i)) loc
+          ("annotation", [ exprPrettyArg t ]) -- TODO? print annotations somehow?
       getBindings (AppExpr e) =
         cacheResult (ExprPPIndex (indexValue (appExprId e)))
                     (appExprLoc e)
@@ -2662,7 +2694,7 @@ newStorage g = do
 
 uncachedExprFn :: NonceGenerator IO t
               -> ProgramLoc
-              -> App fs (Expr t fs) tp
+              -> App (Expr t fs) tp
               -> AbstractValue tp
               -> IO (Expr t fs tp)
 uncachedExprFn g pc a v = do
@@ -2707,11 +2739,10 @@ cachedNonceExpr g h pc p v = do
 
 
 cachedAppExpr :: forall t fs tp.
-  (EqF (Ann fs), HashableF (Ann fs)) =>
   NonceGenerator IO t ->
-  PH.HashTable RealWorld (App fs (Expr t fs)) (Expr t fs) ->
+  PH.HashTable RealWorld (App (Expr t fs)) (Expr t fs) ->
   ProgramLoc ->
-  App fs (Expr t fs) tp ->
+  App (Expr t fs) tp ->
   AbstractValue tp ->
   IO (Expr t fs tp)
 cachedAppExpr g h pc a v = do
@@ -2726,7 +2757,6 @@ cachedAppExpr g h pc a v = do
 
 -- | Create a storage that does hash consing.
 newCachedStorage :: forall t fs.
-  (EqF (Ann fs), HashableF (Ann fs)) =>
   NonceGenerator IO t ->
   Int ->
   IO (ExprAllocator t fs)
@@ -2744,12 +2774,12 @@ instance PolyEq (Expr t fs x) (Expr t fs y) where
 
 {-# NOINLINE appEqF #-}
 -- | Check if two applications are equal.
-appEqF :: EqF (Ann fs) => App fs (Expr t fs) x -> App fs (Expr t fs) y -> Maybe (x :~: y)
+appEqF :: App (Expr t fs) x -> App (Expr t fs) y -> Maybe (x :~: y)
 appEqF = $(structuralTypeEquality [t|App|]
            [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
-           , (DataArg 1 `TypeApp` AnyType, [|testEquality|])
+           , (DataArg 0 `TypeApp` AnyType, [|testEquality|])
            , (ConType [t|UnaryBV|]        `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
            , (ConType [t|AUM.ArrayUpdateMap|] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
@@ -2768,28 +2798,20 @@ appEqF = $(structuralTypeEquality [t|App|]
              , [|testEquality|])
            , (ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
-           , (ConType [t|Ann|] `TypeApp` AnyType `TypeApp` AnyType
-             , [| \x y -> if eqF x y then Just Refl else Nothing |]
-             )
            ]
           )
 
 {-# NOINLINE hashApp #-}
 -- | Hash an an application.
-hashApp :: HashableF (Ann fs) => Int -> App fs (Expr t fs) s -> Int
-hashApp = $(structuralHashWithSalt [t|App|]
-             [(ConType [t|Ann|] `TypeApp` AnyType `TypeApp` AnyType
-              , [| hashWithSaltF |]
-              )
-             ]
-           )
+hashApp :: Int -> App (Expr t fs) s -> Int
+hashApp = $(structuralHashWithSalt [t|App|] [])
 
-instance EqF (Ann fs) => Eq (App fs (Expr t fs) tp) where
+instance Eq (App (Expr t fs) tp) where
   x == y = isJust (testEquality x y)
 
-instance EqF (Ann fs) => TestEquality (App fs (Expr t fs)) where
+instance TestEquality (App (Expr t fs)) where
   testEquality = appEqF
-instance HashableF (Ann fs) => HashableF (App fs (Expr t fs)) where
+instance HashableF (App (Expr t fs)) where
   hashWithSaltF = hashApp
 
 ------------------------------------------------------------------------
@@ -2812,6 +2834,7 @@ lookupIdxValue :: MonadIO m => IdxCache t f -> Expr t fs tp -> m (Maybe (f tp))
 lookupIdxValue _ SemiRingLiteral{} = return Nothing
 lookupIdxValue _ StringExpr{} = return Nothing
 lookupIdxValue _ BoolExpr{} = return Nothing
+lookupIdxValue c (AnnotationExpr (AnnotationWrapper n _) _ _) = liftIO $ lookupIdx c n
 lookupIdxValue c (NonceAppExpr e) = liftIO $ lookupIdx c (nonceExprId e)
 lookupIdxValue c (AppExpr e)  = liftIO $ lookupIdx c (appExprId e)
 lookupIdxValue c (BoundVarExpr i) = liftIO $ lookupIdx c (bvarId i)
@@ -2838,6 +2861,7 @@ exprMaybeId :: Expr t fs tp -> Maybe (Nonce t tp)
 exprMaybeId SemiRingLiteral{} = Nothing
 exprMaybeId StringExpr{} = Nothing
 exprMaybeId BoolExpr{} = Nothing
+exprMaybeId (AnnotationExpr (AnnotationWrapper n _) _ _) = Just n
 exprMaybeId (NonceAppExpr e) = Just $! nonceExprId e
 exprMaybeId (AppExpr  e) = Just $! appExprId e
 exprMaybeId (BoundVarExpr e) = Just $! bvarId e
@@ -2895,7 +2919,7 @@ semiRingLit sb sr x = do
   l <- curProgramLoc sb
   return $! SemiRingLiteral sr x l
 
-sbMakeExpr :: ExprBuilder st t fs -> App fs (Expr t fs) tp -> IO (Expr t fs tp)
+sbMakeExpr :: ExprBuilder st t fs -> App (Expr t fs) tp -> IO (Expr t fs tp)
 sbMakeExpr sym a = do
   s <- readIORef (curAllocator sym)
   pc <- curProgramLoc sym
@@ -3006,7 +3030,6 @@ cacheTerms :: CFG.ConfigOption BaseBoolType
 cacheTerms = CFG.configOption BaseBoolRepr "use_cache"
 
 cacheOptStyle ::
-  (EqF (Ann fs), HashableF (Ann fs)) =>
   NonceGenerator IO t ->
   IORef (ExprAllocator t fs) ->
   CFG.OptionSetting BaseIntegerType ->
@@ -3027,7 +3050,6 @@ cacheOptStyle gen storageRef szSetting =
             writeIORef storageRef s
 
 cacheOptDesc ::
-  (EqF (Ann fs), HashableF (Ann fs)) =>
   NonceGenerator IO t ->
   IORef (ExprAllocator t fs) ->
   CFG.OptionSetting BaseIntegerType ->
@@ -3041,7 +3063,6 @@ cacheOptDesc gen storageRef szSetting =
 
 
 newExprBuilder ::
-  (EqF (Ann fs), HashableF (Ann fs)) =>
   FloatModeRepr (FM fs)
   -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
   -> st t fs
@@ -3094,7 +3115,6 @@ newExprBuilder floatMode st gen = do
                , sbMatlabFnCache = matlabFnCache
                , sbSolverLogger = loggerRef
                , sbFloatMode = floatMode
-               , sbAnnDict = AnnotationDictionary
                }
 
 -- | Get current variable bindings.
@@ -3108,7 +3128,7 @@ stopCaching sb = do
   writeIORef (curAllocator sb) s
 
 -- | Restart caching applications in backend (clears cache if it is currently caching).
-startCaching :: (EqF (Ann fs), HashableF (Ann fs)) => ExprBuilder st t fs -> IO ()
+startCaching :: ExprBuilder st t fs -> IO ()
 startCaching sb = do
   sz <- CFG.getOpt (sbCacheStartSize sb)
   s <- newCachedStorage (exprCounter sb) (fromInteger sz)
@@ -3116,7 +3136,7 @@ startCaching sb = do
 
 bvBinDivOp :: (1 <= w)
             => (Integer -> Integer -> Integer)
-            -> (NatRepr w -> BVExpr t fs w -> BVExpr t fs w -> App fs (Expr t fs) (BaseBVType w))
+            -> (NatRepr w -> BVExpr t fs w -> BVExpr t fs w -> App (Expr t fs) (BaseBVType w))
             -> ExprBuilder st t fs
             -> BVExpr t fs w
             -> BVExpr t fs w
@@ -3131,7 +3151,7 @@ bvSignedBinDivOp :: (1 <= w)
                  => (Integer -> Integer -> Integer)
                  -> (NatRepr w -> BVExpr t fs w
                                -> BVExpr t fs w
-                               -> App fs (Expr t fs) (BaseBVType w))
+                               -> App (Expr t fs) (BaseBVType w))
                  -> ExprBuilder st t fs
                  -> BVExpr t fs w
                  -> BVExpr t fs w
@@ -3171,25 +3191,22 @@ betaReduce ::
   Ctx.Assignment (Expr t fs) args ->
   IO (Expr t fs ret)
 betaReduce sym f args =
-  case sbAnnDict sym of
-    AnnotationDictionary ->
-      case symFnInfo f of
-        UninterpFnInfo{} ->
-          sbNonceExpr sym $! FnApp f args
-        DefinedFnInfo bound_vars e _ -> do
-          evalBoundVars sym e bound_vars args
-        MatlabSolverFnInfo fn_id _ _ -> do
-          evalMatlabSolverFn fn_id sym args
+  case symFnInfo f of
+    UninterpFnInfo{} ->
+      sbNonceExpr sym $! FnApp f args
+    DefinedFnInfo bound_vars e _ -> do
+      evalBoundVars sym e bound_vars args
+    MatlabSolverFnInfo fn_id _ _ -> do
+      evalMatlabSolverFn fn_id sym args
 
 reduceApp :: (IsExprBuilder sym, sym ~ ExprBuilder st t fs)
           => sym
-          -> App fs (SymExpr sym) tp
+          -> App (SymExpr sym) tp
           -> IO (SymExpr sym tp)
 reduceApp sym a0 = do
   case a0 of
     BaseIte _ _ c x y -> baseTypeIte sym c x y
     BaseEq _ x y -> isEq sym x y
-    AnnotateTerm _ ann x -> annotateTerm sym ann x
 
     NotPred x -> notPred sym x
     ConjPred bm ->
@@ -3419,7 +3436,6 @@ data EvalHashTables t fs
 --
 -- This returns whether the function changed as a Boolean and the function itself.
 evalSimpleFn ::
-  (EqF (Ann fs), HashableF (Ann fs)) =>
   EvalHashTables t fs ->
   ExprBuilder st t fs ->
   ExprSymFn t fs idx ret ->
@@ -3442,7 +3458,6 @@ evalSimpleFn tbl sym f =
     MatlabSolverFnInfo{} -> return (False, f)
 
 evalBoundVars' :: forall t st fs ret.
-  (EqF (Ann fs), HashableF (Ann fs)) =>
   EvalHashTables t fs ->
   ExprBuilder st t fs ->
   Expr t fs ret ->
@@ -3452,6 +3467,14 @@ evalBoundVars' tbls sym e0 =
     SemiRingLiteral{} -> return e0
     StringExpr{} -> return e0
     BoolExpr{} -> return e0
+    AnnotationExpr (AnnotationWrapper _ ann) t loc ->
+      cachedEval (exprTable tbls) e0 $ do
+        t' <- evalBoundVars' tbls sym t
+        if t == t' then
+          return e0
+        else
+          annotateTermWithLoc sym ann t' loc
+
     AppExpr ae -> cachedEval (exprTable tbls) e0 $ do
       let a = appExprApp ae
       a' <- traverseApp (evalBoundVars' tbls sym) a
@@ -3534,14 +3557,12 @@ evalBoundVars ::
   Ctx.Assignment (Expr t fs) args ->
   IO (Expr t fs ret)
 evalBoundVars sym e vars exprs =
-  case sbAnnDict sym of
-    AnnotationDictionary ->
-      do expr_tbl <- stToIO $ initHashTable (fmapFC BoundVarExpr vars) exprs
-         fn_tbl  <- stToIO $ PH.new
-         let tbls = EvalHashTables { exprTable = expr_tbl
-                                   , fnTable  = fn_tbl
-                                   }
-         evalBoundVars' tbls sym e
+  do expr_tbl <- stToIO $ initHashTable (fmapFC BoundVarExpr vars) exprs
+     fn_tbl  <- stToIO $ PH.new
+     let tbls = EvalHashTables { exprTable = expr_tbl
+                               , fnTable  = fn_tbl
+                               }
+     evalBoundVars' tbls sym e
 
 -- | This attempts to lookup an entry in a symbolic array.
 --
@@ -4065,6 +4086,16 @@ sameTerm (asApp -> Just (FloatToBinary fppx x)) (asApp -> Just (FloatToBinary fp
 sameTerm x y = testEquality x y
 
 
+annotateTermWithLoc ::
+  ExprBuilder st t fs ->
+  Ann fs tp ->
+  Expr t fs tp ->
+  ProgramLoc ->
+  IO (Expr t fs tp)
+annotateTermWithLoc sym ann t loc =
+  do n <- sbFreshIndex sym
+     return (AnnotationExpr (AnnotationWrapper n ann) t loc)
+
 instance IsExprBuilder (ExprBuilder st t fs) where
   getConfiguration = sbConfiguration
 
@@ -4084,7 +4115,7 @@ instance IsExprBuilder (ExprBuilder st t fs) where
 
 
   annotateTerm sym ann x =
-    sbMakeExpr sym (AnnotateTerm (exprType x) ann x)
+    annotateTermWithLoc sym ann x =<< getCurrentProgramLoc sym
 
   ----------------------------------------------------------------------
   -- Program location operations
@@ -5828,7 +5859,7 @@ floatIEEEArithBinOp
   => (  FloatPrecisionRepr fpp
      -> e (BaseFloatType fpp)
      -> e (BaseFloatType fpp)
-     -> App fs e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
      )
   -> ExprBuilder st t fs
   -> e (BaseFloatType fpp)
@@ -5842,7 +5873,7 @@ floatIEEEArithBinOpR
      -> RoundingMode
      -> e (BaseFloatType fpp)
      -> e (BaseFloatType fpp)
-     -> App fs e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
      )
   -> ExprBuilder st t fs
   -> RoundingMode
@@ -5855,7 +5886,7 @@ floatIEEEArithUnOp
   :: (e ~ Expr t fs)
   => (  FloatPrecisionRepr fpp
      -> e (BaseFloatType fpp)
-     -> App fs e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
      )
   -> ExprBuilder st t fs
   -> e (BaseFloatType fpp)
@@ -5867,7 +5898,7 @@ floatIEEEArithUnOpR
   => (  FloatPrecisionRepr fpp
      -> RoundingMode
      -> e (BaseFloatType fpp)
-     -> App fs e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
      )
   -> ExprBuilder st t fs
   -> RoundingMode
@@ -5877,14 +5908,14 @@ floatIEEEArithUnOpR ctor sym r x =
   let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp r x
 floatIEEEArithCt
   :: (e ~ Expr t fs)
-  => (FloatPrecisionRepr fpp -> App fs e (BaseFloatType fpp))
+  => (FloatPrecisionRepr fpp -> App e (BaseFloatType fpp))
   -> ExprBuilder st t fs
   -> FloatPrecisionRepr fpp
   -> IO (e (BaseFloatType fpp))
 floatIEEEArithCt ctor sym fpp = sbMakeExpr sym $ ctor fpp
 floatIEEELogicBinOp
   :: (e ~ Expr t fs)
-  => (e (BaseFloatType fpp) -> e (BaseFloatType fpp) -> App fs e BaseBoolType)
+  => (e (BaseFloatType fpp) -> e (BaseFloatType fpp) -> App e BaseBoolType)
   -> ExprBuilder st t fs
   -> e (BaseFloatType fpp)
   -> e (BaseFloatType fpp)
@@ -5892,7 +5923,7 @@ floatIEEELogicBinOp
 floatIEEELogicBinOp ctor sym x y = sbMakeExpr sym $ ctor x y
 floatIEEELogicUnOp
   :: (e ~ Expr t fs)
-  => (e (BaseFloatType fpp) -> App fs e BaseBoolType)
+  => (e (BaseFloatType fpp) -> App e BaseBoolType)
   -> ExprBuilder st t fs
   -> e (BaseFloatType fpp)
   -> IO (e BaseBoolType)

@@ -171,7 +171,7 @@ floatReprString floatRepr =
 -- such a way that captures the necessary 'IsInterpretedFloatExprBuilder'
 -- constraints.
 withSelectedOnlineBackend ::
-  (?outputConfig :: OutputConfig, EqF ann, HashableF ann) =>
+  (?outputConfig :: OutputConfig) =>
   proxy ann ->
   CruxOptions ->
   NonceGenerator IO scope ->

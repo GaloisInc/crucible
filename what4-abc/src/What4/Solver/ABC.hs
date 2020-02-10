@@ -214,6 +214,8 @@ eval ntk (SemiRingLiteral (SemiRingBVRepr _ w) v _) =
     return $ BV $ AIG.bvFromInteger (gia ntk) (widthVal w) v
 eval _ (StringExpr s _) = return (GroundString s)
 
+eval ntk (AnnotationExpr (AnnotationWrapper n _) t _) =
+  memoExprNonce ntk n $ eval ntk t
 eval ntk (NonceAppExpr e) = do
   memoExprNonce ntk (nonceExprId e) $ do
     bitblastPred ntk e
@@ -285,7 +287,6 @@ bitblastExpr h ae = do
       stringFail = failTerm (AppExpr ae) "string expression"
 
   case appExprApp ae of
-    AnnotateTerm _ _ x -> eval h x
 
     ------------------------------------------------------------------------
     -- Nat operations

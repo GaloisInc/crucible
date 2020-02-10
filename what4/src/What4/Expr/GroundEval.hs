@@ -171,6 +171,7 @@ tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingRealRepr c _) = return c
 tryEvalGroundExpr _ (SemiRingLiteral (SR.SemiRingBVRepr _ _ ) c _) = return c
 tryEvalGroundExpr _ (StringExpr x _) = return x
 tryEvalGroundExpr _ (BoolExpr b _) = return b
+tryEvalGroundExpr f (AnnotationExpr _ t _) = tryEvalGroundExpr f t
 tryEvalGroundExpr f (NonceAppExpr a0) = evalGroundNonceApp (lift . f) (nonceExprApp a0)
 tryEvalGroundExpr f (AppExpr a0)      = evalGroundApp f (appExprApp a0)
 tryEvalGroundExpr _ (BoundVarExpr v) =
@@ -237,7 +238,7 @@ groundEq bt x y = case bt of
 --   This function is intended for implementers of symbolic backends.
 evalGroundApp :: forall t fs tp
                . (forall u . Expr t fs u -> IO (GroundValue u))
-              -> App fs (Expr t fs) tp
+              -> App (Expr t fs) tp
               -> MaybeT IO (GroundValue tp)
 evalGroundApp f0 a0 = do
   let f :: forall u . Expr t fs u -> MaybeT IO (GroundValue u)
@@ -251,8 +252,6 @@ evalGroundApp f0 a0 = do
     BaseIte _ _ x y z -> do
       xv <- f x
       if xv then f y else f z
-
-    AnnotateTerm _ _ x -> f x
 
     NotPred x -> not <$> f x
     ConjPred xs ->

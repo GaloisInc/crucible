@@ -411,6 +411,7 @@ assume _ (BoundVarExpr v) =
 #if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
 assume _ (SemiRingLiteral sr _ _) = case sr of {}
 #endif
+assume h (AnnotationExpr _ t _) = assume h t
 assume _ (NonceAppExpr e) =
   fail . show $
     text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
@@ -425,8 +426,6 @@ assume h (BoolExpr b l)
 assume h b@(AppExpr ba) =
   let a = appExprApp ba in
     case a of
-      AnnotateTerm _ _ x -> assume h x
-
       ConjPred xs ->
         case BM.viewBoolMap xs of
           BM.BoolMapUnit -> return ()
@@ -543,6 +542,7 @@ evalReal' _ (BoundVarExpr v) =
 evalReal' h (SemiRingLiteral SemiRingRealRepr r _) = do
   when (isVerb h) $ putStrLn ("BLT@evalReal: rational const " ++ show r)
   return (mkBLT r)
+evalReal' h (AnnotationExpr _ t _) = evalReal h t
 evalReal' _ (NonceAppExpr ea) =
   failAt (nonceExprLoc ea) "symbolic functions"
 evalReal' h epr@(AppExpr epa) = do
@@ -572,8 +572,6 @@ evalReal' h epr@(AppExpr epa) = do
 
     IntegerToReal x ->
       evalInteger h x
-
-    AnnotateTerm _ _ x -> evalReal h x
 
     -- support only linear expressions
     RealDiv x y -> do
@@ -620,6 +618,7 @@ evalInteger' h (BoundVarExpr info) =
 evalInteger' h (SemiRingLiteral SemiRingIntegerRepr i _) = do
   when (isVerb h) $ putStrLn ("BLT@evalInteger: integer const " ++ show i)
   return $ mkBLT (toRational i)
+evalInteger' h (AnnotationExpr _ t _) = evalInteger h t
 -- Match expression
 evalInteger' _ (NonceAppExpr ea) =
   failAt (nonceExprLoc ea) "symbolic functions"
@@ -641,8 +640,6 @@ evalInteger' h (AppExpr epa) = do
 
     RealToInteger x -> evalReal h x
 
-    AnnotateTerm _ _ x -> evalInteger h x
-
     _ -> failAt l "The given integer expressions"
 
 -- | Evaluate complex symbolic expressions to their ModelExpr type.
@@ -651,6 +648,7 @@ evalCplx _ (BoundVarExpr i) = failAt (bvarLoc i) "Complex variables"
 #if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
 evalCplx _ (SemiRingLiteral sr _ _) = case sr of {}
 #endif
+evalCplx h (AnnotationExpr _ t _) = evalCplx h t
 evalCplx _ (NonceAppExpr ea) =
   failAt (nonceExprLoc ea) "symbolic functions"
 evalCplx h (AppExpr ea) =
@@ -663,7 +661,6 @@ evalCplx h (AppExpr ea) =
     SemiRingSum s -> case WSum.sumRepr s of {}
     SemiRingProd pd -> case WSum.prodRepr pd of {}
 #endif
-    AnnotateTerm _ _ x -> evalCplx h x
     BaseIte{} -> failAt (appExprLoc ea) "complex if/then/else"
     SelectArray{} -> failAt (appExprLoc ea) "symbolic arrays"
     StructField{} -> failAt (appExprLoc ea) "symbolic arrays"

@@ -1681,6 +1681,9 @@ mkExpr t@(StringExpr l _) =
 mkExpr (NonceAppExpr ea) =
   cacheWriterResult (nonceExprId ea) DeleteOnPop $
     predSMTExpr ea
+mkExpr (AnnotationExpr (AnnotationWrapper n _ann) t _l) = -- TODO? record the annotation somewhere?
+  cacheWriterResult n DeleteOnPop $
+    mkExpr t
 mkExpr (AppExpr ea) =
   cacheWriterResult (appExprId ea) DeleteOnPop $ do
     appSMTExpr ea
@@ -1874,8 +1877,6 @@ appSMTExpr ae = do
              xb <- mkBaseExpr x
              yb <- mkBaseExpr y
              freshBoundTerm tym $ ite cb xb yb
-
-    AnnotateTerm _ _ x -> mkExpr x
 
     SemiRingLe _sr x y -> do
       xb <- mkBaseExpr x

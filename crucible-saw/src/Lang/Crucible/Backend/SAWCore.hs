@@ -29,7 +29,6 @@ import           Data.List (elemIndex)
 import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map ( Map )
 import qualified Data.Map as Map
-import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.TraversableFC
@@ -192,8 +191,7 @@ bindSAWTerm sym bt t = do
   B.insertIdxValue (saw_elt_cache st) (B.bvarId bv) (SAWExpr t)
   return sbVar
 
-newSAWCoreBackend ::
-  (EqF ann, HashableF ann) =>
+newSAWCoreBackend :: forall ann fm s.
   FloatModeRepr fm ->
   SC.SharedContext ->
   NonceGenerator IO s ->
@@ -806,6 +804,9 @@ evaluateExpr sym sc cache = f []
     go _ (B.StringExpr{}) =
       unsupported sym "SAW backend does not support string values"
 
+    go env (B.AnnotationExpr _ann t _l) =
+      eval env t
+
     go env (B.BoundVarExpr bv) =
       case B.bvarKind bv of
         B.UninterpVarKind -> do
@@ -857,8 +858,6 @@ evaluateExpr sym sc cache = f []
       case B.appExprApp a of
         B.BaseIte bt _ c xe ye -> join (scIte sym sc bt <$> eval env c <*> eval env xe <*> eval env ye)
         B.BaseEq bt xe ye -> join (scEq sym sc bt <$> eval env xe <*> eval env ye)
-
-        B.AnnotateTerm _ _ xe -> eval env xe
 
         B.SemiRingLe sr xe ye ->
           case sr of

@@ -157,7 +157,7 @@ type YicesOnlineBackend scope fs = OnlineBackend (Yices.Connection scope) scope 
 --
 --   > withYicesOnlineBackend FloatRealRepr ng f'
 withYicesOnlineBackend :: forall ann fm scope m a.
-  (MonadIO m, MonadMask m, EqF ann, HashableF ann) =>
+  (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   UnsatFeatures ->
@@ -183,7 +183,7 @@ type Z3OnlineBackend scope fs = OnlineBackend (SMT2.Writer Z3.Z3) scope fs
 --
 --   > withz3OnlineBackend FloatRealRepr ng f'
 withZ3OnlineBackend :: forall ann fm scope m a.
-  (MonadIO m, MonadMask m, EqF ann, HashableF ann) =>
+  (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   UnsatFeatures ->
@@ -209,7 +209,7 @@ type CVC4OnlineBackend scope fs = OnlineBackend  (SMT2.Writer CVC4.CVC4) scope f
 --
 --   > withCVC4OnlineBackend FloatRealRepr ng f'
 withCVC4OnlineBackend :: forall ann fm scope m a.
-  (MonadIO m, MonadMask m, EqF ann, HashableF ann) =>
+  (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   UnsatFeatures ->
@@ -235,7 +235,7 @@ type STPOnlineBackend scope fs = OnlineBackend (SMT2.Writer STP.STP) scope fs
 --
 --   > withSTPOnlineBackend FloatRealRepr ng f'
 withSTPOnlineBackend :: forall ann fm scope m a .
-  (MonadIO m, MonadMask m, EqF ann, HashableF ann) =>
+  (MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   (STPOnlineBackend scope (B.Flags fm ann) -> m a) ->
@@ -415,7 +415,7 @@ considerSatisfiability sym mbPloc p =
 --   Configuration options are not automatically installed
 --   by this operation.
 withOnlineBackend ::
-  (OnlineSolver scope solver, MonadIO m, MonadMask m, EqF ann, HashableF ann) =>
+  (OnlineSolver scope solver, MonadIO m, MonadMask m) =>
   B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   ProblemFeatures ->

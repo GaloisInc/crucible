@@ -14,6 +14,7 @@
 
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Lang.Crucible.Backend.Simple
   ( -- * SimpleBackend
@@ -33,7 +34,6 @@ module Lang.Crucible.Backend.Simple
 import           Control.Lens
 import           Control.Monad (void)
 import           Data.IORef
-import           Data.Parameterized.Classes
 import           Data.Parameterized.Nonce
 
 import           What4.Interface
@@ -59,8 +59,7 @@ initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t fs)
 initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
 
 
-newSimpleBackend ::
-  (EqF ann, HashableF ann) =>
+newSimpleBackend :: forall ann fm t.
   B.FloatModeRepr fm
    {- ^ Float interpretation mode (i.e., how are floats translated for the solver) -} ->
   NonceGenerator IO t ->

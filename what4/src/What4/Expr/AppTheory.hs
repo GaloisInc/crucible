@@ -61,7 +61,7 @@ typeTheory tp = case tp of
   BaseStructRepr _  -> StructTheory
   BaseArrayRepr _ _ -> ArrayTheory
 
-appTheory :: App fs (Expr t fs) tp -> AppTheory
+appTheory :: App (Expr t fs) tp -> AppTheory
 appTheory a0 =
   case a0 of
     ----------------------------
@@ -72,8 +72,6 @@ appTheory a0 =
 
     NotPred{} -> BoolTheory
     ConjPred{} -> BoolTheory
-
-    AnnotateTerm _ _ _ -> BoolTheory
 
     RealIsInteger{} -> LinearArithTheory
 

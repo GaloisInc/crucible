@@ -25,7 +25,6 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import qualified Data.Parameterized.HashTable as PH
-import           Data.Parameterized.Classes (EqF)
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.TraversableFC
 import           Data.Word
@@ -43,7 +42,7 @@ data NormCache st t fs
                , ncTable :: !(PH.HashTable RealWorld (Expr t fs) (Expr t fs))
                }
 
-norm :: EqF (Ann fs) => NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
+norm :: NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm c e = do
   mr <- stToIO $ PH.lookup (ncTable c) e
   case mr of
@@ -72,7 +71,6 @@ instance Applicative Or where
   (Or a) <*> (Or b) = Or (a || b)
 
 norm' :: forall t st fs tp .
-  (EqF (Ann fs), PH.HashableF (Expr t fs)) =>
   NormCache st t fs -> Expr t fs tp -> IO (Expr t fs tp)
 norm' nc (AppExpr a0) = do
   let sb = ncBuilder nc
@@ -124,7 +122,6 @@ norm' _ e = return e
 -- | Simplify a Boolean expression by distributing over ite.
 simplify :: ExprBuilder st t fs -> BoolExpr t fs -> IO (BoolExpr t fs)
 simplify sb p = do
-  AnnotationDictionary <- return $ sbAnnDict sb
   tbl <- stToIO $ PH.new
   let nc = NormCache { ncBuilder = sb
                      , ncTable = tbl
@@ -150,6 +147,9 @@ count_subterms' e0 =
     BoolExpr{} -> pure () 
     SemiRingLiteral{} -> pure ()
     StringExpr{} -> pure ()
+    AnnotationExpr (AnnotationWrapper n _) t _l -> do
+      is_new <- recordExpr n
+      when is_new $ count_subterms' t
     AppExpr ae -> do
       is_new <- recordExpr (appExprId ae)
       when is_new $ do

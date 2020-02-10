@@ -344,6 +344,8 @@ recordExprVars _ BoolExpr{} = return ()
 recordExprVars scope (NonceAppExpr e0) = do
   memoExprVars (nonceExprId e0) $ do
     recurseNonceAppVars scope e0
+recordExprVars scope (AnnotationExpr (AnnotationWrapper n _ann) t _l) =
+  memoExprVars n $ recordExprVars scope t
 recordExprVars scope (AppExpr e0) = do
   memoExprVars (appExprId e0) $ do
     recurseExprVars scope e0
