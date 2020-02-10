@@ -79,7 +79,6 @@ import           Data.IORef
 import           Data.Maybe
 import qualified Data.List as List
 import qualified Data.List.Extra as List
-import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map as Map
 import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -99,21 +98,16 @@ import           Data.Parameterized.Some
 
 import           What4.Interface
 import qualified What4.Concrete as W4
-import qualified What4.Partial.AssertionTree as W4AT
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
-import           Lang.Crucible.LLVM.MemModel.Partial
-                   (PartLLVMVal, pattern PartLLVMVal, pattern PartErr)
+import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
-import           Lang.Crucible.LLVM.Extension.Safety (LLVMSafetyAssertion)
-import qualified Lang.Crucible.LLVM.Extension.Safety as Safety
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 
 data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
@@ -154,14 +148,6 @@ data MemWrite sym
   = forall w. MemWrite (LLVMPtr sym w) (WriteSource sym w)
     -- | The merger of two memories.
   | WriteMerge (Pred sym) (MemWrites sym) (MemWrites sym)
-
---------------------------------------------------------------------------------
--- Assertions
-
-undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
-                  -> Pred sym
-                  -> LLVMSafetyAssertion (RegValue' sym)
-undefinedBehavior ub pred = Safety.undefinedBehavior ub (RV pred)
 
 --------------------------------------------------------------------------------
 -- Reading from memory
@@ -510,7 +496,7 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
                     liftIO (bvLit sym w (bytesToInteger o))
                 subFn (LastStore v)      = liftIO $
                   applyView sym end (Partial.totalLLVMVal sym t) v
-                subFn (InvalidMemory tp) = return $ PartErr $ Partial.Invalid tp
+                subFn (InvalidMemory tp) = return $ Partial.partErr $ Partial.Invalid tp
             let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
             liftIO . genValueCtor sym end =<< traverse subFn vcr
        -- Symbolic offsets
@@ -521,7 +507,7 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
                   readPrev tp' (LLVMPointer blk o')
                 subFn (LastStore v)      = liftIO $
                   applyView sym end (Partial.totalLLVMVal sym t) v
-                subFn (InvalidMemory tp) = return $ PartErr $ Partial.Invalid tp
+                subFn (InvalidMemory tp) = return $ Partial.partErr $ Partial.Invalid tp
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -664,7 +650,7 @@ readMemInvalidate sym w end (LLVMPointer blk off) tp d msg sz readPrev =
                   o' <- liftIO $ bvLit sym w (bytesToInteger o)
                   readPrev tp' (LLVMPointer blk o')
                 subFn (InRange _o _tp') =
-                  pure . PartErr $ Partial.Invalidated msg
+                  pure . Partial.partErr $ Partial.Invalidated msg
             case asUnsignedBV sz of
               Just csz -> do
                 let s = R (fromInteger so) (fromInteger (so + csz))
@@ -679,7 +665,7 @@ readMemInvalidate sym w end (LLVMPointer blk off) tp d msg sz readPrev =
                   o' <- liftIO $ genOffsetExpr sym w varFn o
                   readPrev tp' (LLVMPointer blk o')
                 subFn (InRange _o _tp') =
-                  pure . PartErr $ Partial.Invalidated msg
+                  pure . Partial.partErr $ Partial.Invalidated msg
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -719,15 +705,9 @@ readMem sym w l tp alignment m = do
       genValueCtor sym (memEndianForm m)
         =<< loadTypedValueFromBytes 0 tp loadArrayByteFn
     Nothing -> readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
-  case part_val of
-    e@(PartErr _) -> return e
-    PartLLVMVal p v ->
-      let ub1 = UB.ReadUnallocated  (UB.pointerView l)
-          ub2 = UB.ReadBadAlignment (UB.pointerView l) alignment
-          p'  = W4AT.And (p :| [ W4AT.Leaf (undefinedBehavior ub1 p1)
-                              , W4AT.Leaf (undefinedBehavior ub2 p2)
-                              ])
-      in return $ PartLLVMVal p' v
+
+  Partial.attachSideCondition sym p1 (UB.ReadUnallocated  (UB.pointerView l)) =<<
+    Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (UB.pointerView l) alignment) part_val
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
@@ -765,7 +745,7 @@ readMem' sym w end l0 tp0 alignment (MemWrites ws) =
       LLVMPtr sym w ->
       ReadMem arch sym (PartLLVMVal arch sym)
     fallback0 _ _ =
-      PartErr . Partial.Other . Just . show . ppReadMemDebugState @sym <$> get
+      Partial.partErr . Partial.NoSatisfyingWrite . ppReadMemDebugState @sym <$> get
     go :: (StorageType -> LLVMPtr sym w -> ReadMem arch sym (PartLLVMVal arch sym)) ->
           LLVMPtr sym w ->
           StorageType ->
@@ -1380,7 +1360,7 @@ writeMemWithAllocationCheck is_allocated sym w ptr tp alignment val mem = do
               (memEndianForm mem)
               (Partial.totalLLVMVal sym val)
               val_view
-            InvalidMemory tp'-> return $ PartErr $ Partial.Invalid tp'
+            InvalidMemory tp'-> return $ Partial.partErr $ Partial.Invalid tp'
             OldMemory off _ -> panic "Generic.writeMemWithAllocationCheck"
               [ "Unexpected offset in storage type"
               , "*** Offset:  " ++ show off
@@ -1393,8 +1373,9 @@ writeMemWithAllocationCheck is_allocated sym w ptr tp alignment val mem = do
           storeArrayByteFn acc_arr off = do
             partial_byte <- genValueCtor sym (memEndianForm mem)
               =<< traverse subFn (loadBitvector off 1 0 (ValueViewVar tp))
-            case partial_byte of
-              PartLLVMVal _ (LLVMValInt _ byte) -- TODO!? predicate is ignored!
+            v <- Partial.assertSafe sym partial_byte
+            case v of
+              LLVMValInt _ byte
                 | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
                   idx <- bvAdd sym (llvmPointerOffset ptr)
                     =<< bvLit sym w (bytesToInteger off)

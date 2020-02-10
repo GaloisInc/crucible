@@ -21,8 +21,19 @@ import           Lang.Crucible.Simulator.SimError
 
 import qualified Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Extension
-import           Lang.Crucible.LLVM.Extension.Safety
+import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Pointer
+
+-- TODO! This isn't really the right place for this...
+
+assertSideCondition ::
+  IsSymInterface sym =>
+  sym ->
+  LLVMSideCondition (RegValue' sym) ->
+  IO ()
+assertSideCondition sym (LLVMSideCondition p ub) =
+  do let err = AssertFailureSimError (show (UB.explain ub)) (show (UB.ppReg ub))
+     assert sym (unRV p) err
 
 llvmExtensionEval :: forall sym arch.
   IsSymInterface sym =>
@@ -37,10 +48,7 @@ llvmExtensionEval sym _iTypes _logFn eval e =
 
     LLVM_SideConditions _tp conds val ->
       do conds' <- traverse (traverseF (\x -> RV @sym <$> eval x)) (NE.toList conds)
-         forM_ conds' $ \c ->
-           do let bb = c^.classifier
-              let err = AssertFailureSimError (show (explainBB bb)) (show (detailBB bb))
-              assert sym (c^.predicate.to unRV) err
+         forM_ conds' (assertSideCondition sym)
          eval val
 
     LLVM_PointerExpr _w blk off ->

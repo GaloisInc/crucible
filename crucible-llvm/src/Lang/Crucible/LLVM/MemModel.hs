@@ -101,7 +101,6 @@ module Lang.Crucible.LLVM.MemModel
   , constToLLVMValP
   , ptrMessage
   , Partial.PartLLVMVal
-  , pattern Partial.PartLLVMVal
   , Partial.assertSafe
     -- Re-exports from MemModel.Value
   , isZero
