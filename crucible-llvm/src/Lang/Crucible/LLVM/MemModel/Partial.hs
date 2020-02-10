@@ -25,8 +25,10 @@
 
 module Lang.Crucible.LLVM.MemModel.Partial
   ( PartLLVMVal
-  , pattern PartLLVMVal
-  , pattern PartErr
+  , partErr
+--  , pattern PartLLVMVal
+--  , pattern PartErr
+  , attachSideCondition
   , assertSafe
   , ppAssertion
   , MemoryLoadError(..)
@@ -52,14 +54,12 @@ module Lang.Crucible.LLVM.MemModel.Partial
 
 import           Prelude hiding (pred)
 
-import           GHC.Generics (Generic)
 import           Control.Lens ((^.), view)
 import           Control.Monad.IO.Class (liftIO, MonadIO)
 import           Control.Monad.State.Strict (State, get, put, runState)
 import           Data.Proxy (Proxy(..))
 import           Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
 import           Data.Vector (Vector)
-import           Data.Text (Text, unpack)
 import qualified Data.Vector as V
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -74,7 +74,6 @@ import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import           Lang.Crucible.LLVM.Extension (LLVM)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
-import           Lang.Crucible.LLVM.MemModel.Common (ValueView)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
@@ -90,56 +89,6 @@ import           What4.Partial
 import           What4.Partial.AssertionTree (AssertionTree(..))
 import           What4.Partial.AssertionTree as W4AT
 
-------------------------------------------------------------------------
--- ** MemoryLoadError
-
--- | The kinds of type errors that arise while reading memory/constructing LLVM
--- values
-data MemoryLoadError sym =
-    TypeMismatch StorageType StorageType
-  | UnexpectedArgumentType Text [LLVMVal sym]
-  | PreviousErrors Text [MemoryLoadError sym]
-  | ApplyViewFail ValueView
-  | Invalid StorageType
-  | Invalidated Text
-  | Other (Maybe String)
-    -- ^ TODO: eliminate this constructor, replace with more specific messages
-  deriving (Generic)
-
-instance IsSymInterface sym => Pretty (MemoryLoadError sym) where
-  pretty = ppMemoryLoadError
-
-instance IsSymInterface sym => Show (MemoryLoadError sym) where
-  show = show . ppMemoryLoadError
-
-ppMemoryLoadError :: IsSymInterface sym => MemoryLoadError sym -> Doc
-ppMemoryLoadError =
-  \case
-    TypeMismatch ty1 ty2 ->
-      "Type mismatch: "
-      <$$> indent 2 (vcat [ text (show ty1)
-                          , text (show ty2)
-                          ])
-    UnexpectedArgumentType txt vals ->
-      vcat [ "Unexpected argument type:"
-           , text (unpack txt)
-           ]
-      <$$> indent 2 (vcat (map (text . show) vals))
-    PreviousErrors txt errs ->
-      vcat [ "Operation failed due to previous errors: "
-           , text (unpack txt)
-           ]
-      <$$> indent 2 (vcat (map ppMemoryLoadError errs))
-    ApplyViewFail vw ->
-      "Failure when applying value view" <+> text (show vw)
-    Invalid ty ->
-      "Load from invalid memory at type " <+> text (show ty)
-    Invalidated msg ->
-      "Load from explicitly invalidated memory:" <+> text (unpack msg)
-    Other msg -> vcat $ [ text "Generic memory load error." ] ++
-                   case msg of
-                     Just msg' -> [text "Details:", text msg']
-                     Nothing -> []
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal
@@ -148,7 +97,7 @@ ppMemoryLoadError =
 -- just when it is actually valid, or a type mismatch.
 newtype PartLLVMVal arch sym = PLV
   (PartialWithErr
-    (MemoryLoadError sym)
+    MemoryLoadError
     (LLVMAssertionTree arch (RegValue' sym))
     (LLVMVal sym))
 
@@ -157,10 +106,26 @@ pattern PartLLVMVal :: LLVMAssertionTree arch (RegValue' sym)
                     -> PartLLVMVal arch sym
 pattern PartLLVMVal p v = PLV (NoErr (Partial p v))
 
-pattern PartErr :: MemoryLoadError sym -> PartLLVMVal arch sym
+pattern PartErr :: MemoryLoadError -> PartLLVMVal arch sym
 pattern PartErr err = PLV (Err err)
 
 {-# COMPLETE PartLLVMVal, PartErr #-}
+
+
+partErr :: MemoryLoadError -> PartLLVMVal arch sym
+partErr err = PLV (Err err)
+
+attachSideCondition ::
+  IsSymInterface sym =>
+  sym ->
+  Pred sym ->
+  UB.UndefinedBehavior (RegValue' sym) ->
+  PartLLVMVal arch sym ->
+  IO (PartLLVMVal arch sym)
+attachSideCondition _sym p ub pv =
+  case pv of
+    PartErr _x -> return pv -- TODO! attach (p,ub)
+    PartLLVMVal at v -> return $ PartLLVMVal (W4AT.addCondition at (undefinedBehavior ub (RV p))) v
 
 typeOfBitvector :: W4I.IsExpr (W4I.SymExpr sym)
                 => proxy sym -> W4I.SymBV sym w -> StorageType
@@ -241,7 +206,7 @@ floatToBV _ (PartErr e) =
 
 floatToBV _ (PartLLVMVal _ v) =
   let msg = "While converting from a float to a bitvector"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 doubleToBV ::
@@ -267,7 +232,7 @@ doubleToBV _ (PartErr e) =
 
 doubleToBV _ (PartLLVMVal _ v) =
   let msg = "While converting from a double to a bitvector"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 fp80ToBV ::
@@ -293,7 +258,7 @@ fp80ToBV _ (PartErr e) =
 
 fp80ToBV _ (PartLLVMVal _ v) =
   let msg = "While converting from a FP80 to a bitvector"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 -- | Convert a bitvector to a float, asserting that it is not a pointer
 bvToFloat :: forall arch sym.
@@ -343,7 +308,7 @@ bvToDouble _ (PartErr e) =
 
 bvToDouble _ (PartLLVMVal _ v) =
   let msg = "While converting from a bitvector to a double"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 -- | Convert a bitvector to an FP80 float, asserting that it is not a pointer
@@ -371,7 +336,7 @@ bvToX86_FP80 _ (PartErr e) =
 
 bvToX86_FP80 _ (PartLLVMVal _ v) =
   let msg = "While converting from a bitvector to a X86_FP80"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 -- | Concatenate partial LLVM bitvector values. The least-significant
 -- (low) bytes are given first. The allocation block number of each
@@ -398,7 +363,8 @@ bvConcat sym (PartLLVMVal p1 v1) (PartLLVMVal p2 v2) =
              go blk_low low blk_high high
       (LLVMValZero (StorageType (Bitvector low_bytes) _), LLVMValZero (StorageType (Bitvector high_bytes) _)) ->
         pure $ totalLLVMVal sym (LLVMValZero (Type.bitvectorType (low_bytes + high_bytes)))
-      (a, b) -> return $ PartErr $ UnexpectedArgumentType "While concatenating bitvectors" [a, b]
+      (a, b) -> return $ PartErr $
+         UnexpectedArgumentType "While concatenating bitvectors" [Value.llvmValStorableType a, Value.llvmValStorableType b]
 
  where
   go :: forall l h. (1 <= l, 1 <= h) =>
@@ -427,7 +393,8 @@ bvConcat sym (PartLLVMVal p1 v1) (PartLLVMVal p2 v2) =
                         , p2
                         ])
     | otherwise = return $ PartErr $
-        UnexpectedArgumentType "Non-byte-sized bitvectors" [v1, v2]
+        UnexpectedArgumentType "Non-byte-sized bitvectors"
+          [Value.llvmValStorableType v1, Value.llvmValStorableType v2]
 
     where low_w' = W4I.bvWidth low
           high_w' = W4I.bvWidth high
@@ -446,7 +413,7 @@ bvConcat _ (PartErr e) _ =
 
 bvConcat _ _ (PartLLVMVal _ v) =
   let msg = "While concatenating bitvectors"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 -- | Cons an element onto a partial LLVM array value.
 consArray ::
@@ -476,7 +443,7 @@ consArray _ (PartErr e) =
   PartErr $ PreviousErrors "While consing onto an array" [e]
 
 consArray _ (PartLLVMVal _ v) =
-  PartErr $ UnexpectedArgumentType "Non-array value" [v]
+  PartErr $ UnexpectedArgumentType "Non-array value" [Value.llvmValStorableType v]
 
 -- | Append two partial LLVM array values.
 appendArray ::
@@ -514,7 +481,7 @@ appendArray
         LLVMValArray tp1 (v1 V.++ v2)
 
 appendArray (PartLLVMVal _ v1) (PartLLVMVal _ v2) =
-  PartErr $ UnexpectedArgumentType "Non-array value" [v1, v2]
+  PartErr $ UnexpectedArgumentType "Non-array value" [Value.llvmValStorableType v1, Value.llvmValStorableType v2]
 
 appendArray (PartErr e1) (PartErr e2) =
   PartErr $ PreviousErrors "While appending arrays" [e1, e2]
@@ -526,10 +493,10 @@ appendArray _ (PartErr e) =
   PartErr $ PreviousErrors "While appending arrays" [e]
 
 appendArray _ (PartLLVMVal _ v2) =
-  PartErr $ UnexpectedArgumentType "Non-array value" [v2]
+  PartErr $ UnexpectedArgumentType "Non-array value" [Value.llvmValStorableType v2]
 
 appendArray (PartLLVMVal _ v1) _ =
-  PartErr $ UnexpectedArgumentType "Non-array value" [v1]
+  PartErr $ UnexpectedArgumentType "Non-array value" [Value.llvmValStorableType v1]
 
 
 -- | Make a partial LLVM array value.
@@ -545,7 +512,7 @@ mkArray :: forall arch sym. (IsExprBuilder sym, IsSymInterface sym) =>
 mkArray sym tp vec =
   let f :: PartLLVMVal arch sym
         -> State [AssertionClassifierTree (LLVM arch) (RegValue' sym)]
-                 (Either (MemoryLoadError sym) (LLVMVal sym))
+                 (Either MemoryLoadError (LLVMVal sym))
       f (PartErr e)       = pure (Left e)
       f (PartLLVMVal p x) = do
         ps_ <- get     -- Current predicates
@@ -573,7 +540,7 @@ mkStruct :: forall arch sym. IsExprBuilder sym =>
 mkStruct sym vec =
   let f :: (Field StorageType, PartLLVMVal arch sym)
         -> State [AssertionClassifierTree (LLVM arch) (RegValue' sym)]
-                 (Either (MemoryLoadError sym) (Field StorageType, LLVMVal sym))
+                 (Either MemoryLoadError (Field StorageType, LLVMVal sym))
       f (_, PartErr e)       = pure (Left e)
       f (fld, PartLLVMVal p x) = do
         ps_ <- get
@@ -616,7 +583,7 @@ selectLowBv sym low hi (PartLLVMVal p (LLVMValInt blk bv))
   where w = W4I.bvWidth bv
 selectLowBv _ _ _ (PartLLVMVal _ v) =
   let msg = "While selecting the low bits of a bitvector"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 selectLowBv _ _ _ (PartErr e) =
   let msg = "While selecting the low bits of a bitvector"
   in return $ PartErr $ PreviousErrors msg [e]
@@ -650,11 +617,12 @@ selectHighBv _ _ _ (PartErr e) =
   in return $ PartErr $ PreviousErrors msg [e]
 selectHighBv _ _ _ (PartLLVMVal _ v) =
   let msg = "While selecting the high bits of a bitvector"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 -- | Look up an element in a partial LLVM array value.
 arrayElt ::
+  IsExprBuilder sym =>
   Bytes ->
   StorageType ->
   Bytes ->
@@ -678,10 +646,11 @@ arrayElt _ _ _ (PartErr e) =
 
 arrayElt _ _ _ (PartLLVMVal _ v) =
   let msg = "While selecting the high bits of a bitvector"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 -- | Look up a field in a partial LLVM struct value.
 fieldVal ::
+  IsExprBuilder sym =>
   (Vector (Field StorageType)) ->
   Int ->
   PartLLVMVal arch sym ->
@@ -703,7 +672,7 @@ fieldVal _ _ (PartErr e) =
 
 fieldVal _ _ (PartLLVMVal _ v) =
   let msg = "While getting a struct field"
-  in return $ PartErr $ UnexpectedArgumentType msg [v]
+  in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 ------------------------------------------------------------------------
 -- ** Merging and muxing
@@ -722,13 +691,11 @@ merge :: forall arch sym m. (IsExprBuilder sym, MonadIO m) =>
 merge _ _ _ (PartErr e1) (PartErr e2) =
   let msg = "When muxing partial LLVM values"
   in pure $ PartErr $ PreviousErrors msg [e1, e2]
-merge _ _ cond (PartLLVMVal p v) (PartErr _) = pure $
-  let ub = UB.Other "muxing of partial values (then)" -- TODO: better message
-  in PartLLVMVal (W4AT.addCondition p (undefinedBehavior ub (RV cond))) v
-merge sym _ cond (PartErr _) (PartLLVMVal p v) = do
-  let ub = UB.Other "muxing of partial values (else)" -- TODO: better message
+merge _ _ cond (PartLLVMVal p v) (PartErr ld) =
+  pure $ PartLLVMVal (W4AT.addCondition p (memoryLoadError ld (RV cond))) v
+merge sym _ cond (PartErr ld) (PartLLVMVal p v) = do
   cond' <- liftIO $ W4I.notPred sym cond
-  pure $ PartLLVMVal (W4AT.addCondition p (undefinedBehavior ub (RV cond'))) v
+  pure $ PartLLVMVal (W4AT.addCondition p (memoryLoadError ld (RV cond'))) v
 merge _ f cond (PartLLVMVal px x) (PartLLVMVal py y) = do
   v <- f cond x y
   case v of
@@ -812,4 +779,4 @@ muxLLVMVal sym = merge sym muxval
 
     muxval _ v1 v2 =
       let msg = "While mixing LLVM values"
-      in return $ PartErr $ UnexpectedArgumentType msg [v1, v2]
+      in return $ PartErr $ UnexpectedArgumentType msg [Value.llvmValStorableType v1, Value.llvmValStorableType v2]

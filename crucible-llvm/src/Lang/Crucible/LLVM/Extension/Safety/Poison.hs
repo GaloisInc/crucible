@@ -31,6 +31,8 @@ module Lang.Crucible.LLVM.Extension.Safety.Poison
   ( Poison(..)
   , cite
   , explain
+  , standard
+  , detailsReg
   , pp
   , ppReg
   ) where

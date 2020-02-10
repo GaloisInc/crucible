@@ -24,11 +24,14 @@
 module Lang.Crucible.LLVM.Extension.Safety
   ( LLVMSafetyAssertion
   , BadBehavior(..)
+  , MemoryLoadError(..)
   , LLVMAssertionTree
+  , ppMemoryLoadError
   , undefinedBehavior
   , undefinedBehavior'
   , poison
   , poison'
+  , memoryLoadError
   , safe
   , detailBB
   , explainBB
@@ -43,7 +46,8 @@ import           Prelude hiding (pred)
 import           Control.Lens
 import           Data.Kind (Type)
 import           Data.Text (Text)
-import           Data.Maybe (isJust)
+import qualified Data.Text as Text
+
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -51,8 +55,6 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified What4.Interface as W4I
 import           What4.Partial.AssertionTree
 
-import           Data.Parameterized.Classes (toOrdering, fromOrdering)
-import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 import qualified Data.Parameterized.TraversableF as TF
@@ -62,6 +64,60 @@ import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.MemModel.Common
+import           Lang.Crucible.LLVM.MemModel.Type
+
+
+------------------------------------------------------------------------
+-- ** MemoryLoadError
+
+-- | The kinds of type errors that arise while reading memory/constructing LLVM
+-- values
+data MemoryLoadError =
+    TypeMismatch StorageType StorageType
+  | UnexpectedArgumentType Text [StorageType]
+  | PreviousErrors Text [MemoryLoadError]
+  | ApplyViewFail ValueView
+  | Invalid StorageType
+  | Invalidated Text
+  | NoSatisfyingWrite Doc
+  deriving (Generic)
+
+instance Pretty MemoryLoadError where
+  pretty = ppMemoryLoadError
+
+instance Show MemoryLoadError where
+  show = show . ppMemoryLoadError
+
+ppMemoryLoadError :: MemoryLoadError -> Doc
+ppMemoryLoadError =
+  \case
+    TypeMismatch ty1 ty2 ->
+      "Type mismatch: "
+      <$$> indent 2 (vcat [ text (show ty1)
+                          , text (show ty2)
+                          ])
+    UnexpectedArgumentType txt vals ->
+      vcat [ "Unexpected argument type:"
+           , text (Text.unpack txt)
+           ]
+      <$$> indent 2 (vcat (map (text . show) vals))
+    PreviousErrors txt errs ->
+      vcat [ "Operation failed due to previous errors: "
+           , text (Text.unpack txt)
+           ]
+      <$$> indent 2 (vcat (map ppMemoryLoadError errs))
+    ApplyViewFail vw ->
+      "Failure when applying value view" <+> text (show vw)
+    Invalid ty ->
+      "Load from invalid memory at type " <+> text (show ty)
+    Invalidated msg ->
+      "Load from explicitly invalidated memory:" <+> text (Text.unpack msg)
+    NoSatisfyingWrite doc ->
+      vcat
+       [ "No previous write to this location was found"
+       , indent 2 doc
+       ]
 
 -- -----------------------------------------------------------------------
 -- ** BadBehavior
@@ -71,6 +127,7 @@ import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 data BadBehavior (e :: CrucibleType -> Type) =
     BBUndefinedBehavior (UB.UndefinedBehavior e)
   | BBPoison            (Poison.Poison e)
+  | BBLoadError         MemoryLoadError
   | BBSafe                                  -- ^ This value is always safe
   deriving (Generic, Typeable)
 
@@ -79,30 +136,10 @@ data BadBehavior (e :: CrucibleType -> Type) =
 
 $(return [])
 
-instance TestEqualityC BadBehavior where
-  testEqualityC subterms =
-    $(U.structuralEquality [t|BadBehavior|]
-      [ ( U.AnyType `U.TypeApp` U.DataArg 0
-        , [| \x y -> if testEqualityC subterms x y
-                     then Just Refl
-                     else Nothing
-          |]
-        )
-      ]
-     )
-
-instance OrdC BadBehavior where
-  compareC subterms sa1 sa2 = toOrdering $
-    $(U.structuralTypeOrd [t|BadBehavior|]
-       [ ( U.AnyType `U.TypeApp` U.DataArg 0
-         , [| \x y -> fromOrdering (compareC subterms x y) |]
-         )
-       ]
-     ) sa1 sa2
-
 instance FunctorF BadBehavior where
   fmapF f (BBUndefinedBehavior ub) = BBUndefinedBehavior $ fmapF f ub
   fmapF f (BBPoison p)             = BBPoison $ fmapF f p
+  fmapF _ (BBLoadError ld)         = BBLoadError ld
   fmapF _ BBSafe                   = BBSafe
 
 instance FoldableF BadBehavior where
@@ -136,26 +173,6 @@ type LLVMAssertionTree (arch :: LLVMArch) (e :: CrucibleType -> Type) =
 -- *** Instances
 
 $(return [])
-
-instance TestEqualityC LLVMSafetyAssertion where
-  testEqualityC testSubterm (LLVMSafetyAssertion cls1 pred1 ext1)
-                            (LLVMSafetyAssertion cls2 pred2 ext2) =
-    and [ testEqualityC testSubterm cls1 cls2
-        , isJust (testSubterm pred1 pred2)
-        , ext1 == ext2
-        ]
-
-instance OrdC LLVMSafetyAssertion where
-  compareC subterms sa1 sa2 = toOrdering $
-    $(U.structuralTypeOrd [t|LLVMSafetyAssertion|]
-       [ ( U.AnyType `U.TypeApp` U.DataArg 0
-         , [| \x y -> fromOrdering (compareC subterms x y) |]
-         )
-       , ( U.DataArg 0 `U.TypeApp` U.AnyType
-         , [| subterms |]
-         )
-       ]
-     ) sa1 sa2
 
 instance FunctorF LLVMSafetyAssertion where
   fmapF f (LLVMSafetyAssertion cls pred ext) =
@@ -195,6 +212,9 @@ undefinedBehavior :: UB.UndefinedBehavior e
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
+memoryLoadError :: MemoryLoadError -> e BoolType -> LLVMSafetyAssertion e
+memoryLoadError ld pred =
+  LLVMSafetyAssertion (BBLoadError ld) pred Nothing
 
 poison' :: Poison.Poison e
         -> e BoolType
@@ -206,35 +226,6 @@ poison :: Poison.Poison e
        -> e BoolType
        -> LLVMSafetyAssertion e
 poison ub pred = LLVMSafetyAssertion (BBPoison ub) pred Nothing
-
--- undefinedBehavior' :: UB.UndefinedBehavior (W4I.SymExpr sym)
---                    -> proxy sym -- ^ Unused, resolves ambiguous types
---                    -> Pred sym
---                    -> Text
---                    -> LLVMSafetyAssertion (W4I.SymExpr sym)
--- undefinedBehavior' _proxySym ub pred expl =
---   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred (Just expl)
-
--- undefinedBehavior :: UB.UndefinedBehavior (W4I.SymExpr sym)
---                    -> proxy sym -- ^ Unused, resolves ambiguous types
---                   -> Pred sym
---                   -> LLVMSafetyAssertion (W4I.SymExpr sym)
--- undefinedBehavior _proxySym ub pred =
---   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
-
-
--- poison' :: Poison.Poison (W4I.SymExpr sym)
---         -> proxy sym  -- ^ Unused, resolves ambiguous types
---         -> Pred sym
---         -> Text
---         -> LLVMSafetyAssertion (W4I.SymExpr sym)
--- poison' _proxySym poison pred expl = LLVMSafetyAssertion (BBPoison poison) pred (Just expl)
-
--- poison :: Poison.Poison (W4I.SymExpr sym)
---        -> proxy sym  -- ^ Unused, resolves ambiguous types
---        -> Pred sym
---        -> LLVMSafetyAssertion (W4I.SymExpr sym)
--- poison _proxySym ub pred = LLVMSafetyAssertion (BBPoison ub) pred Nothing
 
 -- | For values that are always safe, but are expected to be paired with safety
 -- assertions.
@@ -253,16 +244,16 @@ predicate = lens _predicate (\s v -> s { _predicate = v})
 extra :: Simple Lens (LLVMSafetyAssertion e) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
 
-
-
 explainBB :: BadBehavior e -> Doc
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
   BBPoison p             -> Poison.explain p
+  BBLoadError ld         -> ppMemoryLoadError ld
   BBSafe                 -> text "A value that's always safe"
 
 detailBB :: W4I.IsExpr (W4I.SymExpr sym) => BadBehavior (RegValue' sym) -> Doc
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
   BBPoison p             -> Poison.ppReg p
+  BBLoadError ld         -> ppMemoryLoadError ld
   BBSafe                 -> text "A value that's always safe"

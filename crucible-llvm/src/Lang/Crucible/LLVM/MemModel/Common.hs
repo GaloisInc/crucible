@@ -401,7 +401,7 @@ data ValueView
   | ArrayElt Bytes StorageType Bytes ValueView
 
   | FieldVal (Vector (Field StorageType)) Int ValueView
-  deriving Show
+  deriving (Show, Eq, Ord)
 
 viewType :: ValueView -> Maybe StorageType
 viewType (ValueViewVar tp) = Just tp
