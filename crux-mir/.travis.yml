@@ -7,7 +7,6 @@ addons:
   apt:
     packages:
       - libnuma-dev
-      - z3
 
 env:
   global:
@@ -41,26 +40,37 @@ before_install:
         export SED=sed;
         export ZCAT=zcat;
     fi
+
   # Get ahold of ghcup
   - ( mkdir -p ~/.ghcup/bin && curl https://raw.githubusercontent.com/haskell/ghcup/master/ghcup > ~/.ghcup/bin/ghcup && chmod +x ~/.ghcup/bin/ghcup) && echo "Installed ghcup"
   - export PATH="$HOME/.cabal/bin:$HOME/.ghcup/bin:$PATH"
   - ghcup -c install-cabal
   - ghcup -c install 8.4.4
   - ghcup -c set 8.4.4
+
   # Rust
-  - curl https://sh.rustup.rs -sSf | sh -s -- -y
+  # `--profile minimal` is needed to avoid trying to install clippy
+  - curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2019-08-05 --profile minimal
   - source $HOME/.cargo/env
-  - rustup toolchain install nightly-2018-10-31
-  - rustup default nightly-2018-10-31
   - pushd .
   - cd ..
   - git clone https://github.com/GaloisInc/mir-json.git
   - cd mir-json
-  - git checkout nightly-2018-11
-  - cargo build
-  - cargo install --force
+  # Show which mir-json revision we're building
+  - git rev-parse HEAD
+  # Use `--locked` to respect Cargo.lock dependency versions
+  - RUSTC_WRAPPER=./rustc-rpath.sh cargo install --path . --locked --force
   - popd
-  - export LD_LIBRARY_PATH=$(rustc --print sysroot)/lib:$LD_LIBRARY_PATH
+
+  # Install a recent version of z3
+  - if [[ $TRAVIS_OS_NAME == 'linux' ]];
+    then
+        curl -sSfL https://github.com/Z3Prover/z3/releases/download/Nightly/z3-4.8.8-x64-ubuntu-16.04.zip -o z3.zip;
+        unzip z3.zip;
+        export PATH=$PATH:$PWD/z3-4.8.8-x64-ubuntu-16.04/bin;
+    fi
+  - z3 --version
+
 
 install:
   - which cabal
@@ -85,5 +95,6 @@ install:
 # before_script:
 
 script:
+  - ./translate_libs.sh
   - cabal new-configure --enable-tests
-  - cabal new-test
+  - cabal new-test --test-show-details=always
