@@ -495,7 +495,7 @@ llvmX86_pclmulqdq =
 
 
 llvmX86_SSE2_storeu_dq
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> VectorType (BVType 8))
@@ -546,7 +546,7 @@ callX86_pclmulqdq sym _mvar
        return $ V.fromList [ lo, hi ]
 
 callStoreudq
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)

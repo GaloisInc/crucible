@@ -244,6 +244,7 @@ populateGlobals ::
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
+  , HasLLVMAnn sym
   , IsSymInterface sym ) =>
   (L.Global -> Bool)   {- ^ Filter function, globals that cause this to return true will be populated -} ->
   sym ->
@@ -263,6 +264,7 @@ populateAllGlobals ::
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
+  , HasLLVMAnn sym
   , IsSymInterface sym ) =>
   sym ->
   GlobalInitializerMap ->
@@ -277,6 +279,7 @@ populateConstGlobals ::
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
+  , HasLLVMAnn sym
   , IsSymInterface sym ) =>
   sym ->
   GlobalInitializerMap ->
@@ -294,6 +297,7 @@ populateGlobal :: forall sym wptr.
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymInterface sym
+  , HasLLVMAnn sym
   , HasCallStack
   ) =>
   sym ->

@@ -11,6 +11,7 @@ module CruxLLVMMain (main, mainWithOutputTo, mainWithOutputConfig, registerFunct
 
 import Data.String (fromString)
 import qualified Data.Map as Map
+import Data.IORef
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad(forM_,unless)
 import Control.Monad.State(liftIO, MonadIO)
@@ -65,7 +66,9 @@ import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
-        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount, MemOptions(..), laxPointerMemOptions )
+        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
+        , MemOptions(..), laxPointerMemOptions, HasLLVMAnn, LLVMAnnMap
+        )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
         , transContext, cfgMap
@@ -133,7 +136,7 @@ makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   HandleAllocator ->
   sym ->
   MemOptions ->
@@ -159,7 +162,7 @@ parseLLVM file =
        Right m  -> return m
 
 registerFunctions ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   LLVM.Module ->
   ModuleTranslation arch ->
   OverM sym (LLVM arch) ()
@@ -176,35 +179,41 @@ registerFunctions llvm_module mtrans =
 
 -- Returns only non-trivial goals
 simulateLLVM :: Crux.SimulateCallback LLVMOptions
-simulateLLVM fs (cruxOpts,llvmOpts) sym _p cont = do
+simulateLLVM fs (cruxOpts,llvmOpts) (sym :: sym) _p cont = do
     llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     let ?laxArith = laxArithmetic llvmOpts
     Some trans <- translateModule halloc llvm_mod
     let llvmCtxt = trans ^. transContext
 
-    llvmPtrWidth llvmCtxt $ \ptrW ->
+    llvmPtrWidth llvmCtxt $ \ptrW -> do
       withPtrWidth ptrW $ do
-          let ?lc = llvmCtxt^.llvmTypeCtx
-          let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt) { printHandle = view outputHandle ?outputConfig }
-          mem <- populateAllGlobals sym (globalInitMap trans)
-                    =<< initializeAllMemory sym llvmCtxt llvm_mod
-          let globSt = llvmGlobals llvmCtxt mem
+        bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+        let ?lc = llvmCtxt^.llvmTypeCtx
 
-          let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                   runOverrideSim UnitRepr $
-                     do registerFunctions llvm_mod trans
-                        checkFun "main" (cfgMap trans)
+        -- shrug... some weird interaction between do notation and implicit parameters here...
+        -- not sure why I have to let/in this expression...
+        let ?badBehaviorMap = bbMapRef in
 
-          case pathStrategy cruxOpts of
-            AlwaysMergePaths ->
-              do res <- executeCrucible (map genericToExecutionFeature fs) initSt
-                 cont (Result res)
-            SplitAndExploreDepthFirst ->
-              do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature fs) initSt (cont . Result)
-                 say "Crux" ("Total paths explored: " ++ show i)
-                 unless (null ws) $
-                   sayWarn "Crux" (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
+           do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt) { printHandle = view outputHandle ?outputConfig }
+              mem <- populateAllGlobals sym (globalInitMap trans)
+                         =<< initializeAllMemory sym llvmCtxt llvm_mod
+              let globSt = llvmGlobals llvmCtxt mem
+
+              let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
+                        runOverrideSim UnitRepr $
+                          do registerFunctions llvm_mod trans
+                             checkFun "main" (cfgMap trans)
+
+              case pathStrategy cruxOpts of
+                 AlwaysMergePaths ->
+                   do res <- executeCrucible (map genericToExecutionFeature fs) initSt
+                      cont (Result res)
+                 SplitAndExploreDepthFirst ->
+                   do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature fs) initSt (cont . Result)
+                      say "Crux" ("Total paths explored: " ++ show i)
+                      unless (null ws) $
+                        sayWarn "Crux" (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
 
 checkFun :: (ArchOk arch, Logs) =>
             String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()

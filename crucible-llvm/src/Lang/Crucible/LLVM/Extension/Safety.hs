@@ -25,14 +25,12 @@ module Lang.Crucible.LLVM.Extension.Safety
   ( LLVMSafetyAssertion
   , BadBehavior(..)
   , MemoryLoadError(..)
-  , LLVMAssertionTree
   , ppMemoryLoadError
   , undefinedBehavior
   , undefinedBehavior'
   , poison
   , poison'
   , memoryLoadError
-  , safe
   , detailBB
   , explainBB
     -- ** Lenses
@@ -53,7 +51,6 @@ import           GHC.Generics (Generic)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified What4.Interface as W4I
-import           What4.Partial.AssertionTree
 
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
@@ -61,7 +58,6 @@ import qualified Data.Parameterized.TraversableF as TF
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
-import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Common
@@ -126,9 +122,7 @@ ppMemoryLoadError =
 --
 data BadBehavior (e :: CrucibleType -> Type) =
     BBUndefinedBehavior (UB.UndefinedBehavior e)
-  | BBPoison            (Poison.Poison e)
   | BBLoadError         MemoryLoadError
-  | BBSafe                                  -- ^ This value is always safe
   deriving (Generic, Typeable)
 
 -- -----------------------------------------------------------------------
@@ -138,9 +132,7 @@ $(return [])
 
 instance FunctorF BadBehavior where
   fmapF f (BBUndefinedBehavior ub) = BBUndefinedBehavior $ fmapF f ub
-  fmapF f (BBPoison p)             = BBPoison $ fmapF f p
   fmapF _ (BBLoadError ld)         = BBLoadError ld
-  fmapF _ BBSafe                   = BBSafe
 
 instance FoldableF BadBehavior where
   foldMapF = TF.foldMapFDefault
@@ -157,7 +149,6 @@ instance TraversableF BadBehavior where
 -- -----------------------------------------------------------------------
 -- ** LLVMSafetyAssertion
 
--- TODO: Consider making this an instance of What4's 'LabeledPred'
 data LLVMSafetyAssertion (e :: CrucibleType -> Type) =
   LLVMSafetyAssertion
     { _classifier :: BadBehavior e -- ^ What could have gone wrong?
@@ -165,9 +156,6 @@ data LLVMSafetyAssertion (e :: CrucibleType -> Type) =
     , _extra      :: Maybe Text    -- ^ Additional human-readable context
     }
   deriving (Generic, Typeable)
-
-type LLVMAssertionTree (arch :: LLVMArch) (e :: CrucibleType -> Type) =
-  AssertionTree (e BoolType) (LLVMSafetyAssertion e)
 
 -- -----------------------------------------------------------------------
 -- *** Instances
@@ -220,17 +208,14 @@ poison' :: Poison.Poison e
         -> e BoolType
         -> Text
         -> LLVMSafetyAssertion e
-poison' poison_ pred expl = LLVMSafetyAssertion (BBPoison poison_) pred (Just expl)
+poison' poison_ pred expl =
+  LLVMSafetyAssertion (BBUndefinedBehavior (UB.PoisonValueCreated poison_)) pred (Just expl)
 
 poison :: Poison.Poison e
        -> e BoolType
        -> LLVMSafetyAssertion e
-poison ub pred = LLVMSafetyAssertion (BBPoison ub) pred Nothing
-
--- | For values that are always safe, but are expected to be paired with safety
--- assertions.
-safe :: W4I.IsExprBuilder sym => sym -> LLVMSafetyAssertion (RegValue' sym)
-safe sym = LLVMSafetyAssertion BBSafe (RV (W4I.truePred sym)) (Just "always safe")
+poison poison_ pred =
+  LLVMSafetyAssertion (BBUndefinedBehavior (UB.PoisonValueCreated poison_)) pred Nothing
 
 -- -----------------------------------------------------------------------
 -- ** Lenses
@@ -247,13 +232,9 @@ extra = lens _extra (\s v -> s { _extra = v})
 explainBB :: BadBehavior e -> Doc
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
-  BBPoison p             -> Poison.explain p
   BBLoadError ld         -> ppMemoryLoadError ld
-  BBSafe                 -> text "A value that's always safe"
 
 detailBB :: W4I.IsExpr (W4I.SymExpr sym) => BadBehavior (RegValue' sym) -> Doc
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
-  BBPoison p             -> Poison.ppReg p
   BBLoadError ld         -> ppMemoryLoadError ld
-  BBSafe                 -> text "A value that's always safe"
