@@ -97,4 +97,4 @@ install:
 script:
   - ./translate_libs.sh
   - cabal new-configure --enable-tests
-  - cabal new-test
+  - cabal new-test --test-show-details=always
