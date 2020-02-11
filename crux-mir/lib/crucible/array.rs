@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use crate::symbolic::Symbolic;
 
 #[derive(Copy)]
 pub struct Array<T>(PhantomData<T>);
@@ -39,6 +40,16 @@ impl<T: Copy> Array<T> {
 
     pub fn as_mut_slice(&mut self, start: usize, len: usize) -> &mut [T] {
         unimplemented!("Array::as_mut_slice")
+    }
+}
+
+fn symbolic<T>(desc: &'static str) -> Array<T> {
+    unimplemented!("Array::symbolic")
+}
+
+impl<T> Symbolic for Array<T> {
+    fn symbolic(desc: &'static str) -> Array<T> {
+        symbolic(desc)
     }
 }
 

@@ -52,7 +52,7 @@ import What4.Interface
 import Crux.Model (addVar)
 import Crux.Types (Model)
 
-import Mir.Intrinsics (MIR, SizeBits, MirImmSlice, pattern MirImmSliceRepr, MirVector(..))
+import Mir.Intrinsics
 import Mir.DefId
 
 import Debug.Trace
@@ -75,11 +75,38 @@ getString _ (Empty :> RV mirVec :> RV startExpr :> RV lenExpr)
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
 
+array_symbolic ::
+  forall sym rtp btp .
+  (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
+  BaseTypeRepr btp ->
+  OverrideSim (Model sym) sym MIR rtp
+    (EmptyCtx ::> MirImmSlice (BVType 8)) (UsizeArrayType btp)
+    (RegValue sym (UsizeArrayType btp))
+array_symbolic btpr = do
+    (sym :: sym) <- getSymInterface
+    RegMap (Empty :> nameReg) <- getOverrideArgs
+    name <- maybe (fail "not a constant string") (pure . Text.unpack) (getString sym (regValue nameReg))
+    nameSymbol <- case userSymbol name of
+        Left err -> fail $ "invalid symbolic variable name " ++ show name ++ ": " ++ show err
+        Right x -> return x
+    let btpr' = BaseArrayRepr (Empty :> BaseUsizeRepr) btpr
+    v <- liftIO $ freshConstant sym nameSymbol btpr'
+    loc <- liftIO $ getCurrentProgramLoc sym
+    stateContext.cruciblePersonality %= addVar loc name btpr' v
+    return v
+
 bindFn ::
   forall args ret blocks sym rtp a r .
   (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
   Text -> CFG MIR blocks args ret ->
   OverrideSim (Model sym) sym MIR rtp a r ()
+bindFn name cfg
+  | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> MirImmSliceRepr (BVRepr w) <- cfgArgTypes cfg
+  , UsizeArrayRepr btpr <- cfgReturnType cfg
+  , Just Refl <- testEquality w (knownNat @8)
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "array::symbolic" (UsizeArrayRepr btpr) (array_symbolic btpr)
 bindFn fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
@@ -178,4 +205,20 @@ bindFn fn cfg =
                        let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
                        liftIO $ addAssumption s (LabeledPred (regValue c) reason)
                        return ()
+               , override "crucible::array::symbolic" (Empty :> strrepr) (UsizeArrayRepr (BaseBVRepr (knownNat @8))) $ do
+                    RegMap (Empty :> str) <- getOverrideArgs
+                    let sym = (undefined :: sym)
+                    x <- maybe (fail "not a constant string") pure (getString sym (regValue str))
+                    let xStr = Text.unpack x
+                    let y = filter ((/=) '\"') xStr
+                    nname <-
+                      case userSymbol y of
+                        Left err -> fail (show err ++ " " ++ y)
+                        Right a -> return a
+                    s <- getSymInterface
+                    let btpr = BaseArrayRepr (Empty :> BaseUsizeRepr) (BaseBVRepr (knownNat @8))
+                    v <- liftIO (freshConstant s nname btpr)
+                    loc   <- liftIO $ getCurrentProgramLoc s
+                    stateContext.cruciblePersonality %= addVar loc xStr btpr v
+                    return v
                ]
