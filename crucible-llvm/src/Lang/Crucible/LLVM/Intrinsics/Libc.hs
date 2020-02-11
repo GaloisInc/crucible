@@ -191,7 +191,7 @@ llvmMallocOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
 
 posixMemalignOverride ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   LLVMOverride p sym arch
       (EmptyCtx ::> LLVMPointerType wptr
                 ::> BVType wptr
@@ -215,7 +215,7 @@ llvmFreeOverride =
 -- *** Strings and I/O
 
 llvmPrintfOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> VectorType AnyType)
@@ -225,7 +225,7 @@ llvmPrintfOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callPrintf sym memOps) args)
 
 llvmPrintfChkOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> BVType 32
                    ::> LLVMPointerType wptr
@@ -245,14 +245,14 @@ llvmPutCharOverride =
 
 
 llvmPutsOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
 llvmPutsOverride =
   [llvmOvr| i32 @puts( i8* ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callPuts sym memOps) args)
 
 llvmStrlenOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
 llvmStrlenOverride =
   [llvmOvr| size_t @strlen( i8* ) |]
@@ -303,7 +303,7 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
 
 
 callPosixMemalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -443,7 +443,7 @@ callPutChar _sym _mvar
     return ch
 
 callPuts
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -458,7 +458,7 @@ callPuts sym mvar
     liftIO $ bvLit sym knownNat 1
 
 callStrlen
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -468,7 +468,7 @@ callStrlen sym mvar (regValue -> strPtr) = do
   liftIO $ strLen sym mem strPtr
 
 callPrintf
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -488,7 +488,7 @@ callPrintf sym mvar
         liftIO $ hPutStr h str
         liftIO $ bvLit sym knownNat (toInteger n)
 
-printfOps :: (IsSymInterface sym, HasPtrWidth wptr)
+printfOps :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
           => sym
           -> V.Vector (AnyValue sym)
           -> PrintfOperations (StateT (MemImpl sym) IO)
