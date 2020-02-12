@@ -127,7 +127,7 @@ makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
                        _ -> False
 
       in case (res, skipGoal) of
-           (NotProved (Just m), False) ->
+           (NotProved _ (Just m), False) ->
              do sayFail "Crux" ("Counter example for " ++ msg)
                 (_prt,dbg) <- buildModelExes opts suff (ppModelC m)
                 say "Crux" ("*** debug executable: " ++ dbg)

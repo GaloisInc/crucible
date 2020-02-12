@@ -2,6 +2,7 @@
 module Crux.Types where
 
 import Data.Parameterized.Map (MapF)
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.Simulator.RegMap(RegValue)
 import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
@@ -18,7 +19,7 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.Types
 
 
--- | A simulator context 
+-- | A simulator context
 type SimCtxt sym p = SimContext (Model sym) sym p
 
 -- | The instance of the override monad we use,
@@ -56,7 +57,9 @@ data Result sym where
 
 data ProofResult a
    = Proved [a]
-   | NotProved (Maybe ModelView)   -- ^ Counter example, if any
+   | NotProved Doc (Maybe ModelView)
+        -- ^ Counter example, if any, and a detailed explanation of the failed goal
+
  deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)
@@ -65,12 +68,16 @@ data ProvedGoals a =
     AtLoc ProgramLoc (Maybe ProgramLoc) (ProvedGoals a)
   | Branch (ProvedGoals a) (ProvedGoals a)
   | Goal [(AssumptionReason,String)]
-         (SimError,String) Bool (ProofResult a)
+         (SimError,String)
+         Bool
+         (ProofResult a)
     -- ^ Keeps only the explanations for the relevant assumptions.
     -- The 'Maybe Int' in the assumptions corresponds to its depth in the tree
     -- (i.e., the step number, if this is a path assumption)
     -- The 'Bool' indicates if the goal is trivial (i.e., the assumptions
     -- are inconsistent)
+    -- The 'Doc' is a detailed explanation of the goal failure
+
 
 -- From Model
 
@@ -110,7 +117,3 @@ data Entry ty       = Entry { entryName :: String
 -- that type for the given model, used to describe the
 -- conditions under which an SMT query is satisfiable.
 newtype ModelView = ModelView { modelVals :: MapF BaseTypeRepr Vals }
-
-
-
-

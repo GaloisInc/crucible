@@ -100,7 +100,7 @@ jsSideCond ::
   ProofResult b ->
   JS
 jsSideCond cwd path asmps (conc,_) triv status =
-  jsObj
+  jsObj $
   [ "status"          ~> proved
   , "counter-example" ~> example
   , "goal"            ~> jsStr goalReason
@@ -108,17 +108,23 @@ jsSideCond cwd path asmps (conc,_) triv status =
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
   , "path"            ~> jsList path
-  ]
+  ] ++ details
   where
   proved = case (status, simErrorReason conc) of
              (Proved{}, _) -> jsStr "ok"
-             (NotProved _, ResourceExhausted _) -> jsStr "unknown"
-             (NotProved Nothing, _) -> jsStr "unknown"
-             (NotProved (Just _), _) -> jsStr "fail"
+             (NotProved _ _, ResourceExhausted _) -> jsStr "unknown"
+             (NotProved _ Nothing, _) -> jsStr "unknown"
+             (NotProved _ (Just _), _) -> jsStr "fail"
 
   example = case status of
-             NotProved (Just m) -> JS (ppModelJS cwd m)
-             _                  -> jsNull
+             NotProved _ (Just m) -> JS (ppModelJS cwd m)
+             _                    -> jsNull
+
+  details = case status of
+              Proved{} -> []
+              NotProved dets _ ->
+                let detStr = show dets in
+                if null detStr then [] else [ "goaldetails" ~> jsStr (show dets) ]
 
   mkAsmp (asmp,_) =
     jsObj [ "loc" ~> jsLoc cwd (assumptionLoc asmp)
