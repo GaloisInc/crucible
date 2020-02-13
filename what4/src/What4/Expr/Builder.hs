@@ -980,8 +980,7 @@ iteSize e =
     _ -> 0
 
 instance IsExpr (Expr t) where
-  asConstantPred (BoolExpr b _) = Just b
-  asConstantPred _ = Nothing
+  asConstantPred = exprAbsValue
 
   asNat (SemiRingLiteral SR.SemiRingNatRepr n _) = Just n
   asNat _ = Nothing
