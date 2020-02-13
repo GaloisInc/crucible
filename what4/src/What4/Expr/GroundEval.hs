@@ -185,14 +185,15 @@ evalGroundNonceApp :: MonadFail m
                    => (forall u . Expr t u -> MaybeT m (GroundValue u))
                    -> NonceApp t (Expr t) tp
                    -> MaybeT m (GroundValue tp)
-evalGroundNonceApp _ a0 = lift $ fail $
+evalGroundNonceApp fn a0 =
   case a0 of
-    Forall{} -> "The ground evaluator does not support quantifiers."
-    Exists{} -> "The ground evaluator does not support quantifiers."
-    MapOverArrays{} -> "The ground evaluator does not support mapping arrays from arbitrary functions."
-    ArrayFromFn{} -> "The ground evaluator does not support arrays from arbitrary functions."
-    ArrayTrueOnEntries{} -> "The ground evaluator does not support arrayTrueOnEntries."
-    FnApp{}  -> "The ground evaluator does not support function applications."
+    Annotation _ _ t -> fn t
+    Forall{} ->  lift $ fail $ "The ground evaluator does not support quantifiers."
+    Exists{} ->  lift $ fail $ "The ground evaluator does not support quantifiers."
+    MapOverArrays{} ->  lift $ fail $ "The ground evaluator does not support mapping arrays from arbitrary functions."
+    ArrayFromFn{} ->  lift $ fail $ "The ground evaluator does not support arrays from arbitrary functions."
+    ArrayTrueOnEntries{} ->  lift $ fail $ "The ground evaluator does not support arrayTrueOnEntries."
+    FnApp{} -> lift $ fail $ "The ground evaluator does not support function applications."
 
 {-# INLINABLE evalGroundApp #-}
 

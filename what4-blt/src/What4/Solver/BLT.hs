@@ -411,6 +411,8 @@ assume _ (BoundVarExpr v) =
 #if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
 assume _ (SemiRingLiteral sr _ _) = case sr of {}
 #endif
+assume h (NonceAppExpr (nonceExprApp -> Annotation _ _ x)) =
+  assume h x
 assume _ (NonceAppExpr e) =
   fail . show $
     text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
@@ -541,6 +543,8 @@ evalReal' _ (BoundVarExpr v) =
 evalReal' h (SemiRingLiteral SemiRingRealRepr r _) = do
   when (isVerb h) $ putStrLn ("BLT@evalReal: rational const " ++ show r)
   return (mkBLT r)
+evalReal' h (NonceAppExpr (nonceExprApp -> Annotation _ _ x)) =
+  evalReal' h x
 evalReal' _ (NonceAppExpr ea) =
   failAt (nonceExprLoc ea) "symbolic functions"
 evalReal' h epr@(AppExpr epa) = do
@@ -617,6 +621,8 @@ evalInteger' h (SemiRingLiteral SemiRingIntegerRepr i _) = do
   when (isVerb h) $ putStrLn ("BLT@evalInteger: integer const " ++ show i)
   return $ mkBLT (toRational i)
 -- Match expression
+evalInteger' h (NonceAppExpr (nonceExprApp -> Annotation _ _ x)) =
+  evalInteger' h x
 evalInteger' _ (NonceAppExpr ea) =
   failAt (nonceExprLoc ea) "symbolic functions"
 evalInteger' h (AppExpr epa) = do
@@ -645,6 +651,8 @@ evalCplx _ (BoundVarExpr i) = failAt (bvarLoc i) "Complex variables"
 #if !MIN_VERSION_GLASGOW_HASKELL(8,8,0,0)
 evalCplx _ (SemiRingLiteral sr _ _) = case sr of {}
 #endif
+evalCplx h (NonceAppExpr (nonceExprApp -> Annotation _ _ x)) =
+  evalCplx h x
 evalCplx _ (NonceAppExpr ea) =
   failAt (nonceExprLoc ea) "symbolic functions"
 evalCplx h (AppExpr ea) =

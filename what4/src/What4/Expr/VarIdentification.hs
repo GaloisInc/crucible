@@ -371,6 +371,8 @@ recurseNonceAppVars :: forall s t tp. Scope -> NonceAppExpr t tp -> VarRecorder 
 recurseNonceAppVars scope ea0 = do
   let a0 = nonceExprApp ea0
   case a0 of
+    Annotation _ _ x ->
+      recordExprVars scope x
     Forall v x ->
       addBothVar scope ea0 ForallBound v x
     Exists v x ->
