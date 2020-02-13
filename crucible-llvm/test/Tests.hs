@@ -45,6 +45,7 @@ import           Data.Foldable
 import           Data.Sequence (Seq)
 import           Control.Monad
 import           Control.Monad.Except
+import           Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -361,12 +362,20 @@ userSymbol' s = case What4.userSymbol s of
 
 withMem ::
   EndianForm ->
-  (forall sym scope solver fs wptr . (sym ~ Crucible.OnlineBackend scope solver fs, Crucible.IsSymInterface sym, What4.OnlineSolver scope solver, HasPtrWidth wptr) => sym -> MemImpl sym -> IO a) ->
+  (forall sym scope solver fs wptr .
+    ( sym ~ Crucible.OnlineBackend scope solver fs
+    , Crucible.IsSymInterface sym
+    , HasLLVMAnn sym
+    , What4.OnlineSolver scope solver
+    , HasPtrWidth wptr ) =>
+    sym -> MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
   Crucible.withZ3OnlineBackend What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures $ \sym -> do
     let ?ptrWidth = knownNat @64
     mem <- emptyMem endianess
+    bbMapRef <- newIORef mempty
+    let ?badBehaviorMap = bbMapRef
     action sym mem
 
 assume :: Crucible.IsSymInterface sym => sym -> What4.Pred sym -> IO ()
