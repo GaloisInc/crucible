@@ -29,5 +29,5 @@ library
     Lang.Crucible.Backend.SAWCore
 --    Lang.Crucible.Solver.ExtractSAWCore
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
