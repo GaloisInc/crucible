@@ -77,7 +77,7 @@ library
     Lang.Crucible.Server.Verification.Harness
     Lang.Crucible.Server.Verification.Override
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
 
 
@@ -98,7 +98,7 @@ executable crucible-server
     saw-core,
     text
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
 
   main-is: Main_crucible.hs
   hs-source-dirs:

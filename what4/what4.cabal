@@ -124,7 +124,7 @@ library
     What4.Utils.StringLiteral
     What4.Utils.Word16String
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
   if impl(ghc >= 8.6)
     default-extensions: NoStarIsType
@@ -148,7 +148,7 @@ test-suite expr-builder-smtlib2
     versions,
     what4
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
 
 test-suite exprs_tests
   type: exitcode-stdio-1.0
@@ -168,7 +168,7 @@ test-suite exprs_tests
                , tasty-hedgehog
                , what4
 
-  ghc-options: -Wall -Wcompat
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
 
 test-suite iteexprs_tests
   type: exitcode-stdio-1.0
@@ -188,4 +188,4 @@ test-suite iteexprs_tests
                , tasty-hedgehog
                , what4
 
-  ghc-options: -Wall -Wcompat
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
