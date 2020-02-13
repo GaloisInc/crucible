@@ -21,6 +21,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
+import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -40,7 +41,8 @@ import Data.Parameterized.Some
 import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
 
-import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..))
+import qualified What4.Expr.ArrayUpdateMap as AUM
+import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..), GroundArray(..))
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
 import What4.LabeledPred (LabeledPred(..))
@@ -154,8 +156,30 @@ groundExpr sym tpr v = case tpr of
     BaseBVRepr w -> bvLit sym w v
     BaseComplexRepr -> mkComplexLit sym v
     BaseStringRepr _ -> stringLit sym v
+    -- TODO: this case is implemented, but always hits the `ArrayMapping` case,
+    -- which fails.  It seems like z3 always returns a function for array
+    -- instances.  Fixing this would require Crucible changes to recognize
+    -- the if/else tree used for array instances and produce `ArrayConcrete`
+    -- instead of `ArrayMapping` in that case.
+    BaseArrayRepr idxTprs tpr' -> case v of
+        ArrayMapping _ -> fail "groundExpr: can't convert array backed by function"
+        ArrayConcrete dfl vals -> do
+            dfl' <- groundExpr sym tpr' dfl
+            vals' <- mapM (\(idxs, val) -> do
+                idxs' <- Ctx.zipWithM (indexExpr sym) idxTprs idxs
+                val' <- groundExpr sym tpr' val
+                return (idxs', val')) $ Map.toList vals
+            arr0 <- constantArray sym idxTprs dfl'
+            foldM (\arr (idxs, val) -> arrayUpdate sym arr idxs val) arr0 vals'
     _ -> addFailedAssertion sym $ GenericSimError $
         "groundExpr: conversion of " ++ show tpr ++ " is not yet implemented"
+
+indexExpr :: (IsExprBuilder sym, IsBoolSolver sym) =>
+    sym -> BaseTypeRepr tp -> IndexLit tp -> IO (SymExpr sym tp)
+indexExpr sym tpr l = case l of
+    NatIndexLit n -> natLit sym n
+    BVIndexLit w i -> bvLit sym w i
+
 
 regEval ::
     forall sym tp .
@@ -169,6 +193,35 @@ regEval sym baseEval tpr v = go tpr v
   where
     go :: forall tp' . TypeRepr tp' -> RegValue sym tp' -> IO (RegValue sym tp')
     go tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
+
+    -- Special case for slices.  The issue here is that we can't evaluate
+    -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
+    -- evaluating lookups at every index inside the slice bounds.
+    go (MirImmSliceRepr tpr') (Empty :> RV vec :> RV start :> RV len) = case vec of
+        MirVector_Vector v -> do
+            v' <- go (VectorRepr tpr') v
+            start' <- go UsizeRepr start
+            len' <- go UsizeRepr len
+            return $ Empty :> RV (MirVector_Vector v') :> RV start' :> RV len'
+
+        MirVector_Array a -> do
+            start' <- go UsizeRepr start
+            len' <- go UsizeRepr len
+
+            -- start' and len' should be concrete bitvectors.  Iterate over
+            -- the range `0 .. len'`, evaluating an array lookup at each index.
+            let startBV = fromMaybe (error "regEval produced non-concrete BV") $
+                    asUnsignedBV start'
+            let lenBV = fromMaybe (error "regEval produced non-concrete BV") $
+                    asUnsignedBV len'
+            v' <- liftM V.fromList $ forM [0 .. lenBV] $ \i -> do
+                iExpr <- bvLit sym knownNat (startBV + i)
+                x <- arrayLookup sym a (Empty :> iExpr)
+                go tpr' x
+
+            zero <- bvLit sym knownNat 0
+            return $ Empty :> RV (MirVector_Vector v') :> RV zero :> RV len'
+
     go (FloatRepr fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
     go UnitRepr () = pure ()
