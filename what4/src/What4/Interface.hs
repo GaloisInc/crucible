@@ -63,6 +63,7 @@ module What4.Interface
     SymExpr
   , BoundVar
   , SymFn
+  , SymAnnotation
 
     -- ** Expression recognizers
   , IsExpr(..)
@@ -236,6 +237,10 @@ type family BoundVar (sym :: Type) :: BaseType -> Type
 
 
 ------------------------------------------------------------------------
+-- | Type used to uniquely identify expressions that have been annotated.
+type family SymAnnotation (sym :: Type) :: BaseType -> Type
+
+------------------------------------------------------------------------
 -- IsBoolSolver
 
 -- | Perform an ite on a predicate lazily.
@@ -381,7 +386,10 @@ data SolverEvent
 -- if it is concretely obvious that the function results in an undefined
 -- value; but otherwise they will silently produce an unspecified value
 -- of the expected type.
-class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
+class ( IsExpr (SymExpr sym), HashableF (SymExpr sym)
+      , TestEquality (SymAnnotation sym), OrdF (SymAnnotation sym)
+      , HashableF (SymAnnotation sym)
+      ) => IsExprBuilder sym where
 
   -- | Retrieve the configuration object corresponding to this solver interface.
   getConfiguration :: sym -> Config
@@ -454,6 +462,18 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
+
+  -- | Given a symbolic expression, annotate it with a unique identifier
+  --   that can be used to maintain a connection with the given term.
+  --   The 'SymAnnotation' is intended to be used as the key in a hash
+  --   table or map to additional data can be maintained alongside the terms.
+  --   The returned 'SymExpr' has the same semantics as the arugmnent, but
+  --   has embedded in it the 'SymAnnotation' value so that it can be used
+  --   later during term traversals.
+  --
+  --   Note, the returne annotation is not necessarily unique; if an already-annotated
+  --   term is passed in, the same annotation value will be returned.
+  annotateTerm :: sym -> SymExpr sym tp -> IO (SymAnnotation sym tp, SymExpr sym tp)
 
   ----------------------------------------------------------------------
   -- Boolean operations.

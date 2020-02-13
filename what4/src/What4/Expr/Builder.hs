@@ -1509,6 +1509,7 @@ data ExprBuilder t (st :: Type -> Type) (fs :: Type)
 type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
 type instance SymExpr (ExprBuilder t st fs) = Expr t
 type instance BoundVar (ExprBuilder t st fs) = ExprBoundVar t
+type instance SymAnnotation (ExprBuilder t st fs) = Nonce t
 
 ------------------------------------------------------------------------
 -- abstractEval
@@ -4044,6 +4045,15 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     nonLinearOps <- readIORef (sbNonLinearOps sb)
     return $ Statistics { statAllocs = allocs
                         , statNonLinearOps = nonLinearOps }
+
+  annotateTerm sym e =
+    case e of
+      NonceAppExpr (nonceExprApp -> Annotation _ n _) -> return (n, e)
+      _ -> do
+        let tpr = exprType e
+        n <- sbFreshIndex sym
+        e' <- sbNonceExpr sym (Annotation tpr n e)
+        return (n, e')
 
   ----------------------------------------------------------------------
   -- Program location operations
