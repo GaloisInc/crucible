@@ -166,10 +166,10 @@ proveGoalsOffline :: forall st sym p asmp ast t fs
 proveGoalsOffline _adapter _opts _ctx Nothing = return Nothing
 proveGoalsOffline adapter opts ctx (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0)
-  Just <$> go goalNum [] gs0
+  (Just <$> go goalNum [] gs0) <* finish
   where
-    (start,end)
-      | view quiet ?outputConfig = (\_ -> return (), return ())
+    (start,end,finish)
+      | view quiet ?outputConfig = (\_ -> return (), return (), return ())
       | otherwise = prepStatus "Checking: " (countGoals gs0)
 
     withTimeout action
@@ -213,15 +213,16 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
                 -- NOTE: We don't have an easy way to get an unsat core here
                 -- because we don't have a solver connection.
                 let core = fmap Left (F.toList (mconcat assumptionsInScope))
+                end
                 return (Prove (p, Proved core))
               Sat (evalFn, _) -> do
                 modifyIORef' goalNum (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
+                end
                 when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
                 let model = ctx ^. cruciblePersonality
                 vals <- evalModel evalFn model
                 return (Prove (p, NotProved (Just (ModelView vals))))
-              Unknown -> return (Prove (p, NotProved Nothing))
-          end
+              Unknown -> end >> return (Prove (p, NotProved Nothing))
           case mres of
             Just res -> return res
             Nothing -> return (Prove (p, NotProved Nothing))
@@ -258,10 +259,11 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
        sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- withSolverProcess sym $ \sp ->
               inNewFrame sp (go sp goalNum gs0 nameMap)
+     finish
      return (Just res)
   where
-  (start,end)
-    | view quiet ?outputConfig = (\_ -> return (), return ())
+  (start,end, finish)
+    | view quiet ?outputConfig = (\_ -> return (), return (), return ())
     | otherwise = prepStatus "Checking: " (countGoals gs0)
 
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
@@ -295,18 +297,19 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
+                           end
                            return (Prove (p, (Proved core)))
 
                       Sat ()  ->
                         do modifyIORef' gn (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
-                           when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
                            vals <- evalModel f model
+                           end
+                           when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            return (Prove (p, NotProved (Just (ModelView vals))))
 
-                      Unknown -> return (Prove (p, NotProved Nothing))
-           end
+                      Unknown -> end >> return (Prove (p, NotProved Nothing))
            return ret
 
       ProveConj g1 g2 ->
