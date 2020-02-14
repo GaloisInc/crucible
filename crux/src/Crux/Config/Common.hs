@@ -186,7 +186,7 @@ cruxOptions = Config
           floatMode <-
             section "floating-point" stringSpec "default"
             (pack $ "Select floating point representation,"
-             ++ " i.e. one of [real|ieee|uninterpreted|default].\n"
+             ++ " i.e. one of [real|ieee|uninterpreted|default]. "
              ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
 
           quietMode <-
@@ -301,7 +301,7 @@ cruxOptions = Config
 
       , Option "f" ["floating-point"]
         ("Select floating point representation,"
-         ++ " i.e. one of [real|ieee|uninterpreted|default].\n"
+         ++ " i.e. one of [real|ieee|uninterpreted|default]. "
          ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
         $ ReqArg "floating-point" $ \v opts -> Right opts { floatMode = map toLower v }
       ]
