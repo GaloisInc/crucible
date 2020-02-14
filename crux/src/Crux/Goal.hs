@@ -18,7 +18,7 @@ import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified System.Timeout as ST
-
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import What4.Interface (notPred, printSymExpr,asConstantPred)
 import qualified What4.Interface as WI
@@ -87,8 +87,8 @@ countDisprovedGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countDisprovedGoals gs1
     Branch gs1 gs2 -> countDisprovedGoals gs1 + countDisprovedGoals gs2
-    Goal _ _ _ (NotProved (Just _)) -> 1
-    Goal _ _ _ (NotProved Nothing) -> 0
+    Goal _ _ _ (NotProved _ (Just _)) -> 1
+    Goal _ _ _ (NotProved _ Nothing) -> 0
     Goal _ _ _ (Proved _) -> 0
 
 countUnknownGoals :: ProvedGoals a -> Int
@@ -96,8 +96,8 @@ countUnknownGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countUnknownGoals gs1
     Branch gs1 gs2 -> countUnknownGoals gs1 + countUnknownGoals gs2
-    Goal _ _ _ (NotProved Nothing) -> 1
-    Goal _ _ _ (NotProved (Just _)) -> 0
+    Goal _ _ _ (NotProved _ Nothing) -> 1
+    Goal _ _ _ (NotProved _ (Just _)) -> 0
     Goal _ _ _ (Proved _) -> 0
 
 countProvedGoals :: ProvedGoals a -> Int
@@ -105,7 +105,7 @@ countProvedGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countProvedGoals gs1
     Branch gs1 gs2 -> countProvedGoals gs1 + countProvedGoals gs2
-    Goal _ _ _ (NotProved _) -> 0
+    Goal _ _ _ (NotProved _ _) -> 0
     Goal _ _ _ (Proved _) -> 1
 
 countIncompleteGoals :: ProvedGoals a -> Int
@@ -113,7 +113,7 @@ countIncompleteGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countIncompleteGoals gs1
     Branch gs1 gs2 -> countIncompleteGoals gs1 + countIncompleteGoals gs2
-    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved (Just _)) -> 1
+    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved _ (Just _)) -> 1
     Goal _ _ _ _ -> 0
 
 proveToGoal ::
@@ -125,7 +125,7 @@ proveToGoal ::
   ProvedGoals (Either AssumptionReason SimError)
 proveToGoal _ allAsmps p pr =
   case pr of
-    NotProved cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved cex)
+    NotProved details cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved details cex)
     Proved xs ->
       let xs' = map (either (Left . (view labeledPredMsg)) (Right . (view labeledPredMsg))) xs in
       case partitionEithers xs of
@@ -219,12 +219,12 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
                 when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
                 let model = ctx ^. cruciblePersonality
                 vals <- evalModel evalFn model
-                return (Prove (p, NotProved (Just (ModelView vals))))
-              Unknown -> return (Prove (p, NotProved Nothing))
+                return (Prove (p, NotProved mempty (Just (ModelView vals))))
+              Unknown -> return (Prove (p, NotProved mempty Nothing))
           end
           case mres of
             Just res -> return res
-            Nothing -> return (Prove (p, NotProved Nothing))
+            Nothing -> return (Prove (p, NotProved mempty Nothing))
 
 
 
@@ -303,9 +303,9 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                            f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
                            vals <- evalModel f model
-                           return (Prove (p, NotProved (Just (ModelView vals))))
+                           return (Prove (p, NotProved (text "found counterexample!") (Just (ModelView vals))))
 
-                      Unknown -> return (Prove (p, NotProved Nothing))
+                      Unknown -> return (Prove (p, NotProved mempty Nothing))
            end
            return ret
 

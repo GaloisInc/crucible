@@ -28,4 +28,4 @@ executable crucible-mc
     pretty
   hs-source-dirs:      exe
   default-language:    Haskell2010
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns

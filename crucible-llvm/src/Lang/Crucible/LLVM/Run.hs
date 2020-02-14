@@ -47,7 +47,7 @@ import Lang.Crucible.LLVM.Translation
         (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap,llvmPtrWidth,llvmTypeCtx)
 import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeAllMemory)
 
-import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth,MemOptions)
+import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth,MemOptions,HasLLVMAnn)
 
 import Lang.Crucible.LLVM.Extension(ArchWidth)
 
@@ -61,7 +61,7 @@ newtype CruxLLVM res =
 
 -- | Generic Crucible initialization.
 data Setup ext res =
-  forall p t sym. IsSymInterface sym =>
+  forall p t sym. (IsSymInterface sym, HasLLVMAnn sym) =>
   Setup
   { cruxOutput :: Handle
     -- ^ Print stuff here.

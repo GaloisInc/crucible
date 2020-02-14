@@ -31,6 +31,8 @@ module Lang.Crucible.LLVM.Extension.Safety.Poison
   ( Poison(..)
   , cite
   , explain
+  , standard
+  , detailsReg
   , pp
   , ppReg
   ) where
@@ -48,9 +50,8 @@ import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
 
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
-import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.Types
-import qualified What4.Interface as W4I
+--import qualified What4.Interface as W4I
 
 data Poison (e :: CrucibleType -> Type) where
   -- | Arguments: @op1@, @op2@
@@ -231,12 +232,9 @@ explain =
       , "flag set."
       ]
 
-detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
-           => proxy sym
-           -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-           -> Poison (RegValue' sym)
-           -> [Doc]
-detailsReg _proxySym = const [] -- TODO: details
+detailsReg ::
+  Poison e -> [Doc]
+detailsReg = const [] -- TODO: details
   -- \case
   --   AddNoUnsignedWrap _ _ -> _
   --   AddNoSignedWrap _ _ -> _
@@ -270,12 +268,8 @@ pp extra poison = vcat $
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
-ppReg :: W4I.IsExpr (W4I.SymExpr sym)
-      => proxy sym
-      -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-      -> Poison (RegValue' sym)
-      -> Doc
-ppReg proxySym = pp (detailsReg proxySym)
+ppReg :: Poison e -> Doc
+ppReg = pp detailsReg
 
 -- -----------------------------------------------------------------------
 -- ** Instances

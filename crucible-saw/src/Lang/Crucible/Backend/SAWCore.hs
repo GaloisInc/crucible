@@ -820,6 +820,10 @@ evaluateExpr sym sc cache = f []
 
     go env (B.NonceAppExpr p) =
       case B.nonceExprApp p of
+        B.Annotation _tpr _n x ->
+          -- TODO? record the annotation somewhere?
+          go env x
+
         B.Forall bvar body ->
           case B.bvarType bvar of
             BaseBVRepr wrepr -> do

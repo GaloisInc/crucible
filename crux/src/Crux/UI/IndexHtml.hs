@@ -139,7 +139,8 @@ function drawGoals() {
     var li = $('<div/>')
             .addClass('clickable')
             .append( drawStatus(g.status)
-                   , $('<span/>').text(g.goal)
+                   , $('<span/>').attr('title',g.goaldetails)
+                                 .text(g.goal)
                    )
     li.click(function() {
       $('.highlight-assumed').removeClass('highlight-assumed')

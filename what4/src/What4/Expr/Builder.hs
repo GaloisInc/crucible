@@ -317,6 +317,12 @@ instance HashableF (ExprBoundVar t) where
 -- go. Uses of the 'NonceApp' type will tie the knot through this
 -- parameter. Parameter @tp@ indicates the type of the expression.
 data NonceApp t (e :: BaseType -> Type) (tp :: BaseType) where
+  Annotation::
+    !(BaseTypeRepr tp) ->
+    !(Nonce t tp) ->
+    !(e tp) ->
+    NonceApp t e tp
+
   Forall :: !(ExprBoundVar t tp)
          -> !(e BaseBoolType)
          -> NonceApp t e BaseBoolType
@@ -974,8 +980,7 @@ iteSize e =
     _ -> 0
 
 instance IsExpr (Expr t) where
-  asConstantPred (BoolExpr b _) = Just b
-  asConstantPred _ = Nothing
+  asConstantPred = exprAbsValue
 
   asNat (SemiRingLiteral SR.SemiRingNatRepr n _) = Just n
   asNat _ = Nothing
@@ -1199,6 +1204,7 @@ asNegAtom x                           = (x, Negative)
 nonceAppType :: NonceApp t e tp -> BaseTypeRepr tp
 nonceAppType a =
   case a of
+    Annotation tpr _ _ -> tpr
     Forall{} -> knownRepr
     Exists{} -> knownRepr
     ArrayFromFn   fn       -> BaseArrayRepr (symFnArgTypes fn) (symFnReturnType fn)
@@ -1502,6 +1508,7 @@ data ExprBuilder t (st :: Type -> Type) (fs :: Type)
 type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
 type instance SymExpr (ExprBuilder t st fs) = Expr t
 type instance BoundVar (ExprBuilder t st fs) = ExprBoundVar t
+type instance SymAnnotation (ExprBuilder t st fs) = Nonce t
 
 ------------------------------------------------------------------------
 -- abstractEval
@@ -1513,6 +1520,7 @@ quantAbsEval :: ExprBuilder t st fs
              -> AbstractValue tp
 quantAbsEval _ f q =
   case q of
+    Annotation _ _ v -> f v
     Forall _ v -> f v
     Exists _ v -> f v
     ArrayFromFn _       -> unconstrainedAbsValue (nonceAppType q)
@@ -1756,6 +1764,7 @@ ppNonceApp :: forall m t e tp
            -> m (PrettyApp e)
 ppNonceApp ppFn a0 = do
   case a0 of
+    Annotation _ n x -> pure $ prettyApp "annotation" [ showPrettyArg n, exprPrettyArg x ]
     Forall v x -> pure $ prettyApp "forall" [ stringPrettyArg (ppBoundVar v), exprPrettyArg x ]
     Exists v x -> pure $ prettyApp "exists" [ stringPrettyArg (ppBoundVar v), exprPrettyArg x ]
     ArrayFromFn f -> resolve <$> ppFn f
@@ -2023,6 +2032,12 @@ instance TestEquality (NonceApp t (Expr t)) where
     $(structuralTypeEquality [t|NonceApp|]
            [ (DataArg 0 `TypeApp` AnyType, [|testEquality|])
            , (DataArg 1 `TypeApp` AnyType, [|testEquality|])
+           , ( ConType [t|BaseTypeRepr|] `TypeApp` AnyType
+             , [|testEquality|]
+             )
+           , ( ConType [t|Nonce|] `TypeApp` AnyType `TypeApp` AnyType
+             , [|testEquality|]
+             )
            , ( ConType [t|ExprBoundVar|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|]
              )
@@ -3407,6 +3422,12 @@ evalBoundVars' tbls sym e0 =
         reduceApp sym a'
     NonceAppExpr ae -> cachedEval (exprTable tbls) e0 $ do
       case nonceExprApp ae of
+        Annotation tpr n a -> do
+          a' <- evalBoundVars' tbls sym a
+          if a == a' then
+            return e0
+          else
+            sbNonceExpr sym $ Annotation tpr n a'
         Forall v e -> do
           recordBoundVar (exprTable tbls) v
           -- Regenerate forallPred if e is changed by evaluation.
@@ -4023,6 +4044,15 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     nonLinearOps <- readIORef (sbNonLinearOps sb)
     return $ Statistics { statAllocs = allocs
                         , statNonLinearOps = nonLinearOps }
+
+  annotateTerm sym e =
+    case e of
+      NonceAppExpr (nonceExprApp -> Annotation _ n _) -> return (n, e)
+      _ -> do
+        let tpr = exprType e
+        n <- sbFreshIndex sym
+        e' <- sbNonceExpr sym (Annotation tpr n e)
+        return (n, e')
 
   ----------------------------------------------------------------------
   -- Program location operations

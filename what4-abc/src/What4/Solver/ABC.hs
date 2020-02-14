@@ -258,6 +258,7 @@ failTerm e nm = do
 bitblastPred :: Network t s -> NonceAppExpr t tp -> IO (NameType s tp)
 bitblastPred h e = do
   case nonceExprApp e of
+    Annotation _tpr _n x -> eval h x
     Forall _ x -> eval h x
     Exists _ x -> eval h x
     ArrayFromFn{} -> fail "ABC does not support uninterpreted functions"
