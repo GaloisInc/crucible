@@ -7,13 +7,18 @@ import Control.Monad(zipWithM)
 import Control.Concurrent
 
 
-prepStatus :: String -> Int -> (Integer -> IO (), IO ())
-prepStatus pref tot = (start,end)
+prepStatus :: String -> Int -> (Integer -> IO (), IO (), IO ())
+prepStatus pref tot = (start,end,finish)
   where
   start n = do putStr (msg n)
                hFlush stdout
   end     = do threadDelay 100000
                cursorBackward msgLen
+               hFlush stdout
+
+  finish = do cursorBackward msgLen
+              putStrLn ""
+              hFlush stdout
 
   totS  = show tot
   totW  = length totS
@@ -27,9 +32,9 @@ prepStatus pref tot = (start,end)
 
 
 withProgressBar' :: String -> [a] -> (a -> IO b) -> IO [b]
-withProgressBar' pref xs f = zipWithM one [ 1 .. ] xs
+withProgressBar' pref xs f = zipWithM one [ 1 .. ] xs <* finish
   where
-  (start,end) = prepStatus pref (length xs)
+  (start,end,finish) = prepStatus pref (length xs)
 
   one n a = do start n
                b <- f a
