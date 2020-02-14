@@ -94,6 +94,8 @@ data LLVMPointer sym w =
   -- |A pointer is a base point offset.
   LLVMPointer (SymNat sym) (SymBV sym w)
 
+deriving instance (Show (SymNat sym), Show (SymBV sym w)) => Show (LLVMPointer sym w)
+
 llvmPointerBlock :: LLVMPtr sym w -> SymNat sym
 llvmPointerBlock (LLVMPointer blk _) = blk
 

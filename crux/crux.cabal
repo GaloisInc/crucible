@@ -55,7 +55,8 @@ library
     Crux.Config,
     Crux.Config.Load,
     Crux.Config.Doc,
-    Crux.Config.Common
+    Crux.Config.Common,
+    Crux.Config.Solver,
     Crux.Extension,
     Crux.Version
 

@@ -149,3 +149,43 @@ test-suite expr-builder-smtlib2
     what4
 
   ghc-options: -Wall
+
+test-suite exprs_tests
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+
+  hs-source-dirs: test
+  main-is: ExprsTest.hs
+
+  other-modules:
+    GenWhat4Expr
+
+  build-depends: base
+               , hedgehog >= 1.0.2
+               , parameterized-utils
+               , tasty >= 0.10
+               , tasty-hunit >= 0.9
+               , tasty-hedgehog
+               , what4
+
+  ghc-options: -Wall -Wcompat
+
+test-suite iteexprs_tests
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+
+  hs-source-dirs: test
+  main-is: IteExprs.hs
+
+  other-modules:
+    GenWhat4Expr
+
+  build-depends: base
+               , hedgehog >= 1.0.2
+               , parameterized-utils
+               , tasty >= 0.10
+               , tasty-hunit >= 0.9
+               , tasty-hedgehog
+               , what4
+
+  ghc-options: -Wall -Wcompat
