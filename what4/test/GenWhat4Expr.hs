@@ -518,9 +518,7 @@ genBV8TestExpr = let ret8 = return . TE_BV8 in
     in ret8 $ BV8TestExpr (show n <> "`8") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV8TestExpr genBV8TestExpr
-  in bvExprs bvTerm TE_BV8 (\(TE_BV8 x) -> x) BV8TestExpr bv8expr 8
-     (fromIntegral :: Integer -> Word8)
+  bvTGExprs (tgen8 bvTermGens)
 
 
 genBV16val :: Monad m => GenT m Integer
@@ -559,10 +557,7 @@ genBV16TestExpr = let ret16 = return . TE_BV16 in
     in ret16 $ BV16TestExpr (show n <> "`16") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV16TestExpr genBV16TestExpr
-  in
-  bvExprs bvTerm TE_BV16 (\(TE_BV16 x) -> x) BV16TestExpr bvexpr 16
-  (fromIntegral :: Integer -> Word16)
+  bvTGExprs (tgen16 bvTermGens)
   ++
   [
     -- TBD: bvZext
@@ -611,10 +606,7 @@ genBV32TestExpr = let ret32 = return . TE_BV32 in
     in ret32 $ BV32TestExpr (show n <> "`32") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV32TestExpr genBV32TestExpr
-  in
-  bvExprs bvTerm TE_BV32 (\(TE_BV32 x) -> x) BV32TestExpr bv32expr 32
-  (fromIntegral :: Integer -> Word32)
+  bvTGExprs (tgen32 bvTermGens)
 
 
 genBV64val :: Monad m => GenT m Integer
@@ -656,12 +648,88 @@ genBV64TestExpr = let ret64 = return . TE_BV64 in
     in ret64 $ BV64TestExpr (show n <> "`64") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV64TestExpr genBV64TestExpr
-  in bvExprs bvTerm TE_BV64 (\(TE_BV64 x) -> x) BV64TestExpr bv64expr 64
-     (fromIntegral :: Integer -> Word64)
-  -- n.b. toEnum . fromEnum doesn't work for very large Word64 values
-  -- (-1, -2, high-bit set?), so use fromIntegral instead (probably faster?)
+  bvTGExprs (tgen64 bvTermGens)
 
+
+-- | For a particular bitwidth, the BVTermGen structure provides the
+-- various definitions of term generators, constructors and
+-- projectors, What4 expression extractors, and width designations.
+data BVTermGen m bvtestexpr w word = BVTermGen
+  {
+    genTerm :: GenT m TestExpr
+  , conBVT :: bvtestexpr -> TestExpr
+  , projBVT :: TestExpr -> bvtestexpr
+  , subBVTCon :: String -> Integer
+              -> (forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym w))
+              -> bvtestexpr
+  , symExpr :: bvtestexpr
+            -> (forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym w))
+  , bitWidth :: Natural
+  , toBVWord :: (Integer -> word)
+  }
+
+-- | This combines the information about BVTermGen for all of the
+-- standard widths
+data BVTermsGen m = BVTermsGen
+  {
+    tgen8 :: BVTermGen m BV8TestExpr 8 Word8
+  , tgen16 :: BVTermGen m BV16TestExpr 16 Word16
+  , tgen32 :: BVTermGen m BV32TestExpr 32 Word32
+  , tgen64 :: BVTermGen m BV64TestExpr 64 Word64
+  }
+
+bvTermGens :: Monad m => BVTermsGen m
+bvTermGens =
+  let g8 = BVTermGen
+           (IGen.filterT isBV8TestExpr genBV8TestExpr)
+           TE_BV8
+           (\(TE_BV8 x) -> x)
+           BV8TestExpr
+           bv8expr
+           8
+           fromIntegral
+      g16 = BVTermGen
+            (IGen.filterT isBV16TestExpr genBV16TestExpr)
+            TE_BV16
+            (\(TE_BV16 x) -> x)
+            BV16TestExpr
+            bvexpr
+            16
+            fromIntegral
+      g32 = BVTermGen
+            (IGen.filterT isBV32TestExpr genBV32TestExpr)
+            TE_BV32
+            (\(TE_BV32 x) -> x)
+            BV32TestExpr
+            bv32expr
+            32
+            fromIntegral
+      g64 = BVTermGen
+            (IGen.filterT isBV64TestExpr genBV64TestExpr)
+            TE_BV64
+            (\(TE_BV64 x) -> x)
+            BV64TestExpr
+            bv64expr
+            64
+            fromIntegral
+            -- n.b. toEnum . fromEnum doesn't work for very large
+            -- Word64 values (-1, -2, high-bit set?), so use
+            -- fromIntegral instead (probably faster?)
+  in BVTermsGen g8 g16 g32 g64
+
+
+bvTGExprs :: ( Monad m
+             , HaskellTy bvtestexpr ~ Integer
+             , IsTestExpr bvtestexpr
+             , 1 <= w
+             , KnownNat w
+             , Integral word
+             , FiniteBits word
+             )
+          => BVTermGen m bvtestexpr w word
+          -> [GenT m TestExpr]
+bvTGExprs gt = bvExprs (genTerm gt) (conBVT gt) (projBVT gt) (subBVTCon gt)
+                       (symExpr gt) (bitWidth gt) (toBVWord gt)
 
 bvExprs :: ( Monad m
            , HaskellTy bvtestexpr ~ Integer
