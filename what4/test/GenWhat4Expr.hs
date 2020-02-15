@@ -559,11 +559,12 @@ genBV16TestExpr = let ret16 = return . TE_BV16 in
   $
   bvTGExprs (tgen16 bvTermGens)
   ++
+  bvTGMixedExprs bvTermGens 16
+  ++
   [
     -- TBD: bvZext
     -- TBD: bvSext
     -- TBD: bvTrunc
-    -- TBD: bvConcat
     -- TBD: bvSelect
   ]
 
@@ -607,6 +608,8 @@ genBV32TestExpr = let ret32 = return . TE_BV32 in
   ]
   $
   bvTGExprs (tgen32 bvTermGens)
+  ++
+  bvTGMixedExprs bvTermGens 32
 
 
 genBV64val :: Monad m => GenT m Integer
@@ -649,6 +652,8 @@ genBV64TestExpr = let ret64 = return . TE_BV64 in
   ]
   $
   bvTGExprs (tgen64 bvTermGens)
+  ++
+  bvTGMixedExprs bvTermGens 64
 
 
 -- | For a particular bitwidth, the BVTermGen structure provides the
@@ -994,6 +999,96 @@ bvExprs bvTerm conTE projTE teSubCon expr width toWord =
 
     ]
     else []
+
+
+bvTGMixedExprs :: Monad m => BVTermsGen m -> Natural -> [GenT m TestExpr]
+bvTGMixedExprs termGens tgtWidth =
+  case tgtWidth of
+    8 -> []
+    16 -> bvTGMixedExprs_Half (tgen16 termGens) (tgen8 termGens)
+    32 -> bvTGMixedExprs_Half (tgen32 termGens) (tgen16 termGens) ++
+          bvTGMixedExprs_QuarterHalf (tgen32 termGens) (tgen16 termGens) (tgen8 termGens)
+    64 -> bvTGMixedExprs_Half (tgen64 termGens) (tgen32 termGens) ++
+          bvTGMixedExprs_QuarterHalf (tgen64 termGens) (tgen32 termGens) (tgen16 termGens)
+    _ -> error $ "Unsupported width for mixed BV expressions: " <> show tgtWidth
+
+
+bvTGMixedExprs_Half :: ( Monad m
+                       , 1 <= w
+                       , HaskellTy bvtestexpr ~ Integer
+                       , IsTestExpr bvtestexpr
+                       , HaskellTy bvtestexpr_h ~ Integer
+                       , IsTestExpr bvtestexpr_h
+                       )
+                    => BVTermGen m bvtestexpr (w + w) word
+                    -> BVTermGen m bvtestexpr_h w word_h
+                    -> [GenT m TestExpr]
+bvTGMixedExprs_Half thisTG halfTG =
+  let pfx o = "bv" <> (show $ bitWidth thisTG) <> "." <> o
+      halfWidth = bitWidth halfTG
+      halfMask = (.&.) (2^halfWidth - 1)
+  in
+    [
+      Gen.subterm2 (genTerm halfTG) (genTerm halfTG) $
+      (\gen x y -> conBVT thisTG $ gen (projBVT halfTG x) (projBVT halfTG y)) $
+      (\x y -> subBVTCon thisTG
+               (pfx "bvConcat " <> pdesc x <> " " <> pdesc y)
+               (let x' = halfMask (testval x)
+                    y' = halfMask (testval y)
+                in (x' `shiftL` (fromEnum halfWidth)) .|. y')
+               (\sym -> do x' <- symExpr halfTG x sym
+                           y' <- symExpr halfTG y sym
+                           bvConcat sym x' y'))
+    ]
+
+bvTGMixedExprs_QuarterHalf :: ( Monad m
+                              , 1 <= w
+                              , 1 <= w + w
+                              , 1 <= w + w + w + w
+                              , (w + (w + w)) ~ ((w + w) + w)
+                              , 1 <= ((w + w) + w)
+                              , HaskellTy bvtestexpr ~ Integer
+                              , IsTestExpr bvtestexpr
+                              , HaskellTy bvtestexpr_h ~ Integer
+                              , IsTestExpr bvtestexpr_h
+                              , HaskellTy bvtestexpr_q ~ Integer
+                              , IsTestExpr bvtestexpr_q
+                              )
+                           => BVTermGen m bvtestexpr (w + w + w + w) word
+                           -> BVTermGen m bvtestexpr_h (w + w) word_h
+                           -> BVTermGen m bvtestexpr_q w word_q
+                           -> [GenT m TestExpr]
+bvTGMixedExprs_QuarterHalf thisTG halfTG quarterTG =
+  let pfx o = "bv" <> (show $ bitWidth thisTG) <> "." <> o
+      halfWidth = bitWidth halfTG
+      halfMask = (.&.) (2^halfWidth - 1)
+      quarterWidth = bitWidth quarterTG
+      quarterMask = (.&.) (2^quarterWidth - 1)
+  in
+    [
+      Gen.subterm3 (genTerm quarterTG) (genTerm halfTG) (genTerm quarterTG) $
+      (\gen x y z -> conBVT thisTG $
+                     gen (projBVT quarterTG x)
+                         (projBVT halfTG y)
+                         (projBVT quarterTG z)) $
+      (\x y z -> subBVTCon thisTG
+                 (pfx "bvConcat " <> pdesc x <> " " <>
+                  pfx "bvConcat " <> pdesc y <> " " <> pdesc z)
+                 (let x' = quarterMask (testval x)
+                      y' = halfMask (testval y)
+                      z' = quarterMask (testval z)
+                      s1 = fromEnum halfWidth
+                      s2 = fromEnum quarterWidth
+                  in ((((x' `shiftL` s1) .|. y') `shiftL` s2) .|. z'))
+                 (\sym -> do x' <- symExpr quarterTG x sym
+                             y' <- symExpr halfTG y sym
+                             z' <- symExpr quarterTG z sym
+                             xy <- bvConcat sym x' y'
+                             bvConcat sym xy z'))
+    ]
+
+
+
 
 -- TBD: BV operations returning a (Pred,BV) pair will need another TestExpr
 -- representation: addUnsignedOF, addSignedOF, subUnsignedOF,
