@@ -72,14 +72,14 @@ type CalcReturn t = IO (Maybe (ConcreteVal t), ConcreteVal t, BuiltCond, ActualC
 calcBoolIte :: ITETestCond -> CalcReturn BaseBoolType
 calcBoolIte itc =
   withTestSolver $ \sym -> do
-  let l = falsePred sym
-      r = truePred sym
-  c <- cond itc sym
-  i <- baseTypeIte sym c l r
-  let e = case expect itc of
-            Then -> False
-            Else -> True
-  return (asConcrete i, ConcreteBool e, desc itc, show c)
+    let l = falsePred sym
+        r = truePred sym
+    c <- cond itc sym
+    i <- baseTypeIte sym c l r
+    let e = case expect itc of
+              Then -> False
+              Else -> True
+    return (asConcrete i, ConcreteBool e, desc itc, show c)
 
 -- | Create an ITE whose type is Nat and return the concrete value,
 -- the expected value, and the string description

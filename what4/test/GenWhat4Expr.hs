@@ -482,6 +482,7 @@ allbits16 = (2 :: Integer) ^ (16 :: Integer) - 1
 allbits32 = (2 :: Integer) ^ (32 :: Integer) - 1
 allbits64 = (2 :: Integer) ^ (64 :: Integer) - 1
 
+
 genBV8val :: Monad m => GenT m Integer
 genBV8val = Gen.choice
             [
@@ -491,10 +492,11 @@ genBV8val = Gen.choice
             , Gen.integral $ Range.constant (allbits8-2) allbits8
             ]
 
-data BV8TestExpr = BV8TestExpr { bv8desc :: String
-                               , bv8val  :: Integer
-                               , bv8expr :: forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym 8)
-                               }
+data BV8TestExpr = BV8TestExpr
+  { bv8desc :: String
+  , bv8val  :: Integer
+  , bv8expr :: forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym 8)
+  }
 
 instance IsTestExpr BV8TestExpr where
   type HaskellTy BV8TestExpr = Integer
