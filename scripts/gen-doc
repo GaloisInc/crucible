@@ -3,7 +3,7 @@
 ABS_IX=$PWD/doc/haddock
 
 for i in $*; do
-  echo Generating documenation for $i
+  echo Generating documentation for $i
   cabal new-haddock \
     --haddock-hyperlink-source \
     --haddock-options "--use-index=$ABS_IX/doc-index.html --use-contents=$ABS_IX/index.html" $i
