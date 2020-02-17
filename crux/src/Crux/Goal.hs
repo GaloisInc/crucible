@@ -113,7 +113,7 @@ countIncompleteGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countIncompleteGoals gs1
     Branch gs1 gs2 -> countIncompleteGoals gs1 + countIncompleteGoals gs2
-    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved (Just _)) -> 1
+    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved Nothing) -> 1
     Goal _ _ _ _ -> 0
 
 proveToGoal ::

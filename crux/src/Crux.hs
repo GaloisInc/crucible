@@ -556,8 +556,8 @@ reportStatus (CruxSimulationResult cmpl gls) =
   do let tot        = sum (fmap countTotalGoals gls)
          proved     = sum (fmap countProvedGoals gls)
          incomplete = sum (fmap countIncompleteGoals gls)
-         disproved  = sum (fmap countDisprovedGoals gls) - incomplete
-         unknown    = sum (fmap countUnknownGoals gls)
+         disproved  = sum (fmap countDisprovedGoals gls)
+         unknown    = sum (fmap countUnknownGoals gls) - incomplete
      if tot == 0 then
        do say "Crux" "All goals discharged through internal simplification."
      else
