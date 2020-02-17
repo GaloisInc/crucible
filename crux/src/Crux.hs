@@ -1,14 +1,16 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NoMonoLocalBinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 module Crux
-  ( main
-  , mainWithOutputConfig
-  , runSimulator
+  ( runSimulator
+  , postprocessSimResult
+  , loadOptions
+  , withOutputConfig
+  , SimulateCallback
   , CruxOptions(..)
-  , module Crux.Extension
   , module Crux.Config
   , module Crux.Log
   ) where
@@ -19,12 +21,11 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Foldable
 import Data.IORef
-import Data.List(intercalate)
+import Data.List ( intercalate )
 import Data.Maybe ( fromMaybe )
 import Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
-import Control.Exception(catch, displayException)
 import Control.Monad(when)
 import System.Exit(exitSuccess, ExitCode(..))
 import System.Directory(createDirectoryIfMissing)
@@ -64,58 +65,44 @@ import qualified Crux.Config.Load as Cfg
 import qualified Crux.Config.Solver as CCS
 import Crux.Config.Common
 import Crux.Config.Doc
-import Crux.Extension
 import qualified Crux.Version as Crux
 
--- | Throws 'ConfigError' (in addition to whatever the crucible and the
--- callbacks may throw)
-main :: Language opts -> IO ExitCode
-main = mainWithOutputConfig defaultOutputConfig
+-- | Type of the 'simulate' method.
+type SimulateCallback =
+    forall sym.  (IsSymInterface sym, Logs) =>
+    [GenericExecutionFeature sym] {- ^ Execution features -} ->
+    sym          {- ^ The backend -} ->
+    Model sym    {- ^ Initial model -} ->
+    (Result sym -> IO ()) {- ^ Callback for finished paths -} ->
+    IO ()
 
--- | Throws 'ConfigError' (in addition to whatever the crucible and the
--- callbacks may throw)
-mainWithOutputConfig :: OutputConfig -> Language opts -> IO ExitCode
-mainWithOutputConfig cfg lang =
-  do let ?outputConfig = cfg
-     opts <- loadOptions lang
-     opts1@(cruxOpts,_) <- initialize lang opts
-
-     let ?outputConfig = cfg & quiet %~ (|| (quietMode cruxOpts))
-
-     -- Run the simulator
-     let fileText = intercalate ", " (map show (inputFiles cruxOpts))
-     when (simVerbose cruxOpts > 1) $
-       say "Crux" ("Checking " ++ fileText)
-     (cmpl, res) <- runSimulator lang opts1
-
-     reportStatus cmpl res
+postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
+postprocessSimResult opts res =
+  do -- print the overall result
+     reportStatus res
 
      -- Generate report
-     when (outDir cruxOpts /= "") $
-        generateReport cruxOpts res
+     generateReport opts res
 
-     -- Generate counter examples
-     when (makeCexes cruxOpts) $
-       makeCounterExamples lang opts res
+     return $! computeExitCode res
 
-     return $! computeExitCode cmpl res
-
-  `catch` \(e :: Cfg.ConfigError) ->
-    do let ?outputConfig = cfg
-       sayFail "Crux" (displayException e)
-       return (ExitFailure 1)
 
 -- | Load the options for the given language.
 -- IMPORTANT:  This processes options like @help@ and @version@, which
 -- just print something and exit, so this function may never return!
-loadOptions :: Logs => Language opts -> IO (Options opts)
-loadOptions lang =
-  do let nm      = Text.pack (name lang)
-         optSpec = cfgJoin cruxOptions (configuration lang)
+loadOptions ::
+  OutputConfig -> 
+  Text {- ^ Name -} ->
+  Text {- ^ Version -}-> 
+  Config opts ->
+  IO (CruxOptions, opts)
+loadOptions outCfg nm ver config =
+  do let ?outputConfig = outCfg
+     let optSpec = cfgJoin cruxOptions config
      opts <- Cfg.loadConfig nm optSpec
      case opts of
        Cfg.ShowHelp -> showHelp nm optSpec >> exitSuccess
-       Cfg.ShowVersion -> showVersion lang >> exitSuccess
+       Cfg.ShowVersion -> showVersion nm ver >> exitSuccess
        Cfg.Options (crux,os) files ->
           do crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
              pure (crux', os)
@@ -123,9 +110,9 @@ loadOptions lang =
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = outputLn (show (configDocs nm cfg))
 
-showVersion :: Logs => Language opts -> IO ()
-showVersion l = outputLn ("crux version: " ++ Crux.version ++ ", " ++
-                          name l ++ " version: " ++ version l)
+showVersion :: Logs => Text -> Text -> IO ()
+showVersion nm ver =
+  outputLn $ "crux version: " <> Crux.version <> ", " <> Text.unpack nm <> " version: " <> Text.unpack ver
 
 
 --------------------------------------------------------------------------------
@@ -285,11 +272,6 @@ execFeatureMaybe mb m =
     Just a  -> (:[]) <$> m a
 
 
-data ProgramCompleteness
- = ProgramComplete
- | ProgramIncomplete
- deriving (Eq,Ord,Show)
-
 -- | Common setup for all solver connections
 setupSolver :: (IsExprBuilder sym) => CruxOptions -> Maybe FilePath -> sym -> IO ()
 setupSolver cruxOpts mInteractionFile sym = do
@@ -358,18 +340,27 @@ withSolverAdapter solverOff k =
     CCS.SolverOnline CCS.Yices -> k WS.yicesAdapter
     CCS.SolverOnline CCS.Z3 -> k WS.z3Adapter
 
+withOutputConfig ::
+  OutputConfig ->
+  CruxOptions ->
+  (Logs => a) -> a
+withOutputConfig outCfg opts k = k
+ where ?outputConfig = outCfg & quiet %~ (|| (quietMode opts))
+
 -- | Parse through all of the user-provided options and start up the verification process
 --
 -- This figures out which solvers need to be run, and in which modes.  It takes
 -- as arguments some of the results of common setup code.  It also tries to
 -- minimize code duplication between the different verification paths (e.g.,
 -- online vs offline solving).
-runSimulator :: forall opts
-              . (Logs)
-             => Language opts
-             -> Options opts
-             -> IO (ProgramCompleteness, Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
-runSimulator lang opts@(cruxOpts, _) = do
+runSimulator :: Logs
+             => SimulateCallback
+             -> CruxOptions
+             -> IO CruxSimulationResult
+runSimulator simCallback cruxOpts = do
+  when (simVerbose cruxOpts > 1) $
+    do let fileText = intercalate ", " (map show (inputFiles cruxOpts))
+       say "Crux" ("Checking " ++ fileText)
   createDirectoryIfMissing True (outDir cruxOpts)
   compRef <- newIORef ProgramComplete
   glsRef <- newIORef Seq.empty
@@ -379,7 +370,7 @@ runSimulator lang opts@(cruxOpts, _) = do
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (onlineSolverOutput cruxOpts) sym
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym (Just SomeOnlineSolver)
-        doSimWithResults lang opts compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
+        doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
@@ -394,7 +385,7 @@ runSimulator lang opts@(cruxOpts, _) = do
             -- the online solver setup already added them.  What4 raises an
             -- error if the same option is added more than once.
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          doSimWithResults lang opts compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
     Right (CCS.OnlyOfflineSolver offSolver) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
         withSolverAdapter offSolver $ \adapter -> do
@@ -404,7 +395,7 @@ runSimulator lang opts@(cruxOpts, _) = do
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
           (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-          doSimWithResults lang opts compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
@@ -419,7 +410,7 @@ runSimulator lang opts@(cruxOpts, _) = do
           -- use the same float mode, so no mismatch here should be possible.
           case testEquality floatRepr1 floatRepr2 of
             Just Refl ->
-              doSimWithResults lang opts compRef glsRef pathSatSym execFeatures profInfo (proveGoalsOnline goalSym)
+              doSimWithResults simCallback cruxOpts compRef glsRef pathSatSym execFeatures profInfo (proveGoalsOnline goalSym)
             Nothing -> fail "Impossible: the argument interpretation produced two different float modes"
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
@@ -434,8 +425,8 @@ runSimulator lang opts@(cruxOpts, _) = do
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults :: (Logs, IsSymInterface sym)
-                 => Language opts
-                 -> Options opts
+                 => SimulateCallback
+                 -> CruxOptions
                  -> IORef ProgramCompleteness
                  -> IORef (Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
                  -> sym
@@ -444,13 +435,11 @@ doSimWithResults :: (Logs, IsSymInterface sym)
                  -> (forall ext . CruxOptions -> SimCtxt sym ext -> Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) -> IO (Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError))))))
                  -- ^ The function to use to prove goals; this is intended to be
                  -- one of 'proveGoalsOffline' or 'proveGoalsOnline'
-                 -> IO ( ProgramCompleteness
-                       , Seq.Seq (ProvedGoals (Either AssumptionReason SimError))
-                       )
-doSimWithResults lang opts@(cruxOpts, _) compRef glsRef sym execFeatures profInfo goalProver = do
+                 -> IO CruxSimulationResult
+doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo goalProver = do
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
-    simulate lang execFeatures opts sym emptyModel $ \(Result res) -> do
+    simCallback execFeatures sym emptyModel $ \(Result res) -> do
       case res of
         TimeoutResult {} -> do
           sayWarn "Crux" "Simulation timed out! Program might not be fully verified!"
@@ -468,13 +457,14 @@ doSimWithResults lang opts@(cruxOpts, _) compRef glsRef sym execFeatures profInf
   when (simVerbose cruxOpts > 1) $ do
     say "Crux" "Simulation complete."
   when (isProfiling cruxOpts) $ writeProf profInfo
-  (,) <$> readIORef compRef <*> readIORef glsRef
+  CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
+
 
 isProfiling :: CruxOptions -> Bool
 isProfiling cruxOpts = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts
 
-computeExitCode :: ProgramCompleteness -> Seq.Seq (ProvedGoals a) -> ExitCode
-computeExitCode cmpl = maximum . (base:) . fmap f . toList
+computeExitCode :: CruxSimulationResult -> ExitCode
+computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . toList $ gls
  where
  base = case cmpl of
           ProgramComplete   -> ExitSuccess
@@ -489,10 +479,9 @@ computeExitCode cmpl = maximum . (base:) . fmap f . toList
 
 reportStatus ::
   (?outputConfig::OutputConfig) =>
-  ProgramCompleteness ->
-  Seq.Seq (ProvedGoals a) ->
+  CruxSimulationResult ->
   IO ()
-reportStatus cmpl gls =
+reportStatus (CruxSimulationResult cmpl gls) =
   do let tot        = sum (fmap countTotalGoals gls)
          proved     = sum (fmap countProvedGoals gls)
          incomplete = sum (fmap countIncompleteGoals gls)

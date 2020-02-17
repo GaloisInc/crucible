@@ -7,6 +7,7 @@
 
 -- TODO: set this up so we can make it run test cases
 
+{-# Language OverloadedStrings #-}
 {-# Language TypeFamilies #-}
 {-# Language RankNTypes #-}
 {-# Language PatternSynonyms #-}
@@ -28,7 +29,7 @@ module Main where
 import Data.String(fromString)
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
-import Control.Lens((^.))
+import Control.Lens((^.), (&), (%~))
 import Control.Monad.ST
 import Control.Monad
 import Control.Monad.State.Strict
@@ -39,7 +40,7 @@ import Data.List
 import System.Console.GetOpt
 import System.IO
 import System.Environment(getProgName,getArgs)
-import System.Exit (ExitCode(..), exitWith)
+import System.Exit (ExitCode(..), exitWith, exitFailure)
 import System.FilePath(takeExtension,takeBaseName)
 import System.FilePath(splitSearchPath)
 
@@ -110,40 +111,34 @@ defaultOptions =
   , mainMethod = "main"
   }
 
-cruxJVM :: Crux.Language JVMOptions
-cruxJVM = Crux.Language
-  { Crux.name = "crux-jvm"
-  , Crux.version = "0.1"
-  , Crux.configuration = Crux.Config
-      { Crux.cfgFile = pure defaultOptions
-      , Crux.cfgEnv =
-          [ Crux.EnvVar "JDK_JAR"
-            "Path to .jar file containing the JDK"
-            $ \p opts -> Right $ opts { jarList = p : jarList opts }
-          ]
-      , Crux.cfgCmdLineFlag =
-          [ Crux.Option ['c'] ["classpath"]
-            "TODO"
-            $ Crux.ReqArg "TODO"
-            $ \p opts ->
-                Right $ opts { classPath = classPath opts ++ splitSearchPath p }
-          , Crux.Option ['j'] ["jars"]
-            "TODO"
-            $ Crux.ReqArg "TODO"
-            $ \p opts ->
-                Right $ opts { jarList = jarList opts ++ splitSearchPath p }
-          , Crux.Option ['m'] ["method"]
-            "Method to simulate"
-            $ Crux.ReqArg "method name"
-            $ \p opts -> Right $ opts { mainMethod = p }
-          ]
-      }
-  , Crux.initialize = return
-  , Crux.simulate = simulateJVM
-  , Crux.makeCounterExamples = \_ _ -> return ()
+cruxJVMConfig :: Crux.Config JVMOptions
+cruxJVMConfig = Crux.Config
+  { Crux.cfgFile = pure defaultOptions
+  , Crux.cfgEnv =
+      [ Crux.EnvVar "JDK_JAR"
+        "Path to .jar file containing the JDK"
+        $ \p opts -> Right $ opts { jarList = p : jarList opts }
+      ]
+  , Crux.cfgCmdLineFlag =
+      [ Crux.Option ['c'] ["classpath"]
+        "TODO"
+        $ Crux.ReqArg "TODO"
+        $ \p opts ->
+            Right $ opts { classPath = classPath opts ++ splitSearchPath p }
+      , Crux.Option ['j'] ["jars"]
+        "TODO"
+        $ Crux.ReqArg "TODO"
+        $ \p opts ->
+            Right $ opts { jarList = jarList opts ++ splitSearchPath p }
+      , Crux.Option ['m'] ["method"]
+        "Method to simulate"
+        $ Crux.ReqArg "method name"
+        $ \p opts -> Right $ opts { mainMethod = p }
+      ]
   }
 
-simulateJVM feats (copts,opts) sym ext cont = do
+simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulateCallback
+simulateJVM copts opts feats sym ext cont = do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
    file <- case files of
@@ -176,9 +171,13 @@ simulateJVM feats (copts,opts) sym ext cont = do
 
 -- | Entry point, parse command line opions
 main :: IO ()
-main = exitWith =<<
-  Crux.mainWithOutputConfig Crux.defaultOutputConfig cruxJVM
+main =
+    do (cruxOpts,jvmOpts) <- Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1"  cruxJVMConfig
+       Crux.withOutputConfig Crux.defaultOutputConfig cruxOpts $
+         do res <- Crux.runSimulator (simulateJVM cruxOpts jvmOpts) cruxOpts
+            exitWith =<< Crux.postprocessSimResult cruxOpts res
+
   `catch` \(e :: SomeException) ->
-      do Crux.sayFail "Crux" (displayException e)
-         return (ExitFailure 1)
-    where ?outputConfig = Crux.defaultOutputConfig
+      do let ?outputConfig = Crux.defaultOutputConfig
+         Crux.sayFail "Crux" (displayException e)
+         exitFailure

@@ -57,7 +57,6 @@ library
     Crux.Config.Doc,
     Crux.Config.Common,
     Crux.Config.Solver,
-    Crux.Extension,
     Crux.Version
 
   other-modules:
