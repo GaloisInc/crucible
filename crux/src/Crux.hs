@@ -9,14 +9,16 @@ module Crux
   , postprocessSimResult
   , loadOptions
   , withOutputConfig
-  , SimulateCallback
+  , InitSimulatorCallback(..)
+  , RunnableState(..)
   , CruxOptions(..)
   , module Crux.Config
   , module Crux.Log
   ) where
 
+import qualified Control.Exception as Ex
 import Control.Lens
-import Control.Monad ( unless )
+import Control.Monad ( unless, void )
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Foldable
@@ -27,7 +29,7 @@ import Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Control.Monad(when)
-import System.Exit(exitSuccess, ExitCode(..))
+import System.Exit(exitSuccess, ExitCode(..), exitFailure)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
 
@@ -38,11 +40,15 @@ import Data.Parameterized.Some ( Some(..) )
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import qualified Lang.Crucible.Backend.Simple as CBS
+import Lang.Crucible.CFG.Extension
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.BoundedExec
 import Lang.Crucible.Simulator.BoundedRecursion
 import Lang.Crucible.Simulator.Profiling
 import Lang.Crucible.Simulator.PathSatisfiability
+import Lang.Crucible.Simulator.PathSplitting
+import Lang.Crucible.Types
+
 
 import What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, extendConfig)
 import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
@@ -59,7 +65,6 @@ import Crux.Log
 import Crux.Types
 import Crux.Config
 import Crux.Goal
-import Crux.Model
 import Crux.Report
 import qualified Crux.Config.Load as Cfg
 import qualified Crux.Config.Solver as CCS
@@ -67,14 +72,14 @@ import Crux.Config.Common
 import Crux.Config.Doc
 import qualified Crux.Version as Crux
 
--- | Type of the 'simulate' method.
-type SimulateCallback =
-    forall sym.  (IsSymInterface sym, Logs) =>
-    [GenericExecutionFeature sym] {- ^ Execution features -} ->
-    sym          {- ^ The backend -} ->
-    Model sym    {- ^ Initial model -} ->
-    (Result sym -> IO ()) {- ^ Callback for finished paths -} ->
-    IO ()
+
+data RunnableState sym =
+  forall ext. IsSyntaxExtension ext =>
+    RunnableState (ExecState (Model sym) sym ext (RegEntry sym UnitType))
+
+newtype InitSimulatorCallback
+  = InitSimulatorCallback
+      (forall sym. (IsSymInterface sym, Logs) => sym -> IO (RunnableState sym))
 
 postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
 postprocessSimResult opts res =
@@ -91,12 +96,13 @@ postprocessSimResult opts res =
 -- IMPORTANT:  This processes options like @help@ and @version@, which
 -- just print something and exit, so this function may never return!
 loadOptions ::
-  OutputConfig -> 
+  OutputConfig ->
   Text {- ^ Name -} ->
-  Text {- ^ Version -}-> 
+  Text {- ^ Version -}->
   Config opts ->
-  IO (CruxOptions, opts)
-loadOptions outCfg nm ver config =
+  (Logs => (CruxOptions, opts) -> IO a) ->
+  IO a
+loadOptions outCfg nm ver config cont =
   do let ?outputConfig = outCfg
      let optSpec = cfgJoin cruxOptions config
      opts <- Cfg.loadConfig nm optSpec
@@ -105,7 +111,12 @@ loadOptions outCfg nm ver config =
        Cfg.ShowVersion -> showVersion nm ver >> exitSuccess
        Cfg.Options (crux,os) files ->
           do crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
-             pure (crux', os)
+             cont (crux', os)
+
+ `Ex.catch` \(e :: Ex.SomeException) ->
+   do let ?outputConfig = outCfg
+      sayFail "Crux" (Ex.displayException e)
+      exitFailure
 
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = outputLn (show (configDocs nm cfg))
@@ -353,11 +364,12 @@ withOutputConfig outCfg opts k = k
 -- as arguments some of the results of common setup code.  It also tries to
 -- minimize code duplication between the different verification paths (e.g.,
 -- online vs offline solving).
-runSimulator :: Logs
-             => SimulateCallback
-             -> CruxOptions
-             -> IO CruxSimulationResult
-runSimulator simCallback cruxOpts = do
+runSimulator ::
+  Logs =>
+  CruxOptions ->
+  InitSimulatorCallback ->
+  IO CruxSimulationResult
+runSimulator cruxOpts initSimCallback = do
   when (simVerbose cruxOpts > 1) $
     do let fileText = intercalate ", " (map show (inputFiles cruxOpts))
        say "Crux" ("Checking " ++ fileText)
@@ -370,7 +382,7 @@ runSimulator simCallback cruxOpts = do
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (onlineSolverOutput cruxOpts) sym
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym (Just SomeOnlineSolver)
-        doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
+        doSimWithResults cruxOpts initSimCallback compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
@@ -385,7 +397,7 @@ runSimulator simCallback cruxOpts = do
             -- the online solver setup already added them.  What4 raises an
             -- error if the same option is added more than once.
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults cruxOpts initSimCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
     Right (CCS.OnlyOfflineSolver offSolver) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
         withSolverAdapter offSolver $ \adapter -> do
@@ -395,7 +407,7 @@ runSimulator simCallback cruxOpts = do
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
           (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-          doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults cruxOpts initSimCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
@@ -410,10 +422,18 @@ runSimulator simCallback cruxOpts = do
           -- use the same float mode, so no mismatch here should be possible.
           case testEquality floatRepr1 floatRepr2 of
             Just Refl ->
-              doSimWithResults simCallback cruxOpts compRef glsRef pathSatSym execFeatures profInfo (proveGoalsOnline goalSym)
+              doSimWithResults cruxOpts initSimCallback compRef glsRef pathSatSym execFeatures profInfo (proveGoalsOnline goalSym)
             Nothing -> fail "Impossible: the argument interpretation produced two different float modes"
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
+
+
+type ProverCallback sym =
+  forall ext .
+    CruxOptions ->
+    SimCtxt sym ext ->
+    Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
+    IO (Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
 
 -- | Core invocation of the symbolic execution engine
 --
@@ -424,27 +444,52 @@ runSimulator simCallback cruxOpts = do
 --
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
-doSimWithResults :: (Logs, IsSymInterface sym)
-                 => SimulateCallback
-                 -> CruxOptions
-                 -> IORef ProgramCompleteness
-                 -> IORef (Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
-                 -> sym
-                 -> [GenericExecutionFeature sym]
-                 -> ProfData sym
-                 -> (forall ext . CruxOptions -> SimCtxt sym ext -> Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) -> IO (Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError))))))
-                 -- ^ The function to use to prove goals; this is intended to be
-                 -- one of 'proveGoalsOffline' or 'proveGoalsOnline'
-                 -> IO CruxSimulationResult
-doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo goalProver = do
+doSimWithResults ::
+  (Logs, IsSymInterface sym) =>
+  CruxOptions ->
+  InitSimulatorCallback ->
+  IORef ProgramCompleteness ->
+  IORef (Seq.Seq (ProvedGoals (Either AssumptionReason SimError))) ->
+  sym ->
+  [GenericExecutionFeature sym] ->
+  ProfData sym ->
+  ProverCallback sym
+    {- ^ The function to use to prove goals; this is intended to be
+         one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
+  IO CruxSimulationResult
+doSimWithResults cruxOpts (InitSimulatorCallback initSimCallback)
+                 compRef glsRef sym execFeatures profInfo goalProver = do
+
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
-    simCallback execFeatures sym emptyModel $ \(Result res) -> do
-      case res of
-        TimeoutResult {} -> do
-          sayWarn "Crux" "Simulation timed out! Program might not be fully verified!"
-          writeIORef compRef ProgramIncomplete
-        _ -> return ()
+    RunnableState initSt <- initSimCallback sym
+    case pathStrategy cruxOpts of
+      AlwaysMergePaths ->
+        do res <- executeCrucible (map genericToExecutionFeature execFeatures) initSt
+           void $ resultCont frm (Result res)
+      SplitAndExploreDepthFirst ->
+        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures) initSt (resultCont frm . Result)
+           say "Crux" ("Total paths explored: " ++ show i)
+           unless (null ws) $
+             sayWarn "Crux"
+               (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
+
+  when (simVerbose cruxOpts > 1) $ do
+    say "Crux" "Simulation complete."
+  when (isProfiling cruxOpts) $ writeProf profInfo
+  CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
+
+ where
+ failfast = proofGoalsFailFast cruxOpts
+
+ resultCont frm (Result res) =
+   do timedOut <-
+        case res of
+          TimeoutResult {} ->
+            do sayWarn "Crux" "Simulation timed out! Program might not be fully verified!"
+               writeIORef compRef ProgramIncomplete
+               return True
+          _ -> return False
       popUntilAssumptionFrame sym frm
       let ctx' = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
@@ -452,13 +497,10 @@ doSimWithResults simCallback cruxOpts compRef glsRef sym execFeatures profInfo g
         proved <- goalProver cruxOpts ctx' todo
         mgt <- provedGoalsTree ctx' proved
         case mgt of
-          Nothing -> return ()
-          Just gt -> modifyIORef glsRef (Seq.|> gt)
-  when (simVerbose cruxOpts > 1) $ do
-    say "Crux" "Simulation complete."
-  when (isProfiling cruxOpts) $ writeProf profInfo
-  CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
-
+          Nothing -> return (not timedOut)
+          Just gt ->
+            do modifyIORef glsRef (Seq.|> gt)
+               return (not (timedOut || (failfast && countDisprovedGoals gt > 0)))
 
 isProfiling :: CruxOptions -> Bool
 isProfiling cruxOpts = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts

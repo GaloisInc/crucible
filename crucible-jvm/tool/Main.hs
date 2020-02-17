@@ -137,8 +137,8 @@ cruxJVMConfig = Crux.Config
       ]
   }
 
-simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulateCallback
-simulateJVM copts opts feats sym ext cont = do
+simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.InitSimulatorCallback
+simulateJVM copts opts = Crux.InitSimulatorCallback $ \sym -> do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
    file <- case files of
@@ -155,29 +155,15 @@ simulateJVM copts opts feats sym ext cont = do
    let nullstr = RegEntry refRepr W4.Unassigned
    let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-   initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym
-     ext cname mname regmap
+   initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.emptyModel
+     cname mname regmap
 
-   case Crux.pathStrategy copts of
-     Crux.AlwaysMergePaths ->
-       do res <- executeCrucible (map genericToExecutionFeature feats) initSt
-          cont (Crux.Result res)
-     Crux.SplitAndExploreDepthFirst ->
-       do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature feats) initSt (cont . Crux.Result)
-          Crux.say "Crux" ("Total paths explored: " ++ show i)
-          unless (null ws) $
-            Crux.sayWarn "Crux"
-              (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified" ])
+   return $ Crux.RunnableState $ initSt
+
 
 -- | Entry point, parse command line opions
 main :: IO ()
-main =
-    do (cruxOpts,jvmOpts) <- Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1"  cruxJVMConfig
-       Crux.withOutputConfig Crux.defaultOutputConfig cruxOpts $
-         do res <- Crux.runSimulator (simulateJVM cruxOpts jvmOpts) cruxOpts
-            exitWith =<< Crux.postprocessSimResult cruxOpts res
-
-  `catch` \(e :: SomeException) ->
-      do let ?outputConfig = Crux.defaultOutputConfig
-         Crux.sayFail "Crux" (displayException e)
-         exitFailure
+main = Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1" cruxJVMConfig $
+  \(cruxOpts, jvmOpts) ->
+      exitWith =<< Crux.postprocessSimResult cruxOpts =<<
+        Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts)

@@ -16,7 +16,6 @@ import Control.Monad(forM_,unless)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
 import qualified Data.Foldable as Fold
-import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import Data.List(intercalate)
 
@@ -50,12 +49,11 @@ import Lang.Crucible.Simulator
   , fnBindingsFromList, runOverrideSim, callCFG
   , initSimContext, profilingMetrics
   , ExecState( InitialState ), SimState, defaultAbortHandler
-  , executeCrucible, genericToExecutionFeature, printHandle
+  , printHandle
   , SimErrorReason(..)
   )
 import Lang.Crucible.Simulator.ExecutionTree ( stateGlobals )
 import Lang.Crucible.Simulator.GlobalState ( lookupGlobal )
-import Lang.Crucible.Simulator.PathSplitting( executeCrucibleDFSPaths )
 import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 
 
@@ -99,24 +97,15 @@ mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
 
 mainWithOutputConfig :: OutputConfig -> IO ExitCode
 mainWithOutputConfig outCfg =
-    do opts@(cruxOpts,llvmOpts) <-
-          initCruxLLVM =<< Crux.loadOptions outCfg "crux-llvm" "0.1" llvmCruxConfig
-       Crux.withOutputConfig outCfg cruxOpts $
-        do res <- Crux.runSimulator (simulateLLVM cruxOpts llvmOpts) cruxOpts
-           makeCounterExamplesLLVM opts res
-           Crux.postprocessSimResult cruxOpts res
-
-  `catch` \(e :: SomeException) ->
-      do let ?outputConfig = outCfg
-         sayFail "Crux" (displayException e)
-         return (ExitFailure 1)
-
-
-type Options = (CruxOptions, LLVMOptions)
+  Crux.loadOptions outCfg "crux-llvm" "0.1" llvmCruxConfig $ \initOpts ->
+    do (cruxOpts, llvmOpts) <- initCruxLLVM initOpts
+       res <- Crux.runSimulator cruxOpts (simulateLLVM cruxOpts llvmOpts)
+       makeCounterExamplesLLVM cruxOpts llvmOpts res
+       Crux.postprocessSimResult cruxOpts res
 
 makeCounterExamplesLLVM ::
-  Logs => Options -> CruxSimulationResult -> IO ()
-makeCounterExamplesLLVM opts@(cruxOpts,_) res
+  Logs => CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
+makeCounterExamplesLLVM cruxOpts llvmOpts res
   | makeCexes cruxOpts = mapM_ go . Fold.toList $ (cruxSimResultGoals res)
   | otherwise = return ()
 
@@ -137,7 +126,7 @@ makeCounterExamplesLLVM opts@(cruxOpts,_) res
       in case (r, skipGoal) of
            (NotProved (Just m), False) ->
              do sayFail "Crux" ("Counter example for " ++ msg)
-                (_prt,dbg) <- buildModelExes opts suff (ppModelC m)
+                (_prt,dbg) <- buildModelExes cruxOpts llvmOpts suff (ppModelC m)
                 say "Crux" ("*** debug executable: " ++ dbg)
                 say "Crux" ("*** break on line: " ++ suff)
            _ -> return ()
@@ -184,38 +173,30 @@ registerFunctions llvm_module mtrans =
      -- register all the functions defined in the LLVM module
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
-
-simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.SimulateCallback
-simulateLLVM cruxOpts llvmOpts fs sym _p cont = do
-    llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
+simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.InitSimulatorCallback
+simulateLLVM cruxOpts llvmOpts = Crux.InitSimulatorCallback $ \sym ->
+ do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     let ?laxArith = laxArithmetic llvmOpts
     Some trans <- translateModule halloc llvm_mod
     let llvmCtxt = trans ^. transContext
 
     llvmPtrWidth llvmCtxt $ \ptrW ->
-      withPtrWidth ptrW $ do
-          let ?lc = llvmCtxt^.llvmTypeCtx
-          let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt) { printHandle = view outputHandle ?outputConfig }
-          mem <- populateAllGlobals sym (globalInitMap trans)
-                    =<< initializeAllMemory sym llvmCtxt llvm_mod
-          let globSt = llvmGlobals llvmCtxt mem
+      withPtrWidth ptrW $
+        do let ?lc = llvmCtxt^.llvmTypeCtx
+           let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
+                          { printHandle = view outputHandle ?outputConfig }
+           mem <- populateAllGlobals sym (globalInitMap trans)
+                     =<< initializeAllMemory sym llvmCtxt llvm_mod
 
-          let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                   runOverrideSim UnitRepr $
-                     do registerFunctions llvm_mod trans
-                        checkFun "main" (cfgMap trans)
+           let globSt = llvmGlobals llvmCtxt mem
 
-          case pathStrategy cruxOpts of
-            AlwaysMergePaths ->
-              do res <- executeCrucible (map genericToExecutionFeature fs) initSt
-                 cont (Result res)
-            SplitAndExploreDepthFirst ->
-              do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature fs) initSt (cont . Result)
-                 say "Crux" ("Total paths explored: " ++ show i)
-                 unless (null ws) $
-                   sayWarn "Crux" (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
+           let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
+                    runOverrideSim UnitRepr $
+                      do registerFunctions llvm_mod trans
+                         checkFun "main" (cfgMap trans)
 
+           return $ Crux.RunnableState initSt
 
 
 checkFun :: (ArchOk arch, Logs) =>
@@ -365,7 +346,7 @@ initCruxLLVM (cruxOpts,llvmOpts) =
 
     createDirectoryIfMissing True odir
 
-    genBitCode (cruxOpts2, opts2)
+    genBitCode cruxOpts2 opts2
 
     return (cruxOpts2, opts2)
 
@@ -467,20 +448,20 @@ getClang = attempt (map inPath clangs)
                        Left (SomeException {}) -> attempt more
                        Right a -> return a
 
-runClang :: Options -> [String] -> IO ()
-runClang opts params =
-  do let clang = clangBin (snd opts)
-         allParams = clangOpts (snd opts) ++ params
+runClang :: LLVMOptions -> [String] -> IO ()
+runClang llvmOpts params =
+  do let clang = clangBin llvmOpts
+         allParams = clangOpts llvmOpts ++ params
      -- say "Clang" (show params)
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-llvmLink :: Options -> [FilePath] -> FilePath -> IO ()
-llvmLink opts ins out =
+llvmLink :: LLVMOptions -> [FilePath] -> FilePath -> IO ()
+llvmLink llvmOpts ins out =
   do let params = ins ++ [ "-o", out ]
-     (res, sout, serr) <- readProcessWithExitCode (linkBin (snd opts)) params ""
+     (res, sout, serr) <- readProcessWithExitCode (linkBin llvmOpts) params ""
      case res of
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
@@ -492,35 +473,35 @@ parseLLVMLinkVersion = go . map words . lines
     go (_ : rest) = go rest
     go [] = ""
 
-llvmLinkVersion :: Options -> IO String
-llvmLinkVersion opts =
-  do (res, sout, serr) <- readProcessWithExitCode (linkBin (snd opts)) ["--version"] ""
+llvmLinkVersion :: LLVMOptions -> IO String
+llvmLinkVersion llvmOpts =
+  do (res, sout, serr) <- readProcessWithExitCode (linkBin llvmOpts) ["--version"] ""
      case res of
        ExitSuccess   -> return (parseLLVMLinkVersion sout)
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-genBitCode :: Options -> IO ()
-genBitCode opts =
-  do let files = (Crux.inputFiles (fst opts))
-         finalBCFile = Crux.outDir (fst opts) </> "combined.bc"
+genBitCode :: CruxOptions -> LLVMOptions -> IO ()
+genBitCode cruxOpts llvmOpts =
+  do let files = (Crux.inputFiles cruxOpts)
+         finalBCFile = Crux.outDir cruxOpts </> "combined.bc"
          srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
          incs src = takeDirectory src :
-                    (libDir (snd opts) </> "includes") :
-                    incDirs (snd opts)
+                    (libDir llvmOpts </> "includes") :
+                    incDirs llvmOpts
          params (src, srcBC) =
            [ "-c", "-g", "-emit-llvm", "-O0" ] ++
            concat [ [ "-I", dir ] | dir <- incs src ] ++
            [ "-o", srcBC, src ]
-     forM_ srcBCNames $ \f -> runClang opts (params f)
-     ver <- llvmLinkVersion opts
-     let libcxxBitcode | anyCPPFiles files = [libDir (snd opts) </> "libcxx-" ++ ver ++ ".bc"]
+     forM_ srcBCNames $ \f -> runClang llvmOpts (params f)
+     ver <- llvmLinkVersion llvmOpts
+     let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                        | otherwise = []
-     llvmLink opts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
+     llvmLink llvmOpts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
      mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
 
-buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
-buildModelExes opts suff counter_src =
-  do let dir  = Crux.outDir (fst opts)
+buildModelExes :: CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
+buildModelExes cruxOpts llvmOpts suff counter_src =
+  do let dir  = Crux.outDir cruxOpts
      createDirectoryIfMissing True dir
 
      let counterFile = dir </> ("counter-example-" ++ suff ++ ".c")
@@ -528,20 +509,22 @@ buildModelExes opts suff counter_src =
      let debugExe    = dir </> ("debug-" ++ suff)
      writeFile counterFile counter_src
 
-     let libs = libDir (snd opts)
+     let libs = libDir llvmOpts
          incs = (libs </> "includes") :
-                (map takeDirectory files ++ incDirs (snd opts))
-         files = (Crux.inputFiles (fst opts))
+                (map takeDirectory files ++ incDirs llvmOpts)
+         files = (Crux.inputFiles cruxOpts)
          libcxx | anyCPPFiles files = ["-lstdc++"]
                 | otherwise = []
 
-     runClang opts [ "-I", libs </> "includes"
+     runClang llvmOpts
+                   [ "-I", libs </> "includes"
                    , counterFile
                    , libs </> "print-model.c"
                    , "-o", printExe
                    ]
 
-     runClang opts $ concat [ [ "-I", idir ] | idir <- incs ] ++
+     runClang llvmOpts $
+              concat [ [ "-I", idir ] | idir <- incs ] ++
                      [ counterFile
                      , libs </> "concrete-backend.c"
                      , "-O0", "-g"
