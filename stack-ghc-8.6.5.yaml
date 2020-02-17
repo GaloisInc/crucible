@@ -45,4 +45,7 @@ extra-deps:
   - config-schema-1.1.0.0
   - config-value-0.6.3.1
   - simple-get-opt-0.3
+  - base-orphans-0.8.2
+  - zenc-0.1.1
+  - hedgehog-1.0.2
 resolver: lts-14.5

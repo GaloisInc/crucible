@@ -33,4 +33,5 @@ extra-deps:
   - invariant-0.5.3
   - microlens-th-0.4.2.3
   - zenc-0.1.1
+  - base-orphans-0.8.2
 resolver: lts-12.26
