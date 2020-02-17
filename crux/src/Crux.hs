@@ -103,14 +103,20 @@ loadOptions ::
   (Logs => (CruxOptions, opts) -> IO a) ->
   IO a
 loadOptions outCfg nm ver config cont =
-  do let ?outputConfig = outCfg
-     let optSpec = cfgJoin cruxOptions config
+  do let optSpec = cfgJoin cruxOptions config
      opts <- Cfg.loadConfig nm optSpec
      case opts of
-       Cfg.ShowHelp -> showHelp nm optSpec >> exitSuccess
-       Cfg.ShowVersion -> showVersion nm ver >> exitSuccess
-       Cfg.Options (crux,os) files ->
-          do crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
+       Cfg.ShowHelp ->
+          do let ?outputConfig = outCfg
+             showHelp nm optSpec
+             exitSuccess
+       Cfg.ShowVersion ->
+          do let ?outputConfig = outCfg
+             showVersion nm ver
+             exitSuccess
+       Cfg.Options (crux, os) files ->
+          do let ?outputConfig = outCfg & quiet %~ (|| quietMode crux)
+             crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
              cont (crux', os)
 
  `Ex.catch` \(e :: Ex.SomeException) ->
