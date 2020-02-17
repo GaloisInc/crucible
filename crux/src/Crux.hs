@@ -9,7 +9,7 @@ module Crux
   , postprocessSimResult
   , loadOptions
   , withOutputConfig
-  , InitSimulatorCallback(..)
+  , SimulatorCallback(..)
   , RunnableState(..)
   , CruxOptions(..)
   , module Crux.Config
@@ -73,14 +73,27 @@ import Crux.Config.Doc
 import qualified Crux.Version as Crux
 
 
+-- | A crucible @ExecState@ that is ready to be passed into the simulator.
+--   This will usually, but not necessarily, be an @InitialState@.
 data RunnableState sym =
   forall ext. IsSyntaxExtension ext =>
     RunnableState (ExecState (Model sym) sym ext (RegEntry sym UnitType))
 
-newtype InitSimulatorCallback
-  = InitSimulatorCallback
-      (forall sym. (IsSymInterface sym, Logs) => sym -> IO (RunnableState sym))
+-- | Individual crux tools will generally call the @runSimulator@ combinator
+--   to handle the nitty-gritty of setting up and running the simulator.
+--   During that process, crux needs to know how to setup the initial state
+--   for the simulator.  To do that, crux tools will provide a @SimulatorCallback@,
+--   which is provided a symbolic interface object and is responsible for setting up
+--   global variables, registering override functions, constructing the initial
+--   program entry point, and generally doing any necessary language-specific setup.
+newtype SimulatorCallback
+  = SimulatorCallback
+    { initSimulatorState ::
+        forall sym. (IsSymInterface sym, Logs) => sym -> IO (RunnableState sym)
+    }
 
+-- | Given the reuslt of a simulation and proof run, report the overall
+--   status, generate user-consumable reports and compute the exit code.
 postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
 postprocessSimResult opts res =
   do -- print the overall result
@@ -92,9 +105,12 @@ postprocessSimResult opts res =
      return $! computeExitCode res
 
 
--- | Load the options for the given language.
--- IMPORTANT:  This processes options like @help@ and @version@, which
--- just print something and exit, so this function may never return!
+-- | Load crux generic and the provided options, and provide them to
+--   the given continuation.
+--
+--   IMPORTANT:  This processes options like @help@ and @version@, which
+--   just print something and exit, so this function may never call
+--   its continuation.
 loadOptions ::
   OutputConfig ->
   Text {- ^ Name -} ->
@@ -141,12 +157,16 @@ showVersion nm ver =
 -- 'withSelectedOnlineBackend', unfortunately, because that function requires a
 -- 'IsInterpretedFloatExprBuilder' constraint that we don't seem to have a way
 -- to capture in this CPS-ed style.
-withFloatRepr :: (CCS.HasDefaultFloatRepr solver)
-              => proxy s
-              -> CruxOptions
-              -> solver
-              -> (forall fm . (IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (Flags fm))) => FloatModeRepr fm -> IO a)
-              -> IO a
+withFloatRepr ::
+  CCS.HasDefaultFloatRepr solver =>
+  proxy s ->
+  CruxOptions ->
+  solver ->
+  (forall fm .
+    IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (Flags fm)) =>
+    FloatModeRepr fm ->
+    IO a) ->
+  IO a
 withFloatRepr proxy cruxOpts selectedSolver k =
   case floatMode cruxOpts of
     "real" -> k FloatRealRepr
@@ -173,7 +193,7 @@ floatReprString floatRepr =
 -- such a way that captures the necessary 'IsInterpretedFloatExprBuilder'
 -- constraints.
 withSelectedOnlineBackend ::
-  (?outputConfig :: OutputConfig) =>
+  Logs =>
   CruxOptions ->
   NonceGenerator IO scope ->
   CCS.SolverOnline ->
@@ -360,7 +380,8 @@ withSolverAdapter solverOff k =
 withOutputConfig ::
   OutputConfig ->
   CruxOptions ->
-  (Logs => a) -> a
+  (Logs => a) ->
+  a
 withOutputConfig outCfg opts k = k
  where ?outputConfig = outCfg & quiet %~ (|| (quietMode opts))
 
@@ -373,9 +394,9 @@ withOutputConfig outCfg opts k = k
 runSimulator ::
   Logs =>
   CruxOptions ->
-  InitSimulatorCallback ->
+  SimulatorCallback ->
   IO CruxSimulationResult
-runSimulator cruxOpts initSimCallback = do
+runSimulator cruxOpts simCallback = do
   when (simVerbose cruxOpts > 1) $
     do let fileText = intercalate ", " (map show (inputFiles cruxOpts))
        say "Crux" ("Checking " ++ fileText)
@@ -388,7 +409,7 @@ runSimulator cruxOpts initSimCallback = do
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (onlineSolverOutput cruxOpts) sym
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym (Just SomeOnlineSolver)
-        doSimWithResults cruxOpts initSimCallback compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
+        doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
@@ -403,7 +424,7 @@ runSimulator cruxOpts initSimCallback = do
             -- the online solver setup already added them.  What4 raises an
             -- error if the same option is added more than once.
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          doSimWithResults cruxOpts initSimCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
     Right (CCS.OnlyOfflineSolver offSolver) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
         withSolverAdapter offSolver $ \adapter -> do
@@ -413,7 +434,7 @@ runSimulator cruxOpts initSimCallback = do
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
           (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-          doSimWithResults cruxOpts initSimCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
@@ -428,7 +449,7 @@ runSimulator cruxOpts initSimCallback = do
           -- use the same float mode, so no mismatch here should be possible.
           case testEquality floatRepr1 floatRepr2 of
             Just Refl ->
-              doSimWithResults cruxOpts initSimCallback compRef glsRef pathSatSym execFeatures profInfo (proveGoalsOnline goalSym)
+              doSimWithResults cruxOpts simCallback compRef glsRef pathSatSym execFeatures profInfo (proveGoalsOnline goalSym)
             Nothing -> fail "Impossible: the argument interpretation produced two different float modes"
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
@@ -453,7 +474,7 @@ type ProverCallback sym =
 doSimWithResults ::
   (Logs, IsSymInterface sym) =>
   CruxOptions ->
-  InitSimulatorCallback ->
+  SimulatorCallback ->
   IORef ProgramCompleteness ->
   IORef (Seq.Seq (ProvedGoals (Either AssumptionReason SimError))) ->
   sym ->
@@ -463,12 +484,14 @@ doSimWithResults ::
     {- ^ The function to use to prove goals; this is intended to be
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO CruxSimulationResult
-doSimWithResults cruxOpts (InitSimulatorCallback initSimCallback)
-                 compRef glsRef sym execFeatures profInfo goalProver = do
+doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo goalProver = do
 
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
-    RunnableState initSt <- initSimCallback sym
+    -- perform tool-specific setup
+    RunnableState initSt <- initSimulatorState simCallback sym
+
+    -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
         do res <- executeCrucible (map genericToExecutionFeature execFeatures) initSt
@@ -497,11 +520,11 @@ doSimWithResults cruxOpts (InitSimulatorCallback initSimCallback)
                return True
           _ -> return False
       popUntilAssumptionFrame sym frm
-      let ctx' = execResultContext res
+      let ctx = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
-        proved <- goalProver cruxOpts ctx' todo
-        mgt <- provedGoalsTree ctx' proved
+        proved <- goalProver cruxOpts ctx todo
+        mgt <- provedGoalsTree ctx proved
         case mgt of
           Nothing -> return (not timedOut)
           Just gt ->
@@ -526,7 +549,7 @@ computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . t
        ExitFailure 1
 
 reportStatus ::
-  (?outputConfig::OutputConfig) =>
+  Logs =>
   CruxSimulationResult ->
   IO ()
 reportStatus (CruxSimulationResult cmpl gls) =

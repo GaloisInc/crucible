@@ -173,8 +173,8 @@ registerFunctions llvm_module mtrans =
      -- register all the functions defined in the LLVM module
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
-simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.InitSimulatorCallback
-simulateLLVM cruxOpts llvmOpts = Crux.InitSimulatorCallback $ \sym ->
+simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.SimulatorCallback
+simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym ->
  do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     let ?laxArith = laxArithmetic llvmOpts

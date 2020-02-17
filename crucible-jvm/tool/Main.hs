@@ -137,8 +137,8 @@ cruxJVMConfig = Crux.Config
       ]
   }
 
-simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.InitSimulatorCallback
-simulateJVM copts opts = Crux.InitSimulatorCallback $ \sym -> do
+simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallback
+simulateJVM copts opts = Crux.SimulatorCallback $ \sym -> do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
    file <- case files of
@@ -163,7 +163,8 @@ simulateJVM copts opts = Crux.InitSimulatorCallback $ \sym -> do
 
 -- | Entry point, parse command line opions
 main :: IO ()
-main = Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1" cruxJVMConfig $
-  \(cruxOpts, jvmOpts) ->
+main =
+  Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1" cruxJVMConfig $
+    \(cruxOpts, jvmOpts) ->
       exitWith =<< Crux.postprocessSimResult cruxOpts =<<
         Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts)
