@@ -562,11 +562,6 @@ genBV16TestExpr = let ret16 = return . TE_BV16 in
   bvTGExprs (tgen16 bvTermGens)
   ++
   bvTGMixedExprs bvTermGens 16
-  ++
-  [
-    -- TBD: bvZext  !! add these, then can test bvZext/bvSext to same size, then can use this to get a bv8 in the shift instructions to do shifting.  Or... should we just also fix the shifting instructions?
-    -- TBD: bvSext
-  ]
 
 
 genBV32val :: Monad m => GenT m Integer
@@ -961,6 +956,22 @@ bvExprs bvTerm conTE projTE teSubCon expr width toWord =
   --          (\sym -> do x' <- expr x sym
   --                      bvTrunc sym knownRepr x'))
 
+  -- TODO: bvZext doesn't allow the no-op/same-size operation
+  -- , subBVTerms1
+  --   (\x -> teSubCon
+  --          (pfx "bvZext " <> pdesc x)
+  --          (mask (testval x))
+  --          (\sym -> do x' <- expr x sym
+  --                      bvZext sym knownRepr x'))
+
+  -- TODO: bvSext doesn't allow the no-op/same-size operation
+  -- , subBVTerms1
+  --   (\x -> teSubCon
+  --          (pfx "bvSext " <> pdesc x)
+  --          (mask (testval x))
+  --          (\sym -> do x' <- expr x sym
+  --                      bvSext sym knownRepr x'))
+
   ] ++
   if width <= 16
   then
@@ -1034,6 +1045,8 @@ bvTGMixedExprs termGens tgtWidth =
 
 bvTGMixedExprs_Half :: ( Monad m
                        , 1 <= w
+                       , w + 1 <= w + w
+                       , KnownNat (w + w)
                        , HaskellTy bvtestexpr ~ Integer
                        , IsTestExpr bvtestexpr
                        , HaskellTy bvtestexpr_h ~ Integer
@@ -1046,7 +1059,11 @@ bvTGMixedExprs_Half thisTG halfTG =
   let pfx o = "bv" <> (show $ bitWidth thisTG) <> "." <> o
       halfWidth = bitWidth halfTG
       halfMask = (.&.) (2^halfWidth - 1)
+      width = bitWidth thisTG
+      mask = (.&.) (2^width - 1)
+      halfHiBit = (.&.) (2^(halfWidth - 1))
   in
+    -- output size must match the size of thisTG
     [
       Gen.subterm2 (genTerm halfTG) (genTerm halfTG) $
       (\gen x y -> conBVT thisTG $ gen (projBVT halfTG x) (projBVT halfTG y)) $
@@ -1058,6 +1075,25 @@ bvTGMixedExprs_Half thisTG halfTG =
                (\sym -> do x' <- symExpr halfTG x sym
                            y' <- symExpr halfTG y sym
                            bvConcat sym x' y'))
+
+    , Gen.subterm (genTerm halfTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvZext " <> pdesc (projBVT halfTG x))
+             (let x' = testval (projBVT halfTG x)
+               in (halfMask x'))
+             (\sym -> do x' <- symExpr halfTG (projBVT halfTG x) sym
+                         bvZext sym knownRepr x'))
+
+    , Gen.subterm (genTerm halfTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSext " <> pdesc (projBVT halfTG x))
+             (let x' = halfMask $ testval (projBVT halfTG x)
+                  hiBits = mask (-1) `xor` halfMask (-1)
+              in if halfHiBit x' == 0 then x' else (hiBits .|. x'))
+             (\sym -> do x' <- symExpr halfTG (projBVT halfTG x) sym
+                         bvSext sym knownRepr x'))
     ]
 
 bvTGMixedExprs_QuarterHalf :: ( Monad m
@@ -1066,6 +1102,8 @@ bvTGMixedExprs_QuarterHalf :: ( Monad m
                               , 1 <= w + w + w + w
                               , (w + (w + w)) ~ ((w + w) + w)
                               , 1 <= ((w + w) + w)
+                              , (w + 1) <= w + w + w + w
+                              , KnownNat (w + w + w + w)
                               , HaskellTy bvtestexpr ~ Integer
                               , IsTestExpr bvtestexpr
                               , HaskellTy bvtestexpr_h ~ Integer
@@ -1083,6 +1121,9 @@ bvTGMixedExprs_QuarterHalf thisTG halfTG quarterTG =
       halfMask = (.&.) (2^halfWidth - 1)
       quarterWidth = bitWidth quarterTG
       quarterMask = (.&.) (2^quarterWidth - 1)
+      quarterHiBit = (.&.) (2^(quarterWidth - 1))
+      width = bitWidth thisTG
+      mask = (.&.) (2^width - 1)
   in
     [
       Gen.subterm3 (genTerm quarterTG) (genTerm halfTG) (genTerm quarterTG) $
@@ -1104,6 +1145,29 @@ bvTGMixedExprs_QuarterHalf thisTG halfTG quarterTG =
                              z' <- symExpr quarterTG z sym
                              xy <- bvConcat sym x' y'
                              bvConcat sym xy z'))
+
+    -- already did bvZext and bvSext with half-size in
+    -- bvTGMixedExprs_Half, so just test extensions from quarter size
+    -- here.
+
+    , Gen.subterm (genTerm quarterTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvZext " <> pdesc (projBVT quarterTG x))
+             (let x' = testval (projBVT quarterTG x)
+               in (quarterMask x'))
+             (\sym -> do x' <- symExpr quarterTG (projBVT quarterTG x) sym
+                         bvZext sym knownRepr x'))
+
+    , Gen.subterm (genTerm quarterTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSext " <> pdesc (projBVT quarterTG x))
+             (let x' = quarterMask $ testval (projBVT quarterTG x)
+                  hiBits = mask (-1) `xor` quarterMask (-1)
+              in if quarterHiBit x' == 0 then x' else (hiBits .|. x'))
+             (\sym -> do x' <- symExpr quarterTG (projBVT quarterTG x) sym
+                         bvSext sym knownRepr x'))
     ]
 
 
