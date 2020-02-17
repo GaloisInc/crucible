@@ -30,15 +30,18 @@ import Crux.UI.Jquery (jquery)       -- ui/jquery.min.js
 import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 
 
-generateReport :: CruxOptions -> Seq (ProvedGoals b) -> IO ()
-generateReport opts xs =
-  do createDirectoryIfMissing True (outDir opts)
-     maybeGenerateSource opts (inputFiles opts)
-     cwd <- getCurrentDirectory
-     writeFile (outDir opts </> "report.js")
-        $ "var goals = " ++ renderJS (jsList (renderSideConds cwd xs))
-     T.writeFile (outDir opts </> "index.html") indexHtml
-     T.writeFile (outDir opts </> "jquery.min.js") jquery
+generateReport :: CruxOptions -> CruxSimulationResult -> IO ()
+generateReport opts res
+  | outDir opts == "" = return ()
+  | otherwise =
+    do let xs = cruxSimResultGoals res
+       createDirectoryIfMissing True (outDir opts)
+       maybeGenerateSource opts (inputFiles opts)
+       cwd <- getCurrentDirectory
+       writeFile (outDir opts </> "report.js")
+          $ "var goals = " ++ renderJS (jsList (renderSideConds cwd xs))
+       T.writeFile (outDir opts </> "index.html") indexHtml
+       T.writeFile (outDir opts </> "jquery.min.js") jquery
 
 
 -- TODO: get the extensions from the Language configuration

@@ -16,7 +16,6 @@ import Control.Monad(forM_,unless)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
 import qualified Data.Foldable as Fold
-import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import Data.List(intercalate)
@@ -99,22 +98,34 @@ mainWithOutputTo :: Handle -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
 
 mainWithOutputConfig :: OutputConfig -> IO ExitCode
-mainWithOutputConfig cfg =
-  Crux.mainWithOutputConfig cfg cruxLLVM
+mainWithOutputConfig outCfg =
+    do opts@(cruxOpts,llvmOpts) <-
+          initCruxLLVM =<< Crux.loadOptions outCfg "crux-llvm" "0.1" llvmCruxConfig
+       Crux.withOutputConfig outCfg cruxOpts $
+        do res <- Crux.runSimulator (simulateLLVM cruxOpts llvmOpts) cruxOpts
+           makeCounterExamplesLLVM opts res
+           Crux.postprocessSimResult cruxOpts res
+
   `catch` \(e :: SomeException) ->
-      do sayFail "Crux" (displayException e)
+      do let ?outputConfig = outCfg
+         sayFail "Crux" (displayException e)
          return (ExitFailure 1)
-    where ?outputConfig = cfg
+
+
+type Options = (CruxOptions, LLVMOptions)
 
 makeCounterExamplesLLVM ::
-  Logs => Options -> Seq (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
-makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
+  Logs => Options -> CruxSimulationResult -> IO ()
+makeCounterExamplesLLVM opts@(cruxOpts,_) res
+  | makeCexes cruxOpts = mapM_ go . Fold.toList $ (cruxSimResultGoals res)
+  | otherwise = return ()
+
  where
  go gs =
   case gs of
     AtLoc _ _ gs1 -> go gs1
     Branch g1 g2  -> go g1 >> go g2
-    Goal _ (c,_) _ res ->
+    Goal _ (c,_) _ r ->
       let suff = case plSourceLoc (simErrorLoc c) of
                    SourcePos _ l _ -> show l
                    _               -> "unknown"
@@ -123,7 +134,7 @@ makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
                        ResourceExhausted _ -> True
                        _ -> False
 
-      in case (res, skipGoal) of
+      in case (r, skipGoal) of
            (NotProved (Just m), False) ->
              do sayFail "Crux" ("Counter example for " ++ msg)
                 (_prt,dbg) <- buildModelExes opts suff (ppModelC m)
@@ -174,9 +185,8 @@ registerFunctions llvm_module mtrans =
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
 
--- Returns only non-trivial goals
-simulateLLVM :: Crux.SimulateCallback LLVMOptions
-simulateLLVM fs (cruxOpts,llvmOpts) sym _p cont = do
+simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.SimulateCallback
+simulateLLVM cruxOpts llvmOpts fs sym _p cont = do
     llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     let ?laxArith = laxArithmetic llvmOpts
@@ -205,6 +215,8 @@ simulateLLVM fs (cruxOpts,llvmOpts) sym _p cont = do
                  say "Crux" ("Total paths explored: " ++ show i)
                  unless (null ws) $
                    sayWarn "Crux" (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
+
+
 
 checkFun :: (ArchOk arch, Logs) =>
             String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
@@ -267,77 +279,70 @@ data LLVMOptions = LLVMOptions
   , laxArithmetic :: Bool
   }
 
-cruxLLVM :: Crux.Language LLVMOptions
-cruxLLVM = Crux.Language
-  { Crux.name = "crux-llvm"
-  , Crux.version = "0.1"
-  , Crux.configuration = Crux.Config
-      { Crux.cfgFile =
-          do clangBin <- Crux.section "clang" Crux.fileSpec "clang"
-                         "Binary to use for `clang`."
+llvmCruxConfig :: Crux.Config LLVMOptions
+llvmCruxConfig =
+  Crux.Config
+  { Crux.cfgFile =
+      do clangBin <- Crux.section "clang" Crux.fileSpec "clang"
+                     "Binary to use for `clang`."
 
-             linkBin  <- Crux.section "llvm-link" Crux.fileSpec "llvm-link"
-                         "Binary to use for `clang`."
+         linkBin  <- Crux.section "llvm-link" Crux.fileSpec "llvm-link"
+                     "Binary to use for `clang`."
 
-             clangOpts <- Crux.section "clang-opts"
-                                        (Crux.oneOrList Crux.stringSpec) []
-                          "Additional options for `clang`."
+         clangOpts <- Crux.section "clang-opts"
+                                    (Crux.oneOrList Crux.stringSpec) []
+                      "Additional options for `clang`."
 
-             libDir <- Crux.section "lib-dir" Crux.dirSpec "c-src"
-                       "Locations of `crux-llvm` support library."
+         libDir <- Crux.section "lib-dir" Crux.dirSpec "c-src"
+                   "Locations of `crux-llvm` support library."
 
-             incDirs <- Crux.section "include-dirs"
-                            (Crux.oneOrList Crux.dirSpec) []
-                        "Additional include directories."
+         incDirs <- Crux.section "include-dirs"
+                        (Crux.oneOrList Crux.dirSpec) []
+                    "Additional include directories."
 
-             memOpts <- do laxPointerOrdering <-
-                             Crux.section "lax-pointer-ordering" Crux.yesOrNoSpec False
-                               "Allow order comparisons between pointers from different allocation blocks"
-                           laxConstantEquality <-
-                             Crux.section "lax-constant-equality" Crux.yesOrNoSpec False
-                               "Allow equality comparisons between pointers to constant data"
-                           return MemOptions{..}
+         memOpts <- do laxPointerOrdering <-
+                         Crux.section "lax-pointer-ordering" Crux.yesOrNoSpec False
+                           "Allow order comparisons between pointers from different allocation blocks"
+                       laxConstantEquality <-
+                         Crux.section "lax-constant-equality" Crux.yesOrNoSpec False
+                           "Allow equality comparisons between pointers to constant data"
+                       return MemOptions{..}
 
-             laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
-                               "Do not produce proof obligations related to arithmetic overflow, etc."
+         laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
+                           "Do not produce proof obligations related to arithmetic overflow, etc."
 
-             return LLVMOptions { .. }
+         return LLVMOptions { .. }
 
-      , Crux.cfgEnv  =
-          [ Crux.EnvVar "CLANG"      "Binary to use for `clang`."
-            $ \v opts -> Right opts { clangBin = v }
+  , Crux.cfgEnv  =
+      [ Crux.EnvVar "CLANG"      "Binary to use for `clang`."
+        $ \v opts -> Right opts { clangBin = v }
 
-          , Crux.EnvVar "CLANG_OPTS" "Options to pass to `clang`."
-            $ \v opts -> Right opts { clangOpts = words v }
+      , Crux.EnvVar "CLANG_OPTS" "Options to pass to `clang`."
+        $ \v opts -> Right opts { clangOpts = words v }
 
-          , Crux.EnvVar "LLVM_LINK" "Use this binary to link LLVM bitcode."
-            $ \v opts -> Right opts { linkBin = v }
-          ]
+      , Crux.EnvVar "LLVM_LINK" "Use this binary to link LLVM bitcode."
+        $ \v opts -> Right opts { linkBin = v }
+      ]
 
-      , Crux.cfgCmdLineFlag =
-          [ Crux.Option ['I'] ["include-dirs"]
-            "Additional include directories."
-            $ Crux.ReqArg "DIR"
-            $ \d opts -> Right opts { incDirs = d : incDirs opts }
+  , Crux.cfgCmdLineFlag =
+      [ Crux.Option ['I'] ["include-dirs"]
+        "Additional include directories."
+        $ Crux.ReqArg "DIR"
+        $ \d opts -> Right opts { incDirs = d : incDirs opts }
 
-          , Crux.Option [] ["lax-pointers"]
-            "Turn on lax rules for pointer comparisons"
-            $ Crux.NoArg
-            $ \opts -> Right opts{ memOpts = laxPointerMemOptions }
+      , Crux.Option [] ["lax-pointers"]
+        "Turn on lax rules for pointer comparisons"
+        $ Crux.NoArg
+        $ \opts -> Right opts{ memOpts = laxPointerMemOptions }
 
-          , Crux.Option [] ["lax-arithmetic"]
-            "Turn on lax rules for arithemetic overflow"
-            $ Crux.NoArg
-            $ \opts -> Right opts { laxArithmetic = True }
-          ]
-      }
-
-  , Crux.initialize = initCruxLLVM
-  , Crux.simulate   = simulateLLVM
-  , Crux.makeCounterExamples = makeCounterExamplesLLVM
+      , Crux.Option [] ["lax-arithmetic"]
+        "Turn on lax rules for arithemetic overflow"
+        $ Crux.NoArg
+        $ \opts -> Right opts { laxArithmetic = True }
+      ]
   }
 
-initCruxLLVM :: Options -> IO Options
+initCruxLLVM :: (CruxOptions,LLVMOptions) -> IO (CruxOptions,LLVMOptions)
 initCruxLLVM (cruxOpts,llvmOpts) =
   do -- keep looking for clangBin if it is unset
     clangFilePath <- if clangBin llvmOpts == ""
@@ -427,9 +432,6 @@ llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
 ---------------------------------------------------------------------
 ---------------------------------------------------------------------
 -- From Clang.hs
-
-type Options = Crux.Options LLVMOptions
-
 
 isCPlusPlus :: FilePath -> Bool
 isCPlusPlus file =
