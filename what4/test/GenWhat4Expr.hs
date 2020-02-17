@@ -519,6 +519,8 @@ genBV8TestExpr = let ret8 = return . TE_BV8 in
   ]
   $
   bvTGExprs (tgen8 bvTermGens)
+  ++
+  bvTGMixedExprs bvTermGens 8
 
 
 genBV16val :: Monad m => GenT m Integer
