@@ -564,7 +564,6 @@ genBV16TestExpr = let ret16 = return . TE_BV16 in
   [
     -- TBD: bvZext  !! add these, then can test bvZext/bvSext to same size, then can use this to get a bv8 in the shift instructions to do shifting.  Or... should we just also fix the shifting instructions?
     -- TBD: bvSext
-    -- TBD: bvTrunc
   ]
 
 
@@ -945,6 +944,21 @@ bvExprs bvTerm conTE projTE teSubCon expr width toWord =
 
   -- TBD: carrylessMultiply
 
+  , subBVTerms1
+    (\x -> teSubCon
+           (pfx "bvSelect @0[" <> pdesc x <> "]")
+           (mask (testval x))
+           (\sym -> do x' <- expr x sym
+                       bvSelect sym (knownRepr :: NatRepr 0) knownRepr x'))
+
+  -- TODO: bvTrunc doesn't allow the no-op/same-size operation
+  -- , subBVTerms1
+  --   (\x -> teSubCon
+  --          (pfx "bvTrunc " <> pdesc x)
+  --          (mask (testval x))
+  --          (\sym -> do x' <- expr x sym
+  --                      bvTrunc sym knownRepr x'))
+
   ] ++
   if width <= 16
   then
@@ -1094,7 +1108,8 @@ bvTGMixedExprs_QuarterHalf thisTG halfTG quarterTG =
 bvTGMixedExprs_Double :: ( Monad m
                          , 1 <= w
                          , 0 + w <= w + w
-                         , 1 + w <= w + w
+                         , 1 + w <= w + w  -- bvSelect --v
+                         , w + 1 <= w + w  -- bvTrunc ---^
                          , 2 + w <= w + w
                          , 7 + w <= w + w
                          , KnownNat w
@@ -1154,12 +1169,21 @@ bvTGMixedExprs_Double thisTG dblTG =
              (mask ((testval (projBVT dblTG x)) `shiftR` 7))
              (\sym -> do x' <- symExpr dblTG (projBVT dblTG x) sym
                          bvSelect sym (knownRepr :: NatRepr 7) knownRepr x'))
+
+    , Gen.subterm (genTerm dblTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvTrunc " <> pdesc (projBVT dblTG x))
+             (mask (testval (projBVT dblTG x)))
+             (\sym -> do x' <- symExpr dblTG (projBVT dblTG x) sym
+                         bvTrunc sym knownRepr x'))
     ]
 
 bvTGMixedExprs_Quadruple :: ( Monad m
                          , 1 <= w
                          , 0 + w <= w + w + w + w
-                         , 1 + w <= w + w + w + w
+                         , 1 + w <= w + w + w + w  -- bvSelect --v
+                         , w + 1 <= w + w + w + w  -- bvTrunc ---^
                          , 2 + w <= w + w + w + w
                          , 7 + w <= w + w + w + w
                          , 12 + w <= w + w + w + w
@@ -1235,6 +1259,15 @@ bvTGMixedExprs_Quadruple thisTG quadTG =
              (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
                          bvSelect sym (knownRepr :: NatRepr 19) knownRepr x'))
 
+    -- bvTrunc output size must match the size of thisTG
+
+    , Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvTrunc " <> pdesc (projBVT quadTG x))
+             (mask (testval (projBVT quadTG x)))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvTrunc sym knownRepr x'))
     ]
 
 
