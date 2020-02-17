@@ -140,20 +140,24 @@ pathSplittingFeature wl = ExecutionFeature $ \case
 
 -- | This function executes a state using the path splitting execution
 --   feature.  Each time a path is completed, the given result
---   continuation is executed on it.  Then, the next work item is
---   popped of the front of the work list and will be executed in turn
---   until all paths are exhausted. If a timeout result is
---   encountered, we instead stop executing paths early.  The return
---   value of this function is the number of paths that were
+--   continuation is executed on it. If the continuation returns
+--   'True', additional paths will be executed; otherwise, we exit early
+--   and exploration stops.
+--
+--   If exploration continues, the next work item will be
+--   popped of the front of the work list and will be executed in turn.
+--   If a timeout result is encountered, we instead stop executing paths early.
+--   The return value of this function is the number of paths that were
 --   completed, and a list of remaining paths (if any) that were not
---   explored due to timeout.
+--   explored due to timeout or early exit.
 executeCrucibleDFSPaths :: forall p sym ext rtp.
   ( IsSymInterface sym
   , IsSyntaxExtension ext
   ) =>
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
-  (ExecResult p sym ext rtp -> IO ()) {- ^ Path result continuation -} ->
+  (ExecResult p sym ext rtp -> IO Bool)
+    {- ^ Path result continuation, return 'True' to explore more paths -} ->
   IO (Word64, Seq (WorkItem p sym ext rtp))
 executeCrucibleDFSPaths execFeatures exst0 cont =
   do wl <- newIORef Seq.empty
@@ -164,14 +168,20 @@ executeCrucibleDFSPaths execFeatures exst0 cont =
  where
  go wl cnt feats exst =
    do res <- executeCrucible feats exst
-      cont res
+      goOn <- cont res
       case res of
         TimeoutResult _ ->
            do xs <- readIORef wl
               i  <- readIORef cnt
               return (i,xs)
 
-        _ -> dequeueWorkItem wl >>= \case
+        _ | not goOn ->
+           do xs <- readIORef wl
+              i  <- readIORef cnt
+              return (i,xs)
+
+          | otherwise ->
+             dequeueWorkItem wl >>= \case
                Nothing ->
                  do i <- readIORef cnt
                     return (i, mempty)
