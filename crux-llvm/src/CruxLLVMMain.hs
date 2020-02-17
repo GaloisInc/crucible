@@ -194,13 +194,14 @@ simulateLLVM cruxOpts llvmOpts = Crux.InitSimulatorCallback $ \sym ->
            let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
                     runOverrideSim UnitRepr $
                       do registerFunctions llvm_mod trans
-                         checkFun "main" (cfgMap trans)
+                         checkFun (entryPoint llvmOpts) (cfgMap trans)
 
            return $ Crux.RunnableState initSt
 
 
-checkFun :: (ArchOk arch, Logs) =>
-            String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
+checkFun ::
+  (ArchOk arch, Logs) =>
+  String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (_, AnyCFG anyCfg) ->
@@ -258,6 +259,7 @@ data LLVMOptions = LLVMOptions
   , incDirs    :: [FilePath]
   , memOpts    :: MemOptions
   , laxArithmetic :: Bool
+  , entryPoint :: String
   }
 
 llvmCruxConfig :: Crux.Config LLVMOptions
@@ -288,6 +290,9 @@ llvmCruxConfig =
                          Crux.section "lax-constant-equality" Crux.yesOrNoSpec False
                            "Allow equality comparisons between pointers to constant data"
                        return MemOptions{..}
+
+         entryPoint <- Crux.section "entry-point" Crux.stringSpec "main"
+                           "Name of the entry point function to begin simulation."
 
          laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
                            "Do not produce proof obligations related to arithmetic overflow, etc."
@@ -320,6 +325,11 @@ llvmCruxConfig =
         "Turn on lax rules for arithemetic overflow"
         $ Crux.NoArg
         $ \opts -> Right opts { laxArithmetic = True }
+
+      , Crux.Option [] ["entry-point"]
+        "Name of the entry point to begin simulation"
+        $ Crux.ReqArg "SYMBOL"
+        $ \s opts -> Right opts{ entryPoint = s }
       ]
   }
 
