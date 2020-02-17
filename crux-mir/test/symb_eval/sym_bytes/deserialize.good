@@ -1,9 +1,15 @@
-test deserialize/3a1fbbbh::crux_test[0]: returned Symbolic BV, ok
+test deserialize/3a1fbbbh::crux_test[0]: returned Symbolic BV, FAILED
+
+failures:
+
+---- deserialize/3a1fbbbh::crux_test[0] counterexamples ----
+Failure for attempt to add with overflow
+in deserialize/3a1fbbbh::deserialize[0] at test/symb_eval/sym_bytes/deserialize.rs:20:21
 
 [Crux] Goal status:
-[Crux]   Total: 1
-[Crux]   Proved: 1
-[Crux]   Disproved: 0
+[Crux]   Total: 3
+[Crux]   Proved: 2
+[Crux]   Disproved: 1
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0
-[Crux] Overall status: Valid.
+[Crux] Overall status: Invalid.

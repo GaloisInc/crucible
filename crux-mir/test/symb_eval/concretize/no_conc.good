@@ -1,8 +1,8 @@
 test no_conc/3a1fbbbh::crux_test[0]: returned (Symbolic BV, Symbolic BV), ok
 
 [Crux] Goal status:
-[Crux]   Total: 2
-[Crux]   Proved: 2
+[Crux]   Total: 3
+[Crux]   Proved: 3
 [Crux]   Disproved: 0
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0

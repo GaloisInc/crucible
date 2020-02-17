@@ -1,8 +1,8 @@
 test arith/3a1fbbbh::crux_test[0]: ok
 
 [Crux] Goal status:
-[Crux]   Total: 9
-[Crux]   Proved: 9
+[Crux]   Total: 11
+[Crux]   Proved: 11
 [Crux]   Disproved: 0
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0

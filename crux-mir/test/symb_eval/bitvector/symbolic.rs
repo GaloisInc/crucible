@@ -14,6 +14,7 @@ fn crux_test() {
     {
         let a = Bv256::symbolic("a");
         let b = Bv256::symbolic("b");
-        crucible_assert!((u64::from(a) + u64::from(b)) == u64::from(a + b));
+        // Bv256 addition is always wrapping.
+        crucible_assert!((u64::from(a).wrapping_add(u64::from(b))) == u64::from(a + b));
     }
 }

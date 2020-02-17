@@ -1497,11 +1497,12 @@ transTerminator (M.Call funcOp cargs cretdest _) tr = do
       Nothing -> do
           G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
 
-transTerminator (M.Assert cond _expected _msg target _cleanup) _ = do
-    db <- use $ debugLevel
-    when (db > 5) $ do
-       traceM $ "Skipping assert " ++ fmt cond
-    jumpToBlock target -- FIXME! asserts are ignored; is this the right thing to do? NO!
+transTerminator (M.Assert cond expected msg target _cleanup) _ = do
+    MirExp tpr e <- evalOperand cond
+    Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
+    G.assertExpr (S.app $ E.BoolEq e (S.app $ E.BoolLit expected)) $
+        S.app $ E.StringLit $ W4.UnicodeLiteral $ msg
+    jumpToBlock target
 transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
 transTerminator (M.Drop _dl dt _dunwind) _ =

@@ -4,7 +4,7 @@ failures:
 
 ---- override5/3a1fbbbh::f[0] counterexamples ----
 Failure for MIR assertion at test/symb_eval/overrides/override5.rs:11:5:
-	foo + 1 != 0
+	foo.wrapping_add(1) != 0
 in override5/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
 
 [Crux] Goal status:

@@ -25,7 +25,7 @@ fn ffs_imp(j : u32) -> u32 {
     if (i & 0x000f) == 0 { n +=  4; i >>=  4; }
     if (i & 0x0003) == 0 { n +=  2; i >>=  2; }
     let nn = n as u32;
-    if i != 0 { return nn+((i+1) & 0x01); } else { return 0; }
+    if i != 0 { return nn+((i.wrapping_add(1)) & 0x01); } else { return 0; }
 }
 
 
