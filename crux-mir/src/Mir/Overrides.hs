@@ -205,20 +205,4 @@ bindFn fn cfg =
                        let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
                        liftIO $ addAssumption s (LabeledPred (regValue c) reason)
                        return ()
-               , override "crucible::array::symbolic" (Empty :> strrepr) (UsizeArrayRepr (BaseBVRepr (knownNat @8))) $ do
-                    RegMap (Empty :> str) <- getOverrideArgs
-                    let sym = (undefined :: sym)
-                    x <- maybe (fail "not a constant string") pure (getString sym (regValue str))
-                    let xStr = Text.unpack x
-                    let y = filter ((/=) '\"') xStr
-                    nname <-
-                      case userSymbol y of
-                        Left err -> fail (show err ++ " " ++ y)
-                        Right a -> return a
-                    s <- getSymInterface
-                    let btpr = BaseArrayRepr (Empty :> BaseUsizeRepr) (BaseBVRepr (knownNat @8))
-                    v <- liftIO (freshConstant s nname btpr)
-                    loc   <- liftIO $ getCurrentProgramLoc s
-                    stateContext.cruciblePersonality %= addVar loc xStr btpr v
-                    return v
                ]
