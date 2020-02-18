@@ -270,7 +270,7 @@ llvmCruxConfig =
                      "Binary to use for `clang`."
 
          linkBin  <- Crux.section "llvm-link" Crux.fileSpec "llvm-link"
-                     "Binary to use for `clang`."
+                     "Binary to use for `llvm-link`."
 
          clangOpts <- Crux.section "clang-opts"
                                     (Crux.oneOrList Crux.stringSpec) []
@@ -306,7 +306,7 @@ llvmCruxConfig =
       , Crux.EnvVar "CLANG_OPTS" "Options to pass to `clang`."
         $ \v opts -> Right opts { clangOpts = words v }
 
-      , Crux.EnvVar "LLVM_LINK" "Use this binary to link LLVM bitcode."
+      , Crux.EnvVar "LLVM_LINK" "Use this binary to link LLVM bitcode (`llvm-link`)."
         $ \v opts -> Right opts { linkBin = v }
       ]
 
