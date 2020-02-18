@@ -814,7 +814,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
                                            , sessionResponse = s }
 
   smtSatResult p s =
-    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
+    do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        case mb of
          Left (SomeException e) ->
             fail $ unlines [ "Could not parse check_sat result."
@@ -827,7 +827,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
          Right res -> throw $ SMTLib2ParseError (checkCommands p) (Text.pack (show res))
 
   smtUnsatAssumptionsResult p s =
-    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
+    do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        let cmd = getUnsatAssumptionsCommand p
        case mb of
          Right (asNegAtomList -> Just as) -> return as
@@ -837,7 +837,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
            throwSMTLib2ParseError "unsat assumptions" cmd e
 
   smtUnsatCoreResult p s =
-    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
+    do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        let cmd = getUnsatCoreCommand p
        case mb of
          Right (asAtomList -> Just nms) -> return nms
@@ -878,7 +878,7 @@ instance Exception SMTLib2Exception
 
 smtAckResult :: Streams.InputStream Text -> AcknowledgementAction t (Writer a)
 smtAckResult resp = AckAction $ \_conn cmd ->
-  do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) resp)
+  do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseSMTLib2String) resp)
      case mb of
        Right (SAtom "success") -> return ()
        Right (SAtom "unsupported") -> throw (SMTLib2Unsupported cmd)
@@ -1147,7 +1147,7 @@ nameResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
 nameResult _ s =
   let cmd = SMT2.getName
   in
-    try (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
+    tryJust filterAsync (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
       \case
         Right (SApp [SAtom ":name", SString nm]) -> pure nm
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
@@ -1162,7 +1162,7 @@ queryErrorBehavior :: SMTLib2Tweaks a =>
 queryErrorBehavior conn resp =
   do let cmd = SMT2.getErrorBehavior
      writeCommand conn cmd
-     try (Streams.parseFromStream (parseSExp parseSMTLib2String) resp) >>=
+     tryJust filterAsync (Streams.parseFromStream (parseSExp parseSMTLib2String) resp) >>=
        \case
          Right (SApp [SAtom ":error-behavior", SAtom "continued-execution"]) -> return ContinueOnError
          Right (SApp [SAtom ":error-behavior", SAtom "immediate-exit"]) -> return ImmediateExit
@@ -1175,7 +1175,7 @@ versionResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
 versionResult _ s =
   let cmd = SMT2.getVersion
   in
-    try (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
+    tryJust filterAsync (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
       \case
         Right (SApp [SAtom ":version", SString ver]) -> pure ver
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)

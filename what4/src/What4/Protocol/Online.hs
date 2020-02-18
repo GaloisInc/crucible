@@ -35,7 +35,7 @@ module What4.Protocol.Online
   ) where
 
 import           Control.Exception
-                   ( SomeException(..), catch, try, displayException )
+                   ( SomeException(..), catch, catchJust, tryJust, displayException )
 import           Control.Monad ( unless )
 import           Control.Monad (void, forM, forM_)
 import           Control.Monad.Catch ( MonadMask, bracket_, onException )
@@ -57,6 +57,7 @@ import           What4.ProblemFeatures
 import           What4.Protocol.SMTWriter
 import           What4.SatResult
 import           What4.Utils.HandleReader
+import           What4.Utils.Process (filterAsync)
 
 -- | This class provides an API for starting and shutting down
 --   connections to various different solvers that support
@@ -121,7 +122,9 @@ data SolverProcess scope solver = SolverProcess
 --   or in some unrecoverable error state.
 killSolver :: SolverProcess t solver -> IO ()
 killSolver p =
-  do catch (terminateProcess (solverHandle p)) (\(_ :: SomeException) -> return ())
+  do catchJust filterAsync
+           (terminateProcess (solverHandle p))
+           (\(ex :: SomeException) -> hPutStrLn stderr $ displayException ex)
      void $ waitForProcess (solverHandle p)
 
 -- | Check if the given formula is satisfiable in the current
@@ -346,7 +349,7 @@ getSatResult :: SMTReadWriter s => SolverProcess t s -> IO (SatResult () ())
 getSatResult yp = do
   let ph = solverHandle yp
   let err_reader = solverStderr yp
-  sat_result <- try (smtSatResult yp (solverResponse yp))
+  sat_result <- tryJust filterAsync (smtSatResult yp (solverResponse yp))
   case sat_result of
     Right ok -> return ok
 

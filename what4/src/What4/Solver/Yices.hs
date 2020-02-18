@@ -69,7 +69,7 @@ import Control.Monad.Fail( MonadFail )
 
 import           Control.Applicative
 import           Control.Exception
-                   (assert, SomeException(..), try, throw, displayException, Exception(..))
+                   (assert, SomeException(..), tryJust, throw, displayException, Exception(..))
 import           Control.Lens ((^.), folded)
 import           Control.Monad
 import           Control.Monad.Identity
@@ -568,7 +568,7 @@ instance SMTReadWriter (Connection s) where
   smtSatResult _ = getSatResponse
 
   smtUnsatAssumptionsResult _ s =
-    do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) s)
+    do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseYicesString) s)
        let cmd = safeCmd "(show-unsat-assumptions)"
        case mb of
          Right (asNegAtomList -> Just as) -> return as
@@ -580,7 +580,7 @@ instance SMTReadWriter (Connection s) where
                          ]
 
   smtUnsatCoreResult _ s =
-    do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) s)
+    do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseYicesString) s)
        let cmd = safeCmd "(show-unsat-core)"
        case mb of
          Right (asAtomList -> Just nms) -> return nms
@@ -769,7 +769,7 @@ sendShowModel c = addCommandNoAck c showModelCommand
 
 getAckResponse :: Streams.InputStream Text -> IO (Maybe Text)
 getAckResponse resps =
-  do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) resps)
+  do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseYicesString) resps)
      case mb of
        Right (SAtom "ok") -> return Nothing
        Right (SAtom txt)  -> return (Just txt)
@@ -786,7 +786,7 @@ getAckResponse resps =
 -- Throws an exception if something goes wrong.
 getSatResponse :: Streams.InputStream Text -> IO (SatResult () ())
 getSatResponse resps =
-  do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) resps)
+  do mb <- tryJust filterAsync (Streams.parseFromStream (parseSExp parseYicesString) resps)
      case mb of
        Right (SAtom "unsat")   -> return (Unsat ())
        Right (SAtom "sat")     -> return (Sat ())
@@ -811,7 +811,7 @@ type Eval scope solver ty =
 yicesEvalReal :: Eval s t Rational
 yicesEvalReal conn resp tm =
   do eval conn tm
-     mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> Root.parseYicesRoot) resp)
+     mb <- tryJust filterAsync (Streams.parseFromStream (skipSpaceOrNewline *> Root.parseYicesRoot) resp)
      case mb of
        Left (SomeException ex) ->
            fail $ unlines
@@ -861,7 +861,7 @@ boolValue =
 yicesEvalBool :: Eval s t Bool
 yicesEvalBool conn resp tm =
   do eval conn tm
-     mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> boolValue) resp)
+     mb <- tryJust filterAsync (Streams.parseFromStream (skipSpaceOrNewline *> boolValue) resp)
      case mb of
        Left (SomeException ex) ->
            fail $ unlines
@@ -880,7 +880,7 @@ yicesBV w =
 yicesEvalBV :: Int -> Eval s t Integer
 yicesEvalBV w conn resp tm =
   do eval conn tm
-     mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> yicesBV w) resp)
+     mb <- tryJust filterAsync (Streams.parseFromStream (skipSpaceOrNewline *> yicesBV w) resp)
      case mb of
        Left (SomeException ex) ->
            fail $ unlines
