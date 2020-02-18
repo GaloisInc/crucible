@@ -59,7 +59,8 @@ withProcessHandles path args mcwd action = do
           { std_in  = CreatePipe
           , std_out = CreatePipe
           , std_err = CreatePipe
-          , create_group = True
+          , create_group = False
+          , delegate_ctlc = True
           , cwd = mcwd
           }
   let startProcess = do

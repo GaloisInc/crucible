@@ -1039,7 +1039,8 @@ startSolver solver ack setup feats auxOutput sym = do
       { Process.std_in       = Process.CreatePipe
       , Process.std_out      = Process.CreatePipe
       , Process.std_err      = Process.CreatePipe
-      , Process.create_group = True
+      , Process.create_group = False
+      , Process.delegate_ctlc = True
       , Process.cwd          = Nothing
       }
   (in_h, out_h, err_h, ph) <- case solver_process of
