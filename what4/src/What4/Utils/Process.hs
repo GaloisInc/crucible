@@ -17,6 +17,7 @@ module What4.Utils.Process
   ( withProcessHandles
   , resolveSolverPath
   , findSolverPath
+  , filterAsync
   ) where
 
 import           Control.Exception
@@ -69,13 +70,25 @@ withProcessHandles path args mcwd action = do
           (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
           _ -> fail "Internal error in withProcessHandles: Failed to create handle."
   let cleanup (in_h,out_h,err_h,ph) = do
-        catch (do hClose in_h
+        catchJust filterAsync
+              (do hClose in_h
                   hClose out_h
-                  hClose err_h
-                  void $ waitForProcess ph)
-              (\(_ :: SomeException) -> return ())
+                  hClose err_h)
+              (\(ex :: SomeException) -> hPutStrLn stderr $ displayException ex)
+        void $ waitForProcess ph
+
   let onError (_,_,_,ph) = do
         -- Interrupt process; suppress any exceptions that occur.
-        catch (terminateProcess ph) (\(_ :: SomeException) -> return ())
+        catchJust filterAsync (terminateProcess ph) (\(ex :: SomeException) ->
+          hPutStrLn stderr $ displayException ex)
 
   bracket startProcess cleanup (\hs -> onException (action hs) (onError hs))
+
+
+-- | Filtering function for use with `catchJust` or `tryJust`
+--   that filteres out asynch exceptions so they are rethrown
+--   instead of captured
+filterAsync :: SomeException -> Maybe SomeException
+filterAsync e
+  | Just (_ :: AsyncException) <- fromException e = Nothing
+  | otherwise = Just e
