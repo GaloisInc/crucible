@@ -138,7 +138,7 @@ cruxJVMConfig = Crux.Config
   }
 
 simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallback
-simulateJVM copts opts = Crux.SimulatorCallback $ \sym -> do
+simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
    file <- case files of

@@ -12,6 +12,7 @@ module Crux
   , SimulatorCallback(..)
   , RunnableState(..)
   , CruxOptions(..)
+  , SomeOnlineSolver(..)
   , module Crux.Config
   , module Crux.Log
   ) where
@@ -89,7 +90,8 @@ data RunnableState sym =
 newtype SimulatorCallback
   = SimulatorCallback
     { initSimulatorState ::
-        forall sym. (IsSymInterface sym, Logs) => sym -> IO (RunnableState sym)
+        forall sym. (IsSymInterface sym, Logs) =>
+          sym -> Maybe (SomeOnlineSolver sym) -> IO (RunnableState sym)
     }
 
 -- | Given the reuslt of a simulation and proof run, report the overall
@@ -407,13 +409,15 @@ runSimulator cruxOpts simCallback = do
   case CCS.parseSolverConfig cruxOpts of
     Right (CCS.SingleOnlineSolver onSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
+        let monline = Just SomeOnlineSolver
         setupSolver cruxOpts (onlineSolverOutput cruxOpts) sym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym (Just SomeOnlineSolver)
-        doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo (proveGoalsOnline sym)
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym monline
+        doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline (proveGoalsOnline sym)
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
+        let monline = Just SomeOnlineSolver
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
-        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym (Just SomeOnlineSolver)
+        (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym monline
         withSolverAdapter offSolver $ \adapter -> do
           -- We have to add the configuration options from the solver adapter,
           -- since they weren't included in the symbolic backend configuration
@@ -424,7 +428,7 @@ runSimulator cruxOpts simCallback = do
             -- the online solver setup already added them.  What4 raises an
             -- error if the same option is added more than once.
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline (proveGoalsOffline adapter)
     Right (CCS.OnlyOfflineSolver offSolver) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
         withSolverAdapter offSolver $ \adapter -> do
@@ -434,7 +438,7 @@ runSimulator cruxOpts simCallback = do
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
           (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo (proveGoalsOffline adapter)
+          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo Nothing (proveGoalsOffline adapter)
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
@@ -449,7 +453,7 @@ runSimulator cruxOpts simCallback = do
           -- use the same float mode, so no mismatch here should be possible.
           case testEquality floatRepr1 floatRepr2 of
             Just Refl ->
-              doSimWithResults cruxOpts simCallback compRef glsRef pathSatSym execFeatures profInfo (proveGoalsOnline goalSym)
+              doSimWithResults cruxOpts simCallback compRef glsRef pathSatSym execFeatures profInfo (Just SomeOnlineSolver) (proveGoalsOnline goalSym)
             Nothing -> fail "Impossible: the argument interpretation produced two different float modes"
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
@@ -480,16 +484,17 @@ doSimWithResults ::
   sym ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
+  Maybe (SomeOnlineSolver sym) ->
   ProverCallback sym
     {- ^ The function to use to prove goals; this is intended to be
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO CruxSimulationResult
-doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo goalProver = do
+doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline goalProver = do
 
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
-    RunnableState initSt <- initSimulatorState simCallback sym
+    RunnableState initSt <- initSimulatorState simCallback sym monline
 
     -- execute the simulator
     case pathStrategy cruxOpts of
