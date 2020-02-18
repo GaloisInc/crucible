@@ -482,6 +482,7 @@ allbits16 = (2 :: Integer) ^ (16 :: Integer) - 1
 allbits32 = (2 :: Integer) ^ (32 :: Integer) - 1
 allbits64 = (2 :: Integer) ^ (64 :: Integer) - 1
 
+
 genBV8val :: Monad m => GenT m Integer
 genBV8val = Gen.choice
             [
@@ -491,10 +492,11 @@ genBV8val = Gen.choice
             , Gen.integral $ Range.constant (allbits8-2) allbits8
             ]
 
-data BV8TestExpr = BV8TestExpr { bv8desc :: String
-                               , bv8val  :: Integer
-                               , bv8expr :: forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym 8)
-                               }
+data BV8TestExpr = BV8TestExpr
+  { bv8desc :: String
+  , bv8val  :: Integer
+  , bv8expr :: forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym 8)
+  }
 
 instance IsTestExpr BV8TestExpr where
   type HaskellTy BV8TestExpr = Integer
@@ -516,9 +518,9 @@ genBV8TestExpr = let ret8 = return . TE_BV8 in
     in ret8 $ BV8TestExpr (show n <> "`8") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV8TestExpr genBV8TestExpr
-  in bvExprs bvTerm TE_BV8 (\(TE_BV8 x) -> x) BV8TestExpr bv8expr 8
-     (fromIntegral :: Integer -> Word8)
+  bvTGExprs (tgen8 bvTermGens)
+  ++
+  bvTGMixedExprs bvTermGens 8
 
 
 genBV16val :: Monad m => GenT m Integer
@@ -557,18 +559,9 @@ genBV16TestExpr = let ret16 = return . TE_BV16 in
     in ret16 $ BV16TestExpr (show n <> "`16") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV16TestExpr genBV16TestExpr
-  in
-  bvExprs bvTerm TE_BV16 (\(TE_BV16 x) -> x) BV16TestExpr bvexpr 16
-  (fromIntegral :: Integer -> Word16)
+  bvTGExprs (tgen16 bvTermGens)
   ++
-  [
-    -- TBD: bvZext
-    -- TBD: bvSext
-    -- TBD: bvTrunc
-    -- TBD: bvConcat
-    -- TBD: bvSelect
-  ]
+  bvTGMixedExprs bvTermGens 16
 
 
 genBV32val :: Monad m => GenT m Integer
@@ -609,10 +602,9 @@ genBV32TestExpr = let ret32 = return . TE_BV32 in
     in ret32 $ BV32TestExpr (show n <> "`32") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV32TestExpr genBV32TestExpr
-  in
-  bvExprs bvTerm TE_BV32 (\(TE_BV32 x) -> x) BV32TestExpr bv32expr 32
-  (fromIntegral :: Integer -> Word32)
+  bvTGExprs (tgen32 bvTermGens)
+  ++
+  bvTGMixedExprs bvTermGens 32
 
 
 genBV64val :: Monad m => GenT m Integer
@@ -654,12 +646,90 @@ genBV64TestExpr = let ret64 = return . TE_BV64 in
     in ret64 $ BV64TestExpr (show n <> "`64") n $ \sym -> minSignedBV sym knownRepr
   ]
   $
-  let bvTerm = IGen.filterT isBV64TestExpr genBV64TestExpr
-  in bvExprs bvTerm TE_BV64 (\(TE_BV64 x) -> x) BV64TestExpr bv64expr 64
-     (fromIntegral :: Integer -> Word64)
-  -- n.b. toEnum . fromEnum doesn't work for very large Word64 values
-  -- (-1, -2, high-bit set?), so use fromIntegral instead (probably faster?)
+  bvTGExprs (tgen64 bvTermGens)
+  ++
+  bvTGMixedExprs bvTermGens 64
 
+
+-- | For a particular bitwidth, the BVTermGen structure provides the
+-- various definitions of term generators, constructors and
+-- projectors, What4 expression extractors, and width designations.
+data BVTermGen m bvtestexpr w word = BVTermGen
+  {
+    genTerm :: GenT m TestExpr
+  , conBVT :: bvtestexpr -> TestExpr
+  , projBVT :: TestExpr -> bvtestexpr
+  , subBVTCon :: String -> Integer
+              -> (forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym w))
+              -> bvtestexpr
+  , symExpr :: bvtestexpr
+            -> (forall sym. (IsExprBuilder sym) => sym -> IO (SymBV sym w))
+  , bitWidth :: Natural
+  , toBVWord :: (Integer -> word)
+  }
+
+-- | This combines the information about BVTermGen for all of the
+-- standard widths
+data BVTermsGen m = BVTermsGen
+  {
+    tgen8 :: BVTermGen m BV8TestExpr 8 Word8
+  , tgen16 :: BVTermGen m BV16TestExpr 16 Word16
+  , tgen32 :: BVTermGen m BV32TestExpr 32 Word32
+  , tgen64 :: BVTermGen m BV64TestExpr 64 Word64
+  }
+
+bvTermGens :: Monad m => BVTermsGen m
+bvTermGens =
+  let g8 = BVTermGen
+           (IGen.filterT isBV8TestExpr genBV8TestExpr)
+           TE_BV8
+           (\(TE_BV8 x) -> x)
+           BV8TestExpr
+           bv8expr
+           8
+           fromIntegral
+      g16 = BVTermGen
+            (IGen.filterT isBV16TestExpr genBV16TestExpr)
+            TE_BV16
+            (\(TE_BV16 x) -> x)
+            BV16TestExpr
+            bvexpr
+            16
+            fromIntegral
+      g32 = BVTermGen
+            (IGen.filterT isBV32TestExpr genBV32TestExpr)
+            TE_BV32
+            (\(TE_BV32 x) -> x)
+            BV32TestExpr
+            bv32expr
+            32
+            fromIntegral
+      g64 = BVTermGen
+            (IGen.filterT isBV64TestExpr genBV64TestExpr)
+            TE_BV64
+            (\(TE_BV64 x) -> x)
+            BV64TestExpr
+            bv64expr
+            64
+            fromIntegral
+            -- n.b. toEnum . fromEnum doesn't work for very large
+            -- Word64 values (-1, -2, high-bit set?), so use
+            -- fromIntegral instead (probably faster?)
+  in BVTermsGen g8 g16 g32 g64
+
+
+bvTGExprs :: ( Monad m
+             , HaskellTy bvtestexpr ~ Integer
+             , IsTestExpr bvtestexpr
+             , 1 <= w
+             , KnownNat w
+             , Integral word
+             , FiniteBits word
+             )
+          => BVTermGen m bvtestexpr w word
+          -> [GenT m TestExpr]
+bvTGExprs gt = bvExprs (genTerm gt) (conBVT gt) (projBVT gt) (subBVTCon gt)
+                       (symExpr gt) (bitWidth gt) (toBVWord gt)
 
 bvExprs :: ( Monad m
            , HaskellTy bvtestexpr ~ Integer
@@ -871,6 +941,37 @@ bvExprs bvTerm conTE projTE teSubCon expr width toWord =
 
   -- TBD: carrylessMultiply
 
+  , subBVTerms1
+    (\x -> teSubCon
+           (pfx "bvSelect @0[" <> pdesc x <> "]")
+           (mask (testval x))
+           (\sym -> do x' <- expr x sym
+                       bvSelect sym (knownRepr :: NatRepr 0) knownRepr x'))
+
+  -- TODO: bvTrunc doesn't allow the no-op/same-size operation
+  -- , subBVTerms1
+  --   (\x -> teSubCon
+  --          (pfx "bvTrunc " <> pdesc x)
+  --          (mask (testval x))
+  --          (\sym -> do x' <- expr x sym
+  --                      bvTrunc sym knownRepr x'))
+
+  -- TODO: bvZext doesn't allow the no-op/same-size operation
+  -- , subBVTerms1
+  --   (\x -> teSubCon
+  --          (pfx "bvZext " <> pdesc x)
+  --          (mask (testval x))
+  --          (\sym -> do x' <- expr x sym
+  --                      bvZext sym knownRepr x'))
+
+  -- TODO: bvSext doesn't allow the no-op/same-size operation
+  -- , subBVTerms1
+  --   (\x -> teSubCon
+  --          (pfx "bvSext " <> pdesc x)
+  --          (mask (testval x))
+  --          (\sym -> do x' <- expr x sym
+  --                      bvSext sym knownRepr x'))
+
   ] ++
   if width <= 16
   then
@@ -924,6 +1025,318 @@ bvExprs bvTerm conTE projTE teSubCon expr width toWord =
 
     ]
     else []
+
+
+bvTGMixedExprs :: Monad m => BVTermsGen m -> Natural -> [GenT m TestExpr]
+bvTGMixedExprs termGens tgtWidth =
+  case tgtWidth of
+    8 -> bvTGMixedExprs_Double (tgen8 termGens) (tgen16 termGens) ++
+         bvTGMixedExprs_Quadruple (tgen8 termGens) (tgen32 termGens)
+    16 -> bvTGMixedExprs_Half (tgen16 termGens) (tgen8 termGens) ++
+          bvTGMixedExprs_Double (tgen16 termGens) (tgen32 termGens) ++
+          bvTGMixedExprs_Quadruple (tgen16 termGens) (tgen64 termGens)
+    32 -> bvTGMixedExprs_Half (tgen32 termGens) (tgen16 termGens) ++
+          bvTGMixedExprs_QuarterHalf (tgen32 termGens) (tgen16 termGens) (tgen8 termGens) ++
+          bvTGMixedExprs_Double (tgen32 termGens) (tgen64 termGens)
+    64 -> bvTGMixedExprs_Half (tgen64 termGens) (tgen32 termGens) ++
+          bvTGMixedExprs_QuarterHalf (tgen64 termGens) (tgen32 termGens) (tgen16 termGens)
+    _ -> error $ "Unsupported width for mixed BV expressions: " <> show tgtWidth
+
+
+bvTGMixedExprs_Half :: ( Monad m
+                       , 1 <= w
+                       , w + 1 <= w + w
+                       , KnownNat (w + w)
+                       , HaskellTy bvtestexpr ~ Integer
+                       , IsTestExpr bvtestexpr
+                       , HaskellTy bvtestexpr_h ~ Integer
+                       , IsTestExpr bvtestexpr_h
+                       )
+                    => BVTermGen m bvtestexpr (w + w) word
+                    -> BVTermGen m bvtestexpr_h w word_h
+                    -> [GenT m TestExpr]
+bvTGMixedExprs_Half thisTG halfTG =
+  let pfx o = "bv" <> (show $ bitWidth thisTG) <> "." <> o
+      halfWidth = bitWidth halfTG
+      halfMask = (.&.) (2^halfWidth - 1)
+      width = bitWidth thisTG
+      mask = (.&.) (2^width - 1)
+      halfHiBit = (.&.) (2^(halfWidth - 1))
+  in
+    -- output size must match the size of thisTG
+    [
+      Gen.subterm2 (genTerm halfTG) (genTerm halfTG) $
+      (\gen x y -> conBVT thisTG $ gen (projBVT halfTG x) (projBVT halfTG y)) $
+      (\x y -> subBVTCon thisTG
+               (pfx "bvConcat " <> pdesc x <> " " <> pdesc y)
+               (let x' = halfMask (testval x)
+                    y' = halfMask (testval y)
+                in (x' `shiftL` (fromEnum halfWidth)) .|. y')
+               (\sym -> do x' <- symExpr halfTG x sym
+                           y' <- symExpr halfTG y sym
+                           bvConcat sym x' y'))
+
+    , Gen.subterm (genTerm halfTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvZext " <> pdesc (projBVT halfTG x))
+             (let x' = testval (projBVT halfTG x)
+               in (halfMask x'))
+             (\sym -> do x' <- symExpr halfTG (projBVT halfTG x) sym
+                         bvZext sym knownRepr x'))
+
+    , Gen.subterm (genTerm halfTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSext " <> pdesc (projBVT halfTG x))
+             (let x' = halfMask $ testval (projBVT halfTG x)
+                  hiBits = mask (-1) `xor` halfMask (-1)
+              in if halfHiBit x' == 0 then x' else (hiBits .|. x'))
+             (\sym -> do x' <- symExpr halfTG (projBVT halfTG x) sym
+                         bvSext sym knownRepr x'))
+    ]
+
+bvTGMixedExprs_QuarterHalf :: ( Monad m
+                              , 1 <= w
+                              , 1 <= w + w
+                              , 1 <= w + w + w + w
+                              , (w + (w + w)) ~ ((w + w) + w)
+                              , 1 <= ((w + w) + w)
+                              , (w + 1) <= w + w + w + w
+                              , KnownNat (w + w + w + w)
+                              , HaskellTy bvtestexpr ~ Integer
+                              , IsTestExpr bvtestexpr
+                              , HaskellTy bvtestexpr_h ~ Integer
+                              , IsTestExpr bvtestexpr_h
+                              , HaskellTy bvtestexpr_q ~ Integer
+                              , IsTestExpr bvtestexpr_q
+                              )
+                           => BVTermGen m bvtestexpr (w + w + w + w) word
+                           -> BVTermGen m bvtestexpr_h (w + w) word_h
+                           -> BVTermGen m bvtestexpr_q w word_q
+                           -> [GenT m TestExpr]
+bvTGMixedExprs_QuarterHalf thisTG halfTG quarterTG =
+  let pfx o = "bv" <> (show $ bitWidth thisTG) <> "." <> o
+      halfWidth = bitWidth halfTG
+      halfMask = (.&.) (2^halfWidth - 1)
+      quarterWidth = bitWidth quarterTG
+      quarterMask = (.&.) (2^quarterWidth - 1)
+      quarterHiBit = (.&.) (2^(quarterWidth - 1))
+      width = bitWidth thisTG
+      mask = (.&.) (2^width - 1)
+  in
+    [
+      Gen.subterm3 (genTerm quarterTG) (genTerm halfTG) (genTerm quarterTG) $
+      (\gen x y z -> conBVT thisTG $
+                     gen (projBVT quarterTG x)
+                         (projBVT halfTG y)
+                         (projBVT quarterTG z)) $
+      (\x y z -> subBVTCon thisTG
+                 (pfx "bvConcat " <> pdesc x <> " " <>
+                  pfx "bvConcat " <> pdesc y <> " " <> pdesc z)
+                 (let x' = quarterMask (testval x)
+                      y' = halfMask (testval y)
+                      z' = quarterMask (testval z)
+                      s1 = fromEnum halfWidth
+                      s2 = fromEnum quarterWidth
+                  in ((((x' `shiftL` s1) .|. y') `shiftL` s2) .|. z'))
+                 (\sym -> do x' <- symExpr quarterTG x sym
+                             y' <- symExpr halfTG y sym
+                             z' <- symExpr quarterTG z sym
+                             xy <- bvConcat sym x' y'
+                             bvConcat sym xy z'))
+
+    -- already did bvZext and bvSext with half-size in
+    -- bvTGMixedExprs_Half, so just test extensions from quarter size
+    -- here.
+
+    , Gen.subterm (genTerm quarterTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvZext " <> pdesc (projBVT quarterTG x))
+             (let x' = testval (projBVT quarterTG x)
+               in (quarterMask x'))
+             (\sym -> do x' <- symExpr quarterTG (projBVT quarterTG x) sym
+                         bvZext sym knownRepr x'))
+
+    , Gen.subterm (genTerm quarterTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSext " <> pdesc (projBVT quarterTG x))
+             (let x' = quarterMask $ testval (projBVT quarterTG x)
+                  hiBits = mask (-1) `xor` quarterMask (-1)
+              in if quarterHiBit x' == 0 then x' else (hiBits .|. x'))
+             (\sym -> do x' <- symExpr quarterTG (projBVT quarterTG x) sym
+                         bvSext sym knownRepr x'))
+    ]
+
+
+bvTGMixedExprs_Double :: ( Monad m
+                         , 1 <= w
+                         , 0 + w <= w + w
+                         , 1 + w <= w + w  -- bvSelect --v
+                         , w + 1 <= w + w  -- bvTrunc ---^
+                         , 2 + w <= w + w
+                         , 7 + w <= w + w
+                         , KnownNat w
+                         , HaskellTy bvtestexpr ~ Integer
+                         , IsTestExpr bvtestexpr
+                         , HaskellTy bvtestexpr_d ~ Integer
+                         , IsTestExpr bvtestexpr_d
+                         )
+                      => BVTermGen m bvtestexpr w word
+                      -> BVTermGen m bvtestexpr_d (w + w) word_d
+                      -> [GenT m TestExpr]
+bvTGMixedExprs_Double thisTG dblTG =
+  let pfx o = "bv" <> (show $ bitWidth thisTG) <> "." <> o
+      mask = (.&.) (2^(bitWidth thisTG) - 1)
+  in
+    [
+
+      -- The bvSelect offset and size are NatReprs, so the type must
+      -- be known at compile time, thus these values cannot be
+      -- generated via hedgehog property generation functions.  The
+      -- size must be the size of the current conBVT result, and
+      -- bvSelect requres that offset + size < width of input
+      -- value. There are a few hard-coded offsets used here that
+      -- should be valid for all input BV sizes >= 16 and output BV
+      -- sizes >= 8:
+      --
+      --   0, 1, 2, 7
+
+      Gen.subterm (genTerm dblTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @0[" <> pdesc (projBVT dblTG x) <> "]")
+             (mask ((testval (projBVT dblTG x)) `shiftR` 0))
+             (\sym -> do x' <- symExpr dblTG (projBVT dblTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 0) knownRepr x'))
+
+    , Gen.subterm (genTerm dblTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @1[" <> pdesc (projBVT dblTG x) <> "]")
+             (mask ((testval (projBVT dblTG x)) `shiftR` 1))
+             (\sym -> do x' <- symExpr dblTG (projBVT dblTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 1) knownRepr x'))
+
+    , Gen.subterm (genTerm dblTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @2[" <> pdesc (projBVT dblTG x) <> "]")
+             (mask ((testval (projBVT dblTG x)) `shiftR` 2))
+             (\sym -> do x' <- symExpr dblTG (projBVT dblTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 2) knownRepr x'))
+
+    , Gen.subterm (genTerm dblTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @7[" <> pdesc (projBVT dblTG x) <> "]")
+             (mask ((testval (projBVT dblTG x)) `shiftR` 7))
+             (\sym -> do x' <- symExpr dblTG (projBVT dblTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 7) knownRepr x'))
+
+    , Gen.subterm (genTerm dblTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvTrunc " <> pdesc (projBVT dblTG x))
+             (mask (testval (projBVT dblTG x)))
+             (\sym -> do x' <- symExpr dblTG (projBVT dblTG x) sym
+                         bvTrunc sym knownRepr x'))
+    ]
+
+bvTGMixedExprs_Quadruple :: ( Monad m
+                         , 1 <= w
+                         , 0 + w <= w + w + w + w
+                         , 1 + w <= w + w + w + w  -- bvSelect --v
+                         , w + 1 <= w + w + w + w  -- bvTrunc ---^
+                         , 2 + w <= w + w + w + w
+                         , 7 + w <= w + w + w + w
+                         , 12 + w <= w + w + w + w
+                         , 19 + w <= w + w + w + w
+                         , KnownNat w
+                         , HaskellTy bvtestexpr ~ Integer
+                         , IsTestExpr bvtestexpr
+                         , HaskellTy bvtestexpr_d ~ Integer
+                         , IsTestExpr bvtestexpr_d
+                         )
+                      => BVTermGen m bvtestexpr w word
+                      -> BVTermGen m bvtestexpr_d (w + w + w + w) word_d
+                      -> [GenT m TestExpr]
+bvTGMixedExprs_Quadruple thisTG quadTG =
+  let pfx o = "bv" <> (show $ bitWidth thisTG) <> "." <> o
+      mask = (.&.) (2^(bitWidth thisTG) - 1)
+  in
+    [
+      -- The bvSelect offset and size are NatReprs, so the type must
+      -- be known at compile time, thus these values cannot be
+      -- generated via hedgehog property generation functions.  The
+      -- size must be the size of the current conBVT result, and there
+      -- are a few hard-coded offsets used here that should be valid
+      -- for all BV sizes >= 32:
+      --
+      --   0, 1, 2, 7, 12, 19
+
+      Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @0[" <> pdesc (projBVT quadTG x) <> "]")
+             (mask ((testval (projBVT quadTG x)) `shiftR` 0))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 0) knownRepr x'))
+
+    , Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @1[" <> pdesc (projBVT quadTG x) <> "]")
+             (mask ((testval (projBVT quadTG x)) `shiftR` 1))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 1) knownRepr x'))
+
+    , Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @2[" <> pdesc (projBVT quadTG x) <> "]")
+             (mask ((testval (projBVT quadTG x)) `shiftR` 2))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 2) knownRepr x'))
+
+    , Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @7[" <> pdesc (projBVT quadTG x) <> "]")
+             (mask ((testval (projBVT quadTG x)) `shiftR` 7))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 7) knownRepr x'))
+
+    , Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @12[" <> pdesc (projBVT quadTG x) <> "]")
+             (mask ((testval (projBVT quadTG x)) `shiftR` 12))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 12) knownRepr x'))
+
+    , Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvSelect @19[" <> pdesc (projBVT quadTG x) <> "]")
+             (mask ((testval (projBVT quadTG x)) `shiftR` 19))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvSelect sym (knownRepr :: NatRepr 19) knownRepr x'))
+
+    -- bvTrunc output size must match the size of thisTG
+
+    , Gen.subterm (genTerm quadTG)
+      (\x -> conBVT thisTG $
+             subBVTCon thisTG
+             (pfx "bvTrunc " <> pdesc (projBVT quadTG x))
+             (mask (testval (projBVT quadTG x)))
+             (\sym -> do x' <- symExpr quadTG (projBVT quadTG x) sym
+                         bvTrunc sym knownRepr x'))
+    ]
+
+
 
 -- TBD: BV operations returning a (Pred,BV) pair will need another TestExpr
 -- representation: addUnsignedOF, addSignedOF, subUnsignedOF,
