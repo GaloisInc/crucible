@@ -1,0 +1,18 @@
+multi/3a1fbbbh::fail3[0]: OK
+multi/3a1fbbbh::fail2[0]: OK
+multi/3a1fbbbh::fail1[0]: OK
+[Crux] Goal status:
+[Crux]   Total: 3
+[Crux]   Proved: 0
+[Crux]   Disproved: 3
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
+[Crux] Failure for MIR assertion at test/symb_eval/crux/multi.rs:21:5:
+	x == 0
+in multi/3a1fbbbh::assert_zero[0] at test/symb_eval/crux/multi.rs:21:22
+[Crux] Failure for panicking::begin_panic, called from multi/3a1fbbbh::fail2[0]
+in multi/3a1fbbbh::fail2[0] at <::std::macros::panic macros>:4:15: 4:70
+[Crux] Failure for MIR assertion at test/symb_eval/crux/multi.rs:9:5:
+	x + 1 > x
+in multi/3a1fbbbh::fail1[0] at test/symb_eval/crux/multi.rs:9:22
