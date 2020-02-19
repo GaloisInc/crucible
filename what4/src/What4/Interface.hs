@@ -795,8 +795,8 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
                         SymBV sym w {- ^ Amount to shift by -} ->
                         IO (SymBV sym w)
 
-  -- | Arithmetic right shift.  The shift amount is treated as a
-  -- signed value, and a negative shift value indicates a left shift.
+  -- | Arithmetic right shift.  The shift amount is treated as an
+  -- unsigned value.
   bvAshr :: (1 <= w) => sym ->
                         SymBV sym w {- ^ Shift this -} ->
                         SymBV sym w {- ^ Amount to shift by -} ->

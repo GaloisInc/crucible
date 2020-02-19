@@ -4871,7 +4871,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
      sbMakeExpr sym $ BVLshr (bvWidth x) x y
 
   bvAshr sym x y
-   | Just i <- asSignedBV x, Just n <- asSignedBV y = do
+   | Just i <- asSignedBV x, Just n <- asUnsignedBV y = do
      bvLit sym (bvWidth x) $ Bits.shiftR i (fromIntegral n)
    | Just 0 <- asUnsignedBV y = do
      pure x
