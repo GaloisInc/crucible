@@ -1015,10 +1015,8 @@ bvExprs bvTerm conTE projTE teSubCon expr width toWord =
 
     , subBVTerms2
       (\x y -> teSubCon (unwords [pdesc x, pfx "asr", pdesc y])
-               (let s = fromEnum $ sBV $ testval y
-                in mask (if s >= 0
-                          then sBV (testval x) `shiftR` s
-                          else testval x `shiftL` (-s)))
+               (let s = fromEnum $ uBV $ testval y
+                in mask (sBV (testval x) `shiftR` s))
                (\sym -> do x' <- expr x sym
                            y' <- expr y sym
                            bvAshr sym x' y'))
