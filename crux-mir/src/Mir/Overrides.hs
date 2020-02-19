@@ -36,8 +36,11 @@ import qualified Data.Text.Encoding as Text
 import System.IO (hPutStrLn)
 
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
-import Lang.Crucible.Backend (AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption, assert)
+import Lang.Crucible.Backend
+    ( AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption, assert
+    , addFailedAssertion )
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
+import Lang.Crucible.Simulator (SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.RegMap
@@ -52,13 +55,14 @@ import What4.Interface
 import Crux.Model (addVar)
 import Crux.Types (Model)
 
-import Mir.Intrinsics (MIR, MirImmSlice, pattern MirImmSliceRepr)
+import Mir.Intrinsics
 import Mir.DefId
 
 import Debug.Trace
 
 getString :: forall sym. (IsSymExprBuilder sym) => sym -> RegValue sym (MirImmSlice (BVType 8)) -> Maybe Text
-getString _ (Empty :> RV vec :> RV startExpr :> RV lenExpr) = do
+getString _ (Empty :> RV mirVec :> RV startExpr :> RV lenExpr)
+  | MirVector_Vector vec <- mirVec = do
     start <- asUnsignedBV startExpr
     len <- asUnsignedBV lenExpr
     let slice = V.slice (fromInteger start) (fromInteger len) vec
@@ -69,16 +73,52 @@ getString _ (Empty :> RV vec :> RV startExpr :> RV lenExpr) = do
                       Nothing -> Nothing
     bs <- BS.pack <$> mapM f (V.toList slice)
     return $ Text.decodeUtf8 bs
+  | otherwise = Nothing
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
 
+makeSymbolicVar ::
+    (IsSymExprBuilder sym) =>
+    RegEntry sym (MirImmSlice (BVType 8)) ->
+    BaseTypeRepr btp ->
+    OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym (BaseToType btp))
+makeSymbolicVar nameReg btpr = do
+    sym <- getSymInterface
+    name <- case getString sym (regValue nameReg) of
+        Just x -> return $ Text.unpack x
+        Nothing -> fail "symbolic variable name must be a concrete string"
+    nameSymbol <- case userSymbol name of
+        Left err -> fail $ "invalid symbolic variable name " ++ show name ++ ": " ++ show err
+        Right x -> return x
+    v <- liftIO $ freshConstant sym nameSymbol btpr
+    loc <- liftIO $ getCurrentProgramLoc sym
+    stateContext.cruciblePersonality %= addVar loc name btpr v
+    return v
+
+array_symbolic ::
+  forall sym rtp btp .
+  (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
+  BaseTypeRepr btp ->
+  OverrideSim (Model sym) sym MIR rtp
+    (EmptyCtx ::> MirImmSlice (BVType 8)) (UsizeArrayType btp)
+    (RegValue sym (UsizeArrayType btp))
+array_symbolic btpr = do
+    RegMap (Empty :> nameReg) <- getOverrideArgs
+    makeSymbolicVar nameReg $ BaseArrayRepr (Empty :> BaseUsizeRepr) btpr
 
 bindFn ::
   forall args ret blocks sym rtp a r .
   (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
   Text -> CFG MIR blocks args ret ->
   OverrideSim (Model sym) sym MIR rtp a r ()
+bindFn name cfg
+  | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> MirImmSliceRepr (BVRepr w) <- cfgArgTypes cfg
+  , UsizeArrayRepr btpr <- cfgReturnType cfg
+  , Just Refl <- testEquality w (knownNat @8)
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "array::symbolic" (UsizeArrayRepr btpr) (array_symbolic btpr)
 bindFn fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
@@ -118,19 +158,7 @@ bindFn fn cfg =
     symb_bv name n =
       override name (Empty :> strrepr) (BVRepr n) $
       do RegMap (Empty :> str) <- getOverrideArgs
-         let sym = (undefined :: sym)
-         x <- maybe (fail "not a constant string") pure (getString sym (regValue str))
-         let xStr = Text.unpack x
-         let y = filter ((/=) '\"') xStr
-         nname <-
-           case userSymbol y of
-             Left err -> fail (show err ++ " " ++ y)
-             Right a -> return a
-         s <- getSymInterface
-         v <- liftIO (freshConstant s nname (BaseBVRepr n))
-         loc   <- liftIO $ getCurrentProgramLoc s
-         stateContext.cruciblePersonality %= addVar loc xStr (BaseBVRepr n) v
-         return v
+         makeSymbolicVar str $ BaseBVRepr n
 
     overrides :: sym -> Map Text (FunctionName -> SomeOverride (Model sym) sym)
     overrides s =

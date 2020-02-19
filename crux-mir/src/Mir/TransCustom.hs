@@ -119,6 +119,12 @@ customOpDefs = Map.fromList $ [
                          , vector_split_at
                          , vector_copy_from_slice
 
+                         , array_zeroed
+                         , array_lookup
+                         , array_update
+                         , array_as_slice
+                         , array_as_mut_slice
+
                          , any_new
                          , any_downcast
 
@@ -270,9 +276,10 @@ vector_as_slice = ( ["crucible","vector","{{impl}}", "as_slice"], ) $ \substs ->
         [MirExp (C.VectorRepr tpr) v] -> do
             let start = R.App $ usizeLit 0
             let end = R.App $ vectorSizeUsize R.App v
+            v' <- mirVector_fromVector tpr v
             let tup = S.mkStruct
-                    (Ctx.Empty Ctx.:> C.VectorRepr tpr Ctx.:> knownRepr Ctx.:> knownRepr)
-                    (Ctx.Empty Ctx.:> v Ctx.:> start Ctx.:> end)
+                    (Ctx.Empty Ctx.:> MirVectorRepr tpr Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> v' Ctx.:> start Ctx.:> end)
             return $ MirExp (MirImmSliceRepr tpr) tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
     _ -> Nothing
@@ -285,9 +292,10 @@ vector_as_mut_slice = ( ["crucible","vector","{{impl}}", "as_mut_slice"], ) $ \s
             let start = R.App $ usizeLit 0
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
+            e' <- mirRef_vectorAsMirVector tpr e
             let tup = S.mkStruct
-                    (Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
-                    (Ctx.Empty Ctx.:> e Ctx.:> start Ctx.:> end)
+                    (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> e' Ctx.:> start Ctx.:> end)
             return $ MirExp (MirSliceRepr tpr) tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
     _ -> Nothing
@@ -327,6 +335,77 @@ vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], 
 
 
 -----------------------------------------------------------------------------------------------------
+-- ** Custom: Array
+
+-- Methods for crucible::array::Array<T> (which has custom representation)
+
+array_zeroed :: (ExplodedDefId, CustomRHS)
+array_zeroed = ( ["crucible","array","{{impl}}", "zeroed"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ _ -> case tyToRepr t of
+        Some (C.BVRepr w) -> do
+            let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
+            v <- arrayZeroed idxs w
+            return $ MirExp (C.SymbolicArrayRepr idxs (C.BaseBVRepr w)) v
+        _ -> mirFail $ "bad substs for Array::zeroed: " ++ show t
+    _ -> Nothing
+
+array_lookup :: (ExplodedDefId, CustomRHS)
+array_lookup = ( ["crucible","array","{{impl}}", "lookup"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (UsizeArrayRepr btr) eArr,
+          MirExp UsizeRepr eIdx ] -> do
+            let idx = E.BaseTerm BaseUsizeRepr eIdx
+            let idxs = Ctx.Empty Ctx.:> idx
+            return $ MirExp (C.baseToType btr) (R.App $ E.SymArrayLookup btr eArr idxs)
+        _ -> mirFail $ "bad arguments for Array::lookup: " ++ show ops
+    _ -> Nothing
+
+array_update :: (ExplodedDefId, CustomRHS)
+array_update = ( ["crucible","array","{{impl}}", "update"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp arrTpr@(UsizeArrayRepr btr) eArr,
+          MirExp UsizeRepr eIdx,
+          MirExp (C.asBaseType -> C.AsBaseType btr') eVal ]
+          | Just Refl <- testEquality btr btr' -> do
+            let idx = E.BaseTerm BaseUsizeRepr eIdx
+            let idxs = Ctx.Empty Ctx.:> idx
+            return $ MirExp arrTpr (R.App $ E.SymArrayUpdate btr eArr idxs eVal)
+        _ -> mirFail $ "bad arguments for Array::lookup: " ++ show ops
+    _ -> Nothing
+
+array_as_slice :: (ExplodedDefId, CustomRHS)
+array_as_slice = ( ["crucible","array","{{impl}}", "as_slice"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (UsizeArrayRepr btpr) a,
+          MirExp UsizeRepr start,
+          MirExp UsizeRepr len ] -> do
+            v' <- mirVector_fromArray btpr a
+            let tpr = C.baseToType btpr
+            let tup = S.mkStruct
+                    (Ctx.Empty Ctx.:> MirVectorRepr tpr Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> v' Ctx.:> start Ctx.:> len)
+            return $ MirExp (MirImmSliceRepr tpr) tup
+        _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
+    _ -> Nothing
+
+array_as_mut_slice :: (ExplodedDefId, CustomRHS)
+array_as_mut_slice = ( ["crucible","array","{{impl}}", "as_mut_slice"], ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (MirReferenceRepr (UsizeArrayRepr btpr)) e,
+          MirExp UsizeRepr start,
+          MirExp UsizeRepr len ] -> do
+            e' <- mirRef_arrayAsMirVector btpr e
+            let tpr = C.baseToType btpr
+            let tup = S.mkStruct
+                    (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> e' Ctx.:> start Ctx.:> len)
+            return $ MirExp (MirSliceRepr tpr) tup
+        _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
+    _ -> Nothing
+
+
+
+-----------------------------------------------------------------------------------------------------
 -- ** Custom: Any
 
 -- Methods for crucible::any::Any (which has custom representation)
@@ -353,7 +432,6 @@ any_downcast = ( ["core", "crucible", "any", "{{impl}}", "downcast"], \substs ->
         _ -> mirFail $ "bad arguments for Any::downcast: " ++ show ops
     _ -> Nothing
     )
-
 
 
 -----------------------------------------------------------------------------------------------------
@@ -693,7 +771,8 @@ slice_index_usize_get_unchecked = (["core","slice","{{impl}}","get_unchecked", "
                 let arr   = S.getStruct (Ctx.natIndex @0) slice
                 let start = S.getStruct (Ctx.natIndex @1) slice
                 let ind'  = R.App $ usizeAdd start ind
-                return $ (MirExp el_tp (S.app $ vectorGetUsize el_tp R.App arr ind'))
+                x <- mirVector_lookup el_tp arr ind'
+                return $ MirExp el_tp x
             _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
      _ -> Nothing)
 

@@ -103,6 +103,8 @@ pattern CTyBox t <- M.TyAdt _ $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t
   where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
 pattern CTyVector t <- M.TyAdt _ $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
   where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
+pattern CTyArray t <- M.TyAdt _ $(M.normDefIdPat "crucible::array::Array") (M.Substs [t])
+  where CTyArray t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::array::Array") (M.Substs [t])
 
 pattern CTyBvSize128 <- M.TyAdt _ $(M.normDefIdPat "crucible::bitvector::_128") (M.Substs [])
   where CTyBvSize128 = M.TyAdt (M.textId "type::adt") (M.textId "crucible::bitvector::_128") (M.Substs [])
@@ -141,6 +143,11 @@ tyToRepr t0 = case t0 of
   CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
   CTyBox t -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   CTyVector t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
+  CTyArray t
+    | Some tpr <- tyToRepr t
+    , C.AsBaseType btr <- C.asBaseType tpr ->
+      Some (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> C.BaseBVRepr (knownNat @SizeBits)) btr)
+    | otherwise -> error $ "unsupported: crucible arrays of non-base type"
   CTyAny -> Some C.AnyRepr
 
   M.TyBool -> Some C.BoolRepr

@@ -83,6 +83,7 @@ import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
 import           Data.Parameterized.Peano
 import           Data.Parameterized.BoolRepr
+import           Data.Parameterized.NatRepr
 
 import qualified Lang.Crucible.FunctionHandle as FH
 import qualified Lang.Crucible.Types as C
@@ -483,7 +484,7 @@ subvariantRef ctx ref idx = G.extensionStmt (MirSubvariantRef ctx ref idx)
 
 subindexRef ::
   C.TypeRepr tp ->
-  R.Expr MIR s (MirReferenceType (C.VectorType tp)) ->
+  R.Expr MIR s (MirReferenceType (MirVectorType tp)) ->
   R.Expr MIR s UsizeType ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
@@ -493,6 +494,18 @@ subjustRef ::
   R.Expr MIR s (MirReferenceType (C.MaybeType tp)) ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
+
+mirRef_vectorAsMirVector ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType (C.VectorType tp)) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType tp)))
+mirRef_vectorAsMirVector tpr ref = G.extensionStmt $ MirRef_VectorAsMirVector tpr ref
+
+mirRef_arrayAsMirVector ::
+  C.BaseTypeRepr btp ->
+  R.Expr MIR s (MirReferenceType (UsizeArrayType btp)) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType (C.BaseToType btp))))
+mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
 
 -----------------------------------------------------------------------
 
@@ -549,6 +562,41 @@ vectorDrop ::
   R.Expr MIR s C.NatType ->
   MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
 vectorDrop tp v e = G.extensionStmt $ VectorDrop tp v e
+
+arrayZeroed ::
+  (1 <= w) =>
+  Assignment C.BaseTypeRepr (idxs ::> idx) ->
+  NatRepr w ->
+  MirGenerator h s ret (R.Expr MIR s (C.SymbolicArrayType (idxs ::> idx) (C.BaseBVType w)))
+arrayZeroed idxs w = G.extensionStmt $ ArrayZeroed idxs w
+
+
+mirVector_fromVector ::
+    C.TypeRepr tp ->
+    R.Expr MIR s (C.VectorType tp) ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
+mirVector_fromVector tpr v = G.extensionStmt $ MirVector_FromVector tpr v
+
+mirVector_fromArray ::
+    C.BaseTypeRepr btp ->
+    R.Expr MIR s (UsizeArrayType btp) ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType (C.BaseToType btp)))
+mirVector_fromArray tpr a = G.extensionStmt $ MirVector_FromArray tpr a
+
+mirVector_lookup ::
+    C.TypeRepr tp ->
+    R.Expr MIR s (MirVectorType tp) ->
+    R.Expr MIR s UsizeType ->
+    MirGenerator h s ret (R.Expr MIR s tp)
+mirVector_lookup tpr v i = G.extensionStmt $ MirVector_Lookup tpr v i
+
+mirVector_update ::
+    C.TypeRepr tp ->
+    R.Expr MIR s (MirVectorType tp) ->
+    R.Expr MIR s UsizeType ->
+    R.Expr MIR s tp ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
+mirVector_update tpr v i x = G.extensionStmt $ MirVector_Update tpr v i x
 
 
 

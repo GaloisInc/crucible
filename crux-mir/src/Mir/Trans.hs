@@ -173,11 +173,12 @@ transConstVal (Some (MirImmSliceRepr (C.BVRepr w))) (M.ConstStr bs)
     let u8Repr = C.BVRepr $ knownNat @8
     let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
+    mirVec <- mirVector_fromVector u8Repr vec
     let start = R.App $ usizeLit 0
     let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
     let struct = S.mkStruct
             knownRepr
-            (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
+            (Ctx.Empty Ctx.:> mirVec Ctx.:> start Ctx.:> len)
     return $ MirExp (MirImmSliceRepr u8Repr) struct
 transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
@@ -614,9 +615,10 @@ evalCast' ck ty1 e ty2  =
         | tp == tp', MirExp (C.VectorRepr elem_tp) ref <- e
         -> do let start = R.App $ usizeLit 0
               let len   = R.App $ usizeLit (fromIntegral sz)
+              vec <- mirVector_fromVector elem_tp ref
               let tup   = S.mkStruct
-                              (Ctx.Empty Ctx.:> C.VectorRepr elem_tp Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
-                              (Ctx.Empty Ctx.:> ref Ctx.:> start Ctx.:> len)
+                              (Ctx.Empty Ctx.:> MirVectorRepr elem_tp Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
+                              (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
               return $ MirExp (MirImmSliceRepr elem_tp) tup
         | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
 
@@ -629,9 +631,10 @@ evalCast' ck ty1 e ty2  =
         | tp == tp', MirExp (MirReferenceRepr (C.VectorRepr elem_tp)) ref <- e
         -> do let start = R.App $ usizeLit 0
               let len   = R.App $ usizeLit (fromIntegral sz)
+              vecRef <- mirRef_vectorAsMirVector elem_tp ref
               let tup   = S.mkStruct
-                              (Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr elem_tp) Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
-                              (Ctx.Empty Ctx.:> ref Ctx.:> start Ctx.:> len)
+                              (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr elem_tp) Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
+                              (Ctx.Empty Ctx.:> vecRef Ctx.:> start Ctx.:> len)
               return $ MirExp (MirSliceRepr elem_tp) tup
         | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
 
@@ -807,7 +810,8 @@ evalRefProj base projElem =
             | C.VectorRepr tp' <- elty
             , fromend == False ->
                 do let natIdx = R.App $ usizeLit (fromIntegral offset)
-                   r' <- subindexRef tp' ref natIdx
+                   ref' <- mirRef_vectorAsMirVector tp' ref
+                   r' <- subindexRef tp' ref' natIdx
                    return (MirExp (MirReferenceRepr tp') r')
 
             | C.VectorRepr _tp' <- elty
@@ -816,14 +820,15 @@ evalRefProj base projElem =
 
           M.Index var
             | C.VectorRepr tp' <- elty
-            -> do MirExp idxTy idx <- lookupVar var
+            -> do ref' <- mirRef_vectorAsMirVector tp' ref
+                  MirExp idxTy idx <- lookupVar var
                   case idxTy of
                     UsizeRepr ->
-                      do r' <- subindexRef tp' ref idx
+                      do r' <- subindexRef tp' ref' idx
                          return (MirExp (MirReferenceRepr tp') r')
                     C.BVRepr w ->
                       do idxUsize <- G.forceEvaluation (bvToUsize w R.App idx)
-                         r' <- subindexRef tp' ref idxUsize
+                         r' <- subindexRef tp' ref' idxUsize
                          return (MirExp (MirReferenceRepr tp') r')
 
                     _ -> mirFail ("Expected index value to be an integer value in reference projection " ++
@@ -954,7 +959,7 @@ evalLvalue (M.LProj (M.LProj lv M.Deref) (M.Index i))
             G.assertExpr (R.App $ usizeLt ind len)
                 (S.litExpr "index out of range (for access to &[_])")
             let ind' = R.App $ usizeAdd start ind
-            return $ MirExp elt_tp $ R.App $ vectorGetUsize elt_tp R.App vec ind'
+            MirExp elt_tp <$> mirVector_lookup elt_tp vec ind'
         _ -> mirFail $ "bad types for immutable slice indexing: " ++ show (arr_tp, ind_tp)
   | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv = do
     MirExp arr_tp arr <- evalLvalue lv
@@ -962,13 +967,13 @@ evalLvalue (M.LProj (M.LProj lv M.Deref) (M.Index i))
     case (arr_tp, ind_tp) of
         (MirSliceRepr elt_tp, UsizeRepr) -> do
             let vecRef = S.getStruct Ctx.i1of3 arr
-            vec <- readMirRef (C.VectorRepr elt_tp) vecRef
+            vec <- readMirRef (MirVectorRepr elt_tp) vecRef
             let start = S.getStruct Ctx.i2of3 arr
             let len = S.getStruct Ctx.i3of3 arr
             G.assertExpr (R.App $ usizeLt ind len)
                 (S.litExpr "index out of range (for access to &mut [_])")
             let ind' = R.App $ usizeAdd start ind
-            return $ MirExp elt_tp $ R.App $ vectorGetUsize elt_tp R.App vec ind'
+            MirExp elt_tp <$> mirVector_lookup elt_tp vec ind'
         _ -> mirFail $ "bad types for mutable slice indexing: " ++ show (arr_tp, ind_tp)
 
 evalLvalue (M.LProj lv (M.Index i)) = do
@@ -1074,7 +1079,7 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _ _pos)
          do let rvec  = S.getStruct Ctx.i1of3 e
             let start = S.getStruct Ctx.i2of3 e
             let len   = S.getStruct Ctx.i3of3 e
-            vec <- readMirRef (C.VectorRepr e_ty) rvec
+            vec <- readMirRef (MirVectorRepr e_ty) rvec
             let struct = S.mkStruct (mirImmSliceCtxRepr e_ty)
                     (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
             assignVarExp v (MirExp (MirImmSliceRepr e_ty) struct)
@@ -1085,7 +1090,7 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef M.TyStr M.Immut) _ _ _pos)
          do let rvec  = S.getStruct Ctx.i1of3 e
             let start = S.getStruct Ctx.i2of3 e
             let len   = S.getStruct Ctx.i3of3 e
-            vec <- readMirRef (C.VectorRepr e_ty) rvec
+            vec <- readMirRef (MirVectorRepr e_ty) rvec
             let struct = S.mkStruct (mirImmSliceCtxRepr e_ty)
                     (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
             assignVarExp v (MirExp (MirImmSliceRepr e_ty) struct)
@@ -1151,14 +1156,13 @@ assignLvExp lv re = do
                case (slice_tp, ind_tp) of
                  (MirSliceRepr el_tp, UsizeRepr)
                    | Just Refl <- testEquality r_tp el_tp
-                   -> do let _ctx   = Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr el_tp) Ctx.:> UsizeRepr Ctx.:> UsizeRepr
-                         let ref   = S.getStruct (Ctx.natIndex @0) slice
+                   -> do let ref   = S.getStruct (Ctx.natIndex @0) slice
                          let start = S.getStruct (Ctx.natIndex @1) slice
                          let len   = S.getStruct (Ctx.natIndex @2) slice
                          G.assertExpr (R.App $ usizeLt ind len) (S.litExpr "Index out of range")
                          let ind'  = R.App $ usizeAdd start ind
-                         arr <- readMirRef (C.VectorRepr el_tp) ref
-                         let arr' = S.app $ vectorSetUsize el_tp R.App arr ind' r
+                         arr <- readMirRef (MirVectorRepr el_tp) ref
+                         arr' <- mirVector_update el_tp arr ind' r
                          writeMirRef ref arr'
 
                  _ -> mirFail $ "bad type in slice assignment"
@@ -1572,6 +1576,12 @@ initialValue (CTyBox t) = do
 initialValue (CTyVector t) = do
     tyToReprCont t $ \ tr ->
       return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
+initialValue (CTyArray t) = case tyToRepr t of
+    Some (C.BVRepr w) -> do
+        let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
+        v <- arrayZeroed idxs w
+        return $ Just $ MirExp (C.SymbolicArrayRepr idxs (C.BaseBVRepr w)) v
+    _ -> error $ "can't initialize array of " ++ show t ++ " (expected BVRepr)"
 initialValue ty@(CTyBv _sz)
   | Some (C.BVRepr w) <- tyToRepr ty
   = return $ Just $ MirExp (C.BVRepr w) $ S.app $ E.BVLit w 0
@@ -1596,25 +1606,27 @@ initialValue (M.TyArray t size) = do
       Nothing -> return Nothing
 initialValue (M.TyRef (M.TySlice t) M.Immut) = do
     tyToReprCont t $ \ tr -> do
-      let vec = MirExp (C.VectorRepr tr) $ R.App $ E.VectorLit tr V.empty
-      let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
-      return $ Just $ buildTuple [vec, i, i]
+      let vec = R.App $ E.VectorLit tr V.empty
+      vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
+      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+      return $ Just $ buildTuple [vec', i, i]
 initialValue (M.TyRef (M.TySlice t) M.Mut) = do
     tyToReprCont t $ \ tr -> do
-      ref <- newMirRef (C.VectorRepr tr)      
-      let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
-      return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
+      ref <- newMirRef (MirVectorRepr tr)
+      let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+      return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
       -- fail ("don't know how to initialize slices for " ++ show t)
 initialValue (M.TyRef M.TyStr M.Immut) = do
     let tr = C.BVRepr $ knownNat @8
-    let vec = MirExp (C.VectorRepr tr) $ R.App $ E.VectorLit tr V.empty
-    let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
-    return $ Just $ buildTuple [vec, i, i]
+    let vec = R.App $ E.VectorLit tr V.empty
+    vec' <- MirExp (MirVectorRepr tr) <$> mirVector_fromVector tr vec
+    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+    return $ Just $ buildTuple [vec', i, i]
 initialValue (M.TyRef M.TyStr M.Mut) = do
     let tr = C.BVRepr $ knownNat @8
-    ref <- newMirRef (C.VectorRepr tr)
-    let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
-    return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
+    ref <- newMirRef (MirVectorRepr tr)
+    let i = MirExp UsizeRepr (R.App $ usizeLit 0)
+    return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
 initialValue (M.TyRef (M.TyDynamic _ _) _) = do
     let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
@@ -2374,15 +2386,15 @@ transStatics colState halloc = do
 
 
 --
--- Generate a loop that copies a vector  
+-- Generate a loop that copies a MirVector into a Vector.
 -- 
 vectorCopy :: C.TypeRepr elt ->
              G.Expr MIR s UsizeType ->
              G.Expr MIR s UsizeType ->
-             G.Expr MIR s (C.VectorType elt) ->
+             G.Expr MIR s (MirVectorType elt) ->
              MirGenerator h s ret (G.Expr MIR s (C.VectorType elt))
 vectorCopy ety start stop inp = do
-  let elt = S.app $ vectorGetUsize ety R.App inp (S.app $ usizeLit 0)
+  elt <- mirVector_lookup ety inp (S.app $ usizeLit 0)
   let sz  = S.app $ usizeSub stop start
   let out = S.app $ E.VectorReplicate ety (R.App $ usizeToNat sz) elt
   ir <- G.newRef start
@@ -2391,7 +2403,7 @@ vectorCopy ety start stop inp = do
   G.while (pos, do i <- G.readRef ir
                    return (G.App $ usizeLt i stop))
           (pos, do i <- G.readRef ir
-                   let elt = S.app $ vectorGetUsize ety R.App inp i
+                   elt <- mirVector_lookup ety inp i
                    o   <- G.readRef or
                    let j = (G.App $ usizeSub i start)
                    let o' = S.app $ vectorSetUsize ety R.App o j elt

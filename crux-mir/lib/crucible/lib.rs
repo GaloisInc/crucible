@@ -3,8 +3,10 @@
 #![feature(crucible_intrinsics)]
 
 pub use core::crucible::any;
+pub mod array;
 pub mod bitvector;
 pub mod symbolic;
+pub mod sym_bytes;
 pub mod vector;
 
 pub use self::symbolic::Symbolic;
