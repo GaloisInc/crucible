@@ -134,7 +134,10 @@ runTests (cruxOpts, mirOpts) = do
 
     let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun sym MIR Ctx.EmptyCtx C.UnitType
-        simTest _symOnline fnName = do
+        simTest symOnline fnName = do
+            linkOverrides symOnline
+            _ <- C.callCFG staticInitCfg C.emptyRegMap
+
             -- Label the current path for later use
             sym <- C.getSymInterface
             liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
@@ -161,26 +164,26 @@ runTests (cruxOpts, mirOpts) = do
                 str <- showRegEntry @sym col resTy res
                 liftIO $ outputLn $ str
 
-    let simTests :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> Fun sym MIR Ctx.EmptyCtx C.UnitType
-        simTests symOnline = do
-            linkOverrides symOnline
-            _ <- C.callCFG staticInitCfg C.emptyRegMap
-
-            mapM_ (simTest symOnline) (col^.roots)
-
-    let simCallback = Crux.SimulatorCallback $ \sym symOnline -> do
+    let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline -> do
             let outH = view outputHandle ?outputConfig
             setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
             let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
                     C.emptyHandleMap mirExtImpl Crux.emptyModel
             return $ Crux.RunnableState $
                 C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
-                    C.runOverrideSim C.UnitRepr $ simTests symOnline
+                    C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
 
-    res <- Crux.runSimulator cruxOpts simCallback
+    results <- forM (col ^. roots) $ \fnName -> do
+        Crux.runSimulator cruxOpts $ simCallback fnName
 
     -- Print final tally of proved/disproved goals
+    let mergeCompleteness ProgramComplete ProgramComplete = ProgramComplete
+        mergeCompleteness ProgramIncomplete _ = ProgramIncomplete
+        mergeCompleteness _ ProgramIncomplete = ProgramIncomplete
+    let mergeResult (CruxSimulationResult c1 g1) (CruxSimulationResult c2 g2) =
+            CruxSimulationResult (mergeCompleteness c1 c2) (g1 <> g2)
+    let emptyResult = CruxSimulationResult ProgramComplete mempty
+    let res = foldl mergeResult emptyResult results
     ec <- Crux.postprocessSimResult cruxOpts res
 
     -- Print counterexamples
@@ -196,7 +199,7 @@ runTests (cruxOpts, mirOpts) = do
                            outputLn "Model:"
                            outputLn (Crux.ppModelJS "." m)
                     _ -> return ()
-    mapM_ printCounterexamples $ cruxSimResultGoals res
+    mapM_ (mapM_ printCounterexamples . cruxSimResultGoals) results
 
     return ec
 
