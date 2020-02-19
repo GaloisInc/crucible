@@ -113,7 +113,6 @@ import qualified System.Exit as Exit
 import qualified System.IO as IO
 import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec.Text as Streams
-import qualified System.Process as Process
 import           Data.Versions (Version(..))
 import qualified Data.Versions as Versions
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -945,7 +944,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
   withSolver solver ack feats sym path logData action = do
     args <- defaultSolverArgs solver sym
     withProcessHandles path args Nothing $
-      \(in_h, out_h, err_h, ph) -> do
+      \hdls@(in_h, out_h, err_h, _ph) -> do
 
         (in_stream, out_stream, err_reader) <-
           demuxProcessHandles in_h out_h err_h
@@ -965,8 +964,9 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
         -- Tell solver to exit
         writeExit writer
 
-        ec <- Process.waitForProcess ph
         stopHandleReader err_reader
+
+        ec <- cleanupProcess hdls
         case ec of
           Exit.ExitSuccess -> return r
           Exit.ExitFailure exit_code -> fail $
@@ -1034,18 +1034,7 @@ startSolver
 startSolver solver ack setup feats auxOutput sym = do
   path <- defaultSolverPath solver sym
   args <- defaultSolverArgs solver sym
-  solver_process <- Process.createProcess $
-    (Process.proc path args)
-      { Process.std_in       = Process.CreatePipe
-      , Process.std_out      = Process.CreatePipe
-      , Process.std_err      = Process.CreatePipe
-      , Process.create_group = False
-      , Process.delegate_ctlc = True
-      , Process.cwd          = Nothing
-      }
-  (in_h, out_h, err_h, ph) <- case solver_process of
-    (Just in_h, Just out_h, Just err_h, ph) -> return (in_h, out_h, err_h, ph)
-    _ -> fail "Internal error in startSolver: Failed to create handle."
+  hdls@(in_h, out_h, err_h, ph) <- startProcess path args Nothing
 
   (in_stream, out_stream, err_reader) <-
      demuxProcessHandles in_h out_h err_h
@@ -1064,6 +1053,7 @@ startSolver solver ack setup feats auxOutput sym = do
 
   return $! SolverProcess
     { solverConn     = writer
+    , solverCleanupCallback = cleanupProcess hdls
     , solverStdin    = in_stream
     , solverStderr   = err_reader
     , solverHandle   = ph
@@ -1082,8 +1072,8 @@ shutdownSolver _solver p = do
   -- Tell solver to exit
   writeExit (solverConn p)
   txt <- readAllLines (solverStderr p)
-  ec <- Process.waitForProcess (solverHandle p)
   stopHandleReader (solverStderr p)
+  ec <- solverCleanupCallback p
   return (ec,txt)
 
 

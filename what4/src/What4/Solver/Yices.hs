@@ -99,7 +99,6 @@ import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec.Text as Streams
-import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -634,9 +633,9 @@ yicesShutdownSolver p =
 
       --logLn 2 "Waiting for yices to terminate"
       txt <- readAllLines (solverStderr p)
-
-      ec <- waitForProcess (solverHandle p)
       stopHandleReader (solverStderr p)
+
+      ec <- solverCleanupCallback p
       return (ec,txt)
 
 
@@ -687,22 +686,7 @@ yicesStartSolver features auxOutput sym = do -- FIXME
   when (enableMCSat && hasNamedAssumptions) $
      fail "Unsat cores and named assumptions are incompatible with MC-SAT in Yices."
 
-  let create_proc
-        = (proc yices_path args)
-          { std_in  = CreatePipe
-          , std_out = CreatePipe
-          , std_err = CreatePipe
-          , create_group = True
-          , cwd = Nothing
-          }
-
-  let startProcess = do
-        x <- createProcess create_proc
-        case x of
-          (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
-          _ -> fail "Internal error in yicesStartServer: Failed to create handle."
-
-  (in_h,out_h,err_h,ph) <- startProcess
+  hdls@(in_h,out_h,err_h,ph) <- startProcess yices_path args Nothing
 
   (in_stream, out_stream, err_reader) <-
     demuxProcessHandles in_h out_h err_h
@@ -715,6 +699,7 @@ yicesStartSolver features auxOutput sym = do -- FIXME
   setYicesParams conn cfg
 
   return $! SolverProcess { solverConn   = conn
+                          , solverCleanupCallback = cleanupProcess hdls
                           , solverStdin  = in_stream'
                           , solverStderr = err_reader
                           , solverHandle = ph
@@ -1148,7 +1133,7 @@ runYicesInOverride sym logData conditions resultFn = do
   when (enableMCSat && hasNamedAssumptions) $
      fail "Unsat cores and named assumptions are incompatible with MC-SAT in Yices."
 
-  withProcessHandles yices_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
+  withProcessHandles yices_path args Nothing $ \hdls@(in_h, out_h, err_h, ph) -> do
 
       (in_stream, out_stream, err_reader) <-
         demuxProcessHandles in_h out_h err_h
@@ -1170,6 +1155,7 @@ runYicesInOverride sym logData conditions resultFn = do
         sendCheck c
 
       let yp = SolverProcess { solverConn = c
+                             , solverCleanupCallback = cleanupProcess hdls
                              , solverHandle = ph
                              , solverStdin  = in_stream
                              , solverResponse = out_stream

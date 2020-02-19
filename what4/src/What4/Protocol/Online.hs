@@ -85,6 +85,10 @@ data SolverProcess scope solver = SolverProcess
   { solverConn  :: !(WriterConn scope solver)
     -- ^ Writer for sending commands to the solver
 
+  , solverCleanupCallback :: IO ExitCode
+    -- ^ Callback for regular code paths to gracefully close associated pipes
+    --   and wait for the process to shutdown
+
   , solverHandle :: !ProcessHandle
     -- ^ Handle to the solver process
 
