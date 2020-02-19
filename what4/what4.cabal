@@ -37,6 +37,7 @@ library
     io-streams,
     lens,
     mtl,
+    panic >= 0.3,
     parameterized-utils >= 1.0.8 && < 2.1,
     process,
     scientific,
@@ -67,6 +68,7 @@ library
     What4.Interface
     What4.InterpretedFloatingPoint
     What4.LabeledPred
+    What4.Panic
     What4.Partial
     What4.Partial.AssertionTree
     What4.ProblemFeatures
