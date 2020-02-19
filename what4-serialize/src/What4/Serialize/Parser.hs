@@ -1080,12 +1080,13 @@ readSymFnEnv' cfg sexpr = do
     readSymFns env sexpr' = case sexpr' of
       SC.SNil -> return env
       SC.SAtom _ -> E.throwError $ "Expected SNil or SCons but got SAtom: " ++ show sexpr
-      SC.SCons s rest -> do
-        (nm, symFn) <- readSomeSymFn env s
-        let env' = Map.insert nm symFn env
-        readSymFns env' rest
+      SC.SCons s rest -> readSomeSymFn env s >>= \case
+        Just (nm, symFn) -> do
+          let env' = Map.insert nm symFn env
+          readSymFns env' rest
+        Nothing -> readSymFns env rest
       
-    readSomeSymFn :: SymFnEnv sym -> SC.SExpr FAtom -> m (T.Text, (SomeSome (S.SymFn sym)))
+    readSomeSymFn :: SymFnEnv sym -> SC.SExpr FAtom -> m (Maybe (T.Text, (SomeSome (S.SymFn sym))))
     readSomeSymFn env sexpr' = do
       (name, rawSymFn) <- case sexpr' of
         SC.SCons (SC.SAtom (AString name))
@@ -1093,8 +1094,11 @@ readSymFnEnv' cfg sexpr = do
             SC.SNil)
           -> return (T.pack name, rawSymFn)
         _ -> E.throwError $ "invalid function environment structure: " ++ show sexpr'
-      ssymFn <- readSymFn' (cfg { pSymFnEnv = env }) rawSymFn
-      return (name, ssymFn)
+      if Map.member name env then
+        return Nothing
+      else do
+        ssymFn <- readSymFn' (cfg { pSymFnEnv = env }) rawSymFn
+        return $ Just $ (name, ssymFn)
 
 readSymFnEnv :: forall sym
            . (S.IsExprBuilder sym,
