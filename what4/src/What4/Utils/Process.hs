@@ -7,17 +7,20 @@ Maintainer       : Rob Dockins <rdockins@galois.com>
 Common utilities for running solvers and getting back results.
 -}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 module What4.Utils.Process
   ( withProcessHandles
   , resolveSolverPath
   , findSolverPath
   , filterAsync
+  , startProcess
+  , cleanupProcess
   ) where
 
 import           Control.Exception
@@ -25,11 +28,13 @@ import           Control.Monad (void)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import           System.IO
-import           System.Process
+import           System.Exit (ExitCode)
+import           System.Process hiding (cleanupProcess)
 
 import           What4.BaseTypes
 import           What4.Config
 import qualified What4.Utils.Environment as Env
+import           What4.Panic
 
 -- | Utility function that runs a solver specified by the given
 -- config setting within a context.  Errors can then be attributed
@@ -55,38 +60,50 @@ withProcessHandles :: FilePath -- ^ Path to process
                       -- before returning.
                    -> IO a
 withProcessHandles path args mcwd action = do
-  let create_proc
-        = (proc path args)
-          { std_in  = CreatePipe
-          , std_out = CreatePipe
-          , std_err = CreatePipe
-          , create_group = False
-          , delegate_ctlc = True
-          , cwd = mcwd
-          }
-  let startProcess = do
-        x <- createProcess create_proc
-        case x of
-          (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
-          _ -> fail "Internal error in withProcessHandles: Failed to create handle."
-  let cleanup (in_h,out_h,err_h,ph) = do
-        catchJust filterAsync
-              (do hClose in_h
-                  hClose out_h
-                  hClose err_h)
-              (\(ex :: SomeException) -> hPutStrLn stderr $ displayException ex)
-        void $ waitForProcess ph
-
   let onError (_,_,_,ph) = do
         -- Interrupt process; suppress any exceptions that occur.
         catchJust filterAsync (terminateProcess ph) (\(ex :: SomeException) ->
           hPutStrLn stderr $ displayException ex)
 
-  bracket startProcess cleanup (\hs -> onException (action hs) (onError hs))
+  bracket (startProcess path args mcwd)
+          (void . cleanupProcess)
+          (\hs -> onException (action hs) (onError hs))
 
+
+-- | Close the connected process pipes and wait for the process to exit
+cleanupProcess :: (Handle, Handle, Handle, ProcessHandle) -> IO ExitCode
+cleanupProcess (h_in, h_out, h_err, ph) =
+ do catchJust filterAsync
+         (hClose h_in >> hClose h_out >> hClose h_err)
+         (\(ex :: SomeException) -> hPutStrLn stderr $ displayException ex)
+    waitForProcess ph
+
+-- | Start a process connected to this one via pipes.
+startProcess ::
+  FilePath {-^ Path to executable -} ->
+  [String] {-^ Command-line arguments -} ->
+  Maybe FilePath {-^ Optional working directory -} ->
+  IO (Handle, Handle, Handle, ProcessHandle)
+  {-^ process stdin, process stdout, process stderr, process handle -}
+startProcess path args mcwd =
+  do let create_proc
+            = (proc path args)
+              { std_in  = CreatePipe
+              , std_out = CreatePipe
+              , std_err = CreatePipe
+              , create_group = False
+              , delegate_ctlc = True
+              , cwd = mcwd
+              }
+     createProcess create_proc >>= \case
+       (Just in_h, Just out_h, Just err_h, ph) -> return (in_h, out_h, err_h, ph)
+       _ -> panic "startProcess" $
+               [ "Failed to exec: " ++ show path
+               , "With the following arguments:"
+               ] ++ args
 
 -- | Filtering function for use with `catchJust` or `tryJust`
---   that filteres out asynch exceptions so they are rethrown
+--   that filters out asynch exceptions so they are rethrown
 --   instead of captured
 filterAsync :: SomeException -> Maybe SomeException
 filterAsync e
