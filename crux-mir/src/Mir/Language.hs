@@ -11,28 +11,24 @@
 
 {-# OPTIONS_GHC -Wall #-}
 
-module Mir.Language (main,  mainWithOutputTo,
-                     mirLanguage,
-                     MIROptions(..),
-                     defaultMirOptions) where
+module Mir.Language (main, mainWithOutputTo, mainWithOutputConfig, runTests,
+                     MIROptions(..), defaultMirOptions) where
 
 import qualified Data.Char       as Char
-import qualified Data.Foldable as Fold
 import           Data.Functor.Const (Const(..))
-import           Control.Monad (forM_, when, unless, zipWithM)
+import           Control.Monad
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
-import qualified Data.Sequence   as Seq
 import qualified Data.Vector     as Vector
 import           Control.Lens ((^.), (^?), (^..), ix, each)
 
 import           System.IO (Handle)
 import qualified SimpleGetOpt as GetOpt
-import           System.Exit (exitSuccess, exitWith, ExitCode)
+import           System.Exit (exitSuccess, exitWith, ExitCode(..))
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
@@ -46,7 +42,6 @@ import qualified Data.Parameterized.TraversableFC as Ctx
 
 -- crucible
 import qualified Lang.Crucible.Simulator               as C
-import qualified Lang.Crucible.Simulator.PathSplitting as C
 import qualified Lang.Crucible.CFG.Core                as C
 import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
@@ -55,10 +50,11 @@ import qualified Lang.Crucible.Backend                 as C
 import qualified What4.Interface                       as W4
 import qualified What4.Config                          as W4
 import qualified What4.Partial                         as W4
+import qualified What4.ProgramLoc                      as W4
+import qualified What4.FunctionName                    as W4
 
 -- crux
 import qualified Crux as Crux
-import qualified Crux.Config.Common as Crux
 import qualified Crux.Model as Crux
 
 import Crux.Types
@@ -67,6 +63,7 @@ import Crux.Log
 
 -- mir-verifier
 import           Mir.Mir
+import           Mir.DefId
 import           Mir.PP ()
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
@@ -78,21 +75,128 @@ import           Mir.Trans (transStatics)
 import           Mir.TransTy
 
 main :: IO ()
-main = Crux.main mirLanguage >>= exitWith
+main = mainWithOutputConfig defaultOutputConfig >>= exitWith
 
 mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h False) mirLanguage
+mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
 
+mainWithOutputConfig :: OutputConfig -> IO ExitCode
+mainWithOutputConfig outCfg =
+    Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTests
 
-mirLanguage :: Crux.Language MIROptions
-mirLanguage = Crux.Language
-    { Crux.name = "mir"
-    , Crux.version = "0.1"
-    , Crux.configuration = mirConfig
-    , Crux.initialize = return
-    , Crux.simulate = simulateMIR
-    , Crux.makeCounterExamples = makeCounterExamplesMIR
-    }
+runTests :: (Crux.Logs) => (Crux.CruxOptions, MIROptions) -> IO ExitCode
+runTests (cruxOpts, mirOpts) = do
+    let ?debug              = Crux.simVerbose cruxOpts
+    --let ?assertFalseOnError = assertFalse mirOpts
+    let ?assertFalseOnError = True
+    let ?printCrucible      = printCrucible mirOpts
+
+    -- Load the MIR collection
+    let filename            = case Crux.inputFiles cruxOpts of
+          [x] -> x
+          ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
+    col <- generateMIR filename False
+
+    when (onlyPP mirOpts) $ do
+      -- TODO: make this exit more gracefully somehow
+      print $ pretty col
+      liftIO $ exitSuccess
+
+    -- Translate to crucible
+    halloc  <- C.newHandleAllocator
+    mir     <- translateMIR mempty col halloc
+
+    C.AnyCFG staticInitCfg <- transStatics (mir^.rmCS) halloc
+    let hi = C.cfgHandle staticInitCfg
+    Refl <- failIfNotEqual (C.handleArgTypes hi) Ctx.Empty
+           $ "BUG: static initializer should not require arguments"
+
+    let cfgMap = mir^.rmCFGs
+
+    -- Simulate each test case
+    let linkOverrides :: C.IsSymInterface sym => C.OverrideSim (Model sym) sym MIR rtp a r ()
+        linkOverrides = forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> bindFn fn cfg
+    let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
+    let testStartLoc fnName =
+            W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
+
+    -- The output for each test looks like:
+    --      test foo::bar1: ok
+    --      test foo::bar2: FAILED
+    --      test foo::bar3: returned 123, ok
+    -- This mimics the output format of `cargo test`.  "test foo::bar" is
+    -- printed at the top of `simTest`, `result = 123` is printed at the
+    -- bottom of `simTest` (if applicable), and `ok` / `FAILED` is printed
+    -- by the loop that calls `simTest`.  Counterexamples are printed
+    -- separately, and only for tests that failed.
+
+    let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
+            Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun sym MIR Ctx.EmptyCtx C.UnitType
+        simTest _symOnline fnName = do
+            -- Label the current path for later use
+            sym <- C.getSymInterface
+            liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
+                C.ExploringAPath entry (Just $ testStartLoc fnName)
+
+            -- Find and run the target function
+            C.AnyCFG cfg <- case Map.lookup (idText fnName) cfgMap of
+                Just x -> return x
+                Nothing -> fail $ "couldn't find cfg for " ++ show fnName
+            let hf = C.cfgHandle cfg
+            Refl <- failIfNotEqual (C.handleArgTypes hf) Ctx.Empty $
+                "test function " ++ show fnName ++ " should not take arguments"
+            resTy <- case List.find (\fn -> fn ^. fname == fnName) (col ^. functions) of
+                Just fn -> return $ fn^.fsig.fsreturn_ty
+                Nothing -> fail $ "couldn't find return type for " ++ show fnName
+            res <- C.callCFG cfg C.emptyRegMap
+
+            if length (col^.roots) > 1 then do
+                str <- if resTy /= TyTuple [] then showRegEntry @sym col resTy res else return "OK"
+                liftIO $ outputLn $ show fnName ++ ": " ++ str
+            else do
+                -- This case is mainly for concrete evaluation tests, where the
+                -- output get checked against the fmt::Debug rendering.
+                str <- showRegEntry @sym col resTy res
+                liftIO $ outputLn $ str
+
+    let simTests :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
+            Maybe (Crux.SomeOnlineSolver sym) -> Fun sym MIR Ctx.EmptyCtx C.UnitType
+        simTests symOnline = do
+            linkOverrides
+            _ <- C.callCFG staticInitCfg C.emptyRegMap
+
+            mapM_ (simTest symOnline) (col^.roots)
+
+    let simCallback = Crux.SimulatorCallback $ \sym symOnline -> do
+            let outH = view outputHandle ?outputConfig
+            setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
+            let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
+                    C.emptyHandleMap mirExtImpl Crux.emptyModel
+            return $ Crux.RunnableState $
+                C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
+                    C.runOverrideSim C.UnitRepr $ simTests symOnline
+
+    res <- Crux.runSimulator cruxOpts simCallback
+
+    -- Print final tally of proved/disproved goals
+    ec <- Crux.postprocessSimResult cruxOpts res
+
+    -- Print counterexamples
+    let printCounterexamples gs = case gs of
+            AtLoc _ _ gs1 -> printCounterexamples gs1
+            Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
+            Goal _ (c, _) _ r ->
+                let msg = show c
+                in case r of
+                    NotProved (Just m) -> do
+                        sayFail "Crux" ("Failure for " ++ msg)
+                        when (showModel mirOpts) $ do
+                           outputLn "Model:"
+                           outputLn (Crux.ppModelJS "." m)
+                    _ -> return ()
+    mapM_ printCounterexamples $ cruxSimResultGoals res
+
+    return ec
 
 
 data MIROptions = MIROptions
@@ -132,104 +236,6 @@ mirConfig = Crux.Config
             (GetOpt.NoArg (\opts -> Right opts { assertFalse = True }))
         ]
     }
-
-
-
--- | Main function for running the simulator,
--- This should only be called by crux's 'check' function. 
-simulateMIR :: (?outputConfig :: OutputConfig) => Crux.SimulateCallback MIROptions
-simulateMIR execFeatures (cruxOpts, mirOpts) (sym :: sym) initModel cont = do
-  let ?debug              = Crux.simVerbose cruxOpts
-  --let ?assertFalseOnError = assertFalse mirOpts
-  let ?assertFalseOnError = True
-  let ?printCrucible      = printCrucible mirOpts
-  let filename            = case Crux.inputFiles cruxOpts of
-        [x] -> x
-        ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
-
-  col <- generateMIR filename False
-
-  when (onlyPP mirOpts) $ do
-    -- TODO: make this exit more gracefully somehow
-    print $ pretty col
-    liftIO $ exitSuccess
-
-  halloc  <- C.newHandleAllocator
-  mir     <- translateMIR mempty col halloc
-                    
-  C.AnyCFG init_cfg <- transStatics (mir^.rmCS) halloc
-  let hi = C.cfgHandle init_cfg
-  Refl <- failIfNotEqual (C.handleArgTypes hi)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
-         $ "Checking input to initializer"
-
-  let cfgmap = mir^.rmCFGs
-
-  setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
-
-  -- overrides
-  let link :: C.OverrideSim (Model sym) sym MIR rtp a r ()
-      link   = forM_ (Map.toList cfgmap) $
-                 \(fn, C.AnyCFG cfg) -> bindFn fn cfg
-
-  let
-     osim :: Fun sym MIR Ctx.EmptyCtx C.UnitType
-     osim   = do
-        link
-        _   <- C.callCFG init_cfg C.emptyRegMap
-        forM_ @_ @_ @_ @() (col ^. roots) $ \fnName -> do
-            (C.AnyCFG f_cfg) <- case (Map.lookup (idText fnName) cfgmap) of
-                                  Just c -> return c
-                                  _      -> fail $ "Could not find cfg: " ++ show fnName
-            let hf = C.cfgHandle f_cfg
-            Refl <- failIfNotEqual (C.handleArgTypes hf) (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
-                   $ "Checking input to ARG"
-
-            res <- C.callCFG f_cfg C.emptyRegMap
-            res_ty <- case List.find (\fn -> fn^.fname == fnName) (col^.functions) of
-                             Just fn -> return (fn^.fsig.fsreturn_ty)
-                             Nothing  -> fail $ "cannot find " ++ show fnName
-            if length (col^.roots) > 1 then do
-                str <- if res_ty /= TyTuple [] then showRegEntry @sym col res_ty res else return "OK"
-                liftIO $ outputLn $ show fnName ++ ": " ++ str
-            else do
-                -- This case is mainly for concrete evaluation tests, where the
-                -- output get checked against the fmt::Debug rendering.
-                str <- showRegEntry @sym col res_ty res
-                liftIO $ outputLn $ str
-
-  let outH = view outputHandle ?outputConfig
-  let simctx = C.initSimContext sym mirIntrinsicTypes halloc outH C.emptyHandleMap mirExtImpl initModel
-
-  let initSt = C.InitialState simctx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
-           C.runOverrideSim C.UnitRepr osim
-
-  case Crux.pathStrategy cruxOpts of
-    Crux.AlwaysMergePaths ->
-      do res <- C.executeCrucible (map C.genericToExecutionFeature execFeatures) initSt
-         cont (Result res)
-    Crux.SplitAndExploreDepthFirst ->
-      do (i,ws) <- C.executeCrucibleDFSPaths (map C.genericToExecutionFeature execFeatures) initSt (cont . Result)
-         say "Crux" ("Total paths explored: " ++ show i)
-         unless (null ws) $
-           sayWarn "Crux" (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
-
-
-makeCounterExamplesMIR :: (?outputConfig :: OutputConfig) => Crux.CounterExampleCallback MIROptions
-makeCounterExamplesMIR (_cruxOpts, mirOpts) = mapM_ go . Fold.toList
-  where
-    go gs =
-      case gs of
-        AtLoc _ _ gs1 -> go gs1
-        Branch g1 g2 -> go g1 >> go g2
-        Goal _ (c, _) _ res ->
-          let msg = show c
-          in case res of
-               NotProved (Just m) ->
-                 do sayFail "Crux" ("Failure for " ++ msg)
-                    when (showModel mirOpts) $ do
-                       putStrLn "Model:"
-                       putStrLn (Crux.ppModelJS "." m)
-               _ -> return ()
 
 -------------------------------------------------------
 -- maybe add these to crux, as they are not specific to MIR?

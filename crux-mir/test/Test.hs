@@ -69,9 +69,8 @@ runCrux rustFile outHandle = do
                                         Crux.goalTimeout = Just 120,
                                         Crux.solver = "z3" } ,
                    Mir.defaultMirOptions)
-    let language = Mir.mirLanguage { Crux.initialize = \_ -> return options }
-    let outputConfig = Crux.OutputConfig False outHandle outHandle False
-    _exitCode <- Crux.mainWithOutputConfig outputConfig language
+    let ?outputConfig = Crux.OutputConfig False outHandle outHandle False
+    _exitCode <- Mir.runTests options
     return ()
 
 cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
