@@ -7,7 +7,7 @@
 {-# Language RecordWildCards #-}
 {-# Language ScopedTypeVariables #-}
 
-module CruxLLVMMain (main, mainWithOutputTo, mainWithOutputConfig, registerFunctions) where
+module CruxLLVMMain (mainWithOutputTo, mainWithOutputConfig, defaultOutputConfig, registerFunctions) where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
@@ -18,7 +18,6 @@ import Control.Exception
 import qualified Data.Foldable as Fold
 import Data.Text (Text)
 import Data.List(intercalate)
-
 
 import Data.Binary.IEEE754 as IEEE754
 import qualified Data.Parameterized.Map as MapF
@@ -88,9 +87,6 @@ import Crux.Config.Common
 -- local
 import Crux.LLVM.Overrides
 
-
-main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig >>= exitWith
 
 mainWithOutputTo :: Handle -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)

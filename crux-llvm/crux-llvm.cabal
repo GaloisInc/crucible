@@ -48,12 +48,11 @@ library
 
   default-language: Haskell2010
 
-  
+
 
 executable crux-llvm
 
   hs-source-dirs: exe
-  main-is: Main.hs
 
   build-depends:
     ansi-terminal,
@@ -77,6 +76,12 @@ executable crux-llvm
     template-haskell,
     text,
     what4
+
+  if os(windows)
+    main-is: WinMain.hs
+  else
+    build-depends: unix
+    main-is: Main.hs
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -113,4 +118,3 @@ test-suite crux-llvm-test
                 what4
 
   default-language: Haskell2010
-
