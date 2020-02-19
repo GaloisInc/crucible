@@ -7,7 +7,9 @@ import System.Posix.Process
 
 import CruxLLVMMain (mainWithOutputConfig, defaultOutputConfig)
 
--- Convert a SIGTERM signal into a SIGINT signal for the entire process group
+-- Rebroadcast SIGTERM to the entire process group.  The CatchOnce
+-- handler keeps this from handling and retransmitting SIGTERM to
+-- itself over and over.
 installSIGTERMHandler :: IO ()
 installSIGTERMHandler =
   do gid <- getProcessGroupID
