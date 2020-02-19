@@ -13,7 +13,7 @@ installSIGTERMHandler =
   do gid <- getProcessGroupID
      void $ installHandler sigTERM (CatchOnce (handler gid)) Nothing
  where
- handler gid = signalProcessGroup sigINT gid
+ handler gid = signalProcessGroup sigTERM gid
 
 
 main :: IO ()
