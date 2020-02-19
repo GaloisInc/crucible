@@ -1,4 +1,12 @@
-()
+test override5/3a1fbbbh::f[0]: FAILED
+
+failures:
+
+---- override5/3a1fbbbh::f[0] counterexamples ----
+Failure for MIR assertion at test/symb_eval/overrides/override5.rs:11:5:
+	foo + 1 != 0
+in override5/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
+
 [Crux] Goal status:
 [Crux]   Total: 1
 [Crux]   Proved: 0
@@ -6,6 +14,3 @@
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
-[Crux] Failure for MIR assertion at test/symb_eval/overrides/override5.rs:11:5:
-	foo + 1 != 0
-in override5/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62

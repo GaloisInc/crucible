@@ -23,9 +23,11 @@ import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
+import qualified Data.Sequence   as Seq
 import qualified Data.Vector     as Vector
 import           Control.Lens ((^.), (^?), (^..), ix, each)
 
+import System.Console.ANSI
 import           System.IO (Handle)
 import qualified SimpleGetOpt as GetOpt
 import           System.Exit (exitSuccess, exitWith, ExitCode(..))
@@ -57,6 +59,7 @@ import qualified What4.FunctionName                    as W4
 import qualified Crux as Crux
 import qualified Crux.Model as Crux
 
+import Crux.Goal (countProvedGoals, countDisprovedGoals, countTotalGoals)
 import Crux.Types
 import Crux.Log
 
@@ -121,6 +124,7 @@ runTests (cruxOpts, mirOpts) = do
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
+    let testNames = List.sort $ col ^. roots
 
     -- The output for each test looks like:
     --      test foo::bar1: ok
@@ -135,6 +139,9 @@ runTests (cruxOpts, mirOpts) = do
     let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun sym MIR Ctx.EmptyCtx C.UnitType
         simTest symOnline fnName = do
+            when (not $ printResultOnly mirOpts) $
+                liftIO $ output $ "test " ++ show fnName ++ ": "
+
             linkOverrides symOnline
             _ <- C.callCFG staticInitCfg C.emptyRegMap
 
@@ -155,14 +162,13 @@ runTests (cruxOpts, mirOpts) = do
                 Nothing -> fail $ "couldn't find return type for " ++ show fnName
             res <- C.callCFG cfg C.emptyRegMap
 
-            if length (col^.roots) > 1 then do
-                str <- if resTy /= TyTuple [] then showRegEntry @sym col resTy res else return "OK"
-                liftIO $ outputLn $ show fnName ++ ": " ++ str
-            else do
-                -- This case is mainly for concrete evaluation tests, where the
-                -- output get checked against the fmt::Debug rendering.
+            when (printResultOnly mirOpts) $ do
                 str <- showRegEntry @sym col resTy res
-                liftIO $ outputLn $ str
+                liftIO $ outputLn str
+
+            when (not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
+                str <- showRegEntry @sym col resTy res
+                liftIO $ output $ "returned " ++ str ++ ", "
 
     let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline -> do
             let outH = view outputHandle ?outputConfig
@@ -173,35 +179,67 @@ runTests (cruxOpts, mirOpts) = do
                 C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
                     C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
 
-    results <- forM (col ^. roots) $ \fnName -> do
-        Crux.runSimulator cruxOpts $ simCallback fnName
+    let outputResult (CruxSimulationResult cmpl gls)
+          | disproved > 0 = output "FAILED"
+          | cmpl /= ProgramComplete = output "UNKNOWN"
+          | proved == tot = output "ok"
+          | otherwise = output "UNKNOWN"
+          where
+            tot = sum (fmap countTotalGoals gls)
+            proved = sum (fmap countProvedGoals gls)
+            disproved = sum (fmap countDisprovedGoals gls)
 
-    -- Print final tally of proved/disproved goals
+    results <- forM testNames $ \fnName -> do
+        res <- Crux.runSimulator cruxOpts $ simCallback fnName
+        when (not $ printResultOnly mirOpts) $ do
+            clearFromCursorToLineEnd
+            outputResult res
+            outputLn ""
+        return res
+
+    -- Print counterexamples
+    let isResultOK (CruxSimulationResult comp gls) =
+            comp == ProgramComplete &&
+            sum (fmap countProvedGoals gls) == sum (fmap countTotalGoals gls)
+    let anyFailed = any (not . isResultOK) results
+
+    let printCounterexamples gs = case gs of
+            AtLoc _ _ gs1 -> printCounterexamples gs1
+            Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
+            Goal _ (c, _) _ res ->
+                let msg = show c
+                in case res of
+                    NotProved (Just m) -> do
+                        outputLn ("Failure for " ++ msg)
+                        when (showModel mirOpts) $ do
+                           outputLn "Model:"
+                           outputLn (Crux.ppModelJS "." m)
+                    _ -> return ()
+    when anyFailed $ do
+        outputLn ""
+        outputLn "failures:"
+        forM_ (zip testNames results) $ \(fnName, res) -> do
+            outputLn ""
+            outputLn $ "---- " ++ show fnName ++ " counterexamples ----"
+            mapM_ printCounterexamples $ cruxSimResultGoals res
+
+    -- Print final tally of proved/disproved goals (except if
+    -- --print-result-only is set)
     let mergeCompleteness ProgramComplete ProgramComplete = ProgramComplete
         mergeCompleteness ProgramIncomplete _ = ProgramIncomplete
         mergeCompleteness _ ProgramIncomplete = ProgramIncomplete
     let mergeResult (CruxSimulationResult c1 g1) (CruxSimulationResult c2 g2) =
             CruxSimulationResult (mergeCompleteness c1 c2) (g1 <> g2)
     let emptyResult = CruxSimulationResult ProgramComplete mempty
-    let res = foldl mergeResult emptyResult results
-    ec <- Crux.postprocessSimResult cruxOpts res
+    let res@(CruxSimulationResult resComp resGoals) =
+            foldl mergeResult emptyResult results
 
-    -- Print counterexamples
-    let printCounterexamples gs = case gs of
-            AtLoc _ _ gs1 -> printCounterexamples gs1
-            Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
-            Goal _ (c, _) _ r ->
-                let msg = show c
-                in case r of
-                    NotProved (Just m) -> do
-                        sayFail "Crux" ("Failure for " ++ msg)
-                        when (showModel mirOpts) $ do
-                           outputLn "Model:"
-                           outputLn (Crux.ppModelJS "." m)
-                    _ -> return ()
-    mapM_ (mapM_ printCounterexamples . cruxSimResultGoals) results
-
-    return ec
+    let skipSummary = printResultOnly mirOpts && resComp == ProgramComplete && Seq.null resGoals
+    if not skipSummary then do
+        outputLn ""
+        Crux.postprocessSimResult cruxOpts res
+      else
+        return ExitSuccess
 
 
 data MIROptions = MIROptions
@@ -209,6 +247,10 @@ data MIROptions = MIROptions
     , printCrucible :: Bool
     , showModel    :: Bool
     , assertFalse  :: Bool
+    -- | Print only the result of evaluation, with no additional text.  On
+    -- concrete programs, this should normally produce the exact same output as
+    -- `rustc prog.rs && ./prog`.
+    , printResultOnly :: Bool
     }
 
 defaultMirOptions :: MIROptions
@@ -217,6 +259,7 @@ defaultMirOptions = MIROptions
     , printCrucible = False
     , showModel = False
     , assertFalse = False
+    , printResultOnly = False
     }
 
 mirConfig :: Crux.Config MIROptions
@@ -231,6 +274,10 @@ mirConfig = Crux.Config
         , GetOpt.Option []    ["print-crucible"]
             "pretty-print crucible after translation"
             (GetOpt.NoArg (\opts -> Right opts { printCrucible = True }))
+
+        , GetOpt.Option []    ["print-result-only"]
+            "print the result of evaluation and nothing else (used for concrete tests)"
+            (GetOpt.NoArg (\opts -> Right opts { printResultOnly = True }))
 
         , GetOpt.Option ['m']  ["show-model"]
             "show model on counter-example"

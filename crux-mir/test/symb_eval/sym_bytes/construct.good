@@ -1,4 +1,12 @@
-Symbolic BV
+test construct/3a1fbbbh::crux_test[0]: returned Symbolic BV, FAILED
+
+failures:
+
+---- construct/3a1fbbbh::crux_test[0] counterexamples ----
+Failure for MIR assertion at test/symb_eval/sym_bytes/construct.rs:14:5:
+	sym2[0] == 0
+in construct/3a1fbbbh::crux_test[0] at <::crucible::crucible_assert macros>:2:42: 2:62
+
 [Crux] Goal status:
 [Crux]   Total: 1
 [Crux]   Proved: 0
@@ -6,6 +14,3 @@ Symbolic BV
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
-[Crux] Failure for MIR assertion at test/symb_eval/sym_bytes/construct.rs:14:5:
-	sym2[0] == 0
-in construct/3a1fbbbh::crux_test[0] at <::crucible::crucible_assert macros>:2:42: 2:62
