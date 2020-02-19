@@ -28,7 +28,7 @@ import System.IO (Handle, stdout)
 import System.FilePath
   ( takeExtension, dropExtension, takeFileName, (</>)
   , takeDirectory, replaceExtension)
-import System.Directory (createDirectoryIfMissing, removeFile)
+import System.Directory (createDirectoryIfMissing, removeFile, doesFileExist)
 
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
@@ -256,6 +256,7 @@ data LLVMOptions = LLVMOptions
   , memOpts    :: MemOptions
   , laxArithmetic :: Bool
   , entryPoint :: String
+  , lazyCompile :: Bool
   }
 
 llvmCruxConfig :: Crux.Config LLVMOptions
@@ -293,6 +294,9 @@ llvmCruxConfig =
          laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
                            "Do not produce proof obligations related to arithmetic overflow, etc."
 
+         lazyCompile <- Crux.section "lazy-compile" Crux.yesOrNoSpec False
+                           "Avoid compiling bitcode from source if intermediate files already exist"
+
          return LLVMOptions { .. }
 
   , Crux.cfgEnv  =
@@ -321,6 +325,11 @@ llvmCruxConfig =
         "Turn on lax rules for arithemetic overflow"
         $ Crux.NoArg
         $ \opts -> Right opts { laxArithmetic = True }
+
+      , Crux.Option [] ["lazy-compile"]
+        "Avoid compiling bitcode from source if intermediate files already exist (default: off)"
+        $ Crux.NoArg
+        $ \opts -> Right opts{ lazyCompile = True }
 
       , Crux.Option [] ["entry-point"]
         "Name of the entry point to begin simulation"
@@ -498,12 +507,15 @@ genBitCode cruxOpts llvmOpts =
            [ "-c", "-g", "-emit-llvm", "-O0" ] ++
            concat [ [ "-I", dir ] | dir <- incs src ] ++
            [ "-o", srcBC, src ]
-     forM_ srcBCNames $ \f -> runClang llvmOpts (params f)
-     ver <- llvmLinkVersion llvmOpts
-     let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
-                       | otherwise = []
-     llvmLink llvmOpts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
-     mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
+
+     finalBCExists <- doesFileExist finalBCFile
+     unless (finalBCExists && lazyCompile llvmOpts) $
+      do forM_ srcBCNames $ \f -> runClang llvmOpts (params f)
+         ver <- llvmLinkVersion llvmOpts
+         let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
+                           | otherwise = []
+         llvmLink llvmOpts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
+         mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
 
 buildModelExes :: CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
 buildModelExes cruxOpts llvmOpts suff counter_src =
