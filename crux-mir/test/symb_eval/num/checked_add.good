@@ -1,0 +1,15 @@
+test checked_add/3a1fbbbh::crux_test[0]: FAILED
+
+failures:
+
+---- checked_add/3a1fbbbh::crux_test[0] counterexamples ----
+Failure for attempt to add with overflow
+in checked_add/3a1fbbbh::crux_test[0] at test/symb_eval/num/checked_add.rs:6:5
+
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.

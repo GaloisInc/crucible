@@ -7,5 +7,5 @@ use crucible::*;
 pub fn f() {
     // This call should be replaced by the test override
     let foo = crucible_i8("x");
-    crucible_assert!(foo + 1 != foo);
+    crucible_assert!(foo.wrapping_add(1) != foo);
 }

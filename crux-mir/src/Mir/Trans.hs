@@ -296,172 +296,150 @@ transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
     me2 <- evalOperand  op2
     let mat = M.arithType op1 `mplus` M.arithType op2 
-    evalBinOp bop mat me1 me2
+    fst <$> evalBinOp bop mat me1 me2
 
-evalBinOp :: M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-evalBinOp bop mat me1 me2 = 
+-- Evaluate a binop, returning both the result and an overflow flag.
+evalBinOp :: M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s ->
+    MirGenerator h s ret (MirExp s, R.Expr MIR s C.BoolType)
+evalBinOp bop mat me1 me2 =
     case (me1, me2) of
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@C.NatRepr e2a) ->
          case (bop, mat) of
             (M.Shl, _) -> do
                 let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
-                return $ MirExp (C.BVRepr na) (S.app $ E.BVShl na e1a e2bv)
+                return (MirExp (C.BVRepr na) (S.app $ E.BVShl na e1a e2bv),
+                    shiftOverflowNat na e2a)
             (M.Shr, Just M.Unsigned) -> do
                 let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
-                return $ MirExp (C.BVRepr na) (S.app $ E.BVLshr na e1a e2bv)
+                return (MirExp (C.BVRepr na) (S.app $ E.BVLshr na e1a e2bv),
+                    shiftOverflowNat na e2a)
             (M.Shr, Just M.Signed) -> do
                 let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
-                return $ MirExp (C.BVRepr na) (S.app $ E.BVAshr na e1a e2bv)
+                return (MirExp (C.BVRepr na) (S.app $ E.BVAshr na e1a e2bv),
+                    shiftOverflowNat na e2a)
 
             _ -> mirFail $ "No translation for binop: " ++ show bop ++ " with " ++ show ty1 ++ " and " ++ show ty2
-      {-
-      (MirExp C.IntegerRepr e1, MirExp C.IntegerRepr e2) ->
-            case bop of
-              M.Add -> return $ MirExp C.IntegerRepr (S.app $ E.IntAdd e1 e2)
-              M.Sub -> return $ MirExp C.IntegerRepr (S.app $ E.IntSub e1 e2)
-              M.Mul -> return $ MirExp C.IntegerRepr (S.app $ E.IntMul e1 e2)
-              M.Div -> return $ MirExp C.IntegerRepr (S.app $ E.IntDiv e1 e2)
-              M.Rem -> return $ MirExp C.IntegerRepr (S.app $ E.IntMod e1 e2)
-              M.Lt  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLt e1 e2)
-              M.Le  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLe e1 e2)
-              M.Gt  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLt e2 e1)
-              M.Ge  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLe e2 e1)
-              M.Ne  -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.IntEq e1 e2)
-              M.Beq -> return $ MirExp (C.BoolRepr) (S.app $ E.IntEq e1 e2)
-
-              -- TODO: these three are rather fishy
-              M.BitXor -> do
-                let w  = (knownRepr :: NatRepr 128)
-                let b1 = S.app $ E.IntegerToBV w e1 
-                let b2 = S.app $ E.IntegerToBV w e2
-                return $ MirExp C.IntegerRepr (S.app $ E.SbvToInteger w $ S.app $ E.BVXor w b1 b2)
-              M.BitAnd -> do
-                let w  = (knownRepr :: NatRepr 128)
-                let b1 = S.app $ E.IntegerToBV w e1
-                let b2 = S.app $ E.IntegerToBV w e2
-                return $ MirExp C.IntegerRepr (S.app $ E.SbvToInteger w $ S.app $ E.BVAnd w b1 b2)
-
-              M.BitOr  -> do
-                let w  = (knownRepr :: NatRepr 128)
-                let b1 = S.app $ E.IntegerToBV w e1
-                let b2 = S.app $ E.IntegerToBV w e2
-                return $ MirExp C.IntegerRepr (S.app $ E.SbvToInteger w $ S.app $ E.BVOr w b1 b2)
-
-
-              _ -> mirFail $ "No translation for integer binop: " ++ fmt bop 
-              -}
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@(C.BVRepr ma) e2a) ->
-          -- if the BVs are not the same width extend the shorter one
+          -- In all cases except shifts, the inputs should already have the
+          -- same width, and `extendToMax` is a no-op (except it provides the
+          -- proof that `na` and `ma` are equal).  For shifts, the second input
+          -- (shift amount) can have any width, so we pad one side or the other
+          -- to make the widths match up.
           extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
             case (bop, mat) of
-              (M.Add, _) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVAdd n e1 e2)
-              (M.Sub, _) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVSub n e1 e2)
-              (M.Mul, _) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2)
-              (M.Div, Just M.Unsigned) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2)
-              (M.Div, Just M.Signed) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2)
-              (M.Rem, Just M.Unsigned) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2)
-              (M.Rem, Just M.Signed) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2)
-              (M.BitXor, _) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVXor n e1 e2)
-              (M.BitAnd, _) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVAnd n e1 e2)
-              (M.BitOr, _) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVOr n e1 e2)
-              (M.Shl, _) ->
-                 let res = MirExp (C.BVRepr n) (S.app $ E.BVShl n e1 e2)
-                 -- TODO check unsigned vs signed???
-                 in extendUnsignedBV res na
-              (M.Shr, Just M.Unsigned) ->
-                 let res = MirExp (C.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-                 in extendUnsignedBV res na
-              (M.Shr, Nothing) ->
-                 let res = MirExp (C.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-                 in extendUnsignedBV res na
-              (M.Shr, Just M.Signed) ->
-                 let res = MirExp (C.BVRepr n) (S.app $ E.BVAshr n e1 e2) 
-                 in extendSignedBV res na
-              (M.Lt, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUlt n e1 e2)
-              (M.Lt, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e1 e2)
-              (M.Le, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUle n e1 e2)
-              (M.Le, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e1 e2)
+              (M.Add, _) -> do
+                let carry = case mat of
+                        Just M.Unsigned -> E.BVCarry
+                        Nothing -> E.BVCarry
+                        Just M.Signed -> E.BVSCarry
+                return (MirExp (C.BVRepr n) (S.app $ E.BVAdd n e1 e2), S.app $ carry n e1 e2)
+              (M.Sub, _) -> do
+                let borrow = case mat of
+                        Just M.Unsigned -> E.BVUlt
+                        Nothing -> E.BVUlt
+                        Just M.Signed -> E.BVSBorrow
+                return (MirExp (C.BVRepr n) (S.app $ E.BVSub n e1 e2), S.app $ borrow n e1 e2)
+              -- FIXME: implement overflow checks for Mul, Div, and Rem
+              (M.Mul, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), unknownOverflow)
+              (M.Div, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), unknownOverflow)
+              (M.Div, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), unknownOverflow)
+              (M.Rem, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), unknownOverflow)
+              (M.Rem, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2), unknownOverflow)
+              -- Bitwise ops never overflow
+              (M.BitXor, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVXor n e1 e2), noOverflow)
+              (M.BitAnd, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVAnd n e1 e2), noOverflow)
+              (M.BitOr, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVOr n e1 e2), noOverflow)
+              -- Shift ops overflow when shift amount >= bit width
+              -- If `extendToMax` padded the first argument, we need to
+              -- truncate the result back down to its original width using
+              -- `extendUnsignedBV`.
+              --
+              -- TODO: clean this up so it's more precise about how the
+              -- operands get extended/truncated, instead of using the somewhat
+              -- magical `extendToMax` / `extendUnsignedBV` functions.
+              (M.Shl, _) -> do
+                 res <- extendUnsignedBV (MirExp (C.BVRepr n) (S.app $ E.BVShl n e1 e2)) na
+                 return (res, shiftOverflowBV na ma e2a)
+              (M.Shr, Just M.Unsigned) -> do
+                 res <- extendUnsignedBV (MirExp (C.BVRepr n) (S.app $ E.BVLshr n e1 e2)) na
+                 return (res, shiftOverflowBV na ma e2a)
+              (M.Shr, Nothing) -> do
+                 res <- extendUnsignedBV (MirExp (C.BVRepr n) (S.app $ E.BVLshr n e1 e2)) na
+                 return (res, shiftOverflowBV na ma e2a)
+              (M.Shr, Just M.Signed) -> do
+                 res <- extendSignedBV (MirExp (C.BVRepr n) (S.app $ E.BVAshr n e1 e2) ) na
+                 return (res, shiftOverflowBV na ma e2a)
+              -- Comparison ops never overflow
+              (M.Lt, Just M.Unsigned) -> return (MirExp (C.BoolRepr) (S.app $ E.BVUlt n e1 e2), noOverflow)
+              (M.Lt, Just M.Signed)   -> return (MirExp (C.BoolRepr) (S.app $ E.BVSlt n e1 e2), noOverflow)
+              (M.Le, Just M.Unsigned) -> return (MirExp (C.BoolRepr) (S.app $ E.BVUle n e1 e2), noOverflow)
+              (M.Le, Just M.Signed)   -> return (MirExp (C.BoolRepr) (S.app $ E.BVSle n e1 e2), noOverflow)
 
-              (M.Gt, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUlt n e2 e1)
-              (M.Gt, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e2 e1)
-              (M.Ge, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUle n e2 e1)
-              (M.Ge, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e2 e1)
+              (M.Gt, Just M.Unsigned) -> return (MirExp (C.BoolRepr) (S.app $ E.BVUlt n e2 e1), noOverflow)
+              (M.Gt, Just M.Signed)   -> return (MirExp (C.BoolRepr) (S.app $ E.BVSlt n e2 e1), noOverflow)
+              (M.Ge, Just M.Unsigned) -> return (MirExp (C.BoolRepr) (S.app $ E.BVUle n e2 e1), noOverflow)
+              (M.Ge, Just M.Signed)   -> return (MirExp (C.BoolRepr) (S.app $ E.BVSle n e2 e1), noOverflow)
 
-              (M.Ne, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
-              (M.Beq, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVEq n e1 e2)
+              (M.Ne, _) -> return (MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2), noOverflow)
+              (M.Beq, _) -> return (MirExp (C.BoolRepr) (S.app $ E.BVEq n e1 e2), noOverflow)
               _ -> mirFail $ "No translation for binop: " ++ show bop ++ " " ++ show mat
                            ++ " for " ++ show ty1 ++ " and " ++ show ty2
       (MirExp C.BoolRepr e1, MirExp C.BoolRepr e2) ->
           case bop of
-            M.BitAnd -> return $ MirExp C.BoolRepr (S.app $ E.And e1 e2)
-            M.BitXor -> return $ MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2)
-            M.BitOr -> return $ MirExp C.BoolRepr (S.app $ E.Or e1 e2)
-            M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.BoolXor e1 e2)
-            M.Ne  -> return $ MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2)
+            M.BitAnd -> return (MirExp C.BoolRepr (S.app $ E.And e1 e2), noOverflow)
+            M.BitXor -> return (MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2), noOverflow)
+            M.BitOr -> return (MirExp C.BoolRepr (S.app $ E.Or e1 e2), noOverflow)
+            M.Beq -> return (MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.BoolXor e1 e2), noOverflow)
+            M.Ne  -> return (MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2), noOverflow)
             _ -> mirFail $ "No translation for bool binop: " ++ fmt bop
-    {-
-      (MirExp C.NatRepr e1, MirExp C.NatRepr e2) ->
-          case bop of
-            M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.NatEq e1 e2)
-            M.Lt -> return $ MirExp C.BoolRepr (S.app $ E.NatLt e1 e2)
-            M.Le -> return $ MirExp C.BoolRepr (S.app $ E.NatLe e1 e2)
-            M.Gt -> return $ MirExp C.BoolRepr (S.app $ E.NatLt e2 e1)
-            M.Ge -> return $ MirExp C.BoolRepr (S.app $ E.NatLe e2 e1)
-
-            M.Add -> return $ MirExp C.NatRepr (S.app $ E.NatAdd e1 e2)
-            M.Sub -> return $ MirExp C.NatRepr (S.app $ E.NatSub e1 e2)
-            M.Mul -> return $ MirExp C.NatRepr (S.app $ E.NatMul e1 e2)
-            M.Div -> return $ MirExp C.NatRepr (S.app $ E.NatDiv e1 e2)
-            M.Rem -> return $ MirExp C.NatRepr (S.app $ E.NatMod e1 e2)
-            M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.NatEq e1 e2)
-
-            -- these three are rather fishy
-            M.BitXor -> do
-              let w  = (knownRepr :: NatRepr 128)
-              let b1 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
-              let b2 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
-              return $ MirExp C.NatRepr (S.app $ E.BvToNat w $ S.app $ E.BVXor w b1 b2)
-            M.BitAnd -> do
-              let w  = (knownRepr :: NatRepr 128)
-              let b1 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
-              let b2 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
-              return $ MirExp C.NatRepr (S.app $ E.BvToNat w $ S.app $ E.BVAnd w b1 b2)
-
-            M.BitOr  -> do
-              let w  = (knownRepr :: NatRepr 128)
-              let b1 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
-              let b2 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
-              return $ MirExp C.NatRepr (S.app $ E.BvToNat w $ S.app $ E.BVOr w b1 b2)
-
-
-            _ -> mirFail $ "No translation for natural number binop: " ++ fmt bop
-      -}
       (MirExp C.RealValRepr e1, MirExp C.RealValRepr e2) ->
           case bop of
-            M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.RealEq e1 e2)
-            M.Lt -> return $ MirExp C.BoolRepr (S.app $ E.RealLt e1 e2)
-            M.Le -> return $ MirExp C.BoolRepr (S.app $ E.RealLe e1 e2)
-            M.Gt -> return $ MirExp C.BoolRepr (S.app $ E.RealLt e2 e1)
-            M.Ge -> return $ MirExp C.BoolRepr (S.app $ E.RealLe e2 e1)
+            M.Beq -> return (MirExp C.BoolRepr (S.app $ E.RealEq e1 e2), noOverflow)
+            M.Lt -> return (MirExp C.BoolRepr (S.app $ E.RealLt e1 e2), noOverflow)
+            M.Le -> return (MirExp C.BoolRepr (S.app $ E.RealLe e1 e2), noOverflow)
+            M.Gt -> return (MirExp C.BoolRepr (S.app $ E.RealLt e2 e1), noOverflow)
+            M.Ge -> return (MirExp C.BoolRepr (S.app $ E.RealLe e2 e1), noOverflow)
+            M.Ne -> return (MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.RealEq e1 e2), noOverflow)
 
-            M.Add -> return $ MirExp C.RealValRepr (S.app $ E.RealAdd e1 e2)
-            M.Sub -> return $ MirExp C.RealValRepr (S.app $ E.RealSub e1 e2)
-            M.Mul -> return $ MirExp C.RealValRepr (S.app $ E.RealMul e1 e2)
-            M.Div -> return $ MirExp C.RealValRepr (S.app $ E.RealDiv e1 e2)
-            M.Rem -> return $ MirExp C.RealValRepr (S.app $ E.RealMod e1 e2)
-            M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.RealEq e1 e2)
+            -- Binops on floats never set the overflow flag
+            M.Add -> return (MirExp C.RealValRepr (S.app $ E.RealAdd e1 e2), noOverflow)
+            M.Sub -> return (MirExp C.RealValRepr (S.app $ E.RealSub e1 e2), noOverflow)
+            M.Mul -> return (MirExp C.RealValRepr (S.app $ E.RealMul e1 e2), noOverflow)
+            M.Div -> return (MirExp C.RealValRepr (S.app $ E.RealDiv e1 e2), noOverflow)
+            M.Rem -> return (MirExp C.RealValRepr (S.app $ E.RealMod e1 e2), noOverflow)
 
             _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
+  where
+    noOverflow :: R.Expr MIR s C.BoolType
+    noOverflow = S.app $ E.BoolLit False
+    -- For now, assume unsupported operations don't overflow.  Eventually all
+    -- overflow checks should be implemented, and we can remove this.
+    unknownOverflow = noOverflow
+
+    -- Check that shift amount `e` is less than the input width `w`.
+    shiftOverflowNat w e =
+        let wLit = S.app $ E.NatLit $ natValue w
+        in S.app $ E.Not $ S.app $ E.NatLt e wLit
+    -- Check that shift amount `e` (whose width in `w'`) is less than the input
+    -- width `w`.
+    shiftOverflowBV :: (1 <= w') =>
+        NatRepr w -> NatRepr w' -> R.Expr MIR s (C.BVType w') -> R.Expr MIR s C.BoolType
+    shiftOverflowBV w w' e =
+        let wLit = S.app $ E.BVLit w' $ intValue w
+        in S.app $ E.Not $ S.app $ E.BVUlt w' e wLit
+
 
 
 transCheckedBinOp ::  M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s) -- returns tuple of (result, bool)
-transCheckedBinOp  a b c = do
-    res <- transBinOp a b c
-    return $ buildTupleMaybe [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) (S.litExpr False)]
-         -- This always succeeds, since we're checking correctness. We can also check for overflow if desired.
+transCheckedBinOp op a b = do
+    a' <- evalOperand  a
+    b' <- evalOperand  b
+    let mat = M.arithType a `mplus` M.arithType b
+    (res, overflow) <- evalBinOp op mat a' b'
+    return $ buildTupleMaybe [error "not needed", TyBool] [Just res, Just $ MirExp (C.BoolRepr) overflow]
 
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
@@ -1529,11 +1507,12 @@ transTerminator (M.Call funcOp cargs cretdest _) tr = do
       Nothing -> do
           G.reportError (S.app $ E.StringLit $ fromString "Program terminated.")
 
-transTerminator (M.Assert cond _expected _msg target _cleanup) _ = do
-    db <- use $ debugLevel
-    when (db > 5) $ do
-       traceM $ "Skipping assert " ++ fmt cond
-    jumpToBlock target -- FIXME! asserts are ignored; is this the right thing to do? NO!
+transTerminator (M.Assert cond expected msg target _cleanup) _ = do
+    MirExp tpr e <- evalOperand cond
+    Refl <- testEqualityOrFail tpr C.BoolRepr "expected Assert cond to be BoolType"
+    G.assertExpr (S.app $ E.BoolEq e (S.app $ E.BoolLit expected)) $
+        S.app $ E.StringLit $ W4.UnicodeLiteral $ msg
+    jumpToBlock target
 transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
 transTerminator (M.Drop _dl dt _dunwind) _ =
