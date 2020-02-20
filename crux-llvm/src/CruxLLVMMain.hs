@@ -341,29 +341,29 @@ llvmCruxConfig =
 initCruxLLVM :: (CruxOptions,LLVMOptions) -> IO (CruxOptions,LLVMOptions)
 initCruxLLVM (cruxOpts,llvmOpts) =
   do -- keep looking for clangBin if it is unset
-    clangFilePath <- if clangBin llvmOpts == ""
+     clangFilePath <- if clangBin llvmOpts == ""
                         then getClang
                         else return (clangBin llvmOpts)
 
-    let opts2 = llvmOpts { clangBin = clangFilePath }
+     let llvmOpts2 = llvmOpts { clangBin = clangFilePath }
 
-    -- update outDir if unset
-    name <- case Crux.inputFiles cruxOpts of
-              x : _ -> pure (dropExtension (takeFileName x))
+     -- update outDir if unset
+     name <- case Crux.inputFiles cruxOpts of
+               x : _ -> pure (dropExtension (takeFileName x))
                           -- use the first file as output directory
-              [] -> throwCError NoFiles
+               [] -> throwCError NoFiles
 
-    let cruxOpts2 = if Crux.outDir cruxOpts == ""
-                      then cruxOpts { Crux.outDir = "results" </> name }
-                      else cruxOpts
+     let cruxOpts2 = if Crux.outDir cruxOpts == ""
+                       then cruxOpts { Crux.outDir = "results" </> name }
+                       else cruxOpts
 
-        odir      = Crux.outDir cruxOpts2
+         odir      = Crux.outDir cruxOpts2
 
-    createDirectoryIfMissing True odir
+     createDirectoryIfMissing True odir
 
-    genBitCode cruxOpts2 opts2
+     genBitCode cruxOpts2 llvmOpts2
 
-    return (cruxOpts2, opts2)
+     return (cruxOpts2, llvmOpts2)
 
 ---------------------------------------------------------------------
 
