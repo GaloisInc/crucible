@@ -51,7 +51,7 @@ getClang :: IO FilePath
 getClang = attempt (map inPath clangs)
   where
   inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
-  clangs   = [ "clang", "clang-4.0", "clang-3.6", "clang-3.8" ]
+  clangs   = [ "clang", "clang-4.0", "clang-3.6", "clang-3.8", "clang-7", "clang-8" ]
 
   attempt :: [IO FilePath] -> IO FilePath
   attempt ms =
