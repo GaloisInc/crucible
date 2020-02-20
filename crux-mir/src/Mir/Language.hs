@@ -19,6 +19,7 @@ import           Data.Functor.Const (Const(..))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
+import           Data.Text (Text)
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
@@ -124,17 +125,20 @@ runTests (cruxOpts, mirOpts) = do
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
-    let testNames = List.sort $ col ^. roots
+    let filterTests defIds = case testFilter mirOpts of
+            Just x -> filter (\d -> x `Text.isInfixOf` idText d) defIds
+            Nothing -> defIds
+    let testNames = List.sort $ filterTests $ col ^. roots
 
     -- The output for each test looks like:
     --      test foo::bar1: ok
     --      test foo::bar2: FAILED
     --      test foo::bar3: returned 123, ok
     -- This mimics the output format of `cargo test`.  "test foo::bar" is
-    -- printed at the top of `simTest`, `result = 123` is printed at the
-    -- bottom of `simTest` (if applicable), and `ok` / `FAILED` is printed
-    -- by the loop that calls `simTest`.  Counterexamples are printed
-    -- separately, and only for tests that failed.
+    -- printed at the top of `simTest`, `returned 123` is printed at the bottom
+    -- of `simTest` (if applicable), and `ok` / `FAILED` is printed by the loop
+    -- that calls `simTest`.  Counterexamples are printed separately, and only
+    -- for tests that failed.
 
     let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun sym MIR Ctx.EmptyCtx C.UnitType
@@ -251,6 +255,7 @@ data MIROptions = MIROptions
     -- concrete programs, this should normally produce the exact same output as
     -- `rustc prog.rs && ./prog`.
     , printResultOnly :: Bool
+    , testFilter   :: Maybe Text
     }
 
 defaultMirOptions :: MIROptions
@@ -260,6 +265,7 @@ defaultMirOptions = MIROptions
     , showModel = False
     , assertFalse = False
     , printResultOnly = False
+    , testFilter = Nothing
     }
 
 mirConfig :: Crux.Config MIROptions
@@ -286,6 +292,10 @@ mirConfig = Crux.Config
         , GetOpt.Option [] ["assert-false-on-error"]
             "when translation fails, assert false in output and keep going"
             (GetOpt.NoArg (\opts -> Right opts { assertFalse = True }))
+
+        , GetOpt.Option []  ["test-filter"]
+            "run only tests whose names contain this string"
+            (GetOpt.ReqArg "string" (\v opts -> Right opts { testFilter = Just $ Text.pack v }))
         ]
     }
 
