@@ -114,8 +114,10 @@ runTests (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: C.IsSymInterface sym => C.OverrideSim (Model sym) sym MIR rtp a r ()
-        linkOverrides = forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> bindFn fn cfg
+    let linkOverrides :: C.IsSymInterface sym =>
+            Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (Model sym) sym MIR rtp a r ()
+        linkOverrides symOnline =
+            forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> bindFn symOnline fn cfg
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
@@ -162,7 +164,7 @@ runTests (cruxOpts, mirOpts) = do
     let simTests :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> Fun sym MIR Ctx.EmptyCtx C.UnitType
         simTests symOnline = do
-            linkOverrides
+            linkOverrides symOnline
             _ <- C.callCFG staticInitCfg C.emptyRegMap
 
             mapM_ (simTest symOnline) (col^.roots)
