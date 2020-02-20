@@ -1,6 +1,6 @@
 {-# Language OverloadedStrings #-}
 module CruxLLVMMain
-  ( mainWithOutputTo, mainWithOutputConfig, defaultOutputConfig )
+  ( mainWithOutputTo, mainWithOutputConfig, defaultOutputConfig, processLLVMOptions )
   where
 
 import System.Exit
