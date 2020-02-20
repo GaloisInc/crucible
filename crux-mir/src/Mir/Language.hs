@@ -223,9 +223,10 @@ runTests (cruxOpts, mirOpts) = do
         outputLn ""
         outputLn "failures:"
         forM_ (zip testNames results) $ \(fnName, res) -> do
-            outputLn ""
-            outputLn $ "---- " ++ show fnName ++ " counterexamples ----"
-            mapM_ printCounterexamples $ cruxSimResultGoals res
+            when (not $ isResultOK res) $ do
+                outputLn ""
+                outputLn $ "---- " ++ show fnName ++ " counterexamples ----"
+                mapM_ printCounterexamples $ cruxSimResultGoals res
 
     -- Print final tally of proved/disproved goals (except if
     -- --print-result-only is set)
