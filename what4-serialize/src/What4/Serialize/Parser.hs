@@ -22,6 +22,8 @@ module What4.Serialize.Parser
   , readSymFnFromFile
   , readSymFnEnv
   , readSymFnEnvFromFile
+  , readSymFnList
+  , readSymFnListFromFile
   , ParserConfig(..)
   , defaultParserConfig
   , SymFnEnv
@@ -1066,7 +1068,7 @@ readSymFnEnv' :: forall sym m
                   U.HasLogCfg)
               => ParserConfig sym
               -> SC.SExpr FAtom
-              -> m (SymFnEnv sym)
+              -> m (SymFnEnv sym, [(T.Text, SomeSome (S.SymFn sym))])
 readSymFnEnv' cfg sexpr = do
   symFnEnvRaw <- case sexpr of
     SC.SCons (SC.SAtom (AIdent "symfnenv"))
@@ -1074,17 +1076,19 @@ readSymFnEnv' cfg sexpr = do
         SC.SNil)
       -> return symFnEnvRaw
     _ -> E.throwError "invalid top-level function environment structure"
-  readSymFns (pSymFnEnv cfg) symFnEnvRaw
+  readSymFns (pSymFnEnv cfg, []) symFnEnvRaw
   where
-    readSymFns :: SymFnEnv sym -> SC.SExpr FAtom -> m (SymFnEnv sym)
-    readSymFns env sexpr' = case sexpr' of
-      SC.SNil -> return env
+    readSymFns :: (SymFnEnv sym, [(T.Text, SomeSome (S.SymFn sym))])
+               -> SC.SExpr FAtom
+               -> m (SymFnEnv sym, [(T.Text, SomeSome (S.SymFn sym))])
+    readSymFns (env, fns) sexpr' = case sexpr' of
+      SC.SNil -> return (env, reverse fns)
       SC.SAtom _ -> E.throwError $ "Expected SNil or SCons but got SAtom: " ++ show sexpr
       SC.SCons s rest -> readSomeSymFn env s >>= \case
         Just (nm, symFn) -> do
           let env' = Map.insert nm symFn env
-          readSymFns env' rest
-        Nothing -> readSymFns env rest
+          readSymFns (env', (nm, symFn) : fns) rest
+        Nothing -> readSymFns (env, fns) rest
       
     readSomeSymFn :: SymFnEnv sym -> SC.SExpr FAtom -> m (Maybe (T.Text, (SomeSome (S.SymFn sym))))
     readSomeSymFn env sexpr' = do
@@ -1108,7 +1112,9 @@ readSymFnEnv :: forall sym
           => ParserConfig sym
           -> T.Text
           -> IO (Either String (SymFnEnv sym))
-readSymFnEnv cfg = genRead "readSymFnEnv" (readSymFnEnv' cfg)
+readSymFnEnv cfg src = genRead "readSymFnEnv" (readSymFnEnv' cfg) src >>= \case
+    Left err -> return $ Left err
+    Right (env, _) -> return $ Right env
 
 readSymFnEnvFromFile :: forall sym
                    . (S.IsExprBuilder sym,
@@ -1121,3 +1127,27 @@ readSymFnEnvFromFile :: forall sym
 readSymFnEnvFromFile cfg fp = do
   liftIO $ U.logIO U.Debug $ "readSymFnEnvFromFile " ++ fp
   readSymFnEnv cfg =<< T.readFile fp
+
+readSymFnList :: forall sym
+           . (S.IsExprBuilder sym,
+              S.IsSymExprBuilder sym,
+              ShowF (S.SymExpr sym),
+              U.HasLogCfg)
+          => ParserConfig sym
+          -> T.Text
+          -> IO (Either String [(T.Text, SomeSome (S.SymFn sym))])
+readSymFnList cfg src = genRead "readSymFnEnv" (readSymFnEnv' cfg) src >>= \case
+    Left err -> return $ Left err
+    Right (_, env) -> return $ Right env
+
+readSymFnListFromFile :: forall sym
+                   . (S.IsExprBuilder sym,
+                      S.IsSymExprBuilder sym,
+                      ShowF (S.SymExpr sym),
+                      U.HasLogCfg)
+                  => ParserConfig sym
+                  -> FilePath
+                  -> IO (Either String [(T.Text, SomeSome (S.SymFn sym))])
+readSymFnListFromFile cfg fp = do
+  liftIO $ U.logIO U.Debug $ "readSymFnEnvFromFile " ++ fp
+  readSymFnList cfg =<< T.readFile fp
