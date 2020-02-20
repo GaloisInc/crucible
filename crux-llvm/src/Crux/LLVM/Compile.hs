@@ -65,11 +65,11 @@ getClang = attempt (map inPath clangs)
                        Left (SomeException {}) -> attempt more
                        Right a -> return a
 
-runClang :: LLVMOptions -> [String] -> IO ()
+runClang :: Logs => LLVMOptions -> [String] -> IO ()
 runClang llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     -- say "Clang" (show params)
+     say "CLANG" $ unwords (clang : map show params)
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
@@ -97,7 +97,7 @@ llvmLinkVersion llvmOpts =
        ExitSuccess   -> return (parseLLVMLinkVersion sout)
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-genBitCode :: CruxOptions -> LLVMOptions -> IO ()
+genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO ()
 genBitCode cruxOpts llvmOpts =
   do let files = (Crux.inputFiles cruxOpts)
          finalBCFile = Crux.outDir cruxOpts </> "combined.bc"
@@ -148,7 +148,7 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
            _ -> return ()
 
 
-buildModelExes :: CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
+buildModelExes :: Logs => CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
 buildModelExes cruxOpts llvmOpts suff counter_src =
   do let dir  = Crux.outDir cruxOpts
      createDirectoryIfMissing True dir
