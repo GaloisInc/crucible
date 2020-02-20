@@ -19,7 +19,10 @@ library
 
   exposed-modules:
     CruxLLVMMain
+    Crux.LLVM.Compile
+    Crux.LLVM.Config
     Crux.LLVM.Overrides
+    Crux.LLVM.Simulate
 
   build-depends:
     ansi-terminal,
