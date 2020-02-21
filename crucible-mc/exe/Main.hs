@@ -22,7 +22,7 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
 import Lang.Crucible.LLVM.Run
 
-import CruxLLVMMain( registerFunctions )
+import Crux.LLVM.Simulate( registerFunctions )
 import Crux.Model
 
 import Print
