@@ -43,8 +43,6 @@ import           Prelude hiding (pred)
 import           GHC.Generics (Generic)
 import           Data.Typeable (Typeable)
 import           Data.Maybe (isJust)
-import           Data.List (intercalate)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 -- jvm-parser
 import qualified Language.JVM.Parser as J
@@ -61,9 +59,7 @@ import qualified Data.Parameterized.TH.GADT as U
 -- crucible
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
-import           Lang.Crucible.Simulator.RegValue (RegValue'(unRV))
 import           Lang.Crucible.CFG.Generator
-import qualified Lang.Crucible.CFG.Extension.Safety as Safety
 import           Lang.Crucible.Types
 
 ----------------------------------------------------------------------
@@ -86,8 +82,6 @@ data JVMAssertionClassifier (e :: CrucibleType -> *) =
                          , pred :: e BoolType
                          }
   deriving (Generic, Typeable)
-
-type instance Safety.AssertionClassifier JVM = JVMAssertionClassifier
 
 -- -----------------------------------------------------------------------
 -- Instances
@@ -131,11 +125,6 @@ instance TraversableF JVMAssertionClassifier where
         )
       ]
      ) subterms
-
-instance Safety.HasStructuredAssertions JVM where
-  explain _proxyExt (JVMAssertionClassifier cls _pred) =
-    text ("Exception of class " ++ intercalate "." cls)
-  toPredicate _proxyExt _sym = pure . unRV . pred
 
 ----------------------------------------------------------------------
 -- * JVM type definitions

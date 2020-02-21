@@ -6,7 +6,6 @@ module Lang.Crucible.LLVM.Arch
   ( llvmExtensionEval
   ) where
 
-import           Control.Lens ( (^.), to )
 import           Control.Monad (forM_)
 import qualified Data.List.NonEmpty as NE
 import           Data.Parameterized.TraversableF
