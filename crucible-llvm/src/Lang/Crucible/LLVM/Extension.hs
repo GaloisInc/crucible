@@ -27,19 +27,14 @@ module Lang.Crucible.LLVM.Extension
   , LLVM
   ) where
 
-import           Control.Lens ((^.), (&))
 import           Data.Data (Data)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic, Generic1)
 
 import           Lang.Crucible.CFG.Extension
-import           Lang.Crucible.Simulator.RegValue (RegValue'(unRV))
-import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.Extension.Arch
-import           Lang.Crucible.LLVM.Extension.Safety (LLVMSafetyAssertion)
-import qualified Lang.Crucible.LLVM.Extension.Safety as LLVMSafe
 import           Lang.Crucible.LLVM.Extension.Syntax
 
 -- | The Crucible extension type marker for LLVM.
@@ -54,16 +49,3 @@ type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 
 instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)
 
--- -----------------------------------------------------------------------
--- ** Safety Assertions
-
-type instance AssertionClassifier (LLVM arch) = LLVMSafetyAssertion
-
-instance HasStructuredAssertions (LLVM arch) where
-  toPredicate _proxy _sym cls = cls ^. LLVMSafe.predicate & pure . unRV
-
-  explain _proxyExt assertion =
-    LLVMSafe.explainBB (assertion ^. LLVMSafe.classifier)
-
-  detail _proxyExt _proxySym assertion =
-    LLVMSafe.detailBB (assertion ^. LLVMSafe.classifier)

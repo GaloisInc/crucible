@@ -61,7 +61,6 @@ module Lang.Crucible.CFG.Expr
   , compareVector
   ) where
 
-import           Control.Lens ((^.))
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
 import           Data.Kind (Type)
@@ -79,7 +78,6 @@ import           What4.Interface (RoundingMode(..),StringLiteral(..), stringLite
 import           What4.InterpretedFloatingPoint (X86_80Val(..))
 
 import           Lang.Crucible.CFG.Extension
-import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.PrettyPrint
@@ -1324,12 +1322,6 @@ instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
           , ( U.ConType [t|Vector|] `U.TypeApp` U.AnyType
             , [| \pp v -> brackets (commas (fmap pp v)) |]
             )
-          , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.DataArg 0
-                                         `U.TypeApp` U.DataArg 1
-                                         `U.TypeApp` U.AnyType
-            , [| \pp pe -> text "partialExpr" <>
-                parens (commas [pp (pe ^. value), text "<some assertion>"]) |]
-            )
           ])
 
 ------------------------------------------------------------------------
@@ -1363,11 +1355,6 @@ traverseApp =
          `U.TypeApp` (U.ConType [t|BaseTerm|] `U.TypeApp` (U.DataArg 1))
          `U.TypeApp` U.AnyType
        , [| traverseBaseTerm |]
-       )
-     , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
-                                    `U.TypeApp` U.AnyType
-                                    `U.TypeApp` U.AnyType
-       , [| traverseFC |]
        )
      ])
 
@@ -1403,11 +1390,6 @@ instance ( TestEqualityFC (ExprExtension ext)
         , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testFnHandle|])
         , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector testSubterm|])
-        , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
-                                       `U.TypeApp` U.AnyType
-                                       `U.TypeApp` U.AnyType
-          , [| testEqualityFC testSubterm |]
-          )
         ])
 
 instance ( TestEqualityFC (ExprExtension ext)
@@ -1444,11 +1426,6 @@ instance ( OrdFC (ExprExtension ext)
                    , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFnHandle|])
                    , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|compareVector compareSubterm|])
-                   , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
-                                                  `U.TypeApp` U.AnyType
-                                                  `U.TypeApp` U.AnyType
-                     , [| compareFC compareSubterm |]
-                     )
                    ]
                   )
 
