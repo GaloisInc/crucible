@@ -95,10 +95,36 @@ runTests (cruxOpts, mirOpts) = do
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
 
+    let (filename, nameFilter) = case cargoTestFile mirOpts of
+            -- This case is terrible a hack.  The goal is to mimic the behavior
+            -- of the test binaries produced by `cargo test`, which take a test
+            -- filter string as their main argument, not a filename.  Since we
+            -- can't customize the way Crux parses its non-option arguments, we
+            -- just let it parse its `inputFiles` argument as normal, but we
+            -- treat the value as a test filter instead of a filename.  The
+            -- actual input filename is taken from the `--cargo-test-file`
+            -- option.
+            --
+            -- TODO: Write a proper "cargo-test-like" frontend that does its
+            -- own argument parsing, so we can get rid of this hack and also
+            -- have better `cargo test` compatibility in general.
+            Just file -> case (Crux.inputFiles cruxOpts, testFilter mirOpts) of
+                ([], Nothing) -> (file, Nothing)
+                ([], Just filt) -> (file, Just filt)
+                ([filt], Nothing) -> (file, Just $ Text.pack filt)
+                ([filt1], Just filt2) -> error $
+                    "expected at most 1 test filter, but got both " ++ show filt1
+                        ++ " and " ++ show filt2
+                (ifs, _) -> error $
+                    "expected at most 1 test filter, but got " ++ show ifs
+
+            -- In non-`--cargo-test-file` mode, the input file and
+            -- `--test-filter` options are handled as normal.
+            Nothing -> case Crux.inputFiles cruxOpts of
+                [x] -> (x, testFilter mirOpts)
+                ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
+
     -- Load the MIR collection
-    let filename            = case Crux.inputFiles cruxOpts of
-          [x] -> x
-          ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
     col <- generateMIR filename False
 
     when (onlyPP mirOpts) $ do
@@ -125,7 +151,7 @@ runTests (cruxOpts, mirOpts) = do
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
-    let filterTests defIds = case testFilter mirOpts of
+    let filterTests defIds = case nameFilter of
             Just x -> filter (\d -> x `Text.isInfixOf` idText d) defIds
             Nothing -> defIds
     let testNames = List.sort $ filterTests $ col ^. roots
@@ -257,6 +283,7 @@ data MIROptions = MIROptions
     -- `rustc prog.rs && ./prog`.
     , printResultOnly :: Bool
     , testFilter   :: Maybe Text
+    , cargoTestFile :: Maybe FilePath
     }
 
 defaultMirOptions :: MIROptions
@@ -267,6 +294,7 @@ defaultMirOptions = MIROptions
     , assertFalse = False
     , printResultOnly = False
     , testFilter = Nothing
+    , cargoTestFile = Nothing
     }
 
 mirConfig :: Crux.Config MIROptions
@@ -297,6 +325,10 @@ mirConfig = Crux.Config
         , GetOpt.Option []  ["test-filter"]
             "run only tests whose names contain this string"
             (GetOpt.ReqArg "string" (\v opts -> Right opts { testFilter = Just $ Text.pack v }))
+
+        , GetOpt.Option []  ["cargo-test-file"]
+            "treat trailing args as --test-filter instead of FILES, like `cargo test`; load program from this file instead (used by `cargo crux test`)"
+            (GetOpt.ReqArg "file" (\v opts -> Right opts { cargoTestFile = Just v }))
         ]
     }
 
