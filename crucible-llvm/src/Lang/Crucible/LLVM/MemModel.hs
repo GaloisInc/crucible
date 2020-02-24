@@ -159,6 +159,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.SomeAlloc(..)
   , G.possibleAllocs
   , G.ppSomeAlloc
+  , doConditionalWriteOperation
 
     -- * PtrWidth (re-exports)
   , HasPtrWidth
@@ -1089,6 +1090,30 @@ storeRaw sym mem ptr valType alignment val = do
     assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
     assert sym p2 (err $ ptrMessage errMsg2 ptr valType)
     return mem{ memImplHeap = heap' }
+
+doConditionalWriteOperation
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> MemImpl sym
+  -> Pred sym
+  -> (MemImpl sym -> IO (MemImpl sym))
+  -> IO (MemImpl sym)
+doConditionalWriteOperation sym mem cond write_op = do
+  frame_id <- pushAssumptionFrame sym
+  loc <- getCurrentProgramLoc sym
+  addAssumption sym $ LabeledPred cond $
+    AssumptionReason loc "conditional memory write predicate"
+
+  let branched_heap = G.branchMem $ memImplHeap mem
+  mutated_heap <-
+    memImplHeap <$> write_op (mem { memImplHeap = branched_heap })
+  let merged_mem = mem
+        { memImplHeap = G.mergeMem cond mutated_heap branched_heap
+        }
+
+  _ <- popAssumptionFrame sym frame_id
+
+  return $! merged_mem
 
 -- | Store an LLVM value in memory if the condition is true, and
 -- otherwise leaves memory unchanged.
