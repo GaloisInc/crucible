@@ -141,6 +141,12 @@ data ProcessedGoals =
                  , disprovedGoals :: !Integer
                  }
 
+newtype ReportCallback sym
+  = ReportCallback
+    { runReportCallback ::
+        forall ast asmp.
+        LPred sym ast -> ProofResult (Either (LPred sym asmp) (LPred sym ast)) -> IO () }
+
 -- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
 --
 -- This function traverses the 'Goals' tree while keeping track of a collection
@@ -158,13 +164,14 @@ data ProcessedGoals =
 -- symbolic execution phase, which should not be a problem.
 proveGoalsOffline :: forall st sym p asmp ast t fs
                    . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs)
-                  => WS.SolverAdapter st
+                  => ReportCallback sym
+                  -> WS.SolverAdapter st
                   -> CruxOptions
                   -> SimCtxt sym p
                   -> Maybe (Goals (LPred sym asmp) (LPred sym ast))
                   -> IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
-proveGoalsOffline _adapter _opts _ctx Nothing = return Nothing
-proveGoalsOffline adapter opts ctx (Just gs0) = do
+proveGoalsOffline _ _adapter _opts _ctx Nothing = return Nothing
+proveGoalsOffline reportCallback adapter opts ctx (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0)
   Just <$> go goalNum [] gs0
   where
@@ -213,14 +220,21 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
                 -- NOTE: We don't have an easy way to get an unsat core here
                 -- because we don't have a solver connection.
                 let core = fmap Left (F.toList (mconcat assumptionsInScope))
-                return (Prove (p, Proved core))
+                let ret = Proved core
+                runReportCallback reportCallback p ret
+                return (Prove (p, ret))
               Sat (evalFn, _) -> do
                 modifyIORef' goalNum (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
                 when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
                 let model = ctx ^. cruciblePersonality
                 vals <- evalModel evalFn model
-                return (Prove (p, NotProved (Just (ModelView vals))))
-              Unknown -> return (Prove (p, NotProved Nothing))
+                let ret = NotProved (Just (ModelView vals))
+                runReportCallback reportCallback p ret
+                return (Prove (p, ret))
+              Unknown -> do
+                let ret = NotProved Nothing
+                runReportCallback reportCallback p ret
+                return (Prove (p, ret))
           end
           case mres of
             Just res -> return res
@@ -242,16 +256,17 @@ proveGoalsOnline ::
   , OnlineSolver s goalSolver
   , ?outputConfig :: OutputConfig
   ) =>
+  ReportCallback sym ->
   goalSym ->
   CruxOptions ->
   SimCtxt sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
-proveGoalsOnline _ _opts _ctxt Nothing =
+proveGoalsOnline _ _ _opts _ctxt Nothing =
      return Nothing
 
-proveGoalsOnline sym opts ctxt (Just gs0) =
+proveGoalsOnline reportCallback sym opts ctxt (Just gs0) =
   do goalNum <- newIORef (ProcessedGoals 0 0 0)
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
@@ -295,7 +310,9 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
-                           return (Prove (p, (Proved core)))
+                           let ret = Proved core
+                           runReportCallback reportCallback p ret
+                           return (Prove (p, ret))
 
                       Sat ()  ->
                         do modifyIORef' gn (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
@@ -303,9 +320,14 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                            f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
                            vals <- evalModel f model
-                           return (Prove (p, NotProved (Just (ModelView vals))))
+                           let ret = NotProved (Just (ModelView vals))
+                           runReportCallback reportCallback p ret
+                           return (Prove (p, ret))
 
-                      Unknown -> return (Prove (p, NotProved Nothing))
+                      Unknown ->
+                        do let ret = NotProved Nothing
+                           runReportCallback reportCallback p ret
+                           return (Prove (p, ret))
            end
            return ret
 
@@ -335,4 +357,3 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
       if hasUnsatCores
       then assumeFormulaWithFreshName conn formula
       else assumeFormula conn formula >> return (Text.pack ("x" ++ show (Map.size namemap)))
-

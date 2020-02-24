@@ -95,9 +95,13 @@ mainWithOutputConfig :: OutputConfig -> IO ExitCode
 mainWithOutputConfig outCfg =
   Crux.loadOptions outCfg "crux-llvm" "0.1" llvmCruxConfig $ \initOpts ->
     do (cruxOpts, llvmOpts) <- initCruxLLVM initOpts
-       res <- Crux.runSimulator cruxOpts (simulateLLVM cruxOpts llvmOpts)
+       res <- Crux.runSimulator cruxOpts (simulateLLVM cruxOpts llvmOpts) report
        makeCounterExamplesLLVM cruxOpts llvmOpts res
        Crux.postprocessSimResult cruxOpts res
+  where
+    report :: forall sym. Crux.ReportCallback sym
+    report = Crux.ReportCallback $ \p ret -> do
+      undefined -- TODO: fill in how to report intermediate results
 
 makeCounterExamplesLLVM ::
   Logs => CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
