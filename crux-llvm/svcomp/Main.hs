@@ -167,9 +167,9 @@ evaluateSingleTask cruxOpts llvmOpts bsRoot num task =
       let srcRoot  = takeDirectory (verificationSourceFile task)
       let inputs   = map (srcRoot </>) (verificationInputFiles task)
       let cruxOpts' = cruxOpts { outDir = taskRoot, inputFiles = inputs }
-      sayOK "SVCOMP" $ unlines
-        [ "Evaluating:"
-        , "  " ++ taskRoot
+      sayOK "SVCOMP" $ concat
+        [ "Evaluating:\n"
+        , "  " ++ taskRoot ++ "\n"
         , "  " ++ verificationSourceFile task
         ]
       res@(CruxSimulationResult cmpl gls) <- Crux.runSimulator cruxOpts' (simulateLLVM cruxOpts' llvmOpts)
