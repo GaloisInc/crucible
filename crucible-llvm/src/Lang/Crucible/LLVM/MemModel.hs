@@ -557,8 +557,8 @@ sextendBVTo :: (1 <= w, 1 <= w', IsSymInterface sym)
             -> IO (SymExpr sym (BaseBVType w'))
 sextendBVTo sym w w' x
   | Just Refl <- testEquality w w' = return x
-  | Just LeqProof <- testLeq (incNat w) w' = bvSext sym w' x
-  | Just LeqProof <- testLeq (incNat w') w = bvTrunc sym w' x
+  | Just LeqProof <- testLeq w w' = bvSext sym w' x
+  | Just LeqProof <- testLeq w' w = bvTrunc sym w' x
   | otherwise = panic "sextendBVTo"
                   [ "Impossible widths!"
                   , show w

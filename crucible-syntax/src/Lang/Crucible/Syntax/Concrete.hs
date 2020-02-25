@@ -1021,21 +1021,21 @@ synthBV widthHint =
     bvTrunc :: m (SomeBVExpr s)
     bvTrunc =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVTrunc_ posNat (bvSubterm NoHint)
-         case testLeq (incNat r) w of
+         case testLeq r w of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVTrunc r w x)
            _ -> later $ describe "valid bitvector truncation" $ empty
 
     bvZext :: m (SomeBVExpr s)
     bvZext =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVZext_ posNat (bvSubterm NoHint)
-         case testLeq (incNat w) r of
+         case testLeq w r of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVZext r w x)
            _ -> later $ describe "valid zero extension" $ empty
 
     bvSext :: m (SomeBVExpr s)
     bvSext =
       do (BoundedNat r, SomeBVExpr w x) <- binary BVSext_ posNat (bvSubterm NoHint)
-         case testLeq (incNat w) r of
+         case testLeq w r of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVSext r w x)
            _ -> later $ describe "valid zero extension" $ empty
 

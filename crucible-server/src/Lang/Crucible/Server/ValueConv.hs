@@ -460,32 +460,29 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
         BVRepr result_width ->
           case isPosNat result_width of
             Just LeqProof ->
-              case incNat result_width `testLeq` n of
+              case result_width `testLeq` n of
                 Just LeqProof -> return $ Some $ BVTrunc result_width n xr
                 Nothing -> X.throwM $ OutOfBounds
-                           "BVTrunc (larger than input)"
-                           (incNat result_width) n
+                           "BVTrunc (larger than input)" result_width n
             Nothing -> X.throwM $ BadResultWidth "BVTrunc" result_width
         _ -> X.throwM $ InvalidResultType "BVTrunc" result_type
     P.BVZext -> withOneArg prim_op args $ \x -> do
       SomeBV n xr <- evalBV x
       case result_type of
         BVRepr result_width ->
-          case incNat n `testLeq` result_width of
+          case n `testLeq` result_width of
             Just LeqProof -> return $ Some $ BVZext result_width n xr
             Nothing -> X.throwM $ OutOfBounds
-                       "BVZext (less than input)"
-                       (incNat n) result_width
+                       "BVZext (less than input)" n result_width
         _ -> X.throwM $ InvalidResultType "BVZext" result_type
     P.BVSext -> withOneArg prim_op args $ \x -> do
       SomeBV n xr <- evalBV x
       case result_type of
         BVRepr result_width ->
-          case testLeq (incNat n) result_width of
+          case testLeq n result_width of
             Just LeqProof -> return $ Some $ BVSext result_width n xr
             Nothing -> X.throwM $ OutOfBounds
-                       "BVSext (less than input)"
-                       (incNat n) result_width
+                       "BVSext (less than input)" n result_width
         _ -> X.throwM $ InvalidResultType "BVSext" result_type
 
     --------------------------------------------------------------------

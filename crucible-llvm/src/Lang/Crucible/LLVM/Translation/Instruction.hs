@@ -468,7 +468,7 @@ calcGEP_array typ base idx =
               Scalar (LLVMPointerRepr w) x
                  | Just Refl <- testEquality w PtrWidth ->
                       pointerAsBitvectorExpr PtrWidth x
-                 | Just LeqProof <- testLeq (incNat w) PtrWidth ->
+                 | Just LeqProof <- testLeq w PtrWidth ->
                    do x' <- pointerAsBitvectorExpr w x
                       return $ app (BVSext PtrWidth w x')
               _ -> fail $ unwords ["Invalid index value in GEP", show idx]
@@ -575,7 +575,7 @@ translateConversion instr op inty x outty =
          case (asScalar x, outty') of
            (Scalar (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w'
-             , Just LeqProof <- testLeq (incNat w') w ->
+             , Just LeqProof <- testLeq w' w ->
                  do x_bv <- pointerAsBitvectorExpr w x'
                     let bv' = App (BVTrunc w' w x_bv)
                     return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
@@ -586,7 +586,7 @@ translateConversion instr op inty x outty =
          case (asScalar x, outty') of
            (Scalar (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w
-             , Just LeqProof <- testLeq (incNat w) w' ->
+             , Just LeqProof <- testLeq w w' ->
                  do x_bv <- pointerAsBitvectorExpr w x'
                     let bv' = App (BVZext w' w x_bv)
                     return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
@@ -597,7 +597,7 @@ translateConversion instr op inty x outty =
          case (asScalar x, outty') of
            (Scalar (LLVMPointerRepr w) x', (LLVMPointerRepr w'))
              | Just LeqProof <- isPosNat w
-             , Just LeqProof <- testLeq (incNat w) w' -> do
+             , Just LeqProof <- testLeq w w' -> do
                  do x_bv <- pointerAsBitvectorExpr w x'
                     let bv' = App (BVSext w' w x_bv)
                     return (BaseExpr outty' (BitvectorAsPointerExpr w' bv'))
@@ -932,7 +932,7 @@ intop op w a b =
        L.Mul nuw nsw -> do
          let w' = addNat w w
          Just LeqProof <- return $ isPosNat w'
-         Just LeqProof <- return $ testLeq (incNat w) w'
+         Just LeqProof <- return $ testLeq w w'
 
          prod <- AtomExpr <$> mkAtom (App (BVMul w a b))
          withSideConds prod
