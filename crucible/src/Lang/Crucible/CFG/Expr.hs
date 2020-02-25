@@ -613,19 +613,19 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
            -> !(f (BVType w))
            -> App ext f (BVType len)
 
-  BVTrunc :: (1 <= r, r+1 <= w)
+  BVTrunc :: (1 <= r, r <= w)
           => !(NatRepr r)
           -> !(NatRepr w)
           -> !(f (BVType w))
           -> App ext f (BVType r)
 
-  BVZext :: (1 <= w, 1 <= r, w+1 <= r)
+  BVZext :: (1 <= w, 1 <= r, w <= r)
          => !(NatRepr r)
          -> !(NatRepr w)
          -> !(f (BVType w))
          -> App ext f (BVType r)
 
-  BVSext :: (1 <= w, 1 <= r, w+1 <= r)
+  BVSext :: (1 <= w, 1 <= r, w <= r)
          => !(NatRepr r)
          -> !(NatRepr w)
          -> !(f (BVType w))
