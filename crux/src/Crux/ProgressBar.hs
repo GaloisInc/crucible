@@ -7,17 +7,23 @@ import Control.Monad(zipWithM)
 import Control.Concurrent
 
 
-prepStatus :: String -> Int -> (Integer -> IO (), IO (), IO ())
-prepStatus pref tot = (start,end,finish)
+prepStatus :: String -> Int -> IO (Integer -> IO (), IO (), IO ())
+prepStatus pref tot =
+   do ansi <- hSupportsANSI stdout
+      if ansi then
+        return (start,end,finish)
+      else
+        return (const (return ()), return (), return ())
+
   where
-  start n = do putStr (msg n)
+  start n = do hSaveCursor stdout
+               hPutStr stdout (msg n)
                hFlush stdout
   end     = do threadDelay 100000
-               cursorBackward msgLen
+               hRestoreCursor stdout
                hFlush stdout
 
-  finish = do cursorBackward msgLen
-              putStrLn ""
+  finish = do hClearLine stdout
               hFlush stdout
 
   totS  = show tot
@@ -25,22 +31,19 @@ prepStatus pref tot = (start,end,finish)
   sh x  = let y = show x
           in replicate (totW - length y) ' ' ++ y
 
-  msgLen = length (msg 0)
-
   msg n = pref ++ sh (n::Integer) ++ " / " ++ totS
 
 
 
 withProgressBar' :: String -> [a] -> (a -> IO b) -> IO [b]
-withProgressBar' pref xs f = zipWithM one [ 1 .. ] xs <* finish
-  where
-  (start,end,finish) = prepStatus pref (length xs)
-
-  one n a = do start n
+withProgressBar' pref xs f =
+    do (start,end,finish) <- prepStatus pref (length xs)
+       let one n a =
+            do start n
                b <- f a
                end
                return b
-
+       zipWithM one [ 1 .. ] xs <* finish
 
 withProgressBar :: Int -> [a] -> (a -> IO b) -> IO [b]
 withProgressBar w xs f =
