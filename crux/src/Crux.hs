@@ -531,6 +531,8 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
       let ctx = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
+        when (isJust todo) $
+          say "Crux" "Attempting to prove verification conditions."
         proved <- goalProver cruxOpts ctx todo
         mgt <- provedGoalsTree ctx proved
         case mgt of
