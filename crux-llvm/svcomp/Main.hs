@@ -6,6 +6,8 @@ import Data.Bits( bit )
 import Data.List
   ( isSuffixOf )
 import qualified Data.Text as Text
+import Data.Time.Clock
+  ( getCurrentTime, diffUTCTime )
 import System.Exit
   ( exitFailure, ExitCode(..) )
 import System.FilePath
@@ -14,6 +16,7 @@ import System.FilePath
   )
 import System.Directory
   ( createDirectoryIfMissing, doesFileExist, copyFile )
+
 
 -- unix
 import System.Posix.Process
@@ -134,23 +137,28 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts bs =
         ]
 
  evaluateVerificationTask (num, task) =
-    do pid <- forkProcess $
+    do startTime <- getCurrentTime
+       pid <- forkProcess $
                 do maybeSetLim ResourceCPUTime (svcompCPUlimit svOpts)
                    maybeSetLim ResourceTotalMemory ((megabyte *) <$> svcompMemlimit svOpts)
                    evaluateSingleTask cruxOpts llvmOpts bsRoot num task
 
        st <- getProcessStatus True {- Block -} False {- stopped -} pid
+       endTime <- getCurrentTime
        case st of
          Just (Exited ExitSuccess) ->
            return ()
          Just (Exited (ExitFailure x)) ->
-           sayFail "SVCOMP" $ "Evaluation process exited with failure code " ++ show x
+           sayFail "SVCOMP" $ unwords ["Evaluation process exited with failure code", show x]
          Just (Terminated sig _) ->
-           sayFail "SVCOMP" $ "Evaluation process terminated by signal " ++ show sig
+           sayWarn "SVCOMP" $ unwords ["Evaluation process terminated by signal", show sig]
          Just (Stopped sig) ->
-           sayFail "SVCOMP" $ "Evaluation process stopped by signal " ++ show sig
+           sayWarn "SVCOMP" $ unwords ["Evaluation process stopped by signal", show sig]
          Nothing ->
            sayFail "SVCOMP" "Could not retrieve evauation process status"
+
+       let wallTime = diffUTCTime endTime startTime
+       sayOK "SVCOMP" $ unwords ["Elapsed wall-clock time:", show wallTime]
 
 
 evaluateSingleTask :: Logs => CruxOptions -> LLVMOptions -> FilePath -> Int -> VerificationTask -> IO ()

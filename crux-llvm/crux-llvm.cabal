@@ -116,6 +116,7 @@ executable crux-llvm-svcomp
     parameterized-utils,
     process,
     template-haskell,
+    time,
     text,
     unix,
     what4
