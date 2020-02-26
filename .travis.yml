@@ -1,10 +1,10 @@
 script:
 - if [[ $DO_LINT != True ]]; then cabal new-update ; fi
 - if [[ $DO_LINT == True ]]; then curl -sSL https://raw.github.com/ndmitchell/neil/master/misc/travis.sh
-  | sh -s -- hlint crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}
+  | sh -s -- hlint crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm}
   ; fi
 - if [[ $DO_LINT != True ]]; then cabal new-build crucible{,-jvm,-llvm,-saw,-syntax}
-  crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization $BUILD_ARG ; fi
+  crux{,-llvm} -j --disable-optimization $BUILD_ARG ; fi
 before_cache:
 - rm -fv $HOME/.cabal/packages/hackage.haskell.org/build-reports.log
 - rm -fv $HOME/.cabal/packages/hackage.haskell.org/00-index.tar
