@@ -8,25 +8,16 @@ graphs.  Programs expressed as CFGs in this way can be automatically
 explored by the symbolic execution engine.  In addition, new data
 types and operations can be added to the symbolic simulator by
 implementing fresh primitives directly in Haskell.  Crucible relies on
-an underlying library called What4 that provides formula
-representations, and connections to a variety of SAT and SMT solvers
-that can be used to perform verification and find counterexamples to
-logical conditions computed from program simulation.
+an underlying library called [What4](https://github.com/GaloisInc/what4)
+that provides formula representations, and connections to a variety of
+SAT and SMT solvers that can be used to perform verification and find
+counterexamples to logical conditions computed from program simulation.
 
 Crucible has been designed as a set of Haskell packages organized so
 that Crucible itself has a minimal number of external dependencies,
 and functionality independent of crucible can be separated into sub-libraries.
 
 Currently, the repository consists of the following Haskell packages:
-
- * **`what4`** provides a library for formula representation and
-   communications with satisfiability and SMT solvers (e.g., Yices and Z3).
- * **`what4-abc`** provides additional solver support for the ABC
-   circuit synthesis library, which has strong support for equality
-   and satisfiability queries involving boolean circuits.
- * **`what4-blt`** provides additional solver support for the BLT
-   solver, which specializes in bounded integer linear problems.
-
  * **`crucible`** provides the core Crucible definitions, including the
    symbolic simulator and control-flow-graph program representations.
  * **`crucible-llvm`** provides translation and runtime support for
@@ -35,7 +26,7 @@ Currently, the repository consists of the following Haskell packages:
    executing JVM bytecode programs in the Crucible symbolic simulator.
  * **`crucible-saw`** provides functionality for generating
    SAW Core terms from Crucible Control-Flow-Graphs.
- * **`crucible-syntax`** provides a native SExpression based concrete
+ * **`crucible-syntax`** provides a native S-Expression based concrete
    syntax for crucible programs.  It is useful for being able to
    directly interact with the core Crucible simulator without bringing
    in issues related to the translation of other front-ends (e.g. the
