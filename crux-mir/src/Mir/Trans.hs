@@ -964,6 +964,20 @@ evalLvalue (M.LProj lv (M.Index i)) = do
           return $ MirExp elt_tp $ S.app $ vectorGetUsize elt_tp R.App arr ind
       _ -> mirFail $ "Bad index, arr_typ is:" ++ show arr_tp ++ "\nind_type is: " ++ show ind_tp
 
+evalLvalue (M.LProj lv (M.ConstantIndex ind minLen fromEnd))
+  | False <- fromEnd = do
+    (MirExp arr_tp arr) <- evalLvalue lv
+    case arr_tp of
+      C.VectorRepr elt_tp -> do
+          let ind' = R.App $ usizeLit $ fromIntegral ind
+          let minLen' = R.App $ usizeLit $ fromIntegral minLen
+          G.assertExpr (R.App $ usizeLt ind' (S.app (vectorSizeUsize R.App arr)))
+                       (S.litExpr "Index out of range (for access to [_; _])")
+          G.assertExpr (R.App $ usizeLe minLen' (S.app (vectorSizeUsize R.App arr)))
+                       (S.litExpr "Array is shorter than minimum length (for access to [_; _])")
+          return $ MirExp elt_tp $ S.app $ vectorGetUsize elt_tp R.App arr ind'
+      _ -> mirFail $ "Bad index, arr_typ is:" ++ show arr_tp
+
 evalLvalue (M.LProj lv M.Deref) =
    case M.typeOf lv of
      M.TyRef _ M.Immut ->

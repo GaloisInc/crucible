@@ -1120,6 +1120,24 @@ cloneShimDef (TyTuple tys) parts = CustomMirOp $ \ops -> do
     fieldRefOps <- zipWithM (\ty exp -> makeTempOperand (TyRef ty Immut) exp) tys fieldRefExps
     clonedExps <- zipWithM (\part op -> callExp part (Substs []) [op]) parts fieldRefOps
     return $ buildTupleMaybe tys (map Just clonedExps)
+cloneShimDef (TyArray ty len) parts
+  | [part] <- parts = CustomMirOp $ \ops -> do
+    lv <- case ops of
+        [Move lv] -> return lv
+        [Copy lv] -> return lv
+        [op] -> mirFail $ "cloneShimDef: expected lvalue operand, but got " ++ show op
+        _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (length ops)
+    -- The argument to the clone shim is `&[T; n]`.  The clone method for
+    -- elements requires `&T`, computed as `&arg[i]`.
+    let elementRefRvs = map (\i ->
+            Ref Shared (LProj (LProj lv Deref) (ConstantIndex i len False)) "_") [0 .. len - 1]
+    elementRefExps <- mapM evalRval elementRefRvs
+    elementRefOps <- mapM (\exp -> makeTempOperand (TyRef ty Immut) exp) elementRefExps
+    clonedExps <- mapM (\op -> callExp part (Substs []) [op]) elementRefOps
+    Some tpr <- return $ tyToRepr ty
+    buildArrayLit tpr clonedExps
+  | otherwise = CustomOp $ \_ _ -> mirFail $
+    "expected exactly one clone function for in array clone shim, but got " ++ show parts
 cloneShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
 
 cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp

@@ -1,4 +1,3 @@
-// FAIL: clone shims for arrays are not yet implemented
 #![feature(custom_attribute)]
 
 #[crux_test]
