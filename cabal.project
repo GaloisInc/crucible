@@ -5,10 +5,6 @@
 -- export PATH=$PWD/dist-newstyle/build/x86_64-linux/ghc-7.10.3/hpb-0.1.1/c/hpb/build/hpb:$PATH
 
 packages:
-  what4/
-  what4-abc/
-  what4-blt/
-
   crucible/
   crucible-jvm/
   crucible-llvm/
@@ -34,4 +30,6 @@ optional-packages:
   dependencies/saw-core-what4/
   dependencies/cryptol/
   dependencies/cryptol-verifier/
-  
+  dependencies/what4/what4/
+  dependencies/what4/what4-abc/
+  dependencies/what4/what4-blt/
