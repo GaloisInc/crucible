@@ -42,4 +42,4 @@
 	url = https://github.com/GaloisInc/saw-core-what4.git
 [submodule "dependencies/what4"]
 	path = dependencies/what4
-	url = git@github.com:GaloisInc/what4
+	url = https://github.com/GaloisInc/what4.git
