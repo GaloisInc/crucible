@@ -160,6 +160,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.possibleAllocs
   , G.ppSomeAlloc
   , doConditionalWriteOperation
+  , mergeWriteOperations
 
     -- * PtrWidth (re-exports)
   , HasPtrWidth
@@ -1098,17 +1099,28 @@ doConditionalWriteOperation
   -> Pred sym
   -> (MemImpl sym -> IO (MemImpl sym))
   -> IO (MemImpl sym)
-doConditionalWriteOperation sym mem cond write_op = do
+doConditionalWriteOperation sym mem cond write_op =
+  mergeWriteOperations sym mem cond write_op return
+
+mergeWriteOperations
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> MemImpl sym
+  -> Pred sym
+  -> (MemImpl sym -> IO (MemImpl sym))
+  -> (MemImpl sym -> IO (MemImpl sym))
+  -> IO (MemImpl sym)
+mergeWriteOperations sym mem cond true_write_op false_write_op = do
   frame_id <- pushAssumptionFrame sym
   loc <- getCurrentProgramLoc sym
   addAssumption sym $ LabeledPred cond $
     AssumptionReason loc "conditional memory write predicate"
 
-  let branched_heap = G.branchMem $ memImplHeap mem
-  mutated_heap <-
-    memImplHeap <$> write_op (mem { memImplHeap = branched_heap })
+  let branched_mem = mem { memImplHeap = G.branchMem $ memImplHeap mem }
+  true_mutated_heap <- memImplHeap <$> true_write_op branched_mem
+  false_mutated_heap <- memImplHeap <$> false_write_op branched_mem
   let merged_mem = mem
-        { memImplHeap = G.mergeMem cond mutated_heap branched_heap
+        { memImplHeap = G.mergeMem cond true_mutated_heap false_mutated_heap
         }
 
   _ <- popAssumptionFrame sym frame_id
