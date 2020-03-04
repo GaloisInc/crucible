@@ -166,34 +166,37 @@ proveGoalsOffline :: forall st sym p asmp ast t fs
 proveGoalsOffline _adapter _opts _ctx Nothing = return Nothing
 proveGoalsOffline adapter opts ctx (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0)
-  Just <$> go goalNum [] gs0
-  where
-    (start,end)
-      | view quiet ?outputConfig = (\_ -> return (), return ())
-      | otherwise = prepStatus "Checking: " (countGoals gs0)
+  (start,end,finish) <-
+     if view quiet ?outputConfig then
+       return (\_ -> return (), return (), return ())
+     else
+       prepStatus "Checking: " (countGoals gs0)
+  (Just <$> go (start,end) goalNum [] gs0) <* finish
 
+  where
     withTimeout action
       | Just seconds <- goalTimeout opts = ST.timeout (round seconds * 1000000) action
       | otherwise = Just <$> action
 
     failfast = proofGoalsFailFast opts
 
-    go :: IORef ProcessedGoals
+    go :: (Integer -> IO (), IO ())
+       -> IORef ProcessedGoals
        -> [Seq.Seq (LPred sym asmp)]
        -> Goals (LPred sym asmp) (LPred sym ast)
        -> IO (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast))))
-    go goalNum assumptionsInScope gs =
+    go (start,end) goalNum assumptionsInScope gs =
       case gs of
         Assuming ps gs1 -> do
-          res <- go goalNum (ps : assumptionsInScope) gs1
+          res <- go (start,end) goalNum (ps : assumptionsInScope) gs1
           return (Assuming ps res)
 
         ProveConj g1 g2 -> do
-          g1' <- go goalNum assumptionsInScope g1
+          g1' <- go (start,end) goalNum assumptionsInScope g1
           numDisproved <- disprovedGoals <$> readIORef goalNum
           if failfast && numDisproved > 0
             then return g1'
-            else ProveConj g1' <$> go goalNum assumptionsInScope g2
+            else ProveConj g1' <$> go (start,end) goalNum assumptionsInScope g2
 
         Prove p -> do
           num <- atomicModifyIORef' goalNum (\pg -> (pg { totalProcessedGoals = totalProcessedGoals pg + 1 }, totalProcessedGoals pg))
@@ -213,15 +216,16 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
                 -- NOTE: We don't have an easy way to get an unsat core here
                 -- because we don't have a solver connection.
                 let core = fmap Left (F.toList (mconcat assumptionsInScope))
+                end
                 return (Prove (p, Proved core))
               Sat (evalFn, _) -> do
                 modifyIORef' goalNum (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
+                end
                 when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
                 let model = ctx ^. cruciblePersonality
                 vals <- evalModel evalFn model
                 return (Prove (p, NotProved (Just (ModelView vals))))
-              Unknown -> return (Prove (p, NotProved Nothing))
-          end
+              Unknown -> end >> return (Prove (p, NotProved Nothing))
           case mres of
             Just res -> return res
             Nothing -> return (Prove (p, NotProved Nothing))
@@ -256,13 +260,16 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
        sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
+     (start,end,finish) <-
+       if view quiet ?outputConfig then
+         return (\_ -> return (), return (), return ())
+       else
+         prepStatus "Checking: " (countGoals gs0)
      res <- withSolverProcess sym $ \sp ->
-              inNewFrame sp (go sp goalNum gs0 nameMap)
+              inNewFrame sp (go (start,end) sp goalNum gs0 nameMap)
+     finish
      return (Just res)
   where
-  (start,end)
-    | view quiet ?outputConfig = (\_ -> return (), return ())
-    | otherwise = prepStatus "Checking: " (countGoals gs0)
 
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
 
@@ -270,7 +277,7 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
 
   failfast = proofGoalsFailFast opts
 
-  go sp gn gs nameMap = do
+  go (start,end) sp gn gs nameMap = do
     case gs of
 
       Assuming ps gs1 ->
@@ -278,7 +285,7 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
              unless (asConstantPred (p^.labeledPred) == Just True) $
               do nm <- doAssume =<< mkFormula conn (p ^. labeledPred)
                  bindName nm (Left p) nameMap
-           res <- go sp gn gs1 nameMap
+           res <- go (start,end) sp gn gs1 nameMap
            return (Assuming ps res)
 
       Prove p ->
@@ -295,22 +302,23 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
+                           end
                            return (Prove (p, (Proved core)))
 
                       Sat ()  ->
                         do modifyIORef' gn (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
-                           when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
                            vals <- evalModel f model
+                           end
+                           when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            return (Prove (p, NotProved (Just (ModelView vals))))
 
-                      Unknown -> return (Prove (p, NotProved Nothing))
-           end
+                      Unknown -> end >> return (Prove (p, NotProved Nothing))
            return ret
 
       ProveConj g1 g2 ->
-        do g1' <- inNewFrame sp (go sp gn g1 nameMap)
+        do g1' <- inNewFrame sp (go (start,end) sp gn g1 nameMap)
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
 
@@ -319,9 +327,9 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                 if numDisproved > 0 then
                   return g1'
                 else
-                  ProveConj g1' <$> go sp gn g2 nameMap
+                  ProveConj g1' <$> go (start,end) sp gn g2 nameMap
            else
-             ProveConj g1' <$> go sp gn g2 nameMap
+             ProveConj g1' <$> go (start,end) sp gn g2 nameMap
 
     where
     conn = solverConn sp

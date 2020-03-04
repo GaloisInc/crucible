@@ -312,9 +312,12 @@ execFeatureMaybe mb m =
 
 
 -- | Common setup for all solver connections
-setupSolver :: (IsExprBuilder sym) => CruxOptions -> Maybe FilePath -> sym -> IO ()
+setupSolver :: (IsExprBuilder sym, sym ~ WEB.ExprBuilder t st fs) => CruxOptions -> Maybe FilePath -> sym -> IO ()
 setupSolver cruxOpts mInteractionFile sym = do
   mapM_ (symCfg sym solverInteractionFile) (fmap T.pack mInteractionFile)
+
+  -- Turn on hash-consing, if enabled
+  when (hashConsing cruxOpts) (WEB.startCaching sym)
 
   -- The simulator verbosity is one less than our verbosity.
   -- In this way, we can say things, without the simulator also
@@ -528,6 +531,8 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
       let ctx = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
+        when (isJust todo) $
+          say "Crux" "Attempting to prove verification conditions."
         proved <- goalProver cruxOpts ctx todo
         mgt <- provedGoalsTree ctx proved
         case mgt of

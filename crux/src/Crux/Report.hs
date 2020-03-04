@@ -32,7 +32,7 @@ import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 
 generateReport :: CruxOptions -> CruxSimulationResult -> IO ()
 generateReport opts res
-  | outDir opts == "" = return ()
+  | outDir opts == "" || skipReport opts = return ()
   | otherwise =
     do let xs = cruxSimResultGoals res
        createDirectoryIfMissing True (outDir opts)

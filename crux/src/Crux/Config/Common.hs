@@ -99,6 +99,13 @@ data CruxOptions = CruxOptions
 
   , proofGoalsFailFast       :: Bool
     -- ^ If true, stop attempting to prove goals as soon as one is disproved
+
+  , skipReport               :: Bool
+    -- ^ Don't produce the HTML reports that describe the verification task
+
+  , hashConsing              :: Bool
+    -- ^ Turn on hash-consing in the symbolic expression backend
+
   }
 
 
@@ -113,11 +120,9 @@ cruxOptions = Config
             section "output-directory" dirSpec ""
             "Save results in this directory."
 
-
           checkPathSat <-
             section "path-sat" yesOrNoSpec False
             "Enable path satisfiability checking (default: no)."
-
 
           profileCrucibleFunctions <-
             section "profile-crucible" yesOrNoSpec False
@@ -188,6 +193,14 @@ cruxOptions = Config
             (pack $ "Select floating point representation,"
              ++ " i.e. one of [real|ieee|uninterpreted|default]. "
              ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
+
+          hashConsing <-
+            section "hash-consing" yesOrNoSpec False
+            "Enable hash-consing in the symbolic expression backend"
+
+          skipReport <-
+            section "skip-report" yesOrNoSpec False
+            "Skip producing the HTML report after verification"
 
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
@@ -290,6 +303,14 @@ cruxOptions = Config
       , Option [] ["mcsat"]
         "Enable the MC-SAT solver in Yices (disables unsat cores)"
         $ NoArg $ \opts -> Right opts { yicesMCSat = True }
+
+      , Option [] ["skip-report"]
+        "Skip producing the HTML report following verificaion"
+        $ NoArg $ \opts -> Right opts { skipReport = True }
+
+      , Option [] ["hash-consing"]
+        "Enable hash-consing in the symbolic expression backend"
+        $ NoArg $ \opts -> Right opts{ hashConsing = True }
 
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
