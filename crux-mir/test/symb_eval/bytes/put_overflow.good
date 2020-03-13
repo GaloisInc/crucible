@@ -1,3 +1,11 @@
+test put_overflow/3a1fbbbh::f[0]: FAILED
+
+failures:
+
+---- put_overflow/3a1fbbbh::f[0] counterexamples ----
+Failure for panicking::begin_panic, called from bytes/3a1fbbbh::{{impl}}[4]::put_slice[0]
+in bytes/3a1fbbbh::{{impl}}[4]::put_slice[0] at <::std::macros::panic macros>:4:15: 4:70
+
 [Crux] Goal status:
 [Crux]   Total: 1
 [Crux]   Proved: 0
@@ -5,5 +13,3 @@
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
-[Crux] Failure for panicking::begin_panic, called from bytes/3a1fbbbh::{{impl}}[4]::put_slice[0]
-in bytes/3a1fbbbh::{{impl}}[4]::put_slice[0] at <::std::macros::panic macros>:4:15: 4:70

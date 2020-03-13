@@ -59,8 +59,8 @@ defaultCruxOptions = case res of
     ss = Crux.cfgFile Crux.cruxOptions
     res = Config.loadValue (Config.sectionsSpec "crux" ss) (Config.Sections () [])
 
-runCrux :: FilePath -> Handle -> IO ()
-runCrux rustFile outHandle = do
+runCrux :: FilePath -> Handle -> Bool -> IO ()
+runCrux rustFile outHandle concrete = do
     -- goalTimeout is bumped from 60 to 120 because scalar.rs symbolic
     -- verification runs close to the timeout, causing flaky results.
     let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
@@ -68,7 +68,7 @@ runCrux rustFile outHandle = do
                                         Crux.globalTimeout = Just 120,
                                         Crux.goalTimeout = Just 120,
                                         Crux.solver = "z3" } ,
-                   Mir.defaultMirOptions)
+                   Mir.defaultMirOptions { Mir.printResultOnly = concrete })
     let ?outputConfig = Crux.OutputConfig False outHandle outHandle False
     _exitCode <- Mir.runTests options
     return ()
@@ -86,24 +86,16 @@ cruxOracleTest dir name step = do
 
   let rustFile = dir </> name <.> "rs"
   
-  cruxOutFull <- withSystemTempFile name $ \tempName h -> do
-    runCrux rustFile h
+  cruxOut <- withSystemTempFile name $ \tempName h -> do
+    runCrux rustFile h True
     hClose h
     h' <- openFile tempName ReadMode
     out <- hGetContents h'
     length out `seq` hClose h'
-    return out
+    return $ dropWhileEnd isSpace out
 
-  let cruxOut = filterCruxOut cruxOutFull
   step ("Crux output: " ++ cruxOut ++ "\n")
   assertBool "crux doesn't match oracle" (orOut == cruxOut)
-
-filterCruxOut :: String -> String
-filterCruxOut x =
-    dropWhileEnd isSpace $
-    unlines $
-    filter (\l -> not $ "[Crux]" `isPrefixOf` l) $
-    lines x
 
 
 symbTest :: FilePath -> IO TestTree
@@ -113,7 +105,7 @@ symbTest dir =
        testGroup "Output testing"
          [ goldenVsFile (takeBaseName rustFile) goodFile outFile $
            withFile outFile WriteMode $ \h ->
-           runCrux rustFile h
+           runCrux rustFile h False
          | rustFile <- rustFiles
          , notHidden rustFile
          , let goodFile = replaceExtension rustFile ".good"

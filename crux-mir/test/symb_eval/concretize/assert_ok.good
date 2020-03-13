@@ -1,4 +1,5 @@
-1
+test assert_ok/3a1fbbbh::crux_test[0]: returned 1, ok
+
 [Crux] Goal status:
 [Crux]   Total: 1
 [Crux]   Proved: 1

@@ -19,13 +19,16 @@ import           Data.Functor.Const (Const(..))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
+import           Data.Text (Text)
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
+import qualified Data.Sequence   as Seq
 import qualified Data.Vector     as Vector
 import           Control.Lens ((^.), (^?), (^..), ix, each)
 
+import System.Console.ANSI
 import           System.IO (Handle)
 import qualified SimpleGetOpt as GetOpt
 import           System.Exit (exitSuccess, exitWith, ExitCode(..))
@@ -57,6 +60,7 @@ import qualified What4.FunctionName                    as W4
 import qualified Crux as Crux
 import qualified Crux.Model as Crux
 
+import Crux.Goal (countProvedGoals, countDisprovedGoals, countTotalGoals)
 import Crux.Types
 import Crux.Log
 
@@ -91,10 +95,36 @@ runTests (cruxOpts, mirOpts) = do
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
 
+    let (filename, nameFilter) = case cargoTestFile mirOpts of
+            -- This case is terrible a hack.  The goal is to mimic the behavior
+            -- of the test binaries produced by `cargo test`, which take a test
+            -- filter string as their main argument, not a filename.  Since we
+            -- can't customize the way Crux parses its non-option arguments, we
+            -- just let it parse its `inputFiles` argument as normal, but we
+            -- treat the value as a test filter instead of a filename.  The
+            -- actual input filename is taken from the `--cargo-test-file`
+            -- option.
+            --
+            -- TODO: Write a proper "cargo-test-like" frontend that does its
+            -- own argument parsing, so we can get rid of this hack and also
+            -- have better `cargo test` compatibility in general.
+            Just file -> case (Crux.inputFiles cruxOpts, testFilter mirOpts) of
+                ([], Nothing) -> (file, Nothing)
+                ([], Just filt) -> (file, Just filt)
+                ([filt], Nothing) -> (file, Just $ Text.pack filt)
+                ([filt1], Just filt2) -> error $
+                    "expected at most 1 test filter, but got both " ++ show filt1
+                        ++ " and " ++ show filt2
+                (ifs, _) -> error $
+                    "expected at most 1 test filter, but got " ++ show ifs
+
+            -- In non-`--cargo-test-file` mode, the input file and
+            -- `--test-filter` options are handled as normal.
+            Nothing -> case Crux.inputFiles cruxOpts of
+                [x] -> (x, testFilter mirOpts)
+                ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
+
     -- Load the MIR collection
-    let filename            = case Crux.inputFiles cruxOpts of
-          [x] -> x
-          ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
     col <- generateMIR filename False
 
     when (onlyPP mirOpts) $ do
@@ -121,20 +151,30 @@ runTests (cruxOpts, mirOpts) = do
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
+    let filterTests defIds = case nameFilter of
+            Just x -> filter (\d -> x `Text.isInfixOf` idText d) defIds
+            Nothing -> defIds
+    let testNames = List.sort $ filterTests $ col ^. roots
 
     -- The output for each test looks like:
     --      test foo::bar1: ok
     --      test foo::bar2: FAILED
     --      test foo::bar3: returned 123, ok
     -- This mimics the output format of `cargo test`.  "test foo::bar" is
-    -- printed at the top of `simTest`, `result = 123` is printed at the
-    -- bottom of `simTest` (if applicable), and `ok` / `FAILED` is printed
-    -- by the loop that calls `simTest`.  Counterexamples are printed
-    -- separately, and only for tests that failed.
+    -- printed at the top of `simTest`, `returned 123` is printed at the bottom
+    -- of `simTest` (if applicable), and `ok` / `FAILED` is printed by the loop
+    -- that calls `simTest`.  Counterexamples are printed separately, and only
+    -- for tests that failed.
 
     let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun sym MIR Ctx.EmptyCtx C.UnitType
-        simTest _symOnline fnName = do
+        simTest symOnline fnName = do
+            when (not $ printResultOnly mirOpts) $
+                liftIO $ output $ "test " ++ show fnName ++ ": "
+
+            linkOverrides symOnline
+            _ <- C.callCFG staticInitCfg C.emptyRegMap
+
             -- Label the current path for later use
             sym <- C.getSymInterface
             liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
@@ -152,53 +192,85 @@ runTests (cruxOpts, mirOpts) = do
                 Nothing -> fail $ "couldn't find return type for " ++ show fnName
             res <- C.callCFG cfg C.emptyRegMap
 
-            if length (col^.roots) > 1 then do
-                str <- if resTy /= TyTuple [] then showRegEntry @sym col resTy res else return "OK"
-                liftIO $ outputLn $ show fnName ++ ": " ++ str
-            else do
-                -- This case is mainly for concrete evaluation tests, where the
-                -- output get checked against the fmt::Debug rendering.
+            when (printResultOnly mirOpts) $ do
                 str <- showRegEntry @sym col resTy res
-                liftIO $ outputLn $ str
+                liftIO $ outputLn str
 
-    let simTests :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> Fun sym MIR Ctx.EmptyCtx C.UnitType
-        simTests symOnline = do
-            linkOverrides symOnline
-            _ <- C.callCFG staticInitCfg C.emptyRegMap
+            when (not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
+                str <- showRegEntry @sym col resTy res
+                liftIO $ output $ "returned " ++ str ++ ", "
 
-            mapM_ (simTest symOnline) (col^.roots)
-
-    let simCallback = Crux.SimulatorCallback $ \sym symOnline -> do
+    let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline -> do
             let outH = view outputHandle ?outputConfig
             setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
             let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
                     C.emptyHandleMap mirExtImpl Crux.emptyModel
             return $ Crux.RunnableState $
                 C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
-                    C.runOverrideSim C.UnitRepr $ simTests symOnline
+                    C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
 
-    res <- Crux.runSimulator cruxOpts simCallback
+    let outputResult (CruxSimulationResult cmpl gls)
+          | disproved > 0 = output "FAILED"
+          | cmpl /= ProgramComplete = output "UNKNOWN"
+          | proved == tot = output "ok"
+          | otherwise = output "UNKNOWN"
+          where
+            tot = sum (fmap countTotalGoals gls)
+            proved = sum (fmap countProvedGoals gls)
+            disproved = sum (fmap countDisprovedGoals gls)
 
-    -- Print final tally of proved/disproved goals
-    ec <- Crux.postprocessSimResult cruxOpts res
+    results <- forM testNames $ \fnName -> do
+        res <- Crux.runSimulator cruxOpts $ simCallback fnName
+        when (not $ printResultOnly mirOpts) $ do
+            clearFromCursorToLineEnd
+            outputResult res
+            outputLn ""
+        return res
 
     -- Print counterexamples
+    let isResultOK (CruxSimulationResult comp gls) =
+            comp == ProgramComplete &&
+            sum (fmap countProvedGoals gls) == sum (fmap countTotalGoals gls)
+    let anyFailed = any (not . isResultOK) results
+
     let printCounterexamples gs = case gs of
             AtLoc _ _ gs1 -> printCounterexamples gs1
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
-            Goal _ (c, _) _ r ->
+            Goal _ (c, _) _ res ->
                 let msg = show c
-                in case r of
+                in case res of
                     NotProved (Just m) -> do
-                        sayFail "Crux" ("Failure for " ++ msg)
+                        outputLn ("Failure for " ++ msg)
                         when (showModel mirOpts) $ do
                            outputLn "Model:"
                            outputLn (Crux.ppModelJS "." m)
                     _ -> return ()
-    mapM_ printCounterexamples $ cruxSimResultGoals res
+    when anyFailed $ do
+        outputLn ""
+        outputLn "failures:"
+        forM_ (zip testNames results) $ \(fnName, res) -> do
+            when (not $ isResultOK res) $ do
+                outputLn ""
+                outputLn $ "---- " ++ show fnName ++ " counterexamples ----"
+                mapM_ printCounterexamples $ cruxSimResultGoals res
 
-    return ec
+    -- Print final tally of proved/disproved goals (except if
+    -- --print-result-only is set)
+    let mergeCompleteness ProgramComplete ProgramComplete = ProgramComplete
+        mergeCompleteness ProgramIncomplete _ = ProgramIncomplete
+        mergeCompleteness _ ProgramIncomplete = ProgramIncomplete
+    let mergeResult (CruxSimulationResult c1 g1) (CruxSimulationResult c2 g2) =
+            CruxSimulationResult (mergeCompleteness c1 c2) (g1 <> g2)
+    let emptyResult = CruxSimulationResult ProgramComplete mempty
+    let res@(CruxSimulationResult resComp resGoals) =
+            foldl mergeResult emptyResult results
+
+    let skipSummary = printResultOnly mirOpts && resComp == ProgramComplete && Seq.null resGoals
+    if not skipSummary then do
+        outputLn ""
+        Crux.postprocessSimResult cruxOpts res
+      else
+        return ExitSuccess
 
 
 data MIROptions = MIROptions
@@ -206,6 +278,12 @@ data MIROptions = MIROptions
     , printCrucible :: Bool
     , showModel    :: Bool
     , assertFalse  :: Bool
+    -- | Print only the result of evaluation, with no additional text.  On
+    -- concrete programs, this should normally produce the exact same output as
+    -- `rustc prog.rs && ./prog`.
+    , printResultOnly :: Bool
+    , testFilter   :: Maybe Text
+    , cargoTestFile :: Maybe FilePath
     }
 
 defaultMirOptions :: MIROptions
@@ -214,6 +292,9 @@ defaultMirOptions = MIROptions
     , printCrucible = False
     , showModel = False
     , assertFalse = False
+    , printResultOnly = False
+    , testFilter = Nothing
+    , cargoTestFile = Nothing
     }
 
 mirConfig :: Crux.Config MIROptions
@@ -229,6 +310,10 @@ mirConfig = Crux.Config
             "pretty-print crucible after translation"
             (GetOpt.NoArg (\opts -> Right opts { printCrucible = True }))
 
+        , GetOpt.Option []    ["print-result-only"]
+            "print the result of evaluation and nothing else (used for concrete tests)"
+            (GetOpt.NoArg (\opts -> Right opts { printResultOnly = True }))
+
         , GetOpt.Option ['m']  ["show-model"]
             "show model on counter-example"
             (GetOpt.NoArg (\opts -> Right opts { showModel = True }))
@@ -236,6 +321,14 @@ mirConfig = Crux.Config
         , GetOpt.Option [] ["assert-false-on-error"]
             "when translation fails, assert false in output and keep going"
             (GetOpt.NoArg (\opts -> Right opts { assertFalse = True }))
+
+        , GetOpt.Option []  ["test-filter"]
+            "run only tests whose names contain this string"
+            (GetOpt.ReqArg "string" (\v opts -> Right opts { testFilter = Just $ Text.pack v }))
+
+        , GetOpt.Option []  ["cargo-test-file"]
+            "treat trailing args as --test-filter instead of FILES, like `cargo test`; load program from this file instead (used by `cargo crux test`)"
+            (GetOpt.ReqArg "file" (\v opts -> Right opts { cargoTestFile = Just v }))
         ]
     }
 

@@ -1,0 +1,24 @@
+test mixed_fail/3a1fbbbh::fail1[0]: FAILED
+test mixed_fail/3a1fbbbh::fail2[0]: FAILED
+test mixed_fail/3a1fbbbh::pass1[0]: ok
+test mixed_fail/3a1fbbbh::pass2[0]: ok
+
+failures:
+
+---- mixed_fail/3a1fbbbh::fail1[0] counterexamples ----
+Failure for MIR assertion at test/symb_eval/crux/mixed_fail.rs:9:5:
+	x + 1 > x
+in mixed_fail/3a1fbbbh::fail1[0] at <::crucible::crucible_assert macros>:2:42: 2:62
+
+---- mixed_fail/3a1fbbbh::fail2[0] counterexamples ----
+Failure for MIR assertion at test/symb_eval/crux/mixed_fail.rs:15:5:
+	x + 2 > x
+in mixed_fail/3a1fbbbh::fail2[0] at <::crucible::crucible_assert macros>:2:42: 2:62
+
+[Crux] Goal status:
+[Crux]   Total: 4
+[Crux]   Proved: 2
+[Crux]   Disproved: 2
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
