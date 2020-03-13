@@ -320,7 +320,11 @@ evalBinOp bop mat me1 me2 =
 
             _ -> mirFail $ "No translation for binop: " ++ show bop ++ " with " ++ show ty1 ++ " and " ++ show ty2
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@(C.BVRepr ma) e2a) ->
-          -- if the BVs are not the same width extend the shorter one
+          -- In all cases except shifts, the inputs should already have the
+          -- same width, and `extendToMax` is a no-op (except it provides the
+          -- proof that `na` and `ma` are equal).  For shifts, the second input
+          -- (shift amount) can have any width, so we pad one side or the other
+          -- to make the widths match up.
           extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
             case (bop, mat) of
               (M.Add, _) -> do
@@ -346,7 +350,13 @@ evalBinOp bop mat me1 me2 =
               (M.BitAnd, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVAnd n e1 e2), noOverflow)
               (M.BitOr, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVOr n e1 e2), noOverflow)
               -- Shift ops overflow when shift amount >= bit width
-              -- FIXME: check the logic here.  Not sure about these truncations
+              -- If `extendToMax` padded the first argument, we need to
+              -- truncate the result back down to its original width using
+              -- `extendUnsignedBV`.
+              --
+              -- TODO: clean this up so it's more precise about how the
+              -- operands get extended/truncated, instead of using the somewhat
+              -- magical `extendToMax` / `extendUnsignedBV` functions.
               (M.Shl, _) -> do
                  res <- extendUnsignedBV (MirExp (C.BVRepr n) (S.app $ E.BVShl n e1 e2)) na
                  return (res, shiftOverflowBV na ma e2a)
