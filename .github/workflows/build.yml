@@ -39,13 +39,13 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.ghc }}-dist-newstyle
 
       - name: Install Dependencies
-      - run: |
+        run: |
           cabal update
           cabal configure --enable-tests --enable-benchmarks
           cabal build --only-dependencies
 
       - name: Build
-      - run: cabal build -j crucible crucible-jvm crucible-llvm crucible-saw crucible-syntax
+        run: cabal build -j crucible crucible-jvm crucible-llvm crucible-saw crucible-syntax
 
       - name: Test
-      - run: cabal test crucible crucible-llvm crucible-syntax
+        run: cabal test crucible crucible-llvm crucible-syntax
