@@ -1,0 +1,51 @@
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-18.04
+    strategy:
+      matrix:
+        ghc: ["8.4.4", "8.6.5", "8.8.1"]
+        cabal: ["3.0"]
+    name: Crucible - GHC v${{ matrix.ghc }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-haskell@v1
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: ${{ matrix.cabal }}
+
+      - name: Checkout submodules
+        shell: bash
+        run: |
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+      - uses: actions/cache@v1
+        name: Cache ~/.cabal/packages
+        with:
+          path: ~/.cabal/packages
+          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-packages
+      - uses: actions/cache@v1
+        name: Cache ~/.cabal/store
+        with:
+          path: ~/.cabal/store
+          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-store
+      - uses: actions/cache@v1
+        name: Cache dist-newstyle
+        with:
+          path: dist-newstyle
+          key: ${{ runner.os }}-${{ matrix.ghc }}-dist-newstyle
+
+      - name: Install Dependencies
+      - run: |
+          cabal update
+          cabal configure --enable-tests --enable-benchmarks
+          cabal build --only-dependencies
+
+      - name: Build
+      - run: cabal build -j crucible crucible-jvm crucible-llvm crucible-saw crucible-syntax
+
+      - name: Test
+      - run: cabal test crucible crucible-llvm crucible-syntax
