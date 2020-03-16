@@ -42,7 +42,7 @@ jobs:
         run: |
           cabal update
           cabal configure --enable-tests --enable-benchmarks
-          cabal build --only-dependencies
+          cabal build --only-dependencies crucible crucible-jvm crucible-llvm crucible-saw crucible-syntax
 
       - name: Build
         run: cabal build -j crucible crucible-jvm crucible-llvm crucible-saw crucible-syntax
