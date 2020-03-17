@@ -2,9 +2,10 @@ on: [push, pull_request]
 
 jobs:
   build:
-    runs-on: ubuntu-18.04
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-18.04] # [ubuntu-18.04, macos-latest, windows-2019]
         ghc: ["8.4.4", "8.6.5", "8.8.1"]
         cabal: ["3.0"]
     name: Crucible - GHC v${{ matrix.ghc }}
@@ -48,4 +49,4 @@ jobs:
         run: cabal build -j crucible crucible-jvm crucible-llvm crucible-saw crucible-syntax
 
       - name: Test
-        run: cabal test crucible crucible-llvm crucible-syntax
+        run: cabal test crucible
