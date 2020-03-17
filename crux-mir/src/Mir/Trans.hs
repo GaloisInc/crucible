@@ -1658,6 +1658,8 @@ initialValue (M.TyAdt nm _ _) = do
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyDynamic _ _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
+initialValue M.TyNever = return $ Just $ MirExp knownRepr $
+    R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
 initialValue _ = return Nothing
 
 initField :: Substs -> Field -> MirGenerator h s ret (Maybe (MirExp s))
