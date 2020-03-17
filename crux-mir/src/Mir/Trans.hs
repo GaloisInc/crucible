@@ -1715,9 +1715,9 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  g _ = mempty
 
 
-buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirGenerator h s ret (VarMap s)
-buildIdentMapRegs (M.MirBody localvars blocks) extravars =
-   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _ _) -> (name,ty)) (localvars ++ extravars))
+buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> MirGenerator h s ret (VarMap s)
+buildIdentMapRegs (M.MirBody localvars blocks) =
+   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _ _) -> (name,ty)) localvars)
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
    -- "allocate" space for return variable
@@ -1804,7 +1804,7 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
   lm <- buildLabelMap body
   labelMap .= lm
 
-  vm' <- buildIdentMapRegs body []
+  vm' <- buildIdentMapRegs body
   varMap %= Map.union vm'
 
   case localvars of
