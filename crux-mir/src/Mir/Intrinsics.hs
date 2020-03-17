@@ -404,6 +404,12 @@ data MirReference sym (tp :: CrucibleType) where
     !(MirReferenceRoot sym tpr) ->
     !(MirReferencePath sym tpr tp) ->
     MirReference sym tp
+  -- The result of an integer-to-pointer cast.  Guaranteed not to be
+  -- dereferenceable.
+  MirReference_Integer ::
+    !(TypeRepr tp) ->
+    !(RegValue sym UsizeType) ->
+    MirReference sym tp
 
 refRootType :: MirReferenceRoot sym tp -> TypeRepr tp
 refRootType (RefCell_RefRoot r) = refType r
@@ -471,6 +477,11 @@ muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
        Refl <- MaybeT (return $ testEquality r1 r2)
        p' <- muxRefPath sym c p1 p2
        return (MirReference r1 p')
+muxRef sym c (MirReference_Integer tpr i1) (MirReference_Integer _ i2) = do
+    i' <- bvIte sym c i1 i2
+    return $ MirReference_Integer tpr i'
+muxRef sym c _ _ = do
+    fail "incompatible MIR reference merge"
 
 
 --------------------------------------------------------------
@@ -580,6 +591,10 @@ dynRefVtableIndex = lastIndex (incSize $ incSize zeroSize)
 data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirNewRef ::
      !(TypeRepr tp) ->
+     MirStmt f (MirReferenceType tp)
+  MirIntegerToRef ::
+     !(TypeRepr tp) ->
+     !(f UsizeType) ->
      MirStmt f (MirReferenceType tp)
   MirGlobalRef ::
      GlobalVar tp ->
@@ -727,6 +742,7 @@ instance OrdFC MirStmt where
 instance TypeApp MirStmt where
   appType = \case
     MirNewRef tp    -> MirReferenceRepr tp
+    MirIntegerToRef tp _ -> MirReferenceRepr tp
     MirGlobalRef gv -> MirReferenceRepr (globalType gv)
     MirReadRef tp _ -> tp
     MirWriteRef _ _ -> UnitRepr
@@ -755,6 +771,7 @@ instance TypeApp MirStmt where
 instance PrettyApp MirStmt where
   ppApp pp = \case 
     MirNewRef tp -> "newMirRef" <+> pretty tp
+    MirIntegerToRef tp i -> "integerToMirRef" <+> pretty tp <+> pp i
     MirGlobalRef gv -> "globalMirRef" <+> pretty gv
     MirReadRef _ x  -> "readMirRef" <+> pp x
     MirWriteRef x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
@@ -833,6 +850,10 @@ execMirStmt stmt s =
        MirNewRef tp ->
          do r <- freshRefCell halloc tp
             let r' = MirReference (RefCell_RefRoot r) Empty_RefPath
+            return (r', s)
+
+       MirIntegerToRef tp (regValue -> i) ->
+         do let r' = MirReference_Integer tp i
             return (r', s)
 
        MirGlobalRef gv ->

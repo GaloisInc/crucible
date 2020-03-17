@@ -1629,14 +1629,10 @@ initialValue (M.TyRawPtr (M.TyDynamic _ _) _) = do
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
         Ctx.Empty Ctx.:> x Ctx.:> x
 initialValue (M.TyRef t M.Immut) = initialValue t
-initialValue (M.TyRef t M.Mut) = do
-    mv <- initialValue t
-    case mv of
-      Just (MirExp tp e) -> do
-        ref <- newMirRef tp
-        writeMirRef ref e
-        return $ Just (MirExp (MirReferenceRepr tp) ref)
-      Nothing -> return Nothing
+initialValue (M.TyRef t M.Mut)
+  | Some tpr <- tyToRepr t = do
+    r <- integerToMirRef tpr $ R.App $ usizeLit 0
+    return $ Just $ MirExp (MirReferenceRepr tpr) r
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))

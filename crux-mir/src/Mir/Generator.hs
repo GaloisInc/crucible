@@ -440,6 +440,12 @@ newMirRef ::
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 newMirRef tp = G.extensionStmt (MirNewRef tp)
 
+integerToMirRef ::
+  C.TypeRepr tp ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+integerToMirRef tp i = G.extensionStmt (MirIntegerToRef tp i)
+
 globalMirRef ::
   G.GlobalVar tp ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
