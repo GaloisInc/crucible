@@ -22,9 +22,12 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.Simulator.Intrinsics
   ( -- * Intrinsic types
     IntrinsicClass(..)
+  , GetIntrinsic
   , IntrinsicMuxFn(..)
   , IntrinsicTypes
   , emptyIntrinsicTypes
@@ -35,6 +38,7 @@ import           Data.Kind
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.SymbolRepr
 import qualified GHC.TypeLits (Symbol)
+import qualified GHC.TypeLits as TL
 import           GHC.Stack
 
 import           What4.Interface
@@ -98,6 +102,17 @@ class IntrinsicClass (sym :: Type) (nm :: GHC.TypeLits.Symbol) where
                -> Intrinsic sym nm ctx
                -> IO (Intrinsic sym nm ctx)
 
+-- | Sometimes it is convenient to provide a 'CrucibleType' as the type
+-- argument to 'Intrinsic', rather than the symbol and context. If you
+-- accidentally supply a non-'IntrinsicType' type, this family will be stuck.
+type family GetIntrinsic sym ity where
+  GetIntrinsic sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
+  GetIntrinsic sym x = TL.TypeError
+    (        ('TL.Text "Type mismatch:")
+    'TL.:$$: ('TL.Text "  Expected ‘IntrinsicType a b’")
+    'TL.:$$: ('TL.Text "  Actual " 'TL.:<>: 'TL.ShowType x)
+    'TL.:$$: ('TL.Text "In type family application ‘GetIntrinsic (" 'TL.:<>: 'TL.ShowType sym 'TL.:<>: 'TL.Text ") (" 'TL.:<>: 'TL.ShowType x 'TL.:<>: 'TL.Text ")’")
+    )
 
 -- | The `IntrinsicMuxFn` datatype allows an `IntrinsicClass` instance
 --   to be packaged up into a value.  This allows us to get access to 'IntrinsicClass'
