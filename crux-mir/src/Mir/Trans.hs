@@ -1663,7 +1663,7 @@ cleanupLocals = do
 addrTakenVars :: M.BasicBlock -> Set Text.Text
 addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  where
- f (M.Assign _ (M.Ref M.Mutable lv _) _) = g lv
+ f (M.Assign _ (M.Ref _ lv _) _) = g lv
  f _ = mempty
 
  g (M.LBase (M.Local (M.Var nm _ _ _ _ _))) = Set.singleton nm
