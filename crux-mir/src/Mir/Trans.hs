@@ -21,6 +21,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeInType #-}
+{-# LANGUAGE LambdaCase #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
                 -fno-warn-name-shadowing
@@ -1182,61 +1183,14 @@ assignLvExp lv re = do
                  _ -> mirFail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]            
         _ -> mirFail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
--- "Allocate" space for the variable by constructing an initial value for it (if possible)
--- This code will 
-storageLive :: M.Var -> MirGenerator h s ret ()
-storageLive (M.Var nm _ ty _ _ _) =
-  do vm <- use varMap
-     db <- use debugLevel
-     case Map.lookup nm vm of
-       Just (Some varinfo@(VarRegister reg)) -> do
-         mv <- initialValue ty
-         case mv of
-           Nothing -> do
-             when (db > 6) $
-                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
-             return ()
-           Just (MirExp rty e) ->
-              case testEquality rty (varInfoRepr varinfo) of
-                 Just Refl -> do
-                   G.assignReg reg e
-                 Nothing -> mirFail $ "Types don't match in storageLive. Created value of type: " ++ show rty ++ " for var of type: " ++ show (varInfoRepr varinfo)
-             
-       Just (Some varinfo@(VarReference reg)) -> do
-         r  <- newMirRef (varInfoRepr varinfo)
-         mv <- initialValue ty
-         case mv of
-           Nothing -> do
-              when (db > 6) $
-                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
-              return ()
-           Just (MirExp rty e) -> 
-              case testEquality rty (varInfoRepr varinfo) of
-                 Just Refl -> do
-                   writeMirRef r e
-                   G.assignReg reg r
-                 Nothing -> mirFail "types don't match in storageLive. This is probably a bug"
-       _ -> return ()
-
-
-storageDead :: M.Var -> MirGenerator h s ret ()
-storageDead (M.Var nm _ _ _ _ _) =
-  do vm <- use varMap
-     case Map.lookup nm vm of
-       Just (Some _varinfo@(VarReference reg)) ->
-         do dropMirRef =<< G.readReg reg
-       _ -> return ()
-
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
 transStatement (M.Assign lv rv pos) = do
   setPosition pos
   re <- evalRval rv
   assignLvExp lv re
-transStatement (M.StorageLive lv) =
-  do storageLive lv
-transStatement (M.StorageDead lv) =
-  do storageDead lv
+transStatement (M.StorageLive lv) = return ()
+transStatement (M.StorageDead lv) = return ()
 transStatement (M.SetDiscriminant lv i) = do
   case M.typeOf lv of
     -- Currently we require that all uses of `SetDiscriminant` get bundled up
@@ -1321,6 +1275,7 @@ jumpToBlock bbi = do
 doReturn :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret a
 doReturn tr = do
     e <- lookupRetVar tr
+    cleanupLocals
     G.returnFromFunction e
 
 ---------------------------------------------------------------------------------------------------
@@ -1665,41 +1620,43 @@ initialValue _ = return Nothing
 initField :: Substs -> Field -> MirGenerator h s ret (Maybe (MirExp s))
 initField args (Field _name ty _subst) = initialValue (tySubst args ty)
 
-tyToInitReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
-tyToInitReg nm t = do
-   mv  <- initialValue t
-   db  <- use debugLevel
-   case mv of 
-      Just (MirExp _tp exp) -> Some <$> G.newReg exp
-      Nothing -> do
-        when (db > 5) $ do
-           traceM $ "tyToInitReg: Cannot initialize register of type " ++ show (pretty t)
-        tyToFreshReg nm t
+-- | Allocate RefCells for all locals and populate `varMap`.  Locals are
+-- default-initialized when possible using the result of `initialValue`.
+initLocals :: [M.Var] -> Set.Set Text.Text -> MirGenerator h s ret ()
+initLocals localVars addrTaken = forM_ localVars $ \v -> do
+    let name = v ^. varname
+    let ty = v ^. varty
+    Some tpr <- return $ tyToRepr ty
 
-tyToFreshReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
-tyToFreshReg nm t = do
-    tyToReprCont t $ \tp -> do
-        r <-  G.newUnassignedReg tp
-        return $ Some r
+    optVal <- initialValue ty >>= \case
+        Nothing -> return Nothing
+        Just (MirExp tpr' val) -> do
+            Refl <- testEqualityOrFail tpr tpr' $
+                "initialValue produced " ++ show tpr' ++ " instead of " ++ show tpr
+            return $ Just val
 
+    varinfo <- case Set.member name addrTaken of
+        True -> do
+            ref <- newMirRef tpr
+            case optVal of
+                Nothing -> return ()
+                Just val -> writeMirRef ref val
+            reg <- G.newReg ref
+            return $ Some $ VarReference reg
+        False -> do
+            reg <- case optVal of
+                Nothing -> G.newUnassignedReg tpr
+                Just val -> G.newReg val
+            return $ Some $ VarRegister reg
+    varMap %= Map.insert name varinfo
 
-buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> Set Text.Text -> [(Text.Text, M.Ty)] -> MirGenerator h s ret (VarMap s)
-buildIdentMapRegs_ addressTakenVars needsInitVars pairs = foldM f Map.empty pairs
-  where
-  f map_ (varname, varty)
-    | varname `Set.member` addressTakenVars =
-        tyToReprCont varty $ \tp ->
-           do 
-              reg <- G.newUnassignedReg (MirReferenceRepr tp)
-              return $ Map.insert varname (Some (VarReference reg)) map_
-
-    | varname `Set.member` needsInitVars = 
-        do Some r <- tyToInitReg varname varty 
-           return $ Map.insert varname (Some (VarRegister r)) map_
-
-    | otherwise =
-        do Some r <- tyToFreshReg varname varty
-           return $ Map.insert varname (Some (VarRegister r)) map_
+-- | Deallocate RefCells for all locals in `varMap`.
+cleanupLocals :: MirGenerator h s ret ()
+cleanupLocals = do
+    vm <- use varMap
+    forM_ (Map.elems vm) $ \(Some vi) -> case vi of
+        VarReference reg -> G.readReg reg >>= dropMirRef
+        _ -> return ()
 
 -- | Look at all of the assignments in the basic block and return
 -- the set of variables that have their addresses computed
@@ -1713,23 +1670,6 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  g (M.LProj lv _) = g lv
 
  g _ = mempty
-
-
-buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> MirGenerator h s ret (VarMap s)
-buildIdentMapRegs (M.MirBody localvars blocks) =
-   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _ _) -> (name,ty)) localvars)
- where
-   addressTakenVars = mconcat (map addrTakenVars blocks)
-   -- "allocate" space for return variable
-
-   -- Does MIR allow initializing the local field-by-field?
-   allowsFieldwiseInit (M.Var _ _ (M.TyTuple (_:_)) _ _ _) = True
-   allowsFieldwiseInit (M.Var _ _ (M.TyAdt _ _ _) _ _ _) = True
-   allowsFieldwiseInit _ = False
-
-   needsInit v = v ^. varIsZST || allowsFieldwiseInit v
-
-   needsInitVars = Set.fromList $ ["_0"] ++ (map (^.varname) (filter needsInit localvars))
 
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
@@ -1804,12 +1744,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
   lm <- buildLabelMap body
   labelMap .= lm
 
-  vm' <- buildIdentMapRegs body
-  varMap %= Map.union vm'
-
-  case localvars of
-    (var0 : _) -> storageLive var0
-    _ -> return ()
+  let addrTaken = mconcat (map addrTakenVars blocks)
+  initLocals localvars addrTaken
+  -- TODO: copy arg values into the new locals so we can remove NoMutArgs pass
 
   db <- use debugLevel
   when (db > 3) $ do

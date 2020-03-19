@@ -1,4 +1,3 @@
-// FAIL: need to implement initialValue for TyFnPtr
 #![feature(custom_attribute)]
 #![feature(never_type)]
 
