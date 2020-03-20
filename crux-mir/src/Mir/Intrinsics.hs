@@ -96,7 +96,7 @@ import           Lang.Crucible.Simulator.SimError
 
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
-import           What4.Partial (maybePartExpr)
+import           What4.Partial (maybePartExpr, justPartExpr)
 import           What4.Utils.MonadST
 
 import           Mir.DefId
@@ -480,7 +480,7 @@ muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
 muxRef sym c (MirReference_Integer tpr i1) (MirReference_Integer _ i2) = do
     i' <- bvIte sym c i1 i2
     return $ MirReference_Integer tpr i'
-muxRef sym c _ _ = do
+muxRef _ _ _ _ = do
     fail "incompatible MIR reference merge"
 
 
@@ -961,6 +961,15 @@ writeRefPath :: IsSymInterface sym =>
   MirReferencePath sym tp tp' ->
   RegValue sym tp' ->
   IO (RegValue sym tp)
+-- Special case: when the final path segment is `Just_RefPath`, we can write to
+-- it by replacing `Nothing` with `Just`.  This is useful for writing to
+-- uninitialized struct fields.  Using `adjust` here would fail, since it can't
+-- read the old value out of the `Nothing`.
+--
+-- There is a similar special case above for MirWriteRef with Empty_RefPath,
+-- which allows writing to an uninitialized MirReferenceRoot.
+writeRefPath sym iTypes v (Just_RefPath _tp path) x =
+  adjustRefPath sym iTypes v path (\_ -> return $ justPartExpr sym x)
 writeRefPath sym iTypes v path x =
   adjustRefPath sym iTypes v path (\_ -> return x)
 
@@ -991,8 +1000,13 @@ adjustRefPath sym iTypes v path0 adj = case path0 of
   Index_RefPath tp path idx ->
       adjustRefPath sym iTypes v path (\v' -> do
         adjustMirVectorWithSymIndex sym (muxRegForType sym iTypes tp) v' idx adj)
-  Just_RefPath _tp path ->
-      adjustRefPath sym iTypes v path (\v' -> mapM adj v')
+  Just_RefPath tp path ->
+      adjustRefPath sym iTypes v path $ \v' -> do
+          let msg = ReadBeforeWriteSimError $
+                  "attempted to modify uninitialized Maybe of type " ++ show tp
+          v'' <- readPartExpr sym v' msg
+          mv <- adj v''
+          return $ justPartExpr sym mv
   VectorAsMirVector_RefPath _ path -> do
     adjustRefPath sym iTypes v path $ \v' -> do
         mv <- adj $ MirVector_Vector v'
@@ -1007,7 +1021,6 @@ adjustRefPath sym iTypes v path0 adj = case path0 of
             MirVector_Array v'' -> return v''
             _ -> addFailedAssertion sym $ Unsupported $
                 "tried to change underlying type of MirVector ref"
-
 
 readRefPath :: IsSymInterface sym =>
   sym ->

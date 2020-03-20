@@ -731,6 +731,8 @@ typeOfProj elm baseTy = case elm of
   where
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t
+    peelRef (TyRawPtr t _) = t
+    peelRef (TyAdt _ $(normDefIdPat "alloc::boxed::Box") (Substs [t])) = t
     peelRef t = t
 
     peelIdx :: Ty -> Ty
@@ -744,12 +746,46 @@ instance TypeOf Rvalue where
   typeOf (Repeat a sz) = TyArray (typeOf a) (fromIntegral sz)
   typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
   typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
-  typeOf (Ref Unique _lv _)  = error "FIXME? type of Unique reference?"
+  typeOf (Ref Unique lv _)  = TyRef (typeOf lv) Mut
   typeOf (Len _) = TyUint USize
   typeOf (Cast _ _ ty) = ty
-  typeOf (NullaryOp _op ty) = ty
+  typeOf (BinaryOp op x _y) =
+    let ty = typeOf x
+    in case op of
+        Add -> ty
+        Sub -> ty
+        Mul -> ty
+        Div -> ty
+        Rem -> ty
+        BitXor -> ty
+        BitAnd -> ty
+        BitOr -> ty
+        Shl -> ty
+        Shr -> ty
+        Beq -> TyBool
+        Lt -> TyBool
+        Le -> TyBool
+        Ne -> TyBool
+        Ge -> TyBool
+        Gt -> TyBool
+        -- ptr::offset
+        Offset -> ty
+  typeOf (CheckedBinaryOp op x y) =
+    let resTy = typeOf $ BinaryOp op x y
+    in TyTuple [resTy, TyBool]
+  typeOf (NullaryOp op ty) = case op of
+    SizeOf -> TyUint USize
+    Box -> TyAdt (textId "type::adt") (textId "alloc::boxed::Box") (Substs [ty])
+  typeOf (UnaryOp op x) =
+    let ty = typeOf x
+    in case op of
+        Not -> ty
+        Neg -> ty
+  typeOf (Discriminant _lv) = TyInt USize
+  typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
+  typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
+  typeOf (Aggregate (AKClosure _did _substs) ops) = TyClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
-  typeOf rv = error ("typeOf Rvalue unimplemented: " ++ show rv)
 
 instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv
