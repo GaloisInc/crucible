@@ -1,15 +1,4 @@
-test mux_init_mut/3a1fbbbh::crux_test[0]: returned 1, FAILED
+test mux_init_mut/3a1fbbbh::crux_test[0]: returned Symbolic BV, ok
 
-failures:
-
----- mux_init_mut/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for incompatible MIR reference merge
-in mux_init_mut/3a1fbbbh::crux_test[0] at test/symb_eval/refs/mux_init_mut.rs:13:5
-
-[Crux] Goal status:
-[Crux]   Total: 1
-[Crux]   Proved: 0
-[Crux]   Disproved: 1
-[Crux]   Incomplete: 0
-[Crux]   Unknown: 0
-[Crux] Overall status: Invalid.
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.

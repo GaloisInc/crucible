@@ -252,7 +252,8 @@ canInitialize ty = case ty of
     M.TyClosure _ -> True
     -- Others
     M.TyArray _ _ -> True
-    M.TyRef ty' _ -> canInitialize ty'
+    -- TODO: workaround for a ref init bug - see initialValue for details
+    --M.TyRef ty' _ -> canInitialize ty'
     _ -> False
 
 

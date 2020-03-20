@@ -1450,6 +1450,29 @@ initialValue (M.TyArray t size) = do
         let n = fromInteger (toInteger size)
         return $ Just $ MirExp (C.VectorRepr tp) (S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e)
       Nothing -> return Nothing
+-- TODO: disabled to workaround for a bug with muxing null and non-null refs
+-- The problem is with
+--      if (*) {
+--          let x = &...;
+--      }
+-- `x` gets default-initialized at the start of the function, which (with these
+-- cases uncommented) sets it to null (`MirReference_Integer 0`).  Then, if the
+-- branch is taken, it's set to a valid `MirReference` value instead.  At the
+-- end of the `if`, we try to mux together `MirReference_Integer` with a normal
+-- `MirReference`, which currently fails.
+--
+--  * The short-term fix is to disable initialization of refs, so they never
+--    get set to `null` in the first place.
+--  * The medium-term fix is to support muxing the two MirReference variants,
+--    using something like VariantType.
+--  * The long-term fix is to remove default-initialization entirely, either by
+--    writing an AdtAg pass for structs and tuples like we have for enums, or
+--    by converting all locals to untyped allocations (allow writing each field
+--    value independently, then materialize a fully-initialized struct the
+--    first time it's read at struct type).
+--
+-- NB: When re-enabling this, also re-enable the TyRef case of `canInitialize`
+{-
 initialValue (M.TyRef (M.TySlice t) M.Immut) = do
     tyToReprCont t $ \ tr -> do
       let vec = R.App $ E.VectorLit tr V.empty
@@ -1486,6 +1509,7 @@ initialValue (M.TyRef t M.Mut)
   | Some tpr <- tyToRepr t = do
     r <- integerToMirRef tpr $ R.App $ usizeLit 0
     return $ Just $ MirExp (MirReferenceRepr tpr) r
+-}
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
