@@ -122,7 +122,27 @@ data RustModule = RustModule {
 -- type ty along with a crucible expression of type ty
 data MirExp s where
     MirExp :: C.TypeRepr ty -> R.Expr MIR s ty -> MirExp s
-    
+
+-- | MirExp, but with a static guarantee that it's a MirReference.  Used as the
+-- result of lvalue evaluation.
+data MirPlace s where
+    MirPlace :: C.TypeRepr ty -> R.Expr MIR s (MirReferenceType ty) -> PtrMetadata s -> MirPlace s
+
+-- | MIR supports a notion of "unsized places" - for example, it generates code
+-- like `(*s)[i]` where `s` is a slice.  To handle this, we attach the metadata
+-- of `s` to the `MirPlace` that represents `*s`.  This lets us apply the
+-- correct offset and bounds checks in `(*s)[i]`, and the metadata is also used
+-- to reconstruct the original `MirSliceType` in case of `&*s`.
+--
+-- rustc also supports "unsized rvalues".  Currently we don't support them, but
+-- we may need to add `PtrMetadata` to `MirExp`s at some point as well.
+data PtrMetadata s =
+      NoMeta
+    | SliceMeta (R.Expr MIR s UsizeType) (R.Expr MIR s UsizeType)
+
+instance Show (PtrMetadata s) where
+    show NoMeta = "NoMeta"
+    show (SliceMeta _ _) = "SliceMeta"
 
 ---------------------------------------------------------------------------------
 

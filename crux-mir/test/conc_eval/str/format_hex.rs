@@ -1,4 +1,3 @@
-// FAIL: translation error with `slice.iter_mut().rev()`
 #![feature(custom_attribute)]
 
 #[crux_test]

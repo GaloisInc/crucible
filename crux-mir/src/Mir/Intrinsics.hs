@@ -1076,6 +1076,15 @@ mirSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
                            UsizeType)
 mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (MirVectorRepr tp) :> UsizeRepr :> UsizeRepr)
 
+mkSlice ::
+    TypeRepr tp ->
+    Expr MIR s (MirReferenceType (MirVectorType tp)) ->
+    Expr MIR s UsizeType ->
+    Expr MIR s UsizeType ->
+    Expr MIR s (MirSlice tp)
+mkSlice tpr vec start len = App $ MkStruct (mirSliceCtxRepr tpr) $
+    Empty :> vec :> start :> len
+
 getSliceVector :: Expr MIR s (MirSlice tp) -> Expr MIR s (MirReferenceType (MirVectorType tp))
 getSliceVector e = getStruct i1of3 e
 
@@ -1117,6 +1126,15 @@ mirImmSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
                            UsizeType ::>
                            UsizeType)
 mirImmSliceCtxRepr tp = (Empty :> MirVectorRepr tp :> UsizeRepr :> UsizeRepr)
+
+mkImmSlice ::
+    TypeRepr tp ->
+    Expr MIR s (MirVectorType tp) ->
+    Expr MIR s UsizeType ->
+    Expr MIR s UsizeType ->
+    Expr MIR s (MirImmSlice tp)
+mkImmSlice tpr vec start len = App $ MkStruct (mirImmSliceCtxRepr tpr) $
+    Empty :> vec :> start :> len
 
 getImmSliceVector :: Expr MIR s (MirImmSlice tp) -> Expr MIR s (MirVectorType tp)
 getImmSliceVector e = getStruct i1of3 e

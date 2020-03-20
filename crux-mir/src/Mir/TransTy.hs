@@ -56,7 +56,7 @@ import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
 import           Mir.Generator 
-    ( MirExp(..), MirGenerator, mirFail
+    ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , cs, discrMap )
 import           Mir.Intrinsics
@@ -841,7 +841,7 @@ fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 structFieldRef ::
     M.Adt -> M.Substs -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-    MirGenerator h s ret (MirExp s)
+    MirGenerator h s ret (MirPlace s)
 structFieldRef adt args i tpr ref = do
     StructInfo ctx idx fld <- structInfo adt args i
     Refl <- testEqualityOrFail tpr C.AnyRepr $
@@ -849,12 +849,13 @@ structFieldRef adt args i tpr ref = do
     ref <- subanyRef (C.StructRepr ctx) ref
     ref <- subfieldRef ctx ref idx
     ref <- fieldDataRef fld ref
-    return $ MirExp (MirReferenceRepr $ fieldDataType fld) ref
+    -- TODO: for custom DSTs, we'll need to propagate struct metadata to fields
+    return $ MirPlace (fieldDataType fld) ref NoMeta
 
 enumFieldRef ::
     M.Adt -> M.Substs -> Int -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-    MirGenerator h s ret (MirExp s)
+    MirGenerator h s ret (MirPlace s)
 enumFieldRef adt args i j tpr ref = do
     EnumInfo ctx idx ctx' idx' fld <- enumInfo adt args i j
     Refl <- testEqualityOrFail tpr C.AnyRepr $
@@ -863,7 +864,8 @@ enumFieldRef adt args i j tpr ref = do
     ref <- subvariantRef ctx ref idx
     ref <- subfieldRef ctx' ref idx'
     ref <- fieldDataRef fld ref
-    return $ MirExp (MirReferenceRepr $ fieldDataType fld) ref
+    -- TODO: for custom DSTs, we'll need to propagate enum metadata to fields
+    return $ MirPlace (fieldDataType fld) ref NoMeta
 
 
 enumDiscriminant :: M.Adt -> M.Substs -> MirExp s ->
@@ -876,7 +878,7 @@ enumDiscriminant adt args e = do
 tupleFieldRef ::
     [M.Ty] -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-    MirGenerator h s ret (MirExp s)
+    MirGenerator h s ret (MirPlace s)
 tupleFieldRef tys i tpr ref = do
     Some ctx <- return $ tyListToCtxMaybe tys $ \ctx -> Some ctx
     let tpr' = C.StructRepr ctx
@@ -891,7 +893,7 @@ tupleFieldRef tys i tpr ref = do
         C.MaybeRepr valTpr -> do
             ref <- subfieldRef ctx ref idx
             ref <- subjustRef valTpr ref
-            return $ MirExp (MirReferenceRepr valTpr) ref
+            return $ MirPlace valTpr ref NoMeta
         _ -> mirFail $ "expected tuple field to have MaybeType, but got " ++ show elemTpr
 
 
