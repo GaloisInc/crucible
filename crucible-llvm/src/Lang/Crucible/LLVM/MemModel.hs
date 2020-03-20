@@ -159,6 +159,8 @@ module Lang.Crucible.LLVM.MemModel
   , G.SomeAlloc(..)
   , G.possibleAllocs
   , G.ppSomeAlloc
+  , doConditionalWriteOperation
+  , mergeWriteOperations
 
     -- * PtrWidth (re-exports)
   , HasPtrWidth
@@ -1089,6 +1091,54 @@ storeRaw sym mem ptr valType alignment val = do
     assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
     assert sym p2 (err $ ptrMessage errMsg2 ptr valType)
     return mem{ memImplHeap = heap' }
+
+-- | Perform a memory write operation if the condition is true,
+-- do not change the memory otherwise.
+--
+-- Asserts that the write operation is valid when cond is true.
+doConditionalWriteOperation
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> MemImpl sym
+  -> Pred sym {- ^ write condition -}
+  -> (MemImpl sym -> IO (MemImpl sym)) {- ^ memory write operation -}
+  -> IO (MemImpl sym)
+doConditionalWriteOperation sym mem cond write_op =
+  mergeWriteOperations sym mem cond write_op return
+
+-- | Merge memory write operations on condition: if the condition is true,
+-- perform the true branch write operation, otherwise perform the false branch
+-- write operation.
+--
+-- Asserts that the true branch write operation is valid when cond is true, and
+-- that the false branch write operation is valid when cond is not true.
+mergeWriteOperations
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> MemImpl sym
+  -> Pred sym {- ^ merge condition -}
+  -> (MemImpl sym -> IO (MemImpl sym)) {- ^ true branch memory write operation -}
+  -> (MemImpl sym -> IO (MemImpl sym)) {- ^ false branch memory write operation -}
+  -> IO (MemImpl sym)
+mergeWriteOperations sym mem cond true_write_op false_write_op = do
+  let branched_mem = mem { memImplHeap = G.branchMem $ memImplHeap mem }
+  loc <- getCurrentProgramLoc sym
+
+  true_frame_id <- pushAssumptionFrame sym
+  addAssumption sym $ LabeledPred cond $
+    AssumptionReason loc "conditional memory write predicate"
+  true_mutated_heap <- memImplHeap <$> true_write_op branched_mem
+  _ <- popAssumptionFrame sym true_frame_id
+
+  false_frame_id <- pushAssumptionFrame sym
+  not_cond <- notPred sym cond
+  addAssumption sym $ LabeledPred not_cond $
+    AssumptionReason loc "conditional memory write predicate"
+  false_mutated_heap <- memImplHeap <$> false_write_op branched_mem
+  _ <- popAssumptionFrame sym false_frame_id
+
+  return $!
+    mem { memImplHeap = G.mergeMem cond true_mutated_heap false_mutated_heap }
 
 -- | Store an LLVM value in memory if the condition is true, and
 -- otherwise leaves memory unchanged.
