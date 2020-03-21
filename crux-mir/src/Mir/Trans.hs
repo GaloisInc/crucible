@@ -754,28 +754,15 @@ evalRval (M.Ref bk lv _) =
     M.Mutable -> evalPlace lv >>= addrOfPlace
     M.Unique  -> evalPlace lv >>= addrOfPlace
 evalRval (M.Len lv) =
-  case lv of
-    M.LProj lv' M.Deref
-      | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv'
-      -> do MirExp t e <- evalLvalue lv'
-            case t of
-              MirSliceRepr _tp' ->
-                do let len = S.getStruct (Ctx.natIndex @2) e
-                   return $ MirExp UsizeRepr len
-              _ -> mirFail "Expected mutable slice value"
-      | M.TyRef (M.TySlice _) M.Immut <- M.typeOf lv'
-      -> do MirExp t e <- evalLvalue lv'
-            case t of
-              MirImmSliceRepr _tp' ->
-                do let len = S.getStruct (Ctx.natIndex @2) e
-                   return $ MirExp UsizeRepr len
-              _ -> mirFail "Expected immutable slice value"
-    _ ->
-      do MirExp t e <- evalLvalue lv
-         case t of
-           C.VectorRepr _ -> return $ MirExp UsizeRepr $ R.App $ natToUsize R.App $ S.vectorSize e
-           _ -> mirFail "len expects vector input"
-
+    case M.typeOf lv of
+        M.TyArray _ len ->
+            return $ MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral len
+        ty@(M.TySlice _) -> do
+            MirPlace _tpr _ref meta <- evalPlace lv
+            case meta of
+                SliceMeta _ len -> return $ MirExp UsizeRepr len
+                _ -> mirFail $ "bad metadata " ++ show meta ++ " for reference to " ++ show ty
+        ty -> mirFail $ "don't know how to take Len of " ++ show ty
 evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.CheckedBinaryOp binop op1 op2) = transCheckedBinOp  binop op1 op2
