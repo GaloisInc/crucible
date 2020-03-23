@@ -48,4 +48,4 @@ extra-deps:
   - base-orphans-0.8.2
   - zenc-0.1.1
   - hedgehog-1.0.2
-resolver: lts-14.5
+resolver: lts-14.27
