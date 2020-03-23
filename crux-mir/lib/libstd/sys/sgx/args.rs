@@ -1,9 +1,9 @@
 use super::abi::usercalls::{alloc, raw::ByteBuffer};
 use crate::ffi::OsString;
+use crate::slice;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sys::os_str::Buf;
 use crate::sys_common::FromInner;
-use crate::slice;
 
 #[cfg_attr(test, linkage = "available_externally")]
 #[export_name = "_ZN16__rust_internals3std3sys3sgx4args4ARGSE"]
@@ -14,27 +14,19 @@ type ArgsStore = Vec<OsString>;
 pub unsafe fn init(argc: isize, argv: *const *const u8) {
     if argc != 0 {
         let args = alloc::User::<[ByteBuffer]>::from_raw_parts(argv as _, argc as _);
-        let args = args.iter()
-            .map( |a| OsString::from_inner(Buf { inner: a.copy_user_buffer() }) )
+        let args = args
+            .iter()
+            .map(|a| OsString::from_inner(Buf { inner: a.copy_user_buffer() }))
             .collect::<ArgsStore>();
         ARGS.store(Box::into_raw(Box::new(args)) as _, Ordering::Relaxed);
     }
 }
 
-pub unsafe fn cleanup() {
-    let args = ARGS.swap(0, Ordering::Relaxed);
-    if args != 0 {
-        drop(Box::<ArgsStore>::from_raw(args as _))
-    }
-}
+pub unsafe fn cleanup() {}
 
 pub fn args() -> Args {
     let args = unsafe { (ARGS.load(Ordering::Relaxed) as *const ArgsStore).as_ref() };
-    if let Some(args) = args {
-        Args(args.iter())
-    } else {
-        Args([].iter())
-    }
+    if let Some(args) = args { Args(args.iter()) } else { Args([].iter()) }
 }
 
 pub struct Args(slice::Iter<'static, OsString>);

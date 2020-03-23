@@ -1,16 +1,53 @@
 use crate::os::unix::prelude::*;
 
-use crate::ffi::{OsString, OsStr, CString, CStr};
+use crate::collections::BTreeMap;
+use crate::ffi::{CStr, CString, OsStr, OsString};
 use crate::fmt;
 use crate::io;
 use crate::ptr;
 use crate::sys::fd::FileDesc;
-use crate::sys::fs::{File, OpenOptions};
+use crate::sys::fs::File;
 use crate::sys::pipe::{self, AnonPipe};
-use crate::sys_common::process::{CommandEnv, DefaultEnvKey};
-use crate::collections::BTreeMap;
+use crate::sys_common::process::CommandEnv;
 
-use libc::{c_int, gid_t, uid_t, c_char, EXIT_SUCCESS, EXIT_FAILURE};
+#[cfg(not(target_os = "fuchsia"))]
+use crate::sys::fs::OpenOptions;
+
+use libc::{c_char, c_int, gid_t, uid_t, EXIT_FAILURE, EXIT_SUCCESS};
+
+cfg_if::cfg_if! {
+    if #[cfg(target_os = "fuchsia")] {
+        // fuchsia doesn't have /dev/null
+    } else if #[cfg(target_os = "redox")] {
+        const DEV_NULL: &str = "null:\0";
+    } else {
+        const DEV_NULL: &str = "/dev/null\0";
+    }
+}
+
+// Android with api less than 21 define sig* functions inline, so it is not
+// available for dynamic link. Implementing sigemptyset and sigaddset allow us
+// to support older Android version (independent of libc version).
+// The following implementations are based on https://git.io/vSkNf
+cfg_if::cfg_if! {
+    if #[cfg(target_os = "android")] {
+        pub unsafe fn sigemptyset(set: *mut libc::sigset_t) -> libc::c_int {
+            set.write_bytes(0u8, 1);
+            return 0;
+        }
+        #[allow(dead_code)]
+        pub unsafe fn sigaddset(set: *mut libc::sigset_t, signum: libc::c_int) -> libc::c_int {
+            use crate::{slice, mem};
+
+            let raw = slice::from_raw_parts_mut(set as *mut u8, mem::size_of::<libc::sigset_t>());
+            let bit = (signum - 1) as usize;
+            raw[bit / 8] |= 1 << (bit % 8);
+            return 0;
+        }
+    } else {
+        pub use libc::{sigemptyset, sigaddset};
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Command
@@ -37,7 +74,7 @@ pub struct Command {
     program: CString,
     args: Vec<CString>,
     argv: Argv,
-    env: CommandEnv<DefaultEnvKey>,
+    env: CommandEnv,
 
     cwd: Option<CString>,
     uid: Option<uid_t>,
@@ -75,6 +112,11 @@ pub enum ChildStdio {
     Inherit,
     Explicit(c_int),
     Owned(FileDesc),
+
+    // On Fuchsia, null stdio is the default, so we simply don't specify
+    // any actions at the time of spawning.
+    #[cfg(target_os = "fuchsia")]
+    Null,
 }
 
 pub enum Stdio {
@@ -90,8 +132,8 @@ impl Command {
         let program = os2c(program, &mut saw_nul);
         Command {
             argv: Argv(vec![program.as_ptr(), ptr::null()]),
+            args: vec![program.clone()],
             program,
-            args: Vec::new(),
             env: Default::default(),
             cwd: None,
             uid: None,
@@ -104,11 +146,19 @@ impl Command {
         }
     }
 
+    pub fn set_arg_0(&mut self, arg: &OsStr) {
+        // Set a new arg0
+        let arg = os2c(arg, &mut self.saw_nul);
+        debug_assert!(self.argv.0.len() > 1);
+        self.argv.0[0] = arg.as_ptr();
+        self.args[0] = arg;
+    }
+
     pub fn arg(&mut self, arg: &OsStr) {
         // Overwrite the trailing NULL pointer in `argv` and then add a new null
         // pointer.
         let arg = os2c(arg, &mut self.saw_nul);
-        self.argv.0[self.args.len() + 1] = arg.as_ptr();
+        self.argv.0[self.args.len()] = arg.as_ptr();
         self.argv.0.push(ptr::null());
 
         // Also make sure we keep track of the owned value to schedule a
@@ -133,6 +183,10 @@ impl Command {
         &self.argv.0
     }
 
+    pub fn get_program(&self) -> &CStr {
+        &*self.program
+    }
+
     #[allow(dead_code)]
     pub fn get_cwd(&self) -> &Option<CString> {
         &self.cwd
@@ -150,10 +204,7 @@ impl Command {
         &mut self.closures
     }
 
-    pub unsafe fn pre_exec(
-        &mut self,
-        f: Box<dyn FnMut() -> io::Result<()> + Send + Sync>,
-    ) {
+    pub unsafe fn pre_exec(&mut self, f: Box<dyn FnMut() -> io::Result<()> + Send + Sync>) {
         self.closures.push(f);
     }
 
@@ -169,7 +220,7 @@ impl Command {
         self.stderr = Some(stderr);
     }
 
-    pub fn env_mut(&mut self) -> &mut CommandEnv<DefaultEnvKey> {
+    pub fn env_mut(&mut self) -> &mut CommandEnv {
         &mut self.env
     }
 
@@ -182,26 +233,21 @@ impl Command {
         self.env.have_changed_path()
     }
 
-    pub fn setup_io(&self, default: Stdio, needs_stdin: bool)
-                -> io::Result<(StdioPipes, ChildPipes)> {
+    pub fn setup_io(
+        &self,
+        default: Stdio,
+        needs_stdin: bool,
+    ) -> io::Result<(StdioPipes, ChildPipes)> {
         let null = Stdio::Null;
-        let default_stdin = if needs_stdin {&default} else {&null};
+        let default_stdin = if needs_stdin { &default } else { &null };
         let stdin = self.stdin.as_ref().unwrap_or(default_stdin);
         let stdout = self.stdout.as_ref().unwrap_or(&default);
         let stderr = self.stderr.as_ref().unwrap_or(&default);
         let (their_stdin, our_stdin) = stdin.to_child_stdio(true)?;
         let (their_stdout, our_stdout) = stdout.to_child_stdio(false)?;
         let (their_stderr, our_stderr) = stderr.to_child_stdio(false)?;
-        let ours = StdioPipes {
-            stdin: our_stdin,
-            stdout: our_stdout,
-            stderr: our_stderr,
-        };
-        let theirs = ChildPipes {
-            stdin: their_stdin,
-            stdout: their_stdout,
-            stderr: their_stderr,
-        };
+        let ours = StdioPipes { stdin: our_stdin, stdout: our_stdout, stderr: our_stderr };
+        let theirs = ChildPipes { stdin: their_stdin, stdout: their_stdout, stderr: their_stderr };
         Ok((ours, theirs))
     }
 }
@@ -216,21 +262,21 @@ fn os2c(s: &OsStr, saw_nul: &mut bool) -> CString {
 // Helper type to manage ownership of the strings within a C-style array.
 pub struct CStringArray {
     items: Vec<CString>,
-    ptrs: Vec<*const c_char>
+    ptrs: Vec<*const c_char>,
 }
 
 impl CStringArray {
     pub fn with_capacity(capacity: usize) -> Self {
         let mut result = CStringArray {
             items: Vec::with_capacity(capacity),
-            ptrs: Vec::with_capacity(capacity+1)
+            ptrs: Vec::with_capacity(capacity + 1),
         };
         result.ptrs.push(ptr::null());
         result
     }
     pub fn push(&mut self, item: CString) {
         let l = self.ptrs.len();
-        self.ptrs[l-1] = item.as_ptr();
+        self.ptrs[l - 1] = item.as_ptr();
         self.ptrs.push(ptr::null());
         self.items.push(item);
     }
@@ -239,11 +285,9 @@ impl CStringArray {
     }
 }
 
-fn construct_envp(env: BTreeMap<DefaultEnvKey, OsString>, saw_nul: &mut bool) -> CStringArray {
+fn construct_envp(env: BTreeMap<OsString, OsString>, saw_nul: &mut bool) -> CStringArray {
     let mut result = CStringArray::with_capacity(env.len());
-    for (k, v) in env {
-        let mut k: OsString = k.into();
-
+    for (mut k, v) in env {
         // Reserve additional space for '=' and null terminator
         k.reserve_exact(v.len() + 2);
         k.push("=");
@@ -261,12 +305,9 @@ fn construct_envp(env: BTreeMap<DefaultEnvKey, OsString>, saw_nul: &mut bool) ->
 }
 
 impl Stdio {
-    pub fn to_child_stdio(&self, readable: bool)
-                      -> io::Result<(ChildStdio, Option<AnonPipe>)> {
+    pub fn to_child_stdio(&self, readable: bool) -> io::Result<(ChildStdio, Option<AnonPipe>)> {
         match *self {
-            Stdio::Inherit => {
-                Ok((ChildStdio::Inherit, None))
-            },
+            Stdio::Inherit => Ok((ChildStdio::Inherit, None)),
 
             // Make sure that the source descriptors are not an stdio
             // descriptor, otherwise the order which we set the child's
@@ -285,24 +326,22 @@ impl Stdio {
 
             Stdio::MakePipe => {
                 let (reader, writer) = pipe::anon_pipe()?;
-                let (ours, theirs) = if readable {
-                    (writer, reader)
-                } else {
-                    (reader, writer)
-                };
+                let (ours, theirs) = if readable { (writer, reader) } else { (reader, writer) };
                 Ok((ChildStdio::Owned(theirs.into_fd()), Some(ours)))
             }
 
+            #[cfg(not(target_os = "fuchsia"))]
             Stdio::Null => {
                 let mut opts = OpenOptions::new();
                 opts.read(readable);
                 opts.write(!readable);
-                let path = unsafe {
-                    CStr::from_ptr("/dev/null\0".as_ptr() as *const _)
-                };
+                let path = unsafe { CStr::from_ptr(DEV_NULL.as_ptr() as *const _) };
                 let fd = File::open_c(&path, &opts)?;
                 Ok((ChildStdio::Owned(fd.into_fd()), None))
             }
+
+            #[cfg(target_os = "fuchsia")]
+            Stdio::Null => Ok((ChildStdio::Null, None)),
         }
     }
 }
@@ -325,68 +364,24 @@ impl ChildStdio {
             ChildStdio::Inherit => None,
             ChildStdio::Explicit(fd) => Some(fd),
             ChildStdio::Owned(ref fd) => Some(fd.raw()),
+
+            #[cfg(target_os = "fuchsia")]
+            ChildStdio::Null => None,
         }
     }
 }
 
 impl fmt::Debug for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.program)?;
-        for arg in &self.args {
+        if self.program != self.args[0] {
+            write!(f, "[{:?}] ", self.program)?;
+        }
+        write!(f, "{:?}", self.args[0])?;
+
+        for arg in &self.args[1..] {
             write!(f, " {:?}", arg)?;
         }
         Ok(())
-    }
-}
-
-/// Unix exit statuses
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub struct ExitStatus(c_int);
-
-impl ExitStatus {
-    pub fn new(status: c_int) -> ExitStatus {
-        ExitStatus(status)
-    }
-
-    fn exited(&self) -> bool {
-        unsafe { libc::WIFEXITED(self.0) }
-    }
-
-    pub fn success(&self) -> bool {
-        self.code() == Some(0)
-    }
-
-    pub fn code(&self) -> Option<i32> {
-        if self.exited() {
-            Some(unsafe { libc::WEXITSTATUS(self.0) })
-        } else {
-            None
-        }
-    }
-
-    pub fn signal(&self) -> Option<i32> {
-        if !self.exited() {
-            Some(unsafe { libc::WTERMSIG(self.0) })
-        } else {
-            None
-        }
-    }
-}
-
-impl From<c_int> for ExitStatus {
-    fn from(a: c_int) -> ExitStatus {
-        ExitStatus(a)
-    }
-}
-
-impl fmt::Display for ExitStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(code) = self.code() {
-            write!(f, "exit code: {}", code)
-        } else {
-            let signal = self.signal().unwrap();
-            write!(f, "signal: {}", signal)
-        }
     }
 }
 
@@ -418,37 +413,7 @@ mod tests {
                 Ok(t) => t,
                 Err(e) => panic!("received error for `{}`: {}", stringify!($e), e),
             }
-        }
-    }
-
-    // Android with api less than 21 define sig* functions inline, so it is not
-    // available for dynamic link. Implementing sigemptyset and sigaddset allow us
-    // to support older Android version (independent of libc version).
-    // The following implementations are based on https://git.io/vSkNf
-
-    #[cfg(not(target_os = "android"))]
-    extern {
-        #[cfg_attr(target_os = "netbsd", link_name = "__sigemptyset14")]
-        fn sigemptyset(set: *mut libc::sigset_t) -> libc::c_int;
-
-        #[cfg_attr(target_os = "netbsd", link_name = "__sigaddset14")]
-        fn sigaddset(set: *mut libc::sigset_t, signum: libc::c_int) -> libc::c_int;
-    }
-
-    #[cfg(target_os = "android")]
-    unsafe fn sigemptyset(set: *mut libc::sigset_t) -> libc::c_int {
-        set.write_bytes(0u8, 1);
-        return 0;
-    }
-
-    #[cfg(target_os = "android")]
-    unsafe fn sigaddset(set: *mut libc::sigset_t, signum: libc::c_int) -> libc::c_int {
-        use crate::slice;
-
-        let raw = slice::from_raw_parts_mut(set as *mut u8, mem::size_of::<libc::sigset_t>());
-        let bit = (signum - 1) as usize;
-        raw[bit / 8] |= 1 << (bit % 8);
-        return 0;
+        };
     }
 
     // See #14232 for more information, but it appears that signal delivery to a
@@ -479,8 +444,7 @@ mod tests {
             let stdin_write = pipes.stdin.take().unwrap();
             let stdout_read = pipes.stdout.take().unwrap();
 
-            t!(cvt(libc::pthread_sigmask(libc::SIG_SETMASK, old_set.as_ptr(),
-                                         ptr::null_mut())));
+            t!(cvt(libc::pthread_sigmask(libc::SIG_SETMASK, old_set.as_ptr(), ptr::null_mut())));
 
             t!(cvt(libc::kill(cat.id() as libc::pid_t, libc::SIGINT)));
             // We need to wait until SIGINT is definitely delivered. The

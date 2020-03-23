@@ -1,5 +1,3 @@
-#![allow(deprecated_in_future)] // mem::uninitialized; becomes `deprecated` when nightly is 1.39
-
 use crate::io::ErrorKind;
 use crate::mem;
 
@@ -62,10 +60,7 @@ pub use libc::strlen;
 pub fn hashmap_random_keys() -> (u64, u64) {
     unsafe {
         let mut v: mem::MaybeUninit<(u64, u64)> = mem::MaybeUninit::uninit();
-        libc::arc4random_buf(
-            v.as_mut_ptr() as *mut libc::c_void,
-            mem::size_of_val(&v)
-        );
+        libc::arc4random_buf(v.as_mut_ptr() as *mut libc::c_void, mem::size_of_val(&v));
         v.assume_init()
     }
 }

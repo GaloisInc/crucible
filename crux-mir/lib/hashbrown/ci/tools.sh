@@ -13,7 +13,7 @@ retry() {
         "$@"
         result=$?
         [ $result -eq 0 ] && break
-        count=$(count + 1)
+        count=$((count + 1))
         sleep 1
     done
 
@@ -35,7 +35,7 @@ fi
 
 if [ "${TRAVIS_OS_NAME}" = "linux" ]; then
     if retry rustup component add clippy ; then
-        cargo clippy --all --target=i586-unknown-linux-gnu -- -D clippy::pedantic
+        cargo clippy --all --target=i586-unknown-linux-gnu -- -D clippy::all -D clippy::pedantic
     fi
 fi
 

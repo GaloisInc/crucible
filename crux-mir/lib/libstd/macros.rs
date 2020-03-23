@@ -4,69 +4,16 @@
 //! library. Each macro is available for use when linking against the standard
 //! library.
 
-/// Panics the current thread.
-///
-/// This allows a program to terminate immediately and provide feedback
-/// to the caller of the program. `panic!` should be used when a program reaches
-/// an unrecoverable state.
-///
-/// This macro is the perfect way to assert conditions in example code and in
-/// tests. `panic!` is closely tied with the `unwrap` method of both [`Option`]
-/// and [`Result`][runwrap] enums. Both implementations call `panic!` when they are set
-/// to None or Err variants.
-///
-/// This macro is used to inject panic into a Rust thread, causing the thread to
-/// panic entirely. Each thread's panic can be reaped as the `Box<Any>` type,
-/// and the single-argument form of the `panic!` macro will be the value which
-/// is transmitted.
-///
-/// [`Result`] enum is often a better solution for recovering from errors than
-/// using the `panic!` macro. This macro should be used to avoid proceeding using
-/// incorrect values, such as from external sources. Detailed information about
-/// error handling is found in the [book].
-///
-/// The multi-argument form of this macro panics with a string and has the
-/// [`format!`] syntax for building a string.
-///
-/// See also the macro [`compile_error!`], for raising errors during compilation.
-///
-/// [runwrap]: ../std/result/enum.Result.html#method.unwrap
-/// [`Option`]: ../std/option/enum.Option.html#method.unwrap
-/// [`Result`]: ../std/result/enum.Result.html
-/// [`format!`]: ../std/macro.format.html
-/// [`compile_error!`]: ../std/macro.compile_error.html
-/// [book]: ../book/ch09-00-error-handling.html
-///
-/// # Current implementation
-///
-/// If the main thread panics it will terminate all your threads and end your
-/// program with code `101`.
-///
-/// # Examples
-///
-/// ```should_panic
-/// # #![allow(unreachable_code)]
-/// panic!();
-/// panic!("this is a terrible mistake!");
-/// panic!(4); // panic with the value of 4 to be collected elsewhere
-/// panic!("this is a {} {message}", "fancy", message = "message");
-/// ```
+#[doc(include = "../libcore/macros/panic.md")]
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
-#[allow_internal_unstable(__rust_unstable_column, libstd_sys_internals)]
+#[allow_internal_unstable(libstd_sys_internals)]
 macro_rules! panic {
-    () => ({
-        $crate::panic!("explicit panic")
-    });
-    ($msg:expr) => ({
-        $crate::rt::begin_panic($msg, &(file!(), line!(), __rust_unstable_column!()))
-    });
-    ($msg:expr,) => ({
-        $crate::panic!($msg)
-    });
+    () => ({ $crate::panic!("explicit panic") });
+    ($msg:expr) => ({ $crate::rt::begin_panic($msg) });
+    ($msg:expr,) => ({ $crate::panic!($msg) });
     ($fmt:expr, $($arg:tt)+) => ({
-        $crate::rt::begin_panic_fmt(&format_args!($fmt, $($arg)+),
-                                    &(file!(), line!(), __rust_unstable_column!()))
+        $crate::rt::begin_panic_fmt(&$crate::format_args!($fmt, $($arg)+))
     });
 }
 
@@ -113,13 +60,13 @@ macro_rules! panic {
 #[stable(feature = "rust1", since = "1.0.0")]
 #[allow_internal_unstable(print_internals)]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::io::_print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::io::_print($crate::format_args!($($arg)*)));
 }
 
 /// Prints to the standard output, with a newline.
 ///
 /// On all platforms, the newline is the LINE FEED character (`\n`/`U+000A`) alone
-/// (no additional CARRIAGE RETURN (`\r`/`U+000D`).
+/// (no additional CARRIAGE RETURN (`\r`/`U+000D`)).
 ///
 /// Use the [`format!`] syntax to write data to the standard output.
 /// See [`std::fmt`] for more information.
@@ -147,7 +94,7 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ({
-        $crate::io::_print(format_args_nl!($($arg)*));
+        $crate::io::_print($crate::format_args_nl!($($arg)*));
     })
 }
 
@@ -176,7 +123,7 @@ macro_rules! println {
 #[stable(feature = "eprint", since = "1.19.0")]
 #[allow_internal_unstable(print_internals)]
 macro_rules! eprint {
-    ($($arg:tt)*) => ($crate::io::_eprint(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::io::_eprint($crate::format_args!($($arg)*)));
 }
 
 /// Prints to the standard error, with a newline.
@@ -206,7 +153,7 @@ macro_rules! eprint {
 macro_rules! eprintln {
     () => ($crate::eprint!("\n"));
     ($($arg:tt)*) => ({
-        $crate::io::_eprint(format_args_nl!($($arg)*));
+        $crate::io::_eprint($crate::format_args_nl!($($arg)*));
     })
 }
 
@@ -238,7 +185,7 @@ macro_rules! eprintln {
 /// builds or when debugging in release mode is significantly faster.
 ///
 /// Note that the macro is intended as a debugging tool and therefore you
-/// should avoid having uses of it in version control for longer periods.
+/// should avoid having uses of it in version control for long periods.
 /// Use cases involving debug output that should be added to version control
 /// are better served by macros such as [`debug!`] from the [`log`] crate.
 ///
@@ -337,7 +284,7 @@ macro_rules! eprintln {
 #[stable(feature = "dbg_macro", since = "1.32.0")]
 macro_rules! dbg {
     () => {
-        $crate::eprintln!("[{}:{}]", file!(), line!());
+        $crate::eprintln!("[{}:{}]", $crate::file!(), $crate::line!());
     };
     ($val:expr) => {
         // Use of `match` here is intentional because it affects the lifetimes
@@ -345,7 +292,7 @@ macro_rules! dbg {
         match $val {
             tmp => {
                 $crate::eprintln!("[{}:{}] {} = {:#?}",
-                    file!(), line!(), stringify!($val), &tmp);
+                    $crate::file!(), $crate::line!(), $crate::stringify!($val), &tmp);
                 tmp
             }
         }
@@ -359,9 +306,8 @@ macro_rules! dbg {
 
 #[cfg(test)]
 macro_rules! assert_approx_eq {
-    ($a:expr, $b:expr) => ({
+    ($a:expr, $b:expr) => {{
         let (a, b) = (&$a, &$b);
-        assert!((*a - *b).abs() < 1.0e-6,
-                "{} is not approximately equal to {}", *a, *b);
-    })
+        assert!((*a - *b).abs() < 1.0e-6, "{} is not approximately equal to {}", *a, *b);
+    }};
 }

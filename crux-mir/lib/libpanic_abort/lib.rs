@@ -5,12 +5,12 @@
 
 #![no_std]
 #![unstable(feature = "panic_abort", issue = "32837")]
-#![doc(html_root_url = "https://doc.rust-lang.org/nightly/",
-       issue_tracker_base_url = "https://github.com/rust-lang/rust/issues/")]
+#![doc(
+    html_root_url = "https://doc.rust-lang.org/nightly/",
+    issue_tracker_base_url = "https://github.com/rust-lang/rust/issues/"
+)]
 #![panic_runtime]
-
 #![allow(unused_features)]
-
 #![feature(core_intrinsics)]
 #![feature(libc)]
 #![feature(nll)]
@@ -18,15 +18,11 @@
 #![feature(staged_api)]
 #![feature(rustc_attrs)]
 
-// Rust's "try" function, but if we're aborting on panics we just call the
-// function as there's nothing else we need to do here.
+use core::any::Any;
+
 #[rustc_std_internal_symbol]
-pub unsafe extern fn __rust_maybe_catch_panic(f: fn(*mut u8),
-                                              data: *mut u8,
-                                              _data_ptr: *mut usize,
-                                              _vtable_ptr: *mut usize) -> u32 {
-    f(data);
-    0
+pub unsafe extern "C" fn __rust_panic_cleanup(_: *mut u8) -> *mut (dyn Any + Send + 'static) {
+    unreachable!()
 }
 
 // "Leak" the payload and shim to the relevant abort on the platform in
@@ -40,7 +36,7 @@ pub unsafe extern fn __rust_maybe_catch_panic(f: fn(*mut u8),
 // will kill us with an illegal instruction, which will do a good enough job for
 // now hopefully.
 #[rustc_std_internal_symbol]
-pub unsafe extern fn __rust_start_panic(_payload: usize) -> u32 {
+pub unsafe extern "C" fn __rust_start_panic(_payload: usize) -> u32 {
     abort();
 
     #[cfg(any(unix, target_os = "cloudabi"))]
@@ -48,17 +44,17 @@ pub unsafe extern fn __rust_start_panic(_payload: usize) -> u32 {
         libc::abort();
     }
 
-    #[cfg(any(target_os = "redox",
-              windows,
-              all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+    #[cfg(any(windows, all(target_arch = "wasm32", not(target_os = "emscripten"))))]
     unsafe fn abort() -> ! {
         core::intrinsics::abort();
     }
 
-    #[cfg(all(target_vendor="fortanix", target_env="sgx"))]
+    #[cfg(any(target_os = "hermit", all(target_vendor = "fortanix", target_env = "sgx")))]
     unsafe fn abort() -> ! {
         // call std::sys::abort_internal
-        extern "C" { pub fn __rust_abort() -> !; }
+        extern "C" {
+            pub fn __rust_abort() -> !;
+        }
         __rust_abort();
     }
 }
@@ -90,30 +86,23 @@ pub unsafe extern fn __rust_start_panic(_payload: usize) -> u32 {
 // binaries, but it should never be called as we don't link in an unwinding
 // runtime at all.
 pub mod personalities {
-    #[no_mangle]
+    #[rustc_std_internal_symbol]
     #[cfg(not(any(
-        all(
-            target_arch = "wasm32",
-            not(target_os = "emscripten"),
-        ),
-        all(
-            target_os = "windows",
-            target_env = "gnu",
-            target_arch = "x86_64",
-        ),
+        all(target_arch = "wasm32", not(target_os = "emscripten"),),
+        all(target_os = "windows", target_env = "gnu", target_arch = "x86_64",),
     )))]
-    pub extern fn rust_eh_personality() {}
+    pub extern "C" fn rust_eh_personality() {}
 
     // On x86_64-pc-windows-gnu we use our own personality function that needs
     // to return `ExceptionContinueSearch` as we're passing on all our frames.
-    #[no_mangle]
-    #[cfg(all(target_os = "windows",
-              target_env = "gnu",
-              target_arch = "x86_64"))]
-    pub extern fn rust_eh_personality(_record: usize,
-                                      _frame: usize,
-                                      _context: usize,
-                                      _dispatcher: usize) -> u32 {
+    #[rustc_std_internal_symbol]
+    #[cfg(all(target_os = "windows", target_env = "gnu", target_arch = "x86_64"))]
+    pub extern "C" fn rust_eh_personality(
+        _record: usize,
+        _frame: usize,
+        _context: usize,
+        _dispatcher: usize,
+    ) -> u32 {
         1 // `ExceptionContinueSearch`
     }
 
@@ -122,16 +111,16 @@ pub mod personalities {
     //
     // Note that we don't execute landing pads, so this is never called, so it's
     // body is empty.
-    #[no_mangle]
-    #[cfg(all(target_os = "windows", target_env = "gnu"))]
-    pub extern fn rust_eh_unwind_resume() {}
+    #[rustc_std_internal_symbol]
+    #[cfg(all(bootstrap, target_os = "windows", target_env = "gnu"))]
+    pub extern "C" fn rust_eh_unwind_resume() {}
 
     // These two are called by our startup objects on i686-pc-windows-gnu, but
     // they don't need to do anything so the bodies are nops.
-    #[no_mangle]
+    #[rustc_std_internal_symbol]
     #[cfg(all(target_os = "windows", target_env = "gnu", target_arch = "x86"))]
-    pub extern fn rust_eh_register_frames() {}
-    #[no_mangle]
+    pub extern "C" fn rust_eh_register_frames() {}
+    #[rustc_std_internal_symbol]
     #[cfg(all(target_os = "windows", target_env = "gnu", target_arch = "x86"))]
-    pub extern fn rust_eh_unregister_frames() {}
+    pub extern "C" fn rust_eh_unregister_frames() {}
 }

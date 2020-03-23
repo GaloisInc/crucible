@@ -1,21 +1,21 @@
-use core::result::Result::{Ok, Err};
+use core::result::Result::{Err, Ok};
 
 #[test]
 fn test_position() {
     let b = [1, 2, 3, 5, 5];
-    assert!(b.iter().position(|&v| v == 9) == None);
-    assert!(b.iter().position(|&v| v == 5) == Some(3));
-    assert!(b.iter().position(|&v| v == 3) == Some(2));
-    assert!(b.iter().position(|&v| v == 0) == None);
+    assert_eq!(b.iter().position(|&v| v == 9), None);
+    assert_eq!(b.iter().position(|&v| v == 5), Some(3));
+    assert_eq!(b.iter().position(|&v| v == 3), Some(2));
+    assert_eq!(b.iter().position(|&v| v == 0), None);
 }
 
 #[test]
 fn test_rposition() {
     let b = [1, 2, 3, 5, 5];
-    assert!(b.iter().rposition(|&v| v == 9) == None);
-    assert!(b.iter().rposition(|&v| v == 5) == Some(4));
-    assert!(b.iter().rposition(|&v| v == 3) == Some(2));
-    assert!(b.iter().rposition(|&v| v == 0) == None);
+    assert_eq!(b.iter().rposition(|&v| v == 9), None);
+    assert_eq!(b.iter().rposition(|&v| v == 5), Some(4));
+    assert_eq!(b.iter().rposition(|&v| v == 3), Some(2));
+    assert_eq!(b.iter().rposition(|&v| v == 0), None);
 }
 
 #[test]
@@ -50,8 +50,14 @@ fn test_binary_search() {
     assert_eq!(b.binary_search(&0), Err(0));
     assert_eq!(b.binary_search(&1), Ok(0));
     assert_eq!(b.binary_search(&2), Err(1));
-    assert!(match b.binary_search(&3) { Ok(1..=3) => true, _ => false });
-    assert!(match b.binary_search(&3) { Ok(1..=3) => true, _ => false });
+    assert!(match b.binary_search(&3) {
+        Ok(1..=3) => true,
+        _ => false,
+    });
+    assert!(match b.binary_search(&3) {
+        Ok(1..=3) => true,
+        _ => false,
+    });
     assert_eq!(b.binary_search(&4), Err(4));
     assert_eq!(b.binary_search(&5), Err(4));
     assert_eq!(b.binary_search(&6), Err(4));
@@ -187,7 +193,8 @@ fn test_chunks_zip() {
     let v1: &[i32] = &[0, 1, 2, 3, 4];
     let v2: &[i32] = &[6, 7, 8, 9, 10];
 
-    let res = v1.chunks(2)
+    let res = v1
+        .chunks(2)
         .zip(v2.chunks(2))
         .map(|(a, b)| a.iter().sum::<i32>() + b.iter().sum::<i32>())
         .collect::<Vec<_>>();
@@ -339,7 +346,8 @@ fn test_chunks_exact_zip() {
     let v1: &[i32] = &[0, 1, 2, 3, 4];
     let v2: &[i32] = &[6, 7, 8, 9, 10];
 
-    let res = v1.chunks_exact(2)
+    let res = v1
+        .chunks_exact(2)
         .zip(v2.chunks_exact(2))
         .map(|(a, b)| a.iter().sum::<i32>() + b.iter().sum::<i32>())
         .collect::<Vec<_>>();
@@ -372,6 +380,25 @@ fn test_chunks_exact_mut_nth() {
     let mut c2 = v2.chunks_exact_mut(3);
     assert_eq!(c2.nth(1).unwrap(), &[3, 4, 5]);
     assert_eq!(c2.next(), None);
+}
+
+#[test]
+fn test_chunks_exact_mut_nth_back() {
+    let v: &mut [i32] = &mut [0, 1, 2, 3, 4, 5];
+    let mut c = v.chunks_exact_mut(2);
+    assert_eq!(c.nth_back(1).unwrap(), &[2, 3]);
+    assert_eq!(c.next().unwrap(), &[0, 1]);
+    assert_eq!(c.next(), None);
+
+    let v2: &mut [i32] = &mut [0, 1, 2, 3, 4];
+    let mut c2 = v2.chunks_exact_mut(3);
+    assert_eq!(c2.nth_back(0).unwrap(), &[0, 1, 2]);
+    assert_eq!(c2.next(), None);
+    assert_eq!(c2.next_back(), None);
+
+    let v3: &mut [i32] = &mut [0, 1, 2, 3, 4];
+    let mut c3 = v3.chunks_exact_mut(10);
+    assert_eq!(c3.nth_back(0), None);
 }
 
 #[test]
@@ -463,7 +490,8 @@ fn test_rchunks_zip() {
     let v1: &[i32] = &[0, 1, 2, 3, 4];
     let v2: &[i32] = &[6, 7, 8, 9, 10];
 
-    let res = v1.rchunks(2)
+    let res = v1
+        .rchunks(2)
         .zip(v2.rchunks(2))
         .map(|(a, b)| a.iter().sum::<i32>() + b.iter().sum::<i32>())
         .collect::<Vec<_>>();
@@ -600,7 +628,8 @@ fn test_rchunks_exact_zip() {
     let v1: &[i32] = &[0, 1, 2, 3, 4];
     let v2: &[i32] = &[6, 7, 8, 9, 10];
 
-    let res = v1.rchunks_exact(2)
+    let res = v1
+        .rchunks_exact(2)
         .zip(v2.rchunks_exact(2))
         .map(|(a, b)| a.iter().sum::<i32>() + b.iter().sum::<i32>())
         .collect::<Vec<_>>();
@@ -737,7 +766,8 @@ fn test_windows_zip() {
     let v1: &[i32] = &[0, 1, 2, 3, 4];
     let v2: &[i32] = &[6, 7, 8, 9, 10];
 
-    let res = v1.windows(2)
+    let res = v1
+        .windows(2)
         .zip(v2.windows(2))
         .map(|(a, b)| a.iter().sum::<i32>() + b.iter().sum::<i32>())
         .collect::<Vec<_>>();
@@ -750,11 +780,11 @@ fn test_windows_zip() {
 fn test_iter_ref_consistency() {
     use std::fmt::Debug;
 
-    fn test<T : Copy + Debug + PartialEq>(x : T) {
-        let v : &[T] = &[x, x, x];
-        let v_ptrs : [*const T; 3] = match v {
+    fn test<T: Copy + Debug + PartialEq>(x: T) {
+        let v: &[T] = &[x, x, x];
+        let v_ptrs: [*const T; 3] = match v {
             [ref v1, ref v2, ref v3] => [v1 as *const _, v2 as *const _, v3 as *const _],
-            _ => unreachable!()
+            _ => unreachable!(),
         };
         let len = v.len();
 
@@ -798,19 +828,20 @@ fn test_iter_ref_consistency() {
                 assert_eq!(it.size_hint(), (remaining, Some(remaining)));
 
                 let prev = it.next_back().unwrap();
-                assert_eq!(prev as *const _, v_ptrs[remaining-1]);
+                assert_eq!(prev as *const _, v_ptrs[remaining - 1]);
             }
             assert_eq!(it.size_hint(), (0, Some(0)));
             assert_eq!(it.next_back(), None, "The final call to next_back() should return None");
         }
     }
 
-    fn test_mut<T : Copy + Debug + PartialEq>(x : T) {
-        let v : &mut [T] = &mut [x, x, x];
-        let v_ptrs : [*mut T; 3] = match v {
-            [ref v1, ref v2, ref v3] =>
-              [v1 as *const _ as *mut _, v2 as *const _ as *mut _, v3 as *const _ as *mut _],
-            _ => unreachable!()
+    fn test_mut<T: Copy + Debug + PartialEq>(x: T) {
+        let v: &mut [T] = &mut [x, x, x];
+        let v_ptrs: [*mut T; 3] = match v {
+            [ref v1, ref v2, ref v3] => {
+                [v1 as *const _ as *mut _, v2 as *const _ as *mut _, v3 as *const _ as *mut _]
+            }
+            _ => unreachable!(),
         };
         let len = v.len();
 
@@ -854,7 +885,7 @@ fn test_iter_ref_consistency() {
                 assert_eq!(it.size_hint(), (remaining, Some(remaining)));
 
                 let prev = it.next_back().unwrap();
-                assert_eq!(prev as *mut _, v_ptrs[remaining-1]);
+                assert_eq!(prev as *mut _, v_ptrs[remaining - 1]);
             }
             assert_eq!(it.size_hint(), (0, Some(0)));
             assert_eq!(it.next_back(), None, "The final call to next_back() should return None");
@@ -878,8 +909,7 @@ mod slice_index {
     // This checks all six indexing methods, given an input range that
     // should succeed. (it is NOT suitable for testing invalid inputs)
     macro_rules! assert_range_eq {
-        ($arr:expr, $range:expr, $expected:expr)
-        => {
+        ($arr:expr, $range:expr, $expected:expr) => {
             let mut arr = $arr;
             let mut expected = $expected;
             {
@@ -890,7 +920,8 @@ mod slice_index {
                 assert_eq!(s.get($range), Some(expected), "(in assertion for: get)");
                 unsafe {
                     assert_eq!(
-                        s.get_unchecked($range), expected,
+                        s.get_unchecked($range),
+                        expected,
                         "(in assertion for: get_unchecked)",
                     );
                 }
@@ -899,22 +930,21 @@ mod slice_index {
                 let s: &mut [_] = &mut arr;
                 let expected: &mut [_] = &mut expected;
 
+                assert_eq!(&mut s[$range], expected, "(in assertion for: index_mut)",);
                 assert_eq!(
-                    &mut s[$range], expected,
-                    "(in assertion for: index_mut)",
-                );
-                assert_eq!(
-                    s.get_mut($range), Some(&mut expected[..]),
+                    s.get_mut($range),
+                    Some(&mut expected[..]),
                     "(in assertion for: get_mut)",
                 );
                 unsafe {
                     assert_eq!(
-                        s.get_unchecked_mut($range), expected,
+                        s.get_unchecked_mut($range),
+                        expected,
                         "(in assertion for: get_unchecked_mut)",
                     );
                 }
             }
-        }
+        };
     }
 
     // Make sure the macro can actually detect bugs,
@@ -1107,8 +1137,8 @@ fn test_find_rfind() {
 #[test]
 fn test_iter_folds() {
     let a = [1, 2, 3, 4, 5]; // len>4 so the unroll is used
-    assert_eq!(a.iter().fold(0, |acc, &x| 2*acc + x), 57);
-    assert_eq!(a.iter().rfold(0, |acc, &x| 2*acc + x), 129);
+    assert_eq!(a.iter().fold(0, |acc, &x| 2 * acc + x), 57);
+    assert_eq!(a.iter().rfold(0, |acc, &x| 2 * acc + x), 129);
     let fold = |acc: i32, &x| acc.checked_mul(2)?.checked_add(x);
     assert_eq!(a.iter().try_fold(0, &fold), Some(57));
     assert_eq!(a.iter().try_rfold(0, &fold), Some(129));
@@ -1153,11 +1183,49 @@ fn test_rotate_right() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // Miri is too slow
+fn brute_force_rotate_test_0() {
+    // In case of edge cases involving multiple algorithms
+    let n = 300;
+    for len in 0..n {
+        for s in 0..len {
+            let mut v = Vec::with_capacity(len);
+            for i in 0..len {
+                v.push(i);
+            }
+            v[..].rotate_right(s);
+            for i in 0..v.len() {
+                assert_eq!(v[i], v.len().wrapping_add(i.wrapping_sub(s)) % v.len());
+            }
+        }
+    }
+}
+
+#[test]
+fn brute_force_rotate_test_1() {
+    // `ptr_rotate` covers so many kinds of pointer usage, that this is just a good test for
+    // pointers in general. This uses a `[usize; 4]` to hit all algorithms without overwhelming miri
+    let n = 30;
+    for len in 0..n {
+        for s in 0..len {
+            let mut v: Vec<[usize; 4]> = Vec::with_capacity(len);
+            for i in 0..len {
+                v.push([i, 0, 0, 0]);
+            }
+            v[..].rotate_right(s);
+            for i in 0..v.len() {
+                assert_eq!(v[i][0], v.len().wrapping_add(i.wrapping_sub(s)) % v.len());
+            }
+        }
+    }
+}
+
+#[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn sort_unstable() {
     use core::cmp::Ordering::{Equal, Greater, Less};
     use core::slice::heapsort;
-    use rand::{FromEntropy, Rng, rngs::SmallRng, seq::SliceRandom};
+    use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
     #[cfg(not(miri))] // Miri is too slow
     let large_range = 500..510;
@@ -1171,7 +1239,7 @@ fn sort_unstable() {
 
     let mut v = [0; 600];
     let mut tmp = [0; 600];
-    let mut rng = SmallRng::from_entropy();
+    let mut rng = StdRng::from_entropy();
 
     for len in (2..25).chain(large_range) {
         let v = &mut v[0..len];
@@ -1234,14 +1302,14 @@ fn sort_unstable() {
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg(not(miri))] // Miri is too slow
+#[cfg_attr(miri, ignore)] // Miri is too slow
 fn partition_at_index() {
     use core::cmp::Ordering::{Equal, Greater, Less};
-    use rand::rngs::SmallRng;
+    use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
-    use rand::{FromEntropy, Rng};
+    use rand::{Rng, SeedableRng};
 
-    let mut rng = SmallRng::from_entropy();
+    let mut rng = StdRng::from_entropy();
 
     for len in (2..21).chain(500..501) {
         let mut orig = vec![0; len];
@@ -1437,7 +1505,7 @@ pub mod memchr {
 }
 
 #[test]
-#[cfg(not(miri))] // Miri does not compute a maximal `mid` for `align_offset`
+#[cfg_attr(miri, ignore)] // Miri does not compute a maximal `mid` for `align_offset`
 fn test_align_to_simple() {
     let bytes = [1u8, 2, 3, 4, 5, 6, 7];
     let (prefix, aligned, suffix) = unsafe { bytes.align_to::<u16>() };
@@ -1447,9 +1515,15 @@ fn test_align_to_simple() {
     let expect2 = [1 | 2 << 8, 3 | 4 << 8, 5 | 6 << 8];
     let expect3 = [2 << 8 | 3, 4 << 8 | 5, 6 << 8 | 7];
     let expect4 = [2 | 3 << 8, 4 | 5 << 8, 6 | 7 << 8];
-    assert!(aligned == expect1 || aligned == expect2 || aligned == expect3 || aligned == expect4,
-            "aligned={:?} expected={:?} || {:?} || {:?} || {:?}",
-            aligned, expect1, expect2, expect3, expect4);
+    assert!(
+        aligned == expect1 || aligned == expect2 || aligned == expect3 || aligned == expect4,
+        "aligned={:?} expected={:?} || {:?} || {:?} || {:?}",
+        aligned,
+        expect1,
+        expect2,
+        expect3,
+        expect4
+    );
 }
 
 #[test]
@@ -1461,12 +1535,22 @@ fn test_align_to_zst() {
 }
 
 #[test]
-#[cfg(not(miri))] // Miri does not compute a maximal `mid` for `align_offset`
+#[cfg_attr(miri, ignore)] // Miri does not compute a maximal `mid` for `align_offset`
 fn test_align_to_non_trivial() {
-    #[repr(align(8))] struct U64(u64, u64);
-    #[repr(align(8))] struct U64U64U32(u64, u64, u32);
-    let data = [U64(1, 2), U64(3, 4), U64(5, 6), U64(7, 8), U64(9, 10), U64(11, 12), U64(13, 14),
-                U64(15, 16)];
+    #[repr(align(8))]
+    struct U64(u64, u64);
+    #[repr(align(8))]
+    struct U64U64U32(u64, u64, u32);
+    let data = [
+        U64(1, 2),
+        U64(3, 4),
+        U64(5, 6),
+        U64(7, 8),
+        U64(9, 10),
+        U64(11, 12),
+        U64(13, 14),
+        U64(15, 16),
+    ];
     let (prefix, aligned, suffix) = unsafe { data.align_to::<U64U64U32>() };
     assert_eq!(aligned.len(), 4);
     assert_eq!(prefix.len() + suffix.len(), 2);
@@ -1481,9 +1565,21 @@ fn test_align_to_empty_mid() {
     let bytes = [1, 2, 3, 4, 5, 6, 7];
     type Chunk = u32;
     for offset in 0..4 {
-        let (_, mid, _) = unsafe { bytes[offset..offset+1].align_to::<Chunk>() };
+        let (_, mid, _) = unsafe { bytes[offset..offset + 1].align_to::<Chunk>() };
         assert_eq!(mid.as_ptr() as usize % mem::align_of::<Chunk>(), 0);
     }
+}
+
+#[test]
+fn test_align_to_mut_aliasing() {
+    let mut val = [1u8, 2, 3, 4, 5];
+    // `align_to_mut` used to create `mid` in a way that there was some intermediate
+    // incorrect aliasing, invalidating the resulting `mid` slice.
+    let (begin, mid, end) = unsafe { val.align_to_mut::<[u8; 2]>() };
+    assert!(begin.len() == 0);
+    assert!(end.len() == 1);
+    mid[0] = mid[1];
+    assert_eq!(val, [3, 4, 3, 4, 5])
 }
 
 #[test]

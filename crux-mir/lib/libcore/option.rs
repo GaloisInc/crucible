@@ -46,7 +46,7 @@
 //! # Options and pointers ("nullable" pointers)
 //!
 //! Rust's pointer types must always point to a valid location; there are
-//! no "null" pointers. Instead, Rust has *optional* pointers, like
+//! no "null" references. Instead, Rust has *optional* pointers, like
 //! the optional owned box, [`Option`]`<`[`Box<T>`]`>`.
 //!
 //! The following example uses [`Option`] to create an optional box of
@@ -64,7 +64,7 @@
 //!
 //! fn check_optional(optional: Option<Box<i32>>) {
 //!     match optional {
-//!         Some(ref p) => println!("has value {}", p),
+//!         Some(p) => println!("has value {}", p),
 //!         None => println!("has no value"),
 //!     }
 //! }
@@ -83,7 +83,7 @@
 //! let msg = Some("howdy");
 //!
 //! // Take a reference to the contained string
-//! if let Some(ref m) = msg {
+//! if let Some(m) = &msg {
 //!     println!("{}", *m);
 //! }
 //!
@@ -133,11 +133,16 @@
 //! [`Box<T>`]: ../../std/boxed/struct.Box.html
 //! [`i32`]: ../../std/primitive.i32.html
 
+// ignore-tidy-undocumented-unsafe
+
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use crate::iter::{FromIterator, FusedIterator, TrustedLen, OptionShunt};
-use crate::{convert, fmt, hint, mem, ops::{self, Deref, DerefMut}};
+use crate::iter::{FromIterator, FusedIterator, TrustedLen};
 use crate::pin::Pin;
+use crate::{
+    convert, fmt, hint, mem,
+    ops::{self, Deref, DerefMut},
+};
 
 // Note that this is not a lang item per se, but it has a hidden dependency on
 // `Iterator`, which is one. The compiler assumes that the `next` method of
@@ -146,6 +151,7 @@ use crate::pin::Pin;
 
 /// The `Option` type. See [the module level documentation](index.html) for more.
 #[derive(Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
+#[rustc_diagnostic_item = "option_type"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub enum Option<T> {
     /// No value
@@ -182,10 +188,7 @@ impl<T> Option<T> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn is_some(&self) -> bool {
-        match *self {
-            Some(_) => true,
-            None => false,
-        }
+        matches!(*self, Some(_))
     }
 
     /// Returns `true` if the option is a [`None`] value.
@@ -228,7 +231,10 @@ impl<T> Option<T> {
     #[must_use]
     #[inline]
     #[unstable(feature = "option_result_contains", issue = "62358")]
-    pub fn contains<U>(&self, x: &U) -> bool where U: PartialEq<T> {
+    pub fn contains<U>(&self, x: &U) -> bool
+    where
+        U: PartialEq<T>,
+    {
         match self {
             Some(y) => x == y,
             None => false,
@@ -289,16 +295,13 @@ impl<T> Option<T> {
         }
     }
 
-
     /// Converts from [`Pin`]`<&Option<T>>` to `Option<`[`Pin`]`<&T>>`.
     ///
     /// [`Pin`]: ../pin/struct.Pin.html
     #[inline]
     #[stable(feature = "pin", since = "1.33.0")]
-    pub fn as_pin_ref<'a>(self: Pin<&'a Option<T>>) -> Option<Pin<&'a T>> {
-        unsafe {
-            Pin::get_ref(self).as_ref().map(|x| Pin::new_unchecked(x))
-        }
+    pub fn as_pin_ref(self: Pin<&Self>) -> Option<Pin<&T>> {
+        unsafe { Pin::get_ref(self).as_ref().map(|x| Pin::new_unchecked(x)) }
     }
 
     /// Converts from [`Pin`]`<&mut Option<T>>` to `Option<`[`Pin`]`<&mut T>>`.
@@ -306,17 +309,15 @@ impl<T> Option<T> {
     /// [`Pin`]: ../pin/struct.Pin.html
     #[inline]
     #[stable(feature = "pin", since = "1.33.0")]
-    pub fn as_pin_mut<'a>(self: Pin<&'a mut Option<T>>) -> Option<Pin<&'a mut T>> {
-        unsafe {
-            Pin::get_unchecked_mut(self).as_mut().map(|x| Pin::new_unchecked(x))
-        }
+    pub fn as_pin_mut(self: Pin<&mut Self>) -> Option<Pin<&mut T>> {
+        unsafe { Pin::get_unchecked_mut(self).as_mut().map(|x| Pin::new_unchecked(x)) }
     }
 
     /////////////////////////////////////////////////////////////////////////
     // Getting to contained values
     /////////////////////////////////////////////////////////////////////////
 
-    /// Unwraps an option, yielding the content of a [`Some`].
+    /// Returns the contained [`Some`] value, consuming the `self` value.
     ///
     /// # Panics
     ///
@@ -330,14 +331,15 @@ impl<T> Option<T> {
     ///
     /// ```
     /// let x = Some("value");
-    /// assert_eq!(x.expect("the world is ending"), "value");
+    /// assert_eq!(x.expect("fruits are healthy"), "value");
     /// ```
     ///
     /// ```{.should_panic}
     /// let x: Option<&str> = None;
-    /// x.expect("the world is ending"); // panics with `the world is ending`
+    /// x.expect("fruits are healthy"); // panics with `fruits are healthy`
     /// ```
     #[inline]
+    #[track_caller]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn expect(self, msg: &str) -> T {
         match self {
@@ -346,17 +348,22 @@ impl<T> Option<T> {
         }
     }
 
-    /// Moves the value `v` out of the `Option<T>` if it is [`Some(v)`].
+    /// Returns the contained [`Some`] value, consuming the `self` value.
     ///
-    /// In general, because this function may panic, its use is discouraged.
+    /// Because this function may panic, its use is generally discouraged.
     /// Instead, prefer to use pattern matching and handle the [`None`]
-    /// case explicitly.
+    /// case explicitly, or call [`unwrap_or`], [`unwrap_or_else`], or
+    /// [`unwrap_or_default`].
+    ///
+    /// [`unwrap_or`]: #method.unwrap_or
+    /// [`unwrap_or_else`]: #method.unwrap_or_else
+    /// [`unwrap_or_default`]: #method.unwrap_or_default
     ///
     /// # Panics
     ///
     /// Panics if the self value equals [`None`].
     ///
-    /// [`Some(v)`]: #variant.Some
+    /// [`Some`]: #variant.Some
     /// [`None`]: #variant.None
     ///
     /// # Examples
@@ -371,6 +378,7 @@ impl<T> Option<T> {
     /// assert_eq!(x.unwrap(), "air"); // fails
     /// ```
     #[inline]
+    #[track_caller]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn unwrap(self) -> T {
         match self {
@@ -379,12 +387,13 @@ impl<T> Option<T> {
         }
     }
 
-    /// Returns the contained value or a default.
+    /// Returns the contained [`Some`] value or a provided default.
     ///
     /// Arguments passed to `unwrap_or` are eagerly evaluated; if you are passing
     /// the result of a function call, it is recommended to use [`unwrap_or_else`],
     /// which is lazily evaluated.
     ///
+    /// [`Some`]: #variant.Some
     /// [`unwrap_or_else`]: #method.unwrap_or_else
     ///
     /// # Examples
@@ -395,14 +404,14 @@ impl<T> Option<T> {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn unwrap_or(self, def: T) -> T {
+    pub fn unwrap_or(self, default: T) -> T {
         match self {
             Some(x) => x,
-            None => def,
+            None => default,
         }
     }
 
-    /// Returns the contained value or computes it from a closure.
+    /// Returns the contained [`Some`] value or computes it from a closure.
     ///
     /// # Examples
     ///
@@ -451,6 +460,12 @@ impl<T> Option<T> {
 
     /// Applies a function to the contained value (if any),
     /// or returns the provided default (if not).
+    ///
+    /// Arguments passed to `map_or` are eagerly evaluated; if you are passing
+    /// the result of a function call, it is recommended to use [`map_or_else`],
+    /// which is lazily evaluated.
+    ///
+    /// [`map_or_else`]: #method.map_or_else
     ///
     /// # Examples
     ///
@@ -688,7 +703,7 @@ impl<T> Option<T> {
     pub fn filter<P: FnOnce(&T) -> bool>(self, predicate: P) -> Self {
         if let Some(x) = self {
             if predicate(&x) {
-                return Some(x)
+                return Some(x);
             }
         }
         None
@@ -837,9 +852,8 @@ impl<T> Option<T> {
     #[inline]
     #[stable(feature = "option_entry", since = "1.20.0")]
     pub fn get_or_insert_with<F: FnOnce() -> T>(&mut self, f: F) -> &mut T {
-        match *self {
-            None => *self = Some(f()),
-            _ => (),
+        if let None = *self {
+            *self = Some(f());
         }
 
         match *self {
@@ -898,6 +912,63 @@ impl<T> Option<T> {
     #[stable(feature = "option_replace", since = "1.31.0")]
     pub fn replace(&mut self, value: T) -> Option<T> {
         mem::replace(self, Some(value))
+    }
+
+    /// Zips `self` with another `Option`.
+    ///
+    /// If `self` is `Some(s)` and `other` is `Some(o)`, this method returns `Some((s, o))`.
+    /// Otherwise, `None` is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(option_zip)]
+    /// let x = Some(1);
+    /// let y = Some("hi");
+    /// let z = None::<u8>;
+    ///
+    /// assert_eq!(x.zip(y), Some((1, "hi")));
+    /// assert_eq!(x.zip(z), None);
+    /// ```
+    #[unstable(feature = "option_zip", issue = "70086")]
+    pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)> {
+        self.zip_with(other, |a, b| (a, b))
+    }
+
+    /// Zips `self` and another `Option` with function `f`.
+    ///
+    /// If `self` is `Some(s)` and `other` is `Some(o)`, this method returns `Some(f(s, o))`.
+    /// Otherwise, `None` is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(option_zip)]
+    ///
+    /// #[derive(Debug, PartialEq)]
+    /// struct Point {
+    ///     x: f64,
+    ///     y: f64,
+    /// }
+    ///
+    /// impl Point {
+    ///     fn new(x: f64, y: f64) -> Self {
+    ///         Self { x, y }
+    ///     }
+    /// }
+    ///
+    /// let x = Some(17.5);
+    /// let y = Some(42.7);
+    ///
+    /// assert_eq!(x.zip_with(y, Point::new), Some(Point { x: 17.5, y: 42.7 }));
+    /// assert_eq!(x.zip_with(None, Point::new), None);
+    /// ```
+    #[unstable(feature = "option_zip", issue = "70086")]
+    pub fn zip_with<U, F, R>(self, other: Option<U>, f: F) -> Option<R>
+    where
+        F: FnOnce(T, U) -> R,
+    {
+        Some(f(self?, other?))
     }
 }
 
@@ -978,7 +1049,7 @@ impl<T: Clone> Option<&mut T> {
 }
 
 impl<T: fmt::Debug> Option<T> {
-    /// Unwraps an option, expecting [`None`] and returning nothing.
+    /// Consumes `self` while expecting [`None`] and returning nothing.
     ///
     /// # Panics
     ///
@@ -1013,6 +1084,7 @@ impl<T: fmt::Debug> Option<T> {
     /// }
     /// ```
     #[inline]
+    #[track_caller]
     #[unstable(feature = "option_expect_none", reason = "newly added", issue = "62633")]
     pub fn expect_none(self, msg: &str) {
         if let Some(val) = self {
@@ -1020,7 +1092,7 @@ impl<T: fmt::Debug> Option<T> {
         }
     }
 
-    /// Unwraps an option, expecting [`None`] and returning nothing.
+    /// Consumes `self` while expecting [`None`] and returning nothing.
     ///
     /// # Panics
     ///
@@ -1055,6 +1127,7 @@ impl<T: fmt::Debug> Option<T> {
     /// }
     /// ```
     #[inline]
+    #[track_caller]
     #[unstable(feature = "option_unwrap_none", reason = "newly added", issue = "62633")]
     pub fn unwrap_none(self) {
         if let Some(val) = self {
@@ -1064,7 +1137,7 @@ impl<T: fmt::Debug> Option<T> {
 }
 
 impl<T: Default> Option<T> {
-    /// Returns the contained value or a default
+    /// Returns the contained [`Some`] value or a default
     ///
     /// Consumes the `self` argument then, if [`Some`], returns the contained
     /// value, otherwise if [`None`], returns the [default value] for that
@@ -1102,7 +1175,6 @@ impl<T: Default> Option<T> {
     }
 }
 
-#[unstable(feature = "inner_deref", reason = "newly added", issue = "50264")]
 impl<T: Deref> Option<T> {
     /// Converts from `Option<T>` (or `&Option<T>`) to `Option<&T::Target>`.
     ///
@@ -1110,17 +1182,38 @@ impl<T: Deref> Option<T> {
     /// to the original one, additionally coercing the contents via [`Deref`].
     ///
     /// [`Deref`]: ../../std/ops/trait.Deref.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let x: Option<String> = Some("hey".to_owned());
+    /// assert_eq!(x.as_deref(), Some("hey"));
+    ///
+    /// let x: Option<String> = None;
+    /// assert_eq!(x.as_deref(), None);
+    /// ```
+    #[stable(feature = "option_deref", since = "1.40.0")]
     pub fn as_deref(&self) -> Option<&T::Target> {
         self.as_ref().map(|t| t.deref())
     }
 }
 
-#[unstable(feature = "inner_deref", reason = "newly added", issue = "50264")]
 impl<T: DerefMut> Option<T> {
     /// Converts from `Option<T>` (or `&mut Option<T>`) to `Option<&mut T::Target>`.
     ///
     /// Leaves the original `Option` in-place, creating a new one containing a mutable reference to
     /// the inner type's `Deref::Target` type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut x: Option<String> = Some("hey".to_owned());
+    /// assert_eq!(x.as_deref_mut().map(|x| {
+    ///     x.make_ascii_uppercase();
+    ///     x
+    /// }), Some("HEY".to_owned().as_mut_str()));
+    /// ```
+    #[stable(feature = "option_deref", since = "1.40.0")]
     pub fn as_deref_mut(&mut self) -> Option<&mut T::Target> {
         self.as_mut().map(|t| t.deref_mut())
     }
@@ -1162,6 +1255,7 @@ impl<T, E> Option<Result<T, E>> {
 // This is a separate function to reduce the code size of .expect() itself.
 #[inline(never)]
 #[cold]
+#[track_caller]
 fn expect_failed(msg: &str) -> ! {
     panic!("{}", msg)
 }
@@ -1169,6 +1263,7 @@ fn expect_failed(msg: &str) -> ! {
 // This is a separate function to reduce the code size of .expect_none() itself.
 #[inline(never)]
 #[cold]
+#[track_caller]
 fn expect_none_failed(msg: &str, value: &dyn fmt::Debug) -> ! {
     panic!("{}: {:?}", msg, value)
 }
@@ -1199,8 +1294,17 @@ impl<T: Clone> Clone for Option<T> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Default for Option<T> {
     /// Returns [`None`][Option::None].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let opt: Option<u32> = Option::default();
+    /// assert!(opt.is_none());
+    /// ```
     #[inline]
-    fn default() -> Option<T> { None }
+    fn default() -> Option<T> {
+        None
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1274,7 +1378,7 @@ impl<'a, T> From<&'a mut Option<T>> for Option<&'a mut T> {
 
 #[derive(Clone, Debug)]
 struct Item<A> {
-    opt: Option<A>
+    opt: Option<A>,
 }
 
 impl<A> Iterator for Item<A> {
@@ -1316,22 +1420,30 @@ unsafe impl<A> TrustedLen for Item<A> {}
 /// [`Option::iter`]: enum.Option.html#method.iter
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(Debug)]
-pub struct Iter<'a, A: 'a> { inner: Item<&'a A> }
+pub struct Iter<'a, A: 'a> {
+    inner: Item<&'a A>,
+}
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, A> Iterator for Iter<'a, A> {
     type Item = &'a A;
 
     #[inline]
-    fn next(&mut self) -> Option<&'a A> { self.inner.next() }
+    fn next(&mut self) -> Option<&'a A> {
+        self.inner.next()
+    }
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, A> DoubleEndedIterator for Iter<'a, A> {
     #[inline]
-    fn next_back(&mut self) -> Option<&'a A> { self.inner.next_back() }
+    fn next_back(&mut self) -> Option<&'a A> {
+        self.inner.next_back()
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1362,22 +1474,30 @@ impl<A> Clone for Iter<'_, A> {
 /// [`Option::iter_mut`]: enum.Option.html#method.iter_mut
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(Debug)]
-pub struct IterMut<'a, A: 'a> { inner: Item<&'a mut A> }
+pub struct IterMut<'a, A: 'a> {
+    inner: Item<&'a mut A>,
+}
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, A> Iterator for IterMut<'a, A> {
     type Item = &'a mut A;
 
     #[inline]
-    fn next(&mut self) -> Option<&'a mut A> { self.inner.next() }
+    fn next(&mut self) -> Option<&'a mut A> {
+        self.inner.next()
+    }
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, A> DoubleEndedIterator for IterMut<'a, A> {
     #[inline]
-    fn next_back(&mut self) -> Option<&'a mut A> { self.inner.next_back() }
+    fn next_back(&mut self) -> Option<&'a mut A> {
+        self.inner.next_back()
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1399,22 +1519,30 @@ unsafe impl<A> TrustedLen for IterMut<'_, A> {}
 /// [`Option::into_iter`]: enum.Option.html#method.into_iter
 #[derive(Clone, Debug)]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct IntoIter<A> { inner: Item<A> }
+pub struct IntoIter<A> {
+    inner: Item<A>,
+}
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<A> Iterator for IntoIter<A> {
     type Item = A;
 
     #[inline]
-    fn next(&mut self) -> Option<A> { self.inner.next() }
+    fn next(&mut self) -> Option<A> {
+        self.inner.next()
+    }
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<A> DoubleEndedIterator for IntoIter<A> {
     #[inline]
-    fn next_back(&mut self) -> Option<A> { self.inner.next_back() }
+    fn next_back(&mut self) -> Option<A> {
+        self.inner.next_back()
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1495,11 +1623,11 @@ impl<A, V: FromIterator<A>> FromIterator<Option<A>> for Option<V> {
     ///
     /// [`Iterator`]: ../iter/trait.Iterator.html
     #[inline]
-    fn from_iter<I: IntoIterator<Item=Option<A>>>(iter: I) -> Option<V> {
+    fn from_iter<I: IntoIterator<Item = Option<A>>>(iter: I) -> Option<V> {
         // FIXME(#11084): This could be replaced with Iterator::scan when this
         // performance bug is closed.
 
-        OptionShunt::process(iter.into_iter(), |i| i.collect())
+        iter.into_iter().map(|x| x.ok_or(())).collect::<Result<_, _>>().ok()
     }
 }
 
@@ -1538,7 +1666,6 @@ impl<T> Option<Option<T>> {
     /// # Examples
     /// Basic usage:
     /// ```
-    /// #![feature(option_flattening)]
     /// let x: Option<Option<u32>> = Some(Some(6));
     /// assert_eq!(Some(6), x.flatten());
     ///
@@ -1550,13 +1677,12 @@ impl<T> Option<Option<T>> {
     /// ```
     /// Flattening once only removes one level of nesting:
     /// ```
-    /// #![feature(option_flattening)]
     /// let x: Option<Option<Option<u32>>> = Some(Some(Some(6)));
     /// assert_eq!(Some(Some(6)), x.flatten());
     /// assert_eq!(Some(6), x.flatten().flatten());
     /// ```
     #[inline]
-    #[unstable(feature = "option_flattening", issue = "60258")]
+    #[stable(feature = "option_flattening", since = "1.40.0")]
     pub fn flatten(self) -> Option<T> {
         self.and_then(convert::identity)
     }

@@ -5,26 +5,31 @@ fn allocator_param() {
     use crate::alloc::AllocErr;
 
     // Writing a test of integration between third-party
-    // allocators and RawVec is a little tricky because the RawVec
+    // allocators and `RawVec` is a little tricky because the `RawVec`
     // API does not expose fallible allocation methods, so we
     // cannot check what happens when allocator is exhausted
     // (beyond detecting a panic).
     //
-    // Instead, this just checks that the RawVec methods do at
+    // Instead, this just checks that the `RawVec` methods do at
     // least go through the Allocator API when it reserves
     // storage.
 
     // A dumb allocator that consumes a fixed amount of fuel
     // before allocation attempts start failing.
-    struct BoundedAlloc { fuel: usize }
-    unsafe impl Alloc for BoundedAlloc {
-        unsafe fn alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocErr> {
+    struct BoundedAlloc {
+        fuel: usize,
+    }
+    unsafe impl AllocRef for BoundedAlloc {
+        fn alloc(&mut self, layout: Layout) -> Result<(NonNull<u8>, usize), AllocErr> {
             let size = layout.size();
             if size > self.fuel {
                 return Err(AllocErr);
             }
             match Global.alloc(layout) {
-                ok @ Ok(_) => { self.fuel -= size; ok }
+                ok @ Ok(_) => {
+                    self.fuel -= size;
+                    ok
+                }
                 err @ Err(_) => err,
             }
         }
@@ -44,7 +49,7 @@ fn allocator_param() {
 fn reserve_does_not_overallocate() {
     {
         let mut v: RawVec<u32> = RawVec::new();
-        // First `reserve` allocates like `reserve_exact`
+        // First, `reserve` allocates like `reserve_exact`.
         v.reserve(0, 9);
         assert_eq!(9, v.capacity());
     }

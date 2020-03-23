@@ -21,10 +21,7 @@ type GroupWord = u32;
 pub type BitMaskWord = GroupWord;
 pub const BITMASK_STRIDE: usize = 8;
 // We only care about the highest bit of each byte for the mask.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::unnecessary_cast,
-)]
+#[allow(clippy::cast_possible_truncation, clippy::unnecessary_cast)]
 pub const BITMASK_MASK: BitMaskWord = 0x8080_8080_8080_8080_u64 as GroupWord;
 
 /// Helper function to replicate a byte across a `GroupWord`.
@@ -54,7 +51,8 @@ impl Group {
     pub const WIDTH: usize = mem::size_of::<Self>();
 
     /// Returns a full group of empty bytes, suitable for use as the initial
-    /// value for an empty hash table.
+    /// value for an empty hash table. This value is explicitly declared as
+    /// a static variable to ensure the address is consistent across dylibs.
     ///
     /// This is guaranteed to be aligned to the group size.
     #[inline]
@@ -63,7 +61,7 @@ impl Group {
             _align: Group,
             bytes: [u8; Group::WIDTH],
         };
-        const ALIGNED_BYTES: AlignedBytes = AlignedBytes {
+        static ALIGNED_BYTES: AlignedBytes = AlignedBytes {
             bytes: [EMPTY; Group::WIDTH],
         };
         unsafe { &ALIGNED_BYTES.bytes }
@@ -134,7 +132,7 @@ impl Group {
 
     /// Returns a `BitMask` indicating all bytes in the group which are full.
     #[inline]
-    pub fn match_full(&self) -> BitMask {
+    pub fn match_full(self) -> BitMask {
         self.match_empty_or_deleted().invert()
     }
 

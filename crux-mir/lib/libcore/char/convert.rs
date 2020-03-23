@@ -2,8 +2,8 @@
 
 use crate::convert::TryFrom;
 use crate::fmt;
-use crate::mem::crucible_identity_transmute;
-#[cfg(from_str)] use crate::str::FromStr;
+use crate::mem::transmute;
+use crate::str::FromStr;
 
 use super::MAX;
 
@@ -99,7 +99,7 @@ pub fn from_u32(i: u32) -> Option<char> {
 #[inline]
 #[stable(feature = "char_from_unchecked", since = "1.5.0")]
 pub unsafe fn from_u32_unchecked(i: u32) -> char {
-    crucible_identity_transmute(i)
+    transmute(i)
 }
 
 #[stable(feature = "char_convert", since = "1.13.0")]
@@ -111,11 +111,9 @@ impl From<char> for u32 {
     /// ```
     /// use std::mem;
     ///
-    /// fn main() {
-    ///     let c = 'c';
-    ///     let u = u32::from(c);
-    ///     assert!(4 == mem::size_of_val(&u))
-    /// }
+    /// let c = 'c';
+    /// let u = u32::from(c);
+    /// assert!(4 == mem::size_of_val(&u))
     /// ```
     #[inline]
     fn from(c: char) -> Self {
@@ -150,11 +148,9 @@ impl From<u8> for char {
     /// ```
     /// use std::mem;
     ///
-    /// fn main() {
-    ///     let u = 32 as u8;
-    ///     let c = char::from(u);
-    ///     assert!(4 == mem::size_of_val(&c))
-    /// }
+    /// let u = 32 as u8;
+    /// let c = char::from(u);
+    /// assert!(4 == mem::size_of_val(&c))
     /// ```
     #[inline]
     fn from(i: u8) -> Self {
@@ -162,49 +158,42 @@ impl From<u8> for char {
     }
 }
 
-
 /// An error which can be returned when parsing a char.
 #[stable(feature = "char_from_str", since = "1.20.0")]
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg(from_str)]
 pub struct ParseCharError {
     kind: CharErrorKind,
 }
 
-#[cfg(from_str)]
 impl ParseCharError {
-    #[unstable(feature = "char_error_internals",
-               reason = "this method should not be available publicly",
-               issue = "0")]
+    #[unstable(
+        feature = "char_error_internals",
+        reason = "this method should not be available publicly",
+        issue = "none"
+    )]
     #[doc(hidden)]
     pub fn __description(&self) -> &str {
         match self.kind {
-            CharErrorKind::EmptyString => {
-                "cannot parse char from empty string"
-            },
-            CharErrorKind::TooManyChars => "too many characters in string"
+            CharErrorKind::EmptyString => "cannot parse char from empty string",
+            CharErrorKind::TooManyChars => "too many characters in string",
         }
     }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg(from_str)]
 enum CharErrorKind {
     EmptyString,
     TooManyChars,
 }
 
 #[stable(feature = "char_from_str", since = "1.20.0")]
-#[cfg(from_str)]
 impl fmt::Display for ParseCharError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.__description().fmt(f)
     }
 }
 
-
 #[stable(feature = "char_from_str", since = "1.20.0")]
-#[cfg(from_str)]
 impl FromStr for char {
     type Err = ParseCharError;
 
@@ -212,17 +201,12 @@ impl FromStr for char {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut chars = s.chars();
         match (chars.next(), chars.next()) {
-            (None, _) => {
-                Err(ParseCharError { kind: CharErrorKind::EmptyString })
-            },
+            (None, _) => Err(ParseCharError { kind: CharErrorKind::EmptyString }),
             (Some(c), None) => Ok(c),
-            _ => {
-                Err(ParseCharError { kind: CharErrorKind::TooManyChars })
-            }
+            _ => Err(ParseCharError { kind: CharErrorKind::TooManyChars }),
         }
     }
 }
-
 
 #[stable(feature = "try_from", since = "1.34.0")]
 impl TryFrom<u32> for char {
@@ -233,6 +217,7 @@ impl TryFrom<u32> for char {
         if (i > MAX as u32) || (i >= 0xD800 && i <= 0xDFFF) {
             Err(CharTryFromError(()))
         } else {
+            // SAFETY: checked that it's a legal unicode value
             Ok(unsafe { from_u32_unchecked(i) })
         }
     }
@@ -312,11 +297,7 @@ pub fn from_digit(num: u32, radix: u32) -> Option<char> {
     }
     if num < radix {
         let num = num as u8;
-        if num < 10 {
-            Some((b'0' + num) as char)
-        } else {
-            Some((b'a' + num - 10) as char)
-        }
+        if num < 10 { Some((b'0' + num) as char) } else { Some((b'a' + num - 10) as char) }
     } else {
         None
     }

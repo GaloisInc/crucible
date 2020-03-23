@@ -9,12 +9,12 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use crate::fmt;
 use crate::ffi::OsString;
-use crate::io::{self, SeekFrom, Seek, Read, Initializer, Write, IoSlice, IoSliceMut};
+use crate::fmt;
+use crate::io::{self, Initializer, IoSlice, IoSliceMut, Read, Seek, SeekFrom, Write};
 use crate::path::{Path, PathBuf};
 use crate::sys::fs as fs_imp;
-use crate::sys_common::{AsInnerMut, FromInner, AsInner, IntoInner};
+use crate::sys_common::{AsInner, AsInnerMut, FromInner, IntoInner};
 use crate::time::SystemTime;
 
 /// A reference to an open file on the filesystem.
@@ -29,7 +29,7 @@ use crate::time::SystemTime;
 ///
 /// # Examples
 ///
-/// Creates a new file and write bytes to it:
+/// Creates a new file and write bytes to it (you can also use [`write`]):
 ///
 /// ```no_run
 /// use std::fs::File;
@@ -42,7 +42,7 @@ use crate::time::SystemTime;
 /// }
 /// ```
 ///
-/// Read the contents of a file into a [`String`]:
+/// Read the contents of a file into a [`String`] (you can also use [`read`]):
 ///
 /// ```no_run
 /// use std::fs::File;
@@ -89,6 +89,8 @@ use crate::time::SystemTime;
 /// [`Write`]: ../io/trait.Write.html
 /// [`BufReader<R>`]: ../io/struct.BufReader.html
 /// [`sync_all`]: struct.File.html#method.sync_all
+/// [`read`]: fn.read.html
+/// [`write`]: fn.write.html
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct File {
     inner: fs_imp::File,
@@ -113,6 +115,9 @@ pub struct Metadata(fs_imp::FileAttr);
 /// will yield instances of [`io::Result`]`<`[`DirEntry`]`>`. Through a [`DirEntry`]
 /// information like the entry's path and possibly other metadata can be
 /// learned.
+///
+/// The order in which this iterator returns entries is platform and filesystem
+/// dependent.
 ///
 /// # Errors
 ///
@@ -394,6 +399,37 @@ impl File {
         OpenOptions::new().write(true).create(true).truncate(true).open(path.as_ref())
     }
 
+    /// Returns a new OpenOptions object.
+    ///
+    /// This function returns a new OpenOptions object that you can use to
+    /// open or create a file with specific options if `open()` or `create()`
+    /// are not appropriate.
+    ///
+    /// It is equivalent to `OpenOptions::new()` but allows you to write more
+    /// readable code. Instead of `OpenOptions::new().read(true).open("foo.txt")`
+    /// you can write `File::with_options().read(true).open("foo.txt")`. This
+    /// also avoids the need to import `OpenOptions`.
+    ///
+    /// See the [`OpenOptions::new`] function for more details.
+    ///
+    /// [`OpenOptions::new`]: struct.OpenOptions.html#method.new
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// #![feature(with_options)]
+    /// use std::fs::File;
+    ///
+    /// fn main() -> std::io::Result<()> {
+    ///     let mut f = File::with_options().read(true).open("foo.txt")?;
+    ///     Ok(())
+    /// }
+    /// ```
+    #[unstable(feature = "with_options", issue = "65439")]
+    pub fn with_options() -> OpenOptions {
+        OpenOptions::new()
+    }
+
     /// Attempts to sync all OS-internal metadata to disk.
     ///
     /// This function will attempt to ensure that all in-memory data reaches the
@@ -468,6 +504,8 @@ impl File {
     /// # Errors
     ///
     /// This function will return an error if the file is not opened for writing.
+    /// Also, std::io::ErrorKind::InvalidInput will be returned if the desired
+    /// length would cause an overflow due to the implementation specifics.
     ///
     /// # Examples
     ///
@@ -547,9 +585,7 @@ impl File {
     /// ```
     #[stable(feature = "file_try_clone", since = "1.9.0")]
     pub fn try_clone(&self) -> io::Result<File> {
-        Ok(File {
-            inner: self.inner.duplicate()?
-        })
+        Ok(File { inner: self.inner.duplicate()? })
     }
 
     /// Changes the permissions on the underlying file.
@@ -591,7 +627,9 @@ impl File {
 }
 
 impl AsInner<fs_imp::File> for File {
-    fn as_inner(&self) -> &fs_imp::File { &self.inner }
+    fn as_inner(&self) -> &fs_imp::File {
+        &self.inner
+    }
 }
 impl FromInner<fs_imp::File> for File {
     fn from_inner(f: fs_imp::File) -> File {
@@ -636,7 +674,9 @@ impl Write for File {
         self.inner.write_vectored(bufs)
     }
 
-    fn flush(&mut self) -> io::Result<()> { self.inner.flush() }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Seek for File {
@@ -669,7 +709,9 @@ impl Write for &File {
         self.inner.write_vectored(bufs)
     }
 
-    fn flush(&mut self) -> io::Result<()> { self.inner.flush() }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Seek for &File {
@@ -710,7 +752,8 @@ impl OpenOptions {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn read(&mut self, read: bool) -> &mut OpenOptions {
-        self.0.read(read); self
+        self.0.read(read);
+        self
     }
 
     /// Sets the option for write access.
@@ -730,7 +773,8 @@ impl OpenOptions {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn write(&mut self, write: bool) -> &mut OpenOptions {
-        self.0.write(write); self
+        self.0.write(write);
+        self
     }
 
     /// Sets the option for the append mode.
@@ -776,7 +820,8 @@ impl OpenOptions {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn append(&mut self, append: bool) -> &mut OpenOptions {
-        self.0.append(append); self
+        self.0.append(append);
+        self
     }
 
     /// Sets the option for truncating a previous file.
@@ -795,13 +840,11 @@ impl OpenOptions {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn truncate(&mut self, truncate: bool) -> &mut OpenOptions {
-        self.0.truncate(truncate); self
+        self.0.truncate(truncate);
+        self
     }
 
-    /// Sets the option for creating a new file.
-    ///
-    /// This option indicates whether a new file will be created if the file
-    /// does not yet already exist.
+    /// Sets the option to create a new file, or open it if it already exists.
     ///
     /// In order for the file to be created, [`write`] or [`append`] access must
     /// be used.
@@ -818,14 +861,14 @@ impl OpenOptions {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn create(&mut self, create: bool) -> &mut OpenOptions {
-        self.0.create(create); self
+        self.0.create(create);
+        self
     }
 
-    /// Sets the option to always create a new file.
+    /// Sets the option to create a new file, failing if it already exists.
     ///
-    /// This option indicates whether a new file will be created.
-    /// No file is allowed to exist at the target location, also no (dangling)
-    /// symlink.
+    /// No file is allowed to exist at the target location, also no (dangling) symlink. In this
+    /// way, if the call succeeds, the file returned is guaranteed to be new.
     ///
     /// This option is useful because it is atomic. Otherwise between checking
     /// whether a file exists and creating a new one, the file may have been
@@ -851,7 +894,8 @@ impl OpenOptions {
     /// ```
     #[stable(feature = "expand_open_options2", since = "1.9.0")]
     pub fn create_new(&mut self, create_new: bool) -> &mut OpenOptions {
-        self.0.create_new(create_new); self
+        self.0.create_new(create_new);
+        self
     }
 
     /// Opens a file at `path` with the options specified by `self`.
@@ -888,7 +932,7 @@ impl OpenOptions {
     /// ```no_run
     /// use std::fs::OpenOptions;
     ///
-    /// let file = OpenOptions::new().open("foo.txt");
+    /// let file = OpenOptions::new().read(true).open("foo.txt");
     /// ```
     ///
     /// [`ErrorKind`]: ../io/enum.ErrorKind.html
@@ -908,11 +952,15 @@ impl OpenOptions {
 }
 
 impl AsInner<fs_imp::OpenOptions> for OpenOptions {
-    fn as_inner(&self) -> &fs_imp::OpenOptions { &self.0 }
+    fn as_inner(&self) -> &fs_imp::OpenOptions {
+        &self.0
+    }
 }
 
 impl AsInnerMut<fs_imp::OpenOptions> for OpenOptions {
-    fn as_inner_mut(&mut self) -> &mut fs_imp::OpenOptions { &mut self.0 }
+    fn as_inner_mut(&mut self) -> &mut fs_imp::OpenOptions {
+        &mut self.0
+    }
 }
 
 impl Metadata {
@@ -956,7 +1004,9 @@ impl Metadata {
     /// }
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn is_dir(&self) -> bool { self.file_type().is_dir() }
+    pub fn is_dir(&self) -> bool {
+        self.file_type().is_dir()
+    }
 
     /// Returns `true` if this metadata is for a regular file. The
     /// result is mutually exclusive to the result of
@@ -979,7 +1029,9 @@ impl Metadata {
     /// }
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn is_file(&self) -> bool { self.file_type().is_file() }
+    pub fn is_file(&self) -> bool {
+        self.file_type().is_file()
+    }
 
     /// Returns the size of the file, in bytes, this metadata is for.
     ///
@@ -996,7 +1048,9 @@ impl Metadata {
     /// }
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn len(&self) -> u64 { self.0.size() }
+    pub fn len(&self) -> u64 {
+        self.0.size()
+    }
 
     /// Returns the permissions of the file this metadata is for.
     ///
@@ -1085,13 +1139,14 @@ impl Metadata {
 
     /// Returns the creation time listed in this metadata.
     ///
-    /// The returned value corresponds to the `birthtime` field of `stat` on
-    /// Unix platforms and the `ftCreationTime` field on Windows platforms.
+    /// The returned value corresponds to the `btime` field of `statx` on
+    /// Linux kernel starting from to 4.11, the `birthtime` field of `stat` on other
+    /// Unix platforms, and the `ftCreationTime` field on Windows platforms.
     ///
     /// # Errors
     ///
     /// This field may not be available on all platforms, and will return an
-    /// `Err` on platforms where it is not available.
+    /// `Err` on platforms or filesystems where it is not available.
     ///
     /// # Examples
     ///
@@ -1104,7 +1159,7 @@ impl Metadata {
     ///     if let Ok(time) = metadata.created() {
     ///         println!("{:?}", time);
     ///     } else {
-    ///         println!("Not supported on this platform");
+    ///         println!("Not supported on this platform or filesystem");
     ///     }
     ///     Ok(())
     /// }
@@ -1131,11 +1186,15 @@ impl fmt::Debug for Metadata {
 }
 
 impl AsInner<fs_imp::FileAttr> for Metadata {
-    fn as_inner(&self) -> &fs_imp::FileAttr { &self.0 }
+    fn as_inner(&self) -> &fs_imp::FileAttr {
+        &self.0
+    }
 }
 
 impl FromInner<fs_imp::FileAttr> for Metadata {
-    fn from_inner(attr: fs_imp::FileAttr) -> Metadata { Metadata(attr) }
+    fn from_inner(attr: fs_imp::FileAttr) -> Metadata {
+        Metadata(attr)
+    }
 }
 
 impl Permissions {
@@ -1155,7 +1214,9 @@ impl Permissions {
     /// }
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn readonly(&self) -> bool { self.0.readonly() }
+    pub fn readonly(&self) -> bool {
+        self.0.readonly()
+    }
 
     /// Modifies the readonly flag for this set of permissions. If the
     /// `readonly` argument is `true`, using the resulting `Permission` will
@@ -1217,7 +1278,9 @@ impl FileType {
     /// }
     /// ```
     #[stable(feature = "file_type", since = "1.1.0")]
-    pub fn is_dir(&self) -> bool { self.0.is_dir() }
+    pub fn is_dir(&self) -> bool {
+        self.0.is_dir()
+    }
 
     /// Tests whether this file type represents a regular file.
     /// The result is  mutually exclusive to the results of
@@ -1241,7 +1304,9 @@ impl FileType {
     /// }
     /// ```
     #[stable(feature = "file_type", since = "1.1.0")]
-    pub fn is_file(&self) -> bool { self.0.is_file() }
+    pub fn is_file(&self) -> bool {
+        self.0.is_file()
+    }
 
     /// Tests whether this file type represents a symbolic link.
     /// The result is mutually exclusive to the results of
@@ -1275,11 +1340,15 @@ impl FileType {
     /// }
     /// ```
     #[stable(feature = "file_type", since = "1.1.0")]
-    pub fn is_symlink(&self) -> bool { self.0.is_symlink() }
+    pub fn is_symlink(&self) -> bool {
+        self.0.is_symlink()
+    }
 }
 
 impl AsInner<fs_imp::FileType> for FileType {
-    fn as_inner(&self) -> &fs_imp::FileType { &self.0 }
+    fn as_inner(&self) -> &fs_imp::FileType {
+        &self.0
+    }
 }
 
 impl FromInner<fs_imp::FilePermissions> for Permissions {
@@ -1289,7 +1358,9 @@ impl FromInner<fs_imp::FilePermissions> for Permissions {
 }
 
 impl AsInner<fs_imp::FilePermissions> for Permissions {
-    fn as_inner(&self) -> &fs_imp::FilePermissions { &self.0 }
+    fn as_inner(&self) -> &fs_imp::FilePermissions {
+        &self.0
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1331,7 +1402,9 @@ impl DirEntry {
     ///
     /// The exact text, of course, depends on what files you have in `.`.
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn path(&self) -> PathBuf { self.0.path() }
+    pub fn path(&self) -> PathBuf {
+        self.0.path()
+    }
 
     /// Returns the metadata for the file that this entry points at.
     ///
@@ -1429,14 +1502,14 @@ impl DirEntry {
 #[stable(feature = "dir_entry_debug", since = "1.13.0")]
 impl fmt::Debug for DirEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("DirEntry")
-            .field(&self.path())
-            .finish()
+        f.debug_tuple("DirEntry").field(&self.path()).finish()
     }
 }
 
 impl AsInner<fs_imp::DirEntry> for DirEntry {
-    fn as_inner(&self) -> &fs_imp::DirEntry { &self.0 }
+    fn as_inner(&self) -> &fs_imp::DirEntry {
+        &self.0
+    }
 }
 
 /// Removes a file from the filesystem.
@@ -1705,9 +1778,11 @@ pub fn hard_link<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<(
 /// }
 /// ```
 #[stable(feature = "rust1", since = "1.0.0")]
-#[rustc_deprecated(since = "1.1.0",
-             reason = "replaced with std::os::unix::fs::symlink and \
-                       std::os::windows::fs::{symlink_file, symlink_dir}")]
+#[rustc_deprecated(
+    since = "1.1.0",
+    reason = "replaced with std::os::unix::fs::symlink and \
+              std::os::windows::fs::{symlink_file, symlink_dir}"
+)]
 pub fn soft_link<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<()> {
     fs_imp::symlink(src.as_ref(), dst.as_ref())
 }
@@ -1762,7 +1837,7 @@ pub fn read_link<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
 /// or written to a file another application may read).
 ///
 /// [changes]: ../io/index.html#platform-specific-behavior
-/// [path]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247(v=vs.85).aspx#maxpath
+/// [path]: https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file
 ///
 /// # Errors
 ///
@@ -1954,10 +2029,14 @@ pub fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
 /// # Platform-specific behavior
 ///
 /// This function currently corresponds to the `opendir` function on Unix
-/// and the `FindFirstFile` function on Windows.
+/// and the `FindFirstFile` function on Windows. Advancing the iterator
+/// currently corresponds to `readdir` on Unix and `FindNextFile` on Windows.
 /// Note that, this [may change in the future][changes].
 ///
 /// [changes]: ../io/index.html#platform-specific-behavior
+///
+/// The order in which this iterator returns entries is platform and filesystem
+/// dependent.
 ///
 /// # Errors
 ///
@@ -1988,6 +2067,25 @@ pub fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
 ///             }
 ///         }
 ///     }
+///     Ok(())
+/// }
+/// ```
+///
+/// ```rust,no_run
+/// use std::{fs, io};
+///
+/// fn main() -> io::Result<()> {
+///     let mut entries = fs::read_dir(".")?
+///         .map(|res| res.map(|e| e.path()))
+///         .collect::<Result<Vec<_>, io::Error>>()?;
+///
+///     // The order in which `read_dir` returns entries is not guaranteed. If reproducible
+///     // ordering is required the entries should be explicitly sorted.
+///
+///     entries.sort();
+///
+///     // The entries have now been sorted by their path.
+///
 ///     Ok(())
 /// }
 /// ```
@@ -2027,8 +2125,7 @@ pub fn read_dir<P: AsRef<Path>>(path: P) -> io::Result<ReadDir> {
 /// }
 /// ```
 #[stable(feature = "set_permissions", since = "1.1.0")]
-pub fn set_permissions<P: AsRef<Path>>(path: P, perm: Permissions)
-                                       -> io::Result<()> {
+pub fn set_permissions<P: AsRef<Path>>(path: P, perm: Permissions) -> io::Result<()> {
     fs_imp::set_perm(path.as_ref(), perm.0)
 }
 
@@ -2045,10 +2142,7 @@ impl DirBuilder {
     /// ```
     #[stable(feature = "dir_builder", since = "1.6.0")]
     pub fn new() -> DirBuilder {
-        DirBuilder {
-            inner: fs_imp::DirBuilder::new(),
-            recursive: false,
-        }
+        DirBuilder { inner: fs_imp::DirBuilder::new(), recursive: false }
     }
 
     /// Indicates that directories should be created recursively, creating all
@@ -2095,16 +2189,12 @@ impl DirBuilder {
     }
 
     fn _create(&self, path: &Path) -> io::Result<()> {
-        if self.recursive {
-            self.create_dir_all(path)
-        } else {
-            self.inner.mkdir(path)
-        }
+        if self.recursive { self.create_dir_all(path) } else { self.inner.mkdir(path) }
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {
         if path == Path::new("") {
-            return Ok(())
+            return Ok(());
         }
 
         match self.inner.mkdir(path) {
@@ -2115,7 +2205,9 @@ impl DirBuilder {
         }
         match path.parent() {
             Some(p) => self.create_dir_all(p)?,
-            None => return Err(io::Error::new(io::ErrorKind::Other, "failed to create whole tree")),
+            None => {
+                return Err(io::Error::new(io::ErrorKind::Other, "failed to create whole tree"));
+            }
         }
         match self.inner.mkdir(path) {
             Ok(()) => Ok(()),
@@ -2139,48 +2231,62 @@ mod tests {
     use crate::io::{ErrorKind, SeekFrom};
     use crate::path::Path;
     use crate::str;
-    use crate::sys_common::io::test::{TempDir, tmpdir};
+    use crate::sys_common::io::test::{tmpdir, TempDir};
     use crate::thread;
 
-    use rand::{rngs::StdRng, FromEntropy, RngCore};
+    use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-    #[cfg(windows)]
-    use crate::os::windows::fs::{symlink_dir, symlink_file};
-    #[cfg(windows)]
-    use crate::sys::fs::symlink_junction;
     #[cfg(unix)]
     use crate::os::unix::fs::symlink as symlink_dir;
     #[cfg(unix)]
     use crate::os::unix::fs::symlink as symlink_file;
     #[cfg(unix)]
     use crate::os::unix::fs::symlink as symlink_junction;
+    #[cfg(windows)]
+    use crate::os::windows::fs::{symlink_dir, symlink_file};
+    #[cfg(windows)]
+    use crate::sys::fs::symlink_junction;
 
-    macro_rules! check { ($e:expr) => (
-        match $e {
-            Ok(t) => t,
-            Err(e) => panic!("{} failed with: {}", stringify!($e), e),
-        }
-    ) }
+    macro_rules! check {
+        ($e:expr) => {
+            match $e {
+                Ok(t) => t,
+                Err(e) => panic!("{} failed with: {}", stringify!($e), e),
+            }
+        };
+    }
 
     #[cfg(windows)]
-    macro_rules! error { ($e:expr, $s:expr) => (
-        match $e {
-            Ok(_) => panic!("Unexpected success. Should've been: {:?}", $s),
-            Err(ref err) => assert!(err.raw_os_error() == Some($s),
-                                    format!("`{}` did not have a code of `{}`", err, $s))
-        }
-    ) }
+    macro_rules! error {
+        ($e:expr, $s:expr) => {
+            match $e {
+                Ok(_) => panic!("Unexpected success. Should've been: {:?}", $s),
+                Err(ref err) => assert!(
+                    err.raw_os_error() == Some($s),
+                    format!("`{}` did not have a code of `{}`", err, $s)
+                ),
+            }
+        };
+    }
 
     #[cfg(unix)]
-    macro_rules! error { ($e:expr, $s:expr) => ( error_contains!($e, $s) ) }
+    macro_rules! error {
+        ($e:expr, $s:expr) => {
+            error_contains!($e, $s)
+        };
+    }
 
-    macro_rules! error_contains { ($e:expr, $s:expr) => (
-        match $e {
-            Ok(_) => panic!("Unexpected success. Should've been: {:?}", $s),
-            Err(ref err) => assert!(err.to_string().contains($s),
-                                    format!("`{}` did not contain `{}`", err, $s))
-        }
-    ) }
+    macro_rules! error_contains {
+        ($e:expr, $s:expr) => {
+            match $e {
+                Ok(_) => panic!("Unexpected success. Should've been: {:?}", $s),
+                Err(ref err) => assert!(
+                    err.to_string().contains($s),
+                    format!("`{}` did not contain `{}`", err, $s)
+                ),
+            }
+        };
+    }
 
     // Several test fail on windows if the user does not have permission to
     // create symlinks (the `SeCreateSymbolicLinkPrivilege`). Instead of
@@ -2189,7 +2295,9 @@ mod tests {
     // tests most of the time, but at least we do if the user has the right
     // permissions.
     pub fn got_symlink_permission(tmpdir: &TempDir) -> bool {
-        if cfg!(unix) { return true }
+        if cfg!(unix) {
+            return true;
+        }
         let link = tmpdir.join("some_hopefully_unique_link_name");
 
         match symlink_file(r"nonexisting_target", link) {
@@ -2214,7 +2322,7 @@ mod tests {
             let mut read_buf = [0; 1028];
             let read_str = match check!(read_stream.read(&mut read_buf)) {
                 0 => panic!("shouldn't happen"),
-                n => str::from_utf8(&read_buf[..n]).unwrap().to_string()
+                n => str::from_utf8(&read_buf[..n]).unwrap().to_string(),
             };
             assert_eq!(read_str, message);
         }
@@ -2227,8 +2335,10 @@ mod tests {
         let filename = &tmpdir.join("file_that_does_not_exist.txt");
         let result = File::open(filename);
 
-        #[cfg(unix)]
+        #[cfg(all(unix, not(target_os = "vxworks")))]
         error!(result, "No such file or directory");
+        #[cfg(target_os = "vxworks")]
+        error!(result, "no such file or directory");
         #[cfg(windows)]
         error!(result, 2); // ERROR_FILE_NOT_FOUND
     }
@@ -2240,8 +2350,10 @@ mod tests {
 
         let result = fs::remove_file(filename);
 
-        #[cfg(unix)]
+        #[cfg(all(unix, not(target_os = "vxworks")))]
         error!(result, "No such file or directory");
+        #[cfg(target_os = "vxworks")]
+        error!(result, "no such file or directory");
         #[cfg(windows)]
         error!(result, 2); // ERROR_FILE_NOT_FOUND
     }
@@ -2301,9 +2413,9 @@ mod tests {
 
     #[test]
     fn file_test_io_seek_and_write() {
-        let initial_msg =   "food-is-yummy";
-        let overwrite_msg =    "-the-bar!!";
-        let final_msg =     "foo-the-bar!!";
+        let initial_msg = "food-is-yummy";
+        let overwrite_msg = "-the-bar!!";
+        let final_msg = "foo-the-bar!!";
         let seek_idx = 3;
         let mut read_mem = [0; 13];
         let tmpdir = tmpdir();
@@ -2326,7 +2438,7 @@ mod tests {
     #[test]
     fn file_test_io_seek_shakedown() {
         //                   01234567890123
-        let initial_msg =   "qwer-asdf-zxcv";
+        let initial_msg = "qwer-asdf-zxcv";
         let chunk_one: &str = "qwer";
         let chunk_two: &str = "asdf";
         let chunk_three: &str = "zxcv";
@@ -2435,15 +2547,16 @@ mod tests {
         check!(fs::create_dir(filename));
         let mask = 0o7777;
 
-        check!(fs::set_permissions(filename,
-                                   fs::Permissions::from_mode(0)));
+        check!(fs::set_permissions(filename, fs::Permissions::from_mode(0)));
         let metadata0 = check!(fs::metadata(filename));
         assert_eq!(mask & metadata0.permissions().mode(), 0);
 
-        check!(fs::set_permissions(filename,
-                                   fs::Permissions::from_mode(0o1777)));
+        check!(fs::set_permissions(filename, fs::Permissions::from_mode(0o1777)));
         let metadata1 = check!(fs::metadata(filename));
+        #[cfg(all(unix, not(target_os = "vxworks")))]
         assert_eq!(mask & metadata1.permissions().mode(), 0o1777);
+        #[cfg(target_os = "vxworks")]
+        assert_eq!(mask & metadata1.permissions().mode(), 0o0777);
     }
 
     #[test]
@@ -2506,8 +2619,7 @@ mod tests {
         let filename = &tmpdir.join("file_stat_correct_on_is_file.txt");
         {
             let mut opts = OpenOptions::new();
-            let mut fs = check!(opts.read(true).write(true)
-                                    .create(true).open(filename));
+            let mut fs = check!(opts.read(true).write(true).create(true).open(filename));
             let msg = "hw";
             fs.write(msg.as_bytes()).unwrap();
 
@@ -2641,7 +2753,7 @@ mod tests {
             for _ in 0..40 {
                 dir = dir.join("a");
             }
-            let mut join = vec!();
+            let mut join = vec![];
             for _ in 0..8 {
                 let dir = dir.clone();
                 join.push(thread::spawn(move || {
@@ -2709,7 +2821,9 @@ mod tests {
     #[cfg(windows)]
     fn recursive_rmdir_of_file_symlink() {
         let tmpdir = tmpdir();
-        if !got_symlink_permission(&tmpdir) { return };
+        if !got_symlink_permission(&tmpdir) {
+            return;
+        };
 
         let f1 = tmpdir.join("f1");
         let f2 = tmpdir.join("f2");
@@ -2792,8 +2906,7 @@ mod tests {
         check!(check!(File::open(&out)).read_to_end(&mut v));
         assert_eq!(v, b"hello");
 
-        assert_eq!(check!(input.metadata()).permissions(),
-                   check!(out.metadata()).permissions());
+        assert_eq!(check!(input.metadata()).permissions(), check!(out.metadata()).permissions());
     }
 
     #[test]
@@ -2803,7 +2916,8 @@ mod tests {
 
         check!(File::create(&out));
         match fs::copy(&*out, tmpdir.path()) {
-            Ok(..) => panic!(), Err(..) => {}
+            Ok(..) => panic!(),
+            Err(..) => {}
         }
     }
 
@@ -2828,7 +2942,8 @@ mod tests {
         let out = tmpdir.join("out");
 
         match fs::copy(tmpdir.path(), &out) {
-            Ok(..) => panic!(), Err(..) => {}
+            Ok(..) => panic!(),
+            Err(..) => {}
         }
         assert!(!out.exists());
     }
@@ -2876,7 +2991,9 @@ mod tests {
     #[test]
     fn copy_file_follows_dst_symlink() {
         let tmp = tmpdir();
-        if !got_symlink_permission(&tmp) { return };
+        if !got_symlink_permission(&tmp) {
+            return;
+        };
 
         let in_path = tmp.join("in.txt");
         let out_path = tmp.join("out.txt");
@@ -2896,7 +3013,9 @@ mod tests {
     #[test]
     fn symlinks_work() {
         let tmpdir = tmpdir();
-        if !got_symlink_permission(&tmpdir) { return };
+        if !got_symlink_permission(&tmpdir) {
+            return;
+        };
 
         let input = tmpdir.join("in.txt");
         let out = tmpdir.join("out.txt");
@@ -2904,8 +3023,7 @@ mod tests {
         check!(check!(File::create(&input)).write("foobar".as_bytes()));
         check!(symlink_file(&input, &out));
         assert!(check!(out.symlink_metadata()).file_type().is_symlink());
-        assert_eq!(check!(fs::metadata(&out)).len(),
-                   check!(fs::metadata(&input)).len());
+        assert_eq!(check!(fs::metadata(&out)).len(), check!(fs::metadata(&input)).len());
         let mut v = Vec::new();
         check!(check!(File::open(&out)).read_to_end(&mut v));
         assert_eq!(v, b"foobar".to_vec());
@@ -2915,31 +3033,40 @@ mod tests {
     fn symlink_noexist() {
         // Symlinks can point to things that don't exist
         let tmpdir = tmpdir();
-        if !got_symlink_permission(&tmpdir) { return };
+        if !got_symlink_permission(&tmpdir) {
+            return;
+        };
 
         // Use a relative path for testing. Symlinks get normalized by Windows,
         // so we may not get the same path back for absolute paths
         check!(symlink_file(&"foo", &tmpdir.join("bar")));
-        assert_eq!(check!(fs::read_link(&tmpdir.join("bar"))).to_str().unwrap(),
-                   "foo");
+        assert_eq!(check!(fs::read_link(&tmpdir.join("bar"))).to_str().unwrap(), "foo");
     }
 
     #[test]
     fn read_link() {
         if cfg!(windows) {
             // directory symlink
-            assert_eq!(check!(fs::read_link(r"C:\Users\All Users")).to_str().unwrap(),
-                       r"C:\ProgramData");
+            assert_eq!(
+                check!(fs::read_link(r"C:\Users\All Users")).to_str().unwrap(),
+                r"C:\ProgramData"
+            );
             // junction
-            assert_eq!(check!(fs::read_link(r"C:\Users\Default User")).to_str().unwrap(),
-                       r"C:\Users\Default");
+            assert_eq!(
+                check!(fs::read_link(r"C:\Users\Default User")).to_str().unwrap(),
+                r"C:\Users\Default"
+            );
             // junction with special permissions
-            assert_eq!(check!(fs::read_link(r"C:\Documents and Settings\")).to_str().unwrap(),
-                       r"C:\Users");
+            assert_eq!(
+                check!(fs::read_link(r"C:\Documents and Settings\")).to_str().unwrap(),
+                r"C:\Users"
+            );
         }
         let tmpdir = tmpdir();
         let link = tmpdir.join("link");
-        if !got_symlink_permission(&tmpdir) { return };
+        if !got_symlink_permission(&tmpdir) {
+            return;
+        };
         check!(symlink_file(&"foo", &link));
         assert_eq!(check!(fs::read_link(&link)).to_str().unwrap(), "foo");
     }
@@ -2961,10 +3088,8 @@ mod tests {
 
         check!(check!(File::create(&input)).write("foobar".as_bytes()));
         check!(fs::hard_link(&input, &out));
-        assert_eq!(check!(fs::metadata(&out)).len(),
-                   check!(fs::metadata(&input)).len());
-        assert_eq!(check!(fs::metadata(&out)).len(),
-                   check!(input.metadata()).len());
+        assert_eq!(check!(fs::metadata(&out)).len(), check!(fs::metadata(&input)).len());
+        assert_eq!(check!(fs::metadata(&out)).len(), check!(input.metadata()).len());
         let mut v = Vec::new();
         check!(check!(File::open(&out)).read_to_end(&mut v));
         assert_eq!(v, b"foobar".to_vec());
@@ -3072,20 +3197,29 @@ mod tests {
     #[test]
     fn open_flavors() {
         use crate::fs::OpenOptions as OO;
-        fn c<T: Clone>(t: &T) -> T { t.clone() }
+        fn c<T: Clone>(t: &T) -> T {
+            t.clone()
+        }
 
         let tmpdir = tmpdir();
 
-        let mut r = OO::new(); r.read(true);
-        let mut w = OO::new(); w.write(true);
-        let mut rw = OO::new(); rw.read(true).write(true);
-        let mut a = OO::new(); a.append(true);
-        let mut ra = OO::new(); ra.read(true).append(true);
+        let mut r = OO::new();
+        r.read(true);
+        let mut w = OO::new();
+        w.write(true);
+        let mut rw = OO::new();
+        rw.read(true).write(true);
+        let mut a = OO::new();
+        a.append(true);
+        let mut ra = OO::new();
+        ra.read(true).append(true);
 
         #[cfg(windows)]
         let invalid_options = 87; // ERROR_INVALID_PARAMETER
-        #[cfg(unix)]
+        #[cfg(all(unix, not(target_os = "vxworks")))]
         let invalid_options = "Invalid argument";
+        #[cfg(target_os = "vxworks")]
+        let invalid_options = "invalid argument";
 
         // Test various combinations of creation modes and access modes.
         //
@@ -3137,7 +3271,7 @@ mod tests {
 
         // Test opening a file without setting an access mode
         let mut blank = OO::new();
-         error!(blank.create(true).open(&tmpdir.join("f")), invalid_options);
+        error!(blank.create(true).open(&tmpdir.join("f")), invalid_options);
 
         // Test write works
         check!(check!(File::create(&tmpdir.join("h"))).write("foobar".as_bytes()));
@@ -3215,8 +3349,10 @@ mod tests {
         assert!(v == &bytes[..]);
 
         check!(fs::write(&tmpdir.join("not-utf8"), &[0xFF]));
-        error_contains!(fs::read_to_string(&tmpdir.join("not-utf8")),
-                        "stream did not contain valid UTF-8");
+        error_contains!(
+            fs::read_to_string(&tmpdir.join("not-utf8")),
+            "stream did not contain valid UTF-8"
+        );
 
         let s = "𐁁𐀓𐀠𐀴𐀍";
         check!(fs::write(&tmpdir.join("utf8"), s.as_bytes()));
@@ -3228,11 +3364,9 @@ mod tests {
     fn file_try_clone() {
         let tmpdir = tmpdir();
 
-        let mut f1 = check!(OpenOptions::new()
-                                       .read(true)
-                                       .write(true)
-                                       .create(true)
-                                       .open(&tmpdir.join("test")));
+        let mut f1 = check!(
+            OpenOptions::new().read(true).write(true).create(true).open(&tmpdir.join("test"))
+        );
         let mut f2 = check!(f1.try_clone());
 
         check!(f1.write_all(b"hello world"));
@@ -3277,7 +3411,9 @@ mod tests {
     #[test]
     fn realpath_works() {
         let tmpdir = tmpdir();
-        if !got_symlink_permission(&tmpdir) { return };
+        if !got_symlink_permission(&tmpdir) {
+            return;
+        };
 
         let tmpdir = fs::canonicalize(tmpdir.path()).unwrap();
         let file = tmpdir.join("test");
@@ -3302,7 +3438,9 @@ mod tests {
     #[test]
     fn realpath_works_tricky() {
         let tmpdir = tmpdir();
-        if !got_symlink_permission(&tmpdir) { return };
+        if !got_symlink_permission(&tmpdir) {
+            return;
+        };
 
         let tmpdir = fs::canonicalize(tmpdir.path()).unwrap();
         let a = tmpdir.join("a");
@@ -3388,7 +3526,9 @@ mod tests {
         assert!(junction.is_dir());
         assert!(b.exists());
 
-        if !got_symlink_permission(&tmpdir) { return };
+        if !got_symlink_permission(&tmpdir) {
+            return;
+        };
         check!(symlink_dir(&target, &link));
         check!(fs::create_dir_all(&d));
         assert!(link.is_dir());
@@ -3412,6 +3552,19 @@ mod tests {
         if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
             check!(a.created());
             check!(b.created());
+        }
+
+        if cfg!(target_os = "linux") {
+            // Not always available
+            match (a.created(), b.created()) {
+                (Ok(t1), Ok(t2)) => assert!(t1 <= t2),
+                (Err(e1), Err(e2))
+                    if e1.kind() == ErrorKind::Other && e2.kind() == ErrorKind::Other => {}
+                (a, b) => panic!(
+                    "creation time must be always supported or not supported: {:?} {:?}",
+                    a, b,
+                ),
+            }
         }
     }
 }

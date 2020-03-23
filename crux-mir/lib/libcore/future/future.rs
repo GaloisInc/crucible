@@ -24,7 +24,6 @@ use crate::task::{Context, Poll};
 /// `.await` the value.
 ///
 /// [`Waker`]: ../task/struct.Waker.html
-#[doc(spotlight)]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 #[stable(feature = "futures_api", since = "1.36.0")]
 #[lang = "future_trait"]
@@ -111,8 +110,7 @@ impl<F: ?Sized + Future + Unpin> Future for &mut F {
 #[stable(feature = "futures_api", since = "1.36.0")]
 impl<P> Future for Pin<P>
 where
-    P: Unpin + ops::DerefMut,
-    P::Target: Future,
+    P: Unpin + ops::DerefMut<Target: Future>,
 {
     type Output = <<P as ops::Deref>::Target as Future>::Output;
 

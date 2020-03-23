@@ -7,13 +7,7 @@ use crate::arch::x86_64::*;
 
 use crate::mem;
 
-use crate::detect::{Feature, cache, bit};
-
-/// Performs run-time feature detection.
-#[inline]
-pub fn check_for(x: Feature) -> bool {
-    cache::test(x as u32, detect_features)
-}
+use crate::detect::{bit, cache, Feature};
 
 /// Run-time feature detection on x86 works by using the CPUID instruction.
 ///
@@ -31,7 +25,7 @@ pub fn check_for(x: Feature) -> bool {
 /// [intel64_ref]: http://www.intel.de/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf
 /// [amd64_ref]: http://support.amd.com/TechDocs/24594.pdf
 #[allow(clippy::similar_names)]
-fn detect_features() -> cache::Initializer {
+pub(crate) fn detect_features() -> cache::Initializer {
     let mut value = cache::Initializer::default();
 
     // If the x86 CPU does not support the CPUID instruction then it is too
@@ -79,8 +73,7 @@ fn detect_features() -> cache::Initializer {
 
     // EAX = 7, ECX = 0: Queries "Extended Features";
     // Contains information about bmi,bmi2, and avx2 support.
-    let (extended_features_ebx, extended_features_ecx) = if max_basic_leaf >= 7
-    {
+    let (extended_features_ebx, extended_features_ecx) = if max_basic_leaf >= 7 {
         let CpuidResult { ebx, ecx, .. } = unsafe { __cpuid(0x0000_0007_u32) };
         (ebx, ecx)
     } else {
@@ -132,7 +125,7 @@ fn detect_features() -> cache::Initializer {
         enable(proc_info_edx, 26, Feature::sse2);
         enable(extended_features_ebx, 29, Feature::sha);
 
-        enable(extended_features_ebx, 3, Feature::bmi);
+        enable(extended_features_ebx, 3, Feature::bmi1);
         enable(extended_features_ebx, 8, Feature::bmi2);
 
         // `XSAVE` and `AVX` support:
@@ -209,18 +202,22 @@ fn detect_features() -> cache::Initializer {
                     if os_avx512_support {
                         enable(extended_features_ebx, 16, Feature::avx512f);
                         enable(extended_features_ebx, 17, Feature::avx512dq);
-                        enable(extended_features_ebx, 21, Feature::avx512_ifma);
+                        enable(extended_features_ebx, 21, Feature::avx512ifma);
                         enable(extended_features_ebx, 26, Feature::avx512pf);
                         enable(extended_features_ebx, 27, Feature::avx512er);
                         enable(extended_features_ebx, 28, Feature::avx512cd);
                         enable(extended_features_ebx, 30, Feature::avx512bw);
                         enable(extended_features_ebx, 31, Feature::avx512vl);
-                        enable(extended_features_ecx, 1, Feature::avx512_vbmi);
-                        enable(
-                            extended_features_ecx,
-                            14,
-                            Feature::avx512_vpopcntdq,
-                        );
+                        enable(extended_features_ecx, 1, Feature::avx512vbmi);
+                        enable(extended_features_ecx, 5, Feature::avx512bf16);
+                        enable(extended_features_ecx, 6, Feature::avx512vbmi2);
+                        enable(extended_features_ecx, 8, Feature::avx512gfni);
+                        enable(extended_features_ecx, 8, Feature::avx512vp2intersect);
+                        enable(extended_features_ecx, 9, Feature::avx512vaes);
+                        enable(extended_features_ecx, 10, Feature::avx512vpclmulqdq);
+                        enable(extended_features_ecx, 11, Feature::avx512vnni);
+                        enable(extended_features_ecx, 12, Feature::avx512bitalg);
+                        enable(extended_features_ecx, 14, Feature::avx512vpopcntdq);
                     }
                 }
             }
@@ -233,7 +230,8 @@ fn detect_features() -> cache::Initializer {
         //
         // The `is_x86_feature_detected!("lzcnt")` macro then
         // internally maps to Feature::abm.
-        enable(extended_proc_info_ecx, 5, Feature::abm);
+        enable(extended_proc_info_ecx, 5, Feature::lzcnt);
+
         // As Hygon Dhyana originates from AMD technology and shares most of the architecture with
         // AMD's family 17h, but with different CPU Vendor ID("HygonGenuine")/Family series
         // number(Family 18h).
@@ -252,124 +250,4 @@ fn detect_features() -> cache::Initializer {
     }
 
     value
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate cupid;
-
-    #[test]
-    fn dump() {
-        println!("aes: {:?}", is_x86_feature_detected!("aes"));
-        println!("pclmulqdq: {:?}", is_x86_feature_detected!("pclmulqdq"));
-        println!("rdrand: {:?}", is_x86_feature_detected!("rdrand"));
-        println!("rdseed: {:?}", is_x86_feature_detected!("rdseed"));
-        println!("tsc: {:?}", is_x86_feature_detected!("tsc"));
-        println!("sse: {:?}", is_x86_feature_detected!("sse"));
-        println!("sse2: {:?}", is_x86_feature_detected!("sse2"));
-        println!("sse3: {:?}", is_x86_feature_detected!("sse3"));
-        println!("ssse3: {:?}", is_x86_feature_detected!("ssse3"));
-        println!("sse4.1: {:?}", is_x86_feature_detected!("sse4.1"));
-        println!("sse4.2: {:?}", is_x86_feature_detected!("sse4.2"));
-        println!("sse4a: {:?}", is_x86_feature_detected!("sse4a"));
-        println!("sha: {:?}", is_x86_feature_detected!("sha"));
-        println!("avx: {:?}", is_x86_feature_detected!("avx"));
-        println!("avx2: {:?}", is_x86_feature_detected!("avx2"));
-        println!("avx512f {:?}", is_x86_feature_detected!("avx512f"));
-        println!("avx512cd {:?}", is_x86_feature_detected!("avx512cd"));
-        println!("avx512er {:?}", is_x86_feature_detected!("avx512er"));
-        println!("avx512pf {:?}", is_x86_feature_detected!("avx512pf"));
-        println!("avx512bw {:?}", is_x86_feature_detected!("avx512bw"));
-        println!("avx512dq {:?}", is_x86_feature_detected!("avx512dq"));
-        println!("avx512vl {:?}", is_x86_feature_detected!("avx512vl"));
-        println!("avx512_ifma {:?}", is_x86_feature_detected!("avx512ifma"));
-        println!("avx512_vbmi {:?}", is_x86_feature_detected!("avx512vbmi"));
-        println!(
-            "avx512_vpopcntdq {:?}",
-            is_x86_feature_detected!("avx512vpopcntdq")
-        );
-        println!("fma: {:?}", is_x86_feature_detected!("fma"));
-        println!("abm: {:?}", is_x86_feature_detected!("abm"));
-        println!("bmi: {:?}", is_x86_feature_detected!("bmi1"));
-        println!("bmi2: {:?}", is_x86_feature_detected!("bmi2"));
-        println!("tbm: {:?}", is_x86_feature_detected!("tbm"));
-        println!("popcnt: {:?}", is_x86_feature_detected!("popcnt"));
-        println!("lzcnt: {:?}", is_x86_feature_detected!("lzcnt"));
-        println!("fxsr: {:?}", is_x86_feature_detected!("fxsr"));
-        println!("xsave: {:?}", is_x86_feature_detected!("xsave"));
-        println!("xsaveopt: {:?}", is_x86_feature_detected!("xsaveopt"));
-        println!("xsaves: {:?}", is_x86_feature_detected!("xsaves"));
-        println!("xsavec: {:?}", is_x86_feature_detected!("xsavec"));
-        println!("cmpxchg16b: {:?}", is_x86_feature_detected!("cmpxchg16b"));
-        println!("adx: {:?}", is_x86_feature_detected!("adx"));
-        println!("rtm: {:?}", is_x86_feature_detected!("rtm"));
-    }
-
-    #[test]
-    fn compare_with_cupid() {
-        let information = cupid::master().unwrap();
-        assert_eq!(is_x86_feature_detected!("aes"), information.aesni());
-        assert_eq!(is_x86_feature_detected!("pclmulqdq"), information.pclmulqdq());
-        assert_eq!(is_x86_feature_detected!("rdrand"), information.rdrand());
-        assert_eq!(is_x86_feature_detected!("rdseed"), information.rdseed());
-        assert_eq!(is_x86_feature_detected!("tsc"), information.tsc());
-        assert_eq!(is_x86_feature_detected!("sse"), information.sse());
-        assert_eq!(is_x86_feature_detected!("sse2"), information.sse2());
-        assert_eq!(is_x86_feature_detected!("sse3"), information.sse3());
-        assert_eq!(is_x86_feature_detected!("ssse3"), information.ssse3());
-        assert_eq!(is_x86_feature_detected!("sse4.1"), information.sse4_1());
-        assert_eq!(is_x86_feature_detected!("sse4.2"), information.sse4_2());
-        assert_eq!(is_x86_feature_detected!("sse4a"), information.sse4a());
-        assert_eq!(is_x86_feature_detected!("sha"), information.sha());
-        assert_eq!(is_x86_feature_detected!("avx"), information.avx());
-        assert_eq!(is_x86_feature_detected!("avx2"), information.avx2());
-        assert_eq!(is_x86_feature_detected!("avx512f"), information.avx512f());
-        assert_eq!(is_x86_feature_detected!("avx512cd"), information.avx512cd());
-        assert_eq!(is_x86_feature_detected!("avx512er"), information.avx512er());
-        assert_eq!(is_x86_feature_detected!("avx512pf"), information.avx512pf());
-        assert_eq!(is_x86_feature_detected!("avx512bw"), information.avx512bw());
-        assert_eq!(is_x86_feature_detected!("avx512dq"), information.avx512dq());
-        assert_eq!(is_x86_feature_detected!("avx512vl"), information.avx512vl());
-        assert_eq!(
-            is_x86_feature_detected!("avx512ifma"),
-            information.avx512_ifma()
-        );
-        assert_eq!(
-            is_x86_feature_detected!("avx512vbmi"),
-            information.avx512_vbmi()
-        );
-        assert_eq!(
-            is_x86_feature_detected!("avx512vpopcntdq"),
-            information.avx512_vpopcntdq()
-        );
-        assert_eq!(is_x86_feature_detected!("fma"), information.fma());
-        assert_eq!(is_x86_feature_detected!("bmi1"), information.bmi1());
-        assert_eq!(is_x86_feature_detected!("bmi2"), information.bmi2());
-        assert_eq!(is_x86_feature_detected!("popcnt"), information.popcnt());
-        assert_eq!(is_x86_feature_detected!("abm"), information.lzcnt());
-        assert_eq!(is_x86_feature_detected!("tbm"), information.tbm());
-        assert_eq!(is_x86_feature_detected!("lzcnt"), information.lzcnt());
-        assert_eq!(is_x86_feature_detected!("xsave"), information.xsave());
-        assert_eq!(is_x86_feature_detected!("xsaveopt"), information.xsaveopt());
-        assert_eq!(
-            is_x86_feature_detected!("xsavec"),
-            information.xsavec_and_xrstor()
-        );
-        assert_eq!(
-            is_x86_feature_detected!("xsaves"),
-            information.xsaves_xrstors_and_ia32_xss()
-        );
-        assert_eq!(
-            is_x86_feature_detected!("cmpxchg16b"),
-            information.cmpxchg16b(),
-        );
-        assert_eq!(
-            is_x86_feature_detected!("adx"),
-            information.adx(),
-        );
-        assert_eq!(
-            is_x86_feature_detected!("rtm"),
-            information.rtm(),
-        );
-    }
 }

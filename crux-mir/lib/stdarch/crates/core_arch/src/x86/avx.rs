@@ -255,7 +255,7 @@ pub unsafe fn _mm256_andnot_ps(a: __m256, b: __m256) -> __m256 {
 #[cfg_attr(test, assert_instr(vmaxpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_max_pd(a: __m256d, b: __m256d) -> __m256d {
-    maxpd256(a, b)
+    simd_fmax(a, b)
 }
 
 /// Compares packed single-precision (32-bit) floating-point elements in `a`
@@ -267,7 +267,7 @@ pub unsafe fn _mm256_max_pd(a: __m256d, b: __m256d) -> __m256d {
 #[cfg_attr(test, assert_instr(vmaxps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_max_ps(a: __m256, b: __m256) -> __m256 {
-    maxps256(a, b)
+    simd_fmax(a, b)
 }
 
 /// Compares packed double-precision (64-bit) floating-point elements
@@ -279,7 +279,7 @@ pub unsafe fn _mm256_max_ps(a: __m256, b: __m256) -> __m256 {
 #[cfg_attr(test, assert_instr(vminpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_min_pd(a: __m256d, b: __m256d) -> __m256d {
-    minpd256(a, b)
+    simd_fmin(a, b)
 }
 
 /// Compares packed single-precision (32-bit) floating-point elements in `a`
@@ -291,7 +291,7 @@ pub unsafe fn _mm256_min_pd(a: __m256d, b: __m256d) -> __m256d {
 #[cfg_attr(test, assert_instr(vminps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_min_ps(a: __m256, b: __m256) -> __m256 {
-    minps256(a, b)
+    simd_fmin(a, b)
 }
 
 /// Multiplies packed double-precision (64-bit) floating-point elements
@@ -426,7 +426,7 @@ pub unsafe fn _mm256_round_pd(a: __m256d, b: i32) -> __m256d {
 #[cfg_attr(test, assert_instr(vroundpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_ceil_pd(a: __m256d) -> __m256d {
-    roundpd256(a, 0x02)
+    simd_ceil(a)
 }
 
 /// Rounds packed double-precision (64-bit) floating point elements in `a`
@@ -438,7 +438,7 @@ pub unsafe fn _mm256_ceil_pd(a: __m256d) -> __m256d {
 #[cfg_attr(test, assert_instr(vroundpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_floor_pd(a: __m256d) -> __m256d {
-    roundpd256(a, 0x01)
+    simd_floor(a)
 }
 
 /// Rounds packed single-precision (32-bit) floating point elements in `a`
@@ -477,7 +477,7 @@ pub unsafe fn _mm256_round_ps(a: __m256, b: i32) -> __m256 {
 #[cfg_attr(test, assert_instr(vroundps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_ceil_ps(a: __m256) -> __m256 {
-    roundps256(a, 0x02)
+    simd_ceil(a)
 }
 
 /// Rounds packed single-precision (32-bit) floating point elements in `a`
@@ -489,7 +489,7 @@ pub unsafe fn _mm256_ceil_ps(a: __m256) -> __m256 {
 #[cfg_attr(test, assert_instr(vroundps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_floor_ps(a: __m256) -> __m256 {
-    roundps256(a, 0x01)
+    simd_floor(a)
 }
 
 /// Returns the square root of packed single-precision (32-bit) floating point
@@ -513,7 +513,7 @@ pub unsafe fn _mm256_sqrt_ps(a: __m256) -> __m256 {
 #[cfg_attr(test, assert_instr(vsqrtpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_sqrt_pd(a: __m256d) -> __m256d {
-    sqrtpd256(a)
+    simd_fsqrt(a)
 }
 
 /// Blends packed double-precision (64-bit) floating-point elements from
@@ -1913,7 +1913,7 @@ pub unsafe fn _mm256_moveldup_ps(a: __m256) -> __m256 {
 }
 
 /// Duplicate even-indexed double-precision (64-bit) floating-point elements
-/// from "a", and returns the results.
+/// from `a`, and returns the results.
 ///
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_movedup_pd)
 #[inline]
@@ -2741,8 +2741,8 @@ pub unsafe fn _mm256_set1_epi32(a: i32) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm256_set1_epi64x)
 #[inline]
 #[target_feature(enable = "avx")]
-//#[cfg_attr(test, assert_instr(vmovddup))]
-#[cfg_attr(test, assert_instr(vinsertf128))]
+#[cfg_attr(all(test, target_arch = "x86_64"), assert_instr(vinsertf128))]
+#[cfg_attr(all(test, target_arch = "x86"), assert_instr(vbroadcastsd))]
 // This intrinsic has no corresponding instruction.
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_set1_epi64x(a: i64) -> __m256i {
@@ -3166,20 +3166,10 @@ extern "C" {
     fn addsubpd256(a: __m256d, b: __m256d) -> __m256d;
     #[link_name = "llvm.x86.avx.addsub.ps.256"]
     fn addsubps256(a: __m256, b: __m256) -> __m256;
-    #[link_name = "llvm.x86.avx.max.pd.256"]
-    fn maxpd256(a: __m256d, b: __m256d) -> __m256d;
-    #[link_name = "llvm.x86.avx.max.ps.256"]
-    fn maxps256(a: __m256, b: __m256) -> __m256;
-    #[link_name = "llvm.x86.avx.min.pd.256"]
-    fn minpd256(a: __m256d, b: __m256d) -> __m256d;
-    #[link_name = "llvm.x86.avx.min.ps.256"]
-    fn minps256(a: __m256, b: __m256) -> __m256;
     #[link_name = "llvm.x86.avx.round.pd.256"]
     fn roundpd256(a: __m256d, b: i32) -> __m256d;
     #[link_name = "llvm.x86.avx.round.ps.256"]
     fn roundps256(a: __m256, b: i32) -> __m256;
-    #[link_name = "llvm.x86.avx.sqrt.pd.256"]
-    fn sqrtpd256(a: __m256d) -> __m256d;
     #[link_name = "llvm.x86.avx.sqrt.ps.256"]
     fn sqrtps256(a: __m256) -> __m256;
     #[link_name = "llvm.x86.avx.blendv.pd.256"]

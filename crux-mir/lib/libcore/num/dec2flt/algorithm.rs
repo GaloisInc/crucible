@@ -1,11 +1,11 @@
 //! The various algorithms from the paper.
 
 use crate::cmp::min;
-use crate::cmp::Ordering::{Less, Equal, Greater};
-use crate::num::diy_float::Fp;
-use crate::num::dec2flt::table;
-use crate::num::dec2flt::rawfp::{self, Unpacked, RawFloat, fp_to_float, next_float, prev_float};
+use crate::cmp::Ordering::{Equal, Greater, Less};
 use crate::num::dec2flt::num::{self, Big};
+use crate::num::dec2flt::rawfp::{self, fp_to_float, next_float, prev_float, RawFloat, Unpacked};
+use crate::num::dec2flt::table;
+use crate::num::diy_float::Fp;
 
 /// Number of significand bits in Fp
 const P: u32 = 64;
@@ -23,9 +23,9 @@ fn power_of_ten(e: i16) -> Fp {
 
 // In most architectures, floating point operations have an explicit bit size, therefore the
 // precision of the computation is determined on a per-operation basis.
-#[cfg(any(not(target_arch="x86"), target_feature="sse2"))]
+#[cfg(any(not(target_arch = "x86"), target_feature = "sse2"))]
 mod fpu_precision {
-    pub fn set_precision<T>() { }
+    pub fn set_precision<T>() {}
 }
 
 // On x86, the x87 FPU is used for float operations if the SSE/SSE2 extensions are not available.
@@ -33,7 +33,7 @@ mod fpu_precision {
 // round to 80 bits causing double rounding to happen when values are eventually represented as
 // 32/64 bit float values. To overcome this, the FPU control word can be set so that the
 // computations are performed in the desired precision.
-#[cfg(all(target_arch="x86", not(target_feature="sse2")))]
+#[cfg(all(target_arch = "x86", not(target_feature = "sse2")))]
 mod fpu_precision {
     use crate::mem::size_of;
 
@@ -58,6 +58,8 @@ mod fpu_precision {
     pub struct FPUControlWord(u16);
 
     fn set_cw(cw: u16) {
+        // SAFETY: the `fldcw` instruction has been audited to be able to work correctly with
+        // any `u16`
         unsafe { asm!("fldcw $0" :: "m" (cw) :: "volatile") }
     }
 
@@ -74,6 +76,8 @@ mod fpu_precision {
 
         // Get the original value of the control word to restore it later, when the
         // `FPUControlWord` structure is dropped
+        // SAFETY: the `fnstcw` instruction has been audited to be able to work correctly with
+        // any `u16`
         unsafe { asm!("fnstcw $0" : "=*m" (&cw) ::: "volatile") }
 
         // Set the control word to the desired precision. This is achieved by masking away the old
@@ -143,13 +147,12 @@ pub fn fast_path<T: RawFloat>(integral: &[u8], fractional: &[u8], e: i64) -> Opt
 /// > not a bound for the true error, but bounds the difference between the approximation z and
 /// > the best possible approximation that uses p bits of significand.)
 pub fn bellerophon<T: RawFloat>(f: &Big, e: i16) -> T {
-    let slop;
-    if f <= &Big::from_u64(T::MAX_SIG) {
+    let slop = if f <= &Big::from_u64(T::MAX_SIG) {
         // The cases abs(e) < log5(2^N) are in fast_path()
-        slop = if e >= 0 { 0 } else { 3 };
+        if e >= 0 { 0 } else { 3 }
     } else {
-        slop = if e >= 0 { 1 } else { 4 };
-    }
+        if e >= 0 { 1 } else { 4 }
+    };
     let z = rawfp::big_to_fp(f).mul(&power_of_ten(e)).normalize();
     let exp_p_n = 1 << (P - T::SIG_BITS as u32);
     let lowbits: i64 = (z.f % exp_p_n) as i64;

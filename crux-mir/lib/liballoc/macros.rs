@@ -40,11 +40,7 @@ macro_rules! vec {
         $crate::vec::from_elem($elem, $n)
     );
     ($($x:expr),*) => (
-        {
-            let mut v = Vec::new();
-            $( v.push($x); )*
-            v
-        }
+        <[_]>::into_vec(box [$($x),*])
     );
     ($($x:expr,)*) => ($crate::vec![$($x),*])
 }
@@ -102,5 +98,8 @@ macro_rules! vec {
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
 macro_rules! format {
-    ($($arg:tt)*) => ($crate::fmt::format(format_args!($($arg)*)))
+    ($($arg:tt)*) => {{
+        let res = $crate::fmt::format($crate::__export::format_args!($($arg)*));
+        res
+    }}
 }

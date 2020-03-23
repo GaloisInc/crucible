@@ -4,17 +4,15 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     let target = env::var("TARGET").expect("TARGET was not set");
 
-    // FIXME: the not(bootstrap) part is needed because of the issue addressed by #62286,
-    // and could be removed once that change is in beta.
-    if cfg!(all(not(bootstrap), feature = "llvm-libunwind")) &&
-        (target.contains("linux") ||
-         target.contains("fuchsia")) {
+    if cfg!(feature = "llvm-libunwind")
+        && ((target.contains("linux") && !target.contains("musl")) || target.contains("fuchsia"))
+    {
         // Build the unwinding from libunwind C/C++ source code.
-        #[cfg(all(not(bootstrap), feature = "llvm-libunwind"))]
         llvm_libunwind::compile();
     } else if target.contains("linux") {
         if target.contains("musl") {
-            // musl is handled in lib.rs
+            // linking for musl is handled in lib.rs
+            llvm_libunwind::compile();
         } else if !target.contains("android") {
             println!("cargo:rustc-link-lib=gcc_s");
         }
@@ -25,14 +23,23 @@ fn main() {
     } else if target.contains("netbsd") {
         println!("cargo:rustc-link-lib=gcc_s");
     } else if target.contains("openbsd") {
-        println!("cargo:rustc-link-lib=c++abi");
+        if target.contains("sparc64") {
+            println!("cargo:rustc-link-lib=gcc");
+        } else {
+            println!("cargo:rustc-link-lib=c++abi");
+        }
     } else if target.contains("solaris") {
         println!("cargo:rustc-link-lib=gcc_s");
     } else if target.contains("dragonfly") {
         println!("cargo:rustc-link-lib=gcc_pic");
     } else if target.contains("pc-windows-gnu") {
-        println!("cargo:rustc-link-lib=static-nobundle=gcc_eh");
-        println!("cargo:rustc-link-lib=static-nobundle=pthread");
+        // This is handled in the target spec with late_link_args_[static|dynamic]
+
+        // cfg!(bootstrap) doesn't work in build scripts
+        if env::var("RUSTC_STAGE").ok() == Some("0".to_string()) {
+            println!("cargo:rustc-link-lib=static-nobundle=gcc_eh");
+            println!("cargo:rustc-link-lib=static-nobundle=pthread");
+        }
     } else if target.contains("uwp-windows-gnu") {
         println!("cargo:rustc-link-lib=unwind");
     } else if target.contains("fuchsia") {
@@ -40,13 +47,12 @@ fn main() {
     } else if target.contains("haiku") {
         println!("cargo:rustc-link-lib=gcc_s");
     } else if target.contains("redox") {
-        println!("cargo:rustc-link-lib=gcc");
+        // redox is handled in lib.rs
     } else if target.contains("cloudabi") {
         println!("cargo:rustc-link-lib=unwind");
     }
 }
 
-#[cfg(all(not(bootstrap), feature = "llvm-libunwind"))]
 mod llvm_libunwind {
     use std::env;
     use std::path::Path;
@@ -55,11 +61,17 @@ mod llvm_libunwind {
     pub fn compile() {
         let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
         let target_vendor = env::var("CARGO_CFG_TARGET_VENDOR").unwrap();
+        let target_endian_little = env::var("CARGO_CFG_TARGET_ENDIAN").unwrap() != "big";
         let cfg = &mut cc::Build::new();
 
         cfg.cpp(true);
         cfg.cpp_set_stdlib(None);
         cfg.warnings(false);
+
+        // libunwind expects a __LITTLE_ENDIAN__ macro to be set for LE archs, cf. #65765
+        if target_endian_little {
+            cfg.define("__LITTLE_ENDIAN__", Some("1"));
+        }
 
         if target_env == "msvc" {
             // Don't pull in extra libraries on MSVC
@@ -96,6 +108,15 @@ mod llvm_libunwind {
         cfg.include(root.join("include"));
         for src in unwind_sources {
             cfg.file(root.join("src").join(src));
+        }
+
+        if target_env == "musl" {
+            // use the same C compiler command to compile C++ code so we do not need to setup the
+            // C++ compiler env variables on the builders
+            cfg.cpp(false);
+            // linking for musl is handled in lib.rs
+            cfg.cargo_metadata(false);
+            println!("cargo:rustc-link-search=native={}", env::var("OUT_DIR").unwrap());
         }
 
         cfg.compile("unwind");

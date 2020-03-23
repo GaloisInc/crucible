@@ -41,32 +41,57 @@ pub use linked_list::LinkedList;
 #[doc(no_inline)]
 pub use vec_deque::VecDeque;
 
-use crate::alloc::{AllocErr, LayoutErr};
+use crate::alloc::{Layout, LayoutErr};
+use core::fmt::Display;
 
-/// Augments `AllocErr` with a CapacityOverflow variant.
+/// The error type for `try_reserve` methods.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[unstable(feature = "try_reserve", reason = "new API", issue="48043")]
-pub enum CollectionAllocErr {
+#[unstable(feature = "try_reserve", reason = "new API", issue = "48043")]
+pub enum TryReserveError {
     /// Error due to the computed capacity exceeding the collection's maximum
     /// (usually `isize::MAX` bytes).
     CapacityOverflow,
-    /// Error due to the allocator (see the `AllocErr` type's docs).
-    AllocErr,
+
+    /// The memory allocator returned an error
+    AllocError {
+        /// The layout of allocation request that failed
+        layout: Layout,
+
+        #[doc(hidden)]
+        #[unstable(
+            feature = "container_error_extra",
+            issue = "none",
+            reason = "\
+            Enable exposing the allocator’s custom error value \
+            if an associated type is added in the future: \
+            https://github.com/rust-lang/wg-allocators/issues/23"
+        )]
+        non_exhaustive: (),
+    },
 }
 
-#[unstable(feature = "try_reserve", reason = "new API", issue="48043")]
-impl From<AllocErr> for CollectionAllocErr {
+#[unstable(feature = "try_reserve", reason = "new API", issue = "48043")]
+impl From<LayoutErr> for TryReserveError {
     #[inline]
-    fn from(AllocErr: AllocErr) -> Self {
-        CollectionAllocErr::AllocErr
+    fn from(_: LayoutErr) -> Self {
+        TryReserveError::CapacityOverflow
     }
 }
 
-#[unstable(feature = "try_reserve", reason = "new API", issue="48043")]
-impl From<LayoutErr> for CollectionAllocErr {
-    #[inline]
-    fn from(_: LayoutErr) -> Self {
-        CollectionAllocErr::CapacityOverflow
+#[unstable(feature = "try_reserve", reason = "new API", issue = "48043")]
+impl Display for TryReserveError {
+    fn fmt(
+        &self,
+        fmt: &mut core::fmt::Formatter<'_>,
+    ) -> core::result::Result<(), core::fmt::Error> {
+        fmt.write_str("memory allocation failed")?;
+        let reason = match &self {
+            TryReserveError::CapacityOverflow => {
+                " because the computed capacity exceeded the collection's maximum"
+            }
+            TryReserveError::AllocError { .. } => " because the memory allocator returned a error",
+        };
+        fmt.write_str(reason)
     }
 }
 

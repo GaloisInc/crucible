@@ -1,17 +1,11 @@
 //! Run-time feature detection for ARM on Linux.
 
-use crate::detect::{Feature, cache, bit};
 use super::{auxvec, cpuinfo};
-
-/// Performs run-time feature detection.
-#[inline]
-pub fn check_for(x: Feature) -> bool {
-    cache::test(x as u32, detect_features)
-}
+use crate::detect::{bit, cache, Feature};
 
 /// Try to read the features from the auxiliary vector, and if that fails, try
 /// to read them from /proc/cpuinfo.
-fn detect_features() -> cache::Initializer {
+pub(crate) fn detect_features() -> cache::Initializer {
     let mut value = cache::Initializer::default();
     let enable_feature = |value: &mut cache::Initializer, f, enable| {
         if enable {
@@ -21,17 +15,22 @@ fn detect_features() -> cache::Initializer {
 
     // The values are part of the platform-specific [asm/hwcap.h][hwcap]
     //
-    // [hwcap]: https://github.com/torvalds/linux/blob/master/arch/arm64/include/uapi/asm/hwcap.h
+    // [hwcap]: https://github.com/torvalds/linux/blob/master/arch/arm/include/uapi/asm/hwcap.h
     if let Ok(auxv) = auxvec::auxv() {
         enable_feature(&mut value, Feature::neon, bit::test(auxv.hwcap, 12));
         enable_feature(&mut value, Feature::pmull, bit::test(auxv.hwcap2, 1));
+        enable_feature(&mut value, Feature::crc, bit::test(auxv.hwcap2, 4));
         return value;
     }
 
     if let Ok(c) = cpuinfo::CpuInfo::new() {
-        enable_feature(&mut value, Feature::neon, c.field("Features").has("neon") &&
-            !has_broken_neon(&c));
+        enable_feature(
+            &mut value,
+            Feature::neon,
+            c.field("Features").has("neon") && !has_broken_neon(&c),
+        );
         enable_feature(&mut value, Feature::pmull, c.field("Features").has("pmull"));
+        enable_feature(&mut value, Feature::crc, c.field("Features").has("crc32"));
         return value;
     }
     value

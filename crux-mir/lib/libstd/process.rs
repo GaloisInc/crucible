@@ -186,7 +186,9 @@ pub struct Child {
 }
 
 impl AsInner<imp::Process> for Child {
-    fn as_inner(&self) -> &imp::Process { &self.handle }
+    fn as_inner(&self) -> &imp::Process {
+        &self.handle
+    }
 }
 
 impl FromInner<(imp::Process, imp::StdioPipes)> for Child {
@@ -201,7 +203,9 @@ impl FromInner<(imp::Process, imp::StdioPipes)> for Child {
 }
 
 impl IntoInner<imp::Process> for Child {
-    fn into_inner(self) -> imp::Process { self.handle }
+    fn into_inner(self) -> imp::Process {
+        self.handle
+    }
 }
 
 #[stable(feature = "std_debug", since = "1.16.0")]
@@ -228,7 +232,7 @@ impl fmt::Debug for Child {
 /// [dropped]: ../ops/trait.Drop.html
 #[stable(feature = "process", since = "1.0.0")]
 pub struct ChildStdin {
-    inner: AnonPipe
+    inner: AnonPipe,
 }
 
 #[stable(feature = "process", since = "1.0.0")]
@@ -247,11 +251,15 @@ impl Write for ChildStdin {
 }
 
 impl AsInner<AnonPipe> for ChildStdin {
-    fn as_inner(&self) -> &AnonPipe { &self.inner }
+    fn as_inner(&self) -> &AnonPipe {
+        &self.inner
+    }
 }
 
 impl IntoInner<AnonPipe> for ChildStdin {
-    fn into_inner(self) -> AnonPipe { self.inner }
+    fn into_inner(self) -> AnonPipe {
+        self.inner
+    }
 }
 
 impl FromInner<AnonPipe> for ChildStdin {
@@ -279,7 +287,7 @@ impl fmt::Debug for ChildStdin {
 /// [dropped]: ../ops/trait.Drop.html
 #[stable(feature = "process", since = "1.0.0")]
 pub struct ChildStdout {
-    inner: AnonPipe
+    inner: AnonPipe,
 }
 
 #[stable(feature = "process", since = "1.0.0")]
@@ -299,11 +307,15 @@ impl Read for ChildStdout {
 }
 
 impl AsInner<AnonPipe> for ChildStdout {
-    fn as_inner(&self) -> &AnonPipe { &self.inner }
+    fn as_inner(&self) -> &AnonPipe {
+        &self.inner
+    }
 }
 
 impl IntoInner<AnonPipe> for ChildStdout {
-    fn into_inner(self) -> AnonPipe { self.inner }
+    fn into_inner(self) -> AnonPipe {
+        self.inner
+    }
 }
 
 impl FromInner<AnonPipe> for ChildStdout {
@@ -331,7 +343,7 @@ impl fmt::Debug for ChildStdout {
 /// [dropped]: ../ops/trait.Drop.html
 #[stable(feature = "process", since = "1.0.0")]
 pub struct ChildStderr {
-    inner: AnonPipe
+    inner: AnonPipe,
 }
 
 #[stable(feature = "process", since = "1.0.0")]
@@ -351,11 +363,15 @@ impl Read for ChildStderr {
 }
 
 impl AsInner<AnonPipe> for ChildStderr {
-    fn as_inner(&self) -> &AnonPipe { &self.inner }
+    fn as_inner(&self) -> &AnonPipe {
+        &self.inner
+    }
 }
 
 impl IntoInner<AnonPipe> for ChildStderr {
-    fn into_inner(self) -> AnonPipe { self.inner }
+    fn into_inner(self) -> AnonPipe {
+        self.inner
+    }
 }
 
 impl FromInner<AnonPipe> for ChildStderr {
@@ -422,7 +438,7 @@ impl fmt::Debug for ChildStderr {
 /// // Execute `ls` in the current directory of the program.
 /// list_dir.status().expect("process failed to execute");
 ///
-/// println!("");
+/// println!();
 ///
 /// // Change `ls` to execute in the root directory.
 /// list_dir.current_dir("/");
@@ -533,7 +549,9 @@ impl Command {
     /// ```
     #[stable(feature = "process", since = "1.0.0")]
     pub fn args<I, S>(&mut self, args: I) -> &mut Command
-        where I: IntoIterator<Item=S>, S: AsRef<OsStr>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
     {
         for arg in args {
             self.arg(arg.as_ref());
@@ -560,7 +578,9 @@ impl Command {
     /// ```
     #[stable(feature = "process", since = "1.0.0")]
     pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Command
-        where K: AsRef<OsStr>, V: AsRef<OsStr>
+    where
+        K: AsRef<OsStr>,
+        V: AsRef<OsStr>,
     {
         self.inner.env_mut().set(key.as_ref(), val.as_ref());
         self
@@ -592,7 +612,10 @@ impl Command {
     /// ```
     #[stable(feature = "command_envs", since = "1.19.0")]
     pub fn envs<I, K, V>(&mut self, vars: I) -> &mut Command
-        where I: IntoIterator<Item=(K, V)>, K: AsRef<OsStr>, V: AsRef<OsStr>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<OsStr>,
+        V: AsRef<OsStr>,
     {
         for (ref key, ref val) in vars {
             self.inner.env_mut().set(key.as_ref(), val.as_ref());
@@ -794,7 +817,9 @@ impl Command {
     /// ```
     #[stable(feature = "process", since = "1.0.0")]
     pub fn output(&mut self) -> io::Result<Output> {
-        self.inner.spawn(imp::Stdio::MakePipe, false).map(Child::from_inner)
+        self.inner
+            .spawn(imp::Stdio::MakePipe, false)
+            .map(Child::from_inner)
             .and_then(|p| p.wait_with_output())
     }
 
@@ -819,8 +844,10 @@ impl Command {
     /// ```
     #[stable(feature = "process", since = "1.0.0")]
     pub fn status(&mut self) -> io::Result<ExitStatus> {
-        self.inner.spawn(imp::Stdio::Inherit, true).map(Child::from_inner)
-                  .and_then(|mut p| p.wait())
+        self.inner
+            .spawn(imp::Stdio::Inherit, true)
+            .map(Child::from_inner)
+            .and_then(|mut p| p.wait())
     }
 }
 
@@ -835,11 +862,15 @@ impl fmt::Debug for Command {
 }
 
 impl AsInner<imp::Command> for Command {
-    fn as_inner(&self) -> &imp::Command { &self.inner }
+    fn as_inner(&self) -> &imp::Command {
+        &self.inner
+    }
 }
 
 impl AsInnerMut<imp::Command> for Command {
-    fn as_inner_mut(&mut self) -> &mut imp::Command { &mut self.inner }
+    fn as_inner_mut(&mut self) -> &mut imp::Command {
+        &mut self.inner
+    }
 }
 
 /// The output of a finished process.
@@ -871,17 +902,16 @@ pub struct Output {
 #[stable(feature = "process_output_debug", since = "1.7.0")]
 impl fmt::Debug for Output {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-
         let stdout_utf8 = str::from_utf8(&self.stdout);
         let stdout_debug: &dyn fmt::Debug = match stdout_utf8 {
             Ok(ref str) => str,
-            Err(_) => &self.stdout
+            Err(_) => &self.stdout,
         };
 
         let stderr_utf8 = str::from_utf8(&self.stderr);
         let stderr_debug: &dyn fmt::Debug = match stderr_utf8 {
             Ok(ref str) => str,
-            Err(_) => &self.stderr
+            Err(_) => &self.stderr,
         };
 
         fmt.debug_struct("Output")
@@ -935,15 +965,17 @@ impl Stdio {
     ///     .expect("Failed to spawn child process");
     ///
     /// {
-    ///     let mut stdin = child.stdin.as_mut().expect("Failed to open stdin");
+    ///     let stdin = child.stdin.as_mut().expect("Failed to open stdin");
     ///     stdin.write_all("Hello, world!".as_bytes()).expect("Failed to write to stdin");
     /// }
     ///
     /// let output = child.wait_with_output().expect("Failed to read stdout");
-    /// assert_eq!(String::from_utf8_lossy(&output.stdout), "!dlrow ,olleH\n");
+    /// assert_eq!(String::from_utf8_lossy(&output.stdout), "!dlrow ,olleH");
     /// ```
     #[stable(feature = "process", since = "1.0.0")]
-    pub fn piped() -> Stdio { Stdio(imp::Stdio::MakePipe) }
+    pub fn piped() -> Stdio {
+        Stdio(imp::Stdio::MakePipe)
+    }
 
     /// The child inherits from the corresponding parent descriptor.
     ///
@@ -980,7 +1012,9 @@ impl Stdio {
     /// io::stdout().write_all(&output.stdout).unwrap();
     /// ```
     #[stable(feature = "process", since = "1.0.0")]
-    pub fn inherit() -> Stdio { Stdio(imp::Stdio::Inherit) }
+    pub fn inherit() -> Stdio {
+        Stdio(imp::Stdio::Inherit)
+    }
 
     /// This stream will be ignored. This is the equivalent of attaching the
     /// stream to `/dev/null`
@@ -1017,7 +1051,9 @@ impl Stdio {
     /// // Ignores any piped-in input
     /// ```
     #[stable(feature = "process", since = "1.0.0")]
-    pub fn null() -> Stdio { Stdio(imp::Stdio::Null) }
+    pub fn null() -> Stdio {
+        Stdio(imp::Stdio::Null)
+    }
 }
 
 impl FromInner<imp::Stdio> for Stdio {
@@ -1217,7 +1253,9 @@ impl ExitStatus {
 }
 
 impl AsInner<imp::ExitStatus> for ExitStatus {
-    fn as_inner(&self) -> &imp::ExitStatus { &self.0 }
+    fn as_inner(&self) -> &imp::ExitStatus {
+        &self.0
+    }
 }
 
 impl FromInner<imp::ExitStatus> for ExitStatus {
@@ -1449,11 +1487,7 @@ impl Child {
         }
 
         let status = self.wait()?;
-        Ok(Output {
-            status,
-            stdout,
-            stderr,
-        })
+        Ok(Output { status, stdout, stderr })
     }
 }
 
@@ -1488,12 +1522,12 @@ impl Child {
 /// }
 ///
 /// fn main() {
-///     ::std::process::exit(match run_app() {
-///        Ok(_) => 0,
-///        Err(err) => {
-///            eprintln!("error: {:?}", err);
-///            1
-///        }
+///     std::process::exit(match run_app() {
+///         Ok(_) => 0,
+///         Err(err) => {
+///             eprintln!("error: {:?}", err);
+///             1
+///         }
 ///     });
 /// }
 /// ```
@@ -1595,7 +1629,7 @@ pub fn id() -> u32 {
 
 /// A trait for implementing arbitrary return types in the `main` function.
 ///
-/// The c-main function only supports to return integers as return type.
+/// The C-main function only supports to return integers as return type.
 /// So, every type implementing the `Termination` trait has to be converted
 /// to an integer.
 ///
@@ -1604,8 +1638,9 @@ pub fn id() -> u32 {
 #[cfg_attr(not(test), lang = "termination")]
 #[unstable(feature = "termination_trait_lib", issue = "43301")]
 #[rustc_on_unimplemented(
-  message="`main` has invalid return type `{Self}`",
-  label="`main` can only return types that implement `{Termination}`")]
+    message = "`main` has invalid return type `{Self}`",
+    label = "`main` can only return types that implement `{Termination}`"
+)]
 pub trait Termination {
     /// Is called to get the representation of the value as status code.
     /// This status code is returned to the operating system.
@@ -1615,7 +1650,9 @@ pub trait Termination {
 #[unstable(feature = "termination_trait_lib", issue = "43301")]
 impl Termination for () {
     #[inline]
-    fn report(self) -> i32 { ExitCode::SUCCESS.report() }
+    fn report(self) -> i32 {
+        ExitCode::SUCCESS.report()
+    }
 }
 
 #[unstable(feature = "termination_trait_lib", issue = "43301")]
@@ -1630,7 +1667,9 @@ impl<E: fmt::Debug> Termination for Result<(), E> {
 
 #[unstable(feature = "termination_trait_lib", issue = "43301")]
 impl Termination for ! {
-    fn report(self) -> i32 { self }
+    fn report(self) -> i32 {
+        self
+    }
 }
 
 #[unstable(feature = "termination_trait_lib", issue = "43301")]
@@ -1654,14 +1693,14 @@ impl Termination for ExitCode {
 mod tests {
     use crate::io::prelude::*;
 
+    use super::{Command, Output, Stdio};
     use crate::io::ErrorKind;
     use crate::str;
-    use super::{Command, Output, Stdio};
 
     // FIXME(#10380) these tests should not all be ignored on android.
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn smoke() {
         let p = if cfg!(target_os = "windows") {
             Command::new("cmd").args(&["/C", "exit 0"]).spawn()
@@ -1683,7 +1722,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn exit_reported_right() {
         let p = if cfg!(target_os = "windows") {
             Command::new("cmd").args(&["/C", "exit 1"]).spawn()
@@ -1698,19 +1737,16 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn signal_reported_right() {
         use crate::os::unix::process::ExitStatusExt;
 
-        let mut p = Command::new("/bin/sh")
-                            .arg("-c").arg("read a")
-                            .stdin(Stdio::piped())
-                            .spawn().unwrap();
+        let mut p =
+            Command::new("/bin/sh").arg("-c").arg("read a").stdin(Stdio::piped()).spawn().unwrap();
         p.kill().unwrap();
         match p.wait().unwrap().signal() {
-            Some(9) => {},
-            result => panic!("not terminated by signal 9 (instead, {:?})",
-                             result),
+            Some(9) => {}
+            result => panic!("not terminated by signal 9 (instead, {:?})", result),
         }
     }
 
@@ -1726,7 +1762,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn stdout_works() {
         if cfg!(target_os = "windows") {
             let mut cmd = Command::new("cmd");
@@ -1740,23 +1776,23 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(any(windows, target_os = "android"), ignore)]
+    #[cfg_attr(any(windows, target_os = "android", target_os = "vxworks"), ignore)]
     fn set_current_dir_works() {
         let mut cmd = Command::new("/bin/sh");
-        cmd.arg("-c").arg("pwd")
-           .current_dir("/")
-           .stdout(Stdio::piped());
+        cmd.arg("-c").arg("pwd").current_dir("/").stdout(Stdio::piped());
         assert_eq!(run_output(cmd), "/\n");
     }
 
     #[test]
-    #[cfg_attr(any(windows, target_os = "android"), ignore)]
+    #[cfg_attr(any(windows, target_os = "android", target_os = "vxworks"), ignore)]
     fn stdin_works() {
         let mut p = Command::new("/bin/sh")
-                            .arg("-c").arg("read line; echo $line")
-                            .stdin(Stdio::piped())
-                            .stdout(Stdio::piped())
-                            .spawn().unwrap();
+            .arg("-c")
+            .arg("read line; echo $line")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         p.stdin.as_mut().unwrap().write("foobar".as_bytes()).unwrap();
         drop(p.stdin.take());
         let mut out = String::new();
@@ -1766,7 +1802,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn test_process_status() {
         let mut status = if cfg!(target_os = "windows") {
             Command::new("cmd").args(&["/C", "exit 1"]).status().unwrap()
@@ -1787,19 +1823,18 @@ mod tests {
     fn test_process_output_fail_to_start() {
         match Command::new("/no-binary-by-this-name-should-exist").output() {
             Err(e) => assert_eq!(e.kind(), ErrorKind::NotFound),
-            Ok(..) => panic!()
+            Ok(..) => panic!(),
         }
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn test_process_output_output() {
-        let Output {status, stdout, stderr}
-             = if cfg!(target_os = "windows") {
-                 Command::new("cmd").args(&["/C", "echo hello"]).output().unwrap()
-             } else {
-                 Command::new("echo").arg("hello").output().unwrap()
-             };
+        let Output { status, stdout, stderr } = if cfg!(target_os = "windows") {
+            Command::new("cmd").args(&["/C", "echo hello"]).output().unwrap()
+        } else {
+            Command::new("echo").arg("hello").output().unwrap()
+        };
         let output_str = str::from_utf8(&stdout).unwrap();
 
         assert!(status.success());
@@ -1808,14 +1843,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn test_process_output_error() {
-        let Output {status, stdout, stderr}
-             = if cfg!(target_os = "windows") {
-                 Command::new("cmd").args(&["/C", "mkdir ."]).output().unwrap()
-             } else {
-                 Command::new("mkdir").arg("./").output().unwrap()
-             };
+        let Output { status, stdout, stderr } = if cfg!(target_os = "windows") {
+            Command::new("cmd").args(&["/C", "mkdir ."]).output().unwrap()
+        } else {
+            Command::new("mkdir").arg("./").output().unwrap()
+        };
 
         assert!(status.code() == Some(1));
         assert_eq!(stdout, Vec::new());
@@ -1823,7 +1857,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn test_finish_once() {
         let mut prog = if cfg!(target_os = "windows") {
             Command::new("cmd").args(&["/C", "exit 1"]).spawn().unwrap()
@@ -1834,7 +1868,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn test_finish_twice() {
         let mut prog = if cfg!(target_os = "windows") {
             Command::new("cmd").args(&["/C", "exit 1"]).spawn().unwrap()
@@ -1846,7 +1880,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "android", ignore)]
+    #[cfg_attr(any(target_os = "vxworks", target_os = "android"), ignore)]
     fn test_wait_with_output_once() {
         let prog = if cfg!(target_os = "windows") {
             Command::new("cmd").args(&["/C", "echo hello"]).stdout(Stdio::piped()).spawn().unwrap()
@@ -1854,7 +1888,7 @@ mod tests {
             Command::new("echo").arg("hello").stdout(Stdio::piped()).spawn().unwrap()
         };
 
-        let Output {status, stdout, stderr} = prog.wait_with_output().unwrap();
+        let Output { status, stdout, stderr } = prog.wait_with_output().unwrap();
         let output_str = str::from_utf8(&stdout).unwrap();
 
         assert!(status.success());
@@ -1862,11 +1896,11 @@ mod tests {
         assert_eq!(stderr, Vec::new());
     }
 
-    #[cfg(all(unix, not(target_os="android")))]
+    #[cfg(all(unix, not(target_os = "android")))]
     pub fn env_cmd() -> Command {
         Command::new("env")
     }
-    #[cfg(target_os="android")]
+    #[cfg(target_os = "android")]
     pub fn env_cmd() -> Command {
         let mut cmd = Command::new("/system/bin/sh");
         cmd.arg("-c").arg("set");
@@ -1881,6 +1915,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "vxworks", ignore)]
     fn test_override_env() {
         use crate::env;
 
@@ -1896,20 +1931,28 @@ mod tests {
         let result = cmd.output().unwrap();
         let output = String::from_utf8_lossy(&result.stdout).to_string();
 
-        assert!(output.contains("RUN_TEST_NEW_ENV=123"),
-                "didn't find RUN_TEST_NEW_ENV inside of:\n\n{}", output);
+        assert!(
+            output.contains("RUN_TEST_NEW_ENV=123"),
+            "didn't find RUN_TEST_NEW_ENV inside of:\n\n{}",
+            output
+        );
     }
 
     #[test]
+    #[cfg_attr(target_os = "vxworks", ignore)]
     fn test_add_to_env() {
         let result = env_cmd().env("RUN_TEST_NEW_ENV", "123").output().unwrap();
         let output = String::from_utf8_lossy(&result.stdout).to_string();
 
-        assert!(output.contains("RUN_TEST_NEW_ENV=123"),
-                "didn't find RUN_TEST_NEW_ENV inside of:\n\n{}", output);
+        assert!(
+            output.contains("RUN_TEST_NEW_ENV=123"),
+            "didn't find RUN_TEST_NEW_ENV inside of:\n\n{}",
+            output
+        );
     }
 
     #[test]
+    #[cfg_attr(target_os = "vxworks", ignore)]
     fn test_capture_env_at_spawn() {
         use crate::env;
 
@@ -1924,10 +1967,16 @@ mod tests {
 
         let output = String::from_utf8_lossy(&result.stdout).to_string();
 
-        assert!(output.contains("RUN_TEST_NEW_ENV1=123"),
-                "didn't find RUN_TEST_NEW_ENV1 inside of:\n\n{}", output);
-        assert!(output.contains("RUN_TEST_NEW_ENV2=456"),
-                "didn't find RUN_TEST_NEW_ENV2 inside of:\n\n{}", output);
+        assert!(
+            output.contains("RUN_TEST_NEW_ENV1=123"),
+            "didn't find RUN_TEST_NEW_ENV1 inside of:\n\n{}",
+            output
+        );
+        assert!(
+            output.contains("RUN_TEST_NEW_ENV2=456"),
+            "didn't find RUN_TEST_NEW_ENV2 inside of:\n\n{}",
+            output
+        );
     }
 
     // Regression tests for #30858.
@@ -1965,6 +2014,7 @@ mod tests {
 
     // Regression tests for #30862.
     #[test]
+    #[cfg_attr(target_os = "vxworks", ignore)]
     fn test_interior_nul_in_env_key_is_error() {
         match env_cmd().env("has-some-\0\0s-inside", "value").spawn() {
             Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidInput),
@@ -1973,6 +2023,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "vxworks", ignore)]
     fn test_interior_nul_in_env_value_is_error() {
         match env_cmd().env("key", "has-some-\0\0s-inside").spawn() {
             Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidInput),
@@ -2000,8 +2051,11 @@ mod tests {
 
         extern "system" {
             fn WaitForDebugEvent(lpDebugEvent: *mut DEBUG_EVENT, dwMilliseconds: DWORD) -> BOOL;
-            fn ContinueDebugEvent(dwProcessId: DWORD, dwThreadId: DWORD,
-                                  dwContinueStatus: DWORD) -> BOOL;
+            fn ContinueDebugEvent(
+                dwProcessId: DWORD,
+                dwThreadId: DWORD,
+                dwContinueStatus: DWORD,
+            ) -> BOOL;
         }
 
         const DEBUG_PROCESS: DWORD = 1;
@@ -2010,15 +2064,12 @@ mod tests {
 
         let mut child = Command::new("cmd")
             .creation_flags(DEBUG_PROCESS)
-            .stdin(Stdio::piped()).spawn().unwrap();
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
         child.stdin.take().unwrap().write_all(b"exit\r\n").unwrap();
         let mut events = 0;
-        let mut event = DEBUG_EVENT {
-            event_code: 0,
-            process_id: 0,
-            thread_id: 0,
-            _junk: [0; 164],
-        };
+        let mut event = DEBUG_EVENT { event_code: 0, process_id: 0, thread_id: 0, _junk: [0; 164] };
         loop {
             if unsafe { WaitForDebugEvent(&mut event as *mut DEBUG_EVENT, INFINITE) } == 0 {
                 panic!("WaitForDebugEvent failed!");
@@ -2029,9 +2080,10 @@ mod tests {
                 break;
             }
 
-            if unsafe { ContinueDebugEvent(event.process_id,
-                                           event.thread_id,
-                                           DBG_EXCEPTION_NOT_HANDLED) } == 0 {
+            if unsafe {
+                ContinueDebugEvent(event.process_id, event.thread_id, DBG_EXCEPTION_NOT_HANDLED)
+            } == 0
+            {
                 panic!("ContinueDebugEvent failed!");
             }
         }

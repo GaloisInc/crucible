@@ -10,10 +10,10 @@ pub struct RWLock {
     writer: SpinMutex<WaitVariable<bool>>,
 }
 
-// Below is to check at compile time, that RWLock has size of 128 bytes.
+// Check at compile time that RWLock size matches C definition (see test_c_rwlock_initializer below)
 #[allow(dead_code)]
 unsafe fn rw_lock_size_assert(r: RWLock) {
-    mem::transmute::<RWLock, [u8; 128]>(r);
+    mem::transmute::<RWLock, [u8; 144]>(r);
 }
 
 impl RWLock {
@@ -31,8 +31,8 @@ impl RWLock {
         if *wguard.lock_var() || !wguard.queue_empty() {
             // Another thread has or is waiting for the write lock, wait
             drop(wguard);
-            WaitQueue::wait(rguard);
-            // Another thread has passed the lock to us
+            WaitQueue::wait(rguard, || {});
+        // Another thread has passed the lock to us
         } else {
             // No waiting writers, acquire the read lock
             *rguard.lock_var_mut() =
@@ -62,8 +62,8 @@ impl RWLock {
         if *wguard.lock_var() || rguard.lock_var().is_some() {
             // Another thread has the lock, wait
             drop(rguard);
-            WaitQueue::wait(wguard);
-            // Another thread has passed the lock to us
+            WaitQueue::wait(wguard, || {});
+        // Another thread has passed the lock to us
         } else {
             // We are just now obtaining the lock
             *wguard.lock_var_mut() = true;
@@ -97,6 +97,7 @@ impl RWLock {
             if let Ok(mut wguard) = WaitQueue::notify_one(wguard) {
                 // A writer was waiting, pass the lock
                 *wguard.lock_var_mut() = true;
+                wguard.drop_after(rguard);
             } else {
                 // No writers were waiting, the lock is released
                 rtassert!(rguard.queue_empty());
@@ -117,21 +118,26 @@ impl RWLock {
         rguard: SpinMutexGuard<'_, WaitVariable<Option<NonZeroUsize>>>,
         wguard: SpinMutexGuard<'_, WaitVariable<bool>>,
     ) {
-        if let Err(mut wguard) = WaitQueue::notify_one(wguard) {
-            // No writers waiting, release the write lock
-            *wguard.lock_var_mut() = false;
-            if let Ok(mut rguard) = WaitQueue::notify_all(rguard) {
-                // One or more readers were waiting, pass the lock to them
-                if let NotifiedTcs::All { count } = rguard.notified_tcs() {
-                    *rguard.lock_var_mut() = Some(count)
+        match WaitQueue::notify_one(wguard) {
+            Err(mut wguard) => {
+                // No writers waiting, release the write lock
+                *wguard.lock_var_mut() = false;
+                if let Ok(mut rguard) = WaitQueue::notify_all(rguard) {
+                    // One or more readers were waiting, pass the lock to them
+                    if let NotifiedTcs::All { count } = rguard.notified_tcs() {
+                        *rguard.lock_var_mut() = Some(count)
+                    } else {
+                        unreachable!() // called notify_all
+                    }
+                    rguard.drop_after(wguard);
                 } else {
-                    unreachable!() // called notify_all
+                    // No readers waiting, the lock is released
                 }
-            } else {
-                // No readers waiting, the lock is released
             }
-        } else {
-            // There was a thread waiting for write, just pass the lock
+            Ok(wguard) => {
+                // There was a thread waiting for write, just pass the lock
+                wguard.drop_after(rguard);
+            }
         }
     }
 
@@ -196,31 +202,25 @@ pub unsafe extern "C" fn __rust_rwlock_unlock(p: *mut RWLock) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::array::FixedSizeArray;
     use crate::mem::{self, MaybeUninit};
+    use core::array::FixedSizeArray;
 
     // Verify that the bytes of initialized RWLock are the same as in
     // libunwind. If they change, `src/UnwindRustSgx.h` in libunwind needs to
     // be changed too.
     #[test]
     fn test_c_rwlock_initializer() {
+        #[rustfmt::skip]
         const RWLOCK_INIT: &[u8] = &[
-            0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x00 */ 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x10 */ 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x20 */ 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x30 */ 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x40 */ 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x50 */ 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x60 */ 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x70 */ 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            /* 0x80 */ 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
         ];
 
         #[inline(never)]
@@ -241,10 +241,7 @@ mod tests {
             zero_stack();
             let mut init = MaybeUninit::<RWLock>::zeroed();
             rwlock_new(&mut init);
-            assert_eq!(
-                mem::transmute::<_, [u8; 128]>(init.assume_init()).as_slice(),
-                RWLOCK_INIT
-            )
+            assert_eq!(mem::transmute::<_, [u8; 144]>(init.assume_init()).as_slice(), RWLOCK_INIT)
         };
     }
 }

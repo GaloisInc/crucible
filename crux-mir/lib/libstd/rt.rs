@@ -6,12 +6,13 @@
 //! and should be considered as private implementation details for the
 //! time being.
 
-#![unstable(feature = "rt",
-            reason = "this public module should not exist and is highly likely \
-                      to disappear",
-            issue = "0")]
+#![unstable(
+    feature = "rt",
+    reason = "this public module should not exist and is highly likely \
+              to disappear",
+    issue = "none"
+)]
 #![doc(hidden)]
-
 
 // Re-export some of our utilities which are expected by other crates.
 pub use crate::panicking::{begin_panic, begin_panic_fmt, update_panic_count};
@@ -19,8 +20,11 @@ pub use crate::panicking::{begin_panic, begin_panic_fmt, update_panic_count};
 // To reduce the generated code of the new `lang_start`, this function is doing
 // the real work.
 #[cfg(not(test))]
-fn lang_start_internal(main: &(dyn Fn() -> i32 + Sync + crate::panic::RefUnwindSafe),
-                       argc: isize, argv: *const *const u8) -> isize {
+fn lang_start_internal(
+    main: &(dyn Fn() -> i32 + Sync + crate::panic::RefUnwindSafe),
+    argc: isize,
+    argv: *const *const u8,
+) -> isize {
     use crate::panic;
     use crate::sys;
     use crate::sys_common;
@@ -44,12 +48,9 @@ fn lang_start_internal(main: &(dyn Fn() -> i32 + Sync + crate::panic::RefUnwindS
         sys::args::init(argc, argv);
 
         // Let's run some code!
-        #[cfg(feature = "backtrace")]
         let exit_code = panic::catch_unwind(|| {
             sys_common::backtrace::__rust_begin_short_backtrace(move || main())
         });
-        #[cfg(not(feature = "backtrace"))]
-        let exit_code = panic::catch_unwind(move || main());
 
         sys_common::cleanup();
         exit_code.unwrap_or(101) as isize
@@ -58,8 +59,10 @@ fn lang_start_internal(main: &(dyn Fn() -> i32 + Sync + crate::panic::RefUnwindS
 
 #[cfg(not(test))]
 #[lang = "start"]
-fn lang_start<T: crate::process::Termination + 'static>
-    (main: fn() -> T, argc: isize, argv: *const *const u8) -> isize
-{
+fn lang_start<T: crate::process::Termination + 'static>(
+    main: fn() -> T,
+    argc: isize,
+    argv: *const *const u8,
+) -> isize {
     lang_start_internal(&move || main().report(), argc, argv)
 }

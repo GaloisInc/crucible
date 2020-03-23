@@ -111,7 +111,7 @@ pub unsafe fn _mm256_add_epi8(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpaddsb))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_adds_epi8(a: __m256i, b: __m256i) -> __m256i {
-    transmute(paddsb(a.as_i8x32(), b.as_i8x32()))
+    transmute(simd_saturating_add(a.as_i8x32(), b.as_i8x32()))
 }
 
 /// Adds packed 16-bit integers in `a` and `b` using saturation.
@@ -122,7 +122,7 @@ pub unsafe fn _mm256_adds_epi8(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpaddsw))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_adds_epi16(a: __m256i, b: __m256i) -> __m256i {
-    transmute(paddsw(a.as_i16x16(), b.as_i16x16()))
+    transmute(simd_saturating_add(a.as_i16x16(), b.as_i16x16()))
 }
 
 /// Adds packed unsigned 8-bit integers in `a` and `b` using saturation.
@@ -133,7 +133,7 @@ pub unsafe fn _mm256_adds_epi16(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpaddusb))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_adds_epu8(a: __m256i, b: __m256i) -> __m256i {
-    transmute(paddusb(a.as_u8x32(), b.as_u8x32()))
+    transmute(simd_saturating_add(a.as_u8x32(), b.as_u8x32()))
 }
 
 /// Adds packed unsigned 16-bit integers in `a` and `b` using saturation.
@@ -144,7 +144,7 @@ pub unsafe fn _mm256_adds_epu8(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpaddusw))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_adds_epu16(a: __m256i, b: __m256i) -> __m256i {
-    transmute(paddusw(a.as_u16x16(), b.as_u16x16()))
+    transmute(simd_saturating_add(a.as_u16x16(), b.as_u16x16()))
 }
 
 /// Concatenates pairs of 16-byte blocks in `a` and `b` into a 32-byte temporary
@@ -641,16 +641,14 @@ pub unsafe fn _mm256_broadcastd_epi32(a: __m128i) -> __m256i {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_broadcastq_epi64)
 #[inline]
 #[target_feature(enable = "avx2")]
-#[cfg_attr(test, assert_instr(vpbroadcastq))]
+// FIXME: https://github.com/rust-lang/stdarch/issues/791
+#[cfg_attr(test, assert_instr(vmovddup))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_broadcastq_epi64(a: __m128i) -> __m128i {
-    let zero = _mm_setzero_si128().as_i64x2();
-    let ret = simd_shuffle2(a.as_i64x2(), zero, [0_u32; 2]);
+    let ret = simd_shuffle2(a.as_i64x2(), a.as_i64x2(), [0_u32; 2]);
     transmute::<i64x2, _>(ret)
 }
 
-// N.B. `simd_shuffle4` with integer data types for `a` and `b` is
-// often compiled to `vbroadcastsd`.
 /// Broadcasts the low packed 64-bit integer from `a` to all elements of
 /// the 256-bit returned value.
 ///
@@ -660,8 +658,7 @@ pub unsafe fn _mm_broadcastq_epi64(a: __m128i) -> __m128i {
 #[cfg_attr(test, assert_instr(vbroadcastsd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_broadcastq_epi64(a: __m128i) -> __m256i {
-    let zero = _mm_setzero_si128();
-    let ret = simd_shuffle4(a.as_i64x2(), zero.as_i64x2(), [0_u32; 4]);
+    let ret = simd_shuffle4(a.as_i64x2(), a.as_i64x2(), [0_u32; 4]);
     transmute::<i64x4, _>(ret)
 }
 
@@ -3334,7 +3331,7 @@ pub unsafe fn _mm256_sub_epi8(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpsubsw))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_subs_epi16(a: __m256i, b: __m256i) -> __m256i {
-    transmute(psubsw(a.as_i16x16(), b.as_i16x16()))
+    transmute(simd_saturating_sub(a.as_i16x16(), b.as_i16x16()))
 }
 
 /// Subtract packed 8-bit integers in `b` from packed 8-bit integers in
@@ -3346,7 +3343,7 @@ pub unsafe fn _mm256_subs_epi16(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpsubsb))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_subs_epi8(a: __m256i, b: __m256i) -> __m256i {
-    transmute(psubsb(a.as_i8x32(), b.as_i8x32()))
+    transmute(simd_saturating_sub(a.as_i8x32(), b.as_i8x32()))
 }
 
 /// Subtract packed unsigned 16-bit integers in `b` from packed 16-bit
@@ -3358,7 +3355,7 @@ pub unsafe fn _mm256_subs_epi8(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpsubusw))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_subs_epu16(a: __m256i, b: __m256i) -> __m256i {
-    transmute(psubusw(a.as_u16x16(), b.as_u16x16()))
+    transmute(simd_saturating_sub(a.as_u16x16(), b.as_u16x16()))
 }
 
 /// Subtract packed unsigned 8-bit integers in `b` from packed 8-bit
@@ -3370,7 +3367,7 @@ pub unsafe fn _mm256_subs_epu16(a: __m256i, b: __m256i) -> __m256i {
 #[cfg_attr(test, assert_instr(vpsubusb))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm256_subs_epu8(a: __m256i, b: __m256i) -> __m256i {
-    transmute(psubusb(a.as_u8x32(), b.as_u8x32()))
+    transmute(simd_saturating_sub(a.as_u8x32(), b.as_u8x32()))
 }
 
 /// Unpacks and interleave 8-bit integers from the high half of each
@@ -3810,14 +3807,6 @@ extern "C" {
     fn pabsw(a: i16x16) -> u16x16;
     #[link_name = "llvm.x86.avx2.pabs.d"]
     fn pabsd(a: i32x8) -> u32x8;
-    #[link_name = "llvm.x86.avx2.padds.b"]
-    fn paddsb(a: i8x32, b: i8x32) -> i8x32;
-    #[link_name = "llvm.x86.avx2.padds.w"]
-    fn paddsw(a: i16x16, b: i16x16) -> i16x16;
-    #[link_name = "llvm.x86.avx2.paddus.b"]
-    fn paddusb(a: u8x32, b: u8x32) -> u8x32;
-    #[link_name = "llvm.x86.avx2.paddus.w"]
-    fn paddusw(a: u16x16, b: u16x16) -> u16x16;
     #[link_name = "llvm.x86.avx2.pavg.b"]
     fn pavgb(a: u8x32, b: u8x32) -> u8x32;
     #[link_name = "llvm.x86.avx2.pavg.w"]
@@ -3962,14 +3951,6 @@ extern "C" {
     fn psrlvq(a: i64x2, count: i64x2) -> i64x2;
     #[link_name = "llvm.x86.avx2.psrlv.q.256"]
     fn psrlvq256(a: i64x4, count: i64x4) -> i64x4;
-    #[link_name = "llvm.x86.avx2.psubs.b"]
-    fn psubsb(a: i8x32, b: i8x32) -> i8x32;
-    #[link_name = "llvm.x86.avx2.psubs.w"]
-    fn psubsw(a: i16x16, b: i16x16) -> i16x16;
-    #[link_name = "llvm.x86.avx2.psubus.b"]
-    fn psubusb(a: u8x32, b: u8x32) -> u8x32;
-    #[link_name = "llvm.x86.avx2.psubus.w"]
-    fn psubusw(a: u16x16, b: u16x16) -> u16x16;
     #[link_name = "llvm.x86.avx2.pshuf.b"]
     fn pshufb(a: u8x32, b: u8x32) -> u8x32;
     #[link_name = "llvm.x86.avx2.permd"]
