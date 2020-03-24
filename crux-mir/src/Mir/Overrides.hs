@@ -143,7 +143,7 @@ concretize (Just SomeOnlineSolver) = do
         evalBase btr v = evalGround v >>= groundExpr sym btr
 
     RegMap (Empty :> RegEntry tpr val) <- getOverrideArgs
-    liftIO $ regEval sym evalBase tpr val
+    regEval sym (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
 concretize Nothing = fail "`concretize` requires an online solver backend"
 
 groundExpr :: (IsExprBuilder sym, IsBoolSolver sym) => sym ->
@@ -182,16 +182,18 @@ indexExpr sym tpr l = case l of
 
 
 regEval ::
-    forall sym tp .
+    forall sym tp rtp args ret .
     (IsExprBuilder sym, IsBoolSolver sym) =>
     sym ->
-    (forall bt. BaseTypeRepr bt -> SymExpr sym bt -> IO (SymExpr sym bt)) ->
+    (forall bt. BaseTypeRepr bt -> SymExpr sym bt ->
+        OverrideSim (Model sym) sym MIR rtp args ret (SymExpr sym bt)) ->
     TypeRepr tp ->
     RegValue sym tp ->
-    IO (RegValue sym tp)
+    OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym tp)
 regEval sym baseEval tpr v = go tpr v
   where
-    go :: forall tp' . TypeRepr tp' -> RegValue sym tp' -> IO (RegValue sym tp')
+    go :: forall tp' . TypeRepr tp' -> RegValue sym tp' ->
+        OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym tp')
     go tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
 
     -- Special case for slices.  The issue here is that we can't evaluate
@@ -215,11 +217,11 @@ regEval sym baseEval tpr v = go tpr v
             let lenBV = fromMaybe (error "regEval produced non-concrete BV") $
                     asUnsignedBV len'
             v' <- liftM V.fromList $ forM [0 .. lenBV] $ \i -> do
-                iExpr <- bvLit sym knownNat (startBV + i)
-                x <- arrayLookup sym a (Empty :> iExpr)
+                iExpr <- liftIO $ bvLit sym knownNat (startBV + i)
+                x <- liftIO $ arrayLookup sym a (Empty :> iExpr)
                 go tpr' x
 
-            zero <- bvLit sym knownNat 0
+            zero <- liftIO $ bvLit sym knownNat 0
             return $ Empty :> RV (MirVector_Vector v') :> RV zero :> RV len'
 
     go (FloatRepr fi) v = pure v
@@ -242,26 +244,29 @@ regEval sym baseEval tpr v = go tpr v
             MirVector_Array <$> go (UsizeArrayRepr btpr') a
           | otherwise -> error "unreachable: MirVector_Array elem type is always a base type"
     -- TODO: StringMapRepr
-    go tpr v = addFailedAssertion sym $ GenericSimError $
+    go tpr v = liftIO $ addFailedAssertion sym $ GenericSimError $
         "evaluation of " ++ show tpr ++ " is not yet implemented"
 
-    go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' -> IO (RegValue' sym tp')
+    go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' ->
+        OverrideSim (Model sym) sym MIR rtp args ret (RegValue' sym tp')
     go' tpr (RV v) = RV <$> go tpr v
 
-    goFnVal :: forall args ret .
-        CtxRepr args -> TypeRepr ret -> FnVal sym args ret -> IO (FnVal sym args ret)
+    goFnVal :: forall args' ret' .
+        CtxRepr args' -> TypeRepr ret' -> FnVal sym args' ret' ->
+        OverrideSim (Model sym) sym MIR rtp args ret (FnVal sym args' ret')
     goFnVal args ret (ClosureFnVal fv tpr v) =
         ClosureFnVal <$> goFnVal (args :> tpr) ret fv <*> pure tpr <*> go tpr v
     goFnVal _ _ (HandleFnVal fh) = pure $ HandleFnVal fh
 
     goPartExpr :: forall tp' . TypeRepr tp' ->
         PartExpr (Pred sym) (RegValue sym tp') ->
-        IO (PartExpr (Pred sym) (RegValue sym tp'))
+        OverrideSim (Model sym) sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym tp'))
     goPartExpr tpr Unassigned = pure Unassigned
     goPartExpr tpr (PE p v) = PE <$> baseEval BaseBoolRepr p <*> go tpr v
 
     goVariantBranch :: forall tp' . TypeRepr tp' ->
-        VariantBranch sym tp' -> IO (VariantBranch sym tp')
+        VariantBranch sym tp' ->
+        OverrideSim (Model sym) sym MIR rtp args ret (VariantBranch sym tp')
     goVariantBranch tpr (VB pe) = VB <$> goPartExpr tpr pe
 
 bindFn ::
