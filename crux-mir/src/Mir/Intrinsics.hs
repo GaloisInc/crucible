@@ -839,6 +839,17 @@ readBeforeWriteMsg :: SimErrorReason
 readBeforeWriteMsg = ReadBeforeWriteSimError
     "Attempted to read uninitialized reference cell"
 
+readMirRefImpl :: IsSymInterface sym =>
+    SimState p sym ext rtp f a ->
+    sym ->
+    MirReference sym tp ->
+    IO (RegValue sym tp)
+readMirRefImpl s sym (MirReference r path) = do
+    let iTypes = ctxIntrinsicTypes $ s^.stateContext
+    v <- readRefRoot s sym r
+    v' <- readRefPath sym iTypes v path
+    return v'
+
 newConstMirRef ::
     TypeRepr tp ->
     RegValue sym tp ->
@@ -917,10 +928,9 @@ execMirStmt stmt s =
                 return ((), s')
            _ -> addFailedAssertion sym (GenericSimError "Cannot drop an interior reference")
 
-       MirReadRef _tp (regValue -> MirReference r path) ->
-         do v <- readRefRoot s sym r
-            v' <- readRefPath sym iTypes v path
-            return (v', s)
+       MirReadRef _tp (regValue -> ref) ->
+         do v <- readMirRefImpl s sym ref
+            return (v, s)
 
        MirWriteRef (regValue -> MirReference r Empty_RefPath) (regValue -> x) ->
          do s' <- writeRefRoot s sym r x

@@ -16,6 +16,7 @@ module Mir.Overrides (bindFn) where
 import Control.Lens ((^.), (%=), (.=), use)
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.State (get)
 
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
@@ -46,7 +47,7 @@ import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..), GroundArray(..))
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
 import What4.LabeledPred (LabeledPred(..))
-import What4.Partial (PartExpr, pattern PE, pattern Unassigned)
+import What4.Partial (PartExpr, pattern PE, pattern Unassigned, justPartExpr)
 import What4.Protocol.Online
     ( OnlineSolver, inNewFrame, solverEvalFuns , solverConn, check
     , getUnsatCore , checkWithAssumptionsAndModel )
@@ -58,7 +59,7 @@ import What4.SatResult (SatResult(..))
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
     ( AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption
-    , assert, getPathCondition, Assumption(..), addFailedAssertion )
+    , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.FunctionHandle (RefCell, freshRefCell, refType)
@@ -80,32 +81,39 @@ import Mir.DefId
 import Mir.Intrinsics
 
 
-getString :: forall sym. (IsSymExprBuilder sym) => sym -> RegValue sym (MirImmSlice (BVType 8)) -> Maybe Text
-getString _ (Empty :> RV mirVec :> RV startExpr :> RV lenExpr)
-  | MirVector_Vector vec <- mirVec = do
-    start <- asUnsignedBV startExpr
-    len <- asUnsignedBV lenExpr
-    let slice = V.slice (fromInteger start) (fromInteger len) vec
+getString :: forall sym rtp args ret. (IsSymInterface sym) =>
+    RegValue sym (MirSlice (BVType 8)) ->
+    OverrideSim (Model sym) sym MIR rtp args ret (Maybe Text)
+getString (Empty :> RV mirVec :> RV startExpr :> RV lenExpr) = do
+    sym <- getSymInterface
+    state <- get
+    mirVec' <- liftIO $ readMirRefImpl state sym mirVec
+    case mirVec' of
+        MirVector_Vector vec -> return $ do
+            start <- asUnsignedBV startExpr
+            len <- asUnsignedBV lenExpr
+            let slice = V.slice (fromInteger start) (fromInteger len) vec
 
-    let f :: RegValue sym (BVType 8) -> Maybe Word8
-        f rv = case asUnsignedBV rv of
-                      Just i  -> Just (fromInteger i)
-                      Nothing -> Nothing
-    bs <- BS.pack <$> mapM f (V.toList slice)
-    return $ Text.decodeUtf8 bs
-  | otherwise = Nothing
+            let f :: RegValue sym (BVType 8) -> Maybe Word8
+                f rv = case asUnsignedBV rv of
+                              Just i  -> Just (fromInteger i)
+                              Nothing -> Nothing
+            bs <- BS.pack <$> mapM f (V.toList slice)
+            return $ Text.decodeUtf8 bs
+        _ -> return Nothing
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
 
 makeSymbolicVar ::
-    (IsSymExprBuilder sym) =>
-    RegEntry sym (MirImmSlice (BVType 8)) ->
+    (IsSymInterface sym) =>
+    RegEntry sym (MirSlice (BVType 8)) ->
     BaseTypeRepr btp ->
     OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym (BaseToType btp))
 makeSymbolicVar nameReg btpr = do
     sym <- getSymInterface
-    name <- case getString sym (regValue nameReg) of
+    nameOpt <- getString $ regValue nameReg
+    name <- case nameOpt of
         Just x -> return $ Text.unpack x
         Nothing -> fail "symbolic variable name must be a concrete string"
     nameSymbol <- case userSymbol name of
@@ -118,10 +126,10 @@ makeSymbolicVar nameReg btpr = do
 
 array_symbolic ::
   forall sym rtp btp .
-  (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
+  (IsSymInterface sym) =>
   BaseTypeRepr btp ->
   OverrideSim (Model sym) sym MIR rtp
-    (EmptyCtx ::> MirImmSlice (BVType 8)) (UsizeArrayType btp)
+    (EmptyCtx ::> MirSlice (BVType 8)) (UsizeArrayType btp)
     (RegValue sym (UsizeArrayType btp))
 array_symbolic btpr = do
     RegMap (Empty :> nameReg) <- getOverrideArgs
@@ -129,7 +137,7 @@ array_symbolic btpr = do
 
 concretize ::
   forall sym rtp tp .
-  (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
+  (IsSymInterface sym) =>
   Maybe (SomeOnlineSolver sym) ->
   OverrideSim (Model sym) sym MIR rtp (EmptyCtx ::> tp) tp (RegValue sym tp)
 concretize (Just SomeOnlineSolver) = do
@@ -186,7 +194,7 @@ indexExpr sym tpr l = case l of
 
 regEval ::
     forall sym tp rtp args ret .
-    (IsExprBuilder sym, IsBoolSolver sym) =>
+    (IsSymInterface sym) =>
     sym ->
     (forall bt. BaseTypeRepr bt -> SymExpr sym bt ->
         OverrideSim (Model sym) sym MIR rtp args ret (SymExpr sym bt)) ->
@@ -202,30 +210,37 @@ regEval sym baseEval tpr v = go tpr v
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go (MirImmSliceRepr tpr') (Empty :> RV vec :> RV start :> RV len) = case vec of
-        MirVector_Vector v -> do
-            v' <- go (VectorRepr tpr') v
-            start' <- go UsizeRepr start
-            len' <- go UsizeRepr len
-            return $ Empty :> RV (MirVector_Vector v') :> RV start' :> RV len'
+    go (MirSliceRepr tpr') (Empty :> RV vecRef :> RV start :> RV len) = do
+        state <- get
+        vec <- liftIO $ readMirRefImpl state sym vecRef
 
-        MirVector_Array a -> do
-            start' <- go UsizeRepr start
-            len' <- go UsizeRepr len
+        (vec', start', len') <- case vec of
+            MirVector_Vector v -> do
+                v' <- go (VectorRepr tpr') v
+                start' <- go UsizeRepr start
+                len' <- go UsizeRepr len
+                return (MirVector_Vector v', start', len')
 
-            -- start' and len' should be concrete bitvectors.  Iterate over
-            -- the range `0 .. len'`, evaluating an array lookup at each index.
-            let startBV = fromMaybe (error "regEval produced non-concrete BV") $
-                    asUnsignedBV start'
-            let lenBV = fromMaybe (error "regEval produced non-concrete BV") $
-                    asUnsignedBV len'
-            v' <- liftM V.fromList $ forM [0 .. lenBV] $ \i -> do
-                iExpr <- liftIO $ bvLit sym knownNat (startBV + i)
-                x <- liftIO $ arrayLookup sym a (Empty :> iExpr)
-                go tpr' x
+            MirVector_Array a -> do
+                start' <- go UsizeRepr start
+                len' <- go UsizeRepr len
 
-            zero <- liftIO $ bvLit sym knownNat 0
-            return $ Empty :> RV (MirVector_Vector v') :> RV zero :> RV len'
+                -- start' and len' should be concrete bitvectors.  Iterate over
+                -- the range `0 .. len'`, evaluating an array lookup at each index.
+                let startBV = fromMaybe (error "regEval produced non-concrete BV") $
+                        asUnsignedBV start'
+                let lenBV = fromMaybe (error "regEval produced non-concrete BV") $
+                        asUnsignedBV len'
+                v' <- liftM V.fromList $ forM [0 .. lenBV] $ \i -> do
+                    iExpr <- liftIO $ bvLit sym knownNat (startBV + i)
+                    x <- liftIO $ arrayLookup sym a (Empty :> iExpr)
+                    go tpr' x
+
+                zero <- liftIO $ bvLit sym knownNat 0
+                return $ (MirVector_Vector v', zero, len')
+
+        let vecRef' = newConstMirRef (MirVectorRepr tpr') vec'
+        return $ Empty :> RV vecRef' :> RV start' :> RV len'
 
     go (FloatRepr fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
@@ -244,7 +259,6 @@ regEval sym baseEval tpr v = go tpr v
         return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
-    -- TODO: MirReferenceRepr (intrinsic)
     go (MirReferenceRepr tpr') (MirReference root path) =
         MirReference <$> goMirReferenceRoot root <*> goMirReferencePath path
     go (MirReferenceRepr tpr') (MirReference_Integer _tpr i) =
@@ -347,12 +361,12 @@ regEval sym baseEval tpr v = go tpr v
 
 bindFn ::
   forall args ret blocks sym rtp a r .
-  (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
+  (IsSymInterface sym) =>
   Maybe (SomeOnlineSolver sym) -> Text -> CFG MIR blocks args ret ->
   OverrideSim (Model sym) sym MIR rtp a r ()
 bindFn symOnline name cfg
   | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
-  , Empty :> MirImmSliceRepr (BVRepr w) <- cfgArgTypes cfg
+  , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
   , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
@@ -393,7 +407,7 @@ bindFn _symOnline fn cfg =
     u32repr :: TypeRepr (BaseToType (BaseBVType 32))
     u32repr = knownRepr
 
-    strrepr :: TypeRepr (MirImmSlice (BVType 8))
+    strrepr :: TypeRepr (MirSlice (BVType 8))
     strrepr = knownRepr
 
     symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (Model sym) sym)
@@ -424,8 +438,8 @@ bindFn _symOnline fn cfg =
                        s <- getSymInterface
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                (getString s (regValue srcArg))
-                       file <- maybe (fail "not a constant filename string") pure (getString s (regValue fileArg))
+                                =<< getString (regValue srcArg)
+                       file <- maybe (fail "not a constant filename string") pure =<< getString (regValue fileArg)
                        line <- maybe (fail "not a constant line number") pure (asUnsignedBV (regValue lineArg))
                        col <- maybe (fail "not a constant column number") pure (asUnsignedBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
@@ -439,8 +453,8 @@ bindFn _symOnline fn cfg =
                        loc <- liftIO $ getCurrentProgramLoc s
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                (getString s (regValue srcArg))
-                       file <- maybe (fail "not a constant filename string") pure (getString s (regValue fileArg))
+                                =<< getString (regValue srcArg)
+                       file <- maybe (fail "not a constant filename string") pure =<< getString (regValue fileArg)
                        line <- maybe (fail "not a constant line number") pure (asUnsignedBV (regValue lineArg))
                        col <- maybe (fail "not a constant column number") pure (asUnsignedBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col

@@ -35,7 +35,9 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , evalBinOp
                 , vectorCopy
                 , evalRval
-                , callExp) where
+                , callExp
+                , derefExp, readPlace
+                ) where
 
 import Control.Monad
 import Control.Monad.ST
@@ -169,18 +171,19 @@ transConstVal (Some (UsizeRepr)) (M.ConstInt i) =
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
 transConstVal (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (Some (MirImmSliceRepr (C.BVRepr w))) (M.ConstStr bs)
+transConstVal (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
   | Just Refl <- testEquality w (knownNat @8) = do
     let u8Repr = C.BVRepr $ knownNat @8
     let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
     mirVec <- mirVector_fromVector u8Repr vec
+    ref <- constMirRef (MirVectorRepr u8Repr) mirVec
     let start = R.App $ usizeLit 0
     let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
     let struct = S.mkStruct
             knownRepr
-            (Ctx.Empty Ctx.:> mirVec Ctx.:> start Ctx.:> len)
-    return $ MirExp (MirImmSliceRepr u8Repr) struct
+            (Ctx.Empty Ctx.:> ref Ctx.:> start Ctx.:> len)
+    return $ MirExp (MirSliceRepr u8Repr) struct
 transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
       = do let bytes = V.fromList (map u8ToBV8 arr)
@@ -199,6 +202,12 @@ transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
 
 transConstVal (Some _ty) (ConstInitializer funid ss) =
     callExp funid ss [] 
+transConstVal (Some (MirReferenceRepr tpr)) init = do
+    MirExp tpr' val <- transConstVal (Some tpr) init
+    Refl <- testEqualityOrFail tpr tpr' $
+        "transConstVal returned wrong type: expected " ++ show tpr ++ ", got " ++ show tpr'
+    ref <- constMirRef tpr val
+    return $ MirExp (MirReferenceRepr tpr) ref
 transConstVal tp cv = mirFail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -282,8 +291,22 @@ evalOperand (M.OpConstant (M.Constant conty conlit)) =
             Nothing  -> mirFail $ "Promoted index " ++ show idx ++ " out of range "
 
 
+-- | Dereference a `MirExp` (which must be `MirReferenceRepr` or other `TyRef`
+-- representation), producing a `MirPlace`.
+derefExp :: HasCallStack => MirExp s -> MirGenerator h s ret (MirPlace s)
+derefExp (MirExp (MirReferenceRepr tpr) e) = return $ MirPlace tpr e NoMeta
+derefExp (MirExp (MirSliceRepr tpr) e) = do
+    let vec = getSliceVector e
+    let start = getSliceLB e
+    let len = getSliceLen e
+    return $ MirPlace (MirVectorRepr tpr) vec (SliceMeta start len)
+derefExp (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
+
 readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
-readPlace (MirPlace tpr r _m) = MirExp tpr <$> readMirRef tpr r
+readPlace (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
+readPlace (MirPlace tpr _ meta) =
+    mirFail $ "don't know how to read from place with metadata " ++ show meta
+        ++ " (type " ++ show tpr ++ ")"
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp (MirReferenceRepr tpr) r
@@ -292,6 +315,12 @@ addrOfPlace (MirPlace tpr r (SliceMeta start len))
     return $ MirExp (MirSliceRepr tpr') $ mkSlice tpr' r start len
   | otherwise = mirFail $ "bad reference type for SliceMeta: " ++
         "expected MirVector, but got " ++ show tpr
+
+addrOfPlaceImm :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
+addrOfPlaceImm pl = do
+    MirExp tpr val <- readPlace pl
+    MirExp (MirReferenceRepr tpr) <$> constMirRef tpr val
+
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they
@@ -624,16 +653,14 @@ evalCast' ck ty1 e ty2  =
       (M.Unsize,a,b) | a == b -> return e
 
       (M.Unsize, M.TyRef (M.TyArray tp sz) M.Immut, M.TyRef (M.TySlice tp') M.Immut)
-        | tp == tp', MirExp (C.VectorRepr elem_tp) ref <- e
+        | tp == tp', MirExp (MirReferenceRepr (C.VectorRepr elem_tp)) ref <- e
         -> do let start = R.App $ usizeLit 0
               let len   = R.App $ usizeLit (fromIntegral sz)
-              vec <- mirVector_fromVector elem_tp ref
-              let tup   = S.mkStruct
-                              (Ctx.Empty Ctx.:> MirVectorRepr elem_tp Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
-                              (Ctx.Empty Ctx.:> vec Ctx.:> start Ctx.:> len)
-              return $ MirExp (MirImmSliceRepr elem_tp) tup
+              ref' <- mirRef_vectorAsMirVector elem_tp ref
+              let tup   = S.mkStruct (mirSliceCtxRepr elem_tp)
+                              (Ctx.Empty Ctx.:> ref' Ctx.:> start Ctx.:> len)
+              return $ MirExp (MirSliceRepr elem_tp) tup
         | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
-
 
       (M.Unsize, M.TyRef (M.TyArray tp _sz) M.Mut, M.TyRef (M.TySlice tp') M.Immut)
         | tp == tp' -> mirFail "FIXME! implement mut->immut unsize cast!"
@@ -748,7 +775,10 @@ evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref bk lv _) =
   case bk of
-    M.Shared  -> evalPlace lv >>= readPlace
+    -- TODO: This discards path information: addrOfPlaceRef reads the value,
+    -- then makes a new ref with Empty_RefPath.  This will break offsetting in
+    -- the case of `let ptr = &xs[0] as *const _; ptr.offset(1)`.
+    M.Shared  -> evalPlace lv >>= addrOfPlaceImm
     M.Mutable -> evalPlace lv >>= addrOfPlace
     M.Unique  -> evalPlace lv >>= addrOfPlace
 evalRval (M.Len lv) =
@@ -825,28 +855,15 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         -- Boxes are MirReferences, just like &mut
         CTyBox t -> return (t, M.Mut)
         _ -> mirFail $ "deref not supported on " ++ show ty
-    case (mutbl, ty', tpr) of
-        (M.Mut, M.TySlice _, MirSliceRepr tpr') -> do
+    case (ty', tpr) of
+        (M.TySlice _, MirSliceRepr tpr') -> do
             slice <- readMirRef tpr ref
             let vec = getSliceVector slice
             let start = getSliceLB slice
             let len = getSliceLen slice
             return $ MirPlace (MirVectorRepr tpr') vec (SliceMeta start len)
-        (M.Mut, _, MirReferenceRepr tpr') ->
+        (_, MirReferenceRepr tpr') ->
             MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
-
-        (M.Immut, M.TySlice _, MirImmSliceRepr tpr') -> do
-            slice <- readMirRef tpr ref
-            let vec = getImmSliceVector slice
-            let start = getImmSliceLB slice
-            let len = getImmSliceLen slice
-            r <- newMirRef (MirVectorRepr tpr')
-            writeMirRef r vec
-            return $ MirPlace (MirVectorRepr tpr') r (SliceMeta start len)
-
-        (M.Immut, _, tpr') -> do
-            return pl
-
         _ -> mirFail $ "deref not supported on " ++ show (ty, tpr)
 evalPlaceProj ty (MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = case ty of
     M.TyAdt nm _ _ -> do
@@ -931,37 +948,8 @@ lookupStatic did = do
 tryCoerce :: M.Ty -> M.Ty -> MirExp s -> Maybe (MirGenerator h s ret (MirExp s))
 tryCoerce ty1 ty2 exp
   | ty1 == ty2 = Just $ return exp
-tryCoerce (M.TyRef ty1 M.Mut) (M.TyRef ty2 M.Immut) (MirExp tpr e) = case (ty1, ty2) of
-    (M.TySlice elemTy1, M.TySlice elemTy2)
-      | elemTy1 == elemTy2
-      , MirSliceRepr elemTpr <- tpr
-      -> Just $ do
-        MirExp (MirImmSliceRepr elemTpr) <$> goSlice elemTpr e
-    (M.TyStr, M.TyStr)
-      | MirSliceRepr (C.BVRepr w) <- tpr
-      , Just Refl <- testEquality w (knownNat @8)
-      -> Just $ do
-        let elemTpr = C.BVRepr $ knownNat @8
-        MirExp (MirImmSliceRepr elemTpr) <$> goSlice elemTpr e
-    (M.TyDynamic _ _, M.TyDynamic _ _) -> Just $ mirFail $
-        "&mut dyn -> &dyn coercion is not yet implemented "
-            ++ "(tried " ++ show ty1 ++ " -> " ++ show ty2 ++ ")"
-    (_, _)
-      | ty1 == ty2
-      , MirReferenceRepr tpr' <- tpr
-      -> Just $ do
-        x <- readMirRef tpr' e
-        return $ MirExp tpr' x
-    (_, _) -> Nothing
-  where
-    goSlice :: C.TypeRepr tpr -> R.Expr MIR s (MirSlice tpr) ->
-        MirGenerator h s ret (R.Expr MIR s (MirImmSlice tpr))
-    goSlice tpr slice = do
-        let vec = getSliceVector slice
-        let start = getSliceLB slice
-        let len = getSliceLen slice
-        vec' <- readMirRef (MirVectorRepr tpr) vec
-        return $ mkImmSlice tpr vec' start len
+tryCoerce (M.TyRef ty1 M.Mut) (M.TyRef ty2 M.Immut) exp@(MirExp tpr e)
+  | ty1 == ty2 = Just $ return exp
 tryCoerce _ _ _ = Nothing
 
 evalCoerce :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
@@ -1751,53 +1739,17 @@ transVtableShim colState vtableName (VtableItem fnName defName)
     withBuildShim recvMirTy recvTy argTys retTy implFH k =
         k $ buildShim recvMirTy recvTy argTys retTy implFH
 
-    buildShim ::
+    buildShim :: forall recvTy argTys retTy .
         M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
         FH.FnHandle (recvTy :<: argTys) retTy ->
         G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
     buildShim recvMirTy recvTy argTys retTy implFH
-      | M.TyRef recvMirTy' M.Immut <- recvMirTy =
-        buildShimRef recvTy argTys retTy implFH
-      | M.TyRef recvMirTy' M.Mut <- recvMirTy =
-        buildShimMut recvTy argTys retTy implFH
-      | otherwise = die ["unsupported MIR receiver type", show recvMirTy]
-
-    buildShimRef :: forall recvTy argTys retTy.
-        C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
-        FH.FnHandle (recvTy :<: argTys) retTy ->
-        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
-    buildShimRef recvTy argTys retTy implFH argsA = (\x -> ([], x)) $ do
-        let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
-
-        callImm <- G.newLambdaLabel' recvTy
-        G.defineLambdaBlock callImm $ \recvImm -> do
-            G.tailCall (R.App $ E.HandleLit implFH) (recvImm <: args)
-
-        callMut <- G.newLambdaLabel' (C.ReferenceRepr recvTy)
-        G.defineLambdaBlock callMut $ \recvMut -> do
-            recvImm <- G.readRef recvMut
-            G.tailCall (R.App $ E.HandleLit implFH) (recvImm <: args)
-
-        notImm <- G.newLabel
-        G.continue notImm $
-            G.branchMaybe (R.App $ E.UnpackAny recvTy recv) callImm notImm
-
-        notMut <- G.newLabel
-        G.continue notMut $
-            G.branchMaybe (R.App $ E.UnpackAny (C.ReferenceRepr recvTy) recv) callMut notMut
-
-        G.reportError $ R.App $ E.StringLit $ fromString $
-            "bad receiver type for " ++ show fnName
-
-    buildShimMut :: forall recvTy argTys retTy.
-        C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
-        FH.FnHandle (recvTy :<: argTys) retTy ->
-        G.FunctionDef MIR [] (C.AnyType :<: argTys) retTy (ST h)
-    buildShimMut recvTy argTys retTy implFH argsA = (\x -> ([], x)) $ do
+      | M.TyRef recvMirTy' _ <- recvMirTy = \argsA -> (\x -> ([], x)) $ do
         let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
         recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
             (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
         G.tailCall (R.App $ E.HandleLit implFH) (recvDowncast <: args)
+      | otherwise = die ["unsupported MIR receiver type", show recvMirTy]
 
 splitMethodArgs :: forall recvTy argTys s.
     Ctx.Assignment (R.Atom s) (recvTy :<: argTys) ->

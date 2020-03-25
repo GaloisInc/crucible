@@ -168,10 +168,8 @@ tyToRepr t0 = case t0 of
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
   -- These definitions are *not* compositional
-  M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
-  M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
-  M.TyRef M.TyStr M.Immut -> Some (MirImmSliceRepr (C.BVRepr (knownNat @8)))
-  M.TyRef M.TyStr M.Mut   -> Some (MirSliceRepr (C.BVRepr (knownNat @8)))
+  M.TyRef (M.TySlice t) _ -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+  M.TyRef M.TyStr _       -> Some (MirSliceRepr (C.BVRepr (knownNat @8)))
 
   -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
   -- data value (which is either `&Ty` or `&mut Ty`) and a vtable.  Both are
@@ -189,11 +187,8 @@ tyToRepr t0 = case t0 of
   -- Strings are vectors of bytes, UTF-8 encoded
   M.TyStr -> Some (MirImmSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
 
-  M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
-  M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
-
-  M.TyRawPtr t M.Immut -> tyToRepr t -- immutable pointers are erased
-  M.TyRawPtr t M.Mut -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  M.TyRef t _       -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  M.TyRawPtr t _    -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
