@@ -13,7 +13,7 @@
 
 module Mir.Overrides (bindFn) where
 
-import Control.Lens ((^.), (%=), use)
+import Control.Lens ((^.), (%=), (.=), use)
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -61,13 +61,16 @@ import Lang.Crucible.Backend
     , assert, getPathCondition, Assumption(..), addFailedAssertion )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
+import Lang.Crucible.FunctionHandle (RefCell, freshRefCell, refType)
 import Lang.Crucible.Simulator (SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.RegMap
 import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Types
+import Lang.Crucible.Utils.MuxTree
 
 import Crux (SomeOnlineSolver(..))
 import Crux.Model (addVar, evalModel)
@@ -233,10 +236,19 @@ regEval sym baseEval tpr v = go tpr v
     go (VectorRepr tpr) vec = traverse (go tpr) vec
     go (StructRepr ctx) v = Ctx.zipWithM go' ctx v
     go (VariantRepr ctx) v = Ctx.zipWithM goVariantBranch ctx v
-    -- TODO: ReferenceRepr
+    go (ReferenceRepr _tpr) v = do
+        -- Can't use `collapseMuxTree` here since it's in the IO monad, not
+        -- OverrideSim.
+        rc <- goMuxTreeEntries tpr (viewMuxTree v)
+        rc' <- goRefCell rc
+        return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
     -- TODO: MirReferenceRepr (intrinsic)
+    go (MirReferenceRepr tpr') (MirReference root path) =
+        MirReference <$> goMirReferenceRoot root <*> goMirReferencePath path
+    go (MirReferenceRepr tpr') (MirReference_Integer _tpr i) =
+        MirReference_Integer tpr' <$> go UsizeRepr i
     go (MirVectorRepr tpr') vec = case vec of
         MirVector_Vector v -> MirVector_Vector <$> go (VectorRepr tpr') v
         MirVector_Array a
@@ -268,6 +280,69 @@ regEval sym baseEval tpr v = go tpr v
         VariantBranch sym tp' ->
         OverrideSim (Model sym) sym MIR rtp args ret (VariantBranch sym tp')
     goVariantBranch tpr (VB pe) = VB <$> goPartExpr tpr pe
+
+    goMuxTreeEntries :: forall tp' a . TypeRepr tp' ->
+        [(a, Pred sym)] ->
+        OverrideSim (Model sym) sym MIR rtp args ret a
+    goMuxTreeEntries tpr [] = liftIO $ addFailedAssertion sym $ GenericSimError $
+        "empty or incomplete mux tree?"
+    goMuxTreeEntries tpr ((x, pred) : xs) = do
+        pred' <- baseEval BaseBoolRepr pred
+        case asConstantPred pred' of
+            Just True -> return x
+            Just False -> goMuxTreeEntries tpr xs
+            Nothing -> liftIO $ addFailedAssertion sym $ GenericSimError $
+                "baseEval returned a non-constant predicate?"
+
+    goRefCell :: forall tp' .
+        RefCell tp' ->
+        OverrideSim (Model sym) sym MIR rtp args ret (RefCell tp')
+    goRefCell rc = do
+        let tpr = refType rc
+        -- Generate a new refcell to store the evaluated copy.  We don't want
+        -- to mutate anything in-place, since `concretize` is meant to be
+        -- side-effect-free.
+        -- TODO: deduplicate refcells, so structures with sharing don't become
+        -- exponentially large
+        halloc <- simHandleAllocator <$> use stateContext
+        rc' <- liftIO $ freshRefCell halloc tpr
+
+        globalState <- use $ stateTree.actFrame.gpGlobals
+        let pe = lookupRef rc globalState
+        pe' <- goPartExpr tpr pe
+        let globalState' = updateRef rc' pe' globalState
+        stateTree.actFrame.gpGlobals .= globalState'
+
+        return rc'
+
+    goMirReferenceRoot :: forall tp' .
+        MirReferenceRoot sym tp' ->
+        OverrideSim (Model sym) sym MIR rtp args ret (MirReferenceRoot sym tp')
+    goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
+    goMirReferenceRoot (GlobalVar_RefRoot gv) =
+        liftIO $ addFailedAssertion sym $ GenericSimError $
+            "evaluation of GlobalVar_RefRoot is not yet implemented"
+
+    goMirReferencePath :: forall tp_base tp' .
+        MirReferencePath sym tp_base tp' ->
+        OverrideSim (Model sym) sym MIR rtp args ret (MirReferencePath sym tp_base tp')
+    goMirReferencePath Empty_RefPath =
+        pure Empty_RefPath
+    goMirReferencePath (Any_RefPath tpr p) =
+        Any_RefPath tpr <$> goMirReferencePath p
+    goMirReferencePath (Field_RefPath ctx p idx) =
+        Field_RefPath ctx <$> goMirReferencePath p <*> pure idx
+    goMirReferencePath (Variant_RefPath ctx p idx) =
+        Variant_RefPath ctx <$> goMirReferencePath p <*> pure idx
+    goMirReferencePath (Index_RefPath tpr p idx) =
+        Index_RefPath tpr <$> goMirReferencePath p <*> go UsizeRepr idx
+    goMirReferencePath (Just_RefPath tpr p) =
+        Just_RefPath tpr <$> goMirReferencePath p
+    goMirReferencePath (VectorAsMirVector_RefPath tpr p) =
+        VectorAsMirVector_RefPath tpr <$> goMirReferencePath p
+    goMirReferencePath (ArrayAsMirVector_RefPath tpr p) =
+        ArrayAsMirVector_RefPath tpr <$> goMirReferencePath p
+
 
 bindFn ::
   forall args ret blocks sym rtp a r .
