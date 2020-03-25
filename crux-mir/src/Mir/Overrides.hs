@@ -322,6 +322,7 @@ regEval sym baseEval tpr v = go tpr v
     goMirReferenceRoot (GlobalVar_RefRoot gv) =
         liftIO $ addFailedAssertion sym $ GenericSimError $
             "evaluation of GlobalVar_RefRoot is not yet implemented"
+    goMirReferenceRoot (Const_RefRoot tpr v) = Const_RefRoot tpr <$> go tpr v
 
     goMirReferencePath :: forall tp_base tp' .
         MirReferencePath sym tp_base tp' ->

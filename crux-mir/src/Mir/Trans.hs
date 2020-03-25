@@ -243,12 +243,10 @@ varPlace (M.Var vname _ vty _ _ pos)
         -- - make them report an error instead
         VarRegister reg -> do
             x <- G.readReg reg
-            r <- newMirRef tpr
-            writeMirRef r x
+            r <- constMirRef tpr x
             return r
         VarAtom a -> do
-            r <- newMirRef tpr
-            writeMirRef r $ R.AtomExpr a
+            r <- constMirRef tpr $ R.AtomExpr a
             return r
     return $ MirPlace tpr r NoMeta
 

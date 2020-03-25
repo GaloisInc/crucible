@@ -353,15 +353,16 @@ type family MirReferenceFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type wher
   MirReferenceFam sym (EmptyCtx ::> tp) = MirReference sym tp
   MirReferenceFam sym ctx = TypeError ('Text "MirRefeence expects a single argument, but was given" ':<>:
                                        'ShowType ctx)
-instance IsExprBuilder sym => IntrinsicClass sym MirReferenceSymbol where
+instance IsSymInterface sym => IntrinsicClass sym MirReferenceSymbol where
   type Intrinsic sym MirReferenceSymbol ctx = MirReferenceFam sym ctx
 
-  muxIntrinsic sym _tys _nm (Empty :> _tp) = muxRef sym
+  muxIntrinsic sym iTypes _nm (Empty :> _tp) = muxRef sym iTypes
   muxIntrinsic _sym _tys nm ctx = typeError nm ctx
 
 data MirReferenceRoot sym :: CrucibleType -> Type where
   RefCell_RefRoot :: !(RefCell tp) -> MirReferenceRoot sym tp
   GlobalVar_RefRoot :: !(GlobalVar tp) -> MirReferenceRoot sym tp
+  Const_RefRoot :: !(TypeRepr tp) -> !(RegValue sym tp) -> MirReferenceRoot sym tp
 
 data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
   Empty_RefPath :: MirReferencePath sym tp tp
@@ -414,14 +415,28 @@ data MirReference sym (tp :: CrucibleType) where
 refRootType :: MirReferenceRoot sym tp -> TypeRepr tp
 refRootType (RefCell_RefRoot r) = refType r
 refRootType (GlobalVar_RefRoot r) = globalType r
+refRootType (Const_RefRoot tpr _) = tpr
 
-instance TestEquality (MirReferenceRoot sym) where
-    RefCell_RefRoot x `testEquality` RefCell_RefRoot y = x `testEquality` y
-    GlobalVar_RefRoot x `testEquality` GlobalVar_RefRoot y = x `testEquality` y
-    _ `testEquality` _ = Nothing
+muxRefRoot ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  Pred sym ->
+  MirReferenceRoot sym tp ->
+  MirReferenceRoot sym tp ->
+  MaybeT IO (MirReferenceRoot sym tp)
+muxRefRoot sym iTypes c root1 root2 = case (root1, root2) of
+  (RefCell_RefRoot rc1, RefCell_RefRoot rc2)
+    | Just Refl <- testEquality rc1 rc2 -> return root1
+  (GlobalVar_RefRoot gv1, GlobalVar_RefRoot gv2)
+    | Just Refl <- testEquality gv1 gv2 -> return root1
+  (Const_RefRoot tpr v1, Const_RefRoot _tpr v2) -> do
+    v' <- lift $ muxRegForType sym iTypes tpr c v1 v2
+    return $ Const_RefRoot tpr v'
+  _ -> mzero
 
 muxRefPath ::
-  IsExprBuilder sym =>
+  IsSymInterface sym =>
   sym ->
   Pred sym ->
   MirReferencePath sym tp_base tp ->
@@ -459,13 +474,14 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
   _ -> mzero
 
 muxRef :: forall sym tp.
-  IsExprBuilder sym =>
+  IsSymInterface sym =>
   sym ->
+  IntrinsicTypes sym ->
   Pred sym ->
   MirReference sym tp ->
   MirReference sym tp ->
   IO (MirReference sym tp)
-muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
+muxRef sym iTypes c (MirReference r1 p1) (MirReference r2 p2) =
    runMaybeT action >>= \case
      Nothing -> fail "Incompatible MIR reference merge"
      Just x  -> return x
@@ -474,13 +490,13 @@ muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
   action :: MaybeT IO (MirReference sym tp)
   action =
     do Refl <- MaybeT (return $ testEquality (refRootType r1) (refRootType r2))
-       Refl <- MaybeT (return $ testEquality r1 r2)
+       r' <- muxRefRoot sym iTypes c r1 r2
        p' <- muxRefPath sym c p1 p2
-       return (MirReference r1 p')
-muxRef sym c (MirReference_Integer tpr i1) (MirReference_Integer _ i2) = do
+       return (MirReference r' p')
+muxRef sym _iTypes c (MirReference_Integer tpr i1) (MirReference_Integer _ i2) = do
     i' <- bvIte sym c i1 i2
     return $ MirReference_Integer tpr i'
-muxRef _ _ _ _ = do
+muxRef _ _ _ _ _ = do
     fail "incompatible MIR reference merge"
 
 
@@ -597,7 +613,11 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f UsizeType) ->
      MirStmt f (MirReferenceType tp)
   MirGlobalRef ::
-     GlobalVar tp ->
+     !(GlobalVar tp) ->
+     MirStmt f (MirReferenceType tp)
+  MirConstRef ::
+     !(TypeRepr tp) ->
+     !(f tp) ->
      MirStmt f (MirReferenceType tp)
   MirReadRef ::
      !(TypeRepr tp) ->
@@ -744,6 +764,7 @@ instance TypeApp MirStmt where
     MirNewRef tp    -> MirReferenceRepr tp
     MirIntegerToRef tp _ -> MirReferenceRepr tp
     MirGlobalRef gv -> MirReferenceRepr (globalType gv)
+    MirConstRef tp _ -> MirReferenceRepr tp
     MirReadRef tp _ -> tp
     MirWriteRef _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
@@ -773,6 +794,7 @@ instance PrettyApp MirStmt where
     MirNewRef tp -> "newMirRef" <+> pretty tp
     MirIntegerToRef tp i -> "integerToMirRef" <+> pretty tp <+> pp i
     MirGlobalRef gv -> "globalMirRef" <+> pretty gv
+    MirConstRef _ v -> "constMirRef" <+> pp v
     MirReadRef _ x  -> "readMirRef" <+> pp x
     MirWriteRef x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
@@ -817,6 +839,12 @@ readBeforeWriteMsg :: SimErrorReason
 readBeforeWriteMsg = ReadBeforeWriteSimError
     "Attempted to read uninitialized reference cell"
 
+newConstMirRef ::
+    TypeRepr tp ->
+    RegValue sym tp ->
+    MirReference sym tp
+newConstMirRef tpr v = MirReference (Const_RefRoot tpr v) Empty_RefPath
+
 readRefRoot :: IsSymInterface sym =>
     SimState p sym ext rtp f a ->
     sym ->
@@ -828,17 +856,35 @@ readRefRoot s sym (GlobalVar_RefRoot gv) =
     case lookupGlobal gv (s ^. stateTree . actFrame . gpGlobals) of
         Just x -> return x
         Nothing -> addFailedAssertion sym readBeforeWriteMsg
-    
+readRefRoot _ _ (Const_RefRoot _ v) = return v
+
 writeRefRoot :: IsSymInterface sym =>
     SimState p sym ext rtp f a ->
     sym ->
     MirReferenceRoot sym tp ->
     RegValue sym tp ->
-    SimState p sym ext rtp f a
+    IO (SimState p sym ext rtp f a)
 writeRefRoot s sym (RefCell_RefRoot rc) v =
-    s & stateTree . actFrame . gpGlobals %~ insertRef sym rc v
+    return $ s & stateTree . actFrame . gpGlobals %~ insertRef sym rc v
 writeRefRoot s _sym (GlobalVar_RefRoot gv) v =
-    s & stateTree . actFrame . gpGlobals %~ insertGlobal gv v
+    return $ s & stateTree . actFrame . gpGlobals %~ insertGlobal gv v
+writeRefRoot _ sym (Const_RefRoot tpr _) _ =
+    addFailedAssertion sym $ GenericSimError $
+        "Cannot write to Const_RefRoot (of type " ++ show tpr ++ ")"
+
+dropRefRoot :: IsSymInterface sym =>
+    SimState p sym ext rtp f a ->
+    sym ->
+    MirReferenceRoot sym tp ->
+    IO (SimState p sym ext rtp f a)
+dropRefRoot s _sym (RefCell_RefRoot rc) =
+    return $ s & stateTree . actFrame . gpGlobals %~ dropRef rc
+dropRefRoot _ sym (GlobalVar_RefRoot gv) =
+    addFailedAssertion sym $ GenericSimError $
+        "Cannot drop global variable " ++ show gv
+dropRefRoot _ sym (Const_RefRoot tpr _) =
+    addFailedAssertion sym $ GenericSimError $
+        "Cannot drop Const_RefRoot (of type " ++ show tpr ++ ")"
 
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s =
@@ -860,15 +906,15 @@ execMirStmt stmt s =
          do let r = MirReference (GlobalVar_RefRoot gv) Empty_RefPath
             return (r, s)
 
+       MirConstRef tpr (regValue -> v) ->
+         do let r = MirReference (Const_RefRoot tpr v) Empty_RefPath
+            return (r, s)
+
        MirDropRef (regValue -> MirReference r path) ->
          case path of
            Empty_RefPath ->
-             case r of
-               RefCell_RefRoot rc ->
-                 do let s' = s & stateTree . actFrame . gpGlobals %~ dropRef rc
-                    return ((), s')
-               GlobalVar_RefRoot _gv ->
-                 addFailedAssertion sym (GenericSimError "Cannot drop a global variable")
+             do s' <- dropRefRoot s sym r
+                return ((), s')
            _ -> addFailedAssertion sym (GenericSimError "Cannot drop an interior reference")
 
        MirReadRef _tp (regValue -> MirReference r path) ->
@@ -877,12 +923,12 @@ execMirStmt stmt s =
             return (v', s)
 
        MirWriteRef (regValue -> MirReference r Empty_RefPath) (regValue -> x) ->
-         do let s' = writeRefRoot s sym r x
+         do s' <- writeRefRoot s sym r x
             return ((), s')
        MirWriteRef (regValue -> MirReference r path) (regValue -> x) ->
          do v <- readRefRoot s sym r
             v' <- writeRefPath sym iTypes v path x
-            let s' = writeRefRoot s sym r v'
+            s' <- writeRefRoot s sym r v'
             return ((), s')
        MirSubanyRef tp (regValue -> MirReference r path) ->
          do let r' = MirReference r (Any_RefPath tp path)
