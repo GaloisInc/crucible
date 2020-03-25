@@ -26,7 +26,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.MemModel.Partial
-  ( PartLLVMVal
+  ( PartLLVMVal(..)
   , partErr
   , attachSideCondition
   , assertSafe
