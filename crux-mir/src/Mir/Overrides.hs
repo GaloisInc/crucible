@@ -87,7 +87,7 @@ getString :: forall sym rtp args ret. (IsSymInterface sym) =>
 getString (Empty :> RV mirVec :> RV startExpr :> RV lenExpr) = do
     sym <- getSymInterface
     state <- get
-    mirVec' <- liftIO $ readMirRefImpl state sym mirVec
+    mirVec' <- liftIO $ readMirRefIO state sym mirVec
     case mirVec' of
         MirVector_Vector vec -> return $ do
             start <- asUnsignedBV startExpr
@@ -212,7 +212,7 @@ regEval sym baseEval tpr v = go tpr v
     -- evaluating lookups at every index inside the slice bounds.
     go (MirSliceRepr tpr') (Empty :> RV vecRef :> RV start :> RV len) = do
         state <- get
-        vec <- liftIO $ readMirRefImpl state sym vecRef
+        vec <- liftIO $ readMirRefIO state sym vecRef
 
         (vec', start', len') <- case vec of
             MirVector_Vector v -> do

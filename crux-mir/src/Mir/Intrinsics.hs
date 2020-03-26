@@ -845,20 +845,6 @@ readBeforeWriteMsg :: SimErrorReason
 readBeforeWriteMsg = ReadBeforeWriteSimError
     "Attempted to read uninitialized reference cell"
 
-readMirRefImpl :: IsSymInterface sym =>
-    SimState p sym ext rtp f a ->
-    sym ->
-    MirReference sym tp ->
-    IO (RegValue sym tp)
-readMirRefImpl s sym (MirReference r path) = do
-    let iTypes = ctxIntrinsicTypes $ s^.stateContext
-    v <- readRefRoot s sym r
-    v' <- readRefPath sym iTypes v path
-    return v'
-readMirRefImpl s sym (MirReference_Integer _ _) = do
-    addFailedAssertion sym $ GenericSimError $
-        "tried to dereference the result of an integer-to-pointer cast"
-
 newConstMirRef ::
     TypeRepr tp ->
     RegValue sym tp ->
@@ -906,6 +892,91 @@ dropRefRoot _ sym (Const_RefRoot tpr _) =
     addFailedAssertion sym $ GenericSimError $
         "Cannot drop Const_RefRoot (of type " ++ show tpr ++ ")"
 
+dropMirRefIO :: IsSymInterface sym => SimState p sym ext rtp f a -> sym ->
+    MirReference sym tp -> IO (SimState p sym ext rtp f a)
+dropMirRefIO s sym (MirReference root Empty_RefPath) = dropRefRoot s sym root
+dropMirRefIO _ sym (MirReference _ _) = addFailedAssertion sym $ GenericSimError $
+    "attempted to drop an interior reference (non-empty ref path)"
+dropMirRefIO _ sym (MirReference_Integer _ _) = addFailedAssertion sym $ GenericSimError $
+    "attempted to drop the result of an integer-to-pointer cast"
+
+readMirRefIO :: IsSymInterface sym => SimState p sym ext rtp f a -> sym ->
+    MirReference sym tp -> IO (RegValue sym tp)
+readMirRefIO s sym (MirReference r path) = do
+    let iTypes = ctxIntrinsicTypes $ s^.stateContext
+    v <- readRefRoot s sym r
+    v' <- readRefPath sym iTypes v path
+    return v'
+readMirRefIO _ sym (MirReference_Integer _ _) = addFailedAssertion sym $ GenericSimError $
+    "attempted to dereference the result of an integer-to-pointer cast"
+
+writeMirRefIO :: IsSymInterface sym => SimState p sym ext rtp f a -> sym ->
+    MirReference sym tp -> RegValue sym tp -> IO (SimState p sym ext rtp f a)
+writeMirRefIO s sym (MirReference root Empty_RefPath) val = writeRefRoot s sym root val
+writeMirRefIO s sym (MirReference root path) val = do
+    let iTypes = ctxIntrinsicTypes $ s^.stateContext
+    x <- readRefRoot s sym root
+    x' <- writeRefPath sym iTypes x path val
+    writeRefRoot s sym root x'
+writeMirRefIO _ sym (MirReference_Integer _ _) _ = addFailedAssertion sym $ GenericSimError $
+    "attempted to write to the result of an integer-to-pointer cast"
+
+subanyMirRefIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym AnyType -> IO (MirReference sym tp)
+subanyMirRefIO _ tpr (MirReference root path) =
+    return $ MirReference root (Any_RefPath tpr path)
+subanyMirRefIO sym _ (MirReference_Integer _ _) = addFailedAssertion sym $ GenericSimError $
+    "attempted subany on the result of an integer-to-pointer cast"
+
+subfieldMirRefIO :: IsSymInterface sym => sym ->
+    CtxRepr ctx -> MirReference sym (StructType ctx) -> Index ctx tp ->
+    IO (MirReference sym tp)
+subfieldMirRefIO _ ctx (MirReference root path) idx =
+    return $ MirReference root (Field_RefPath ctx path idx)
+subfieldMirRefIO sym _ (MirReference_Integer _ _) _ = addFailedAssertion sym $ GenericSimError $
+    "attempted subfield on the result of an integer-to-pointer cast"
+
+subvariantMirRefIO :: IsSymInterface sym => sym ->
+    CtxRepr ctx -> MirReference sym (RustEnumType ctx) -> Index ctx tp ->
+    IO (MirReference sym tp)
+subvariantMirRefIO _ ctx (MirReference root path) idx =
+    return $ MirReference root (Variant_RefPath ctx path idx)
+subvariantMirRefIO sym _ (MirReference_Integer _ _) _ = addFailedAssertion sym $ GenericSimError $
+    "attempted subvariant on the result of an integer-to-pointer cast"
+
+subindexMirRefIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym (MirVectorType tp) -> RegValue sym UsizeType ->
+    IO (MirReference sym tp)
+subindexMirRefIO _ tpr (MirReference root path) idx =
+    return $ MirReference root (Index_RefPath tpr path idx)
+subindexMirRefIO sym _ (MirReference_Integer _ _) _ = addFailedAssertion sym $ GenericSimError $
+    "attempted subindex on the result of an integer-to-pointer cast"
+
+subjustMirRefIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym (MaybeType tp) -> IO (MirReference sym tp)
+subjustMirRefIO _ tpr (MirReference root path) =
+    return $ MirReference root (Just_RefPath tpr path)
+subjustMirRefIO sym _ (MirReference_Integer _ _) = addFailedAssertion sym $ GenericSimError $
+    "attempted subjust on the result of an integer-to-pointer cast"
+
+mirRef_vectorAsMirVectorIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym (VectorType tp) -> IO (MirReference sym (MirVectorType tp))
+mirRef_vectorAsMirVectorIO _ tpr (MirReference root path) =
+    return $ MirReference root (VectorAsMirVector_RefPath tpr path)
+mirRef_vectorAsMirVectorIO sym _ (MirReference_Integer _ _) =
+    addFailedAssertion sym $ GenericSimError $
+        "attempted Vector->MirVector conversion on the result of an integer-to-pointer cast"
+
+mirRef_arrayAsMirVectorIO :: IsSymInterface sym => sym ->
+    BaseTypeRepr btp -> MirReference sym (UsizeArrayType btp) ->
+    IO (MirReference sym (MirVectorType (BaseToType btp)))
+mirRef_arrayAsMirVectorIO _ btpr (MirReference root path) =
+    return $ MirReference root (ArrayAsMirVector_RefPath btpr path)
+mirRef_arrayAsMirVectorIO sym _ (MirReference_Integer _ _) =
+    addFailedAssertion sym $ GenericSimError $
+        "attempted Array->MirVector conversion on the result of an integer-to-pointer cast"
+
+
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s =
   let ctx = s^.stateContext
@@ -930,49 +1001,25 @@ execMirStmt stmt s =
          do let r = MirReference (Const_RefRoot tpr v) Empty_RefPath
             return (r, s)
 
-       MirDropRef (regValue -> MirReference r path) ->
-         case path of
-           Empty_RefPath ->
-             do s' <- dropRefRoot s sym r
-                return ((), s')
-           _ -> addFailedAssertion sym (GenericSimError "Cannot drop an interior reference")
-
-       MirReadRef _tp (regValue -> ref) ->
-         do v <- readMirRefImpl s sym ref
-            return (v, s)
-
-       MirWriteRef (regValue -> MirReference r Empty_RefPath) (regValue -> x) ->
-         do s' <- writeRefRoot s sym r x
-            return ((), s')
-       MirWriteRef (regValue -> MirReference r path) (regValue -> x) ->
-         do v <- readRefRoot s sym r
-            v' <- writeRefPath sym iTypes v path x
-            s' <- writeRefRoot s sym r v'
-            return ((), s')
-       MirSubanyRef tp (regValue -> MirReference r path) ->
-         do let r' = MirReference r (Any_RefPath tp path)
-            return (r', s)
-       MirSubfieldRef ctx0 (regValue -> MirReference r path) idx ->
-         do let r' = MirReference r (Field_RefPath ctx0 path idx)
-            return (r', s)
-       MirSubvariantRef ctx0 (regValue -> MirReference r path) idx ->
-         do let r' = MirReference r (Variant_RefPath ctx0 path idx)
-            return (r', s)
-       MirSubindexRef tp (regValue -> MirReference r path) (regValue -> idx) ->
-         do let r' = MirReference r (Index_RefPath tp path idx)
-            return (r', s)
-       MirSubjustRef tp (regValue -> MirReference r path) ->
-         do let r' = MirReference r (Just_RefPath tp path)
-            return (r', s)
-       MirRef_VectorAsMirVector tp (regValue -> MirReference r path) -> do
-            let r' = MirReference r (VectorAsMirVector_RefPath tp path)
-            return (r', s)
-       MirRef_ArrayAsMirVector btp (regValue -> MirReference r path) -> do
-            let r' = MirReference r (ArrayAsMirVector_RefPath btp path)
-            return (r', s)
-       MirRef_Eq (regValue -> r1) (regValue -> r2) -> do
-            b <- refEq sym r1 r2
-            return (b, s)
+       MirDropRef (regValue -> ref) -> writeOnly $ dropMirRefIO s sym ref
+       MirReadRef _tp (regValue -> ref) -> readOnly s $ readMirRefIO s sym ref
+       MirWriteRef (regValue -> ref) (regValue -> x) -> writeOnly $ writeMirRefIO s sym ref x
+       MirSubanyRef tp (regValue -> ref) ->
+         readOnly s $ subanyMirRefIO sym tp ref
+       MirSubfieldRef ctx0 (regValue -> ref) idx ->
+         readOnly s $ subfieldMirRefIO sym ctx0 ref idx
+       MirSubvariantRef ctx0 (regValue -> ref) idx ->
+         readOnly s $ subvariantMirRefIO sym ctx0 ref idx
+       MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
+         readOnly s $ subindexMirRefIO sym tpr ref idx
+       MirSubjustRef tpr (regValue -> ref) ->
+         readOnly s $ subjustMirRefIO sym tpr ref
+       MirRef_VectorAsMirVector tpr (regValue -> ref) ->
+         readOnly s $ mirRef_vectorAsMirVectorIO sym tpr ref
+       MirRef_ArrayAsMirVector tpr (regValue -> ref) ->
+         readOnly s $ mirRef_arrayAsMirVectorIO sym tpr ref
+       MirRef_Eq (regValue -> r1) (regValue -> r2) ->
+         readOnly s $ refEq sym r1 r2
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
@@ -1021,6 +1068,14 @@ execMirStmt stmt s =
        MirVector_Update _tp (regValue -> MirVector_Array a) (regValue -> i) (regValue -> x) -> do
             a' <- arrayUpdate sym a (Empty :> i) x
             return (MirVector_Array a', s)
+  where
+    readOnly :: SimState p sym ext rtp f a -> IO b ->
+        IO (b, SimState p sym ext rtp f a)
+    readOnly s' act = act >>= \x -> return (x, s')
+
+    writeOnly :: IO (SimState p sym ext rtp f a) ->
+        IO ((), SimState p sym ext rtp f a)
+    writeOnly act = act >>= \s' -> return ((), s')
 
 writeRefPath :: IsSymInterface sym =>
   sym ->
