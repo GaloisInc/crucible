@@ -54,8 +54,8 @@ module Lang.Crucible.Backend
   , assertIsInteger
   , readPartExpr
   , ppProofObligation
+  , backendOptions
   , assertThenAssumeConfigOption
-  , assertThenAssumeOption
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
@@ -258,6 +258,9 @@ assertThenAssumeOption = mkOpt
   boolOptSty
   (Just (PP.text "Assume a predicate after asserting it."))
   (Just (ConcreteBool False))
+
+backendOptions :: [ConfigDesc]
+backendOptions = [assertThenAssumeOption]
 
 -- | Add a proof obligation for the given predicate, and then assume it
 -- (when the assertThenAssume option is true).

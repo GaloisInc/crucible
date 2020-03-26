@@ -209,7 +209,7 @@ newSAWCoreBackend fm sc gen = do
               , saw_online_state = ob_st
               }
   sym <- B.newExprBuilder fm st gen
-  let options = [assertThenAssumeOption] ++ onlineBackendOptions ++ Yices.yicesOptions
+  let options = backendOptions ++ onlineBackendOptions ++ Yices.yicesOptions
   extendConfig options (getConfiguration sym)
   writeIORef (B.sbStateManager sym) st
   return sym

@@ -67,7 +67,7 @@ newSimpleBackend ::
 newSimpleBackend floatMode gen =
   do st <- initialSimpleBackendState gen
      sym <- B.newExprBuilder floatMode st gen
-     extendConfig [assertThenAssumeOption] (getConfiguration sym)
+     extendConfig backendOptions (getConfiguration sym)
      return sym
 
 getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)

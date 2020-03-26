@@ -446,7 +446,7 @@ withOnlineBackend floatMode gen feats action = do
   st  <- liftIO $ initialOnlineBackendState gen feats
   sym <- liftIO $ B.newExprBuilder floatMode st gen
   liftIO $ extendConfig
-    ([assertThenAssumeOption] ++ onlineBackendOptions)
+    (backendOptions ++ onlineBackendOptions)
     (getConfiguration sym)
   liftIO $ writeIORef (B.sbStateManager sym) st
 
