@@ -707,9 +707,7 @@ evalCast' ck ty1 e ty2  =
          | ty1 == ty2 && mut1 == mut2 -> return e
 
       (M.MutToConstPointer, M.TyRawPtr ty1 M.Mut, M.TyRawPtr ty2 M.Immut)
-         | MirExp (MirReferenceRepr tp) ref <- e, ty1 == ty2
-         -> do r <- readMirRef tp ref
-               return (MirExp tp r)
+         | ty1 == ty2 -> return e
 
       (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] [] _ _))
          -> do mhand <- lookupFunction defId substs
