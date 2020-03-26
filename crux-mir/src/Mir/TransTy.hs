@@ -60,7 +60,7 @@ import           Mir.Generator
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , cs, discrMap )
 import           Mir.Intrinsics
-    ( MIR, pattern MirSliceRepr, pattern MirImmSliceRepr, pattern MirReferenceRepr, MirReferenceType
+    ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
@@ -182,10 +182,9 @@ tyToRepr t0 = case t0 of
   M.TyRawPtr (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-  -- NOTE: we cannot mutate this vector. Hmmmm....
-  M.TySlice t -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
-  -- Strings are vectors of bytes, UTF-8 encoded
-  M.TyStr -> Some (MirImmSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
+  -- TODO: DSTs not behind a reference - these should never appear in real code
+  M.TySlice t -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+  M.TyStr -> Some (MirSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
 
   M.TyRef t _       -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   M.TyRawPtr t _    -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
