@@ -539,6 +539,12 @@ mirRef_arrayAsMirVector ::
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType (C.BaseToType btp))))
 mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
 
+mirRef_eq ::
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret (R.Expr MIR s C.BoolType)
+mirRef_eq r1 r2 = G.extensionStmt $ MirRef_Eq r1 r2
+
 -----------------------------------------------------------------------
 
 

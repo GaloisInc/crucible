@@ -661,6 +661,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(BaseTypeRepr btp) ->
      !(f (MirReferenceType (UsizeArrayType btp))) ->
      MirStmt f (MirReferenceType (MirVectorType (BaseToType btp)))
+  MirRef_Eq ::
+     !(f (MirReferenceType tp)) ->
+     !(f (MirReferenceType tp)) ->
+     MirStmt f BoolType
   VectorSnoc ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -775,6 +779,7 @@ instance TypeApp MirStmt where
     MirSubjustRef tp _ -> MirReferenceRepr tp
     MirRef_VectorAsMirVector tp _ -> MirReferenceRepr (MirVectorRepr tp)
     MirRef_ArrayAsMirVector btp _ -> MirReferenceRepr (MirVectorRepr $ baseToType btp)
+    MirRef_Eq _ _ -> BoolRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -805,6 +810,7 @@ instance PrettyApp MirStmt where
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_VectorAsMirVector _ v -> "mirRef_vectorAsMirVector" <+> pp v
     MirRef_ArrayAsMirVector _ a -> "mirRef_arrayAsMirVector" <+> pp a
+    MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -849,6 +855,9 @@ readMirRefImpl s sym (MirReference r path) = do
     v <- readRefRoot s sym r
     v' <- readRefPath sym iTypes v path
     return v'
+readMirRefImpl s sym (MirReference_Integer _ _) = do
+    addFailedAssertion sym $ GenericSimError $
+        "tried to dereference the result of an integer-to-pointer cast"
 
 newConstMirRef ::
     TypeRepr tp ->
@@ -961,6 +970,9 @@ execMirStmt stmt s =
        MirRef_ArrayAsMirVector btp (regValue -> MirReference r path) -> do
             let r' = MirReference r (ArrayAsMirVector_RefPath btp path)
             return (r', s)
+       MirRef_Eq (regValue -> r1) (regValue -> r2) -> do
+            b <- refEq sym r1 r2
+            return (b, s)
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
@@ -1028,7 +1040,6 @@ writeRefPath sym iTypes v (Just_RefPath _tp path) x =
   adjustRefPath sym iTypes v path (\_ -> return $ justPartExpr sym x)
 writeRefPath sym iTypes v path x =
   adjustRefPath sym iTypes v path (\_ -> return x)
-
 
 adjustRefPath :: IsSymInterface sym =>
   sym ->
@@ -1112,6 +1123,21 @@ readRefPath sym iTypes v = \case
     MirVector_Vector <$> readRefPath sym iTypes v path
   ArrayAsMirVector_RefPath _ path -> do
     MirVector_Array <$> readRefPath sym iTypes v path
+
+
+refEq :: IsSymInterface sym =>
+    sym ->
+    MirReference sym tp ->
+    MirReference sym tp ->
+    IO (RegValue sym BoolType)
+refEq sym (MirReference _ _) (MirReference _ _) =
+    -- TODO: implement an equality check for valid references
+    return $ falsePred sym
+refEq sym (MirReference_Integer _ i1) (MirReference_Integer _ i2) =
+    isEq sym i1 i2
+refEq sym _ _ =
+    -- All valid references are disjoint from all integer references.
+    return $ falsePred sym
 
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR

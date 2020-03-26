@@ -473,6 +473,17 @@ evalBinOp bop mat me1 me2 =
 
             _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 
+      (MirExp (MirReferenceRepr tpr1) e1, MirExp (MirReferenceRepr tpr2) e2)
+        | Just Refl <- testEquality tpr1 tpr2 ->
+          case bop of
+            M.Beq -> do
+                eq <- mirRef_eq e1 e2
+                return (MirExp C.BoolRepr eq, noOverflow)
+            M.Ne -> do
+                eq <- mirRef_eq e1 e2
+                return (MirExp C.BoolRepr $ S.app $ E.Not eq, noOverflow)
+            _ -> mirFail $ "No translation for pointer binop: " ++ fmt bop
+
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
   where
