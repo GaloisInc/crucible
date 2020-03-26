@@ -266,12 +266,9 @@ assertThenAssumeOption = mkOpt
 addAssertion ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
   sym -> Assertion sym -> IO ()
-addAssertion sym a@(AS.LabeledPred p msg) =
+addAssertion sym a =
   do addProofObligation sym a
-     assert_then_assume_opt <- getOpt
-       =<< getOptionSetting assertThenAssumeConfigOption (getConfiguration sym)
-     when assert_then_assume_opt $
-       addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
+     assumeAssertion sym a
 
 -- | Add a durable proof obligation for the given predicate, and then
 -- assume it (when the assertThenAssume option is true).
@@ -280,9 +277,16 @@ addAssertion sym a@(AS.LabeledPred p msg) =
 addDurableAssertion ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
   sym -> Assertion sym -> IO ()
-addDurableAssertion sym a@(AS.LabeledPred p msg) =
+addDurableAssertion sym a =
   do addDurableProofObligation sym a
-     assert_then_assume_opt <- getOpt
+     assumeAssertion sym a
+
+-- | Assume assertion when the assertThenAssume option is true.
+assumeAssertion ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym -> Assertion sym -> IO ()
+assumeAssertion sym (AS.LabeledPred p msg) =
+  do assert_then_assume_opt <- getOpt
        =<< getOptionSetting assertThenAssumeConfigOption (getConfiguration sym)
      when assert_then_assume_opt $
        addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
