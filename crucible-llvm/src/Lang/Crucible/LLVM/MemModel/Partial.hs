@@ -699,7 +699,7 @@ fieldVal _ _ (NoErr _ v) =
 -- | If-then-else on partial expressions.
 merge :: forall sym m. (IsSymInterface sym, HasLLVMAnn sym, MonadIO m) =>
   sym ->
-  (Pred sym -> LLVMVal sym -> LLVMVal sym -> m (PartLLVMVal sym))
+  (Pred sym -> LLVMVal sym -> LLVMVal sym -> m (LLVMVal sym))
     {- ^ Operation to combine inner values. The 'Pred' parameter is the
          if/then/else condition -} ->
   Pred sym {- ^ condition to merge on -} ->
@@ -717,11 +717,8 @@ merge sym _ cond (Err ld) (NoErr p v) = do
      pure $ NoErr p' v
 merge sym f cond (NoErr px x) (NoErr py y) = do
   v <- f cond x y
-  case v of
-    err@(Err _) -> pure err
-    NoErr pz z ->
-      do p' <- liftIO (W4I.andPred sym pz =<< W4I.itePred sym cond px py)
-         return $ NoErr p' z
+  p' <- liftIO (W4I.itePred sym cond px py)
+  return $ NoErr p' v
 
 -- | Mux partial LLVM values.
 muxLLVMVal :: forall sym.
@@ -769,34 +766,36 @@ muxLLVMVal sym = merge sym muxval
                      muxzero cond (fld^.Type.fieldVal) v) flds
 
 
-    muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal sym)
-    muxval cond (LLVMValZero tp) v = totalLLVMVal sym <$> muxzero cond tp v
+    muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (LLVMVal sym)
+    muxval cond (LLVMValZero tp) v = muxzero cond tp v
     muxval cond v (LLVMValZero tp) = do cond' <- W4I.notPred sym cond
-                                        totalLLVMVal sym <$> muxzero cond' tp v
+                                        muxzero cond' tp v
 
     muxval cond (LLVMValInt base1 off1) (LLVMValInt base2 off2)
       | Just Refl <- testEquality (W4I.bvWidth off1) (W4I.bvWidth off2)
       = do base <- liftIO $ W4I.natIte sym cond base1 base2
            off  <- liftIO $ W4I.bvIte sym cond off1 off2
-           pure $ totalLLVMVal sym $ LLVMValInt base off
+           pure $ LLVMValInt base off
 
     muxval cond (LLVMValFloat (xsz :: Value.FloatSize fi) x) (LLVMValFloat ysz y)
       | Just Refl <- testEquality xsz ysz
-      = totalLLVMVal sym .  LLVMValFloat xsz <$>
+      = LLVMValFloat xsz <$>
           (liftIO $ W4IFP.iFloatIte @_ @fi sym cond x y)
 
     muxval cond (LLVMValStruct fls1) (LLVMValStruct fls2)
       | fmap fst fls1 == fmap fst fls2 =
-          mkStruct sym =<<
+          LLVMValStruct <$>
             V.zipWithM (\(f, x) (_, y) -> (f,) <$> muxval cond x y) fls1 fls2
 
     muxval cond (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
       | tp1 == tp2 && V.length v1 == V.length v2 = do
-          mkArray sym tp1 =<< V.zipWithM (muxval cond) v1 v2
+          LLVMValArray tp1 <$> V.zipWithM (muxval cond) v1 v2
 
     muxval _ v1@(LLVMValUndef tp1) (LLVMValUndef tp2)
-      | tp1 == tp2 = pure (totalLLVMVal sym v1)
+      | tp1 == tp2 = pure v1
 
     muxval _ v1 v2 =
-      let msg = "While mixing LLVM values"
-      in return $ Err $ UnexpectedArgumentType msg [Value.llvmValStorableType v1, Value.llvmValStorableType v2]
+      panic "Cannot mux LLVM values"
+        [ "v1: " ++ show v1
+        , "v2: " ++ show v2
+        ]
