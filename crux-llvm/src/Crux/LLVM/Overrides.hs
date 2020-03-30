@@ -226,7 +226,7 @@ cbmcOverrides =
 
 
 svCompOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   [OverrideTemplate (Model sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
