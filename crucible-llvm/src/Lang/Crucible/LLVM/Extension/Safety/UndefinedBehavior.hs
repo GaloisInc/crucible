@@ -445,7 +445,7 @@ pp extra ub = vcat $
   ++ cat [ "Reference: "
          , text (unpack (ppStd (standard ub)))
          , cite ub
-        ]
+         ]
      : case stdURL (standard ub) of
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
