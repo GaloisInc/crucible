@@ -665,6 +665,20 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f (MirReferenceType tp)) ->
      !(f (MirReferenceType tp)) ->
      MirStmt f BoolType
+  -- Rust `ptr::offset`.  Steps by `count` units of `size_of::<T>`.  Arithmetic
+  -- must not overflow and the resulting pointer must be in bounds.
+  MirRef_Offset ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType tp)) ->
+     !(f IsizeType) ->
+     MirStmt f (MirReferenceType tp)
+  -- Rust `ptr::wrapping_offset`.  Steps by `count` units of `size_of::<T>`,
+  -- with no additional restrictions.
+  MirRef_OffsetWrap ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType tp)) ->
+     !(f IsizeType) ->
+     MirStmt f (MirReferenceType tp)
   VectorSnoc ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -780,6 +794,8 @@ instance TypeApp MirStmt where
     MirRef_VectorAsMirVector tp _ -> MirReferenceRepr (MirVectorRepr tp)
     MirRef_ArrayAsMirVector btp _ -> MirReferenceRepr (MirVectorRepr $ baseToType btp)
     MirRef_Eq _ _ -> BoolRepr
+    MirRef_Offset tp _ _ -> MirReferenceRepr tp
+    MirRef_OffsetWrap tp _ _ -> MirReferenceRepr tp
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -811,6 +827,8 @@ instance PrettyApp MirStmt where
     MirRef_VectorAsMirVector _ v -> "mirRef_vectorAsMirVector" <+> pp v
     MirRef_ArrayAsMirVector _ a -> "mirRef_arrayAsMirVector" <+> pp a
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
+    MirRef_Offset _ p o -> "mirRef_offset" <+> pp p <+> pp o
+    MirRef_OffsetWrap _ p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -976,6 +994,46 @@ mirRef_arrayAsMirVectorIO sym _ (MirReference_Integer _ _) =
     addFailedAssertion sym $ GenericSimError $
         "attempted Array->MirVector conversion on the result of an integer-to-pointer cast"
 
+mirRef_eqIO :: IsSymInterface sym => sym ->
+    MirReference sym tp -> MirReference sym tp -> IO (RegValue sym BoolType)
+mirRef_eqIO sym (MirReference _ _) (MirReference _ _) =
+    -- TODO: implement an equality check for valid references
+    return $ falsePred sym
+mirRef_eqIO sym (MirReference_Integer _ i1) (MirReference_Integer _ i2) =
+    isEq sym i1 i2
+mirRef_eqIO sym _ _ =
+    -- All valid references are disjoint from all integer references.
+    return $ falsePred sym
+
+mirRef_offsetIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType -> IO (MirReference sym tp)
+mirRef_offsetIO sym _tpr (MirReference root (Index_RefPath tpr path idx)) offset = do
+    idx' <- bvAdd sym idx offset
+    -- TODO: `offset` has a number of preconditions that we should check here:
+    -- * addition must not overflow
+    -- * resulting pointer must be in-bounds for the allocation
+    -- * total offset in bytes must not exceed isize::MAX
+    return $ MirReference root $ Index_RefPath tpr path idx'
+mirRef_offsetIO sym _ (MirReference _ _) _ = do
+    addFailedAssertion sym $ Unsupported $
+        "pointer arithmetic outside arrays is not yet implemented"
+mirRef_offsetIO sym _ (MirReference_Integer _ _) _ = do
+    addFailedAssertion sym $ Unsupported $
+        "cannot perform pointer arithmetic on invalid pointer"
+
+mirRef_offsetWrapIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType -> IO (MirReference sym tp)
+mirRef_offsetWrapIO sym _tpr (MirReference root (Index_RefPath tpr path idx)) offset = do
+    -- `wrapping_offset` puts no restrictions on the arithmetic performed.
+    idx' <- bvAdd sym idx offset
+    return $ MirReference root $ Index_RefPath tpr path idx'
+mirRef_offsetWrapIO sym _ (MirReference _ _) _ = do
+    addFailedAssertion sym $ Unsupported $
+        "pointer arithmetic outside arrays is not yet implemented"
+mirRef_offsetWrapIO sym _ (MirReference_Integer _ _) _ = do
+    addFailedAssertion sym $ Unsupported $
+        "cannot perform pointer arithmetic on invalid pointer"
+
 
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s =
@@ -1019,7 +1077,11 @@ execMirStmt stmt s =
        MirRef_ArrayAsMirVector tpr (regValue -> ref) ->
          readOnly s $ mirRef_arrayAsMirVectorIO sym tpr ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
-         readOnly s $ refEq sym r1 r2
+         readOnly s $ mirRef_eqIO sym r1 r2
+       MirRef_Offset tpr (regValue -> ref) (regValue -> off) ->
+         readOnly s $ mirRef_offsetIO sym tpr ref off
+       MirRef_OffsetWrap tpr (regValue -> ref) (regValue -> off) ->
+         readOnly s $ mirRef_offsetWrapIO sym tpr ref off
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
@@ -1179,20 +1241,6 @@ readRefPath sym iTypes v = \case
   ArrayAsMirVector_RefPath _ path -> do
     MirVector_Array <$> readRefPath sym iTypes v path
 
-
-refEq :: IsSymInterface sym =>
-    sym ->
-    MirReference sym tp ->
-    MirReference sym tp ->
-    IO (RegValue sym BoolType)
-refEq sym (MirReference _ _) (MirReference _ _) =
-    -- TODO: implement an equality check for valid references
-    return $ falsePred sym
-refEq sym (MirReference_Integer _ i1) (MirReference_Integer _ i2) =
-    isEq sym i1 i2
-refEq sym _ _ =
-    -- All valid references are disjoint from all integer references.
-    return $ falsePred sym
 
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR

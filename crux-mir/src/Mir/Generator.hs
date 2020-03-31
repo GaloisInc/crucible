@@ -545,6 +545,20 @@ mirRef_eq ::
   MirGenerator h s ret (R.Expr MIR s C.BoolType)
 mirRef_eq r1 r2 = G.extensionStmt $ MirRef_Eq r1 r2
 
+mirRef_offset ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s IsizeType ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+mirRef_offset tpr ref offset = G.extensionStmt $ MirRef_Offset tpr ref offset
+
+mirRef_offsetWrap ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s IsizeType ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+mirRef_offsetWrap tpr ref offset = G.extensionStmt $ MirRef_OffsetWrap tpr ref offset
+
 -----------------------------------------------------------------------
 
 

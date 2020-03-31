@@ -128,6 +128,9 @@ customOpDefs = Map.fromList $ [
                          , any_new
                          , any_downcast
 
+                         , ptr_offset
+                         , ptr_wrapping_offset
+
                          , exit
                          , abort
                          , panicking_begin_panic
@@ -417,6 +420,31 @@ any_downcast = ( ["core", "crucible", "any", "{{impl}}", "downcast"], \substs ->
             let val = R.App $ E.FromJustValue tpr maybeVal errMsg
             return $ MirExp tpr val
         _ -> mirFail $ "bad arguments for Any::downcast: " ++ show ops
+    _ -> Nothing
+    )
+
+
+-----------------------------------------------------------------------------------------------------
+-- ** Custom: ptr
+
+-- NB: This matches both the *const and *mut variants, which vary only in the
+-- index of the `impl`.  Both have identical signatures at the crucible level,
+-- so we need only a single implementation to cover both.
+ptr_offset :: (ExplodedDefId, CustomRHS)
+ptr_offset = (["core", "ptr", "{{impl}}", "offset"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ref, MirExp IsizeRepr offset] ->
+            MirExp (MirReferenceRepr tpr) <$> mirRef_offset tpr ref offset
+        _ -> mirFail $ "bad arguments for ptr::offset: " ++ show ops
+    _ -> Nothing
+    )
+
+ptr_wrapping_offset :: (ExplodedDefId, CustomRHS)
+ptr_wrapping_offset = (["core", "ptr", "{{impl}}", "wrapping_offset"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ref, MirExp IsizeRepr offset] ->
+            MirExp (MirReferenceRepr tpr) <$> mirRef_offsetWrap tpr ref offset
+        _ -> mirFail $ "bad arguments for ptr::wrapping_offset: " ++ show ops
     _ -> Nothing
     )
 
