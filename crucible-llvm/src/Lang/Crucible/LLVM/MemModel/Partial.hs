@@ -721,6 +721,12 @@ merge sym f cond (NoErr px x) (NoErr py y) = do
   return $ NoErr p' v
 
 -- | Mux partial LLVM values.
+--
+--   Will @panic@ if the values are not structurally related.
+--   This should never happen, as we only call @muxLLVMVal@
+--   from inside the memory model as we read values, and the
+--   shape of values is determined by the memory type
+--   at which we read values.
 muxLLVMVal :: forall sym.
   (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
