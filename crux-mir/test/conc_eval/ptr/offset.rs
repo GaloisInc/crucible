@@ -1,4 +1,3 @@
-// FAIL: immut addr-of loses path information
 #![feature(custom_attribute)]
 use std::ptr;
 

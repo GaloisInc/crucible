@@ -240,6 +240,8 @@ data Collection = Collection {
     _adtsOrig  :: !(Map AdtName [Adt]),
     _traits    :: !(Map TraitName Trait),
     _impls     :: !([TraitImpl]),
+    -- Static decls, indexed by name.  For each of these, there is an
+    -- initializer in `functions` with the same name.
     _statics   :: !(Map DefId Static),
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),

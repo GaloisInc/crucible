@@ -316,11 +316,6 @@ addrOfPlace (MirPlace tpr r (SliceMeta start len))
   | otherwise = mirFail $ "bad reference type for SliceMeta: " ++
         "expected MirVector, but got " ++ show tpr
 
-addrOfPlaceImm :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
-addrOfPlaceImm pl = do
-    MirExp tpr val <- readPlace pl
-    MirExp (MirReferenceRepr tpr) <$> constMirRef tpr val
-
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they
@@ -798,7 +793,7 @@ evalRval (M.Ref bk lv _) =
     -- TODO: This discards path information: addrOfPlaceRef reads the value,
     -- then makes a new ref with Empty_RefPath.  This will break offsetting in
     -- the case of `let ptr = &xs[0] as *const _; ptr.offset(1)`.
-    M.Shared  -> evalPlace lv >>= addrOfPlaceImm
+    M.Shared  -> evalPlace lv >>= addrOfPlace
     M.Mutable -> evalPlace lv >>= addrOfPlace
     M.Unique  -> evalPlace lv >>= addrOfPlace
 evalRval (M.Len lv) =
@@ -1082,7 +1077,20 @@ jumpToBlock bbi = do
 doReturn :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret a
 doReturn tr = do
     e <- getReturnExp tr
-    cleanupLocals
+
+    -- In static initializers, "local" variables stay live past the end of the
+    -- function so that the initializer can return references to them.  For
+    -- example, in `static R: &'static i32 = &1;`, the initializer stores `1`
+    -- into a local, then returns a reference to that local.  If we clean up
+    -- that local like normal, then accesses to the returned reference will
+    -- fail.  So we skip the cleanup when exiting a static initializer.
+    --
+    -- To detect if the current function is a static initializer, we check if
+    -- there's an entry in `statics` matching the current `fname`.
+    curName <- use $ currentFn . fname
+    isStatic <- use $ cs . collection . statics . to (Map.member curName)
+    when (not isStatic) cleanupLocals
+
     G.returnFromFunction e
 
 ---------------------------------------------------------------------------------------------------
