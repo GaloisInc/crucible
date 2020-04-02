@@ -177,12 +177,12 @@ transConstVal (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
     let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
     let vec = R.App $ E.VectorLit u8Repr (V.fromList bytes)
     mirVec <- mirVector_fromVector u8Repr vec
-    ref <- constMirRef (MirVectorRepr u8Repr) mirVec
-    let start = R.App $ usizeLit 0
+    vecRef <- constMirRef (MirVectorRepr u8Repr) mirVec
+    ref <- subindexRef u8Repr vecRef (R.App $ usizeLit 0)
     let len = R.App $ usizeLit $ fromIntegral $ BS.length bs
     let struct = S.mkStruct
             knownRepr
-            (Ctx.Empty Ctx.:> ref Ctx.:> start Ctx.:> len)
+            (Ctx.Empty Ctx.:> ref Ctx.:> len)
     return $ MirExp (MirSliceRepr u8Repr) struct
 transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
@@ -296,10 +296,9 @@ evalOperand (M.OpConstant (M.Constant conty conlit)) =
 derefExp :: HasCallStack => MirExp s -> MirGenerator h s ret (MirPlace s)
 derefExp (MirExp (MirReferenceRepr tpr) e) = return $ MirPlace tpr e NoMeta
 derefExp (MirExp (MirSliceRepr tpr) e) = do
-    let vec = getSliceVector e
-    let start = getSliceLB e
+    let ptr = getSlicePtr e
     let len = getSliceLen e
-    return $ MirPlace (MirVectorRepr tpr) vec (SliceMeta start len)
+    return $ MirPlace tpr ptr (SliceMeta len)
 derefExp (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
 readPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
@@ -310,11 +309,8 @@ readPlace (MirPlace tpr _ meta) =
 
 addrOfPlace :: HasCallStack => MirPlace s -> MirGenerator h s ret (MirExp s)
 addrOfPlace (MirPlace tpr r NoMeta) = return $ MirExp (MirReferenceRepr tpr) r
-addrOfPlace (MirPlace tpr r (SliceMeta start len))
-  | MirVectorRepr tpr' <- tpr =
-    return $ MirExp (MirSliceRepr tpr') $ mkSlice tpr' r start len
-  | otherwise = mirFail $ "bad reference type for SliceMeta: " ++
-        "expected MirVector, but got " ++ show tpr
+addrOfPlace (MirPlace tpr r (SliceMeta len)) =
+    return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr r len
 
 
 
@@ -658,33 +654,15 @@ evalCast' ck ty1 e ty2  =
       -- unsizes from `*const dyn Any` to `*const dyn Any`
       (M.Unsize,a,b) | a == b -> return e
 
-      (M.Unsize, M.TyRef (M.TyArray tp sz) M.Immut, M.TyRef (M.TySlice tp') M.Immut)
+      (M.Unsize, M.TyRef (M.TyArray tp sz) _, M.TyRef (M.TySlice tp') _)
         | tp == tp', MirExp (MirReferenceRepr (C.VectorRepr elem_tp)) ref <- e
-        -> do let start = R.App $ usizeLit 0
-              let len   = R.App $ usizeLit (fromIntegral sz)
+        -> do let len   = R.App $ usizeLit (fromIntegral sz)
               ref' <- mirRef_vectorAsMirVector elem_tp ref
+              ref'' <- subindexRef elem_tp ref' (R.App $ usizeLit 0)
               let tup   = S.mkStruct (mirSliceCtxRepr elem_tp)
-                              (Ctx.Empty Ctx.:> ref' Ctx.:> start Ctx.:> len)
+                              (Ctx.Empty Ctx.:> ref'' Ctx.:> len)
               return $ MirExp (MirSliceRepr elem_tp) tup
         | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
-
-      (M.Unsize, M.TyRef (M.TyArray tp _sz) M.Mut, M.TyRef (M.TySlice tp') M.Immut)
-        | tp == tp' -> mirFail "FIXME! implement mut->immut unsize cast!"
-        | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
-
-      (M.Unsize, M.TyRef (M.TyArray tp sz) M.Mut, M.TyRef (M.TySlice tp') M.Mut)
-        | tp == tp', MirExp (MirReferenceRepr (C.VectorRepr elem_tp)) ref <- e
-        -> do let start = R.App $ usizeLit 0
-              let len   = R.App $ usizeLit (fromIntegral sz)
-              vecRef <- mirRef_vectorAsMirVector elem_tp ref
-              let tup   = S.mkStruct
-                              (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr elem_tp) Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
-                              (Ctx.Empty Ctx.:> vecRef Ctx.:> start Ctx.:> len)
-              return $ MirExp (MirSliceRepr elem_tp) tup
-        | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
-
-      (M.Unsize, M.TyRef (M.TyArray _ _) M.Immut, M.TyRef (M.TySlice _) M.Mut) ->
-         mirFail "Cannot cast an immutable array to a mutable slice"
 
       -- Trait object creation from a ref
       (M.UnsizeVtable vtbl, M.TyRef baseType _,
@@ -803,7 +781,7 @@ evalRval (M.Len lv) =
         ty@(M.TySlice _) -> do
             MirPlace _tpr _ref meta <- evalPlace lv
             case meta of
-                SliceMeta _ len -> return $ MirExp UsizeRepr len
+                SliceMeta len -> return $ MirExp UsizeRepr len
                 _ -> mirFail $ "bad metadata " ++ show meta ++ " for reference to " ++ show ty
         ty -> mirFail $ "don't know how to take Len of " ++ show ty
 evalRval (M.Cast ck op ty) = evalCast ck op ty
@@ -873,10 +851,9 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
     case (ty', tpr) of
         (M.TySlice _, MirSliceRepr tpr') -> do
             slice <- readMirRef tpr ref
-            let vec = getSliceVector slice
-            let start = getSliceLB slice
+            let ptr = getSlicePtr slice
             let len = getSliceLen slice
-            return $ MirPlace (MirVectorRepr tpr') vec (SliceMeta start len)
+            return $ MirPlace tpr' ptr (SliceMeta len)
         (_, MirReferenceRepr tpr') ->
             MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
         _ -> mirFail $ "deref not supported on " ++ show (ty, tpr)
@@ -902,12 +879,11 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         idx' <- getIdx idxVar
         MirPlace elemTpr <$> subindexRef elemTpr ref' idx' <*> pure NoMeta
 
-    (M.TySlice elemTy, MirVectorRepr elemTpr, SliceMeta start len) -> do
-        idx' <- getIdx idxVar
-        G.assertExpr (R.App $ usizeLt idx' len)
+    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
+        idx <- getIdx idxVar
+        G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
-        let idx'' = R.App $ usizeAdd start idx'
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx'' <*> pure NoMeta
+        MirPlace elemTpr <$> mirRef_offset elemTpr ref idx <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -924,12 +900,11 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
         idx' <- getIdx idx fromEnd
         MirPlace elemTpr <$> subindexRef elemTpr ref' idx' <*> pure NoMeta
 
-    (M.TySlice elemTy, MirVectorRepr elemTpr, SliceMeta start len) -> do
-        idx' <- getIdx idx fromEnd
-        G.assertExpr (R.App $ usizeLt idx' len)
+    (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
+        idx <- getIdx idx fromEnd
+        G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
-        let idx'' = R.App $ usizeAdd start idx'
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx'' <*> pure NoMeta
+        MirPlace elemTpr <$> mirRef_offset elemTpr ref idx <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
@@ -2119,31 +2094,41 @@ transStatics colState halloc = do
 
 
 --
--- Generate a loop that copies a MirVector into a Vector.
+-- Generate a loop that copies `len` elements starting at `ptr0` into a vector.
 -- 
-vectorCopy :: C.TypeRepr elt ->
-             G.Expr MIR s UsizeType ->
-             G.Expr MIR s UsizeType ->
-             G.Expr MIR s (MirVectorType elt) ->
-             MirGenerator h s ret (G.Expr MIR s (C.VectorType elt))
-vectorCopy ety start stop inp = do
-  elt <- mirVector_lookup ety inp (S.app $ usizeLit 0)
-  let sz  = S.app $ usizeSub stop start
-  let out = S.app $ E.VectorReplicate ety (R.App $ usizeToNat sz) elt
-  ir <- G.newRef start
-  or <- G.newRef out
-  let pos = PL.InternalPos
-  G.while (pos, do i <- G.readRef ir
-                   return (G.App $ usizeLt i stop))
-          (pos, do i <- G.readRef ir
-                   elt <- mirVector_lookup ety inp i
-                   o   <- G.readRef or
-                   let j = (G.App $ usizeSub i start)
-                   let o' = S.app $ vectorSetUsize ety R.App o j elt
-                   G.writeRef or o'
-                   G.writeRef ir (G.App $ usizeAdd i $ G.App $ usizeLit 1))
-  o <- G.readRef or
-  return o
+vectorCopy :: C.TypeRepr tp ->
+              G.Expr MIR s (MirReferenceType tp) ->
+              G.Expr MIR s UsizeType ->
+              MirGenerator h s ret (G.Expr MIR s (C.VectorType tp))
+vectorCopy tpr ptr0 len = do
+  let cond = S.app $ usizeEq len $ S.app $ usizeLit 0
+  c_id <- G.newLambdaLabel' (C.VectorRepr tpr)
+  -- Then branch
+  x_id <- G.defineBlockLabel $ do
+    G.jumpToLambda c_id $ S.app $ E.VectorLit tpr mempty
+  -- Else branch
+  y_id <- G.defineBlockLabel $ do
+    elt0 <- readMirRef tpr ptr0
+    let out = S.app $ E.VectorReplicate tpr (S.app $ usizeToNat len) elt0
+    iRef <- G.newRef $ S.app $ usizeLit 0
+    ptrRef <- G.newRef ptr0
+    outRef <- G.newRef out
+    let pos = PL.InternalPos
+    G.while (pos, do i <- G.readRef iRef
+                     return (G.App $ usizeLt i len))
+            (pos, do i <- G.readRef iRef
+                     ptr <- G.readRef ptrRef
+                     out <- G.readRef outRef
+                     elt <- readMirRef tpr ptr
+                     let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
+                     ptr' <- mirRef_offset tpr ptr (S.app $ usizeLit 1)
+                     let out' = S.app $ vectorSetUsize tpr R.App out i elt
+                     G.writeRef iRef i'
+                     G.writeRef ptrRef ptr'
+                     G.writeRef outRef out')
+    out <- G.readRef outRef
+    G.jumpToLambda c_id out
+  G.continueLambda c_id (G.branch cond x_id y_id)
 
 
 

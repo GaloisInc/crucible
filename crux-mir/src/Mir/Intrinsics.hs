@@ -1256,46 +1256,31 @@ mirExtImpl = ExtensionImpl
 -- and a length.
 
 type MirSlice tp     = StructType (EmptyCtx ::>
-                           MirReferenceType (MirVectorType tp) ::> -- values
-                           UsizeType ::>    --- first element
+                           MirReferenceType tp ::> -- first element
                            UsizeType)       --- length
 
 pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirSliceRepr tp <- StructRepr
-     (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
-         (MirReferenceRepr (MirVectorRepr tp)))
+     (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
+         (MirReferenceRepr tp))
          UsizeRepr)
-         UsizeRepr)
- where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (MirVectorRepr tp) :> UsizeRepr :> UsizeRepr)
+ where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr tp :> UsizeRepr)
 
 mirSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
-                           MirReferenceType (MirVectorType tp) ::>
-                           UsizeType ::>
+                           MirReferenceType tp ::>
                            UsizeType)
-mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (MirVectorRepr tp) :> UsizeRepr :> UsizeRepr)
+mirSliceCtxRepr tp = (Empty :> MirReferenceRepr tp :> UsizeRepr)
 
 mkSlice ::
     TypeRepr tp ->
-    Expr MIR s (MirReferenceType (MirVectorType tp)) ->
-    Expr MIR s UsizeType ->
+    Expr MIR s (MirReferenceType tp) ->
     Expr MIR s UsizeType ->
     Expr MIR s (MirSlice tp)
-mkSlice tpr vec start len = App $ MkStruct (mirSliceCtxRepr tpr) $
-    Empty :> vec :> start :> len
+mkSlice tpr vec len = App $ MkStruct (mirSliceCtxRepr tpr) $
+    Empty :> vec :> len
 
-getSliceVector :: Expr MIR s (MirSlice tp) -> Expr MIR s (MirReferenceType (MirVectorType tp))
-getSliceVector e = getStruct i1of3 e
-
-getSliceLB :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
-getSliceLB e = getStruct i2of3 e 
+getSlicePtr :: Expr MIR s (MirSlice tp) -> Expr MIR s (MirReferenceType tp)
+getSlicePtr e = getStruct i1of2 e
 
 getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
-getSliceLen e = getStruct i3of3 e
-
-updateSliceLB :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType ->  Expr MIR s (MirSlice tp)
-updateSliceLB tp e start = setStruct (mirSliceCtxRepr tp) e i2of3 ns where
-   os = getStruct i2of3 e
-   ns = App $ usizeAdd os start
-
-updateSliceLen :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType -> Expr MIR s (MirSlice tp)
-updateSliceLen tp e end = setStruct (mirSliceCtxRepr tp) e i3of3 end where
+getSliceLen e = getStruct i2of2 e

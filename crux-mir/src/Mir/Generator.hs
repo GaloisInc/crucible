@@ -138,11 +138,11 @@ data MirPlace s where
 -- we may need to add `PtrMetadata` to `MirExp`s at some point as well.
 data PtrMetadata s =
       NoMeta
-    | SliceMeta (R.Expr MIR s UsizeType) (R.Expr MIR s UsizeType)
+    | SliceMeta (R.Expr MIR s UsizeType)
 
 instance Show (PtrMetadata s) where
     show NoMeta = "NoMeta"
-    show (SliceMeta _ _) = "SliceMeta"
+    show (SliceMeta _) = "SliceMeta"
 
 ---------------------------------------------------------------------------------
 

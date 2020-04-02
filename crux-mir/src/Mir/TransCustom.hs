@@ -279,13 +279,13 @@ vector_as_slice_impl (Substs [t]) =
     Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirReferenceRepr (C.VectorRepr tpr)) e] -> do
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
-            let start = R.App $ usizeLit 0
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
             e' <- mirRef_vectorAsMirVector tpr e
+            e'' <- subindexRef tpr e' (R.App $ usizeLit 0)
             let tup = S.mkStruct
-                    (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
-                    (Ctx.Empty Ctx.:> e' Ctx.:> start Ctx.:> end)
+                    (Ctx.Empty Ctx.:> MirReferenceRepr tpr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> e'' Ctx.:> end)
             return $ MirExp (MirSliceRepr tpr) tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
 vector_as_slice_impl _ = Nothing
@@ -322,12 +322,9 @@ vector_copy_from_slice :: (ExplodedDefId, CustomRHS)
 vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirSliceRepr tpr) e] -> do
-            let vecRef = getSliceVector e
-            let start = getSliceLB e
+            let ptr = getSlicePtr e
             let len = getSliceLen e
-            let end = R.App $ usizeAdd start len
-            vec <- readMirRef (MirVectorRepr tpr) vecRef
-            v <- vectorCopy tpr start end vec
+            v <- vectorCopy tpr ptr len
             return $ MirExp (C.VectorRepr tpr) v
         _ -> mirFail $ "bad arguments for Vector::copy_from_slice: " ++ show ops
     _ -> Nothing
@@ -380,11 +377,9 @@ array_as_slice_impl (Substs [t]) =
           MirExp UsizeRepr len ] -> do
             e' <- mirRef_arrayAsMirVector btpr e
             let tpr = C.baseToType btpr
-            let tup = S.mkStruct
-                    (Ctx.Empty Ctx.:> MirReferenceRepr (MirVectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
-                    (Ctx.Empty Ctx.:> e' Ctx.:> start Ctx.:> len)
-            return $ MirExp (MirSliceRepr tpr) tup
-        _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
+            ptr <- subindexRef tpr e' start
+            return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr ptr len
+        _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
 array_as_slice_impl _ = Nothing
 
 array_as_slice :: (ExplodedDefId, CustomRHS)
@@ -732,21 +727,22 @@ slice_to_array = (["core","array", "slice_to_array"],
         case (fn ^. fsig . fsreturn_ty, ops) of
             ( TyAdt optionMonoName _ (Substs [TyRef (TyArray ty _) Immut]),
               [MirExp (MirSliceRepr tpr) e, MirExp UsizeRepr eLen] ) -> do
-                let vecRef = getSliceVector e
-                let start = getSliceLB e
+                -- TODO: This should be implemented as a type cast, so the
+                -- input and output are aliases.  However, the input slice is a
+                -- MirVector, while the output must be a plain crucible Vector.
+                -- We don't currently have a way to do that downcast, so we use
+                -- `vectorCopy` instead.
+                let ptr = getSlicePtr e
                 let len = getSliceLen e
-                let end = R.App $ usizeAdd start len
                 let lenOk = R.App $ usizeEq len eLen
                 -- Get the Adt info for the return type, which should be
                 -- Option<&[T; N]>.
                 adt <- findAdt optionMonoName
-                vec <- readMirRef (MirVectorRepr tpr) vecRef
 
                 let args = Substs [TyArray ty 0]
                 MirExp C.AnyRepr <$> G.ifte lenOk
-                    (do v <- vectorCopy tpr start end vec
-                        ref <- newMirRef (C.VectorRepr tpr)
-                        writeMirRef ref v
+                    (do v <- vectorCopy tpr ptr len
+                        ref <- constMirRef (C.VectorRepr tpr) v
                         let vMir = MirExp (MirReferenceRepr (C.VectorRepr tpr)) ref
                         enum <- buildEnum adt args optionDiscrSome [vMir]
                         unwrapMirExp C.AnyRepr enum)
@@ -782,11 +778,10 @@ slice_index_usize_get_unchecked_impl :: CustomRHS
 slice_index_usize_get_unchecked_impl (Substs [_elTy]) =
     Just $ CustomOp $ \ optys ops -> case ops of
         [MirExp UsizeRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
-            let ref   = S.getStruct (Ctx.natIndex @0) slice
-            let start = S.getStruct (Ctx.natIndex @1) slice
-            let ind'  = R.App $ usizeAdd start ind
-            ref <- subindexRef el_tp ref ind'
-            return $ (MirExp (MirReferenceRepr el_tp) ref)
+            let ptr = getSlicePtr slice
+            let len = getSliceLen slice
+            ptr' <- mirRef_offset el_tp ptr ind
+            return $ (MirExp (MirReferenceRepr el_tp) ptr')
         _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
 slice_index_usize_get_unchecked_impl _ = Nothing
 
@@ -803,14 +798,15 @@ slice_index_usize_get_unchecked_mut =
 slice_index_range_get_unchecked_impl :: CustomRHS
 slice_index_range_get_unchecked_impl (Substs [_elTy]) =
     Just $ CustomOp $ \ optys ops -> case ops of
-        [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr ty) vec_e]
+        [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr tpr) slice]
           | Just Refl <- testEquality tr1 UsizeRepr
           , Just Refl <- testEquality tr2 UsizeRepr
           -> do
-            let newLen = S.app $ usizeSub end start
-            let s1 = updateSliceLB  ty vec_e start
-            let s2 = updateSliceLen ty s1    newLen
-            return $ (MirExp (MirSliceRepr ty) s2)
+            let ptr = getSlicePtr slice
+            let len = getSliceLen slice
+            ptr' <- mirRef_offset tpr ptr start
+            let len' = S.app $ usizeSub end start
+            return $ MirExp (MirSliceRepr tpr) $ mkSlice tpr ptr' len'
 
         _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
 slice_index_range_get_unchecked_impl _ = Nothing

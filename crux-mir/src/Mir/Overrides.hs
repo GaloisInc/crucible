@@ -17,6 +17,8 @@ import Control.Lens ((^.), (%=), (.=), use)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (get)
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
@@ -84,23 +86,20 @@ import Mir.Intrinsics
 getString :: forall sym rtp args ret. (IsSymInterface sym) =>
     RegValue sym (MirSlice (BVType 8)) ->
     OverrideSim (Model sym) sym MIR rtp args ret (Maybe Text)
-getString (Empty :> RV mirVec :> RV startExpr :> RV lenExpr) = do
-    sym <- getSymInterface
+getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
+    sym <- lift getSymInterface
     state <- get
-    mirVec' <- liftIO $ readMirRefIO state sym mirVec
-    case mirVec' of
-        MirVector_Vector vec -> return $ do
-            start <- asUnsignedBV startExpr
-            len <- asUnsignedBV lenExpr
-            let slice = V.slice (fromInteger start) (fromInteger len) vec
+    len <- readBV lenExpr
+    bytes <- forM [0 .. len - 1] $ \i -> do
+        iExpr <- liftIO $ bvLit sym knownRepr i
+        elemPtr <- liftIO $ mirRef_offsetWrapIO sym knownRepr mirPtr iExpr
+        bExpr <- liftIO $ readMirRefIO state sym elemPtr
+        b <- readBV bExpr
+        return $ fromIntegral b
+    return $ Text.decodeUtf8 $ BS.pack bytes
 
-            let f :: RegValue sym (BVType 8) -> Maybe Word8
-                f rv = case asUnsignedBV rv of
-                              Just i  -> Just (fromInteger i)
-                              Nothing -> Nothing
-            bs <- BS.pack <$> mapM f (V.toList slice)
-            return $ Text.decodeUtf8 bs
-        _ -> return Nothing
+  where
+    readBV = MaybeT . return . asUnsignedBV
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
@@ -210,37 +209,23 @@ regEval sym baseEval tpr v = go tpr v
     -- Special case for slices.  The issue here is that we can't evaluate
     -- SymbolicArrayType, but we can evaluate slices of SymbolicArrayType by
     -- evaluating lookups at every index inside the slice bounds.
-    go (MirSliceRepr tpr') (Empty :> RV vecRef :> RV start :> RV len) = do
+    go (MirSliceRepr tpr') (Empty :> RV ptr :> RV len) = do
         state <- get
-        vec <- liftIO $ readMirRefIO state sym vecRef
 
-        (vec', start', len') <- case vec of
-            MirVector_Vector v -> do
-                v' <- go (VectorRepr tpr') v
-                start' <- go UsizeRepr start
-                len' <- go UsizeRepr len
-                return (MirVector_Vector v', start', len')
+        len' <- go UsizeRepr len
+        let lenBV = fromMaybe (error "regEval produced non-concrete BV") $
+                asUnsignedBV len'
 
-            MirVector_Array a -> do
-                start' <- go UsizeRepr start
-                len' <- go UsizeRepr len
+        vals <- forM [0 .. lenBV - 1] $ \i -> do
+            i' <- liftIO $ bvLit sym knownRepr i
+            ptr' <- liftIO $ mirRef_offsetIO sym tpr' ptr i'
+            val <- liftIO $ readMirRefIO state sym ptr'
+            go tpr' val
 
-                -- start' and len' should be concrete bitvectors.  Iterate over
-                -- the range `0 .. len'`, evaluating an array lookup at each index.
-                let startBV = fromMaybe (error "regEval produced non-concrete BV") $
-                        asUnsignedBV start'
-                let lenBV = fromMaybe (error "regEval produced non-concrete BV") $
-                        asUnsignedBV len'
-                v' <- liftM V.fromList $ forM [0 .. lenBV] $ \i -> do
-                    iExpr <- liftIO $ bvLit sym knownNat (startBV + i)
-                    x <- liftIO $ arrayLookup sym a (Empty :> iExpr)
-                    go tpr' x
-
-                zero <- liftIO $ bvLit sym knownNat 0
-                return $ (MirVector_Vector v', zero, len')
-
-        let vecRef' = newConstMirRef (MirVectorRepr tpr') vec'
-        return $ Empty :> RV vecRef' :> RV start' :> RV len'
+        let vec = MirVector_Vector $ V.fromList vals
+        let vecRef = newConstMirRef (MirVectorRepr tpr') vec
+        ptr <- liftIO $ subindexMirRefIO sym tpr' vecRef =<< bvLit sym knownRepr 0
+        return $ Empty :> RV ptr :> RV len'
 
     go (FloatRepr fi) v = pure v
     go AnyRepr (AnyValue tpr v) = AnyValue tpr <$> go tpr v
