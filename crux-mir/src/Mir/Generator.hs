@@ -623,6 +623,12 @@ arrayZeroed ::
 arrayZeroed idxs w = G.extensionStmt $ ArrayZeroed idxs w
 
 
+mirVector_uninit ::
+    C.TypeRepr tp ->
+    R.Expr MIR s UsizeType ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
+mirVector_uninit tpr len = G.extensionStmt $ MirVector_Uninit tpr len
+
 mirVector_fromVector ::
     C.TypeRepr tp ->
     R.Expr MIR s (C.VectorType tp) ->

@@ -96,7 +96,7 @@ import           Lang.Crucible.Simulator.SimError
 
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
-import           What4.Partial (maybePartExpr, justPartExpr)
+import           What4.Partial (pattern Unassigned, maybePartExpr, justPartExpr, mergePartial)
 import           What4.Utils.MonadST
 
 import           Mir.DefId
@@ -535,6 +535,9 @@ data MirVector sym (tp :: CrucibleType) where
   MirVector_Vector ::
     !(RegValue sym (VectorType tp)) ->
     MirVector sym tp
+  MirVector_PartialVector ::
+    !(RegValue sym (VectorType (MaybeType tp))) ->
+    MirVector sym tp
   MirVector_Array ::
     !(RegValue sym (UsizeArrayType btp)) ->
     MirVector sym (BaseToType btp)
@@ -548,13 +551,49 @@ muxMirVector :: forall sym tp.
   MirVector sym tp ->
   MirVector sym tp ->
   IO (MirVector sym tp)
-muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2) =
+-- Two total vectors of matching length can remain total.
+muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2)
+  | V.length v1 == V.length v2 =
     MirVector_Vector <$> muxRegForType sym itefns (VectorRepr tpr) c v1 v2
+-- All other combinations of total and partial vectors become partial.
+muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2) = do
+    pv1 <- toPartialVector sym tpr v1
+    pv2 <- toPartialVector sym tpr v2
+    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
+muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_Vector v2) = do
+    pv2 <- toPartialVector sym tpr v2
+    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
+muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_PartialVector pv2) = do
+    pv1 <- toPartialVector sym tpr v1
+    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
+muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_PartialVector pv2) = do
+    MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
+-- Arrays only merge with arrays.
 muxMirVector sym itefns (asBaseType -> AsBaseType btpr) c
         (MirVector_Array a1) (MirVector_Array a2) =
     MirVector_Array <$> muxRegForType sym itefns (UsizeArrayRepr btpr) c a1 a2
 muxMirVector sym _ _ _ _ _ =
     addFailedAssertion sym $ Unsupported $ "Cannot merge dissimilar MirVectors."
+
+toPartialVector :: IsSymInterface sym =>
+    sym -> TypeRepr tp ->
+    RegValue sym (VectorType tp) -> IO (RegValue sym (VectorType (MaybeType tp)))
+toPartialVector sym _tpr v = return $ fmap (justPartExpr sym) v
+
+muxPartialVectors :: IsSymInterface sym =>
+    sym -> IntrinsicTypes sym -> TypeRepr tp ->
+    Pred sym ->
+    RegValue sym (VectorType (MaybeType tp)) ->
+    RegValue sym (VectorType (MaybeType tp)) ->
+    IO (RegValue sym (VectorType (MaybeType tp)))
+muxPartialVectors sym itefns tpr c pv1 pv2 = do
+    let len = max (V.length pv1) (V.length pv2)
+    V.generateM len $ \i -> do
+        let x = getPE i pv1
+        let y = getPE i pv2
+        muxRegForType sym itefns (MaybeRepr tpr) c x y
+  where
+    getPE i pv = Maybe.fromMaybe Unassigned $ pv V.!? i
 
 indexMirVectorWithSymIndex ::
     IsSymInterface sym =>
@@ -566,6 +605,13 @@ indexMirVectorWithSymIndex ::
 indexMirVectorWithSymIndex sym iteFn (MirVector_Vector v) i = do
     i' <- bvToNat sym i
     indexVectorWithSymNat sym iteFn v i'
+indexMirVectorWithSymIndex sym iteFn (MirVector_PartialVector pv) i = do
+    i' <- bvToNat sym i
+    -- Lift iteFn from `RegValue sym tp` to `RegValue sym (MaybeType tp)`
+    let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
+    maybeVal <- indexVectorWithSymNat sym iteFn' pv i'
+    readPartExpr sym maybeVal $ ReadBeforeWriteSimError $
+        "Attempted to read uninitialized vector index"
 indexMirVectorWithSymIndex sym _ (MirVector_Array a) i =
     arrayLookup sym a (Empty :> i)
 
@@ -580,10 +626,40 @@ adjustMirVectorWithSymIndex ::
 adjustMirVectorWithSymIndex sym iteFn (MirVector_Vector v) i adj = do
     i' <- bvToNat sym i
     MirVector_Vector <$> adjustVectorWithSymNat sym iteFn v i' adj
+adjustMirVectorWithSymIndex sym iteFn (MirVector_PartialVector pv) i adj = do
+    i' <- bvToNat sym i
+    let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
+    pv' <- adjustVectorWithSymNat sym iteFn' pv i' $ \maybeVal -> do
+        val <- readPartExpr sym maybeVal $ ReadBeforeWriteSimError $
+            "Attempted to read uninitialized vector index"
+        val' <- adj val
+        return $ justPartExpr sym val'
+    return $ MirVector_PartialVector pv'
 adjustMirVectorWithSymIndex sym _ (MirVector_Array a) i adj = do
     x <- arrayLookup sym a (Empty :> i)
     x' <- adj x
     MirVector_Array <$> arrayUpdate sym a (Empty :> i) x'
+
+-- Write a new value.  Unlike `adjustMirVectorWithSymIndex`, this doesn't
+-- require a successful read from the given index.
+writeMirVectorWithSymIndex ::
+    IsSymInterface sym =>
+    sym ->
+    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+    MirVector sym tp ->
+    RegValue sym UsizeType ->
+    RegValue sym tp ->
+    IO (MirVector sym tp)
+writeMirVectorWithSymIndex sym iteFn (MirVector_Vector v) i val = do
+    i' <- bvToNat sym i
+    MirVector_Vector <$> adjustVectorWithSymNat sym iteFn v i' (\_ -> return val)
+writeMirVectorWithSymIndex sym iteFn (MirVector_PartialVector pv) i val = do
+    i' <- bvToNat sym i
+    let iteFn' c x y = mergePartial sym (\c' x' y' -> lift $ iteFn c' x' y') c x y
+    pv' <- adjustVectorWithSymNat sym iteFn' pv i' $ \_ -> return $ justPartExpr sym val
+    return $ MirVector_PartialVector pv'
+writeMirVectorWithSymIndex sym _ (MirVector_Array a) i val = do
+    MirVector_Array <$> arrayUpdate sym a (Empty :> i) val
 
 
 
@@ -720,6 +796,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(Assignment BaseTypeRepr (idxs ::> idx)) ->
      !(NatRepr w) ->
      MirStmt f (SymbolicArrayType (idxs ::> idx) (BaseBVType w))
+  MirVector_Uninit ::
+    !(TypeRepr tp) ->
+    !(f UsizeType) ->
+    MirStmt f (MirVectorType tp)
   MirVector_FromVector ::
     !(TypeRepr tp) ->
     !(f (VectorType tp)) ->
@@ -805,6 +885,7 @@ instance TypeApp MirStmt where
     VectorTake tp _ _ -> VectorRepr tp
     VectorDrop tp _ _ -> VectorRepr tp
     ArrayZeroed idxs w -> SymbolicArrayRepr idxs (BaseBVRepr w)
+    MirVector_Uninit tp _ -> MirVectorRepr tp
     MirVector_FromVector tp _ -> MirVectorRepr tp
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
     MirVector_Lookup tp _ _ -> tp
@@ -838,6 +919,7 @@ instance PrettyApp MirStmt where
     VectorTake _ v i -> "vectorTake" <+> pp v <+> pp i
     VectorDrop _ v i -> "vectorDrop" <+> pp v <+> pp i
     ArrayZeroed idxs w -> "arrayZeroed" <+> text (show idxs) <+> text (show w)
+    MirVector_Uninit tp len -> "mirVector_uninit" <+> pretty tp <+> pp len
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
     MirVector_Lookup _ v i -> "mirVector_lookup" <+> pp v <+> pp i
@@ -1112,6 +1194,13 @@ execMirStmt stmt s =
             val <- constantArray sym idxs zero
             return (val, s)
 
+       MirVector_Uninit _tp (regValue -> lenSym) -> do
+            len <- case asUnsignedBV lenSym of
+                Just x -> return x
+                Nothing -> addFailedAssertion sym $ Unsupported $
+                    "Attempted to allocate vector of symbolic length"
+            let pv = V.replicate (fromInteger len) Unassigned
+            return (MirVector_PartialVector pv, s)
        MirVector_FromVector _tp (regValue -> v) ->
             return (MirVector_Vector v, s)
        MirVector_FromArray _tp (regValue -> a) ->
@@ -1155,6 +1244,11 @@ writeRefPath :: IsSymInterface sym =>
 -- which allows writing to an uninitialized MirReferenceRoot.
 writeRefPath sym iTypes v (Just_RefPath _tp path) x =
   adjustRefPath sym iTypes v path (\_ -> return $ justPartExpr sym x)
+-- Similar case for writing to MirVectors.  Uninitialized entries of a
+-- MirVector_PartialVector can be initialized by a write.
+writeRefPath sym iTypes v (Index_RefPath tp path idx) x = do
+  adjustRefPath sym iTypes v path (\vec ->
+    writeMirVectorWithSymIndex sym (muxRegForType sym iTypes tp) vec idx x)
 writeRefPath sym iTypes v path x =
   adjustRefPath sym iTypes v path (\_ -> return x)
 
