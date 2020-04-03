@@ -137,6 +137,8 @@ customOpDefs = Map.fromList $ [
                          , panicking_panic
                          , panicking_panic_fmt
 
+                         , allocate
+
 
                          , integer_from_u8
                          , integer_from_i32
@@ -1070,6 +1072,34 @@ bv_leading_zeros :: (ExplodedDefId, CustomRHS)
 bv_leading_zeros =
     ( ["crucible", "bitvector", "{{impl}}", "leading_zeros"]
     , ctlz_impl "bv_leading_zeros" (Just $ Some $ knownNat @32) )
+
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- crucible::alloc implementation
+
+-- fn allocate<T>(len: usize) -> *mut T
+allocate :: (ExplodedDefId, CustomRHS)
+allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp UsizeRepr len] -> do
+            -- Create an uninitialized `MirVector_PartialVector` of length
+            -- `len`, and return a pointer to its first element.
+            Some tpr <- return $ tyToRepr t
+            vec <- mirVector_uninit tpr len
+            ref <- newMirRef (MirVectorRepr tpr)
+            writeMirRef ref vec
+            -- `subindexRef` doesn't do a bounds check (those happen on deref
+            -- instead), so this works even when len is 0.
+            ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
+            return $ MirExp (MirReferenceRepr tpr) ptr
+        _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
+    _ -> Nothing)
+
+-- No `deallocate` for now - we'd need some extra MirRef ops to implement that
+-- (since we need to get from the first-element pointer to the underlying
+-- RefCell that we want to drop).
+
 
 
 --------------------------------------------------------------------------------------------------------------------------

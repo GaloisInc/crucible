@@ -2,6 +2,7 @@
 #![feature(core_intrinsics)]
 #![feature(crucible_intrinsics)]
 
+pub mod alloc;
 pub use core::crucible::any;
 pub mod array;
 pub mod bitvector;
