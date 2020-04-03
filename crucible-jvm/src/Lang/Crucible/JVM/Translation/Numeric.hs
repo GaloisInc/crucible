@@ -15,11 +15,9 @@ Stability        : provisional
 module Lang.Crucible.JVM.Translation.Numeric where
 
 import Lang.Crucible.CFG.Expr
-import Lang.Crucible.CFG.Extension.Safety (pattern PartialExp)
 import Lang.Crucible.CFG.Reg (Expr(..))
 import Lang.Crucible.Types
 
-import qualified What4.Partial.AssertionTree as W4AT
 import Lang.Crucible.JVM.Types
 
 ----------------------------------------------------------------------
@@ -85,8 +83,8 @@ iSub e1 e2 = App (BVSub w32 e1 e2)
 iMul e1 e2 = App (BVMul w32 e1 e2)
 
 iDiv, iRem :: JVMInt s -> JVMInt s -> JVMInt s
-iDiv e1 e2 = assertNonzero w32 e2 (App (BVSdiv w32 e1 e2))
-iRem e1 e2 = assertNonzero w32 e2 (App (BVSrem w32 e1 e2))
+iDiv e1 e2 = App (BVSdiv w32 e1 e2)
+iRem e1 e2 = App (BVSrem w32 e1 e2)
 
 iAnd, iOr, iXor :: JVMInt s -> JVMInt s -> JVMInt s
 iAnd e1 e2 = App (BVAnd w32 e1 e2)
@@ -123,8 +121,8 @@ lSub e1 e2 = App (BVSub w64 e1 e2)
 lMul e1 e2 = App (BVMul w64 e1 e2)
 
 lDiv, lRem :: JVMLong s -> JVMLong s -> JVMLong s
-lDiv e1 e2 = assertNonzero w64 e2 (App (BVSdiv w64 e1 e2))
-lRem e1 e2 = assertNonzero w64 e2 (App (BVSrem w64 e1 e2))
+lDiv e1 e2 = App (BVSdiv w64 e1 e2)
+lRem e1 e2 = App (BVSrem w64 e1 e2)
 
 lAnd, lOr, lXor :: JVMLong s -> JVMLong s -> JVMLong s
 lAnd e1 e2 = App (BVAnd w64 e1 e2)
@@ -244,21 +242,3 @@ dCmpl e1 e2 =
   iIte (App (FloatFpEq e1 e2)) (iConst 0) $
   iConst (-1)
 
-----------------------------------------------------------------------
--- * Miscellaneous
-
--- | Assert that the first argument is nonzero.
-assertNonzero ::
-  (1 <= n) =>
-  NatRepr n ->
-  Expr JVM s (BVType n) ->
-  Expr JVM s (BVType n) ->
-  Expr JVM s (BVType n)
-assertNonzero w b expr = App (WithAssertion (BVRepr w) partExpr)
-  where
-    assertion =
-      JVMAssertionClassifier
-      ["java", "lang", "ArithmeticException"]
-      (App (BVNonzero w b))
-    partExpr =
-      PartialExp (W4AT.Leaf assertion) expr

@@ -27,21 +27,14 @@ module Lang.Crucible.LLVM.Extension
   , LLVM
   ) where
 
-import           Control.Lens ((^.), (&))
 import           Data.Data (Data)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic, Generic1)
 
 import           Lang.Crucible.CFG.Extension
-import           Lang.Crucible.Simulator.RegValue (RegValue'(unRV))
-import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.Extension.Arch
-import           Lang.Crucible.LLVM.Extension.Safety (BadBehavior(..), LLVMSafetyAssertion)
-import qualified Lang.Crucible.LLVM.Extension.Safety as LLVMSafe
-import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension.Syntax
 
 -- | The Crucible extension type marker for LLVM.
@@ -56,22 +49,3 @@ type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 
 instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)
 
--- -----------------------------------------------------------------------
--- ** Safety Assertions
-
-type instance AssertionClassifier (LLVM arch) = LLVMSafetyAssertion
-
-instance HasStructuredAssertions (LLVM arch) where
-  toPredicate _proxy _sym cls = cls ^. LLVMSafe.predicate & pure . unRV
-
-  explain _proxyExt assertion =
-    case assertion ^. LLVMSafe.classifier of
-      BBUndefinedBehavior ub -> UB.explain ub
-      BBPoison poison        -> Poison.explain poison
-      BBSafe                 -> "A value that's always safe"
-
-  detail _proxyExt proxySym assertion =
-    case assertion ^. LLVMSafe.classifier of
-      BBUndefinedBehavior ub -> UB.ppReg proxySym ub
-      BBPoison poison        -> Poison.ppReg proxySym poison
-      BBSafe                 -> "A value that's always safe"

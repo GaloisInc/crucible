@@ -35,6 +35,7 @@ import           Control.Monad (void)
 import           Data.IORef
 import           Data.Parameterized.Nonce
 
+import           What4.Config
 import           What4.Interface
 import qualified What4.Expr.Builder as B
 
@@ -65,7 +66,9 @@ newSimpleBackend ::
   -> IO (SimpleBackend t (B.Flags fm))
 newSimpleBackend floatMode gen =
   do st <- initialSimpleBackendState gen
-     B.newExprBuilder floatMode st gen
+     sym <- B.newExprBuilder floatMode st gen
+     extendConfig backendOptions (getConfiguration sym)
+     return sym
 
 getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)

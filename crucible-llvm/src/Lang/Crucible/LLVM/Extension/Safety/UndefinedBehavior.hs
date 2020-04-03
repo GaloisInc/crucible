@@ -58,12 +58,12 @@ import           Prelude
 import           GHC.Generics (Generic)
 import           Data.Data (Data)
 import           Data.Kind (Type)
-import           Data.Text (Text, unpack)
 import           Data.Maybe (isJust)
+import           Data.Text (unpack)
 import           Data.Typeable (Typeable)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Data.Parameterized.Classes (toOrdering, OrderingF(..))
+import           Data.Parameterized.Classes (toOrdering, fromOrdering, OrderingF(..))
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
@@ -77,6 +77,7 @@ import           Lang.Crucible.LLVM.DataLayout (Alignment)
 import           Lang.Crucible.LLVM.MemModel.Pointer (llvmPointerView)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
+import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import           Lang.Crucible.LLVM.Types (LLVMPtr)
 
 -- -----------------------------------------------------------------------
@@ -180,10 +181,10 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
   -------------------------------- LLVM: arithmetic
 
   -- | @SymBV@ or @Expr _ _ (BVType w)@
-  UDivByZero   :: e (BVType w) -> UndefinedBehavior e
-  SDivByZero   :: e (BVType w) -> UndefinedBehavior e
-  URemByZero   :: e (BVType w) -> UndefinedBehavior e
-  SRemByZero   :: e (BVType w) -> UndefinedBehavior e
+  UDivByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  SDivByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  URemByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  SRemByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
   SDivOverflow :: e (BVType w)
                -> e (BVType w)
                -> UndefinedBehavior e
@@ -191,10 +192,9 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
                -> e (BVType w)
                -> UndefinedBehavior e
 
-  -------------------------------- Other
-
-  -- | Use sparingly! Currently used only when muxing values.
-  Other :: Text -> UndefinedBehavior e
+  PoisonValueCreated ::
+    Poison.Poison e ->
+    UndefinedBehavior e
 
   {-
   MemcpyDisjoint          :: UndefinedBehavior e
@@ -228,16 +228,18 @@ standard =
 
     -- -------------------------------- LLVM: arithmetic
 
-    UDivByZero _     -> LLVMRef LLVM8
-    SDivByZero _     -> LLVMRef LLVM8
-    URemByZero _     -> LLVMRef LLVM8
-    SRemByZero _     -> LLVMRef LLVM8
-    SDivOverflow _ _ -> LLVMRef LLVM8
-    SRemOverflow _ _ -> LLVMRef LLVM8
+    UDivByZero{}   -> LLVMRef LLVM8
+    SDivByZero{}   -> LLVMRef LLVM8
+    URemByZero{}   -> LLVMRef LLVM8
+    SRemByZero{}   -> LLVMRef LLVM8
+    SDivOverflow{} -> LLVMRef LLVM8
+    SRemOverflow{} -> LLVMRef LLVM8
+
+    PoisonValueCreated p -> Poison.standard p
 
     -------------------------------- Other
 
-    Other _ -> CStd C99
+--    Other _ -> CStd C99
 
     {-
     MemcpyDisjoint          -> CStd C99
@@ -248,7 +250,7 @@ standard =
 
 -- | Which section(s) of the document prohibit this behavior?
 cite :: UndefinedBehavior e -> Doc
-cite = text .
+cite =
   \case
 
     -------------------------------- Memory management
@@ -270,16 +272,16 @@ cite = text .
 
     -------------------------------- LLVM: arithmetic
 
-    UDivByZero _     -> "‘udiv’ Instruction (Semantics)"
-    SDivByZero _     -> "‘sdiv’ Instruction (Semantics)"
-    URemByZero _     -> "‘urem’ Instruction (Semantics)"
-    SRemByZero _     -> "‘srem’ Instruction (Semantics)"
-    SDivOverflow _ _ -> "‘sdiv’ Instruction (Semantics)"
-    SRemOverflow _ _ -> "‘srem’ Instruction (Semantics)"
+    UDivByZero{}   -> "‘udiv’ Instruction (Semantics)"
+    SDivByZero{}   -> "‘sdiv’ Instruction (Semantics)"
+    URemByZero{}   -> "‘urem’ Instruction (Semantics)"
+    SRemByZero{}   -> "‘srem’ Instruction (Semantics)"
+    SDivOverflow{} -> "‘sdiv’ Instruction (Semantics)"
+    SRemOverflow{} -> "‘srem’ Instruction (Semantics)"
+
+    PoisonValueCreated p -> Poison.cite p
 
     -------------------------------- Other
-
-    Other _ -> "n/a"
 
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
@@ -334,16 +336,16 @@ explain =
 
     -------------------------------- LLVM: arithmetic
 
-    UDivByZero _     -> "Unsigned division by zero"
-    SDivByZero _     -> "Signed division by zero"
-    URemByZero _     -> "Unsigned division by zero via remainder"
-    SRemByZero _     -> "Signed division by zero via remainder"
-    SDivOverflow _ _ -> "Overflow during signed division"
-    SRemOverflow _ _ -> "Overflow during signed division (via signed remainder)"
+    UDivByZero{}   -> "Unsigned division by zero"
+    SDivByZero{}   -> "Signed division by zero"
+    URemByZero{}   -> "Unsigned division by zero via remainder"
+    SRemByZero{}   -> "Signed division by zero via remainder"
+    SDivOverflow{} -> "Overflow during signed division"
+    SRemOverflow{} -> "Overflow during signed division (via signed remainder)"
+
+    PoisonValueCreated p -> vcat [ "LLVM Poison value created", Poison.explain p ]
 
     -------------------------------- Other
-
-    Other txt -> text (unpack txt)
 
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
@@ -356,11 +358,9 @@ explain =
 -- | Pretty-print the additional information held by the constructors
 -- (for symbolic expressions)
 detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
-           => proxy sym
-           -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-           -> UndefinedBehavior (RegValue' sym)
+           => UndefinedBehavior (RegValue' sym)
            -> [Doc]
-detailsReg proxySym =
+detailsReg =
   \case
 
     -------------------------------- Memory management
@@ -382,7 +382,7 @@ detailsReg proxySym =
 
     PtrAddOffsetOutOfBounds ptr offset ->
       [ ppPtr1 ptr
-      , ppOffset proxySym (unRV offset)
+      , ppOffset (unRV offset)
       ]
     CompareInvalidPointer comparison invalid other ->
       [ "Comparison:                    " <+> ppPtrComparison comparison
@@ -404,10 +404,18 @@ detailsReg proxySym =
 
     -- The cases are manually listed to prevent unintentional fallthrough if a
     -- constructor is added.
-    UDivByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
-    SDivByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
-    URemByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
-    SRemByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
+    UDivByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
+                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
+                          ]
+    SDivByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
+                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
+                          ]
+    URemByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
+                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
+                          ]
+    SRemByZero v1 v2   -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
+                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
+                          ]
     SDivOverflow v1 v2 -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
                           , "op2: " <+> (W4I.printSymExpr $ unRV v2)
                           ]
@@ -415,9 +423,7 @@ detailsReg proxySym =
                           , "op2: " <+> (W4I.printSymExpr $ unRV v2)
                           ]
 
-    -------------------------------- Other
-
-    Other _ -> []
+    PoisonValueCreated p -> Poison.detailsReg p
 
   where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
         ppPtr1 = ("Pointer:" <+>) . ppPointerPair
@@ -426,9 +432,8 @@ detailsReg proxySym =
                                 , "Pointer 2:" <+>  ppPointerPair ptr2
                                 ]
 
-        ppOffset :: W4I.IsExpr (W4I.SymExpr sym)
-                 => proxy sym -> W4I.SymExpr sym (BaseBVType w) -> Doc
-        ppOffset _ = ("Offset:" <+>) . W4I.printSymExpr
+        ppOffset :: W4I.IsExpr e => e (BaseBVType w) -> Doc
+        ppOffset = ("Offset:" <+>) . W4I.printSymExpr
 
 pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
@@ -446,12 +451,11 @@ pp extra ub = vcat $
          Nothing  -> []
 
 -- | Pretty-printer for symbolic backends
-ppReg :: W4I.IsExpr (W4I.SymExpr sym)
-      => proxy sym
-      -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-      -> UndefinedBehavior (RegValue' sym)
-      -> Doc
-ppReg proxySym = pp (detailsReg proxySym)
+ppReg ::
+  W4I.IsExpr (W4I.SymExpr sym) =>
+  UndefinedBehavior (RegValue' sym) ->
+  Doc
+ppReg = pp (detailsReg)
 
 -- -----------------------------------------------------------------------
 -- ** Instances
@@ -464,6 +468,9 @@ instance TestEqualityC UndefinedBehavior where
        [ ( U.DataArg 0 `U.TypeApp` U.AnyType
          , [| subterms |]
          )
+       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
+         , [| \a b -> if testEqualityC subterms a b then Just Refl else Nothing |]
+         )
        , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
          , [| \(b1, o1) (b2, o2) -> subterms o1 o2 >> subterms b1 b2 |]
          )
@@ -475,6 +482,9 @@ instance OrdC UndefinedBehavior where
     $(U.structuralTypeOrd [t|UndefinedBehavior|]
        [ ( U.DataArg 0 `U.TypeApp` U.AnyType
          , [| subterms |]
+         )
+       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
+         , [| \a b -> fromOrdering (compareC subterms a b) |]
          )
        , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
          , [| \(b1, o1) (b2, o2) ->
@@ -505,8 +515,12 @@ instance TraversableF UndefinedBehavior where
        [ ( U.DataArg 0 `U.TypeApp` U.AnyType
          , [| \_ x -> subterms x |]
          )
+       , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
+         , [| \_ x -> traverseF subterms x |]
+         )
        , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
          , [| \_ (b, o) -> (,) <$> subterms b <*> subterms o |]
          )
+
        ]
      ) subterms

@@ -209,7 +209,7 @@ newSAWCoreBackend fm sc gen = do
               , saw_online_state = ob_st
               }
   sym <- B.newExprBuilder fm st gen
-  let options = onlineBackendOptions ++ Yices.yicesOptions
+  let options = backendOptions ++ onlineBackendOptions ++ Yices.yicesOptions
   extendConfig options (getConfiguration sym)
   writeIORef (B.sbStateManager sym) st
   return sym
@@ -820,6 +820,9 @@ evaluateExpr sym sc cache = f []
 
     go env (B.NonceAppExpr p) =
       case B.nonceExprApp p of
+        B.Annotation _tpr _n x ->
+          eval env x
+
         B.Forall bvar body ->
           case B.bvarType bvar of
             BaseBVRepr wrepr -> do

@@ -54,14 +54,19 @@ module Lang.Crucible.Backend
   , assertIsInteger
   , readPartExpr
   , ppProofObligation
+  , backendOptions
+  , assertThenAssumeConfigOption
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
 import           Control.Lens ((^.))
+import           Control.Monad
 import           Data.Foldable (toList)
 import           Data.Sequence (Seq)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           What4.Concrete
+import           What4.Config
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Partial
@@ -244,26 +249,50 @@ class IsBoolSolver sym where
   resetAssumptionState :: sym -> IO ()
   resetAssumptionState sym = restoreAssumptionState sym PG.emptyGoalCollector
 
--- | Add a proof obligation for the given predicate, and then assume it.
+assertThenAssumeConfigOption :: ConfigOption BaseBoolType
+assertThenAssumeConfigOption = configOption knownRepr "assertThenAssume"
+
+assertThenAssumeOption :: ConfigDesc
+assertThenAssumeOption = mkOpt
+  assertThenAssumeConfigOption
+  boolOptSty
+  (Just (PP.text "Assume a predicate after asserting it."))
+  (Just (ConcreteBool False))
+
+backendOptions :: [ConfigDesc]
+backendOptions = [assertThenAssumeOption]
+
+-- | Add a proof obligation for the given predicate, and then assume it
+-- (when the assertThenAssume option is true).
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
 addAssertion ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
   sym -> Assertion sym -> IO ()
-addAssertion sym a@(AS.LabeledPred p msg) =
+addAssertion sym a =
   do addProofObligation sym a
-     addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
+     assumeAssertion sym a
 
 -- | Add a durable proof obligation for the given predicate, and then
--- assume it.
+-- assume it (when the assertThenAssume option is true).
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
 addDurableAssertion ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
   sym -> Assertion sym -> IO ()
-addDurableAssertion sym a@(AS.LabeledPred p msg) =
+addDurableAssertion sym a =
   do addDurableProofObligation sym a
-     addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
+     assumeAssertion sym a
+
+-- | Assume assertion when the assertThenAssume option is true.
+assumeAssertion ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym -> Assertion sym -> IO ()
+assumeAssertion sym (AS.LabeledPred p msg) =
+  do assert_then_assume_opt <- getOpt
+       =<< getOptionSetting assertThenAssumeConfigOption (getConfiguration sym)
+     when assert_then_assume_opt $
+       addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
 
 -- | Throw an exception, thus aborting the current execution path.
 abortExecBecause :: AbortExecReason -> IO a

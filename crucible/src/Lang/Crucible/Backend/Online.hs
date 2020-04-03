@@ -50,6 +50,9 @@ module Lang.Crucible.Backend.Online
     -- ** Z3
   , Z3OnlineBackend
   , withZ3OnlineBackend
+    -- ** Boolector
+  , BoolectorOnlineBackend
+  , withBoolectorOnlineBackend
     -- ** CVC4
   , CVC4OnlineBackend
   , withCVC4OnlineBackend
@@ -92,6 +95,7 @@ import           What4.Protocol.Online
 import           What4.Protocol.SMTWriter as SMT
 import           What4.Protocol.SMTLib2 as SMT2
 import           What4.SatResult
+import qualified What4.Solver.Boolector as Boolector
 import qualified What4.Solver.CVC4 as CVC4
 import qualified What4.Solver.STP as STP
 import qualified What4.Solver.Yices as Yices
@@ -192,6 +196,27 @@ withZ3OnlineBackend fm gen unsatFeat action =
   withOnlineBackend fm gen feat $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
        action sym
+
+type BoolectorOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Boolector.Boolector) fs
+
+-- | Do something with a Boolector online backend.
+--   The backend is only valid in the continuation.
+--
+--   The Boolector configuration options will be automatically
+--   installed into the backend configuration object.
+--
+--   > withBoolectorOnineBackend FloatRealRepr ng f'
+withBoolectorOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
+                           B.FloatModeRepr fm
+                           -> NonceGenerator IO scope
+                           -> UnsatFeatures
+                           -> (BoolectorOnlineBackend scope (B.Flags fm) -> m a)
+                           -> m a
+withBoolectorOnlineBackend fm gen unsatFeat action =
+  let feat = (SMT2.defaultFeatures Boolector.Boolector .|. unsatFeaturesToProblemFeatures unsatFeat) in
+  withOnlineBackend fm gen feat $ \sym -> do
+    liftIO $ extendConfig Boolector.boolectorOptions (getConfiguration sym)
+    action sym
 
 type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
 
@@ -420,7 +445,9 @@ withOnlineBackend ::
 withOnlineBackend floatMode gen feats action = do
   st  <- liftIO $ initialOnlineBackendState gen feats
   sym <- liftIO $ B.newExprBuilder floatMode st gen
-  liftIO $ extendConfig onlineBackendOptions (getConfiguration sym)
+  liftIO $ extendConfig
+    (backendOptions ++ onlineBackendOptions)
+    (getConfiguration sym)
   liftIO $ writeIORef (B.sbStateManager sym) st
 
   action sym

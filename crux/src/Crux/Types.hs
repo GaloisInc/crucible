@@ -1,6 +1,7 @@
 {-# Language DeriveFunctor, RankNTypes, ConstraintKinds, TypeFamilies, ScopedTypeVariables, GADTs #-}
 module Crux.Types where
 
+import Data.Sequence (Seq)
 import Data.Parameterized.Map (MapF)
 
 import Lang.Crucible.Simulator.RegMap(RegValue)
@@ -23,24 +24,24 @@ type SimCtxt sym p = SimContext (Model sym) sym p
 
 -- | The instance of the override monad we use,
 -- when we don't care about the context of the surrounding function.
-type OverM sym p a =
+type OverM sym ext a =
   forall r args ret.
   OverrideSim
     (Model sym)
     sym                                    -- the backend
-    p                                      -- the extension
+    ext                                      -- the extension
     r
     args
     ret
     a
 
 -- | This is the instance of the 'OverrideSim' monad that we use.
-type Fun sym p args ret =
+type Fun sym ext args ret =
   forall r.
   OverrideSim
     (Model sym)
     sym                                    -- the backend
-    p
+    ext
     r
     args
     ret
@@ -71,6 +72,21 @@ data ProvedGoals a =
     -- (i.e., the step number, if this is a path assumption)
     -- The 'Bool' indicates if the goal is trivial (i.e., the assumptions
     -- are inconsistent)
+
+
+data ProgramCompleteness
+ = ProgramComplete
+ | ProgramIncomplete
+ deriving (Eq,Ord,Show)
+
+
+
+data CruxSimulationResult =
+  CruxSimulationResult
+  { cruxSimResultCompleteness :: ProgramCompleteness
+  , cruxSimResultGoals        :: Seq (ProvedGoals (Either AssumptionReason SimError))
+  }
+
 
 -- From Model
 

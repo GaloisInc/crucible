@@ -1,9 +1,5 @@
 flags: {}
 packages:
-  - what4/
-  - what4-abc/
-  - what4-blt/
-
   - crucible/
   - crucible-jvm/
   - crucible-llvm/
@@ -27,6 +23,10 @@ packages:
   - dependencies/saw-core-aig/
   - dependencies/saw-core-sbv/
   - dependencies/saw-core-what4/
+  - dependencies/what4/what4/
+  - dependencies/what4/what4-abc/
+  - dependencies/what4/what4-blt/
+
 extra-deps:
   - GraphSCC-1.0.4
   - data-inttrie-0.1.4
@@ -45,4 +45,7 @@ extra-deps:
   - config-schema-1.1.0.0
   - config-value-0.6.3.1
   - simple-get-opt-0.3
-resolver: lts-14.5
+  - base-orphans-0.8.2
+  - zenc-0.1.1
+  - hedgehog-1.0.2
+resolver: lts-14.27

@@ -14,10 +14,7 @@ Prove:
   in main at test-data/simulator-tests/float-cast.cbl:20:5
   eq ca@0:f (bvToFloat RNE (floatToBV RNE ca@0:f))
 COUNTEREXAMPLE
-Assuming:
-* bad unsigned round trip
-    in main at test-data/simulator-tests/float-cast.cbl:20:5
-    eq ca@0:f (bvToFloat RNE (floatToBV RNE ca@0:f))
+
 Prove:
   bad signed round trip
   in main at test-data/simulator-tests/float-cast.cbl:24:5

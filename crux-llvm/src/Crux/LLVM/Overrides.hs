@@ -55,7 +55,7 @@ import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel
   (Mem, LLVMPointerType, loadString, HasPtrWidth,
    doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
-   doArrayStore, doArrayConstStore)
+   doArrayStore, doArrayConstStore, HasLLVMAnn)
 
 import           Lang.Crucible.LLVM.TypeContext( TypeContext )
 import           Lang.Crucible.LLVM.Intrinsics
@@ -73,7 +73,7 @@ type TBits n        = BVType n
 
 
 cruxLLVMOverrides ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   [OverrideTemplate (Model sym) sym arch rtp l a]
 cruxLLVMOverrides =
   [ basic_llvm_override $
@@ -139,7 +139,7 @@ cruxLLVMOverrides =
 
 
 cbmcOverrides ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   [OverrideTemplate (Model sym) sym arch rtp l a]
 cbmcOverrides =
   [ basic_llvm_override $
@@ -226,7 +226,7 @@ cbmcOverrides =
 
 
 svCompOverrides ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   [OverrideTemplate (Model sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
@@ -320,7 +320,7 @@ mkFreshFloat nm fi = do
   return elt
 
 lookupString ::
-  (IsSymInterface sym, ArchOk arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, ArchOk arch) =>
   GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM sym (LLVM arch) String
 lookupString mvar ptr =
   do sym <- getSymInterface
@@ -347,7 +347,7 @@ sv_comp_fresh_float ::
 sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
-  (ArchOk arch, IsSymInterface sym, 1 <= w) =>
+  (ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w) =>
   NatRepr w ->
   GlobalVar Mem ->
   sym ->
@@ -358,7 +358,7 @@ fresh_bits w mvar _ (Empty :> pName) =
      mkFresh name (BaseBVRepr w)
 
 fresh_float ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   FloatInfoRepr fi ->
   GlobalVar Mem ->
   sym ->
@@ -369,7 +369,7 @@ fresh_float fi mvar _ (Empty :> pName) =
      mkFreshFloat name fi
 
 fresh_str ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> BVType (ArchWidth arch)) ->
@@ -405,7 +405,7 @@ fresh_str mvar sym (Empty :> pName :> maxLen) =
      return ptr
 
 do_assume ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
@@ -423,7 +423,7 @@ do_assume mvar sym (Empty :> p :> pFile :> line) =
      liftIO $ addAssumption sym (LabeledPred cond msg)
 
 do_assert ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
@@ -477,7 +477,7 @@ cprover_assume _mvar sym (Empty :> p) = liftIO $
      addAssumption sym (LabeledPred cond msg)
 
 cprover_assert ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
