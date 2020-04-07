@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 trait Foo {
     fn method(&self) -> i32;
     fn static_method() -> i32;

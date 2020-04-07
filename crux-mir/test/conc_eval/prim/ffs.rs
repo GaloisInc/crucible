@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 
 fn ffs_ref(word : u32) -> u32 {
     let mut i : u32 = 0;

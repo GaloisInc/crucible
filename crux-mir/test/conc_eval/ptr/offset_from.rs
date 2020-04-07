@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 #![feature(ptr_offset_from)]
 use std::ptr;
 

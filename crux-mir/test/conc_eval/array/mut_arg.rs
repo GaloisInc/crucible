@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 // parameter is mutable in Rust, so we must make a local variable on translation
 
 fn h(x: &mut[u8; 4]) -> [u8; 4] {

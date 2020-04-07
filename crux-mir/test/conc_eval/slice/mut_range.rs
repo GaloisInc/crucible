@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn g(xs: &mut [u8]) {
     xs[0] = xs[0] + 1;
     xs[1] = xs[1] + 1;

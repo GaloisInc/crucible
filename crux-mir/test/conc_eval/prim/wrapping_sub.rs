@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn f(_x : u16) -> bool {
     let y : u16 = 20;
     let z : i16 = 20;

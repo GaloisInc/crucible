@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 trait Foo2 {
     type Assoc;
     fn take_assoc(&self, a: Self::Assoc) -> i32;

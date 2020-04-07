@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 // Fail: Cannot assign to atom: "_1" of type [u8; 4]
 
 // parameter is mutable in Rust, so we should make a local variable on translation

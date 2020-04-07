@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::bitvector::Bv256;
 use crucible::crucible_assert;

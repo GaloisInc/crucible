@@ -11,7 +11,6 @@
 //! (0xfffffffffffff^2) * 5 = 0x4ffffffffffff60000000000005 (107 bits).
 //! ```
 #![no_std]
-#![feature(custom_attribute)]
 
 extern crate core;
 //use core::fmt::Debug;

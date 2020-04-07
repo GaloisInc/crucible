@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 static mut X: usize = 1;
 

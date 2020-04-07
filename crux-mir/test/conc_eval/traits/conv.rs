@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 pub trait A<T>: Sized {
     /// The type returned in the event of a conversion error.
     type Error;

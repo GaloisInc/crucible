@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 #[derive(Clone, PartialEq, Eq)]
 struct S;

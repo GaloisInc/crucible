@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 #[crux_test]
 pub fn f() {

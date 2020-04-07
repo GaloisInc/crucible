@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn f (y : u32) -> u32 {
     let mut x = y;
     for k in 0 .. 10 {

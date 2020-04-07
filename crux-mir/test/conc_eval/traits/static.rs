@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 // We match the type of S::g against T::g.  But g's type
 // does not include 'Self' so there is no information to be gained.
 

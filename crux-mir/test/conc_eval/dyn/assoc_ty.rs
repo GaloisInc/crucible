@@ -1,4 +1,3 @@
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 
 trait Tr {

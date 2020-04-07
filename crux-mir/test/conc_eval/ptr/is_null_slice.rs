@@ -1,5 +1,4 @@
 // FAIL: can't unsize null pointers
-#![feature(custom_attribute)]
 use std::ptr;
 
 #[crux_test]

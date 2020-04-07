@@ -1,5 +1,4 @@
 // FAIL: needs Vec data structure from stdlib
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 // https://github.com/rust-lang/rust/blob/master/src/liballoc/vec.rs
 #![cfg_attr(not(with_main), no_std)]
 

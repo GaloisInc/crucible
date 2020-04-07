@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 fn test_func(x: i32) -> i32 {
     x + 1

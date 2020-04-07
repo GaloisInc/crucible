@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 #![feature(never_type)]
 
 #[crux_test]

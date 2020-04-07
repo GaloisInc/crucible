@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn call_with_one<T,F:Fn(T)->T>(some_closure: &F, arg:T) -> T {
 
     some_closure(arg)

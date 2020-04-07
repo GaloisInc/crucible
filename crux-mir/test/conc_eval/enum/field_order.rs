@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![feature(custom_attribute)]
 
 pub enum E {
     A(u8, u16),

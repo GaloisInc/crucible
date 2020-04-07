@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 fn call_it<F: FnMut() -> i32>(mut f: F) -> i32 {
     f() + f()

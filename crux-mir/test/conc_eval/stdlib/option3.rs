@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 // This tests using polymorphic functions and parameterized data
 // relies on Option type from std library
 

@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 
 fn f(_x: u8) -> i32 {
     let mut xs : [i32; 3] = [0; 3];

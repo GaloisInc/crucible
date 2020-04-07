@@ -1,4 +1,3 @@
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 pub fn call_it<F: FnMut(i32) -> i32>(mut f: F) -> i32 {
     f(1)

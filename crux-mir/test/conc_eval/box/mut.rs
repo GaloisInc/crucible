@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![feature(custom_attribute)]
 
 #[cfg(not(with_main))] extern crate std;
 #[cfg(not(with_main))] use std::boxed::Box;

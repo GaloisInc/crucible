@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn call_with_one<F:Fn(i32)->i32>(some_closure: &F) -> i32 {
 
     some_closure(1)

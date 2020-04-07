@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 #[derive(Debug)]
 struct MyStruct {

@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn h<T>(x :T) -> T { x }
 
 fn f (x : u32) -> u32 {

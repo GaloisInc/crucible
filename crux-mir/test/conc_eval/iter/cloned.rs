@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 #[crux_test]
 fn crux_test() -> usize {

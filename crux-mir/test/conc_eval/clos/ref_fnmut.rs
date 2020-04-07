@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 pub fn call_it<F: FnMut(i32) -> i32>(f: F) -> i32 {
     let mut f = f;

@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 // a static trait invocation for a polymorphic member 
 // calling the g method in h requires a dictionary argument 
 

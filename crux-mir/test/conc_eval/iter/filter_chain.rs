@@ -1,4 +1,3 @@
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 
 fn f(x: u8) -> u8 {
     let opt = Some((x, x));

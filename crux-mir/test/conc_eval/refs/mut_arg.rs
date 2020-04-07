@@ -1,4 +1,3 @@
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 pub fn f(mut x: i32) -> i32 {
     let rf: &mut i32 = &mut x;

@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 // FIXME: currently passes, but should fail
 
 #[crux_test]

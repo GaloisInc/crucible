@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 use std::collections::VecDeque;
 
 #[crux_test]

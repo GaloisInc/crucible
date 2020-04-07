@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 use std::borrow::Cow;
 
 #[crux_test]

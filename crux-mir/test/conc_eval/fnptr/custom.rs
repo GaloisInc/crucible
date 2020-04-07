@@ -1,5 +1,4 @@
 // FAIL: taking address of an overridden function
-#![feature(custom_attribute)]
 use core::mem;
 
 #[crux_test]

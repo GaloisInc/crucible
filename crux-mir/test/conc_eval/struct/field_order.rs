@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![feature(custom_attribute)]
 
 pub struct S {
     x: u8,

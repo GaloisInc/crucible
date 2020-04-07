@@ -1,5 +1,4 @@
 // FAIL: clone_from shims are not yet implemented
-#![feature(custom_attribute)]
 
 #[crux_test]
 pub fn f() {

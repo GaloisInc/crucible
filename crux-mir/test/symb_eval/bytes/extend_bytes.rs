@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(custom_attribute)]
 
 extern crate bytes;
 use bytes::{Bytes, BytesMut, Buf, BufMut};

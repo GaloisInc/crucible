@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(custom_attribute)]
 #[macro_use] extern crate crucible;
 use crucible::vector::Vector;
 

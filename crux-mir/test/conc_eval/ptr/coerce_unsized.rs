@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 #![feature(unsize)]
 #![feature(coerce_unsized)]
 use std::marker::Unsize;
