@@ -766,14 +766,7 @@ mkTraitObject traitName vtableName e = do
 evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
 evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
-evalRval (M.Ref bk lv _) =
-  case bk of
-    -- TODO: This discards path information: addrOfPlaceRef reads the value,
-    -- then makes a new ref with Empty_RefPath.  This will break offsetting in
-    -- the case of `let ptr = &xs[0] as *const _; ptr.offset(1)`.
-    M.Shared  -> evalPlace lv >>= addrOfPlace
-    M.Mutable -> evalPlace lv >>= addrOfPlace
-    M.Unique  -> evalPlace lv >>= addrOfPlace
+evalRval (M.Ref _bk lv _) = evalPlace lv >>= addrOfPlace
 evalRval (M.Len lv) =
     case M.typeOf lv of
         M.TyArray _ len ->
