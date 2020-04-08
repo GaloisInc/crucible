@@ -76,7 +76,7 @@ macro_rules! crucible_debug_integer {
 
 
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     // Int512 -> Scalar64 -> Int512 conversion is the identity function.
     {

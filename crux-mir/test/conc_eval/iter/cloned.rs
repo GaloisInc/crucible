@@ -1,5 +1,5 @@
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> usize {
     let xs = [1, 2, 3];
 

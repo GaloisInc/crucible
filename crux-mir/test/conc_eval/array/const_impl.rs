@@ -9,4 +9,4 @@ pub fn f(x: i32) -> usize {
 pub static ARG: i32 = 1;
 
 #[cfg(with_main)] pub fn main() { println!("{:?}", f(ARG)); }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> usize { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> usize { f(ARG) }

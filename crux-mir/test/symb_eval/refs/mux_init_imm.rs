@@ -1,7 +1,7 @@
 extern crate crucible;
 use crucible::*;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     let mut result = 0;
     let one = 1;

@@ -1,6 +1,6 @@
 use std::ptr;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() {
     let x = 1;
     let y = 2;

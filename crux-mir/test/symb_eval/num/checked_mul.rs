@@ -1,6 +1,6 @@
 // FIXME: currently passes, but should fail
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> u8 {
     let x = 3;
     100 * x

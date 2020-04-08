@@ -8,7 +8,7 @@ fn test_one(i: u64) {
     crucible_assert!(i == j);
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() {
     test_one(0);
     test_one(1);

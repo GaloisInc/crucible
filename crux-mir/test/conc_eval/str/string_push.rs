@@ -1,5 +1,5 @@
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> bool {
     let mut s = String::new();
     s.push('a');

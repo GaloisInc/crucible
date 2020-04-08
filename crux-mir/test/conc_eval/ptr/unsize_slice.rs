@@ -1,6 +1,6 @@
 use std::ptr;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> (i32, i32) {
     let a = [1, 2];
     let slice_ptr = &a as *const [i32];

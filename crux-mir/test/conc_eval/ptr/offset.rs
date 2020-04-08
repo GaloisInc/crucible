@@ -1,6 +1,6 @@
 use std::ptr;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     let arr = [1, 2, 3];
     unsafe {

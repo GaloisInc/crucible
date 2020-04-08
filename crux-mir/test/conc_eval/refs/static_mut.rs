@@ -1,7 +1,7 @@
 
 static mut X: usize = 1;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> usize {
     let mut x = unsafe { &mut X };
     *x += 1;

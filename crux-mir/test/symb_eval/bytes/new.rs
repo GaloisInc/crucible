@@ -3,7 +3,7 @@
 extern crate bytes;
 use bytes::{Bytes, BytesMut, Buf, BufMut};
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let mut b = BytesMut::new();
     assert!(b.len() == 0);

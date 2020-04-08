@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() {
     assert_eq!(1_u8.saturating_add(2), 3);
     assert_eq!(254_u8.saturating_add(2), 255);

@@ -14,7 +14,7 @@ fn double_imp(x : u32) -> u32 {
 }
 
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f () {
     let a0 = crucible_u32("a0");
     crucible_assert!(double_ref(a0) == double_imp(a0));

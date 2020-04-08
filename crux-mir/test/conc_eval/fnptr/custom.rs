@@ -1,7 +1,7 @@
 // FAIL: taking address of an overridden function
 use core::mem;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     let mut x = 1;
     let mut y = 2;

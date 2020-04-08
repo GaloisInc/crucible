@@ -10,4 +10,4 @@ const FN_PTR: fn() -> i32 = f;
 pub fn main() {
     println!("{:?}", FN_PTR());
 }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i32 { FN_PTR() }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> i32 { FN_PTR() }

@@ -1,6 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let arr = [1, 2, 3];
     let xs = &arr as &[_];

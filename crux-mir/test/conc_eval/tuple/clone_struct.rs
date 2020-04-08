@@ -2,7 +2,7 @@
 #[derive(Clone, PartialEq, Eq)]
 struct S;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let x = (S, S);
     let y = x.clone();

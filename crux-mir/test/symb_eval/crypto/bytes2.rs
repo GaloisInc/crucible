@@ -69,7 +69,7 @@ pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     s
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let mut s = [0u8; 32];
 

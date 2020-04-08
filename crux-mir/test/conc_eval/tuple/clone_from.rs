@@ -1,6 +1,6 @@
 // FAIL: clone_from shims are not yet implemented
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let x = (1, 2);
     let mut y = (0, 0);

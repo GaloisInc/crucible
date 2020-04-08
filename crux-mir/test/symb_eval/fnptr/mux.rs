@@ -9,7 +9,7 @@ fn g(x: i32) -> i32 {
     x - 1
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     let b = bool::symbolic("cond");
     let p1: fn(i32) -> i32 = if b { f } else { g };

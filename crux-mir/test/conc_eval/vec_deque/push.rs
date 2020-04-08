@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> [i32; 5] {
     let mut v = VecDeque::new();
     v.push_back(1);

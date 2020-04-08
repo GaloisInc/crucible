@@ -4,7 +4,7 @@ extern crate std;
 use std::io::{Read, Write, Cursor};
 use std::vec::Vec;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let mut buf = Vec::new();
     buf.write(&[1, 2, 3]);
