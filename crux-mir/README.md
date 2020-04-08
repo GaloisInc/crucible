@@ -40,17 +40,10 @@ root to use the `#[crux_test]` attribute.  These can both be conditionally
 compiled by checking for `#[cfg(crux)]`.
 
 Test cases can create and manipulate symbolic values using the functions in the
-[`crucible`](lib/crucible) Rust crate.  Please see the files in
-`test/symb_eval/` for examples of creating symbolic values and asserting
-properties about them.
-
-### Running on a single file
-
-To compile and test a single Rust program:
-
-    $ cabal v2-exec -- crux-mir test/conc_eval/prim/add1.rs
-
-(Should print 2.)
+[`crucible`](lib/crucible) Rust crate.  See
+[`example/ffs/lib.rs`](example/ffs/lib.rs) or the files in
+[`test/symb_eval/`](test/symb_eval) for examples of creating symbolic values
+and asserting properties about them.
 
 ### Running on a Cargo project
 
@@ -69,6 +62,14 @@ In the directory of a Cargo project, run the project's symbolic tests:
 
 `cargo-crux-test` (part of `mir-json`) will translate the code to MIR, then
 invoke `crux-mir` to symbolically simulate the test cases.
+
+### Running on a single file
+
+To compile and test a single Rust program:
+
+    $ cabal v2-exec -- crux-mir test/conc_eval/prim/add1.rs
+
+(Should print 2.)
 
 
 ## Test suite
