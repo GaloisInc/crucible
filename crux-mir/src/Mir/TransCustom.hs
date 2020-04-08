@@ -93,9 +93,9 @@ customOpDefs = Map.fromList $ [
                          , mem_swap
                          , add_with_overflow
                          , sub_with_overflow
-                         , overflowing_add
-                         , overflowing_sub
-                         , overflowing_mul
+                         , wrapping_add
+                         , wrapping_sub
+                         , wrapping_mul
                          , saturating_add
                          , saturating_sub
                          , ctlz
@@ -689,22 +689,22 @@ makeOverflowingArith name arith =
             return $ MirExp (C.BVRepr w1) $ R.App $ aoPerform (paoInt arith w1) e1 e2
         _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
 
-overflowing_add ::  (ExplodedDefId, CustomRHS)
-overflowing_add =
-    ( ["core","intrinsics", "", "overflowing_add"]
-    , makeOverflowingArith "overflowing_add" arithAdd
+wrapping_add ::  (ExplodedDefId, CustomRHS)
+wrapping_add =
+    ( ["core","intrinsics", "", "wrapping_add"]
+    , makeOverflowingArith "wrapping_add" arithAdd
     )
 
-overflowing_sub ::  (ExplodedDefId, CustomRHS)
-overflowing_sub =
-    ( ["core","intrinsics", "", "overflowing_sub"]
-    , makeOverflowingArith "overflowing_sub" arithSub
+wrapping_sub ::  (ExplodedDefId, CustomRHS)
+wrapping_sub =
+    ( ["core","intrinsics", "", "wrapping_sub"]
+    , makeOverflowingArith "wrapping_sub" arithSub
     )
 
 -- TODO: this should return (a * b) mod 2N
 -- however it does whatever Crucible does for BVMul
-overflowing_mul :: (ExplodedDefId, CustomRHS)
-overflowing_mul = ( ["core","intrinsics","", "overflowing_mul"],
+wrapping_mul :: (ExplodedDefId, CustomRHS)
+wrapping_mul = ( ["core","intrinsics","", "wrapping_mul"],
    \ _substs -> Just $ CustomOp $ \ _opTys  ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
