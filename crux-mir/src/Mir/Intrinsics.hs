@@ -1061,11 +1061,48 @@ mirRef_arrayAsMirVectorIO sym _ (MirReference_Integer _ _) =
     addFailedAssertion sym $ GenericSimError $
         "attempted Array->MirVector conversion on the result of an integer-to-pointer cast"
 
+refRootEq :: IsSymInterface sym => sym ->
+    MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
+    IO (RegValue sym BoolType)
+refRootEq sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
+  | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
+refRootEq sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
+  | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
+refRootEq sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+    addFailedAssertion sym $ Unsupported $ "Cannot compare Const_RefRoots"
+refRootEq sym _ _ = return $ falsePred sym
+
+refPathEq :: IsSymInterface sym => sym ->
+    MirReferencePath sym tp_base1 tp1 -> MirReferencePath sym tp_base2 tp2 ->
+    IO (RegValue sym BoolType)
+refPathEq sym Empty_RefPath Empty_RefPath = return $ truePred sym
+refPathEq sym (Any_RefPath tpr1 p1) (Any_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2)
+  | Just Refl <- testEquality ctx1 ctx2
+  , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
+refPathEq sym (Variant_RefPath ctx1 p1 idx1) (Variant_RefPath ctx2 p2 idx2)
+  | Just Refl <- testEquality ctx1 ctx2
+  , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
+refPathEq sym (Index_RefPath tpr1 p1 idx1) (Index_RefPath tpr2 p2 idx2)
+  | Just Refl <- testEquality tpr1 tpr2 = do
+    pEq <- refPathEq sym p1 p2
+    idxEq <- bvEq sym idx1 idx2
+    andPred sym pEq idxEq
+refPathEq sym (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym _ _ = return $ falsePred sym
+
 mirRef_eqIO :: IsSymInterface sym => sym ->
     MirReference sym tp -> MirReference sym tp -> IO (RegValue sym BoolType)
-mirRef_eqIO sym (MirReference _ _) (MirReference _ _) =
-    -- TODO: implement an equality check for valid references
-    return $ falsePred sym
+mirRef_eqIO sym (MirReference root1 path1) (MirReference root2 path2) = do
+    rootEq <- refRootEq sym root1 root2
+    pathEq <- refPathEq sym path1 path2
+    andPred sym rootEq pathEq
 mirRef_eqIO sym (MirReference_Integer _ i1) (MirReference_Integer _ i2) =
     isEq sym i1 i2
 mirRef_eqIO sym _ _ =
