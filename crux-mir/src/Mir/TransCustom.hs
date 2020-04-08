@@ -102,6 +102,7 @@ customOpDefs = Map.fromList $ [
                          , ctlz_nonzero
                          , size_of
                          , min_align_of
+                         , intrinsics_assume
 
                          , mem_crucible_identity_transmute
                          , slice_to_array
@@ -912,6 +913,15 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
         _ -> mirFail $ "bad arguments to mem_crucible_identity_transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing
+    )
+
+intrinsics_assume :: (ExplodedDefId, CustomRHS)
+intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
+    Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp C.BoolRepr cond] -> do
+            G.assertExpr cond $
+                S.litExpr "undefined behavior: core::intrinsics::assume(false)"
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
     )
 
 slice_to_array ::  (ExplodedDefId, CustomRHS)
