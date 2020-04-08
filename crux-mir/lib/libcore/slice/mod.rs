@@ -71,7 +71,11 @@ impl<T> [T] {
     #[allow(unused_attributes)]
     #[allow_internal_unstable(const_fn_union)]
     pub const fn len(&self) -> usize {
-        unsafe { crate::ptr::Repr { rust: self }.raw.len }
+        #[allow_internal_unstable(const_fn_union)]
+        const fn crucible_slice_len_hook<T>(slice: &[T]) -> usize {
+            unsafe { crate::ptr::Repr { rust: slice }.raw.len }
+        }
+        crucible_slice_len_hook(self)
     }
 
     /// Returns `true` if the slice has a length of 0.
