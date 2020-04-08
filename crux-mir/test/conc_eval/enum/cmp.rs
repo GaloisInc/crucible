@@ -1,8 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 // Make sure that we can include negative numbers in C-style enums
 
-#![no_implicit_prelude]
-
 pub enum Ordering {
     /// An ordering where a compared value is equal [to another].
     Equal = 0,
