@@ -132,9 +132,13 @@ customOpDefs = Map.fromList $ [
                          , any_downcast
 
                          , ptr_offset
+                         , ptr_offset_mut
                          , ptr_wrapping_offset
+                         , ptr_wrapping_offset_mut
                          , ptr_offset_from
+                         , ptr_offset_from_mut
                          , ptr_is_null
+                         , ptr_is_null_mut
                          , is_aligned_and_not_null
                          , ptr_slice_from_raw_parts
                          , ptr_slice_from_raw_parts_mut
@@ -440,26 +444,33 @@ any_downcast = ( ["core", "crucible", "any", "{{impl}}", "downcast"], \substs ->
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: ptr
 
--- NB: This matches both the *const and *mut variants, which vary only in the
--- index of the `impl`.  Both have identical signatures at the crucible level,
--- so we need only a single implementation to cover both.
-ptr_offset :: (ExplodedDefId, CustomRHS)
-ptr_offset = (["core", "ptr", "{{impl}}", "offset"], \substs -> case substs of
+ptr_offset_impl :: CustomRHS
+ptr_offset_impl = \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirReferenceRepr tpr) ref, MirExp IsizeRepr offset] ->
             MirExp (MirReferenceRepr tpr) <$> mirRef_offset tpr ref offset
         _ -> mirFail $ "bad arguments for ptr::offset: " ++ show ops
     _ -> Nothing
-    )
 
-ptr_wrapping_offset :: (ExplodedDefId, CustomRHS)
-ptr_wrapping_offset = (["core", "ptr", "{{impl}}", "wrapping_offset"], \substs -> case substs of
+ptr_offset :: (ExplodedDefId, CustomRHS)
+ptr_offset = (["core", "ptr", "const_ptr", "{{impl}}", "offset"], ptr_offset_impl)
+ptr_offset_mut :: (ExplodedDefId, CustomRHS)
+ptr_offset_mut = (["core", "ptr", "mut_ptr", "{{impl}}", "offset"], ptr_offset_impl)
+
+ptr_wrapping_offset_impl :: CustomRHS
+ptr_wrapping_offset_impl = \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp (MirReferenceRepr tpr) ref, MirExp IsizeRepr offset] ->
             MirExp (MirReferenceRepr tpr) <$> mirRef_offsetWrap tpr ref offset
         _ -> mirFail $ "bad arguments for ptr::wrapping_offset: " ++ show ops
     _ -> Nothing
-    )
+
+ptr_wrapping_offset :: (ExplodedDefId, CustomRHS)
+ptr_wrapping_offset =
+    (["core", "ptr", "const_ptr", "{{impl}}", "wrapping_offset"], ptr_wrapping_offset_impl)
+ptr_wrapping_offset_mut :: (ExplodedDefId, CustomRHS)
+ptr_wrapping_offset_mut =
+    (["core", "ptr", "mut_ptr", "{{impl}}", "wrapping_offset"], ptr_wrapping_offset_impl)
 
 ptr_offset_from_impl :: CustomRHS
 ptr_offset_from_impl = \substs -> case substs of
@@ -475,7 +486,9 @@ ptr_offset_from_impl = \substs -> case substs of
     _ -> Nothing
 
 ptr_offset_from :: (ExplodedDefId, CustomRHS)
-ptr_offset_from = (["core", "ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
+ptr_offset_from = (["core", "ptr", "const_ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
+ptr_offset_from_mut :: (ExplodedDefId, CustomRHS)
+ptr_offset_from_mut = (["core", "ptr", "mut_ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
 
 -- is_null isn't just `self == ptr::null()`, since it has to work on fat
 -- pointers too.  The libcore implementation works by casting to `*const u8` (a
@@ -495,7 +508,9 @@ ptr_is_null_impl = \substs -> case substs of
     _ -> Nothing
 
 ptr_is_null :: (ExplodedDefId, CustomRHS)
-ptr_is_null = (["core", "ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
+ptr_is_null = (["core", "ptr", "const_ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
+ptr_is_null_mut :: (ExplodedDefId, CustomRHS)
+ptr_is_null_mut = (["core", "ptr", "mut_ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
 
 is_aligned_and_not_null :: (ExplodedDefId, CustomRHS)
 -- Not an actual intrinsic, so it's not in an `extern` block, so it doesn't
