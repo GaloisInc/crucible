@@ -109,6 +109,7 @@ data Ty =
 
       | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
       | TyConst         -- Placeholder for representing constants in `Substs`
+      | TyForeign       -- External types, of unknown size and alignment
 
       -- | The erased concrete type of a trait object.  This is never emitted
       -- by mir-json.  It's used in vtable shims, to replace the type of the
@@ -176,6 +177,7 @@ data InstanceKind =
       IkItem
     | IkIntrinsic
     | IkVtableShim
+    | IkReifyShim
     | IkFnPtrShim Ty
     | IkVirtual !TraitName !Integer
     | IkClosureOnceShim
@@ -338,7 +340,7 @@ data PlaceElem =
       | PField Int Ty
       | Index Var
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
-      | Subslice { _sfrom :: Int, _sto :: Int }
+      | Subslice { _sfrom :: Int, _sto :: Int, _sfrom_end :: Bool }
       | Downcast Integer
       deriving (Show, Eq, Ord, Generic)
 
@@ -357,6 +359,7 @@ data Rvalue =
         -- ^ just read an lvalue
       | Repeat { _rop :: Operand, _rlen :: ConstUsize }
       | Ref { _rbk :: BorrowKind, _rvar :: Lvalue, _rregion :: Text }
+      | AddressOf { _aomutbl :: Mutability, _aoplace :: Lvalue }
       | Len { _lenvar :: Lvalue }
         -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
@@ -749,6 +752,7 @@ instance TypeOf Rvalue where
   typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
   typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
   typeOf (Ref Unique lv _)  = TyRef (typeOf lv) Mut
+  typeOf (AddressOf mutbl lv) = TyRawPtr (typeOf lv) mutbl
   typeOf (Len _) = TyUint USize
   typeOf (Cast _ _ ty) = ty
   typeOf (BinaryOp op x _y) =

@@ -821,6 +821,7 @@ evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
 evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref _bk lv _) = evalPlace lv >>= addrOfPlace
+evalRval (M.AddressOf _mutbl lv) = evalPlace lv >>= addrOfPlace
 evalRval (M.Len lv) =
     case M.typeOf lv of
         M.TyArray _ len ->

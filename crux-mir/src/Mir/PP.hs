@@ -87,6 +87,7 @@ instance Pretty Ty where
     pretty TyNever = text "never"
     pretty TyLifetime = text "lifetime"
     pretty TyConst = text "const"
+    pretty TyForeign = text "foreign"
     pretty TyErased = text "erased"
     pretty (TyInterned s) = text $ unpack s
 
@@ -190,8 +191,10 @@ instance Pretty Lvalue where
     pretty (LProj lv (Index op))    = pretty lv <> brackets (pretty op)
     pretty (LProj lv (ConstantIndex co _cl ce)) =
       pretty lv <> brackets (if ce then empty else text "-" <> pretty co)
-    pretty (LProj lv (Subslice f t)) =
+    pretty (LProj lv (Subslice f t False)) =
       pretty lv <> brackets (pretty f <> dot <> dot <> pretty t)
+    pretty (LProj lv (Subslice f t True)) =
+      pretty lv <> brackets (text "-" <> pretty f <> dot <> dot <> text "-" <> pretty t)
     pretty (LProj lv (Downcast i)) =
       parens (pretty lv <+> text "as" <+> pretty i)
 
@@ -201,6 +204,8 @@ instance Pretty Rvalue where
     pretty (Ref Shared b _c) = text "&" <> pretty b
     pretty (Ref Unique b _c) = text "&unique" <+> pretty b
     pretty (Ref Mutable b _c) = text "&mut" <+> pretty b
+    pretty (AddressOf Immut b) = text "&raw" <+> pretty b
+    pretty (AddressOf Mut b) = text "&raw mut" <+> pretty b
     pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c
     pretty (BinaryOp a b c) = pretty b <+> pretty a <+> pretty c

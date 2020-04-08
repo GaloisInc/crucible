@@ -219,6 +219,7 @@ tyToRepr t0 = case t0 of
   M.TyFnDef _def _substs -> Some C.UnitRepr
   M.TyNever -> Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr
+  M.TyForeign -> Some C.AnyRepr
   M.TyErased -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 
