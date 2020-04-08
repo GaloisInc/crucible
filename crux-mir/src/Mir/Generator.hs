@@ -302,6 +302,9 @@ instance Monoid CollectionState where
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
+instance Show (MirPlace s) where
+    show (MirPlace tr e m) = show e ++ ", " ++ show m ++ ": & " ++ show tr
+
 instance Show MirHandle where
     show (MirHandle _nm sig c) =
       show c ++ ":" ++ show sig

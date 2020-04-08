@@ -416,6 +416,16 @@ data MirReference sym (tp :: CrucibleType) where
     !(RegValue sym UsizeType) ->
     MirReference sym tp
 
+instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
+    show Empty_RefPath = "Empty_RefPath"
+    show (Any_RefPath tpr p) = "(Any_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
+    show (Field_RefPath ctx p idx) = "(Field_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
+    show (Variant_RefPath ctx p idx) = "(Variant_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
+    show (Index_RefPath tpr p idx) = "(Index_RefPath " ++ show tpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
+    show (Just_RefPath tpr p) = "(Just_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
+    show (VectorAsMirVector_RefPath tpr p) = "(VectorAsMirVector_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
+    show (ArrayAsMirVector_RefPath btpr p) = "(ArrayAsMirVector_RefPath " ++ show btpr ++ " " ++ show p ++ ")"
+
 refRootType :: MirReferenceRoot sym tp -> TypeRepr tp
 refRootType (RefCell_RefRoot r) = refType r
 refRootType (GlobalVar_RefRoot r) = globalType r
