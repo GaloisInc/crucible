@@ -181,15 +181,14 @@ tyToRepr t0 = case t0 of
   M.TyRef (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-  M.TyRawPtr (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
-    Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
-
   -- TODO: DSTs not behind a reference - these should never appear in real code
   M.TySlice t -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
   M.TyStr -> Some (MirSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
 
   M.TyRef t _       -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
-  M.TyRawPtr t _    -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  -- Raw pointers are represented like references, including the fat pointer
+  -- cases that are special-cased above.
+  M.TyRawPtr t mutbl -> tyToRepr (M.TyRef t mutbl)
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
