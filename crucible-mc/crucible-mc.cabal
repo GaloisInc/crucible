@@ -1,33 +1,71 @@
-cabal-version:       2.2
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 68e09dda606b0e73b8e270e1e75a0a1c94fe68465d0399c6675443a63e0c5ddf
+
 name:                crucible-mc
 version:             0.1.0.0
--- synopsis:
--- description:
--- bug-reports:
 license:             ISC
 license-file:        LICENSE
-author:              Iavor Diatchki
-maintainer:          iavor.diatchki@gmail.com
--- copyright:
--- category:
-extra-source-files:  CHANGELOG.md
+build-type:          Simple
+author:              Iavor Diatchki <iavor.diatchki@gmail.com>,
+                     Valentin Robert <valentin.robert.42@gmail.com>
+maintainer:          Iavor Diatchki <iavor.diatchki@gmail.com>,
+                     Valentin Robert <valentin.robert.42@gmail.com>
 
-executable crucible-mc
-  main-is:             Main.hs
-  other-modules: Print
+library
+  exposed-modules:
+    Lang.Crucible.ModelChecker.Fresh
+  other-modules:
+    Paths_crucible_mc
+  hs-source-dirs:
+    lib
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   build-depends:
-    base >= 4.11.0 && < 5.0 ,
+    ansi-wl-pprint,
+    base >=4.12.0.0 && <4.13,
     containers,
-    lens,
-    parameterized-utils,
     crucible,
-    llvm-pretty,
-    llvm-pretty-bc-parser,
     crucible-llvm,
     crux,
     crux-llvm,
-    what4,
-    pretty
-  hs-source-dirs:      exe
-  default-language:    Haskell2010
+    language-sally,
+    lens,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    mtl,
+    parameterized-utils,
+    pretty,
+    what4
+  default-language: Haskell2010
+
+executable crucible-mc
+  main-is: Main.hs
+  other-modules:
+    Print
+    Paths_crucible_mc
+  hs-source-dirs:
+    exe
+  default-language: Haskell2010
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  build-depends:
+    ansi-wl-pprint,
+    base >=4.12.0.0 && <4.13,
+    containers,
+    crucible,
+    crucible-llvm,
+    crucible-mc,
+    crux,
+    crux-llvm,
+    language-sally,
+    lens,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    mtl,
+    parameterized-utils,
+    pretty,
+    what4
+

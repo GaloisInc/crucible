@@ -1,0 +1,44 @@
+author:
+  - Iavor Diatchki <iavor.diatchki@gmail.com>
+  - Valentin Robert <valentin.robert.42@gmail.com>
+
+dependencies:
+  - ansi-wl-pprint
+  - base ^>= 4.12.0.0
+  - containers
+  - crucible
+  - crucible-llvm
+  - crux
+  - crux-llvm
+  - language-sally
+  - lens
+  - llvm-pretty
+  - llvm-pretty-bc-parser
+  - mtl
+  - parameterized-utils
+  - pretty
+  - what4
+
+executables:
+  crucible-mc:
+    main: Main.hs
+    source-dirs: exe
+    dependencies:
+      - crucible-mc
+
+ghc-options:
+  - -Wall
+  - -Werror=incomplete-patterns
+  - -Werror=missing-methods
+  - -Werror=overlapping-patterns
+
+library:
+  exposed-modules:
+    - Lang.Crucible.ModelChecker.Fresh
+  source-dirs: lib
+
+license: ISC
+
+name: crucible-mc
+
+version: 0.1.0.0
