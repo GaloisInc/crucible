@@ -162,16 +162,16 @@ u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
 -- Expressions: variables and constants
 --
 
-transConstVal :: HasCallStack => Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
-transConstVal (Some (C.BVRepr w)) (M.ConstInt i) =
+transConstVal :: HasCallStack => M.Ty -> Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
+transConstVal _ty (Some (C.BVRepr w)) (M.ConstInt i) =
     return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w (fromInteger (M.fromIntegerLit i)))
-transConstVal (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
-transConstVal (Some (UsizeRepr)) (M.ConstInt i) =
+transConstVal _ty (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
+transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
     do let n = fromInteger (M.fromIntegerLit i)
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
-transConstVal (Some (IsizeRepr)) (ConstInt i) =
+transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
+transConstVal _ty (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
   | Just Refl <- testEquality w (knownNat @8) = do
     let u8Repr = C.BVRepr $ knownNat @8
     let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
@@ -184,31 +184,52 @@ transConstVal (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
             knownRepr
             (Ctx.Empty Ctx.:> ref Ctx.:> len)
     return $ MirExp (MirSliceRepr u8Repr) struct
-transConstVal (Some (MirVectorRepr w)) (M.ConstArray arr)
+transConstVal _ty (Some (MirVectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
       = do let bytes = V.fromList (map u8ToBV8 arr)
            MirExp (MirVectorRepr w) <$> mirVector_fromVector w (R.App $ E.VectorLit w bytes)
-transConstVal (Some (C.BVRepr w)) (M.ConstChar c) =
+transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w i)
-transConstVal (Some C.UnitRepr) (M.ConstFunction _did _substs) =
+transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did _substs) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 
-transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
+transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
       (d , _):_ -> let rat = toRational (d :: Double) in
                    return (MirExp C.RealValRepr (S.app $ E.RationalLit rat))
       []        -> mirFail $ "cannot parse float constant: " ++ show str
 
-transConstVal (Some _ty) (ConstInitializer funid ss) =
+transConstVal _ty _ (ConstInitializer funid ss) =
     callExp funid ss [] 
-transConstVal (Some (MirReferenceRepr tpr)) init = do
-    MirExp tpr' val <- transConstVal (Some tpr) init
+transConstVal _ty _ (ConstStaticRef did) =
+    staticPlace did >>= addrOfPlace
+transConstVal ty _ ConstZST = initialValue ty >>= \case
+    Just x -> return x
+    Nothing -> mirFail $
+        "failed to evaluate ZST constant of type " ++ show ty ++ " (initialValue failed)"
+transConstVal _ty (Some (MirReferenceRepr tpr)) (ConstRawPtr i) =
+    MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr (R.App $ usizeLit i)
+transConstVal (M.TyAdt aname _ substs) _ (ConstStruct fields) = do
+    adt <- findAdt aname
+    let fieldDefs = adt ^. adtvariants . ix 0 . vfields
+    let fieldTys = map (\f -> f ^. fty) fieldDefs
+    exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr ty) val) fields fieldTys
+    buildStruct adt substs exps
+transConstVal (M.TyAdt aname _ substs) _ (ConstEnum variant fields) = do
+    adt <- findAdt aname
+    let fieldDefs = adt ^. adtvariants . ix variant . vfields
+    let fieldTys = map (\f -> f ^. fty) fieldDefs
+    exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr ty) val) fields fieldTys
+    buildEnum adt substs variant exps
+transConstVal ty (Some (MirReferenceRepr tpr)) init = do
+    MirExp tpr' val <- transConstVal (M.typeOfProj M.Deref ty) (Some tpr) init
     Refl <- testEqualityOrFail tpr tpr' $
         "transConstVal returned wrong type: expected " ++ show tpr ++ ", got " ++ show tpr'
     ref <- constMirRef tpr val
     return $ MirExp (MirReferenceRepr tpr) ref
-transConstVal tp cv = mirFail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
+transConstVal ty tp cv = mirFail $
+    "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
 
 
 typedVarInfo :: HasCallStack => Text -> Maybe Text -> C.TypeRepr tp -> MirGenerator h s ret (VarInfo s tp)
@@ -281,7 +302,7 @@ evalOperand (M.Copy lv) = evalPlace lv >>= readPlace
 evalOperand (M.Move lv) = evalPlace lv >>= readPlace
 evalOperand (M.OpConstant (M.Constant conty conlit)) =
     case conlit of
-       M.Value constval   -> transConstVal (tyToRepr conty) constval
+       M.Value constval   -> transConstVal conty (tyToRepr conty) constval
        M.Item defId _args -> mirFail $ "cannot translate item " ++ show defId
        M.LitPromoted (M.Promoted idx) ->  do
           fn <- use currentFn
@@ -1476,6 +1497,7 @@ initialValue (M.TyAdt nm _ _) = do
                 Just <$> buildEnum' adt mempty 0 fldExps
         Union -> return Nothing
 initialValue (M.TyFnPtr _) = return $ Nothing
+initialValue (M.TyFnDef _ _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
 initialValue (M.TyDynamic _ _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue M.TyNever = return $ Just $ MirExp knownRepr $

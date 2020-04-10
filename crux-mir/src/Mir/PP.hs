@@ -329,8 +329,12 @@ instance Pretty ConstVal where
     pretty (ConstArray cs)     = list (map pretty cs)
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> int i)
     pretty (ConstFunction a b) = pr_id a <> pretty b
-    pretty ConstStruct = text "ConstStruct"
     pretty (ConstInitializer a b) = pr_id a <> pretty b
+    pretty (ConstStaticRef a) = text "&" <> pr_id a
+    pretty ConstZST = text "<ZST>"
+    pretty (ConstRawPtr a) = pretty a
+    pretty (ConstStruct fs) = text "struct" <> list (map pretty fs)
+    pretty (ConstEnum v fs) = text "enum" <> list ((text "variant" <+> pretty v) : map pretty fs)
 
 instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)

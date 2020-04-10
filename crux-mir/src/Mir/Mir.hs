@@ -514,11 +514,16 @@ data ConstVal =
   | ConstChar Char
   | ConstVariant DefId
   | ConstFunction DefId Substs
-  | ConstStruct
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
   | ConstInitializer DefId Substs
+  -- | A reference to a static, of type `&T`.
+  | ConstStaticRef DefId
+  | ConstZST
+  | ConstRawPtr Integer
+  | ConstStruct [ConstVal]
+  | ConstEnum Int [ConstVal]
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =

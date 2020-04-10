@@ -513,7 +513,20 @@ instance FromJSON RustcRenderedConst where
             bytes <- mapM (withScientific "byte" f) val
             return $ ConstArray $ V.toList bytes
 
+        Just (String "struct") -> do
+            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
+            return $ ConstStruct fields
+        Just (String "enum") -> do
+            variant <- v .: "variant"
+            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
+            return $ ConstEnum variant fields
+
         Just (String "fndef") -> ConstFunction <$> v .: "def_id" <*> v .: "substs"
+        Just (String "static_ref") -> ConstStaticRef <$> v .: "def_id"
+        Just (String "zst") -> pure ConstZST
+        Just (String "raw_ptr") -> do
+            val <- convertIntegerText =<< v .: "val"
+            return $ ConstRawPtr val
 
 -- mir-json integers are expressed as strings of 128-bit unsigned values
 -- for example, -1 is displayed as "18446744073709551615"
