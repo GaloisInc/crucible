@@ -19,6 +19,7 @@ translate_2015() {
 
 
 translate lib/libcore/lib.rs --crate-name core \
+    --cfg 'feature="panic_immediate_abort"' \
     --cfg iter_count --cfg iter_last --cfg iter_min_max \
     --cfg ascii --cfg char --cfg unicode \
     --cfg slice_sort \
@@ -60,6 +61,7 @@ translate lib/backtrace/src/lib.rs --crate-name backtrace \
     --extern core --extern compiler_builtins --extern libc \
     --extern rustc_demangle --extern cfg_if --extern backtrace_sys
 translate lib/libstd/lib.rs --crate-name std \
+    --cfg 'feature="panic_immediate_abort"' \
     --extern alloc --extern cfg_if \
     --extern hashbrown --extern backtrace_rs=rlibs/libbacktrace.rlib
 translate lib/libterm/lib.rs --crate-name term
