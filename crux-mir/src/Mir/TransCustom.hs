@@ -93,6 +93,7 @@ customOpDefs = Map.fromList $ [
                          , mem_swap
                          , add_with_overflow
                          , sub_with_overflow
+                         , mul_with_overflow
                          , wrapping_add
                          , wrapping_sub
                          , wrapping_mul
@@ -670,22 +671,11 @@ wrapping_sub =
     , makeOverflowingArith "wrapping_sub" Sub
     )
 
--- TODO: this should return (a * b) mod 2N
--- however it does whatever Crucible does for BVMul
-wrapping_mul :: (ExplodedDefId, CustomRHS)
-wrapping_mul = ( ["core","intrinsics","", "wrapping_mul"],
-   \ _substs -> Just $ CustomOp $ \ _opTys  ops ->
-     case ops of 
-       [MirExp aty a, MirExp bty b] ->
-         case (aty, bty) of
-           (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
-               let sub = R.App $ E.BVMul wa a b 
-               return (MirExp aty sub)
-           (UsizeRepr, UsizeRepr) -> do
-               let sub = R.App $ usizeMul a b
-               return (MirExp aty sub)               
-           (_,_) -> mirFail $ "wrapping_mul: cannot call with types " ++ show aty ++ " and " ++ show bty
-       _ -> mirFail $ "BUG: invalid arguments for wrapping_mul")
+wrapping_mul ::  (ExplodedDefId, CustomRHS)
+wrapping_mul =
+    ( ["core","intrinsics", "", "wrapping_mul"]
+    , makeOverflowingArith "wrapping_mul" Mul
+    )
 
 
 overflowResult :: C.TypeRepr tp ->
@@ -728,6 +718,12 @@ sub_with_overflow ::  (ExplodedDefId, CustomRHS)
 sub_with_overflow =
     ( ["core","intrinsics", "", "sub_with_overflow"]
     , makeArithWithOverflow "sub_with_overflow" Nothing Sub
+    )
+
+mul_with_overflow ::  (ExplodedDefId, CustomRHS)
+mul_with_overflow =
+    ( ["core","intrinsics", "", "mul_with_overflow"]
+    , makeArithWithOverflow "mul_with_overflow" Nothing Mul
     )
 
 
