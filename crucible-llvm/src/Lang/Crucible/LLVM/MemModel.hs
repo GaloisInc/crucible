@@ -215,6 +215,7 @@ import           Lang.Crucible.Simulator.SimError
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
+import           Lang.Crucible.LLVM.Extension.Safety
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.MemModel.Type
@@ -227,6 +228,7 @@ import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic (panic)
+
 
 
 import           GHC.Stack
@@ -971,22 +973,34 @@ isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
 --
 --   The pointer to read from must be concrete and nonnull.  The contents
 --   of the string may be symbolic; HOWEVER, this function will not terminate
---   unless there it eventually reaches a concete null-terminator.
+--   until it eventually reaches a concete null-terminator or a load error.
 strLen :: forall sym wptr.
   (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
   IO (SymBV sym wptr)
-strLen sym mem = go 0
+strLen sym mem = go 0 (truePred sym)
   where
-  go !n p =
-    do v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat @8)) noAlignment
-       test <- bvIsNonzero sym =<< projectLLVM_bv sym v
-       iteM bvIte sym
-            test
-            (go (n+1) =<< doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1)
-            (bvLit sym PtrWidth n)
+  go !n cond p =
+    loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
+      Partial.Err e ->
+        do ast <- impliesPred sym cond (falsePred sym)
+           let msg = show (ppMemoryLoadError e)
+           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" msg
+           bvLit sym PtrWidth (maxUnsigned PtrWidth) -- bogus value, but have to return something...
+      Partial.NoErr loadok llvmval ->
+        do ast <- impliesPred sym cond loadok
+           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
+           v <- unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
+           test <- bvIsNonzero sym =<< projectLLVM_bv sym v
+           iteM bvIte sym
+             test
+             (do cond' <- andPred sym cond test
+                 p'    <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
+                 go (n+1) cond' p')
+             (bvLit sym PtrWidth n)
+
 
 -- | Load a null-terminated string from the memory.
 --
