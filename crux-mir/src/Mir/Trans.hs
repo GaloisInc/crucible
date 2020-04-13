@@ -655,11 +655,16 @@ evalCast' ck ty1 e ty2  =
       -- unsizes from `*const dyn Any` to `*const dyn Any`
       (M.Unsize,a,b) | a == b -> return e
 
+      -- ADT -> ADT unsizing is done via `CoerceUnsized`.
+      (M.Unsize, M.TyAdt aname1 _ _, M.TyAdt aname2 _ _) ->
+        coerceUnsized aname1 aname2 e
+
       (M.Unsize, M.TyRef (M.TyArray tp sz) _, M.TyRef (M.TySlice tp') _) ->
         unsizeArray tp sz tp'
       (M.Unsize, M.TyRawPtr (M.TyArray tp sz) _, M.TyRawPtr (M.TySlice tp') _) ->
         unsizeArray tp sz tp'
 
+      -- TODO: extend coerceUnsized to handle UnsizeVtable as well
       -- Trait object creation from a ref
       (M.UnsizeVtable vtbl, M.TyRef baseType _,
         M.TyRef (M.TyDynamic traitName _preds) _) ->
@@ -739,6 +744,29 @@ evalCast' ck ty1 e ty2  =
         return $ MirExp (MirSliceRepr elem_tp) tup
       | otherwise = mirFail $
         "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
+
+    -- Implementation of the "coerce unsized" operation.  If `Foo<T>:
+    -- CoerceUnsized<Foo<U>>`, then this operation is enabled for converting
+    -- `Foo<T>` to `Foo<U>`.  The actual operation consists of disassembling
+    -- teh struct, coercing any raw pointers inside, and putting it back
+    -- together again.
+    coerceUnsized :: HasCallStack =>
+        M.AdtName -> M.AdtName -> MirExp s -> MirGenerator h s ret (MirExp s)
+    coerceUnsized an1 an2 e = do
+        adt1 <- findAdt an1
+        adt2 <- findAdt an2
+        when (adt1 ^. adtkind /= Struct || adt2 ^. adtkind /= Struct) $ mirFail $
+            "coerceUnsized not yet implemented for non-struct types: " ++ show (an1, an2)
+        let v1 = Maybe.fromJust $ adt1 ^? adtvariants . ix 0
+        let v2 = Maybe.fromJust $ adt2 ^? adtvariants . ix 0
+        let numFields = v1 ^. vfields . to length
+        let numFields' = v2 ^. vfields . to length
+        when (numFields' /= numFields) $ mirFail $
+            "coerceUnsized on incompatible types (mismatched fields): " ++ show (an1, an2)
+        vals' <- forM (zip3 [0..] (v1 ^. vfields) (v2 ^. vfields)) $ \(i, f1, f2) -> do
+            val <- getStructField adt1 (M.Substs []) i e
+            evalCast' M.Unsize (f1 ^. fty) val (f2 ^. fty)
+        buildStruct adt2 (M.Substs []) vals'
 
 
 evalCast :: HasCallStack => M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
