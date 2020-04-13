@@ -538,6 +538,33 @@ transCheckedBinOp op a b = do
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
+transNullaryOp M.Box ty = do
+    -- Look up `Box<ty>`
+    let boxDefId = M.textId "alloc::boxed::Box"
+    let boxSubsts = Substs [ty]
+    candidates <- use $ cs . collection . adtsOrig . at boxDefId
+    let found = filter (\a -> a ^. adtOrigSubsts == boxSubsts) (Maybe.fromMaybe [] candidates)
+    boxTy <- case found of
+        [adt] -> return $ M.TyAdt (adt ^. adtname) boxDefId boxSubsts
+        _ -> mirFail $ "expected exactly one monomorphization of Box<" ++ show ty ++
+            ">, but got " ++ show found
+    mkBox boxTy
+  where
+    -- A `Box<T>` looks much like `*mut T`, but with a few wrapper structs in
+    -- the way.  We recursively traverse those structs until we find the
+    -- pointer field, then construct the `MirReference`.
+    mkBox (M.TyRawPtr ty' _) = do
+        Some tpr <- return $ tyToRepr ty'
+        ptr <- newMirRef tpr
+        return $ MirExp (MirReferenceRepr tpr) ptr
+    mkBox ty@(M.TyAdt aname _ _) = do
+        adt <- findAdt aname
+        when (adt ^. adtkind /= Struct) $ mirFail $
+            "mkBox not yet implemented for non-struct type " ++ show ty
+        let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
+        vals <- mapM (\f -> mkBox $ f ^. fty) (v ^. vfields)
+        buildStruct adt (M.Substs []) vals
+    mkBox ty = mirFail $ "unsupported type in mkBox: " ++ show ty
 transNullaryOp _ _ = mirFail "nullop"
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
@@ -917,21 +944,49 @@ evalPlace (M.LProj lv proj) = do
     pl <- evalPlace lv
     evalPlaceProj (M.typeOf lv) pl proj
 
+-- Recursively traverse the structure of a `Box<ty>` to find the raw pointer
+-- inside.  See `mkBox` for more explanation of the structure of `Box`.
+getBoxPointer :: HasCallStack => M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
+getBoxPointer ty e = do
+    ptr <- go ty e
+    case ptr of
+        Just x -> return x
+        Nothing -> mirFail $ "failed to find pointer within " ++ show ty
+  where
+    go :: M.Ty -> MirExp s -> MirGenerator h s ret (Maybe (MirExp s))
+    go (M.TyRawPtr _ _) e = return $ Just e
+    go ty@(M.TyAdt aname _ _) e = do
+        adt <- findAdt aname
+        when (adt ^. adtkind /= Struct) $ mirFail $
+            "getBoxPointer not yet implemented for non-struct type " ++ show ty
+        let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
+        ptrs <- forM (zip [0..] (v ^. vfields)) $ \(i, f) -> do
+            val <- getStructField adt (M.Substs []) i e
+            go (f ^. fty) val
+        case Maybe.mapMaybe id ptrs of
+            [] -> return Nothing
+            [x] -> return $ Just x
+            _ -> mirFail $ "expected exactly one pointer within " ++ show ty ++
+                ", but got " ++ show ptrs
+    go ty _ = mirFail $ "unsupported type in getBoxPointer: " ++ show ty
+
 evalPlaceProj :: HasCallStack => M.Ty -> MirPlace s -> M.PlaceElem -> MirGenerator h s ret (MirPlace s)
 evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
-    (ty', mutbl) <- case ty of
-        M.TyRef t m -> return (t, m)
-        M.TyRawPtr t m -> return (t, m)
-        -- Boxes are MirReferences, just like &mut
-        CTyBox t -> return (t, M.Mut)
+    case ty of
+        M.TyRef t _ -> doRef t
+        M.TyRawPtr t _ -> doRef t
+        CTyBox _ -> do
+            box <- readMirRef tpr ref
+            ptr <- getBoxPointer ty (MirExp tpr box)
+            derefExp ptr
         _ -> mirFail $ "deref not supported on " ++ show ty
-    case (ty', tpr) of
-        (M.TySlice _, MirSliceRepr tpr') -> doSlice tpr' ref
-        (M.TyStr, MirSliceRepr tpr') -> doSlice tpr' ref
-        (_, MirReferenceRepr tpr') ->
-            MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
-        _ -> mirFail $ "deref not supported on " ++ show (ty, tpr)
   where
+    doRef (M.TySlice _) | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
+    doRef M.TyStr | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
+    doRef _ | MirReferenceRepr tpr' <- tpr = do
+        MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
+    doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
+
     doSlice tpr' ref' = do
         slice <- readMirRef (MirSliceRepr tpr') ref'
         let ptr = getSlicePtr slice
@@ -1018,6 +1073,15 @@ tryCoerce :: M.Ty -> M.Ty -> MirExp s -> Maybe (MirGenerator h s ret (MirExp s))
 tryCoerce ty1 ty2 exp
   | ty1 == ty2 = Just $ return exp
 tryCoerce (M.TyRef ty1 M.Mut) (M.TyRef ty2 M.Immut) exp@(MirExp tpr e)
+  | ty1 == ty2 = Just $ return exp
+-- Special hack: using `CTyBox` as a constructor (as `typeOf` does for the
+-- `Box` nullop) produces a `TyAdt` with an invalid `DefId`.  This is because
+-- we don't have a way to compute the correct hash inside the `CTyBox` ctor.
+-- So we use this special case to avoid erroring on `CTyBox` assignments.  (The
+-- `CTyBox` pattern ignores the bad field already.)
+-- TODO: implement `Eq` to ignore the field, or else remove it entirely and use
+-- a different key for `findAdt`.
+tryCoerce (CTyBox ty1) (CTyBox ty2) exp
   | ty1 == ty2 = Just $ return exp
 tryCoerce _ _ _ = Nothing
 
@@ -1382,14 +1446,6 @@ initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
 initialValue (CTyInt512) =
     let w = knownNat :: NatRepr 512 in
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
-initialValue (CTyBox t) = do
-    mv <- initialValue t
-    case mv of
-      Just (MirExp tp e) -> do
-        ref <- newMirRef tp
-        writeMirRef ref e
-        return $ Just (MirExp (MirReferenceRepr tp) ref)
-      Nothing -> return Nothing
 initialValue (CTyVector t) = do
     tyToReprCont t $ \ tr ->
       return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))

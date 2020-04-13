@@ -108,8 +108,6 @@ customOpDefs = Map.fromList $ [
                          , mem_crucible_identity_transmute
                          , array_from_slice
 
-                         , box_new
-
                          , vector_new
                          , vector_replicate
                          , vector_len
@@ -207,22 +205,6 @@ panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \s -> Just $ CustomOp
     name <- use $ currentFn . fname
     return $ "panicking::panic_fmt, called from " <> M.idText name
     )
-
-
------------------------------------------------------------------------------------------------------
--- ** Custom: Box
-
--- Note that alloc::boxed::Box<T> gets custom translation in `TransTy.tyToRepr`.
-
-box_new :: (ExplodedDefId, CustomRHS)
-box_new = ( ["alloc","boxed","{{impl}}", "new"],
-  \_substs -> Just $ CustomOp $ \opTys ops -> case ops of
-    [MirExp tpr e] -> do
-        r <- newMirRef tpr
-        writeMirRef r e
-        return $ MirExp (MirReferenceRepr tpr) r
-    _ -> mirFail $ "bad arguments for Box::new: " ++ show opTys
-  )
 
 
 -----------------------------------------------------------------------------------------------------

@@ -143,7 +143,6 @@ tyToRepr t0 = case t0 of
   CTyBv128 -> Some $ C.BVRepr (knownNat :: NatRepr 128)
   CTyBv256 -> Some $ C.BVRepr (knownNat :: NatRepr 256)
   CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
-  CTyBox t -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   CTyVector t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
   CTyArray t
     | Some tpr <- tyToRepr t
