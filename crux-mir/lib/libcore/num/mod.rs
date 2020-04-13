@@ -4001,8 +4001,9 @@ assert!(!10", stringify!($SelfT), ".is_power_of_two());", $EndFeature, "
             #[stable(feature = "rust1", since = "1.0.0")]
             #[rustc_const_stable(feature = "const_is_power_of_two", since = "1.32.0")]
             #[inline]
+            #[allow_internal_unstable(const_if_match)]
             pub const fn is_power_of_two(self) -> bool {
-                self.count_ones() == 1
+                self > 0 && (self - 1) & self == 0
             }
         }
 
