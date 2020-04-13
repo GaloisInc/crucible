@@ -618,7 +618,12 @@ impl<T> [T] {
                 ptr.add(self.len())
             };
 
-            Iter { ptr: NonNull::new_unchecked(ptr as *mut T), end, _marker: marker::PhantomData }
+            Iter {
+                ptr: NonNull::new_unchecked(ptr as *mut T),
+                end,
+                len: self.len(),
+                _marker: marker::PhantomData,
+            }
         }
     }
 
@@ -646,7 +651,12 @@ impl<T> [T] {
                 ptr.add(self.len())
             };
 
-            IterMut { ptr: NonNull::new_unchecked(ptr), end, _marker: marker::PhantomData }
+            IterMut {
+                ptr: NonNull::new_unchecked(ptr),
+                end,
+                len: self.len(),
+                _marker: marker::PhantomData,
+            }
         }
     }
 
@@ -3150,7 +3160,7 @@ macro_rules! is_empty {
     // The way we encode the length of a ZST iterator, this works both for ZST
     // and non-ZST.
     ($self: ident) => {
-        $self.ptr.as_ptr() as *const T == $self.end
+        $self.len == 0
     };
 }
 // To get rid of some bounds checks (see `position`), we compute the length in a somewhat
@@ -3158,26 +3168,7 @@ macro_rules! is_empty {
 macro_rules! len {
     ($self: ident) => {{
         #![allow(unused_unsafe)] // we're sometimes used within an unsafe block
-
-        let start = $self.ptr;
-        let size = size_from_ptr(start.as_ptr());
-        if size == 0 {
-            // This _cannot_ use `unchecked_sub` because we depend on wrapping
-            // to represent the length of long ZST slice iterators.
-            ($self.end as usize).wrapping_sub(start.as_ptr() as usize)
-        } else {
-            // We know that `start <= end`, so can do better than `offset_from`,
-            // which needs to deal in signed.  By setting appropriate flags here
-            // we can tell LLVM this, which helps it remove bounds checks.
-            // SAFETY: By the type invariant, `start <= end`
-            let diff = unsafe { unchecked_sub($self.end as usize, start.as_ptr() as usize) };
-            // By also telling LLVM that the pointers are apart by an exact
-            // multiple of the type size, it can optimize `len() == 0` down to
-            // `start == end` instead of `(end - start) < size`.
-            // SAFETY: By the type invariant, the pointers are aligned so the
-            //         distance between them must be a multiple of pointee size
-            unsafe { exact_div(diff, size) }
-        }
+        $self.len
     }};
 }
 
@@ -3224,6 +3215,7 @@ macro_rules! iterator {
             // Unsafe because the offset must not exceed `self.len()`.
             #[inline(always)]
             unsafe fn post_inc_start(&mut self, offset: isize) -> * $raw_mut T {
+                self.len -= offset as usize;
                 if mem::size_of::<T>() == 0 {
                     zst_shrink!(self, offset);
                     self.ptr.as_ptr()
@@ -3239,6 +3231,7 @@ macro_rules! iterator {
             // Unsafe because the offset must not exceed `self.len()`.
             #[inline(always)]
             unsafe fn pre_dec_end(&mut self, offset: isize) -> * $raw_mut T {
+                self.len -= offset as usize;
                 if mem::size_of::<T>() == 0 {
                     zst_shrink!(self, offset);
                     self.ptr.as_ptr()
@@ -3297,6 +3290,7 @@ macro_rules! iterator {
             fn nth(&mut self, n: usize) -> Option<$elem> {
                 if n >= len!(self) {
                     // This iterator is now empty.
+                    self.len = 0;
                     if mem::size_of::<T>() == 0 {
                         // We have to do it this way as `ptr` may never be 0, but `end`
                         // could be (due to wrapping).
@@ -3382,6 +3376,7 @@ macro_rules! iterator {
             fn nth_back(&mut self, n: usize) -> Option<$elem> {
                 if n >= len!(self) {
                     // This iterator is now empty.
+                    self.len = 0;
                     self.end = self.ptr.as_ptr();
                     return None;
                 }
@@ -3427,6 +3422,7 @@ pub struct Iter<'a, T: 'a> {
     end: *const T, // If T is a ZST, this is actually ptr+len.  This encoding is picked so that
     // ptr == end is a quick test for the Iterator being empty, that works
     // for both ZST and non-ZST.
+    len: usize,
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -3488,7 +3484,7 @@ iterator! {struct Iter -> *const T, &'a T, const, {/* no mut */}, {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for Iter<'_, T> {
     fn clone(&self) -> Self {
-        Iter { ptr: self.ptr, end: self.end, _marker: self._marker }
+        Iter { ptr: self.ptr, end: self.end, len: self.len, _marker: self._marker }
     }
 }
 
@@ -3529,6 +3525,7 @@ pub struct IterMut<'a, T: 'a> {
     end: *mut T, // If T is a ZST, this is actually ptr+len.  This encoding is picked so that
     // ptr == end is a quick test for the Iterator being empty, that works
     // for both ZST and non-ZST.
+    len: usize,
     _marker: marker::PhantomData<&'a mut T>,
 }
 
