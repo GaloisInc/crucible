@@ -5814,9 +5814,7 @@ where
             return false;
         }
 
-        if self.as_ptr() == other.as_ptr() {
-            return true;
-        }
+        // Crux: pointer comparison removed
 
         self.iter().zip(other.iter()).all(|(x, y)| x == y)
     }
