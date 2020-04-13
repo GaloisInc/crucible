@@ -6,6 +6,7 @@ use core::mem;
 use core::ops::Drop;
 use core::ptr::{self, NonNull, Unique};
 use core::slice;
+use crucible;
 
 use crate::alloc::{handle_alloc_error, AllocErr, AllocRef, Global, Layout};
 use crate::boxed::Box;
@@ -72,7 +73,7 @@ impl<T, A: AllocRef> RawVec<T, A> {
         RawVec::allocate_in(capacity, true, a)
     }
 
-    fn allocate_in(mut capacity: usize, zeroed: bool, mut a: A) -> Self {
+    fn allocate_in(capacity: usize, _zeroed: bool, a: A) -> Self {
         let elem_size = mem::size_of::<T>();
 
         let alloc_size = capacity.checked_mul(elem_size).unwrap_or_else(|| capacity_overflow());
@@ -82,16 +83,9 @@ impl<T, A: AllocRef> RawVec<T, A> {
         let ptr = if alloc_size == 0 {
             NonNull::<T>::dangling()
         } else {
-            let align = mem::align_of::<T>();
-            let layout = Layout::from_size_align(alloc_size, align).unwrap();
-            let result = if zeroed { a.alloc_zeroed(layout) } else { a.alloc(layout) };
-            match result {
-                Ok((ptr, size)) => {
-                    capacity = size / elem_size;
-                    ptr.cast()
-                }
-                Err(_) => handle_alloc_error(layout),
-            }
+            // NB: This ignores both the choice of allocator and the `zeroed` flag
+            let ptr = crucible::alloc::allocate::<T>(capacity);
+            unsafe { NonNull::new_unchecked(ptr) }
         };
 
         RawVec { ptr: ptr.into(), cap: capacity, a }
@@ -275,49 +269,13 @@ impl<T, A: AllocRef> RawVec<T, A> {
     #[cold]
     pub fn double(&mut self) {
         unsafe {
-            let elem_size = mem::size_of::<T>();
-
-            // Since we set the capacity to `usize::MAX` when `elem_size` is
-            // 0, getting to here necessarily means the `RawVec` is overfull.
-            assert!(elem_size != 0, "capacity overflow");
-
-            let (ptr, new_cap) = match self.current_layout() {
-                Some(cur) => {
-                    // Since we guarantee that we never allocate more than
-                    // `isize::MAX` bytes, `elem_size * self.cap <= isize::MAX` as
-                    // a precondition, so this can't overflow. Additionally the
-                    // alignment will never be too large as to "not be
-                    // satisfiable", so `Layout::from_size_align` will always
-                    // return `Some`.
-                    //
-                    // TL;DR, we bypass runtime checks due to dynamic assertions
-                    // in this module, allowing us to use
-                    // `from_size_align_unchecked`.
-                    let new_cap = 2 * self.cap;
-                    let new_size = new_cap * elem_size;
-                    alloc_guard(new_size).unwrap_or_else(|_| capacity_overflow());
-                    let ptr_res = self.a.realloc(NonNull::from(self.ptr).cast(), cur, new_size);
-                    match ptr_res {
-                        Ok((ptr, new_size)) => (ptr, new_size / elem_size),
-                        Err(_) => handle_alloc_error(Layout::from_size_align_unchecked(
-                            new_size,
-                            cur.align(),
-                        )),
-                    }
-                }
-                None => {
-                    // Skip to 4 because tiny `Vec`'s are dumb; but not if that
-                    // would cause overflow.
-                    let new_cap = if elem_size > (!0) / 8 { 1 } else { 4 };
-                    let layout = Layout::array::<T>(new_cap).unwrap();
-                    match self.a.alloc(layout) {
-                        Ok((ptr, new_size)) => (ptr, new_size / elem_size),
-                        Err(_) => handle_alloc_error(layout),
-                    }
-                }
-            };
-            self.ptr = ptr.cast().into();
-            self.cap = new_cap;
+            if self.cap == 0 {
+                self.cap = 4;
+                self.ptr = NonNull::new_unchecked(crucible::alloc::allocate(self.cap)).into();
+            } else {
+                self.cap *= 2;
+                crucible::alloc::reallocate(self.ptr.as_ptr(), self.cap);
+            }
         }
     }
 
@@ -337,34 +295,15 @@ impl<T, A: AllocRef> RawVec<T, A> {
     #[cold]
     pub fn double_in_place(&mut self) -> bool {
         unsafe {
-            let elem_size = mem::size_of::<T>();
-            let old_layout = match self.current_layout() {
-                Some(layout) => layout,
-                None => return false, // nothing to double
-            };
-
-            // Since we set the capacity to `usize::MAX` when `elem_size` is
-            // 0, getting to here necessarily means the `RawVec` is overfull.
-            assert!(elem_size != 0, "capacity overflow");
-
-            // Since we guarantee that we never allocate more than `isize::MAX`
-            // bytes, `elem_size * self.cap <= isize::MAX` as a precondition, so
-            // this can't overflow.
-            //
-            // Similarly to with `double` above, we can go straight to
-            // `Layout::from_size_align_unchecked` as we know this won't
-            // overflow and the alignment is sufficiently small.
-            let new_cap = 2 * self.cap;
-            let new_size = new_cap * elem_size;
-            alloc_guard(new_size).unwrap_or_else(|_| capacity_overflow());
-            match self.a.grow_in_place(NonNull::from(self.ptr).cast(), old_layout, new_size) {
-                Ok(_) => {
-                    // We can't directly divide `size`.
-                    self.cap = new_cap;
-                    true
-                }
-                Err(_) => false,
+            if self.cap == 0 {
+                // Can't increase capacity from zero without allocating and changing `self.ptr`.
+                return false;
             }
+
+            // `crucible::alloc::reallocate` always reallocs in-place.
+            self.cap *= 2;
+            crucible::alloc::reallocate(self.ptr.as_ptr(), self.cap);
+            true
         }
     }
 
@@ -517,10 +456,9 @@ impl<T, A: AllocRef> RawVec<T, A> {
             // Don't actually need any more capacity. If the current `cap` is 0, we can't
             // reallocate in place.
             // Wrapping in case they give a bad `used_capacity`
-            let old_layout = match self.current_layout() {
-                Some(layout) => layout,
-                None => return false,
-            };
+            if self.cap == 0 {
+                return false;
+            }
             if self.capacity().wrapping_sub(used_capacity) >= needed_extra_capacity {
                 return false;
             }
@@ -533,20 +471,9 @@ impl<T, A: AllocRef> RawVec<T, A> {
             // (regardless of whether `self.cap - used_capacity` wrapped).
             // Therefore, we can safely call `grow_in_place`.
 
-            let new_layout = Layout::new::<T>().repeat(new_cap).unwrap().0;
-            // FIXME: may crash and burn on over-reserve
-            alloc_guard(new_layout.size()).unwrap_or_else(|_| capacity_overflow());
-            match self.a.grow_in_place(
-                NonNull::from(self.ptr).cast(),
-                old_layout,
-                new_layout.size(),
-            ) {
-                Ok(_) => {
-                    self.cap = new_cap;
-                    true
-                }
-                Err(_) => false,
-            }
+            crucible::alloc::reallocate(self.ptr.as_ptr(), new_cap);
+            self.cap = new_cap;
+            true
         }
     }
 
@@ -572,38 +499,15 @@ impl<T, A: AllocRef> RawVec<T, A> {
         // This check is my waterloo; it's the only thing `Vec` wouldn't have to do.
         assert!(self.cap >= amount, "Tried to shrink to a larger capacity");
 
-        if amount == 0 {
-            // We want to create a new zero-length vector within the
-            // same allocator. We use `ptr::write` to avoid an
-            // erroneous attempt to drop the contents, and we use
-            // `ptr::read` to sidestep condition against destructuring
-            // types that implement Drop.
+        if self.cap == 0 {
+            // `amount` is also zero.  There's no current allocation, but also nothing to do.
+            return;
+        }
 
-            unsafe {
-                let a = ptr::read(&self.a as *const A);
-                self.dealloc_buffer();
-                ptr::write(self, RawVec::new_in(a));
-            }
-        } else if self.cap != amount {
-            unsafe {
-                // We know here that our `amount` is greater than zero. This
-                // implies, via the assert above, that capacity is also greater
-                // than zero, which means that we've got a current layout that
-                // "fits"
-                //
-                // We also know that `self.cap` is greater than `amount`, and
-                // consequently we don't need runtime checks for creating either
-                // layout.
-                let old_size = elem_size * self.cap;
-                let new_size = elem_size * amount;
-                let align = mem::align_of::<T>();
-                let old_layout = Layout::from_size_align_unchecked(old_size, align);
-                match self.a.realloc(NonNull::from(self.ptr).cast(), old_layout, new_size) {
-                    Ok((ptr, _)) => self.ptr = ptr.cast().into(),
-                    Err(_) => {
-                        handle_alloc_error(Layout::from_size_align_unchecked(new_size, align))
-                    }
-                }
+        unsafe {
+            crucible::alloc::reallocate(self.ptr.as_ptr(), amount);
+            if amount == 0 {
+                self.ptr = NonNull::dangling().into();
             }
             self.cap = amount;
         }
@@ -653,30 +557,13 @@ impl<T, A: AllocRef> RawVec<T, A> {
                 }
                 Amortized => self.amortized_new_size(used_capacity, needed_extra_capacity)?,
             };
-            let new_layout = Layout::array::<T>(new_cap).map_err(|_| CapacityOverflow)?;
 
-            alloc_guard(new_layout.size())?;
+            if self.cap == 0 {
+                self.ptr = NonNull::new_unchecked(crucible::alloc::allocate::<T>(new_cap)).into();
+            } else {
+                crucible::alloc::reallocate::<T>(self.ptr.as_ptr(), new_cap);
+            }
 
-            let res = match self.current_layout() {
-                Some(layout) => {
-                    debug_assert!(new_layout.align() == layout.align());
-                    self.a.realloc(NonNull::from(self.ptr).cast(), layout, new_layout.size())
-                }
-                None => self.a.alloc(new_layout),
-            };
-
-            let (ptr, new_cap) = match (res, fallibility) {
-                (Err(AllocErr), Infallible) => handle_alloc_error(new_layout),
-                (Err(AllocErr), Fallible) => {
-                    return Err(TryReserveError::AllocError {
-                        layout: new_layout,
-                        non_exhaustive: (),
-                    });
-                }
-                (Ok((ptr, new_size)), _) => (ptr, new_size / elem_size),
-            };
-
-            self.ptr = ptr.cast().into();
             self.cap = new_cap;
 
             Ok(())
@@ -707,12 +594,7 @@ impl<T> RawVec<T, Global> {
 impl<T, A: AllocRef> RawVec<T, A> {
     /// Frees the memory owned by the `RawVec` *without* trying to drop its contents.
     pub unsafe fn dealloc_buffer(&mut self) {
-        let elem_size = mem::size_of::<T>();
-        if elem_size != 0 {
-            if let Some(layout) = self.current_layout() {
-                self.a.dealloc(NonNull::from(self.ptr).cast(), layout);
-            }
-        }
+        // Crucible currently doesn't provide a deallocate operation.
     }
 }
 
