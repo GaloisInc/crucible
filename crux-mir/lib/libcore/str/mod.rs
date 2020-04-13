@@ -2327,13 +2327,7 @@ impl str {
     #[allow(unused_attributes)]
     #[allow_internal_unstable(const_fn_union)]
     pub const fn as_bytes(&self) -> &[u8] {
-        #[repr(C)]
-        union Slices<'a> {
-            str: &'a str,
-            slice: &'a [u8],
-        }
-        // SAFETY: const sound because we transmute two types with the same layout
-        unsafe { Slices { str: self }.slice }
+        unsafe { mem::crucible_identity_transmute(self) }
     }
 
     /// Converts a mutable string slice to a mutable byte slice. To convert the
@@ -2372,7 +2366,7 @@ impl str {
     #[stable(feature = "str_mut_extras", since = "1.20.0")]
     #[inline(always)]
     pub unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
-        &mut *(self as *mut str as *mut [u8])
+        mem::crucible_identity_transmute(self)
     }
 
     /// Converts a string slice to a raw pointer.

@@ -907,3 +907,18 @@ impl<T> fmt::Debug for Discriminant<T> {
 pub const fn discriminant<T>(v: &T) -> Discriminant<T> {
     Discriminant(intrinsics::discriminant_value(v), PhantomData)
 }
+
+
+/// Convert `T` to `U`.  Both types must have the same Crucible representation.
+#[unstable(feature = "crucible_intrinsics", issue = "none")]
+#[rustc_const_stable(feature = "crucible_intrinsics", since = "1.0.0")]
+#[inline(never)]
+#[allow(unused_attributes)]
+#[allow_internal_unstable(const_fn_union)]
+pub const unsafe fn crucible_identity_transmute<T, U>(x: T) -> U {
+    union Transmute<T, U> {
+        x: ManuallyDrop<T>,
+        y: ManuallyDrop<U>,
+    }
+    ManuallyDrop::into_inner(Transmute { x: ManuallyDrop::new(x) }.y)
+}
