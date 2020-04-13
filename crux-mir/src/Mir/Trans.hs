@@ -655,14 +655,10 @@ evalCast' ck ty1 e ty2  =
       -- unsizes from `*const dyn Any` to `*const dyn Any`
       (M.Unsize,a,b) | a == b -> return e
 
-      (M.Unsize, M.TyRef (M.TyArray tp sz) _, M.TyRef (M.TySlice tp') _)
-        | tp == tp', MirExp (MirReferenceRepr (MirVectorRepr elem_tp)) ref <- e
-        -> do let len   = R.App $ usizeLit (fromIntegral sz)
-              ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0)
-              let tup   = S.mkStruct (mirSliceCtxRepr elem_tp)
-                              (Ctx.Empty Ctx.:> ref' Ctx.:> len)
-              return $ MirExp (MirSliceRepr elem_tp) tup
-        | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
+      (M.Unsize, M.TyRef (M.TyArray tp sz) _, M.TyRef (M.TySlice tp') _) ->
+        unsizeArray tp sz tp'
+      (M.Unsize, M.TyRawPtr (M.TyArray tp sz) _, M.TyRawPtr (M.TySlice tp') _) ->
+        unsizeArray tp sz tp'
 
       -- Trait object creation from a ref
       (M.UnsizeVtable vtbl, M.TyRef baseType _,
@@ -732,7 +728,19 @@ evalCast' ck ty1 e ty2  =
 
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
- 
+  where
+    unsizeArray tp sz tp'
+      | tp == tp', MirExp (MirReferenceRepr (MirVectorRepr elem_tp)) ref <- e
+      = do
+        let len   = R.App $ usizeLit (fromIntegral sz)
+        ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0)
+        let tup   = S.mkStruct (mirSliceCtxRepr elem_tp)
+                        (Ctx.Empty Ctx.:> ref' Ctx.:> len)
+        return $ MirExp (MirSliceRepr elem_tp) tup
+      | otherwise = mirFail $
+        "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
+
+
 evalCast :: HasCallStack => M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast ck op ty = do
     e <- evalOperand op
