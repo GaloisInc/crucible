@@ -278,3 +278,6 @@ mod core_arch;
 
 #[stable(feature = "simd_arch", since = "1.27.0")]
 pub use core_arch::arch;
+
+#[unstable(feature = "crucible_intrinsics", issue = "none")]
+pub mod crucible;
