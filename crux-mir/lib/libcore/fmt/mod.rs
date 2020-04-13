@@ -3,6 +3,7 @@
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::cell::{Cell, Ref, RefCell, RefMut, UnsafeCell};
+use crate::crucible::any::Any;
 use crate::marker::PhantomData;
 use crate::mem;
 use crate::num::flt2dec;
@@ -249,8 +250,18 @@ extern "C" {
 #[unstable(feature = "fmt_internals", reason = "internal to format_args!", issue = "none")]
 #[doc(hidden)]
 pub struct ArgumentV1<'a> {
-    value: &'a Opaque,
-    formatter: fn(&Opaque, &mut Formatter<'_>) -> Result,
+    value: Any,
+    formatter: Any,
+    dispatch: fn(Any, Any, &mut Formatter<'_>) -> Result,
+    _marker: PhantomData<&'a Opaque>,
+}
+
+fn dispatch<T>(value: Any, formatter: Any, fmt: &mut Formatter<'_>) -> Result {
+    unsafe {
+        let value = value.downcast::<&T>();
+        let formatter = formatter.downcast::<fn(&T, &mut Formatter<'_>) -> Result>();
+        formatter(value, fmt)
+    }
 }
 
 // This guarantees a single stable value for the function pointer associated with
@@ -278,32 +289,26 @@ static USIZE_MARKER: fn(&usize, &mut Formatter<'_>) -> Result = |ptr, _| {
 impl<'a> ArgumentV1<'a> {
     #[doc(hidden)]
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!", issue = "none")]
-    pub fn new<'b, T>(x: &'b T, f: fn(&T, &mut Formatter<'_>) -> Result) -> ArgumentV1<'b> {
-        // SAFETY: `mem::transmute(x)` is safe because
-        //     1. `&'b T` keeps the lifetime it originated with `'b`
-        //              (so as to not have an unbounded lifetime)
-        //     2. `&'b T` and `&'b Void` have the same memory layout
-        //              (when `T` is `Sized`, as it is here)
-        // `mem::transmute(f)` is safe since `fn(&T, &mut Formatter<'_>) -> Result`
-        // and `fn(&Void, &mut Formatter<'_>) -> Result` have the same ABI
-        // (as long as `T` is `Sized`)
-        unsafe { ArgumentV1 { formatter: mem::transmute(f), value: mem::transmute(x) } }
+    pub fn new<'b, T>(x: &'b T,
+                      f: fn(&T, &mut Formatter<'_>) -> Result) -> ArgumentV1<'b> {
+        ArgumentV1 {
+            value: Any::new(x),
+            formatter: Any::new(f),
+            dispatch: dispatch::<T>,
+            _marker: PhantomData,
+        }
     }
 
     #[doc(hidden)]
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!", issue = "none")]
     pub fn from_usize(x: &usize) -> ArgumentV1<'_> {
-        ArgumentV1::new(x, USIZE_MARKER)
+        Self::new(x, Display::fmt)
     }
 
     fn as_usize(&self) -> Option<usize> {
-        if self.formatter as usize == USIZE_MARKER as usize {
-            // SAFETY: The `formatter` field is only set to USIZE_MARKER if
-            // the value is a usize, so this is safe
-            Some(unsafe { *(self.value as *const _ as *const usize) })
-        } else {
-            None
-        }
+        // According to the comment on `USIZE_MARKER`, this method is only ever called on arguments
+        // that have been statically checked to be `usize`.
+        Some(unsafe { *self.value.downcast::<&usize>() })
     }
 }
 
@@ -1066,7 +1071,7 @@ pub fn write(output: &mut dyn Write, args: Arguments<'_>) -> Result {
             // We can use default formatting parameters for all arguments.
             for (arg, piece) in args.args.iter().zip(args.pieces.iter()) {
                 formatter.buf.write_str(*piece)?;
-                (arg.formatter)(arg.value, &mut formatter)?;
+                (arg.dispatch)(arg.value, arg.formatter, &mut formatter)?;
                 idx += 1;
             }
         }
@@ -1100,7 +1105,7 @@ fn run(fmt: &mut Formatter<'_>, arg: &rt::v1::Argument, args: &[ArgumentV1<'_>])
     let value = args[arg.position];
 
     // Then actually do some printing
-    (value.formatter)(value.value, fmt)
+    (value.dispatch)(value.value, value.formatter, fmt)
 }
 
 fn getcount(args: &[ArgumentV1<'_>], cnt: &rt::v1::Count) -> Option<usize> {
