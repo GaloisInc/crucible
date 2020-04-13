@@ -132,6 +132,7 @@ customOpDefs = Map.fromList $ [
                          , ptr_wrapping_offset
                          , ptr_offset_from
                          , ptr_is_null
+                         , is_aligned_and_not_null
                          , ptr_slice_from_raw_parts
                          , ptr_slice_from_raw_parts_mut
 
@@ -492,6 +493,16 @@ ptr_is_null_impl = \substs -> case substs of
 
 ptr_is_null :: (ExplodedDefId, CustomRHS)
 ptr_is_null = (["core", "ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
+
+is_aligned_and_not_null :: (ExplodedDefId, CustomRHS)
+-- Not an actual intrinsic, so it's not in an `extern` block, so it doesn't
+-- have the "" element in its path.
+is_aligned_and_not_null = (["core", "intrinsics", "is_aligned_and_not_null"],
+    -- TODO (layout): correct behavior is to return `True` for all valid
+    -- references, and check `i != 0 && i % align_of::<T>() == 0` for
+    -- `MirReference_Integer i`.  However, `align_of` is not implementable
+    -- until we start gathering layout information from mir-json.
+    \_substs -> Just $ CustomOp $ \_ _ -> return $ MirExp C.BoolRepr $ R.App $ E.BoolLit True)
 
 ptr_slice_from_raw_parts_impl :: CustomRHS
 ptr_slice_from_raw_parts_impl = \substs -> case substs of
@@ -919,7 +930,6 @@ slice_to_array = (["core","array", "slice_to_array"],
 
             _ -> mirFail $ "bad monomorphization of slice_to_array: " ++ show (fnName, fn ^. fsig, ops)
     )
-
 
 
 
