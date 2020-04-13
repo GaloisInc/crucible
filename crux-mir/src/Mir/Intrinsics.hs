@@ -808,17 +808,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
     !(BaseTypeRepr btp) ->
     !(f (UsizeArrayType btp)) ->
     MirStmt f (MirVectorType (BaseToType btp))
-  MirVector_Lookup ::
-    !(TypeRepr tp) ->
-    !(f (MirVectorType tp)) ->
-    !(f UsizeType) ->
-    MirStmt f tp
-  MirVector_Update ::
-    !(TypeRepr tp) ->
-    !(f (MirVectorType tp)) ->
-    !(f UsizeType) ->
-    !(f tp) ->
-    MirStmt f (MirVectorType tp)
 
 $(return [])
 
@@ -888,8 +877,6 @@ instance TypeApp MirStmt where
     MirVector_Uninit tp _ -> MirVectorRepr tp
     MirVector_FromVector tp _ -> MirVectorRepr tp
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
-    MirVector_Lookup tp _ _ -> tp
-    MirVector_Update tp _ _ _ -> MirVectorRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -922,8 +909,6 @@ instance PrettyApp MirStmt where
     MirVector_Uninit tp len -> "mirVector_uninit" <+> pretty tp <+> pp len
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
-    MirVector_Lookup _ v i -> "mirVector_lookup" <+> pp v <+> pp i
-    MirVector_Update _ v i x -> "mirVector_update" <+> pp v <+> pp i <+> pp x
 
 
 instance FunctorFC MirStmt where
@@ -1122,7 +1107,6 @@ execMirStmt stmt s =
   let ctx = s^.stateContext
       sym = ctx^.ctxSymInterface
       halloc = simHandleAllocator ctx
-      iTypes = ctxIntrinsicTypes ctx
   in case stmt of
        MirNewRef tp ->
          do r <- freshRefCell halloc tp
@@ -1205,20 +1189,6 @@ execMirStmt stmt s =
             return (MirVector_Vector v, s)
        MirVector_FromArray _tp (regValue -> a) ->
             return (MirVector_Array a, s)
-       MirVector_Lookup tpr (regValue -> MirVector_Vector v) (regValue -> i) -> do
-            i' <- bvToNat sym i
-            x <- indexVectorWithSymNat sym (muxRegForType sym iTypes tpr) v i'
-            return (x, s)
-       MirVector_Lookup _tp (regValue -> MirVector_Array a) (regValue -> i) -> do
-            x <- arrayLookup sym a (Empty :> i)
-            return (x, s)
-       MirVector_Update tpr (regValue -> MirVector_Vector v) (regValue -> i) (regValue -> x) -> do
-            i' <- bvToNat sym i
-            v' <- updateVectorWithSymNat sym (muxRegForType sym iTypes tpr) v i' x
-            return (MirVector_Vector v', s)
-       MirVector_Update _tp (regValue -> MirVector_Array a) (regValue -> i) (regValue -> x) -> do
-            a' <- arrayUpdate sym a (Empty :> i) x
-            return (MirVector_Array a', s)
   where
     readOnly :: SimState p sym ext rtp f a -> IO b ->
         IO (b, SimState p sym ext rtp f a)

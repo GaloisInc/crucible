@@ -641,21 +641,6 @@ mirVector_fromArray ::
     MirGenerator h s ret (R.Expr MIR s (MirVectorType (C.BaseToType btp)))
 mirVector_fromArray tpr a = G.extensionStmt $ MirVector_FromArray tpr a
 
-mirVector_lookup ::
-    C.TypeRepr tp ->
-    R.Expr MIR s (MirVectorType tp) ->
-    R.Expr MIR s UsizeType ->
-    MirGenerator h s ret (R.Expr MIR s tp)
-mirVector_lookup tpr v i = G.extensionStmt $ MirVector_Lookup tpr v i
-
-mirVector_update ::
-    C.TypeRepr tp ->
-    R.Expr MIR s (MirVectorType tp) ->
-    R.Expr MIR s UsizeType ->
-    R.Expr MIR s tp ->
-    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
-mirVector_update tpr v i x = G.extensionStmt $ MirVector_Update tpr v i x
-
 
 
 
