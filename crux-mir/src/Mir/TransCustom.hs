@@ -132,6 +132,8 @@ customOpDefs = Map.fromList $ [
                          , ptr_wrapping_offset
                          , ptr_offset_from
                          , ptr_is_null
+                         , ptr_slice_from_raw_parts
+                         , ptr_slice_from_raw_parts_mut
 
                          , ptr_read
                          , ptr_write
@@ -490,6 +492,23 @@ ptr_is_null_impl = \substs -> case substs of
 
 ptr_is_null :: (ExplodedDefId, CustomRHS)
 ptr_is_null = (["core", "ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
+
+ptr_slice_from_raw_parts_impl :: CustomRHS
+ptr_slice_from_raw_parts_impl = \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr len] ->
+            return $ MirExp (MirSliceRepr tpr) (mkSlice tpr ptr len)
+        _ -> mirFail $ "bad arguments for ptr::slice_from_raw_parts: " ++ show ops
+    _ -> Nothing
+
+ptr_slice_from_raw_parts :: (ExplodedDefId, CustomRHS)
+ptr_slice_from_raw_parts =
+    ( ["core", "ptr", "slice_from_raw_parts"]
+    , ptr_slice_from_raw_parts_impl)
+ptr_slice_from_raw_parts_mut :: (ExplodedDefId, CustomRHS)
+ptr_slice_from_raw_parts_mut =
+    ( ["core", "ptr", "slice_from_raw_parts_mut"]
+    , ptr_slice_from_raw_parts_impl)
 
 
 ptr_read :: (ExplodedDefId, CustomRHS)
