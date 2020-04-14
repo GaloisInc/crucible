@@ -744,8 +744,9 @@ slice_to_array = (["core","array", "slice_to_array"],
                 let args = Substs [TyArray ty 0]
                 MirExp C.AnyRepr <$> G.ifte lenOk
                     (do v <- vectorCopy tpr ptr len
-                        ref <- constMirRef (C.VectorRepr tpr) v
-                        let vMir = MirExp (MirReferenceRepr (C.VectorRepr tpr)) ref
+                        v' <- mirVector_fromVector tpr v
+                        ref <- constMirRef (MirVectorRepr tpr) v'
+                        let vMir = MirExp (MirReferenceRepr (MirVectorRepr tpr)) ref
                         enum <- buildEnum adt args optionDiscrSome [vMir]
                         unwrapMirExp C.AnyRepr enum)
                     (do enum <- buildEnum adt args optionDiscrNone []

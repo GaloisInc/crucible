@@ -71,7 +71,7 @@ import           Mir.DefId
 import           Mir.PP ()
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
-                    pattern RustEnumRepr)
+                    pattern RustEnumRepr, pattern MirVectorRepr, MirVector(..))
 import           Mir.DefId (cleanVariantName, parseFieldName, idText)
 import           Mir.Generator
 import           Mir.Generate (generateMIR, translateMIR)
@@ -499,12 +499,17 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
-    (TyArray ty _sz, C.VectorRepr tyr) -> do
-      -- rv is a Vector (RegValue tyr)
-      let entries = Vector.map (C.RegEntry tyr) rv
-      values <- Vector.mapM (showRegEntry col ty) entries
-      let strs = Vector.toList values
-      return $ "[" ++ List.intercalate ", " strs ++ "]"
+    (TyArray ty _sz, MirVectorRepr tyr) -> do
+      values <- case rv of
+        MirVector_Vector v -> forM (Vector.toList v) $ \val -> do
+            showRegEntry col ty $ C.RegEntry tyr val
+        MirVector_PartialVector pv -> forM (Vector.toList pv) $ \partVal -> case partVal of
+            W4.Unassigned -> return "<uninitialized>"
+            W4.PE p v | Just True <- W4.asConstantPred p ->
+                showRegEntry col ty $ C.RegEntry tyr v
+            W4.PE _ _ | otherwise -> return "<possibly uninitialized>"
+        MirVector_Array _ -> return ["<symbolic array...>"]
+      return $ "[" ++ List.intercalate ", " values ++ "]"
 
     (TyStr, C.VectorRepr tyr) -> do
       let entries = Vector.map (C.RegEntry tyr) rv

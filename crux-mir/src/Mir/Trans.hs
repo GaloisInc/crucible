@@ -184,10 +184,10 @@ transConstVal (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
             knownRepr
             (Ctx.Empty Ctx.:> ref Ctx.:> len)
     return $ MirExp (MirSliceRepr u8Repr) struct
-transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
+transConstVal (Some (MirVectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
       = do let bytes = V.fromList (map u8ToBV8 arr)
-           return $ MirExp (C.VectorRepr w) (R.App $ E.VectorLit w bytes)
+           MirExp (MirVectorRepr w) <$> mirVector_fromVector w (R.App $ E.VectorLit w bytes)
 transConstVal (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w i)
@@ -528,7 +528,8 @@ buildRepeat :: M.Operand -> M.ConstUsize -> MirGenerator h s ret (MirExp s)
 buildRepeat op size = do
     (MirExp tp e) <- evalOperand op
     let n = fromInteger size
-    return $ MirExp (C.VectorRepr tp) (S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e)
+    exp <- mirVector_fromVector tp $ S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e
+    return $ MirExp (MirVectorRepr tp) exp
 
 
 
@@ -655,12 +656,11 @@ evalCast' ck ty1 e ty2  =
       (M.Unsize,a,b) | a == b -> return e
 
       (M.Unsize, M.TyRef (M.TyArray tp sz) _, M.TyRef (M.TySlice tp') _)
-        | tp == tp', MirExp (MirReferenceRepr (C.VectorRepr elem_tp)) ref <- e
+        | tp == tp', MirExp (MirReferenceRepr (MirVectorRepr elem_tp)) ref <- e
         -> do let len   = R.App $ usizeLit (fromIntegral sz)
-              ref' <- mirRef_vectorAsMirVector elem_tp ref
-              ref'' <- subindexRef elem_tp ref' (R.App $ usizeLit 0)
+              ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0)
               let tup   = S.mkStruct (mirSliceCtxRepr elem_tp)
-                              (Ctx.Empty Ctx.:> ref'' Ctx.:> len)
+                              (Ctx.Empty Ctx.:> ref' Ctx.:> len)
               return $ MirExp (MirSliceRepr elem_tp) tup
         | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
 
@@ -867,10 +867,9 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = case ty of
     _ -> mirFail $
         "tried to get field " ++ show idx ++ " of unsupported type " ++ show ty
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta) of
-    (M.TyArray elemTy _sz, C.VectorRepr elemTpr, NoMeta) -> do
-        ref' <- mirRef_vectorAsMirVector elemTpr ref
+    (M.TyArray elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
         idx' <- getIdx idxVar
-        MirPlace elemTpr <$> subindexRef elemTpr ref' idx' <*> pure NoMeta
+        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
@@ -888,10 +887,9 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         return idx
 evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) = case (ty, tpr, meta) of
     -- TODO: should this check sz >= minLen?
-    (M.TyArray elemTy _sz, C.VectorRepr elemTpr, NoMeta) -> do
-        ref' <- mirRef_vectorAsMirVector elemTpr ref
+    (M.TyArray elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
         idx' <- getIdx idx fromEnd
-        MirPlace elemTpr <$> subindexRef elemTpr ref' idx' <*> pure NoMeta
+        MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idx fromEnd
@@ -1333,7 +1331,8 @@ initialValue (M.TyArray t size) = do
     case mv of
       Just (MirExp tp e) -> do
         let n = fromInteger (toInteger size)
-        return $ Just $ MirExp (C.VectorRepr tp) (S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e)
+        vec <- mirVector_fromVector tp $ S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e
+        return $ Just $ MirExp (MirVectorRepr tp) vec
       Nothing -> return Nothing
 -- TODO: disabled to workaround for a bug with muxing null and non-null refs
 -- The problem is with
