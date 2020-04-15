@@ -713,6 +713,15 @@ evalCast' ck ty1 e ty2  =
       (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
         -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
+      (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TyUint M.B8) m2)
+        | m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
+        -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
+
+      -- *const [u8] <-> *const str (no-ops)
+      (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
+        | m1 == m2 -> return e
+      (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
+        | m1 == m2 -> return e
 
       (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] [] _ _))
          -> do mhand <- lookupFunction defId substs
@@ -887,14 +896,18 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         CTyBox t -> return (t, M.Mut)
         _ -> mirFail $ "deref not supported on " ++ show ty
     case (ty', tpr) of
-        (M.TySlice _, MirSliceRepr tpr') -> do
-            slice <- readMirRef tpr ref
-            let ptr = getSlicePtr slice
-            let len = getSliceLen slice
-            return $ MirPlace tpr' ptr (SliceMeta len)
+        (M.TySlice _, MirSliceRepr tpr') -> doSlice tpr' ref
+        (M.TyStr, MirSliceRepr tpr') -> doSlice tpr' ref
         (_, MirReferenceRepr tpr') ->
             MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
         _ -> mirFail $ "deref not supported on " ++ show (ty, tpr)
+  where
+    doSlice tpr' ref' = do
+        slice <- readMirRef (MirSliceRepr tpr') ref'
+        let ptr = getSlicePtr slice
+        let len = getSliceLen slice
+        return $ MirPlace tpr' ptr (SliceMeta len)
+
 evalPlaceProj ty (MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = case ty of
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
