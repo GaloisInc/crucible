@@ -136,6 +136,8 @@ customOpDefs = Map.fromList $ [
                          , ptr_write
                          , ptr_swap
                          , ptr_drop_in_place
+                         , intrinsics_copy
+                         , intrinsics_copy_nonoverlapping
 
                          , exit
                          , abort
@@ -511,6 +513,64 @@ ptr_drop_in_place = ( ["core", "ptr", "drop_in_place"], \substs -> case substs o
         _ -> mirFail $ "bad arguments for ptr::drop_in_place: " ++ show ops
     _ -> Nothing)
 
+
+intrinsics_copy :: (ExplodedDefId, CustomRHS)
+intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) src,
+         MirExp (MirReferenceRepr tpr') dest,
+         MirExp UsizeRepr count]
+          | Just Refl <- testEquality tpr tpr' -> do
+            -- `copy` (as opposed to `copy_nonoverlapping`) must work
+            -- atomically even when the source and dest overlap.  We do this by
+            -- taking a snapshot of the source, then copying the snapshot into
+            -- dest.
+            (srcVec, srcIdx) <- mirRef_peelIndex tpr src
+            srcSnapVec <- readMirRef (MirVectorRepr tpr) srcVec
+            srcSnapRoot <- constMirRef (MirVectorRepr tpr) srcSnapVec
+            srcSnap <- subindexRef tpr srcSnapRoot srcIdx
+
+            ptrCopy tpr srcSnap dest count
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+
+        _ -> mirFail $ "bad arguments for intrinsics::copy: " ++ show ops
+    _ -> Nothing)
+
+intrinsics_copy_nonoverlapping :: (ExplodedDefId, CustomRHS)
+intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"],
+    \substs -> case substs of
+        Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+            [MirExp (MirReferenceRepr tpr) src,
+             MirExp (MirReferenceRepr tpr') dest,
+             MirExp UsizeRepr count]
+              | Just Refl <- testEquality tpr tpr' -> do
+                -- Assert that the two regions really are nonoverlapping.
+                maybeOffset <- mirRef_tryOffsetFrom dest src
+
+                -- `count` must not exceed isize::MAX, else the overlap check
+                -- will misbehave.
+                let sizeBits = fromIntegral $ C.intValue (C.knownNat @SizeBits)
+                let maxCount = R.App $ usizeLit (1 `shift` (sizeBits - 1))
+                let countOk = R.App $ usizeLt count maxCount
+                G.assertExpr countOk $ S.litExpr "count overflow in copy_nonoverlapping"
+
+                -- If `maybeOffset` is Nothing, then src and dest definitely
+                -- don't overlap, since they come from different allocations.
+                -- If it's Just, the value must be >= count or <= -count to put
+                -- the two regions far enough apart.
+                let count' = usizeToIsize R.App count
+                let destAbove = \offset -> R.App $ isizeLe count' offset
+                let destBelow = \offset -> R.App $ isizeLe offset (R.App $ isizeNeg count')
+                offsetOk <- G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
+                    (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
+                    (return $ R.App $ E.BoolLit True)
+                G.assertExpr offsetOk $ S.litExpr "src and dest overlap in copy_nonoverlapping"
+
+                ptrCopy tpr src dest count
+                return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+
+            _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
+        _ -> Nothing)
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul

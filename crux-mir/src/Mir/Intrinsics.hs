@@ -273,6 +273,9 @@ isizeDiv = BVSdiv knownRepr
 isizeRem :: f IsizeType -> f IsizeType -> App ext f IsizeType
 isizeRem = BVSrem knownRepr
 
+isizeNeg :: f IsizeType -> App ext f IsizeType
+isizeNeg = BVNeg knownRepr
+
 isizeAnd :: f IsizeType -> f IsizeType -> App ext f IsizeType
 isizeAnd = BVAnd knownRepr
 
