@@ -1,4 +1,3 @@
-// FAIL: function pointers in consts are not handled by mir-json
 #![cfg_attr(not(with_main), no_std)]
 
 fn f() -> i32 { 1 }
