@@ -3,7 +3,9 @@
 /// Dynamically-typed wrapper, corresponding to Crucible's `AnyType`.
 #[unstable(feature = "crucible_intrinsics", issue = "none")]
 #[derive(Clone, Copy, Debug)]
-pub struct Any(());
+// `Any` must not be zero-sized: rustc assumes zero-sized types contain no information, and
+// generates fresh constants instead of copies anywhere they're used.
+pub struct Any(u8);
 
 impl Any {
     /// Wrap an arbitrary value in `Any`.

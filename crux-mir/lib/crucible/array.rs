@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use crate::symbolic::Symbolic;
 
 #[derive(Copy)]
-pub struct Array<T>(PhantomData<T>);
+pub struct Array<T>(u8, PhantomData<T>);
 
 // NB: `T: Copy`, not `T: Clone`.  We can't clone all the array elements (like `Vec<T>` does)
 // because we don't know which indices are populated.  All we can do is copy the whole array, which

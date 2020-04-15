@@ -5,7 +5,7 @@ use core::ops::{Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
 use core::cmp::{Ord, PartialOrd, Ordering};
 
 #[derive(Copy)]
-pub struct Int512 {}
+pub struct Int512 { _dummy: u8 }
 
 pub fn clone(_i: &Int512) -> Int512 { unimplemented!() }
 impl Clone for Int512 {

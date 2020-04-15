@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 
 
 #[derive(Copy)]
-pub struct Vector<T>(PhantomData<T>);
+pub struct Vector<T>(u8, PhantomData<T>);
 
 impl<T: Clone> Clone for Vector<T> {
     fn clone(&self) -> Self {
