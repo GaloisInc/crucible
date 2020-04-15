@@ -144,6 +144,7 @@ customOpDefs = Map.fromList $ [
                          , panicking_panic_fmt
 
                          , allocate
+                         , reallocate
 
 
                          , integer_from_u8
@@ -1159,6 +1160,24 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
             return $ MirExp (MirReferenceRepr tpr) ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
+    _ -> Nothing)
+
+-- fn reallocate<T>(ptr: *mut T, new_len: usize)
+reallocate :: (ExplodedDefId, CustomRHS)
+reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr newLen ] -> do
+            (vecPtr, idx) <- mirRef_peelIndex tpr ptr
+
+            let isZero = R.App $ usizeEq idx $ R.App $ usizeLit 0
+            G.assertExpr isZero $
+                S.litExpr "bad pointer in reallocate: not the start of an allocation"
+
+            oldVec <- readMirRef (MirVectorRepr tpr) vecPtr
+            newVec <- mirVector_resize tpr oldVec newLen
+            writeMirRef vecPtr newVec
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
 
 -- No `deallocate` for now - we'd need some extra MirRef ops to implement that

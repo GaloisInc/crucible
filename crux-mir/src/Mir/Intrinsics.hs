@@ -96,7 +96,8 @@ import           Lang.Crucible.Simulator.SimError
 
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
-import           What4.Partial (pattern Unassigned, maybePartExpr, justPartExpr, mergePartial, mkPE)
+import           What4.Partial
+    (pattern Unassigned, maybePartExpr, justPartExpr, joinMaybePE, mergePartial, mkPE)
 import           What4.Utils.MonadST
 
 import           Mir.DefId
@@ -824,6 +825,11 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
     !(BaseTypeRepr btp) ->
     !(f (UsizeArrayType btp)) ->
     MirStmt f (MirVectorType (BaseToType btp))
+  MirVector_Resize ::
+    !(TypeRepr tp) ->
+    !(f (MirVectorType tp)) ->
+    !(f UsizeType) ->
+    MirStmt f (MirVectorType tp)
 
 $(return [])
 
@@ -895,6 +901,7 @@ instance TypeApp MirStmt where
     MirVector_Uninit tp _ -> MirVectorRepr tp
     MirVector_FromVector tp _ -> MirVectorRepr tp
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
+    MirVector_Resize tp _ _ -> MirVectorRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -929,6 +936,7 @@ instance PrettyApp MirStmt where
     MirVector_Uninit tp len -> "mirVector_uninit" <+> pretty tp <+> pp len
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
+    MirVector_Resize _ v i -> "mirVector_resize" <+> pp v <+> pp i
 
 
 instance FunctorFC MirStmt where
@@ -1284,6 +1292,18 @@ execMirStmt stmt s =
             return (MirVector_Vector v, s)
        MirVector_FromArray _tp (regValue -> a) ->
             return (MirVector_Array a, s)
+       MirVector_Resize _tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
+            newLen <- case asUnsignedBV newLenSym of
+                Just x -> return x
+                Nothing -> addFailedAssertion sym $ Unsupported $
+                    "Attempted to resize vector to symbolic length"
+            get <- case mirVec of
+                MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
+                MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
+                MirVector_Array _ -> addFailedAssertion sym $ Unsupported $
+                    "Attempted to resize MirVector backed by symbolic array"
+            let pv' = V.generate (fromInteger newLen) get
+            return (MirVector_PartialVector pv', s)
   where
     readOnly :: SimState p sym ext rtp f a -> IO b ->
         IO (b, SimState p sym ext rtp f a)
