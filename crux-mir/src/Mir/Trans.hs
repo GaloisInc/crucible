@@ -33,7 +33,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , writeMirRef
                 , subindexRef
                 , evalBinOp
-                , vectorCopy
+                , vectorCopy, ptrCopy
                 , evalRval
                 , callExp
                 , derefExp, readPlace
@@ -2180,6 +2180,25 @@ vectorCopy tpr ptr0 len = do
     G.jumpToLambda c_id out
   G.continueLambda c_id (G.branch cond x_id y_id)
 
+ptrCopy ::
+    C.TypeRepr tp ->
+    G.Expr MIR s (MirReferenceType tp) ->
+    G.Expr MIR s (MirReferenceType tp) ->
+    G.Expr MIR s UsizeType ->
+    MirGenerator h s ret ()
+ptrCopy tpr src dest len = do
+    iRef <- G.newRef $ S.app $ usizeLit 0
+    let pos = PL.InternalPos
+    G.while (pos, do i <- G.readRef iRef
+                     return (G.App $ usizeLt i len))
+            (pos, do i <- G.readRef iRef
+                     src' <- mirRef_offset tpr src i
+                     dest' <- mirRef_offset tpr dest i
+                     val <- readMirRef tpr src'
+                     writeMirRef dest' val
+                     let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
+                     G.writeRef iRef i')
+    G.dropRef iRef
 
 
 --  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
