@@ -3,21 +3,21 @@ test bytes/3a1fbbbh::f[0]: FAILED
 failures:
 
 ---- bytes/3a1fbbbh::f[0] counterexamples ----
-Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:86:7:
+Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
-Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:86:7:
+in bytes/3a1fbbbh::f[0] at /home/stuart/work/mir-verifier/lib/crucible/lib.rs:39:41
+Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
-Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:86:7:
+in bytes/3a1fbbbh::f[0] at /home/stuart/work/mir-verifier/lib/crucible/lib.rs:39:41
+Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
-Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:86:7:
+in bytes/3a1fbbbh::f[0] at /home/stuart/work/mir-verifier/lib/crucible/lib.rs:39:41
+Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
-Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:86:7:
+in bytes/3a1fbbbh::f[0] at /home/stuart/work/mir-verifier/lib/crucible/lib.rs:39:41
+Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at <::crucible::crucible_assert macros>:2:42: 2:62
+in bytes/3a1fbbbh::f[0] at /home/stuart/work/mir-verifier/lib/crucible/lib.rs:39:41
 
 [Crux] Goal status:
 [Crux]   Total: 5

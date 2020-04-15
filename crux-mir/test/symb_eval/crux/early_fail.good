@@ -5,12 +5,12 @@ failures:
 
 ---- early_fail/3a1fbbbh::fail1[0] counterexamples ----
 Failure for panicking::begin_panic, called from early_fail/3a1fbbbh::fail1[0]
-in early_fail/3a1fbbbh::fail1[0] at <::std::macros::panic macros>:4:15: 4:70
+in early_fail/3a1fbbbh::fail1[0] at internal
 
 ---- early_fail/3a1fbbbh::fail2[0] counterexamples ----
-Failure for MIR assertion at test/symb_eval/crux/early_fail.rs:18:5:
+Failure for MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
 	x == 0
-in early_fail/3a1fbbbh::fail2[0] at <::crucible::crucible_assert macros>:2:42: 2:62
+in early_fail/3a1fbbbh::fail2[0] at /home/stuart/work/mir-verifier/lib/crucible/lib.rs:39:41
 
 [Crux] Goal status:
 [Crux]   Total: 2

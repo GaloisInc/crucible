@@ -5,11 +5,11 @@ failures:
 
 ---- fail_return/3a1fbbbh::fail1[0] counterexamples ----
 Failure for attempt to add with overflow
-in fail_return/3a1fbbbh::fail1[0] at test/symb_eval/crux/fail_return.rs:9:22
+in fail_return/3a1fbbbh::fail1[0] at test/symb_eval/crux/fail_return.rs:8:22
 
 ---- fail_return/3a1fbbbh::fail2[0] counterexamples ----
 Failure for attempt to add with overflow
-in fail_return/3a1fbbbh::fail2[0] at test/symb_eval/crux/fail_return.rs:16:22
+in fail_return/3a1fbbbh::fail2[0] at test/symb_eval/crux/fail_return.rs:15:22
 
 [Crux] Goal status:
 [Crux]   Total: 4
