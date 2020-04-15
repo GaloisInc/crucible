@@ -1111,19 +1111,11 @@ mirRef_eqIO sym _ _ =
 
 mirRef_offsetIO :: IsSymInterface sym => sym ->
     TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType -> IO (MirReference sym tp)
-mirRef_offsetIO sym _tpr (MirReference root (Index_RefPath tpr path idx)) offset = do
-    idx' <- bvAdd sym idx offset
-    -- TODO: `offset` has a number of preconditions that we should check here:
-    -- * addition must not overflow
-    -- * resulting pointer must be in-bounds for the allocation
-    -- * total offset in bytes must not exceed isize::MAX
-    return $ MirReference root $ Index_RefPath tpr path idx'
-mirRef_offsetIO sym _ (MirReference _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
-        "pointer arithmetic outside arrays is not yet implemented"
-mirRef_offsetIO sym _ (MirReference_Integer _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
-        "cannot perform pointer arithmetic on invalid pointer"
+-- TODO: `offset` has a number of preconditions that we should check here:
+-- * addition must not overflow
+-- * resulting pointer must be in-bounds for the allocation
+-- * total offset in bytes must not exceed isize::MAX
+mirRef_offsetIO = mirRef_offsetWrapIO
 
 mirRef_offsetWrapIO :: IsSymInterface sym => sym ->
     TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType -> IO (MirReference sym tp)
@@ -1131,12 +1123,18 @@ mirRef_offsetWrapIO sym _tpr (MirReference root (Index_RefPath tpr path idx)) of
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     idx' <- bvAdd sym idx offset
     return $ MirReference root $ Index_RefPath tpr path idx'
-mirRef_offsetWrapIO sym _ (MirReference _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
+mirRef_offsetWrapIO sym _ ref@(MirReference _ _) offset = do
+    isZero <- bvEq sym offset =<< bvLit sym knownNat 0
+    assert sym isZero $ Unsupported $
         "pointer arithmetic outside arrays is not yet implemented"
-mirRef_offsetWrapIO sym _ (MirReference_Integer _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
+    return ref
+mirRef_offsetWrapIO sym _ ref@(MirReference_Integer _ _) offset = do
+    -- Offsetting by zero is a no-op, and is always allowed, even on invalid
+    -- pointers.  In particular, this permits `(&[])[0..]`.
+    isZero <- bvEq sym offset =<< bvLit sym knownNat 0
+    assert sym isZero $ Unsupported $
         "cannot perform pointer arithmetic on invalid pointer"
+    return ref
 
 
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
