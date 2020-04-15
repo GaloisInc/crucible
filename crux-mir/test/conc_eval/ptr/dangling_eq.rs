@@ -1,4 +1,3 @@
-// FAIL: core::intrinsics::min_align_of not yet implemented
 #![feature(custom_attribute)]
 use std::ptr;
 

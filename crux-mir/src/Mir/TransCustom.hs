@@ -100,6 +100,7 @@ customOpDefs = Map.fromList $ [
                          , saturating_sub
                          , ctlz
                          , ctlz_nonzero
+                         , min_align_of
 
                          , mem_crucible_identity_transmute
                          , slice_to_array
@@ -844,7 +845,6 @@ ctlz_nonzero =
     ( ["core","intrinsics", "", "ctlz_nonzero"]
     , ctlz_impl "ctlz_nonzero" Nothing )
 
-
 ---------------------------------------------------------------------------------------
 -- ** Custom ::intrinsics::discriminant_value
 
@@ -865,6 +865,13 @@ type_id = (["core","intrinsics", "", "type_id"],
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
     -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
     return $ MirExp knownRepr $ R.App (E.BVLit (knownRepr :: NatRepr 64) 0))
+
+min_align_of :: (ExplodedDefId, CustomRHS)
+min_align_of = (["core", "intrinsics", "", "min_align_of"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ _ ->
+        -- TODO: return the actual alignment, once mir-json exports size/layout info
+        return $ MirExp UsizeRepr $ R.App $ usizeLit 1
+    )
 
 -- mem::swap is used pervasively (both directly and via mem::replace), but it
 -- has a nasty unsafe implementation, with lots of raw pointers and
