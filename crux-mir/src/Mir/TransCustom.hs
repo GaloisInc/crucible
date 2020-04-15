@@ -106,7 +106,7 @@ customOpDefs = Map.fromList $ [
                          , intrinsics_assume
 
                          , mem_crucible_identity_transmute
-                         , slice_to_array
+                         , array_from_slice
 
                          , box_new
 
@@ -925,8 +925,8 @@ intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
     )
 
-slice_to_array ::  (ExplodedDefId, CustomRHS)
-slice_to_array = (["core","array", "slice_to_array"],
+array_from_slice ::  (ExplodedDefId, CustomRHS)
+array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_from_slice_hook"],
     \substs -> Just $ CustomOpNamed $ \fnName ops -> do
         fn <- findFn fnName
         case (fn ^. fsig . fsreturn_ty, ops) of
@@ -955,7 +955,8 @@ slice_to_array = (["core","array", "slice_to_array"],
                     (do enum <- buildEnum adt args optionDiscrNone []
                         unwrapMirExp C.AnyRepr enum)
 
-            _ -> mirFail $ "bad monomorphization of slice_to_array: " ++ show (fnName, fn ^. fsig, ops)
+            _ -> mirFail $ "bad monomorphization of crucible_array_from_slice_hook: " ++
+                show (fnName, fn ^. fsig, ops)
     )
 
 

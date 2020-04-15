@@ -154,13 +154,20 @@ where
     type Error = TryFromSliceError;
 
     fn try_from(slice: &[T]) -> Result<&[T; N], TryFromSliceError> {
-        if slice.len() == N {
-            let ptr = slice.as_ptr() as *const [T; N];
-            // SAFETY: ok because we just checked that the length fits
-            unsafe { Ok(&*ptr) }
-        } else {
-            Err(TryFromSliceError(()))
+        fn crucible_array_from_slice_hook<T, const N: usize>(
+            slice: &[T],
+            len: usize,
+        ) -> Option<&[T; N]> {
+            if slice.len() == N {
+                let ptr = slice.as_ptr() as *const [T; N];
+                // SAFETY: ok because we just checked that the length fits
+                unsafe { Some(&*ptr) }
+            } else {
+                None
+            }
         }
+        crucible_array_from_slice_hook(slice, N)
+            .ok_or(TryFromSliceError(()))
     }
 }
 
@@ -172,6 +179,7 @@ where
     type Error = TryFromSliceError;
 
     fn try_from(slice: &mut [T]) -> Result<&mut [T; N], TryFromSliceError> {
+        // Mut version is not supported by crucible - see comment in TransCustom.array_from_slice
         if slice.len() == N {
             let ptr = slice.as_mut_ptr() as *mut [T; N];
             // SAFETY: ok because we just checked that the length fits
