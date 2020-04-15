@@ -741,6 +741,16 @@ saturateValueUnsigned w Sub = Just $ R.App $ E.BVLit w 0
 saturateValueUnsigned w Mul = Just $ R.App $ E.BVLit w (shift 1 (fromInteger $ C.intValue w) - 1)
 saturateValueUnsigned w _ = Nothing
 
+saturateValueSigned :: (1 <= w) => NatRepr w -> BinOp -> R.Expr MIR s C.BoolType -> Maybe (R.Expr MIR s (C.BVType w))
+saturateValueSigned w op pos = case op of
+    Add -> Just $ R.App $ E.BVIte pos w maxVal minVal
+    Sub -> Just $ R.App $ E.BVIte pos w minVal maxVal
+    _ -> Nothing
+  where
+    bits = fromIntegral $ C.intValue w
+    maxVal = R.App $ E.BVLit w ((1 `shift` (bits - 1)) - 1)
+    minVal = R.App $ E.BVLit w (negate $ 1 `shift` (bits - 1))
+
 makeSaturatingArith :: String -> BinOp -> CustomRHS
 makeSaturatingArith name bop =
     \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
@@ -750,12 +760,27 @@ makeSaturatingArith name bop =
                 MirExp (C.BVRepr w) result' -> do
                     satValue <- case saturateValueUnsigned w bop of
                         Just x -> return x
-                        Nothing -> mirFail $ "not yet implemented: saturating " ++ show bop
+                        Nothing -> mirFail $ "not yet implemented: unsigned saturating " ++ show bop
                     saturatingResultBV w satValue result' overflow
                 MirExp tpr _ -> mirFail $
                     "bad return values from evalBinOp " ++ show bop ++ ": " ++ show tpr
-        -- TODO: implement for signed ints
+        ([TyInt _, TyInt _], [e1, e2]) -> do
+            (result, overflow) <- evalBinOp bop (Just Signed) e1 e2
+            pos <- isPos e2
+            case result of
+                MirExp (C.BVRepr w) result' -> do
+                    satValue <- case saturateValueSigned w bop pos of
+                        Just x -> return x
+                        Nothing -> mirFail $ "not yet implemented: signed saturating " ++ show bop
+                    saturatingResultBV w satValue result' overflow
+                MirExp tpr _ -> mirFail $
+                    "bad return values from evalBinOp " ++ show bop ++ ": " ++ show tpr
         _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
+  where
+    isPos :: MirExp s -> MirGenerator h s ret (R.Expr MIR s C.BoolType)
+    isPos (MirExp (C.BVRepr w) e) = return $ R.App $ E.BVSle w (R.App $ E.BVLit w 0) e
+    isPos (MirExp tpr _) = mirFail $ name ++ ": expected BVRepr, but got " ++ show tpr
+
 
 saturating_add ::  (ExplodedDefId, CustomRHS)
 saturating_add =
