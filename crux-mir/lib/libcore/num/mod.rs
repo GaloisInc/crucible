@@ -4216,7 +4216,24 @@ fn read_be_", stringify!($SelfT), "(input: &mut &[u8]) -> ", stringify!($SelfT),
             #[rustc_const_stable(feature = "const_int_conversion", since = "1.44.0")]
             #[inline]
             pub const fn from_be_bytes(bytes: [u8; mem::size_of::<Self>()]) -> Self {
-                Self::from_be(Self::from_ne_bytes(bytes))
+                let mut x = 0;
+                x |= (bytes[15 % ($BITS / 8)] as Self) << (  0 % $BITS);
+                x |= (bytes[14 % ($BITS / 8)] as Self) << (  8 % $BITS);
+                x |= (bytes[13 % ($BITS / 8)] as Self) << ( 16 % $BITS);
+                x |= (bytes[12 % ($BITS / 8)] as Self) << ( 24 % $BITS);
+                x |= (bytes[11 % ($BITS / 8)] as Self) << ( 32 % $BITS);
+                x |= (bytes[10 % ($BITS / 8)] as Self) << ( 40 % $BITS);
+                x |= (bytes[ 9 % ($BITS / 8)] as Self) << ( 48 % $BITS);
+                x |= (bytes[ 8 % ($BITS / 8)] as Self) << ( 56 % $BITS);
+                x |= (bytes[ 7 % ($BITS / 8)] as Self) << ( 64 % $BITS);
+                x |= (bytes[ 6 % ($BITS / 8)] as Self) << ( 72 % $BITS);
+                x |= (bytes[ 5 % ($BITS / 8)] as Self) << ( 80 % $BITS);
+                x |= (bytes[ 4 % ($BITS / 8)] as Self) << ( 88 % $BITS);
+                x |= (bytes[ 3 % ($BITS / 8)] as Self) << ( 96 % $BITS);
+                x |= (bytes[ 2 % ($BITS / 8)] as Self) << (104 % $BITS);
+                x |= (bytes[ 1 % ($BITS / 8)] as Self) << (112 % $BITS);
+                x |= (bytes[ 0 % ($BITS / 8)] as Self) << (120 % $BITS);
+                x
             }
         }
 
@@ -4249,7 +4266,24 @@ fn read_le_", stringify!($SelfT), "(input: &mut &[u8]) -> ", stringify!($SelfT),
             #[rustc_const_stable(feature = "const_int_conversion", since = "1.44.0")]
             #[inline]
             pub const fn from_le_bytes(bytes: [u8; mem::size_of::<Self>()]) -> Self {
-                Self::from_le(Self::from_ne_bytes(bytes))
+                let mut x = 0;
+                x |= (bytes[ 0 % ($BITS / 8)] as Self) << (  0 % $BITS);
+                x |= (bytes[ 1 % ($BITS / 8)] as Self) << (  8 % $BITS);
+                x |= (bytes[ 2 % ($BITS / 8)] as Self) << ( 16 % $BITS);
+                x |= (bytes[ 3 % ($BITS / 8)] as Self) << ( 24 % $BITS);
+                x |= (bytes[ 4 % ($BITS / 8)] as Self) << ( 32 % $BITS);
+                x |= (bytes[ 5 % ($BITS / 8)] as Self) << ( 40 % $BITS);
+                x |= (bytes[ 6 % ($BITS / 8)] as Self) << ( 48 % $BITS);
+                x |= (bytes[ 7 % ($BITS / 8)] as Self) << ( 56 % $BITS);
+                x |= (bytes[ 8 % ($BITS / 8)] as Self) << ( 64 % $BITS);
+                x |= (bytes[ 9 % ($BITS / 8)] as Self) << ( 72 % $BITS);
+                x |= (bytes[10 % ($BITS / 8)] as Self) << ( 80 % $BITS);
+                x |= (bytes[11 % ($BITS / 8)] as Self) << ( 88 % $BITS);
+                x |= (bytes[12 % ($BITS / 8)] as Self) << ( 96 % $BITS);
+                x |= (bytes[13 % ($BITS / 8)] as Self) << (104 % $BITS);
+                x |= (bytes[14 % ($BITS / 8)] as Self) << (112 % $BITS);
+                x |= (bytes[15 % ($BITS / 8)] as Self) << (120 % $BITS);
+                x
             }
         }
 
