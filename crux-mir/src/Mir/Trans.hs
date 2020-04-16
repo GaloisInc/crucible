@@ -45,6 +45,7 @@ import Control.Monad.ST
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
 
+import Data.Bits (shift)
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import qualified Data.List as List
@@ -163,6 +164,13 @@ u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
 --
 
 transConstVal :: HasCallStack => M.Ty -> Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
+transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.ConstStruct []]) = do
+    val <- case M.fromIntegerLit i of
+        0 -> return 0   -- Bv::ZERO
+        1 -> return 1   -- Bv::ONE
+        2 -> return $ (1 `shift` fromIntegral (intValue w)) - 1    -- Bv::MAX
+        i' -> mirFail $ "unknown bitvector constant " ++ show i'
+    return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w val)
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstInt i) =
     return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w (fromInteger (M.fromIntegerLit i)))
 transConstVal _ty (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
