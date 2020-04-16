@@ -565,6 +565,14 @@ mirRef_tryOffsetFrom ::
   MirGenerator h s ret (R.Expr MIR s (C.MaybeType IsizeType))
 mirRef_tryOffsetFrom r1 r2 = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2
 
+mirRef_peelIndex ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType tp)), R.Expr MIR s UsizeType)
+mirRef_peelIndex tpr ref = do
+    pair <- G.extensionStmt $ MirRef_PeelIndex tpr ref
+    return (S.getStruct i1of2 pair, S.getStruct i2of2 pair)
+
 -----------------------------------------------------------------------
 
 

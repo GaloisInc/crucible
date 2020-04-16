@@ -763,6 +763,14 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f (MirReferenceType tp)) ->
      !(f (MirReferenceType tp)) ->
      MirStmt f (MaybeType IsizeType)
+  -- | Peel off an outermost `Index_RefPath`.  Given a pointer to an element of
+  -- a vector, this produces a pointer to the parent vector and the index of
+  -- the element.  If the outermost path segment isn't `Index_RefPath`, this
+  -- operation raises an error.
+  MirRef_PeelIndex ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType tp)) ->
+     MirStmt f (StructType (EmptyCtx ::> MirReferenceType (MirVectorType tp) ::> UsizeType))
   VectorSnoc ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -874,6 +882,7 @@ instance TypeApp MirStmt where
     MirRef_Offset tp _ _ -> MirReferenceRepr tp
     MirRef_OffsetWrap tp _ _ -> MirReferenceRepr tp
     MirRef_TryOffsetFrom _ _ -> MaybeRepr IsizeRepr
+    MirRef_PeelIndex tp _ -> StructRepr (Empty :> MirReferenceRepr (MirVectorRepr tp) :> UsizeRepr)
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -907,6 +916,7 @@ instance PrettyApp MirStmt where
     MirRef_Offset _ p o -> "mirRef_offset" <+> pp p <+> pp o
     MirRef_OffsetWrap _ p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
     MirRef_TryOffsetFrom p o -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o
+    MirRef_PeelIndex _ p -> "mirRef_peelIndex" <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -1170,6 +1180,18 @@ mirRef_tryOffsetFromIO _ _ _ = do
     -- you can do with a MirReference_Integer anyway without causing a crash.
     return Unassigned
 
+mirRef_peelIndexIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym tp ->
+    IO (RegValue sym (StructType (EmptyCtx ::> MirReferenceType (MirVectorType tp) ::> UsizeType)))
+mirRef_peelIndexIO _sym _tpr (MirReference root (Index_RefPath _tpr' path idx)) = do
+    return $ Empty :> RV (MirReference root path) :> RV idx
+mirRef_peelIndexIO sym _ (MirReference _ _) =
+    addFailedAssertion sym $ Unsupported $
+        "peelIndex is not yet implemented for this RefPath kind"
+mirRef_peelIndexIO sym _ _ = do
+    addFailedAssertion sym $ Unsupported $
+        "cannot perform peelIndex on invalid pointer"
+
 
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s =
@@ -1219,6 +1241,8 @@ execMirStmt stmt s =
          readOnly s $ mirRef_offsetWrapIO sym tpr ref off
        MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_tryOffsetFromIO sym r1 r2
+       MirRef_PeelIndex tpr (regValue -> ref) ->
+         readOnly s $ mirRef_peelIndexIO sym tpr ref
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
