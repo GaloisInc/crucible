@@ -925,139 +925,20 @@ where
     }
 }
 
-/// This merge sort borrows some (but not all) ideas from TimSort, which is described in detail
-/// [here](http://svn.python.org/projects/python/trunk/Objects/listsort.txt).
-///
-/// The algorithm identifies strictly descending and non-descending subsequences, which are called
-/// natural runs. There is a stack of pending runs yet to be merged. Each newly found run is pushed
-/// onto the stack, and then some pairs of adjacent runs are merged until these two invariants are
-/// satisfied:
-///
-/// 1. for every `i` in `1..runs.len()`: `runs[i - 1].len > runs[i].len`
-/// 2. for every `i` in `2..runs.len()`: `runs[i - 2].len > runs[i - 1].len + runs[i].len`
-///
-/// The invariants ensure that the total running time is `O(n log n)` worst-case.
+// Crux: replace merge sort implementation with a simple selection sort.  Parts of the original
+// sort implementation rely on `impl Drop`, which we don't support.
 fn merge_sort<T, F>(v: &mut [T], mut is_less: F)
 where
     F: FnMut(&T, &T) -> bool,
 {
-    // Slices of up to this length get sorted using insertion sort.
-    const MAX_INSERTION: usize = 20;
-    // Very short runs are extended using insertion sort to span at least this many elements.
-    const MIN_RUN: usize = 10;
 
-    // Sorting has no meaningful behavior on zero-sized types.
-    if size_of::<T>() == 0 {
-        return;
-    }
-
-    let len = v.len();
-
-    // Short arrays get sorted in-place via insertion sort to avoid allocations.
-    if len <= MAX_INSERTION {
-        if len >= 2 {
-            for i in (0..len - 1).rev() {
-                insert_head(&mut v[i..], &mut is_less);
+    for i in 0 .. v.len() {
+        let mut best_idx = i;
+        for j in i + 1 .. v.len() {
+            if is_less(&v[j], &v[best_idx]) {
+                best_idx = j;
             }
         }
-        return;
-    }
-
-    // Allocate a buffer to use as scratch memory. We keep the length 0 so we can keep in it
-    // shallow copies of the contents of `v` without risking the dtors running on copies if
-    // `is_less` panics. When merging two sorted runs, this buffer holds a copy of the shorter run,
-    // which will always have length at most `len / 2`.
-    let mut buf = Vec::with_capacity(len / 2);
-
-    // In order to identify natural runs in `v`, we traverse it backwards. That might seem like a
-    // strange decision, but consider the fact that merges more often go in the opposite direction
-    // (forwards). According to benchmarks, merging forwards is slightly faster than merging
-    // backwards. To conclude, identifying runs by traversing backwards improves performance.
-    let mut runs = vec![];
-    let mut end = len;
-    while end > 0 {
-        // Find the next natural run, and reverse it if it's strictly descending.
-        let mut start = end - 1;
-        if start > 0 {
-            start -= 1;
-            unsafe {
-                if is_less(v.get_unchecked(start + 1), v.get_unchecked(start)) {
-                    while start > 0 && is_less(v.get_unchecked(start), v.get_unchecked(start - 1)) {
-                        start -= 1;
-                    }
-                    v[start..end].reverse();
-                } else {
-                    while start > 0 && !is_less(v.get_unchecked(start), v.get_unchecked(start - 1))
-                    {
-                        start -= 1;
-                    }
-                }
-            }
-        }
-
-        // Insert some more elements into the run if it's too short. Insertion sort is faster than
-        // merge sort on short sequences, so this significantly improves performance.
-        while start > 0 && end - start < MIN_RUN {
-            start -= 1;
-            insert_head(&mut v[start..end], &mut is_less);
-        }
-
-        // Push this run onto the stack.
-        runs.push(Run { start, len: end - start });
-        end = start;
-
-        // Merge some pairs of adjacent runs to satisfy the invariants.
-        while let Some(r) = collapse(&runs) {
-            let left = runs[r + 1];
-            let right = runs[r];
-            unsafe {
-                merge(
-                    &mut v[left.start..right.start + right.len],
-                    left.len,
-                    buf.as_mut_ptr(),
-                    &mut is_less,
-                );
-            }
-            runs[r] = Run { start: left.start, len: left.len + right.len };
-            runs.remove(r + 1);
-        }
-    }
-
-    // Finally, exactly one run must remain in the stack.
-    debug_assert!(runs.len() == 1 && runs[0].start == 0 && runs[0].len == len);
-
-    // Examines the stack of runs and identifies the next pair of runs to merge. More specifically,
-    // if `Some(r)` is returned, that means `runs[r]` and `runs[r + 1]` must be merged next. If the
-    // algorithm should continue building a new run instead, `None` is returned.
-    //
-    // TimSort is infamous for its buggy implementations, as described here:
-    // http://envisage-project.eu/timsort-specification-and-verification/
-    //
-    // The gist of the story is: we must enforce the invariants on the top four runs on the stack.
-    // Enforcing them on just top three is not sufficient to ensure that the invariants will still
-    // hold for *all* runs in the stack.
-    //
-    // This function correctly checks invariants for the top four runs. Additionally, if the top
-    // run starts at index 0, it will always demand a merge operation until the stack is fully
-    // collapsed, in order to complete the sort.
-    #[inline]
-    fn collapse(runs: &[Run]) -> Option<usize> {
-        let n = runs.len();
-        if n >= 2
-            && (runs[n - 1].start == 0
-                || runs[n - 2].len <= runs[n - 1].len
-                || (n >= 3 && runs[n - 3].len <= runs[n - 2].len + runs[n - 1].len)
-                || (n >= 4 && runs[n - 4].len <= runs[n - 3].len + runs[n - 2].len))
-        {
-            if n >= 3 && runs[n - 3].len < runs[n - 1].len { Some(n - 3) } else { Some(n - 2) }
-        } else {
-            None
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    struct Run {
-        start: usize,
-        len: usize,
+        v.swap(i, best_idx);
     }
 }
