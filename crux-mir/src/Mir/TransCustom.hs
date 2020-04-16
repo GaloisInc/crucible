@@ -132,6 +132,11 @@ customOpDefs = Map.fromList $ [
                          , ptr_wrapping_offset
                          , ptr_offset_from
 
+                         , ptr_read
+                         , ptr_write
+                         , ptr_swap
+                         , ptr_drop_in_place
+
                          , exit
                          , abort
                          , panicking_begin_panic
@@ -462,12 +467,55 @@ ptr_offset_from_impl = \substs -> case substs of
 ptr_offset_from :: (ExplodedDefId, CustomRHS)
 ptr_offset_from = (["core", "ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
 
+
+ptr_read :: (ExplodedDefId, CustomRHS)
+ptr_read = ( ["core", "ptr", "read"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr] ->
+            MirExp tpr <$> readMirRef tpr ptr
+        _ -> mirFail $ "bad arguments for ptr::read: " ++ show ops
+    _ -> Nothing)
+
+ptr_write :: (ExplodedDefId, CustomRHS)
+ptr_write = ( ["core", "ptr", "write"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr, MirExp tpr' val]
+          | Just Refl <- testEquality tpr tpr' -> do
+            writeMirRef ptr val
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments for ptr::write: " ++ show ops
+    _ -> Nothing)
+
+ptr_swap :: (ExplodedDefId, CustomRHS)
+ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr1, MirExp (MirReferenceRepr tpr') ptr2]
+          | Just Refl <- testEquality tpr tpr' -> do
+            x1 <- readMirRef tpr ptr1
+            x2 <- readMirRef tpr ptr2
+            writeMirRef ptr1 x2
+            writeMirRef ptr2 x1
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
+    _ -> Nothing)
+
+ptr_drop_in_place :: (ExplodedDefId, CustomRHS)
+ptr_drop_in_place = ( ["core", "ptr", "drop_in_place"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr _tpr) _ptr] ->
+            -- We don't implement drops, so this is currently a no-op
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        [MirExp (MirSliceRepr _tpr) _ptr] ->
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments for ptr::drop_in_place: " ++ show ops
+    _ -> Nothing)
+
+
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul
 
 
 -- ** Custom: wrapping_sub
-
 
 data ArithOp f tp = ArithOp
     { aoPerform :: f tp -> f tp -> E.App MIR f tp
