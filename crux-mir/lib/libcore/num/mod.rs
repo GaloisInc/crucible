@@ -2157,7 +2157,24 @@ assert_eq!(bytes, ", $be_bytes, ");
             #[rustc_const_stable(feature = "const_int_conversion", since = "1.44.0")]
             #[inline]
             pub const fn to_be_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                self.to_be().to_ne_bytes()
+                let mut buf = [0; $BITS / 8];
+                buf[15 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
+                buf[14 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
+                buf[13 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
+                buf[12 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
+                buf[11 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
+                buf[10 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
+                buf[ 9 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
+                buf[ 8 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
+                buf[ 7 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
+                buf[ 6 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
+                buf[ 5 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
+                buf[ 4 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
+                buf[ 3 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
+                buf[ 2 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
+                buf[ 1 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
+                buf[ 0 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
+                buf
             }
         }
 
@@ -2177,7 +2194,24 @@ assert_eq!(bytes, ", $le_bytes, ");
             #[rustc_const_stable(feature = "const_int_conversion", since = "1.44.0")]
             #[inline]
             pub const fn to_le_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                self.to_le().to_ne_bytes()
+                let mut buf = [0; $BITS / 8];
+                buf[ 0 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
+                buf[ 1 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
+                buf[ 2 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
+                buf[ 3 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
+                buf[ 4 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
+                buf[ 5 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
+                buf[ 6 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
+                buf[ 7 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
+                buf[ 8 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
+                buf[ 9 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
+                buf[10 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
+                buf[11 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
+                buf[12 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
+                buf[13 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
+                buf[14 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
+                buf[15 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
+                buf
             }
         }
 
@@ -4119,7 +4153,24 @@ assert_eq!(bytes, ", $be_bytes, ");
             #[rustc_const_stable(feature = "const_int_conversion", since = "1.44.0")]
             #[inline]
             pub const fn to_be_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                self.to_be().to_ne_bytes()
+                let mut buf = [0; $BITS / 8];
+                buf[15 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
+                buf[14 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
+                buf[13 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
+                buf[12 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
+                buf[11 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
+                buf[10 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
+                buf[ 9 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
+                buf[ 8 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
+                buf[ 7 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
+                buf[ 6 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
+                buf[ 5 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
+                buf[ 4 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
+                buf[ 3 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
+                buf[ 2 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
+                buf[ 1 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
+                buf[ 0 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
+                buf
             }
         }
 
@@ -4139,7 +4190,24 @@ assert_eq!(bytes, ", $le_bytes, ");
             #[rustc_const_stable(feature = "const_int_conversion", since = "1.44.0")]
             #[inline]
             pub const fn to_le_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                self.to_le().to_ne_bytes()
+                let mut buf = [0; $BITS / 8];
+                buf[ 0 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
+                buf[ 1 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
+                buf[ 2 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
+                buf[ 3 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
+                buf[ 4 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
+                buf[ 5 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
+                buf[ 6 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
+                buf[ 7 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
+                buf[ 8 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
+                buf[ 9 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
+                buf[10 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
+                buf[11 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
+                buf[12 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
+                buf[13 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
+                buf[14 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
+                buf[15 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
+                buf
             }
         }
 
