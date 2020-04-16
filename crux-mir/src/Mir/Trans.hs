@@ -693,6 +693,10 @@ evalCast' ck ty1 e ty2  =
       (M.MutToConstPointer, M.TyRawPtr ty1 M.Mut, M.TyRawPtr ty2 M.Immut)
          | ty1 == ty2 -> return e
 
+      -- Arbitrary *mut<->*const conversions can be done via Misc cast
+      (M.Misc, M.TyRawPtr ty1 _, M.TyRawPtr ty2 _)
+         | ty1 == ty2 -> return e
+
       -- Integer-to-pointer casts.  Pointer-to-integer casts are not yet
       -- supported.
       (M.Misc, M.TyInt _, M.TyRawPtr ty _)
@@ -703,6 +707,11 @@ evalCast' ck ty1 e ty2  =
         | Some tpr <- tyToRepr ty, MirExp (C.BVRepr w) val <- e -> do
           let int = bvToUsize w R.App val
           MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr int
+
+      -- *const [T] -> *T (discards the length and returns only the pointer)
+      (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
+        | t1 == t2, m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
+        -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
 
       (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] [] _ _))
          -> do mhand <- lookupFunction defId substs
