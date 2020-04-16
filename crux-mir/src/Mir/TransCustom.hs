@@ -130,6 +130,7 @@ customOpDefs = Map.fromList $ [
 
                          , ptr_offset
                          , ptr_wrapping_offset
+                         , ptr_offset_from
 
                          , exit
                          , abort
@@ -445,6 +446,21 @@ ptr_wrapping_offset = (["core", "ptr", "{{impl}}", "wrapping_offset"], \substs -
     _ -> Nothing
     )
 
+ptr_offset_from_impl :: CustomRHS
+ptr_offset_from_impl = \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr1) ref1, MirExp (MirReferenceRepr tpr2) ref2]
+          | Just Refl <- testEquality tpr1 tpr2 -> do
+            maybeOffset <- mirRef_tryOffsetFrom ref1 ref2
+            let errMsg = R.App $ E.StringLit $ fromString $
+                    "tried to subtract pointers into different arrays"
+            let val = R.App $ E.FromJustValue IsizeRepr maybeOffset errMsg
+            return $ MirExp IsizeRepr val
+        _ -> mirFail $ "bad arguments for ptr::offset_from: " ++ show ops
+    _ -> Nothing
+
+ptr_offset_from :: (ExplodedDefId, CustomRHS)
+ptr_offset_from = (["core", "ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul

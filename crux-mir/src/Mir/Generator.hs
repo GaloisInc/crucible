@@ -559,6 +559,12 @@ mirRef_offsetWrap ::
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 mirRef_offsetWrap tpr ref offset = G.extensionStmt $ MirRef_OffsetWrap tpr ref offset
 
+mirRef_tryOffsetFrom ::
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret (R.Expr MIR s (C.MaybeType IsizeType))
+mirRef_tryOffsetFrom r1 r2 = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2
+
 -----------------------------------------------------------------------
 
 

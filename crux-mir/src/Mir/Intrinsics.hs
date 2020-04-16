@@ -96,7 +96,7 @@ import           Lang.Crucible.Simulator.SimError
 
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
-import           What4.Partial (pattern Unassigned, maybePartExpr, justPartExpr, mergePartial)
+import           What4.Partial (pattern Unassigned, maybePartExpr, justPartExpr, mergePartial, mkPE)
 import           What4.Utils.MonadST
 
 import           Mir.DefId
@@ -755,6 +755,14 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f (MirReferenceType tp)) ->
      !(f IsizeType) ->
      MirStmt f (MirReferenceType tp)
+  -- | Try to subtract two references, as in `pointer::offset_from`.  If both
+  -- point into the same array, return their difference; otherwise, return
+  -- Nothing.  The `Nothing` result is useful for overlap checks: slices from
+  -- different arrays cannot overlap.
+  MirRef_TryOffsetFrom ::
+     !(f (MirReferenceType tp)) ->
+     !(f (MirReferenceType tp)) ->
+     MirStmt f (MaybeType IsizeType)
   VectorSnoc ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -865,6 +873,7 @@ instance TypeApp MirStmt where
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset tp _ _ -> MirReferenceRepr tp
     MirRef_OffsetWrap tp _ _ -> MirReferenceRepr tp
+    MirRef_TryOffsetFrom _ _ -> MaybeRepr IsizeRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -897,6 +906,7 @@ instance PrettyApp MirStmt where
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset _ p o -> "mirRef_offset" <+> pp p <+> pp o
     MirRef_OffsetWrap _ p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
+    MirRef_TryOffsetFrom p o -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -1136,6 +1146,30 @@ mirRef_offsetWrapIO sym _ ref@(MirReference_Integer _ _) offset = do
         "cannot perform pointer arithmetic on invalid pointer"
     return ref
 
+mirRef_tryOffsetFromIO :: IsSymInterface sym => sym ->
+    MirReference sym tp -> MirReference sym tp -> IO (RegValue sym (MaybeType IsizeType))
+mirRef_tryOffsetFromIO sym (MirReference root1 path1) (MirReference root2 path2) = do
+    rootEq <- refRootEq sym root1 root2
+    case (path1, path2) of
+        (Index_RefPath _ path1' idx1, Index_RefPath _ path2' idx2) -> do
+            pathEq <- refPathEq sym path1' path2'
+            similar <- andPred sym rootEq pathEq
+            -- TODO: implement overflow checks, similar to `offset`
+            offset <- bvSub sym idx1 idx2
+            return $ mkPE similar offset
+        _ -> do
+            pathEq <- refPathEq sym path1 path2
+            similar <- andPred sym rootEq pathEq
+            mkPE similar <$> bvLit sym knownNat 0
+mirRef_tryOffsetFromIO _ _ _ = do
+    -- MirReference_Integer pointers are always disjoint from all MirReference
+    -- pointers, so we report them as being in different objects.
+    --
+    -- For comparing two MirReference_Integer pointers, this answer is clearly
+    -- wrong, but it's (hopefully) a moot point since there's almost nothing
+    -- you can do with a MirReference_Integer anyway without causing a crash.
+    return Unassigned
+
 
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s =
@@ -1183,6 +1217,8 @@ execMirStmt stmt s =
          readOnly s $ mirRef_offsetIO sym tpr ref off
        MirRef_OffsetWrap tpr (regValue -> ref) (regValue -> off) ->
          readOnly s $ mirRef_offsetWrapIO sym tpr ref off
+       MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) ->
+         readOnly s $ mirRef_tryOffsetFromIO sym r1 r2
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
