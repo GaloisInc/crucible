@@ -122,7 +122,27 @@ data RustModule = RustModule {
 -- type ty along with a crucible expression of type ty
 data MirExp s where
     MirExp :: C.TypeRepr ty -> R.Expr MIR s ty -> MirExp s
-    
+
+-- | MirExp, but with a static guarantee that it's a MirReference.  Used as the
+-- result of lvalue evaluation.
+data MirPlace s where
+    MirPlace :: C.TypeRepr ty -> R.Expr MIR s (MirReferenceType ty) -> PtrMetadata s -> MirPlace s
+
+-- | MIR supports a notion of "unsized places" - for example, it generates code
+-- like `(*s)[i]` where `s` is a slice.  To handle this, we attach the metadata
+-- of `s` to the `MirPlace` that represents `*s`.  This lets us apply the
+-- correct offset and bounds checks in `(*s)[i]`, and the metadata is also used
+-- to reconstruct the original `MirSliceType` in case of `&*s`.
+--
+-- rustc also supports "unsized rvalues".  Currently we don't support them, but
+-- we may need to add `PtrMetadata` to `MirExp`s at some point as well.
+data PtrMetadata s =
+      NoMeta
+    | SliceMeta (R.Expr MIR s UsizeType)
+
+instance Show (PtrMetadata s) where
+    show NoMeta = "NoMeta"
+    show (SliceMeta _) = "SliceMeta"
 
 ---------------------------------------------------------------------------------
 
@@ -440,10 +460,22 @@ newMirRef ::
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 newMirRef tp = G.extensionStmt (MirNewRef tp)
 
+integerToMirRef ::
+  C.TypeRepr tp ->
+  R.Expr MIR s UsizeType ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+integerToMirRef tp i = G.extensionStmt (MirIntegerToRef tp i)
+
 globalMirRef ::
   G.GlobalVar tp ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 globalMirRef gv = G.extensionStmt (MirGlobalRef gv)
+
+constMirRef ::
+  C.TypeRepr tp ->
+  R.Expr MIR s tp ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+constMirRef tpr v = G.extensionStmt (MirConstRef tpr v)
 
 dropMirRef ::
   R.Expr MIR s (MirReferenceType tp) ->
@@ -506,6 +538,26 @@ mirRef_arrayAsMirVector ::
   R.Expr MIR s (MirReferenceType (UsizeArrayType btp)) ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType (C.BaseToType btp))))
 mirRef_arrayAsMirVector btpr ref = G.extensionStmt $ MirRef_ArrayAsMirVector btpr ref
+
+mirRef_eq ::
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret (R.Expr MIR s C.BoolType)
+mirRef_eq r1 r2 = G.extensionStmt $ MirRef_Eq r1 r2
+
+mirRef_offset ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s IsizeType ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+mirRef_offset tpr ref offset = G.extensionStmt $ MirRef_Offset tpr ref offset
+
+mirRef_offsetWrap ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s IsizeType ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+mirRef_offsetWrap tpr ref offset = G.extensionStmt $ MirRef_OffsetWrap tpr ref offset
 
 -----------------------------------------------------------------------
 
@@ -570,6 +622,12 @@ arrayZeroed ::
   MirGenerator h s ret (R.Expr MIR s (C.SymbolicArrayType (idxs ::> idx) (C.BaseBVType w)))
 arrayZeroed idxs w = G.extensionStmt $ ArrayZeroed idxs w
 
+
+mirVector_uninit ::
+    C.TypeRepr tp ->
+    R.Expr MIR s UsizeType ->
+    MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
+mirVector_uninit tpr len = G.extensionStmt $ MirVector_Uninit tpr len
 
 mirVector_fromVector ::
     C.TypeRepr tp ->

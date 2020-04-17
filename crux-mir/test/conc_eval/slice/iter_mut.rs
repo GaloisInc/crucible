@@ -1,4 +1,3 @@
-// FAIL: bad interior reference in slice::IterMut::next
 #![cfg_attr(not(with_main), no_std)]
 #![feature(custom_attribute)]
 

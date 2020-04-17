@@ -1,4 +1,3 @@
-// FAIL: needs a custom shim to convert `call_mut` to `call`
 #![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 pub fn call_it<F: FnMut(i32) -> i32>(f: F) -> i32 {

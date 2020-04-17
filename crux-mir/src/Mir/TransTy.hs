@@ -56,11 +56,11 @@ import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
 import           Mir.Generator 
-    ( MirExp(..), MirGenerator, mirFail
+    ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , cs, discrMap )
 import           Mir.Intrinsics
-    ( MIR, pattern MirSliceRepr, pattern MirImmSliceRepr, pattern MirReferenceRepr, MirReferenceType
+    ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
@@ -168,10 +168,8 @@ tyToRepr t0 = case t0 of
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
   -- These definitions are *not* compositional
-  M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
-  M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
-  M.TyRef M.TyStr M.Immut -> Some (MirImmSliceRepr (C.BVRepr (knownNat @8)))
-  M.TyRef M.TyStr M.Mut   -> Some (MirSliceRepr (C.BVRepr (knownNat @8)))
+  M.TyRef (M.TySlice t) _ -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+  M.TyRef M.TyStr _       -> Some (MirSliceRepr (C.BVRepr (knownNat @8)))
 
   -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
   -- data value (which is either `&Ty` or `&mut Ty`) and a vtable.  Both are
@@ -184,16 +182,12 @@ tyToRepr t0 = case t0 of
   M.TyRawPtr (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-  -- NOTE: we cannot mutate this vector. Hmmmm....
-  M.TySlice t -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
-  -- Strings are vectors of bytes, UTF-8 encoded
-  M.TyStr -> Some (MirImmSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
+  -- TODO: DSTs not behind a reference - these should never appear in real code
+  M.TySlice t -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+  M.TyStr -> Some (MirSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
 
-  M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
-  M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
-
-  M.TyRawPtr t M.Immut -> tyToRepr t -- immutable pointers are erased
-  M.TyRawPtr t M.Mut -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  M.TyRef t _       -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  M.TyRawPtr t _    -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
@@ -252,7 +246,8 @@ canInitialize ty = case ty of
     M.TyClosure _ -> True
     -- Others
     M.TyArray _ _ -> True
-    M.TyRef ty' _ -> canInitialize ty'
+    -- TODO: workaround for a ref init bug - see initialValue for details
+    --M.TyRef ty' _ -> canInitialize ty'
     _ -> False
 
 
@@ -841,7 +836,7 @@ fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 structFieldRef ::
     M.Adt -> M.Substs -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-    MirGenerator h s ret (MirExp s)
+    MirGenerator h s ret (MirPlace s)
 structFieldRef adt args i tpr ref = do
     StructInfo ctx idx fld <- structInfo adt args i
     Refl <- testEqualityOrFail tpr C.AnyRepr $
@@ -849,12 +844,13 @@ structFieldRef adt args i tpr ref = do
     ref <- subanyRef (C.StructRepr ctx) ref
     ref <- subfieldRef ctx ref idx
     ref <- fieldDataRef fld ref
-    return $ MirExp (MirReferenceRepr $ fieldDataType fld) ref
+    -- TODO: for custom DSTs, we'll need to propagate struct metadata to fields
+    return $ MirPlace (fieldDataType fld) ref NoMeta
 
 enumFieldRef ::
     M.Adt -> M.Substs -> Int -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-    MirGenerator h s ret (MirExp s)
+    MirGenerator h s ret (MirPlace s)
 enumFieldRef adt args i j tpr ref = do
     EnumInfo ctx idx ctx' idx' fld <- enumInfo adt args i j
     Refl <- testEqualityOrFail tpr C.AnyRepr $
@@ -863,7 +859,8 @@ enumFieldRef adt args i j tpr ref = do
     ref <- subvariantRef ctx ref idx
     ref <- subfieldRef ctx' ref idx'
     ref <- fieldDataRef fld ref
-    return $ MirExp (MirReferenceRepr $ fieldDataType fld) ref
+    -- TODO: for custom DSTs, we'll need to propagate enum metadata to fields
+    return $ MirPlace (fieldDataType fld) ref NoMeta
 
 
 enumDiscriminant :: M.Adt -> M.Substs -> MirExp s ->
@@ -876,7 +873,7 @@ enumDiscriminant adt args e = do
 tupleFieldRef ::
     [M.Ty] -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-    MirGenerator h s ret (MirExp s)
+    MirGenerator h s ret (MirPlace s)
 tupleFieldRef tys i tpr ref = do
     Some ctx <- return $ tyListToCtxMaybe tys $ \ctx -> Some ctx
     let tpr' = C.StructRepr ctx
@@ -891,7 +888,7 @@ tupleFieldRef tys i tpr ref = do
         C.MaybeRepr valTpr -> do
             ref <- subfieldRef ctx ref idx
             ref <- subjustRef valTpr ref
-            return $ MirExp (MirReferenceRepr valTpr) ref
+            return $ MirPlace valTpr ref NoMeta
         _ -> mirFail $ "expected tuple field to have MaybeType, but got " ++ show elemTpr
 
 

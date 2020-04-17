@@ -76,15 +76,18 @@ needsRebuild output inputs = do
 mirJsonOutFile :: FilePath -> FilePath
 mirJsonOutFile rustFile = rustFile -<.> "mir"
 
-compileMirJson :: Bool -> FilePath -> IO ()
-compileMirJson keepRlib rustFile = do
+compileMirJson :: Bool -> Bool -> FilePath -> IO ()
+compileMirJson keepRlib quiet rustFile = do
     let outFile = rustFile -<.> "bin"
 
     -- TODO: don't hardcode -L library path
-    (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-        [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"
-        , "--cfg", "crux", "--cfg", "crux_top_level"
-        , "-o", outFile] ""
+    let cp = Proc.proc "mir-json"
+            [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"
+            , "--cfg", "crux", "--cfg", "crux_top_level"
+            , "-o", outFile]
+    let cp' = if not quiet then cp else
+            (cp { Proc.std_out = Proc.NoStream, Proc.std_err = Proc.NoStream })
+    ec <- Proc.withCreateProcess cp' $ \_ _ _ ph -> Proc.waitForProcess ph
     case ec of
         ExitFailure cd -> fail $
             "Error " ++ show cd ++ " while running mir-json on " ++ rustFile
@@ -95,10 +98,10 @@ compileMirJson keepRlib rustFile = do
             True  -> removeFile outFile
             False -> return ()
 
-maybeCompileMirJson :: Bool -> FilePath -> IO ()
-maybeCompileMirJson keepRlib rustFile = do
+maybeCompileMirJson :: Bool -> Bool -> FilePath -> IO ()
+maybeCompileMirJson keepRlib quiet rustFile = do
     build <- needsRebuild (mirJsonOutFile rustFile) [rustFile]
-    when build $ compileMirJson keepRlib rustFile
+    when build $ compileMirJson keepRlib quiet rustFile
 
 
 linkJson :: [FilePath] -> IO B.ByteString
@@ -160,7 +163,7 @@ generateMIR inputFile keepRlib
     when (?debug > 2) $
         traceM $ "Generating " ++ stem <.> "mir"
     let rustFile = inputFile
-    maybeCompileMirJson keepRlib rustFile
+    maybeCompileMirJson keepRlib (?debug <= 2) rustFile
     b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonFiles) (linkOutFile rustFile)
     parseMir (linkOutFile rustFile) b
   | ext == ".json" = do
