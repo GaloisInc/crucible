@@ -1003,21 +1003,22 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         return idx
 evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) = case (ty, tpr, meta) of
     -- TODO: should this check sz >= minLen?
-    (M.TyArray elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
-        idx' <- getIdx idx fromEnd
+    (M.TyArray elemTy sz, MirVectorRepr elemTpr, NoMeta) -> do
+        idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
-        idx <- getIdx idx fromEnd
+        idx <- getIdx idx len fromEnd
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
         MirPlace elemTpr <$> mirRef_offset elemTpr ref idx <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
-    getIdx :: Int -> Bool -> MirGenerator h s ret (R.Expr MIR s UsizeType)
-    getIdx _ True = mirFail $ "fromEnd indexing is not yet implemented"
-    getIdx idx _ = return $ R.App $ usizeLit $ fromIntegral idx
+    getIdx :: Int -> R.Expr MIR s UsizeType -> Bool ->
+        MirGenerator h s ret (R.Expr MIR s UsizeType)
+    getIdx idx len True = return $ R.App $ usizeSub len $ R.App $ usizeLit $ fromIntegral idx
+    getIdx idx _ False = return $ R.App $ usizeLit $ fromIntegral idx
 -- Downcast is a no-op - it only affects the type reported by `M.type_of`.  The
 -- `PField` case above looks for `TyDowncast` to handle enum accesses.
 evalPlaceProj _ pl (M.Downcast _idx) = return pl
