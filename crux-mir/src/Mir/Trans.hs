@@ -36,7 +36,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , vectorCopy, ptrCopy
                 , evalRval
                 , callExp
-                , derefExp, readPlace
+                , derefExp, readPlace, addrOfPlace
                 ) where
 
 import Control.Monad

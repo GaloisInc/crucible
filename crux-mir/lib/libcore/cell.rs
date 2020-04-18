@@ -1636,10 +1636,13 @@ impl<T: ?Sized> UnsafeCell<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[rustc_const_stable(feature = "const_unsafecell_get", since = "1.32.0")]
     pub const fn get(&self) -> *mut T {
-        // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
-        // #[repr(transparent)]. This exploits libstd's special status, there is
-        // no guarantee for user code that this will work in future versions of the compiler!
-        self as *const UnsafeCell<T> as *const T as *mut T
+        const fn crucible_hook<T: ?Sized>(this: &UnsafeCell<T>) -> *mut T {
+            // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
+            // #[repr(transparent)]. This exploits libstd's special status, there is
+            // no guarantee for user code that this will work in future versions of the compiler!
+            this as *const UnsafeCell<T> as *const T as *mut T
+        }
+        crucible_hook(self)
     }
 
     /// Gets a mutable pointer to the wrapped value.
@@ -1672,10 +1675,13 @@ impl<T: ?Sized> UnsafeCell<T> {
     #[inline]
     #[unstable(feature = "unsafe_cell_raw_get", issue = "66358")]
     pub const fn raw_get(this: *const Self) -> *mut T {
-        // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
-        // #[repr(transparent)]. This exploits libstd's special status, there is
-        // no guarantee for user code that this will work in future versions of the compiler!
-        this as *const T as *mut T
+        const fn crucible_hook<T: ?Sized>(this: *const UnsafeCell<T>) -> *mut T {
+            // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
+            // #[repr(transparent)]. This exploits libstd's special status, there is
+            // no guarantee for user code that this will work in future versions of the compiler!
+            this as *const T as *mut T
+        }
+        crucible_hook(this)
     }
 }
 
