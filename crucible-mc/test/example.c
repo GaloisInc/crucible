@@ -1,10 +1,15 @@
+#include <stdbool.h>
 #include <stdint.h>
-//
+
 // void __VERIFIER_assert(uint32_t v);
 // void __VERIFIER_assume(uint32_t v);
 
-int myFunction(uint32_t a, int32_t b) {
-  return a + b;
+int myFunction(uint32_t a, int32_t b, bool c) {
+  if (c) {
+    return a + b;
+  } else {
+    return 42;
+  }
   // uint32_t a = 0;
   // uint32_t b = 1000;
   // uint32_t c = 0;
