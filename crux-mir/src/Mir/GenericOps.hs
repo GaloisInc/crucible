@@ -128,18 +128,6 @@ modifyPreds_Trait f fs = fs & traitPredicates %~ filterPreds f
                             & traitItems      %~ modifyPreds f
                             & traitSupers     %~ filter f
 
-modifyPreds_TraitImpl :: RUPInfo -> TraitImpl -> TraitImpl
-modifyPreds_TraitImpl f fs = fs & tiPredicates %~ filterPreds f
-                                & tiItems      %~ modifyPreds f
-                                & tiTraitRef   %~ modifyPreds f 
-
-modifyPreds_TraitImplItem :: RUPInfo -> TraitImplItem -> TraitImplItem
-modifyPreds_TraitImplItem f fs@(TraitImplMethod {}) = fs & tiiPredicates %~ filterPreds f
-                                                         & tiiSignature  %~ modifyPreds f
-modifyPreds_TraitImplItem f fs@(TraitImplType {}) = fs & tiiPredicates %~ filterPreds f
-                                                       & tiiType       %~ modifyPreds f
-                                                       
-
 --------------------------------------------------------------------------------------
 
 -- ** Overridden instances for Mir AST types
@@ -234,11 +222,6 @@ instance GenericOps AggregateKind
 instance GenericOps Trait where
   modifyPreds = modifyPreds_Trait
 instance GenericOps TraitItem
-instance GenericOps TraitRef
-instance GenericOps TraitImpl where
-  modifyPreds = modifyPreds_TraitImpl
-instance GenericOps TraitImplItem where
-  modifyPreds = modifyPreds_TraitImplItem
 instance GenericOps Promoted
 instance GenericOps Static
 instance GenericOps Vtable

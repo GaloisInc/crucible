@@ -241,7 +241,6 @@ data Collection = Collection {
     -- ADTs, indexed by original (pre-monomorphization) DefId
     _adtsOrig  :: !(Map AdtName [Adt]),
     _traits    :: !(Map TraitName Trait),
-    _impls     :: !([TraitImpl]),
     -- Static decls, indexed by name.  For each of these, there is an
     -- initializer in `functions` with the same name.
     _statics   :: !(Map DefId Static),
@@ -548,51 +547,6 @@ data TraitItem
     | TraitConst DefId Ty
     deriving (Eq, Ord, Show, Generic)
 
-data TraitRef
-    = TraitRef DefId Substs 
-      -- Indicates the trait this impl implements.
-      -- The two `substs` gives the type arguments for the trait
-      -- both the initial arguments, plus any extra after the
-      -- associated types translation
-    deriving (Show, Eq, Ord, Generic)
-
-data TraitImpl
-    = TraitImpl { _tiName       :: DefId
-                -- name of the impl group 
-                , _tiTraitRef   :: TraitRef
-                -- name of the trait and the type we are implementing it
-                , _tiPreTraitRef :: TraitRef
-                -- pre-AT translation trait ref
-                , _tiGenerics   :: [Param]
-                , _tiPredicates :: [Predicate]
-                , _tiItems      :: [TraitImplItem]
-                , _tiAssocTys   :: [AssocTy]
-                }
-    deriving (Show, Eq, Ord, Generic)
-data TraitImplItem
-    = TraitImplMethod { _tiiName :: DefId
-                        -- the def path of the item
-                        -- should match the name of the corresponding entry in 'fns'
-                      , _tiiImplements :: DefId
-                        -- The def path of the trait-item that this impl-item implements.
-                        -- If there is no impl-item that `implements` a particular
-                        -- trait-item, that means the impl uses the default from the trait.
-                      , _tiiGenerics :: [Param]
-                        -- Generics for the method itself.  
-                        -- should match the generics of the `fn`.  This consists of the generics
-                        -- inherited from the impl (if any), followed by any generics
-                        -- declared on the impl-item itself.
-                      , _tiiPredicates :: [Predicate]
-                      , _tiiSignature  :: FnSig
-                      }
-      | TraitImplType { _tiiName       :: DefId
-                      , _tiiImplements :: DefId
-                      , _tiiGenerics   :: [Param]
-                      , _tiiPredicates :: [Predicate]
-                      , _tiiType       :: Ty
-                      }
-      deriving (Show, Eq, Ord, Generic)
-
 newtype Promoted = Promoted Int
   deriving (Show, Eq, Ord, Generic)
 
@@ -647,18 +601,15 @@ makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
 
-makeLenses ''TraitImpl
-makeLenses ''TraitImplItem
-
 --------------------------------------------------------------------------------------
 -- Other instances for ADT types
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 a1' t1 i1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 a2' t2 i2 s2 v2 n2 tys2 r2) =
-    Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
+  (Collection f1 a1 a1' t1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 a2' t2 s2 v2 n2 tys2 r2) =
+    Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   

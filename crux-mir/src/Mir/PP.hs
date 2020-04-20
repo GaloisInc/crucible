@@ -371,10 +371,6 @@ instance Pretty Trait where
               indent 3 (vcat (map pretty items)),
               rbrace]
 
-instance Pretty TraitRef where
-  pretty (TraitRef did (Substs (s:_))) = pr_id did <+> text "for" <+> pretty s
-  pretty (TraitRef did s)              = pr_id did <+> text "for" <+> pretty s
-
 instance Pretty Param where
   pretty (Param name) = pretty name
 
@@ -393,20 +389,6 @@ pparams params = if null params then mempty
 ppreds :: [Predicate] -> Doc
 ppreds preds = if null preds then empty
   else text "where" <+> list (map pretty preds)
-
-instance Pretty TraitImpl where
-  pretty ti =
-    vcat [text "impl" <> pparams (ti^.tiGenerics) <+> pretty (ti^.tiTraitRef)
-               <+> ppreds (ti^.tiPredicates) <+> lbrace, 
-          indent 3 (vcat (map pretty (ti^.tiItems))),
-          rbrace]
-
-instance Pretty TraitImplItem where
-  pretty (TraitImplMethod nm timpls _params _preds sig)  =
-    pretty nm <+> text "of type" <+> pretty sig <+>
-       text "implements" <+> pretty timpls
-  pretty (TraitImplType nm timpls _params _preds ty) =
-    text "type" <+> pretty nm <+> pretty timpls <+> text "=" <+> pretty ty
 
 instance Pretty Static where
   pretty (Static nm ty mut pf p) =
@@ -434,7 +416,5 @@ instance Pretty Collection where
           map pretty (Map.elems (col^.traits)) ++
           [text "INTRINSICSs"] ++
           map pretty (Map.elems (col^.intrinsics)) ++
-          [text "IMPLs"] ++
-          map pretty (col^.impls) ++
           [text "STATICS"] ++
           map pretty (Map.elems (col^.statics)))
