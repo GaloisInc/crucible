@@ -175,7 +175,7 @@ customOpDefs = Map.fromList $ [
                          , integer_rem
                          , integer_eq
                          , integer_lt
-                         ] ++ bv_funcs
+                         ] ++ bv_funcs ++ atomic_funcs
 
 
  
@@ -1316,7 +1316,7 @@ unsafe_cell_get_impl :: CustomRHS
 unsafe_cell_get_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
     ([TyRef (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
     ([TyRawPtr (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
-    _ -> mirFail $ "BUG: invalid arguments to UnsafeCel::get: " ++ show ops
+    _ -> mirFail $ "BUG: invalid arguments to UnsafeCell::get: " ++ show ops
   where
     go :: AdtName -> C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
         MirGenerator h s ret (MirExp s)
@@ -1332,6 +1332,115 @@ unsafe_cell_get =
 unsafe_cell_raw_get :: (ExplodedDefId, CustomRHS)
 unsafe_cell_raw_get =
     (["core", "cell", "{{impl}}", "raw_get", "crucible_hook"], unsafe_cell_get_impl)
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- Atomic operations
+--
+-- These intrinsics come in many varieties that differ only in memory ordering.
+-- We don't support multithreading, so there are no visible differences between
+-- orderings, and we can use a single implementation for each group.
+
+-- Make a group of atomic intrinsics.  If `name` is "foo", this generates
+-- overrides for `atomic_foo`, `atomic_foo_variant1`, `atomic_foo_variant2`,
+-- etc., all with the same `rhs`.
+makeAtomicIntrinsics :: Text -> [Text] -> CustomRHS -> [(ExplodedDefId, CustomRHS)]
+makeAtomicIntrinsics name variants rhs =
+    [(["core", "intrinsics", "", "atomic_" <> name <> suffix], rhs)
+        | suffix <- "" : map ("_" <>) variants]
+
+atomic_store_impl :: CustomRHS
+atomic_store_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' val]
+      | Just Refl <- testEquality tpr tpr' -> do
+        writeMirRef ref val
+        return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+    _ -> mirFail $ "BUG: invalid arguments to atomic_store: " ++ show ops
+
+atomic_load_impl :: CustomRHS
+atomic_load_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (MirReferenceRepr tpr) ref] ->
+        MirExp tpr <$> readMirRef tpr ref
+    _ -> mirFail $ "BUG: invalid arguments to atomic_load: " ++ show ops
+
+atomic_cxchg_impl :: CustomRHS
+atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    ([_, ty, _], [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' expect, MirExp tpr'' val])
+      | Just Refl <- testEquality tpr tpr'
+      , Just Refl <- testEquality tpr tpr''
+      , C.BVRepr w <- tpr -> do
+        old <- readMirRef tpr ref
+        let eq = R.App $ E.BVEq w old expect
+        let new = R.App $ E.BVIte eq w val old
+        writeMirRef ref new
+        return $ buildTupleMaybe [ty, TyBool] $
+            [Just $ MirExp tpr old, Just $ MirExp C.BoolRepr eq]
+    _ -> mirFail $ "BUG: invalid arguments to atomic_cxchg: " ++ show ops
+
+atomic_fence_impl :: CustomRHS
+atomic_fence_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [] -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+    _ -> mirFail $ "BUG: invalid arguments to atomic_fence: " ++ show ops
+
+-- Common implementation for all atomic read-modify-write operations.  These
+-- all read the value, apply some operation, write the result back, and return
+-- the old value.
+atomic_rmw_impl ::
+    String ->
+    (forall w h s ret. (1 <= w) =>
+        C.NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
+    CustomRHS
+atomic_rmw_impl name rmw = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' val]
+      | Just Refl <- testEquality tpr tpr'
+      , C.BVRepr w <- tpr -> do
+        old <- readMirRef tpr ref
+        new <- rmw w old val
+        writeMirRef ref new
+        return $ MirExp tpr old
+    _ -> mirFail $ "BUG: invalid arguments to atomic_" ++ name ++ ": " ++ show ops
+
+makeAtomicRMW ::
+    String ->
+    (forall w h s ret. (1 <= w) =>
+        C.NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
+    [(ExplodedDefId, CustomRHS)]
+makeAtomicRMW name rmw =
+    makeAtomicIntrinsics (Text.pack name) ["acq", "rel", "acqrel", "relaxed"] $
+        atomic_rmw_impl name rmw
+
+atomic_funcs =
+    makeAtomicIntrinsics "store" ["rel", "relaxed"] atomic_store_impl ++
+    makeAtomicIntrinsics "load" ["acq", "relaxed"] atomic_load_impl ++
+    makeAtomicIntrinsics "cxchg" compareExchangeVariants atomic_cxchg_impl ++
+    makeAtomicIntrinsics "cxchgweak" compareExchangeVariants atomic_cxchg_impl ++
+    makeAtomicIntrinsics "fence" fenceVariants atomic_fence_impl ++
+    makeAtomicIntrinsics "singlethreadfence" fenceVariants atomic_fence_impl ++
+    concat [
+        makeAtomicRMW "xchg" $ \w old val -> return val,
+        makeAtomicRMW "xadd" $ \w old val -> return $ R.App $ E.BVAdd w old val,
+        makeAtomicRMW "xsub" $ \w old val -> return $ R.App $ E.BVSub w old val,
+        makeAtomicRMW "and" $ \w old val -> return $ R.App $ E.BVAnd w old val,
+        makeAtomicRMW "or" $ \w old val -> return $ R.App $ E.BVOr w old val,
+        makeAtomicRMW "xor" $ \w old val -> return $ R.App $ E.BVXor w old val,
+        makeAtomicRMW "nand" $ \w old val ->
+            return $ R.App $ E.BVNot w $ R.App $ E.BVAnd w old val,
+        makeAtomicRMW "max" $ \w old val -> return $ R.App $ E.BVSMax w old val,
+        makeAtomicRMW "min" $ \w old val -> return $ R.App $ E.BVSMin w old val,
+        makeAtomicRMW "umax" $ \w old val -> return $ R.App $ E.BVUMax w old val,
+        makeAtomicRMW "umin" $ \w old val -> return $ R.App $ E.BVUMin w old val
+    ]
+  where
+    compareExchangeVariants = ["acq", "rel", "acqrel", "relaxed",
+        "acq_failrelaxed", "acqrel_failrelaxed", "failrelaxed", "failacq"]
+    fenceVariants = ["acq", "rel", "acqrel"]
+
 
 
 --------------------------------------------------------------------------------------------------------------------------
