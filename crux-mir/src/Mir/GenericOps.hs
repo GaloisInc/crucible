@@ -30,11 +30,10 @@ import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
 
-import Control.Lens((^.),(&),(%~))
+import Control.Lens((^.))
 
 import Mir.DefId
 import Mir.Mir
-import Mir.PP(fmt)
 
 import GHC.Generics
 import GHC.Stack
@@ -57,11 +56,6 @@ class GenericOps a where
   uninternTys :: HasCallStack => (Text -> Ty) -> a -> a
   default uninternTys :: (Generic a, GenericOps' (Rep a), HasCallStack) => (Text -> Ty) -> a -> a
   uninternTys f x = to (uninternTys' f (from x))
-
-  -- | Update the list of predicates in an AST node
-  modifyPreds :: RUPInfo -> a -> a
-  default modifyPreds :: (Generic a, GenericOps' (Rep a)) => RUPInfo -> a -> a
-  modifyPreds s x = to (modifyPreds' s (from x))
 
 
 --------------------------------------------------------------------------------------
@@ -94,36 +88,6 @@ adtIndices (Adt _aname _kind vars _ _) col = go 0 vars
     isExplicit _ = False
 
 --------------------------------------------------------------------------------------
--- ** modifyPreds 
-
---- Annoyingly, we don't use the newtype for the list of predicates
--- So we have to implement this operation in all of the containing types
-
--- filter function for predicates
-type RUPInfo = TraitName -> Bool
-
-filterPreds :: RUPInfo -> [Predicate] -> [Predicate]
-filterPreds f =
-  filter knownPred where
-     knownPred :: Predicate -> Bool
-     knownPred (TraitPredicate did _) = f did
-     knownPred (TraitProjection {})   = True
-     -- TODO: not sure if the auto trait case is right, or what this is used for
-     knownPred (AutoTraitPredicate _) = True
-     knownPred UnknownPredicate       = False
-
-
-modifyPreds_FnSig :: RUPInfo -> FnSig -> FnSig
-modifyPreds_FnSig f fs = fs & fspredicates %~ filterPreds f
-                            & fsarg_tys    %~ modifyPreds f
-                            & fsreturn_ty  %~ modifyPreds f
-                            
-modifyPreds_Trait :: RUPInfo -> Trait -> Trait
-modifyPreds_Trait f fs = fs & traitPredicates %~ filterPreds f
-                            & traitItems      %~ modifyPreds f
-                            & traitSupers     %~ filter f
-
---------------------------------------------------------------------------------------
 
 -- ** Overridden instances for Mir AST types
 
@@ -133,7 +97,6 @@ instance GenericOps Predicate where
 -- special case for DefIds
 instance GenericOps DefId where
   uninternTys _     = id
-  modifyPreds _     = id
 
 
 -- special case for Ty
@@ -155,9 +118,7 @@ instance GenericOps Lvalue where
 
 instance GenericOps BaseSize
 instance GenericOps FloatKind
-instance GenericOps FnSig where
-  modifyPreds = modifyPreds_FnSig
-  
+instance GenericOps FnSig
 instance GenericOps Adt
 instance GenericOps VariantDiscr
 instance GenericOps AdtKind
@@ -190,8 +151,7 @@ instance GenericOps Literal
 instance GenericOps IntLit
 instance GenericOps FloatLit
 instance GenericOps AggregateKind
-instance GenericOps Trait where
-  modifyPreds = modifyPreds_Trait
+instance GenericOps Trait
 instance GenericOps TraitItem
 instance GenericOps Promoted
 instance GenericOps Static
@@ -213,35 +173,27 @@ instance GenericOps Predicates
 
 instance GenericOps Int     where
    uninternTys = const id
-   modifyPreds = const id
 instance GenericOps Integer where
    uninternTys = const id
-   modifyPreds = const id   
 instance GenericOps Char    where
    uninternTys = const id
-   modifyPreds = const id   
 instance GenericOps Bool    where
    uninternTys = const id
-   modifyPreds = const id
    
 instance GenericOps Text    where
    uninternTys = const id
-   modifyPreds = const id
    
 instance GenericOps B.ByteString where
    uninternTys = const id
-   modifyPreds = const id
    
 instance GenericOps b => GenericOps (Map.Map a b) where
    uninternTys f     = Map.map (uninternTys f)
-   modifyPreds i     = Map.map (modifyPreds i)
    
 instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
 instance GenericOps a => GenericOps (Vector a) where
    uninternTys f     = V.map (uninternTys f)
-   modifyPreds i     = V.map (modifyPreds i)
   
    
 --------------------------------------------------------------------------------------
@@ -249,30 +201,22 @@ instance GenericOps a => GenericOps (Vector a) where
 
 class GenericOps' f where
   uninternTys'   :: (Text -> Ty) -> f p -> f p
-  modifyPreds'   :: RUPInfo -> f p -> f p
   
 instance GenericOps' V1 where
   uninternTys' _  = error "impossible: this is a void type"
-  modifyPreds' _  = error "impossible: this is a void type"
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
   uninternTys' s (L1 x) = L1 (uninternTys' s x)
   uninternTys' s (R1 x) = R1 (uninternTys' s x)
-  modifyPreds' s (L1 x) = L1 (modifyPreds' s x)
-  modifyPreds' s (R1 x) = R1 (modifyPreds' s x)
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
   uninternTys' s (x :*: y) = uninternTys' s x :*: uninternTys' s y
-  modifyPreds' s (x :*: y) = modifyPreds' s x :*: modifyPreds' s y  
 
 instance (GenericOps c) => GenericOps' (K1 i c) where
   uninternTys'    s (K1 x) = K1 (uninternTys s x)
-  modifyPreds'    s (K1 x) = K1 (modifyPreds s x)
 
 instance (GenericOps' f) => GenericOps' (M1 i t f) where
   uninternTys' s (M1 x) = M1 (uninternTys' s x)
-  modifyPreds' s (M1 x) = M1 (modifyPreds' s x)  
   
 instance (GenericOps' U1) where
   uninternTys' _s U1 = U1
-  modifyPreds' _s U1 = U1  

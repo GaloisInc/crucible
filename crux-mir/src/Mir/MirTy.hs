@@ -10,8 +10,6 @@ module Mir.MirTy where
 import GHC.Stack(HasCallStack)
 
 import Mir.Mir
-import Mir.PP(fmt)
-import Mir.GenericOps
 
 ---------------------------------------------------------------------------------------------
 
