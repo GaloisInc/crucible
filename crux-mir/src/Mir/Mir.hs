@@ -75,10 +75,6 @@ newtype Substs = Substs [Ty]
   deriving (Eq, Ord, Show, Generic)
   deriving newtype (Semigroup, Monoid)
 
--- | Associated types
---   The projection of an associated type from a Rust trait, at specific types
-type AssocTy = (DefId, Substs)
-
 data Ty =
         TyBool               -- The primitive boolean type. Written as bool.
       | TyChar
@@ -96,7 +92,7 @@ data Ty =
       | TyAdt !DefId !DefId !Substs -- first DefId is the monomorphized name, second is pre-mono
       | TyUnsupported
       | TyParam !Integer
-      | TyFnDef !DefId !Substs
+      | TyFnDef !DefId
       | TyClosure [Ty]      -- the Tys are the types of the upvars
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
@@ -104,7 +100,6 @@ data Ty =
       | TyRawPtr !Ty !Mutability    -- Written as *mut T or *const T
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
-      | TyProjection !DefId !Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
       | TyNever
 
       | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
@@ -211,7 +206,7 @@ data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [F
     deriving (Eq, Ord,Show, Generic)
 
 
-data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: Substs}
+data Field = Field {_fName :: DefId, _fty :: Ty}
     deriving (Show, Eq, Ord, Generic)
 
 
@@ -479,11 +474,11 @@ data ConstVal =
   | ConstBool Bool
   | ConstChar Char
   | ConstVariant DefId
-  | ConstFunction DefId Substs
+  | ConstFunction DefId
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
-  | ConstInitializer DefId Substs
+  | ConstInitializer DefId
   -- | A reference to a static, of type `&T`.
   | ConstStaticRef DefId
   | ConstZST
@@ -536,7 +531,6 @@ type IntrinsicName = DefId
 type ConstUsize = Integer
 type VisibilityScope = Text
 type AssertMessage = Text
-type ClosureSubsts = Text
 type BasicBlockInfo = Text
 type TyName     = Text
 

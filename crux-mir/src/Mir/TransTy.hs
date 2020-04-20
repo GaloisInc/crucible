@@ -209,9 +209,7 @@ tyToRepr t0 = case t0 of
   -- should do the same for TySlice and TyStr as well.
   M.TyDynamic _trait -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
 
-  M.TyProjection _def _tyargs -> error $
-    "BUG: all uses of TyProjection should have been eliminated, found " ++ fmt t0
-  M.TyFnDef _def _substs -> Some C.UnitRepr
+  M.TyFnDef _def -> Some C.UnitRepr
   M.TyNever -> Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr
   M.TyForeign -> Some C.AnyRepr
@@ -248,8 +246,8 @@ canInitialize ty = case ty of
     _ -> False
 
 
-variantFields :: TransTyConstraint => M.Variant -> M.Substs -> Some C.CtxRepr
-variantFields (M.Variant _vn _vd vfs _vct) _args =
+variantFields :: TransTyConstraint => M.Variant -> Some C.CtxRepr
+variantFields (M.Variant _vn _vd vfs _vct) =
     tyReprListToCtx
         (map (mapSome fieldType . tyToFieldRepr . M.fieldToTy) vfs)
         (\repr -> Some repr)
@@ -278,21 +276,21 @@ tyToFieldRepr ty
   | canInitialize ty = viewSome (\tpr -> Some $ FieldRepr $ FkInit tpr) (tyToRepr ty)
   | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr ty)
 
-variantFields' :: TransTyConstraint => M.Variant -> M.Substs -> Some FieldCtxRepr
-variantFields' (M.Variant _vn _vd vfs _vct) _args =
+variantFields' :: TransTyConstraint => M.Variant -> Some FieldCtxRepr
+variantFields' (M.Variant _vn _vd vfs _vct) =
     fieldReprListToCtx
         (map (tyToFieldRepr . M.fieldToTy) vfs)
         (\x -> Some x)
 
-enumVariants :: TransTyConstraint => M.Adt -> M.Substs -> Some C.CtxRepr
-enumVariants (M.Adt name kind vs _ _) args
+enumVariants :: TransTyConstraint => M.Adt -> Some C.CtxRepr
+enumVariants (M.Adt name kind vs _ _)
   | kind /= M.Enum = error $ "expected " ++ show name ++ " to have kind Enum"
   | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
   where
     variantReprs :: [Some C.TypeRepr]
     variantReprs = map (\v ->
         viewSome (\ctx -> Some $ C.StructRepr ctx) $
-        variantFields v args) vs
+        variantFields v) vs
 
 
 -- As in the CPS translation, functions which manipulate types must be
@@ -576,8 +574,8 @@ checkFieldKind True tpr tpr' desc = do
         "(at " ++ desc ++ ")"
     return $ FkMaybe tpr
 
-structInfo :: M.Adt -> M.Substs -> Int -> MirGenerator h s ret StructInfo
-structInfo adt args i = do
+structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
+structInfo adt i = do
     when (adt ^. M.adtkind /= M.Struct) $ mirFail $
         "expected struct, but got adt " ++ show (adt ^. M.adtname)
 
@@ -586,7 +584,7 @@ structInfo adt args i = do
         Just fld -> return $ M.fieldToTy fld
         Nothing -> mirFail errFieldIndex
 
-    Some ctx <- return $ variantFields var args
+    Some ctx <- return $ variantFields var
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail errFieldIndex
@@ -601,9 +599,9 @@ structInfo adt args i = do
     errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
         show (adt ^. M.adtname)
 
-getStructField :: M.Adt -> M.Substs -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getStructField adt args i me = do
-    StructInfo ctx idx fld <- structInfo adt args i
+getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
+getStructField adt i me = do
+    StructInfo ctx idx fld <- structInfo adt i
     e <- readAnyE (C.StructRepr ctx) me
     e <- readStructField ctx idx e
     e <- readFieldData' fld errFieldUninit e
@@ -612,10 +610,10 @@ getStructField adt args i me = do
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt^.M.adtname) ++
         " read while uninitialized"
 
-setStructField :: M.Adt -> M.Substs -> Int ->
+setStructField :: M.Adt -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setStructField adt args i me (MirExp tpr e') = do
-    StructInfo ctx idx fld <- structInfo adt args i
+setStructField adt i me (MirExp tpr e') = do
+    StructInfo ctx idx fld <- structInfo adt i
     Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
     let f' = adjustAnyE (C.StructRepr ctx) $
@@ -638,11 +636,11 @@ checkSameType desc f e = do
         show tpr ++ ", but got " ++ show tpr' ++ " (in " ++ show desc ++ ")"
     return e
 
-mapStructField :: M.Adt -> M.Substs -> Int ->
+mapStructField :: M.Adt -> Int ->
     (MirExp s -> MirGenerator h s ret (MirExp s)) ->
     MirExp s -> MirGenerator h s ret (MirExp s)
-mapStructField adt args i f me = do
-    StructInfo ctx idx fld <- structInfo adt args i
+mapStructField adt i f me = do
+    StructInfo ctx idx fld <- structInfo adt i
     let f' = adjustAnyE (C.StructRepr ctx) $
             adjustStructField ctx idx $
             adjustFieldData fld $
@@ -665,8 +663,8 @@ checkStructType :: C.TypeRepr tp -> Maybe (IsStructType tp)
 checkStructType (C.StructRepr ctx) = Just (IsStructType ctx)
 checkStructType _ = Nothing
 
-enumInfo :: M.Adt -> M.Substs -> Int -> Int -> MirGenerator h s ret EnumInfo
-enumInfo adt args i j = do
+enumInfo :: M.Adt -> Int -> Int -> MirGenerator h s ret EnumInfo
+enumInfo adt i j = do
     when (adt ^. M.adtkind /= M.Enum) $ mirFail $
         "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
@@ -679,7 +677,7 @@ enumInfo adt args i j = do
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
 
-    Some ctx <- return $ enumVariants adt args
+    Some ctx <- return $ enumVariants adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -700,9 +698,9 @@ enumInfo adt args i j = do
 
     return $ EnumInfo ctx idx ctx' idx' kind
 
-getEnumField :: M.Adt -> M.Substs -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getEnumField adt args i j me = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt args i j
+getEnumField :: M.Adt -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
+getEnumField adt i j me = do
+    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
     e <- readAnyE (RustEnumRepr ctx) me
     e <- readEnumVariant ctx idx e
     e <- readStructField ctx' idx' e
@@ -713,10 +711,10 @@ getEnumField adt args i j me = do
         " variant " ++ show i ++ " read while uninitialized"
 
 
-setEnumField :: M.Adt -> M.Substs -> Int -> Int ->
+setEnumField :: M.Adt -> Int -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setEnumField adt args i j me (MirExp tpr e') = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt args i j
+setEnumField adt i j me (MirExp tpr e') = do
+    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- testEqualityOrFail tpr (fieldDataType fld) (errFieldType fld)
     e' <- buildFieldData fld e'
     let f' = adjustAnyE (RustEnumRepr ctx) $
@@ -760,28 +758,28 @@ buildStructAssign' ctx es = go ctx $ reverse es
         Nothing -> Left $ "type mismatch: expected " ++ show tpr ++ " but got " ++
             show (R.exprType e) ++ " in field " ++ show (length rest) ++ ": " ++ show (ctx, es)
 
-buildStruct' :: HasCallStack => M.Adt -> M.Substs -> [Maybe (MirExp s)] ->
+buildStruct' :: HasCallStack => M.Adt -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
-buildStruct' adt args es = do
+buildStruct' adt es = do
     when (adt ^. M.adtkind /= M.Struct) $ mirFail $
         "expected struct, but got adt " ++ show (adt ^. M.adtname)
     let var = M.onlyVariant adt
-    Some fctx <- return $ variantFields' var args
+    Some fctx <- return $ variantFields' var
     asn <- case buildStructAssign' fctx $ map (fmap (\(MirExp _ e) -> Some e)) es of
         Left err -> mirFail $ "error building struct " ++ show (var^.M.vname) ++ ": " ++ err
         Right x -> return x
     let ctx = fieldCtxType fctx
     buildAnyE (C.StructRepr ctx) $ R.App $ E.MkStruct ctx asn
 
-buildStruct :: HasCallStack => M.Adt -> M.Substs -> [MirExp s] ->
+buildStruct :: HasCallStack => M.Adt -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
-buildStruct adt args es =
-    buildStruct' adt args (map Just es)
+buildStruct adt es =
+    buildStruct' adt (map Just es)
 
 
-buildEnum' :: HasCallStack => M.Adt -> M.Substs -> Int -> [Maybe (MirExp s)] ->
+buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
-buildEnum' adt args i es = do
+buildEnum' adt i es = do
     when (adt ^. M.adtkind /= M.Enum) $ mirFail $
         "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
@@ -790,7 +788,7 @@ buildEnum' adt args i es = do
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
 
-    Some ctx <- return $ enumVariants adt args
+    Some ctx <- return $ enumVariants adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -800,7 +798,7 @@ buildEnum' adt args i es = do
         Nothing -> mirFail $ "variant " ++ show i ++ " of enum " ++
             show (adt ^. M.adtname) ++ " is not a struct?"
 
-    Some fctx' <- return $ variantFields' var args
+    Some fctx' <- return $ variantFields' var
     asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es of
         Left err -> mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err
         Right x -> return x
@@ -817,10 +815,10 @@ buildEnum' adt args i es = do
         R.App $ E.InjectVariant ctx idx $
         R.App $ E.MkStruct ctx' asn
 
-buildEnum :: HasCallStack => M.Adt -> M.Substs -> Int -> [MirExp s] ->
+buildEnum :: HasCallStack => M.Adt -> Int -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
-buildEnum adt args i es =
-    buildEnum' adt args i (map Just es)
+buildEnum adt i es =
+    buildEnum' adt i (map Just es)
 
 
 
@@ -832,11 +830,11 @@ fieldDataRef (FkInit tpr) ref = return ref
 fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 
 structFieldRef ::
-    M.Adt -> M.Substs -> Int ->
+    M.Adt -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
     MirGenerator h s ret (MirPlace s)
-structFieldRef adt args i tpr ref = do
-    StructInfo ctx idx fld <- structInfo adt args i
+structFieldRef adt i tpr ref = do
+    StructInfo ctx idx fld <- structInfo adt i
     Refl <- testEqualityOrFail tpr C.AnyRepr $
         "structFieldRef: bad referent type: expected Any, but got " ++ show tpr
     ref <- subanyRef (C.StructRepr ctx) ref
@@ -846,11 +844,11 @@ structFieldRef adt args i tpr ref = do
     return $ MirPlace (fieldDataType fld) ref NoMeta
 
 enumFieldRef ::
-    M.Adt -> M.Substs -> Int -> Int ->
+    M.Adt -> Int -> Int ->
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
     MirGenerator h s ret (MirPlace s)
-enumFieldRef adt args i j tpr ref = do
-    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt args i j
+enumFieldRef adt i j tpr ref = do
+    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- testEqualityOrFail tpr C.AnyRepr $
         "enumFieldRef: bad referent type: expected Any, but got " ++ show tpr
     ref <- subanyRef (RustEnumRepr ctx) ref
@@ -861,10 +859,10 @@ enumFieldRef adt args i j tpr ref = do
     return $ MirPlace (fieldDataType fld) ref NoMeta
 
 
-enumDiscriminant :: M.Adt -> M.Substs -> MirExp s ->
+enumDiscriminant :: M.Adt -> MirExp s ->
     MirGenerator h s ret (MirExp s)
-enumDiscriminant adt args e = do
-    Some ctx <- pure $ enumVariants adt args
+enumDiscriminant adt e = do
+    Some ctx <- pure $ enumVariants adt
     let v = unpackAnyC (RustEnumRepr ctx) e
     return $ MirExp IsizeRepr $ R.App $ rustEnumDiscriminant v
 

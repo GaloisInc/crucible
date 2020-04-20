@@ -841,7 +841,7 @@ discriminant_value = (["core","intrinsics", "", "discriminant_value"],
         ([TyRef (TyAdt nm _ _) Immut], [eRef]) -> do
             adt <- findAdt nm
             e <- derefExp eRef >>= readPlace
-            MirExp IsizeRepr e' <- enumDiscriminant adt mempty e
+            MirExp IsizeRepr e' <- enumDiscriminant adt e
             return $ MirExp (C.BVRepr (knownRepr :: NatRepr 64)) $
                 isizeToBv knownRepr R.App e'
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
@@ -926,15 +926,14 @@ array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_fro
                 -- Option<&[T; N]>.
                 adt <- findAdt optionMonoName
 
-                let args = Substs [TyArray ty 0]
                 MirExp C.AnyRepr <$> G.ifte lenOk
                     (do v <- vectorCopy tpr ptr len
                         v' <- mirVector_fromVector tpr v
                         ref <- constMirRef (MirVectorRepr tpr) v'
                         let vMir = MirExp (MirReferenceRepr (MirVectorRepr tpr)) ref
-                        enum <- buildEnum adt args optionDiscrSome [vMir]
+                        enum <- buildEnum adt optionDiscrSome [vMir]
                         unwrapMirExp C.AnyRepr enum)
-                    (do enum <- buildEnum adt args optionDiscrNone []
+                    (do enum <- buildEnum adt optionDiscrNone []
                         unwrapMirExp C.AnyRepr enum)
 
             _ -> mirFail $ "bad monomorphization of crucible_array_from_slice_hook: " ++
@@ -1313,7 +1312,7 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
 
 
 fnPtrShimDef :: Ty -> CustomOp
-fnPtrShimDef (TyFnDef defId substs) = CustomMirOp $ \ops -> case ops of
+fnPtrShimDef (TyFnDef defId) = CustomMirOp $ \ops -> case ops of
     [_fnptr, argTuple] -> do
         argTys <- case typeOf argTuple of
             TyTuple tys -> return $ tys
@@ -1325,7 +1324,7 @@ fnPtrShimDef (TyFnDef defId substs) = CustomMirOp $ \ops -> case ops of
             OpConstant _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
                 " for fnptr shim of " ++ show defId
         let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
-        callExp defId substs argOps
+        callExp defId argOps
     _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
 fnPtrShimDef ty = CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show ty
 
@@ -1349,7 +1348,7 @@ cloneShimDef (TyTuple tys) parts = CustomMirOp $ \ops -> do
             Ref Shared (LProj (LProj lv Deref) (PField i ty)) "_") tys [0..]
     fieldRefExps <- mapM evalRval fieldRefRvs
     fieldRefOps <- zipWithM (\ty exp -> makeTempOperand (TyRef ty Immut) exp) tys fieldRefExps
-    clonedExps <- zipWithM (\part op -> callExp part (Substs []) [op]) parts fieldRefOps
+    clonedExps <- zipWithM (\part op -> callExp part [op]) parts fieldRefOps
     return $ buildTupleMaybe tys (map Just clonedExps)
 cloneShimDef (TyArray ty len) parts
   | [part] <- parts = CustomMirOp $ \ops -> do
@@ -1364,7 +1363,7 @@ cloneShimDef (TyArray ty len) parts
             Ref Shared (LProj (LProj lv Deref) (ConstantIndex i len False)) "_") [0 .. len - 1]
     elementRefExps <- mapM evalRval elementRefRvs
     elementRefOps <- mapM (\exp -> makeTempOperand (TyRef ty Immut) exp) elementRefExps
-    clonedExps <- mapM (\op -> callExp part (Substs []) [op]) elementRefOps
+    clonedExps <- mapM (\op -> callExp part [op]) elementRefOps
     Some tpr <- return $ tyToRepr ty
     buildArrayLit tpr clonedExps
   | otherwise = CustomOp $ \_ _ -> mirFail $
@@ -1390,8 +1389,7 @@ maybeToOption :: Ty -> C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) ->
     MirGenerator h s ret (MirExp s)
 maybeToOption ty tpr e = do
     adt <- findAdtInst optionDefId (Substs [ty])
-    let args = Substs [ty]
     e' <- G.caseMaybe e C.AnyRepr $ G.MatchMaybe
-        (\val -> buildEnum adt args optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)
-        (buildEnum adt args optionDiscrNone [] >>= unwrapMirExp C.AnyRepr)
+        (\val -> buildEnum adt optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)
+        (buildEnum adt optionDiscrNone [] >>= unwrapMirExp C.AnyRepr)
     return $ MirExp C.AnyRepr e'

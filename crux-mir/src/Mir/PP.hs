@@ -75,7 +75,7 @@ instance Pretty Ty where
     pretty (TyAdt _ origDefId tys)    = pr_id origDefId <> pretty tys
     pretty TyUnsupported         = text "Unsupported"
     pretty (TyParam i)           = text ("_" ++ show i)
-    pretty (TyFnDef defId tys)   = text "fnDef" <+> pr_id defId <> pretty tys
+    pretty (TyFnDef defId)       = text "fnDef" <+> pr_id defId
     pretty (TyClosure tys)       = text "closure" <+> pretty tys
     pretty TyStr                 = text "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
@@ -83,7 +83,6 @@ instance Pretty Ty where
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
-    pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> pretty tys)
     pretty TyNever = text "never"
     pretty TyLifetime = text "lifetime"
     pretty TyConst = text "const"
@@ -111,7 +110,7 @@ instance Pretty Variant where
   pretty (Variant nm dscr flds knd) = pretty_fn4 "Variant" (pretty nm) dscr flds knd
 
 instance Pretty Field where
-    pretty (Field nm ty sbs) = pretty_fn3 "Field" (pretty nm) ty sbs
+    pretty (Field nm ty) = pretty_fn2 "Field" (pretty nm) ty
 
 instance Pretty Mutability where
     pretty Mut   = text "mut " 
@@ -315,8 +314,8 @@ instance Pretty ConstVal where
     pretty (ConstTuple cs)  = tupled (map pretty cs)
     pretty (ConstArray cs)     = list (map pretty cs)
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> int i)
-    pretty (ConstFunction a b) = pr_id a <> pretty b
-    pretty (ConstInitializer a b) = pr_id a <> pretty b
+    pretty (ConstFunction a)   = pr_id a
+    pretty (ConstInitializer a) = pr_id a
     pretty (ConstStaticRef a) = text "&" <> pr_id a
     pretty ConstZST = text "<ZST>"
     pretty (ConstRawPtr a) = pretty a

@@ -91,7 +91,7 @@ instance FromJSON InlineTy where
              TyArray <$> v .: "ty" <*> pure (fromInteger i)
           _ -> fail $ "unsupported array size: " ++ show lit
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
-      Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
+      Just (String "FnDef") -> TyFnDef <$> v .: "defid"
       Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "substs"
       Just (String "Param") -> TyParam <$> v .: "param"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
@@ -101,7 +101,6 @@ instance FromJSON InlineTy where
       Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
-      Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
       Just (String "Foreign") -> pure TyForeign
       Just (String "Lifetime") -> pure TyLifetime
       Just (String "Const") -> pure TyConst
@@ -172,7 +171,7 @@ instance FromJSON Variant where
     parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
 
 instance FromJSON Field where
-    parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
+    parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty"
 
 instance FromJSON Mutability where
     parseJSON = withObject "Mutability" $ \v -> case HML.lookup "kind" v of
@@ -413,19 +412,19 @@ instance FromJSON Literal where
           case (rend, init) of
             (Just (RustcRenderedConst rend), _) ->
                 pure $ Value rend
-            (Nothing, Just (RustcConstInitializer defid substs)) ->
-                pure $ Value $ ConstInitializer defid substs
+            (Nothing, Just (RustcConstInitializer defid)) ->
+                pure $ Value $ ConstInitializer defid
             (Nothing, Nothing) ->
                 fail $ "need either rendered value or initializer in constant literal"
         Just (String "Promoted") -> LitPromoted <$> v .: "index"
         x -> fail ("bad Literal: " ++ show x)
 
 
-data RustcConstInitializer = RustcConstInitializer DefId Substs
+data RustcConstInitializer = RustcConstInitializer DefId
 
 instance FromJSON RustcConstInitializer where
     parseJSON = withObject "Initializer" $ \v ->
-        RustcConstInitializer <$> v .: "def_id" <*> v .: "substs"
+        RustcConstInitializer <$> v .: "def_id"
 
 newtype RustcRenderedConst = RustcRenderedConst ConstVal
 
@@ -506,7 +505,7 @@ instance FromJSON RustcRenderedConst where
             fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
             return $ ConstEnum variant fields
 
-        Just (String "fndef") -> ConstFunction <$> v .: "def_id" <*> v .: "substs"
+        Just (String "fndef") -> ConstFunction <$> v .: "def_id"
         Just (String "static_ref") -> ConstStaticRef <$> v .: "def_id"
         Just (String "zst") -> pure ConstZST
         Just (String "raw_ptr") -> do

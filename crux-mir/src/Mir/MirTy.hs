@@ -15,4 +15,4 @@ import Mir.Mir
 
 -- | Convert field to type. Perform the corresponding substitution if field is a type param.
 fieldToTy :: HasCallStack => Field -> Ty
-fieldToTy (Field _ t _subst) = t
+fieldToTy (Field _ t) = t

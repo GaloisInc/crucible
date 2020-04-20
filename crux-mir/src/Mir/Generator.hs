@@ -368,19 +368,18 @@ mirFail str = do
 -- | Determine whether a function call can be resolved via explicit name bound in the handleMap
 --
 
-resolveFn :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
-resolveFn nm _tys = do
+resolveFn :: HasCallStack => MethName -> MirGenerator h s ret (Maybe MirHandle)
+resolveFn nm = do
   hmap <- use (cs.handleMap)
   return $ Map.lookup nm hmap
 
 ---------------------------------------------------------------------------------------------------
 
--- Now that intrinsics are monomorphized, the `Substs` is always empty.  The
--- `DefId` refers to an entry in the `intrinsics` map, which contains the
+-- The `DefId` refers to an entry in the `intrinsics` map, which contains the
 -- original `DefId` and `Substs` used to produce the monomorphized instance.
 -- Those are what we look up in `customOps`.
-resolveCustom :: DefId -> Substs -> MirGenerator h s ret (Maybe CustomOp)
-resolveCustom instDefId _substs = do
+resolveCustom :: DefId -> MirGenerator h s ret (Maybe CustomOp)
+resolveCustom instDefId = do
     optIntr <- use $ cs . collection . intrinsics . at instDefId
     case optIntr of
         Nothing -> return Nothing
