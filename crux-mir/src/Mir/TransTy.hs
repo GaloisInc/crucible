@@ -900,10 +900,6 @@ testEqualityOrFail x y msg = case testEquality x y of
 
 -- Vtable handling
 
-isAutoTraitPredicate :: M.Predicate -> Bool
-isAutoTraitPredicate (M.AutoTraitPredicate {}) = True
-isAutoTraitPredicate _ = False
-
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
 traitVtableType :: (HasCallStack) =>

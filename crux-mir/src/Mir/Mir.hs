@@ -253,36 +253,6 @@ data Intrinsic = Intrinsic
     }
     deriving (Show, Eq, Ord, Generic)
 
-data Predicate =
-  TraitPredicate {
-    _ptrait :: !DefId,
-    _psubst :: !Substs
-    }
-  | TraitProjection {
-      _plhs    :: !Ty
-    , _prhs    :: !Ty
-    }
-  -- | Special representation for auto-trait predicates in `TyDynamic`.  This
-  -- is equivalent to `TraitPredicate ptrait (Substs [])`, but auto-trait
-  -- predicates need special handling around vtables, so it's useful to have a
-  -- separate variant.
-  | AutoTraitPredicate {
-    _ptrait :: !DefId
-    }
-  | UnknownPredicate
-    deriving (Show, Eq, Ord, Generic)
-
-data Param = Param {
-    _pname :: Text
-} deriving (Show, Eq, Ord, Generic)
-
-newtype Params = Params [Param]
-   deriving (Show, Eq, Ord, Generic)
-
-
-newtype Predicates = Predicates [Predicate]
-   deriving (Show, Eq, Ord, Generic)
-
 
 data Fn = Fn {
      _fname       :: DefId

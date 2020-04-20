@@ -559,39 +559,6 @@ instance FromJSON MirBody where
         <$> v .: "vars"
         <*> v .: "blocks"
 
-parsePred :: HML.HashMap Text Value -> Aeson.Parser Predicate
-parsePred v = 
-  case HML.lookup "kind" v of
-    Just (String "Trait") -> do
-      TraitPredicate <$> v .: "trait" <*> v .: "substs"
-    Just (String "Projection") -> do
-      TraitProjection <$> (TyProjection <$> v .: "proj" <*> v .: "substs") <*> v .: "rhs_ty" 
-    Just (String "AutoTrait") ->
-      AutoTraitPredicate <$> v .: "trait"
-    k -> fail $ "cannot parse predicate " ++ show k
-
-instance FromJSON Predicate where
-    parseJSON obj = case obj of
-      Object v -> do
-        mpobj <- v .:? "trait_pred"
-        case mpobj of
-          Just pobj -> do
-            TraitPredicate <$> pobj .: "trait" <*> pobj .: "substs"
-          Nothing -> do
-            mpobj <- v .:? "trait_proj"
-            case mpobj of
-              Just ppobj -> do
-                pobj <- ppobj .: "projection_ty"
-                TraitProjection <$> (TyProjection <$> pobj .: "item_def_id" <*> pobj .: "substs")
-                                <*> ppobj .: "ty"
-              Nothing -> return UnknownPredicate
-      String t | t == "unknown_pred" -> return UnknownPredicate
-      wat -> Aeson.typeMismatch "Predicate" wat           
-
-instance FromJSON Param where
-    parseJSON = withObject "Param" $ \v ->
-      Param <$> v .: "param_def"
-
 instance FromJSON Static where
   parseJSON = withObject "Static" $ \v -> do
     Static <$> v .: "name"

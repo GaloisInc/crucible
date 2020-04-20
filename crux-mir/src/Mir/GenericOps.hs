@@ -92,7 +92,6 @@ adtIndices (Adt _aname _kind vars _ _) col = go 0 vars
 -- ** Overridden instances for Mir AST types
 
 instance GenericOps ConstVal where
-instance GenericOps Predicate where
 
 -- special case for DefIds
 instance GenericOps DefId where
@@ -127,7 +126,6 @@ instance GenericOps Variant
 instance GenericOps Field
 instance GenericOps Mutability
 instance GenericOps Collection
-instance GenericOps Param
 instance GenericOps Fn
 instance GenericOps Abi
 instance GenericOps MirBody
@@ -166,8 +164,6 @@ instance GenericOps NamedTy
 -- from generalized newtype deriving
 -- either version would work, but GHC doesn't know that and gives a warning
 instance GenericOps Substs
-instance GenericOps Params
-instance GenericOps Predicates
 
 -- *** Instances for Prelude types                 
 

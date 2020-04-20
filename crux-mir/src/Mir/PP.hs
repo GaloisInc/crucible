@@ -130,15 +130,6 @@ pretty_temp (Var vn vm vty _vzst _vs _) =
     (if vm == Mut then text "mut" else text "const")
     <+> pretty vn <+> colon <+> pretty vty <> semi
 
-instance Pretty Predicate where
-  pretty (TraitPredicate trait args) =
-      pretty trait <> pretty args
-  pretty (TraitProjection lhs ty) =
-      pretty lhs <> text "=" <> pretty ty
-  pretty (AutoTraitPredicate trait) =
-      pretty trait
-  pretty UnknownPredicate = text "UnknownPredicate"
-  
 instance Pretty Fn where
     pretty (Fn fname1 fargs1 fs fbody1 fstatics) =
       vcat $ [text "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
@@ -361,9 +352,6 @@ instance Pretty Trait where
     vcat [text "trait" <+> pretty name <+> lbrace ,
           indent 3 (vcat (map pretty items)),
           rbrace]
-
-instance Pretty Param where
-  pretty (Param name) = pretty name
 
 instance Pretty Static where
   pretty (Static nm ty mut pf p) =
