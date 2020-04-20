@@ -722,13 +722,13 @@ evalCast' ck ty1 e ty2  =
       -- TODO: extend coerceUnsized to handle UnsizeVtable as well
       -- Trait object creation from a ref
       (M.UnsizeVtable vtbl, M.TyRef baseType _,
-        M.TyRef (M.TyDynamic traitName _preds) _) ->
+        M.TyRef (M.TyDynamic traitName) _) ->
           mkTraitObject traitName vtbl e
 
       -- Casting between TyDynamics that vary only in their auto traits
       -- TODO: this should also normalize the TraitProjection predicates, to
       -- allow casting between equivalent descriptions of the same trait object
-      (M.Unsize, M.TyRef (M.TyDynamic t1 _) _, M.TyRef (M.TyDynamic t2 _) _)
+      (M.Unsize, M.TyRef (M.TyDynamic t1) _, M.TyRef (M.TyDynamic t2) _)
         | t1 == t2
         -> return e
 
@@ -778,7 +778,7 @@ evalCast' ck ty1 e ty2  =
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
-      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] [] _ _))
+      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret _ _))
          -> do mhand <- lookupFunction defId substs
                case mhand of
                  Just (me, sig')
@@ -789,11 +789,6 @@ evalCast' ck ty1 e ty2  =
                  Nothing -> mirFail $
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show (defId, substs)
-
-      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig _ _ _ _ _ _ _))
-        -> mirFail $ "ReifyFnPointer: impossible: target FnSig has generics?: "
-            ++ show (defId, substs, sig)
-
 
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
@@ -1233,9 +1228,8 @@ lookupFunction nm (Substs funsubst)
 
   -- Given a (polymorphic) function handle, turn it into an expression by
   -- instantiating the type arguments
-  let mkFunExp :: Substs -> [Param] -> FH.FnHandle a r -> MirExp s
-      mkFunExp (Substs hsubst) params fhandle
-        | not $ null params = error $ "BUG: function sigs should no longer include generics"
+  let mkFunExp :: Substs -> FH.FnHandle a r -> MirExp s
+      mkFunExp (Substs hsubst) fhandle
         | not $ null hsubst = error $ "BUG: function sigs should no longer have substs"
         | otherwise =
         let fargctx  = FH.handleArgTypes fhandle
@@ -1252,17 +1246,13 @@ lookupFunction nm (Substs funsubst)
        -- a normal function
        | Just (MirHandle nm fs fh) <- isImpl 
        -> do
-            let preds  = fs^.fspredicates
-            let gens   = fs^.fsgenerics
             let hsubst = Substs $ funsubst
 
             when (db > 3) $ do
               traceM $ "**lookupFunction: " ++ fmt nm ++ fmt (Substs funsubst) ++ " resolved as normal call"
-              traceM $ "\tpreds are " ++ fmt preds
-              traceM $ "\tgens are " ++ fmt gens
               traceM $ "\thsubst is " ++ fmt hsubst
 
-            return $ Just $ (mkFunExp hsubst gens fh, fs)
+            return $ Just $ (mkFunExp hsubst fh, fs)
 
        | otherwise -> do
             when (db > 1) $ do
@@ -1311,7 +1301,6 @@ callHandle e abi spreadArg cargs
                       ++ "\n vs fn params " ++ show ifargctx
   | otherwise = mirFail $ "don't know how to call handle " ++ show e
 
--- need to construct any dictionary arguments for predicates (if present)
 callExp :: HasCallStack =>
            M.DefId
         -> Substs
@@ -1523,11 +1512,11 @@ initialValue (M.TyRef M.TyStr M.Mut) = do
     ref <- newMirRef (MirVectorRepr tr)
     let i = MirExp UsizeRepr (R.App $ usizeLit 0)
     return $ Just $ buildTuple [(MirExp (MirReferenceRepr (MirVectorRepr tr)) ref), i, i]
-initialValue (M.TyRef (M.TyDynamic _ _) _) = do
+initialValue (M.TyRef (M.TyDynamic _) _) = do
     let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
         Ctx.Empty Ctx.:> x Ctx.:> x
-initialValue (M.TyRawPtr (M.TyDynamic _ _) _) = do
+initialValue (M.TyRawPtr (M.TyDynamic _) _) = do
     let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
     return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
         Ctx.Empty Ctx.:> x Ctx.:> x
@@ -1561,7 +1550,7 @@ initialValue (M.TyAdt nm _ _) = do
         Union -> return Nothing
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyFnDef _ _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
-initialValue (M.TyDynamic _ _) = return $ Nothing
+initialValue (M.TyDynamic _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue M.TyNever = return $ Just $ MirExp knownRepr $
     R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
@@ -1689,10 +1678,6 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 genFn :: HasCallStack => M.Fn -> C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype = do
 
-  let gens  = sig^.fsgenerics
-  let preds = sig^.fspredicates
-  let atys  = sig^.fsassoc_tys
-  
   lm <- buildLabelMap body
   labelMap .= lm
 
@@ -1706,11 +1691,8 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
      let showVar var = fmt var ++ " : " ++ fmt (M.typeOf var)
      traceM $ "-----------------------------------------------------------------------------"
      traceM $ "Generating code for: " ++ show fname
-     traceM $ "Generics are: " ++  fmt(map pretty gens)
-     traceM $ "Predicates are: " ++ fmt  (map pretty preds)
      traceM $ "Function args are: " ++ List.intercalate "," (map showVar argvars)
      traceM $ "VarMap is: " ++ fmt (Map.keys vmm)
-     traceM $ "Associated types are: " ++ fmt (map pretty atys)
      traceM $ "Body is:\n" ++ fmt body
      traceM $ "-----------------------------------------------------------------------------"
   let (M.MirBody _mvars blocks@(enter : _)) = body
@@ -1749,9 +1731,6 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
 
 
 -- | Allocate method handles for each of the functions in the Collection
--- Fn preds must include *all* predicates necessary for translating
--- the fbody at this point (i.e. "recursive" predicates for impls)
--- and these preds must already have their associated types abstracted???
 mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMap
 mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
@@ -1977,7 +1956,7 @@ mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. 
       | IkVirtual dynTraitName _ <- intr ^. M.intrInst . M.inKind =
         let methName = intr ^. M.intrInst ^. M.inDefId
             trait = lookupTrait col dynTraitName
-            methSig = clearSigGenerics $ traitMethodSig trait methName
+            methSig = traitMethodSig trait methName
 
             handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
         in liftM (Map.singleton name) $

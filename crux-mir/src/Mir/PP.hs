@@ -79,7 +79,7 @@ instance Pretty Ty where
     pretty (TyClosure tys)       = text "closure" <+> pretty tys
     pretty TyStr                 = text "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
-    pretty (TyDynamic trait preds) = text "dynamic" <+> pretty trait <+> pretty preds
+    pretty (TyDynamic trait)     = text "dynamic" <+> pretty trait
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
@@ -141,17 +141,13 @@ instance Pretty Predicate where
   
 instance Pretty Fn where
     pretty (Fn fname1 fargs1 fs fbody1 fstatics) =
-      vcat $ [text "fn" <+> pretty fname1 <> pparams gens
-            <> patys atys <+> tupled (map pretty_arg fargs1)
-                      <+> arrow <+> pretty rty <+> ppreds preds <+> lbrace] 
+      vcat $ [text "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
+                  <+> arrow <+> pretty rty <+> lbrace] 
             ++ (map pretty (V.toList fstatics)) 
             ++ [indent 3 (pretty fbody1),
                 rbrace]
       where
-        gens   = fs^.fsgenerics
-        atys   = fs^.fsassoc_tys
         rty    = fs^.fsreturn_ty
-        preds  = fs^.fspredicates
 
 instance Pretty MirBody where
     pretty (MirBody mvs mbs) =
@@ -343,10 +339,7 @@ instance Pretty AggregateKind where
 
 instance Pretty FnSig where
   pretty fs =
-    pparams (fs^.fsgenerics) <>
     tupled (map pretty (fs^.fsarg_tys)) <+> arrow <+> pretty (fs^.fsreturn_ty)
-                <+> ppreds (fs^.fspredicates)
-                <+> patys  (fs^.fsassoc_tys)
                 <+> brackets (pretty (fs^.fsabi))
                 <+> maybeSpreadArg
     where
@@ -364,31 +357,13 @@ instance Pretty TraitItem where
   pretty (TraitConst name ty)     = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
-  pretty (Trait name items _supers params preds _numParams) =
-    let ps = pparams params
-    in                    
-        vcat [text "trait" <+> pretty name <+> ps <+> ppreds preds <+> lbrace ,
-              indent 3 (vcat (map pretty items)),
-              rbrace]
+  pretty (Trait name items) =
+    vcat [text "trait" <+> pretty name <+> lbrace ,
+          indent 3 (vcat (map pretty items)),
+          rbrace]
 
 instance Pretty Param where
   pretty (Param name) = pretty name
-
---instance Pretty AssocTy where
---  pretty (AssocTy (name, substs)) = pretty name <+> pretty substs
-
-patys   :: [AssocTy] -> Doc
-patys atys = if null atys then empty
-  else encloseSep langle rangle  comma (map pretty atys)
-
--- don't allow line breaks in the middle of params
-pparams :: [Param] -> Doc
-pparams params = if null params then mempty
-  else hcat $ [langle] ++ punctuate comma (map pretty params) ++ [rangle]
-
-ppreds :: [Predicate] -> Doc
-ppreds preds = if null preds then empty
-  else text "where" <+> list (map pretty preds)
 
 instance Pretty Static where
   pretty (Static nm ty mut pf p) =

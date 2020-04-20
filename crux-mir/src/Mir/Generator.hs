@@ -369,17 +369,9 @@ mirFail str = do
 --
 
 resolveFn :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
-resolveFn nm tys = do
+resolveFn nm _tys = do
   hmap <- use (cs.handleMap)
-  case Map.lookup nm hmap of
-    Just h@(MirHandle _nm fs fh) -> do
-      -- make sure the number of type arguments is consistent with the impl
-      -- we don't have to instantiate all of them, but we can't have too many
-      if lengthSubsts tys <= length (fs^.fsgenerics) then
-        return (Just h)
-      else
-        return Nothing
-    Nothing -> return Nothing
+  return $ Map.lookup nm hmap
 
 ---------------------------------------------------------------------------------------------------
 

@@ -97,9 +97,7 @@ instance FromJSON InlineTy where
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
-      Just (String "Dynamic") -> TyDynamic <$>
-            (v .: "trait_id") <*>
-            (v .: "predicates" >>= \xs -> mapM parsePred xs)
+      Just (String "Dynamic") -> TyDynamic <$> v .: "trait_id"
       Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
@@ -137,15 +135,9 @@ instance FromJSON Instance where
 instance FromJSON FnSig where
     parseJSON =
       withObject "FnSig" $ \v -> do
-         let gens  = return []
-         let preds = return []
-         let atys  = return []
          let spread = return Nothing
          FnSig <$> v .: "inputs"
                <*> v .: "output"
-               <*> gens
-               <*> preds
-               <*> atys
                <*> v .: "abi"
                <*> spread
                
@@ -224,14 +216,9 @@ instance FromJSON Collection where
 
 instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> do
-      pg <- v .: "generics"
-      pp <- v .: "predicates"
       args <- v .: "args"
       let sig = FnSig <$> return (map typeOf args)
                       <*> v .: "return_ty"
-                      <*> (withObject "Param" (\u -> u .: "params") pg)
-                      <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-                      <*> return []
                       <*> v .: "abi"
                       <*> v .: "spread_arg"
 
@@ -547,28 +534,14 @@ instance FromJSON AggregateKind where
 
 instance FromJSON Trait where
     parseJSON = withObject "Trait" $ \v -> do
-      pg <- v .: "generics"
-      pp <- v .: "predicates"
-      params <- (withObject "Param" (\u -> u .: "params") pg)
       Trait <$> v .: "name"
             <*> v .: "items"
-            <*> v .: "supertraits"
-            <*> pure params
-            <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-            <*> pure []
 
 instance FromJSON TraitItem where
     parseJSON = withObject "TraitItem" $ \v ->
                 case HML.lookup "kind" v of
                   Just (String "Method") -> do
-                    sig <- v .: "signature"
-                    pg  <- v .: "generics"
-                    pp  <- v .: "predicates"
-                    params <- withObject "Param" (\u -> u .: "params") pg
-                    preds  <- withObject "Predicates" (\u -> u .: "predicates") pp
-                    let sig' = sig & fsgenerics   .~ params
-                                   & fspredicates .~ preds
-                    TraitMethod <$> v .: "item_id" <*> return sig'
+                    TraitMethod <$> v .: "item_id" <*> v .: "signature"
                   Just (String "Type") -> TraitType <$> v .: "name"
                   Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
@@ -618,7 +591,6 @@ instance FromJSON Predicate where
 instance FromJSON Param where
     parseJSON = withObject "Param" $ \v ->
       Param <$> v .: "param_def"
-
 
 instance FromJSON Static where
   parseJSON = withObject "Static" $ \v -> do

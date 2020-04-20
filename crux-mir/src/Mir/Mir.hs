@@ -100,7 +100,7 @@ data Ty =
       | TyClosure [Ty]      -- the Tys are the types of the upvars
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
-      | TyDynamic !TraitName [Predicate] -- trait object (defid is trait name)
+      | TyDynamic !TraitName        -- trait object (defid is trait name)
       | TyRawPtr !Ty !Mutability    -- Written as *mut T or *const T
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
@@ -131,9 +131,6 @@ data NamedTy = NamedTy { _ntName :: Text, _ntTy :: Ty }
 data FnSig = FnSig {
     _fsarg_tys    :: ![Ty]
   , _fsreturn_ty  :: !Ty
-  , _fsgenerics   :: ![Param]
-  , _fspredicates :: ![Predicate]
-  , _fsassoc_tys  :: ![AssocTy]    -- new params added in a pre-pass
   , _fsabi        :: Abi
   -- TODO: current handling of spread_arg is a hack.
   --
@@ -532,11 +529,7 @@ data AggregateKind =
       deriving (Show,Eq, Ord, Generic)
 
 data Trait = Trait { _traitName       :: !DefId,
-                     _traitItems      :: ![TraitItem],
-                     _traitSupers     :: ![TraitName],
-                     _traitParams     :: ![Param],
-                     _traitPredicates :: ![Predicate],
-                     _traitAssocTys   :: ![AssocTy]    -- new params added in a pre-pass
+                     _traitItems      :: ![TraitItem]
                    } 
     deriving (Eq, Ord, Show, Generic)
 

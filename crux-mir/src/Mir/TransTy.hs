@@ -176,7 +176,7 @@ tyToRepr t0 = case t0 of
   -- type-erased (`AnyRepr`), the first because it has to be, and the second
   -- because we'd need to thread the `Collection` into this function (which we
   -- don't want to do) in order to construct the precise vtable type.
-  M.TyRef (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
+  M.TyRef (M.TyDynamic _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
   -- TODO: DSTs not behind a reference - these should never appear in real code
@@ -199,18 +199,15 @@ tyToRepr t0 = case t0 of
     "BUG: all uses of TyParam should have been eliminated, found " ++ fmt t0
 
   -- non polymorphic function types go to FunctionHandleRepr
-  M.TyFnPtr sig@(M.FnSig args ret [] [] _atys _abi _spread) ->
+  M.TyFnPtr sig@(M.FnSig args ret _abi _spread) ->
      tyListToCtx args $ \argsr  ->
      tyToReprCont ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
-        
-  M.TyFnPtr sig@(M.FnSig args ret params preds _atys _abi _spread) ->
-      error $ "BUG: polymorphic fn ptrs should not appear in mir-json output any more"
 
   -- We don't support unsized rvalues.  Currently we error only for standalone
   -- standalone (i.e., not under `TyRef`/`TyRawPtr`) use of `TyDynamic` - we
   -- should do the same for TySlice and TyStr as well.
-  M.TyDynamic _trait _preds -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
+  M.TyDynamic _trait -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
 
   M.TyProjection _def _tyargs -> error $
     "BUG: all uses of TyProjection should have been eliminated, found " ++ fmt t0
@@ -913,7 +910,7 @@ traitVtableType :: (HasCallStack) =>
     M.TraitName -> M.Trait -> Some C.TypeRepr
 traitVtableType tname trait = vtableTy
   where
-    convertShimSig sig = clearSigGenerics $ eraseSigReceiver sig
+    convertShimSig sig = eraseSigReceiver sig
 
     methodSigs = Maybe.mapMaybe (\ti -> case ti of
         M.TraitMethod name sig -> Just sig
@@ -927,10 +924,3 @@ eraseSigReceiver :: M.FnSig -> M.FnSig
 eraseSigReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
     [] -> error $ unwords ["dynamic trait method has no receiver", show sig]
     (_ : tys) -> M.TyErased : tys
-
--- Erase generics, predicates, and associated types
-clearSigGenerics :: M.FnSig -> M.FnSig
-clearSigGenerics sig = sig
-    & M.fsgenerics .~ []
-    & M.fspredicates .~ []
-    & M.fsassoc_tys .~ []
