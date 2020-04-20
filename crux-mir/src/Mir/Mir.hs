@@ -529,7 +529,7 @@ data ConstVal =
 data AggregateKind =
         AKArray Ty
       | AKTuple
-      | AKClosure DefId Substs
+      | AKClosure
       deriving (Show,Eq, Ord, Generic)
 
 data Trait = Trait { _traitName       :: !DefId,
@@ -795,7 +795,7 @@ instance TypeOf Rvalue where
   typeOf (Discriminant _lv) = TyInt USize
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
-  typeOf (Aggregate (AKClosure _did _substs) ops) = TyClosure $ map typeOf ops
+  typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
 
 instance TypeOf Operand where

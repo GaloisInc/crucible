@@ -339,7 +339,7 @@ instance Pretty ConstVal where
 instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)
     pretty AKTuple = text "tup"
-    pretty (AKClosure defid args) = pretty defid <> pretty args
+    pretty AKClosure = text "closure"
 
 instance Pretty FnSig where
   pretty fs =

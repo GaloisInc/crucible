@@ -543,7 +543,7 @@ instance FromJSON AggregateKind where
     parseJSON = withObject "AggregateKind" $ \v -> case HML.lookup "kind" v of
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
-                                                     Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
+                                                     Just (String "Closure") -> pure AKClosure
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk
                                                      x -> fail ("bad AggregateKind: " ++ show x)
 

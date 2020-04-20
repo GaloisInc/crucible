@@ -910,7 +910,7 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        exps <- mapM evalOperand ops
                                        tyToReprCont ty $ \repr ->
                                            buildArrayLit repr exps
-                                   M.AKClosure _defid _substs -> do
+                                   M.AKClosure -> do
                                        args <- mapM evalOperand ops
                                        -- Closure environments have the same
                                        -- representation as tuples.
