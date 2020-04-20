@@ -32,8 +32,8 @@ where
 
 import Control.Exception (Exception (..), throwIO)
 import qualified Control.Lens as L
-import Control.Monad (forM_)
-import Control.Monad.State
+-- import Control.Monad (forM_)
+import Control.Monad.State (MonadState, gets, modify, runState)
 import Crux.LLVM.Simulate (registerFunctions)
 import Crux.Model
 import Data.Functor.Const
@@ -42,8 +42,8 @@ import qualified Data.LLVM.BitCode as BC
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Nonce (withIONonceGenerator)
-import Data.Sequence (Seq)
-import qualified Lang.Crucible.Backend as Backend
+-- import Data.Sequence (Seq)
+-- import qualified Lang.Crucible.Backend as Backend
 import qualified Lang.Crucible.Backend.Online as Online
 import qualified Lang.Crucible.CFG.Core as Core
 import Lang.Crucible.LLVM.Extension
@@ -55,8 +55,10 @@ import Lang.Crucible.Types
 -- import Language.Sally
 import System.IO (stdout)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import What4.Expr.Builder
+import qualified What4.Expr.WeightedSum as WS
 import What4.Interface
-import What4.LabeledPred (labeledPred)
+-- import What4.LabeledPred (labeledPred)
 import What4.Protocol.Online
 import qualified What4.TransitionSystem as TS
 
@@ -75,6 +77,10 @@ userSymbol' s = case userSymbol s of
 type ConcreteSym scope solver =
   Online.OnlineBackend scope solver (Online.Flags Online.FloatIEEE)
 
+-- | This functions sets up the Crux LLVM simulator we will use.  One particular
+-- setup step is coming up with names for the arguments of the function: those
+-- are not easily accessible here, so we generate fresh ones, using the type as
+-- guidance for the prefix.
 setupCruxLLVM ::
   OnlineSolver scope solver =>
   Module ->
@@ -85,13 +91,10 @@ setupCruxLLVM llvmMod sym = CruxLLVM $ \mt ->
     case findCFG mt testFun of
       Nothing -> throwIO (UnknownFunction testFun)
       Just (Core.AnyCFG cfg) ->
-        let -- handle = Core.cfgHandle cfg
-            fnArgs = Core.cfgArgTypes cfg
+        let fnArgs = Core.cfgArgTypes cfg
             fnRet = Core.cfgReturnType cfg
             (fnArgsNames, _) =
               runState (namesOfCrucibleTypes fnArgs) initNamingCounter
-            fnArgsAndRet = Ctx.extend fnArgs fnRet
-            fnArgsAndRetNames = Ctx.extend fnArgsNames (Const "ret")
          in do
               bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
               let ?badBehaviorMap = bbMapRef
@@ -103,10 +106,10 @@ setupCruxLLVM llvmMod sym = CruxLLVM $ \mt ->
                     cruxInitCodeReturns = fnRet,
                     cruxInitCode = do
                       registerFunctions llvmMod mt
-                      RegEntry _retType retValue <- callCFG cfg regMap
+                      RegEntry _ retValue <- callCFG cfg regMap
                       pure retValue,
                     cruxUserState = emptyModel,
-                    cruxGo = runExecState fnArgsAndRet fnArgsAndRetNames
+                    cruxGo = runExecState cfg fnArgsNames
                   }
 
 main :: IO ()
@@ -119,34 +122,34 @@ main =
           . setupCruxLLVM llvmMod
     return ()
 
-printProofGoals ::
-  IsExprBuilder sym =>
-  sym ->
-  Backend.ProofGoals (SymExpr sym BaseBoolType) Backend.AssumptionReason SimError ->
-  IO ()
-printProofGoals sym (Backend.Assuming asmps goals) = do
-  printAssumptions sym asmps
-  printProofGoals sym goals
-printProofGoals _ (Backend.Prove goal) = print . PP.pretty . printSymExpr $ L.view labeledPred goal
-printProofGoals sym (Backend.ProveConj goals1 goals2) = do
-  printProofGoals sym goals1
-  printProofGoals sym goals2
+-- printProofGoals ::
+--   IsExprBuilder sym =>
+--   sym ->
+--   Backend.ProofGoals (SymExpr sym BaseBoolType) Backend.AssumptionReason SimError ->
+--   IO ()
+-- printProofGoals sym (Backend.Assuming asmps goals) = do
+--   printAssumptions sym asmps
+--   printProofGoals sym goals
+-- printProofGoals _ (Backend.Prove goal) = print . PP.pretty . printSymExpr $ L.view labeledPred goal
+-- printProofGoals sym (Backend.ProveConj goals1 goals2) = do
+--   printProofGoals sym goals1
+--   printProofGoals sym goals2
 
-printAssumptions ::
-  IsExprBuilder sym =>
-  sym ->
-  Seq (Backend.LabeledPred (Pred sym) msg) ->
-  IO ()
-printAssumptions _ assumptions =
-  forM_ assumptions $ \assumption ->
-    print . PP.pretty . printSymExpr $ L.view labeledPred assumption
+-- printAssumptions ::
+--   IsExprBuilder sym =>
+--   sym ->
+--   Seq (Backend.LabeledPred (Pred sym) msg) ->
+--   IO ()
+-- printAssumptions _ assumptions =
+--   forM_ assumptions $ \assumption ->
+--     print . PP.pretty . printSymExpr $ L.view labeledPred assumption
 
-data SymbolicInformation sym rtp
-  = SymbolicInformation
-      { assumptions :: Seq (Backend.LabeledPred (Pred sym) Backend.AssumptionReason),
-        obligations :: Backend.ProofObligations sym,
-        returnValue :: RegEntry sym rtp
-      }
+-- data SymbolicInformation sym rtp
+--   = SymbolicInformation
+--       { assumptions :: Seq (Backend.LabeledPred (Pred sym) Backend.AssumptionReason),
+--         obligations :: Backend.ProofObligations sym,
+--         returnValue :: RegEntry sym rtp
+--       }
 
 -- | The @BaseTypeOfCrucibleType@ type family maps Crucible types to What4
 -- types.  All base types are accounted for, for other types, we map it to the
@@ -266,74 +269,122 @@ asBaseTypesNames ::
   Ctx.Assignment (Const String) init ->
   Ctx.Assignment (Const String) (BaseTypesOfCrucibleTypes init)
 asBaseTypesNames ctx =
-    case Ctx.viewAssign ctx of
+  case Ctx.viewAssign ctx of
     Ctx.AssignEmpty -> Ctx.empty
     Ctx.AssignExtend ctx' (Const s) -> Ctx.extend (asBaseTypesNames ctx') (Const s)
 
+addNamespaceToVariables ::
+  forall t st fs stateFields tp.
+  ExprBuilder t st fs ->
+  Ctx.Assignment BaseTypeRepr stateFields ->
+  SymStruct (ExprBuilder t st fs) stateFields ->
+  Expr t tp ->
+  IO (Expr t tp)
+addNamespaceToVariables sym stateType state = goExpr
+  where
+    -- @Expr@
+    goExpr :: forall tp'. Expr t tp' -> IO (Expr t tp')
+    goExpr sr@(SemiRingLiteral {}) = pure sr
+    goExpr sr@(BoolExpr {}) = pure sr
+    goExpr sr@(StringExpr {}) = pure sr
+    goExpr (asApp -> Just a) = sbMakeExpr sym =<< goApp a
+    goExpr (NonceAppExpr {}) = error "NonceApp"
+    goExpr (BoundVarExpr e) =
+      do
+        let expectedType = bvarType e
+        fn <- freshTotalUninterpFn sym (bvarName e) (Ctx.Empty Ctx.:> BaseStructRepr stateType) expectedType
+        applySymFn sym fn (Ctx.Empty Ctx.:> state)
+    goExpr e = error $ show e
+    -- @App@
+    goApp :: forall tp'. App (Expr t) tp' -> IO (App (Expr t) tp')
+    goApp (BaseIte tp n c t e) = BaseIte tp n <$> goExpr c <*> goExpr t <*> goExpr e
+    goApp (SemiRingSum ws) = SemiRingSum <$> WS.transformSum (WS.sumRepr ws) pure goExpr ws
+    goApp (BaseEq tp a b) = BaseEq tp <$> goExpr a <*> goExpr b
+    goApp x = error $ show x
+
 runExecState ::
-  forall arch init p scope solver rtp.
+  forall arch blocks init p scope solver ret.
   OnlineSolver scope solver =>
   HasPtrWidth (ArchWidth arch) =>
-  Core.CtxRepr init ->
-  -- Ctx.Assignment (Const String) (BaseTypesOfCrucibleTypes init) ->
+  Core.CFG (LLVM arch) blocks init ret ->
+  -- Core.CtxRepr init ->
   Ctx.Assignment (Const String) init ->
-  ExecState p (ConcreteSym scope solver) (LLVM arch) (RegEntry (ConcreteSym scope solver) rtp) ->
+  ExecState p (ConcreteSym scope solver) (LLVM arch) (RegEntry (ConcreteSym scope solver) ret) ->
   IO ()
-runExecState argsTypes argsNames st =
-  executeCrucible [] st
-    >>= \case
-      FinishedResult ctx (TotalRes gp) ->
-        let sym = L.view ctxSymInterface ctx
-         in do
-              -- Print assumptions
-              assumptions <- Backend.collectAssumptions sym
-              putStrLn "=== Assumptions ==="
-              print $ length assumptions
-              forM_ assumptions $ \assumption ->
-                print . PP.pretty . printSymExpr $ L.view labeledPred assumption
-              -- Print obligations
-              putStrLn "=== Obligations ==="
-              obligations <- Backend.getProofObligations sym
-              case obligations of
-                Just goals -> printProofGoals sym goals
-                Nothing -> putStrLn "No obligation"
-              -- Print result
-              let ret = L.view gpValue gp
-              print $ regType ret
-              () <- case regType ret of
-                LLVMPointerRepr _w -> print . ppPtr . regValue $ ret
-                _ -> return ()
-              retExpr :: Pred (ConcreteSym scope solver) <-
-                    case regType ret of
-                    LLVMPointerRepr w ->
-                      case regValue ret of
-                      (llvmPointerView -> (blk, bv))
-                        | Just 0 <- asNat blk ->
-                          do
-                            retVar <- freshBoundedBV sym (userSymbol' "ret") w Nothing Nothing
-                            bvEq sym retVar bv
-                        | otherwise -> error "TODO"
-                    _ -> error "TODO"
-              print retExpr
-              let _info =
-                    SymbolicInformation
-                      { assumptions,
-                        obligations,
-                        returnValue = ret
-                      }
-              -- FIXME: need to turn CrucibleType into BaseType
-              let ts :: TS.TransitionSystem (ConcreteSym scope solver) (BaseTypesOfCrucibleTypes init) =
-                    TS.TransitionSystem
-                      { stateFieldsRepr = baseTypesOfCrucibleTypes argsTypes,
-                        stateFieldsNames = asBaseTypesNames argsNames,
-                        initialStatePred = \_ -> return (truePred sym),
-                        stateTransition = \_ _ -> return retExpr -- (truePred sym)
-                      }
-              print . PP.pretty =<< TS.transitionSystemToSally sym TS.mySallyNames ts
-              return ()
-      FinishedResult _ctx PartialRes {} -> error "PartialRes"
-      AbortedResult {} -> error "Aborted"
-      TimeoutResult {} -> error "Timeout"
+runExecState cfg fnArgsNames execState =
+  let fnArgs = Core.cfgArgTypes cfg
+      fnRet = Core.cfgReturnType cfg
+      fnArgsAndRet = Ctx.extend fnArgs fnRet
+      fnArgsAndRetNames ::
+        Ctx.Assignment (Const String) (init Ctx.::> ret) =
+          Ctx.extend fnArgsNames (Const "ret")
+   in do
+        executeCrucible [] execState
+          >>= \case
+            FinishedResult ctx (TotalRes gp) ->
+              let sym = L.view ctxSymInterface ctx
+               in do
+                    -- Print assumptions
+                    -- assumptions <- Backend.collectAssumptions sym
+                    -- putStrLn "=== Assumptions ==="
+                    -- print $ length assumptions
+                    -- forM_ assumptions $ \assumption ->
+                    --   print . PP.pretty . printSymExpr $ L.view labeledPred assumption
+                    -- Print obligations
+                    -- putStrLn "=== Obligations ==="
+                    -- obligations <- Backend.getProofObligations sym
+                    -- case obligations of
+                    --   Just goals -> printProofGoals sym goals
+                    --   Nothing -> putStrLn "No obligation"
+                    -- Print result
+                    let ret = L.view gpValue gp
+                    -- print $ regType ret
+                    -- () <- case regType ret of
+                    --   LLVMPointerRepr _w -> print . ppPtr . regValue $ ret
+                    --   _ -> return ()
+                    let stateType = baseTypesOfCrucibleTypes fnArgsAndRet
+                    state <- TS.createStateStruct sym "state" stateType
+                    next <- TS.createStateStruct sym "next" stateType
+                    retExpr :: Pred (ConcreteSym scope solver) <-
+                      case regType ret of
+                        LLVMPointerRepr w ->
+                          case regValue ret of
+                            (llvmPointerView -> (blk, bv))
+                              | Just 0 <- asNat blk ->
+                                do
+                                  bv' <- addNamespaceToVariables sym stateType state bv
+                                  retVarAccessor <-
+                                    freshTotalUninterpFn
+                                      sym
+                                      (userSymbol' "ret")
+                                      (Ctx.Empty Ctx.:> BaseStructRepr stateType)
+                                      (BaseBVRepr w) --  (regType ret)
+                                  retVar <- applySymFn sym retVarAccessor (Ctx.Empty Ctx.:> next)
+                                  -- retVar <- freshBoundedBV sym (userSymbol' "ret") w Nothing Nothing
+                                  bvEq sym retVar bv'
+                              | otherwise -> error "TODO"
+                        _ -> error "TODO"
+                    print retExpr
+                    -- let _info =
+                    --       SymbolicInformation
+                    --         { assumptions,
+                    --           obligations,
+                    --           returnValue = ret
+                    --         }
+                    -- FIXME: need to turn CrucibleType into BaseType
+                    let ts =
+                          -- :: TS.TransitionSystem (ConcreteSym scope solver) (BaseTypesOfCrucibleTypes (init Ctx.::> ret)) =
+                          TS.TransitionSystem
+                            { stateFieldsRepr = stateType,
+                              stateFieldsNames = asBaseTypesNames fnArgsAndRetNames,
+                              initialStatePred = \_ -> return (truePred sym),
+                              stateTransition = \_ _ -> return retExpr -- (truePred sym)
+                            }
+                    print . PP.pretty =<< TS.transitionSystemToSally sym TS.mySallyNames ts
+                    return ()
+            FinishedResult _ctx PartialRes {} -> error "PartialRes"
+            AbortedResult {} -> error "Aborted"
+            TimeoutResult {} -> error "Timeout"
 
 -- | Create a Z3 backend for the simulator.
 withZ3 ::
