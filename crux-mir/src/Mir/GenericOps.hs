@@ -51,11 +51,6 @@ import GHC.Stack
 -- 
 class GenericOps a where
 
-  -- | Type variable substitution. Type variables are represented via indices.
-  tySubst :: HasCallStack => Substs -> a -> a 
-  default tySubst :: (Generic a, GenericOps' (Rep a), HasCallStack) => Substs -> a -> a
-  tySubst s x = to (tySubst' s (from x))
-
   -- | Replace `TyInterned` with real types by applying a function.  The types
   -- returned by the function are expected to be free of further `TyInterned`,
   -- so this function will not recursively `uninternTys` on them.
@@ -137,31 +132,12 @@ instance GenericOps Predicate where
 
 -- special case for DefIds
 instance GenericOps DefId where
-  tySubst    _      = id
   uninternTys _     = id
   modifyPreds _     = id
 
 
-
--- | increment all free variables in the range of the substitution by n
-lift :: Int -> Substs -> Substs
-lift 0 ss = ss
-lift n ss = takeSubsts n (incN 0) <> tySubst (incN n) ss  where
-
-
--- | An infinite substitution that increments all type vars by n
-incN :: Int -> Substs
-incN n = Substs (TyParam . toInteger <$> [n ..])
-
 -- special case for Ty
 instance GenericOps Ty where
-
-  -- Substitute for type variables
-  tySubst (Substs substs) (TyParam i)
-     | Just x <- safeNth (fromInteger i) substs  = x
-     | otherwise    = error $
-           "BUG in substitution: Indexing at " ++ show i ++ "  from subst " ++ fmt (Substs substs)
-  tySubst substs ty = to (tySubst' substs (from ty))
 
   uninternTys f (TyInterned name) = f name
   uninternTys f ty = to (uninternTys' f (from ty))
@@ -181,11 +157,6 @@ instance GenericOps BaseSize
 instance GenericOps FloatKind
 instance GenericOps FnSig where
   modifyPreds = modifyPreds_FnSig
-  
-  tySubst substs (FnSig args ret params preds atys abi spread) =
-      (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys) abi spread)
-        where ss = lift (length params) substs
-
   
 instance GenericOps Adt
 instance GenericOps VariantDiscr
@@ -241,34 +212,27 @@ instance GenericOps Predicates
 -- *** Instances for Prelude types                 
 
 instance GenericOps Int     where
-   tySubst    = const id
    uninternTys = const id
    modifyPreds = const id
 instance GenericOps Integer where
-   tySubst    = const id
    uninternTys = const id
    modifyPreds = const id   
 instance GenericOps Char    where
-   tySubst    = const id
    uninternTys = const id
    modifyPreds = const id   
 instance GenericOps Bool    where
-   tySubst    = const id
    uninternTys = const id
    modifyPreds = const id
    
 instance GenericOps Text    where
-   tySubst    = const id
    uninternTys = const id
    modifyPreds = const id
    
 instance GenericOps B.ByteString where
-   tySubst    = const id
    uninternTys = const id
    modifyPreds = const id
    
 instance GenericOps b => GenericOps (Map.Map a b) where
-   tySubst s         = Map.map (tySubst s)
    uninternTys f     = Map.map (uninternTys f)
    modifyPreds i     = Map.map (modifyPreds i)
    
@@ -276,7 +240,6 @@ instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
 instance GenericOps a => GenericOps (Vector a) where
-   tySubst s         = V.map (tySubst s)
    uninternTys f     = V.map (uninternTys f)
    modifyPreds i     = V.map (modifyPreds i)
   
@@ -285,39 +248,31 @@ instance GenericOps a => GenericOps (Vector a) where
 -- ** Generic programming plumbing
 
 class GenericOps' f where
-  tySubst'       :: Substs -> f p -> f p 
   uninternTys'   :: (Text -> Ty) -> f p -> f p
   modifyPreds'   :: RUPInfo -> f p -> f p
   
 instance GenericOps' V1 where
-  tySubst' _ _      = error "impossible: this is a void type"
   uninternTys' _  = error "impossible: this is a void type"
   modifyPreds' _  = error "impossible: this is a void type"
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
-  tySubst'    s (L1 x) = L1 (tySubst' s x)
-  tySubst'    s (R1 x) = R1 (tySubst' s x)
   uninternTys' s (L1 x) = L1 (uninternTys' s x)
   uninternTys' s (R1 x) = R1 (uninternTys' s x)
   modifyPreds' s (L1 x) = L1 (modifyPreds' s x)
   modifyPreds' s (R1 x) = R1 (modifyPreds' s x)
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
-  tySubst'    s   (x :*: y) = tySubst'      s x :*: tySubst'    s y
   uninternTys' s (x :*: y) = uninternTys' s x :*: uninternTys' s y
   modifyPreds' s (x :*: y) = modifyPreds' s x :*: modifyPreds' s y  
 
 instance (GenericOps c) => GenericOps' (K1 i c) where
-  tySubst'    s (K1 x) = K1 (tySubst s x)
   uninternTys'    s (K1 x) = K1 (uninternTys s x)
   modifyPreds'    s (K1 x) = K1 (modifyPreds s x)
 
 instance (GenericOps' f) => GenericOps' (M1 i t f) where
-  tySubst'    s (M1 x) = M1 (tySubst' s x)
   uninternTys' s (M1 x) = M1 (uninternTys' s x)
   modifyPreds' s (M1 x) = M1 (modifyPreds' s x)  
   
 instance (GenericOps' U1) where
-  tySubst'    _s U1 = U1
   uninternTys' _s U1 = U1
   modifyPreds' _s U1 = U1  

@@ -67,7 +67,6 @@ import           Mir.Intrinsics
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , DynRefType)
-import           Mir.GenericOps (tySubst)
 
 
 -----------------------------------------------------------------------
@@ -253,9 +252,9 @@ canInitialize ty = case ty of
 
 
 variantFields :: TransTyConstraint => M.Variant -> M.Substs -> Some C.CtxRepr
-variantFields (M.Variant _vn _vd vfs _vct) args = 
+variantFields (M.Variant _vn _vd vfs _vct) _args =
     tyReprListToCtx
-        (map (mapSome fieldType . tyToFieldRepr . M.fieldToTy . M.substField args) vfs)
+        (map (mapSome fieldType . tyToFieldRepr . M.fieldToTy) vfs)
         (\repr -> Some repr)
 
 data FieldRepr tp' = forall tp. FieldRepr (FieldKind tp tp')
@@ -283,9 +282,9 @@ tyToFieldRepr ty
   | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr ty)
 
 variantFields' :: TransTyConstraint => M.Variant -> M.Substs -> Some FieldCtxRepr
-variantFields' (M.Variant _vn _vd vfs _vct) args =
+variantFields' (M.Variant _vn _vd vfs _vct) _args =
     fieldReprListToCtx
-        (map (tyToFieldRepr . M.fieldToTy . M.substField args) vfs)
+        (map (tyToFieldRepr . M.fieldToTy) vfs)
         (\x -> Some x)
 
 enumVariants :: TransTyConstraint => M.Adt -> M.Substs -> Some C.CtxRepr
@@ -587,7 +586,7 @@ structInfo adt args i = do
 
     let var = M.onlyVariant adt
     fldTy <- case var ^? M.vfields . ix i of
-        Just fld -> return $ M.fieldToTy $ M.substField args fld
+        Just fld -> return $ M.fieldToTy fld
         Nothing -> mirFail errFieldIndex
 
     Some ctx <- return $ variantFields var args
@@ -679,7 +678,7 @@ enumInfo adt args i j = do
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
     fldTy <- case var ^? M.vfields . ix j of
-        Just fld -> return $ M.fieldToTy $ M.substField args fld
+        Just fld -> return $ M.fieldToTy fld
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
 

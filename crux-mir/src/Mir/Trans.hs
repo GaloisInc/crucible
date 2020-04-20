@@ -84,7 +84,6 @@ import Data.Parameterized.TraversableFC
 import Data.Parameterized.Nonce (newSTNonceGenerator)
 
 import Mir.Mir
-import Mir.MirTy
 import qualified Mir.Mir as M
 import qualified Mir.DefId as M
 
@@ -1263,7 +1262,7 @@ lookupFunction nm (Substs funsubst)
               traceM $ "\tgens are " ++ fmt gens
               traceM $ "\thsubst is " ++ fmt hsubst
 
-            return $ Just $ (mkFunExp hsubst gens fh, specialize fs funsubst)
+            return $ Just $ (mkFunExp hsubst gens fh, fs)
 
        | otherwise -> do
             when (db > 1) $ do
@@ -1569,7 +1568,7 @@ initialValue M.TyNever = return $ Just $ MirExp knownRepr $
 initialValue _ = return Nothing
 
 initField :: Substs -> Field -> MirGenerator h s ret (Maybe (MirExp s))
-initField args (Field _name ty _subst) = initialValue (tySubst args ty)
+initField _args (Field _name ty _subst) = initialValue ty
 
 -- | Allocate RefCells for all locals and populate `varMap`.  Locals are
 -- default-initialized when possible using the result of `initialValue`.
@@ -1977,9 +1976,8 @@ mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. 
     mkHandle (name, intr)
       | IkVirtual dynTraitName _ <- intr ^. M.intrInst . M.inKind =
         let methName = intr ^. M.intrInst ^. M.inDefId
-            methSubsts = intr ^. M.intrInst ^. M.inSubsts
             trait = lookupTrait col dynTraitName
-            methSig = tySubst methSubsts $ clearSigGenerics $ traitMethodSig trait methName
+            methSig = clearSigGenerics $ traitMethodSig trait methName
 
             handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
         in liftM (Map.singleton name) $
