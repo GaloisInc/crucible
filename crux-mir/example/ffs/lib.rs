@@ -1,4 +1,3 @@
-#![cfg_attr(crux, feature(custom_attribute))]
 #[cfg(crux)] extern crate crucible;
 #[cfg(crux)] use crucible::*;
 
@@ -27,6 +26,16 @@ pub fn ffs_ref(word: u32) -> u32 {
 }
 
 /// Check that ffs_fast and ffs_ref produce the same output on every input.
+#[test]
+fn test_ffs_correct_concrete() {
+    let x = 12345;
+    let a = ffs_ref(x);
+    let b = ffs_fast(x);
+    assert!(a == b);
+}
+
+/// Check that ffs_fast and ffs_ref produce the same output on every input.
+#[cfg(crux)]
 #[crux_test]
 fn test_ffs_correct() {
     let x = u32::symbolic("x");
