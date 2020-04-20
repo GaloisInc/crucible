@@ -90,8 +90,6 @@ data Ty =
       -- that's present in the `Adt` entry, but the `Adt` (actually the whole
       -- `Collection`) is not accessible inside `tyToRepr`.
       | TyAdt !DefId !DefId !Substs -- first DefId is the monomorphized name, second is pre-mono
-      | TyUnsupported
-      | TyParam !Integer
       | TyFnDef !DefId
       | TyClosure [Ty]      -- the Tys are the types of the upvars
       | TyStr
@@ -101,10 +99,10 @@ data Ty =
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
       | TyNever
+      | TyForeign       -- External types, of unknown size and alignment
 
       | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
       | TyConst         -- Placeholder for representing constants in `Substs`
-      | TyForeign       -- External types, of unknown size and alignment
 
       -- | The erased concrete type of a trait object.  This is never emitted
       -- by mir-json.  It's used in vtable shims, to replace the type of the

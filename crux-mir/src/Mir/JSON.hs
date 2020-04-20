@@ -81,7 +81,6 @@ instance FromJSON InlineTy where
       Just (String "Char") -> pure TyChar
       Just (String "Int") -> TyInt <$> v .: "intkind"
       Just (String "Uint") -> TyUint <$> v .: "uintkind"
-      Just (String "Unsupported") -> pure TyUnsupported
       Just (String "Tuple") -> TyTuple <$> v .: "tys"
       Just (String "Slice") -> TySlice <$> v .: "ty"
       Just (String "Array") -> do
@@ -93,7 +92,6 @@ instance FromJSON InlineTy where
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
       Just (String "FnDef") -> TyFnDef <$> v .: "defid"
       Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "substs"
-      Just (String "Param") -> TyParam <$> v .: "param"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
@@ -102,8 +100,6 @@ instance FromJSON InlineTy where
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
       Just (String "Foreign") -> pure TyForeign
-      Just (String "Lifetime") -> pure TyLifetime
-      Just (String "Const") -> pure TyConst
       r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON NamedTy where

@@ -195,8 +195,6 @@ tyToRepr t0 = case t0 of
   M.TyDowncast _adt _i   -> Some C.AnyRepr
 
   M.TyFloat _ -> Some C.RealValRepr
-  M.TyParam _i -> error $
-    "BUG: all uses of TyParam should have been eliminated, found " ++ fmt t0
 
   -- non polymorphic function types go to FunctionHandleRepr
   M.TyFnPtr sig@(M.FnSig args ret _abi _spread) ->
