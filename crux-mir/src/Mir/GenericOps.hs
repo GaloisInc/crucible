@@ -74,7 +74,7 @@ adtIndices (Adt _aname _kind vars _ _) col = go 0 vars
 
     getDiscr _ (Variant name (Explicit did) _fields _knd) = case Map.lookup did (_functions col) of
         Just fn -> case fn^.fbody.mblocks of
-            [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (Value (ConstInt i))))) _loc] _term) ] ->
+            [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (ConstInt i)))) _loc] _term) ] ->
                 fromIntegerLit i
             
             _ -> error "enum discriminant constant should only have one basic block"
@@ -145,7 +145,6 @@ instance GenericOps UnOp
 instance GenericOps BinOp
 instance GenericOps VtableItem
 instance GenericOps CastKind
-instance GenericOps Literal
 instance GenericOps IntLit
 instance GenericOps FloatLit
 instance GenericOps AggregateKind

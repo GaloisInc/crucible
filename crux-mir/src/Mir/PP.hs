@@ -274,11 +274,6 @@ instance Pretty BinOp where
 instance Pretty CastKind where
     pretty = text . show
 
-instance Pretty Literal where
-    pretty (Item a b)    = pretty_fn2 "Item" a b
-    pretty (Value a)     = pretty a
-    pretty (LitPromoted a) = pretty a
-
 instance Pretty IntLit where
   pretty i = text $ case i of
     U8 i0 -> show i0

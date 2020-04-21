@@ -86,7 +86,7 @@ instance FromJSON InlineTy where
       Just (String "Array") -> do
         lit <- v .: "size"
         case lit of
-          Value (ConstInt (Usize i)) ->
+          Constant _ (ConstInt (Usize i)) ->
              TyArray <$> v .: "ty" <*> pure (fromInteger i)
           _ -> fail $ "unsupported array size: " ++ show lit
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
@@ -329,9 +329,6 @@ instance FromJSON Operand where
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
 
-instance FromJSON Constant where
-    parseJSON = withObject "Constant" $ \v -> Constant <$> v .: "ty" <*> v .: "literal"
-    
 instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case HML.lookup "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
@@ -396,22 +393,18 @@ instance FromJSON CastKind where
                                                Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
                                                x -> fail ("bad CastKind: " ++ show x)
 
-instance FromJSON Literal where
-    parseJSON = withObject "Literal" $ \v ->
-      case HML.lookup "kind" v of
-        Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
-        Just (String "Const") -> do
-          rend <- v .:? "rendered"
-          init <- v .:? "initializer"
-          case (rend, init) of
-            (Just (RustcRenderedConst rend), _) ->
-                pure $ Value rend
-            (Nothing, Just (RustcConstInitializer defid)) ->
-                pure $ Value $ ConstInitializer defid
-            (Nothing, Nothing) ->
-                fail $ "need either rendered value or initializer in constant literal"
-        Just (String "Promoted") -> LitPromoted <$> v .: "index"
-        x -> fail ("bad Literal: " ++ show x)
+instance FromJSON Constant where
+    parseJSON = withObject "Literal" $ \v -> do
+      ty <- v .: "ty"
+      rend <- v .:? "rendered"
+      init <- v .:? "initializer"
+      case (rend, init) of
+        (Just (RustcRenderedConst rend), _) ->
+            pure $ Constant ty rend
+        (Nothing, Just (RustcConstInitializer defid)) ->
+            pure $ Constant ty $ ConstInitializer defid
+        (Nothing, Nothing) ->
+            fail $ "need either rendered value or initializer in constant literal"
 
 
 data RustcConstInitializer = RustcConstInitializer DefId

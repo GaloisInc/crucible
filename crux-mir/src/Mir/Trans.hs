@@ -302,17 +302,8 @@ getReturnExp tpr = do
 evalOperand :: HasCallStack => M.Operand -> MirGenerator h s ret (MirExp s)
 evalOperand (M.Copy lv) = evalPlace lv >>= readPlace
 evalOperand (M.Move lv) = evalPlace lv >>= readPlace
-evalOperand (M.OpConstant (M.Constant conty conlit)) =
-    case conlit of
-       M.Value constval   -> transConstVal conty (tyToRepr conty) constval
-       M.Item defId _args -> mirFail $ "cannot translate item " ++ show defId
-       M.LitPromoted (M.Promoted idx) ->  do
-          fn <- use currentFn
-          let st = fn^.fpromoted
-          case st V.!? idx of
-            Just did -> lookupStatic did
-            Nothing  -> mirFail $ "Promoted index " ++ show idx ++ " out of range "
-
+evalOperand (M.OpConstant (M.Constant conty constval)) =
+    transConstVal conty (tyToRepr conty) constval
 
 -- | Dereference a `MirExp` (which must be `MirReferenceRepr` or other `TyRef`
 -- representation), producing a `MirPlace`.
@@ -1040,17 +1031,6 @@ evalPlaceProj _ pl (M.Downcast _idx) = return pl
 evalPlaceProj ty (MirPlace _ _ meta) proj =
     mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
 
-
-
--- | access a static value
-lookupStatic :: M.DefId -> MirGenerator h s ret (MirExp s)
-lookupStatic did = do
-   sm <- use (cs.staticMap)
-   case Map.lookup did sm of
-     Just (StaticVar gv) -> do v <- G.readGlobal gv
-                               return (MirExp (G.globalType gv) v)
-     Nothing -> mirFail $ "BUG: cannot find static variable: " ++ fmt did
-
 --------------------------------------------------------------------------------------
 -- ** Statements
 --
@@ -1368,7 +1348,7 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
-transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid)))) cargs cretdest _) tr = do
+transTerminator (M.Call (M.OpConstant (M.Constant _ (M.ConstFunction funid))) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid
     doCall funid cargs cretdest tr -- cleanup ignored
 

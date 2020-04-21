@@ -370,10 +370,6 @@ data Operand =
       | OpConstant Constant
       deriving (Show, Eq, Ord, Generic)
 
-data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic)
-
-
-
 data NullOp =
         SizeOf
       | Box
@@ -436,11 +432,8 @@ data CastKind =
       | MutToConstPointer
       deriving (Show,Eq, Ord, Generic)
 
-data Literal =
-    Item DefId Substs
-  | Value ConstVal
-  | LitPromoted Promoted
-  deriving (Show,Eq, Ord, Generic)
+data Constant = Constant Ty ConstVal
+  deriving (Eq, Ord, Show, Generic)
 
 data IntLit
   = U8 Integer
