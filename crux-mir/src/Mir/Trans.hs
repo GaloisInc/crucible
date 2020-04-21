@@ -914,12 +914,7 @@ evalLvalue lv = evalPlace lv >>= readPlace
 evalPlace :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirPlace s)
 evalPlace (M.LBase (M.Local var)) = varPlace var
 evalPlace (M.LBase (M.PStatic did _t)) = staticPlace did
-evalPlace (M.LBase (M.PPromoted idx _t)) = do
-    fn <- use currentFn
-    case (fn^.fpromoted) V.!? idx of
-        Just did -> staticPlace did
-        Nothing -> mirFail $
-            "Promoted index " ++ show idx ++ " out of range for " ++ show (fn^.fname)
+evalPlace (M.LBase (M.PPromoted idx _t)) = undefined
 evalPlace (M.LProj lv proj) = do
     pl <- evalPlace lv
     evalPlaceProj (M.typeOf lv) pl proj
@@ -1640,7 +1635,7 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 -- argvars are registers
 -- The first block in the list is the entrance block
 genFn :: HasCallStack => M.Fn -> C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
-genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype = do
+genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype = do
 
   lm <- buildLabelMap body
   labelMap .= lm
@@ -1675,7 +1670,7 @@ transDefine :: forall h.
   => CollectionState 
   -> M.Fn 
   -> ST h (Text, Core.AnyCFG MIR)
-transDefine colState fn@(M.Fn fname fargs fsig _ _) =
+transDefine colState fn@(M.Fn fname fargs fsig _) =
   case (Map.lookup fname (colState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
@@ -1699,7 +1694,7 @@ mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMa
 mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
     mkHandle :: M.Fn -> IO MirHandle
-    mkHandle (M.Fn fname fargs ty _fbody _statics)  =
+    mkHandle (M.Fn fname fargs ty _fbody)  =
        let
            targs = map typeOf fargs
            handleName = FN.functionNameFromText (M.idText fname)

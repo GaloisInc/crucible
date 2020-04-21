@@ -7,8 +7,6 @@ module Mir.PP where
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import           Data.Text (Text, unpack)
-import qualified Data.Vector as V
-
 
 import           Control.Lens((^.))
 import           Text.PrettyPrint.ANSI.Leijen
@@ -128,10 +126,9 @@ pretty_temp (Var vn vm vty _vzst) =
     <+> pretty vn <+> colon <+> pretty vty <> semi
 
 instance Pretty Fn where
-    pretty (Fn fname1 fargs1 fs fbody1 fstatics) =
+    pretty (Fn fname1 fargs1 fs fbody1) =
       vcat $ [text "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
                   <+> arrow <+> pretty rty <+> lbrace] 
-            ++ (map pretty (V.toList fstatics)) 
             ++ [indent 3 (pretty fbody1),
                 rbrace]
       where
@@ -346,9 +343,6 @@ instance Pretty Trait where
 instance Pretty Static where
   pretty (Static nm ty mut) =
     pretty mut <+> pretty nm <+> text ":" <+> pretty ty
-
-instance Pretty Promoted where
-  pretty (Promoted i) = text "{{promoted}}" <> brackets (pretty i)
 
 instance Pretty Intrinsic where
   pretty (Intrinsic name inst) = pretty name <+> text "=" <+> pretty inst

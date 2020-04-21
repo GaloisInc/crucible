@@ -250,7 +250,6 @@ data Fn = Fn {
     ,_fargs       :: [Var]
     ,_fsig        :: FnSig
     ,_fbody       :: MirBody
-    ,_fpromoted   :: Vector DefId
     }
     deriving (Show,Eq, Ord, Generic)
 
@@ -491,9 +490,6 @@ data Trait = Trait { _traitName       :: !DefId,
 data TraitItem
     = TraitMethod DefId FnSig 
     deriving (Eq, Ord, Show, Generic)
-
-newtype Promoted = Promoted Int
-  deriving (Show, Eq, Ord, Generic)
 
 data Static   = Static {
     _sName          :: DefId            -- ^ name of fn that initializes this static

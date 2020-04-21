@@ -220,7 +220,6 @@ instance FromJSON Fn where
         <*> return args
         <*> sig        
         <*> v .: "body"
-        <*> v .: "promoted"
 
 instance FromJSON Abi where
     parseJSON = withObject "Abi" $ \v -> case HML.lookup "kind" v of
@@ -279,12 +278,6 @@ instance FromJSON Lvalue where
     parseJSON j = convert <$> parseJSON j
       where
         convert (RustcPlace base elems) = foldl LProj (LBase base) elems
-
-instance FromJSON Promoted where
-    parseJSON = withScientific "Promoted" $ \sci ->
-                  case Scientific.toBoundedInteger sci of
-                    Just b  -> pure (Promoted b)
-                    Nothing -> fail $ "cannot read " ++ show sci
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of

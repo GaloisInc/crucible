@@ -150,7 +150,6 @@ instance GenericOps FloatLit
 instance GenericOps AggregateKind
 instance GenericOps Trait
 instance GenericOps TraitItem
-instance GenericOps Promoted
 instance GenericOps Static
 instance GenericOps Vtable
 instance GenericOps Intrinsic
