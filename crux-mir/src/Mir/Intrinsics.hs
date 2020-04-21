@@ -96,7 +96,8 @@ import           Lang.Crucible.Simulator.SimError
 
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
-import           What4.Partial (pattern Unassigned, maybePartExpr, justPartExpr, mergePartial)
+import           What4.Partial
+    (pattern Unassigned, maybePartExpr, justPartExpr, joinMaybePE, mergePartial, mkPE)
 import           What4.Utils.MonadST
 
 import           Mir.DefId
@@ -272,6 +273,9 @@ isizeDiv = BVSdiv knownRepr
 isizeRem :: f IsizeType -> f IsizeType -> App ext f IsizeType
 isizeRem = BVSrem knownRepr
 
+isizeNeg :: f IsizeType -> App ext f IsizeType
+isizeNeg = BVNeg knownRepr
+
 isizeAnd :: f IsizeType -> f IsizeType -> App ext f IsizeType
 isizeAnd = BVAnd knownRepr
 
@@ -411,6 +415,16 @@ data MirReference sym (tp :: CrucibleType) where
     !(TypeRepr tp) ->
     !(RegValue sym UsizeType) ->
     MirReference sym tp
+
+instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
+    show Empty_RefPath = "Empty_RefPath"
+    show (Any_RefPath tpr p) = "(Any_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
+    show (Field_RefPath ctx p idx) = "(Field_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
+    show (Variant_RefPath ctx p idx) = "(Variant_RefPath " ++ show ctx ++ " " ++ show p ++ " " ++ show idx ++ ")"
+    show (Index_RefPath tpr p idx) = "(Index_RefPath " ++ show tpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
+    show (Just_RefPath tpr p) = "(Just_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
+    show (VectorAsMirVector_RefPath tpr p) = "(VectorAsMirVector_RefPath " ++ show tpr ++ " " ++ show p ++ ")"
+    show (ArrayAsMirVector_RefPath btpr p) = "(ArrayAsMirVector_RefPath " ++ show btpr ++ " " ++ show p ++ ")"
 
 refRootType :: MirReferenceRoot sym tp -> TypeRepr tp
 refRootType (RefCell_RefRoot r) = refType r
@@ -755,6 +769,22 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f (MirReferenceType tp)) ->
      !(f IsizeType) ->
      MirStmt f (MirReferenceType tp)
+  -- | Try to subtract two references, as in `pointer::offset_from`.  If both
+  -- point into the same array, return their difference; otherwise, return
+  -- Nothing.  The `Nothing` result is useful for overlap checks: slices from
+  -- different arrays cannot overlap.
+  MirRef_TryOffsetFrom ::
+     !(f (MirReferenceType tp)) ->
+     !(f (MirReferenceType tp)) ->
+     MirStmt f (MaybeType IsizeType)
+  -- | Peel off an outermost `Index_RefPath`.  Given a pointer to an element of
+  -- a vector, this produces a pointer to the parent vector and the index of
+  -- the element.  If the outermost path segment isn't `Index_RefPath`, this
+  -- operation raises an error.
+  MirRef_PeelIndex ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType tp)) ->
+     MirStmt f (StructType (EmptyCtx ::> MirReferenceType (MirVectorType tp) ::> UsizeType))
   VectorSnoc ::
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
@@ -808,16 +838,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
     !(BaseTypeRepr btp) ->
     !(f (UsizeArrayType btp)) ->
     MirStmt f (MirVectorType (BaseToType btp))
-  MirVector_Lookup ::
+  MirVector_Resize ::
     !(TypeRepr tp) ->
     !(f (MirVectorType tp)) ->
     !(f UsizeType) ->
-    MirStmt f tp
-  MirVector_Update ::
-    !(TypeRepr tp) ->
-    !(f (MirVectorType tp)) ->
-    !(f UsizeType) ->
-    !(f tp) ->
     MirStmt f (MirVectorType tp)
 
 $(return [])
@@ -876,6 +900,8 @@ instance TypeApp MirStmt where
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset tp _ _ -> MirReferenceRepr tp
     MirRef_OffsetWrap tp _ _ -> MirReferenceRepr tp
+    MirRef_TryOffsetFrom _ _ -> MaybeRepr IsizeRepr
+    MirRef_PeelIndex tp _ -> StructRepr (Empty :> MirReferenceRepr (MirVectorRepr tp) :> UsizeRepr)
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
     VectorTail tp _ -> VectorRepr tp
@@ -888,8 +914,7 @@ instance TypeApp MirStmt where
     MirVector_Uninit tp _ -> MirVectorRepr tp
     MirVector_FromVector tp _ -> MirVectorRepr tp
     MirVector_FromArray btp _ -> MirVectorRepr (baseToType btp)
-    MirVector_Lookup tp _ _ -> tp
-    MirVector_Update tp _ _ _ -> MirVectorRepr tp
+    MirVector_Resize tp _ _ -> MirVectorRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -910,6 +935,8 @@ instance PrettyApp MirStmt where
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset _ p o -> "mirRef_offset" <+> pp p <+> pp o
     MirRef_OffsetWrap _ p o -> "mirRef_offsetWrap" <+> pp p <+> pp o
+    MirRef_TryOffsetFrom p o -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o
+    MirRef_PeelIndex _ p -> "mirRef_peelIndex" <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
     VectorTail _ v -> "vectorTail" <+> pp v
@@ -922,8 +949,7 @@ instance PrettyApp MirStmt where
     MirVector_Uninit tp len -> "mirVector_uninit" <+> pretty tp <+> pp len
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a
-    MirVector_Lookup _ v i -> "mirVector_lookup" <+> pp v <+> pp i
-    MirVector_Update _ v i x -> "mirVector_update" <+> pp v <+> pp i <+> pp x
+    MirVector_Resize _ v i -> "mirVector_resize" <+> pp v <+> pp i
 
 
 instance FunctorFC MirStmt where
@@ -1076,11 +1102,48 @@ mirRef_arrayAsMirVectorIO sym _ (MirReference_Integer _ _) =
     addFailedAssertion sym $ GenericSimError $
         "attempted Array->MirVector conversion on the result of an integer-to-pointer cast"
 
+refRootEq :: IsSymInterface sym => sym ->
+    MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
+    IO (RegValue sym BoolType)
+refRootEq sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
+  | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
+refRootEq sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
+  | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
+refRootEq sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+    addFailedAssertion sym $ Unsupported $ "Cannot compare Const_RefRoots"
+refRootEq sym _ _ = return $ falsePred sym
+
+refPathEq :: IsSymInterface sym => sym ->
+    MirReferencePath sym tp_base1 tp1 -> MirReferencePath sym tp_base2 tp2 ->
+    IO (RegValue sym BoolType)
+refPathEq sym Empty_RefPath Empty_RefPath = return $ truePred sym
+refPathEq sym (Any_RefPath tpr1 p1) (Any_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2)
+  | Just Refl <- testEquality ctx1 ctx2
+  , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
+refPathEq sym (Variant_RefPath ctx1 p1 idx1) (Variant_RefPath ctx2 p2 idx2)
+  | Just Refl <- testEquality ctx1 ctx2
+  , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
+refPathEq sym (Index_RefPath tpr1 p1 idx1) (Index_RefPath tpr2 p2 idx2)
+  | Just Refl <- testEquality tpr1 tpr2 = do
+    pEq <- refPathEq sym p1 p2
+    idxEq <- bvEq sym idx1 idx2
+    andPred sym pEq idxEq
+refPathEq sym (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2)
+  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
+refPathEq sym _ _ = return $ falsePred sym
+
 mirRef_eqIO :: IsSymInterface sym => sym ->
     MirReference sym tp -> MirReference sym tp -> IO (RegValue sym BoolType)
-mirRef_eqIO sym (MirReference _ _) (MirReference _ _) =
-    -- TODO: implement an equality check for valid references
-    return $ falsePred sym
+mirRef_eqIO sym (MirReference root1 path1) (MirReference root2 path2) = do
+    rootEq <- refRootEq sym root1 root2
+    pathEq <- refPathEq sym path1 path2
+    andPred sym rootEq pathEq
 mirRef_eqIO sym (MirReference_Integer _ i1) (MirReference_Integer _ i2) =
     isEq sym i1 i2
 mirRef_eqIO sym _ _ =
@@ -1089,19 +1152,11 @@ mirRef_eqIO sym _ _ =
 
 mirRef_offsetIO :: IsSymInterface sym => sym ->
     TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType -> IO (MirReference sym tp)
-mirRef_offsetIO sym _tpr (MirReference root (Index_RefPath tpr path idx)) offset = do
-    idx' <- bvAdd sym idx offset
-    -- TODO: `offset` has a number of preconditions that we should check here:
-    -- * addition must not overflow
-    -- * resulting pointer must be in-bounds for the allocation
-    -- * total offset in bytes must not exceed isize::MAX
-    return $ MirReference root $ Index_RefPath tpr path idx'
-mirRef_offsetIO sym _ (MirReference _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
-        "pointer arithmetic outside arrays is not yet implemented"
-mirRef_offsetIO sym _ (MirReference_Integer _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
-        "cannot perform pointer arithmetic on invalid pointer"
+-- TODO: `offset` has a number of preconditions that we should check here:
+-- * addition must not overflow
+-- * resulting pointer must be in-bounds for the allocation
+-- * total offset in bytes must not exceed isize::MAX
+mirRef_offsetIO = mirRef_offsetWrapIO
 
 mirRef_offsetWrapIO :: IsSymInterface sym => sym ->
     TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType -> IO (MirReference sym tp)
@@ -1109,12 +1164,54 @@ mirRef_offsetWrapIO sym _tpr (MirReference root (Index_RefPath tpr path idx)) of
     -- `wrapping_offset` puts no restrictions on the arithmetic performed.
     idx' <- bvAdd sym idx offset
     return $ MirReference root $ Index_RefPath tpr path idx'
-mirRef_offsetWrapIO sym _ (MirReference _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
+mirRef_offsetWrapIO sym _ ref@(MirReference _ _) offset = do
+    isZero <- bvEq sym offset =<< bvLit sym knownNat 0
+    assert sym isZero $ Unsupported $
         "pointer arithmetic outside arrays is not yet implemented"
-mirRef_offsetWrapIO sym _ (MirReference_Integer _ _) _ = do
-    addFailedAssertion sym $ Unsupported $
+    return ref
+mirRef_offsetWrapIO sym _ ref@(MirReference_Integer _ _) offset = do
+    -- Offsetting by zero is a no-op, and is always allowed, even on invalid
+    -- pointers.  In particular, this permits `(&[])[0..]`.
+    isZero <- bvEq sym offset =<< bvLit sym knownNat 0
+    assert sym isZero $ Unsupported $
         "cannot perform pointer arithmetic on invalid pointer"
+    return ref
+
+mirRef_tryOffsetFromIO :: IsSymInterface sym => sym ->
+    MirReference sym tp -> MirReference sym tp -> IO (RegValue sym (MaybeType IsizeType))
+mirRef_tryOffsetFromIO sym (MirReference root1 path1) (MirReference root2 path2) = do
+    rootEq <- refRootEq sym root1 root2
+    case (path1, path2) of
+        (Index_RefPath _ path1' idx1, Index_RefPath _ path2' idx2) -> do
+            pathEq <- refPathEq sym path1' path2'
+            similar <- andPred sym rootEq pathEq
+            -- TODO: implement overflow checks, similar to `offset`
+            offset <- bvSub sym idx1 idx2
+            return $ mkPE similar offset
+        _ -> do
+            pathEq <- refPathEq sym path1 path2
+            similar <- andPred sym rootEq pathEq
+            mkPE similar <$> bvLit sym knownNat 0
+mirRef_tryOffsetFromIO _ _ _ = do
+    -- MirReference_Integer pointers are always disjoint from all MirReference
+    -- pointers, so we report them as being in different objects.
+    --
+    -- For comparing two MirReference_Integer pointers, this answer is clearly
+    -- wrong, but it's (hopefully) a moot point since there's almost nothing
+    -- you can do with a MirReference_Integer anyway without causing a crash.
+    return Unassigned
+
+mirRef_peelIndexIO :: IsSymInterface sym => sym ->
+    TypeRepr tp -> MirReference sym tp ->
+    IO (RegValue sym (StructType (EmptyCtx ::> MirReferenceType (MirVectorType tp) ::> UsizeType)))
+mirRef_peelIndexIO _sym _tpr (MirReference root (Index_RefPath _tpr' path idx)) = do
+    return $ Empty :> RV (MirReference root path) :> RV idx
+mirRef_peelIndexIO sym _ (MirReference _ _) =
+    addFailedAssertion sym $ Unsupported $
+        "peelIndex is not yet implemented for this RefPath kind"
+mirRef_peelIndexIO sym _ _ = do
+    addFailedAssertion sym $ Unsupported $
+        "cannot perform peelIndex on invalid pointer"
 
 
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
@@ -1122,7 +1219,6 @@ execMirStmt stmt s =
   let ctx = s^.stateContext
       sym = ctx^.ctxSymInterface
       halloc = simHandleAllocator ctx
-      iTypes = ctxIntrinsicTypes ctx
   in case stmt of
        MirNewRef tp ->
          do r <- freshRefCell halloc tp
@@ -1164,6 +1260,10 @@ execMirStmt stmt s =
          readOnly s $ mirRef_offsetIO sym tpr ref off
        MirRef_OffsetWrap tpr (regValue -> ref) (regValue -> off) ->
          readOnly s $ mirRef_offsetWrapIO sym tpr ref off
+       MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) ->
+         readOnly s $ mirRef_tryOffsetFromIO sym r1 r2
+       MirRef_PeelIndex tpr (regValue -> ref) ->
+         readOnly s $ mirRef_peelIndexIO sym tpr ref
 
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
@@ -1205,20 +1305,18 @@ execMirStmt stmt s =
             return (MirVector_Vector v, s)
        MirVector_FromArray _tp (regValue -> a) ->
             return (MirVector_Array a, s)
-       MirVector_Lookup tpr (regValue -> MirVector_Vector v) (regValue -> i) -> do
-            i' <- bvToNat sym i
-            x <- indexVectorWithSymNat sym (muxRegForType sym iTypes tpr) v i'
-            return (x, s)
-       MirVector_Lookup _tp (regValue -> MirVector_Array a) (regValue -> i) -> do
-            x <- arrayLookup sym a (Empty :> i)
-            return (x, s)
-       MirVector_Update tpr (regValue -> MirVector_Vector v) (regValue -> i) (regValue -> x) -> do
-            i' <- bvToNat sym i
-            v' <- updateVectorWithSymNat sym (muxRegForType sym iTypes tpr) v i' x
-            return (MirVector_Vector v', s)
-       MirVector_Update _tp (regValue -> MirVector_Array a) (regValue -> i) (regValue -> x) -> do
-            a' <- arrayUpdate sym a (Empty :> i) x
-            return (MirVector_Array a', s)
+       MirVector_Resize _tpr (regValue -> mirVec) (regValue -> newLenSym) -> do
+            newLen <- case asUnsignedBV newLenSym of
+                Just x -> return x
+                Nothing -> addFailedAssertion sym $ Unsupported $
+                    "Attempted to resize vector to symbolic length"
+            get <- case mirVec of
+                MirVector_PartialVector pv -> return $ \i -> joinMaybePE (pv V.!? i)
+                MirVector_Vector v -> return $ \i -> maybePartExpr sym $ v V.!? i
+                MirVector_Array _ -> addFailedAssertion sym $ Unsupported $
+                    "Attempted to resize MirVector backed by symbolic array"
+            let pv' = V.generate (fromInteger newLen) get
+            return (MirVector_PartialVector pv', s)
   where
     readOnly :: SimState p sym ext rtp f a -> IO b ->
         IO (b, SimState p sym ext rtp f a)

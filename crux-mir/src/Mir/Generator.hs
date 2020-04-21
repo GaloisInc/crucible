@@ -302,6 +302,9 @@ instance Monoid CollectionState where
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
+instance Show (MirPlace s) where
+    show (MirPlace tr e m) = show e ++ ", " ++ show m ++ ": & " ++ show tr
+
 instance Show MirHandle where
     show (MirHandle _nm sig c) =
       show c ++ ":" ++ show sig
@@ -559,6 +562,20 @@ mirRef_offsetWrap ::
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 mirRef_offsetWrap tpr ref offset = G.extensionStmt $ MirRef_OffsetWrap tpr ref offset
 
+mirRef_tryOffsetFrom ::
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret (R.Expr MIR s (C.MaybeType IsizeType))
+mirRef_tryOffsetFrom r1 r2 = G.extensionStmt $ MirRef_TryOffsetFrom r1 r2
+
+mirRef_peelIndex ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType (MirVectorType tp)), R.Expr MIR s UsizeType)
+mirRef_peelIndex tpr ref = do
+    pair <- G.extensionStmt $ MirRef_PeelIndex tpr ref
+    return (S.getStruct i1of2 pair, S.getStruct i2of2 pair)
+
 -----------------------------------------------------------------------
 
 
@@ -641,20 +658,12 @@ mirVector_fromArray ::
     MirGenerator h s ret (R.Expr MIR s (MirVectorType (C.BaseToType btp)))
 mirVector_fromArray tpr a = G.extensionStmt $ MirVector_FromArray tpr a
 
-mirVector_lookup ::
+mirVector_resize ::
     C.TypeRepr tp ->
     R.Expr MIR s (MirVectorType tp) ->
     R.Expr MIR s UsizeType ->
-    MirGenerator h s ret (R.Expr MIR s tp)
-mirVector_lookup tpr v i = G.extensionStmt $ MirVector_Lookup tpr v i
-
-mirVector_update ::
-    C.TypeRepr tp ->
-    R.Expr MIR s (MirVectorType tp) ->
-    R.Expr MIR s UsizeType ->
-    R.Expr MIR s tp ->
     MirGenerator h s ret (R.Expr MIR s (MirVectorType tp))
-mirVector_update tpr v i x = G.extensionStmt $ MirVector_Update tpr v i x
+mirVector_resize tpr vec len = G.extensionStmt $ MirVector_Resize tpr vec len
 
 
 

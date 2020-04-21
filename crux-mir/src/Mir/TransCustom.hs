@@ -100,6 +100,9 @@ customOpDefs = Map.fromList $ [
                          , saturating_sub
                          , ctlz
                          , ctlz_nonzero
+                         , size_of
+                         , min_align_of
+                         , intrinsics_assume
 
                          , mem_crucible_identity_transmute
                          , slice_to_array
@@ -130,6 +133,18 @@ customOpDefs = Map.fromList $ [
 
                          , ptr_offset
                          , ptr_wrapping_offset
+                         , ptr_offset_from
+                         , ptr_is_null
+                         , is_aligned_and_not_null
+                         , ptr_slice_from_raw_parts
+                         , ptr_slice_from_raw_parts_mut
+
+                         , ptr_read
+                         , ptr_write
+                         , ptr_swap
+                         , ptr_drop_in_place
+                         , intrinsics_copy
+                         , intrinsics_copy_nonoverlapping
 
                          , exit
                          , abort
@@ -138,6 +153,7 @@ customOpDefs = Map.fromList $ [
                          , panicking_panic_fmt
 
                          , allocate
+                         , reallocate
 
 
                          , integer_from_u8
@@ -445,13 +461,176 @@ ptr_wrapping_offset = (["core", "ptr", "{{impl}}", "wrapping_offset"], \substs -
     _ -> Nothing
     )
 
+ptr_offset_from_impl :: CustomRHS
+ptr_offset_from_impl = \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr1) ref1, MirExp (MirReferenceRepr tpr2) ref2]
+          | Just Refl <- testEquality tpr1 tpr2 -> do
+            maybeOffset <- mirRef_tryOffsetFrom ref1 ref2
+            let errMsg = R.App $ E.StringLit $ fromString $
+                    "tried to subtract pointers into different arrays"
+            let val = R.App $ E.FromJustValue IsizeRepr maybeOffset errMsg
+            return $ MirExp IsizeRepr val
+        _ -> mirFail $ "bad arguments for ptr::offset_from: " ++ show ops
+    _ -> Nothing
+
+ptr_offset_from :: (ExplodedDefId, CustomRHS)
+ptr_offset_from = (["core", "ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
+
+-- is_null isn't just `self == ptr::null()`, since it has to work on fat
+-- pointers too.  The libcore implementation works by casting to `*const u8` (a
+-- thin pointer), but we don't support `*const T -> *const U` casts, so we need
+-- this override.
+ptr_is_null_impl :: CustomRHS
+ptr_is_null_impl = \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ref] -> do
+            null <- integerToMirRef tpr $ R.App $ usizeLit 0
+            MirExp C.BoolRepr <$> mirRef_eq ref null
+        [MirExp (MirSliceRepr tpr) slice] -> do
+            null <- integerToMirRef tpr $ R.App $ usizeLit 0
+            MirExp C.BoolRepr <$> mirRef_eq (getSlicePtr slice) null
+        -- TODO: `&dyn Tr` case (after defining MirDynRepr)
+        _ -> mirFail $ "bad arguments for ptr::is_null: " ++ show ops
+    _ -> Nothing
+
+ptr_is_null :: (ExplodedDefId, CustomRHS)
+ptr_is_null = (["core", "ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
+
+is_aligned_and_not_null :: (ExplodedDefId, CustomRHS)
+-- Not an actual intrinsic, so it's not in an `extern` block, so it doesn't
+-- have the "" element in its path.
+is_aligned_and_not_null = (["core", "intrinsics", "is_aligned_and_not_null"],
+    -- TODO (layout): correct behavior is to return `True` for all valid
+    -- references, and check `i != 0 && i % align_of::<T>() == 0` for
+    -- `MirReference_Integer i`.  However, `align_of` is not implementable
+    -- until we start gathering layout information from mir-json.
+    \_substs -> Just $ CustomOp $ \_ _ -> return $ MirExp C.BoolRepr $ R.App $ E.BoolLit True)
+
+ptr_slice_from_raw_parts_impl :: CustomRHS
+ptr_slice_from_raw_parts_impl = \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr len] ->
+            return $ MirExp (MirSliceRepr tpr) (mkSlice tpr ptr len)
+        _ -> mirFail $ "bad arguments for ptr::slice_from_raw_parts: " ++ show ops
+    _ -> Nothing
+
+ptr_slice_from_raw_parts :: (ExplodedDefId, CustomRHS)
+ptr_slice_from_raw_parts =
+    ( ["core", "ptr", "slice_from_raw_parts"]
+    , ptr_slice_from_raw_parts_impl)
+ptr_slice_from_raw_parts_mut :: (ExplodedDefId, CustomRHS)
+ptr_slice_from_raw_parts_mut =
+    ( ["core", "ptr", "slice_from_raw_parts_mut"]
+    , ptr_slice_from_raw_parts_impl)
+
+
+ptr_read :: (ExplodedDefId, CustomRHS)
+ptr_read = ( ["core", "ptr", "read"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr] ->
+            MirExp tpr <$> readMirRef tpr ptr
+        _ -> mirFail $ "bad arguments for ptr::read: " ++ show ops
+    _ -> Nothing)
+
+ptr_write :: (ExplodedDefId, CustomRHS)
+ptr_write = ( ["core", "ptr", "write"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr, MirExp tpr' val]
+          | Just Refl <- testEquality tpr tpr' -> do
+            writeMirRef ptr val
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments for ptr::write: " ++ show ops
+    _ -> Nothing)
+
+ptr_swap :: (ExplodedDefId, CustomRHS)
+ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) ptr1, MirExp (MirReferenceRepr tpr') ptr2]
+          | Just Refl <- testEquality tpr tpr' -> do
+            x1 <- readMirRef tpr ptr1
+            x2 <- readMirRef tpr ptr2
+            writeMirRef ptr1 x2
+            writeMirRef ptr2 x1
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
+    _ -> Nothing)
+
+ptr_drop_in_place :: (ExplodedDefId, CustomRHS)
+ptr_drop_in_place = ( ["core", "ptr", "drop_in_place"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr _tpr) _ptr] ->
+            -- We don't implement drops, so this is currently a no-op
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        [MirExp (MirSliceRepr _tpr) _ptr] ->
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments for ptr::drop_in_place: " ++ show ops
+    _ -> Nothing)
+
+
+intrinsics_copy :: (ExplodedDefId, CustomRHS)
+intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
+    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr tpr) src,
+         MirExp (MirReferenceRepr tpr') dest,
+         MirExp UsizeRepr count]
+          | Just Refl <- testEquality tpr tpr' -> do
+            -- `copy` (as opposed to `copy_nonoverlapping`) must work
+            -- atomically even when the source and dest overlap.  We do this by
+            -- taking a snapshot of the source, then copying the snapshot into
+            -- dest.
+            (srcVec, srcIdx) <- mirRef_peelIndex tpr src
+            srcSnapVec <- readMirRef (MirVectorRepr tpr) srcVec
+            srcSnapRoot <- constMirRef (MirVectorRepr tpr) srcSnapVec
+            srcSnap <- subindexRef tpr srcSnapRoot srcIdx
+
+            ptrCopy tpr srcSnap dest count
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+
+        _ -> mirFail $ "bad arguments for intrinsics::copy: " ++ show ops
+    _ -> Nothing)
+
+intrinsics_copy_nonoverlapping :: (ExplodedDefId, CustomRHS)
+intrinsics_copy_nonoverlapping = ( ["core", "intrinsics", "copy_nonoverlapping"],
+    \substs -> case substs of
+        Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+            [MirExp (MirReferenceRepr tpr) src,
+             MirExp (MirReferenceRepr tpr') dest,
+             MirExp UsizeRepr count]
+              | Just Refl <- testEquality tpr tpr' -> do
+                -- Assert that the two regions really are nonoverlapping.
+                maybeOffset <- mirRef_tryOffsetFrom dest src
+
+                -- `count` must not exceed isize::MAX, else the overlap check
+                -- will misbehave.
+                let sizeBits = fromIntegral $ C.intValue (C.knownNat @SizeBits)
+                let maxCount = R.App $ usizeLit (1 `shift` (sizeBits - 1))
+                let countOk = R.App $ usizeLt count maxCount
+                G.assertExpr countOk $ S.litExpr "count overflow in copy_nonoverlapping"
+
+                -- If `maybeOffset` is Nothing, then src and dest definitely
+                -- don't overlap, since they come from different allocations.
+                -- If it's Just, the value must be >= count or <= -count to put
+                -- the two regions far enough apart.
+                let count' = usizeToIsize R.App count
+                let destAbove = \offset -> R.App $ isizeLe count' offset
+                let destBelow = \offset -> R.App $ isizeLe offset (R.App $ isizeNeg count')
+                offsetOk <- G.caseMaybe maybeOffset C.BoolRepr $ G.MatchMaybe
+                    (\offset -> return $ R.App $ E.Or (destAbove offset) (destBelow offset))
+                    (return $ R.App $ E.BoolLit True)
+                G.assertExpr offsetOk $ S.litExpr "src and dest overlap in copy_nonoverlapping"
+
+                ptrCopy tpr src dest count
+                return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+
+            _ -> mirFail $ "bad arguments for intrinsics::copy_nonoverlapping: " ++ show ops
+        _ -> Nothing)
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul
 
 
 -- ** Custom: wrapping_sub
-
 
 data ArithOp f tp = ArithOp
     { aoPerform :: f tp -> f tp -> E.App MIR f tp
@@ -690,6 +869,20 @@ type_id = (["core","intrinsics", "", "type_id"],
     -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
     return $ MirExp knownRepr $ R.App (E.BVLit (knownRepr :: NatRepr 64) 0))
 
+size_of :: (ExplodedDefId, CustomRHS)
+size_of = (["core", "intrinsics", "", "size_of"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ _ ->
+        -- TODO: return the actual size, once mir-json exports size/layout info
+        return $ MirExp UsizeRepr $ R.App $ usizeLit 1
+    )
+
+min_align_of :: (ExplodedDefId, CustomRHS)
+min_align_of = (["core", "intrinsics", "", "min_align_of"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ _ ->
+        -- TODO: return the actual alignment, once mir-json exports size/layout info
+        return $ MirExp UsizeRepr $ R.App $ usizeLit 1
+    )
+
 -- mem::swap is used pervasively (both directly and via mem::replace), but it
 -- has a nasty unsafe implementation, with lots of raw pointers and
 -- reintepreting casts.  Fortunately, it requires `T: Sized`, so it's almost
@@ -722,6 +915,15 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
       _ -> Nothing
     )
 
+intrinsics_assume :: (ExplodedDefId, CustomRHS)
+intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
+    Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp C.BoolRepr cond] -> do
+            G.assertExpr cond $
+                S.litExpr "undefined behavior: core::intrinsics::assume(false)"
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+    )
+
 slice_to_array ::  (ExplodedDefId, CustomRHS)
 slice_to_array = (["core","array", "slice_to_array"],
     \substs -> Just $ CustomOpNamed $ \fnName ops -> do
@@ -744,8 +946,9 @@ slice_to_array = (["core","array", "slice_to_array"],
                 let args = Substs [TyArray ty 0]
                 MirExp C.AnyRepr <$> G.ifte lenOk
                     (do v <- vectorCopy tpr ptr len
-                        ref <- constMirRef (C.VectorRepr tpr) v
-                        let vMir = MirExp (MirReferenceRepr (C.VectorRepr tpr)) ref
+                        v' <- mirVector_fromVector tpr v
+                        ref <- constMirRef (MirVectorRepr tpr) v'
+                        let vMir = MirExp (MirReferenceRepr (MirVectorRepr tpr)) ref
                         enum <- buildEnum adt args optionDiscrSome [vMir]
                         unwrapMirExp C.AnyRepr enum)
                     (do enum <- buildEnum adt args optionDiscrNone []
@@ -753,7 +956,6 @@ slice_to_array = (["core","array", "slice_to_array"],
 
             _ -> mirFail $ "bad monomorphization of slice_to_array: " ++ show (fnName, fn ^. fsig, ops)
     )
-
 
 
 
@@ -1094,6 +1296,24 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
             return $ MirExp (MirReferenceRepr tpr) ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
+    _ -> Nothing)
+
+-- fn reallocate<T>(ptr: *mut T, new_len: usize)
+reallocate :: (ExplodedDefId, CustomRHS)
+reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [ MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr newLen ] -> do
+            (vecPtr, idx) <- mirRef_peelIndex tpr ptr
+
+            let isZero = R.App $ usizeEq idx $ R.App $ usizeLit 0
+            G.assertExpr isZero $
+                S.litExpr "bad pointer in reallocate: not the start of an allocation"
+
+            oldVec <- readMirRef (MirVectorRepr tpr) vecPtr
+            newVec <- mirVector_resize tpr oldVec newLen
+            writeMirRef vecPtr newVec
+            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
 
 -- No `deallocate` for now - we'd need some extra MirRef ops to implement that

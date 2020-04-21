@@ -58,9 +58,11 @@ import           Mir.PP (fmt)
 import           Mir.Generator 
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
+    , mirVector_fromVector
     , cs, discrMap )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
+    , pattern MirVectorRepr
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
@@ -160,7 +162,7 @@ tyToRepr t0 = case t0 of
   -- Closures are just tuples with a fancy name
   M.TyClosure ts  -> tyListToCtxMaybe ts $ \repr -> Some (C.StructRepr repr)
 
-  M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
+  M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (MirVectorRepr repr)
 
   M.TyInt M.USize  -> Some IsizeRepr
   M.TyUint M.USize -> Some UsizeRepr
@@ -179,15 +181,14 @@ tyToRepr t0 = case t0 of
   M.TyRef (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
-  M.TyRawPtr (M.TyDynamic _ _) _ -> Some $ C.StructRepr $
-    Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
-
   -- TODO: DSTs not behind a reference - these should never appear in real code
   M.TySlice t -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
   M.TyStr -> Some (MirSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
 
   M.TyRef t _       -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
-  M.TyRawPtr t _    -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  -- Raw pointers are represented like references, including the fat pointer
+  -- cases that are special-cased above.
+  M.TyRawPtr t mutbl -> tyToRepr (M.TyRef t mutbl)
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
@@ -379,15 +380,16 @@ unpackAnyC _ (MirExp tpr' _) = error $ "bad anytype unpack of " ++ show tpr'
 buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 buildArrayLit trep exps = do
     vec <- go exps V.empty
-    return $ MirExp (C.VectorRepr trep) $  S.app $ E.VectorLit trep vec
-        where go :: [MirExp s] -> V.Vector (R.Expr MIR s tp) -> MirGenerator h s ret (V.Vector (R.Expr MIR s tp))
-              go [] v = return v
-              go ((MirExp erepr e):es) v = do
-                case (testEquality erepr trep) of
-                  Just Refl -> do
-                      v' <- go es v
-                      return $ V.cons e v'
-                  Nothing -> mirFail "bad type in build array"
+    exp <- mirVector_fromVector trep $ S.app $ E.VectorLit trep vec
+    return $ MirExp (MirVectorRepr trep) exp
+  where go :: [MirExp s] -> V.Vector (R.Expr MIR s tp) -> MirGenerator h s ret (V.Vector (R.Expr MIR s tp))
+        go [] v = return v
+        go ((MirExp erepr e):es) v = do
+          case (testEquality erepr trep) of
+            Just Refl -> do
+                v' <- go es v
+                return $ V.cons e v'
+            Nothing -> mirFail "bad type in build array"
 
 buildTuple :: [MirExp s] -> MirExp s
 buildTuple xs = exp_to_assgn (xs) $ \ctx asgn ->
