@@ -32,7 +32,7 @@ where
 
 import Control.Exception (Exception (..), throwIO)
 import qualified Control.Lens as L
--- import Control.Monad (forM_)
+import Control.Monad (forM_)
 import Control.Monad.State (MonadState, gets, modify, runState)
 import Crux.LLVM.Simulate (registerFunctions)
 import Crux.Model
@@ -42,8 +42,8 @@ import qualified Data.LLVM.BitCode as BC
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Nonce (withIONonceGenerator)
--- import Data.Sequence (Seq)
--- import qualified Lang.Crucible.Backend as Backend
+import Data.Sequence (Seq)
+import qualified Lang.Crucible.Backend as Backend
 import qualified Lang.Crucible.Backend.Online as Online
 import qualified Lang.Crucible.CFG.Core as Core
 import Lang.Crucible.LLVM.Extension
@@ -52,13 +52,11 @@ import Lang.Crucible.LLVM.Run
 import Lang.Crucible.ModelChecker.Fresh
 import Lang.Crucible.Simulator
 import Lang.Crucible.Types
--- import Language.Sally
 import System.IO (stdout)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import What4.Expr.Builder
-import qualified What4.Expr.WeightedSum as WS
 import What4.Interface
--- import What4.LabeledPred (labeledPred)
+import What4.LabeledPred (labeledPred)
 import What4.Protocol.Online
 import qualified What4.TransitionSystem as TS
 
@@ -122,34 +120,27 @@ main =
           . setupCruxLLVM llvmMod
     return ()
 
--- printProofGoals ::
---   IsExprBuilder sym =>
---   sym ->
---   Backend.ProofGoals (SymExpr sym BaseBoolType) Backend.AssumptionReason SimError ->
---   IO ()
--- printProofGoals sym (Backend.Assuming asmps goals) = do
---   printAssumptions sym asmps
---   printProofGoals sym goals
--- printProofGoals _ (Backend.Prove goal) = print . PP.pretty . printSymExpr $ L.view labeledPred goal
--- printProofGoals sym (Backend.ProveConj goals1 goals2) = do
---   printProofGoals sym goals1
---   printProofGoals sym goals2
+printProofGoals ::
+  IsExprBuilder sym =>
+  sym ->
+  Backend.ProofGoals (SymExpr sym BaseBoolType) Backend.AssumptionReason SimError ->
+  IO ()
+printProofGoals sym (Backend.Assuming asmps goals) = do
+  printAssumptions sym asmps
+  printProofGoals sym goals
+printProofGoals _ (Backend.Prove goal) = print . PP.pretty . printSymExpr $ L.view labeledPred goal
+printProofGoals sym (Backend.ProveConj goals1 goals2) = do
+  printProofGoals sym goals1
+  printProofGoals sym goals2
 
--- printAssumptions ::
---   IsExprBuilder sym =>
---   sym ->
---   Seq (Backend.LabeledPred (Pred sym) msg) ->
---   IO ()
--- printAssumptions _ assumptions =
---   forM_ assumptions $ \assumption ->
---     print . PP.pretty . printSymExpr $ L.view labeledPred assumption
-
--- data SymbolicInformation sym rtp
---   = SymbolicInformation
---       { assumptions :: Seq (Backend.LabeledPred (Pred sym) Backend.AssumptionReason),
---         obligations :: Backend.ProofObligations sym,
---         returnValue :: RegEntry sym rtp
---       }
+printAssumptions ::
+  IsExprBuilder sym =>
+  sym ->
+  Seq (Backend.LabeledPred (Pred sym) msg) ->
+  IO ()
+printAssumptions _ assumptions =
+  forM_ assumptions $ \assumption ->
+    print . PP.pretty . printSymExpr $ L.view labeledPred assumption
 
 -- | The @BaseTypeOfCrucibleType@ type family maps Crucible types to What4
 -- types.  All base types are accounted for, for other types, we map it to the
@@ -297,10 +288,7 @@ addNamespaceToVariables sym stateType state = goExpr
     goExpr e = error $ show e
     -- @App@
     goApp :: forall tp'. App (Expr t) tp' -> IO (App (Expr t) tp')
-    goApp (BaseIte tp n c t e) = BaseIte tp n <$> goExpr c <*> goExpr t <*> goExpr e
-    goApp (SemiRingSum ws) = SemiRingSum <$> WS.transformSum (WS.sumRepr ws) pure goExpr ws
-    goApp (BaseEq tp a b) = BaseEq tp <$> goExpr a <*> goExpr b
-    goApp x = error $ show x
+    goApp = traverseApp goExpr
 
 runExecState ::
   forall arch blocks init p scope solver ret.
@@ -324,24 +312,22 @@ runExecState cfg fnArgsNames execState =
             FinishedResult ctx (TotalRes gp) ->
               let sym = L.view ctxSymInterface ctx
                in do
+                    let startSection name = putStrLn $ "\n\n\n===== " ++ name ++ " =====\n"
                     -- Print assumptions
-                    -- assumptions <- Backend.collectAssumptions sym
-                    -- putStrLn "=== Assumptions ==="
-                    -- print $ length assumptions
-                    -- forM_ assumptions $ \assumption ->
-                    --   print . PP.pretty . printSymExpr $ L.view labeledPred assumption
+                    assumptions <- Backend.collectAssumptions sym
+                    startSection "Assumptions"
+                    print $ length assumptions
+                    forM_ assumptions $ \assumption ->
+                      print . PP.pretty . printSymExpr $ L.view labeledPred assumption
                     -- Print obligations
-                    -- putStrLn "=== Obligations ==="
-                    -- obligations <- Backend.getProofObligations sym
-                    -- case obligations of
-                    --   Just goals -> printProofGoals sym goals
-                    --   Nothing -> putStrLn "No obligation"
+                    startSection "Obligations"
+                    obligations <- Backend.getProofObligations sym
+                    case obligations of
+                      Just goals -> printProofGoals sym goals
+                      Nothing -> putStrLn "No obligation"
                     -- Print result
+                    startSection "Result"
                     let ret = L.view gpValue gp
-                    -- print $ regType ret
-                    -- () <- case regType ret of
-                    --   LLVMPointerRepr _w -> print . ppPtr . regValue $ ret
-                    --   _ -> return ()
                     let stateType = baseTypesOfCrucibleTypes fnArgsAndRet
                     state <- TS.createStateStruct sym "state" stateType
                     next <- TS.createStateStruct sym "next" stateType
@@ -360,18 +346,10 @@ runExecState cfg fnArgsNames execState =
                                       (Ctx.Empty Ctx.:> BaseStructRepr stateType)
                                       (BaseBVRepr w) --  (regType ret)
                                   retVar <- applySymFn sym retVarAccessor (Ctx.Empty Ctx.:> next)
-                                  -- retVar <- freshBoundedBV sym (userSymbol' "ret") w Nothing Nothing
                                   bvEq sym retVar bv'
                               | otherwise -> error "TODO"
                         _ -> error "TODO"
                     print retExpr
-                    -- let _info =
-                    --       SymbolicInformation
-                    --         { assumptions,
-                    --           obligations,
-                    --           returnValue = ret
-                    --         }
-                    -- FIXME: need to turn CrucibleType into BaseType
                     let ts =
                           -- :: TS.TransitionSystem (ConcreteSym scope solver) (BaseTypesOfCrucibleTypes (init Ctx.::> ret)) =
                           TS.TransitionSystem
@@ -383,7 +361,15 @@ runExecState cfg fnArgsNames execState =
                     print . PP.pretty =<< TS.transitionSystemToSally sym TS.mySallyNames ts
                     return ()
             FinishedResult _ctx PartialRes {} -> error "PartialRes"
-            AbortedResult {} -> error "Aborted"
+            AbortedResult _ctx (AbortedExec Backend.InfeasibleBranch _gp) -> error "Infeasible"
+            AbortedResult _ctx (AbortedExec (Backend.AssumedFalse reason) _gp) ->
+              case reason of
+                Backend.AssumptionReason _ s -> error $ "Assumption: " ++ s
+                Backend.ExploringAPath _ _ -> error "Exploring"
+                Backend.AssumingNoError e -> error $ "Assuming " ++ show e
+            AbortedResult _ctx (AbortedExec (Backend.VariantOptionsExhausted _) _gp) -> error "VariantOptionsExhausted"
+            AbortedResult _ctx (AbortedExit {}) -> error "AbortedExit"
+            AbortedResult _ctx (AbortedBranch {}) -> error "AbortedBranch"
             TimeoutResult {} -> error "Timeout"
 
 -- | Create a Z3 backend for the simulator.

@@ -1,30 +1,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// void __VERIFIER_assert(uint32_t v);
-// void __VERIFIER_assume(uint32_t v);
+volatile int iGlob = 0;
+volatile bool bGlob = false;
 
-int myFunction(uint32_t a, int32_t b, bool c) {
-  if (c) {
-    return a + b;
-  } else {
-    return 42;
+void __VERIFIER_assert(uint32_t v);
+void __VERIFIER_assume(uint32_t v);
+
+int myFunction(uint32_t a) {
+  __VERIFIER_assume(a == 0);
+  uint32_t c = 0;
+  while (a < 4) {
+    c = c + a;
+    a++;
   }
-  // uint32_t a = 0;
-  // uint32_t b = 1000;
-  // uint32_t c = 0;
-
-  // while (a < b) {
-  //   c = c + a;
-  //   a++;
-  // }
-
-  // __VERIFIER_assert(c >= a * (a - 1) / 2);
+  __VERIFIER_assert(c == 6);
+  return c;
 }
-
-// #include <stdint.h>
-// void __VERIFIER_assert(uint32_t b);
-//
-// void f () {
-//   __VERIFIER_assert(0);
-// }
