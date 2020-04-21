@@ -153,6 +153,7 @@ customOpDefs = Map.fromList $ [
                          , panicking_begin_panic
                          , panicking_panic
                          , panicking_panic_fmt
+                         , panicking_panicking
 
                          , allocate
                          , reallocate
@@ -207,6 +208,10 @@ panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \s -> Just $ CustomOp
     name <- use $ currentFn . fname
     return $ "panicking::panic_fmt, called from " <> M.idText name
     )
+
+panicking_panicking :: (ExplodedDefId, CustomRHS)
+panicking_panicking = (["std", "panicking", "panicking"], \_ -> Just $ CustomOp $ \_ _ -> do
+    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False)
 
 
 -----------------------------------------------------------------------------------------------------
