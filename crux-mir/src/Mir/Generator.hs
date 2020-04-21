@@ -439,7 +439,7 @@ makeTempLvalue ty exp = do
     -- the start of the function, which is not relevant for temporaries created
     -- mid-translation.
     let var = Var name Immut ty {-varIsZST-} False
-    return $ LBase $ Local var
+    return $ LBase var
 
 makeTempOperand :: Ty -> MirExp s -> MirGenerator h s ret Operand
 makeTempOperand ty exp = do

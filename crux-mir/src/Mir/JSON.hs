@@ -249,22 +249,14 @@ instance FromJSON Statement where
                              k -> fail $ "kind not found for statement: " ++ show k
 
 
-data RustcPlace = RustcPlace PlaceBase [PlaceElem]
+data RustcPlace = RustcPlace Var [PlaceElem]
 
 instance FromJSON RustcPlace where
     parseJSON = withObject "Place" $ \v ->
-        RustcPlace <$> v .: "base" <*> v .: "data"
-
-instance FromJSON PlaceBase where
-    parseJSON = withObject "PlaceBase" $ \v ->
-      case HML.lookup "kind" v of
-        Just (String "Local")      -> Local       <$> v .: "localvar"
-        Just (String "Static")     -> PStatic     <$> v .: "def_id" <*> v .: "ty"
-        Just (String "Promoted")   -> PPromoted   <$> v .: "index" <*> v .: "ty"
-        k -> fail $ "kind not found for PlaceBase " ++ show k
+        RustcPlace <$> v .: "var" <*> v .: "data"
 
 instance FromJSON PlaceElem where
-    parseJSON = withObject "Lvpelem" $ \v ->
+    parseJSON = withObject "PlaceElem" $ \v ->
       case HML.lookup "kind" v of
         Just (String "Deref") -> pure Deref
         Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
@@ -272,7 +264,7 @@ instance FromJSON PlaceElem where
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
         Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
-        x -> fail ("bad lvpelem: " ++ show x)
+        x -> fail ("bad PlaceElem: " ++ show x)
 
 instance FromJSON Lvalue where
     parseJSON j = convert <$> parseJSON j

@@ -160,11 +160,6 @@ instance Pretty Statement where
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = text "nop" <> semi
 
-instance Pretty PlaceBase where
-    pretty (Local v)        = pretty v
-    pretty (PStatic did _t) = pretty_fn1 "Static" did
-    pretty (PPromoted p _t) = pretty p
-
 instance Pretty Lvalue where
     pretty (LBase base) = pretty base
     pretty (LProj lv Deref) = text "*" <> pretty lv

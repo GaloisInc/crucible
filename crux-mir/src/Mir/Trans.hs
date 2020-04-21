@@ -912,9 +912,7 @@ evalLvalue lv = evalPlace lv >>= readPlace
 
 
 evalPlace :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirPlace s)
-evalPlace (M.LBase (M.Local var)) = varPlace var
-evalPlace (M.LBase (M.PStatic did _t)) = staticPlace did
-evalPlace (M.LBase (M.PPromoted idx _t)) = undefined
+evalPlace (M.LBase var) = varPlace var
 evalPlace (M.LProj lv proj) = do
     pl <- evalPlace lv
     evalPlaceProj (M.typeOf lv) pl proj
@@ -1566,10 +1564,8 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  f (M.Assign _ (M.Ref _ lv _) _) = g lv
  f _ = mempty
 
- g (M.LBase (M.Local (M.Var nm _ _ _))) = Set.singleton nm
+ g (M.LBase (M.Var nm _ _ _)) = Set.singleton nm
  g (M.LProj lv _) = g lv
-
- g _ = mempty
 
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)

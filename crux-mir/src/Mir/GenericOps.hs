@@ -137,7 +137,6 @@ instance GenericOps AdtAg
 instance GenericOps Terminator
 instance GenericOps Operand
 instance GenericOps Constant
-instance GenericOps PlaceBase
 instance GenericOps PlaceElem
 instance GenericOps NullOp
 instance GenericOps BorrowKind

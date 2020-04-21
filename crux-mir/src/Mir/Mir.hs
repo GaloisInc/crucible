@@ -33,7 +33,6 @@ module Mir.Mir where
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
 import Data.Text (Text)
-import Data.Vector (Vector)
 
 import Data.Semigroup (Semigroup(..))
 
@@ -285,12 +284,6 @@ data Statement =
       | Nop
     deriving (Show,Eq, Ord, Generic)
 
-data PlaceBase =
-        Local { _lvar :: Var }
-      | PStatic DefId Ty
-      | PPromoted Int Ty
-      deriving (Show, Eq, Generic)
-
 data PlaceElem =
         Deref
       | PField Int Ty
@@ -302,7 +295,7 @@ data PlaceElem =
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
 data Lvalue =
-        LBase PlaceBase
+        LBase Var
       | LProj Lvalue PlaceElem
       deriving (Show, Eq, Generic)
 
@@ -609,12 +602,6 @@ instance TypeOf Var where
 instance TypeOf Lvalue where
     typeOf (LBase base) = typeOf base
     typeOf (LProj l elm) = typeOfProj elm $ typeOf l
-
-instance TypeOf PlaceBase where
-    typeOf pb = case pb of
-        Local (Var _ _ t _) -> t
-        PStatic _ t -> t
-        PPromoted _ t -> t
 
 typeOfProj :: PlaceElem -> Ty -> Ty
 typeOfProj elm baseTy = case elm of
