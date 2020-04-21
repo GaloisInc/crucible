@@ -50,7 +50,7 @@ before_install:
 
   # Rust
   # `--profile minimal` is needed to avoid trying to install clippy
-  - curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2019-08-05 --profile minimal
+  - curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2020-03-22 --profile minimal
   - source $HOME/.cargo/env
   - pushd .
   - cd ..
