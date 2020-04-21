@@ -4,22 +4,28 @@
 use crate::borrow::Cow;
 use crate::ffi::{OsStr, OsString};
 use crate::fmt;
-use crate::str;
 use crate::mem;
 use crate::rc::Rc;
+use crate::str;
 use crate::sync::Arc;
-use crate::sys_common::{FromInner, IntoInner, AsInner};
 use crate::sys_common::bytestring::debug_fmt_bytestring;
+use crate::sys_common::{AsInner, FromInner, IntoInner};
 
 use core::str::lossy::Utf8Lossy;
 
 #[derive(Clone, Hash)]
 pub(crate) struct Buf {
-    pub inner: Vec<u8>
+    pub inner: Vec<u8>,
 }
 
+// FIXME:
+// `Buf::as_slice` current implementation relies
+// on `Slice` being layout-compatible with `[u8]`.
+// When attribute privacy is implemented, `Slice` should be annotated as `#[repr(transparent)]`.
+// Anyway, `Slice` representation and layout are considered implementation detail, are
+// not documented and must not be relied upon.
 pub(crate) struct Slice {
-    pub inner: [u8]
+    pub inner: [u8],
 }
 
 impl fmt::Debug for Slice {
@@ -58,7 +64,6 @@ impl AsInner<[u8]> for Buf {
     }
 }
 
-
 impl Buf {
     pub fn from_string(s: String) -> Buf {
         Buf { inner: s.into_bytes() }
@@ -66,9 +71,7 @@ impl Buf {
 
     #[inline]
     pub fn with_capacity(capacity: usize) -> Buf {
-        Buf {
-            inner: Vec::with_capacity(capacity)
-        }
+        Buf { inner: Vec::with_capacity(capacity) }
     }
 
     #[inline]
@@ -101,12 +104,13 @@ impl Buf {
         self.inner.shrink_to(min_capacity)
     }
 
+    #[inline]
     pub fn as_slice(&self) -> &Slice {
         unsafe { mem::transmute(&*self.inner) }
     }
 
     pub fn into_string(self) -> Result<String, Buf> {
-        String::from_utf8(self.inner).map_err(|p| Buf { inner: p.into_bytes() } )
+        String::from_utf8(self.inner).map_err(|p| Buf { inner: p.into_bytes() })
     }
 
     pub fn push_slice(&mut self, s: &Slice) {
@@ -136,10 +140,12 @@ impl Buf {
 }
 
 impl Slice {
+    #[inline]
     fn from_u8_slice(s: &[u8]) -> &Slice {
         unsafe { mem::transmute(s) }
     }
 
+    #[inline]
     pub fn from_str(s: &str) -> &Slice {
         Slice::from_u8_slice(s.as_bytes())
     }
@@ -187,7 +193,7 @@ impl Slice {
 pub trait OsStringExt {
     /// Creates an [`OsString`] from a byte vector.
     ///
-    /// See the module docmentation for an example.
+    /// See the module documentation for an example.
     ///
     /// [`OsString`]: ../../../ffi/struct.OsString.html
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -195,7 +201,7 @@ pub trait OsStringExt {
 
     /// Yields the underlying byte vector of this [`OsString`].
     ///
-    /// See the module docmentation for an example.
+    /// See the module documentation for an example.
     ///
     /// [`OsString`]: ../../../ffi/struct.OsString.html
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -220,14 +226,14 @@ pub trait OsStrExt {
     #[stable(feature = "rust1", since = "1.0.0")]
     /// Creates an [`OsStr`] from a byte slice.
     ///
-    /// See the module docmentation for an example.
+    /// See the module documentation for an example.
     ///
     /// [`OsStr`]: ../../../ffi/struct.OsStr.html
     fn from_bytes(slice: &[u8]) -> &Self;
 
     /// Gets the underlying byte view of the [`OsStr`] slice.
     ///
-    /// See the module docmentation for an example.
+    /// See the module documentation for an example.
     ///
     /// [`OsStr`]: ../../../ffi/struct.OsStr.html
     #[stable(feature = "rust1", since = "1.0.0")]

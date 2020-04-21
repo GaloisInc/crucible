@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![feature(custom_attribute)]
 #![feature(core_intrinsics)]
 
 extern crate core;
@@ -13,7 +12,7 @@ pub enum E {
     D = 20,
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     unsafe {
         assert!(discriminant_value(&E::A) == 10);

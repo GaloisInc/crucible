@@ -4,7 +4,7 @@ failures:
 
 ---- deserialize/3a1fbbbh::crux_test[0] counterexamples ----
 Failure for attempt to add with overflow
-in deserialize/3a1fbbbh::deserialize[0] at test/symb_eval/sym_bytes/deserialize.rs:20:21
+in deserialize/3a1fbbbh::deserialize[0] at test/symb_eval/sym_bytes/deserialize.rs:19:21
 
 [Crux] Goal status:
 [Crux]   Total: 3

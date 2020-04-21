@@ -5,6 +5,8 @@
 
 set -ex
 
+MIRRORS_URL="https://ci-mirrors.rust-lang.org/libc"
+
 TARGET="${1}"
 
 # If we're going to run tests inside of a qemu image, then we don't need any of
@@ -21,21 +23,21 @@ if [ "$QEMU" != "" ]; then
     # image is .gz : download and uncompress it
     qemufile="$(echo "${QEMU%.gz}" | sed 's/\//__/g')"
     if [ ! -f "${tmpdir}/${qemufile}" ]; then
-      curl --retry 5 "https://s3-us-west-1.amazonaws.com/rust-lang-ci2/libc/${QEMU}" | \
+      curl --retry 5 "${MIRRORS_URL}/${QEMU}" | \
           gunzip -d > "${tmpdir}/${qemufile}"
     fi
   elif [ -z "${QEMU#*.xz}" ]; then
     # image is .xz : download and uncompress it
     qemufile="$(echo "${QEMU%.xz}" | sed 's/\//__/g')"
     if [ ! -f "${tmpdir}/${qemufile}" ]; then
-      curl --retry 5 "https://s3-us-west-1.amazonaws.com/rust-lang-ci2/libc/${QEMU}" | \
+      curl --retry 5 "${MIRRORS_URL}/${QEMU}" | \
           unxz > "${tmpdir}/${qemufile}"
     fi
   else
     # plain qcow2 image: just download it
     qemufile="$(echo "${QEMU}" | sed 's/\//__/g')"
     if [ ! -f "${tmpdir}/${qemufile}" ]; then
-      curl --retry 5 "https://s3-us-west-1.amazonaws.com/rust-lang-ci2/libc/${QEMU}" \
+      curl --retry 5 "${MIRRORS_URL}/${QEMU}" \
         > "${tmpdir}/${qemufile}"
     fi
   fi
@@ -81,7 +83,7 @@ if [ "$QEMU" != "" ]; then
 fi
 
 # FIXME: x86_64-unknown-linux-gnux32 fail to compile without --release
-# See https://github.com/rust-lang/rust/issues/45417
+# See https://github.com/rust-lang/rust/issues/59220
 opt=
 if [ "$TARGET" = "x86_64-unknown-linux-gnux32" ]; then
   opt="--release"

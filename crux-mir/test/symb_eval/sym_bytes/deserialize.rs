@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::*;
 use crucible::sym_bytes::SymBytes;
@@ -24,7 +23,7 @@ fn deserialize(b: &[u8]) -> (i16, i16) {
     }
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     let sym = SymBytes::symbolic("sym", 5);
     crucible_assume!(sym[0] <= 2);

@@ -19,6 +19,7 @@ translate_2015() {
 
 
 translate lib/libcore/lib.rs --crate-name core \
+    --cfg 'feature="panic_immediate_abort"' \
     --cfg iter_count --cfg iter_last --cfg iter_min_max \
     --cfg ascii --cfg char --cfg unicode \
     --cfg slice_sort \
@@ -35,7 +36,8 @@ translate_2015 lib/compiler-builtins/src/lib.rs --crate-name compiler_builtins \
     --cfg 'feature="compiler-builtins"'
 translate lib/crucible/lib.rs --crate-name crucible
 translate lib/int512.rs
-translate lib/liballoc/lib.rs --crate-name alloc
+translate lib/liballoc/lib.rs --crate-name alloc \
+    --extern crucible
 translate lib/cfg-if/src/lib.rs --crate-name cfg_if --cfg 'feature="rustc-dep-of-std"' \
     --extern rustc_std_workspace_core=rlibs/libcore.rlib \
     -ldl
@@ -43,21 +45,32 @@ translate_2015 lib/libc/src/lib.rs --crate-name libc \
     --cfg 'feature="rustc-dep-of-std"' --cfg libc_align \
     --extern rustc_std_workspace_core=rlibs/libcore.rlib
 translate lib/libunwind/lib.rs --crate-name unwind \
-    --extern cfg_if=rlibs/libcfg_if.rlib \
-    --extern libc=rlibs/liblibc.rlib
+    --extern cfg_if --extern libc
 translate lib/libpanic_abort/lib.rs --crate-name panic_abort -C panic=abort \
-    --extern libc=rlibs/liblibc.rlib
+    --extern libc
 translate lib/libpanic_unwind/lib.rs --crate-name panic_unwind -C panic=unwind \
-    --extern alloc=rlibs/liballoc.rlib \
-    --extern cfg_if=rlibs/libcfg_if.rlib \
-    --extern unwind=rlibs/libunwind.rlib \
-    --extern libc=rlibs/liblibc.rlib
+    --extern alloc --extern cfg_if --extern unwind --extern libc
 translate lib/hashbrown/src/lib.rs --crate-name hashbrown \
     --cfg 'feature="rustc-dep-of-std"' --cfg 'feature="nightly"' \
-    --extern rustc_std_workspace_core=rlibs/libcore.rlib
+    --cfg 'feature="rustc-internal-api"' --cfg has_extern_crate_alloc \
+    --extern alloc
+translate_2015 lib/rustc-demangle/src/lib.rs --crate-name rustc_demangle \
+    --cfg 'feature="rustc-dep-of-std"'
+translate_2015 lib/backtrace/crates/backtrace-sys/src/lib.rs --crate-name backtrace_sys
+translate lib/backtrace/src/lib.rs --crate-name backtrace \
+    --extern core --extern compiler_builtins --extern libc \
+    --extern rustc_demangle --extern cfg_if --extern backtrace_sys
 translate lib/libstd/lib.rs --crate-name std \
-    --extern hashbrown=rlibs/libhashbrown.rlib
-translate lib/libtest/lib.rs --crate-name test
+    --cfg 'feature="panic_immediate_abort"' \
+    --extern alloc --extern cfg_if \
+    --extern hashbrown --extern backtrace_rs=rlibs/libbacktrace.rlib
+translate lib/libterm/lib.rs --crate-name term
+translate lib/unicode-width/src/lib.rs --crate-name unicode_width \
+    --cfg 'feature="rustc-dep-of-std"'
+translate lib/getopts/src/lib.rs --crate-name getopts
+translate lib/libtest/lib.rs --crate-name test \
+    --extern libc  --extern getopts --extern term
+
 translate_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
 translate lib/bytes.rs
 translate_2015 lib/bigint/src/lib.rs --crate-name bigint

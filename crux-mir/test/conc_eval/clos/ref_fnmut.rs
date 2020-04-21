@@ -1,11 +1,10 @@
-#![feature(custom_attribute)]
 
 pub fn call_it<F: FnMut(i32) -> i32>(f: F) -> i32 {
     let mut f = f;
     f(1)
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() -> i32 {
     let x = 1;
     let mut z = 0;

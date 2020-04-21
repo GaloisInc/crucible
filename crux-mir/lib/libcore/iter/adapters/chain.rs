@@ -1,9 +1,9 @@
 use crate::ops::Try;
 use crate::usize;
 
-use super::super::{Iterator, DoubleEndedIterator, FusedIterator, TrustedLen};
+use super::super::{DoubleEndedIterator, FusedIterator, Iterator, TrustedLen};
 
-/// An iterator that strings two iterators together.
+/// An iterator that links two iterators together, in a chain.
 ///
 /// This `struct` is created by the [`chain`] method on [`Iterator`]. See its
 /// documentation for more.
@@ -48,9 +48,10 @@ enum ChainState {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<A, B> Iterator for Chain<A, B> where
+impl<A, B> Iterator for Chain<A, B>
+where
     A: Iterator,
-    B: Iterator<Item = A::Item>
+    B: Iterator<Item = A::Item>,
 {
     type Item = A::Item;
 
@@ -71,7 +72,6 @@ impl<A, B> Iterator for Chain<A, B> where
 
     #[inline]
     #[rustc_inherit_overflow_checks]
-    #[cfg(iter_count)]
     fn count(self) -> usize {
         match self.state {
             ChainState::Both => self.a.count() + self.b.count(),
@@ -80,8 +80,11 @@ impl<A, B> Iterator for Chain<A, B> where
         }
     }
 
-    fn try_fold<Acc, F, R>(&mut self, init: Acc, mut f: F) -> R where
-        Self: Sized, F: FnMut(Acc, Self::Item) -> R, R: Try<Ok=Acc>
+    fn try_fold<Acc, F, R>(&mut self, init: Acc, mut f: F) -> R
+    where
+        Self: Sized,
+        F: FnMut(Acc, Self::Item) -> R,
+        R: Try<Ok = Acc>,
     {
         let mut accum = init;
         match self.state {
@@ -91,7 +94,7 @@ impl<A, B> Iterator for Chain<A, B> where
                     self.state = ChainState::Back;
                 }
             }
-            _ => { }
+            _ => {}
         }
         if let ChainState::Back = self.state {
             accum = self.b.try_fold(accum, &mut f)?;
@@ -100,20 +103,21 @@ impl<A, B> Iterator for Chain<A, B> where
     }
 
     fn fold<Acc, F>(self, init: Acc, mut f: F) -> Acc
-        where F: FnMut(Acc, Self::Item) -> Acc,
+    where
+        F: FnMut(Acc, Self::Item) -> Acc,
     {
         let mut accum = init;
         match self.state {
             ChainState::Both | ChainState::Front => {
                 accum = self.a.fold(accum, &mut f);
             }
-            _ => { }
+            _ => {}
         }
         match self.state {
             ChainState::Both | ChainState::Back => {
                 accum = self.b.fold(accum, &mut f);
             }
-            _ => { }
+            _ => {}
         }
         accum
     }
@@ -124,7 +128,7 @@ impl<A, B> Iterator for Chain<A, B> where
             ChainState::Both | ChainState::Front => {
                 for x in self.a.by_ref() {
                     if n == 0 {
-                        return Some(x)
+                        return Some(x);
                     }
                     n -= 1;
                 }
@@ -134,15 +138,12 @@ impl<A, B> Iterator for Chain<A, B> where
             }
             ChainState::Back => {}
         }
-        if let ChainState::Back = self.state {
-            self.b.nth(n)
-        } else {
-            None
-        }
+        if let ChainState::Back = self.state { self.b.nth(n) } else { None }
     }
 
     #[inline]
-    fn find<P>(&mut self, mut predicate: P) -> Option<Self::Item> where
+    fn find<P>(&mut self, mut predicate: P) -> Option<Self::Item>
+    where
         P: FnMut(&Self::Item) -> bool,
     {
         match self.state {
@@ -151,7 +152,7 @@ impl<A, B> Iterator for Chain<A, B> where
                     self.state = ChainState::Back;
                     self.b.find(predicate)
                 }
-                v => v
+                v => v,
             },
             ChainState::Front => self.a.find(predicate),
             ChainState::Back => self.b.find(predicate),
@@ -159,7 +160,6 @@ impl<A, B> Iterator for Chain<A, B> where
     }
 
     #[inline]
-    #[cfg(iter_last)]
     fn last(self) -> Option<A::Item> {
         match self.state {
             ChainState::Both => {
@@ -167,32 +167,39 @@ impl<A, B> Iterator for Chain<A, B> where
                 let a_last = self.a.last();
                 let b_last = self.b.last();
                 b_last.or(a_last)
-            },
+            }
             ChainState::Front => self.a.last(),
-            ChainState::Back => self.b.last()
+            ChainState::Back => self.b.last(),
         }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let (a_lower, a_upper) = self.a.size_hint();
-        let (b_lower, b_upper) = self.b.size_hint();
+        match self.state {
+            ChainState::Both => {
+                let (a_lower, a_upper) = self.a.size_hint();
+                let (b_lower, b_upper) = self.b.size_hint();
 
-        let lower = a_lower.saturating_add(b_lower);
+                let lower = a_lower.saturating_add(b_lower);
 
-        let upper = match (a_upper, b_upper) {
-            (Some(x), Some(y)) => x.checked_add(y),
-            _ => None
-        };
+                let upper = match (a_upper, b_upper) {
+                    (Some(x), Some(y)) => x.checked_add(y),
+                    _ => None,
+                };
 
-        (lower, upper)
+                (lower, upper)
+            }
+            ChainState::Front => self.a.size_hint(),
+            ChainState::Back => self.b.size_hint(),
+        }
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<A, B> DoubleEndedIterator for Chain<A, B> where
+impl<A, B> DoubleEndedIterator for Chain<A, B>
+where
     A: DoubleEndedIterator,
-    B: DoubleEndedIterator<Item=A::Item>,
+    B: DoubleEndedIterator<Item = A::Item>,
 {
     #[inline]
     fn next_back(&mut self) -> Option<A::Item> {
@@ -209,8 +216,30 @@ impl<A, B> DoubleEndedIterator for Chain<A, B> where
         }
     }
 
-    fn try_rfold<Acc, F, R>(&mut self, init: Acc, mut f: F) -> R where
-        Self: Sized, F: FnMut(Acc, Self::Item) -> R, R: Try<Ok=Acc>
+    #[inline]
+    fn nth_back(&mut self, mut n: usize) -> Option<A::Item> {
+        match self.state {
+            ChainState::Both | ChainState::Back => {
+                for x in self.b.by_ref().rev() {
+                    if n == 0 {
+                        return Some(x);
+                    }
+                    n -= 1;
+                }
+                if let ChainState::Both = self.state {
+                    self.state = ChainState::Front;
+                }
+            }
+            ChainState::Front => {}
+        }
+        if let ChainState::Front = self.state { self.a.nth_back(n) } else { None }
+    }
+
+    fn try_rfold<Acc, F, R>(&mut self, init: Acc, mut f: F) -> R
+    where
+        Self: Sized,
+        F: FnMut(Acc, Self::Item) -> R,
+        R: Try<Ok = Acc>,
     {
         let mut accum = init;
         match self.state {
@@ -220,7 +249,7 @@ impl<A, B> DoubleEndedIterator for Chain<A, B> where
                     self.state = ChainState::Front;
                 }
             }
-            _ => { }
+            _ => {}
         }
         if let ChainState::Front = self.state {
             accum = self.a.try_rfold(accum, &mut f)?;
@@ -229,34 +258,39 @@ impl<A, B> DoubleEndedIterator for Chain<A, B> where
     }
 
     fn rfold<Acc, F>(self, init: Acc, mut f: F) -> Acc
-        where F: FnMut(Acc, Self::Item) -> Acc,
+    where
+        F: FnMut(Acc, Self::Item) -> Acc,
     {
         let mut accum = init;
         match self.state {
             ChainState::Both | ChainState::Back => {
                 accum = self.b.rfold(accum, &mut f);
             }
-            _ => { }
+            _ => {}
         }
         match self.state {
             ChainState::Both | ChainState::Front => {
                 accum = self.a.rfold(accum, &mut f);
             }
-            _ => { }
+            _ => {}
         }
         accum
     }
-
 }
 
 // Note: *both* must be fused to handle double-ended iterators.
 #[stable(feature = "fused", since = "1.26.0")]
 impl<A, B> FusedIterator for Chain<A, B>
-    where A: FusedIterator,
-          B: FusedIterator<Item=A::Item>,
-{}
+where
+    A: FusedIterator,
+    B: FusedIterator<Item = A::Item>,
+{
+}
 
 #[unstable(feature = "trusted_len", issue = "37572")]
 unsafe impl<A, B> TrustedLen for Chain<A, B>
-    where A: TrustedLen, B: TrustedLen<Item=A::Item>,
-{}
+where
+    A: TrustedLen,
+    B: TrustedLen<Item = A::Item>,
+{
+}

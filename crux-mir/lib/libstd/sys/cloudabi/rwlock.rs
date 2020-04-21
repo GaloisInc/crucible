@@ -1,5 +1,6 @@
 use crate::cell::UnsafeCell;
 use crate::mem;
+use crate::mem::MaybeUninit;
 use crate::sync::atomic::{AtomicU32, Ordering};
 use crate::sys::cloudabi::abi;
 
@@ -22,9 +23,7 @@ pub unsafe fn raw(r: &RWLock) -> *mut AtomicU32 {
 unsafe impl Send for RWLock {}
 unsafe impl Sync for RWLock {}
 
-const NEW: RWLock = RWLock {
-    lock: UnsafeCell::new(AtomicU32::new(abi::LOCK_UNLOCKED.0)),
-};
+const NEW: RWLock = RWLock { lock: UnsafeCell::new(AtomicU32::new(abi::LOCK_UNLOCKED.0)) };
 
 impl RWLock {
     pub const fn new() -> RWLock {
@@ -73,15 +72,12 @@ impl RWLock {
                 },
                 ..mem::zeroed()
             };
-            let mut event: abi::event = mem::uninitialized();
-            let mut nevents: usize = mem::uninitialized();
-            let ret = abi::poll(&subscription, &mut event, 1, &mut nevents);
+            let mut event = MaybeUninit::<abi::event>::uninit();
+            let mut nevents = MaybeUninit::<usize>::uninit();
+            let ret = abi::poll(&subscription, event.as_mut_ptr(), 1, nevents.as_mut_ptr());
             assert_eq!(ret, abi::errno::SUCCESS, "Failed to acquire read lock");
-            assert_eq!(
-                event.error,
-                abi::errno::SUCCESS,
-                "Failed to acquire read lock"
-            );
+            let event = event.assume_init();
+            assert_eq!(event.error, abi::errno::SUCCESS, "Failed to acquire read lock");
 
             RDLOCKS_ACQUIRED += 1;
         }
@@ -120,11 +116,7 @@ impl RWLock {
             } else {
                 // No threads waiting or not the last read lock. Just decrement
                 // the read lock count.
-                assert_ne!(
-                    old & !abi::LOCK_KERNEL_MANAGED.0,
-                    0,
-                    "This rwlock is not locked"
-                );
+                assert_ne!(old & !abi::LOCK_KERNEL_MANAGED.0, 0, "This rwlock is not locked");
                 assert_eq!(
                     old & abi::LOCK_WRLOCKED.0,
                     0,
@@ -182,15 +174,12 @@ impl RWLock {
                 },
                 ..mem::zeroed()
             };
-            let mut event: abi::event = mem::uninitialized();
-            let mut nevents: usize = mem::uninitialized();
-            let ret = abi::poll(&subscription, &mut event, 1, &mut nevents);
+            let mut event = MaybeUninit::<abi::event>::uninit();
+            let mut nevents = MaybeUninit::<usize>::uninit();
+            let ret = abi::poll(&subscription, event.as_mut_ptr(), 1, nevents.as_mut_ptr());
             assert_eq!(ret, abi::errno::SUCCESS, "Failed to acquire write lock");
-            assert_eq!(
-                event.error,
-                abi::errno::SUCCESS,
-                "Failed to acquire write lock"
-            );
+            let event = event.assume_init();
+            assert_eq!(event.error, abi::errno::SUCCESS, "Failed to acquire write lock");
         }
     }
 

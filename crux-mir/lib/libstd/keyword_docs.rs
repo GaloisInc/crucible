@@ -27,16 +27,79 @@
 ///
 /// [Reference]: ../reference/expressions/operator-expr.html#type-cast-expressions
 /// [`crate`]: keyword.crate.html
-mod as_keyword { }
+mod as_keyword {}
 
 #[doc(keyword = "break")]
 //
 /// Exit early from a loop.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// When `break` is encountered, execution of the associated loop body is
+/// immediately terminated.
 ///
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod break_keyword { }
+/// ```rust
+/// let mut last = 0;
+///
+/// for x in 1..100 {
+///     if x > 12 {
+///         break;
+///     }
+///     last = x;
+/// }
+///
+/// assert_eq!(last, 12);
+/// println!("{}", last);
+/// ```
+///
+/// A break expression is normally associated with the innermost loop enclosing the
+/// `break` but a label can be used to specify which enclosing loop is affected.
+///
+///```rust
+/// 'outer: for i in 1..=5 {
+///     println!("outer iteration (i): {}", i);
+///
+///     '_inner: for j in 1..=200 {
+///         println!("    inner iteration (j): {}", j);
+///         if j >= 3 {
+///             // breaks from inner loop, let's outer loop continue.
+///             break;
+///         }
+///         if i >= 2 {
+///             // breaks from outer loop, and directly to "Bye".
+///             break 'outer;
+///         }
+///     }
+/// }
+/// println!("Bye.");
+///```
+///
+/// When associated with `loop`, a break expression may be used to return a value from that loop.
+/// This is only valid with `loop` and not with any other type of loop.
+/// If no value is specified, `break;` returns `()`.
+/// Every `break` within a loop must return the same type.
+///
+/// ```rust
+/// let (mut a, mut b) = (1, 1);
+/// let result = loop {
+///     if b > 10 {
+///         break b;
+///     }
+///     let c = a + b;
+///     a = b;
+///     b = c;
+/// };
+/// // first number in Fibonacci sequence over 10:
+/// assert_eq!(result, 13);
+/// println!("{}", result);
+/// ```
+///
+/// For more details consult the [Reference on "break expression"] and the [Reference on "break and
+/// loop values"].
+///
+/// [Reference on "break expression"]: ../reference/expressions/loop-expr.html#break-expressions
+/// [Reference on "break and loop values"]:
+/// ../reference/expressions/loop-expr.html#break-and-loop-values
+///
+mod break_keyword {}
 
 #[doc(keyword = "const")]
 //
@@ -63,7 +126,7 @@ mod break_keyword { }
 /// look like this:
 ///
 /// ```rust
-/// const WORDS: &str = "hello rust!";
+/// const WORDS: &'static str = "hello rust!";
 /// ```
 ///
 /// Thanks to static lifetime elision, you usually don't have to explicitly use 'static:
@@ -90,16 +153,47 @@ mod break_keyword { }
 /// [Rust Book]:
 /// ../book/ch03-01-variables-and-mutability.html#differences-between-variables-and-constants
 /// [Reference]: ../reference/items/constant-items.html
-mod const_keyword { }
+mod const_keyword {}
 
 #[doc(keyword = "continue")]
 //
 /// Skip to the next iteration of a loop.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// When `continue` is encountered, the current iteration is terminated, returning control to the
+/// loop head, typically continuing with the next iteration.
 ///
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod continue_keyword { }
+///```rust
+/// // Printing odd numbers by skipping even ones
+/// for number in 1..=10 {
+///     if number % 2 == 0 {
+///         continue;
+///     }
+///     println!("{}", number);
+/// }
+///```
+///
+/// Like `break`, `continue` is normally associated with the innermost enclosing loop, but labels
+/// may be used to specify the affected loop.
+///
+///```rust
+/// // Print Odd numbers under 30 with unit <= 5
+/// 'tens: for ten in 0..3 {
+///     '_units: for unit in 0..=9 {
+///         if unit % 2 == 0 {
+///             continue;
+///         }
+///         if unit > 5 {
+///             continue 'tens;
+///         }
+///         println!("{}", ten * 10 + unit);
+///     }
+/// }
+///```
+///
+/// See [continue expressions] from the reference for more details.
+///
+/// [continue expressions]: ../reference/expressions/loop-expr.html#continue-expressions
+mod continue_keyword {}
 
 #[doc(keyword = "crate")]
 //
@@ -136,17 +230,60 @@ mod continue_keyword { }
 /// module `foo`, from anywhere else in the same crate.
 ///
 /// [Reference]: ../reference/items/extern-crates.html
-mod crate_keyword { }
+mod crate_keyword {}
 
 #[doc(keyword = "else")]
 //
-/// What to do when an [`if`] condition does not hold.
+/// What expression to evaluate when an [`if`] condition evaluates to [`false`].
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// `else` expressions are optional. When no else expressions are supplied it is assumed to evaluate
+/// to the unit type `()`.
 ///
+/// The type that the `else` blocks evaluate to must be compatible with the type that the `if` block
+/// evaluates to.
+///
+/// As can be seen below, `else` must be followed by either: `if`, `if let`, or a block `{}` and it
+/// will return the value of that expression.
+///
+/// ```rust
+/// let result = if true == false {
+///     "oh no"
+/// } else if "something" == "other thing" {
+///     "oh dear"
+/// } else if let Some(200) = "blarg".parse::<i32>().ok() {
+///     "uh oh"
+/// } else {
+///     println!("Sneaky side effect.");
+///     "phew, nothing's broken"
+/// };
+/// ```
+///
+/// Here's another example but here we do not try and return an expression:
+///
+/// ```rust
+/// if true == false {
+///     println!("oh no");
+/// } else if "something" == "other thing" {
+///     println!("oh dear");
+/// } else if let Some(200) = "blarg".parse::<i32>().ok() {
+///     println!("uh oh");
+/// } else {
+///     println!("phew, nothing's broken");
+/// }
+/// ```
+///
+/// The above is _still_ an expression but it will always evaluate to `()`.
+///
+/// There is possibly no limit to the number of `else` blocks that could follow an `if` expression
+/// however if you have several then a [`match`] expression might be preferable.
+///
+/// Read more about control flow in the [Rust Book].
+///
+/// [Rust Book]: ../book/ch03-05-control-flow.html#handling-multiple-conditions-with-else-if
+/// [`match`]: keyword.match.html
+/// [`false`]: keyword.false.html
 /// [`if`]: keyword.if.html
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod else_keyword { }
+mod else_keyword {}
 
 #[doc(keyword = "enum")]
 //
@@ -202,7 +339,7 @@ mod else_keyword { }
 /// [`Option`]: option/enum.Option.html
 /// [Rust Book]: ../book/ch06-01-defining-an-enum.html
 /// [Reference]: ../reference/items/enumerations.html
-mod enum_keyword { }
+mod enum_keyword {}
 
 #[doc(keyword = "extern")]
 //
@@ -244,7 +381,7 @@ mod enum_keyword { }
 /// [Rust book]:
 /// ../book/ch19-01-unsafe-rust.html#using-extern-functions-to-call-external-code
 /// [Reference]: ../reference/items/external-blocks.html
-mod extern_keyword { }
+mod extern_keyword {}
 
 #[doc(keyword = "false")]
 //
@@ -254,7 +391,7 @@ mod extern_keyword { }
 ///
 /// [`bool`]: primitive.bool.html
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod false_keyword { }
+mod false_keyword {}
 
 #[doc(keyword = "fn")]
 //
@@ -321,7 +458,7 @@ mod false_keyword { }
 /// [`extern`]: keyword.extern.html
 /// [Rust book]: ../book/ch03-03-how-functions-work.html
 /// [Reference]: ../reference/items/functions.html
-mod fn_keyword { }
+mod fn_keyword {}
 
 #[doc(keyword = "for")]
 //
@@ -400,7 +537,7 @@ mod fn_keyword { }
 /// [Rust book]:
 /// ../book/ch03-05-control-flow.html#looping-through-a-collection-with-for
 /// [Reference]: ../reference/expressions/loop-expr.html#iterator-loops
-mod for_keyword { }
+mod for_keyword {}
 
 #[doc(keyword = "if")]
 //
@@ -474,7 +611,7 @@ mod for_keyword { }
 ///
 /// [Rust book]: ../book/ch03-05-control-flow.html#if-expressions
 /// [Reference]: ../reference/expressions/if-expr.html
-mod if_keyword { }
+mod if_keyword {}
 
 #[doc(keyword = "impl")]
 //
@@ -537,17 +674,25 @@ mod if_keyword { }
 /// [book1]: ../book/ch05-03-method-syntax.html
 /// [Reference]: ../reference/items/implementations.html
 /// [book2]: ../book/ch10-02-traits.html#returning-types-that-implement-traits
-mod impl_keyword { }
+mod impl_keyword {}
 
 #[doc(keyword = "in")]
 //
 /// Iterate over a series of values with [`for`].
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// The expression immediately following `in` must implement the [`Iterator`] trait.
 ///
+/// ## Literal Examples:
+///
+///    * `for _ **in** 1..3 {}` - Iterate over an exclusive range up to but excluding 3.
+///    * `for _ **in** 1..=3 {}` - Iterate over an inclusive range up to and includeing 3.
+///
+/// (Read more about [range patterns])
+///
+/// [`Iterator`]: ../book/ch13-04-performance.html
+/// [`range patterns`]: ../reference/patterns.html?highlight=range#range-patterns
 /// [`for`]: keyword.for.html
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod in_keyword { }
+mod in_keyword {}
 
 #[doc(keyword = "let")]
 //
@@ -610,7 +755,7 @@ mod in_keyword { }
 /// [`if`]: keyword.if.html
 /// [book2]: ../book/ch18-01-all-the-places-for-patterns.html#let-statements
 /// [Reference]: ../reference/statements.html#let-statements
-mod let_keyword { }
+mod let_keyword {}
 
 #[doc(keyword = "while")]
 //
@@ -666,7 +811,7 @@ mod let_keyword { }
 /// [`for`]: keyword.for.html
 /// [`loop`]: keyword.loop.html
 /// [reference]: ../reference/expressions/loop-expr.html#predicate-loops
-mod while_keyword { }
+mod while_keyword {}
 
 #[doc(keyword = "loop")]
 //
@@ -681,14 +826,15 @@ mod while_keyword { }
 ///     # break;
 /// }
 ///
-/// let mut i = 0;
+/// let mut i = 1;
 /// loop {
 ///     println!("i is {}", i);
-///     if i > 10 {
+///     if i > 100 {
 ///         break;
 ///     }
-///     i += 1;
+///     i *= 2;
 /// }
+/// assert_eq!(i, 128);
 /// ```
 ///
 /// Unlike the other kinds of loops in Rust (`while`, `while let`, and `for`), loops can be used as
@@ -711,16 +857,57 @@ mod while_keyword { }
 /// For more information on `loop` and loops in general, see the [Reference].
 ///
 /// [Reference]: ../reference/expressions/loop-expr.html
-mod loop_keyword { }
+mod loop_keyword {}
 
 #[doc(keyword = "match")]
 //
 /// Control flow based on pattern matching.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// `match` can be used to run code conditionally. Every pattern must
+/// be handled exhaustively either explicitly or by using wildcards like
+/// `_` in the `match`. Since `match` is an expression, values can also be
+/// returned.
 ///
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod match_keyword { }
+/// ```rust
+/// let opt = Option::None::<usize>;
+/// let x = match opt {
+///     Some(int) => int,
+///     None => 10,
+/// };
+/// assert_eq!(x, 10);
+///
+/// let a_number = Option::Some(10);
+/// match a_number {
+///     Some(x) if x <= 5 => println!("0 to 5 num = {}", x),
+///     Some(x @ 6..=10) => println!("6 to 10 num = {}", x),
+///     None => panic!(),
+///     // all other numbers
+///     _ => panic!(),
+/// }
+/// ```
+///
+/// `match` can be used to gain access to the inner members of an enum
+/// and use them directly.
+///
+/// ```rust
+/// enum Outer {
+///     Double(Option<u8>, Option<String>),
+///     Single(Option<u8>),
+///     Empty
+/// }
+///
+/// let get_inner = Outer::Double(None, Some(String::new()));
+/// match get_inner {
+///     Outer::Double(None, Some(st)) => println!("{}", st),
+///     Outer::Single(opt) => println!("{:?}", opt),
+///     _ => panic!(),
+/// }
+/// ```
+///
+/// For more information on `match` and matching in general, see the [Reference].
+///
+/// [Reference]: ../reference/expressions/match-expr.html
+mod match_keyword {}
 
 #[doc(keyword = "mod")]
 //
@@ -730,17 +917,51 @@ mod match_keyword { }
 ///
 /// [modules]: ../reference/items/modules.html
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod mod_keyword { }
+mod mod_keyword {}
 
 #[doc(keyword = "move")]
 //
 /// Capture a [closure]'s environment by value.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// `move` converts any variables captured by reference or mutable reference
+/// to owned by value variables. The three [`Fn` trait]'s mirror the ways to capture
+/// variables, when `move` is used, the closures is represented by the `FnOnce` trait.
 ///
-/// [closure]: ../book/second-edition/ch13-01-closures.html
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod move_keyword { }
+/// ```rust
+/// let capture = "hello";
+/// let closure = move || {
+///     println!("rust says {}", capture);
+/// };
+/// ```
+///
+/// `move` is often used when [threads] are involved.
+///
+/// ```rust
+/// let x = 5;
+///
+/// std::thread::spawn(move || {
+///     println!("captured {} by value", x)
+/// }).join().unwrap();
+///
+/// // x is no longer available
+/// ```
+///
+/// `move` is also valid before an async block.
+///
+/// ```rust
+/// let capture = "hello";
+/// let block = async move {
+///     println!("rust says {} from async block", capture);
+/// };
+/// ```
+///
+/// For more information on the `move` keyword, see the [closure]'s section
+/// of the Rust book or the [threads] section
+///
+/// [`Fn` trait]: ../std/ops/trait.Fn.html
+/// [closure]: ../book/ch13-01-closures.html
+/// [threads]: ../book/ch16-01-threads.html#using-move-closures-with-threads
+mod move_keyword {}
 
 #[doc(keyword = "mut")]
 //
@@ -749,16 +970,22 @@ mod move_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod mut_keyword { }
+mod mut_keyword {}
 
 #[doc(keyword = "pub")]
 //
 /// Make an item visible to others.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// The keyword `pub` makes any module, function, or data structure accessible from inside
+/// of external modules. The `pub` keyword may also be used in a `use` declaration to re-export
+/// an identifier from a namespace.
 ///
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod pub_keyword { }
+/// For more information on the `pub` keyword, please see the visibility section
+/// of the [reference] and for some examples, see [Rust by Example].
+///
+/// [reference]:../reference/visibility-and-privacy.html?highlight=pub#visibility-and-privacy
+/// [Rust by Example]:../rust-by-example/mod/visibility.html
+mod pub_keyword {}
 
 #[doc(keyword = "ref")]
 //
@@ -767,7 +994,7 @@ mod pub_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod ref_keyword { }
+mod ref_keyword {}
 
 #[doc(keyword = "return")]
 //
@@ -776,7 +1003,7 @@ mod ref_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod return_keyword { }
+mod return_keyword {}
 
 #[doc(keyword = "self")]
 //
@@ -785,7 +1012,7 @@ mod return_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod self_keyword { }
+mod self_keyword {}
 
 #[doc(keyword = "Self")]
 //
@@ -797,7 +1024,7 @@ mod self_keyword { }
 /// [`impl`]: keyword.impl.html
 /// [`trait`]: keyword.trait.html
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod self_upper_keyword { }
+mod self_upper_keyword {}
 
 #[doc(keyword = "static")]
 //
@@ -806,7 +1033,7 @@ mod self_upper_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod static_keyword { }
+mod static_keyword {}
 
 #[doc(keyword = "struct")]
 //
@@ -914,7 +1141,7 @@ mod static_keyword { }
 /// [`PhantomData`]: marker/struct.PhantomData.html
 /// [book]: ../book/ch05-01-defining-structs.html
 /// [reference]: ../reference/items/structs.html
-mod struct_keyword { }
+mod struct_keyword {}
 
 #[doc(keyword = "super")]
 //
@@ -924,7 +1151,7 @@ mod struct_keyword { }
 ///
 /// [module]: ../reference/items/modules.html
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod super_keyword { }
+mod super_keyword {}
 
 #[doc(keyword = "trait")]
 //
@@ -933,17 +1160,35 @@ mod super_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod trait_keyword { }
+mod trait_keyword {}
 
 #[doc(keyword = "true")]
 //
 /// A value of type [`bool`] representing logical **true**.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// Logically `true` is not equal to [`false`].
 ///
+/// ## Control structures that check for **true**
+///
+/// Several of Rust's control structures will check for a `bool` condition evaluating to **true**.
+///
+///   * The condition in an [`if`] expression must be of type `bool`.
+///     Whenever that condition evaluates to **true**, the `if` expression takes
+///     on the value of the first block. If however, the condition evaluates
+///     to `false`, the expression takes on value of the `else` block if there is one.
+///
+///   * [`while`] is another control flow construct expecting a `bool`-typed condition.
+///     As long as the condition evaluates to **true**, the `while` loop will continually
+///     evaluate its associated block.
+///
+///   * [`match`] arms can have guard clauses on them.
+///
+/// [`if`]: keyword.if.html
+/// [`while`]: keyword.while.html
+/// [`match`]: ../reference/expressions/match-expr.html#match-guards
+/// [`false`]: keyword.false.html
 /// [`bool`]: primitive.bool.html
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod true_keyword { }
+mod true_keyword {}
 
 #[doc(keyword = "type")]
 //
@@ -952,7 +1197,7 @@ mod true_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod type_keyword { }
+mod type_keyword {}
 
 #[doc(keyword = "unsafe")]
 //
@@ -962,7 +1207,7 @@ mod type_keyword { }
 ///
 /// [memory safety]: ../book/ch19-01-unsafe-rust.html
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod unsafe_keyword { }
+mod unsafe_keyword {}
 
 #[doc(keyword = "use")]
 //
@@ -971,7 +1216,7 @@ mod unsafe_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod use_keyword { }
+mod use_keyword {}
 
 #[doc(keyword = "where")]
 //
@@ -980,41 +1225,79 @@ mod use_keyword { }
 /// The documentation for this keyword is [not yet complete]. Pull requests welcome!
 ///
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod where_keyword { }
+mod where_keyword {}
 
 // 2018 Edition keywords
 
-#[unstable(feature = "async_await", issue = "50547")]
 #[doc(keyword = "async")]
 //
 /// Return a [`Future`] instead of blocking the current thread.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// Use `async` in front of `fn`, `closure`, or a `block` to turn the marked code into a `Future`.
+/// As such the code will not be run immediately, but will only be evaluated when the returned
+/// future is `.await`ed.
+///
+/// We have written an [async book] detailing async/await and trade-offs compared to using threads.
+///
+/// ## Editions
+///
+/// `async` is a keyword from the 2018 edition onwards.
+///
+/// It is available for use in stable rust from version 1.39 onwards.
 ///
 /// [`Future`]: ./future/trait.Future.html
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod async_keyword { }
+/// [async book]: https://rust-lang.github.io/async-book/
+mod async_keyword {}
 
-#[unstable(feature = "async_await", issue = "50547")]
 #[doc(keyword = "await")]
 //
 /// Suspend execution until the result of a [`Future`] is ready.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// `.await`ing a future will suspend the current function's execution until the `executor`
+/// has run the future to completion.
+///
+/// Read the [async book] for details on how async/await and executors work.
+///
+/// ## Editions
+///
+/// `await` is a keyword from the 2018 edition onwards.
+///
+/// It is available for use in stable rust from version 1.39 onwards.
 ///
 /// [`Future`]: ./future/trait.Future.html
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod await_keyword { }
+/// [async book]: https://rust-lang.github.io/async-book/
+mod await_keyword {}
 
 #[doc(keyword = "dyn")]
 //
-/// Name the type of a [trait object].
+/// `dyn` is a prefix of a [trait object]'s type.
 ///
-/// The documentation for this keyword is [not yet complete]. Pull requests welcome!
+/// The `dyn` keyword is used to highlight that calls to methods on the associated `Trait`
+/// are dynamically dispatched. To use the trait this way, it must be 'object safe'.
+///
+/// Unlike generic parameters or `impl Trait`, the compiler does not know the concrete type that
+/// is being passed. That is, the type has been [erased].
+/// As such, a `dyn Trait` reference contains _two_ pointers.
+/// One pointer goes to the data (e.g., an instance of a struct).
+/// Another pointer goes to a map of method call names to function pointers
+/// (known as a virtual method table or vtable).
+///
+/// At run-time, when a method needs to be called on the `dyn Trait`, the vtable is consulted to get
+/// the function pointer and then that function pointer is called.
+///
+/// ## Trade-offs
+///
+/// The above indirection is the additional runtime cost of calling a function on a `dyn Trait`.
+/// Methods called by dynamic dispatch generally cannot be inlined by the compiler.
+///
+/// However, `dyn Trait` is likely to produce smaller code than `impl Trait` / generic parameters as
+/// the method won't be duplicated for each concrete type.
+///
+/// Read more about `object safety` and [trait object]s.
 ///
 /// [trait object]: ../book/ch17-02-trait-objects.html
-/// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod dyn_keyword { }
+/// [erased]: https://en.wikipedia.org/wiki/Type_erasure
+mod dyn_keyword {}
 
 #[doc(keyword = "union")]
 //
@@ -1024,4 +1307,4 @@ mod dyn_keyword { }
 ///
 /// [union]: ../reference/items/unions.html
 /// [not yet complete]: https://github.com/rust-lang/rust/issues/34601
-mod union_keyword { }
+mod union_keyword {}

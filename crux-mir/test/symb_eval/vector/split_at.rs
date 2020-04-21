@@ -1,9 +1,8 @@
 #![no_std]
-#![feature(custom_attribute)]
 #[macro_use] extern crate crucible;
 use crucible::vector::Vector;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let v = Vector::<u8>::copy_from_slice(&[1, 2, 3, 4]);
     let (v1, v2) = v.split_at(2);

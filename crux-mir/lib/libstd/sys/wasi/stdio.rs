@@ -1,5 +1,4 @@
 use crate::io::{self, IoSlice, IoSliceMut};
-use crate::libc;
 use crate::mem::ManuallyDrop;
 use crate::sys::fd::WasiFd;
 
@@ -17,8 +16,11 @@ impl Stdin {
     }
 
     pub fn read_vectored(&self, data: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        ManuallyDrop::new(unsafe { WasiFd::from_raw(libc::STDIN_FILENO as u32) })
-            .read(data)
+        ManuallyDrop::new(unsafe { WasiFd::from_raw(self.as_raw_fd()) }).read(data)
+    }
+
+    pub fn as_raw_fd(&self) -> u32 {
+        0
     }
 }
 
@@ -32,12 +34,15 @@ impl Stdout {
     }
 
     pub fn write_vectored(&self, data: &[IoSlice<'_>]) -> io::Result<usize> {
-        ManuallyDrop::new(unsafe { WasiFd::from_raw(libc::STDOUT_FILENO as u32) })
-            .write(data)
+        ManuallyDrop::new(unsafe { WasiFd::from_raw(self.as_raw_fd()) }).write(data)
     }
 
     pub fn flush(&self) -> io::Result<()> {
         Ok(())
+    }
+
+    pub fn as_raw_fd(&self) -> u32 {
+        1
     }
 }
 
@@ -51,12 +56,15 @@ impl Stderr {
     }
 
     pub fn write_vectored(&self, data: &[IoSlice<'_>]) -> io::Result<usize> {
-        ManuallyDrop::new(unsafe { WasiFd::from_raw(libc::STDERR_FILENO as u32) })
-            .write(data)
+        ManuallyDrop::new(unsafe { WasiFd::from_raw(self.as_raw_fd()) }).write(data)
     }
 
     pub fn flush(&self) -> io::Result<()> {
         Ok(())
+    }
+
+    pub fn as_raw_fd(&self) -> u32 {
+        2
     }
 }
 
@@ -73,7 +81,7 @@ impl io::Write for Stderr {
 pub const STDIN_BUF_SIZE: usize = crate::sys_common::io::DEFAULT_BUF_SIZE;
 
 pub fn is_ebadf(err: &io::Error) -> bool {
-    err.raw_os_error() == Some(libc::__WASI_EBADF as i32)
+    err.raw_os_error() == Some(wasi::ERRNO_BADF.into())
 }
 
 pub fn panic_output() -> Option<impl io::Write> {

@@ -14,8 +14,7 @@
 //! compiling for wasm. That way it's a compile time error for something that's
 //! guaranteed to be a runtime error!
 
-use libc;
-use crate::io::{Error, ErrorKind};
+use crate::io as std_io;
 use crate::mem;
 use crate::os::raw::c_char;
 
@@ -28,14 +27,17 @@ pub mod condvar;
 pub mod env;
 pub mod fd;
 pub mod fs;
+pub mod io;
 #[path = "../wasm/memchr.rs"]
 pub mod memchr;
 #[path = "../wasm/mutex.rs"]
 pub mod mutex;
 pub mod net;
-pub mod io;
 pub mod os;
 pub use crate::sys_common::os_str_bytes as os_str;
+pub mod ext;
+#[path = "../wasm/fast_thread_local.rs"]
+pub mod fast_thread_local;
 pub mod path;
 pub mod pipe;
 pub mod process;
@@ -47,25 +49,41 @@ pub mod stdio;
 pub mod thread;
 #[path = "../wasm/thread_local.rs"]
 pub mod thread_local;
-#[path = "../wasm/fast_thread_local.rs"]
-pub mod fast_thread_local;
 pub mod time;
-pub mod ext;
 
 #[cfg(not(test))]
-pub fn init() {
-}
+pub fn init() {}
 
-pub fn unsupported<T>() -> crate::io::Result<T> {
+pub fn unsupported<T>() -> std_io::Result<T> {
     Err(unsupported_err())
 }
 
-pub fn unsupported_err() -> Error {
-    Error::new(ErrorKind::Other, "operation not supported on wasm yet")
+pub fn unsupported_err() -> std_io::Error {
+    std_io::Error::new(std_io::ErrorKind::Other, "operation not supported on wasm yet")
 }
 
-pub fn decode_error_kind(_code: i32) -> ErrorKind {
-    ErrorKind::Other
+pub fn decode_error_kind(errno: i32) -> std_io::ErrorKind {
+    use std_io::ErrorKind::*;
+    if errno > u16::max_value() as i32 || errno < 0 {
+        return Other;
+    }
+    match errno as u16 {
+        wasi::ERRNO_CONNREFUSED => ConnectionRefused,
+        wasi::ERRNO_CONNRESET => ConnectionReset,
+        wasi::ERRNO_PERM | wasi::ERRNO_ACCES => PermissionDenied,
+        wasi::ERRNO_PIPE => BrokenPipe,
+        wasi::ERRNO_NOTCONN => NotConnected,
+        wasi::ERRNO_CONNABORTED => ConnectionAborted,
+        wasi::ERRNO_ADDRNOTAVAIL => AddrNotAvailable,
+        wasi::ERRNO_ADDRINUSE => AddrInUse,
+        wasi::ERRNO_NOENT => NotFound,
+        wasi::ERRNO_INTR => Interrupted,
+        wasi::ERRNO_INVAL => InvalidInput,
+        wasi::ERRNO_TIMEDOUT => TimedOut,
+        wasi::ERRNO_EXIST => AlreadyExists,
+        wasi::ERRNO_AGAIN => WouldBlock,
+        _ => Other,
+    }
 }
 
 // This enum is used as the storage for a bunch of types which can't actually
@@ -79,7 +97,7 @@ pub unsafe fn strlen(mut s: *const c_char) -> usize {
         n += 1;
         s = s.offset(1);
     }
-    return n
+    return n;
 }
 
 pub unsafe fn abort_internal() -> ! {
@@ -89,40 +107,13 @@ pub unsafe fn abort_internal() -> ! {
 pub fn hashmap_random_keys() -> (u64, u64) {
     let mut ret = (0u64, 0u64);
     unsafe {
-        let base = &mut ret as *mut (u64, u64) as *mut libc::c_void;
+        let base = &mut ret as *mut (u64, u64) as *mut u8;
         let len = mem::size_of_val(&ret);
-        cvt_wasi(libc::__wasi_random_get(base, len)).unwrap();
+        wasi::random_get(base, len).expect("random_get failure");
     }
-    return ret
+    return ret;
 }
 
-#[doc(hidden)]
-pub trait IsMinusOne {
-    fn is_minus_one(&self) -> bool;
-}
-
-macro_rules! impl_is_minus_one {
-    ($($t:ident)*) => ($(impl IsMinusOne for $t {
-        fn is_minus_one(&self) -> bool {
-            *self == -1
-        }
-    })*)
-}
-
-impl_is_minus_one! { i8 i16 i32 i64 isize }
-
-pub fn cvt<T: IsMinusOne>(t: T) -> crate::io::Result<T> {
-    if t.is_minus_one() {
-        Err(Error::last_os_error())
-    } else {
-        Ok(t)
-    }
-}
-
-pub fn cvt_wasi(r: u16) -> crate::io::Result<()> {
-    if r != libc::__WASI_ESUCCESS {
-        Err(Error::from_raw_os_error(r as i32))
-    } else {
-        Ok(())
-    }
+fn err2io(err: wasi::Error) -> std_io::Error {
+    std_io::Error::from_raw_os_error(err.raw_error().into())
 }

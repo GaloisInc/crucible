@@ -1,13 +1,17 @@
+//! Defines bindings to Crucible's `AnyType`.
+
 /// Dynamically-typed wrapper, corresponding to Crucible's `AnyType`.
-#[unstable(feature = "crucible_intrinsics", issue = "0")]
-#[derive(Clone, Copy)]
-pub struct Any(());
+#[unstable(feature = "crucible_intrinsics", issue = "none")]
+#[derive(Clone, Copy, Debug)]
+// `Any` must not be zero-sized: rustc assumes zero-sized types contain no information, and
+// generates fresh constants instead of copies anywhere they're used.
+pub struct Any(u8);
 
 impl Any {
     /// Wrap an arbitrary value in `Any`.
-    #[unstable(feature = "crucible_intrinsics", issue = "0")]
-    pub fn new<T: Copy>(x: T) -> Any {
-        unimplemented!()
+    #[unstable(feature = "crucible_intrinsics", issue = "none")]
+    pub fn new<T: Copy>(_x: T) -> Any {
+        unimplemented!("Any::new")
     }
 
     /// Try to downcast to concrete type `T`.  This succeeds if the type passed to `new` has the
@@ -17,9 +21,9 @@ impl Any {
     ///
     /// This function is unsafe because `new` + `downcast` is equivalent to
     /// `crucible_identity_transmute`.
-    #[unstable(feature = "crucible_intrinsics", issue = "0")]
+    #[unstable(feature = "crucible_intrinsics", issue = "none")]
     pub unsafe fn downcast<T>(self) -> T {
-        unimplemented!()
+        unimplemented!("Any::downcast")
     }
 }
 

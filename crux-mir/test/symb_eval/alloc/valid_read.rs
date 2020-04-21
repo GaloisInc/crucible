@@ -1,9 +1,8 @@
-#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::*;
 use crucible::alloc::allocate;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     unsafe {
         let ptr = allocate::<i32>(10);

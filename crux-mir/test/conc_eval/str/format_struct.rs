@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 
 #[derive(Debug)]
 struct MyStruct {
@@ -6,7 +5,7 @@ struct MyStruct {
     y: u8,
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> bool {
     let s = format!("{:?}", MyStruct { x: 1, y: 2 });
     &s == "MyStruct { x: 1, y: 2 }"

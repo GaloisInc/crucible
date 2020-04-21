@@ -1,7 +1,9 @@
 use crate::cell::UnsafeCell;
 use crate::mem::MaybeUninit;
 
-pub struct Mutex { inner: UnsafeCell<libc::pthread_mutex_t> }
+pub struct Mutex {
+    inner: UnsafeCell<libc::pthread_mutex_t>,
+}
 
 #[inline]
 pub unsafe fn raw(m: &Mutex) -> *mut libc::pthread_mutex_t {
@@ -82,22 +84,24 @@ impl Mutex {
     }
 }
 
-pub struct ReentrantMutex { inner: UnsafeCell<libc::pthread_mutex_t> }
+pub struct ReentrantMutex {
+    inner: UnsafeCell<libc::pthread_mutex_t>,
+}
 
 unsafe impl Send for ReentrantMutex {}
 unsafe impl Sync for ReentrantMutex {}
 
 impl ReentrantMutex {
-    pub unsafe fn uninitialized() -> ReentrantMutex {
+    pub const unsafe fn uninitialized() -> ReentrantMutex {
         ReentrantMutex { inner: UnsafeCell::new(libc::PTHREAD_MUTEX_INITIALIZER) }
     }
 
-    pub unsafe fn init(&mut self) {
+    pub unsafe fn init(&self) {
         let mut attr = MaybeUninit::<libc::pthread_mutexattr_t>::uninit();
         let result = libc::pthread_mutexattr_init(attr.as_mut_ptr());
         debug_assert_eq!(result, 0);
-        let result = libc::pthread_mutexattr_settype(attr.as_mut_ptr(),
-                                                    libc::PTHREAD_MUTEX_RECURSIVE);
+        let result =
+            libc::pthread_mutexattr_settype(attr.as_mut_ptr(), libc::PTHREAD_MUTEX_RECURSIVE);
         debug_assert_eq!(result, 0);
         let result = libc::pthread_mutex_init(self.inner.get(), attr.as_ptr());
         debug_assert_eq!(result, 0);

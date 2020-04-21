@@ -18,31 +18,56 @@
         ptr_offset_from,
         test,
         core_intrinsics,
-        dropck_eyepatch
+        dropck_eyepatch,
+        specialization,
     )
 )]
+#![allow(
+    clippy::doc_markdown,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate
+)]
 #![warn(missing_docs)]
-#![allow(clippy::module_name_repetitions)]
 #![warn(rust_2018_idioms)]
 
 #[cfg(test)]
 #[macro_use]
 extern crate std;
 
-#[cfg(feature = "nightly")]
+#[cfg(has_extern_crate_alloc)]
 #[cfg_attr(test, macro_use)]
 extern crate alloc;
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(has_extern_crate_alloc))]
 extern crate std as alloc;
+
+#[cfg(feature = "nightly")]
+#[cfg(doctest)]
+doc_comment::doctest!("../README.md");
 
 #[macro_use]
 mod macros;
 
-mod external_trait_impls;
-mod fx;
-mod map;
+#[cfg(feature = "raw")]
+/// Experimental and unsafe `RawTable` API. This module is only available if the
+/// `raw` feature is enabled.
+pub mod raw {
+    // The RawTable API is still experimental and is not properly documented yet.
+    #[allow(missing_docs)]
+    #[path = "mod.rs"]
+    mod inner;
+    pub use inner::*;
+
+    #[cfg(feature = "rayon")]
+    pub mod rayon {
+        pub use crate::external_trait_impls::rayon::raw::*;
+    }
+}
+#[cfg(not(feature = "raw"))]
 mod raw;
-#[cfg(feature = "rustc-dep-of-std")]
+
+mod external_trait_impls;
+mod map;
+#[cfg(feature = "rustc-internal-api")]
 mod rustc_entry;
 mod scopeguard;
 mod set;
@@ -51,7 +76,7 @@ pub mod hash_map {
     //! A hash map implemented with quadratic probing and SIMD lookup.
     pub use crate::map::*;
 
-    #[cfg(feature = "rustc-dep-of-std")]
+    #[cfg(feature = "rustc-internal-api")]
     pub use crate::rustc_entry::*;
 
     #[cfg(feature = "rayon")]
@@ -88,6 +113,9 @@ pub enum CollectionAllocErr {
     /// Error due to the computed capacity exceeding the collection's maximum
     /// (usually `isize::MAX` bytes).
     CapacityOverflow,
-    /// Error due to the allocator (see the `AllocErr` type's docs).
-    AllocErr,
+    /// Error due to the allocator.
+    AllocErr {
+        /// The layout of the allocation request that failed.
+        layout: alloc::alloc::Layout,
+    },
 }

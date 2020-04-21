@@ -1,11 +1,11 @@
 //! WASI-specific extensions to general I/O primitives
 
-#![unstable(feature = "wasi_ext", issue = "0")]
+#![unstable(feature = "wasi_ext", issue = "none")]
 
 use crate::fs;
 use crate::io;
-use crate::sys;
 use crate::net;
+use crate::sys;
 use crate::sys_common::{AsInner, FromInner, IntoInner};
 
 /// Raw file descriptors.
@@ -125,18 +125,18 @@ impl IntoRawFd for fs::File {
 
 impl AsRawFd for io::Stdin {
     fn as_raw_fd(&self) -> RawFd {
-        libc::STDIN_FILENO as u32
+        sys::stdio::Stdin.as_raw_fd()
     }
 }
 
 impl AsRawFd for io::Stdout {
     fn as_raw_fd(&self) -> RawFd {
-        libc::STDOUT_FILENO as u32
+        sys::stdio::Stdout.as_raw_fd()
     }
 }
 
 impl AsRawFd for io::Stderr {
     fn as_raw_fd(&self) -> RawFd {
-        libc::STDERR_FILENO as u32
+        sys::stdio::Stderr.as_raw_fd()
     }
 }

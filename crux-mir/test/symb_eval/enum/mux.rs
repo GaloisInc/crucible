@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 extern crate crucible;
 
 struct S {
@@ -9,7 +8,7 @@ fn f(x: bool) -> Option<S> {
     if x { Some(S { val: 1 }) } else { None }
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn test() {
     let x = crucible::crucible_u8("x") != 0;
     let y = f(x);

@@ -1,13 +1,20 @@
-FROM ubuntu:16.04
+FROM ubuntu:19.10
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
+    g++ \
+    make \
+    file \
     curl \
     gcc \
     git \
     libc6-dev \
+    libxml2 \
     python \
+    cmake \
+    sudo \
+    gdb \
     xz-utils
 
 COPY emscripten.sh /

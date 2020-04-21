@@ -4,7 +4,7 @@ failures:
 
 ---- mux_slice/3a1fbbbh::crux_test[0] counterexamples ----
 Failure for Incompatible MIR reference merge
-in mux_slice/3a1fbbbh::crux_test[0] at test/symb_eval/array/mux_slice.rs:18:9
+in mux_slice/3a1fbbbh::crux_test[0] at test/symb_eval/array/mux_slice.rs:17:9
 
 [Crux] Goal status:
 [Crux]   Total: 1

@@ -1,9 +1,8 @@
-#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::array::Array;
 use crucible::*;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     let mut arr = Array::<i32>::zeroed();
     let xs = arr.as_mut_slice(0, 10);

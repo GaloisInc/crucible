@@ -1,6 +1,5 @@
-#![feature(custom_attribute)]
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> bool {
     let s = format!("a{}c", 123);
     &s == "a123c"

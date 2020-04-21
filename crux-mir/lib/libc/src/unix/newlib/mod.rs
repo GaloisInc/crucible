@@ -25,31 +25,6 @@ pub type time_t = i32;
 pub type useconds_t = u32;
 
 s! {
-    pub struct sockaddr {
-        pub sa_family: sa_family_t,
-        pub sa_data: [::c_char; 14],
-    }
-
-    pub struct sockaddr_in {
-        pub sin_family: sa_family_t,
-        pub sin_port: ::in_port_t,
-        pub sin_addr: ::in_addr,
-        pub sin_zero: [u8; 8],
-    }
-
-    pub struct sockaddr_in6 { // Unverified
-        pub sin6_family: sa_family_t,
-        pub sin6_port: ::in_port_t,
-        pub sin6_flowinfo: u32,
-        pub sin6_addr: ::in6_addr,
-        pub sin6_scope_id: u32,
-    }
-
-    pub struct sockaddr_storage {
-        pub ss_family: sa_family_t,
-        pub __ss_padding: [u8; 26],
-    }
-
     pub struct addrinfo {
         pub ai_flags: ::c_int,
         pub ai_family: ::c_int,
@@ -391,9 +366,7 @@ pub const O_CLOEXEC: ::c_int = 0x80000;
 
 pub const POLLIN: ::c_short = 0x1;
 pub const POLLPRI: ::c_short = 0x2;
-pub const POLLOUT: ::c_short = 0x4;
 pub const POLLERR: ::c_short = 0x8;
-pub const POLLHUP: ::c_short = 0x10;
 pub const POLLNVAL: ::c_short = 0x20;
 
 pub const RTLD_LAZY: ::c_int = 0x1;
@@ -406,7 +379,9 @@ pub const SEEK_SET: ::c_int = 0;
 pub const SEEK_CUR: ::c_int = 1;
 pub const SEEK_END: ::c_int = 2;
 
-pub const FIONBIO: ::c_int = 1;
+pub const FIONBIO: ::c_ulong = 1;
+pub const FIOCLEX: ::c_ulong = 0x20006601;
+pub const FIONCLEX: ::c_ulong = 0x20006602;
 
 pub const S_BLKSIZE: ::mode_t = 1024;
 pub const S_IREAD: ::mode_t = 256;
@@ -442,6 +417,10 @@ pub const AF_UNSPEC: ::c_int = 0;
 pub const AF_INET: ::c_int = 2;
 pub const AF_INET6: ::c_int = 23;
 
+pub const CLOCK_REALTIME: ::clockid_t = 1;
+pub const CLOCK_MONOTONIC: ::clockid_t = 4;
+pub const CLOCK_BOOTTIME: ::clockid_t = 4;
+
 pub const SOCK_STREAM: ::c_int = 1;
 pub const SOCK_DGRAM: ::c_int = 2;
 
@@ -457,15 +436,41 @@ pub const SHUT_RD: ::c_int = 0;
 pub const SHUT_WR: ::c_int = 1;
 pub const SHUT_RDWR: ::c_int = 2;
 
-pub const SO_REUSEADDR: ::c_int = 4;
-pub const SO_LINGER: ::c_int = 128;
-pub const SO_OOBINLINE: ::c_int = 256;
-pub const SO_SNDBUF: ::c_int = 4097;
-pub const SO_RCVBUF: ::c_int = 4098;
-pub const SO_SNDLOWAT: ::c_int = 4099;
-pub const SO_RCVLOWAT: ::c_int = 4100;
-pub const SO_TYPE: ::c_int = 4104;
-pub const SO_ERROR: ::c_int = 4105;
+pub const SO_BINTIME: ::c_int = 0x2000;
+pub const SO_NO_OFFLOAD: ::c_int = 0x4000;
+pub const SO_NO_DDP: ::c_int = 0x8000;
+pub const SO_REUSEPORT_LB: ::c_int = 0x10000;
+pub const SO_LABEL: ::c_int = 0x1009;
+pub const SO_PEERLABEL: ::c_int = 0x1010;
+pub const SO_LISTENQLIMIT: ::c_int = 0x1011;
+pub const SO_LISTENQLEN: ::c_int = 0x1012;
+pub const SO_LISTENINCQLEN: ::c_int = 0x1013;
+pub const SO_SETFIB: ::c_int = 0x1014;
+pub const SO_USER_COOKIE: ::c_int = 0x1015;
+pub const SO_PROTOCOL: ::c_int = 0x1016;
+pub const SO_PROTOTYPE: ::c_int = SO_PROTOCOL;
+pub const SO_VENDOR: ::c_int = 0x80000000;
+pub const SO_DEBUG: ::c_int = 0x01;
+pub const SO_ACCEPTCONN: ::c_int = 0x0002;
+pub const SO_REUSEADDR: ::c_int = 0x0004;
+pub const SO_KEEPALIVE: ::c_int = 0x0008;
+pub const SO_DONTROUTE: ::c_int = 0x0010;
+pub const SO_BROADCAST: ::c_int = 0x0020;
+pub const SO_USELOOPBACK: ::c_int = 0x0040;
+pub const SO_LINGER: ::c_int = 0x0080;
+pub const SO_OOBINLINE: ::c_int = 0x0100;
+pub const SO_REUSEPORT: ::c_int = 0x0200;
+pub const SO_TIMESTAMP: ::c_int = 0x0400;
+pub const SO_NOSIGPIPE: ::c_int = 0x0800;
+pub const SO_ACCEPTFILTER: ::c_int = 0x1000;
+pub const SO_SNDBUF: ::c_int = 0x1001;
+pub const SO_RCVBUF: ::c_int = 0x1002;
+pub const SO_SNDLOWAT: ::c_int = 0x1003;
+pub const SO_RCVLOWAT: ::c_int = 0x1004;
+pub const SO_SNDTIMEO: ::c_int = 0x1005;
+pub const SO_RCVTIMEO: ::c_int = 0x1006;
+pub const SO_ERROR: ::c_int = 0x1007;
+pub const SO_TYPE: ::c_int = 0x1008;
 
 pub const SOCK_CLOEXEC: ::c_int = O_CLOEXEC;
 
@@ -493,13 +498,29 @@ pub const IFF_MULTICAST: ::c_int = 0x8000; // supports multicast
 
 pub const TCP_NODELAY: ::c_int = 8193;
 pub const TCP_MAXSEG: ::c_int = 8194;
+pub const TCP_NOPUSH: ::c_int = 4;
+pub const TCP_NOOPT: ::c_int = 8;
+pub const TCP_KEEPIDLE: ::c_int = 256;
+pub const TCP_KEEPINTVL: ::c_int = 512;
+pub const TCP_KEEPCNT: ::c_int = 1024;
 
-pub const IP_TOS: ::c_int = 7;
+pub const IP_TOS: ::c_int = 3;
 pub const IP_TTL: ::c_int = 8;
-pub const IP_MULTICAST_LOOP: ::c_int = 9;
+pub const IP_MULTICAST_IF: ::c_int = 9;
 pub const IP_MULTICAST_TTL: ::c_int = 10;
+pub const IP_MULTICAST_LOOP: ::c_int = 11;
 pub const IP_ADD_MEMBERSHIP: ::c_int = 11;
 pub const IP_DROP_MEMBERSHIP: ::c_int = 12;
+
+pub const IPV6_UNICAST_HOPS: ::c_int = 4;
+pub const IPV6_MULTICAST_IF: ::c_int = 9;
+pub const IPV6_MULTICAST_HOPS: ::c_int = 10;
+pub const IPV6_MULTICAST_LOOP: ::c_int = 11;
+pub const IPV6_V6ONLY: ::c_int = 27;
+pub const IPV6_JOIN_GROUP: ::c_int = 12;
+pub const IPV6_LEAVE_GROUP: ::c_int = 13;
+pub const IPV6_ADD_MEMBERSHIP: ::c_int = 12;
+pub const IPV6_DROP_MEMBERSHIP: ::c_int = 13;
 
 pub const HOST_NOT_FOUND: ::c_int = 1;
 pub const NO_DATA: ::c_int = 2;
@@ -554,12 +575,23 @@ f! {
     }
 }
 
-extern {
+extern "C" {
+    pub fn getrlimit(resource: ::c_int, rlim: *mut ::rlimit) -> ::c_int;
+    pub fn setrlimit(resource: ::c_int, rlim: *const ::rlimit) -> ::c_int;
+
+    #[cfg_attr(target_os = "linux", link_name = "__xpg_strerror_r")]
+    pub fn strerror_r(
+        errnum: ::c_int,
+        buf: *mut c_char,
+        buflen: ::size_t,
+    ) -> ::c_int;
+
     pub fn sem_destroy(sem: *mut sem_t) -> ::c_int;
-    pub fn sem_init(sem: *mut sem_t,
-                    pshared: ::c_int,
-                    value: ::c_uint)
-                    -> ::c_int;
+    pub fn sem_init(
+        sem: *mut sem_t,
+        pshared: ::c_int,
+        value: ::c_uint,
+    ) -> ::c_int;
 
     pub fn abs(i: ::c_int) -> ::c_int;
     pub fn atof(s: *const ::c_char) -> ::c_double;
@@ -567,42 +599,79 @@ extern {
     pub fn rand() -> ::c_int;
     pub fn srand(seed: ::c_uint);
 
-    pub fn bind(fd: ::c_int, addr: *const sockaddr, len: socklen_t) -> ::c_int;
+    pub fn bind(fd: ::c_int, addr: *const sockaddr, len: socklen_t)
+        -> ::c_int;
+    pub fn clock_settime(
+        clock_id: ::clockid_t,
+        tp: *const ::timespec,
+    ) -> ::c_int;
+    pub fn clock_gettime(
+        clock_id: ::clockid_t,
+        tp: *mut ::timespec,
+    ) -> ::c_int;
+    pub fn clock_getres(
+        clock_id: ::clockid_t,
+        res: *mut ::timespec,
+    ) -> ::c_int;
     pub fn closesocket(sockfd: ::c_int) -> ::c_int;
     pub fn ioctl(fd: ::c_int, request: ::c_ulong, ...) -> ::c_int;
-    pub fn recvfrom(fd: ::c_int, buf: *mut ::c_void, n: usize, flags: ::c_int,
-                    addr: *mut sockaddr, addr_len: *mut socklen_t) -> isize;
-    pub fn getnameinfo(sa: *const sockaddr, salen: socklen_t,
-                       host: *mut ::c_char, hostlen: socklen_t,
-                       serv: *mut ::c_char, servlen: socklen_t,
-                       flags: ::c_int) -> ::c_int;
+    pub fn recvfrom(
+        fd: ::c_int,
+        buf: *mut ::c_void,
+        n: usize,
+        flags: ::c_int,
+        addr: *mut sockaddr,
+        addr_len: *mut socklen_t,
+    ) -> isize;
+    pub fn getnameinfo(
+        sa: *const sockaddr,
+        salen: socklen_t,
+        host: *mut ::c_char,
+        hostlen: socklen_t,
+        serv: *mut ::c_char,
+        servlen: socklen_t,
+        flags: ::c_int,
+    ) -> ::c_int;
     pub fn memalign(align: ::size_t, size: ::size_t) -> *mut ::c_void;
-    pub fn fexecve(fd: ::c_int, argv: *const *const ::c_char,
-                   envp: *const *const ::c_char)
-                   -> ::c_int;
+    pub fn fexecve(
+        fd: ::c_int,
+        argv: *const *const ::c_char,
+        envp: *const *const ::c_char,
+    ) -> ::c_int;
+    pub fn gettimeofday(tp: *mut ::timeval, tz: *mut ::c_void) -> ::c_int;
     #[cfg_attr(target_os = "solaris", link_name = "__posix_getgrgid_r")]
-    pub fn getgrgid_r(uid: ::uid_t,
-                      grp: *mut ::group,
-                      buf: *mut ::c_char,
-                      buflen: ::size_t,
-                      result: *mut *mut ::group) -> ::c_int;
-    #[cfg_attr(all(target_os = "macos", target_arch = "x86"),
-               link_name = "sigaltstack$UNIX2003")]
+    pub fn getgrgid_r(
+        gid: ::gid_t,
+        grp: *mut ::group,
+        buf: *mut ::c_char,
+        buflen: ::size_t,
+        result: *mut *mut ::group,
+    ) -> ::c_int;
+    #[cfg_attr(
+        all(target_os = "macos", target_arch = "x86"),
+        link_name = "sigaltstack$UNIX2003"
+    )]
     #[cfg_attr(target_os = "netbsd", link_name = "__sigaltstack14")]
-    pub fn sigaltstack(ss: *const stack_t,
-                       oss: *mut stack_t) -> ::c_int;
+    pub fn sigaltstack(ss: *const stack_t, oss: *mut stack_t) -> ::c_int;
     pub fn sem_close(sem: *mut sem_t) -> ::c_int;
     pub fn getdtablesize() -> ::c_int;
     #[cfg_attr(target_os = "solaris", link_name = "__posix_getgrnam_r")]
-    pub fn getgrnam_r(name: *const ::c_char,
-                      grp: *mut ::group,
-                      buf: *mut ::c_char,
-                      buflen: ::size_t,
-                      result: *mut *mut ::group) -> ::c_int;
-    #[cfg_attr(all(target_os = "macos", target_arch = "x86"),
-               link_name = "pthread_sigmask$UNIX2003")]
-    pub fn pthread_sigmask(how: ::c_int, set: *const sigset_t,
-                           oldset: *mut sigset_t) -> ::c_int;
+    pub fn getgrnam_r(
+        name: *const ::c_char,
+        grp: *mut ::group,
+        buf: *mut ::c_char,
+        buflen: ::size_t,
+        result: *mut *mut ::group,
+    ) -> ::c_int;
+    #[cfg_attr(
+        all(target_os = "macos", target_arch = "x86"),
+        link_name = "pthread_sigmask$UNIX2003"
+    )]
+    pub fn pthread_sigmask(
+        how: ::c_int,
+        set: *const sigset_t,
+        oldset: *mut sigset_t,
+    ) -> ::c_int;
     pub fn sem_open(name: *const ::c_char, oflag: ::c_int, ...) -> *mut sem_t;
     pub fn getgrnam(name: *const ::c_char) -> *mut ::group;
     pub fn pthread_kill(thread: ::pthread_t, sig: ::c_int) -> ::c_int;
@@ -610,31 +679,39 @@ extern {
     pub fn daemon(nochdir: ::c_int, noclose: ::c_int) -> ::c_int;
     #[cfg_attr(target_os = "netbsd", link_name = "__getpwnam_r50")]
     #[cfg_attr(target_os = "solaris", link_name = "__posix_getpwnam_r")]
-    pub fn getpwnam_r(name: *const ::c_char,
-                      pwd: *mut passwd,
-                      buf: *mut ::c_char,
-                      buflen: ::size_t,
-                      result: *mut *mut passwd) -> ::c_int;
+    pub fn getpwnam_r(
+        name: *const ::c_char,
+        pwd: *mut passwd,
+        buf: *mut ::c_char,
+        buflen: ::size_t,
+        result: *mut *mut passwd,
+    ) -> ::c_int;
     #[cfg_attr(target_os = "netbsd", link_name = "__getpwuid_r50")]
     #[cfg_attr(target_os = "solaris", link_name = "__posix_getpwuid_r")]
-    pub fn getpwuid_r(uid: ::uid_t,
-                      pwd: *mut passwd,
-                      buf: *mut ::c_char,
-                      buflen: ::size_t,
-                      result: *mut *mut passwd) -> ::c_int;
-    #[cfg_attr(all(target_os = "macos", target_arch ="x86"),
-               link_name = "sigwait$UNIX2003")]
+    pub fn getpwuid_r(
+        uid: ::uid_t,
+        pwd: *mut passwd,
+        buf: *mut ::c_char,
+        buflen: ::size_t,
+        result: *mut *mut passwd,
+    ) -> ::c_int;
+    #[cfg_attr(
+        all(target_os = "macos", target_arch = "x86"),
+        link_name = "sigwait$UNIX2003"
+    )]
     #[cfg_attr(target_os = "solaris", link_name = "__posix_sigwait")]
-    pub fn sigwait(set: *const sigset_t,
-                   sig: *mut ::c_int) -> ::c_int;
-    pub fn pthread_atfork(prepare: ::Option<unsafe extern fn()>,
-                          parent: ::Option<unsafe extern fn()>,
-                          child: ::Option<unsafe extern fn()>) -> ::c_int;
+    pub fn sigwait(set: *const sigset_t, sig: *mut ::c_int) -> ::c_int;
+    pub fn pthread_atfork(
+        prepare: ::Option<unsafe extern "C" fn()>,
+        parent: ::Option<unsafe extern "C" fn()>,
+        child: ::Option<unsafe extern "C" fn()>,
+    ) -> ::c_int;
     pub fn getgrgid(gid: ::gid_t) -> *mut ::group;
-    #[cfg_attr(all(target_os = "macos", target_arch = "x86"),
-               link_name = "popen$UNIX2003")]
-    pub fn popen(command: *const c_char,
-                 mode: *const c_char) -> *mut ::FILE;
+    #[cfg_attr(
+        all(target_os = "macos", target_arch = "x86"),
+        link_name = "popen$UNIX2003"
+    )]
+    pub fn popen(command: *const c_char, mode: *const c_char) -> *mut ::FILE;
     pub fn uname(buf: *mut ::utsname) -> ::c_int;
 }
 

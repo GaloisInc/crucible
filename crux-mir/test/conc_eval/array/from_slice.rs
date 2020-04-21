@@ -1,10 +1,9 @@
 #![cfg_attr(not(with_main), no_std)]
-#![feature(custom_attribute)]
 
 extern crate core;
 use core::convert::TryFrom;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let xs = [1, 2, 3, 4];
     let xs: &[u8] = &xs;

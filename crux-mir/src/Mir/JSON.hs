@@ -40,24 +40,24 @@ import Debug.Trace
 instance FromJSON BaseSize where
     parseJSON = withObject "BaseSize" $
                 \t -> case HML.lookup "kind" t of
-                        Just (String "usize") -> pure USize
-                        Just (String "u8") -> pure B8
-                        Just (String "u16") -> pure B16
-                        Just (String "u32") -> pure B32
-                        Just (String "u64") -> pure B64
-                        Just (String "u128") -> pure B128
-                        Just (String "isize") -> pure USize
-                        Just (String "i8") -> pure B8
-                        Just (String "i16") -> pure B16
-                        Just (String "i32") -> pure B32
-                        Just (String "i64") -> pure B64
-                        Just (String "i128") -> pure B128
+                        Just (String "Usize") -> pure USize
+                        Just (String "U8") -> pure B8
+                        Just (String "U16") -> pure B16
+                        Just (String "U32") -> pure B32
+                        Just (String "U64") -> pure B64
+                        Just (String "U128") -> pure B128
+                        Just (String "Isize") -> pure USize
+                        Just (String "I8") -> pure B8
+                        Just (String "I16") -> pure B16
+                        Just (String "I32") -> pure B32
+                        Just (String "I64") -> pure B64
+                        Just (String "I128") -> pure B128
                         sz -> fail $ "unknown base size: " ++ show sz
 
 instance FromJSON FloatKind where
     parseJSON = withObject "FloatKind" $ \t -> case HML.lookup "kind" t of
-                                                 Just (String "f32") -> pure F32
-                                                 Just (String "f64") -> pure F64
+                                                 Just (String "F32") -> pure F32
+                                                 Just (String "F64") -> pure F64
                                                  sz -> fail $ "unknown float type: " ++ show sz
 
 instance FromJSON Substs where
@@ -104,6 +104,7 @@ instance FromJSON InlineTy where
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
       Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
+      Just (String "Foreign") -> pure TyForeign
       Just (String "Lifetime") -> pure TyLifetime
       Just (String "Const") -> pure TyConst
       r -> fail $ "unsupported ty: " ++ show r
@@ -119,6 +120,8 @@ instance FromJSON Instance where
         Just (String "Intrinsic") -> Instance IkIntrinsic
             <$> v .: "def_id" <*> v .: "substs"
         Just (String "VtableShim") -> Instance IkVtableShim
+            <$> v .: "def_id" <*> v .: "substs"
+        Just (String "ReifyShim") -> Instance IkReifyShim
             <$> v .: "def_id" <*> v .: "substs"
         Just (String "FnPtrShim") -> Instance
             <$> (IkFnPtrShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
@@ -269,16 +272,11 @@ instance FromJSON Statement where
                              k -> fail $ "kind not found for statement: " ++ show k
 
 
-data RustcPlace = RustcPlace PlaceBase (Maybe RustcProjection)
-data RustcProjection = RustcProjection (Maybe RustcProjection) PlaceElem
+data RustcPlace = RustcPlace PlaceBase [PlaceElem]
 
 instance FromJSON RustcPlace where
     parseJSON = withObject "Place" $ \v ->
         RustcPlace <$> v .: "base" <*> v .: "data"
-
-instance FromJSON RustcProjection where
-    parseJSON = withObject "Projection" $ \v ->
-        RustcProjection <$> v .: "base" <*> v .: "data"
 
 instance FromJSON PlaceBase where
     parseJSON = withObject "PlaceBase" $ \v ->
@@ -295,19 +293,14 @@ instance FromJSON PlaceElem where
         Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
         Just (String "Index") -> Index <$> v .: "op"
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
-        Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to"
+        Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
         x -> fail ("bad lvpelem: " ++ show x)
 
 instance FromJSON Lvalue where
     parseJSON j = convert <$> parseJSON j
       where
-        convert (RustcPlace base Nothing) = LBase base
-        convert (RustcPlace base (Just proj)) = convertProj (LBase base) proj
-
-        convertProj base (RustcProjection Nothing elem) = LProj base elem
-        convertProj base (RustcProjection (Just proj') elem) =
-            LProj (convertProj base proj') elem
+        convert (RustcPlace base elems) = foldl LProj (LBase base) elems
 
 instance FromJSON Promoted where
     parseJSON = withScientific "Promoted" $ \sci ->
@@ -320,6 +313,7 @@ instance FromJSON Rvalue where
                                               Just (String "Use") -> Use <$> v .: "usevar"
                                               Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
                                               Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
+                                              Just (String "AddressOf") ->  AddressOf <$> v .: "mutbl" <*> v .: "place"
                                               Just (String "Len") -> Len <$> v .: "lv"
                                               Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
                                               Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
@@ -417,7 +411,7 @@ instance FromJSON CastKind where
     parseJSON = withObject "CastKind" $ \v -> case HML.lookup "kind" v of
                                                Just (String "Misc") -> pure Misc
                                                Just (String "Pointer(ReifyFnPointer)") -> pure ReifyFnPointer
-                                               Just (String "Pointer(ClosureFnPointer)") -> pure ClosureFnPointer
+                                               Just (String "Pointer(ClosureFnPointer(Normal))") -> pure ClosureFnPointer
                                                Just (String "Pointer(UnsafeFnPointer)") -> pure UnsafeFnPointer
                                                Just (String "Pointer(Unsize)") -> pure Unsize
                                                Just (String "Pointer(MutToConstPointer)") -> pure MutToConstPointer
@@ -519,7 +513,20 @@ instance FromJSON RustcRenderedConst where
             bytes <- mapM (withScientific "byte" f) val
             return $ ConstArray $ V.toList bytes
 
+        Just (String "struct") -> do
+            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
+            return $ ConstStruct fields
+        Just (String "enum") -> do
+            variant <- v .: "variant"
+            fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
+            return $ ConstEnum variant fields
+
         Just (String "fndef") -> ConstFunction <$> v .: "def_id" <*> v .: "substs"
+        Just (String "static_ref") -> ConstStaticRef <$> v .: "def_id"
+        Just (String "zst") -> pure ConstZST
+        Just (String "raw_ptr") -> do
+            val <- convertIntegerText =<< v .: "val"
+            return $ ConstRawPtr val
 
 -- mir-json integers are expressed as strings of 128-bit unsigned values
 -- for example, -1 is displayed as "18446744073709551615"

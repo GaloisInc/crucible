@@ -1,15 +1,14 @@
 use crate::any::Any;
 use crate::error::Error as StdError;
-use crate::ffi::{OsString, OsStr, CString, CStr};
+use crate::ffi::{CStr, CString, OsStr, OsString};
 use crate::fmt;
 use crate::io;
 use crate::marker::PhantomData;
 use crate::os::wasi::prelude::*;
 use crate::path::{self, PathBuf};
-use crate::ptr;
 use crate::str;
 use crate::sys::memchr;
-use crate::sys::{cvt, unsupported, Void};
+use crate::sys::{unsupported, Void};
 use crate::vec;
 
 #[cfg(not(target_feature = "atomics"))]
@@ -19,7 +18,7 @@ pub unsafe fn env_lock() -> impl Any {
 }
 
 pub fn errno() -> i32 {
-    extern {
+    extern "C" {
         #[thread_local]
         static errno: libc::c_int;
     }
@@ -28,16 +27,11 @@ pub fn errno() -> i32 {
 }
 
 pub fn error_string(errno: i32) -> String {
-    extern {
-        fn strerror_r(errnum: libc::c_int, buf: *mut libc::c_char,
-                      buflen: libc::size_t) -> libc::c_int;
-    }
-
     let mut buf = [0 as libc::c_char; 1024];
 
     let p = buf.as_mut_ptr();
     unsafe {
-        if strerror_r(errno as libc::c_int, p, buf.len()) < 0 {
+        if libc::strerror_r(errno as libc::c_int, p, buf.len()) < 0 {
             panic!("strerror_r failure");
         }
         str::from_utf8(CStr::from_ptr(p).to_bytes()).unwrap().to_owned()
@@ -69,7 +63,9 @@ impl<'a> Iterator for SplitPaths<'a> {
 pub struct JoinPathsError;
 
 pub fn join_paths<I, T>(_paths: I) -> Result<OsString, JoinPathsError>
-    where I: Iterator<Item=T>, T: AsRef<OsStr>
+where
+    I: Iterator<Item = T>,
+    T: AsRef<OsStr>,
 {
     Err(JoinPathsError)
 }
@@ -81,6 +77,7 @@ impl fmt::Display for JoinPathsError {
 }
 
 impl StdError for JoinPathsError {
+    #[allow(deprecated)]
     fn description(&self) -> &str {
         "not supported on wasm yet"
     }
@@ -89,7 +86,6 @@ impl StdError for JoinPathsError {
 pub fn current_exe() -> io::Result<PathBuf> {
     unsupported()
 }
-
 pub struct Env {
     iter: vec::IntoIter<(OsString, OsString)>,
     _dont_send_or_sync_me: PhantomData<*mut ()>,
@@ -97,26 +93,28 @@ pub struct Env {
 
 impl Iterator for Env {
     type Item = (OsString, OsString);
-    fn next(&mut self) -> Option<(OsString, OsString)> { self.iter.next() }
-    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
+    fn next(&mut self) -> Option<(OsString, OsString)> {
+        self.iter.next()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
 }
-
 
 pub fn env() -> Env {
     unsafe {
         let _guard = env_lock();
         let mut environ = libc::environ;
         let mut result = Vec::new();
-        while environ != ptr::null_mut() && *environ != ptr::null_mut() {
-            if let Some(key_value) = parse(CStr::from_ptr(*environ).to_bytes()) {
-                result.push(key_value);
+        if !environ.is_null() {
+            while !(*environ).is_null() {
+                if let Some(key_value) = parse(CStr::from_ptr(*environ).to_bytes()) {
+                    result.push(key_value);
+                }
+                environ = environ.add(1);
             }
-            environ = environ.offset(1);
         }
-        return Env {
-            iter: result.into_iter(),
-            _dont_send_or_sync_me: PhantomData,
-        }
+        return Env { iter: result.into_iter(), _dont_send_or_sync_me: PhantomData };
     }
 
     // See src/libstd/sys/unix/os.rs, same as that
@@ -125,10 +123,12 @@ pub fn env() -> Env {
             return None;
         }
         let pos = memchr::memchr(b'=', &input[1..]).map(|p| p + 1);
-        pos.map(|p| (
-            OsStringExt::from_vec(input[..p].to_vec()),
-            OsStringExt::from_vec(input[p+1..].to_vec()),
-        ))
+        pos.map(|p| {
+            (
+                OsStringExt::from_vec(input[..p].to_vec()),
+                OsStringExt::from_vec(input[p + 1..].to_vec()),
+            )
+        })
     }
 }
 
@@ -152,7 +152,7 @@ pub fn setenv(k: &OsStr, v: &OsStr) -> io::Result<()> {
 
     unsafe {
         let _guard = env_lock();
-        cvt(libc::setenv(k.as_ptr(), v.as_ptr(), 1)).map(|_| ())
+        cvt(libc::setenv(k.as_ptr(), v.as_ptr(), 1)).map(drop)
     }
 }
 
@@ -161,7 +161,7 @@ pub fn unsetenv(n: &OsStr) -> io::Result<()> {
 
     unsafe {
         let _guard = env_lock();
-        cvt(libc::unsetenv(nbuf.as_ptr())).map(|_| ())
+        cvt(libc::unsetenv(nbuf.as_ptr())).map(drop)
     }
 }
 
@@ -174,11 +174,28 @@ pub fn home_dir() -> Option<PathBuf> {
 }
 
 pub fn exit(code: i32) -> ! {
-    unsafe {
-        libc::exit(code)
-    }
+    unsafe { libc::exit(code) }
 }
 
 pub fn getpid() -> u32 {
     panic!("unsupported");
+}
+
+#[doc(hidden)]
+pub trait IsMinusOne {
+    fn is_minus_one(&self) -> bool;
+}
+
+macro_rules! impl_is_minus_one {
+    ($($t:ident)*) => ($(impl IsMinusOne for $t {
+        fn is_minus_one(&self) -> bool {
+            *self == -1
+        }
+    })*)
+}
+
+impl_is_minus_one! { i8 i16 i32 i64 isize }
+
+fn cvt<T: IsMinusOne>(t: T) -> io::Result<T> {
+    if t.is_minus_one() { Err(io::Error::last_os_error()) } else { Ok(t) }
 }

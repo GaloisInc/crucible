@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 // Tests calls to methods defined in const impls.
 
 pub fn f(x: i32) -> usize {
@@ -10,4 +9,4 @@ pub fn f(x: i32) -> usize {
 pub static ARG: i32 = 1;
 
 #[cfg(with_main)] pub fn main() { println!("{:?}", f(ARG)); }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> usize { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> usize { f(ARG) }

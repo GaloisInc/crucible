@@ -6,23 +6,20 @@
         all(target_arch = "aarch64", any(target_os = "linux", target_os = "android")),
         all(target_arch = "powerpc", target_os = "linux"),
         all(target_arch = "powerpc64", target_os = "linux"),
+        any(target_arch = "x86", target_arch = "x86_64"),
     ),
     feature(stdsimd)
 )]
 
 #[test]
-#[cfg(all(target_arch = "arm",
-          any(target_os = "linux", target_os = "android")))]
+#[cfg(all(target_arch = "arm", any(target_os = "linux", target_os = "android")))]
 fn arm_linux() {
     println!("neon: {}", is_arm_feature_detected!("neon"));
     println!("pmull: {}", is_arm_feature_detected!("pmull"));
 }
 
 #[test]
-#[cfg(all(
-    target_arch = "aarch64",
-    any(target_os = "linux", target_os = "android")
-))]
+#[cfg(all(target_arch = "aarch64", any(target_os = "linux", target_os = "android")))]
 fn aarch64_linux() {
     println!("fp: {}", is_aarch64_feature_detected!("fp"));
     println!("fp16: {}", is_aarch64_feature_detected!("fp16"));
@@ -81,10 +78,7 @@ fn x86_all() {
     println!("avx512vl {:?}", is_x86_feature_detected!("avx512vl"));
     println!("avx512_ifma {:?}", is_x86_feature_detected!("avx512ifma"));
     println!("avx512_vbmi {:?}", is_x86_feature_detected!("avx512vbmi"));
-    println!(
-        "avx512_vpopcntdq {:?}",
-        is_x86_feature_detected!("avx512vpopcntdq")
-    );
+    println!("avx512_vpopcntdq {:?}", is_x86_feature_detected!("avx512vpopcntdq"));
     println!("fma: {:?}", is_x86_feature_detected!("fma"));
     println!("bmi1: {:?}", is_x86_feature_detected!("bmi1"));
     println!("bmi2: {:?}", is_x86_feature_detected!("bmi2"));

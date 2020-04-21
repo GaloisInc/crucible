@@ -1,5 +1,5 @@
 use std::iter::repeat;
-use test::Bencher;
+use test::{black_box, Bencher};
 
 #[bench]
 fn bench_with_capacity(b: &mut Bencher) {
@@ -121,4 +121,44 @@ fn bench_to_string(b: &mut Bencher) {
     let s = "Hello there, the quick brown fox jumped over the lazy dog! \
              Lorem ipsum dolor sit amet, consectetur. ";
     b.iter(|| s.to_string())
+}
+
+#[bench]
+fn bench_insert_char_short(b: &mut Bencher) {
+    let s = "Hello, World!";
+    b.iter(|| {
+        let mut x = String::from(s);
+        black_box(&mut x).insert(6, black_box(' '));
+        x
+    })
+}
+
+#[bench]
+fn bench_insert_char_long(b: &mut Bencher) {
+    let s = "Hello, World!";
+    b.iter(|| {
+        let mut x = String::from(s);
+        black_box(&mut x).insert(6, black_box('❤'));
+        x
+    })
+}
+
+#[bench]
+fn bench_insert_str_short(b: &mut Bencher) {
+    let s = "Hello, World!";
+    b.iter(|| {
+        let mut x = String::from(s);
+        black_box(&mut x).insert_str(6, black_box(" "));
+        x
+    })
+}
+
+#[bench]
+fn bench_insert_str_long(b: &mut Bencher) {
+    let s = "Hello, World!";
+    b.iter(|| {
+        let mut x = String::from(s);
+        black_box(&mut x).insert_str(6, black_box(" rustic "));
+        x
+    })
 }

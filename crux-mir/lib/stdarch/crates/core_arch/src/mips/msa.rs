@@ -1137,7 +1137,7 @@ extern "C" {
 /// Vector Add Absolute Values.
 ///
 /// The absolute values of the elements in vector in `a` (sixteen signed 8-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are added to the absolute values of the elements in vector `b` (sixteen signed 8-bit integer numbers).
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -1150,7 +1150,7 @@ pub unsafe fn __msa_add_a_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Add Absolute Values
 ///
 /// The absolute values of the elements in vector in `a` (eight signed 16-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (eight signed 16-bit integer numbers)
+/// are added to the absolute values of the elements in vector `b` (eight signed 16-bit integer numbers).
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -1163,7 +1163,7 @@ pub unsafe fn __msa_add_a_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Add Absolute Values
 ///
 /// The absolute values of the elements in vector in `a` (four signed 32-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (four signed 32-bit integer numbers)
+/// are added to the absolute values of the elements in vector `b` (four signed 32-bit integer numbers).
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -1176,8 +1176,8 @@ pub unsafe fn __msa_add_a_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Add Absolute Values
 ///
 /// The absolute values of the elements in vector in `a` (two signed 64-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (two signed 64-bit integer numbers)
-// The result is written to vector (two signed 64-bit integer numbers).
+/// are added to the absolute values of the elements in vector `b` (two signed 64-bit integer numbers).
+/// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1189,7 +1189,7 @@ pub unsafe fn __msa_add_a_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Signed Saturated Vector Saturated Add of Absolute Values
 ///
 /// The absolute values of the elements in vector in `a` (sixteen signed 8-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are added to the absolute values of the elements in vector `b` (sixteen signed 8-bit integer numbers).
 /// The saturated signed result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -1202,7 +1202,7 @@ pub unsafe fn __msa_adds_a_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Saturated Add of Absolute Values
 ///
 /// The absolute values of the elements in vector in `a` (eight signed 16-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (eight signed 16-bit integer numbers)
+/// are added to the absolute values of the elements in vector `b` (eight signed 16-bit integer numbers).
 /// The saturated signed result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -1215,7 +1215,7 @@ pub unsafe fn __msa_adds_a_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Saturated Add of Absolute Values
 ///
 /// The absolute values of the elements in vector in `a` (four signed 32-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (four signed 32-bit integer numbers)
+/// are added to the absolute values of the elements in vector `b` (four signed 32-bit integer numbers).
 /// The saturated signed result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -1228,8 +1228,8 @@ pub unsafe fn __msa_adds_a_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Saturated Add of Absolute Values
 ///
 /// The absolute values of the elements in vector in `a` (two signed 64-bit integer numbers)
-/// are added to the absolute values of the elements in vector `b` (two signed 64-bit integer numbers)
-// The saturated signed result is written to vector (two signed 64-bit integer numbers).
+/// are added to the absolute values of the elements in vector `b` (two signed 64-bit integer numbers).
+/// The saturated signed result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1240,10 +1240,10 @@ pub unsafe fn __msa_adds_a_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Signed Saturated Add of Signed Values
 ///
-/// The elements in vector in `a` (sixteen signed  8-bit integer numbers)
-/// are added to the elements in vector `b` (sixteen signed  8-bit integer numbers)
+/// The elements in vector in `a` (sixteen signed 8-bit integer numbers)
+/// are added to the elements in vector `b` (sixteen signed 8-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
-/// representable signed values before writing the result to vector (sixteen signed  8-bit integer numbers).
+/// representable signed values before writing the result to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1255,7 +1255,7 @@ pub unsafe fn __msa_adds_s_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Signed Saturated Add of Signed Values
 ///
 /// The elements in vector in `a` (eight signed 16-bit integer numbers)
-/// are added to the elements in vector `b` (eight signed 16-bit integer numbers)
+/// are added to the elements in vector `b` (eight signed 16-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (eight signed 16-bit integer numbers).
 ///
@@ -1269,7 +1269,7 @@ pub unsafe fn __msa_adds_s_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Signed Saturated Add of Signed Values
 ///
 /// The elements in vector in `a` (four signed 32-bit integer numbers)
-/// are added to the elements in vector `b` (four signed 32-bit integer numbers)
+/// are added to the elements in vector `b` (four signed 32-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (four signed 32-bit integer numbers).
 ///
@@ -1283,7 +1283,7 @@ pub unsafe fn __msa_adds_s_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Signed Saturated Add of Signed Values
 ///
 /// The elements in vector in `a` (two signed 64-bit integer numbers)
-/// are added to the elements in vector `b` (two signed 64-bit integer numbers)
+/// are added to the elements in vector `b` (two signed 64-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (two signed 64-bit integer numbers).
 ///
@@ -1297,7 +1297,7 @@ pub unsafe fn __msa_adds_s_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Vector Unsigned Saturated Add of Unsigned Values
 ///
 /// The elements in vector in `a` (sixteen unsigned 8-bit integer numbers)
-/// are added to the elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// are added to the elements in vector `b` (sixteen unsigned 8-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (sixteen unsigned 8-bit integer numbers).
 ///
@@ -1311,7 +1311,7 @@ pub unsafe fn __msa_adds_u_b(a: v16u8, b: v16u8) -> v16u8 {
 /// Vector Unsigned Saturated Add of Unsigned Values
 ///
 /// The elements in vector in `a` (eight unsigned 16-bit integer numbers)
-/// are added to the elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// are added to the elements in vector `b` (eight unsigned 16-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (eight unsigned 16-bit integer numbers).
 ///
@@ -1325,7 +1325,7 @@ pub unsafe fn __msa_adds_u_h(a: v8u16, b: v8u16) -> v8u16 {
 /// Vector Unsigned Saturated Add of Unsigned Values
 ///
 /// The elements in vector in `a` (four unsigned 32-bit integer numbers)
-/// are added to the elements in vector `b` (four unsigned 32-bit integer numbers)
+/// are added to the elements in vector `b` (four unsigned 32-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (four unsigned 32-bit integer numbers).
 ///
@@ -1339,7 +1339,7 @@ pub unsafe fn __msa_adds_u_w(a: v4u32, b: v4u32) -> v4u32 {
 /// Vector Unsigned Saturated Add of Unsigned Values
 ///
 /// The elements in vector in `a` (two unsigned 64-bit integer numbers)
-/// are added to the elements in vector `b` (two unsigned 64-bit integer numbers)
+/// are added to the elements in vector `b` (two unsigned 64-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (two unsigned 64-bit integer numbers).
 ///
@@ -1353,7 +1353,7 @@ pub unsafe fn __msa_adds_u_d(a: v2u64, b: v2u64) -> v2u64 {
 /// Vector Add
 ///
 /// The elements in vector in `a` (sixteen signed 8-bit integer numbers)
-/// are added to the elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are added to the elements in vector `b` (sixteen signed 8-bit integer numbers).
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -1366,7 +1366,7 @@ pub unsafe fn __msa_addv_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Add
 ///
 /// The elements in vector in `a` (eight signed 16-bit integer numbers)
-/// are added to the elements in vector `b` (eight signed 16-bit integer numbers)
+/// are added to the elements in vector `b` (eight signed 16-bit integer numbers).
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -1379,7 +1379,7 @@ pub unsafe fn __msa_addv_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Add
 ///
 /// The elements in vector in `a` (four signed 32-bit integer numbers)
-/// are added to the elements in vector `b` (four signed 32-bit integer numbers)
+/// are added to the elements in vector `b` (four signed 32-bit integer numbers).
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -1392,7 +1392,7 @@ pub unsafe fn __msa_addv_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Add
 ///
 /// The elements in vector in `a` (two signed 64-bit integer numbers)
-/// are added to the elements in vector `b` (two signed 64-bit integer numbers)
+/// are added to the elements in vector `b` (two signed 64-bit integer numbers).
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -1404,8 +1404,8 @@ pub unsafe fn __msa_addv_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Add
 ///
-/// The 5-bit immediate unsigned value u5 is added to the elements
-/// vector in `a` (sixteen signed 8-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5` is added to the elements
+/// vector in `a` (sixteen signed 8-bit integer numbers).
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -1423,8 +1423,8 @@ pub unsafe fn __msa_addvi_b(a: v16i8, imm5: i32) -> v16i8 {
 
 /// Immediate Add
 ///
-/// The 5-bit immediate unsigned value u5 is added to the elements
-/// vector in `a` (eight signed 16-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5` is added to the elements
+/// vector in `a` (eight signed 16-bit integer numbers).
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -1442,8 +1442,8 @@ pub unsafe fn __msa_addvi_h(a: v8i16, imm5: i32) -> v8i16 {
 
 /// Immediate Add
 ///
-/// The 5-bit immediate unsigned value u5 is added to the elements
-/// vector in `a` (four signed 32-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5` is added to the elements
+/// vector in `a` (four signed 32-bit integer numbers).
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -1461,8 +1461,8 @@ pub unsafe fn __msa_addvi_w(a: v4i32, imm5: i32) -> v4i32 {
 
 /// Immediate Add
 ///
-/// The 5-bit immediate unsigned value u5 is added to the elements
-/// vector in `a` (two signed 64-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5` is added to the elements
+/// vector in `a` (two signed 64-bit integer numbers).
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -1481,7 +1481,7 @@ pub unsafe fn __msa_addvi_d(a: v2i64, imm5: i32) -> v2i64 {
 /// Vector Logical And
 ///
 /// Each bit of vector `a` (sixteen unsigned 8-bit integer numbers)
-/// is combined with the corresponding bit of vector 'b' (sixteen unsigned 8-bit integer numbers).
+/// is combined with the corresponding bit of vector `b` (sixteen unsigned 8-bit integer numbers)
 /// in a bitwise logical AND operation.
 /// The result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
@@ -1494,7 +1494,7 @@ pub unsafe fn __msa_and_v(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Immediate Logical And
 ///
-/// Each byte element of  vector `a` (sixteen unsigned 8-bit integer numbers)
+/// Each byte element of vector `a` (sixteen unsigned 8-bit integer numbers)
 /// is combined with the 8-bit immediate i8 (signed 8-bit integer number) in a bitwise logical AND operation.
 /// The result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
@@ -1514,8 +1514,8 @@ pub unsafe fn __msa_andi_b(a: v16u8, imm8: i32) -> v16u8 {
 /// Vector Absolute Values of Signed Subtract
 ///
 /// The signed elements in vector `a` (sixteen signed 8-bit integer numbers)
-/// are subtracted  from the signed elements in vector `b` (sixteen signed 8-bit integer numbers)
-/// The absolute  value of the signed result is written to vector (sixteen signed 8-bit integer numbers).
+/// are subtracted from the signed elements in vector `b` (sixteen signed 8-bit integer numbers).
+/// The absolute value of the signed result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1527,8 +1527,8 @@ pub unsafe fn __msa_asub_s_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Absolute Values of Signed Subtract
 ///
 /// The signed elements in vector `a` (eight signed 16-bit integer numbers)
-/// are subtracted  from the signed elements in vector `b` (eight signed 16-bit integer numbers)
-/// The absolute  value of the signed result is written to vector (eight signed 16-bit integer numbers).
+/// are subtracted from the signed elements in vector `b` (eight signed 16-bit integer numbers).
+/// The absolute value of the signed result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1540,8 +1540,8 @@ pub unsafe fn __msa_asub_s_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Absolute Values of Signed Subtract
 ///
 /// The signed elements in vector `a` (four signed 32-bit integer numbers)
-/// are subtracted  from the signed elements in vector `b` (four signed 32-bit integer numbers)
-/// The absolute  value of the signed result is written to vector (four signed 32-bit integer numbers).
+/// are subtracted from the signed elements in vector `b` (four signed 32-bit integer numbers).
+/// The absolute value of the signed result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1553,8 +1553,8 @@ pub unsafe fn __msa_asub_s_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Absolute Values of Signed Subtract
 ///
 /// The signed elements in vector `a` (two signed 64-bit integer numbers)
-/// are subtracted  from the signed elements in vector `b` (two signed 64-bit integer numbers)
-/// The absolute  value of the signed result is written to vector (two signed 64-bit integer numbers).
+/// are subtracted from the signed elements in vector `b` (two signed 64-bit integer numbers).
+/// The absolute value of the signed result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1566,8 +1566,8 @@ pub unsafe fn __msa_asub_s_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Vector Absolute Values of Unsigned Subtract
 ///
 /// The unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
-/// are subtracted  from the unsigned elements in vector `b` (sixteen unsigned 8-bit integer numbers)
-/// The absolute  value of the unsigned result is written to vector (sixteen unsigned 8-bit integer numbers).
+/// are subtracted from the unsigned elements in vector `b` (sixteen unsigned 8-bit integer numbers).
+/// The absolute value of the unsigned result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1579,8 +1579,8 @@ pub unsafe fn __msa_asub_u_b(a: v16u8, b: v16u8) -> v16u8 {
 /// Vector Absolute Values of Unsigned Subtract
 ///
 /// The unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
-/// are subtracted  from the unsigned elements in vector `b` (eight unsigned 16-bit integer numbers)
-/// The absolute  value of the unsigned result is written to vector (eight unsigned 16-bit integer numbers).
+/// are subtracted from the unsigned elements in vector `b` (eight unsigned 16-bit integer numbers).
+/// The absolute value of the unsigned result is written to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1592,8 +1592,8 @@ pub unsafe fn __msa_asub_u_h(a: v8u16, b: v8u16) -> v8u16 {
 /// Vector Absolute Values of Unsigned Subtract
 ///
 /// The unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
-/// are subtracted  from the unsigned elements in vector `b` (four unsigned 32-bit integer numbers)
-/// The absolute  value of the unsigned result is written to vector (four unsigned 32-bit integer numbers).
+/// are subtracted from the unsigned elements in vector `b` (four unsigned 32-bit integer numbers).
+/// The absolute value of the unsigned result is written to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1605,8 +1605,8 @@ pub unsafe fn __msa_asub_u_w(a: v4u32, b: v4u32) -> v4u32 {
 /// Vector Absolute Values of Unsigned Subtract
 ///
 /// The unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
-/// are subtracted  from the unsigned elements in vector `b` (two unsigned 64-bit integer numbers)
-/// The absolute  value of the unsigned result is written to vector (two unsigned 64-bit integer numbers).
+/// are subtracted from the unsigned elements in vector `b` (two unsigned 64-bit integer numbers).
+/// The absolute value of the unsigned result is written to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -1618,8 +1618,8 @@ pub unsafe fn __msa_asub_u_d(a: v2u64, b: v2u64) -> v2u64 {
 /// Vector Signed Average
 ///
 /// The elements in vector `a` (sixteen signed 8-bit integer numbers)
-/// are added to the elements in vector `b` (sixteen signed 8-bit integer numbers)
-/// The addition is done signed with full precision, i.e.the result has one extra bit
+/// are added to the elements in vector `b` (sixteen signed 8-bit integer numbers).
+/// The addition is done signed with full precision, i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
 /// writing the result to vector (sixteen signed 8-bit integer numbers).
 ///
@@ -1633,8 +1633,8 @@ pub unsafe fn __msa_ave_s_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Signed Average
 ///
 /// The elements in vector `a` (eight signed 16-bit integer numbers)
-/// are added to the elements in vector `b` (eight signed 16-bit integer numbers)
-/// The addition is done signed with full precision, i.e.the result has one extra bit
+/// are added to the elements in vector `b` (eight signed 16-bit integer numbers).
+/// The addition is done signed with full precision, i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
 /// writing the result to vector (eight signed 16-bit integer numbers).
 ///
@@ -1648,8 +1648,8 @@ pub unsafe fn __msa_ave_s_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Signed Average
 ///
 /// The elements in vector `a` (four signed 32-bit integer numbers)
-/// are added to the elements in vector `b` (four signed 32-bit integer numbers)
-/// The addition is done signed with full precision, i.e.the result has one extra bit
+/// are added to the elements in vector `b` (four signed 32-bit integer numbers).
+/// The addition is done signed with full precision, i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
 /// writing the result to vector (four signed 32-bit integer numbers).
 ///
@@ -1663,8 +1663,8 @@ pub unsafe fn __msa_ave_s_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Signed Average
 ///
 /// The elements in vector `a` (two signed 64-bit integer numbers)
-/// are added to the elements in vector `b` (two signed 64-bit integer numbers)
-/// The addition is done signed with full precision, i.e.the result has one extra bit
+/// are added to the elements in vector `b` (two signed 64-bit integer numbers).
+/// The addition is done signed with full precision, i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
 /// writing the result to vector (two signed 64-bit integer numbers).
 ///
@@ -1678,9 +1678,9 @@ pub unsafe fn __msa_ave_s_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Vector Unsigned Average
 ///
 /// The elements in vector `a` (sixteen unsigned 8-bit integer numbers)
-/// are added to the elements in vector `b` (sixteen unsigned 8-bit integer numbers)
-/// The addition is done unsigned with full precision, i.e.the result has one extra bit
-/// Unsigned division by 2 (or logical shift right by one bit)  is performed before
+/// are added to the elements in vector `b` (sixteen unsigned 8-bit integer numbers).
+/// The addition is done unsigned with full precision, i.e. the result has one extra bit.
+/// Unsigned division by 2 (or logical shift right by one bit) is performed before
 /// writing the result to vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
@@ -1693,9 +1693,9 @@ pub unsafe fn __msa_ave_u_b(a: v16u8, b: v16u8) -> v16u8 {
 /// Vector Unsigned Average
 ///
 /// The elements in vector `a` (eight unsigned 16-bit integer numbers)
-/// are added to the elements in vector `b` (eight unsigned 16-bit integer numbers)
-/// The addition is done unsigned with full precision, i.e.the result has one extra bit
-/// Unsigned division by 2 (or logical shift right by one bit)  is performed before
+/// are added to the elements in vector `b` (eight unsigned 16-bit integer numbers).
+/// The addition is done unsigned with full precision, i.e. the result has one extra bit.
+/// Unsigned division by 2 (or logical shift right by one bit) is performed before
 /// writing the result to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
@@ -1708,9 +1708,9 @@ pub unsafe fn __msa_ave_u_h(a: v8u16, b: v8u16) -> v8u16 {
 /// Vector Unsigned Average
 ///
 /// The elements in vector `a` (four unsigned 32-bit integer numbers)
-/// are added to the elements in vector `b` (four unsigned 32-bit integer numbers)
-/// The addition is done unsigned with full precision, i.e.the result has one extra bit
-/// Unsigned division by 2 (or logical shift right by one bit)  is performed before
+/// are added to the elements in vector `b` (four unsigned 32-bit integer numbers).
+/// The addition is done unsigned with full precision, i.e. the result has one extra bit.
+/// Unsigned division by 2 (or logical shift right by one bit) is performed before
 /// writing the result to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
@@ -1723,9 +1723,9 @@ pub unsafe fn __msa_ave_u_w(a: v4u32, b: v4u32) -> v4u32 {
 /// Vector Unsigned Average
 ///
 /// The elements in vector `a` (two unsigned 64-bit integer numbers)
-/// are added to the elements in vector `b` (two unsigned 64-bit integer numbers)
-/// The addition is done unsigned with full precision, i.e.the result has one extra bit
-/// Unsigned division by 2 (or logical shift right by one bit)  is performed before
+/// are added to the elements in vector `b` (two unsigned 64-bit integer numbers).
+/// The addition is done unsigned with full precision, i.e. the result has one extra bit.
+/// Unsigned division by 2 (or logical shift right by one bit) is performed before
 /// writing the result to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
@@ -1738,7 +1738,7 @@ pub unsafe fn __msa_ave_u_d(a: v2u64, b: v2u64) -> v2u64 {
 /// Vector Signed Average Rounded
 ///
 /// The elements in vector `a` (sixteen signed 8-bit integer numbers)
-/// are added to the elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are added to the elements in vector `b` (sixteen signed 8-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done signed with full precision,
 /// i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
@@ -1754,7 +1754,7 @@ pub unsafe fn __msa_aver_s_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Signed Average Rounded
 ///
 /// The elements in vector `a` (eight signed 16-bit integer numbers)
-/// are added to the elements in vector `b` (eight signed 16-bit integer numbers)
+/// are added to the elements in vector `b` (eight signed 16-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done signed with full precision,
 /// i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
@@ -1770,7 +1770,7 @@ pub unsafe fn __msa_aver_s_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Signed Average Rounded
 ///
 /// The elements in vector `a` (four signed 32-bit integer numbers)
-/// are added to the elements in vector `b` (four signed 32-bit integer numbers)
+/// are added to the elements in vector `b` (four signed 32-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done signed with full precision,
 /// i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
@@ -1786,7 +1786,7 @@ pub unsafe fn __msa_aver_s_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Signed Average Rounded
 ///
 /// The elements in vector `a` (two signed 64-bit integer numbers)
-/// are added to the elements in vector `b` (two signed 64-bit integer numbers)
+/// are added to the elements in vector `b` (two signed 64-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done signed with full precision,
 /// i.e. the result has one extra bit.
 /// Signed division by 2 (or arithmetic shift right by one bit) is performed before
@@ -1802,7 +1802,7 @@ pub unsafe fn __msa_aver_s_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Vector Unsigned Average Rounded
 ///
 /// The elements in vector `a` (sixteen unsigned 8-bit integer numbers)
-/// are added to the elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// are added to the elements in vector `b` (sixteen unsigned 8-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done unsigned with full precision,
 /// i.e. the result has one extra bit.
 /// Unsigned division by 2 (or logical shift right by one bit) is performed before
@@ -1818,7 +1818,7 @@ pub unsafe fn __msa_aver_u_b(a: v16u8, b: v16u8) -> v16u8 {
 /// Vector Unsigned Average Rounded
 ///
 /// The elements in vector `a` (eight unsigned 16-bit integer numbers)
-/// are added to the elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// are added to the elements in vector `b` (eight unsigned 16-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done unsigned with full precision,
 /// i.e. the result has one extra bit.
 /// Unsigned division by 2 (or logical shift right by one bit) is performed before
@@ -1834,7 +1834,7 @@ pub unsafe fn __msa_aver_u_h(a: v8u16, b: v8u16) -> v8u16 {
 /// Vector Unsigned Average Rounded
 ///
 /// The elements in vector `a` (four unsigned 32-bit integer numbers)
-/// are added to the elements in vector `b` (four unsigned 32-bit integer numbers)
+/// are added to the elements in vector `b` (four unsigned 32-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done unsigned with full precision,
 /// i.e. the result has one extra bit.
 /// Unsigned division by 2 (or logical shift right by one bit) is performed before
@@ -1850,7 +1850,7 @@ pub unsafe fn __msa_aver_u_w(a: v4u32, b: v4u32) -> v4u32 {
 /// Vector Unsigned Average Rounded
 ///
 /// The elements in vector `a` (two unsigned 64-bit integer numbers)
-/// are added to the elements in vector `b` (two unsigned 64-bit integer numbers)
+/// are added to the elements in vector `b` (two unsigned 64-bit integer numbers).
 /// The addition of the elements plus 1 (for rounding) is done unsigned with full precision,
 /// i.e. the result has one extra bit.
 /// Unsigned division by 2 (or logical shift right by one bit) is performed before
@@ -1865,7 +1865,7 @@ pub unsafe fn __msa_aver_u_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Vector Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers)
+/// Clear (set to 0) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers).
 /// The bit position is given by the elements in `b` (sixteen unsigned 8-bit integer numbers)
 /// modulo the size of the element in bits.
 /// The result is written to vector (sixteen unsigned 8-bit integer numbers).
@@ -1879,7 +1879,7 @@ pub unsafe fn __msa_bclr_b(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Vector Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers)
+/// Clear (set to 0) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers).
 /// The bit position is given by the elements in `b` (eight unsigned 16-bit integer numbers)
 /// modulo the size of the element in bits.
 /// The result is written to vector (eight unsigned 16-bit integer numbers).
@@ -1893,7 +1893,7 @@ pub unsafe fn __msa_bclr_h(a: v8u16, b: v8u16) -> v8u16 {
 
 /// Vector Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (four unsigned 32-bit integer numbers)
+/// Clear (set to 0) one bit in each element of vector `a` (four unsigned 32-bit integer numbers).
 /// The bit position is given by the elements in `b` (four unsigned 32-bit integer numbers)
 /// modulo the size of the element in bits.
 /// The result is written to vector (four unsigned 32-bit integer numbers).
@@ -1907,7 +1907,7 @@ pub unsafe fn __msa_bclr_w(a: v4u32, b: v4u32) -> v4u32 {
 
 /// Vector Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (two unsigned 64-bit integer numbers)
+/// Clear (set to 0) one bit in each element of vector `a` (two unsigned 64-bit integer numbers).
 /// The bit position is given by the elements in `b` (two unsigned 64-bit integer numbers)
 /// modulo the size of the element in bits.
 /// The result is written to vector (two unsigned 64-bit integer numbers).
@@ -1921,8 +1921,8 @@ pub unsafe fn __msa_bclr_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Immediate Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers)
-/// The bit position is given by the immediate 'm' modulo the size of the element in bits.
+/// Clear (set to 0) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers).
+/// The bit position is given by the immediate `m` modulo the size of the element in bits.
 /// The result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
@@ -1940,8 +1940,8 @@ pub unsafe fn __msa_bclri_b(a: v16u8, imm3: i32) -> v16u8 {
 
 /// Immediate Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers)
-/// The bit position is given by the immediate 'm' modulo the size of the element in bits.
+/// Clear (set to 0) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers).
+/// The bit position is given by the immediate `m` modulo the size of the element in bits.
 /// The result is written to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
@@ -1959,8 +1959,8 @@ pub unsafe fn __msa_bclri_h(a: v8u16, imm4: i32) -> v8u16 {
 
 /// Immediate Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (four unsigned 32-bit integer numbers)
-/// The bit position is given by the immediate 'm' modulo the size of the element in bits.
+/// Clear (set to 0) one bit in each element of vector `a` (four unsigned 32-bit integer numbers).
+/// The bit position is given by the immediate `m` modulo the size of the element in bits.
 /// The result is written to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
@@ -1978,8 +1978,8 @@ pub unsafe fn __msa_bclri_w(a: v4u32, imm5: i32) -> v4u32 {
 
 /// Immediate Bit Clear
 ///
-/// Clear (set to 0) one bit in each element of vector `a` (two unsigned 64-bit integer numbers)
-/// The bit position is given by the immediate 'm' modulo the size of the element in bits.
+/// Clear (set to 0) one bit in each element of vector `a` (two unsigned 64-bit integer numbers).
+/// The bit position is given by the immediate `m` modulo the size of the element in bits.
 /// The result is written to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
@@ -1998,9 +1998,9 @@ pub unsafe fn __msa_bclri_d(a: v2u64, imm6: i32) -> v2u64 {
 /// Vector Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (sixteen unsigned 8-bit integer numbers)
-/// to elements in vector 'a' (sixteen unsigned 8-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (sixteen unsigned 8-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (sixteen unsigned 8-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the elements in vector `c` (sixteen unsigned 8-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2012,9 +2012,9 @@ pub unsafe fn __msa_binsl_b(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 /// Vector Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (eight unsigned 16-bit integer numbers)
-/// to elements in vector 'a' (eight unsigned 16-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (eight unsigned 16-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (eight unsigned 16-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the elements in vector `c` (eight unsigned 16-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2026,9 +2026,9 @@ pub unsafe fn __msa_binsl_h(a: v8u16, b: v8u16, c: v8u16) -> v8u16 {
 /// Vector Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (four unsigned 32-bit integer numbers)
-/// to elements in vector 'a' (four unsigned 32-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (four unsigned 32-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (four unsigned 32-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the elements in vector `c` (four unsigned 32-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2040,9 +2040,9 @@ pub unsafe fn __msa_binsl_w(a: v4u32, b: v4u32, c: v4u32) -> v4u32 {
 /// Vector Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (two unsigned 64-bit integer numbers)
-/// to elements in vector 'a' (two unsigned 64-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (two unsigned 64-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (two unsigned 64-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the elements in vector `c` (two unsigned 64-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2054,8 +2054,8 @@ pub unsafe fn __msa_binsl_d(a: v2u64, b: v2u64, c: v2u64) -> v2u64 {
 /// Immediate Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (sixteen unsigned 8-bit integer numbers)
-/// to elements in vector 'a' (sixteen unsigned 8-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the immediate imm3 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (sixteen unsigned 8-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the immediate `imm3` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2073,8 +2073,8 @@ pub unsafe fn __msa_binsli_b(a: v16u8, b: v16u8, imm3: i32) -> v16u8 {
 /// Immediate Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (eight unsigned 16-bit integer numbers)
-/// to elements in vector 'a' (eight unsigned 16-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the immediate imm4 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (eight unsigned 16-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the immediate `imm4` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2092,8 +2092,8 @@ pub unsafe fn __msa_binsli_h(a: v8u16, b: v8u16, imm4: i32) -> v8u16 {
 /// Immediate Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (four unsigned 32-bit integer numbers)
-/// to elements in vector 'a' (four unsigned 32-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the immediate imm5 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (four unsigned 32-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the immediate `imm5` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2111,8 +2111,8 @@ pub unsafe fn __msa_binsli_w(a: v4u32, b: v4u32, imm5: i32) -> v4u32 {
 /// Immediate Bit Insert Left
 ///
 /// Copy most significant (left) bits in each element of vector `b` (two unsigned 64-bit integer numbers)
-/// to elements in vector 'a' (two unsigned 64-bit integer numbers) while preserving the least sig-nificant (right) bits.
-/// The number of bits to copy is given by the immediate imm6 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (two unsigned 64-bit integer numbers) while preserving the least significant (right) bits.
+/// The number of bits to copy is given by the immediate `imm6` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2130,9 +2130,9 @@ pub unsafe fn __msa_binsli_d(a: v2u64, b: v2u64, imm6: i32) -> v2u64 {
 /// Vector Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (sixteen unsigned 8-bit integer numbers)
-/// to elements in vector 'a' (sixteen unsigned 8-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (sixteen unsigned 8-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (sixteen unsigned 8-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the elements in vector `c` (sixteen unsigned 8-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2144,9 +2144,9 @@ pub unsafe fn __msa_binsr_b(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 /// Vector Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (eight unsigned 16-bit integer numbers)
-/// to elements in vector 'a' (eight unsigned 16-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (eight unsigned 16-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (eight unsigned 16-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the elements in vector `c` (eight unsigned 16-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2158,9 +2158,9 @@ pub unsafe fn __msa_binsr_h(a: v8u16, b: v8u16, c: v8u16) -> v8u16 {
 /// Vector Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (four unsigned 32-bit integer numbers)
-/// to elements in vector 'a' (four unsigned 32-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (four unsigned 32-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (four unsigned 32-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the elements in vector `c` (four unsigned 32-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2172,9 +2172,9 @@ pub unsafe fn __msa_binsr_w(a: v4u32, b: v4u32, c: v4u32) -> v4u32 {
 /// Vector Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (two unsigned 64-bit integer numbers)
-/// to elements in vector 'a' (two unsigned 64-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the elements in vector 'c' (two unsigned 64-bit integer numbers)
-/// modulo the size of the element inbits plus 1.
+/// to elements in vector `a` (two unsigned 64-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the elements in vector `c` (two unsigned 64-bit integer numbers)
+/// modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2186,8 +2186,8 @@ pub unsafe fn __msa_binsr_d(a: v2u64, b: v2u64, c: v2u64) -> v2u64 {
 /// Immediate Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (sixteen unsigned 8-bit integer numbers)
-/// to elements in vector 'a' (sixteen unsigned 8-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the immediate imm3 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (sixteen unsigned 8-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the immediate `imm3` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2205,8 +2205,8 @@ pub unsafe fn __msa_binsri_b(a: v16u8, b: v16u8, imm3: i32) -> v16u8 {
 /// Immediate Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (eight unsigned 16-bit integer numbers)
-/// to elements in vector 'a' (eight unsigned 16-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the immediate imm4 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (eight unsigned 16-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the immediate `imm4` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2224,8 +2224,8 @@ pub unsafe fn __msa_binsri_h(a: v8u16, b: v8u16, imm4: i32) -> v8u16 {
 /// Immediate Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (four unsigned 32-bit integer numbers)
-/// to elements in vector 'a' (four unsigned 32-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the immediate imm5 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (four unsigned 32-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the immediate `imm5` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2243,8 +2243,8 @@ pub unsafe fn __msa_binsri_w(a: v4u32, b: v4u32, imm5: i32) -> v4u32 {
 /// Immediate Bit Insert Right
 ///
 /// Copy most significant (right) bits in each element of vector `b` (two unsigned 64-bit integer numbers)
-/// to elements in vector 'a' (two unsigned 64-bit integer numbers) while preserving the least sig-nificant (left) bits.
-/// The number of bits to copy is given by the immediate imm6 modulo the size of the element in bitsplus 1.
+/// to elements in vector `a` (two unsigned 64-bit integer numbers) while preserving the least significant (left) bits.
+/// The number of bits to copy is given by the immediate `imm6` modulo the size of the element in bits plus 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2261,9 +2261,9 @@ pub unsafe fn __msa_binsri_d(a: v2u64, b: v2u64, imm6: i32) -> v2u64 {
 
 /// Vector Bit Move If Not Zero
 ///
-/// Copy to destination vector 'a' (sixteen unsigned 8-bit integer numbers) all bits from source vector
-/// 'b' (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from target vector 'c'
-/// (sixteen unsigned 8-bit integer numbers)  are 1 and leaves unchanged all destination bits
+/// Copy to destination vector `a` (sixteen unsigned 8-bit integer numbers) all bits from source vector
+/// `b` (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from target vector `c`
+/// (sixteen unsigned 8-bit integer numbers) are 1 and leaves unchanged all destination bits
 /// for which the corresponding target bits are 0.
 ///
 #[inline]
@@ -2275,8 +2275,8 @@ pub unsafe fn __msa_bmnz_v(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 
 /// Immediate Bit Move If Not Zero
 ///
-/// Copy to destination vector 'a' (sixteen unsigned 8-bit integer numbers) all bits from source vector
-/// 'b' (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from  from immediate imm8
+/// Copy to destination vector `a` (sixteen unsigned 8-bit integer numbers) all bits from source vector
+/// `b` (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from from immediate `imm8`
 /// are 1 and leaves unchanged all destination bits for which the corresponding target bits are 0.
 ///
 #[inline]
@@ -2294,10 +2294,10 @@ pub unsafe fn __msa_bmnzi_b(a: v16u8, b: v16u8, imm8: i32) -> v16u8 {
 
 /// Vector Bit Move If Zero
 ///
-/// Copy to destination vector 'a' (sixteen unsigned 8-bit integer numbers) all bits from source vector
-/// 'b' (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from target vector 'c'
-/// (sixteen unsigned 8-bit integer numbers)  are 0 and leaves unchanged all destination bits
-/// for which the corresponding target bits are 1
+/// Copy to destination vector `a` (sixteen unsigned 8-bit integer numbers) all bits from source vector
+/// `b` (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from target vector `c`
+/// (sixteen unsigned 8-bit integer numbers) are 0 and leaves unchanged all destination bits
+/// for which the corresponding target bits are 1.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2308,8 +2308,8 @@ pub unsafe fn __msa_bmz_v(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 
 /// Immediate Bit Move If Zero
 ///
-/// Copy to destination vector 'a' (sixteen unsigned 8-bit integer numbers) all bits from source vector
-/// 'b' (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from  from immediate imm8
+/// Copy to destination vector `a` (sixteen unsigned 8-bit integer numbers) all bits from source vector
+/// `b` (sixteen unsigned 8-bit integer numbers) for which the corresponding bits from from immediate `imm8`
 /// are 0 and leaves unchanged all destination bits for which the corresponding immediate bits are 1.
 ///
 #[inline]
@@ -2327,10 +2327,10 @@ pub unsafe fn __msa_bmzi_b(a: v16u8, b: v16u8, imm8: i32) -> v16u8 {
 
 /// Vector Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (sixteen unsigned 8-bit integer numbers)
-/// modulo thesize of the element in bits.
-/// The result is written to vector (sixteen unsigned 8-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// modulo the size of the element in bits.
+/// The result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2341,10 +2341,10 @@ pub unsafe fn __msa_bneg_b(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Vector Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (eight unsigned 16-bit integer numbers)
-/// modulo thesize of the element in bits.
-/// The result is written to vector (eight unsigned 16-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// modulo the size of the element in bits.
+/// The result is written to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2355,10 +2355,10 @@ pub unsafe fn __msa_bneg_h(a: v8u16, b: v8u16) -> v8u16 {
 
 /// Vector Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (four unsigned 32-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (four unsigned 32-bit integer numbers)
-/// modulo thesize of the element in bits.
-/// The result is written to vector (four unsigned 32-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (four unsigned 32-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (four unsigned 32-bit integer numbers)
+/// modulo the size of the element in bits.
+/// The result is written to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2369,10 +2369,10 @@ pub unsafe fn __msa_bneg_w(a: v4u32, b: v4u32) -> v4u32 {
 
 /// Vector Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (two unsigned 64-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (two unsigned 64-bit integer numbers)
-/// modulo thesize of the element in bits.
-/// The result is written to vector (two unsigned 64-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (two unsigned 64-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (two unsigned 64-bit integer numbers)
+/// modulo the size of the element in bits.
+/// The result is written to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2383,9 +2383,9 @@ pub unsafe fn __msa_bneg_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Immediate Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers)
-/// The bit position is given by immediate imm3 modulo thesize of the element in bits.
-/// The result is written to vector (sixteen unsigned 8-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers).
+/// The bit position is given by immediate `imm3` modulo the size of the element in bits.
+/// The result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2402,9 +2402,9 @@ pub unsafe fn __msa_bnegi_b(a: v16u8, imm3: i32) -> v16u8 {
 
 /// Immediate Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers)
-/// The bit position is given by immediate imm4 modulo thesize of the element in bits.
-/// The result is written to vector (eight unsigned 16-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (eight unsigned 16-bit integer numbers).
+/// The bit position is given by immediate `imm4` modulo the size of the element in bits.
+/// The result is written to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2421,9 +2421,9 @@ pub unsafe fn __msa_bnegi_h(a: v8u16, imm4: i32) -> v8u16 {
 
 /// Immediate Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (four unsigned 32-bit integer numbers)
-/// The bit position is given by immediate imm5 modulo thesize of the element in bits.
-/// The result is written to vector (four unsigned 32-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (four unsigned 32-bit integer numbers).
+/// The bit position is given by immediate `imm5` modulo the size of the element in bits.
+/// The result is written to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2440,9 +2440,9 @@ pub unsafe fn __msa_bnegi_w(a: v4u32, imm5: i32) -> v4u32 {
 
 /// Immediate Bit Negate
 ///
-/// Negate (complement) one bit in each element of vector `a` (two unsigned 64-bit integer numbers)
-/// The bit position is given by immediate imm6 modulo thesize of the element in bits.
-/// The result is written to vector (two unsigned 64-bit integer numbers)
+/// Negate (complement) one bit in each element of vector `a` (two unsigned 64-bit integer numbers).
+/// The bit position is given by immediate `imm6` modulo the size of the element in bits.
+/// The result is written to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2459,7 +2459,7 @@ pub unsafe fn __msa_bnegi_d(a: v2u64, imm6: i32) -> v2u64 {
 
 /// Immediate Branch If All Elements Are Not Zero
 ///
-/// PC-relative branch if all elements in 'a' (sixteen unsigned 8-bit integer numbers) are not zero.
+/// PC-relative branch if all elements in `a` (sixteen unsigned 8-bit integer numbers) are not zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2470,7 +2470,7 @@ pub unsafe fn __msa_bnz_b(a: v16u8) -> i32 {
 
 /// Immediate Branch If All Elements Are Not Zero
 ///
-/// PC-relative branch if all elements in 'a' (eight unsigned 16-bit integer numbers) are not zero.
+/// PC-relative branch if all elements in `a` (eight unsigned 16-bit integer numbers) are not zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2481,7 +2481,7 @@ pub unsafe fn __msa_bnz_h(a: v8u16) -> i32 {
 
 /// Immediate Branch If All Elements Are Not Zero
 ///
-/// PC-relative branch if all elements in 'a' (four unsigned 32-bit integer numbers) are not zero.
+/// PC-relative branch if all elements in `a` (four unsigned 32-bit integer numbers) are not zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2492,7 +2492,7 @@ pub unsafe fn __msa_bnz_w(a: v4u32) -> i32 {
 
 /// Immediate Branch If All Elements Are Not Zero
 ///
-/// PC-relative branch if all elements in 'a' (two unsigned 64-bit integer numbers) are not zero.
+/// PC-relative branch if all elements in `a` (two unsigned 64-bit integer numbers) are not zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2503,7 +2503,7 @@ pub unsafe fn __msa_bnz_d(a: v2u64) -> i32 {
 
 /// Immediate Branch If Not Zero (At Least One Element of Any Format Is Not Zero)
 ///
-/// PC-relative branch if at least one bit in 'a' (four unsigned 32-bit integer numbers) are not zero.
+/// PC-relative branch if at least one bit in `a` (four unsigned 32-bit integer numbers) are not zero.
 /// i.e at least one element is not zero regardless of the data format.
 ///
 #[inline]
@@ -2515,10 +2515,10 @@ pub unsafe fn __msa_bnz_v(a: v16u8) -> i32 {
 
 /// Vector Bit Select
 ///
-/// Selectively copy bits from the source vectors 'b' (eight unsigned 16-bit integer numbers)
-/// and 'c' (eight unsigned 16-bit integer numbers)
-/// into destination vector 'a' (eight unsigned 16-bit integer numbers) based on the corresponding bit in a:
-/// if 0 copies the bit from 'b', if 1 copies the bit from 'c'.
+/// Selectively copy bits from the source vectors `b` (eight unsigned 16-bit integer numbers)
+/// and `c` (eight unsigned 16-bit integer numbers)
+/// into destination vector `a` (eight unsigned 16-bit integer numbers) based on the corresponding bit in `a`:
+/// if 0 copies the bit from `b`, if 1 copies the bit from `c`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2529,9 +2529,9 @@ pub unsafe fn __msa_bsel_v(a: v16u8, b: v16u8, c: v16u8) -> v16u8 {
 
 /// Immediate Bit Select
 ///
-/// Selectively copy bits from the 8-bit immediate imm8 and 'c' (eight unsigned 16-bit integer numbers)
-/// into destination vector 'a' (eight unsigned 16-bit integer numbers) based on the corresponding bit in a:
-/// if 0 copies the bit from 'b', if 1 copies the bit from 'c'.
+/// Selectively copy bits from the 8-bit immediate `imm8` and `c` (eight unsigned 16-bit integer numbers)
+/// into destination vector `a` (eight unsigned 16-bit integer numbers) based on the corresponding bit in `a`:
+/// if 0 copies the bit from `b`, if 1 copies the bit from `c`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2548,10 +2548,10 @@ pub unsafe fn __msa_bseli_b(a: v16u8, b: v16u8, imm8: i32) -> v16u8 {
 
 /// Vector Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (sixteen unsigned 8-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (sixteen unsigned 8-bit integer numbers)
 /// modulo the size of the element in bits.
-/// The result is written to vector (sixteen unsigned 8-bit integer numbers)
+/// The result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2562,10 +2562,10 @@ pub unsafe fn __msa_bset_b(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Vector Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (eight unsigned 16-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (eight unsigned 16-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (eight unsigned 16-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (eight unsigned 16-bit integer numbers)
 /// modulo the size of the element in bits.
-/// The result is written to vector (eight unsigned 16-bit integer numbers)
+/// The result is written to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2576,10 +2576,10 @@ pub unsafe fn __msa_bset_h(a: v8u16, b: v8u16) -> v8u16 {
 
 /// Vector Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (four unsigned 32-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (four unsigned 32-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (four unsigned 32-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (four unsigned 32-bit integer numbers)
 /// modulo the size of the element in bits.
-/// The result is written to vector (four unsigned 32-bit integer numbers)
+/// The result is written to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2590,10 +2590,10 @@ pub unsafe fn __msa_bset_w(a: v4u32, b: v4u32) -> v4u32 {
 
 /// Vector Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (two unsigned 64-bit integer numbers)
-/// The bit position is given by the elements in vector 'b' (two unsigned 64-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (two unsigned 64-bit integer numbers).
+/// The bit position is given by the elements in vector `b` (two unsigned 64-bit integer numbers)
 /// modulo the size of the element in bits.
-/// The result is written to vector (two unsigned 64-bit integer numbers)
+/// The result is written to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2604,9 +2604,9 @@ pub unsafe fn __msa_bset_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Immediate Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers)
-/// The bit position is given by immediate imm3.
-/// The result is written to vector 'a'(sixteen unsigned 8-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (sixteen unsigned 8-bit integer numbers).
+/// The bit position is given by immediate `imm3`.
+/// The result is written to vector `a` (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2623,9 +2623,9 @@ pub unsafe fn __msa_bseti_b(a: v16u8, imm3: i32) -> v16u8 {
 
 /// Immediate Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (eight unsigned 16-bit integer numbers)
-/// The bit position is given by immediate imm4.
-/// The result is written to vector 'a'(eight unsigned 16-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (eight unsigned 16-bit integer numbers).
+/// The bit position is given by immediate `imm4`.
+/// The result is written to vector `a` (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2642,9 +2642,9 @@ pub unsafe fn __msa_bseti_h(a: v8u16, imm4: i32) -> v8u16 {
 
 /// Immediate Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (four unsigned 32-bit integer numbers)
-/// The bit position is given by immediate imm5.
-/// The result is written to vector 'a'(four unsigned 32-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (four unsigned 32-bit integer numbers).
+/// The bit position is given by immediate `imm5`.
+/// The result is written to vector `a` (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2661,9 +2661,9 @@ pub unsafe fn __msa_bseti_w(a: v4u32, imm5: i32) -> v4u32 {
 
 /// Immediate Bit Set
 ///
-/// Set to 1 one bit in each element of vector `a` (two unsigned 64-bit integer numbers)
-/// The bit position is given by immediate imm6.
-/// The result is written to vector 'a'(two unsigned 64-bit integer numbers)
+/// Set to 1 one bit in each element of vector `a` (two unsigned 64-bit integer numbers).
+/// The bit position is given by immediate `imm6`.
+/// The result is written to vector `a` (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2680,7 +2680,7 @@ pub unsafe fn __msa_bseti_d(a: v2u64, imm6: i32) -> v2u64 {
 
 /// Immediate Branch If At Least One Element Is Zero
 ///
-/// PC-relative branch if at least one element in 'a' (sixteen unsigned 8-bit integer numbers) is zero.
+/// PC-relative branch if at least one element in `a` (sixteen unsigned 8-bit integer numbers) is zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2691,7 +2691,7 @@ pub unsafe fn __msa_bz_b(a: v16u8) -> i32 {
 
 /// Immediate Branch If At Least One Element Is Zero
 ///
-/// PC-relative branch if at least one element in 'a' (eight unsigned 16-bit integer numbers) is zero.
+/// PC-relative branch if at least one element in `a` (eight unsigned 16-bit integer numbers) is zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2702,7 +2702,7 @@ pub unsafe fn __msa_bz_h(a: v8u16) -> i32 {
 
 /// Immediate Branch If At Least One Element Is Zero
 ///
-/// PC-relative branch if at least one element in 'a' (four unsigned 32-bit integer numbers) is zero.
+/// PC-relative branch if at least one element in `a` (four unsigned 32-bit integer numbers) is zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2713,7 +2713,7 @@ pub unsafe fn __msa_bz_w(a: v4u32) -> i32 {
 
 /// Immediate Branch If At Least One Element Is Zero
 ///
-/// PC-relative branch if at least one element in 'a' (two unsigned 64-bit integer numbers) is zero.
+/// PC-relative branch if at least one element in `a` (two unsigned 64-bit integer numbers) is zero.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2724,8 +2724,8 @@ pub unsafe fn __msa_bz_d(a: v2u64) -> i32 {
 
 /// Immediate Branch If Zero (All Elements of Any Format Are Zero)
 ///
-/// PC-relative branch if all elements in 'a' (sixteen unsigned 8-bit integer numbers) bits are zero,
-/// i.e. all elements are zero regardless of the data format
+/// PC-relative branch if all elements in `a` (sixteen unsigned 8-bit integer numbers) bits are zero,
+/// i.e. all elements are zero regardless of the data format.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2737,7 +2737,7 @@ pub unsafe fn __msa_bz_v(a: v16u8) -> i32 {
 /// Vector Compare Equal
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen signed 8-bit integer numbers) and 'b'  (sixteen signed 8-bit integer numbers)
+/// if the corresponding `a` (sixteen signed 8-bit integer numbers) and `b` (sixteen signed 8-bit integer numbers)
 /// elements are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2750,7 +2750,7 @@ pub unsafe fn __msa_ceq_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Compare Equal
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight signed 16-bit integer numbers) and 'b'  (eight signed 16-bit integer numbers)
+/// if the corresponding `a` (eight signed 16-bit integer numbers) and `b` (eight signed 16-bit integer numbers)
 /// elements are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2763,7 +2763,7 @@ pub unsafe fn __msa_ceq_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Compare Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four signed 32-bit integer numbers) and 'b'  (four signed 32-bit integer numbers)
+/// if the corresponding `a` (four signed 32-bit integer numbers) and `b` (four signed 32-bit integer numbers)
 /// elements are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2776,7 +2776,7 @@ pub unsafe fn __msa_ceq_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Compare Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two signed 64-bit integer numbers) and 'b'  (two signed 64-bit integer numbers)
+/// if the corresponding `a` (two signed 64-bit integer numbers) and `b` (two signed 64-bit integer numbers)
 /// elements are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2789,7 +2789,7 @@ pub unsafe fn __msa_ceq_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Immediate Compare Equal
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen signed 8-bit integer numbers) the 5-bit signed immediate imm_s5
+/// if the corresponding `a` (sixteen signed 8-bit integer numbers) the 5-bit signed immediate imm_s5
 /// are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2808,7 +2808,7 @@ pub unsafe fn __msa_ceqi_b(a: v16i8, imm_s5: i32) -> v16i8 {
 /// Immediate Compare Equal
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight signed 16-bit integer numbers) the 5-bit signed immediate imm_s5
+/// if the corresponding `a` (eight signed 16-bit integer numbers) the 5-bit signed immediate imm_s5
 /// are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2827,7 +2827,7 @@ pub unsafe fn __msa_ceqi_h(a: v8i16, imm_s5: i32) -> v8i16 {
 /// Immediate Compare Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four signed 32-bit integer numbers) the 5-bit signed immediate imm_s5
+/// if the corresponding `a` (four signed 32-bit integer numbers) the 5-bit signed immediate imm_s5
 /// are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2846,7 +2846,7 @@ pub unsafe fn __msa_ceqi_w(a: v4i32, imm_s5: i32) -> v4i32 {
 /// Immediate Compare Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two signed 64-bit integer numbers) the 5-bit signed immediate imm_s5
+/// if the corresponding `a` (two signed 64-bit integer numbers) the 5-bit signed immediate imm_s5
 /// are equal, otherwise set all bits to 0.
 ///
 #[inline]
@@ -2864,7 +2864,7 @@ pub unsafe fn __msa_ceqi_d(a: v2i64, imm_s5: i32) -> v2i64 {
 
 /// GPR Copy from MSA Control Register
 ///
-/// The sign extended content of MSA control register cs is copied to GPRrd.
+/// The sign extended content of MSA control register cs is copied to GPR rd.
 ///
 /// Can not be tested in user mode
 #[inline]
@@ -2883,9 +2883,9 @@ pub unsafe fn __msa_cfcmsa(imm5: i32) -> i32 {
 /// Vector Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen signed 8-bit integer numbers) element
-/// are signed less than or equal to 'b'  (sixteen signed 8-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (sixteen signed 8-bit integer numbers) element
+/// are signed less than or equal to `b` (sixteen signed 8-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2897,9 +2897,9 @@ pub unsafe fn __msa_cle_s_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight signed 16-bit integer numbers) element
-/// are signed less than or equal to 'b'  (eight signed 16-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (eight signed 16-bit integer numbers) element
+/// are signed less than or equal to `b` (eight signed 16-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2911,9 +2911,9 @@ pub unsafe fn __msa_cle_s_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four signed 32-bit integer numbers) element
-/// are signed less than or equal to 'b'  (four signed 32-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (four signed 32-bit integer numbers) element
+/// are signed less than or equal to `b` (four signed 32-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2925,9 +2925,9 @@ pub unsafe fn __msa_cle_s_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two signed 64-bit integer numbers) element
-/// are signed less than or equal to 'b'  (two signed 64-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (two signed 64-bit integer numbers) element
+/// are signed less than or equal to `b` (two signed 64-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2939,9 +2939,9 @@ pub unsafe fn __msa_cle_s_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Vector Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen unsigned 8-bit integer numbers) element
-/// are unsigned less than or equal to 'b'  (sixteen unsigned 8-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (sixteen unsigned 8-bit integer numbers) element
+/// are unsigned less than or equal to `b` (sixteen unsigned 8-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2953,9 +2953,9 @@ pub unsafe fn __msa_cle_u_b(a: v16u8, b: v16u8) -> v16i8 {
 /// Vector Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight unsigned 16-bit integer numbers) element
-/// are unsigned less than or equal to 'b'  (eight unsigned 16-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (eight unsigned 16-bit integer numbers) element
+/// are unsigned less than or equal to `b` (eight unsigned 16-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2967,9 +2967,9 @@ pub unsafe fn __msa_cle_u_h(a: v8u16, b: v8u16) -> v8i16 {
 /// Vector Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four unsigned 32-bit integer numbers) element
-/// are unsigned less than or equal to 'b'  (four unsigned 32-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (four unsigned 32-bit integer numbers) element
+/// are unsigned less than or equal to `b` (four unsigned 32-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2981,9 +2981,9 @@ pub unsafe fn __msa_cle_u_w(a: v4u32, b: v4u32) -> v4i32 {
 /// Vector Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two unsigned 64-bit integer numbers) element
-/// are unsigned less than or equal to 'b'  (two unsigned 64-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (two unsigned 64-bit integer numbers) element
+/// are unsigned less than or equal to `b` (two unsigned 64-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -2995,7 +2995,7 @@ pub unsafe fn __msa_cle_u_d(a: v2u64, b: v2u64) -> v2i64 {
 /// Immediate Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen signed 8-bit integer numbers) element
+/// if the corresponding `a` (sixteen signed 8-bit integer numbers) element
 /// is less than or equal to the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3015,7 +3015,7 @@ pub unsafe fn __msa_clei_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 /// Immediate Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight signed 16-bit integer numbers) element
+/// if the corresponding `a` (eight signed 16-bit integer numbers) element
 /// is less than or equal to the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3035,7 +3035,7 @@ pub unsafe fn __msa_clei_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 /// Immediate Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four signed 32-bit integer numbers) element
+/// if the corresponding `a` (four signed 32-bit integer numbers) element
 /// is less than or equal to the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3055,7 +3055,7 @@ pub unsafe fn __msa_clei_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 /// Immediate Compare Signed Less Than or Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two signed 64-bit integer numbers) element
+/// if the corresponding `a` (two signed 64-bit integer numbers) element
 /// is less than or equal to the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3075,8 +3075,8 @@ pub unsafe fn __msa_clei_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
 /// Immediate Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen unsigned 8-bit integer numbers) element
-/// is unsigned less than or equal to the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (sixteen unsigned 8-bit integer numbers) element
+/// is unsigned less than or equal to the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3095,8 +3095,8 @@ pub unsafe fn __msa_clei_u_b(a: v16u8, imm5: i32) -> v16i8 {
 /// Immediate Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight unsigned 16-bit integer numbers) element
-/// is unsigned less than or equal to the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (eight unsigned 16-bit integer numbers) element
+/// is unsigned less than or equal to the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3115,8 +3115,8 @@ pub unsafe fn __msa_clei_u_h(a: v8u16, imm5: i32) -> v8i16 {
 /// Immediate Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four unsigned 32-bit integer numbers) element
-/// is unsigned less than or equal to the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (four unsigned 32-bit integer numbers) element
+/// is unsigned less than or equal to the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3135,8 +3135,8 @@ pub unsafe fn __msa_clei_u_w(a: v4u32, imm5: i32) -> v4i32 {
 /// Immediate Compare Unsigned Less Than or Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two unsigned 64-bit integer numbers) element
-/// is unsigned less than or equal to the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (two unsigned 64-bit integer numbers) element
+/// is unsigned less than or equal to the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3155,9 +3155,9 @@ pub unsafe fn __msa_clei_u_d(a: v2u64, imm5: i32) -> v2i64 {
 /// Vector Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen signed 8-bit integer numbers) element
-/// are signed less than 'b'  (sixteen signed 8-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (sixteen signed 8-bit integer numbers) element
+/// are signed less than `b` (sixteen signed 8-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3169,9 +3169,9 @@ pub unsafe fn __msa_clt_s_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight signed 16-bit integer numbers) element
-/// are signed less than 'b'  (eight signed 16-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (eight signed 16-bit integer numbers) element
+/// are signed less than `b` (eight signed 16-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3183,9 +3183,9 @@ pub unsafe fn __msa_clt_s_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four signed 32-bit integer numbers) element
-/// are signed less than 'b'  (four signed 32-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (four signed 32-bit integer numbers) element
+/// are signed less than `b` (four signed 32-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3197,9 +3197,9 @@ pub unsafe fn __msa_clt_s_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two signed 64-bit integer numbers) element
-/// are signed less than 'b'  (two signed 64-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (two signed 64-bit integer numbers) element
+/// are signed less than `b` (two signed 64-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3211,9 +3211,9 @@ pub unsafe fn __msa_clt_s_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Vector Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen unsigned 8-bit integer numbers) element
-/// are unsigned less than 'b'  (sixteen unsigned 8-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (sixteen unsigned 8-bit integer numbers) element
+/// are unsigned less than `b` (sixteen unsigned 8-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3225,9 +3225,9 @@ pub unsafe fn __msa_clt_u_b(a: v16u8, b: v16u8) -> v16i8 {
 /// Vector Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight unsigned 16-bit integer numbers) element
-/// are unsigned less than 'b'  (eight unsigned 16-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (eight unsigned 16-bit integer numbers) element
+/// are unsigned less than `b` (eight unsigned 16-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3239,9 +3239,9 @@ pub unsafe fn __msa_clt_u_h(a: v8u16, b: v8u16) -> v8i16 {
 /// Vector Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four unsigned 32-bit integer numbers) element
-/// are unsigned less than 'b'  (four unsigned 32-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (four unsigned 32-bit integer numbers) element
+/// are unsigned less than `b` (four unsigned 32-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3253,9 +3253,9 @@ pub unsafe fn __msa_clt_u_w(a: v4u32, b: v4u32) -> v4i32 {
 /// Vector Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two unsigned 64-bit integer numbers) element
-/// are unsigned less than 'b'  (two unsigned 64-bit integer numbers) element.
-/// otherwise set all bits to 0.
+/// if the corresponding `a` (two unsigned 64-bit integer numbers) element
+/// are unsigned less than `b` (two unsigned 64-bit integer numbers) element.
+/// Otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3267,7 +3267,7 @@ pub unsafe fn __msa_clt_u_d(a: v2u64, b: v2u64) -> v2i64 {
 /// Immediate Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen signed 8-bit integer numbers) element
+/// if the corresponding `a` (sixteen signed 8-bit integer numbers) element
 /// is less than the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3287,7 +3287,7 @@ pub unsafe fn __msa_clti_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 /// Immediate Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight signed 16-bit integer numbers) element
+/// if the corresponding `a` (eight signed 16-bit integer numbers) element
 /// is less than the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3307,7 +3307,7 @@ pub unsafe fn __msa_clti_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 /// Immediate Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four signed 32-bit integer numbers) element
+/// if the corresponding `a` (four signed 32-bit integer numbers) element
 /// is less than the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3327,7 +3327,7 @@ pub unsafe fn __msa_clti_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 /// Immediate Compare Signed Less Than
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two signed 64-bit integer numbers) element
+/// if the corresponding `a` (two signed 64-bit integer numbers) element
 /// is less than the 5-bit signed immediate imm_s5,
 /// otherwise set all bits to 0.
 ///
@@ -3347,8 +3347,8 @@ pub unsafe fn __msa_clti_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
 /// Immediate Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (sixteen signed 8-bit integer numbers) elements
-/// if the corresponding 'a' (sixteen unsigned 8-bit integer numbers) element
-/// is unsigned less than the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (sixteen unsigned 8-bit integer numbers) element
+/// is unsigned less than the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3367,8 +3367,8 @@ pub unsafe fn __msa_clti_u_b(a: v16u8, imm5: i32) -> v16i8 {
 /// Immediate Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (eight signed 16-bit integer numbers) elements
-/// if the corresponding 'a' (eight unsigned 16-bit integer numbers) element
-/// is unsigned less than the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (eight unsigned 16-bit integer numbers) element
+/// is unsigned less than the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3387,8 +3387,8 @@ pub unsafe fn __msa_clti_u_h(a: v8u16, imm5: i32) -> v8i16 {
 /// Immediate Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four unsigned 32-bit integer numbers) element
-/// is unsigned less than the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (four unsigned 32-bit integer numbers) element
+/// is unsigned less than the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3407,8 +3407,8 @@ pub unsafe fn __msa_clti_u_w(a: v4u32, imm5: i32) -> v4i32 {
 /// Immediate Compare Unsigned Less Than
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two unsigned 64-bit integer numbers) element
-/// is unsigned less than the 5-bit unsigned immediate imm5,
+/// if the corresponding `a` (two unsigned 64-bit integer numbers) element
+/// is unsigned less than the 5-bit unsigned immediate `imm5`,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -3426,8 +3426,8 @@ pub unsafe fn __msa_clti_u_d(a: v2u64, imm5: i32) -> v2i64 {
 
 /// Element Copy to GPR Signed
 ///
-/// Sign-extend element imm4 of vector 'a' (sixteen signed 8-bit integer numbers)
-/// and copy the result to GPR rd
+/// Sign-extend element `imm4` of vector `a` (sixteen signed 8-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3444,8 +3444,8 @@ pub unsafe fn __msa_copy_s_b(a: v16i8, imm4: i32) -> i32 {
 
 /// Element Copy to GPR Signed
 ///
-/// Sign-extend element imm3 of vector 'a' (eight signed 16-bit integer numbers)
-/// and copy the result to GPR rd
+/// Sign-extend element `imm3` of vector `a` (eight signed 16-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3462,8 +3462,8 @@ pub unsafe fn __msa_copy_s_h(a: v8i16, imm3: i32) -> i32 {
 
 /// Element Copy to GPR Signed
 ///
-/// Sign-extend element imm2 of vector 'a' (four signed 32-bit integer numbers)
-/// and copy the result to GPR rd
+/// Sign-extend element `imm2` of vector `a` (four signed 32-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3480,8 +3480,8 @@ pub unsafe fn __msa_copy_s_w(a: v4i32, imm2: i32) -> i32 {
 
 /// Element Copy to GPR Signed
 ///
-/// Sign-extend element imm1 of vector 'a' (two signed 64-bit integer numbers)
-/// and copy the result to GPR rd
+/// Sign-extend element `imm1` of vector `a` (two signed 64-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3498,8 +3498,8 @@ pub unsafe fn __msa_copy_s_d(a: v2i64, imm1: i32) -> i64 {
 
 /// Element Copy to GPR Unsigned
 ///
-/// Zero-extend element imm4 of vector 'a' (sixteen signed 8-bit integer numbers)
-/// and copy the result to GPR rd
+/// Zero-extend element `imm4` of vector `a` (sixteen signed 8-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3516,8 +3516,8 @@ pub unsafe fn __msa_copy_u_b(a: v16i8, imm4: i32) -> u32 {
 
 /// Element Copy to GPR Unsigned
 ///
-/// Zero-extend element imm3 of vector 'a' (eight signed 16-bit integer numbers)
-/// and copy the result to GPR rd
+/// Zero-extend element `imm3` of vector `a` (eight signed 16-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3534,8 +3534,8 @@ pub unsafe fn __msa_copy_u_h(a: v8i16, imm3: i32) -> u32 {
 
 /// Element Copy to GPR Unsigned
 ///
-/// Zero-extend element imm2 of vector 'a' (four signed 32-bit integer numbers)
-/// and copy the result to GPR rd
+/// Zero-extend element `imm2` of vector `a` (four signed 32-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3552,8 +3552,8 @@ pub unsafe fn __msa_copy_u_w(a: v4i32, imm2: i32) -> u32 {
 
 /// Element Copy to GPR Unsigned
 ///
-/// Zero-extend element imm1 of vector 'a' (two signed 64-bit integer numbers)
-/// and copy the result to GPR rd
+/// Zero-extend element `imm1` of vector `a` (two signed 64-bit integer numbers)
+/// and copy the result to GPR rd.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3569,9 +3569,12 @@ pub unsafe fn __msa_copy_u_d(a: v2i64, imm1: i32) -> u64 {
 }
 
 /// GPR Copy to MSA Control Register
-/// The content of the least significant 31 bits of  GPR imm1 is copied to
-/// MSA control register cd
+///
+/// The content of the least significant 31 bits of GPR `imm1` is copied to
+/// MSA control register cd.
+///
 /// Can not be tested in user mode
+///
 #[inline]
 #[target_feature(enable = "msa")]
 #[cfg_attr(test, assert_instr(ctcmsa, imm1 = 0b1))]
@@ -3587,8 +3590,8 @@ pub unsafe fn __msa_ctcmsa(imm5: i32, a: i32) -> () {
 
 /// Vector Signed Divide
 ///
-/// The signed integer elements in vector 'a' (sixteen signed 8-bit integer numbers)
-/// are divided by signed integer elements in vector 'b' (sixteen signed 8-bit integer numbers).
+/// The signed integer elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (sixteen signed 8-bit integer numbers).
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -3600,8 +3603,8 @@ pub unsafe fn __msa_div_s_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Signed Divide
 ///
-/// The signed integer elements in vector 'a' (eight signed 16-bit integer numbers)
-/// are divided by signed integer elements in vector 'b' (eight signed 16-bit integer numbers).
+/// The signed integer elements in vector `a` (eight signed 16-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (eight signed 16-bit integer numbers).
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -3613,8 +3616,8 @@ pub unsafe fn __msa_div_s_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Signed Divide
 ///
-/// The signed integer elements in vector 'a' (four signed 32-bit integer numbers)
-/// are divided by signed integer elements in vector 'b' (four signed 32-bit integer numbers).
+/// The signed integer elements in vector `a` (four signed 32-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (four signed 32-bit integer numbers).
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -3626,8 +3629,8 @@ pub unsafe fn __msa_div_s_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Signed Divide
 ///
-/// The signed integer elements in vector 'a' (two signed 64-bit integer numbers)
-/// are divided by signed integer elements in vector 'b' (two signed 64-bit integer numbers).
+/// The signed integer elements in vector `a` (two signed 64-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (two signed 64-bit integer numbers).
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -3639,8 +3642,8 @@ pub unsafe fn __msa_div_s_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Unsigned Divide
 ///
-/// The unsigned integer elements in vector 'a' (sixteen unsigned 8-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b' (sixteen unsigned 8-bit integer numbers).
+/// The unsigned integer elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (sixteen unsigned 8-bit integer numbers).
 /// The result is written to vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
@@ -3652,8 +3655,8 @@ pub unsafe fn __msa_div_u_b(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Vector Unsigned Divide
 ///
-/// The unsigned integer elements in vector 'a' (eight unsigned 16-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b' (eight unsigned 16-bit integer numbers).
+/// The unsigned integer elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (eight unsigned 16-bit integer numbers).
 /// The result is written to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
@@ -3665,8 +3668,8 @@ pub unsafe fn __msa_div_u_h(a: v8u16, b: v8u16) -> v8u16 {
 
 /// Vector Unsigned Divide
 ///
-/// The unsigned integer elements in vector 'a' (four unsigned 32-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b' (four unsigned 32-bit integer numbers).
+/// The unsigned integer elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (four unsigned 32-bit integer numbers).
 /// The result is written to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
@@ -3678,8 +3681,8 @@ pub unsafe fn __msa_div_u_w(a: v4u32, b: v4u32) -> v4u32 {
 
 /// Vector Unsigned Divide
 ///
-/// The unsigned integer elements in vector 'a' (two unsigned 64-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b' (two unsigned 64-bit integer numbers).
+/// The unsigned integer elements in vector `a` (two unsigned 64-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (two unsigned 64-bit integer numbers).
 /// The result is written to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
@@ -3691,9 +3694,9 @@ pub unsafe fn __msa_div_u_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Vector Signed Dot Product
 ///
-/// The signed integer elements in vector 'a' (sixteen signed 8-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'b' (sixteen signed 8-bit integer numbers).
-/// producing a result the size of the input operands. The multiplication resultsof
+/// The signed integer elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are multiplied by signed integer elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// producing a result the size of the input operands. The multiplication results of
 /// adjacent odd/even elements are added and stored to the destination
 /// vector (eight signed 16-bit integer numbers).
 ///
@@ -3706,9 +3709,9 @@ pub unsafe fn __msa_dotp_s_h(a: v16i8, b: v16i8) -> v8i16 {
 
 /// Vector Signed Dot Product
 ///
-/// The signed integer elements in vector 'a' (eight signed 16-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'b' (eight signed 16-bit integer numbers).
-/// producing a result the size of the input operands. The multiplication resultsof
+/// The signed integer elements in vector `a` (eight signed 16-bit integer numbers)
+/// are multiplied by signed integer elements in vector `b` (eight signed 16-bit integer numbers)
+/// producing a result the size of the input operands. The multiplication results of
 /// adjacent odd/even elements are added and stored to the destination
 /// vector (four signed 32-bit integer numbers).
 ///
@@ -3721,9 +3724,9 @@ pub unsafe fn __msa_dotp_s_w(a: v8i16, b: v8i16) -> v4i32 {
 
 /// Vector Signed Dot Product
 ///
-/// The signed integer elements in vector 'a' (four signed 32-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'b' (four signed 32-bit integer numbers).
-/// producing a result the size of the input operands. The multiplication resultsof
+/// The signed integer elements in vector `a` (four signed 32-bit integer numbers)
+/// are multiplied by signed integer elements in vector `b` (four signed 32-bit integer numbers)
+/// producing a result the size of the input operands. The multiplication results of
 /// adjacent odd/even elements are added and stored to the destination
 /// vector (two signed 64-bit integer numbers).
 ///
@@ -3736,9 +3739,9 @@ pub unsafe fn __msa_dotp_s_d(a: v4i32, b: v4i32) -> v2i64 {
 
 /// Vector Unsigned Dot Product
 ///
-/// The unsigned integer elements in vector 'a' (sixteen unsigned 8-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'b' (sixteen unsigned 8-bit integer numbers).
-/// producing a result the size of the input operands. The multiplication resultsof
+/// The unsigned integer elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// producing a result the size of the input operands. The multiplication results of
 /// adjacent odd/even elements are added and stored to the destination
 /// vector (eight unsigned 16-bit integer numbers).
 ///
@@ -3751,9 +3754,9 @@ pub unsafe fn __msa_dotp_u_h(a: v16u8, b: v16u8) -> v8u16 {
 
 /// Vector Unsigned Dot Product
 ///
-/// The unsigned integer elements in vector 'a' (eight unsigned 16-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'b' (eight unsigned 16-bit integer numbers).
-/// producing a result the size of the input operands. The multiplication resultsof
+/// The unsigned integer elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// producing a result the size of the input operands. The multiplication results of
 /// adjacent odd/even elements are added and stored to the destination
 /// vector (four unsigned 32-bit integer numbers).
 ///
@@ -3766,9 +3769,9 @@ pub unsafe fn __msa_dotp_u_w(a: v8u16, b: v8u16) -> v4u32 {
 
 /// Vector Unsigned Dot Product
 ///
-/// The unsigned integer elements in vector 'a' (four unsigned 32-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'b' (four unsigned 32-bit integer numbers).
-/// producing a result the size of the input operands. The multiplication resultsof
+/// The unsigned integer elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `b` (four unsigned 32-bit integer numbers)
+/// producing a result the size of the input operands. The multiplication results of
 /// adjacent odd/even elements are added and stored to the destination
 /// vector (two unsigned 64-bit integer numbers).
 ///
@@ -3781,10 +3784,10 @@ pub unsafe fn __msa_dotp_u_d(a: v4u32, b: v4u32) -> v2u64 {
 
 /// Vector Signed Dot Product and Add
 ///
-/// The signed integer elements in vector 'b' (sixteen signed 8-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'c' (sixteen signed 8-bit integer numbers).
+/// The signed integer elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are multiplied by signed integer elements in vector `c` (sixteen signed 8-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are added to the vector 'a' (eight signed 16-bit integer numbers).
+/// of adjacent odd/even elements are added to the vector `a` (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3795,10 +3798,10 @@ pub unsafe fn __msa_dpadd_s_h(a: v8i16, b: v16i8, c: v16i8) -> v8i16 {
 
 /// Vector Signed Dot Product and Add
 ///
-/// The signed integer elements in vector 'b' (eight signed 16-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'c' (eight signed 16-bit integer numbers).
+/// The signed integer elements in vector `b` (eight signed 16-bit integer numbers)
+/// are multiplied by signed integer elements in vector `c` (eight signed 16-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are added to the vector 'a' (four signed 32-bit integer numbers).
+/// of adjacent odd/even elements are added to the vector `a` (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3809,10 +3812,10 @@ pub unsafe fn __msa_dpadd_s_w(a: v4i32, b: v8i16, c: v8i16) -> v4i32 {
 
 /// Vector Signed Dot Product and Add
 ///
-/// The signed integer elements in vector 'b' (four signed 32-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'c' (four signed 32-bit integer numbers).
+/// The signed integer elements in vector `b` (four signed 32-bit integer numbers)
+/// are multiplied by signed integer elements in vector `c` (four signed 32-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are added to the vector 'a' (two signed 64-bit integer numbers).
+/// of adjacent odd/even elements are added to the vector `a` (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3823,10 +3826,10 @@ pub unsafe fn __msa_dpadd_s_d(a: v2i64, b: v4i32, c: v4i32) -> v2i64 {
 
 /// Vector Unsigned Dot Product and Add
 ///
-/// The unsigned integer elements in vector 'b' (sixteen unsigned 8-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'c' (sixteen unsigned 8-bit integer numbers).
+/// The unsigned integer elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `c` (sixteen unsigned 8-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are added to the vector 'a' (eight unsigned 16-bit integer numbers).
+/// of adjacent odd/even elements are added to the vector `a` (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3837,10 +3840,10 @@ pub unsafe fn __msa_dpadd_u_h(a: v8u16, b: v16u8, c: v16u8) -> v8u16 {
 
 /// Vector Unsigned Dot Product and Add
 ///
-/// The unsigned integer elements in vector 'b' (eight unsigned 16-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'c' (eight unsigned 16-bit integer numbers).
+/// The unsigned integer elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `c` (eight unsigned 16-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are added to the vector 'a' (four unsigned 32-bit integer numbers).
+/// of adjacent odd/even elements are added to the vector `a` (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3851,10 +3854,10 @@ pub unsafe fn __msa_dpadd_u_w(a: v4u32, b: v8u16, c: v8u16) -> v4u32 {
 
 /// Vector Unsigned Dot Product and Add
 ///
-/// The unsigned integer elements in vector 'b' (four unsigned 32-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'c' (four unsigned 32-bit integer numbers).
+/// The unsigned integer elements in vector `b` (four unsigned 32-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `c` (four unsigned 32-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are added to the vector 'a' (two unsigned 64-bit integer numbers).
+/// of adjacent odd/even elements are added to the vector `a` (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3865,10 +3868,10 @@ pub unsafe fn __msa_dpadd_u_d(a: v2u64, b: v4u32, c: v4u32) -> v2u64 {
 
 /// Vector Signed Dot Product and Add
 ///
-/// The signed integer elements in vector 'b' (sixteen signed 8-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'c' (sixteen signed 8-bit integer numbers).
+/// The signed integer elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are multiplied by signed integer elements in vector `c` (sixteen signed 8-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are sub-tracted from the integer elements in vector 'a'
+/// of adjacent odd/even elements are subtracted from the integer elements in vector `a`
 /// (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -3880,10 +3883,10 @@ pub unsafe fn __msa_dpsub_s_h(a: v8i16, b: v16i8, c: v16i8) -> v8i16 {
 
 /// Vector Signed Dot Product and Add
 ///
-/// The signed integer elements in vector 'b' (eight signed 16-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'c' (eight signed 16-bit integer numbers).
+/// The signed integer elements in vector `b` (eight signed 16-bit integer numbers)
+/// are multiplied by signed integer elements in vector `c` (eight signed 16-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are sub-tracted from the integer elements in vector 'a'
+/// of adjacent odd/even elements are subtracted from the integer elements in vector `a`
 /// (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -3895,10 +3898,10 @@ pub unsafe fn __msa_dpsub_s_w(a: v4i32, b: v8i16, c: v8i16) -> v4i32 {
 
 /// Vector Signed Dot Product and Add
 ///
-/// The signed integer elements in vector 'b' (four signed 32-bit integer numbers)
-/// are multiplied by signed integer elements in vector 'c' (four signed 32-bit integer numbers).
+/// The signed integer elements in vector `b` (four signed 32-bit integer numbers)
+/// are multiplied by signed integer elements in vector `c` (four signed 32-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are sub-tracted from the integer elements in vector 'a'
+/// of adjacent odd/even elements are subtracted from the integer elements in vector `a`
 /// (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -3910,10 +3913,10 @@ pub unsafe fn __msa_dpsub_s_d(a: v2i64, b: v4i32, c: v4i32) -> v2i64 {
 
 /// Vector Unsigned Dot Product and Add
 ///
-/// The unsigned integer elements in vector 'b' (sixteen unsigned 8-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'c' (sixteen unsigned 8-bit integer numbers).
+/// The unsigned integer elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `c` (sixteen unsigned 8-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are sub-tracted from the integer elements in vector 'a'
+/// of adjacent odd/even elements are subtracted from the integer elements in vector `a`
 /// (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -3925,10 +3928,10 @@ pub unsafe fn __msa_dpsub_u_h(a: v8i16, b: v16u8, c: v16u8) -> v8i16 {
 
 /// Vector Unsigned Dot Product and Add
 ///
-/// The unsigned integer elements in vector 'b' (eight unsigned 16-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'c' (eight unsigned 16-bit integer numbers).
+/// The unsigned integer elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `c` (eight unsigned 16-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are sub-tracted from the integer elements in vector 'a'
+/// of adjacent odd/even elements are subtracted from the integer elements in vector `a`
 /// (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -3940,10 +3943,10 @@ pub unsafe fn __msa_dpsub_u_w(a: v4i32, b: v8u16, c: v8u16) -> v4i32 {
 
 /// Vector Unsigned Dot Product and Add
 ///
-/// The unsigned integer elements in vector 'b' (four unsigned 32-bit integer numbers)
-/// are multiplied by unsigned integer elements in vector 'c' (four unsigned 32-bit integer numbers).
+/// The unsigned integer elements in vector `b` (four unsigned 32-bit integer numbers)
+/// are multiplied by unsigned integer elements in vector `c` (four unsigned 32-bit integer numbers)
 /// producing a result twice the size of the input operands. The multiplication results
-/// of adjacent odd/even elements are sub-tracted from the integer elements in vector 'a'
+/// of adjacent odd/even elements are subtracted from the integer elements in vector `a`
 /// (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -3955,9 +3958,9 @@ pub unsafe fn __msa_dpsub_u_d(a: v2i64, b: v4u32, c: v4u32) -> v2i64 {
 
 /// Vector Floating-Point Addition
 ///
-/// The floating-point elements in vector 'a' (four 32-bit floating point numbers)
-/// are added to the floating-point elements in 'bc' (four 32-bit floating point numbers).
-/// The result is written to vector (four 32-bit floating point numbers)
+/// The floating-point elements in vector `a` (four 32-bit floating point numbers)
+/// are added to the floating-point elements in `bc` (four 32-bit floating point numbers).
+/// The result is written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3968,9 +3971,9 @@ pub unsafe fn __msa_fadd_w(a: v4f32, b: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Addition
 ///
-/// The floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// are added to the floating-point elements in 'bc' (two 64-bit floating point numbers).
-/// The result is written to vector (two 64-bit floating point numbers)
+/// The floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// are added to the floating-point elements in `bc` (two 64-bit floating point numbers).
+/// The result is written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3981,9 +3984,9 @@ pub unsafe fn __msa_fadd_d(a: v2f64, b: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Quiet Compare Always False
 ///
-/// Set all bits to 0 in vector (four signed 32-bit integer numbers)
-/// Signaling NaN elements in 'a' (four 32-bit floating point numbers)
-/// or 'b' (four 32-bit floating point numbers)signal Invalid Operation exception.
+/// Set all bits to 0 in vector (four signed 32-bit integer numbers).
+/// Signaling NaN elements in `a` (four 32-bit floating point numbers)
+/// or `b` (four 32-bit floating point numbers) signal Invalid Operation exception.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -3994,9 +3997,9 @@ pub unsafe fn __msa_fcaf_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Quiet Compare Always False
 ///
-/// Set all bits to 0 in vector (two signed 64-bit integer numbers)
-/// Signaling NaN elements in 'a' (two 64-bit floating point numbers)
-/// or 'b' (two 64-bit floating point numbers) signal Invalid Operation exception.
+/// Set all bits to 0 in vector (two signed 64-bit integer numbers).
+/// Signaling NaN elements in `a` (two 64-bit floating point numbers)
+/// or `b` (two 64-bit floating point numbers) signal Invalid Operation exception.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4008,8 +4011,8 @@ pub unsafe fn __msa_fcaf_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding in 'a' (four 32-bit floating point numbers)
-/// and 'b' (four 32-bit floating point numbers)elements are ordered and equal,
+/// elements if the corresponding in `a` (four 32-bit floating point numbers)
+/// and `b` (four 32-bit floating point numbers) elements are ordered and equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4022,8 +4025,8 @@ pub unsafe fn __msa_fceq_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding in 'a' (two 64-bit floating point numbers)
-/// and 'b' (two 64-bit floating point numbers) elementsare ordered and equal,
+/// elements if the corresponding in `a` (two 64-bit floating point numbers)
+/// and `b` (two 64-bit floating point numbers) elements are ordered and equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4037,10 +4040,10 @@ pub unsafe fn __msa_fceq_d(a: v2f64, b: v2f64) -> v2i64 {
 ///
 /// Store in each element of vector (four signed 32-bit integer numbers)
 /// a bit mask reflecting the floating-point class of the corresponding element of vector
-/// 'a' (four 32-bit floating point numbers).
+/// `a` (four 32-bit floating point numbers).
 /// The mask has 10 bits as follows. Bits 0 and 1 indicate NaN values: signaling NaN (bit 0) and quiet NaN (bit 1).
-/// Bits 2, 3, 4, 5 classify  negative values: infinity (bit 2), normal (bit 3), subnormal (bit 4), and zero (bit 5).
-/// Bits 6, 7, 8, 9classify positive values:infinity (bit 6), normal (bit 7), subnormal (bit 8), and zero (bit 9).
+/// Bits 2, 3, 4, 5 classify negative values: infinity (bit 2), normal (bit 3), subnormal (bit 4), and zero (bit 5).
+/// Bits 6, 7, 8, 9 classify positive values: infinity (bit 6), normal (bit 7), subnormal (bit 8), and zero (bit 9).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4051,12 +4054,12 @@ pub unsafe fn __msa_fclass_w(a: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Class Mask
 ///
-/// Store in each element of vector (wto signed 64-bit integer numbers)
+/// Store in each element of vector (two signed 64-bit integer numbers)
 /// a bit mask reflecting the floating-point class of the corresponding element of vector
-/// 'a' (wto 64-bit floating point numbers).
+/// `a` (two 64-bit floating point numbers).
 /// The mask has 10 bits as follows. Bits 0 and 1 indicate NaN values: signaling NaN (bit 0) and quiet NaN (bit 1).
-/// Bits 2, 3, 4, 5 classify  negative values: infinity (bit 2), normal (bit 3), subnormal (bit 4), and zero (bit 5).
-/// Bits 6, 7, 8, 9classify positive values:infinity (bit 6), normal (bit 7), subnormal (bit 8), and zero (bit 9).
+/// Bits 2, 3, 4, 5 classify negative values: infinity (bit 2), normal (bit 3), subnormal (bit 4), and zero (bit 5).
+/// Bits 6, 7, 8, 9 classify positive values: infinity (bit 6), normal (bit 7), subnormal (bit 8), and zero (bit 9).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4068,8 +4071,8 @@ pub unsafe fn __msa_fclass_d(a: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Less or Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding 'a' (four 32-bit floating point numbers)elements are ordered
-/// and either less than or equal to 'b' (four 32-bit floating point numbers)elements
+/// elements if the corresponding `a` (four 32-bit floating point numbers) elements are ordered
+/// and either less than or equal to `b` (four 32-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4082,8 +4085,8 @@ pub unsafe fn __msa_fcle_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Less or Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding 'a' (two 64-bit floating point numbers) elementsare ordered
-/// and either less than or equal to 'b' (two 64-bit floating point numbers) elements
+/// elements if the corresponding `a` (two 64-bit floating point numbers) elements are ordered
+/// and either less than or equal to `b` (two 64-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4096,8 +4099,8 @@ pub unsafe fn __msa_fcle_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Less Than
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding 'a' (four 32-bit floating point numbers)elements are ordered
-/// and less than 'b' (four 32-bit floating point numbers)elements
+/// elements if the corresponding `a` (four 32-bit floating point numbers) elements are ordered
+/// and less than `b` (four 32-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4110,8 +4113,8 @@ pub unsafe fn __msa_fclt_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Less Than
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding 'a' (two 64-bit floating point numbers) elementsare ordered
-/// and less than 'b' (two 64-bit floating point numbers) elements
+/// elements if the corresponding `a` (two 64-bit floating point numbers) elements are ordered
+/// and less than `b` (two 64-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4124,8 +4127,8 @@ pub unsafe fn __msa_fclt_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Not Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are ordered and not equal
+/// elements if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are ordered and not equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4138,8 +4141,8 @@ pub unsafe fn __msa_fcne_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Not Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare ordered and not equal
+/// elements if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are ordered and not equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4152,8 +4155,8 @@ pub unsafe fn __msa_fcne_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Ordered
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are ordered, i.e. both elementsare not NaN values,
+/// elements if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are ordered, i.e. both elements are not NaN values,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4166,8 +4169,8 @@ pub unsafe fn __msa_fcor_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Ordered
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare ordered, i.e. both elementsare not NaN values,
+/// elements if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are ordered, i.e. both elements are not NaN values,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4180,8 +4183,8 @@ pub unsafe fn __msa_fcor_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Unordered or Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are unordered or equal,
+/// elements if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are unordered or equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4194,8 +4197,8 @@ pub unsafe fn __msa_fcueq_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Unordered or Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare unordered or equal,
+/// elements if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are unordered or equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4208,8 +4211,8 @@ pub unsafe fn __msa_fcueq_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Unordered or Less or Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding elements in 'a' (four 32-bit floating point numbers)
-/// are unordered or less than or equal to 'b' (four 32-bit floating point numbers)elements,
+/// elements if the corresponding elements in `a` (four 32-bit floating point numbers)
+/// are unordered or less than or equal to `b` (four 32-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4222,8 +4225,8 @@ pub unsafe fn __msa_fcule_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Unordered or Less or Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding elements in 'a' (two 64-bit floating point numbers)
-/// are unordered or less than or equal to 'b' (two 64-bit floating point numbers) elements,
+/// elements if the corresponding elements in `a` (two 64-bit floating point numbers)
+/// are unordered or less than or equal to `b` (two 64-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4236,8 +4239,8 @@ pub unsafe fn __msa_fcule_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Unordered or Less Than
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding elements in 'a' (four 32-bit floating point numbers)
-/// are unordered or less than 'b' (four 32-bit floating point numbers)elements,
+/// elements if the corresponding elements in `a` (four 32-bit floating point numbers)
+/// are unordered or less than `b` (four 32-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4250,8 +4253,8 @@ pub unsafe fn __msa_fcult_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Unordered or Less Than
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding elements in 'a' (two 64-bit floating point numbers)
-/// are unordered or less than 'b' (two 64-bit floating point numbers) elements,
+/// elements if the corresponding elements in `a` (two 64-bit floating point numbers)
+/// are unordered or less than `b` (two 64-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4264,9 +4267,9 @@ pub unsafe fn __msa_fcult_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Unordered
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding 'a' (four 32-bit floating point numbers)
-/// and 'b' (four 32-bit floating point numbers)elements are unordered,
-/// i.e. at least oneelement is a NaN value, otherwise set all bits to 0.
+/// elements if the corresponding `a` (four 32-bit floating point numbers)
+/// and `b` (four 32-bit floating point numbers) elements are unordered,
+/// i.e. at least one element is a NaN value, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4278,9 +4281,9 @@ pub unsafe fn __msa_fcun_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Unordered
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding 'a' (two 64-bit floating point numbers)
-/// and 'b' (two 64-bit floating point numbers) elementsare unordered,
-/// i.e. at least oneelement is a NaN value, otherwise set all bits to 0.
+/// elements if the corresponding `a` (two 64-bit floating point numbers)
+/// and `b` (two 64-bit floating point numbers) elements are unordered,
+/// i.e. at least one element is a NaN value, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4292,8 +4295,8 @@ pub unsafe fn __msa_fcun_d(a: v2f64, b: v2f64) -> v2i64 {
 /// Vector Floating-Point Quiet Compare Unordered or Not Equal
 ///
 /// Set all bits to 1 in vector (four signed 32-bit integer numbers)
-/// elements if the corresponding 'a' (four 32-bit floating point numbers)
-/// and 'b' (four 32-bit floating point numbers)elements are unordered or not equal,
+/// elements if the corresponding `a` (four 32-bit floating point numbers)
+/// and `b` (four 32-bit floating point numbers) elements are unordered or not equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4306,8 +4309,8 @@ pub unsafe fn __msa_fcune_w(a: v4f32, b: v4f32) -> v4i32 {
 /// Vector Floating-Point Quiet Compare Unordered or Not Equal
 ///
 /// Set all bits to 1 in vector (two signed 64-bit integer numbers)
-/// elements if the corresponding 'a' (two 64-bit floating point numbers)
-/// and 'b' (two 64-bit floating point numbers) elementsare unordered or not equal,
+/// elements if the corresponding `a` (two 64-bit floating point numbers)
+/// and `b` (two 64-bit floating point numbers) elements are unordered or not equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -4319,8 +4322,8 @@ pub unsafe fn __msa_fcune_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Division
 ///
-/// The floating-point elements in vector 'a' (four 32-bit floating point numbers)
-/// are divided by the floating-point elements in vector 'b' (four 32-bit floating point numbers)
+/// The floating-point elements in vector `a` (four 32-bit floating point numbers)
+/// are divided by the floating-point elements in vector `b` (four 32-bit floating point numbers).
 /// The result is written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
@@ -4332,8 +4335,8 @@ pub unsafe fn __msa_fdiv_w(a: v4f32, b: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Division
 ///
-/// The floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// are divided by the floating-point elements in vector 'b' (two 64-bit floating point numbers)
+/// The floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// are divided by the floating-point elements in vector `b` (two 64-bit floating point numbers).
 /// The result is written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
@@ -4346,9 +4349,9 @@ pub unsafe fn __msa_fdiv_d(a: v2f64, b: v2f64) -> v2f64 {
 /* FIXME: 16-bit float
 /// Vector Floating-Point Down-Convert Interchange Format
 ///
-/// The floating-point elements in vector 'a' (four 64-bit floating point numbers)
-/// and  vector 'b' (four 64-bit floating point numbers)  are down-converted
-/// to a smaller interchange format, i.e. from 64-bitto 32-bit, or from 32-bit to 16-bit.
+/// The floating-point elements in vector `a` (four 64-bit floating point numbers)
+/// and vector `b` (four 64-bit floating point numbers) are down-converted
+/// to a smaller interchange format, i.e. from 64-bit to 32-bit, or from 32-bit to 16-bit.
 /// The result is written to vector (8 16-bit floating point numbers).
 ///
 #[inline]
@@ -4360,9 +4363,9 @@ pub unsafe fn __msa_fexdo_h(a: v4f32, b: v4f32) -> f16x8 {
 
 /// Vector Floating-Point Down-Convert Interchange Format
 ///
-/// The floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// and  vector 'b' (two 64-bit floating point numbers)  are down-converted
-/// to a smaller interchange format, i.e. from 64-bitto 32-bit, or from 32-bit to 16-bit.
+/// The floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// and vector `b` (two 64-bit floating point numbers) are down-converted
+/// to a smaller interchange format, i.e. from 64-bit to 32-bit, or from 32-bit to 16-bit.
 /// The result is written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
@@ -4374,8 +4377,8 @@ pub unsafe fn __msa_fexdo_w(a: v2f64, b: v2f64) -> v4f32 {
 
 /// Vector Floating-Point Down-Convert Interchange Format
 ///
-/// The floating-point elements in vector 'a' (four 32-bit floating point numbers)
-/// are scaled, i.e. multiplied, by 2 to the power of integer elements in vector 'b'
+/// The floating-point elements in vector `a` (four 32-bit floating point numbers)
+/// are scaled, i.e. multiplied, by 2 to the power of integer elements in vector `b`
 /// (four signed 32-bit integer numbers).
 /// The result is written to vector (four 32-bit floating point numbers).
 ///
@@ -4388,8 +4391,8 @@ pub unsafe fn __msa_fexp2_w(a: v4f32, b: v4i32) -> v4f32 {
 
 /// Vector Floating-Point Down-Convert Interchange Format
 ///
-/// The floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// are scaled, i.e. multiplied, by 2 to the power of integer elements in vector 'b'
+/// The floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// are scaled, i.e. multiplied, by 2 to the power of integer elements in vector `b`
 /// (two signed 64-bit integer numbers).
 /// The result is written to vector (two 64-bit floating point numbers).
 ///
@@ -4403,7 +4406,7 @@ pub unsafe fn __msa_fexp2_d(a: v2f64, b: v2i64) -> v2f64 {
 /* FIXME: 16-bit float
 /// Vector Floating-Point Up-Convert Interchange Format Left
 ///
-/// The left half floating-point elements in vector 'a' (two 16-bit floating point numbers)
+/// The left half floating-point elements in vector `a` (two 16-bit floating point numbers)
 /// are up-converted to a larger interchange format,
 /// i.e. from 16-bit to 32-bit, or from 32-bit to 64-bit.
 /// The result is written to vector (four 32-bit floating point numbers).
@@ -4417,7 +4420,7 @@ pub unsafe fn __msa_fexupl_w(a: f16x8) -> v4f32 {
 
 /// Vector Floating-Point Up-Convert Interchange Format Left
 ///
-/// The left half floating-point elements in vector 'a' (four 32-bit floating point numbers)
+/// The left half floating-point elements in vector `a` (four 32-bit floating point numbers)
 /// are up-converted to a larger interchange format,
 /// i.e. from 16-bit to 32-bit, or from 32-bit to 64-bit.
 /// The result is written to vector (two 64-bit floating point numbers).
@@ -4432,7 +4435,7 @@ pub unsafe fn __msa_fexupl_d(a: v4f32) -> v2f64 {
 /* FIXME: 16-bit float
 /// Vector Floating-Point Up-Convert Interchange Format Left
 ///
-/// The right half floating-point elements in vector 'a' (two 16-bit floating point numbers)
+/// The right half floating-point elements in vector `a` (two 16-bit floating point numbers)
 /// are up-converted to a larger interchange format,
 /// i.e. from 16-bit to 32-bit, or from 32-bit to 64-bit.
 /// The result is written to vector (four 32-bit floating point numbers).
@@ -4446,7 +4449,7 @@ pub unsafe fn __msa_fexupr_w(a: f16x8) -> v4f32 {
 
 /// Vector Floating-Point Up-Convert Interchange Format Left
 ///
-/// The right half floating-point elements in vector 'a' (four 32-bit floating point numbers)
+/// The right half floating-point elements in vector `a` (four 32-bit floating point numbers)
 /// are up-converted to a larger interchange format,
 /// i.e. from 16-bit to 32-bit, or from 32-bit to 64-bit.
 /// The result is written to vector (two 64-bit floating point numbers).
@@ -4460,7 +4463,7 @@ pub unsafe fn __msa_fexupr_d(a: v4f32) -> v2f64 {
 
 /// Vector Floating-Point Round and Convert from Signed Integer
 ///
-/// The signed integer elements in vector 'a' (four signed 32-bit integer numbers)
+/// The signed integer elements in vector `a` (four signed 32-bit integer numbers)
 /// are converted to floating-point values.
 /// The result is written to vector (four 32-bit floating point numbers).
 ///
@@ -4473,7 +4476,7 @@ pub unsafe fn __msa_ffint_s_w(a: v4i32) -> v4f32 {
 
 /// Vector Floating-Point Round and Convert from Signed Integer
 ///
-/// The signed integer elements in vector 'a' (two signed 64-bit integer numbers)
+/// The signed integer elements in vector `a` (two signed 64-bit integer numbers)
 /// are converted to floating-point values.
 /// The result is written to vector (two 64-bit floating point numbers).
 ///
@@ -4486,7 +4489,7 @@ pub unsafe fn __msa_ffint_s_d(a: v2i64) -> v2f64 {
 
 /// Vector Floating-Point Round and Convert from Unsigned Integer
 ///
-/// The unsigned integer elements in vector 'a' (four unsigned 32-bit integer numbers)
+/// The unsigned integer elements in vector `a` (four unsigned 32-bit integer numbers)
 /// are converted to floating-point values.
 /// The result is written to vector (four 32-bit floating point numbers).
 ///
@@ -4499,7 +4502,7 @@ pub unsafe fn __msa_ffint_u_w(a: v4u32) -> v4f32 {
 
 /// Vector Floating-Point Round and Convert from Unsigned Integer
 ///
-/// The unsigned integer elements in vector 'a' (two unsigned 64-bit integer numbers)
+/// The unsigned integer elements in vector `a` (two unsigned 64-bit integer numbers)
 /// are converted to floating-point values.
 /// The result is written to vector (two 64-bit floating point numbers).
 ///
@@ -4512,7 +4515,7 @@ pub unsafe fn __msa_ffint_u_d(a: v2u64) -> v2f64 {
 
 /// Vector Floating-Point Convert from Fixed-Point Left
 ///
-/// The left half fixed-point elements in vector 'a' (eight signed 16-bit integer numbers)
+/// The left half fixed-point elements in vector `a` (eight signed 16-bit integer numbers)
 /// are up-converted to floating-point data format.
 /// i.e. from 16-bit Q15 to 32-bit floating-point, or from 32-bit Q31 to 64-bit floating-point.
 /// The result is written to vector (four 32-bit floating point numbers).
@@ -4526,7 +4529,7 @@ pub unsafe fn __msa_ffql_w(a: v8i16) -> v4f32 {
 
 /// Vector Floating-Point Convert from Fixed-Point Left
 ///
-/// The left half fixed-point elements in vector 'a' (four signed 32-bit integer numbers)
+/// The left half fixed-point elements in vector `a` (four signed 32-bit integer numbers)
 /// are up-converted to floating-point data format.
 /// i.e. from 16-bit Q15 to 32-bit floating-point, or from 32-bit Q31 to 64-bit floating-point.
 /// The result is written to vector (two 64-bit floating point numbers).
@@ -4540,7 +4543,7 @@ pub unsafe fn __msa_ffql_d(a: v4i32) -> v2f64 {
 
 /// Vector Floating-Point Convert from Fixed-Point Left
 ///
-/// The right half fixed-point elements in vector 'a' (eight signed 16-bit integer numbers)
+/// The right half fixed-point elements in vector `a` (eight signed 16-bit integer numbers)
 /// are up-converted to floating-point data format.
 /// i.e. from 16-bit Q15 to 32-bit floating-point, or from 32-bit Q31 to 64-bit floating-point.
 /// The result is written to vector (four 32-bit floating point numbers).
@@ -4554,7 +4557,7 @@ pub unsafe fn __msa_ffqr_w(a: v8i16) -> v4f32 {
 
 /// Vector Floating-Point Convert from Fixed-Point Left
 ///
-/// The right half fixed-point elements in vector 'a' (four signed 32-bit integer numbers)
+/// The right half fixed-point elements in vector `a` (four signed 32-bit integer numbers)
 /// are up-converted to floating-point data format.
 /// i.e. from 16-bit Q15 to 32-bit floating-point, or from 32-bit Q31 to 64-bit floating-point.
 /// The result is written to vector (two 64-bit floating point numbers).
@@ -4570,7 +4573,7 @@ pub unsafe fn __msa_ffqr_d(a: v4i32) -> v2f64 {
 ///
 /// Replicate GPR rs value to all elements in vector (sixteen signed 8-bit integer numbers).
 /// If the source GPR is wider than the destination data format, the destination's elements
-/// will be set to the least significant bits of the GPR
+/// will be set to the least significant bits of the GPR.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4583,7 +4586,7 @@ pub unsafe fn __msa_fill_b(a: i32) -> v16i8 {
 ///
 /// Replicate GPR rs value to all elements in vector (eight signed 16-bit integer numbers).
 /// If the source GPR is wider than the destination data format, the destination's elements
-/// will be set to the least significant bits of the GPR
+/// will be set to the least significant bits of the GPR.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4596,7 +4599,7 @@ pub unsafe fn __msa_fill_h(a: i32) -> v8i16 {
 ///
 /// Replicate GPR rs value to all elements in vector (four signed 32-bit integer numbers).
 /// If the source GPR is wider than the destination data format, the destination's elements
-/// will be set to the least significant bits of the GPR
+/// will be set to the least significant bits of the GPR.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4609,7 +4612,7 @@ pub unsafe fn __msa_fill_w(a: i32) -> v4i32 {
 ///
 /// Replicate GPR rs value to all elements in vector (two signed 64-bit integer numbers).
 /// If the source GPR is wider than the destination data format, the destination's elements
-/// will be set to the least significant bits of the GPR
+/// will be set to the least significant bits of the GPR.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4620,8 +4623,8 @@ pub unsafe fn __msa_fill_d(a: i64) -> v2i64 {
 
 /// Vector Floating-Point Base 2 Logarithm
 ///
-/// The signed integral base 2 exponents of floating-point elements in vector 'a'
-/// (four 32-bit floating point numbers)are written as floating-point values to vector elements
+/// The signed integral base 2 exponents of floating-point elements in vector `a`
+/// (four 32-bit floating point numbers) are written as floating-point values to vector elements
 /// (four 32-bit floating point numbers).
 ///
 #[inline]
@@ -4633,7 +4636,7 @@ pub unsafe fn __msa_flog2_w(a: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Base 2 Logarithm
 ///
-/// The signed integral base 2 exponents of floating-point elements in vector 'a'
+/// The signed integral base 2 exponents of floating-point elements in vector `a`
 /// (two 64-bit floating point numbers) are written as floating-point values to vector elements
 /// (two 64-bit floating point numbers).
 ///
@@ -4646,9 +4649,9 @@ pub unsafe fn __msa_flog2_d(a: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Multiply-Add
 ///
-/// The floating-point elements in vector 'b' (four 32-bit floating point numbers)
-/// multiplied by floating-point elements in vector 'c' (four 32-bit floating point numbers)
-/// are added to the floating-point elements in vector 'a' (four 32-bit floating point numbers)
+/// The floating-point elements in vector `b` (four 32-bit floating point numbers)
+/// multiplied by floating-point elements in vector `c` (four 32-bit floating point numbers)
+/// are added to the floating-point elements in vector `a` (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4659,9 +4662,9 @@ pub unsafe fn __msa_fmadd_w(a: v4f32, b: v4f32, c: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Multiply-Add
 ///
-/// The floating-point elements in vector 'b' (two 64-bit floating point numbers)
-/// multiplied by floating-point elements in vector 'c' (two 64-bit floating point numbers)
-/// are added to the floating-point elements in vector 'a' (two 64-bit floating point numbers)
+/// The floating-point elements in vector `b` (two 64-bit floating point numbers)
+/// multiplied by floating-point elements in vector `c` (two 64-bit floating point numbers)
+/// are added to the floating-point elements in vector `a` (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4672,9 +4675,9 @@ pub unsafe fn __msa_fmadd_d(a: v2f64, b: v2f64, c: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Maximum
 ///
-/// The largest values between corresponding floating-point elements in vector 'a'
-/// (four 32-bit floating point numbers)andvector 'b' (four 32-bit floating point numbers)
-/// are written to vector (four 32-bit floating point numbers)
+/// The largest values between corresponding floating-point elements in vector `a`
+/// (four 32-bit floating point numbers) and vector `b` (four 32-bit floating point numbers)
+/// are written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4685,9 +4688,9 @@ pub unsafe fn __msa_fmax_w(a: v4f32, b: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Maximum
 ///
-/// The largest values between corresponding floating-point elements in vector 'a'
-/// (two 64-bit floating point numbers) and vector 'b' (two 64-bit floating point numbers)
-/// are written to vector (two 64-bit floating point numbers)
+/// The largest values between corresponding floating-point elements in vector `a`
+/// (two 64-bit floating point numbers) and vector `b` (two 64-bit floating point numbers)
+/// are written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4699,9 +4702,9 @@ pub unsafe fn __msa_fmax_d(a: v2f64, b: v2f64) -> v2f64 {
 /// Vector Floating-Point Maximum Based on Absolute Values
 ///
 /// The value with the largest magnitude, i.e. absolute value, between corresponding
-/// floating-point elements in vector 'a' (four 32-bit floating point numbers)
-/// and vector 'b' (four 32-bit floating point numbers)
-/// are written to vector (four 32-bit floating point numbers)
+/// floating-point elements in vector `a` (four 32-bit floating point numbers)
+/// and vector `b` (four 32-bit floating point numbers)
+/// are written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4713,9 +4716,9 @@ pub unsafe fn __msa_fmax_a_w(a: v4f32, b: v4f32) -> v4f32 {
 /// Vector Floating-Point Maximum Based on Absolute Values
 ///
 /// The value with the largest magnitude, i.e. absolute value, between corresponding
-/// floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// and vector 'b' (two 64-bit floating point numbers)
-/// are written to vector (two 64-bit floating point numbers)
+/// floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// and vector `b` (two 64-bit floating point numbers)
+/// are written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4726,9 +4729,9 @@ pub unsafe fn __msa_fmax_a_d(a: v2f64, b: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Minimum
 ///
-/// The smallest values between corresponding floating-point elements in vector 'a'
-/// (four 32-bit floating point numbers)andvector 'b' (four 32-bit floating point numbers)
-/// are written to vector (four 32-bit floating point numbers)
+/// The smallest values between corresponding floating-point elements in vector `a`
+/// (four 32-bit floating point numbers) and vector `b` (four 32-bit floating point numbers)
+/// are written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4739,9 +4742,9 @@ pub unsafe fn __msa_fmin_w(a: v4f32, b: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Minimum
 ///
-/// The smallest values between corresponding floating-point elements in vector 'a'
-/// (two 64-bit floating point numbers) and vector 'b' (two 64-bit floating point numbers)
-/// are written to vector (two 64-bit floating point numbers)
+/// The smallest values between corresponding floating-point elements in vector `a`
+/// (two 64-bit floating point numbers) and vector `b` (two 64-bit floating point numbers)
+/// are written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4753,9 +4756,9 @@ pub unsafe fn __msa_fmin_d(a: v2f64, b: v2f64) -> v2f64 {
 /// Vector Floating-Point Minimum Based on Absolute Values
 ///
 /// The value with the smallest magnitude, i.e. absolute value, between corresponding
-/// floating-point elements in vector 'a' (four 32-bit floating point numbers)
-/// and vector 'b' (four 32-bit floating point numbers)
-/// are written to vector (four 32-bit floating point numbers)
+/// floating-point elements in vector `a` (four 32-bit floating point numbers)
+/// and vector `b` (four 32-bit floating point numbers)
+/// are written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4767,9 +4770,9 @@ pub unsafe fn __msa_fmin_a_w(a: v4f32, b: v4f32) -> v4f32 {
 /// Vector Floating-Point Minimum Based on Absolute Values
 ///
 /// The value with the smallest magnitude, i.e. absolute value, between corresponding
-/// floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// and vector 'b' (two 64-bit floating point numbers)
-/// are written to vector (two 64-bit floating point numbers)
+/// floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// and vector `b` (two 64-bit floating point numbers)
+/// are written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4780,9 +4783,9 @@ pub unsafe fn __msa_fmin_a_d(a: v2f64, b: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Multiply-Sub
 ///
-/// The floating-point elements in vector 'b' (four 32-bit floating point numbers)
-/// multiplied by floating-point elements in vector 'c' (four 32-bit floating point numbers)
-/// are subtracted from the floating-point elements in vector 'a' (four 32-bit floating point numbers)
+/// The floating-point elements in vector `b` (four 32-bit floating point numbers)
+/// multiplied by floating-point elements in vector `c` (four 32-bit floating point numbers)
+/// are subtracted from the floating-point elements in vector `a` (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4793,9 +4796,9 @@ pub unsafe fn __msa_fmsub_w(a: v4f32, b: v4f32, c: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Multiply-Sub
 ///
-/// The floating-point elements in vector 'b' (two 64-bit floating point numbers)
-/// multiplied by floating-point elements in vector 'c' (two 64-bit floating point numbers)
-/// are subtracted from the floating-point elements in vector 'a' (two 64-bit floating point numbers)
+/// The floating-point elements in vector `b` (two 64-bit floating point numbers)
+/// multiplied by floating-point elements in vector `c` (two 64-bit floating point numbers)
+/// are subtracted from the floating-point elements in vector `a` (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4806,8 +4809,8 @@ pub unsafe fn __msa_fmsub_d(a: v2f64, b: v2f64, c: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Multiplication
 ///
-/// The floating-point elements in vector 'a' (four 32-bit floating point numbers)are
-/// multiplied by floating-point elements in vector 'b' (four 32-bit floating point numbers)
+/// The floating-point elements in vector `a` (four 32-bit floating point numbers) are
+/// multiplied by floating-point elements in vector `b` (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4818,8 +4821,8 @@ pub unsafe fn __msa_fmul_w(a: v4f32, b: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Multiplication
 ///
-/// The floating-point elements in vector 'a' (two 64-bit floating point numbers) are
-/// multiplied by floating-point elements in vector 'b' (two 64-bit floating point numbers)
+/// The floating-point elements in vector `a` (two 64-bit floating point numbers) are
+/// multiplied by floating-point elements in vector `b` (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4830,9 +4833,9 @@ pub unsafe fn __msa_fmul_d(a: v2f64, b: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Round to Integer
 ///
-/// The floating-point elements in vector 'a' (four 32-bit floating point numbers)
+/// The floating-point elements in vector `a` (four 32-bit floating point numbers)
 /// are rounded to an integral valued floating-point number in the same format based
-/// on  the  rounding  mode  bits  RM  in  MSA  Control  and  Status  Register MSACSR.
+/// on the rounding mode bits RM in MSA Control and Status Register MSACSR.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4843,9 +4846,9 @@ pub unsafe fn __msa_frint_w(a: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Round to Integer
 ///
-/// The floating-point elements in vector 'a' (two 64-bit floating point numbers)
+/// The floating-point elements in vector `a` (two 64-bit floating point numbers)
 /// are rounded to an integral valued floating-point number in the same format based
-/// on  the  rounding  mode  bits  RM  in  MSA  Control  and  Status  Register MSACSR.
+/// on the rounding mode bits RM in MSA Control and Status Register MSACSR.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4854,10 +4857,10 @@ pub unsafe fn __msa_frint_d(a: v2f64) -> v2f64 {
     msa_frint_d(a)
 }
 
-/// Vector Approximate Floating-Point  Reciprocal
+/// Vector Approximate Floating-Point Reciprocal
 ///
-/// The reciprocals of floating-point elements in vector 'a' (four 32-bit floating point numbers)
-/// are calculated and the result is written to vector (four 32-bit floating point numbers)
+/// The reciprocals of floating-point elements in vector `a` (four 32-bit floating point numbers)
+/// are calculated and the result is written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4866,10 +4869,10 @@ pub unsafe fn __msa_frcp_w(a: v4f32) -> v4f32 {
     msa_frcp_w(a)
 }
 
-/// Vector Approximate Floating-Point  Reciprocal
+/// Vector Approximate Floating-Point Reciprocal
 ///
-/// The reciprocals of floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// are calculated and the result is written to vector (two 64-bit floating point numbers)
+/// The reciprocals of floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// are calculated and the result is written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4880,8 +4883,8 @@ pub unsafe fn __msa_frcp_d(a: v2f64) -> v2f64 {
 
 /// Vector Approximate Floating-Point Reciprocal of Square Root
 ///
-/// The reciprocals of the square  roots of floating-point elements in vector 'a' (four 32-bit floating point numbers)
-/// are calculated and the result is written to vector (four 32-bit floating point numbers)
+/// The reciprocals of the square roots of floating-point elements in vector `a` (four 32-bit floating point numbers)
+/// are calculated and the result is written to vector (four 32-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4892,8 +4895,8 @@ pub unsafe fn __msa_frsqrt_w(a: v4f32) -> v4f32 {
 
 /// Vector Approximate Floating-Point Reciprocal of Square Root
 ///
-/// The reciprocals of the square  roots of floating-point elements in vector 'a' (two 64-bit floating point numbers)
-/// are calculated and the result is written to vector (two 64-bit floating point numbers)
+/// The reciprocals of the square roots of floating-point elements in vector `a` (two 64-bit floating point numbers)
+/// are calculated and the result is written to vector (two 64-bit floating point numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4904,10 +4907,10 @@ pub unsafe fn __msa_frsqrt_d(a: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Signaling Compare Always False
 ///
-/// Set all bits to 0 in  vector (four signed 32-bit integer numbers) elements.
-/// Signaling and quiet NaN elements in vector 'a' (four 32-bit floating point numbers)
-/// or 'b' (four 32-bit floating point numbers)signal  Invalid Operation exception.
-/// In case of a floating-point exception, the default result has all bits set to 0
+/// Set all bits to 0 in vector (four signed 32-bit integer numbers) elements.
+/// Signaling and quiet NaN elements in vector `a` (four 32-bit floating point numbers)
+/// or `b` (four 32-bit floating point numbers) signal Invalid Operation exception.
+/// In case of a floating-point exception, the default result has all bits set to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4918,10 +4921,10 @@ pub unsafe fn __msa_fsaf_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Always False
 ///
-/// Set all bits to 0 in  vector (two signed 64-bit integer numbers) elements.
-/// Signaling and quiet NaN elements in vector 'a' (two 64-bit floating point numbers)
-/// or 'b' (two 64-bit floating point numbers) signal  Invalid Operation exception.
-/// In case of a floating-point exception, the default result has all bits set to 0
+/// Set all bits to 0 in vector (two signed 64-bit integer numbers) elements.
+/// Signaling and quiet NaN elements in vector `a` (two 64-bit floating point numbers)
+/// or `b` (two 64-bit floating point numbers) signal Invalid Operation exception.
+/// In case of a floating-point exception, the default result has all bits set to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4932,9 +4935,9 @@ pub unsafe fn __msa_fsaf_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Equal
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)
-/// and 'b' (four 32-bit floating point numbers)elements are equal, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers)
+/// and `b` (four 32-bit floating point numbers) elements are equal, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4945,9 +4948,9 @@ pub unsafe fn __msa_fseq_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Equal
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers)
-/// and 'b' (two 64-bit floating point numbers) elementsare equal, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers)
+/// and `b` (two 64-bit floating point numbers) elements are equal, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4958,9 +4961,9 @@ pub unsafe fn __msa_fseq_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Less or Equal
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)elements
-/// are less than or equal to 'b' (four 32-bit floating point numbers)elements, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) elements
+/// are less than or equal to `b` (four 32-bit floating point numbers) elements, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4971,9 +4974,9 @@ pub unsafe fn __msa_fsle_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Less or Equal
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) elements
-/// are less than or equal to 'b' (two 64-bit floating point numbers) elements, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) elements
+/// are less than or equal to `b` (two 64-bit floating point numbers) elements, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4984,9 +4987,9 @@ pub unsafe fn __msa_fsle_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Less Than
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)elements
-/// are less than 'b' (four 32-bit floating point numbers)elements, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) elements
+/// are less than `b` (four 32-bit floating point numbers) elements, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -4997,9 +5000,9 @@ pub unsafe fn __msa_fslt_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Less Than
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) elements
-/// are less than 'b' (two 64-bit floating point numbers) elements, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) elements
+/// are less than `b` (two 64-bit floating point numbers) elements, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5010,9 +5013,9 @@ pub unsafe fn __msa_fslt_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Not Equal
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are not equal, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are not equal, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5023,9 +5026,9 @@ pub unsafe fn __msa_fsne_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Not Equal
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare not equal, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are not equal, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5036,10 +5039,10 @@ pub unsafe fn __msa_fsne_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Ordered
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are ordered,
-/// i.e. both elementsare not NaN values, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are ordered,
+/// i.e. both elements are not NaN values, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5050,10 +5053,10 @@ pub unsafe fn __msa_fsor_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Ordered
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare ordered,
-/// i.e. both elementsare not NaN values, otherwise set all bits to 0.
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are ordered,
+/// i.e. both elements are not NaN values, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5062,11 +5065,11 @@ pub unsafe fn __msa_fsor_d(a: v2f64, b: v2f64) -> v2i64 {
     msa_fsor_d(a, mem::transmute(b))
 }
 
-/// Vector Floating-Point  Square Root
+/// Vector Floating-Point Square Root
 ///
-/// The square roots of floating-point elements in vector 'a'
-/// (four 32-bit floating point numbers)are written to vector
-/// (four 32-bit floating point numbers)elements are ordered,
+/// The square roots of floating-point elements in vector `a`
+/// (four 32-bit floating point numbers) are written to vector
+/// (four 32-bit floating point numbers) elements are ordered,.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5075,11 +5078,11 @@ pub unsafe fn __msa_fsqrt_w(a: v4f32) -> v4f32 {
     msa_fsqrt_w(a)
 }
 
-/// Vector Floating-Point  Square Root
+/// Vector Floating-Point Square Root
 ///
-/// The square roots of floating-point elements in vector 'a'
+/// The square roots of floating-point elements in vector `a`
 /// (two 64-bit floating point numbers) are written to vector
-/// (two 64-bit floating point numbers) elementsare ordered,
+/// (two 64-bit floating point numbers) elements are ordered,.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5090,8 +5093,8 @@ pub unsafe fn __msa_fsqrt_d(a: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Subtraction
 ///
-/// The floating-point elements in vector 'b' (four 32-bit floating point numbers)
-/// are subtracted from the floating-point elements in vector 'a'
+/// The floating-point elements in vector `b` (four 32-bit floating point numbers)
+/// are subtracted from the floating-point elements in vector `a`
 /// (four 32-bit floating point numbers).
 /// The result is written to vector (four 32-bit floating point numbers).
 ///
@@ -5104,8 +5107,8 @@ pub unsafe fn __msa_fsub_w(a: v4f32, b: v4f32) -> v4f32 {
 
 /// Vector Floating-Point Subtraction
 ///
-/// The floating-point elements in vector 'b' (two 64-bit floating point numbers)
-/// are subtracted from the floating-point elements in vector 'a'
+/// The floating-point elements in vector `b` (two 64-bit floating point numbers)
+/// are subtracted from the floating-point elements in vector `a`
 /// (two 64-bit floating point numbers).
 /// The result is written to vector (two 64-bit floating point numbers).
 ///
@@ -5118,9 +5121,9 @@ pub unsafe fn __msa_fsub_d(a: v2f64, b: v2f64) -> v2f64 {
 
 /// Vector Floating-Point Signaling Compare Ordered
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are unordered or equal,
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are unordered or equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5132,9 +5135,9 @@ pub unsafe fn __msa_fsueq_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Ordered
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare unordered or equal,
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are unordered or equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5146,9 +5149,9 @@ pub unsafe fn __msa_fsueq_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Unordered or Less or Equal
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)elements are
-/// unordered or less than or equal to 'b' (four 32-bit floating point numbers)elements
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) elements are
+/// unordered or less than or equal to `b` (four 32-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5160,9 +5163,9 @@ pub unsafe fn __msa_fsule_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Unordered or Less or Equal
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) elementsare
-/// unordered or less than or equal to 'b' (two 64-bit floating point numbers) elements
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) elements are
+/// unordered or less than or equal to `b` (two 64-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5174,9 +5177,9 @@ pub unsafe fn __msa_fsule_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Unordered or Less Than
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)elements
-/// are unordered or less than 'b' (four 32-bit floating point numbers)elements
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) elements
+/// are unordered or less than `b` (four 32-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5188,9 +5191,9 @@ pub unsafe fn __msa_fsult_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Unordered or Less Than
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) elements
-/// are unordered or less than 'b' (two 64-bit floating point numbers) elements
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) elements
+/// are unordered or less than `b` (two 64-bit floating point numbers) elements,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5202,10 +5205,10 @@ pub unsafe fn __msa_fsult_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Unordered
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are unordered,
-/// i.e. at least one element is a NaN value otherwise set all bits to 0.
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are unordered,
+/// i.e. at least one element is a NaN value, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5216,10 +5219,10 @@ pub unsafe fn __msa_fsun_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Unordered
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare unordered,
-/// i.e. at least one element is a NaN value otherwise set all bits to 0.
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are unordered,
+/// i.e. at least one element is a NaN value, otherwise set all bits to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5230,9 +5233,9 @@ pub unsafe fn __msa_fsun_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Signaling Compare Unordered or Not Equal
 ///
-/// Set all bits to 1 in  vector (four signed 32-bit integer numbers) elements
-/// if the corresponding 'a' (four 32-bit floating point numbers)and
-/// 'b' (four 32-bit floating point numbers)elements are unordered or not equal,
+/// Set all bits to 1 in vector (four signed 32-bit integer numbers) elements
+/// if the corresponding `a` (four 32-bit floating point numbers) and
+/// `b` (four 32-bit floating point numbers) elements are unordered or not equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5244,9 +5247,9 @@ pub unsafe fn __msa_fsune_w(a: v4f32, b: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Signaling Compare Unordered or Not Equal
 ///
-/// Set all bits to 1 in  vector (two signed 64-bit integer numbers) elements
-/// if the corresponding 'a' (two 64-bit floating point numbers) and
-/// 'b' (two 64-bit floating point numbers) elementsare unordered or not equal,
+/// Set all bits to 1 in vector (two signed 64-bit integer numbers) elements
+/// if the corresponding `a` (two 64-bit floating point numbers) and
+/// `b` (two 64-bit floating point numbers) elements are unordered or not equal,
 /// otherwise set all bits to 0.
 ///
 #[inline]
@@ -5258,7 +5261,7 @@ pub unsafe fn __msa_fsune_d(a: v2f64, b: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Convert to Signed Integer
 ///
-///The elements in vector 'a' (four 32-bit floating point numbers)
+///The elements in vector `a` (four 32-bit floating point numbers)
 /// are rounded and converted to signed integer values based on the
 /// rounding mode bits RM in MSA Control and Status Register MSACSR.
 /// The result is written to vector (four signed 32-bit integer numbers).
@@ -5272,7 +5275,7 @@ pub unsafe fn __msa_ftint_s_w(a: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Convert to Signed Integer
 ///
-///The elements in vector 'a' (two 64-bit floating point numbers)
+///The elements in vector `a` (two 64-bit floating point numbers)
 /// are rounded and converted to signed integer values based on the
 /// rounding mode bits RM in MSA Control and Status Register MSACSR.
 /// The result is written to vector (two signed 64-bit integer numbers).
@@ -5286,7 +5289,7 @@ pub unsafe fn __msa_ftint_s_d(a: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Convert to Unsigned Integer
 ///
-/// The elements in vector 'a' (four 32-bit floating point numbers)
+/// The elements in vector `a` (four 32-bit floating point numbers)
 /// are rounded and converted to signed integer values based on the
 /// rounding mode bits RM in MSA Control and Status Register MSACSR.
 /// The result is written to vector (four unsigned 32-bit integer numbers).
@@ -5300,7 +5303,7 @@ pub unsafe fn __msa_ftint_u_w(a: v4f32) -> v4u32 {
 
 /// Vector Floating-Point Convert to Unsigned Integer
 ///
-/// The elements in vector 'a' (two 64-bit floating point numbers)
+/// The elements in vector `a` (two 64-bit floating point numbers)
 /// are rounded and converted to signed integer values based on the
 /// rounding mode bits RM in MSA Control and Status Register MSACSR.
 /// The result is written to vector (two unsigned 64-bit integer numbers).
@@ -5314,9 +5317,9 @@ pub unsafe fn __msa_ftint_u_d(a: v2f64) -> v2u64 {
 
 /// Vector Floating-Point Convert to Fixed-Point
 ///
-/// The elements in vector 'a' (four 32-bit floating point numbers)
-/// and 'b' (four 32-bit floating point numbers)are down-converted to a fixed-point
-/// representation,  i.e. from 64-bit floating-point to 32-bit Q31 fixed-point
+/// The elements in vector `a` (four 32-bit floating point numbers)
+/// and `b` (four 32-bit floating point numbers) are down-converted to a fixed-point
+/// representation, i.e. from 64-bit floating-point to 32-bit Q31 fixed-point
 /// representation, or from 32-bit floating-point to 16-bit Q15 fixed-point representation.
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
@@ -5329,9 +5332,9 @@ pub unsafe fn __msa_ftq_h(a: v4f32, b: v4f32) -> v8i16 {
 
 /// Vector Floating-Point Convert to Fixed-Point
 ///
-/// The elements in vector 'a' (two 64-bit floating point numbers)
-/// and 'b' (two 64-bit floating point numbers) are down-converted to a fixed-point
-/// representation,  i.e. from 64-bit floating-point to 32-bit Q31 fixed-point
+/// The elements in vector `a` (two 64-bit floating point numbers)
+/// and `b` (two 64-bit floating point numbers) are down-converted to a fixed-point
+/// representation, i.e. from 64-bit floating-point to 32-bit Q31 fixed-point
 /// representation, or from 32-bit floating-point to 16-bit Q15 fixed-point representation.
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
@@ -5344,7 +5347,7 @@ pub unsafe fn __msa_ftq_w(a: v2f64, b: v2f64) -> v4i32 {
 
 /// Vector Floating-Point Truncate and Convert to Signed Integer
 ///
-/// The elements in vector 'a' (four 32-bit floating point numbers)
+/// The elements in vector `a` (four 32-bit floating point numbers)
 /// are truncated, i.e. rounded toward zero, to signed integer values.
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
@@ -5357,7 +5360,7 @@ pub unsafe fn __msa_ftrunc_s_w(a: v4f32) -> v4i32 {
 
 /// Vector Floating-Point Truncate and Convert to Signed Integer
 ///
-/// The elements in vector 'a' (two 64-bit floating point numbers)
+/// The elements in vector `a` (two 64-bit floating point numbers)
 /// are truncated, i.e. rounded toward zero, to signed integer values.
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
@@ -5370,7 +5373,7 @@ pub unsafe fn __msa_ftrunc_s_d(a: v2f64) -> v2i64 {
 
 /// Vector Floating-Point Truncate and Convert to Unsigned Integer
 ///
-/// The elements in vector 'a' (four 32-bit floating point numbers)
+/// The elements in vector `a` (four 32-bit floating point numbers)
 /// are truncated, i.e. rounded toward zero, to unsigned integer values.
 /// The result is written to vector (four unsigned 32-bit integer numbers).
 ///
@@ -5383,7 +5386,7 @@ pub unsafe fn __msa_ftrunc_u_w(a: v4f32) -> v4u32 {
 
 /// Vector Floating-Point Truncate and Convert to Unsigned Integer
 ///
-/// The elements in vector 'a' (two 64-bit floating point numbers)
+/// The elements in vector `a` (two 64-bit floating point numbers)
 /// are truncated, i.e. rounded toward zero, to unsigned integer values.
 /// The result is written to vector (two unsigned 64-bit integer numbers).
 ///
@@ -5396,9 +5399,9 @@ pub unsafe fn __msa_ftrunc_u_d(a: v2f64) -> v2u64 {
 
 /// Vector Signed Horizontal Add
 ///
-/// The sign-extended odd elements in vector 'a' (sixteen signed 8-bit integer numbers)
-/// are added to the sign-extended even elements in vector 'b' (sixteen signed 8-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The sign-extended odd elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are added to the sign-extended even elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -5410,9 +5413,9 @@ pub unsafe fn __msa_hadd_s_h(a: v16i8, b: v16i8) -> v8i16 {
 
 /// Vector Signed Horizontal Add
 ///
-/// The sign-extended odd elements in vector 'a' (eight signed 16-bit integer numbers)
-/// are added to the sign-extended even elements in vector 'b' (eight signed 16-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The sign-extended odd elements in vector `a` (eight signed 16-bit integer numbers)
+/// are added to the sign-extended even elements in vector `b` (eight signed 16-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -5424,9 +5427,9 @@ pub unsafe fn __msa_hadd_s_w(a: v8i16, b: v8i16) -> v4i32 {
 
 /// Vector Signed Horizontal Add
 ///
-/// The sign-extended odd elements in vector 'a' (four signed 32-bit integer numbers)
-/// are added to the sign-extended even elements in vector 'b' (four signed 32-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The sign-extended odd elements in vector `a` (four signed 32-bit integer numbers)
+/// are added to the sign-extended even elements in vector `b` (four signed 32-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -5438,9 +5441,9 @@ pub unsafe fn __msa_hadd_s_d(a: v4i32, b: v4i32) -> v2i64 {
 
 /// Vector Unsigned Horizontal Add
 ///
-/// The zero-extended odd elements in vector 'a' (sixteen unsigned 8-bit integer numbers)
-/// are added to the zero-extended even elements in vector 'b' (sixteen unsigned 8-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The zero-extended odd elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are added to the zero-extended even elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
@@ -5452,9 +5455,9 @@ pub unsafe fn __msa_hadd_u_h(a: v16u8, b: v16u8) -> v8u16 {
 
 /// Vector Unsigned Horizontal Add
 ///
-/// The zero-extended odd elements in vector 'a' (eight unsigned 16-bit integer numbers)
-/// are added to the zero-extended even elements in vector 'b' (eight unsigned 16-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The zero-extended odd elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are added to the zero-extended even elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
@@ -5466,9 +5469,9 @@ pub unsafe fn __msa_hadd_u_w(a: v8u16, b: v8u16) -> v4u32 {
 
 /// Vector Unsigned Horizontal Add
 ///
-/// The zero-extended odd elements in vector 'a' (four unsigned 32-bit integer numbers)
-/// are added to the zero-extended even elements in vector 'b' (four unsigned 32-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The zero-extended odd elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are added to the zero-extended even elements in vector `b` (four unsigned 32-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
@@ -5480,9 +5483,9 @@ pub unsafe fn __msa_hadd_u_d(a: v4u32, b: v4u32) -> v2u64 {
 
 /// Vector Signed Horizontal Subtract
 ///
-/// The sign-extended odd elements in vector 'b' (sixteen signed 8-bit integer numbers)
-/// are subtracted from the sign-extended elements in vector 'a' (sixteen signed 8-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The sign-extended odd elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are subtracted from the sign-extended elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -5494,9 +5497,9 @@ pub unsafe fn __msa_hsub_s_h(a: v16i8, b: v16i8) -> v8i16 {
 
 /// Vector Signed Horizontal Subtract
 ///
-/// The sign-extended odd elements in vector 'b' (eight signed 16-bit integer numbers)
-/// are subtracted from the sign-extended elements in vector 'a' (eight signed 16-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The sign-extended odd elements in vector `b` (eight signed 16-bit integer numbers)
+/// are subtracted from the sign-extended elements in vector `a` (eight signed 16-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -5508,9 +5511,9 @@ pub unsafe fn __msa_hsub_s_w(a: v8i16, b: v8i16) -> v4i32 {
 
 /// Vector Signed Horizontal Subtract
 ///
-/// The sign-extended odd elements in vector 'b' (four signed 32-bit integer numbers)
-/// are subtracted from the sign-extended elements in vector 'a' (four signed 32-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The sign-extended odd elements in vector `b` (four signed 32-bit integer numbers)
+/// are subtracted from the sign-extended elements in vector `a` (four signed 32-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -5522,9 +5525,9 @@ pub unsafe fn __msa_hsub_s_d(a: v4i32, b: v4i32) -> v2i64 {
 
 /// Vector Unsigned Horizontal Subtract
 ///
-/// The zero-extended odd elements in vector 'b' (sixteen unsigned 8-bit integer numbers)
-/// are subtracted from the zero-extended elements in vector 'a' (sixteen unsigned 8-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The zero-extended odd elements in vector `b` (sixteen unsigned 8-bit integer numbers)
+/// are subtracted from the zero-extended elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -5536,9 +5539,9 @@ pub unsafe fn __msa_hsub_u_h(a: v16u8, b: v16u8) -> v8i16 {
 
 /// Vector Unsigned Horizontal Subtract
 ///
-/// The zero-extended odd elements in vector 'b' (eight unsigned 16-bit integer numbers)
-/// are subtracted from the zero-extended elements in vector 'a' (eight unsigned 16-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The zero-extended odd elements in vector `b` (eight unsigned 16-bit integer numbers)
+/// are subtracted from the zero-extended elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -5550,9 +5553,9 @@ pub unsafe fn __msa_hsub_u_w(a: v8u16, b: v8u16) -> v4i32 {
 
 /// Vector Unsigned Horizontal Subtract
 ///
-/// The zero-extended odd elements in vector 'b' (four unsigned 32-bit integer numbers)
-/// are subtracted from the zero-extended elements in vector 'a' (four unsigned 32-bit integer numbers)
-/// producing aresult twice the size of the input operands.
+/// The zero-extended odd elements in vector `b` (four unsigned 32-bit integer numbers)
+/// are subtracted from the zero-extended elements in vector `a` (four unsigned 32-bit integer numbers)
+/// producing a result twice the size of the input operands.
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -5564,10 +5567,10 @@ pub unsafe fn __msa_hsub_u_d(a: v4u32, b: v4u32) -> v2i64 {
 
 /// Vector Interleave Even
 ///
-/// Even  elements in vectors 'a' (sixteen signed 8-bit integer numbers)
-/// and vector 'b' (sixteen signed 8-bit integer numbers) are copied to the result
+/// Even elements in vectors `a` (sixteen signed 8-bit integer numbers)
+/// and vector `b` (sixteen signed 8-bit integer numbers) are copied to the result
 /// (sixteen signed 8-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5578,10 +5581,10 @@ pub unsafe fn __msa_ilvev_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Interleave Even
 ///
-/// Even  elements in vectors 'a' (eight signed 16-bit integer numbers)
-/// and vector 'b' (eight signed 16-bit integer numbers) are copied to the result
+/// Even elements in vectors `a` (eight signed 16-bit integer numbers)
+/// and vector `b` (eight signed 16-bit integer numbers) are copied to the result
 /// (eight signed 16-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5592,10 +5595,10 @@ pub unsafe fn __msa_ilvev_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Interleave Even
 ///
-/// Even  elements in vectors 'a' (four signed 32-bit integer numbers)
-/// and vector 'b' (four signed 32-bit integer numbers) are copied to the result
+/// Even elements in vectors `a` (four signed 32-bit integer numbers)
+/// and vector `b` (four signed 32-bit integer numbers) are copied to the result
 /// (four signed 32-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5606,10 +5609,10 @@ pub unsafe fn __msa_ilvev_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Interleave Even
 ///
-/// Even  elements in vectors 'a' (two signed 64-bit integer numbers)
-/// and vector 'b' (two signed 64-bit integer numbers) are copied to the result
+/// Even elements in vectors `a` (two signed 64-bit integer numbers)
+/// and vector `b` (two signed 64-bit integer numbers) are copied to the result
 /// (two signed 64-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5620,10 +5623,10 @@ pub unsafe fn __msa_ilvev_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Interleave Left
 ///
-/// The left half elements in vectors 'a' (sixteen signed 8-bit integer numbers)
-/// and vector 'b' (sixteen signed 8-bit integer numbers) are copied to the result
+/// The left half elements in vectors `a` (sixteen signed 8-bit integer numbers)
+/// and vector `b` (sixteen signed 8-bit integer numbers) are copied to the result
 /// (sixteen signed 8-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5634,10 +5637,10 @@ pub unsafe fn __msa_ilvl_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Interleave Left
 ///
-/// The left half elements in vectors 'a' (eight signed 16-bit integer numbers)
-/// and vector 'b' (eight signed 16-bit integer numbers) are copied to the result
+/// The left half elements in vectors `a` (eight signed 16-bit integer numbers)
+/// and vector `b` (eight signed 16-bit integer numbers) are copied to the result
 /// (eight signed 16-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5648,10 +5651,10 @@ pub unsafe fn __msa_ilvl_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Interleave Left
 ///
-/// The left half elements in vectors 'a' (four signed 32-bit integer numbers)
-/// and vector 'b' (four signed 32-bit integer numbers) are copied to the result
+/// The left half elements in vectors `a` (four signed 32-bit integer numbers)
+/// and vector `b` (four signed 32-bit integer numbers) are copied to the result
 /// (four signed 32-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5662,10 +5665,10 @@ pub unsafe fn __msa_ilvl_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Interleave Left
 ///
-/// The left half elements in vectors 'a' (two signed 64-bit integer numbers)
-/// and vector 'b' (two signed 64-bit integer numbers) are copied to the result
+/// The left half elements in vectors `a` (two signed 64-bit integer numbers)
+/// and vector `b` (two signed 64-bit integer numbers) are copied to the result
 /// (two signed 64-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5676,10 +5679,10 @@ pub unsafe fn __msa_ilvl_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Interleave Odd
 ///
-/// Odd  elements in vectors 'a' (sixteen signed 8-bit integer numbers)
-/// and vector 'b' (sixteen signed 8-bit integer numbers) are copied to the result
+/// Odd elements in vectors `a` (sixteen signed 8-bit integer numbers)
+/// and vector `b` (sixteen signed 8-bit integer numbers) are copied to the result
 /// (sixteen signed 8-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5690,10 +5693,10 @@ pub unsafe fn __msa_ilvod_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Interleave Odd
 ///
-/// Odd  elements in vectors 'a' (eight signed 16-bit integer numbers)
-/// and vector 'b' (eight signed 16-bit integer numbers) are copied to the result
+/// Odd elements in vectors `a` (eight signed 16-bit integer numbers)
+/// and vector `b` (eight signed 16-bit integer numbers) are copied to the result
 /// (eight signed 16-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5704,10 +5707,10 @@ pub unsafe fn __msa_ilvod_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Interleave Odd
 ///
-/// Odd  elements in vectors 'a' (four signed 32-bit integer numbers)
-/// and vector 'b' (four signed 32-bit integer numbers) are copied to the result
+/// Odd elements in vectors `a` (four signed 32-bit integer numbers)
+/// and vector `b` (four signed 32-bit integer numbers) are copied to the result
 /// (four signed 32-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5718,10 +5721,10 @@ pub unsafe fn __msa_ilvod_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Interleave Odd
 ///
-/// Odd  elements in vectors 'a' (two signed 64-bit integer numbers)
-/// and vector 'b' (two signed 64-bit integer numbers) are copied to the result
+/// Odd elements in vectors `a` (two signed 64-bit integer numbers)
+/// and vector `b` (two signed 64-bit integer numbers) are copied to the result
 /// (two signed 64-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5732,10 +5735,10 @@ pub unsafe fn __msa_ilvod_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Interleave Right
 ///
-/// The right half elements in vectors 'a' (sixteen signed 8-bit integer numbers)
-/// and vector 'b' (sixteen signed 8-bit integer numbers) are copied to the result
+/// The right half elements in vectors `a` (sixteen signed 8-bit integer numbers)
+/// and vector `b` (sixteen signed 8-bit integer numbers) are copied to the result
 /// (sixteen signed 8-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5746,10 +5749,10 @@ pub unsafe fn __msa_ilvr_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Interleave Right
 ///
-/// The right half elements in vectors 'a' (eight signed 16-bit integer numbers)
-/// and vector 'b' (eight signed 16-bit integer numbers) are copied to the result
+/// The right half elements in vectors `a` (eight signed 16-bit integer numbers)
+/// and vector `b` (eight signed 16-bit integer numbers) are copied to the result
 /// (eight signed 16-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5760,10 +5763,10 @@ pub unsafe fn __msa_ilvr_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Interleave Right
 ///
-/// The right half elements in vectors 'a' (four signed 32-bit integer numbers)
-/// and vector 'b' (four signed 32-bit integer numbers) are copied to the result
+/// The right half elements in vectors `a` (four signed 32-bit integer numbers)
+/// and vector `b` (four signed 32-bit integer numbers) are copied to the result
 /// (four signed 32-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5774,10 +5777,10 @@ pub unsafe fn __msa_ilvr_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Interleave Right
 ///
-/// The right half elements in vectors 'a' (two signed 64-bit integer numbers)
-/// and vector 'b' (two signed 64-bit integer numbers) are copied to the result
+/// The right half elements in vectors `a` (two signed 64-bit integer numbers)
+/// and vector `b` (two signed 64-bit integer numbers) are copied to the result
 /// (two signed 64-bit integer numbers)
-/// alternating one element from 'a' with one element from 'b'.
+/// alternating one element from `a` with one element from `b`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5788,8 +5791,8 @@ pub unsafe fn __msa_ilvr_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// GPR Insert Element
 ///
-/// Set element imm4 in vector 'a' (sixteen signed 8-bit integer numbers) to GPR 'c' value.
-/// All other elements in vector 'a' are unchanged. If the source GPR is wider than the
+/// Set element `imm4` in vector `a` (sixteen signed 8-bit integer numbers) to GPR `c` value.
+/// All other elements in vector `a` are unchanged. If the source GPR is wider than the
 /// destination data format, the destination's elements will be set to the least significant bits of the GPR.
 ///
 #[inline]
@@ -5807,8 +5810,8 @@ pub unsafe fn __msa_insert_b(a: v16i8, imm4: i32, c: i32) -> v16i8 {
 
 /// GPR Insert Element
 ///
-/// Set element imm3 in vector 'a' (eight signed 16-bit integer numbers) to GPR 'c' value.
-/// All other elements in vector 'a' are unchanged. If the source GPR is wider than the
+/// Set element `imm3` in vector `a` (eight signed 16-bit integer numbers) to GPR `c` value.
+/// All other elements in vector `a` are unchanged. If the source GPR is wider than the
 /// destination data format, the destination's elements will be set to the least significant bits of the GPR.
 ///
 #[inline]
@@ -5826,8 +5829,8 @@ pub unsafe fn __msa_insert_h(a: v8i16, imm3: i32, c: i32) -> v8i16 {
 
 /// GPR Insert Element
 ///
-/// Set element imm2 in vector 'a' (four signed 32-bit integer numbers) to GPR 'c' value.
-/// All other elements in vector 'a' are unchanged. If the source GPR is wider than the
+/// Set element `imm2` in vector `a` (four signed 32-bit integer numbers) to GPR `c` value.
+/// All other elements in vector `a` are unchanged. If the source GPR is wider than the
 /// destination data format, the destination's elements will be set to the least significant bits of the GPR.
 ///
 #[inline]
@@ -5845,8 +5848,8 @@ pub unsafe fn __msa_insert_w(a: v4i32, imm2: i32, c: i32) -> v4i32 {
 
 /// GPR Insert Element
 ///
-/// Set element imm1 in vector 'a' (two signed 64-bit integer numbers) to GPR 'c' value.
-/// All other elements in vector 'a' are unchanged. If the source GPR is wider than the
+/// Set element `imm1` in vector `a` (two signed 64-bit integer numbers) to GPR `c` value.
+/// All other elements in vector `a` are unchanged. If the source GPR is wider than the
 /// destination data format, the destination's elements will be set to the least significant bits of the GPR.
 ///
 #[inline]
@@ -5864,9 +5867,9 @@ pub unsafe fn __msa_insert_d(a: v2i64, imm1: i32, c: i64) -> v2i64 {
 
 /// Element Insert Element
 ///
-/// Set element imm1 in the result vector 'a' (sixteen signed 8-bit integer numbers) to element 0
-/// in vector 'c' (sixteen signed 8-bit integer numbers) value.
-/// All other elements in vector 'a' are unchanged.
+/// Set element `imm1` in the result vector `a` (sixteen signed 8-bit integer numbers) to element 0
+/// in vector `c` (sixteen signed 8-bit integer numbers) value.
+/// All other elements in vector `a` are unchanged.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5883,9 +5886,9 @@ pub unsafe fn __msa_insve_b(a: v16i8, imm4: i32, c: v16i8) -> v16i8 {
 
 /// Element Insert Element
 ///
-/// Set element imm1 in the result vector 'a' (eight signed 16-bit integer numbers) to element 0
-/// in vector 'c' (eight signed 16-bit integer numbers) value.
-/// All other elements in vector 'a' are unchanged.
+/// Set element `imm1` in the result vector `a` (eight signed 16-bit integer numbers) to element 0
+/// in vector `c` (eight signed 16-bit integer numbers) value.
+/// All other elements in vector `a` are unchanged.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5902,9 +5905,9 @@ pub unsafe fn __msa_insve_h(a: v8i16, imm3: i32, c: v8i16) -> v8i16 {
 
 /// Element Insert Element
 ///
-/// Set element imm1 in the result vector 'a' (four signed 32-bit integer numbers) to element 0
-/// in vector 'c' (four signed 32-bit integer numbers) value.
-/// All other elements in vector 'a' are unchanged.
+/// Set element `imm1` in the result vector `a` (four signed 32-bit integer numbers) to element 0
+/// in vector `c` (four signed 32-bit integer numbers) value.
+/// All other elements in vector `a` are unchanged.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5921,9 +5924,9 @@ pub unsafe fn __msa_insve_w(a: v4i32, imm2: i32, c: v4i32) -> v4i32 {
 
 /// Element Insert Element
 ///
-/// Set element imm1 in the result vector 'a' (two signed 64-bit integer numbers) to element 0
-/// in vector 'c' (two signed 64-bit integer numbers) value.
-/// All other elements in vector 'a' are unchanged.
+/// Set element `imm1` in the result vector `a` (two signed 64-bit integer numbers) to element 0
+/// in vector `c` (two signed 64-bit integer numbers) value.
+/// All other elements in vector `a` are unchanged.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -5940,8 +5943,8 @@ pub unsafe fn __msa_insve_d(a: v2i64, imm1: i32, c: v2i64) -> v2i64 {
 
 /// Vector Load
 ///
-/// The WRLEN / 8 bytes at the ef fective memory location addressed by the base
-/// mem_addr and the 10-bit signed immediate offset imm_s10 are fetched and placed in
+/// The WRLEN / 8 bytes at the effective memory location addressed by the base
+/// `mem_addr` and the 10-bit signed immediate offset `imm_s10` are fetched and placed in
 /// the vector (sixteen signed 8-bit integer numbers) value.
 ///
 #[inline]
@@ -5959,8 +5962,8 @@ pub unsafe fn __msa_ld_b(mem_addr: *mut u8, imm_s10: i32) -> v16i8 {
 
 /// Vector Load
 ///
-/// The WRLEN / 8 bytes at the ef fective memory location addressed by the base
-/// mem_addr and the 10-bit signed immediate offset imm_s11 are fetched and placed in
+/// The WRLEN / 8 bytes at the effective memory location addressed by the base
+/// `mem_addr` and the 10-bit signed immediate offset `imm_s11` are fetched and placed in
 /// the vector (eight signed 16-bit integer numbers) value.
 ///
 #[inline]
@@ -5978,8 +5981,8 @@ pub unsafe fn __msa_ld_h(mem_addr: *mut u8, imm_s11: i32) -> v8i16 {
 
 /// Vector Load
 ///
-/// The WRLEN / 8 bytes at the ef fective memory location addressed by the base
-/// mem_addr and the 10-bit signed immediate offset imm_s12 are fetched and placed in
+/// The WRLEN / 8 bytes at the effective memory location addressed by the base
+/// `mem_addr` and the 10-bit signed immediate offset `imm_s12` are fetched and placed in
 /// the vector (four signed 32-bit integer numbers) value.
 ///
 #[inline]
@@ -5997,8 +6000,8 @@ pub unsafe fn __msa_ld_w(mem_addr: *mut u8, imm_s12: i32) -> v4i32 {
 
 /// Vector Load
 ///
-/// The WRLEN / 8 bytes at the ef fective memory location addressed by the base
-/// mem_addr and the 10-bit signed immediate offset imm_s13 are fetched and placed in
+/// The WRLEN / 8 bytes at the effective memory location addressed by the base
+/// `mem_addr` and the 10-bit signed immediate offset `imm_s13` are fetched and placed in
 /// the vector (two signed 64-bit integer numbers) value.
 ///
 #[inline]
@@ -6092,11 +6095,11 @@ pub unsafe fn __msa_ldi_d(imm_s10: i32) -> v2i64 {
 
 /// Vector Fixed-Point Multiply and Add
 ///
-/// The products of fixed-point elements in 'b' (eight signed 16-bit integer numbers)
-/// by fixed-point elements in vector 'c' (eight signed 16-bit integer numbers)
-/// are added to the fixed-pointelements in vector 'a' (eight signed 16-bit integer numbers)
+/// The products of fixed-point elements in `b` (eight signed 16-bit integer numbers)
+/// by fixed-point elements in vector `c` (eight signed 16-bit integer numbers)
+/// are added to the fixed-point elements in vector `a` (eight signed 16-bit integer numbers).
 /// The multiplication result is not saturated, i.e. exact (-1) * (-1) = 1 is added to the destination.
-/// The saturated fixed-point results are stored to vector 'a'
+/// The saturated fixed-point results are stored to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6107,11 +6110,11 @@ pub unsafe fn __msa_madd_q_h(a: v8i16, b: v8i16, c: v8i16) -> v8i16 {
 
 /// Vector Fixed-Point Multiply and Add
 ///
-/// The products of fixed-point elements in 'b' (four signed 32-bit integer numbers)
-/// by fixed-point elements in vector 'c' (four signed 32-bit integer numbers)
-/// are added to the fixed-pointelements in vector 'a' (four signed 32-bit integer numbers)
+/// The products of fixed-point elements in `b` (four signed 32-bit integer numbers)
+/// by fixed-point elements in vector `c` (four signed 32-bit integer numbers)
+/// are added to the fixed-point elements in vector `a` (four signed 32-bit integer numbers).
 /// The multiplication result is not saturated, i.e. exact (-1) * (-1) = 1 is added to the destination.
-/// The saturated fixed-point results are stored to vector 'a'
+/// The saturated fixed-point results are stored to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6122,11 +6125,11 @@ pub unsafe fn __msa_madd_q_w(a: v4i32, b: v4i32, c: v4i32) -> v4i32 {
 
 /// Vector Fixed-Point Multiply and Add Rounded
 ///
-/// The products of fixed-point elements in 'b' (eight signed 16-bit integer numbers)
-/// by fixed-point elements in vector 'c' (eight signed 16-bit integer numbers)
-/// are added to the fixed-pointelements in vector 'a' (eight signed 16-bit integer numbers)
+/// The products of fixed-point elements in `b` (eight signed 16-bit integer numbers)
+/// by fixed-point elements in vector `c` (eight signed 16-bit integer numbers)
+/// are added to the fixed-point elements in vector `a` (eight signed 16-bit integer numbers).
 /// The multiplication result is not saturated, i.e. exact (-1) * (-1) = 1 is added to the destination.
-/// The rounded and saturated fixed-point results are stored to vector 'a'
+/// The rounded and saturated fixed-point results are stored to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6137,11 +6140,11 @@ pub unsafe fn __msa_maddr_q_h(a: v8i16, b: v8i16, c: v8i16) -> v8i16 {
 
 /// Vector Fixed-Point Multiply and Add Rounded
 ///
-/// The products of fixed-point elements in 'b' (four signed 32-bit integer numbers)
-/// by fixed-point elements in vector 'c' (four signed 32-bit integer numbers)
-/// are added to the fixed-pointelements in vector 'a' (four signed 32-bit integer numbers)
+/// The products of fixed-point elements in `b` (four signed 32-bit integer numbers)
+/// by fixed-point elements in vector `c` (four signed 32-bit integer numbers)
+/// are added to the fixed-point elements in vector `a` (four signed 32-bit integer numbers).
 /// The multiplication result is not saturated, i.e. exact (-1) * (-1) = 1 is added to the destination.
-/// The rounded and saturated fixed-point results are stored to vector 'a'
+/// The rounded and saturated fixed-point results are stored to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6152,9 +6155,9 @@ pub unsafe fn __msa_maddr_q_w(a: v4i32, b: v4i32, c: v4i32) -> v4i32 {
 
 /// Vector Multiply and Add
 ///
-/// The integer elements in vector 'b' (sixteen signed 8-bit integer numbers)
-/// are multiplied by integer elements in vector 'c' (sixteen signed 8-bit integer numbers)
-/// and added to the integer elements in vector 'a' (sixteen signed 8-bit integer numbers)
+/// The integer elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// are multiplied by integer elements in vector `c` (sixteen signed 8-bit integer numbers)
+/// and added to the integer elements in vector `a` (sixteen signed 8-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -6166,9 +6169,9 @@ pub unsafe fn __msa_maddv_b(a: v16i8, b: v16i8, c: v16i8) -> v16i8 {
 
 /// Vector Multiply and Add
 ///
-/// The integer elements in vector 'b' (eight signed 16-bit integer numbers)
-/// are multiplied by integer elements in vector 'c' (eight signed 16-bit integer numbers)
-/// and added to the integer elements in vector 'a' (eight signed 16-bit integer numbers)
+/// The integer elements in vector `b` (eight signed 16-bit integer numbers)
+/// are multiplied by integer elements in vector `c` (eight signed 16-bit integer numbers)
+/// and added to the integer elements in vector `a` (eight signed 16-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -6180,9 +6183,9 @@ pub unsafe fn __msa_maddv_h(a: v8i16, b: v8i16, c: v8i16) -> v8i16 {
 
 /// Vector Multiply and Add
 ///
-/// The integer elements in vector 'b' (four signed 32-bit integer numbers)
-/// are multiplied by integer elements in vector 'c' (four signed 32-bit integer numbers)
-/// and added to the integer elements in vector 'a' (four signed 32-bit integer numbers)
+/// The integer elements in vector `b` (four signed 32-bit integer numbers)
+/// are multiplied by integer elements in vector `c` (four signed 32-bit integer numbers)
+/// and added to the integer elements in vector `a` (four signed 32-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -6194,9 +6197,9 @@ pub unsafe fn __msa_maddv_w(a: v4i32, b: v4i32, c: v4i32) -> v4i32 {
 
 /// Vector Multiply and Add
 ///
-/// The integer elements in vector 'b' (two signed 64-bit integer numbers)
-/// are multiplied by integer elements in vector 'c' (two signed 64-bit integer numbers)
-/// and added to the integer elements in vector 'a' (two signed 64-bit integer numbers)
+/// The integer elements in vector `b` (two signed 64-bit integer numbers)
+/// are multiplied by integer elements in vector `c` (two signed 64-bit integer numbers)
+/// and added to the integer elements in vector `a` (two signed 64-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -6209,9 +6212,9 @@ pub unsafe fn __msa_maddv_d(a: v2i64, b: v2i64, c: v2i64) -> v2i64 {
 /// Vector Maximum Based on Absolute Values
 ///
 /// The value with the largest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(sixteen signed 8-bit integer numbers) and
-/// 'b'(sixteen signed 8-bit integer numbers) are written to vector
-/// (sixteen signed 8-bit integer numbers)
+/// signed elements in vector `a` (sixteen signed 8-bit integer numbers) and
+/// `b` (sixteen signed 8-bit integer numbers) are written to vector
+/// (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6223,9 +6226,9 @@ pub unsafe fn __msa_max_a_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Maximum Based on Absolute Values
 ///
 /// The value with the largest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(eight signed 16-bit integer numbers) and
-/// 'b'(eight signed 16-bit integer numbers) are written to vector
-/// (eight signed 16-bit integer numbers)
+/// signed elements in vector `a` (eight signed 16-bit integer numbers) and
+/// `b` (eight signed 16-bit integer numbers) are written to vector
+/// (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6237,9 +6240,9 @@ pub unsafe fn __msa_max_a_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Maximum Based on Absolute Values
 ///
 /// The value with the largest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(four signed 32-bit integer numbers) and
-/// 'b'(four signed 32-bit integer numbers) are written to vector
-/// (four signed 32-bit integer numbers)
+/// signed elements in vector `a` (four signed 32-bit integer numbers) and
+/// `b` (four signed 32-bit integer numbers) are written to vector
+/// (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6251,9 +6254,9 @@ pub unsafe fn __msa_max_a_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Maximum Based on Absolute Values
 ///
 /// The value with the largest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(two signed 64-bit integer numbers) and
-/// 'b'(two signed 64-bit integer numbers) are written to vector
-/// (two signed 64-bit integer numbers)
+/// signed elements in vector `a` (two signed 64-bit integer numbers) and
+/// `b` (two signed 64-bit integer numbers) are written to vector
+/// (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6264,9 +6267,9 @@ pub unsafe fn __msa_max_a_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// and signed elements in vector 'b'(sixteen signed 8-bit integer numbers) are written to vector
-/// (sixteen signed 8-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// and signed elements in vector `b` (sixteen signed 8-bit integer numbers) are written to vector
+/// (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6277,9 +6280,9 @@ pub unsafe fn __msa_max_s_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(eight signed 16-bit integer numbers)
-/// and signed elements in vector 'b'(eight signed 16-bit integer numbers) are written to vector
-/// (eight signed 16-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (eight signed 16-bit integer numbers)
+/// and signed elements in vector `b` (eight signed 16-bit integer numbers) are written to vector
+/// (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6290,9 +6293,9 @@ pub unsafe fn __msa_max_s_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(four signed 32-bit integer numbers)
-/// and signed elements in vector 'b'(four signed 32-bit integer numbers) are written to vector
-/// (four signed 32-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (four signed 32-bit integer numbers)
+/// and signed elements in vector `b` (four signed 32-bit integer numbers) are written to vector
+/// (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6303,9 +6306,9 @@ pub unsafe fn __msa_max_s_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(two signed 64-bit integer numbers)
-/// and signed elements in vector 'b'(two signed 64-bit integer numbers) are written to vector
-/// (two signed 64-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (two signed 64-bit integer numbers)
+/// and signed elements in vector `b` (two signed 64-bit integer numbers) are written to vector
+/// (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6316,9 +6319,9 @@ pub unsafe fn __msa_max_s_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// and unsigned elements in vector 'b'(sixteen unsigned 8-bit integer numbers) are written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// and unsigned elements in vector `b` (sixteen unsigned 8-bit integer numbers) are written to vector
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6329,9 +6332,9 @@ pub unsafe fn __msa_max_u_b(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Vector Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(eight unsigned 16-bit integer numbers)
-/// and unsigned elements in vector 'b'(eight unsigned 16-bit integer numbers) are written to vector
-/// (eight unsigned 16-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// and unsigned elements in vector `b` (eight unsigned 16-bit integer numbers) are written to vector
+/// (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6342,9 +6345,9 @@ pub unsafe fn __msa_max_u_h(a: v8u16, b: v8u16) -> v8u16 {
 
 /// Vector Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(four unsigned 32-bit integer numbers)
-/// and unsigned elements in vector 'b'(four unsigned 32-bit integer numbers) are written to vector
-/// (four unsigned 32-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
+/// and unsigned elements in vector `b` (four unsigned 32-bit integer numbers) are written to vector
+/// (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6355,9 +6358,9 @@ pub unsafe fn __msa_max_u_w(a: v4u32, b: v4u32) -> v4u32 {
 
 /// Vector Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(two unsigned 64-bit integer numbers)
-/// and unsigned elements in vector 'b'(two unsigned 64-bit integer numbers) are written to vector
-/// (two unsigned 64-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
+/// and unsigned elements in vector `b` (two unsigned 64-bit integer numbers) are written to vector
+/// (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6368,9 +6371,9 @@ pub unsafe fn __msa_max_u_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Immediate Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (sixteen signed 8-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6387,9 +6390,9 @@ pub unsafe fn __msa_maxi_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 
 /// Immediate Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(eight signed 16-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (eight signed 16-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (eight signed 16-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6406,9 +6409,9 @@ pub unsafe fn __msa_maxi_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 
 /// Immediate Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(four signed 32-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (four signed 32-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (four signed 32-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6425,9 +6428,9 @@ pub unsafe fn __msa_maxi_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 
 /// Immediate Signed Maximum
 ///
-/// Maximum values between signed elements in vector 'a'(two signed 64-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (two signed 64-bit integer numbers)
+/// Maximum values between signed elements in vector `a` (two signed 64-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6444,9 +6447,9 @@ pub unsafe fn __msa_maxi_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
 
 /// Immediate Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6463,9 +6466,9 @@ pub unsafe fn __msa_maxi_u_b(a: v16u8, imm5: i32) -> v16u8 {
 
 /// Immediate Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(eight unsigned 16-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (eight unsigned 16-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6482,9 +6485,9 @@ pub unsafe fn __msa_maxi_u_h(a: v8u16, imm5: i32) -> v8u16 {
 
 /// Immediate Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(four unsigned 32-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (four unsigned 32-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6501,9 +6504,9 @@ pub unsafe fn __msa_maxi_u_w(a: v4u32, imm5: i32) -> v4u32 {
 
 /// Immediate Unsigned Maximum
 ///
-/// Maximum values between unsigned elements in vector 'a'(two unsigned 64-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (two unsigned 64-bit integer numbers)
+/// Maximum values between unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6521,9 +6524,9 @@ pub unsafe fn __msa_maxi_u_d(a: v2u64, imm5: i32) -> v2u64 {
 /// Vector Minimum Based on Absolute Value
 ///
 /// The value with the smallest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(sixteen signed 8-bit integer numbers) and
-/// 'b'(sixteen signed 8-bit integer numbers) are written to vector
-/// (sixteen signed 8-bit integer numbers)
+/// signed elements in vector `a` (sixteen signed 8-bit integer numbers) and
+/// `b` (sixteen signed 8-bit integer numbers) are written to vector
+/// (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6535,9 +6538,9 @@ pub unsafe fn __msa_min_a_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Minimum Based on Absolute Value
 ///
 /// The value with the smallest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(eight signed 16-bit integer numbers) and
-/// 'b'(eight signed 16-bit integer numbers) are written to vector
-/// (eight signed 16-bit integer numbers)
+/// signed elements in vector `a` (eight signed 16-bit integer numbers) and
+/// `b` (eight signed 16-bit integer numbers) are written to vector
+/// (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6549,9 +6552,9 @@ pub unsafe fn __msa_min_a_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Minimum Based on Absolute Value
 ///
 /// The value with the smallest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(four signed 32-bit integer numbers) and
-/// 'b'(four signed 32-bit integer numbers) are written to vector
-/// (four signed 32-bit integer numbers)
+/// signed elements in vector `a` (four signed 32-bit integer numbers) and
+/// `b` (four signed 32-bit integer numbers) are written to vector
+/// (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6563,9 +6566,9 @@ pub unsafe fn __msa_min_a_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Minimum Based on Absolute Value
 ///
 /// The value with the smallest magnitude, i.e. absolute value, between corresponding
-/// signed elements in vector 'a'(two signed 64-bit integer numbers) and
-/// 'b'(two signed 64-bit integer numbers) are written to vector
-/// (two signed 64-bit integer numbers)
+/// signed elements in vector `a` (two signed 64-bit integer numbers) and
+/// `b` (two signed 64-bit integer numbers) are written to vector
+/// (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6576,9 +6579,9 @@ pub unsafe fn __msa_min_a_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// and signed elements in vector 'b'(sixteen signed 8-bit integer numbers) are written to vector
-/// (sixteen signed 8-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// and signed elements in vector `b` (sixteen signed 8-bit integer numbers) are written to vector
+/// (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6589,9 +6592,9 @@ pub unsafe fn __msa_min_s_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(eight signed 16-bit integer numbers)
-/// and signed elements in vector 'b'(eight signed 16-bit integer numbers) are written to vector
-/// (eight signed 16-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (eight signed 16-bit integer numbers)
+/// and signed elements in vector `b` (eight signed 16-bit integer numbers) are written to vector
+/// (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6602,9 +6605,9 @@ pub unsafe fn __msa_min_s_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(four signed 32-bit integer numbers)
-/// and signed elements in vector 'b'(four signed 32-bit integer numbers) are written to vector
-/// (four signed 32-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (four signed 32-bit integer numbers)
+/// and signed elements in vector `b` (four signed 32-bit integer numbers) are written to vector
+/// (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6615,9 +6618,9 @@ pub unsafe fn __msa_min_s_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(two signed 64-bit integer numbers)
-/// and signed elements in vector 'b'(two signed 64-bit integer numbers) are written to vector
-/// (two signed 64-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (two signed 64-bit integer numbers)
+/// and signed elements in vector `b` (two signed 64-bit integer numbers) are written to vector
+/// (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6628,9 +6631,9 @@ pub unsafe fn __msa_min_s_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (sixteen signed 8-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6647,9 +6650,9 @@ pub unsafe fn __msa_mini_s_b(a: v16i8, imm_s5: i32) -> v16i8 {
 
 /// Immediate Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(eight signed 16-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (eight signed 16-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (eight signed 16-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6666,9 +6669,9 @@ pub unsafe fn __msa_mini_s_h(a: v8i16, imm_s5: i32) -> v8i16 {
 
 /// Immediate Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(four signed 32-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (four signed 32-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (four signed 32-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6685,9 +6688,9 @@ pub unsafe fn __msa_mini_s_w(a: v4i32, imm_s5: i32) -> v4i32 {
 
 /// Immediate Signed Minimum
 ///
-/// Minimum values between signed elements in vector 'a'(two signed 64-bit integer numbers)
-/// and  the 5-bit signed immediate imm_s5 are written to vector
-/// (two signed 64-bit integer numbers)
+/// Minimum values between signed elements in vector `a` (two signed 64-bit integer numbers)
+/// and the 5-bit signed immediate imm_s5 are written to vector
+/// (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6704,9 +6707,9 @@ pub unsafe fn __msa_mini_s_d(a: v2i64, imm_s5: i32) -> v2i64 {
 
 /// Vector Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// and unsigned elements in vector 'b'(sixteen unsigned 8-bit integer numbers) are written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// and unsigned elements in vector `b` (sixteen unsigned 8-bit integer numbers) are written to vector
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6717,9 +6720,9 @@ pub unsafe fn __msa_min_u_b(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Vector Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(eight unsigned 16-bit integer numbers)
-/// and unsigned elements in vector 'b'(eight unsigned 16-bit integer numbers) are written to vector
-/// (eight unsigned 16-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// and unsigned elements in vector `b` (eight unsigned 16-bit integer numbers) are written to vector
+/// (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6730,9 +6733,9 @@ pub unsafe fn __msa_min_u_h(a: v8u16, b: v8u16) -> v8u16 {
 
 /// Vector Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(four unsigned 32-bit integer numbers)
-/// and unsigned elements in vector 'b'(four unsigned 32-bit integer numbers) are written to vector
-/// (four unsigned 32-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
+/// and unsigned elements in vector `b` (four unsigned 32-bit integer numbers) are written to vector
+/// (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6743,9 +6746,9 @@ pub unsafe fn __msa_min_u_w(a: v4u32, b: v4u32) -> v4u32 {
 
 /// Vector Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(two unsigned 64-bit integer numbers)
-/// and unsigned elements in vector 'b'(two unsigned 64-bit integer numbers) are written to vector
-/// (two unsigned 64-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
+/// and unsigned elements in vector `b` (two unsigned 64-bit integer numbers) are written to vector
+/// (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6756,9 +6759,9 @@ pub unsafe fn __msa_min_u_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Immediate Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6775,9 +6778,9 @@ pub unsafe fn __msa_mini_u_b(a: v16u8, imm5: i32) -> v16u8 {
 
 /// Immediate Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(eight unsigned 16-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (eight unsigned 16-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6794,9 +6797,9 @@ pub unsafe fn __msa_mini_u_h(a: v8u16, imm5: i32) -> v8u16 {
 
 /// Immediate Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(four unsigned 32-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (four unsigned 32-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6813,9 +6816,9 @@ pub unsafe fn __msa_mini_u_w(a: v4u32, imm5: i32) -> v4u32 {
 
 /// Immediate Unsigned Minimum
 ///
-/// Minimum values between unsigned elements in vector 'a'(two unsigned 64-bit integer numbers)
-/// and  the 5-bit unsigned immediate imm5 are written to vector
-/// (two unsigned 64-bit integer numbers)
+/// Minimum values between unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
+/// and the 5-bit unsigned immediate `imm5` are written to vector
+/// (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6832,10 +6835,10 @@ pub unsafe fn __msa_mini_u_d(a: v2u64, imm5: i32) -> v2u64 {
 
 /// Vector Signed Modulo
 ///
-/// The signed integer elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are divided by signed integer elements in vector 'b'(sixteen signed 8-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (sixteen signed 8-bit integer numbers).If a divisor element vectorwt is zero,
+/// The signed integer elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (sixteen signed 8-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (sixteen signed 8-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6847,10 +6850,10 @@ pub unsafe fn __msa_mod_s_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Signed Modulo
 ///
-/// The signed integer elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are divided by signed integer elements in vector 'b'(eight signed 16-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (eight signed 16-bit integer numbers).If a divisor element vectorwt is zero,
+/// The signed integer elements in vector `a` (eight signed 16-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (eight signed 16-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (eight signed 16-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6862,10 +6865,10 @@ pub unsafe fn __msa_mod_s_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Signed Modulo
 ///
-/// The signed integer elements in vector 'a'(four signed 32-bit integer numbers)
-/// are divided by signed integer elements in vector 'b'(four signed 32-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (four signed 32-bit integer numbers).If a divisor element vectorwt is zero,
+/// The signed integer elements in vector `a` (four signed 32-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (four signed 32-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (four signed 32-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6877,10 +6880,10 @@ pub unsafe fn __msa_mod_s_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Signed Modulo
 ///
-/// The signed integer elements in vector 'a'(two signed 64-bit integer numbers)
-/// are divided by signed integer elements in vector 'b'(two signed 64-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (two signed 64-bit integer numbers).If a divisor element vectorwt is zero,
+/// The signed integer elements in vector `a` (two signed 64-bit integer numbers)
+/// are divided by signed integer elements in vector `b` (two signed 64-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (two signed 64-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6892,10 +6895,10 @@ pub unsafe fn __msa_mod_s_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Unsigned Modulo
 ///
-/// The unsigned integer elements in vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b'(sixteen unsigned 8-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (sixteen unsigned 8-bit integer numbers).If a divisor element vectorwt is zero,
+/// The unsigned integer elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (sixteen unsigned 8-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (sixteen unsigned 8-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6907,10 +6910,10 @@ pub unsafe fn __msa_mod_u_b(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Vector Unsigned Modulo
 ///
-/// The unsigned integer elements in vector 'a'(eight unsigned 16-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b'(eight unsigned 16-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (eight unsigned 16-bit integer numbers).If a divisor element vectorwt is zero,
+/// The unsigned integer elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (eight unsigned 16-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (eight unsigned 16-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6922,10 +6925,10 @@ pub unsafe fn __msa_mod_u_h(a: v8u16, b: v8u16) -> v8u16 {
 
 /// Vector Unsigned Modulo
 ///
-/// The unsigned integer elements in vector 'a'(four unsigned 32-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b'(four unsigned 32-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (four unsigned 32-bit integer numbers).If a divisor element vectorwt is zero,
+/// The unsigned integer elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (four unsigned 32-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (four unsigned 32-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6937,10 +6940,10 @@ pub unsafe fn __msa_mod_u_w(a: v4u32, b: v4u32) -> v4u32 {
 
 /// Vector Unsigned Modulo
 ///
-/// The unsigned integer elements in vector 'a'(two unsigned 64-bit integer numbers)
-/// are divided by unsigned integer elements in vector 'b'(two unsigned 64-bit integer numbers)
-/// The remainder of thesame sign as the dividend is written to vector
-/// (two unsigned 64-bit integer numbers).If a divisor element vectorwt is zero,
+/// The unsigned integer elements in vector `a` (two unsigned 64-bit integer numbers)
+/// are divided by unsigned integer elements in vector `b` (two unsigned 64-bit integer numbers).
+/// The remainder of the same sign as the dividend is written to vector
+/// (two unsigned 64-bit integer numbers). If a divisor element vector `b` is zero,
 /// the result value is UNPREDICTABLE.
 ///
 #[inline]
@@ -6952,7 +6955,7 @@ pub unsafe fn __msa_mod_u_d(a: v2u64, b: v2u64) -> v2u64 {
 
 /// Vector Move
 ///
-/// Copy all WRLEN bits in vector 'a'(eight signed 16-bit integer numbers)
+/// Copy all WRLEN bits in vector `a` (eight signed 16-bit integer numbers)
 /// to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -6964,12 +6967,12 @@ pub unsafe fn __msa_move_v(a: v16i8) -> v16i8 {
 
 /// Vector Fixed-Point Multiply and Subtract
 ///
-/// The product of fixed-point elements in vector 'c'(eight signed 16-bit integer numbers)
-/// by fixed-point elements in vector 'b'(eight signed 16-bit integer numbers)
-/// are subtracted from the fixed-point elements in vector 'a'
-/// (eight signed 16-bit integer numbers).The multiplication result is not saturated,
+/// The product of fixed-point elements in vector `c` (eight signed 16-bit integer numbers)
+/// by fixed-point elements in vector `b` (eight signed 16-bit integer numbers)
+/// are subtracted from the fixed-point elements in vector `a`
+/// (eight signed 16-bit integer numbers). The multiplication result is not saturated,
 /// i.e. exact (-1) * (-1) = 1 is subtracted from the destination.
-/// The saturated fixed-point results are stored back to vector 'a'
+/// The saturated fixed-point results are stored back to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6980,12 +6983,12 @@ pub unsafe fn __msa_msub_q_h(a: v8i16, b: v8i16, c: v8i16) -> v8i16 {
 
 /// Vector Fixed-Point Multiply and Subtract
 ///
-/// The product of fixed-point elements in vector 'c'(four signed 32-bit integer numbers)
-/// by fixed-point elements in vector 'b'(four signed 32-bit integer numbers)
-/// are subtracted from the fixed-point elements in vector 'a'
-/// (four signed 32-bit integer numbers).The multiplication result is not saturated,
+/// The product of fixed-point elements in vector `c` (four signed 32-bit integer numbers)
+/// by fixed-point elements in vector `b` (four signed 32-bit integer numbers)
+/// are subtracted from the fixed-point elements in vector `a`
+/// (four signed 32-bit integer numbers). The multiplication result is not saturated,
 /// i.e. exact (-1) * (-1) = 1 is subtracted from the destination.
-/// The saturated fixed-point results are stored back to vector 'a'
+/// The saturated fixed-point results are stored back to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -6996,12 +6999,12 @@ pub unsafe fn __msa_msub_q_w(a: v4i32, b: v4i32, c: v4i32) -> v4i32 {
 
 /// Vector Fixed-Point Multiply and Subtract Rounded
 ///
-/// The product of fixed-point elements in vector 'c'(eight signed 16-bit integer numbers)
-/// by fixed-point elements in vector 'b'(eight signed 16-bit integer numbers)
-/// are subtracted from the fixed-point elements in vector 'a'
-/// (eight signed 16-bit integer numbers).The multiplication result is not saturated,
+/// The product of fixed-point elements in vector `c` (eight signed 16-bit integer numbers)
+/// by fixed-point elements in vector `b` (eight signed 16-bit integer numbers)
+/// are subtracted from the fixed-point elements in vector `a`
+/// (eight signed 16-bit integer numbers). The multiplication result is not saturated,
 /// i.e. exact (-1) * (-1) = 1 is subtracted from the destination.
-/// The rounded and saturated fixed-point results are stored back to vector 'a'
+/// The rounded and saturated fixed-point results are stored back to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7012,12 +7015,12 @@ pub unsafe fn __msa_msubr_q_h(a: v8i16, b: v8i16, c: v8i16) -> v8i16 {
 
 /// Vector Fixed-Point Multiply and Subtract Rounded
 ///
-/// The product of fixed-point elements in vector 'c'(four signed 32-bit integer numbers)
-/// by fixed-point elements in vector 'b'(four signed 32-bit integer numbers)
-/// are subtracted from the fixed-point elements in vector 'a'
-/// (four signed 32-bit integer numbers).The multiplication result is not saturated,
+/// The product of fixed-point elements in vector `c` (four signed 32-bit integer numbers)
+/// by fixed-point elements in vector `b` (four signed 32-bit integer numbers)
+/// are subtracted from the fixed-point elements in vector `a`
+/// (four signed 32-bit integer numbers). The multiplication result is not saturated,
 /// i.e. exact (-1) * (-1) = 1 is subtracted from the destination.
-/// The rounded and saturated fixed-point results are stored back to vector 'a'
+/// The rounded and saturated fixed-point results are stored back to vector `a`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7028,9 +7031,9 @@ pub unsafe fn __msa_msubr_q_w(a: v4i32, b: v4i32, c: v4i32) -> v4i32 {
 
 /// Vector Multiply and Subtract
 ///
-/// The integer elements in vector 'c'(sixteen signed 8-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(sixteen signed 8-bit integer numbers)
-/// and subtracted from the integer elements in vector 'a'(sixteen signed 8-bit integer numbers)
+/// The integer elements in vector `c` (sixteen signed 8-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (sixteen signed 8-bit integer numbers)
+/// and subtracted from the integer elements in vector `a` (sixteen signed 8-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7042,9 +7045,9 @@ pub unsafe fn __msa_msubv_b(a: v16i8, b: v16i8, c: v16i8) -> v16i8 {
 
 /// Vector Multiply and Subtract
 ///
-/// The integer elements in vector 'c'(eight signed 16-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(eight signed 16-bit integer numbers)
-/// and subtracted from the integer elements in vector 'a'(eight signed 16-bit integer numbers)
+/// The integer elements in vector `c` (eight signed 16-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (eight signed 16-bit integer numbers)
+/// and subtracted from the integer elements in vector `a` (eight signed 16-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7056,9 +7059,9 @@ pub unsafe fn __msa_msubv_h(a: v8i16, b: v8i16, c: v8i16) -> v8i16 {
 
 /// Vector Multiply and Subtract
 ///
-/// The integer elements in vector 'c'(four signed 32-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(four signed 32-bit integer numbers)
-/// and subtracted from the integer elements in vector 'a'(four signed 32-bit integer numbers)
+/// The integer elements in vector `c` (four signed 32-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (four signed 32-bit integer numbers)
+/// and subtracted from the integer elements in vector `a` (four signed 32-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7070,9 +7073,9 @@ pub unsafe fn __msa_msubv_w(a: v4i32, b: v4i32, c: v4i32) -> v4i32 {
 
 /// Vector Multiply and Subtract
 ///
-/// The integer elements in vector 'c'(two signed 64-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(two signed 64-bit integer numbers)
-/// and subtracted from the integer elements in vector 'a'(two signed 64-bit integer numbers)
+/// The integer elements in vector `c` (two signed 64-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (two signed 64-bit integer numbers)
+/// and subtracted from the integer elements in vector `a` (two signed 64-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7084,9 +7087,9 @@ pub unsafe fn __msa_msubv_d(a: v2i64, b: v2i64, c: v2i64) -> v2i64 {
 
 /// Vector Fixed-Point Multiply
 ///
-/// The fixed-point elements in vector 'a'(eight signed 16-bit integer numbers)
-/// multiplied by fixed-point elements in vector 'b'(eight signed 16-bit integer numbers)
-/// The result is written to vector (eight signed 16-bit integer numbers)
+/// The fixed-point elements in vector `a` (eight signed 16-bit integer numbers)
+/// multiplied by fixed-point elements in vector `b` (eight signed 16-bit integer numbers).
+/// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7097,9 +7100,9 @@ pub unsafe fn __msa_mul_q_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Fixed-Point Multiply
 ///
-/// The fixed-point elements in vector 'a'(four signed 32-bit integer numbers)
-/// multiplied by fixed-point elements in vector 'b'(four signed 32-bit integer numbers)
-/// The result is written to vector (four signed 32-bit integer numbers)
+/// The fixed-point elements in vector `a` (four signed 32-bit integer numbers)
+/// multiplied by fixed-point elements in vector `b` (four signed 32-bit integer numbers).
+/// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7110,9 +7113,9 @@ pub unsafe fn __msa_mul_q_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Fixed-Point Multiply Rounded
 ///
-/// The fixed-point elements in vector 'a'(eight signed 16-bit integer numbers)
-/// multiplied by fixed-point elements in vector 'b'(eight signed 16-bit integer numbers)
-/// The rounded result is written to vector (eight signed 16-bit integer numbers)
+/// The fixed-point elements in vector `a` (eight signed 16-bit integer numbers)
+/// multiplied by fixed-point elements in vector `b` (eight signed 16-bit integer numbers).
+/// The rounded result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7123,9 +7126,9 @@ pub unsafe fn __msa_mulr_q_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Fixed-Point Multiply Rounded
 ///
-/// The fixed-point elements in vector 'a'(four signed 32-bit integer numbers)
-/// multiplied by fixed-point elements in vector 'b'(four signed 32-bit integer numbers)
-/// The rounded result is written to vector (four signed 32-bit integer numbers)
+/// The fixed-point elements in vector `a` (four signed 32-bit integer numbers)
+/// multiplied by fixed-point elements in vector `b` (four signed 32-bit integer numbers).
+/// The rounded result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7136,9 +7139,9 @@ pub unsafe fn __msa_mulr_q_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Multiply
 ///
-/// The integer elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(sixteen signed 8-bit integer numbers)
-/// The result is written to vector (sixteen signed 8-bit integer numbers)
+/// The integer elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (sixteen signed 8-bit integer numbers).
+/// The result is written to vector (sixteen signed 8-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7150,9 +7153,9 @@ pub unsafe fn __msa_mulv_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Multiply
 ///
-/// The integer elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(eight signed 16-bit integer numbers)
-/// The result is written to vector (eight signed 16-bit integer numbers)
+/// The integer elements in vector `a` (eight signed 16-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (eight signed 16-bit integer numbers).
+/// The result is written to vector (eight signed 16-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7164,9 +7167,9 @@ pub unsafe fn __msa_mulv_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Multiply
 ///
-/// The integer elements in vector 'a'(four signed 32-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(four signed 32-bit integer numbers)
-/// The result is written to vector (four signed 32-bit integer numbers)
+/// The integer elements in vector `a` (four signed 32-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (four signed 32-bit integer numbers).
+/// The result is written to vector (four signed 32-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7178,9 +7181,9 @@ pub unsafe fn __msa_mulv_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Multiply
 ///
-/// The integer elements in vector 'a'(two signed 64-bit integer numbers)
-/// are multiplied by integer elements in vector 'b'(two signed 64-bit integer numbers)
-/// The result is written to vector (two signed 64-bit integer numbers)
+/// The integer elements in vector `a` (two signed 64-bit integer numbers)
+/// are multiplied by integer elements in vector `b` (two signed 64-bit integer numbers).
+/// The result is written to vector (two signed 64-bit integer numbers).
 /// The most significant half of the multiplication result is discarded.
 ///
 #[inline]
@@ -7192,8 +7195,8 @@ pub unsafe fn __msa_mulv_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Leading Ones Count
 ///
-/// The number of leading ones for elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// is stored to the elements in vector (sixteen signed 8-bit integer numbers)
+/// The number of leading ones for elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// is stored to the elements in vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7204,8 +7207,8 @@ pub unsafe fn __msa_nloc_b(a: v16i8) -> v16i8 {
 
 /// Vector Leading Ones Count
 ///
-/// The number of leading ones for elements in vector 'a'(eight signed 16-bit integer numbers)
-/// is stored to the elements in vector (eight signed 16-bit integer numbers)
+/// The number of leading ones for elements in vector `a` (eight signed 16-bit integer numbers)
+/// is stored to the elements in vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7216,8 +7219,8 @@ pub unsafe fn __msa_nloc_h(a: v8i16) -> v8i16 {
 
 /// Vector Leading Ones Count
 ///
-/// The number of leading ones for elements in vector 'a'(four signed 32-bit integer numbers)
-/// is stored to the elements in vector (four signed 32-bit integer numbers)
+/// The number of leading ones for elements in vector `a` (four signed 32-bit integer numbers)
+/// is stored to the elements in vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7228,8 +7231,8 @@ pub unsafe fn __msa_nloc_w(a: v4i32) -> v4i32 {
 
 /// Vector Leading Ones Count
 ///
-/// The number of leading ones for elements in vector 'a'(two signed 64-bit integer numbers)
-/// is stored to the elements in vector (two signed 64-bit integer numbers)
+/// The number of leading ones for elements in vector `a` (two signed 64-bit integer numbers)
+/// is stored to the elements in vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7240,8 +7243,8 @@ pub unsafe fn __msa_nloc_d(a: v2i64) -> v2i64 {
 
 /// Vector Leading Zeros Count
 ///
-/// The number of leading zeros for elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// is stored to the elements in vector (sixteen signed 8-bit integer numbers)
+/// The number of leading zeros for elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// is stored to the elements in vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7252,8 +7255,8 @@ pub unsafe fn __msa_nlzc_b(a: v16i8) -> v16i8 {
 
 /// Vector Leading Zeros Count
 ///
-/// The number of leading zeros for elements in vector 'a'(eight signed 16-bit integer numbers)
-/// is stored to the elements in vector (eight signed 16-bit integer numbers)
+/// The number of leading zeros for elements in vector `a` (eight signed 16-bit integer numbers)
+/// is stored to the elements in vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7264,8 +7267,8 @@ pub unsafe fn __msa_nlzc_h(a: v8i16) -> v8i16 {
 
 /// Vector Leading Zeros Count
 ///
-/// The number of leading zeros for elements in vector 'a'(four signed 32-bit integer numbers)
-/// is stored to the elements in vector (four signed 32-bit integer numbers)
+/// The number of leading zeros for elements in vector `a` (four signed 32-bit integer numbers)
+/// is stored to the elements in vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7276,8 +7279,8 @@ pub unsafe fn __msa_nlzc_w(a: v4i32) -> v4i32 {
 
 /// Vector Leading Zeros Count
 ///
-/// The number of leading zeros for elements in vector 'a'(two signed 64-bit integer numbers)
-/// is stored to the elements in vector (two signed 64-bit integer numbers)
+/// The number of leading zeros for elements in vector `a` (two signed 64-bit integer numbers)
+/// is stored to the elements in vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7288,10 +7291,10 @@ pub unsafe fn __msa_nlzc_d(a: v2i64) -> v2i64 {
 
 /// Vector Logical Negated Or
 ///
-/// Each bit of vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// is combined with the corresponding bit of vector 'b' (sixteen unsigned 8-bit integer numbers)
+/// Each bit of vector `a` (sixteen unsigned 8-bit integer numbers)
+/// is combined with the corresponding bit of vector `b` (sixteen unsigned 8-bit integer numbers)
 /// in a bitwise logical NOR operation. The result is written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7302,10 +7305,10 @@ pub unsafe fn __msa_nor_v(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Immediate Logical Negated Or
 ///
-/// Each bit of vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// is combined with the  8-bit immediate imm8
+/// Each bit of vector `a` (sixteen unsigned 8-bit integer numbers)
+/// is combined with the 8-bit immediate `imm8`
 /// in a bitwise logical NOR operation. The result is written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7322,10 +7325,10 @@ pub unsafe fn __msa_nori_b(a: v16u8, imm8: i32) -> v16u8 {
 
 /// Vector Logical Or
 ///
-/// Each bit of vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// is combined with the corresponding bit of vector 'b' (sixteen unsigned 8-bit integer numbers)
+/// Each bit of vector `a` (sixteen unsigned 8-bit integer numbers)
+/// is combined with the corresponding bit of vector `b` (sixteen unsigned 8-bit integer numbers)
 /// in a bitwise logical OR operation. The result is written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7336,10 +7339,10 @@ pub unsafe fn __msa_or_v(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Immediate Logical Or
 ///
-/// Each bit of vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// is combined with the  8-bit immediate imm8
+/// Each bit of vector `a` (sixteen unsigned 8-bit integer numbers)
+/// is combined with the 8-bit immediate `imm8`
 /// in a bitwise logical OR operation. The result is written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7356,8 +7359,8 @@ pub unsafe fn __msa_ori_b(a: v16u8, imm8: i32) -> v16u8 {
 
 /// Vector Pack Even
 ///
-/// Even  elements in vectors 'a' (sixteen signed 8-bit integer numbers)
-/// are copied to the left half of the result vector and even elements in vector 'b'
+/// Even elements in vectors `a` (sixteen signed 8-bit integer numbers)
+/// are copied to the left half of the result vector and even elements in vector `b`
 /// (sixteen signed 8-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7369,8 +7372,8 @@ pub unsafe fn __msa_pckev_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Pack Even
 ///
-/// Even  elements in vectors 'a' (eight signed 16-bit integer numbers)
-/// are copied to the left half of the result vector and even elements in vector 'b'
+/// Even elements in vectors `a` (eight signed 16-bit integer numbers)
+/// are copied to the left half of the result vector and even elements in vector `b`
 /// (eight signed 16-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7382,8 +7385,8 @@ pub unsafe fn __msa_pckev_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Pack Even
 ///
-/// Even  elements in vectors 'a' (four signed 32-bit integer numbers)
-/// are copied to the left half of the result vector and even elements in vector 'b'
+/// Even elements in vectors `a` (four signed 32-bit integer numbers)
+/// are copied to the left half of the result vector and even elements in vector `b`
 /// (four signed 32-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7395,8 +7398,8 @@ pub unsafe fn __msa_pckev_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Pack Even
 ///
-/// Even  elements in vectors 'a' (two signed 64-bit integer numbers)
-/// are copied to the left half of the result vector and even elements in vector 'b'
+/// Even elements in vectors `a` (two signed 64-bit integer numbers)
+/// are copied to the left half of the result vector and even elements in vector `b`
 /// (two signed 64-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7408,8 +7411,8 @@ pub unsafe fn __msa_pckev_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Pack Odd
 ///
-/// Odd  elements in vectors 'a' (sixteen signed 8-bit integer numbers)
-/// are copied to the left half of the result vector and odd elements in vector 'b'
+/// Odd elements in vectors `a` (sixteen signed 8-bit integer numbers)
+/// are copied to the left half of the result vector and odd elements in vector `b`
 /// (sixteen signed 8-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7421,8 +7424,8 @@ pub unsafe fn __msa_pckod_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Pack Odd
 ///
-/// Odd  elements in vectors 'a' (eight signed 16-bit integer numbers)
-/// are copied to the left half of the result vector and odd elements in vector 'b'
+/// Odd elements in vectors `a` (eight signed 16-bit integer numbers)
+/// are copied to the left half of the result vector and odd elements in vector `b`
 /// (eight signed 16-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7434,8 +7437,8 @@ pub unsafe fn __msa_pckod_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Pack Odd
 ///
-/// Odd  elements in vectors 'a' (four signed 32-bit integer numbers)
-/// are copied to the left half of the result vector and odd elements in vector 'b'
+/// Odd elements in vectors `a` (four signed 32-bit integer numbers)
+/// are copied to the left half of the result vector and odd elements in vector `b`
 /// (four signed 32-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7447,8 +7450,8 @@ pub unsafe fn __msa_pckod_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Pack Odd
 ///
-/// Odd  elements in vectors 'a' (two signed 64-bit integer numbers)
-/// are copied to the left half of the result vector and odd elements in vector 'b'
+/// Odd elements in vectors `a` (two signed 64-bit integer numbers)
+/// are copied to the left half of the result vector and odd elements in vector `b`
 /// (two signed 64-bit integer numbers) are copied to the right half of the result vector.
 ///
 #[inline]
@@ -7460,8 +7463,8 @@ pub unsafe fn __msa_pckod_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Vector Population Count
 ///
-/// The number of bits set to 1 for elements in vector 'a' (sixteen signed 8-bit integer numbers)
-/// is stored to the elements in the result vector (sixteen signed 8-bit integer numbers)
+/// The number of bits set to 1 for elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// is stored to the elements in the result vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7472,8 +7475,8 @@ pub unsafe fn __msa_pcnt_b(a: v16i8) -> v16i8 {
 
 /// Vector Population Count
 ///
-/// The number of bits set to 1 for elements in vector 'a' (eight signed 16-bit integer numbers)
-/// is stored to the elements in the result vector (eight signed 16-bit integer numbers)
+/// The number of bits set to 1 for elements in vector `a` (eight signed 16-bit integer numbers)
+/// is stored to the elements in the result vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7484,8 +7487,8 @@ pub unsafe fn __msa_pcnt_h(a: v8i16) -> v8i16 {
 
 /// Vector Population Count
 ///
-/// The number of bits set to 1 for elements in vector 'a' (four signed 32-bit integer numbers)
-/// is stored to the elements in the result vector (four signed 32-bit integer numbers)
+/// The number of bits set to 1 for elements in vector `a` (four signed 32-bit integer numbers)
+/// is stored to the elements in the result vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7496,8 +7499,8 @@ pub unsafe fn __msa_pcnt_w(a: v4i32) -> v4i32 {
 
 /// Vector Population Count
 ///
-/// The number of bits set to 1 for elements in vector 'a' (two signed 64-bit integer numbers)
-/// is stored to the elements in the result vector (two signed 64-bit integer numbers)
+/// The number of bits set to 1 for elements in vector `a` (two signed 64-bit integer numbers)
+/// is stored to the elements in the result vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7508,9 +7511,9 @@ pub unsafe fn __msa_pcnt_d(a: v2i64) -> v2i64 {
 
 /// Immediate Signed Saturate
 ///
-/// Signed elements in vector 'a' (sixteen signed 8-bit integer numbers)
-/// are saturated to signed values of imm3+1 bits without changing the data width
-/// The result is stored in the vector (sixteen signed 8-bit integer numbers)
+/// Signed elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are saturated to signed values of `imm3+1` bits without changing the data width.
+/// The result is stored in the vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7527,9 +7530,9 @@ pub unsafe fn __msa_sat_s_b(a: v16i8, imm3: i32) -> v16i8 {
 
 /// Immediate Signed Saturate
 ///
-/// Signed elements in vector 'a' (eight signed 16-bit integer numbers)
-/// are saturated to signed values of imm4+1 bits without changing the data width
-/// The result is stored in the vector (eight signed 16-bit integer numbers)
+/// Signed elements in vector `a` (eight signed 16-bit integer numbers)
+/// are saturated to signed values of `imm4+1` bits without changing the data width.
+/// The result is stored in the vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7546,9 +7549,9 @@ pub unsafe fn __msa_sat_s_h(a: v8i16, imm4: i32) -> v8i16 {
 
 /// Immediate Signed Saturate
 ///
-/// Signed elements in vector 'a' (four signed 32-bit integer numbers)
-/// are saturated to signed values of imm5+1 bits without changing the data width
-/// The result is stored in the vector (four signed 32-bit integer numbers)
+/// Signed elements in vector `a` (four signed 32-bit integer numbers)
+/// are saturated to signed values of `imm5+1` bits without changing the data width.
+/// The result is stored in the vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7565,9 +7568,9 @@ pub unsafe fn __msa_sat_s_w(a: v4i32, imm5: i32) -> v4i32 {
 
 /// Immediate Signed Saturate
 ///
-/// Signed elements in vector 'a' (two signed 64-bit integer numbers)
-/// are saturated to signed values of imm6+1 bits without changing the data width
-/// The result is stored in the vector (two signed 64-bit integer numbers)
+/// Signed elements in vector `a` (two signed 64-bit integer numbers)
+/// are saturated to signed values of `imm6+1` bits without changing the data width.
+/// The result is stored in the vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7584,9 +7587,9 @@ pub unsafe fn __msa_sat_s_d(a: v2i64, imm6: i32) -> v2i64 {
 
 /// Immediate Unsigned Saturate
 ///
-/// Unsigned elements in vector 'a' (sixteen unsigned 8-bit integer numbers)
-/// are saturated to unsigned values of imm3+1 bits without changing the data width
-/// The result is stored in the vector (sixteen unsigned 8-bit integer numbers)
+/// Unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are saturated to unsigned values of `imm3+1` bits without changing the data width.
+/// The result is stored in the vector (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7603,9 +7606,9 @@ pub unsafe fn __msa_sat_u_b(a: v16u8, imm3: i32) -> v16u8 {
 
 /// Immediate Unsigned Saturate
 ///
-/// Unsigned elements in vector 'a' (eight unsigned 16-bit integer numbers)
-/// are saturated to unsigned values of imm4+1 bits without changing the data width
-/// The result is stored in the vector (eight unsigned 16-bit integer numbers)
+/// Unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are saturated to unsigned values of `imm4+1` bits without changing the data width.
+/// The result is stored in the vector (eight unsigned 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7622,9 +7625,9 @@ pub unsafe fn __msa_sat_u_h(a: v8u16, imm4: i32) -> v8u16 {
 
 /// Immediate Unsigned Saturate
 ///
-/// Unsigned elements in vector 'a' (four unsigned 32-bit integer numbers)
-/// are saturated to unsigned values of imm5+1 bits without changing the data width
-/// The result is stored in the vector (four unsigned 32-bit integer numbers)
+/// Unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are saturated to unsigned values of `imm5+1` bits without changing the data width.
+/// The result is stored in the vector (four unsigned 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7641,9 +7644,9 @@ pub unsafe fn __msa_sat_u_w(a: v4u32, imm5: i32) -> v4u32 {
 
 /// Immediate Unsigned Saturate
 ///
-/// Unsigned elements in vector 'a' (two unsigned 64-bit integer numbers)
-/// are saturated to unsigned values of imm6+1 bits without changing the data width
-/// The result is stored in the vector (two unsigned 64-bit integer numbers)
+/// Unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
+/// are saturated to unsigned values of `imm6+1` bits without changing the data width.
+/// The result is stored in the vector (two unsigned 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7661,7 +7664,7 @@ pub unsafe fn __msa_sat_u_d(a: v2u64, imm6: i32) -> v2u64 {
 /// Immediate Set Shuffle Elements
 ///
 /// The set shuffle instruction works on 4-element sets.
-/// All sets are shuffled in the same way: the element i82i+1..2i in 'a'
+/// All sets are shuffled in the same way: the element i82i+1..2i in `a`
 /// (sixteen signed 8-bit integer numbers) is copied over the element i in result vector
 /// (sixteen signed 8-bit integer numbers), where i is 0, 1, 2, 3.
 ///
@@ -7681,7 +7684,7 @@ pub unsafe fn __msa_shf_b(a: v16i8, imm8: i32) -> v16i8 {
 /// Immediate Set Shuffle Elements
 ///
 /// The set shuffle instruction works on 4-element sets.
-/// All sets are shuffled in the same way: the element i82i+1..2i in 'a'
+/// All sets are shuffled in the same way: the element i82i+1..2i in `a`
 /// (eight signed 16-bit integer numbers) is copied over the element i in result vector
 /// (eight signed 16-bit integer numbers), where i is 0, 1, 2, 3.
 ///
@@ -7701,7 +7704,7 @@ pub unsafe fn __msa_shf_h(a: v8i16, imm8: i32) -> v8i16 {
 /// Immediate Set Shuffle Elements
 ///
 /// The set shuffle instruction works on 4-element sets.
-/// All sets are shuffled in the same way: the element i82i+1..2i in 'a'
+/// All sets are shuffled in the same way: the element i82i+1..2i in `a`
 /// (four signed 32-bit integer numbers) is copied over the element i in result vector
 /// (four signed 32-bit integer numbers), where i is 0, 1, 2, 3.
 ///
@@ -7720,15 +7723,15 @@ pub unsafe fn __msa_shf_w(a: v4i32, imm8: i32) -> v4i32 {
 
 /// GPR Columns Slide
 ///
-/// Vector registers 'a' (sixteen signed 8-bit integer numbers) and 'b'
+/// Vector registers `a` (sixteen signed 8-bit integer numbers) and `b`
 /// (sixteen signed 8-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by the number of columns given in GPR 'c'.
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by the number of columns given in GPR `c`.
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
-/// GPR 'c' value is interpreted modulo the number of columns in destination rectangle,
+/// GPR `c` value is interpreted modulo the number of columns in destination rectangle,
 /// or equivalently, the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -7740,15 +7743,15 @@ pub unsafe fn __msa_sld_b(a: v16i8, b: v16i8, c: i32) -> v16i8 {
 
 /// GPR Columns Slide
 ///
-/// Vector registers 'a' (eight signed 16-bit integer numbers) and 'b'
+/// Vector registers `a` (eight signed 16-bit integer numbers) and `b`
 /// (eight signed 16-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by the number of columns given in GPR 'c'.
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by the number of columns given in GPR `c`.
 /// The result is written to vector (eight signed 16-bit integer numbers).
-/// GPR 'c' value is interpreted modulo the number of columns in destination rectangle,
+/// GPR `c` value is interpreted modulo the number of columns in destination rectangle,
 /// or equivalently, the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -7760,15 +7763,15 @@ pub unsafe fn __msa_sld_h(a: v8i16, b: v8i16, c: i32) -> v8i16 {
 
 /// GPR Columns Slide
 ///
-/// Vector registers 'a' (four signed 32-bit integer numbers) and 'b'
+/// Vector registers `a` (four signed 32-bit integer numbers) and `b`
 /// (four signed 32-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by the number of columns given in GPR 'c'.
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by the number of columns given in GPR `c`.
 /// The result is written to vector (four signed 32-bit integer numbers).
-/// GPR 'c' value is interpreted modulo the number of columns in destination rectangle,
+/// GPR `c` value is interpreted modulo the number of columns in destination rectangle,
 /// or equivalently, the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -7780,15 +7783,15 @@ pub unsafe fn __msa_sld_w(a: v4i32, b: v4i32, c: i32) -> v4i32 {
 
 /// GPR Columns Slide
 ///
-/// Vector registers 'a' (two signed 64-bit integer numbers) and 'b'
+/// Vector registers `a` (two signed 64-bit integer numbers) and `b`
 /// (two signed 64-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by the number of columns given in GPR 'c'.
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by the number of columns given in GPR `c`.
 /// The result is written to vector (two signed 64-bit integer numbers).
-/// GPR 'c' value is interpreted modulo the number of columns in destination rectangle,
+/// GPR `c` value is interpreted modulo the number of columns in destination rectangle,
 /// or equivalently, the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -7800,13 +7803,13 @@ pub unsafe fn __msa_sld_d(a: v2i64, b: v2i64, c: i32) -> v2i64 {
 
 /// Immediate Columns Slide
 ///
-/// Vector registers 'a' (sixteen signed 8-bit integer numbers) and 'b'
+/// Vector registers `a` (sixteen signed 8-bit integer numbers) and `b`
 /// (sixteen signed 8-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by imm1 columns
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by `imm1` columns.
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -7824,13 +7827,13 @@ pub unsafe fn __msa_sldi_b(a: v16i8, b: v16i8, imm4: i32) -> v16i8 {
 
 /// Immediate Columns Slide
 ///
-/// Vector registers 'a' (eight signed 16-bit integer numbers) and 'b'
+/// Vector registers `a` (eight signed 16-bit integer numbers) and `b`
 /// (eight signed 16-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by imm1 columns
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by `imm1` columns.
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -7848,13 +7851,13 @@ pub unsafe fn __msa_sldi_h(a: v8i16, b: v8i16, imm3: i32) -> v8i16 {
 
 /// Immediate Columns Slide
 ///
-/// Vector registers 'a' (four signed 32-bit integer numbers) and 'b'
+/// Vector registers `a` (four signed 32-bit integer numbers) and `b`
 /// (four signed 32-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by imm1 columns
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by `imm1` columns.
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -7872,13 +7875,13 @@ pub unsafe fn __msa_sldi_w(a: v4i32, b: v4i32, imm2: i32) -> v4i32 {
 
 /// Immediate Columns Slide
 ///
-/// Vector registers 'a' (two signed 64-bit integer numbers) and 'b'
+/// Vector registers `a` (two signed 64-bit integer numbers) and `b`
 /// (two signed 64-bit integer numbers) contain 2-dimensional byte arrays (rectangles)
-/// stored row-wise with as many rows asbytes in integer data format df.
-/// The two source rectangles 'b' and 'a' are concatenated horizontally in the order
-/// they appear in the syntax, i.e. first 'a' and then 'b'. Place a new destination
-/// rectangle over 'b' and then slide it to the left over the concatenation of 'a' and 'b'
-/// by imm1 columns
+/// stored row-wise with as many rows as bytes in integer data format df.
+/// The two source rectangles `b` and `a` are concatenated horizontally in the order
+/// they appear in the syntax, i.e. first `a` and then `b`. Place a new destination
+/// rectangle over `b` and then slide it to the left over the concatenation of `a` and `b`
+/// by `imm1` columns.
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -7896,10 +7899,10 @@ pub unsafe fn __msa_sldi_d(a: v2i64, b: v2i64, imm1: i32) -> v2i64 {
 
 /// Vector Shift Left
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted left by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted left by the number of bits the elements in vector `b`
 /// (sixteen signed 8-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector (sixteen signed 8-bit integer numbers).
+/// element in bits. The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7910,10 +7913,10 @@ pub unsafe fn __msa_sll_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Shift Left
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted left by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted left by the number of bits the elements in vector `b`
 /// (eight signed 16-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector (eight signed 16-bit integer numbers).
+/// element in bits. The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7924,10 +7927,10 @@ pub unsafe fn __msa_sll_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Shift Left
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted left by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted left by the number of bits the elements in vector `b`
 /// (four signed 32-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector (four signed 32-bit integer numbers).
+/// element in bits. The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7938,10 +7941,10 @@ pub unsafe fn __msa_sll_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Shift Left
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted left by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted left by the number of bits the elements in vector `b`
 /// (two signed 64-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(two signed 64-bit integer numbers).
+/// element in bits. The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7952,9 +7955,9 @@ pub unsafe fn __msa_sll_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Shift Left
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted left by the imm4 bits.
-/// The result is written to vector(sixteen signed 8-bit integer numbers).
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted left by `imm4` bits.
+/// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7971,9 +7974,9 @@ pub unsafe fn __msa_slli_b(a: v16i8, imm4: i32) -> v16i8 {
 
 /// Immediate Shift Left
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted left by the imm3 bits.
-/// The result is written to vector(eight signed 16-bit integer numbers).
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted left by `imm3` bits.
+/// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -7990,9 +7993,9 @@ pub unsafe fn __msa_slli_h(a: v8i16, imm3: i32) -> v8i16 {
 
 /// Immediate Shift Left
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted left by the imm2 bits.
-/// The result is written to vector(four signed 32-bit integer numbers).
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted left by `imm2` bits.
+/// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8009,9 +8012,9 @@ pub unsafe fn __msa_slli_w(a: v4i32, imm2: i32) -> v4i32 {
 
 /// Immediate Shift Left
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted left by the imm1 bits.
-/// The result is written to vector(two signed 64-bit integer numbers).
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted left by `imm1` bits.
+/// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8028,9 +8031,9 @@ pub unsafe fn __msa_slli_d(a: v2i64, imm1: i32) -> v2i64 {
 
 /// GPR Element Splat
 ///
-/// Replicate vector 'a'(sixteen signed 8-bit integer numbers)
-/// element with index given by GPR 'b' to all elements in vector
-/// (sixteen signed 8-bit integer numbers) GPR 'b' value is interpreted
+/// Replicate vector `a` (sixteen signed 8-bit integer numbers)
+/// element with index given by GPR `b` to all elements in vector
+/// (sixteen signed 8-bit integer numbers) GPR `b` value is interpreted
 /// modulo the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -8042,9 +8045,9 @@ pub unsafe fn __msa_splat_b(a: v16i8, b: i32) -> v16i8 {
 
 /// GPR Element Splat
 ///
-/// Replicate vector 'a'(eight signed 16-bit integer numbers)
-/// element with index given by GPR 'b' to all elements in vector
-/// (eight signed 16-bit integer numbers) GPR 'b' value is interpreted
+/// Replicate vector `a` (eight signed 16-bit integer numbers)
+/// element with index given by GPR `b` to all elements in vector
+/// (eight signed 16-bit integer numbers) GPR `b` value is interpreted
 /// modulo the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -8056,9 +8059,9 @@ pub unsafe fn __msa_splat_h(a: v8i16, b: i32) -> v8i16 {
 
 /// GPR Element Splat
 ///
-/// Replicate vector 'a'(four signed 32-bit integer numbers)
-/// element with index given by GPR 'b' to all elements in vector
-/// (four signed 32-bit integer numbers) GPR 'b' value is interpreted
+/// Replicate vector `a` (four signed 32-bit integer numbers)
+/// element with index given by GPR `b` to all elements in vector
+/// (four signed 32-bit integer numbers) GPR `b` value is interpreted
 /// modulo the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -8070,9 +8073,9 @@ pub unsafe fn __msa_splat_w(a: v4i32, b: i32) -> v4i32 {
 
 /// GPR Element Splat
 ///
-/// Replicate vector 'a'(two signed 64-bit integer numbers)
-/// element with index given by GPR 'b' to all elements in vector
-/// (two signed 64-bit integer numbers) GPR 'b' value is interpreted
+/// Replicate vector `a` (two signed 64-bit integer numbers)
+/// element with index given by GPR `b` to all elements in vector
+/// (two signed 64-bit integer numbers) GPR `b` value is interpreted
 /// modulo the number of data format df elements in the destination vector.
 ///
 #[inline]
@@ -8084,7 +8087,7 @@ pub unsafe fn __msa_splat_d(a: v2i64, b: i32) -> v2i64 {
 
 /// Immediate Element Splat
 ///
-/// Replicate element imm4 in vector 'a'(sixteen signed 8-bit integer numbers)
+/// Replicate element `imm4` in vector `a` (sixteen signed 8-bit integer numbers)
 /// to all elements in vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -8102,7 +8105,7 @@ pub unsafe fn __msa_splati_b(a: v16i8, imm4: i32) -> v16i8 {
 
 /// Immediate Element Splat
 ///
-/// Replicate element imm3 in vector 'a'(eight signed 16-bit integer numbers)
+/// Replicate element `imm3` in vector `a` (eight signed 16-bit integer numbers)
 /// to all elements in vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -8120,7 +8123,7 @@ pub unsafe fn __msa_splati_h(a: v8i16, imm3: i32) -> v8i16 {
 
 /// Immediate Element Splat
 ///
-/// Replicate element imm2 in vector 'a'(four signed 32-bit integer numbers)
+/// Replicate element `imm2` in vector `a` (four signed 32-bit integer numbers)
 /// to all elements in vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -8138,7 +8141,7 @@ pub unsafe fn __msa_splati_w(a: v4i32, imm2: i32) -> v4i32 {
 
 /// Immediate Element Splat
 ///
-/// Replicate element imm1 in vector 'a'(two signed 64-bit integer numbers)
+/// Replicate element `imm1` in vector `a` (two signed 64-bit integer numbers)
 /// to all elements in vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -8156,10 +8159,10 @@ pub unsafe fn __msa_splati_d(a: v2i64, imm1: i32) -> v2i64 {
 
 /// Vector Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (sixteen signed 8-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(sixteen signed 8-bit integer numbers).
+/// element in bits.The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8170,10 +8173,10 @@ pub unsafe fn __msa_sra_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (eight signed 16-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(eight signed 16-bit integer numbers).
+/// element in bits.The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8184,10 +8187,10 @@ pub unsafe fn __msa_sra_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (four signed 32-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(four signed 32-bit integer numbers).
+/// element in bits.The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8198,10 +8201,10 @@ pub unsafe fn __msa_sra_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (two signed 64-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(two signed 64-bit integer numbers).
+/// element in bits.The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8212,9 +8215,9 @@ pub unsafe fn __msa_sra_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right arithmetic by imm3 bits.
-/// The result is written to vector(sixteen signed 8-bit integer numbers).
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right arithmetic by `imm3` bits.
+/// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8231,9 +8234,9 @@ pub unsafe fn __msa_srai_b(a: v16i8, imm3: i32) -> v16i8 {
 
 /// Immediate Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right arithmetic by imm4 bits.
-/// The result is written to vector(eight signed 16-bit integer numbers).
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right arithmetic by `imm4` bits.
+/// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8250,9 +8253,9 @@ pub unsafe fn __msa_srai_h(a: v8i16, imm4: i32) -> v8i16 {
 
 /// Immediate Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right arithmetic by imm5 bits.
-/// The result is written to vector(four signed 32-bit integer numbers).
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right arithmetic by `imm5` bits.
+/// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8269,9 +8272,9 @@ pub unsafe fn __msa_srai_w(a: v4i32, imm5: i32) -> v4i32 {
 
 /// Immediate Shift Right Arithmetic
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right arithmetic by imm6 bits.
-/// The result is written to vector(two signed 64-bit integer numbers).
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right arithmetic by `imm6` bits.
+/// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8288,11 +8291,11 @@ pub unsafe fn __msa_srai_d(a: v2i64, imm6: i32) -> v2i64 {
 
 /// Vector Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (sixteen signed 8-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(sixteen signed 8-bit integer numbers).
+/// value (for rounding) and the result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8303,11 +8306,11 @@ pub unsafe fn __msa_srar_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (eight signed 16-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(eight signed 16-bit integer numbers).
+/// value (for rounding) and the result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8318,11 +8321,11 @@ pub unsafe fn __msa_srar_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (four signed 32-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(four signed 32-bit integer numbers).
+/// value (for rounding) and the result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8333,11 +8336,11 @@ pub unsafe fn __msa_srar_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right arithmetic by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right arithmetic by the number of bits the elements in vector `b`
 /// (two signed 64-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(two signed 64-bit integer numbers).
+/// value (for rounding) and the result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8348,10 +8351,10 @@ pub unsafe fn __msa_srar_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right arithmetic by imm3 bits.The most significant
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right arithmetic by `imm3` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(sixteen signed 8-bit integer numbers).
+/// the result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8368,10 +8371,10 @@ pub unsafe fn __msa_srari_b(a: v16i8, imm3: i32) -> v16i8 {
 
 /// Immediate Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right arithmetic by imm4 bits.The most significant
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right arithmetic by `imm4` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(eight signed 16-bit integer numbers).
+/// the result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8388,10 +8391,10 @@ pub unsafe fn __msa_srari_h(a: v8i16, imm4: i32) -> v8i16 {
 
 /// Immediate Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right arithmetic by imm5 bits.The most significant
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right arithmetic by `imm5` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(four signed 32-bit integer numbers).
+/// the result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8408,10 +8411,10 @@ pub unsafe fn __msa_srari_w(a: v4i32, imm5: i32) -> v4i32 {
 
 /// Immediate Shift Right Arithmetic Rounded
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right arithmetic by imm6 bits.The most significant
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right arithmetic by `imm6` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(two signed 64-bit integer numbers).
+/// the result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8428,10 +8431,10 @@ pub unsafe fn __msa_srari_d(a: v2i64, imm6: i32) -> v2i64 {
 
 /// Vector Shift Right Logical
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (sixteen signed 8-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(sixteen signed 8-bit integer numbers).
+/// element in bits.The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8442,10 +8445,10 @@ pub unsafe fn __msa_srl_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Shift Right Logical
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (eight signed 16-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(eight signed 16-bit integer numbers).
+/// element in bits.The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8456,10 +8459,10 @@ pub unsafe fn __msa_srl_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Shift Right Logical
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (four signed 32-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(four signed 32-bit integer numbers).
+/// element in bits.The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8470,10 +8473,10 @@ pub unsafe fn __msa_srl_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Shift Right Logical
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (two signed 64-bit integer numbers) specify modulo the size of the
-/// element in bits.The result is written to vector(two signed 64-bit integer numbers).
+/// element in bits.The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8484,9 +8487,9 @@ pub unsafe fn __msa_srl_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Shift Right Logical
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right logical by imm4 bits.
-/// The result is written to vector(sixteen signed 8-bit integer numbers).
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right logical by `imm4` bits.
+/// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8503,9 +8506,9 @@ pub unsafe fn __msa_srli_b(a: v16i8, imm4: i32) -> v16i8 {
 
 /// Immediate Shift Right Logical
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right logical by imm3 bits.
-/// The result is written to vector(eight signed 16-bit integer numbers).
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right logical by `imm3` bits.
+/// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8522,9 +8525,9 @@ pub unsafe fn __msa_srli_h(a: v8i16, imm3: i32) -> v8i16 {
 
 /// Immediate Shift Right Logical
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right logical by imm2 bits.
-/// The result is written to vector(four signed 32-bit integer numbers).
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right logical by `imm2` bits.
+/// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8541,9 +8544,9 @@ pub unsafe fn __msa_srli_w(a: v4i32, imm2: i32) -> v4i32 {
 
 /// Immediate Shift Right Logical
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right logical by imm1 bits.
-/// The result is written to vector(two signed 64-bit integer numbers).
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right logical by `imm1` bits.
+/// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8560,11 +8563,11 @@ pub unsafe fn __msa_srli_d(a: v2i64, imm1: i32) -> v2i64 {
 
 /// Vector Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (sixteen signed 8-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(sixteen signed 8-bit integer numbers).
+/// value (for rounding) and the result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8575,11 +8578,11 @@ pub unsafe fn __msa_srlr_b(a: v16i8, b: v16i8) -> v16i8 {
 
 /// Vector Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (eight signed 16-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(eight signed 16-bit integer numbers).
+/// value (for rounding) and the result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8590,11 +8593,11 @@ pub unsafe fn __msa_srlr_h(a: v8i16, b: v8i16) -> v8i16 {
 
 /// Vector Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (four signed 32-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(four signed 32-bit integer numbers).
+/// value (for rounding) and the result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8605,11 +8608,11 @@ pub unsafe fn __msa_srlr_w(a: v4i32, b: v4i32) -> v4i32 {
 
 /// Vector Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right logical by the number of bits the elements in vector 'b'
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right logical by the number of bits the elements in vector `b`
 /// (two signed 64-bit integer numbers) specify modulo the size of the
 /// element in bits.The most significant discarded bit is added to the shifted
-/// value (for rounding) and the result is written to vector(two signed 64-bit integer numbers).
+/// value (for rounding) and the result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8620,10 +8623,10 @@ pub unsafe fn __msa_srlr_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(sixteen signed 8-bit integer numbers)
-/// are shifted right logical by imm6 bits.The most significant
+/// The elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are shifted right logical by `imm6` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(sixteen signed 8-bit integer numbers).
+/// the result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8640,10 +8643,10 @@ pub unsafe fn __msa_srlri_b(a: v16i8, imm3: i32) -> v16i8 {
 
 /// Immediate Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(eight signed 16-bit integer numbers)
-/// are shifted right logical by imm6 bits.The most significant
+/// The elements in vector `a` (eight signed 16-bit integer numbers)
+/// are shifted right logical by `imm6` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(eight signed 16-bit integer numbers).
+/// the result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8660,10 +8663,10 @@ pub unsafe fn __msa_srlri_h(a: v8i16, imm4: i32) -> v8i16 {
 
 /// Immediate Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(four signed 32-bit integer numbers)
-/// are shifted right logical by imm6 bits.The most significant
+/// The elements in vector `a` (four signed 32-bit integer numbers)
+/// are shifted right logical by `imm6` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(four signed 32-bit integer numbers).
+/// the result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8680,10 +8683,10 @@ pub unsafe fn __msa_srlri_w(a: v4i32, imm5: i32) -> v4i32 {
 
 /// Immediate Shift Right Logical Rounded
 ///
-/// The elements in vector 'a'(two signed 64-bit integer numbers)
-/// are shifted right logical by imm6 bits.The most significant
+/// The elements in vector `a` (two signed 64-bit integer numbers)
+/// are shifted right logical by `imm6` bits.The most significant
 /// discarded bit is added to the shifted value (for rounding) and
-/// the result is written to vector(two signed 64-bit integer numbers).
+/// the result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8700,9 +8703,9 @@ pub unsafe fn __msa_srlri_d(a: v2i64, imm6: i32) -> v2i64 {
 
 /// Vector Store
 ///
-/// TheWRLEN / 8 bytes in vector 'a'(sixteen signed 8-bit integer numbers)
+/// The WRLEN / 8 bytes in vector `a` (sixteen signed 8-bit integer numbers)
 /// are stored as elements of data format df at the effective memory location
-/// addressed by the base mem_addr and the 10-bit signed immediate offset imm_s10
+/// addressed by the base `mem_addr` and the 10-bit signed immediate offset `imm_s10`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8719,9 +8722,9 @@ pub unsafe fn __msa_st_b(a: v16i8, mem_addr: *mut u8, imm_s10: i32) -> () {
 
 /// Vector Store
 ///
-/// TheWRLEN / 8 bytes in vector 'a'(eight signed 16-bit integer numbers)
+/// The WRLEN / 8 bytes in vector `a` (eight signed 16-bit integer numbers)
 /// are stored as elements of data format df at the effective memory location
-/// addressed by the base mem_addr and the 11-bit signed immediate offset imm_s11
+/// addressed by the base `mem_addr` and the 11-bit signed immediate offset `imm_s11`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8738,9 +8741,9 @@ pub unsafe fn __msa_st_h(a: v8i16, mem_addr: *mut u8, imm_s11: i32) -> () {
 
 /// Vector Store
 ///
-/// TheWRLEN / 8 bytes in vector 'a'(four signed 32-bit integer numbers)
+/// The WRLEN / 8 bytes in vector `a` (four signed 32-bit integer numbers)
 /// are stored as elements of data format df at the effective memory location
-/// addressed by the base mem_addr and the 12-bit signed immediate offset imm_s12
+/// addressed by the base `mem_addr` and the 12-bit signed immediate offset `imm_s12`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8757,9 +8760,9 @@ pub unsafe fn __msa_st_w(a: v4i32, mem_addr: *mut u8, imm_s12: i32) -> () {
 
 /// Vector Store
 ///
-/// TheWRLEN / 8 bytes in vector 'a'(two signed 64-bit integer numbers)
+/// The WRLEN / 8 bytes in vector `a` (two signed 64-bit integer numbers)
 /// are stored as elements of data format df at the effective memory location
-/// addressed by the base mem_addr and the 13-bit signed immediate offset imm_s13
+/// addressed by the base `mem_addr` and the 13-bit signed immediate offset `imm_s13`.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -8777,7 +8780,7 @@ pub unsafe fn __msa_st_d(a: v2i64, mem_addr: *mut u8, imm_s13: i32) -> () {
 /// Vector Signed Saturated Subtract of Signed Values
 ///
 /// The elements in vector `b` (sixteen signed 8-bit integer numbers)
-/// are subtracted from the elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are subtracted from the elements in vector `a` (sixteen signed 8-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (sixteen signed 8-bit integer numbers).
 ///
@@ -8791,7 +8794,7 @@ pub unsafe fn __msa_subs_s_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Signed Saturated Subtract of Signed Values
 ///
 /// The elements in vector `b` (eight signed 16-bit integer numbers)
-/// are subtracted from the elements in vector `a` (eight signed 16-bit integer numbers)
+/// are subtracted from the elements in vector `a` (eight signed 16-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (eight signed 16-bit integer numbers).
 ///
@@ -8805,7 +8808,7 @@ pub unsafe fn __msa_subs_s_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Signed Saturated Subtract of Signed Values
 ///
 /// The elements in vector `b` (four signed 32-bit integer numbers)
-/// are subtracted from the elements in vector `a` (four signed 32-bit integer numbers)
+/// are subtracted from the elements in vector `a` (four signed 32-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (four signed 32-bit integer numbers).
 ///
@@ -8819,7 +8822,7 @@ pub unsafe fn __msa_subs_s_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Signed Saturated Subtract of Signed Values
 ///
 /// The elements in vector `b` (two signed 64-bit integer numbers)
-/// are subtracted from the elements in vector `a` (two signed 64-bit integer numbers)
+/// are subtracted from the elements in vector `a` (two signed 64-bit integer numbers).
 /// Signed arithmetic is performed and overflows clamp to the largest and/or smallest
 /// representable signed values before writing the result to vector (two signed 64-bit integer numbers).
 ///
@@ -8833,7 +8836,7 @@ pub unsafe fn __msa_subs_s_d(a: v2i64, b: v2i64) -> v2i64 {
 /// Vector Unsigned Saturated Subtract of Unsigned Values
 ///
 /// The elements in vector `b` (sixteen unsigned 8-bit integer numbers)
-/// are subtracted from the elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are subtracted from the elements in vector `a` (sixteen unsigned 8-bit integer numbers).
 /// Unsigned arithmetic is performed and under-flows clamp to 0 before writing
 /// the result to vector (sixteen unsigned 8-bit integer numbers).
 ///
@@ -8847,7 +8850,7 @@ pub unsafe fn __msa_subs_u_b(a: v16u8, b: v16u8) -> v16u8 {
 /// Vector Unsigned Saturated Subtract of Unsigned Values
 ///
 /// The elements in vector `b` (eight unsigned 16-bit integer numbers)
-/// are subtracted from the elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are subtracted from the elements in vector `a` (eight unsigned 16-bit integer numbers).
 /// Unsigned arithmetic is performed and under-flows clamp to 0 before writing
 /// the result to vector (eight unsigned 16-bit integer numbers).
 ///
@@ -8861,7 +8864,7 @@ pub unsafe fn __msa_subs_u_h(a: v8u16, b: v8u16) -> v8u16 {
 /// Vector Unsigned Saturated Subtract of Unsigned Values
 ///
 /// The elements in vector `b` (four unsigned 32-bit integer numbers)
-/// are subtracted from the elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are subtracted from the elements in vector `a` (four unsigned 32-bit integer numbers).
 /// Unsigned arithmetic is performed and under-flows clamp to 0 before writing
 /// the result to vector (four unsigned 32-bit integer numbers).
 ///
@@ -8875,7 +8878,7 @@ pub unsafe fn __msa_subs_u_w(a: v4u32, b: v4u32) -> v4u32 {
 /// Vector Unsigned Saturated Subtract of Unsigned Values
 ///
 /// The elements in vector `b` (two unsigned 64-bit integer numbers)
-/// are subtracted from the elements in vector `a` (two unsigned 64-bit integer numbers)
+/// are subtracted from the elements in vector `a` (two unsigned 64-bit integer numbers).
 /// Unsigned arithmetic is performed and under-flows clamp to 0 before writing
 /// the result to vector (two unsigned 64-bit integer numbers).
 ///
@@ -8889,7 +8892,7 @@ pub unsafe fn __msa_subs_u_d(a: v2u64, b: v2u64) -> v2u64 {
 /// Vector Unsigned Saturated Subtract of Signed from Unsigned
 ///
 /// The signed elements in vector `b` (sixteen signed 8-bit integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers).
 /// The signed result is unsigned saturated and written to
 /// to vector (sixteen unsigned 8-bit integer numbers).
 ///
@@ -8903,7 +8906,7 @@ pub unsafe fn __msa_subsus_u_b(a: v16u8, b: v16i8) -> v16u8 {
 /// Vector Unsigned Saturated Subtract of Signed from Unsigned
 ///
 /// The signed elements in vector `b` (eight signed 16-bit integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (eight unsigned 16-bit integer numbers).
 /// The signed result is unsigned saturated and written to
 /// to vector (eight unsigned 16-bit integer numbers).
 ///
@@ -8917,7 +8920,7 @@ pub unsafe fn __msa_subsus_u_h(a: v8u16, b: v8i16) -> v8u16 {
 /// Vector Unsigned Saturated Subtract of Signed from Unsigned
 ///
 /// The signed elements in vector `b` (four signed 6432it integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (four unsigned 32-bit integer numbers).
 /// The signed result is unsigned saturated and written to
 /// to vector (four unsigned 32-bit integer numbers).
 ///
@@ -8931,7 +8934,7 @@ pub unsafe fn __msa_subsus_u_w(a: v4u32, b: v4i32) -> v4u32 {
 /// Vector Unsigned Saturated Subtract of Signed from Unsigned
 ///
 /// The signed elements in vector `b` (two signed 64-bit integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (two unsigned 64-bit integer numbers).
 /// The signed result is unsigned saturated and written to
 /// to vector (two unsigned 64-bit integer numbers).
 ///
@@ -8945,7 +8948,7 @@ pub unsafe fn __msa_subsus_u_d(a: v2u64, b: v2i64) -> v2u64 {
 /// Vector Signed Saturated Subtract of Unsigned Values
 ///
 /// The unsigned elements in vector `b` (sixteen unsigned 8-bit integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (sixteen unsigned 8-bit integer numbers).
 /// The signed result is signed saturated and written to
 /// to vector (sixteen unsigned 8-bit integer numbers).
 ///
@@ -8959,7 +8962,7 @@ pub unsafe fn __msa_subsuu_s_b(a: v16u8, b: v16u8) -> v16i8 {
 /// Vector Signed Saturated Subtract of Unsigned Values
 ///
 /// The unsigned elements in vector `b` (eight unsigned 16-bit integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (eight unsigned 16-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (eight unsigned 16-bit integer numbers).
 /// The signed result is signed saturated and written to
 /// to vector (eight unsigned 16-bit integer numbers).
 ///
@@ -8973,7 +8976,7 @@ pub unsafe fn __msa_subsuu_s_h(a: v8u16, b: v8u16) -> v8i16 {
 /// Vector Signed Saturated Subtract of Unsigned Values
 ///
 /// The unsigned elements in vector `b` (four unsigned 32-bit integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (four unsigned 32-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (four unsigned 32-bit integer numbers).
 /// The signed result is signed saturated and written to
 /// to vector (four unsigned 32-bit integer numbers).
 ///
@@ -8987,7 +8990,7 @@ pub unsafe fn __msa_subsuu_s_w(a: v4u32, b: v4u32) -> v4i32 {
 /// Vector Signed Saturated Subtract of Unsigned Values
 ///
 /// The unsigned elements in vector `b` (two unsigned 64-bit integer numbers)
-/// are subtracted from the unsigned elements in vector `a` (two unsigned 64-bit integer numbers)
+/// are subtracted from the unsigned elements in vector `a` (two unsigned 64-bit integer numbers).
 /// The signed result is signed saturated and written to
 /// to vector (two unsigned 64-bit integer numbers).
 ///
@@ -9001,7 +9004,7 @@ pub unsafe fn __msa_subsuu_s_d(a: v2u64, b: v2u64) -> v2i64 {
 /// Vector Subtract
 ///
 /// The elements in vector `b` (sixteen signed 8-bit integer numbers)
-/// are subtracted from the elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// are subtracted from the elements in vector `a` (sixteen signed 8-bit integer numbers).
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -9014,7 +9017,7 @@ pub unsafe fn __msa_subv_b(a: v16i8, b: v16i8) -> v16i8 {
 /// Vector Subtract
 ///
 /// The elements in vector `b` (eight signed 16-bit integer numbers)
-/// are subtracted from the elements in vector `a` (eight signed 16-bit integer numbers)
+/// are subtracted from the elements in vector `a` (eight signed 16-bit integer numbers).
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -9027,7 +9030,7 @@ pub unsafe fn __msa_subv_h(a: v8i16, b: v8i16) -> v8i16 {
 /// Vector Subtract
 ///
 /// The elements in vector `b` (four signed 32-bit integer numbers)
-/// are subtracted from the elements in vector `a` (four signed 32-bit integer numbers)
+/// are subtracted from the elements in vector `a` (four signed 32-bit integer numbers).
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -9040,7 +9043,7 @@ pub unsafe fn __msa_subv_w(a: v4i32, b: v4i32) -> v4i32 {
 /// Vector Subtract
 ///
 /// The elements in vector `b` (two signed 64-bit integer numbers)
-/// are subtracted from the elements in vector `a` (two signed 64-bit integer numbers)
+/// are subtracted from the elements in vector `a` (two signed 64-bit integer numbers).
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -9052,8 +9055,8 @@ pub unsafe fn __msa_subv_d(a: v2i64, b: v2i64) -> v2i64 {
 
 /// Immediate Subtract
 ///
-/// The 5-bit immediate unsigned value imm5
-/// are subtracted from the elements in vector `a` (sixteen signed 8-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5`
+/// are subtracted from the elements in vector `a` (sixteen signed 8-bit integer numbers).
 /// The result is written to vector (sixteen signed 8-bit integer numbers).
 ///
 #[inline]
@@ -9071,8 +9074,8 @@ pub unsafe fn __msa_subvi_b(a: v16i8, imm5: i32) -> v16i8 {
 
 /// Immediate Subtract
 ///
-/// The 5-bit immediate unsigned value imm5
-/// are subtracted from the elements in vector `a` (eight signed 16-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5`
+/// are subtracted from the elements in vector `a` (eight signed 16-bit integer numbers).
 /// The result is written to vector (eight signed 16-bit integer numbers).
 ///
 #[inline]
@@ -9090,8 +9093,8 @@ pub unsafe fn __msa_subvi_h(a: v8i16, imm5: i32) -> v8i16 {
 
 /// Immediate Subtract
 ///
-/// The 5-bit immediate unsigned value imm5
-/// are subtracted from the elements in vector `a` (four signed 32-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5`
+/// are subtracted from the elements in vector `a` (four signed 32-bit integer numbers).
 /// The result is written to vector (four signed 32-bit integer numbers).
 ///
 #[inline]
@@ -9109,8 +9112,8 @@ pub unsafe fn __msa_subvi_w(a: v4i32, imm5: i32) -> v4i32 {
 
 /// Immediate Subtract
 ///
-/// The 5-bit immediate unsigned value imm5
-/// are subtracted from the elements in vector `a` (two signed 64-bit integer numbers)
+/// The 5-bit immediate unsigned value `imm5`
+/// are subtracted from the elements in vector `a` (two signed 64-bit integer numbers).
 /// The result is written to vector (two signed 64-bit integer numbers).
 ///
 #[inline]
@@ -9128,13 +9131,13 @@ pub unsafe fn __msa_subvi_d(a: v2i64, imm5: i32) -> v2i64 {
 
 /// Vector Data Preserving Shuffle
 ///
-/// The  vector  shuffle  instructions  selectively  copy data  elements from the
-/// concatenation  of  vectors 'b' (sixteen signed 8-bit integer numbers)
-/// and `c` (sixteen signed 8-bit integer numbers) in to vector 'a'
-/// (sixteen signed 8-bit integer numbers) based on the corresponding control element in 'a'
-/// The least significant 6 bits in 'a' control elements modulo the number of elements in
-/// the concatenated vectors 'b','a' specify the index of the source element.
-/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination elementis set to 0.
+/// The vector shuffle instructions selectively copy data elements from the
+/// concatenation of vectors `b` (sixteen signed 8-bit integer numbers)
+/// and `c` (sixteen signed 8-bit integer numbers) in to vector `a`
+/// (sixteen signed 8-bit integer numbers) based on the corresponding control element in `a`.
+/// The least significant 6 bits in `a` control elements modulo the number of elements in
+/// the concatenated vectors `b`, `a` specify the index of the source element.
+/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination element is set to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -9145,13 +9148,13 @@ pub unsafe fn __msa_vshf_b(a: v16i8, b: v16i8, c: v16i8) -> v16i8 {
 
 /// Vector Data Preserving Shuffle
 ///
-/// The  vector  shuffle  instructions  selectively  copy data  elements from the
-/// concatenation  of  vectors 'b' (eight signed 16-bit integer numbers)
-/// and `c` (eight signed 16-bit integer numbers) in to vector 'a'
-/// (eight signed 16-bit integer numbers) based on the corresponding control element in 'a'
-/// The least significant 6 bits in 'a' control elements modulo the number of elements in
-/// the concatenated vectors 'b','a' specify the index of the source element.
-/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination elementis set to 0.
+/// The vector shuffle instructions selectively copy data elements from the
+/// concatenation of vectors `b` (eight signed 16-bit integer numbers)
+/// and `c` (eight signed 16-bit integer numbers) in to vector `a`
+/// (eight signed 16-bit integer numbers) based on the corresponding control element in `a`.
+/// The least significant 6 bits in `a` control elements modulo the number of elements in
+/// the concatenated vectors `b`, `a` specify the index of the source element.
+/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination element is set to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -9162,13 +9165,13 @@ pub unsafe fn __msa_vshf_h(a: v8i16, b: v8i16, c: v8i16) -> v8i16 {
 
 /// Vector Data Preserving Shuffle
 ///
-/// The  vector  shuffle  instructions  selectively  copy data  elements from the
-/// concatenation  of  vectors 'b' (four signed 32-bit integer numbers)
-/// and `c` (four signed 32-bit integer numbers) in to vector 'a'
-/// (four signed 32-bit integer numbers) based on the corresponding control element in 'a'
-/// The least significant 6 bits in 'a' control elements modulo the number of elements in
-/// the concatenated vectors 'b','a' specify the index of the source element.
-/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination elementis set to 0.
+/// The vector shuffle instructions selectively copy data elements from the
+/// concatenation of vectors `b` (four signed 32-bit integer numbers)
+/// and `c` (four signed 32-bit integer numbers) in to vector `a`
+/// (four signed 32-bit integer numbers) based on the corresponding control element in `a`.
+/// The least significant 6 bits in `a` control elements modulo the number of elements in
+/// the concatenated vectors `b`, `a` specify the index of the source element.
+/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination element is set to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -9179,13 +9182,13 @@ pub unsafe fn __msa_vshf_w(a: v4i32, b: v4i32, c: v4i32) -> v4i32 {
 
 /// Vector Data Preserving Shuffle
 ///
-/// The  vector  shuffle  instructions  selectively  copy data  elements from the
-/// concatenation  of  vectors 'b' (two signed 64-bit integer numbers)
-/// and `c` (two signed 64-bit integer numbers) in to vector 'a'
-/// (two signed 64-bit integer numbers) based on the corresponding control element in 'a'
-/// The least significant 6 bits in 'a' control elements modulo the number of elements in
-/// the concatenated vectors 'b','a' specify the index of the source element.
-/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination elementis set to 0.
+/// The vector shuffle instructions selectively copy data elements from the
+/// concatenation of vectors `b` (two signed 64-bit integer numbers)
+/// and `c` (two signed 64-bit integer numbers) in to vector `a`
+/// (two signed 64-bit integer numbers) based on the corresponding control element in `a`.
+/// The least significant 6 bits in `a` control elements modulo the number of elements in
+/// the concatenated vectors `b`, `a` specify the index of the source element.
+/// If bit 6 or bit 7 is 1, there will be no copy, but rather the destination element is set to 0.
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -9196,10 +9199,10 @@ pub unsafe fn __msa_vshf_d(a: v2i64, b: v2i64, c: v2i64) -> v2i64 {
 
 /// Vector Logical Exclusive Or
 ///
-/// Each bit of vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// is combined with the corresponding bit of vector 'b' (sixteen unsigned 8-bit integer numbers)
+/// Each bit of vector `a` (sixteen unsigned 8-bit integer numbers)
+/// is combined with the corresponding bit of vector `b` (sixteen unsigned 8-bit integer numbers)
 /// in a bitwise logical XOR operation. The result is written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -9210,10 +9213,10 @@ pub unsafe fn __msa_xor_v(a: v16u8, b: v16u8) -> v16u8 {
 
 /// Immediate Logical Exclusive Or
 ///
-/// Each byte of vector 'a'(sixteen unsigned 8-bit integer numbers)
-/// is combined with the 8-bit immediate imm8
+/// Each byte of vector `a` (sixteen unsigned 8-bit integer numbers)
+/// is combined with the 8-bit immediate `imm8`
 /// in a bitwise logical XOR operation. The result is written to vector
-/// (sixteen unsigned 8-bit integer numbers)
+/// (sixteen unsigned 8-bit integer numbers).
 ///
 #[inline]
 #[target_feature(enable = "msa")]
@@ -11417,7 +11420,7 @@ mod tests {
 
     // FIXME: https://reviews.llvm.org/D59884
     // If target type is i64, negative immediate loses the sign
-    // Test passes if 4294967293 is used instead -3 in vector 'a'
+    // Test passes if 4294967293 is used instead -3 in vector `a`
     // #[simd_test(enable = "msa")]
     // unsafe fn test_msa_ceqi_d() {
     //     #[rustfmt::skip]
@@ -13528,7 +13531,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_frint_w() {
         #[rustfmt::skip]
-        let a = f32x4::new(2.6, -2.7, 1.3, -1.7);;
+        let a = f32x4::new(2.6, -2.7, 1.3, -1.7);
         #[rustfmt::skip]
         let r = f32x4::new(3.0, -3.0, 1.0, -2.0);
 
@@ -13548,7 +13551,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_frcp_w() {
         #[rustfmt::skip]
-        let a = f32x4::new(2.6, -2.7, 1.3, -1.7);;
+        let a = f32x4::new(2.6, -2.7, 1.3, -1.7);
         #[rustfmt::skip]
         let r = f32x4::new(
             0.3846154, -0.37037036, 
@@ -13571,7 +13574,7 @@ mod tests {
     #[simd_test(enable = "msa")]
     unsafe fn test_msa_frsqrt_w() {
         #[rustfmt::skip]
-        let a = f32x4::new(2.6, 2.7, 1.3, 1.7);;
+        let a = f32x4::new(2.6, 2.7, 1.3, 1.7);
         #[rustfmt::skip]
         let r = f32x4::new(
             0.6201737, 0.6085806, 
@@ -14880,7 +14883,7 @@ mod tests {
 
     // FIXME: https://reviews.llvm.org/D59884
     // If target type is i64, negative immediate loses the sign
-    // Test passes if 4294967185 is used instead -111 in vector 'r'
+    // Test passes if 4294967185 is used instead -111 in vector `r`
     // #[simd_test(enable = "msa")]
     // unsafe fn test_msa_ldi_d() {
     //     let r = i64x2::new(-111, -111);
@@ -15361,7 +15364,7 @@ mod tests {
 
     // FIXME: https://reviews.llvm.org/D59884
     // If target type is i64, negative immediate loses the sign
-    // Test passes if 4294967293 is used instead -3 in vector 'r'
+    // Test passes if 4294967293 is used instead -3 in vector `r`
     // #[simd_test(enable = "msa")]
     // unsafe fn test_msa_maxi_s_d() {
     //     #[rustfmt::skip]

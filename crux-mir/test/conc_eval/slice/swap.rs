@@ -1,7 +1,6 @@
-#![feature(custom_attribute)]
 use std::ptr;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() -> i32 {
     let mut v = [1, 2];
     unsafe {

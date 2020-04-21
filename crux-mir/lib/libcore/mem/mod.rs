@@ -45,8 +45,9 @@ pub use crate::intrinsics::transmute;
 /// `mem::forget` from safe code does not fundamentally change Rust's safety
 /// guarantees.
 ///
-/// That said, leaking resources such as memory or I/O objects is usually undesirable,
-/// so `forget` is only recommended for specialized use cases like those shown below.
+/// That said, leaking resources such as memory or I/O objects is usually undesirable.
+/// The need comes up in some specialized use cases for FFI or unsafe code, but even
+/// then, [`ManuallyDrop`] is typically preferred.
 ///
 /// Because forgetting a value is allowed, any `unsafe` code you write must
 /// allow for this possibility. You cannot return a value and expect that the
@@ -57,7 +58,9 @@ pub use crate::intrinsics::transmute;
 ///
 /// # Examples
 ///
-/// Leak an I/O object, never closing the file:
+/// The canonical safe use of `mem::forget` is to circumvent a value's destructor
+/// implemented by the `Drop` trait. For example, this will leak a `File`, i.e. reclaim
+/// the space taken by the variable but never close the underlying system resource:
 ///
 /// ```no_run
 /// use std::mem;
@@ -67,8 +70,67 @@ pub use crate::intrinsics::transmute;
 /// mem::forget(file);
 /// ```
 ///
-/// The practical use cases for `forget` are rather specialized and mainly come
-/// up in unsafe or FFI code.
+/// This is useful when the ownership of the underlying resource was previously
+/// transferred to code outside of Rust, for example by transmitting the raw
+/// file descriptor to C code.
+///
+/// # Relationship with `ManuallyDrop`
+///
+/// While `mem::forget` can also be used to transfer *memory* ownership, doing so is error-prone.
+/// [`ManuallyDrop`] should be used instead. Consider, for example, this code:
+///
+/// ```
+/// use std::mem;
+///
+/// let mut v = vec![65, 122];
+/// // Build a `String` using the contents of `v`
+/// let s = unsafe { String::from_raw_parts(v.as_mut_ptr(), v.len(), v.capacity()) };
+/// // leak `v` because its memory is now managed by `s`
+/// mem::forget(v);  // ERROR - v is invalid and must not be passed to a function
+/// assert_eq!(s, "Az");
+/// // `s` is implicitly dropped and its memory deallocated.
+/// ```
+///
+/// There are two issues with the above example:
+///
+/// * If more code were added between the construction of `String` and the invocation of
+///   `mem::forget()`, a panic within it would cause a double free because the same memory
+///   is handled by both `v` and `s`.
+/// * After calling `v.as_mut_ptr()` and transmitting the ownership of the data to `s`,
+///   the `v` value is invalid. Even when a value is just moved to `mem::forget` (which won't
+///   inspect it), some types have strict requirements on their values that
+///   make them invalid when dangling or no longer owned. Using invalid values in any
+///   way, including passing them to or returning them from functions, constitutes
+///   undefined behavior and may break the assumptions made by the compiler.
+///
+/// Switching to `ManuallyDrop` avoids both issues:
+///
+/// ```
+/// use std::mem::ManuallyDrop;
+///
+/// let v = vec![65, 122];
+/// // Before we disassemble `v` into its raw parts, make sure it
+/// // does not get dropped!
+/// let mut v = ManuallyDrop::new(v);
+/// // Now disassemble `v`. These operations cannot panic, so there cannot be a leak.
+/// let (ptr, len, cap) = (v.as_mut_ptr(), v.len(), v.capacity());
+/// // Finally, build a `String`.
+/// let s = unsafe { String::from_raw_parts(ptr, len, cap) };
+/// assert_eq!(s, "Az");
+/// // `s` is implicitly dropped and its memory deallocated.
+/// ```
+///
+/// `ManuallyDrop` robustly prevents double-free because we disable `v`'s destructor
+/// before doing anything else. `mem::forget()` doesn't allow this because it consumes its
+/// argument, forcing us to call it only after extracting anything we need from `v`. Even
+/// if a panic were introduced between construction of `ManuallyDrop` and building the
+/// string (which cannot happen in the code as shown), it would result in a leak and not a
+/// double free. In other words, `ManuallyDrop` errs on the side of leaking instead of
+/// erring on the side of (double-)dropping.
+///
+/// Also, `ManuallyDrop` prevents us from having to "touch" `v` after transferring the
+/// ownership to `s` - the final step of interacting with `v` to dispoe of it without
+/// running its destructor is entirely avoided.
 ///
 /// [drop]: fn.drop.html
 /// [uninit]: fn.uninitialized.html
@@ -78,9 +140,11 @@ pub use crate::intrinsics::transmute;
 /// [leak]: ../../std/boxed/struct.Box.html#method.leak
 /// [into_raw]: ../../std/boxed/struct.Box.html#method.into_raw
 /// [ub]: ../../reference/behavior-considered-undefined.html
+/// [`ManuallyDrop`]: struct.ManuallyDrop.html
 #[inline]
+#[rustc_const_unstable(feature = "const_forget", issue = "69616")]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub fn forget<T>(t: T) {
+pub const fn forget<T>(t: T) {
     ManuallyDrop::new(t);
 }
 
@@ -91,8 +155,10 @@ pub fn forget<T>(t: T) {
 ///
 /// [`forget`]: fn.forget.html
 #[inline]
-#[unstable(feature = "forget_unsized", issue = "0")]
+#[unstable(feature = "forget_unsized", issue = "none")]
 pub fn forget_unsized<T: ?Sized>(t: T) {
+    // SAFETY: the forget intrinsic could be safe, but there's no point in making it safe since
+    // we'll be implementing this function soon via `ManuallyDrop`
     unsafe { intrinsics::forget(t) }
 }
 
@@ -236,9 +302,10 @@ pub fn forget_unsized<T: ?Sized>(t: T) {
 /// ```
 ///
 /// [alignment]: ./fn.align_of.html
-#[inline]
+#[inline(always)]
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_promotable]
+#[rustc_const_stable(feature = "const_size_of", since = "1.32.0")]
 pub const fn size_of<T>() -> usize {
     intrinsics::size_of::<T>()
 }
@@ -266,7 +333,7 @@ pub const fn size_of<T>() -> usize {
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn size_of_val<T: ?Sized>(val: &T) -> usize {
-    unsafe { intrinsics::size_of_val(val) }
+    intrinsics::size_of_val(val)
 }
 
 /// Returns the [ABI]-required minimum alignment of a type.
@@ -310,7 +377,7 @@ pub fn min_align_of<T>() -> usize {
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_deprecated(reason = "use `align_of_val` instead", since = "1.2.0")]
 pub fn min_align_of_val<T: ?Sized>(val: &T) -> usize {
-    unsafe { intrinsics::min_align_of_val(val) }
+    intrinsics::min_align_of_val(val)
 }
 
 /// Returns the [ABI]-required minimum alignment of a type.
@@ -328,9 +395,10 @@ pub fn min_align_of_val<T: ?Sized>(val: &T) -> usize {
 ///
 /// assert_eq!(4, mem::align_of::<i32>());
 /// ```
-#[inline]
+#[inline(always)]
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_promotable]
+#[rustc_const_stable(feature = "const_align_of", since = "1.32.0")]
 pub const fn align_of<T>() -> usize {
     intrinsics::min_align_of::<T>()
 }
@@ -350,8 +418,9 @@ pub const fn align_of<T>() -> usize {
 /// ```
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[allow(deprecated)]
 pub fn align_of_val<T: ?Sized>(val: &T) -> usize {
-    unsafe { intrinsics::min_align_of_val(val) }
+    min_align_of_val(val)
 }
 
 /// Returns `true` if dropping values of type `T` matters.
@@ -368,15 +437,17 @@ pub fn align_of_val<T: ?Sized>(val: &T) -> usize {
 /// make a difference in release builds (where a loop that has no side-effects
 /// is easily detected and eliminated), but is often a big win for debug builds.
 ///
-/// Note that `ptr::drop_in_place` already performs this check, so if your workload
-/// can be reduced to some small number of drop_in_place calls, using this is
-/// unnecessary. In particular note that you can drop_in_place a slice, and that
+/// Note that [`drop_in_place`] already performs this check, so if your workload
+/// can be reduced to some small number of [`drop_in_place`] calls, using this is
+/// unnecessary. In particular note that you can [`drop_in_place`] a slice, and that
 /// will do a single needs_drop check for all the values.
 ///
 /// Types like Vec therefore just `drop_in_place(&mut self[..])` without using
-/// needs_drop explicitly. Types like `HashMap`, on the other hand, have to drop
+/// `needs_drop` explicitly. Types like [`HashMap`], on the other hand, have to drop
 /// values one at a time and should use this API.
 ///
+/// [`drop_in_place`]: ../ptr/fn.drop_in_place.html
+/// [`HashMap`]: ../../std/collections/struct.HashMap.html
 ///
 /// # Examples
 ///
@@ -410,6 +481,7 @@ pub fn align_of_val<T: ?Sized>(val: &T) -> usize {
 /// ```
 #[inline]
 #[stable(feature = "needs_drop", since = "1.21.0")]
+#[rustc_const_stable(feature = "const_needs_drop", since = "1.36.0")]
 pub const fn needs_drop<T>() -> bool {
     intrinsics::needs_drop::<T>()
 }
@@ -445,14 +517,22 @@ pub const fn needs_drop<T>() -> bool {
 ///
 /// *Incorrect* usage of this function: initializing a reference with zero.
 ///
-/// ```no_run
+/// ```rust,no_run
+/// # #![allow(invalid_value)]
 /// use std::mem;
 ///
 /// let _x: &i32 = unsafe { mem::zeroed() }; // Undefined behavior!
 /// ```
-#[inline]
+#[inline(always)]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[allow(deprecated_in_future)]
+#[allow(deprecated)]
+#[rustc_diagnostic_item = "mem_zeroed"]
 pub unsafe fn zeroed<T>() -> T {
+    #[cfg(not(bootstrap))]
+    intrinsics::assert_zero_valid::<T>();
+    #[cfg(bootstrap)]
+    intrinsics::panic_if_uninhabited::<T>();
     MaybeUninit::zeroed().assume_init()
 }
 
@@ -462,7 +542,9 @@ pub unsafe fn zeroed<T>() -> T {
 /// **This function is deprecated.** Use [`MaybeUninit<T>`] instead.
 ///
 /// The reason for deprecation is that the function basically cannot be used
-/// correctly: [the Rust compiler assumes][inv] that values are properly initialized.
+/// correctly: it has the same effect as [`MaybeUninit::uninit().assume_init()`][uninit].
+/// As the [`assume_init` documentation][assume_init] explains,
+/// [the Rust compiler assumes][inv] that values are properly initialized.
 /// As a consequence, calling e.g. `mem::uninitialized::<bool>()` causes immediate
 /// undefined behavior for returning a `bool` that is not definitely either `true`
 /// or `false`. Worse, truly uninitialized memory like what gets returned here
@@ -473,11 +555,20 @@ pub unsafe fn zeroed<T>() -> T {
 /// until they are, it is advisable to avoid them.)
 ///
 /// [`MaybeUninit<T>`]: union.MaybeUninit.html
+/// [uninit]: union.MaybeUninit.html#method.uninit
+/// [assume_init]: union.MaybeUninit.html#method.assume_init
 /// [inv]: union.MaybeUninit.html#initialization-invariant
-#[inline]
+#[inline(always)]
 #[rustc_deprecated(since = "1.39.0", reason = "use `mem::MaybeUninit` instead")]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[allow(deprecated_in_future)]
+#[allow(deprecated)]
+#[rustc_diagnostic_item = "mem_uninitialized"]
 pub unsafe fn uninitialized<T>() -> T {
+    #[cfg(not(bootstrap))]
+    intrinsics::assert_uninit_valid::<T>();
+    #[cfg(bootstrap)]
+    intrinsics::panic_if_uninhabited::<T>();
     MaybeUninit::uninit().assume_init()
 }
 
@@ -499,18 +590,20 @@ pub unsafe fn uninitialized<T>() -> T {
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn swap<T>(x: &mut T, y: &mut T) {
-    unimplemented!("crucible intrinsic mem_swap")
+    // SAFETY: the raw pointers have been created from safe mutable references satisfying all the
+    // constraints on `ptr::swap_nonoverlapping_one`
+    unsafe {
+        ptr::swap_nonoverlapping_one(x, y);
+    }
 }
 
-/// Replace `dest` with the default value of `T`, and return the previous `dest` value.
+/// Replaces `dest` with the default value of `T`, returning the previous `dest` value.
 ///
 /// # Examples
 ///
 /// A simple example:
 ///
 /// ```
-/// #![feature(mem_take)]
-///
 /// use std::mem;
 ///
 /// let mut v: Vec<i32> = vec![1, 2];
@@ -541,8 +634,6 @@ pub fn swap<T>(x: &mut T, y: &mut T) {
 /// `self`, allowing it to be returned:
 ///
 /// ```
-/// #![feature(mem_take)]
-///
 /// use std::mem;
 ///
 /// # struct Buffer<T> { buf: Vec<T> }
@@ -561,7 +652,7 @@ pub fn swap<T>(x: &mut T, y: &mut T) {
 ///
 /// [`Clone`]: ../../std/clone/trait.Clone.html
 #[inline]
-#[unstable(feature = "mem_take", issue = "61129")]
+#[stable(feature = "mem_take", since = "1.40.0")]
 pub fn take<T: Default>(dest: &mut T) -> T {
     replace(dest, T::default())
 }
@@ -694,7 +785,7 @@ pub fn replace<T>(dest: &mut T, mut src: T) -> T {
 /// [`Copy`]: ../../std/marker/trait.Copy.html
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub fn drop<T>(_x: T) { }
+pub fn drop<T>(_x: T) {}
 
 /// Interprets `src` as having type `&U`, and then reads `src` without moving
 /// the contained value.
@@ -722,11 +813,11 @@ pub fn drop<T>(_x: T) { }
 ///     bar: u8,
 /// }
 ///
-/// let foo_slice = [10u8];
+/// let foo_array = [10u8];
 ///
 /// unsafe {
-///     // Copy the data from 'foo_slice' and treat it as a 'Foo'
-///     let mut foo_struct: Foo = mem::transmute_copy(&foo_slice);
+///     // Copy the data from 'foo_array' and treat it as a 'Foo'
+///     let mut foo_struct: Foo = mem::transmute_copy(&foo_array);
 ///     assert_eq!(foo_struct.bar, 10);
 ///
 ///     // Modify the copied data
@@ -734,8 +825,8 @@ pub fn drop<T>(_x: T) { }
 ///     assert_eq!(foo_struct.bar, 20);
 /// }
 ///
-/// // The contents of 'foo_slice' should not have changed
-/// assert_eq!(foo_slice, [10]);
+/// // The contents of 'foo_array' should not have changed
+/// assert_eq!(foo_array, [10]);
 /// ```
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -783,9 +874,7 @@ impl<T> hash::Hash for Discriminant<T> {
 #[stable(feature = "discriminant_value", since = "1.21.0")]
 impl<T> fmt::Debug for Discriminant<T> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_tuple("Discriminant")
-           .field(&self.0)
-           .finish()
+        fmt.debug_tuple("Discriminant").field(&self.0).finish()
     }
 }
 
@@ -809,22 +898,27 @@ impl<T> fmt::Debug for Discriminant<T> {
 ///
 /// enum Foo { A(&'static str), B(i32), C(i32) }
 ///
-/// assert!(mem::discriminant(&Foo::A("bar")) == mem::discriminant(&Foo::A("baz")));
-/// assert!(mem::discriminant(&Foo::B(1))     == mem::discriminant(&Foo::B(2)));
-/// assert!(mem::discriminant(&Foo::B(3))     != mem::discriminant(&Foo::C(3)));
+/// assert_eq!(mem::discriminant(&Foo::A("bar")), mem::discriminant(&Foo::A("baz")));
+/// assert_eq!(mem::discriminant(&Foo::B(1)), mem::discriminant(&Foo::B(2)));
+/// assert_ne!(mem::discriminant(&Foo::B(3)), mem::discriminant(&Foo::C(3)));
 /// ```
 #[stable(feature = "discriminant_value", since = "1.21.0")]
-pub fn discriminant<T>(v: &T) -> Discriminant<T> {
-    unsafe {
-        Discriminant(intrinsics::discriminant_value(v), PhantomData)
-    }
+#[rustc_const_unstable(feature = "const_discriminant", issue = "69821")]
+pub const fn discriminant<T>(v: &T) -> Discriminant<T> {
+    Discriminant(intrinsics::discriminant_value(v), PhantomData)
 }
 
 
-/// Specialized `transmute` that requires the input and output types to have the same Crucible
-/// representation.  Useful for casting away lifetimes.
-#[unstable(feature = "crucible_intrinsics", issue = "0")]
+/// Convert `T` to `U`.  Both types must have the same Crucible representation.
+#[unstable(feature = "crucible_intrinsics", issue = "none")]
+#[rustc_const_stable(feature = "crucible_intrinsics", since = "1.0.0")]
+#[inline(never)]
+#[allow(unused_attributes)]
+#[allow_internal_unstable(const_fn_union)]
 pub const unsafe fn crucible_identity_transmute<T, U>(x: T) -> U {
-    // Needs to be a const fn for some `str` methods
-    crucible_identity_transmute(x)
+    union Transmute<T, U> {
+        x: ManuallyDrop<T>,
+        y: ManuallyDrop<U>,
+    }
+    ManuallyDrop::into_inner(Transmute { x: ManuallyDrop::new(x) }.y)
 }

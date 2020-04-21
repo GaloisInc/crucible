@@ -1,5 +1,4 @@
 // FAIL: Should panic, but doesn't
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 extern crate core;
 #[allow(exceeding_bitshifts)]
@@ -20,4 +19,4 @@ pub fn main() {
         Err(_) => println!("<<PANIC>>"),
     };
 }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i64 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> i64 { f(ARG) }

@@ -35,20 +35,20 @@ pub const _MM_FROUND_NO_EXC: i32 = 0x08;
 pub const _MM_FROUND_NINT: i32 = 0x00;
 /// round down and do not suppress exceptions
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub const _MM_FROUND_FLOOR: i32 = (_MM_FROUND_RAISE_EXC | _MM_FROUND_TO_NEG_INF);
+pub const _MM_FROUND_FLOOR: i32 = _MM_FROUND_RAISE_EXC | _MM_FROUND_TO_NEG_INF;
 /// round up and do not suppress exceptions
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub const _MM_FROUND_CEIL: i32 = (_MM_FROUND_RAISE_EXC | _MM_FROUND_TO_POS_INF);
+pub const _MM_FROUND_CEIL: i32 = _MM_FROUND_RAISE_EXC | _MM_FROUND_TO_POS_INF;
 /// truncate and do not suppress exceptions
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub const _MM_FROUND_TRUNC: i32 = (_MM_FROUND_RAISE_EXC | _MM_FROUND_TO_ZERO);
+pub const _MM_FROUND_TRUNC: i32 = _MM_FROUND_RAISE_EXC | _MM_FROUND_TO_ZERO;
 /// use MXCSR.RC and do not suppress exceptions; see
 /// `vendor::_MM_SET_ROUNDING_MODE`
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub const _MM_FROUND_RINT: i32 = (_MM_FROUND_RAISE_EXC | _MM_FROUND_CUR_DIRECTION);
+pub const _MM_FROUND_RINT: i32 = _MM_FROUND_RAISE_EXC | _MM_FROUND_CUR_DIRECTION;
 /// use MXCSR.RC and suppress exceptions; see `vendor::_MM_SET_ROUNDING_MODE`
 #[stable(feature = "simd_x86", since = "1.27.0")]
-pub const _MM_FROUND_NEARBYINT: i32 = (_MM_FROUND_NO_EXC | _MM_FROUND_CUR_DIRECTION);
+pub const _MM_FROUND_NEARBYINT: i32 = _MM_FROUND_NO_EXC | _MM_FROUND_CUR_DIRECTION;
 
 /// Blend packed 8-bit integers from `a` and `b` using `mask`
 ///
@@ -601,7 +601,7 @@ pub unsafe fn _mm_dp_ps(a: __m128, b: __m128, imm8: i32) -> __m128 {
 #[cfg_attr(test, assert_instr(roundpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_floor_pd(a: __m128d) -> __m128d {
-    roundpd(a, _MM_FROUND_FLOOR)
+    simd_floor(a)
 }
 
 /// Round the packed single-precision (32-bit) floating-point elements in `a`
@@ -614,7 +614,7 @@ pub unsafe fn _mm_floor_pd(a: __m128d) -> __m128d {
 #[cfg_attr(test, assert_instr(roundps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_floor_ps(a: __m128) -> __m128 {
-    roundps(a, _MM_FROUND_FLOOR)
+    simd_floor(a)
 }
 
 /// Round the lower double-precision (64-bit) floating-point element in `b`
@@ -657,7 +657,7 @@ pub unsafe fn _mm_floor_ss(a: __m128, b: __m128) -> __m128 {
 #[cfg_attr(test, assert_instr(roundpd))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_ceil_pd(a: __m128d) -> __m128d {
-    roundpd(a, _MM_FROUND_CEIL)
+    simd_ceil(a)
 }
 
 /// Round the packed single-precision (32-bit) floating-point elements in `a`
@@ -670,7 +670,7 @@ pub unsafe fn _mm_ceil_pd(a: __m128d) -> __m128d {
 #[cfg_attr(test, assert_instr(roundps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_ceil_ps(a: __m128) -> __m128 {
-    roundps(a, _MM_FROUND_CEIL)
+    simd_ceil(a)
 }
 
 /// Round the lower double-precision (64-bit) floating-point element in `b`

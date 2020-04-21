@@ -3,7 +3,6 @@
 //! This basically just disassembles the current executable and then parses the
 //! output once globally and then provides the `assert` function which makes
 //! assertions about the disassembly of a function.
-#![feature(const_str_as_bytes)]
 #![feature(const_transmute)]
 #![feature(vec_leak)]
 #![allow(clippy::missing_docs_in_private_items, clippy::print_stdout)]
@@ -91,7 +90,7 @@ pub fn assert(_fnptr: usize, fnname: &str, expected: &str) {
 
     // Look for `expected` as the first part of any instruction in this
     // function, e.g., tzcntl in tzcntl %rax,%rax.
-    let found = instrs.iter().any(|s| s.contains(expected));
+    let found = instrs.iter().any(|s| s.starts_with(expected));
 
     // Look for `call` instructions in the disassembly to detect whether
     // inlining failed: all intrinsics are `#[inline(always)]`, so

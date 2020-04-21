@@ -11,28 +11,24 @@ struct PadAdapterState {
 
 impl Default for PadAdapterState {
     fn default() -> Self {
-        PadAdapterState {
-            on_newline: true,
-        }
+        PadAdapterState { on_newline: true }
     }
 }
 
 impl<'buf, 'state> PadAdapter<'buf, 'state> {
-    fn wrap<'slot, 'fmt: 'buf+'slot>(fmt: &'fmt mut fmt::Formatter<'_>,
-                                     slot: &'slot mut Option<Self>,
-                                     state: &'state mut PadAdapterState) -> fmt::Formatter<'slot> {
+    fn wrap<'slot, 'fmt: 'buf + 'slot>(
+        fmt: &'fmt mut fmt::Formatter<'_>,
+        slot: &'slot mut Option<Self>,
+        state: &'state mut PadAdapterState,
+    ) -> fmt::Formatter<'slot> {
         fmt.wrap_buf(move |buf| {
-            *slot = Some(PadAdapter {
-                buf,
-                state,
-            });
+            *slot = Some(PadAdapter { buf, state });
             slot.as_mut().unwrap()
         })
     }
 }
 
 impl fmt::Write for PadAdapter<'_, '_> {
-    #[cfg(str_pattern)]
     fn write_str(&mut self, mut s: &str) -> fmt::Result {
         while !s.is_empty() {
             if self.state.on_newline {
@@ -54,11 +50,6 @@ impl fmt::Write for PadAdapter<'_, '_> {
         }
 
         Ok(())
-    }
-
-    #[cfg(not(str_pattern))]
-    fn write_str(&mut self, mut s: &str) -> fmt::Result {
-        self.buf.write_str(s)
     }
 }
 
@@ -104,15 +95,12 @@ pub struct DebugStruct<'a, 'b: 'a> {
     has_fields: bool,
 }
 
-pub fn debug_struct_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>,
-                                name: &str)
-                                -> DebugStruct<'a, 'b> {
+pub(super) fn debug_struct_new<'a, 'b>(
+    fmt: &'a mut fmt::Formatter<'b>,
+    name: &str,
+) -> DebugStruct<'a, 'b> {
     let result = fmt.write_str(name);
-    DebugStruct {
-        fmt,
-        result,
-        has_fields: false,
-    }
+    DebugStruct { fmt, result, has_fields: false }
 }
 
 impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
@@ -145,7 +133,7 @@ impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn field(&mut self, name: &str, value: &dyn fmt::Debug) -> &mut DebugStruct<'a, 'b> {
+    pub fn field(&mut self, name: &str, value: &dyn fmt::Debug) -> &mut Self {
         self.result = self.result.and_then(|_| {
             if self.is_pretty() {
                 if !self.has_fields {
@@ -169,6 +157,62 @@ impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
 
         self.has_fields = true;
         self
+    }
+
+    /// Marks the struct as non-exhaustive, indicating to the reader that there are some other
+    /// fields that are not shown in the debug representation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #![feature(debug_non_exhaustive)]
+    /// use std::fmt;
+    ///
+    /// struct Bar {
+    ///     bar: i32,
+    ///     hidden: f32,
+    /// }
+    ///
+    /// impl fmt::Debug for Bar {
+    ///     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+    ///         fmt.debug_struct("Bar")
+    ///            .field("bar", &self.bar)
+    ///            .finish_non_exhaustive() // Show that some other field(s) exist.
+    ///     }
+    /// }
+    ///
+    /// assert_eq!(
+    ///     format!("{:?}", Bar { bar: 10, hidden: 1.0 }),
+    ///     "Bar { bar: 10, .. }",
+    /// );
+    /// ```
+    #[unstable(feature = "debug_non_exhaustive", issue = "67364")]
+    pub fn finish_non_exhaustive(&mut self) -> fmt::Result {
+        self.result = self.result.and_then(|_| {
+            // Draw non-exhaustive dots (`..`), and open brace if necessary (no fields).
+            if self.is_pretty() {
+                if !self.has_fields {
+                    self.fmt.write_str(" {\n")?;
+                }
+                let mut slot = None;
+                let mut state = Default::default();
+                let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut state);
+                writer.write_str("..\n")?;
+            } else {
+                if self.has_fields {
+                    self.fmt.write_str(", ..")?;
+                } else {
+                    self.fmt.write_str(" { ..")?;
+                }
+            }
+            if self.is_pretty() {
+                self.fmt.write_str("}")?
+            } else {
+                self.fmt.write_str(" }")?;
+            }
+            Ok(())
+        });
+        self.result
     }
 
     /// Finishes output and returns any error encountered.
@@ -202,11 +246,7 @@ impl<'a, 'b: 'a> DebugStruct<'a, 'b> {
     pub fn finish(&mut self) -> fmt::Result {
         if self.has_fields {
             self.result = self.result.and_then(|_| {
-                if self.is_pretty() {
-                    self.fmt.write_str("}")
-                } else {
-                    self.fmt.write_str(" }")
-                }
+                if self.is_pretty() { self.fmt.write_str("}") } else { self.fmt.write_str(" }") }
             });
         }
         self.result
@@ -257,14 +297,12 @@ pub struct DebugTuple<'a, 'b: 'a> {
     empty_name: bool,
 }
 
-pub fn debug_tuple_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>, name: &str) -> DebugTuple<'a, 'b> {
+pub(super) fn debug_tuple_new<'a, 'b>(
+    fmt: &'a mut fmt::Formatter<'b>,
+    name: &str,
+) -> DebugTuple<'a, 'b> {
     let result = fmt.write_str(name);
-    DebugTuple {
-        fmt,
-        result,
-        fields: 0,
-        empty_name: name.is_empty(),
-    }
+    DebugTuple { fmt, result, fields: 0, empty_name: name.is_empty() }
 }
 
 impl<'a, 'b: 'a> DebugTuple<'a, 'b> {
@@ -292,7 +330,7 @@ impl<'a, 'b: 'a> DebugTuple<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn field(&mut self, value: &dyn fmt::Debug) -> &mut DebugTuple<'a, 'b> {
+    pub fn field(&mut self, value: &dyn fmt::Debug) -> &mut Self {
         self.result = self.result.and_then(|_| {
             if self.is_pretty() {
                 if self.fields == 0 {
@@ -424,15 +462,9 @@ pub struct DebugSet<'a, 'b: 'a> {
     inner: DebugInner<'a, 'b>,
 }
 
-pub fn debug_set_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>) -> DebugSet<'a, 'b> {
+pub(super) fn debug_set_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>) -> DebugSet<'a, 'b> {
     let result = fmt.write_str("{");
-    DebugSet {
-        inner: DebugInner {
-            fmt,
-            result,
-            has_fields: false,
-        },
-    }
+    DebugSet { inner: DebugInner { fmt, result, has_fields: false } }
 }
 
 impl<'a, 'b: 'a> DebugSet<'a, 'b> {
@@ -460,7 +492,7 @@ impl<'a, 'b: 'a> DebugSet<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn entry(&mut self, entry: &dyn fmt::Debug) -> &mut DebugSet<'a, 'b> {
+    pub fn entry(&mut self, entry: &dyn fmt::Debug) -> &mut Self {
         self.inner.entry(entry);
         self
     }
@@ -489,9 +521,10 @@ impl<'a, 'b: 'a> DebugSet<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn entries<D, I>(&mut self, entries: I) -> &mut DebugSet<'a, 'b>
-        where D: fmt::Debug,
-              I: IntoIterator<Item = D>
+    pub fn entries<D, I>(&mut self, entries: I) -> &mut Self
+    where
+        D: fmt::Debug,
+        I: IntoIterator<Item = D>,
     {
         for entry in entries {
             self.entry(&entry);
@@ -561,15 +594,9 @@ pub struct DebugList<'a, 'b: 'a> {
     inner: DebugInner<'a, 'b>,
 }
 
-pub fn debug_list_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>) -> DebugList<'a, 'b> {
+pub(super) fn debug_list_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>) -> DebugList<'a, 'b> {
     let result = fmt.write_str("[");
-    DebugList {
-        inner: DebugInner {
-            fmt,
-            result,
-            has_fields: false,
-        },
-    }
+    DebugList { inner: DebugInner { fmt, result, has_fields: false } }
 }
 
 impl<'a, 'b: 'a> DebugList<'a, 'b> {
@@ -597,7 +624,7 @@ impl<'a, 'b: 'a> DebugList<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn entry(&mut self, entry: &dyn fmt::Debug) -> &mut DebugList<'a, 'b> {
+    pub fn entry(&mut self, entry: &dyn fmt::Debug) -> &mut Self {
         self.inner.entry(entry);
         self
     }
@@ -626,9 +653,10 @@ impl<'a, 'b: 'a> DebugList<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn entries<D, I>(&mut self, entries: I) -> &mut DebugList<'a, 'b>
-        where D: fmt::Debug,
-              I: IntoIterator<Item = D>
+    pub fn entries<D, I>(&mut self, entries: I) -> &mut Self
+    where
+        D: fmt::Debug,
+        I: IntoIterator<Item = D>,
     {
         for entry in entries {
             self.entry(&entry);
@@ -703,15 +731,9 @@ pub struct DebugMap<'a, 'b: 'a> {
     state: PadAdapterState,
 }
 
-pub fn debug_map_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>) -> DebugMap<'a, 'b> {
+pub(super) fn debug_map_new<'a, 'b>(fmt: &'a mut fmt::Formatter<'b>) -> DebugMap<'a, 'b> {
     let result = fmt.write_str("{");
-    DebugMap {
-        fmt,
-        result,
-        has_fields: false,
-        has_key: false,
-        state: Default::default(),
-    }
+    DebugMap { fmt, result, has_fields: false, has_key: false, state: Default::default() }
 }
 
 impl<'a, 'b: 'a> DebugMap<'a, 'b> {
@@ -738,7 +760,7 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn entry(&mut self, key: &dyn fmt::Debug, value: &dyn fmt::Debug) -> &mut DebugMap<'a, 'b> {
+    pub fn entry(&mut self, key: &dyn fmt::Debug, value: &dyn fmt::Debug) -> &mut Self {
         self.key(key).value(value)
     }
 
@@ -756,7 +778,6 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(debug_map_key_value)]
     /// use std::fmt;
     ///
     /// struct Foo(Vec<(String, i32)>);
@@ -774,14 +795,15 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
     ///     "{\"whole\": [(\"A\", 10), (\"B\", 11)]}",
     /// );
     /// ```
-    #[unstable(feature = "debug_map_key_value",
-               reason = "recently added",
-               issue = "62482")]
-    pub fn key(&mut self, key: &dyn fmt::Debug) -> &mut DebugMap<'a, 'b> {
-        assert!(!self.has_key, "attempted to begin a new map entry \
-                                without completing the previous one");
-
+    #[stable(feature = "debug_map_key_value", since = "1.42.0")]
+    pub fn key(&mut self, key: &dyn fmt::Debug) -> &mut Self {
         self.result = self.result.and_then(|_| {
+            assert!(
+                !self.has_key,
+                "attempted to begin a new map entry \
+                                    without completing the previous one"
+            );
+
             if self.is_pretty() {
                 if !self.has_fields {
                     self.fmt.write_str("\n")?;
@@ -820,7 +842,6 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(debug_map_key_value)]
     /// use std::fmt;
     ///
     /// struct Foo(Vec<(String, i32)>);
@@ -838,13 +859,11 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
     ///     "{\"whole\": [(\"A\", 10), (\"B\", 11)]}",
     /// );
     /// ```
-    #[unstable(feature = "debug_map_key_value",
-               reason = "recently added",
-               issue = "62482")]
-    pub fn value(&mut self, value: &dyn fmt::Debug) -> &mut DebugMap<'a, 'b> {
-        assert!(self.has_key, "attempted to format a map value before its key");
-
+    #[stable(feature = "debug_map_key_value", since = "1.42.0")]
+    pub fn value(&mut self, value: &dyn fmt::Debug) -> &mut Self {
         self.result = self.result.and_then(|_| {
+            assert!(self.has_key, "attempted to format a map value before its key");
+
             if self.is_pretty() {
                 let mut slot = None;
                 let mut writer = PadAdapter::wrap(&mut self.fmt, &mut slot, &mut self.state);
@@ -887,10 +906,11 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
     /// );
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
-    pub fn entries<K, V, I>(&mut self, entries: I) -> &mut DebugMap<'a, 'b>
-        where K: fmt::Debug,
-              V: fmt::Debug,
-              I: IntoIterator<Item = (K, V)>
+    pub fn entries<K, V, I>(&mut self, entries: I) -> &mut Self
+    where
+        K: fmt::Debug,
+        V: fmt::Debug,
+        I: IntoIterator<Item = (K, V)>,
     {
         for (k, v) in entries {
             self.entry(&k, &v);
@@ -927,9 +947,11 @@ impl<'a, 'b: 'a> DebugMap<'a, 'b> {
     /// ```
     #[stable(feature = "debug_builders", since = "1.2.0")]
     pub fn finish(&mut self) -> fmt::Result {
-        assert!(!self.has_key, "attempted to finish a map with a partial entry");
+        self.result.and_then(|_| {
+            assert!(!self.has_key, "attempted to finish a map with a partial entry");
 
-        self.result.and_then(|_| self.fmt.write_str("}"))
+            self.fmt.write_str("}")
+        })
     }
 
     fn is_pretty(&self) -> bool {

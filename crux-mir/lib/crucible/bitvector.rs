@@ -6,6 +6,7 @@ use core::ops::{Neg, Not, Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, S
 use crate::symbolic::Symbolic;
 
 pub struct Bv<S: Size + ?Sized> {
+    _dummy: u8,
     _marker: PhantomData<S>,
 }
 
@@ -35,9 +36,16 @@ pub type Bv512 = Bv<_512>;
 
 
 impl<S: Size> Bv<S> {
-    pub const ZERO: Self = Bv { _marker: PhantomData };
-    pub const ONE: Self = Bv { _marker: PhantomData };
-    pub const MAX: Self = Bv { _marker: PhantomData };
+    // Defining overrides for constants is tricky: rustc will const-evaluate based on the
+    // definition, and mir-verifier will only see the actual struct literal, not the name of the
+    // constant.  Here we handle it by setting a different value for `_dummy` in each constant, so
+    // that code in mir-verifier can distinguish them.
+    //
+    // Note there are no `const fn`s define on this type - those would make things a lot more
+    // difficult.
+    pub const ZERO: Self = Bv { _dummy: 0, _marker: PhantomData };
+    pub const ONE: Self = Bv { _dummy: 1, _marker: PhantomData };
+    pub const MAX: Self = Bv { _dummy: 2, _marker: PhantomData };
 }
 
 

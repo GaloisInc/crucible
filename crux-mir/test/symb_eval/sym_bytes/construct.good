@@ -3,9 +3,9 @@ test construct/3a1fbbbh::crux_test[0]: returned Symbolic BV, FAILED
 failures:
 
 ---- construct/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for MIR assertion at test/symb_eval/sym_bytes/construct.rs:14:5:
+Failure for MIR assertion at test/symb_eval/sym_bytes/construct.rs:13:5:
 	sym2[0] == 0
-in construct/3a1fbbbh::crux_test[0] at <::crucible::crucible_assert macros>:2:42: 2:62
+in construct/3a1fbbbh::crux_test[0] at /home/stuart/work/mir-verifier/lib/crucible/lib.rs:39:41
 
 [Crux] Goal status:
 [Crux]   Total: 1

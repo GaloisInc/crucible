@@ -194,6 +194,7 @@ pub unsafe fn _mm_min_ss(a: __m128, b: __m128) -> __m128 {
 #[cfg_attr(test, assert_instr(minps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_min_ps(a: __m128, b: __m128) -> __m128 {
+    // See the `test_mm_min_ps` test why this can't be implemented using `simd_fmin`.
     minps(a, b)
 }
 
@@ -219,6 +220,7 @@ pub unsafe fn _mm_max_ss(a: __m128, b: __m128) -> __m128 {
 #[cfg_attr(test, assert_instr(maxps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_max_ps(a: __m128, b: __m128) -> __m128 {
+    // See the `test_mm_min_ps` test why this can't be implemented using `simd_fmax`.
     maxps(a, b)
 }
 
@@ -1098,7 +1100,10 @@ pub unsafe fn _mm_movelh_ps(a: __m128, b: __m128) -> __m128 {
 /// [Intel's documentation](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#text=_mm_movemask_ps)
 #[inline]
 #[target_feature(enable = "sse")]
-#[cfg_attr(test, assert_instr(movmskps))]
+// FIXME: LLVM9 trunk has the following bug:
+// https://github.com/rust-lang/stdarch/issues/794
+// so we only temporarily test this on i686 and x86_64 but not on i586:
+#[cfg_attr(all(test, target_feature = "sse2"), assert_instr(movmskps))]
 #[stable(feature = "simd_x86", since = "1.27.0")]
 pub unsafe fn _mm_movemask_ps(a: __m128) -> i32 {
     movmskps(a)
@@ -1109,21 +1114,7 @@ pub unsafe fn _mm_movemask_ps(a: __m128) -> i32 {
 /// from `a`.
 #[inline]
 #[target_feature(enable = "sse")]
-#[cfg_attr(
-    all(
-        test,
-        any(
-            target_arch = "x86_64",
-            all(target_arch = "x86", target_feature = "sse2")
-        )
-    ),
-    assert_instr(movhpd)
-)]
-// FIXME: 32-bit codegen without SSE2 generates two `shufps` instead of `movhps`
-#[cfg_attr(
-    all(test, target_arch = "x86", not(target_feature = "sse2")),
-    assert_instr(shufps)
-)]
+#[cfg_attr(test, assert_instr(movhps))]
 // TODO: this function is actually not limited to floats, but that's what
 // what matches the C type most closely: `(__m128, *const __m64) -> __m128`.
 pub unsafe fn _mm_loadh_pi(a: __m128, p: *const __m64) -> __m128 {
@@ -1137,16 +1128,7 @@ pub unsafe fn _mm_loadh_pi(a: __m128, p: *const __m64) -> __m128 {
 /// is copied from the upper half of `a`.
 #[inline]
 #[target_feature(enable = "sse")]
-#[cfg_attr(all(test, target_arch = "x86_64"), assert_instr(movlpd))]
-#[cfg_attr(
-    all(test, target_arch = "x86", target_feature = "sse2"),
-    assert_instr(movlpd)
-)]
-// FIXME: On 32-bit targets without SSE2, it just generates two `movss`...
-#[cfg_attr(
-    all(test, target_arch = "x86", not(target_feature = "sse2")),
-    assert_instr(movss)
-)]
+#[cfg_attr(test, assert_instr(movlps))]
 pub unsafe fn _mm_loadl_pi(a: __m128, p: *const __m64) -> __m128 {
     let q = p as *const f32x2;
     let b: f32x2 = *q;
@@ -2638,6 +2620,21 @@ mod tests {
         let b = _mm_setr_ps(-100.0, 20.0, 0.0, -5.0);
         let r = _mm_min_ps(a, b);
         assert_eq_m128(r, _mm_setr_ps(-100.0, 5.0, 0.0, -10.0));
+
+        // `_mm_min_ps` can **not** be implemented using the `simd_min` rust intrinsic. `simd_min`
+        // is lowered by the llvm codegen backend to `llvm.minnum.v*` llvm intrinsic. This intrinsic
+        // doesn't specify how -0.0 is handled. Unfortunately it happens to behave different from
+        // the `minps` x86 instruction on x86. The `llvm.minnum.v*` llvm intrinsic equals
+        // `r1` to `a` and `r2` to `b`.
+        let a = _mm_setr_ps(-0.0, 0.0, 0.0, 0.0);
+        let b = _mm_setr_ps(0.0, 0.0, 0.0, 0.0);
+        let r1: [u8; 16] = transmute(_mm_min_ps(a, b));
+        let r2: [u8; 16] = transmute(_mm_min_ps(b, a));
+        let a: [u8; 16] = transmute(a);
+        let b: [u8; 16] = transmute(b);
+        assert_eq!(r1, b);
+        assert_eq!(r2, a);
+        assert_ne!(a, b); // sanity check that -0.0 is actually present
     }
 
     #[simd_test(enable = "sse")]
@@ -3457,7 +3454,7 @@ mod tests {
     }
 
     #[simd_test(enable = "sse")]
-    pub unsafe fn test_mm_cvtsi32_ss() {
+    unsafe fn test_mm_cvtsi32_ss() {
         let inputs = &[
             (4555i32, 4555.0f32),
             (322223333, 322223330.0),
@@ -3475,7 +3472,7 @@ mod tests {
     }
 
     #[simd_test(enable = "sse")]
-    pub unsafe fn test_mm_cvtss_f32() {
+    unsafe fn test_mm_cvtss_f32() {
         let a = _mm_setr_ps(312.0134, 5.0, 6.0, 7.0);
         assert_eq!(_mm_cvtss_f32(a), 312.0134);
     }

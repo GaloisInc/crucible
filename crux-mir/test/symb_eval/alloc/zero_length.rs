@@ -1,9 +1,8 @@
-#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::*;
 use crucible::alloc::allocate;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() {
     unsafe {
         // Make sure the CustomOp succeeds in creating a pointer to the first element of an empty

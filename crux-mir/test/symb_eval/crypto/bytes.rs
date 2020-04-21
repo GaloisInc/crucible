@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(custom_attribute)]
 
 extern crate crucible;
 use crucible::*;
@@ -71,7 +70,7 @@ pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     s
 }
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let a0 = crucible_u64("a0");
     let a1 = crucible_u64("a1");

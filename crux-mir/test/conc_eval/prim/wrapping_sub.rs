@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn f(_x : u16) -> bool {
     let y : u16 = 20;
     let z : i16 = 20;
@@ -20,4 +19,4 @@ const ARG : u16 = 20;
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> bool { f(ARG) }

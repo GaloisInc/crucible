@@ -11,7 +11,6 @@
 //! (0xfffffffffffff^2) * 5 = 0x4ffffffffffff60000000000005 (107 bits).
 //! ```
 #![no_std]
-#![feature(custom_attribute)]
 
 extern crate core;
 //use core::fmt::Debug;
@@ -77,7 +76,7 @@ macro_rules! crucible_debug_integer {
 
 
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     // Int512 -> Scalar64 -> Int512 conversion is the identity function.
     {

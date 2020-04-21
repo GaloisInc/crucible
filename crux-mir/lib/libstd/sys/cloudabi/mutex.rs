@@ -53,16 +53,16 @@ pub struct ReentrantMutex {
 }
 
 impl ReentrantMutex {
-    pub unsafe fn uninitialized() -> ReentrantMutex {
+    pub const unsafe fn uninitialized() -> ReentrantMutex {
         ReentrantMutex {
             lock: UnsafeCell::new(MaybeUninit::uninit()),
-            recursion: UnsafeCell::new(MaybeUninit::uninit())
+            recursion: UnsafeCell::new(MaybeUninit::uninit()),
         }
     }
 
-    pub unsafe fn init(&mut self) {
-        self.lock = UnsafeCell::new(MaybeUninit::new(AtomicU32::new(abi::LOCK_UNLOCKED.0)));
-        self.recursion = UnsafeCell::new(MaybeUninit::new(0));
+    pub unsafe fn init(&self) {
+        *self.lock.get() = MaybeUninit::new(AtomicU32::new(abi::LOCK_UNLOCKED.0));
+        *self.recursion.get() = MaybeUninit::new(0);
     }
 
     pub unsafe fn try_lock(&self) -> bool {
@@ -104,10 +104,11 @@ impl ReentrantMutex {
                 },
                 ..mem::zeroed()
             };
-            let mut event: abi::event = mem::uninitialized();
-            let mut nevents: usize = mem::uninitialized();
-            let ret = abi::poll(&subscription, &mut event, 1, &mut nevents);
+            let mut event = MaybeUninit::<abi::event>::uninit();
+            let mut nevents = MaybeUninit::<usize>::uninit();
+            let ret = abi::poll(&subscription, event.as_mut_ptr(), 1, nevents.as_mut_ptr());
             assert_eq!(ret, abi::errno::SUCCESS, "Failed to acquire mutex");
+            let event = event.assume_init();
             assert_eq!(event.error, abi::errno::SUCCESS, "Failed to acquire mutex");
         }
     }

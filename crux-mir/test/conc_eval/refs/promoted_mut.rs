@@ -1,6 +1,5 @@
-#![feature(custom_attribute)]
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> usize {
     let dest: &mut [u8] = &mut [];
     dest.len()

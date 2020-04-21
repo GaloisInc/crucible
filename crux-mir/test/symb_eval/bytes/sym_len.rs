@@ -1,12 +1,11 @@
 #![no_std]
-#![feature(custom_attribute)]
 
 extern crate bytes;
 #[macro_use] extern crate crucible;
 use bytes::{Bytes, BytesMut, Buf, BufMut};
 use core::ops::Deref;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let mut b = BytesMut::with_capacity(10);
     b.put_u8(1);

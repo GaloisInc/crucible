@@ -1,17 +1,11 @@
 //! Run-time feature detection for PowerPC on Linux.
 
-use crate::detect::{Feature, cache};
 use super::{auxvec, cpuinfo};
-
-/// Performs run-time feature detection.
-#[inline]
-pub fn check_for(x: Feature) -> bool {
-    cache::test(x as u32, detect_features)
-}
+use crate::detect::{cache, Feature};
 
 /// Try to read the features from the auxiliary vector, and if that fails, try
 /// to read them from /proc/cpuinfo.
-fn detect_features() -> cache::Initializer {
+pub(crate) fn detect_features() -> cache::Initializer {
     let mut value = cache::Initializer::default();
     let enable_feature = |value: &mut cache::Initializer, f, enable| {
         if enable {

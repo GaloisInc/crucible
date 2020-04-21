@@ -1,5 +1,4 @@
 #![cfg_attr(not(with_main), no_std)]
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 
 pub enum Opt<T> {
     /// No value
@@ -35,4 +34,4 @@ const ARG: u32 = 1;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> bool { f(ARG) }

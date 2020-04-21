@@ -30,6 +30,14 @@ IMAGE_BASE:
 
 /*  We can store a bunch of data in the gap between MXCSR and the XSAVE header */
 
+/* MXCSR initialization value for ABI */
+.Lmxcsr_init:
+    .int 0x1f80
+
+/* x87 FPU control word initialization value for ABI */
+.Lfpucw_init:
+    .int 0x037f
+
 /*  The following symbols point at read-only data that will be filled in by the */
 /*  post-linker. */
 
@@ -104,6 +112,50 @@ IMAGE_BASE:
         and %gs:tcsls_flags,%\reg
 .endm
 
+/* We place the ELF entry point in a separate section so it can be removed by
+   elf2sgxs */
+.section .text_no_sgx, "ax"
+.Lelf_entry_error_msg:
+    .ascii "Error: This file is an SGX enclave which cannot be executed as a standard Linux binary.\nSee the installation guide at https://edp.fortanix.com/docs/installation/guide/ on how to use 'cargo run' or follow the steps at https://edp.fortanix.com/docs/tasks/deployment/ for manual deployment.\n"
+.Lelf_entry_error_msg_end:
+
+.global elf_entry
+.type elf_entry,function
+elf_entry:
+/* print error message */
+    movq $2,%rdi                      /* write to stderr (fd 2) */
+    lea .Lelf_entry_error_msg(%rip),%rsi
+    movq $.Lelf_entry_error_msg_end-.Lelf_entry_error_msg,%rdx
+.Lelf_entry_call:
+    movq $1,%rax                      /* write() syscall        */
+    syscall
+    test %rax,%rax
+    jle .Lelf_exit                    /* exit on error          */
+    add %rax,%rsi
+    sub %rax,%rdx                     /* all chars written?     */
+    jnz .Lelf_entry_call
+
+.Lelf_exit:    
+    movq $60,%rax                     /* exit() syscall         */
+    movq $1,%rdi                      /* exit code 1            */
+    syscall
+    ud2                               /* should not be reached  */
+/*  end elf_entry */
+
+/* This code needs to be called *after* the enclave stack has been setup. */
+/* There are 3 places where this needs to happen, so this is put in a macro. */
+.macro entry_sanitize_final
+/*  Sanitize rflags received from user */
+/*    - DF flag: x86-64 ABI requires DF to be unset at function entry/exit */
+/*    - AC flag: AEX on misaligned memory accesses leaks side channel info */
+    pushfq
+    andq $~0x40400, (%rsp)
+    popfq
+/*  check for abort */
+    bt $0,.Laborted(%rip)
+    jc .Lreentry_panic
+.endm
+
 .text
 .global sgx_entry
 .type sgx_entry,function
@@ -119,20 +171,19 @@ sgx_entry:
     mov %rbx,%gs:tcsls_tcs_addr
     stmxcsr %gs:tcsls_user_mxcsr
     fnstcw %gs:tcsls_user_fcw
-/*  reset user state */
-    cld /* x86-64 ABI requires DF to be unset at function entry/exit */
+
 /*  check for debug buffer pointer */
     testb  $0xff,DEBUG(%rip)
     jz .Lskip_debug_init
     mov %r10,%gs:tcsls_debug_panic_buf_ptr
 .Lskip_debug_init:
-/*  check for abort */
-    bt $0,.Laborted(%rip)
-    jc .Lreentry_panic
 /*  check if returning from usercall */
     mov %gs:tcsls_last_rsp,%r11
     test %r11,%r11
     jnz .Lusercall_ret
+/*  reset user state */
+    ldmxcsr .Lmxcsr_init(%rip)
+    fldcw .Lfpucw_init(%rip)
 /*  setup stack */
     mov %gs:tcsls_tos,%rsp /*  initially, RSP is not set to the correct value */
                            /*  here. This is fixed below under "adjust stack". */
@@ -143,6 +194,7 @@ sgx_entry:
     lea IMAGE_BASE(%rip),%rax
     add %rax,%rsp
     mov %rsp,%gs:tcsls_tos
+    entry_sanitize_final
 /*  call tcs_init */
 /*  store caller-saved registers in callee-saved registers */
     mov %rdi,%rbx
@@ -158,7 +210,10 @@ sgx_entry:
     mov %r13,%rdx
     mov %r14,%r8
     mov %r15,%r9
+    jmp .Lafter_init
 .Lskip_init:
+    entry_sanitize_final
+.Lafter_init:
 /*  call into main entry point */
     load_tcsls_flag_secondary_bool cx /* RCX = entry() argument: secondary: bool */
     call entry /* RDI, RSI, RDX, R8, R9 passed in from userspace */
@@ -259,6 +314,7 @@ usercall:
     ldmxcsr (%rsp)
     fldcw 4(%rsp)
     add $8, %rsp
+    entry_sanitize_final
     pop %rbx
     pop %rbp
     pop %r12

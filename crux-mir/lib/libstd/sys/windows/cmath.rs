@@ -1,9 +1,8 @@
 #![cfg(not(test))]
 
-use libc::{c_float, c_double};
+use libc::{c_double, c_float};
 
-#[link_name = "m"]
-extern {
+extern "C" {
     pub fn acos(n: c_double) -> c_double;
     pub fn asin(n: c_double) -> c_double;
     pub fn atan(n: c_double) -> c_double;
@@ -28,11 +27,11 @@ extern {
 
 pub use self::shims::*;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(all(target_env = "msvc", target_arch = "x86")))]
 mod shims {
     use libc::c_float;
 
-    extern {
+    extern "C" {
         pub fn acosf(n: c_float) -> c_float;
         pub fn asinf(n: c_float) -> c_float;
         pub fn atan2f(a: c_float, b: c_float) -> c_float;
@@ -44,10 +43,10 @@ mod shims {
     }
 }
 
-// On MSVC these functions aren't defined, so we just define shims which promote
-// everything fo f64, perform the calculation, and then demote back to f32.
-// While not precisely correct should be "correct enough" for now.
-#[cfg(target_env = "msvc")]
+// On 32-bit x86 MSVC these functions aren't defined, so we just define shims
+// which promote everything fo f64, perform the calculation, and then demote
+// back to f32. While not precisely correct should be "correct enough" for now.
+#[cfg(all(target_env = "msvc", target_arch = "x86"))]
 mod shims {
     use libc::c_float;
 

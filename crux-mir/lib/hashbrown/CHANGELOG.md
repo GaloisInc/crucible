@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [v0.7.1] - 2020-03-16
+
+### Added
+- Added `HashMap::get_key_value_mut`. (#145)
+
+### Changed
+- Optimized `Clone` implementation. (#146)
+
+## [v0.7.0] - 2020-01-31
+
+### Added
+- Added a `drain_filter` function to `HashMap`. (#135)
+
+### Changed
+- Updated `ahash` dependency to 0.3. (#141)
+- Optimized set union and intersection. (#130)
+- `raw_entry` can now be used without requiring `S: BuildHasher`. (#123)
+- `RawTable::bucket_index` can now be used under the `raw` feature. (#128)
+
+## [v0.6.3] - 2019-10-31
+
+### Added
+- Added an `ahash-compile-time-rng` feature (enabled by default) which allows disabling the
+  `compile-time-rng` feature in `ahash` to work around a Cargo bug. (#125)
+
+## [v0.6.2] - 2019-10-23
+
+### Added
+- Added an `inline-more` feature (enabled by default) which allows choosing a tradeoff between 
+  runtime performance and compilation time. (#119)
+
+## [v0.6.1] - 2019-10-04
+
+### Added
+- Added `Entry::insert` and `RawEntryMut::insert`. (#118)
+
+### Changed
+- `Group::static_empty` was changed from a `const` to a `static` (#116).
+
+## [v0.6.0] - 2019-08-13
+
+### Fixed
+- Fixed AHash accidentally depending on `std`. (#110)
+
+### Changed
+- The minimum Rust version has been bumped to 1.32 (due to `rand` dependency).
+
+## ~~[v0.5.1] - 2019-08-04~~
+
+This release was _yanked_ due to a breaking change for users of `no-default-features`.
+
+### Added
+- The experimental and unsafe `RawTable` API is available under the "raw" feature. (#108)
+- Added entry-like methods for `HashSet`. (#98)
+
+### Changed
+- Changed the default hasher from FxHash to AHash. (#97)
+- `hashbrown` is now fully `no_std` on recent Rust versions (1.36+). (#96)
+
+### Fixed
+- We now avoid growing the table during insertions when it wasn't necessary. (#106)
+- `RawOccupiedEntryMut` now properly implements `Send` and `Sync`. (#100)
+- Relaxed `lazy_static` version. (#92)
+
+## [v0.5.0] - 2019-06-12
+
+### Fixed
+- Resize with a more conservative amount of space after deletions. (#86)
+
+### Changed
+- Exposed the Layout of the failed allocation in CollectionAllocErr::AllocErr. (#89)
+
 ## [v0.4.0] - 2019-05-30
 
 ### Fixed
@@ -111,7 +183,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Initial release
 
-[Unreleased]: https://github.com/rust-lang/hashbrown/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/rust-lang/hashbrown/compare/v0.7.1...HEAD
+[v0.7.1]: https://github.com/rust-lang/hashbrown/compare/v0.7.0...v0.7.1
+[v0.7.0]: https://github.com/rust-lang/hashbrown/compare/v0.6.3...v0.7.0
+[v0.6.3]: https://github.com/rust-lang/hashbrown/compare/v0.6.2...v0.6.3
+[v0.6.2]: https://github.com/rust-lang/hashbrown/compare/v0.6.1...v0.6.2
+[v0.6.1]: https://github.com/rust-lang/hashbrown/compare/v0.6.0...v0.6.1
+[v0.6.0]: https://github.com/rust-lang/hashbrown/compare/v0.5.1...v0.6.0
+[v0.5.1]: https://github.com/rust-lang/hashbrown/compare/v0.5.0...v0.5.1
+[v0.5.0]: https://github.com/rust-lang/hashbrown/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/rust-lang/hashbrown/compare/v0.3.1...v0.4.0
 [v0.3.1]: https://github.com/rust-lang/hashbrown/compare/v0.3.0...v0.3.1
 [v0.3.0]: https://github.com/rust-lang/hashbrown/compare/v0.2.2...v0.3.0

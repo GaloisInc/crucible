@@ -1,10 +1,9 @@
 #![cfg_attr(not(with_main), no_std)]
-#![feature(custom_attribute)]
 
 #[cfg(not(with_main))] extern crate std;
 #[cfg(not(with_main))] use std::boxed::Box;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let b = Box::new(123_i32);
     assert!(*b == 123);

@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::bitvector::Bv256;
 use crucible::{crucible_assert, crucible_assume};
@@ -6,7 +5,7 @@ use crucible::Symbolic;
 
 use std::ops::{Not, Neg, Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() {
     {
         let a_64 = u64::symbolic("a");

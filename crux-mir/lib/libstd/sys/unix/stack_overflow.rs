@@ -1,17 +1,21 @@
 #![cfg_attr(test, allow(dead_code))]
 
-use self::imp::{make_handler, drop_handler};
+use self::imp::{drop_handler, make_handler};
 
 pub use self::imp::cleanup;
 pub use self::imp::init;
 
 pub struct Handler {
-    _data: *mut libc::c_void
+    _data: *mut libc::c_void,
 }
 
 impl Handler {
     pub unsafe fn new() -> Handler {
         make_handler()
+    }
+
+    fn null() -> Handler {
+        Handler { _data: crate::ptr::null_mut() }
     }
 }
 
@@ -23,27 +27,28 @@ impl Drop for Handler {
     }
 }
 
-#[cfg(any(target_os = "linux",
-          target_os = "macos",
-          target_os = "dragonfly",
-          target_os = "freebsd",
-          target_os = "solaris",
-          all(target_os = "netbsd", not(target_vendor = "rumprun")),
-          target_os = "openbsd"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "solaris",
+    all(target_os = "netbsd", not(target_vendor = "rumprun")),
+    target_os = "openbsd"
+))]
 mod imp {
     use super::Handler;
     use crate::mem;
     use crate::ptr;
 
-    use libc::{sigaltstack, SIGSTKSZ, SS_DISABLE};
-    use libc::{sigaction, SIGBUS, SIG_DFL,
-               SA_SIGINFO, SA_ONSTACK, sighandler_t};
-    use libc::{mmap, munmap};
-    use libc::{SIGSEGV, PROT_READ, PROT_WRITE, MAP_PRIVATE, MAP_ANON};
     use libc::MAP_FAILED;
+    use libc::{mmap, munmap};
+    use libc::{sigaction, sighandler_t, SA_ONSTACK, SA_SIGINFO, SIGBUS, SIG_DFL};
+    use libc::{sigaltstack, SIGSTKSZ, SS_DISABLE};
+    use libc::{MAP_ANON, MAP_PRIVATE, PROT_NONE, PROT_READ, PROT_WRITE, SIGSEGV};
 
+    use crate::sys::unix::os::page_size;
     use crate::sys_common::thread_info;
-
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     unsafe fn siginfo_si_addr(info: *mut libc::siginfo_t) -> usize {
@@ -82,9 +87,11 @@ mod imp {
     // out many large systems and all implementations allow returning from a
     // signal handler to work. For a more detailed explanation see the
     // comments on #26458.
-    unsafe extern fn signal_handler(signum: libc::c_int,
-                                    info: *mut libc::siginfo_t,
-                                    _data: *mut libc::c_void) {
+    unsafe extern "C" fn signal_handler(
+        signum: libc::c_int,
+        info: *mut libc::siginfo_t,
+        _data: *mut libc::c_void,
+    ) {
         use crate::sys_common::util::report_overflow;
 
         let guard = thread_info::stack_guard().unwrap_or(0..0);
@@ -106,13 +113,20 @@ mod imp {
     }
 
     static mut MAIN_ALTSTACK: *mut libc::c_void = ptr::null_mut();
+    static mut NEED_ALTSTACK: bool = false;
 
     pub unsafe fn init() {
         let mut action: sigaction = mem::zeroed();
-        action.sa_flags = SA_SIGINFO | SA_ONSTACK;
-        action.sa_sigaction = signal_handler as sighandler_t;
-        sigaction(SIGSEGV, &action, ptr::null_mut());
-        sigaction(SIGBUS, &action, ptr::null_mut());
+        for &signal in &[SIGSEGV, SIGBUS] {
+            sigaction(signal, ptr::null_mut(), &mut action);
+            // Configure our signal handler if one is not already set.
+            if action.sa_sigaction == SIG_DFL {
+                action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+                action.sa_sigaction = signal_handler as sighandler_t;
+                sigaction(signal, &action, ptr::null_mut());
+                NEED_ALTSTACK = true;
+            }
+        }
 
         let handler = make_handler();
         MAIN_ALTSTACK = handler._data;
@@ -124,24 +138,32 @@ mod imp {
     }
 
     unsafe fn get_stackp() -> *mut libc::c_void {
-        let stackp = mmap(ptr::null_mut(),
-                          SIGSTKSZ,
-                          PROT_READ | PROT_WRITE,
-                          MAP_PRIVATE | MAP_ANON,
-                          -1,
-                          0);
+        let stackp = mmap(
+            ptr::null_mut(),
+            SIGSTKSZ + page_size(),
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANON,
+            -1,
+            0,
+        );
         if stackp == MAP_FAILED {
             panic!("failed to allocate an alternative stack");
         }
-        stackp
+        let guard_result = libc::mprotect(stackp, page_size(), PROT_NONE);
+        if guard_result != 0 {
+            panic!("failed to set up alternative stack guard page");
+        }
+        stackp.add(page_size())
     }
 
-    #[cfg(any(target_os = "linux",
-              target_os = "macos",
-              target_os = "freebsd",
-              target_os = "netbsd",
-              target_os = "openbsd",
-              target_os = "solaris"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris"
+    ))]
     unsafe fn get_stack() -> libc::stack_t {
         libc::stack_t { ss_sp: get_stackp(), ss_flags: 0, ss_size: SIGSTKSZ }
     }
@@ -152,6 +174,9 @@ mod imp {
     }
 
     pub unsafe fn make_handler() -> Handler {
+        if !NEED_ALTSTACK {
+            return Handler::null();
+        }
         let mut stack = mem::zeroed();
         sigaltstack(ptr::null(), &mut stack);
         // Configure alternate signal stack, if one is not already set.
@@ -160,13 +185,13 @@ mod imp {
             sigaltstack(&stack, ptr::null_mut());
             Handler { _data: stack.ss_sp as *mut libc::c_void }
         } else {
-            Handler { _data: ptr::null_mut() }
+            Handler::null()
         }
     }
 
     pub unsafe fn drop_handler(handler: &mut Handler) {
         if !handler._data.is_null() {
-            let stack =  libc::stack_t {
+            let stack = libc::stack_t {
                 ss_sp: ptr::null_mut(),
                 ss_flags: SS_DISABLE,
                 // Workaround for bug in macOS implementation of sigaltstack
@@ -176,31 +201,30 @@ mod imp {
                 ss_size: SIGSTKSZ,
             };
             sigaltstack(&stack, ptr::null_mut());
-            munmap(handler._data, SIGSTKSZ);
+            // We know from `get_stackp` that the alternate stack we installed is part of a mapping
+            // that started one page earlier, so walk back a page and unmap from there.
+            munmap(handler._data.sub(page_size()), SIGSTKSZ + page_size());
         }
     }
 }
 
-#[cfg(not(any(target_os = "linux",
-              target_os = "macos",
-              target_os = "dragonfly",
-              target_os = "freebsd",
-              target_os = "solaris",
-              all(target_os = "netbsd", not(target_vendor = "rumprun")),
-              target_os = "openbsd")))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "solaris",
+    all(target_os = "netbsd", not(target_vendor = "rumprun")),
+    target_os = "openbsd"
+)))]
 mod imp {
-    use crate::ptr;
+    pub unsafe fn init() {}
 
-    pub unsafe fn init() {
-    }
-
-    pub unsafe fn cleanup() {
-    }
+    pub unsafe fn cleanup() {}
 
     pub unsafe fn make_handler() -> super::Handler {
-        super::Handler { _data: ptr::null_mut() }
+        super::Handler::null()
     }
 
-    pub unsafe fn drop_handler(_handler: &mut super::Handler) {
-    }
+    pub unsafe fn drop_handler(_handler: &mut super::Handler) {}
 }

@@ -1,5 +1,4 @@
 // FAIL: call_once shim (in `dyn Fn` vtable)
-#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 fn call_with_one(some_closure: &Fn(i32) -> i32) -> i32 {
     some_closure(1)
@@ -17,4 +16,4 @@ const ARG :i32 = 2;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i32 { f(ARG) }
+#[cfg(not(with_main))] #[cfg_attr(crux, crux_test)] fn crux_test() -> i32 { f(ARG) }

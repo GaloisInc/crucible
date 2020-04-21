@@ -4,7 +4,7 @@ use crate::ops::*;
 
 #[allow(unused_macros)]
 macro_rules! sh_impl_signed {
-    ($t:ident, $f:ident) => (
+    ($t:ident, $f:ident) => {
         #[stable(feature = "rust1", since = "1.0.0")]
         impl Shl<$f> for Wrapping<$t> {
             type Output = Wrapping<$t>;
@@ -18,6 +18,8 @@ macro_rules! sh_impl_signed {
                 }
             }
         }
+        forward_ref_binop! { impl Shl, shl for Wrapping<$t>, $f,
+        #[stable(feature = "wrapping_ref_ops", since = "1.39.0")] }
 
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
         impl ShlAssign<$f> for Wrapping<$t> {
@@ -41,6 +43,8 @@ macro_rules! sh_impl_signed {
                 }
             }
         }
+        forward_ref_binop! { impl Shr, shr for Wrapping<$t>, $f,
+        #[stable(feature = "wrapping_ref_ops", since = "1.39.0")] }
 
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
         impl ShrAssign<$f> for Wrapping<$t> {
@@ -50,11 +54,11 @@ macro_rules! sh_impl_signed {
             }
         }
         forward_ref_op_assign! { impl ShrAssign, shr_assign for Wrapping<$t>, $f }
-    )
+    };
 }
 
 macro_rules! sh_impl_unsigned {
-    ($t:ident, $f:ident) => (
+    ($t:ident, $f:ident) => {
         #[stable(feature = "rust1", since = "1.0.0")]
         impl Shl<$f> for Wrapping<$t> {
             type Output = Wrapping<$t>;
@@ -64,6 +68,8 @@ macro_rules! sh_impl_unsigned {
                 Wrapping(self.0.wrapping_shl((other & self::shift_max::$t as $f) as u32))
             }
         }
+        forward_ref_binop! { impl Shl, shl for Wrapping<$t>, $f,
+        #[stable(feature = "wrapping_ref_ops", since = "1.39.0")] }
 
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
         impl ShlAssign<$f> for Wrapping<$t> {
@@ -83,6 +89,8 @@ macro_rules! sh_impl_unsigned {
                 Wrapping(self.0.wrapping_shr((other & self::shift_max::$t as $f) as u32))
             }
         }
+        forward_ref_binop! { impl Shr, shr for Wrapping<$t>, $f,
+        #[stable(feature = "wrapping_ref_ops", since = "1.39.0")] }
 
         #[stable(feature = "op_assign_traits", since = "1.8.0")]
         impl ShrAssign<$f> for Wrapping<$t> {
@@ -92,7 +100,7 @@ macro_rules! sh_impl_unsigned {
             }
         }
         forward_ref_op_assign! { impl ShrAssign, shr_assign for Wrapping<$t>, $f }
-    )
+    };
 }
 
 // FIXME (#23545): uncomment the remaining impls
@@ -429,7 +437,7 @@ assert_eq!(n.trailing_zeros(), 3);
             /// wrapping the truncated bits to the end of the resulting
             /// integer.
             ///
-            /// Please note this isn't the same operation as the `>>` shifting
+            /// Please note this isn't the same operation as the `<<` shifting
             /// operator!
             ///
             /// # Examples
@@ -455,7 +463,7 @@ assert_eq!(n.trailing_zeros(), 3);
             /// wrapping the truncated bits to the beginning of the resulting
             /// integer.
             ///
-            /// Please note this isn't the same operation as the `<<` shifting
+            /// Please note this isn't the same operation as the `>>` shifting
             /// operator!
             ///
             /// # Examples
@@ -522,6 +530,7 @@ assert_eq!(n.trailing_zeros(), 3);
             /// assert_eq!(m, Wrapping(-22016));
             /// ```
             #[stable(feature = "reverse_bits", since = "1.37.0")]
+            #[rustc_const_stable(feature = "const_reverse_bits", since = "1.37.0")]
             #[inline]
             #[must_use]
             pub const fn reverse_bits(self) -> Self {

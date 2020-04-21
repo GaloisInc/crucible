@@ -1,10 +1,9 @@
-#![feature(custom_attribute)]
 #![feature(crucible_intrinsics)]
 
 extern crate crucible;
 use crucible::any::Any;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() -> i32 {
     let x: () = ();
     let a = Any::new(x);

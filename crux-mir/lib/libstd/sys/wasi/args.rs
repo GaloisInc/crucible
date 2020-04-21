@@ -1,16 +1,11 @@
-use crate::ffi::CStr;
-use crate::io;
-use crate::sys::cvt_wasi;
-use crate::ffi::OsString;
+use crate::ffi::{CStr, OsStr, OsString};
 use crate::marker::PhantomData;
-use crate::os::wasi::ffi::OsStringExt;
+use crate::os::wasi::ffi::OsStrExt;
 use crate::vec;
 
-pub unsafe fn init(_argc: isize, _argv: *const *const u8) {
-}
+pub unsafe fn init(_argc: isize, _argv: *const *const u8) {}
 
-pub unsafe fn cleanup() {
-}
+pub unsafe fn cleanup() {}
 
 pub struct Args {
     iter: vec::IntoIter<OsString>,
@@ -19,31 +14,25 @@ pub struct Args {
 
 /// Returns the command line arguments
 pub fn args() -> Args {
-    maybe_args().unwrap_or_else(|_| {
-        Args {
-            iter: Vec::new().into_iter(),
-            _dont_send_or_sync_me: PhantomData
-        }
-    })
+    Args {
+        iter: maybe_args().unwrap_or(Vec::new()).into_iter(),
+        _dont_send_or_sync_me: PhantomData,
+    }
 }
 
-fn maybe_args() -> io::Result<Args> {
+fn maybe_args() -> Option<Vec<OsString>> {
     unsafe {
-        let (mut argc, mut argv_buf_size) = (0, 0);
-        cvt_wasi(libc::__wasi_args_sizes_get(&mut argc, &mut argv_buf_size))?;
-
-        let mut argc = vec![core::ptr::null_mut::<libc::c_char>(); argc];
-        let mut argv_buf = vec![0; argv_buf_size];
-        cvt_wasi(libc::__wasi_args_get(argc.as_mut_ptr(), argv_buf.as_mut_ptr()))?;
-
-        let args = argc.into_iter()
-            .map(|ptr| CStr::from_ptr(ptr).to_bytes().to_vec())
-            .map(|bytes| OsString::from_vec(bytes))
-            .collect::<Vec<_>>();
-        Ok(Args {
-            iter: args.into_iter(),
-            _dont_send_or_sync_me: PhantomData,
-        })
+        let (argc, buf_size) = wasi::args_sizes_get().ok()?;
+        let mut argv = Vec::with_capacity(argc);
+        let mut buf = Vec::with_capacity(buf_size);
+        wasi::args_get(argv.as_mut_ptr(), buf.as_mut_ptr()).ok()?;
+        argv.set_len(argc);
+        let mut ret = Vec::with_capacity(argc);
+        for ptr in argv {
+            let s = CStr::from_ptr(ptr.cast());
+            ret.push(OsStr::from_bytes(s.to_bytes()).to_owned());
+        }
+        Some(ret)
     }
 }
 

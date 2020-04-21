@@ -1,7 +1,6 @@
-#![feature(custom_attribute)]
 use std::collections::VecDeque;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 fn crux_test() {
     assert!(1_u8.overflowing_add(2) == (3, false));
     assert!(255_u8.overflowing_add(2) == (1, true));

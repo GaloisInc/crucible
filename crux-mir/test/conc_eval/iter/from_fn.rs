@@ -1,7 +1,6 @@
-#![feature(custom_attribute)]
 use std::iter;
 
-#[crux_test]
+#[cfg_attr(crux, crux_test)]
 pub fn f() {
     let mut i = 0;
     let sum: i32 = iter::from_fn(|| {

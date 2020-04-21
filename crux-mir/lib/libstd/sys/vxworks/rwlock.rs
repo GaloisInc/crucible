@@ -1,6 +1,6 @@
-use libc;
 use crate::cell::UnsafeCell;
 use crate::sync::atomic::{AtomicUsize, Ordering};
+use libc;
 
 pub struct RWLock {
     inner: UnsafeCell<libc::pthread_rwlock_t>,
@@ -25,11 +25,11 @@ impl RWLock {
         let r = libc::pthread_rwlock_rdlock(self.inner.get());
         if r == libc::EAGAIN {
             panic!("rwlock maximum reader count exceeded");
-        } else if r == libc::EDEADLK || *self.write_locked.get() {
+        } else if r == libc::EDEADLK || (r == 0 && *self.write_locked.get()) {
             if r == 0 {
                 self.raw_unlock();
             }
-        panic!("rwlock read lock would result in deadlock");
+            panic!("rwlock read lock would result in deadlock");
         } else {
             debug_assert_eq!(r, 0);
             self.num_readers.fetch_add(1, Ordering::Relaxed);
@@ -57,12 +57,14 @@ impl RWLock {
         let r = libc::pthread_rwlock_wrlock(self.inner.get());
         // See comments above for why we check for EDEADLK and write_locked. We
         // also need to check that num_readers is 0.
-        if r == libc::EDEADLK || *self.write_locked.get() ||
-            self.num_readers.load(Ordering::Relaxed) != 0 {
+        if r == libc::EDEADLK
+            || *self.write_locked.get()
+            || self.num_readers.load(Ordering::Relaxed) != 0
+        {
             if r == 0 {
                 self.raw_unlock();
             }
-        panic!("rwlock write lock would result in deadlock");
+            panic!("rwlock write lock would result in deadlock");
         } else {
             debug_assert_eq!(r, 0);
         }
@@ -80,8 +82,8 @@ impl RWLock {
                 *self.write_locked.get() = true;
                 true
             }
-            } else {
-                false
+        } else {
+            false
         }
     }
 
@@ -98,7 +100,7 @@ impl RWLock {
         self.raw_unlock();
     }
 
-     #[inline]
+    #[inline]
     pub unsafe fn write_unlock(&self) {
         debug_assert_eq!(self.num_readers.load(Ordering::Relaxed), 0);
         debug_assert!(*self.write_locked.get());

@@ -1,5 +1,5 @@
-use crate::ptr;
 use crate::ops::{Deref, DerefMut};
+use crate::ptr;
 
 /// A wrapper to inhibit compiler from automatically calling `T`’s destructor.
 ///
@@ -63,6 +63,7 @@ impl<T> ManuallyDrop<T> {
     /// ManuallyDrop::new(Box::new(()));
     /// ```
     #[stable(feature = "manually_drop", since = "1.20.0")]
+    #[rustc_const_stable(feature = "const_manually_drop", since = "1.36.0")]
     #[inline(always)]
     pub const fn new(value: T) -> ManuallyDrop<T> {
         ManuallyDrop { value }
@@ -80,32 +81,34 @@ impl<T> ManuallyDrop<T> {
     /// let _: Box<()> = ManuallyDrop::into_inner(x); // This drops the `Box`.
     /// ```
     #[stable(feature = "manually_drop", since = "1.20.0")]
+    #[rustc_const_stable(feature = "const_manually_drop", since = "1.36.0")]
     #[inline(always)]
     pub const fn into_inner(slot: ManuallyDrop<T>) -> T {
         slot.value
     }
 
-    /// Takes the contained value out.
+    /// Takes the value from the `ManuallyDrop<T>` container out.
     ///
     /// This method is primarily intended for moving out values in drop.
     /// Instead of using [`ManuallyDrop::drop`] to manually drop the value,
     /// you can use this method to take the value and use it however desired.
-    /// `Drop` will be invoked on the returned value following normal end-of-scope rules.
     ///
-    /// If you have ownership of the container, you can use [`ManuallyDrop::into_inner`] instead.
+    /// Whenever possible, it is preferable to use [`into_inner`][`ManuallyDrop::into_inner`]
+    /// instead, which prevents duplicating the content of the `ManuallyDrop<T>`.
     ///
     /// # Safety
     ///
-    /// This function semantically moves out the contained value without preventing further usage.
-    /// It is up to the user of this method to ensure that this container is not used again.
+    /// This function semantically moves out the contained value without preventing further usage,
+    /// leaving the state of this container unchanged.
+    /// It is your responsibility to ensure that this `ManuallyDrop` is not used again.
     ///
     /// [`ManuallyDrop::drop`]: #method.drop
     /// [`ManuallyDrop::into_inner`]: #method.into_inner
     #[must_use = "if you don't need the value, you can use `ManuallyDrop::drop` instead"]
-    #[unstable(feature = "manually_drop_take", issue = "55422")]
+    #[stable(feature = "manually_drop_take", since = "1.42.0")]
     #[inline]
     pub unsafe fn take(slot: &mut ManuallyDrop<T>) -> T {
-        ManuallyDrop::into_inner(ptr::read(slot))
+        ptr::read(&slot.value)
     }
 }
 
@@ -119,7 +122,7 @@ impl<T: ?Sized> ManuallyDrop<T> {
     /// This function runs the destructor of the contained value and thus the wrapped value
     /// now represents uninitialized data. It is up to the user of this method to ensure the
     /// uninitialized data is not actually used.
-    /// In particular, this function can only be called called at most once
+    /// In particular, this function can only be called at most once
     /// for a given instance of `ManuallyDrop<T>`.
     ///
     /// [`ManuallyDrop::into_inner`]: #method.into_inner

@@ -45,6 +45,7 @@ import Control.Monad.ST
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
 
+import Data.Bits (shift)
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import qualified Data.List as List
@@ -162,16 +163,23 @@ u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
 -- Expressions: variables and constants
 --
 
-transConstVal :: HasCallStack => Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
-transConstVal (Some (C.BVRepr w)) (M.ConstInt i) =
+transConstVal :: HasCallStack => M.Ty -> Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
+transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.ConstStruct []]) = do
+    val <- case M.fromIntegerLit i of
+        0 -> return 0   -- Bv::ZERO
+        1 -> return 1   -- Bv::ONE
+        2 -> return $ (1 `shift` fromIntegral (intValue w)) - 1    -- Bv::MAX
+        i' -> mirFail $ "unknown bitvector constant " ++ show i'
+    return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w val)
+transConstVal _ty (Some (C.BVRepr w)) (M.ConstInt i) =
     return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w (fromInteger (M.fromIntegerLit i)))
-transConstVal (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
-transConstVal (Some (UsizeRepr)) (M.ConstInt i) =
+transConstVal _ty (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
+transConstVal _ty (Some (UsizeRepr)) (M.ConstInt i) =
     do let n = fromInteger (M.fromIntegerLit i)
        return $ MirExp UsizeRepr (S.app $ usizeLit n)
-transConstVal (Some (IsizeRepr)) (ConstInt i) =
+transConstVal _ty (Some (IsizeRepr)) (ConstInt i) =
       return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
-transConstVal (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
+transConstVal _ty (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
   | Just Refl <- testEquality w (knownNat @8) = do
     let u8Repr = C.BVRepr $ knownNat @8
     let bytes = map (\b -> R.App (E.BVLit (knownNat @8) (toInteger b))) (BS.unpack bs)
@@ -184,31 +192,52 @@ transConstVal (Some (MirSliceRepr (C.BVRepr w))) (M.ConstStr bs)
             knownRepr
             (Ctx.Empty Ctx.:> ref Ctx.:> len)
     return $ MirExp (MirSliceRepr u8Repr) struct
-transConstVal (Some (MirVectorRepr w)) (M.ConstArray arr)
+transConstVal _ty (Some (MirVectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
       = do let bytes = V.fromList (map u8ToBV8 arr)
            MirExp (MirVectorRepr w) <$> mirVector_fromVector w (R.App $ E.VectorLit w bytes)
-transConstVal (Some (C.BVRepr w)) (M.ConstChar c) =
+transConstVal _ty (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w i)
-transConstVal (Some C.UnitRepr) (M.ConstFunction _did _substs) =
+transConstVal _ty (Some C.UnitRepr) (M.ConstFunction _did _substs) =
     return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 
-transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
+transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
       (d , _):_ -> let rat = toRational (d :: Double) in
                    return (MirExp C.RealValRepr (S.app $ E.RationalLit rat))
       []        -> mirFail $ "cannot parse float constant: " ++ show str
 
-transConstVal (Some _ty) (ConstInitializer funid ss) =
+transConstVal _ty _ (ConstInitializer funid ss) =
     callExp funid ss [] 
-transConstVal (Some (MirReferenceRepr tpr)) init = do
-    MirExp tpr' val <- transConstVal (Some tpr) init
+transConstVal _ty _ (ConstStaticRef did) =
+    staticPlace did >>= addrOfPlace
+transConstVal ty _ ConstZST = initialValue ty >>= \case
+    Just x -> return x
+    Nothing -> mirFail $
+        "failed to evaluate ZST constant of type " ++ show ty ++ " (initialValue failed)"
+transConstVal _ty (Some (MirReferenceRepr tpr)) (ConstRawPtr i) =
+    MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr (R.App $ usizeLit i)
+transConstVal (M.TyAdt aname _ substs) _ (ConstStruct fields) = do
+    adt <- findAdt aname
+    let fieldDefs = adt ^. adtvariants . ix 0 . vfields
+    let fieldTys = map (\f -> f ^. fty) fieldDefs
+    exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr ty) val) fields fieldTys
+    buildStruct adt substs exps
+transConstVal (M.TyAdt aname _ substs) _ (ConstEnum variant fields) = do
+    adt <- findAdt aname
+    let fieldDefs = adt ^. adtvariants . ix variant . vfields
+    let fieldTys = map (\f -> f ^. fty) fieldDefs
+    exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr ty) val) fields fieldTys
+    buildEnum adt substs variant exps
+transConstVal ty (Some (MirReferenceRepr tpr)) init = do
+    MirExp tpr' val <- transConstVal (M.typeOfProj M.Deref ty) (Some tpr) init
     Refl <- testEqualityOrFail tpr tpr' $
         "transConstVal returned wrong type: expected " ++ show tpr ++ ", got " ++ show tpr'
     ref <- constMirRef tpr val
     return $ MirExp (MirReferenceRepr tpr) ref
-transConstVal tp cv = mirFail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
+transConstVal ty tp cv = mirFail $
+    "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
 
 
 typedVarInfo :: HasCallStack => Text -> Maybe Text -> C.TypeRepr tp -> MirGenerator h s ret (VarInfo s tp)
@@ -281,7 +310,7 @@ evalOperand (M.Copy lv) = evalPlace lv >>= readPlace
 evalOperand (M.Move lv) = evalPlace lv >>= readPlace
 evalOperand (M.OpConstant (M.Constant conty conlit)) =
     case conlit of
-       M.Value constval   -> transConstVal (tyToRepr conty) constval
+       M.Value constval   -> transConstVal conty (tyToRepr conty) constval
        M.Item defId _args -> mirFail $ "cannot translate item " ++ show defId
        M.LitPromoted (M.Promoted idx) ->  do
           fn <- use currentFn
@@ -509,6 +538,33 @@ transCheckedBinOp op a b = do
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
+transNullaryOp M.Box ty = do
+    -- Look up `Box<ty>`
+    let boxDefId = M.textId "alloc::boxed::Box"
+    let boxSubsts = Substs [ty]
+    candidates <- use $ cs . collection . adtsOrig . at boxDefId
+    let found = filter (\a -> a ^. adtOrigSubsts == boxSubsts) (Maybe.fromMaybe [] candidates)
+    boxTy <- case found of
+        [adt] -> return $ M.TyAdt (adt ^. adtname) boxDefId boxSubsts
+        _ -> mirFail $ "expected exactly one monomorphization of Box<" ++ show ty ++
+            ">, but got " ++ show found
+    mkBox boxTy
+  where
+    -- A `Box<T>` looks much like `*mut T`, but with a few wrapper structs in
+    -- the way.  We recursively traverse those structs until we find the
+    -- pointer field, then construct the `MirReference`.
+    mkBox (M.TyRawPtr ty' _) = do
+        Some tpr <- return $ tyToRepr ty'
+        ptr <- newMirRef tpr
+        return $ MirExp (MirReferenceRepr tpr) ptr
+    mkBox ty@(M.TyAdt aname _ _) = do
+        adt <- findAdt aname
+        when (adt ^. adtkind /= Struct) $ mirFail $
+            "mkBox not yet implemented for non-struct type " ++ show ty
+        let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
+        vals <- mapM (\f -> mkBox $ f ^. fty) (v ^. vfields)
+        buildStruct adt (M.Substs []) vals
+    mkBox ty = mirFail $ "unsupported type in mkBox: " ++ show ty
 transNullaryOp _ _ = mirFail "nullop"
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
@@ -821,6 +877,7 @@ evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
 evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref _bk lv _) = evalPlace lv >>= addrOfPlace
+evalRval (M.AddressOf _mutbl lv) = evalPlace lv >>= addrOfPlace
 evalRval (M.Len lv) =
     case M.typeOf lv of
         M.TyArray _ len ->
@@ -887,21 +944,49 @@ evalPlace (M.LProj lv proj) = do
     pl <- evalPlace lv
     evalPlaceProj (M.typeOf lv) pl proj
 
+-- Recursively traverse the structure of a `Box<ty>` to find the raw pointer
+-- inside.  See `mkBox` for more explanation of the structure of `Box`.
+getBoxPointer :: HasCallStack => M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
+getBoxPointer ty e = do
+    ptr <- go ty e
+    case ptr of
+        Just x -> return x
+        Nothing -> mirFail $ "failed to find pointer within " ++ show ty
+  where
+    go :: M.Ty -> MirExp s -> MirGenerator h s ret (Maybe (MirExp s))
+    go (M.TyRawPtr _ _) e = return $ Just e
+    go ty@(M.TyAdt aname _ _) e = do
+        adt <- findAdt aname
+        when (adt ^. adtkind /= Struct) $ mirFail $
+            "getBoxPointer not yet implemented for non-struct type " ++ show ty
+        let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
+        ptrs <- forM (zip [0..] (v ^. vfields)) $ \(i, f) -> do
+            val <- getStructField adt (M.Substs []) i e
+            go (f ^. fty) val
+        case Maybe.mapMaybe id ptrs of
+            [] -> return Nothing
+            [x] -> return $ Just x
+            _ -> mirFail $ "expected exactly one pointer within " ++ show ty ++
+                ", but got " ++ show ptrs
+    go ty _ = mirFail $ "unsupported type in getBoxPointer: " ++ show ty
+
 evalPlaceProj :: HasCallStack => M.Ty -> MirPlace s -> M.PlaceElem -> MirGenerator h s ret (MirPlace s)
 evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
-    (ty', mutbl) <- case ty of
-        M.TyRef t m -> return (t, m)
-        M.TyRawPtr t m -> return (t, m)
-        -- Boxes are MirReferences, just like &mut
-        CTyBox t -> return (t, M.Mut)
+    case ty of
+        M.TyRef t _ -> doRef t
+        M.TyRawPtr t _ -> doRef t
+        CTyBox _ -> do
+            box <- readMirRef tpr ref
+            ptr <- getBoxPointer ty (MirExp tpr box)
+            derefExp ptr
         _ -> mirFail $ "deref not supported on " ++ show ty
-    case (ty', tpr) of
-        (M.TySlice _, MirSliceRepr tpr') -> doSlice tpr' ref
-        (M.TyStr, MirSliceRepr tpr') -> doSlice tpr' ref
-        (_, MirReferenceRepr tpr') ->
-            MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
-        _ -> mirFail $ "deref not supported on " ++ show (ty, tpr)
   where
+    doRef (M.TySlice _) | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
+    doRef M.TyStr | MirSliceRepr tpr' <- tpr = doSlice tpr' ref
+    doRef _ | MirReferenceRepr tpr' <- tpr = do
+        MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
+    doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
+
     doSlice tpr' ref' = do
         slice <- readMirRef (MirSliceRepr tpr') ref'
         let ptr = getSlicePtr slice
@@ -988,6 +1073,15 @@ tryCoerce :: M.Ty -> M.Ty -> MirExp s -> Maybe (MirGenerator h s ret (MirExp s))
 tryCoerce ty1 ty2 exp
   | ty1 == ty2 = Just $ return exp
 tryCoerce (M.TyRef ty1 M.Mut) (M.TyRef ty2 M.Immut) exp@(MirExp tpr e)
+  | ty1 == ty2 = Just $ return exp
+-- Special hack: using `CTyBox` as a constructor (as `typeOf` does for the
+-- `Box` nullop) produces a `TyAdt` with an invalid `DefId`.  This is because
+-- we don't have a way to compute the correct hash inside the `CTyBox` ctor.
+-- So we use this special case to avoid erroring on `CTyBox` assignments.  (The
+-- `CTyBox` pattern ignores the bad field already.)
+-- TODO: implement `Eq` to ignore the field, or else remove it entirely and use
+-- a different key for `findAdt`.
+tryCoerce (CTyBox ty1) (CTyBox ty2) exp
   | ty1 == ty2 = Just $ return exp
 tryCoerce _ _ _ = Nothing
 
@@ -1352,14 +1446,6 @@ initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
 initialValue (CTyInt512) =
     let w = knownNat :: NatRepr 512 in
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
-initialValue (CTyBox t) = do
-    mv <- initialValue t
-    case mv of
-      Just (MirExp tp e) -> do
-        ref <- newMirRef tp
-        writeMirRef ref e
-        return $ Just (MirExp (MirReferenceRepr tp) ref)
-      Nothing -> return Nothing
 initialValue (CTyVector t) = do
     tyToReprCont t $ \ tr ->
       return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
@@ -1475,6 +1561,7 @@ initialValue (M.TyAdt nm _ _) = do
                 Just <$> buildEnum' adt mempty 0 fldExps
         Union -> return Nothing
 initialValue (M.TyFnPtr _) = return $ Nothing
+initialValue (M.TyFnDef _ _) = return $ Just $ MirExp C.UnitRepr $ R.App E.EmptyApp
 initialValue (M.TyDynamic _ _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue M.TyNever = return $ Just $ MirExp knownRepr $

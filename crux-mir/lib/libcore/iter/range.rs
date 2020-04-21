@@ -9,9 +9,11 @@ use super::{FusedIterator, TrustedLen};
 ///
 /// The `steps_between` function provides a way to efficiently compare
 /// two `Step` objects.
-#[unstable(feature = "step_trait",
-           reason = "likely to be replaced by finer-grained traits",
-           issue = "42168")]
+#[unstable(
+    feature = "step_trait",
+    reason = "likely to be replaced by finer-grained traits",
+    issue = "42168"
+)]
 pub trait Step: Clone + PartialOrd + Sized {
     /// Returns the number of steps between two step objects. The count is
     /// inclusive of `start` and exclusive of `end`.
@@ -20,10 +22,14 @@ pub trait Step: Clone + PartialOrd + Sized {
     /// without overflow.
     fn steps_between(start: &Self, end: &Self) -> Option<usize>;
 
-    /// Replaces this step with `1`, returning itself.
+    /// Replaces this step with `1`, returning a clone of itself.
+    ///
+    /// The output of this method should always be greater than the output of replace_zero.
     fn replace_one(&mut self) -> Self;
 
-    /// Replaces this step with `0`, returning itself.
+    /// Replaces this step with `0`, returning a clone of itself.
+    ///
+    /// The output of this method should always be less than the output of replace_one.
     fn replace_zero(&mut self) -> Self;
 
     /// Adds one to this step, returning the result.
@@ -166,8 +172,8 @@ macro_rules! step_impl_signed {
 }
 
 step_impl_unsigned!(usize u8 u16 u32 u64 u128);
-step_impl_signed!([isize: usize] [i8: u8] [i16: u16]);
-step_impl_signed!([i32: u32] [i64: u64] [i128: u128]);
+step_impl_signed!([isize: usize][i8: u8][i16: u16]);
+step_impl_signed!([i32: u32][i64: u64][i128: u128]);
 
 macro_rules! range_exact_iter_impl {
     ($($t:ty)*) => ($(
@@ -204,9 +210,16 @@ impl<A: Step> Iterator for ops::Range<A> {
     #[inline]
     fn next(&mut self) -> Option<A> {
         if self.start < self.end {
-            let cur = self.start.clone();
-            self.start = self.start.add_one();
-            Some(cur)
+            // We check for overflow here, even though it can't actually
+            // happen. Adding this check does however help llvm vectorize loops
+            // for some ranges that don't get vectorized otherwise,
+            // and this won't actually result in an extra check in an optimized build.
+            if let Some(mut n) = self.start.add_usize(1) {
+                mem::swap(&mut n, &mut self.start);
+                Some(n)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -216,7 +229,7 @@ impl<A: Step> Iterator for ops::Range<A> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match Step::steps_between(&self.start, &self.end) {
             Some(hint) => (hint, Some(hint)),
-            None => (usize::MAX, None)
+            None => (usize::MAX, None),
         }
     }
 
@@ -225,7 +238,7 @@ impl<A: Step> Iterator for ops::Range<A> {
         if let Some(plus_n) = self.start.add_usize(n) {
             if plus_n < self.end {
                 self.start = plus_n.add_one();
-                return Some(plus_n)
+                return Some(plus_n);
             }
         }
 
@@ -234,19 +247,16 @@ impl<A: Step> Iterator for ops::Range<A> {
     }
 
     #[inline]
-    #[cfg(iter_last)]
     fn last(mut self) -> Option<A> {
         self.next_back()
     }
 
     #[inline]
-    #[cfg(iter_min_max)]
     fn min(mut self) -> Option<A> {
         self.next()
     }
 
     #[inline]
-    #[cfg(iter_min_max)]
     fn max(mut self) -> Option<A> {
         self.next_back()
     }
@@ -283,7 +293,7 @@ impl<A: Step> DoubleEndedIterator for ops::Range<A> {
         if let Some(minus_n) = self.end.sub_usize(n) {
             if minus_n > self.start {
                 self.end = minus_n.sub_one();
-                return Some(self.end.clone())
+                return Some(self.end.clone());
             }
         }
 
@@ -331,16 +341,15 @@ impl<A: Step> Iterator for ops::RangeInclusive<A> {
 
     #[inline]
     fn next(&mut self) -> Option<A> {
-        self.compute_is_empty();
-        if self.is_empty.unwrap_or_default() {
+        if self.is_empty() {
             return None;
         }
         let is_iterating = self.start < self.end;
-        self.is_empty = Some(!is_iterating);
         Some(if is_iterating {
             let n = self.start.add_one();
             mem::replace(&mut self.start, n)
         } else {
+            self.exhausted = true;
             self.start.clone()
         })
     }
@@ -359,8 +368,7 @@ impl<A: Step> Iterator for ops::RangeInclusive<A> {
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<A> {
-        self.compute_is_empty();
-        if self.is_empty.unwrap_or_default() {
+        if self.is_empty() {
             return None;
         }
 
@@ -369,29 +377,30 @@ impl<A: Step> Iterator for ops::RangeInclusive<A> {
 
             match plus_n.partial_cmp(&self.end) {
                 Some(Less) => {
-                    self.is_empty = Some(false);
                     self.start = plus_n.add_one();
                     return Some(plus_n);
                 }
                 Some(Equal) => {
-                    self.is_empty = Some(true);
+                    self.start = plus_n.clone();
+                    self.exhausted = true;
                     return Some(plus_n);
                 }
                 _ => {}
             }
         }
 
-        self.is_empty = Some(true);
+        self.start = self.end.clone();
+        self.exhausted = true;
         None
     }
 
     #[inline]
     fn try_fold<B, F, R>(&mut self, init: B, mut f: F) -> R
     where
-        Self: Sized, F: FnMut(B, Self::Item) -> R, R: Try<Ok=B>
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> R,
+        R: Try<Ok = B>,
     {
-        self.compute_is_empty();
-
         if self.is_empty() {
             return Try::from_ok(init);
         }
@@ -404,7 +413,7 @@ impl<A: Step> Iterator for ops::RangeInclusive<A> {
             accum = f(accum, n)?;
         }
 
-        self.is_empty = Some(true);
+        self.exhausted = true;
 
         if self.start == self.end {
             accum = f(accum, self.start.clone())?;
@@ -414,19 +423,16 @@ impl<A: Step> Iterator for ops::RangeInclusive<A> {
     }
 
     #[inline]
-    #[cfg(iter_last)]
     fn last(mut self) -> Option<A> {
         self.next_back()
     }
 
     #[inline]
-    #[cfg(iter_min_max)]
     fn min(mut self) -> Option<A> {
         self.next()
     }
 
     #[inline]
-    #[cfg(iter_min_max)]
     fn max(mut self) -> Option<A> {
         self.next_back()
     }
@@ -436,24 +442,22 @@ impl<A: Step> Iterator for ops::RangeInclusive<A> {
 impl<A: Step> DoubleEndedIterator for ops::RangeInclusive<A> {
     #[inline]
     fn next_back(&mut self) -> Option<A> {
-        self.compute_is_empty();
-        if self.is_empty.unwrap_or_default() {
+        if self.is_empty() {
             return None;
         }
         let is_iterating = self.start < self.end;
-        self.is_empty = Some(!is_iterating);
         Some(if is_iterating {
             let n = self.end.sub_one();
             mem::replace(&mut self.end, n)
         } else {
+            self.exhausted = true;
             self.end.clone()
         })
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<A> {
-        self.compute_is_empty();
-        if self.is_empty.unwrap_or_default() {
+        if self.is_empty() {
             return None;
         }
 
@@ -462,28 +466,30 @@ impl<A: Step> DoubleEndedIterator for ops::RangeInclusive<A> {
 
             match minus_n.partial_cmp(&self.start) {
                 Some(Greater) => {
-                    self.is_empty = Some(false);
                     self.end = minus_n.sub_one();
                     return Some(minus_n);
                 }
                 Some(Equal) => {
-                    self.is_empty = Some(true);
+                    self.end = minus_n.clone();
+                    self.exhausted = true;
                     return Some(minus_n);
                 }
                 _ => {}
             }
         }
 
-        self.is_empty = Some(true);
+        self.end = self.start.clone();
+        self.exhausted = true;
         None
     }
 
     #[inline]
-    fn try_rfold<B, F, R>(&mut self, init: B, mut f: F) -> R where
-        Self: Sized, F: FnMut(B, Self::Item) -> R, R: Try<Ok=B>
+    fn try_rfold<B, F, R>(&mut self, init: B, mut f: F) -> R
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> R,
+        R: Try<Ok = B>,
     {
-        self.compute_is_empty();
-
         if self.is_empty() {
             return Try::from_ok(init);
         }
@@ -496,7 +502,7 @@ impl<A: Step> DoubleEndedIterator for ops::RangeInclusive<A> {
             accum = f(accum, n)?;
         }
 
-        self.is_empty = Some(true);
+        self.exhausted = true;
 
         if self.start == self.end {
             accum = f(accum, self.start.clone())?;

@@ -143,7 +143,6 @@ tyToRepr t0 = case t0 of
   CTyBv128 -> Some $ C.BVRepr (knownNat :: NatRepr 128)
   CTyBv256 -> Some $ C.BVRepr (knownNat :: NatRepr 256)
   CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
-  CTyBox t -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   CTyVector t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
   CTyArray t
     | Some tpr <- tyToRepr t
@@ -219,6 +218,7 @@ tyToRepr t0 = case t0 of
   M.TyFnDef _def _substs -> Some C.UnitRepr
   M.TyNever -> Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr
+  M.TyForeign -> Some C.AnyRepr
   M.TyErased -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 

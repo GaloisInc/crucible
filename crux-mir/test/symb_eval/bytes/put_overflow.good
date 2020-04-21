@@ -4,7 +4,7 @@ failures:
 
 ---- put_overflow/3a1fbbbh::f[0] counterexamples ----
 Failure for panicking::begin_panic, called from bytes/3a1fbbbh::{{impl}}[4]::put_slice[0]
-in bytes/3a1fbbbh::{{impl}}[4]::put_slice[0] at <::std::macros::panic macros>:4:15: 4:70
+in bytes/3a1fbbbh::{{impl}}[4]::put_slice[0] at internal
 
 [Crux] Goal status:
 [Crux]   Total: 1

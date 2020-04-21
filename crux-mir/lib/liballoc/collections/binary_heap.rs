@@ -145,11 +145,11 @@
 #![allow(missing_docs)]
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use core::ops::{Deref, DerefMut};
-use core::iter::{FromIterator, FusedIterator};
-use core::mem::{swap, size_of, ManuallyDrop};
-use core::ptr;
 use core::fmt;
+use core::iter::{FromIterator, FusedIterator, TrustedLen};
+use core::mem::{self, size_of, swap, ManuallyDrop};
+use core::ops::{Deref, DerefMut};
+use core::ptr;
 
 use crate::slice;
 use crate::vec::{self, Vec};
@@ -267,9 +267,7 @@ pub struct PeekMut<'a, T: 'a + Ord> {
 #[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: Ord + fmt::Debug> fmt::Debug for PeekMut<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("PeekMut")
-         .field(&self.heap.data[0])
-         .finish()
+        f.debug_tuple("PeekMut").field(&self.heap.data[0]).finish()
     }
 }
 
@@ -404,14 +402,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// Cost is O(1) in the worst case.
     #[stable(feature = "binary_heap_peek_mut", since = "1.12.0")]
     pub fn peek_mut(&mut self) -> Option<PeekMut<'_, T>> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(PeekMut {
-                heap: self,
-                sift: true,
-            })
-        }
+        if self.is_empty() { None } else { Some(PeekMut { heap: self, sift: true }) }
     }
 
     /// Removes the greatest item from the binary heap and returns it, or `None` if it
@@ -545,7 +536,7 @@ impl<T: Ord> BinaryHeap<T> {
             while child < end {
                 let right = child + 1;
                 // compare with the greater of the two children
-                if right < end && !(hole.get(child) > hole.get(right)) {
+                if right < end && hole.get(child) <= hole.get(right) {
                     child = right;
                 }
                 // if we are already in order, stop.
@@ -577,7 +568,7 @@ impl<T: Ord> BinaryHeap<T> {
             while child < end {
                 let right = child + 1;
                 // compare with the greater of the two children
-                if right < end && !(hole.get(child) > hole.get(right)) {
+                if right < end && hole.get(child) <= hole.get(right) {
                     child = right;
                 }
                 hole.move_to(child);
@@ -648,6 +639,34 @@ impl<T: Ord> BinaryHeap<T> {
             self.extend(other.drain());
         }
     }
+
+    /// Returns an iterator which retrieves elements in heap order.
+    /// The retrieved elements are removed from the original heap.
+    /// The remaining elements will be removed on drop in heap order.
+    ///
+    /// Note:
+    /// * `.drain_sorted()` is O(n lg n); much slower than `.drain()`.
+    ///   You should use the latter for most cases.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// #![feature(binary_heap_drain_sorted)]
+    /// use std::collections::BinaryHeap;
+    ///
+    /// let mut heap = BinaryHeap::from(vec![1, 2, 3, 4, 5]);
+    /// assert_eq!(heap.len(), 5);
+    ///
+    /// drop(heap.drain_sorted()); // removes all elements in heap order
+    /// assert_eq!(heap.len(), 0);
+    /// ```
+    #[inline]
+    #[unstable(feature = "binary_heap_drain_sorted", issue = "59278")]
+    pub fn drain_sorted(&mut self) -> DrainSorted<'_, T> {
+        DrainSorted { inner: self }
+    }
 }
 
 impl<T> BinaryHeap<T> {
@@ -670,6 +689,25 @@ impl<T> BinaryHeap<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn iter(&self) -> Iter<'_, T> {
         Iter { iter: self.data.iter() }
+    }
+
+    /// Returns an iterator which retrieves elements in heap order.
+    /// This method consumes the original heap.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// #![feature(binary_heap_into_iter_sorted)]
+    /// use std::collections::BinaryHeap;
+    /// let heap = BinaryHeap::from(vec![1, 2, 3, 4, 5]);
+    ///
+    /// assert_eq!(heap.into_iter_sorted().take(2).collect::<Vec<_>>(), vec![5, 4]);
+    /// ```
+    #[unstable(feature = "binary_heap_into_iter_sorted", issue = "59278")]
+    pub fn into_iter_sorted(self) -> IntoIterSorted<T> {
+        IntoIterSorted { inner: self }
     }
 
     /// Returns the greatest item in the binary heap, or `None` if it is empty.
@@ -806,7 +844,7 @@ impl<T> BinaryHeap<T> {
     /// assert!(heap.capacity() >= 10);
     /// ```
     #[inline]
-    #[unstable(feature = "shrink_to", reason = "new API", issue="56431")]
+    #[unstable(feature = "shrink_to", reason = "new API", issue = "56431")]
     pub fn shrink_to(&mut self, min_capacity: usize) {
         self.data.shrink_to(min_capacity)
     }
@@ -940,11 +978,7 @@ impl<'a, T> Hole<'a, T> {
         debug_assert!(pos < data.len());
         // SAFE: pos should be inside the slice
         let elt = ptr::read(data.get_unchecked(pos));
-        Hole {
-            data,
-            elt: ManuallyDrop::new(elt),
-            pos,
-        }
+        Hole { data, elt: ManuallyDrop::new(elt), pos }
     }
 
     #[inline]
@@ -1008,9 +1042,7 @@ pub struct Iter<'a, T: 'a> {
 #[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Iter")
-         .field(&self.iter.as_slice())
-         .finish()
+        f.debug_tuple("Iter").field(&self.iter.as_slice()).finish()
     }
 }
 
@@ -1062,7 +1094,7 @@ impl<T> FusedIterator for Iter<'_, T> {}
 
 /// An owning iterator over the elements of a `BinaryHeap`.
 ///
-/// This `struct` is created by the [`into_iter`] method on [`BinaryHeap`][`BinaryHeap`]
+/// This `struct` is created by the [`into_iter`] method on [`BinaryHeap`]
 /// (provided by the `IntoIterator` trait). See its documentation for more.
 ///
 /// [`into_iter`]: struct.BinaryHeap.html#method.into_iter
@@ -1076,9 +1108,7 @@ pub struct IntoIter<T> {
 #[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug> fmt::Debug for IntoIter<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("IntoIter")
-         .field(&self.iter.as_slice())
-         .finish()
+        f.debug_tuple("IntoIter").field(&self.iter.as_slice()).finish()
     }
 }
 
@@ -1114,6 +1144,37 @@ impl<T> ExactSizeIterator for IntoIter<T> {
 
 #[stable(feature = "fused", since = "1.26.0")]
 impl<T> FusedIterator for IntoIter<T> {}
+
+#[unstable(feature = "binary_heap_into_iter_sorted", issue = "59278")]
+#[derive(Clone, Debug)]
+pub struct IntoIterSorted<T> {
+    inner: BinaryHeap<T>,
+}
+
+#[unstable(feature = "binary_heap_into_iter_sorted", issue = "59278")]
+impl<T: Ord> Iterator for IntoIterSorted<T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.inner.pop()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let exact = self.inner.len();
+        (exact, Some(exact))
+    }
+}
+
+#[unstable(feature = "binary_heap_into_iter_sorted", issue = "59278")]
+impl<T: Ord> ExactSizeIterator for IntoIterSorted<T> {}
+
+#[unstable(feature = "binary_heap_into_iter_sorted", issue = "59278")]
+impl<T: Ord> FusedIterator for IntoIterSorted<T> {}
+
+#[unstable(feature = "trusted_len", issue = "37572")]
+unsafe impl<T: Ord> TrustedLen for IntoIterSorted<T> {}
 
 /// A draining iterator over the elements of a `BinaryHeap`.
 ///
@@ -1161,8 +1222,69 @@ impl<T> ExactSizeIterator for Drain<'_, T> {
 #[stable(feature = "fused", since = "1.26.0")]
 impl<T> FusedIterator for Drain<'_, T> {}
 
+/// A draining iterator over the elements of a `BinaryHeap`.
+///
+/// This `struct` is created by the [`drain_sorted`] method on [`BinaryHeap`]. See its
+/// documentation for more.
+///
+/// [`drain_sorted`]: struct.BinaryHeap.html#method.drain_sorted
+/// [`BinaryHeap`]: struct.BinaryHeap.html
+#[unstable(feature = "binary_heap_drain_sorted", issue = "59278")]
+#[derive(Debug)]
+pub struct DrainSorted<'a, T: Ord> {
+    inner: &'a mut BinaryHeap<T>,
+}
+
+#[unstable(feature = "binary_heap_drain_sorted", issue = "59278")]
+impl<'a, T: Ord> Drop for DrainSorted<'a, T> {
+    /// Removes heap elements in heap order.
+    fn drop(&mut self) {
+        struct DropGuard<'r, 'a, T: Ord>(&'r mut DrainSorted<'a, T>);
+
+        impl<'r, 'a, T: Ord> Drop for DropGuard<'r, 'a, T> {
+            fn drop(&mut self) {
+                while let Some(_) = self.0.inner.pop() {}
+            }
+        }
+
+        while let Some(item) = self.inner.pop() {
+            let guard = DropGuard(self);
+            drop(item);
+            mem::forget(guard);
+        }
+    }
+}
+
+#[unstable(feature = "binary_heap_drain_sorted", issue = "59278")]
+impl<T: Ord> Iterator for DrainSorted<'_, T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.inner.pop()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let exact = self.inner.len();
+        (exact, Some(exact))
+    }
+}
+
+#[unstable(feature = "binary_heap_drain_sorted", issue = "59278")]
+impl<T: Ord> ExactSizeIterator for DrainSorted<'_, T> {}
+
+#[unstable(feature = "binary_heap_drain_sorted", issue = "59278")]
+impl<T: Ord> FusedIterator for DrainSorted<'_, T> {}
+
+#[unstable(feature = "trusted_len", issue = "37572")]
+unsafe impl<T: Ord> TrustedLen for DrainSorted<'_, T> {}
+
 #[stable(feature = "binary_heap_extras_15", since = "1.5.0")]
 impl<T: Ord> From<Vec<T>> for BinaryHeap<T> {
+    /// Converts a `Vec<T>` into a `BinaryHeap<T>`.
+    ///
+    /// This conversion happens in-place, and has `O(n)` time complexity.
     fn from(vec: Vec<T>) -> BinaryHeap<T> {
         let mut heap = BinaryHeap { data: vec };
         heap.rebuild();
