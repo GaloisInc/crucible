@@ -1,4 +1,4 @@
-use crate::sys::condvar as imp;
+use crate::sys::crux::condvar as imp;
 use crate::sys_common::mutex::{self, Mutex};
 use crate::time::Duration;
 

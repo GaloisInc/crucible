@@ -2,7 +2,7 @@ use crate::fmt;
 use crate::marker;
 use crate::ops::Deref;
 use crate::panic::{RefUnwindSafe, UnwindSafe};
-use crate::sys::mutex as sys;
+use crate::sys::crux::mutex as sys;
 
 /// A re-entrant mutual exclusion
 ///
