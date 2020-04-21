@@ -904,9 +904,7 @@ traitVtableType tname trait = vtableTy
   where
     convertShimSig sig = eraseSigReceiver sig
 
-    methodSigs = Maybe.mapMaybe (\ti -> case ti of
-        M.TraitMethod name sig -> Just sig
-        _ -> Nothing) (trait ^. M.traitItems)
+    methodSigs = map (\(M.TraitMethod _name sig) -> sig) (trait ^. M.traitItems)
     shimSigs = map convertShimSig methodSigs
 
     vtableTy = tyListToCtx (map M.TyFnPtr shimSigs) $ \ctx ->

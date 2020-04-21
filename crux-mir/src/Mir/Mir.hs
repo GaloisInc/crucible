@@ -499,8 +499,6 @@ data Trait = Trait { _traitName       :: !DefId,
 
 data TraitItem
     = TraitMethod DefId FnSig 
-    | TraitType DefId         -- associated type
-    | TraitConst DefId Ty
     deriving (Eq, Ord, Show, Generic)
 
 newtype Promoted = Promoted Int

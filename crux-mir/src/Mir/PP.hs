@@ -341,8 +341,6 @@ instance Pretty Abi where
 instance Pretty TraitItem where
   pretty (TraitMethod name sig)
     = text "fn"    <+> pr_id name <> pretty sig <> semi
-  pretty (TraitType name)         = text "name"  <+> pr_id name <> semi
-  pretty (TraitConst name ty)     = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
   pretty (Trait name items) =

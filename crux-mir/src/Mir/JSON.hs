@@ -537,8 +537,6 @@ instance FromJSON TraitItem where
                 case HML.lookup "kind" v of
                   Just (String "Method") -> do
                     TraitMethod <$> v .: "item_id" <*> v .: "signature"
-                  Just (String "Type") -> TraitType <$> v .: "name"
-                  Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
                   Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ show x
                   k -> fail $ "bad kind field in TraitItem " ++ show k
