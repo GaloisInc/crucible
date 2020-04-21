@@ -184,8 +184,6 @@ instance FromJSON Var where
         <*>  v .: "mut"
         <*>  v .: "ty"
         <*>  v .: "is_zst"
-        <*>  v .: "scope"
-        <*>  v .: "pos"
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> do
@@ -557,8 +555,6 @@ instance FromJSON Static where
     Static <$> v .: "name"
            <*> v .: "ty"
            <*> v .: "mutable"
-           <*> v .:? "promoted_from"
-           <*> v .:? "promoted_index"
 
            
 --  LocalWords:  initializer supertraits deserialization impls

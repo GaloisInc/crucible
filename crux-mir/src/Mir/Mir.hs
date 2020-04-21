@@ -217,13 +217,11 @@ data Var = Var {
     _varname :: Text,
     _varmut :: Mutability,
     _varty :: Ty,
-    _varIsZST :: Bool,
-    _varscope :: VisibilityScope,
-    _varpos :: Text }
+    _varIsZST :: Bool }
     deriving (Eq, Show, Generic)
 
 instance Ord Var where
-    compare (Var n _ _ _ _ _) (Var m _ _ _ _ _) = compare n m
+    compare (Var n _ _ _) (Var m _ _ _) = compare n m
 
 data Collection = Collection {
     _functions :: !(Map MethName Fn),
@@ -508,8 +506,6 @@ data Static   = Static {
     _sName          :: DefId            -- ^ name of fn that initializes this static
   , _sTy            :: Ty
   , _sMutable       :: Bool             -- ^ true for "static mut"          
-  , _sPromotedFrom  :: Maybe DefId      -- ^ name of fn that static was promoted from
-  , _sPromoted      :: Maybe Promoted
   }
   deriving (Show, Eq, Ord, Generic)
 
@@ -519,9 +515,6 @@ type MethName   = DefId
 type AdtName    = DefId
 type VtableName = DefId
 type IntrinsicName = DefId
-
-
-
 
 --- Other texts
 type ConstUsize = Integer
@@ -622,7 +615,7 @@ instance TypeOf Ty where
     typeOf ty = ty
 
 instance TypeOf Var where
-    typeOf (Var _ _ t _ _ _) = t
+    typeOf (Var _ _ t _) = t
 
 instance TypeOf Lvalue where
     typeOf (LBase base) = typeOf base
@@ -630,7 +623,7 @@ instance TypeOf Lvalue where
 
 instance TypeOf PlaceBase where
     typeOf pb = case pb of
-        Local (Var _ _ t _ _ _) -> t
+        Local (Var _ _ t _) -> t
         PStatic _ t -> t
         PPromoted _ t -> t
 

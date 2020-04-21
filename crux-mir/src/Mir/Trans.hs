@@ -238,22 +238,18 @@ transConstVal ty tp cv = mirFail $
     "fail or unimp constant: " ++ show ty ++ " (" ++ show tp ++ ") " ++ show cv
 
 
-typedVarInfo :: HasCallStack => Text -> Maybe Text -> C.TypeRepr tp -> MirGenerator h s ret (VarInfo s tp)
-typedVarInfo name optPos tpr = do
+typedVarInfo :: HasCallStack => Text -> C.TypeRepr tp -> MirGenerator h s ret (VarInfo s tp)
+typedVarInfo name tpr = do
     optV <- use $ varMap . at name
     case optV of
         Nothing -> mirFail $
-            "variable " ++ show name ++ " not found" ++ atPos
+            "variable " ++ show name ++ " not found"
         Just (Some vi) -> do
             let tpr' = varInfoRepr vi
             Refl <- testEqualityOrFail tpr tpr' $
                 "expected var " ++ show name ++ " to have type " ++ show tpr
-                    ++ ", but it has type " ++ show tpr' ++ " instead" ++ atPos
+                    ++ ", but it has type " ++ show tpr' ++ " instead"
             return vi
-  where
-    atPos = case optPos of
-        Just pos -> " (at " ++ Text.unpack pos ++ ")"
-        Nothing -> ""
 
 readVar :: C.TypeRepr tp -> VarInfo s tp -> MirGenerator h s ret (R.Expr MIR s tp)
 readVar tpr vi = do
@@ -263,16 +259,16 @@ readVar tpr vi = do
         VarAtom a -> return $ R.AtomExpr a
 
 varExp :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
-varExp (M.Var vname _ vty _ _ pos)
+varExp (M.Var vname _ vty _)
   | Some tpr <- tyToRepr vty = do
-    vi <- typedVarInfo vname (Just pos) tpr
+    vi <- typedVarInfo vname tpr
     x <- readVar tpr vi
     return $ MirExp tpr x
 
 varPlace :: HasCallStack => M.Var -> MirGenerator h s ret (MirPlace s)
-varPlace (M.Var vname _ vty _ _ pos)
+varPlace (M.Var vname _ vty _)
   | Some tpr <- tyToRepr vty = do
-    vi <- typedVarInfo vname (Just pos) tpr
+    vi <- typedVarInfo vname tpr
     r <- case vi of
         VarReference reg -> G.readReg reg
         -- TODO: these cases won't be needed once immutabe ref support is done
@@ -297,7 +293,7 @@ staticPlace did = do
 -- NOTE: The return var in the MIR output is always "_0"
 getReturnExp :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 getReturnExp tpr = do
-    vi <- typedVarInfo "_0" Nothing tpr
+    vi <- typedVarInfo "_0" tpr
     readVar tpr vi
 
 
@@ -1595,7 +1591,7 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  f (M.Assign _ (M.Ref _ lv _) _) = g lv
  f _ = mempty
 
- g (M.LBase (M.Local (M.Var nm _ _ _ _ _))) = Set.singleton nm
+ g (M.LBase (M.Local (M.Var nm _ _ _))) = Set.singleton nm
  g (M.LProj lv _) = g lv
 
  g _ = mempty
@@ -1628,7 +1624,7 @@ initFnState colState fn handle inputs =
     where
       args = fn^.fargs
 
-      argtups  = map (\(M.Var n _ t _ _ _) -> (n,t)) args
+      argtups  = map (\(M.Var n _ t _) -> (n,t)) args
       argtypes = FH.handleArgTypes handle
 
       mkVarMap :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s

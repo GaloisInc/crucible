@@ -115,14 +115,14 @@ instance Pretty Mutability where
     pretty Immut = empty
 
 instance Pretty Var where
-    pretty (Var vn _vm _vty _vzst _vs _) = pretty vn
+    pretty (Var vn _vm _vty _vzst) = pretty vn
 
 pretty_arg :: Var -> Doc
-pretty_arg (Var vn _vm vty _vzst _vs _) =
+pretty_arg (Var vn _vm vty _vzst) =
   pretty vn <+> colon <+> pretty vty
 
 pretty_temp :: Var -> Doc
-pretty_temp (Var vn vm vty _vzst _vs _) =
+pretty_temp (Var vn vm vty _vzst) =
   text "let" <+>
     (if vm == Mut then text "mut" else text "const")
     <+> pretty vn <+> colon <+> pretty vty <> semi
@@ -349,8 +349,8 @@ instance Pretty Trait where
           rbrace]
 
 instance Pretty Static where
-  pretty (Static nm ty mut pf p) =
-    pretty mut <+> pretty nm <+> text ":" <+> pretty ty <+> text "promoted from" <+> pretty pf <+> pretty p
+  pretty (Static nm ty mut) =
+    pretty mut <+> pretty nm <+> text ":" <+> pretty ty
 
 instance Pretty Promoted where
   pretty (Promoted i) = text "{{promoted}}" <> brackets (pretty i)

@@ -438,7 +438,7 @@ makeTempLvalue ty exp = do
     -- varIsZST is used only for deciding whether to initialize the variable at
     -- the start of the function, which is not relevant for temporaries created
     -- mid-translation.
-    let var = Var name Immut ty {-varIsZST-} False "__dummy_scope__" "__temporary__"
+    let var = Var name Immut ty {-varIsZST-} False
     return $ LBase $ Local var
 
 makeTempOperand :: Ty -> MirExp s -> MirGenerator h s ret Operand
