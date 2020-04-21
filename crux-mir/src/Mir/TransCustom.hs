@@ -61,7 +61,6 @@ import qualified What4.ProgramLoc as PL
 import qualified Mir.DefId as M
 import           Mir.DefId (ExplodedDefId)
 import           Mir.Mir
-import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
 import           Mir.Generator hiding (customOps)

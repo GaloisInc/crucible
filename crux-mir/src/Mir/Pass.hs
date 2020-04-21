@@ -22,7 +22,6 @@ import GHC.Stack
 
 import Mir.Mir
 import Mir.DefId
-import Mir.MirTy
 import Mir.PP(fmt)
 import Mir.GenericOps
 

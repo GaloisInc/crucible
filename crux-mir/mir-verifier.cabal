@@ -61,7 +61,6 @@ library
                    Mir.PP
                    Mir.Generate
                    Mir.DefId
-                   Mir.MirTy
   other-modules: 
                  Mir.Intrinsics
                  Mir.Overrides

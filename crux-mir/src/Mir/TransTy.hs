@@ -52,7 +52,6 @@ import qualified Lang.Crucible.Syntax as S
 
 import qualified Mir.DefId as M
 import qualified Mir.Mir as M
-import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
 import           Mir.Generator 
@@ -247,7 +246,7 @@ canInitialize ty = case ty of
 variantFields :: TransTyConstraint => M.Variant -> Some C.CtxRepr
 variantFields (M.Variant _vn _vd vfs _vct) =
     tyReprListToCtx
-        (map (mapSome fieldType . tyToFieldRepr . M.fieldToTy) vfs)
+        (map (mapSome fieldType . tyToFieldRepr . (^. M.fty)) vfs)
         (\repr -> Some repr)
 
 data FieldRepr tp' = forall tp. FieldRepr (FieldKind tp tp')
@@ -277,7 +276,7 @@ tyToFieldRepr ty
 variantFields' :: TransTyConstraint => M.Variant -> Some FieldCtxRepr
 variantFields' (M.Variant _vn _vd vfs _vct) =
     fieldReprListToCtx
-        (map (tyToFieldRepr . M.fieldToTy) vfs)
+        (map (tyToFieldRepr . (^. M.fty)) vfs)
         (\x -> Some x)
 
 enumVariants :: TransTyConstraint => M.Adt -> Some C.CtxRepr
@@ -579,7 +578,7 @@ structInfo adt i = do
 
     let var = M.onlyVariant adt
     fldTy <- case var ^? M.vfields . ix i of
-        Just fld -> return $ M.fieldToTy fld
+        Just fld -> return $ fld ^. M.fty
         Nothing -> mirFail errFieldIndex
 
     Some ctx <- return $ variantFields var
@@ -671,7 +670,7 @@ enumInfo adt i j = do
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
     fldTy <- case var ^? M.vfields . ix j of
-        Just fld -> return $ M.fieldToTy fld
+        Just fld -> return $ fld ^. M.fty
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
 

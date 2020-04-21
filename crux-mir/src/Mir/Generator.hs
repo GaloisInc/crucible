@@ -97,7 +97,6 @@ import qualified Lang.Crucible.Syntax as S
 
 import           Mir.DefId
 import           Mir.Mir
-import           Mir.MirTy
 import           Mir.Intrinsics
 import           Mir.PP
 

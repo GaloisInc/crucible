@@ -41,7 +41,6 @@ import qualified Data.List as List
 
 import Mir.DefId
 import Mir.Mir
-import Mir.MirTy
 
 import GHC.Stack
 
