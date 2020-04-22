@@ -507,6 +507,13 @@ transNullaryOp M.Box ty = do
     mkBox (M.TyRawPtr ty' _) = do
         Some tpr <- return $ tyToRepr ty'
         ptr <- newMirRef tpr
+        maybeInitVal <- initialValue ty'
+        case maybeInitVal of
+            Just (MirExp tpr' initVal) -> do
+                Refl <- testEqualityOrFail tpr tpr' $
+                    "bad initial value for box: expected " ++ show tpr ++ " but got " ++ show tpr'
+                writeMirRef ptr initVal
+            Nothing -> return ()
         return $ MirExp (MirReferenceRepr tpr) ptr
     mkBox ty@(M.TyAdt aname _ _) = do
         adt <- findAdt aname
