@@ -103,6 +103,7 @@ customOpDefs = Map.fromList $ [
                          , size_of
                          , min_align_of
                          , intrinsics_assume
+                         , assert_inhabited
 
                          , mem_crucible_identity_transmute
                          , array_from_slice
@@ -161,6 +162,7 @@ customOpDefs = Map.fromList $ [
                          , unsafe_cell_get
                          , unsafe_cell_raw_get
 
+                         , maybe_uninit_uninit
 
                          , integer_from_u8
                          , integer_from_i32
@@ -914,6 +916,11 @@ intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
     )
 
+-- TODO: needs layout info from mir-json
+assert_inhabited :: (ExplodedDefId, CustomRHS)
+assert_inhabited = (["core", "intrinsics", "", "assert_inhabited"], \_substs ->
+    Just $ CustomOp $ \_ _ -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp)
+
 array_from_slice ::  (ExplodedDefId, CustomRHS)
 array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_from_slice_hook"],
     \substs -> Just $ CustomOpNamed $ \fnName ops -> do
@@ -1446,6 +1453,20 @@ atomic_funcs =
         "acq_failrelaxed", "acqrel_failrelaxed", "failrelaxed", "failacq"]
     fenceVariants = ["acq", "rel", "acqrel"]
 
+
+--------------------------------------------------------------------------------------------------------------------------
+-- MaybeUninit
+
+maybe_uninit_uninit :: (ExplodedDefId, CustomRHS)
+maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{{impl}}", "uninit"],
+    \substs -> case substs of
+        Substs [t] -> Just $ CustomOp $ \_ _ -> do
+            adt <- findAdtInst (M.textId "core::mem::maybe_uninit::MaybeUninit") (Substs [t])
+            let t = TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
+            initialValue t >>= \mv -> case mv of
+                Just v -> return v
+                Nothing -> mirFail $ "MaybeUninit::uninit unsupported for " ++ show t
+        _ -> Nothing)
 
 
 --------------------------------------------------------------------------------------------------------------------------

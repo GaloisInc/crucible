@@ -101,6 +101,8 @@ pattern CTyInt512 <- M.TyAdt _ $(M.normDefIdPat "int512::Int512") (M.Substs [])
   where CTyInt512 = M.TyAdt (M.textId "type::adt") (M.textId "int512::Int512") (M.Substs [])
 pattern CTyBox t <- M.TyAdt _ $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t])
   where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
+pattern CTyMaybeUninit t <- M.TyAdt _ $(M.normDefIdPat "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
+  where CTyMaybeUninit t = M.TyAdt (M.textId "type::adt") (M.textId "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
 pattern CTyVector t <- M.TyAdt _ $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
   where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
 pattern CTyArray t <- M.TyAdt _ $(M.normDefIdPat "crucible::array::Array") (M.Substs [t])
@@ -148,6 +150,11 @@ tyToRepr t0 = case t0 of
       Some (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> C.BaseBVRepr (knownNat @SizeBits)) btr)
     | otherwise -> error $ "unsupported: crucible arrays of non-base type"
   CTyAny -> Some C.AnyRepr
+
+  -- Defined as `union MaybeUninit<T> { uninit: (), value: ManuallyDrop<T> }`.
+  -- We skip the outer union, leaving only `ManuallyDrop<T>`, which is a
+  -- struct type.
+  CTyMaybeUninit _ -> Some $ C.AnyRepr
 
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr

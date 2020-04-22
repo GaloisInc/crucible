@@ -37,6 +37,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , evalRval
                 , callExp
                 , derefExp, readPlace, addrOfPlace
+                , initialValue
                 ) where
 
 import Control.Monad
@@ -723,6 +724,11 @@ evalCast' ck ty1 e ty2  =
         | m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
         -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
 
+      -- *const [T; N] -> *const T (get first element)
+      (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
+        | t1 == t2, m1 == m2, MirExp (MirReferenceRepr (MirVectorRepr tpr)) e' <- e
+        -> MirExp (MirReferenceRepr tpr) <$> subindexRef tpr e' (R.App $ usizeLit 0)
+
       -- *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
         | m1 == m2 -> return e
@@ -932,6 +938,9 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         return $ MirPlace tpr' ptr (SliceMeta len)
 
 evalPlaceProj ty (MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = case ty of
+    CTyMaybeUninit _ -> do
+        return $ MirPlace tpr ref NoMeta
+
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
@@ -1383,13 +1392,9 @@ initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usiz
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
 initialValue (M.TyArray t size) = do
-    mv <- initialValue t 
-    case mv of
-      Just (MirExp tp e) -> do
-        let n = fromInteger (toInteger size)
-        vec <- mirVector_fromVector tp $ S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e
-        return $ Just $ MirExp (MirVectorRepr tp) vec
-      Nothing -> return Nothing
+    Some tpr <- return $ tyToRepr t
+    mv <- mirVector_uninit tpr $ S.app $ E.BVLit knownNat (fromIntegral size)
+    return $ Just $ MirExp (MirVectorRepr tpr) mv
 -- TODO: disabled to workaround for a bug with muxing null and non-null refs
 -- The problem is with
 --      if (*) {
@@ -1456,7 +1461,9 @@ initialValue M.TyChar = do
 initialValue (M.TyClosure tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps
-
+initialValue (CTyMaybeUninit t) = do
+    adt <- findAdtInst (M.textId "core::mem::manually_drop::ManuallyDrop") (Substs [t])
+    initialValue $ M.TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
 initialValue (M.TyAdt nm _ _) = do
     adt <- findAdt nm
     case adt ^. adtkind of
