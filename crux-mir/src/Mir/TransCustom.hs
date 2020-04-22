@@ -105,6 +105,7 @@ customOpDefs = Map.fromList $ [
                          , intrinsics_assume
                          , assert_inhabited
 
+                         , mem_transmute
                          , mem_crucible_identity_transmute
                          , array_from_slice
 
@@ -906,6 +907,21 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
           ++ show (tyT, tyU, ops)
       _ -> Nothing
     )
+
+mem_transmute ::  (ExplodedDefId, CustomRHS)
+mem_transmute = (["core", "intrinsics", "", "transmute"],
+    \ substs -> case substs of
+      Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
+        [e@(MirExp argTy _)] -> do
+            Some retTy <- return $ tyToRepr tyU
+            case testEquality argTy retTy of
+                Just Refl -> return e
+                Nothing -> mirFail $
+                    "representation mismatch in transmute: " ++ show argTy ++ " != " ++ show retTy
+        _ -> mirFail $ "bad arguments to transmute: "
+          ++ show (tyT, tyU, ops)
+      _ -> Nothing)
+
 
 intrinsics_assume :: (ExplodedDefId, CustomRHS)
 intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
