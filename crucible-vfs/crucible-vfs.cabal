@@ -19,9 +19,18 @@ extra-source-files:  CHANGELOG.md
 
 library
   build-depends:       base >=4.12 && <4.13,
-                       crucible-llvm
+                       ansi-wl-pprint,
+                       crucible,
+                       crucible-llvm,
+                       containers,
+                       lens,
+                       parameterized-utils,
+                       transformers,
+                       vector,
+                       what4
   exposed-modules:
       Lang.Crucible.VFS
+      Lang.Crucible.VFS.Types
       Lang.Crucible.VFS.Extension
       Lang.Crucible.VFS.Extension.Arch
       Lang.Crucible.VFS.Extension.Syntax
