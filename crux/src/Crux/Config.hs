@@ -25,8 +25,15 @@ module Crux.Config
 
   -- Unified config exports
   , CmdLineOptions(..)
-  , CmdLineOpt(..)
-  , YesOrNoUpdate(..)
+  --, CmdLineOpt(..)
+  --, CmdLineOptDoc(..)
+  , opt
+  , atom
+  , withShortFlag
+  , withDocumentation
+  , withEnvironmentVar
+  , isRepeatable
+  , FlagYesOrNo(..)
   , OptUpdater(..)
   , ValSpec(..)
   , pathVal
@@ -34,7 +41,7 @@ module Crux.Config
 
 import           Data.Int
 import           Data.Char
-import           Data.List ( intercalate )
+import           Data.List ( intercalate , lookup )
 import           Data.Functor.Alt ( (<!>) )
 import           Data.Foldable ( foldlM )
 import           Numeric.Natural
@@ -42,6 +49,7 @@ import           Data.List.NonEmpty ( NonEmpty(..) )
 import           Data.Word
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Data.Tuple ( swap )
 
 import Data.Maybe ( fromMaybe, listToMaybe, mapMaybe )
 
@@ -166,8 +174,6 @@ data CmdLineOptions (config :: *) =
   -- ^ Flags or option specifications.
   }
 
-
-
 -- | A Crux option---i.e., one which would be specified via
 -- a command line flag or flag and argument (e.g., `-q` or
 -- `--sim-verbose=NUM`)---describing the kind of expected
@@ -209,51 +215,52 @@ data CmdLineOpt (config :: *) =
   -- ^ A short but clear description of the option, the kind
   -- that would appear next to a flag when the `--help` menu is
   -- printed.
-  , cOptDocumentation :: Maybe String
+  , cOptDocumentation :: CmdLineOptDoc
   -- ^ A longer description (if warranted), the kind that
   -- might appear in documentation for the tool (or further
   -- down in a man page).
   , cOptUpdater :: OptUpdater config
   -- ^ How should this option (when provided) update the
   -- configuration?
-  , cOptDefaultDescription :: (config -> String)
-  -- ^ A function used to show to the user the default
-  -- value/setting for this option; it can access the
-  -- initial configuration object to ensure documentation is
-  -- up to date and consistent. The returned string should
-  -- be able to be parsed back in as valid input equivalent
-  -- to the default state's configuration for that option.
   }
 
--- | Used to indicate whether "yes" or "no" is the
--- non-default value for a flag-like option which should
--- trigger a config update (i.e., if a user specifies `yes`
--- for a config option that is a command line boolean flag,
--- if that behavior is the norm anyway, then @UpdateOnNo@
--- would be used to indicate that (i.e., that only on `no`
--- do we actually have to update the config)).
-data YesOrNoUpdate =
-  UpdateOnYes
-  | UpdateOnNo
+-- | Describes the long form documentation to use for an
+-- option, which can either be same as the options shorter
+-- description (@SameAsDescr@) or a custom longer-form
+-- description (@DocStr@)
+data CmdLineOptDoc
+  = DocSameAsDescr
+  | DocStr String
+
+-- | Used to indicate whether passing the flag is equivalent
+-- to specifying `yes` or `no` in the config file.
+data FlagYesOrNo =
+  FlagIsYes
+  | FlagIsNo
   deriving (Eq, Ord)
 
 -- | Describes how an option updates the configuration
 -- state.
 data OptUpdater (config :: *) =
   -- | Describes how a flag (i.e., a yes/no config section)
-  -- updates the config. The update function is called to
-  -- update the config when the flag _is_ passed or when the
-  -- config value corresponds to the @YesOrNoUpdate@ value.
-  -- (i.e., @UpdateOnYes@ means the function is called to
-  -- update the config when the section has "yes" as it's
-  -- entry, while @UpdateOnNo@ calls the function for "no").
-  NoArgUpdater YesOrNoUpdate (config -> Either String config)
+  -- updates the config. For the command line arguments, the
+  -- update function is called to update the config when the
+  -- flag _is_ passed. If the flag is passed and the
+  -- @FlagYesOrNo@ is @FlagIsYes@ then the updater will be
+  -- called with @True@; if the flag is passed and the
+  -- @FlagYesOrNo@ is @FlagIsNo@ then the updater will be
+  -- called with @False@. For the config file, an entry of
+  -- `yes` for the section will call the updater with @True@
+  -- while `no` will call the updater with @False@.
+  NoArgUpdater FlagYesOrNo (Bool -> config -> Either String config) (config -> Bool)
   -- | Describes how an option with a required argument
-  -- value updates the config.
-  | forall a . ReqArgUpdater (ValSpec a) (a -> config -> Either String config)
+  --  value (e.g., gcc's `-o <file>`) updates the config and
+  --  how to retrieve that value.
+  | forall a . ReqArgUpdater (ValSpec a) (a -> config -> Either String config) (config -> a)
   -- | Describes how an option with an optional argument
-  -- value updates the config.
-  | forall a . OptArgUpdater (ValSpec a) (Maybe a -> config -> Either String config)
+  -- value updates the config and how to retrieve that
+  -- value.
+  | forall a . OptArgUpdater (ValSpec a) (Maybe a -> config -> Either String config) (config -> a)
 
 
 -- | A description of option parameter values from which we
@@ -295,15 +302,15 @@ data ValSpec :: * -> * where
   Word64Val   :: ValSpec Word64
   -- | An atom from a (non-empty) set of enumerated atomic
   -- literals. (N.B., comparisons are case-insensitive.)
-  EnumVal    :: [(String, a)] -> ValSpec a
+  EnumVal    :: Eq a => [(String, a)] -> ValSpec a
   -- | A value matching one specification or the other,
   -- using left-biased precedence.
   EitherVal  :: ValSpec a -> ValSpec b -> ValSpec (Either a b)
   -- | A named custom value specification using an arbitrary
-  -- string parser--should only be used when other
-  -- specifications are insufficient. N.B., names are
-  -- generally all caps and contain no spaces.
-  CustomVal  :: String -> (String -> Either String a) -> ValSpec a
+  -- string parser and printer--should only be used when other
+  -- specifications are insufficient. N.B., the composition
+  -- of the printer and parser should be the identity function.
+  CustomVal  :: String -> (String -> Either String a) -> (a -> String) -> ValSpec a
   -- | A ValSpec with a custom name. N.B., since names are
   -- used like meta-variable in documentation, they should
   -- generally be in all caps and contain no spaces (e.g.,
@@ -335,6 +342,13 @@ isAtom str@(c:_)
                                     , (=='_')
                                     , (=='-')]
 
+
+newtype Atom = MkAtom { atomStr :: String }
+
+atom :: String -> Atom
+atom str = case isAtom str of
+             Nothing -> MkAtom str
+             Just errMsg -> error errMsg
 
 
 -- | Given an initial/default Crux configuration and a
@@ -380,16 +394,29 @@ toEnvDescr initialOrDefaultConfig
   CmdLineOpt { cOptEnvVar = Just name
              , cOptDescription = initialDescription
              , cOptUpdater = optUpdater
-             , cOptDefaultDescription = defaultDescrFn
              } = Just $
   EnvVar { evName = name
-         , evDoc = initialDescription ++ " (default: " ++ (defaultDescrFn initialOrDefaultConfig) ++ ")"
+         , evDoc = initialDescription ++ " (default: " ++ (showDefaultValue initialOrDefaultConfig optUpdater) ++ ")"
          , evValue = case optUpdater of
-                       (NoArgUpdater _ updater) -> \_ -> updater
-                       (ReqArgUpdater vSpec updater) -> valSpecUpdater vSpec updater
-                       (OptArgUpdater vSpec updater) -> (valSpecMaybeUpdater vSpec updater) . Just
+                       NoArgUpdater _ updater _ -> yesNoUpdater updater
+                       ReqArgUpdater vSpec updater getter ->
+                         valSpecUpdater vSpec updater
+                       OptArgUpdater vSpec updater getter ->
+                         (valSpecMaybeUpdater vSpec updater) . Just
          }
 
+
+-- | Converts a funciton which updates a config with a bool to one
+-- which updates a config given the strings "yes" or "no"
+yesNoUpdater ::
+  (Bool -> config -> Either String config) ->
+  String ->
+  config ->
+  Either String config
+yesNoUpdater updater str cfg
+  | caseInsensitiveStringEq str "yes" = updater True cfg
+  | caseInsensitiveStringEq str "no"  = updater False cfg
+  | otherwise = Left $ "Expected `yes` or `no`, but got `" ++  str
 
 
 -- | Produces a Config.Schema SectionsSpec which will update
@@ -446,28 +473,26 @@ toSingleSectionsSpecUpdater initialOrDefaultConfig
              , cOptCanRepeat   = canRepeat
              , cOptDescription = initialDescription
              , cOptUpdater = optUpdater
-             , cOptDefaultDescription = defaultDescrFn
              } =
   let secName = T.pack configSecName
-      dfltLongDescr = T.pack $ initialDescription ++ " (default: " ++ (defaultDescrFn initialOrDefaultConfig) ++ ")"
+      dfltLongDescr = T.pack $ initialDescription ++ " (default: " ++ (showDefaultValue initialOrDefaultConfig optUpdater) ++ ")"
       configId cfg = Right cfg
   in case optUpdater of
-       NoArgUpdater yesOrNoUpdate updater ->
-         let dflt = if yesOrNoUpdate == UpdateOnYes then "no" else "yes"
+       NoArgUpdater flagYesOrNo updater _getter ->
+         let dflt = if flagYesOrNo == FlagIsYes then "no" else "yes"
              yesNoDescr = T.pack $ initialDescription ++ " (default: " ++ dflt ++ ")"
          in (flip fmap)
             (CS.optSection' secName CS.yesOrNoSpec yesNoDescr)
             (\maybeSectionVal ->
-               case (yesOrNoUpdate, maybeSectionVal) of
-                 -- If the option is provided and corresponds to the
-                 -- specified update answer, update the config with
-                 -- the updater.
-                 (UpdateOnYes, Just True)  -> updater
-                 (UpdateOnNo , Just False) -> updater
-                 -- Otherwise the config won't be updated, whether or
-                 -- not a section was provided.
-                 (_, _) -> configId)
-       ReqArgUpdater vSpec updater ->
+               case maybeSectionVal of
+                 -- If the option is provided, update the
+                 -- config with the updater and that value.
+                 Just True  -> updater True
+                 Just False -> updater False
+                 -- Otherwise the config won't be updated,
+                 -- whether or not a section was provided.
+                 _ -> configId)
+       ReqArgUpdater vSpec updater _getter ->
          let spec = toValueSpec vSpec
          in if canRepeat
             then (flip fmap)
@@ -478,7 +503,7 @@ toSingleSectionsSpecUpdater initialOrDefaultConfig
                  (CS.optSection' secName spec dfltLongDescr)
                  (\case Nothing  -> configId
                         Just val -> updater val)
-       OptArgUpdater vSpec updater ->
+       OptArgUpdater vSpec updater _getter ->
          let spec = toValueSpec vSpec
          in if canRepeat
             then (flip fmap)
@@ -521,7 +546,7 @@ toValueSpec rawSpec = go rawSpec
         let mkSpec (atom, val) = val <$ CS.atomSpec (T.pack atom)
         in foldl (<!>) (mkSpec e) $ map mkSpec es
     go (EitherVal l r)   = Left <$> (go l) <!> Right <$> (go r)
-    go (CustomVal cName cParser) =
+    go (CustomVal cName cParser _printer) =
       CS.customSpec (T.pack cName) CS.stringSpec (\str -> case cParser str of
                                                             Left msg -> Left $ T.pack msg
                                                             Right val -> Right val)
@@ -545,19 +570,19 @@ toOptDescr initialOrDefaultConfig
              , cOptLongFlags   = lflags
              , cOptDescription = initialDescription
              , cOptUpdater = optUpdater
-             , cOptDefaultDescription = defaultDescrFn
              } =
   SGO.Option { SGO.optShortFlags  = sflags
              , SGO.optLongFlags   = lflags
              , SGO.optDescription = description
              , SGO.optArgument    = toOptSetter optUpdater
              }
-  where description = initialDescription ++ (defaultDescrFn initialOrDefaultConfig)
+  where description = initialDescription ++ (showDefaultValue initialOrDefaultConfig optUpdater)
 
 toOptSetter :: OptUpdater config -> SGO.ArgDescr config
-toOptSetter (NoArgUpdater _ updater) = SGO.NoArg updater
-toOptSetter (ReqArgUpdater vSpec updater) = SGO.ReqArg (valSpecDescription vSpec) (valSpecUpdater vSpec updater)
-toOptSetter (OptArgUpdater vSpec updater) = SGO.OptArg (valSpecDescription vSpec) (valSpecMaybeUpdater vSpec updater)
+toOptSetter (NoArgUpdater FlagIsYes updater _) = SGO.NoArg $ updater True
+toOptSetter (NoArgUpdater FlagIsNo  updater _) = SGO.NoArg $ updater False
+toOptSetter (ReqArgUpdater vSpec updater _) = SGO.ReqArg (valSpecDescription vSpec) (valSpecUpdater vSpec updater)
+toOptSetter (OptArgUpdater vSpec updater _) = SGO.OptArg (valSpecDescription vSpec) (valSpecMaybeUpdater vSpec updater)
 
 
 valSpecDescription :: ValSpec a -> String
@@ -580,7 +605,7 @@ valSpecDescription =
     Word32Val          -> "UINT32"
     Word64Val          -> "UINT64"
     EnumVal es -> intercalate "|" $ map fst es
-    CustomVal name _   -> name
+    CustomVal name _ _   -> name
     NamedVal  name _   -> name
 
 
@@ -642,7 +667,7 @@ valSpecParser initialValSpec =
     go Word64Val   = readParse
     go (EnumVal es) =
       \str ->
-        let checkAtom (a, aVal) = if caseInsensitiveEq str a then Just aVal else Nothing
+        let checkAtom (a, aVal) = if caseInsensitiveStringEq str a then Just aVal else Nothing
         in listToMaybe $ mapMaybe checkAtom es
     go (EitherVal vSpecA vSpecB) =
       let parseA = go vSpecA
@@ -655,11 +680,125 @@ valSpecParser initialValSpec =
                       [] -> Nothing
                       ((val,_):_) -> Just val
     -- Case-insensitive string equality predicate
-    caseInsensitiveEq [] [] = True
-    caseInsensitiveEq (x:xs) (y:ys) = toLower x == toLower y && caseInsensitiveEq xs ys
-    
-        
+
+caseInsensitiveStringEq :: String -> String -> Bool
+caseInsensitiveStringEq [] [] = True
+caseInsensitiveStringEq (x:xs) (y:ys) = toLower x == toLower y && caseInsensitiveStringEq xs ys
+caseInsensitiveStringEq _ _ = False
+
+
+showDefaultVal :: ValSpec a -> a -> String
+showDefaultVal vSpec val =
+  case vSpec of
+    StringVal   -> val
+    FloatVal    -> show val
+    DoubleVal   -> show val
+    RationalVal -> show val
+    IntVal      -> show val
+    Int8Val     -> show val
+    Int16Val    -> show val
+    Int32Val    -> show val
+    Int64Val    -> show val
+    IntegerVal  -> show val
+    NaturalVal  -> show val
+    WordVal     -> show val
+    Word8Val    -> show val
+    Word16Val   -> show val
+    Word32Val   -> show val
+    Word64Val   -> show val
+    (EnumVal es) ->
+      case lookup val $ map swap es of
+        Just str -> str
+        Nothing -> error $ "default value for enum is not a user-visible option; options are "
+                   ++ (show $ map fst es)
+    EitherVal vSpecL vSpecR ->
+      case val of
+        Left lVal -> showDefaultVal vSpecL lVal
+        Right rVal -> showDefaultVal vSpecR rVal 
+    NamedVal _nm vSpec -> showDefaultVal vSpec val
+    CustomVal _ _ printer -> printer val
+  
+showDefaultValue ::
+  -- | The initial/default configuration.
+  config ->
+  -- | The updater for this option
+  OptUpdater config ->
+  -- | A string representing the default value.
+  String
+showDefaultValue initCfg optUpdater =
+  case optUpdater of
+    NoArgUpdater _ _ getter -> boolToYesNo $ getter initCfg
+    ReqArgUpdater vSpec _ getter -> showDefaultVal vSpec $ getter initCfg
+    OptArgUpdater vSpec _ getter -> showDefaultVal vSpec $ getter initCfg
+
+
+boolToYesNo :: Bool -> String
+boolToYesNo True = "yes"
+boolToYesNo False = "no"
 
 
 pathVal :: ValSpec FilePath
 pathVal = NamedVal "PATH" StringVal
+
+
+
+opt ::
+  forall config .
+  -- | Option name (i.e., human readable and Title Case).
+  String ->
+  -- | Name of the long flag and config section.
+  Atom ->
+  -- | Short description of the option/flag.
+  String ->
+  -- | How is the config updated.
+  OptUpdater config ->
+  -- | Command line option with a long flag, config section
+  -- with the same name as the long flag, documentation the
+  -- same as the short description, and the specified
+  -- configuration updater.
+  CmdLineOpt config
+opt optName longFlagName descr updater = CmdLineOpt
+  { cOptName = optName
+  , cOptShortFlags = []
+  , cOptLongFlags = [ atomStr longFlagName ]
+  , cOptCanRepeat = False
+  , cOptConfigSection = atomStr longFlagName
+  , cOptEnvVar = Nothing
+  , cOptDescription = descr
+  , cOptDocumentation = DocSameAsDescr
+  , cOptUpdater = updater
+  }
+
+
+-- | Adds the given character as a short command line flag.
+withShortFlag ::
+  forall config .
+  Char ->
+  CmdLineOpt config ->
+  CmdLineOpt config
+withShortFlag c o = o { cOptShortFlags = c:(cOptShortFlags o) }
+
+-- | Set the command line option's documentation string.
+withDocumentation ::
+  forall config .
+  String ->
+  CmdLineOpt config ->
+  CmdLineOpt config
+withDocumentation docStr o = o { cOptDocumentation = DocStr docStr }
+
+-- | Set the the command line option's environment variable.
+withEnvironmentVar ::
+  forall config .
+  CmdLineOpt config ->
+  String ->
+  CmdLineOpt config
+withEnvironmentVar o evar = o {cOptEnvVar = Just evar }
+
+-- | Set the command line option's so it is repeatable
+-- (i.e., so repeated usages of the flag are cumulative and
+-- so the config file can contain one or a list of entries.
+isRepeatable ::
+  forall config .
+  CmdLineOpt config ->
+  CmdLineOpt config
+isRepeatable o = o {cOptCanRepeat = True }

@@ -1,6 +1,7 @@
 {-# Language RecordWildCards, OverloadedStrings, ApplicativeDo #-}
 module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
 
+import Data.Function ( (&) )
 import Data.Functor.Alt
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
@@ -16,6 +17,7 @@ import Config.Schema
 data PathStrategy
   = AlwaysMergePaths
   | SplitAndExploreDepthFirst
+  deriving (Eq)
 
 pathStrategySpec :: ValueSpec PathStrategy
 pathStrategySpec =
@@ -344,10 +346,6 @@ parsePathStrategy _mk nm _opts = Left ("Unknown path strategy: " ++ show nm)
 -- NEW: Common options using the unified config code
 --------------------------------------------------------------------------------
 
-boolToYesNo :: Bool -> String
-boolToYesNo True = "yes"
-boolToYesNo False = "no"
-
 
 -- | A few examples in the new unified format:
 cruxOptions' :: CmdLineOptions CruxOptions
@@ -356,52 +354,39 @@ cruxOptions' = CmdLineOptions
   , cmdLineParamFn = \f opts -> Right opts { inputFiles = f : inputFiles opts }
   , cmdLineParamConfigSection = "files"
   , cmdLineOpts =
-    [ CmdLineOpt
-      { cOptName = "Output Directory"
-      , cOptShortFlags = []
-      , cOptLongFlags = ["output-directory"]
-      , cOptCanRepeat = False
-      , cOptConfigSection = "output-directory"
-      , cOptEnvVar = Nothing
-      , cOptDescription = "Location to save reports. If unset, no reports will be generated."
-      , cOptDocumentation = Nothing
-      , cOptUpdater = ReqArgUpdater pathVal (\path opts -> Right opts { outDir = path })
-      , cOptDefaultDescription = (\opts -> outDir opts)
-      }
-    , CmdLineOpt
-      { cOptName = "Simulator Path Strategy"
-      , cOptShortFlags = []
-      , cOptLongFlags = ["path-strategy"]
-      , cOptCanRepeat = False
-      , cOptConfigSection = "path-strategy"
-      , cOptEnvVar = Nothing
-      , cOptDescription = "Simulator strategy for path exploration."
-      , cOptDocumentation = Just $ concat ["Selects which strategy is used when exploring execution paths during simulation."
-                                          , " The `always-merge` setting tells the simulator to always merge explored paths,"
-                                          , " which can be a useful default because it BLAH BLAH BLAH, but may be less than ideal for programs which BLAH BLAH BLAH."
-                                          , " The `split-dfs` setting instead searches in a depth-frst fashion and avoids the BLAH BLAH BLAH overhead"
-                                          , " some programs suffer when always merging paths."]
-      , cOptUpdater = ReqArgUpdater
-                      (EnumVal [ ("always-merge", AlwaysMergePaths)
-                               , ("split-dfs", SplitAndExploreDepthFirst)])
-                      (\strategy opts -> Right opts { pathStrategy = strategy })
-      , cOptDefaultDescription = (\opts -> case pathStrategy opts of AlwaysMergePaths -> "always-merge"; SplitAndExploreDepthFirst -> "split-dfs")
-      }
+    [ opt "Simulator Verbosity Level"
+      (atom "sim-verbose")
+      "Enable path satisfiability checking."
+      (NoArgUpdater FlagIsYes (\ans opts -> Right opts { checkPathSat = ans }) checkPathSat)
+      & withShortFlag 'd'
+      & withDocumentation
+      (concat [ "When enabled, the solver is queried before exploring code paths to determine"
+              , " if they are reachable. This adds some overhead throughout verification but"
+              , " avoids wasting time in unreachable paths."
+              ])
+    , opt "Path Satisfiability Checking"
+      (atom "path-sat")
+      "Enable path satisfiability checking."
+      (NoArgUpdater FlagIsYes (\ans opts -> Right opts { checkPathSat = ans }) checkPathSat)
+      & withDocumentation
+      (concat [ "When enabled, the solver is queried before exploring code paths to determine"
+              , " if they are reachable. This adds some overhead throughout verification but"
+              , " avoids wasting time in unreachable paths."
+              ])
+    , opt "Output Directory"
+      (atom "output-directory")
+      "Location to save reports. If unset, no reports will be generated."
+      (ReqArgUpdater pathVal (\path opts -> Right opts { outDir = path }) outDir)
+    , opt "Simulator Path Strategy"
+      (atom "path-strategy")
+      "Simulator strategy for path exploration."
+      (ReqArgUpdater
+        (EnumVal [ ("always-merge", AlwaysMergePaths)
+                 , ("split-dfs", SplitAndExploreDepthFirst)])
+        (\strategy opts -> Right opts { pathStrategy = strategy })
+        pathStrategy)
     ]
   }
 
 
-{-
-CmdLineOpt
-      { cOptName = undefined
-      , cOptShortFlags = undefined
-      , cOptLongFlags = undefined
-      , cOptCanRepeat = undefined
-      , cOptConfigSection = undefined
-      , cOptEnvVar = undefined
-      , cOptDescription = undefined
-      , cOptDocumentation = undefined
-      , cOptUpdater = undefined
-      , cOptDefaultDescription = undefined
-      }
--}
+
