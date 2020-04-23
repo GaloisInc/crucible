@@ -65,6 +65,8 @@ library
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Aliases
     Lang.Crucible.LLVM.TypeContext
+    Lang.Crucible.LLVM.Types
+    Lang.Crucible.LLVM.MemModel.Generic
 
   other-modules:
     Lang.Crucible.LLVM.Extension.Arch
@@ -75,7 +77,7 @@ library
     Lang.Crucible.LLVM.Intrinsics.Libcxx
     Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MemModel.Common
-    Lang.Crucible.LLVM.MemModel.Generic
+
     Lang.Crucible.LLVM.MemModel.Partial
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Options
@@ -86,7 +88,6 @@ library
     Lang.Crucible.LLVM.Translation.Instruction
     Lang.Crucible.LLVM.Translation.Monad
     Lang.Crucible.LLVM.Translation.Types
-    Lang.Crucible.LLVM.Types
 
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
