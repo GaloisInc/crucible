@@ -26,7 +26,6 @@ import Mir.PP(fmt)
 import Mir.GenericOps
 
 import Mir.Pass.AllocateEnum ( passAllocateEnum )
-import Mir.Pass.NoMutParams ( passNoMutParams )
 
 import Debug.Trace
 import GHC.Stack
@@ -42,7 +41,6 @@ x |> f = f x
 rewriteCollection :: Pass
 rewriteCollection col =
   col
-    |> toCollectionPass passNoMutParams
     |> passAllocateEnum 
 
 --------------------------------------------------------------------------------------

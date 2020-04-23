@@ -99,41 +99,6 @@ import GHC.Stack
 import Debug.Trace
 
 
------------
--- ** Expression generation
-
-packBase
-    :: HasCallStack => C.TypeRepr tp
-    -> C.CtxRepr ctx
-    -> Ctx.Assignment (R.Atom s) ctx
-    -> (forall ctx'. Some (R.Atom s) -> C.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a)
-    -> a
-packBase ctp ctx0 asgn k =
-  case Ctx.viewAssign ctx0 of
-    Ctx.AssignEmpty -> error "packType: ran out of actual arguments!"
-    Ctx.AssignExtend ctx' ctp' ->
-      case testEquality ctp ctp' of
-        Nothing -> error $ unwords ["crucible type mismatch: given",show ctp,"but ctxrepr had", show ctp', "even though ctx was", show ctx0]
-        Just Refl ->
-          let asgn' = Ctx.init asgn
-              idx   = Ctx.nextIndex (Ctx.size asgn')
-           in k (Some (asgn Ctx.! idx))
-                ctx'
-                asgn'
-
-unfold_ctx_assgn
-    :: HasCallStack =>
-       M.Ty
-    -> C.CtxRepr ctx
-    -> Ctx.Assignment (R.Atom s) ctx
-    -> (forall ctx'. Some (R.Atom s) -> C.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a)
-    -> a
-unfold_ctx_assgn tp ctx asgn k =
-    tyToReprCont tp $ \repr ->
-        packBase repr ctx asgn k
-
-
-
 
 parsePosition :: Text.Text -> PL.Position
 parsePosition posText =
@@ -1582,10 +1547,9 @@ initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             => CollectionState
             -> Fn
             -> FH.FnHandle args ret 
-            -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args 
             -> FnState s
-initFnState colState fn handle inputs =
-  FnState { _varMap     = mkVarMap (reverse argtups) argtypes inputs Map.empty,
+initFnState colState fn handle =
+  FnState { _varMap     = Map.empty,
             _currentFn  = fn,
             _debugLevel = ?debug,
             _cs         = colState,
@@ -1593,19 +1557,6 @@ initFnState colState fn handle inputs =
             _customOps  = ?customOps,
             _assertFalseOnError = ?assertFalseOnError
          }
-    where
-      args = fn^.fargs
-
-      argtups  = map (\(M.Var n _ t _) -> (n,t)) args
-      argtypes = FH.handleArgTypes handle
-
-      mkVarMap :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
-      mkVarMap [] ctx _ m
-            | Ctx.null ctx = m
-            | otherwise = error "wrong number of args"
-      mkVarMap ((name,ti):ts) ctx asgn m =
-            unfold_ctx_assgn ti ctx asgn $ \(Some atom) ctx' asgn' ->
-                 mkVarMap ts ctx' asgn' (Map.insert name (Some (VarAtom atom)) m)
 
 
 -- do the statements and then the terminator
@@ -1631,15 +1582,19 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 -- | Translate a MIR function, returning a jump expression to its entry block
 -- argvars are registers
 -- The first block in the list is the entrance block
-genFn :: HasCallStack => M.Fn -> C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
-genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype = do
+genFn :: HasCallStack =>
+    M.Fn ->
+    C.TypeRepr ret ->
+    Ctx.Assignment (R.Atom s) args ->
+    MirGenerator h s ret (R.Expr MIR s ret)
+genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype inputs = do
 
   lm <- buildLabelMap body
   labelMap .= lm
 
   let addrTaken = mconcat (map addrTakenVars blocks)
-  initLocals localvars addrTaken
-  -- TODO: copy arg values into the new locals so we can remove NoMutArgs pass
+  initLocals (argvars ++ localvars) addrTaken
+  initArgs inputs (reverse argvars)
 
   db <- use debugLevel
   when (db > 3) $ do
@@ -1661,6 +1616,29 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype = do
        G.jump lbl
     _ -> mirFail "bad thing happened"
 
+  where
+    initArgs :: HasCallStack =>
+        Ctx.Assignment (R.Atom s) args -> [M.Var] -> MirGenerator h s ret ()
+    initArgs inputs vars =
+        case (Ctx.viewAssign inputs, vars) of
+            (Ctx.AssignEmpty, []) -> return ()
+            (Ctx.AssignExtend inputs' input, var : vars') -> do
+                mvi <- use $ varMap . at (var ^. varname)
+                Some vi <- case mvi of
+                    Just x -> return x
+                    Nothing -> mirFail $ "no varinfo for arg " ++ show (var ^. varname)
+                Refl <- testEqualityOrFail (R.typeOfAtom input) (varInfoRepr vi) $
+                    "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
+                        show (R.typeOfAtom input) ++ " != " ++ show (varInfoRepr vi)
+                case vi of
+                    VarRegister reg -> G.assignReg reg $ R.AtomExpr input
+                    VarReference refReg -> do
+                        ref <- G.readReg refReg
+                        writeMirRef ref $ R.AtomExpr input
+                    VarAtom _ -> mirFail $ "unexpected VarAtom"
+                initArgs inputs' vars'
+            _ -> mirFail $ "mismatched argument count for " ++ show fname
+
 transDefine :: forall h.
   ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
   , ?printCrucible::Bool) 
@@ -1674,8 +1652,8 @@ transDefine colState fn@(M.Fn fname fargs fsig _) =
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR FnState args ret (ST s2)
           def inputs = (s,f) where
-            s = initFnState colState fn handle inputs 
-            f = genFn fn rettype
+            s = initFnState colState fn handle
+            f = genFn fn rettype inputs
       ng <- newSTNonceGenerator
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng handle def
       when ?printCrucible $ do
