@@ -36,7 +36,6 @@ import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe)
-import           Data.Semigroup( (<>) )
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
@@ -46,7 +45,6 @@ import           Data.Word
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 
-import           Lang.Crucible.Analysis.Fixpoint (cfgWeakTopologicalOrdering)
 import           Lang.Crucible.Analysis.Fixpoint.Components
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core

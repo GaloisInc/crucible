@@ -79,7 +79,6 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Maybe (fromMaybe)
-import           Data.Monoid ((<>))
 import           Data.List (isPrefixOf)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some

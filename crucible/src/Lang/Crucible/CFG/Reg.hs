@@ -93,7 +93,7 @@ module Lang.Crucible.CFG.Reg
 
 import qualified Data.Foldable as Fold
 import           Data.Kind (Type)
-import           Data.Maybe (isJust, maybe, fromMaybe)
+import           Data.Maybe (fromMaybe)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce

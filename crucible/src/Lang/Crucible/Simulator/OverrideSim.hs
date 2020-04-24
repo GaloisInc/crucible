@@ -78,8 +78,10 @@ module Lang.Crucible.Simulator.OverrideSim
 import           Control.Exception
 import           Control.Lens
 import           Control.Monad hiding (fail)
+#if !(MIN_VERSION_base(4,13,0))
 import qualified Control.Monad.Fail as Fail (fail)
 import           Control.Monad.Fail (MonadFail)
+#endif
 import qualified Control.Monad.Catch as X
 import           Control.Monad.Reader hiding (fail)
 import           Control.Monad.ST
