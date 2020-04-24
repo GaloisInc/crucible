@@ -158,6 +158,7 @@ customOpDefs = Map.fromList $ [
                          , panicking_panicking
 
                          , allocate
+                         , allocate_zeroed
                          , reallocate
 
                          , unsafe_cell_get
@@ -1310,6 +1311,27 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             return $ MirExp (MirReferenceRepr tpr) ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
+
+allocate_zeroed :: (ExplodedDefId, CustomRHS)
+allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp UsizeRepr len] -> do
+            Some tpr <- return $ tyToRepr t
+            zero <- mkZero tpr
+            let lenNat = R.App $ usizeToNat len
+            let vec = R.App $ E.VectorReplicate tpr lenNat zero
+            vec <- mirVector_fromVector tpr vec
+
+            ref <- newMirRef (MirVectorRepr tpr)
+            writeMirRef ref vec
+            ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
+            return $ MirExp (MirReferenceRepr tpr) ptr
+        _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
+    _ -> Nothing)
+
+mkZero :: C.TypeRepr tp -> MirGenerator h s ret (R.Expr MIR s tp)
+mkZero tpr@(C.BVRepr w) = return $ R.App $ E.BVLit w 0
+mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
 reallocate :: (ExplodedDefId, CustomRHS)
