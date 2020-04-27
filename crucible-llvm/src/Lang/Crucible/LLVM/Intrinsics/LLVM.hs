@@ -327,14 +327,14 @@ llvmObjectsizeOverride_32_null
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32_null =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1 ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize' sym memOps knownNat) args)
+  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize_null sym memOps knownNat) args)
 
 llvmObjectsizeOverride_32_null_dynamic
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 32)
 llvmObjectsizeOverride_32_null_dynamic =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1, i1 ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize'' sym memOps knownNat) args)
+  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic sym memOps knownNat) args)
 
 llvmObjectsizeOverride_64
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -348,14 +348,14 @@ llvmObjectsizeOverride_64_null
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64_null =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1 ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize' sym memOps knownNat) args)
+  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize_null sym memOps knownNat) args)
 
 llvmObjectsizeOverride_64_null_dynamic
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 64)
 llvmObjectsizeOverride_64_null_dynamic =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1, i1 ) |]
-  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize'' sym memOps knownNat) args)
+  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic sym memOps knownNat) args)
 
 llvmSaddWithOverflow
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -624,7 +624,7 @@ callObjectsize sym _mvar w
     n <- bvNotBits sym z -- NB: -1 is the boolean negation of zero
     bvIte sym t z n
 
-callObjectsize'
+callObjectsize_null
   :: (1 <= w, IsSymInterface sym)
   => sym
   -> GlobalVar Mem
@@ -633,9 +633,9 @@ callObjectsize'
   -> RegEntry sym (BVType 1)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
-callObjectsize' sym mvar w ptr flag _nullKnown = callObjectsize sym mvar w ptr flag
+callObjectsize_null sym mvar w ptr flag _nullUnknown = callObjectsize sym mvar w ptr flag
 
-callObjectsize''
+callObjectsize_null_dynamic
   :: (1 <= w, IsSymInterface sym)
   => sym
   -> GlobalVar Mem
@@ -645,7 +645,11 @@ callObjectsize''
   -> RegEntry sym (BVType 1)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
-callObjectsize'' sym mvar w ptr flag _nullKnown _dynamic = callObjectsize sym mvar w ptr flag
+callObjectsize_null_dynamic sym mvar w ptr flag _nullUnknown (regValue -> dynamic) =
+  do liftIO $
+       do notDynamic <- notPred sym =<< bvIsNonzero sym dynamic
+          assert sym notDynamic (AssertFailureSimError "llvm.objectsize called with `dynamic` set to `true`" "")
+     callObjectsize sym mvar w ptr flag
 
 callCtlz
   :: (1 <= w, IsSymInterface sym)
