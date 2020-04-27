@@ -322,12 +322,19 @@ llvmObjectsizeOverride_32 =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize sym memOps knownNat) args)
 
-llvmObjectsizeOverride_32'
+llvmObjectsizeOverride_32_null
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 32)
-llvmObjectsizeOverride_32' =
+llvmObjectsizeOverride_32_null =
   [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize' sym memOps knownNat) args)
+
+llvmObjectsizeOverride_32_null_dynamic
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 32)
+llvmObjectsizeOverride_32_null_dynamic =
+  [llvmOvr| i32 @llvm.objectsize.i32.p0i8( i8*, i1, i1, i1 ) |]
+  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize'' sym memOps knownNat) args)
 
 llvmObjectsizeOverride_64
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -336,12 +343,19 @@ llvmObjectsizeOverride_64 =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize sym memOps knownNat) args)
 
-llvmObjectsizeOverride_64'
+llvmObjectsizeOverride_64_null
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1) (BVType 64)
-llvmObjectsizeOverride_64' =
+llvmObjectsizeOverride_64_null =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize' sym memOps knownNat) args)
+
+llvmObjectsizeOverride_64_null_dynamic
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr ::> BVType 1 ::> BVType 1 ::> BVType 1) (BVType 64)
+llvmObjectsizeOverride_64_null_dynamic =
+  [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1, i1 ) |]
+  (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize'' sym memOps knownNat) args)
 
 llvmSaddWithOverflow
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -621,6 +635,17 @@ callObjectsize'
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
 callObjectsize' sym mvar w ptr flag _nullKnown = callObjectsize sym mvar w ptr flag
 
+callObjectsize''
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> NatRepr w
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType 1)
+  -> RegEntry sym (BVType 1)
+  -> RegEntry sym (BVType 1)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
+callObjectsize'' sym mvar w ptr flag _nullKnown _dynamic = callObjectsize sym mvar w ptr flag
 
 callCtlz
   :: (1 <= w, IsSymInterface sym)
