@@ -40,7 +40,6 @@ import           Control.Lens hiding (op, (:>) )
 import           Control.Monad.Except
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
-import           Data.Functor.Identity (runIdentity)
 import           Data.Foldable (toList)
 import           Data.Int
 import qualified Data.List as List

@@ -11,7 +11,6 @@ Stability        : provisional
 
 module Lang.Crucible.JVM.ClassRefs where
 
-import Data.Monoid ((<>))
 import Data.List
 import GHC.Stack (HasCallStack)
 

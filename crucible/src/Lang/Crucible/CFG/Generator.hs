@@ -122,8 +122,8 @@ import           Data.Void
 
 import           What4.ProgramLoc
 
-import           Lang.Crucible.CFG.Core (AnyCFG(..), GlobalVar(..))
-import           Lang.Crucible.CFG.Expr(App(..), IsSyntaxExtension)
+import           Lang.Crucible.CFG.Core (AnyCFG(..))
+import           Lang.Crucible.CFG.Expr(App(..))
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle

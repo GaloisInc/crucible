@@ -4,10 +4,6 @@ module Crux.Types where
 import Data.Sequence (Seq)
 import Data.Parameterized.Map (MapF)
 
-import Lang.Crucible.Simulator.RegMap(RegValue)
-import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
-import Lang.Crucible.Simulator.ExecutionTree(SimContext)
-import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
 import What4.Expr
         (GroundValue)
 import What4.ProgramLoc

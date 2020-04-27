@@ -56,8 +56,6 @@ import           Lang.Crucible.Types (TypeRepr(UnitRepr), CtxRepr)
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import           Lang.Crucible.LLVM.MemModel
-import           Lang.Crucible.LLVM.MemModel.Pointer (pattern LLVMPointer)
-import           Lang.Crucible.LLVM.Types (pattern LLVMPointerRepr)
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 
