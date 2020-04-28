@@ -27,7 +27,6 @@ import Control.Monad.Fail( MonadFail )
 #endif
 
 import           Data.Maybe (maybeToList)
-import           Data.Semigroup (Semigroup(..),(<>))
 import           Control.Monad.State.Strict
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -69,7 +68,6 @@ import qualified Lang.Crucible.Utils.MuxTree as C (toMuxTree)
 import qualified Lang.Crucible.Simulator as C
 import qualified Lang.Crucible.Simulator.Evaluation as C (evalApp)
 import qualified Lang.Crucible.Simulator.GlobalState as C
-import qualified Lang.Crucible.Simulator.RegValue as C (injectVariant)
 import qualified Lang.Crucible.Analysis.Postdom as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
 import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef)
@@ -625,7 +623,7 @@ setupCrucibleJVMCrux cb verbosity sym p cname mname args = do
      (JVMHandleInfo _ h) <- findMethodHandle ctx mcls meth
 
 
-     let failIfNotEqual :: forall f m a (b :: k).
+     let failIfNotEqual :: forall k f m a (b :: k).
                            (MonadFail m, Show (f a), Show (f b), TestEquality f)
                         => f a -> f b -> String -> m (a :~: b)
          failIfNotEqual r1 r2 str

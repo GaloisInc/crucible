@@ -24,7 +24,6 @@ module Lang.Crucible.LLVM
 import           Control.Lens
 import           Control.Monad (when)
 import           Control.Monad.IO.Class
-import           Data.Maybe (isJust)
 import qualified Text.LLVM.AST as L
 
 import           Lang.Crucible.Analysis.Postdom
@@ -32,7 +31,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle (lookupHandleMap, handleName)
 import           Lang.Crucible.LLVM.Arch (llvmExtensionEval)
-import           Lang.Crucible.LLVM.Extension (LLVM, ArchWidth)
+import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Monad

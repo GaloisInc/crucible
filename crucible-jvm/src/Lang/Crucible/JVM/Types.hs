@@ -42,6 +42,7 @@ import           Prelude hiding (pred)
 
 import           GHC.Generics (Generic)
 import           Data.Typeable (Typeable)
+import           Data.Kind (Type)
 import           Data.Maybe (isJust)
 
 -- jvm-parser
@@ -57,7 +58,6 @@ import           Data.Parameterized.Classes (toOrdering)
 import qualified Data.Parameterized.TH.GADT as U
 
 -- crucible
-import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.Types
@@ -76,7 +76,7 @@ type Verbosity = Int
 ----------------------------------------------------------------------
 -- * Structured assertions
 
-data JVMAssertionClassifier (e :: CrucibleType -> *) =
+data JVMAssertionClassifier (e :: CrucibleType -> Type) =
   JVMAssertionClassifier { exceptionClass :: [String]
                            -- ^ Class path of the associated exception
                          , pred :: e BoolType
