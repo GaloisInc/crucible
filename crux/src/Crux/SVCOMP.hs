@@ -36,6 +36,9 @@ data SVCOMPOptions = SVCOMPOptions
 
   , svcompCPUlimit :: Maybe Integer
       -- ^ CPU time limit (in seconds) per verification task
+
+  , svcompOutputFile :: FilePath
+      -- ^ file path for JSON verification results output
   }
 
 svcompOptions :: Config SVCOMPOptions
@@ -52,6 +55,10 @@ svcompOptions = Config
          svcompCPUlimit <-
            sectionMaybe "svcomp-cpulimit" numSpec
            "total CPU time limit (in seconds) per verification task"
+
+         svcompOutputFile <-
+           section "svcomp-output" fileSpec "svcomp.json"
+           "output file path for JSON verification results output"
 
          return SVCOMPOptions{ .. }
 
