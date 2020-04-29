@@ -1,15 +1,9 @@
-test mux_slice/3a1fbbbh::crux_test[0]: returned 5, FAILED
-
-failures:
-
----- mux_slice/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for Incompatible MIR reference merge
-in mux_slice/3a1fbbbh::crux_test[0] at test/symb_eval/array/mux_slice.rs:17:9
+test mux_slice/3a1fbbbh::crux_test[0]: returned Symbolic BV, ok
 
 [Crux] Goal status:
 [Crux]   Total: 1
-[Crux]   Proved: 0
-[Crux]   Disproved: 1
+[Crux]   Proved: 1
+[Crux]   Disproved: 0
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0
-[Crux] Overall status: Invalid.
+[Crux] Overall status: Valid.

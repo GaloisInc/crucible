@@ -61,6 +61,7 @@ library
                    Mir.Generate
                    Mir.DefId
   other-modules: 
+                 Mir.FancyMuxTree
                  Mir.Intrinsics
                  Mir.Overrides
                  Mir.TransTy
