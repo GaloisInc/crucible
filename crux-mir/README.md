@@ -49,7 +49,7 @@ and asserting properties about them.
 
 First, install the `crux-mir` binary to your `~/.cabal/bin` directory:
 
-    $ cabal v2-install
+    $ cabal v2-install crux-mir
 
 Set the `CRUX_RUST_LIBRARY_PATH` environment variable to the path to the
 translated libraries:
