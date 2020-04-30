@@ -139,7 +139,7 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                            do registerFunctions llvm_mod trans
                               checkFun (entryPoint llvmOpts) (cfgMap trans)
 
-                return $ Crux.RunnableState initSt
+                return (Crux.RunnableState initSt, \_ _ -> return mempty) -- TODO add failure explanations
 
 
 checkFun ::

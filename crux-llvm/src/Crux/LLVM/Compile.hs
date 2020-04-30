@@ -146,7 +146,7 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
                        _ -> False
 
       in case (r, skipGoal) of
-           (NotProved (Just m), False) ->
+           (NotProved _ (Just m), False) ->
              do sayFail "Crux" ("Counter example for " ++ msg)
                 (_prt,dbg) <- buildModelExes cruxOpts llvmOpts suff (ppModelC m)
                 say "Crux" ("*** debug executable: " ++ dbg)

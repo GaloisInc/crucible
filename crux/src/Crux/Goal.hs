@@ -19,12 +19,12 @@ import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified System.Timeout as ST
-
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import What4.Interface (notPred, printSymExpr,asConstantPred)
 import qualified What4.Interface as WI
 import What4.SatResult(SatResult(..))
-import What4.Expr.Builder (ExprBuilder)
+import What4.Expr (ExprBuilder, GroundEvalFn(..))
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
@@ -88,8 +88,8 @@ countDisprovedGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countDisprovedGoals gs1
     Branch gs1 gs2 -> countDisprovedGoals gs1 + countDisprovedGoals gs2
-    Goal _ _ _ (NotProved (Just _)) -> 1
-    Goal _ _ _ (NotProved Nothing) -> 0
+    Goal _ _ _ (NotProved _ (Just _)) -> 1
+    Goal _ _ _ (NotProved _ Nothing) -> 0
     Goal _ _ _ (Proved _) -> 0
 
 countUnknownGoals :: ProvedGoals a -> Int
@@ -97,8 +97,8 @@ countUnknownGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countUnknownGoals gs1
     Branch gs1 gs2 -> countUnknownGoals gs1 + countUnknownGoals gs2
-    Goal _ _ _ (NotProved Nothing) -> 1
-    Goal _ _ _ (NotProved (Just _)) -> 0
+    Goal _ _ _ (NotProved _ Nothing) -> 1
+    Goal _ _ _ (NotProved _ (Just _)) -> 0
     Goal _ _ _ (Proved _) -> 0
 
 countProvedGoals :: ProvedGoals a -> Int
@@ -106,7 +106,7 @@ countProvedGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countProvedGoals gs1
     Branch gs1 gs2 -> countProvedGoals gs1 + countProvedGoals gs2
-    Goal _ _ _ (NotProved _) -> 0
+    Goal _ _ _ (NotProved _ _) -> 0
     Goal _ _ _ (Proved _) -> 1
 
 countIncompleteGoals :: ProvedGoals a -> Int
@@ -114,7 +114,7 @@ countIncompleteGoals gs =
   case gs of
     AtLoc _ _ gs1 -> countIncompleteGoals gs1
     Branch gs1 gs2 -> countIncompleteGoals gs1 + countIncompleteGoals gs2
-    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved Nothing) -> 1
+    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved _ Nothing) -> 1
     Goal _ _ _ _ -> 0
 
 proveToGoal ::
@@ -126,7 +126,7 @@ proveToGoal ::
   ProvedGoals (Either AssumptionReason SimError)
 proveToGoal _ allAsmps p pr =
   case pr of
-    NotProved cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved cex)
+    NotProved ex cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved ex cex)
     Proved xs ->
       let xs' = map (either (Left . (view labeledPredMsg)) (Right . (view labeledPredMsg))) xs in
       case partitionEithers xs of
@@ -149,17 +149,17 @@ updateProcessedGoals _ (Proved _) pgs =
      , provedGoals = 1 + provedGoals pgs
      }
 
-updateProcessedGoals (view labeledPredMsg -> SimError _ (ResourceExhausted _)) (NotProved _) pgs =
+updateProcessedGoals (view labeledPredMsg -> SimError _ (ResourceExhausted _)) (NotProved _ _) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
      , incompleteGoals = 1 + incompleteGoals pgs
      }
 
-updateProcessedGoals _ (NotProved (Just _)) pgs =
+updateProcessedGoals _ (NotProved _ (Just _)) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
      , disprovedGoals = 1 + disprovedGoals pgs
      }
 
-updateProcessedGoals _ (NotProved Nothing) pgs =
+updateProcessedGoals _ (NotProved _ Nothing) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs }
 
 -- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
@@ -182,10 +182,11 @@ proveGoalsOffline :: forall st sym p asmp t fs personality
                   => WS.SolverAdapter st
                   -> CruxOptions
                   -> SimCtxt personality sym p
+                  -> (GroundEvalFn t -> LPred sym SimError -> IO Doc)
                   -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
                   -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
-proveGoalsOffline _adapter _opts _ctx Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
-proveGoalsOffline adapter opts ctx (Just gs0) = do
+proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
+proveGoalsOffline adapter opts ctx explainFailure (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0 0)
   (start,end,finish) <-
      if view quiet ?outputConfig then
@@ -245,17 +246,19 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
               Sat (evalFn, _) -> do
                 let model = ctx ^. cruciblePersonality . personalityModel
                 vals <- evalModel evalFn model
+                explain <- explainFailure evalFn p
                 end
-                modifyIORef' goalNum (updateProcessedGoals p (NotProved (Just (ModelView vals))))
+                let gt = NotProved explain (Just (ModelView vals))
+                modifyIORef' goalNum (updateProcessedGoals p gt)
                 when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
-                return (Prove (p, NotProved (Just (ModelView vals))))
+                return (Prove (p, gt))
               Unknown -> do
                 end
-                modifyIORef' goalNum (updateProcessedGoals p (NotProved Nothing))
-                return (Prove (p, NotProved Nothing))
+                modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing))
+                return (Prove (p, NotProved mempty Nothing))
           case mres of
             Just res -> return res
-            Nothing -> return (Prove (p, NotProved Nothing))
+            Nothing -> return (Prove (p, NotProved mempty Nothing))
 
 
 
@@ -278,13 +281,14 @@ proveGoalsOnline ::
   goalSym ->
   CruxOptions ->
   SimCtxt personality sym p ->
+  (GroundEvalFn s -> LPred sym ast -> IO Doc) ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
-proveGoalsOnline _ _opts _ctxt Nothing =
+proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)
 
-proveGoalsOnline sym opts ctxt (Just gs0) =
+proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
   do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
@@ -338,15 +342,16 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality . personalityModel
                            vals <- evalModel f model
+                           explain <- explainFailure f p
                            end
-                           modifyIORef' gn (updateProcessedGoals p (NotProved (Just (ModelView vals))))
+                           let gt = NotProved explain (Just (ModelView vals))
+                           modifyIORef' gn (updateProcessedGoals p gt)
                            when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
-                           return (Prove (p, NotProved (Just (ModelView vals))))
-
+                           return (Prove (p, gt))
                       Unknown ->
                         do end
-                           modifyIORef' gn (updateProcessedGoals p (NotProved Nothing))
-                           return (Prove (p, NotProved Nothing))
+                           modifyIORef' gn (updateProcessedGoals p (NotProved mempty Nothing))
+                           return (Prove (p, NotProved mempty Nothing))
            return ret
 
       ProveConj g1 g2 ->
@@ -375,4 +380,3 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
       if hasUnsatCores
       then assumeFormulaWithFreshName conn formula
       else assumeFormula conn formula >> return (Text.pack ("x" ++ show (Map.size namemap)))
-
