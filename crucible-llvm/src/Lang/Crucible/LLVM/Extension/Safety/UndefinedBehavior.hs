@@ -51,6 +51,7 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   -- ** Pointers
   , PointerPair
   , pointerView
+  , ppPointerPair
   ) where
 
 import           Prelude

@@ -50,7 +50,7 @@ import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import qualified What4.Interface as W4I
+import           What4.Interface
 
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
@@ -60,6 +60,7 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Type
 
@@ -72,7 +73,6 @@ import           Lang.Crucible.LLVM.MemModel.Type
 data MemoryLoadError =
     TypeMismatch StorageType StorageType
   | UnexpectedArgumentType Text [StorageType]
-  | PreviousErrors Text [MemoryLoadError]
   | ApplyViewFail ValueView
   | Invalid StorageType
   | Invalidated Text
@@ -98,11 +98,6 @@ ppMemoryLoadError =
            , text (Text.unpack txt)
            ]
       <$$> indent 2 (vcat (map (text . show) vals))
-    PreviousErrors txt errs ->
-      vcat [ "Operation failed due to previous errors: "
-           , text (Text.unpack txt)
-           ]
-      <$$> indent 2 (vcat (map ppMemoryLoadError errs))
     ApplyViewFail vw ->
       "Failure when applying value view" <+> text (show vw)
     Invalid ty ->
@@ -120,40 +115,24 @@ ppMemoryLoadError =
 
 -- | Combine the three types of bad behaviors
 --
-data BadBehavior (e :: CrucibleType -> Type) =
-    BBUndefinedBehavior (UB.UndefinedBehavior e)
-  | BBLoadError         MemoryLoadError
-  deriving (Generic, Typeable)
+data BadBehavior sym where
+  BBUndefinedBehavior :: UB.UndefinedBehavior (RegValue' sym) -> BadBehavior sym
+  BBLoadError :: LLVMPtr sym w -> MemoryLoadError -> BadBehavior sym
+ deriving Typeable
 
 -- -----------------------------------------------------------------------
 -- *** Instances
 
 $(return [])
 
-instance FunctorF BadBehavior where
-  fmapF f (BBUndefinedBehavior ub) = BBUndefinedBehavior $ fmapF f ub
-  fmapF _ (BBLoadError ld)         = BBLoadError ld
-
-instance FoldableF BadBehavior where
-  foldMapF = TF.foldMapFDefault
-
-instance TraversableF BadBehavior where
-  traverseF subterms=
-    $(U.structuralTraversal [t|BadBehavior|]
-      [ ( U.AnyType `U.TypeApp` U.DataArg 0
-        , [| \_ -> traverseF subterms |]
-        )
-      ]
-     ) subterms
-
 -- -----------------------------------------------------------------------
 -- ** LLVMSafetyAssertion
 
-data LLVMSafetyAssertion (e :: CrucibleType -> Type) =
+data LLVMSafetyAssertion sym =
   LLVMSafetyAssertion
-    { _classifier :: BadBehavior e -- ^ What could have gone wrong?
-    , _predicate  :: e BoolType    -- ^ Is the value safe/defined?
-    , _extra      :: Maybe Text    -- ^ Additional human-readable context
+    { _classifier :: BadBehavior sym -- ^ What could have gone wrong?
+    , _predicate  :: Pred sym        -- ^ Is the value safe/defined?
+    , _extra      :: Maybe Text      -- ^ Additional human-readable context
     }
   deriving (Generic, Typeable)
 
@@ -162,79 +141,60 @@ data LLVMSafetyAssertion (e :: CrucibleType -> Type) =
 
 $(return [])
 
-instance FunctorF LLVMSafetyAssertion where
-  fmapF f (LLVMSafetyAssertion cls pred ext) =
-    LLVMSafetyAssertion (fmapF f cls) (f pred) ext
-
-instance FoldableF LLVMSafetyAssertion where
-  foldMapF = TF.foldMapFDefault
-
-instance TraversableF LLVMSafetyAssertion where
-  traverseF subterms=
-    $(U.structuralTraversal [t|LLVMSafetyAssertion|]
-      [ ( U.AnyType `U.TypeApp` U.DataArg 0
-        , [| \_ -> traverseF subterms |]
-        )
-      , ( U.DataArg 0 `U.TypeApp` U.AnyType
-        , [| \_ -> subterms |]
-        )
-      ]
-     ) subterms
-
 -- -----------------------------------------------------------------------
 -- ** Constructors
 
 -- We expose these rather than the constructors to retain the freedom to
 -- change the internal representation.
 
-undefinedBehavior' :: UB.UndefinedBehavior e
-                   -> e BoolType
+undefinedBehavior' :: UB.UndefinedBehavior (RegValue' sym)
+                   -> Pred sym
                    -> Text
-                   -> LLVMSafetyAssertion e
+                   -> LLVMSafetyAssertion sym
 undefinedBehavior' ub pred expl =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred (Just expl)
 
-undefinedBehavior :: UB.UndefinedBehavior e
-                  -> e BoolType
-                  -> LLVMSafetyAssertion e
+undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
+                  -> Pred sym
+                  -> LLVMSafetyAssertion sym
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
-memoryLoadError :: MemoryLoadError -> e BoolType -> LLVMSafetyAssertion e
-memoryLoadError ld pred =
-  LLVMSafetyAssertion (BBLoadError ld) pred Nothing
+memoryLoadError :: LLVMPtr sym w -> MemoryLoadError -> Pred sym -> LLVMSafetyAssertion sym
+memoryLoadError pp ld pred =
+  LLVMSafetyAssertion (BBLoadError pp ld) pred Nothing
 
-poison' :: Poison.Poison e
-        -> e BoolType
+poison' :: Poison.Poison (RegValue' sym)
+        -> Pred sym
         -> Text
-        -> LLVMSafetyAssertion e
+        -> LLVMSafetyAssertion sym
 poison' poison_ pred expl =
   LLVMSafetyAssertion (BBUndefinedBehavior (UB.PoisonValueCreated poison_)) pred (Just expl)
 
-poison :: Poison.Poison e
-       -> e BoolType
-       -> LLVMSafetyAssertion e
+poison :: Poison.Poison (RegValue' sym)
+       -> Pred sym
+       -> LLVMSafetyAssertion sym
 poison poison_ pred =
   LLVMSafetyAssertion (BBUndefinedBehavior (UB.PoisonValueCreated poison_)) pred Nothing
 
 -- -----------------------------------------------------------------------
 -- ** Lenses
 
-classifier :: Simple Lens (LLVMSafetyAssertion e) (BadBehavior e)
+classifier :: Simple Lens (LLVMSafetyAssertion sym) (BadBehavior sym)
 classifier = lens _classifier (\s v -> s { _classifier = v})
 
-predicate :: Simple Lens (LLVMSafetyAssertion e) (e BoolType)
+predicate :: Simple Lens (LLVMSafetyAssertion sym) (Pred sym)
 predicate = lens _predicate (\s v -> s { _predicate = v})
 
-extra :: Simple Lens (LLVMSafetyAssertion e) (Maybe Text)
+extra :: Simple Lens (LLVMSafetyAssertion sym) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
 
-explainBB :: BadBehavior e -> Doc
+explainBB :: BadBehavior sym -> Doc
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
-  BBLoadError ld         -> ppMemoryLoadError ld
+  BBLoadError _ ld         -> ppMemoryLoadError ld
 
-detailBB :: W4I.IsExpr (W4I.SymExpr sym) => BadBehavior (RegValue' sym) -> Doc
+detailBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
-  BBLoadError ld         -> ppMemoryLoadError ld
+  BBLoadError p _ld      -> text "While loading from" <+> UB.ppPointerPair (UB.pointerView p)

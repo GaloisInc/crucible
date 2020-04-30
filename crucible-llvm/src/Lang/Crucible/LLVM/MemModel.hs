@@ -164,6 +164,8 @@ module Lang.Crucible.LLVM.MemModel
   , Partial.HasLLVMAnn
   , Partial.LLVMAnnMap
   , Partial.lookupBBAnnotation
+  , Partial.CexExplanation(..)
+  , Partial.explainCex
 
     -- * PtrWidth (re-exports)
   , HasPtrWidth
@@ -217,7 +219,6 @@ import           Lang.Crucible.Simulator.SimError
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
-import           Lang.Crucible.LLVM.Extension.Safety
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.MemModel.Type
@@ -531,7 +532,7 @@ doLoad ::
   IO (RegValue sym tp)
 doLoad sym mem ptr valType tpr alignment = do
   unpackMemValue sym tpr =<<
-    Partial.assertSafe sym =<<
+    Partial.assertSafe sym ptr =<<
       loadRaw sym mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
@@ -986,14 +987,15 @@ strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
   where
   go !n cond p =
     loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
-      Partial.Err e ->
-        do ast <- impliesPred sym cond (falsePred sym)
-           let msg = show (ppMemoryLoadError e)
-           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" msg
+      Partial.Err pe ->
+        do ast <- impliesPred sym cond pe
+           let ptrmsg = text "While loading from: " <> UB.ppPointerPair (UB.pointerView p)
+           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" (show ptrmsg)
            bvLit sym PtrWidth (BV.zero PtrWidth) -- bogus value, but have to return something...
       Partial.NoErr loadok llvmval ->
         do ast <- impliesPred sym cond loadok
-           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
+           let ptrmsg = text "While loading from: " <> UB.ppPointerPair (UB.pointerView p)
+           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" (show ptrmsg)
            v <- unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
            test <- bvIsNonzero sym =<< projectLLVM_bv sym v
            iteM bvIte sym
