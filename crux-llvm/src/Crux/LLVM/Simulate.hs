@@ -22,6 +22,10 @@ import Data.Parameterized.Context (pattern Empty)
 import Text.LLVM.AST (Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (</>))
+
+-- what4
+--import What4.Interface( printSymExpr )
 
 -- crucible
 import Lang.Crucible.Backend
@@ -47,6 +51,7 @@ import Lang.Crucible.LLVM.Globals
 import Lang.Crucible.LLVM.MemModel
         ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
+        , explainCex, CexExplanation(..)
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
@@ -58,6 +63,7 @@ import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, register_llvm_overrides)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
+import Lang.Crucible.LLVM.Extension.Safety( explainBB, detailBB )
 
 -- crux
 import qualified Crux
@@ -114,32 +120,47 @@ registerFunctions llvm_module mtrans =
 
 simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.SimulatorCallback
 simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
- do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
-    halloc     <- newHandleAllocator
-    let ?laxArith = laxArithmetic llvmOpts
-    Some trans <- translateModule halloc llvm_mod
-    let llvmCtxt = trans ^. transContext
+  do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
+     halloc     <- newHandleAllocator
+     let ?laxArith = laxArithmetic llvmOpts
+     Some trans <- translateModule halloc llvm_mod
+     let llvmCtxt = trans ^. transContext
 
-    llvmPtrWidth llvmCtxt $ \ptrW ->
-      withPtrWidth ptrW $
-        do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
-           let ?lc = llvmCtxt^.llvmTypeCtx
-           -- shrug... some weird interaction between do notation and implicit parameters here...
-           -- not sure why I have to let/in this expression...
-           let ?badBehaviorMap = bbMapRef in
-             do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
-                               { printHandle = view outputHandle ?outputConfig }
-                mem <- populateAllGlobals sym (globalInitMap trans)
-                          =<< initializeAllMemory sym llvmCtxt llvm_mod
+     llvmPtrWidth llvmCtxt $ \ptrW ->
+       withPtrWidth ptrW $
+         do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+            let ?lc = llvmCtxt^.llvmTypeCtx
+            -- shrug... some weird interaction between do notation and implicit parameters here...
+            -- not sure why I have to let/in this expression...
+            let ?badBehaviorMap = bbMapRef in
+              do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
+                                { printHandle = view outputHandle ?outputConfig }
+                 mem <- populateAllGlobals sym (globalInitMap trans)
+                           =<< initializeAllMemory sym llvmCtxt llvm_mod
 
-                let globSt = llvmGlobals llvmCtxt mem
+                 let globSt = llvmGlobals llvmCtxt mem
 
-                let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                         runOverrideSim UnitRepr $
-                           do registerFunctions llvm_mod trans
-                              checkFun (entryPoint llvmOpts) (cfgMap trans)
+                 let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
+                          runOverrideSim UnitRepr $
+                            do registerFunctions llvm_mod trans
+                               checkFun (entryPoint llvmOpts) (cfgMap trans)
 
-                return (Crux.RunnableState initSt, \_ _ -> return mempty) -- TODO add failure explanations
+                 let explainFailure evalFn gl =
+                       do ex <- explainCex sym evalFn >>= \f -> f (gl ^. labeledPred)
+                          let details = case ex of
+                                NoExplanation -> [ "No detailed explanation" ]
+                                DisjOfFailures xs ->
+                                  [ "All of the following conditions failed:" ] ++
+                                  [ show (indent 2 (explainBB x <> line <> detailBB x)) | x <- xs ]
+
+                          sayFail "CRUX-LLVM" $ unlines $
+                            [ "Explaining a goal failure!"
+                            , show (gl^.labeledPredMsg)
+                            --, show (printSymExpr (gl ^. labeledPred))
+                            ] ++ details
+                          return mempty
+
+                 return (Crux.RunnableState initSt, explainFailure)
 
 
 checkFun ::
@@ -176,4 +197,3 @@ llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
       case lookupGlobal (llvmMemVar llvmCtxt) globals of
         Just mem -> return $ toInteger (f mem)
         Nothing -> fail "Memory missing from global vars"
-
