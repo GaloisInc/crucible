@@ -36,6 +36,8 @@ import Control.Lens.TH
 import Control.Monad
 import Control.Lens
 
+import Numeric.Natural
+
 import Data.Type.Equality ((:~:)(..), testEquality)
 import Data.IORef
 import Data.Text (Text)
@@ -43,11 +45,16 @@ import qualified Data.Text as Text
 import qualified Data.Vector as Vector
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 
+import Data.Parameterized.Some
 import Data.Parameterized.SymbolRepr
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.TraversableFC
 
+import qualified Lang.Crucible.Analysis.Fixpoint as C
+import qualified Lang.Crucible.Analysis.Fixpoint.Components as C
 import qualified Lang.Crucible.Backend as C
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
@@ -56,6 +63,7 @@ import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.GlobalState as C
 import qualified Lang.Crucible.Simulator.Intrinsics as C
 import qualified Lang.Crucible.Simulator.RegMap as C
+import qualified Lang.Crucible.Simulator.SimError as C
 
 import qualified Lang.Crucible.LLVM.DataLayout as C
 import qualified Lang.Crucible.LLVM.Extension as C
@@ -169,6 +177,155 @@ argProfiles sym mem as =
   sequence (Vector.toList $ Ctx.toVector (fmapFC (Wrap . regEntryArgProfile sym mem) as) unwrap)
 
 ------------------------------------------------------------------------
+-- Generalize loops
+
+type WTOMap = Map Int (Int, Int)
+
+buildWTOMap :: [C.WTOComponent (Some (C.BlockID blocks))] -> WTOMap
+buildWTOMap = snd . go 0 0 Map.empty
+  where
+    go :: Int -> Int -> WTOMap -> [C.WTOComponent (Some (C.BlockID blocks))] -> (Int, WTOMap)
+    go !x !_ m [] = (x, m)
+    go !x !d m (C.Vertex (Some bid):cs) =
+       let m' = Map.insert (Ctx.indexVal $ C.blockIDIndex bid) (x, d) m
+       in go (x + 1) d m' cs
+    go !x !d m (C.SCC (Some hd) subcs : cs) =
+       let m' = Map.insert (Ctx.indexVal $ C.blockIDIndex hd) (x, d + 1) m
+           (x', m'') = go (x + 1) (d + 1) m' subcs
+       in go x' d m'' cs
+
+isBackedge ::
+  WTOMap ->
+  Some (C.BlockID blocks) ->
+  C.BlockID blocks args ->
+  Bool
+isBackedge wtoMap (Some current) target
+  | Just (cx, _) <- Map.lookup (Ctx.indexVal $ C.blockIDIndex current) wtoMap
+  , Just (tx, _) <- Map.lookup (Ctx.indexVal $ C.blockIDIndex target) wtoMap
+  , tx <= cx
+  = True
+  | otherwise = False
+
+data ReadByteResult sym = Uninitialized | Concrete Integer | Symbolic (W4.SymBV sym 8)
+
+readByte ::
+  forall sym w.
+  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  sym ->
+  G.Mem sym ->
+  C.Alignment ->
+  Natural ->
+  Integer ->
+  IO (ReadByteResult sym)
+readByte sym mem alignment blk off = do
+  ptr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym C.PtrWidth off
+  G.readMem sym C.PtrWidth ptr (C.bitvectorType 1) alignment mem >>= \case
+    W4.NoErr (W4.Partial _ (C.LLVMValInt _ val))
+      | Just x <- W4.asUnsignedBV val
+        -> pure $ Concrete x
+      | Just Refl <- testEquality (W4.knownNat :: W4.NatRepr 8) (W4.bvWidth val)
+        -> pure $ Symbolic val
+    _ -> pure Uninitialized
+
+readAlloc ::
+  forall sym w.
+  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  sym ->
+  G.Mem sym ->
+  Natural ->
+  Integer ->
+  C.Alignment ->
+  IO [ReadByteResult sym]
+readAlloc sym mem blk sz alignment = mapM (readByte sym mem alignment blk) [0, 1 .. sz - 1 ]
+
+compareReadByte ::
+  forall sym.
+  (C.IsSymInterface sym) =>
+  ReadByteResult sym ->
+  ReadByteResult sym ->
+  Bool
+compareReadByte (Concrete x) (Concrete y)
+  | x /= y = True
+  | otherwise = False
+compareReadByte _ Symbolic{} = False
+compareReadByte Symbolic{} _ = False
+compareReadByte _ Concrete{} = True
+compareReadByte _ Uninitialized = False
+
+summarizeReadByte ::
+  forall sym.
+  (C.IsSymInterface sym) =>
+  sym ->
+  W4.SymNat sym ->
+  ReadByteResult sym ->
+  ReadByteResult sym ->
+  IO (C.LLVMVal sym)
+summarizeReadByte sym blkZero (Concrete x) (Concrete y)
+  | x /= y = do
+      let symbol = W4.safeSymbol $ mconcat ["generalize_", show x, "_", show y]
+      val <- W4.freshConstant sym symbol (W4.BaseBVRepr $ W4.knownNat @8)
+      pure $ C.LLVMValInt blkZero val
+  | otherwise = C.LLVMValInt blkZero <$> W4.bvLit sym (W4.knownNat @8) x
+summarizeReadByte _ blkZero _ (Symbolic s) = pure $ C.LLVMValInt blkZero s
+summarizeReadByte _ blkZero (Symbolic s) _ = pure $ C.LLVMValInt blkZero s
+summarizeReadByte sym blkZero _ (Concrete x) = C.LLVMValInt blkZero
+  <$> W4.bvLit sym (W4.knownNat @8) x
+summarizeReadByte sym blkZero _ Uninitialized = do
+  let symbol = W4.safeSymbol "generalize_undef"
+  val <- W4.freshConstant sym symbol (W4.BaseBVRepr $ W4.knownNat @8)
+  pure $ C.LLVMValInt blkZero val
+
+compareReadAlloc ::
+  forall sym.
+  (C.IsSymInterface sym) =>
+  [ReadByteResult sym] ->
+  [ReadByteResult sym] ->
+  Bool
+compareReadAlloc old new = or $ zipWith compareReadByte old new
+
+summarizeReadAlloc ::
+  forall sym.
+  (C.IsSymInterface sym) =>
+  sym ->
+  W4.SymNat sym ->
+  [ReadByteResult sym] ->
+  [ReadByteResult sym] ->
+  IO [C.LLVMVal sym]
+summarizeReadAlloc sym blkZero old new = zipWithM (summarizeReadByte sym blkZero) old new
+
+generalizeMemory ::
+  forall sym w.
+  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  sym ->
+  G.Mem sym {- ^ Old memory -} ->
+  G.Mem sym {- ^ New memory -} ->
+  IO (Maybe (G.Mem sym)) {- ^ Nothing if old memory already generalizes new memory -}
+generalizeMemory sym old new = do
+  let allocs = G.memAllocs old
+  (mem, wrote) <- foldM
+    ( \(mem, wrote) -> \case
+        G.Alloc _ blk (Just (W4.asUnsignedBV -> Just sz)) G.Mutable alignment _
+          | Just (Some (szRepr :: W4.NatRepr x)) <- W4.someNat sz
+          , Just W4.LeqProof <- W4.testLeq (W4.knownNat :: W4.NatRepr 1) szRepr -> do
+              oldBytes <- readAlloc sym old blk sz alignment
+              newBytes <- readAlloc sym mem blk sz alignment
+              if | compareReadAlloc oldBytes newBytes
+                   -> do
+                     blkPtr <- C.LLVMPointer <$> W4.natLit sym blk <*> W4.bvLit sym C.PtrWidth 0
+                     blkZero <- W4.natLit sym 0
+                     let ty = C.arrayType (fromIntegral sz) $ C.bitvectorType 1
+                     summary <- summarizeReadAlloc sym blkZero oldBytes newBytes
+                     let val = C.LLVMValArray (C.bitvectorType 1)
+                               . Vector.fromList
+                               $ summary
+                     (mem', _, _) <- G.writeMem sym C.PtrWidth blkPtr ty alignment val mem
+                     pure (mem', True)
+                 | otherwise -> pure (mem, wrote)
+        _ -> pure (mem, wrote)
+    ) (new, False) allocs
+  pure $ if wrote then Just mem else Nothing
+
+------------------------------------------------------------------------
 -- Execution feature for learning profiles
 
 updateProfiles ::
@@ -200,6 +357,64 @@ arraySizeProfile ::
   IORef (Map Text [FunctionProfile]) ->
   IO (C.ExecutionFeature p sym (C.LLVM arch) rtp)
 arraySizeProfile llvm profiles = do
+  (frameLoopStarts :: IORef (Map Text (Set Int))) <- newIORef Map.empty
+  (frameWTOMaps :: IORef (Map Text WTOMap)) <- newIORef Map.empty
+  (frameMemCache :: IORef (Map Text (G.Mem sym))) <- newIORef Map.empty
   pure . C.ExecutionFeature $ \s -> do
     updateProfiles llvm profiles s
-    pure C.ExecutionFeatureNoChange
+    case s of
+      C.CallState _ (C.CrucibleCall _ C.CallFrame { C._frameCFG = g }) _ -> do
+        let name = Text.pack . show $ C.cfgHandle g
+        let wtoMap = buildWTOMap $ C.cfgWeakTopologicalOrdering g
+        modifyIORef frameWTOMaps $ \fwto ->
+          case Map.lookup name fwto of
+            Just _ -> fwto
+            Nothing -> Map.insert name wtoMap fwto
+        pure C.ExecutionFeatureNoChange
+      C.RunningState (C.RunBlockStart bid) st -> do
+        frameStarts <- readIORef frameLoopStarts
+        let sym = st ^. C.stateSymInterface
+        let name = Text.pack . show . C.frameHandle $ st ^. C.stateCrucibleFrame
+        case Map.lookup name frameStarts of
+          Just starts
+            | Set.member (Ctx.indexVal $ C.blockIDIndex bid) starts
+            , Just memImpl <- C.lookupGlobal (C.llvmMemVar llvm) $ st ^. C.stateGlobals
+              -> do
+                fmc <- readIORef frameMemCache
+                case Map.lookup name fmc of
+                  Just oldMem -> generalizeMemory sym oldMem (C.memImplHeap memImpl) >>= \case
+                    Just genMem -> do
+                      writeIORef frameMemCache $ Map.insert name genMem fmc
+                      let st' = st & C.stateGlobals
+                            %~ C.insertGlobal (C.llvmMemVar llvm) memImpl { C.memImplHeap = genMem }
+                      pure . C.ExecutionFeatureModifiedState
+                        $ C.RunningState (C.RunBlockStart bid) st'
+                    Nothing -> let
+                      loc = C.frameProgramLoc $ st ^. C.stateCrucibleFrame
+                      err = C.SimError loc $ C.GenericSimError "exiting loop with fully generalized state"
+                      in pure . C.ExecutionFeatureNewState
+                         $ C.AbortState (C.AssumedFalse $ C.AssumingNoError err) st
+                  _ -> do
+                    writeIORef frameMemCache $ Map.insert name (C.memImplHeap memImpl) fmc
+                    pure C.ExecutionFeatureNoChange
+          _ -> pure C.ExecutionFeatureNoChange
+      C.ControlTransferState (C.ContinueResumption (C.ResolvedJump target _)) st ->
+        transition frameLoopStarts frameWTOMaps target st
+      C.ControlTransferState (C.CheckMergeResumption (C.ResolvedJump target _)) st ->
+        transition frameLoopStarts frameWTOMaps target st
+      _ -> pure C.ExecutionFeatureNoChange
+  where
+    transition frameLoopStarts frameWTOMaps target st = do
+      let name = Text.pack . show . C.frameHandle $ st ^. C.stateCrucibleFrame
+      fwto <- readIORef frameWTOMaps
+      case Map.lookup name fwto of
+        Just wtoMap
+          | isBackedge wtoMap (st ^. C.stateCrucibleFrame . C.frameBlockID) target
+            -> modifyIORef frameLoopStarts
+               $ Map.alter
+               ( \case
+                   Just s -> Just $ Set.insert (Ctx.indexVal $ C.blockIDIndex target) s
+                   Nothing -> Just . Set.singleton . Ctx.indexVal $ C.blockIDIndex target
+               ) name
+        _ -> pure ()
+      pure C.ExecutionFeatureNoChange
