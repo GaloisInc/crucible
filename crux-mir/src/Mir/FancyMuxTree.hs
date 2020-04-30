@@ -230,6 +230,21 @@ runMuxLeafIO' sym f = runMuxLeafT f (truePred sym) >>= \mx -> case mx of
     Left msg -> liftIO $ addFailedAssertion sym msg
     Right x -> return x
 
+-- | Run a MuxLeafT sub-computation under a more restrictive predicate.  If `f`
+-- aborts, this function will `leafAssert` the negation of `p`.
+subMuxLeafIO :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
+    sym -> MuxLeafT sym m a -> Pred sym -> MuxLeafT sym m (Maybe a)
+subMuxLeafIO sym f p = do
+    q <- leafPredicate
+    pq <- liftIO $ andPred sym p q
+    res <- lift $ runMuxLeafT f pq
+    case res of
+        Left msg -> do
+            p' <- liftIO $ notPred sym p
+            leafAssert sym p' msg
+            return Nothing
+        Right x -> return $ Just x
+
 leafPredicate :: Monad m => MuxLeafT sym m (Pred sym)
 leafPredicate = MuxLeafT ask
 
