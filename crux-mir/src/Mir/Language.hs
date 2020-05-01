@@ -34,6 +34,7 @@ import System.Console.ANSI
 import           System.IO (Handle)
 import qualified SimpleGetOpt as GetOpt
 import           System.Exit (exitSuccess, exitWith, ExitCode(..))
+import           System.FilePath ((</>))
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
@@ -225,7 +226,11 @@ runTests (cruxOpts, mirOpts) = do
             disproved = sum (fmap countDisprovedGoals gls)
 
     results <- forM testNames $ \fnName -> do
-        res <- Crux.runSimulator cruxOpts $ simCallback fnName
+        let cruxOpts' = cruxOpts {
+                Crux.outDir = if Crux.outDir cruxOpts == "" then ""
+                    else Crux.outDir cruxOpts </> show fnName
+            }
+        res <- Crux.runSimulator cruxOpts' $ simCallback fnName
         when (not $ printResultOnly mirOpts) $ do
             clearFromCursorToLineEnd
             outputResult res
