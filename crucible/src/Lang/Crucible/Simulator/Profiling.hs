@@ -70,6 +70,7 @@ import           What4.ProgramLoc
 import           What4.SatResult
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -115,7 +116,7 @@ metricsToJSON m time = JSObject $ toJSObject $
       solverStats = runIdentity $ metricSolverStats m
 
 
-data CGEventType = ENTER | EXIT
+data CGEventType = ENTER | EXIT | BLOCK | BRANCH
  deriving (Show,Eq,Ord,Generic)
 
 data CGEvent =
@@ -124,6 +125,7 @@ data CGEvent =
   , cgEvent_source   :: Maybe Position
   , cgEvent_callsite :: Maybe Position
   , cgEvent_type     :: CGEventType
+  , cgEvent_blocks   :: [String]
   , cgEvent_metrics  :: Metrics Identity
   , cgEvent_time     :: UTCTime
   , cgEvent_id       :: Integer
@@ -138,6 +140,8 @@ utcTimeToJSON t =
 cgEventTypeToJSON :: CGEventType -> JSValue
 cgEventTypeToJSON ENTER = showJSON "ENTER"
 cgEventTypeToJSON EXIT  = showJSON "EXIT"
+cgEventTypeToJSON BLOCK  = showJSON "BLOCK"
+cgEventTypeToJSON BRANCH  = showJSON "BRANCH"
 
 cgEventToJSON :: CGEvent -> JSValue
 cgEventToJSON ev = JSObject $ toJSObject $
@@ -153,6 +157,10 @@ cgEventToJSON ev = JSObject $ toJSObject $
     (case cgEvent_callsite ev of
       Nothing -> []
       Just p -> [("callsite", positionToJSON p)])
+    ++
+    (case cgEvent_blocks ev of
+      [] -> []
+      xs -> [("blocks", showJSON xs)])
 
 positionToJSON :: Position -> JSValue
 positionToJSON p = showJSON $ show $ p
@@ -252,6 +260,7 @@ openEventFrames = go []
    case cgEvent_type e of
      ENTER -> go (e:xs) es
      EXIT  -> go (tail xs) es
+     _     -> go xs es
 
 openToCloseEvent :: UTCTime -> Metrics Identity -> CGEvent -> CGEvent
 openToCloseEvent now m cge =
@@ -327,7 +336,7 @@ enterEvent tbl nm callLoc =
      m <- readMetrics tbl
      i <- nextEventID tbl
      let p = fmap plSourceLoc callLoc
-     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing p ENTER m now i)
+     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing p ENTER [] m now i)
 
 readMetrics :: ProfilingTable -> IO (Metrics Identity)
 readMetrics tbl = traverseF (pure . Identity <=< readIORef) (metrics tbl)
@@ -340,7 +349,35 @@ exitEvent tbl nm =
   do now <- getCurrentTime
      m <- traverseF (pure . Identity <=< readIORef) (metrics tbl)
      i <- nextEventID tbl
-     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing Nothing EXIT m now i)
+     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing Nothing EXIT [] m now i)
+
+blockEvent ::
+  ProfilingTable ->
+  FunctionName ->
+  Maybe ProgramLoc ->
+  Some (BlockID blocks) ->
+  IO ()
+blockEvent tbl nm callLoc blk =
+  do now <- getCurrentTime
+     m <- readMetrics tbl
+     i <- nextEventID tbl
+     let p = fmap plSourceLoc callLoc
+     modifyIORef' (callGraphEvents tbl)
+       (Seq.|> CGEvent nm Nothing p BLOCK [show blk] m now i)
+
+branchEvent ::
+  ProfilingTable ->
+  FunctionName ->
+  Maybe ProgramLoc ->
+  [Some (BlockID blocks)] ->
+  IO ()
+branchEvent tbl nm callLoc blks =
+  do now <- getCurrentTime
+     m <- readMetrics tbl
+     i <- nextEventID tbl
+     let p = fmap plSourceLoc callLoc
+     modifyIORef' (callGraphEvents tbl)
+       (Seq.|> CGEvent nm Nothing p BRANCH (map show blks) m now i)
 
 
 updateProfilingTable ::
@@ -386,6 +423,22 @@ updateProfilingTable tbl exst = do
     BranchMergeState tgt st ->
       when (isMergeState tgt st)
            (modifyIORef' (metricMerges (metrics tbl)) succ)
+    ControlTransferState res st ->
+      let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
+      case res of
+        ContinueResumption (ResolvedJump blk _) ->
+          blockEvent tbl funcName (st^.stateLocation) (Some blk)
+        CheckMergeResumption (ResolvedJump blk _) ->
+          blockEvent tbl funcName (st^.stateLocation) (Some blk)
+        _ -> return ()
+    RunningState (RunBlockEnd _) st ->
+      let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
+      case st^.stateTree.actFrame.gpValue.crucibleSimFrame.frameStmts of
+        TermStmt loc term
+          | Just blocks <- termStmtNextBlocks term,
+            length blocks >= 2 ->
+              branchEvent tbl funcName (Just loc) blocks
+        _ -> return ()
     _ -> return ()
 
 isMergeState ::
