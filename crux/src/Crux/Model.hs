@@ -13,6 +13,7 @@
 module Crux.Model where
 
 import Data.Binary.IEEE754 as IEEE754
+import qualified Data.BitVector.Sized as BV
 import Data.Parameterized.NatRepr(knownNat,natValue)
 import Data.Parameterized.TraversableF(traverseF)
 import Data.Parameterized.Map (MapF)
@@ -75,11 +76,11 @@ ppValsJS cwd ty (Vals xs) =
         BaseBVRepr n -> showEnt' show n
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 8, natValue sb == 24 -> showEnt'
-            (show . IEEE754.wordToFloat . fromInteger)
+            (show . IEEE754.wordToFloat . fromInteger . BV.asUnsigned)
             (knownNat @32)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 11, natValue sb == 53 -> showEnt'
-            (show . IEEE754.wordToDouble . fromInteger)
+            (show . IEEE754.wordToDouble . fromInteger . BV.asUnsigned)
             (knownNat @64)
         BaseRealRepr -> showEnt' (show . toDouble) (knownNat @64)
         _ -> error ("Type not implemented: " ++ show ty)
