@@ -14,7 +14,7 @@ Description:
 
 library
   build-depends:
-    base >= 4.7 && < 4.14,
+    base >= 4.7 && < 4.15,
     containers,
     crucible >= 0.1,
     what4 >= 0.4,
