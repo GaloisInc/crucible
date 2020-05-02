@@ -67,6 +67,8 @@ import           GHC.TypeNats
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as L
 
+import qualified Data.BitVector.Sized as BV
+import qualified Data.BitVector.Sized.Overflow as BV
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Parameterized.DecidableEq (decEq)
@@ -257,11 +259,11 @@ translateGEP inbounds base elts =
          ZeroConst (IntType _) -> goidx 0
 
          -- Single index; compute the corresponding field.
-         IntConst _ idx -> goidx idx
+         IntConst _ idx -> goidx (BV.asUnsigned idx)
 
          -- Special case.  A vector of indices is allowed, but it must be of the correct
          -- number of lanes, and each (constant) index must be the same value.
-         VectorConst (IntType _) (i@(IntConst _ idx) : is) | all (same i) is -> goidx idx
+         VectorConst (IntType _) (i@(IntConst _ idx) : is) | all (same i) is -> goidx (BV.asUnsigned idx)
            where
            same :: LLVMConst -> LLVMConst -> Bool
            same (IntConst wx x) (IntConst wy y)
@@ -285,9 +287,8 @@ translateGEP inbounds base elts =
 data LLVMConst where
   -- | A constant value consisting of all zero bits.
   ZeroConst     :: !MemType -> LLVMConst
-  -- | A constant integer value, with bit-width @w@.  The integer should
-  --   be understood as a value modulo @2^w@.
-  IntConst      :: (1 <= w) => !(NatRepr w) -> !Integer -> LLVMConst
+  -- | A constant integer value, with bit-width @w@.
+  IntConst      :: (1 <= w) => !(NatRepr w) -> !(BV.BV w) -> LLVMConst
   -- | A constant floating point value.
   FloatConst    :: !Float -> LLVMConst
   -- | A constant double value.
@@ -345,8 +346,8 @@ instance Eq LLVMConst where
 
 -- | Create an LLVM constant value from a boolean.
 boolConst :: Bool -> LLVMConst
-boolConst False = IntConst (knownNat @1) 0
-boolConst True = IntConst (knownNat @1) 1
+boolConst False = IntConst (knownNat @1) (BV.zero knownNat)
+boolConst True = IntConst (knownNat @1) (BV.one knownNat)
 
 -- | Create an LLVM constant of a given width.  The resulting integer
 --   constant value will be the unsigned integer value @n mod 2^w@.
@@ -360,7 +361,7 @@ intConst n 0
 intConst n x
   | Some w <- mkNatRepr n
   , Just LeqProof <- isPosNat w
-  = return (IntConst w (toUnsigned w x))
+  = return (IntConst w (BV.mkBV w x))
 intConst n _
   = throwError ("Invalid integer width: " ++ show n)
 
@@ -393,7 +394,9 @@ transConstant' tp (L.ValUndef) =
 transConstant' (IntType n) (L.ValInteger x) =
   intConst n x
 transConstant' (IntType 1) (L.ValBool b) =
-  return . IntConst (knownNat @1) $ if b then 1 else 0
+  return . IntConst (knownNat @1) $ if b
+                                    then (BV.one knownNat)
+                                    else (BV.zero knownNat)
 transConstant' FloatType (L.ValFloat f) =
   return (FloatConst f)
 transConstant' DoubleType (L.ValDouble d) =
@@ -423,7 +426,7 @@ transConstant' (StructType si) (L.ValPackedStruct xs)
 
 transConstant' (ArrayType n tp) (L.ValString cs)
   | tp == IntType 8, n == fromIntegral (length cs)
-  = return $ ArrayConst tp (map (IntConst (knownNat @8) . toInteger) cs)
+  = return $ ArrayConst tp (map (IntConst (knownNat @8) . BV.word8) cs)
 
 transConstant' _ (L.ValConstExpr cexpr) = transConstantExpr cexpr
 
@@ -455,7 +458,7 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
   asOffset :: MemType -> LLVMConst -> m Integer
   asOffset _ (ZeroConst (IntType _)) = return 0
   asOffset mt (IntConst _ x) =
-    do let x' = x * (bytesToInteger (memTypeSize dl mt))
+    do let x' = BV.asUnsigned x * bytesToInteger (memTypeSize dl mt)
        unless (x' <= maxUnsigned ?ptrWidth)
               (throwError "Computed offset overflow in constant GEP")
        return x'
@@ -546,24 +549,18 @@ evalIcmp ::
   (1 <= w) =>
   L.ICmpOp ->
   NatRepr w ->
-  Integer -> Integer -> LLVMConst
+  BV.BV w -> BV.BV w -> LLVMConst
 evalIcmp op w x y = boolConst $ case op of
-  L.Ieq  -> ux == uy
-  L.Ine  -> ux /= uy
-  L.Iugt -> ux >  uy
-  L.Iuge -> ux >= uy
-  L.Iult -> ux <  uy
-  L.Iule -> ux <= uy
-  L.Isgt -> sx >  sy
-  L.Isge -> sx >= sy
-  L.Islt -> sx <  sy
-  L.Isle -> sx <= sy
-
- where
- ux = toUnsigned w x
- uy = toUnsigned w y
- sx = toSigned w x
- sy = toSigned w y
+  L.Ieq  -> x == y
+  L.Ine  -> x /= y
+  L.Iugt -> BV.ult y x
+  L.Iuge -> BV.ule y x
+  L.Iult -> BV.ult x y
+  L.Iule -> BV.ule x y
+  L.Isgt -> BV.slt w y x
+  L.Isge -> BV.sle w y x
+  L.Islt -> BV.slt w x y
+  L.Isle -> BV.sle w x y
 
 -- | Evaluate an arithmetic operation.
 evalArith ::
@@ -600,7 +597,7 @@ evalIarith ::
   NatRepr w ->
   ArithInt -> ArithInt -> m LLVMConst
 evalIarith op w (ArithInt x) (ArithInt y)
-  = IntConst w <$> evalIarith' op w x y
+  = IntConst w <$> evalIarith' op w (BV.mkBV w x) (BV.mkBV w y)
 evalIarith op w (ArithPtr sym x) (ArithInt y)
   | Just Refl <- testEquality w ?ptrWidth
   , L.Add _ _ <- op
@@ -617,7 +614,7 @@ evalIarith op w (ArithPtr symx x) (ArithPtr symy y)
   | Just Refl <- testEquality w ?ptrWidth
   , symx == symy
   , L.Sub _ _ <- op
-  = return $ IntConst ?ptrWidth (toUnsigned ?ptrWidth (x - y))
+  = return $ IntConst ?ptrWidth (BV.mkBV ?ptrWidth (x - y))
   | otherwise
   = throwError "Illegal operation applied to pointer argument"
 
@@ -626,101 +623,97 @@ evalIarith' ::
   (1 <= w, MonadError String m) =>
   L.ArithOp ->
   NatRepr w ->
-  Integer -> Integer -> m Integer
+  BV.BV w -> BV.BV w -> m (BV.BV w)
 evalIarith' op w x y = do
-  let nuwTest nuw z =
-        when (nuw && toUnsigned w z > maxUnsigned w)
+  let nuwTest nuw zres =
+        when (nuw && BV.ofUnsigned zres)
              (throwError "Unsigned overflow in constant arithmetic operation")
-  let nswTest nsw z =
-        when (nsw && (toSigned w z < minSigned w || toSigned w z > maxSigned w))
+  let nswTest nsw zres =
+        when (nsw && BV.ofSigned zres)
              (throwError "Signed overflow in constant arithmetic operation")
   case op of
     L.Add nuw nsw ->
-      do let z = x + y
-         nuwTest nuw z
-         nswTest nsw z
-         return z
+      do let zres = BV.addOf w x y
+         nuwTest nuw zres
+         nswTest nsw zres
+         return (BV.ofResult zres)
 
     L.Sub nuw nsw ->
-      do let z = x - y
-         nuwTest nuw z
-         nswTest nsw z
-         return z
+      do let zres = BV.subOf w x y
+         nuwTest nuw zres
+         nswTest nsw zres
+         return (BV.ofResult zres)
 
     L.Mul nuw nsw ->
-      do let z = x * y
-         nuwTest nuw z
-         nswTest nsw z
-         return z
+      do let zres = BV.mulOf w x y
+         nuwTest nuw zres
+         nswTest nsw zres
+         return (BV.ofResult zres)
 
     L.UDiv exact ->
-      do when (y == 0)
+      do when (y == BV.zero w)
               (throwError "Division by 0 in constant arithmetic operation")
-         let (z,r) = x `quotRem` y
-         when (exact && r /= 0)
+         let (z,r) = BV.uquotRem x y
+         when (exact && r /= BV.zero w)
               (throwError "Exact division failed in constant arithmetic operation")
          return z
 
     L.SDiv exact ->
-      do when (y == 0)
+      do when (y == BV.zero w)
               (throwError "Division by 0 in constant arithmetic operation")
-         let sx = toSigned w x
-         let sy = toSigned w y
-         when (sx == minSigned w && sy == -1)
+         when (x == BV.minSigned w && y == BV.mkBV w (-1))
               (throwError "Signed division overflow in constant arithmetic operation")
-         let (z,r) = sx `quotRem` sy
-         when (exact && r /= 0 )
+         let (z,r) = BV.squotRem w x y
+         when (exact && r /= BV.zero w )
               (throwError "Exact division failed in constant arithmetic operation")
          return z
     L.URem ->
-      do when (y == 0)
+      do when (y == BV.zero w)
               (throwError "Division by 0 in constant arithmetic operation")
-         let r = x `rem` y
+         let r = BV.urem x y
          return r
 
     L.SRem ->
-      do when (y == 0)
+      do when (y == BV.zero w)
               (throwError "Division by 0 in constant arithmetic operation")
-         let sx = toSigned w x
-         let sy = toSigned w y
-         when (sx == minSigned w && sy == -1)
+         when (x == BV.minSigned w && y == BV.mkBV w (-1))
               (throwError "Signed division overflow in constant arithmetic operation")
-         let r = sx `rem` sy
+         let r = BV.srem w x y
          return r
 
     _ -> throwError "Floating point operation applied to integer arguments"
 
+-- BGS: Leave this alone for now, as we don't have a good way to
+-- detect overflow from bitvector operations.
 -- | Evaluate a bitwise operation on integer values.
 evalBitwise ::
   (1 <= w, MonadError String m) =>
   L.BitOp ->
   NatRepr w ->
-  Integer -> Integer -> m LLVMConst
+  BV.BV w -> BV.BV w -> m LLVMConst
 evalBitwise op w x y = IntConst w <$>
-  do let ux = toUnsigned w x
-     let uy = toUnsigned w y
-     let sx = toSigned w x
-     case op of
-       L.And -> return (ux .&. uy)
-       L.Or  -> return (ux .|. uy)
-       L.Xor -> return (ux `xor` uy)
+  let yshf = fromInteger (BV.asUnsigned y)
+  in case op of
+       L.And -> return (BV.and x y)
+       L.Or  -> return (BV.or  x y)
+       L.Xor -> return (BV.xor x y)
        L.Shl nuw nsw ->
-         do let z = ux `shiftL` fromInteger uy
-            when (nuw && toUnsigned w z > maxUnsigned w)
+         do let zres = BV.shlOf w x yshf
+            when (nuw && BV.ofUnsigned zres)
                  (throwError "Unsigned overflow in left shift")
-            when (nsw && toSigned w z > maxUnsigned w)
+            when (nsw && BV.ofSigned zres)
                  (throwError "Signed overflow in left shift")
-            return z
+            return (BV.ofResult zres)
        L.Lshr exact ->
-         do let z = ux `shiftR` fromInteger uy
-            when (exact && ux /= z `shiftL` fromInteger uy)
-                 (throwError "Exact left shift failed")
+         do let z = BV.lshr x yshf
+            when (exact && x /= BV.shl w z yshf)
+                 (throwError "Exact right shift failed")
             return z
        L.Ashr exact ->
-         do let z = sx `shiftR` fromInteger uy
-            when (exact && ux /= z `shiftL` fromInteger uy)
-                 (throwError "Exact left shift failed")
-            return (toUnsigned w z)
+         do let z = BV.ashr w x yshf
+            when (exact && x /= BV.shl w z yshf)
+                 (throwError "Exact right shift failed")
+            return z
 
 -- | Evaluate a conversion operation on constants.
 evalConv ::
@@ -736,68 +729,77 @@ evalConv expr op mt x = case op of
       , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , FloatConst f <- x
-      -> return $ IntConst w (truncate f)
+      -> return $ IntConst w (BV.mkBV w (truncate f))
 
       | IntType n <- mt
       , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , DoubleConst d <- x
-      -> return $ IntConst w (truncate d)
+      -> return $ IntConst w (BV.mkBV w (truncate d))
 
     L.FpToSi
       | IntType n <- mt
       , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , FloatConst f <- x
-      -> return $ IntConst w (truncate f)
+      -> return $ IntConst w (BV.mkBV w (truncate f))
 
       | IntType n <- mt
       , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , DoubleConst d <- x
-      -> return $ IntConst w (truncate d)
+      -> return $ IntConst w (BV.mkBV w (truncate d))
 
     L.UiToFp
       | FloatType <- mt
-      , IntConst w i <- x
-      -> return $ FloatConst (fromInteger (toUnsigned w i))
+      , IntConst _w i <- x
+      -> return $ FloatConst (fromInteger (BV.asUnsigned i))
 
       | DoubleType <- mt
-      , IntConst w i <- x
-      -> return $ DoubleConst (fromInteger (toUnsigned w i))
+      , IntConst _w i <- x
+      -> return $ DoubleConst (fromInteger (BV.asUnsigned i))
 
     L.SiToFp
       | FloatType <- mt
       , IntConst w i <- x
-      -> return $ FloatConst (fromInteger (toSigned w i))
+      -> return $ FloatConst (fromInteger (BV.asSigned w i))
 
       | DoubleType <- mt
       , IntConst w i <- x
-      -> return $ DoubleConst (fromInteger (toSigned w i))
+      -> return $ DoubleConst (fromInteger (BV.asSigned w i))
 
     L.Trunc
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
-      , Just LeqProof <- testLeq w' w
-      -> return $ IntConst w' (toUnsigned w' i)
+      -> case testNatCases w' w of
+          NatCaseLT LeqProof -> return $ IntConst w' (BV.trunc w' i)
+          NatCaseEQ -> return x
+          NatCaseGT LeqProof ->
+            throwError $ "Attempted to truncate " <> show w <> " bits to " <> show w'
 
     L.ZExt
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
-      , Just LeqProof <- testLeq w w'
-      -> return $ IntConst w' (toUnsigned w' i)
+      -> case testNatCases w w' of
+          NatCaseLT LeqProof -> return $ IntConst w' (BV.zext w' i)
+          NatCaseEQ -> return x
+          NatCaseGT LeqProof ->
+            throwError $ "Attempted to zext " <> show w <> " bits to " <> show w'
 
     L.SExt
       | IntType n <- mt
       , IntConst w i <- x
       , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
-      , Just LeqProof <- testLeq w w'
-      -> return $ IntConst w' (toSigned w' i)
+      -> case testNatCases w w' of
+          NatCaseLT LeqProof -> return $ IntConst w' (BV.sext w w' i)
+          NatCaseEQ -> return x
+          NatCaseGT LeqProof ->
+            throwError $ "Attempted to sext " <> show w <> " bits to " <> show w'
 
     L.FpTrunc
       | DoubleType <- mt
@@ -868,7 +870,7 @@ castFromInt _ xint w (IntType w')
   | w == w'
   , Some wsz <- mkNatRepr w
   , Just LeqProof <- isPosNat wsz
-  = return $ IntConst wsz xint
+  = return $ IntConst wsz (BV.mkBV wsz xint)
 
 castFromInt endian xint w (VecType n tp)
   | (m,0) <- w `divMod` n =
@@ -955,10 +957,10 @@ asArithInt n (ZeroConst (IntType m))
   | n == m
   = return (ArithInt 0)
 asArithInt n (IntConst w x)
-  | fromIntegral n == natValue w
-  = return (ArithInt x)
+  | n == natValue w
+  = return (ArithInt (BV.asUnsigned x))
 asArithInt n (SymbolConst sym off)
-  | fromIntegral n == natValue ?ptrWidth
+  | n == natValue ?ptrWidth
   = return (ArithPtr sym off)
 asArithInt _ _
   = throwError "Expected integer value"
@@ -982,10 +984,24 @@ asInt n (ZeroConst (IntType m))
   | n == m
   = return 0
 asInt n (IntConst w x)
-  | fromIntegral n == natValue w
-  = return x
+  | n == natValue w
+  = return (BV.asUnsigned x)
 asInt n _
   = throwError ("Expected integer constant of size " ++ show n)
+
+asBV ::
+  MonadError String m =>
+  NatRepr w {- ^ expected integer width -} ->
+  LLVMConst {- ^ constant value -} ->
+  m (BV.BV w)
+asBV w (ZeroConst (IntType m))
+  | natValue w == m
+  = return (BV.zero w)
+asBV w (IntConst w' x)
+  | Just Refl <- w `testEquality` w'
+  = return x
+asBV w _
+  = throwError ("Expected integer constant of size " ++ show w)
 
 asFloat ::
   MonadError String m =>
@@ -1022,9 +1038,9 @@ transConstantExpr expr = case expr of
        x' <- transConstant x
        y' <- transConstant y
        case b' of
-         IntConst _w v
-           | v /= 0    -> return x'
-           | otherwise -> return y'
+         IntConst w v
+           | v /= BV.zero w -> return x'
+           | otherwise      -> return y'
          _ -> badExp "Expected boolean value in constant select"
 
   L.ConstBlockAddr _ _ ->
@@ -1057,14 +1073,14 @@ transConstantExpr expr = case expr of
          VecType n (IntType m)
            | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
-           -> do a' <- asVectorOf n (asInt m) =<< transConstant a
-                 b' <- asVectorOf n (asInt m) =<< transConstant b
+           -> do a' <- asVectorOf n (asBV w) =<< transConstant a
+                 b' <- asVectorOf n (asBV w) =<< transConstant b
                  return $ VectorConst (IntType 1) $ zipWith (evalIcmp op w) a' b'
          IntType m
            | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
-           -> do a' <- asInt m =<< transConstant a
-                 b' <- asInt m =<< transConstant b
+           -> do a' <- asBV w =<< transConstant a
+                 b' <- asBV w =<< transConstant b
                  return $ evalIcmp op w a' b'
          _ -> badExp "Expected integer arguments"
 
@@ -1086,14 +1102,14 @@ transConstantExpr expr = case expr of
          VecType n (IntType m)
            | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
-           -> do a' <- asVectorOf n (asInt m) =<< transConstant' mt a
-                 b' <- asVectorOf n (asInt m) =<< transConstant' mt b
+           -> do a' <- asVectorOf n (asBV w) =<< transConstant' mt a
+                 b' <- asVectorOf n (asBV w) =<< transConstant' mt b
                  VectorConst (IntType m) <$> zipWithM (evalBitwise op w) a' b'
          IntType m
            | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
-           -> do a' <- asInt m =<< transConstant' mt a
-                 b' <- asInt m =<< transConstant' mt b
+           -> do a' <- asBV w =<< transConstant' mt a
+                 b' <- asBV w =<< transConstant' mt b
                  evalBitwise op w a' b'
          _ -> badExp "Expected integer arguments"
 

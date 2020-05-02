@@ -46,6 +46,7 @@ import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.List (intersperse)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
@@ -125,7 +126,7 @@ zeroInt sym bytes k
    | Some w <- mkNatRepr (bytesToBits bytes)
    , Just LeqProof <- isPosNat w
    =   do blk <- natLit sym 0
-          bv  <- bvLit sym w 0
+          bv  <- bvLit sym w (BV.zero w)
           k (Just (blk, bv))
 zeroInt _ _ k = k @1 Nothing
 
@@ -151,8 +152,8 @@ ppLLVMVal ppInt =
           otherDoc =
             case asNat blk of
               Just 0 ->
-                case (asUnsignedBV w) of
-                  (Just unsigned) -> PP.text $ unwords $
+                case (asBV w) of
+                  (Just (BV.BV unsigned)) -> PP.text $ unwords $
                     [ "literal integer:"
                     , "unsigned value = " ++ show unsigned ++ ","
                     , unwords [ "signed value = "
@@ -165,8 +166,8 @@ ppLLVMVal ppInt =
                     , "width = " ++ show (bvWidth w)
                     ]
               Just n ->
-                case asUnsignedBV w of
-                  Just offset -> PP.text $ unwords $
+                case asBV w of
+                  Just (BV.BV offset) -> PP.text $ unwords $
                     [ "concrete pointer:"
                     , "allocation = " ++ show n ++ ","
                     , "offset = " ++ show offset
@@ -177,8 +178,8 @@ ppLLVMVal ppInt =
                     ]
 
               Nothing ->
-                case asUnsignedBV w of
-                  Just offset -> PP.text $
+                case asBV w of
+                  Just (BV.BV offset) -> PP.text $
                     "pointer with concrete offset " ++ show offset
                   Nothing -> PP.text "pointer with symbolic offset"
 
@@ -263,7 +264,7 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
         Some (repr :: NatRepr w) ->
           case testNatCases (knownNat @0) repr of
             NatCaseLT (LeqProof :: LeqProof 1 w) ->
-              LLVMValInt <$> natLit sym 0 <*> bvLit sym repr 0
+              LLVMValInt <$> natLit sym 0 <*> bvLit sym repr (BV.zero repr)
             NatCaseEQ -> panic "zeroExpandLLVMVal" ["Zero value inside Bytes"]
             NatCaseGT (LeqProof :: LeqProof (w + 1) 0) ->
               panic "zeroExpandLLVMVal" ["Impossible: (w + 1) </= 0"]

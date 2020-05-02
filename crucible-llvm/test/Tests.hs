@@ -18,6 +18,7 @@ import qualified Lang.Crucible.Backend.Online as Crucible
 import           Lang.Crucible.FunctionHandle (newHandleAllocator, withHandleAllocator, HandleAllocator)
 import qualified Lang.Crucible.Types as Crucible
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Nonce
@@ -145,13 +146,13 @@ tests :: ModuleTranslation arch1
 tests int struct uninitialized _ lifetime = do
   testGroup "Tests" $ concat
     [ [ testCase "int" $
-          Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) 42)) @=?
+          Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42))) @=?
              Map.map snd (globalInitMap int)
       , testCase "struct" $
-          IntConst (knownNat @32) 17 @=?
+          IntConst (knownNat @32) (BV.mkBV knownNat 17) @=?
              case snd <$> Map.lookup (L.Symbol "z") (globalInitMap struct) of
                Just (Right (_, Just (StructConst _ (x : _)))) -> x
-               _ -> IntConst (knownNat @1) 0
+               _ -> IntConst (knownNat @1) (BV.zero knownNat)
       , testCase "unitialized" $
           Map.singleton (L.Symbol "x") (Right $ (i32, Just $ ZeroConst i32)) @=?
              Map.map snd (globalInitMap uninitialized)
@@ -391,7 +392,7 @@ checkSat sym p = do
 
 testArrayStride :: TestTree
 testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
-  sz <- What4.bvLit sym ?ptrWidth $ 1024 * 1024
+  sz <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth (1024 * 1024)
   (base_ptr, mem1) <- mallocRaw sym mem0 sz noAlignment
 
   let byte_type_repr = Crucible.baseToType $ What4.BaseBVRepr $ knownNat @8
@@ -401,7 +402,7 @@ testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
   init_array_val <- LLVMValArray byte_storage_type <$>
     V.generateM (1024 * 1024)
       (\i -> packMemValue sym byte_storage_type byte_type_repr
-        =<< What4.bvLit sym (knownNat @8) (fromIntegral $ mod i (512 * 1024)))
+        =<< What4.bvLit sym (knownNat @8) (BV.mkBV knownNat (fromIntegral (mod i (512 * 1024)))))
   mem2 <- storeRaw
     sym
     mem1
@@ -410,38 +411,38 @@ testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
     noAlignment
     init_array_val
 
-  stride <- What4.bvLit sym ?ptrWidth $ 512 * 1024
+  stride <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth (512 * 1024)
 
   i <- What4.freshConstant sym (userSymbol' "i") $ What4.BaseBVRepr ?ptrWidth
   ptr_i <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvMul sym stride i
-  ptr_i' <- ptrAdd sym ?ptrWidth ptr_i =<< What4.bvLit sym ?ptrWidth 1
+  ptr_i' <- ptrAdd sym ?ptrWidth ptr_i =<< What4.bvLit sym ?ptrWidth (BV.one ?ptrWidth)
 
-  zero_bv <- What4.bvLit sym (knownNat @8) 0
+  zero_bv <- What4.bvLit sym (knownNat @8) (BV.zero knownNat)
   mem3 <-
     doStore sym mem2 ptr_i byte_type_repr byte_storage_type noAlignment zero_bv
-  one_bv <- What4.bvLit sym (knownNat @8) 1
+  one_bv <- What4.bvLit sym (knownNat @8) (BV.one knownNat)
   mem4 <-
     doStore sym mem3 ptr_i' byte_type_repr byte_storage_type noAlignment one_bv
 
   at_0_val <- projectLLVM_bv sym
     =<< doLoad sym mem4 base_ptr byte_storage_type ptr_byte_repr noAlignment
-  (Just 0) @=? What4.asUnsignedBV at_0_val
+  (Just (BV.zero knownNat)) @=? What4.asBV at_0_val
 
   j <- What4.freshConstant sym (userSymbol' "j") $ What4.BaseBVRepr ?ptrWidth
   ptr_j <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvMul sym stride j
-  ptr_j' <- ptrAdd sym ?ptrWidth ptr_j =<< What4.bvLit sym ?ptrWidth 1
+  ptr_j' <- ptrAdd sym ?ptrWidth ptr_j =<< What4.bvLit sym ?ptrWidth (BV.one ?ptrWidth)
 
   at_j_val <- projectLLVM_bv sym
     =<< doLoad sym mem4 ptr_j byte_storage_type ptr_byte_repr noAlignment
-  (Just 0) @=? What4.asUnsignedBV at_j_val
+  (Just (BV.zero knownNat)) @=? What4.asBV at_j_val
 
   at_j'_val <- projectLLVM_bv  sym
     =<< doLoad sym mem4 ptr_j' byte_storage_type ptr_byte_repr noAlignment
-  (Just 1) @=? What4.asUnsignedBV at_j'_val
+  (Just (BV.one knownNat)) @=? What4.asBV at_j'_val
 
 testMemArray :: TestTree
 testMemArray = testCase "smt array memory model" $ withMem BigEndian $ \sym mem0 -> do
-  sz <- What4.bvLit sym ?ptrWidth $ 1024 * 1024
+  sz <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth (1024 * 1024)
   (base_ptr, mem1) <- mallocRaw sym mem0 sz noAlignment
 
   arr <- What4.freshConstant
@@ -458,8 +459,8 @@ testMemArray = testCase "smt array memory model" $ withMem BigEndian $ \sym mem0
 
   i <- What4.freshConstant sym (userSymbol' "i") $ What4.BaseBVRepr ?ptrWidth
   ptr_i <- ptrAdd sym ?ptrWidth base_ptr i
-  assume sym =<< What4.bvUlt sym i =<< What4.bvLit sym ?ptrWidth 1024
-  some_val <- What4.bvLit sym (knownNat @64) 0x88888888f0f0f0f0
+  assume sym =<< What4.bvUlt sym i =<< What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 1024)
+  some_val <- What4.bvLit sym (knownNat @64) (BV.mkBV knownNat 0x88888888f0f0f0f0)
   mem3 <-
     doStore sym mem2 ptr_i long_type_repr long_storage_type noAlignment some_val
   at_i_val <- projectLLVM_bv sym
@@ -479,7 +480,7 @@ testMemWritesIndexed :: TestTree
 testMemWritesIndexed = testCase "indexed memory writes" $ withMem BigEndian $ \sym mem0 -> do
   let count = 100 * 1000
 
-  sz <- What4.bvLit sym ?ptrWidth 8
+  sz <- What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 8)
   (base_ptr1, mem1) <- mallocRaw sym mem0 sz noAlignment
   (base_ptr2, mem2) <- mallocRaw sym mem1 sz noAlignment
 
@@ -487,7 +488,7 @@ testMemWritesIndexed = testCase "indexed memory writes" $ withMem BigEndian $ \s
   let long_storage_type = bitvectorType 8
   let ptr_long_repr = LLVMPointerRepr $ knownNat @64
 
-  zero_val <- What4.bvLit sym (knownNat @64) 0
+  zero_val <- What4.bvLit sym (knownNat @64) (BV.zero knownNat)
   mem3 <- doStore
     sym
     mem2
@@ -502,13 +503,13 @@ testMemWritesIndexed = testCase "indexed memory writes" $ withMem BigEndian $ \s
       doStore sym mem' base_ptr2 long_type_repr long_storage_type noAlignment
         =<< What4.bvLit sym (knownNat @64) i)
     mem3
-    [0 .. count]
+    (BV.enumFromToUnsigned (BV.zero (knownNat @64)) (BV.mkBV knownNat count))
 
   forM_ [0 .. count] $ \_ -> do
     val1 <- projectLLVM_bv sym
       =<< doLoad sym mem4 base_ptr1 long_storage_type ptr_long_repr noAlignment
-    (Just 0) @=? What4.asUnsignedBV val1
+    (Just (BV.zero knownNat)) @=? What4.asBV val1
 
   val2 <- projectLLVM_bv sym
     =<< doLoad sym mem4 base_ptr2 long_storage_type ptr_long_repr noAlignment
-  (Just count) @=? What4.asUnsignedBV val2
+  (Just (BV.mkBV knownNat count)) @=? What4.asBV val2

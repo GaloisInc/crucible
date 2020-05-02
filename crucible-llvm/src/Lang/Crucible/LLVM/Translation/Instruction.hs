@@ -56,6 +56,7 @@ import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
 import qualified Text.LLVM.AST as L
 
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
@@ -233,7 +234,7 @@ extractElt instr ty n v (ZeroExpr zty) =
 extractElt instr _ n (VecExpr _ vs) i
   | Scalar (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
   , App (BVLit _ x') <- x
-  = constantExtract x'
+  = constantExtract (BV.asUnsigned x')
 
  where
  constantExtract :: Integer -> LLVMGenerator s arch ret (LLVMExpr s arch)
@@ -255,8 +256,10 @@ extractElt instr _ n (BaseExpr (VectorRepr tyr) v) i =
                         return $ poisonSideCondition
                                    NatRepr
                                    poison
-                                   (App (BvToNat w bv))                 -- returned expression
-                                   (App (BVUlt w bv (App (BVLit w n)))) -- assertion condition
+                                   -- returned expression
+                                   (App (BvToNat w bv))
+                                   -- assertion condition
+                                   (App (BVUlt w bv (App (BVLit w (BV.mkBV w n)))))
                    _ ->
                      fail (unlines ["invalid extractelement instruction", showInstr instr])
      return $ BaseExpr tyr (App (VectorGetEntry tyr v idx))
@@ -287,7 +290,7 @@ insertElt instr ty n (ZeroExpr _) a i   = do
 insertElt instr _ n (VecExpr ty vs) a i
   | Scalar (LLVMPointerRepr _) (BitvectorAsPointerExpr _ x) <- asScalar i
   , App (BVLit _ x') <- x
-  = constantInsert x'
+  = constantInsert (BV.asUnsigned x')
  where
  constantInsert :: Integer -> LLVMGenerator s arch ret (LLVMExpr s arch)
  constantInsert idx =
@@ -309,8 +312,10 @@ insertElt instr _ n (BaseExpr (VectorRepr tyr) v) a i =
                         let poison = Poison.InsertElementIndex bv
                         return $ poisonSideCondition NatRepr
                             poison
-                            (App (BvToNat w bv))                 -- returned expression
-                            (App (BVUlt w bv (App (BVLit w n)))) -- assertion condition
+                            -- returned expression
+                            (App (BvToNat w bv))
+                            -- assertion condition
+                            (App (BVUlt w bv (App (BVLit w (BV.mkBV w n)))))
                    _ ->
                      fail (unlines ["invalid insertelement instruction", showInstr instr, show i])
      let ?err = fail
@@ -472,7 +477,7 @@ calcGEP_array typ base idx =
        (fail $ unwords ["Type size too large for pointer width:", show typ])
 
      -- Perform the multiply
-     off0 <- AtomExpr <$> (mkAtom $ app $ BVMul PtrWidth (app $ BVLit PtrWidth isz) idx')
+     off0 <- AtomExpr <$> (mkAtom $ app $ BVMul PtrWidth (app $ BVLit PtrWidth (BV.mkBV PtrWidth isz)) idx')
      let off  =
            if isz == 0
            then off0
@@ -490,8 +495,8 @@ calcGEP_array typ base idx =
                minidx = minSigned PtrWidth `quot` (max isz 1)
                poison = Poison.GEPOutOfBounds idx'
                cond   =
-                (app $ BVSle PtrWidth (app $ BVLit PtrWidth minidx) idx') .&&
-                  (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth maxidx))
+                (app $ BVSle PtrWidth (app $ BVLit PtrWidth (BV.mkBV PtrWidth minidx)) idx') .&&
+                  (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth (BV.mkBV PtrWidth maxidx)))
              in
                -- Multiplication overflow will result in a pointer which is not "in
                -- bounds" for the given allocation. We translate all GEP
@@ -514,7 +519,7 @@ calcGEP_struct fi base =
      let ioff = G.bytesToInteger $ fiOffset fi
      unless (ioff <= maxSigned PtrWidth)
        (fail $ unwords ["Field offset too large for pointer width in structure:", show ioff])
-     let off = app $ BVLit PtrWidth $ ioff
+     let off = app $ BVLit PtrWidth $ BV.mkBV PtrWidth ioff
 
      -- Perform the pointer arithmetic and continue
      -- Skip pointer arithmetic when offset is 0
@@ -827,7 +832,7 @@ raw_bitop op w a b =
       L.Xor -> return $ App (BVXor w a b)
 
       L.Shl nuw nsw -> do
-        let wlit = App (BVLit w (intValue w))
+        let wlit = App (BVLit w (BV.width w))
         result <- AtomExpr <$> mkAtom (App (BVShl w a b))
         withSideConds result
           [ ( not ?laxArith
@@ -847,7 +852,7 @@ raw_bitop op w a b =
           ]
 
       L.Lshr exact -> do
-        let wlit = App (BVLit w (intValue w))
+        let wlit = App (BVLit w (BV.width w))
         result <- AtomExpr <$> mkAtom (App (BVLshr w a b))
         withSideConds result
           [ ( not ?laxArith
@@ -863,7 +868,7 @@ raw_bitop op w a b =
 
       L.Ashr exact
         | Just LeqProof <- isPosNat w -> do
-            let wlit = App (BVLit w (intValue w))
+            let wlit = App (BVLit w (BV.width w))
             result <- AtomExpr <$> mkAtom (App (BVAshr w a b))
             withSideConds result
               [ ( not ?laxArith
@@ -895,10 +900,10 @@ intop op w a b =
         do v <- AtomExpr <$> mkAtom val
            withSideConds v $ map (\(d, e, c) -> (d, pure e, UB.PoisonValueCreated c)) xs
 
-      z        = App (BVLit w 0)
+      z        = App (BVLit w (BV.zero w))
       bNeqZero = \ub -> (True, pure (notExpr (App (BVEq w z b))), ub)
-      neg1     = App (BVLit w (-1))
-      minInt   = App (BVLit w (minSigned w))
+      neg1     = App (BVLit w (BV.mkBV w (-1)))
+      minInt   = App (BVLit w (BV.minSigned w))
   in case op of
        L.Add nuw nsw -> withPoison (App (BVAdd w a b))
          [ ( nuw && not ?laxArith
@@ -1195,7 +1200,7 @@ pointerCmp op x y =
     -- TODO: We can't use assertUndefinedSym here since the type variable 'sym'
     -- isn't in scope. How should this be fixed?
     assertExpr
-      (App (BVEq PtrWidth bv (App (BVLit PtrWidth 0))))
+      (App (BVEq PtrWidth bv (App (BVLit PtrWidth (BV.zero PtrWidth)))))
       (litExpr "Undefined comparison between pointer and integer")
     case op of
       L.Ieq  -> callIsNull PtrWidth ptr
@@ -1261,7 +1266,7 @@ pointerOp op x y =
       L.Add _ _ ->
            callPtrAddOffset x y_bv
       L.Sub _ _ ->
-        do let off = App (BVSub PtrWidth (App $ BVLit PtrWidth 0) y_bv)
+        do let off = App (BVSub PtrWidth (App $ BVLit PtrWidth (BV.zero PtrWidth)) y_bv)
            callPtrAddOffset x off
       _ -> err
 
@@ -1436,8 +1441,9 @@ generateInstr retType lab instr assign_f k =
                             UndefExpr _ -> return $ UndefExpr elTy
                             ZeroExpr _  -> return $ Seq.index v1 0
                             BaseExpr (LLVMPointerRepr _) (BitvectorAsPointerExpr _ (App (BVLit _ i)))
-                              | 0   <= i && i < inL   -> return $ Seq.index v1 (fromIntegral i)
-                              | inL <= i && i < 2*inL -> return $ Seq.index v2 (fromIntegral (i - inL))
+                              | BV.asUnsigned i < inL -> return $ Seq.index v1 (fromIntegral (BV.asUnsigned i))
+                              | inL <= BV.asUnsigned i && BV.asUnsigned i < 2*inL ->
+                                  return $ Seq.index v2 (fromIntegral (BV.asUnsigned i - inL))
 
                             _ -> fail $ unwords ["[shuffle] Expected literal index values but got", show x]
 
@@ -1456,14 +1462,14 @@ generateInstr retType lab instr assign_f k =
       tp' <- liftMemType' tp
       let dl = llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
-      let tp_sz' = app $ BVLit PtrWidth $ G.bytesToInteger tp_sz
+      let tp_sz' = app $ BVLit PtrWidth $ G.bytesToBV PtrWidth tp_sz
 
       sz <- case num of
                Nothing -> return $ tp_sz'
                Just num' -> do
                   n <- transTypedValue num'
                   case n of
-                     ZeroExpr _ -> return $ app $ BVLit PtrWidth 0
+                     ZeroExpr _ -> return $ app $ BVLit PtrWidth (BV.zero PtrWidth)
                      BaseExpr (LLVMPointerRepr w) x
                         | Just Refl <- testEquality w PtrWidth ->
                             do x' <- pointerAsBitvectorExpr w x
@@ -1866,7 +1872,7 @@ buildSwitch :: (1 <= w)
 buildSwitch _ _  curr_lab def [] =
    definePhiBlock curr_lab def
 buildSwitch w ex curr_lab def ((i,l):bs) = do
-   let test = App $ BVEq w ex $ App $ BVLit w i
+   let test = App $ BVEq w ex $ App $ BVLit w (BV.mkBV w i)
    t_id <- newLabel
    f_id <- newLabel
    defineBlock t_id (definePhiBlock curr_lab l)
