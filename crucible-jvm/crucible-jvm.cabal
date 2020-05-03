@@ -17,6 +17,7 @@ executable crucible-jvm
 
   build-depends:
     base >= 4 && < 5,
+    bv-sized,
     aig,
     ansi-wl-pprint,
     array,
@@ -54,6 +55,7 @@ library
     aig,
     ansi-wl-pprint,
     array,
+    bv-sized,
     containers,
     crucible,
     directory,

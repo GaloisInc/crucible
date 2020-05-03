@@ -23,6 +23,9 @@ import           Control.Lens hiding (op, (:>))
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
 
+-- bv-sized
+import qualified Data.BitVector.Sized as BV
+
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 
@@ -164,15 +167,15 @@ data JVMValue s
 -- fields and arrays.
 defaultValue :: J.Type -> JVMValue s
 defaultValue (J.ArrayType _tp) = RValue $ App $ NothingValue knownRepr
-defaultValue J.BooleanType     = IValue $ App $ BVLit knownRepr 0
-defaultValue J.ByteType        = IValue $ App $ BVLit knownRepr 0
-defaultValue J.CharType        = IValue $ App $ BVLit knownRepr 0
+defaultValue J.BooleanType     = IValue $ App $ BVLit knownRepr (BV.zero knownRepr)
+defaultValue J.ByteType        = IValue $ App $ BVLit knownRepr (BV.zero knownRepr)
+defaultValue J.CharType        = IValue $ App $ BVLit knownRepr (BV.zero knownRepr)
 defaultValue (J.ClassType _st) = RValue $ App $ NothingValue knownRepr
 defaultValue J.DoubleType      = DValue $ App $ DoubleLit 0.0
 defaultValue J.FloatType       = FValue $ App $ FloatLit 0.0
-defaultValue J.IntType         = IValue $ App $ BVLit knownRepr 0
-defaultValue J.LongType        = LValue $ App $ BVLit knownRepr 0
-defaultValue J.ShortType       = IValue $ App $ BVLit knownRepr 0
+defaultValue J.IntType         = IValue $ App $ BVLit knownRepr (BV.zero knownRepr)
+defaultValue J.LongType        = LValue $ App $ BVLit knownRepr (BV.zero knownRepr)
+defaultValue J.ShortType       = IValue $ App $ BVLit knownRepr (BV.zero knownRepr)
 
 -- | Convert a statically tagged value to a dynamically tagged value.
 valueToExpr :: JVMValue s -> Expr JVM s JVMValueType
@@ -318,7 +321,7 @@ iterate_ :: (IsSyntaxExtension p, Monad m)
   -> (Expr p s JVMIntType -> Generator p s ret k m ())
   -> Generator p s ret k m ()
 iterate_ count body = do
-  i <- newReg $ App (BVLit w32 0)
+  i <- newReg $ App (BVLit w32 (BV.zero w32))
 
   while (InternalPos, do
             j <- readReg i
@@ -327,5 +330,5 @@ iterate_ count body = do
         (InternalPos, do
            j <- readReg i
            body j
-           modifyReg i (\j0 -> App (BVAdd w32 j0 (App (BVLit w32 1))))
+           modifyReg i (\j0 -> App (BVAdd w32 j0 (App (BVLit w32 (BV.one w32)))))
         )
