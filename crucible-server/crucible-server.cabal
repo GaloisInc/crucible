@@ -29,6 +29,7 @@ library
     abcBridge,
     ansi-wl-pprint,
     base >= 4.7,
+    bv-sized,
     bytestring >= 0.10.2,
     containers,
     what4,
