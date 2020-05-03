@@ -29,6 +29,7 @@ library
     ansi-wl-pprint,
     bytestring,
     base >= 4.8 && < 4.15,
+    bv-sized,
     config-schema,
     containers,
     crucible,
