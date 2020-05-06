@@ -1,19 +1,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-volatile int iGlob = 0;
-volatile bool bGlob = false;
-
 void __VERIFIER_assert(uint32_t v);
 void __VERIFIER_assume(uint32_t v);
 
-int myFunction(uint32_t a) {
-  __VERIFIER_assume(a == 0);
-  uint32_t c = 0;
-  while (a < 4) {
-    c = c + a;
-    a++;
+uint32_t global = 1;
+
+int myFunction(uint32_t argument) {
+  __VERIFIER_assume(argument <= 3);
+  uint32_t local = 2;
+  while (argument < 4) {
+    local = local + global;
+    argument++;
   }
-  __VERIFIER_assert(c == 6);
-  return c;
+  __VERIFIER_assert(local <= 5);
+  return local;
 }

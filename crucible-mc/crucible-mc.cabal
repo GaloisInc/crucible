@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 68e09dda606b0e73b8e270e1e75a0a1c94fe68465d0399c6675443a63e0c5ddf
+-- hash: 12a58c70b84b5bb63cfbdf12167c6bb5cd6114265c5a41619b45b0558579e763
 
 name:                crucible-mc
 version:             0.1.0.0
@@ -19,6 +19,8 @@ maintainer:          Iavor Diatchki <iavor.diatchki@gmail.com>,
 library
   exposed-modules:
     Lang.Crucible.ModelChecker.Fresh
+    Lang.Crucible.ModelChecker.MCReader
+    Lang.Crucible.ModelChecker.MCState
   other-modules:
     Paths_crucible_mc
   hs-source-dirs:

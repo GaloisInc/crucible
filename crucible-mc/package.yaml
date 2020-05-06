@@ -35,6 +35,8 @@ ghc-options:
 library:
   exposed-modules:
     - Lang.Crucible.ModelChecker.Fresh
+    - Lang.Crucible.ModelChecker.MCReader
+    - Lang.Crucible.ModelChecker.MCState
   source-dirs: lib
 
 license: ISC
