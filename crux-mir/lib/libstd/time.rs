@@ -16,7 +16,8 @@ use crate::cmp;
 use crate::error::Error;
 use crate::fmt;
 use crate::ops::{Add, AddAssign, Sub, SubAssign};
-use crate::sys::time;
+use crate::sys;
+use crate::sys::crux::time;
 use crate::sys_common::mutex::Mutex;
 use crate::sys_common::FromInner;
 
@@ -639,6 +640,12 @@ impl fmt::Display for SystemTimeError {
 impl FromInner<time::SystemTime> for SystemTime {
     fn from_inner(time: time::SystemTime) -> SystemTime {
         SystemTime(time)
+    }
+}
+
+impl FromInner<sys::time::SystemTime> for SystemTime {
+    fn from_inner(time: sys::time::SystemTime) -> SystemTime {
+        SystemTime(time::SystemTime::from_inner(time))
     }
 }
 
