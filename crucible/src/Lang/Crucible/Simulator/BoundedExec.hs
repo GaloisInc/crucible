@@ -49,6 +49,7 @@ import           Lang.Crucible.Analysis.Fixpoint.Components
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Panic
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -57,7 +58,6 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.SimError
 
-import           What4.FunctionName
 import           What4.Interface
 
 data FrameBoundData =

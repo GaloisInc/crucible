@@ -63,13 +63,12 @@ import           System.IO (withFile, IOMode(..), hPutStrLn)
 import           Text.JSON
 import           GHC.Generics (Generic)
 
-
-import           What4.FunctionName
 import           What4.Interface
-import           What4.ProgramLoc
 import           What4.SatResult
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.FunctionName
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree

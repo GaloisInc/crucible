@@ -153,13 +153,14 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Config (Config)
 import           What4.Interface (Pred, getConfiguration)
-import           What4.FunctionName (FunctionName, startFunctionName)
-import           What4.ProgramLoc (ProgramLoc, plSourceLoc)
 
 import           Lang.Crucible.Backend (IsSymInterface, AbortExecReason, FrameIdentifier, Assumption)
 import           Lang.Crucible.CFG.Core (BlockID, CFG, CFGPostdom, StmtSeq)
 import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
+import           Lang.Crucible.FunctionName (FunctionName, startFunctionName)
+import           Lang.Crucible.ProgramLoc (ProgramLoc, plSourceLoc)
+
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation (EvalAppFunc)
 import           Lang.Crucible.Simulator.GlobalState (SymGlobalState)

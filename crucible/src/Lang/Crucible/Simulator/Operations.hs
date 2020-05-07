@@ -91,14 +91,14 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Config
 import           What4.Interface
-import           What4.FunctionName
-import           What4.ProgramLoc
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Panic(panic)
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState

@@ -80,11 +80,11 @@ import           What4.Config
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Partial
-import           What4.ProgramLoc
 import           What4.Expr
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
 
 data CrucibleBackend (s :: Type) (fm :: FloatMode)

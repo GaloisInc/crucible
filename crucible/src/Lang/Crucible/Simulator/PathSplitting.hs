@@ -43,10 +43,10 @@ import qualified Data.Sequence as Seq
 import           Data.Word
 
 import           What4.Interface
-import           What4.ProgramLoc
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Extension
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.Operations

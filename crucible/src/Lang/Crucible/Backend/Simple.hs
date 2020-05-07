@@ -32,10 +32,10 @@ import           What4.Config
 import qualified What4.Expr.Builder as B
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
-import           What4.ProgramLoc
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
 
 ------------------------------------------------------------------------

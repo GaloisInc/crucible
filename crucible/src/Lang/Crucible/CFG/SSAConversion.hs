@@ -47,14 +47,14 @@ import qualified Data.Set as Set
 import           Data.Type.Equality
 import qualified Text.PrettyPrint.ANSI.Leijen as Pretty
 
-import           What4.FunctionName (FunctionName)
-import           What4.ProgramLoc
-
 import           Lang.Crucible.Analysis.Reachable
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionName (FunctionName)
+import           Lang.Crucible.ProgramLoc
+
 
 #ifdef UNSAFE_OPS
 -- We deliberately import Context.Unsafe as it is the only one that supports

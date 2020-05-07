@@ -84,7 +84,6 @@ import           What4.Config
 import qualified What4.Expr.Builder as B
 import           What4.Interface
 import           What4.ProblemFeatures
-import           What4.ProgramLoc
 import           What4.Protocol.Online
 import           What4.Protocol.SMTWriter as SMT
 import           What4.Protocol.SMTLib2 as SMT2
@@ -98,6 +97,7 @@ import qualified What4.Solver.Z3 as Z3
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.SimError
 
 data UnsatFeatures

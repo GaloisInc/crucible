@@ -45,10 +45,9 @@ import           Data.Sequence ( Seq )
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 
-import           What4.ProgramLoc
-
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Reg
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Types
 
 ------------------------------------------------------------------------

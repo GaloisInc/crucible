@@ -50,8 +50,7 @@ import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce
 
-import           What4.FunctionName
-
+import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Types
 
 ------------------------------------------------------------------------

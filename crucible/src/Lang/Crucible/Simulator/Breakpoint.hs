@@ -32,13 +32,13 @@ import           Data.Parameterized.TraversableFC
 import qualified Lang.Crucible.Backend as C
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
+import qualified Lang.Crucible.FunctionName as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
 import qualified Lang.Crucible.Simulator.EvalStmt as C
 import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.Operations as C
 import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.RegValue as C
-import qualified What4.FunctionName as W
 
 -- | This execution feature registers an override for a breakpoint.
 --   The override summarizes the execution from the breakpoint
@@ -70,7 +70,7 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
             , Just Refl <- testEquality breakpoint_block_id block_id
             , Just Refl <- testEquality ret_type (C.frameReturnType frame) -> do
               let override_frame = C.OF $ C.OverrideFrame
-                    { _override = W.functionNameFromText $
+                    { _override = C.functionNameFromText $
                         C.breakpointNameText breakpoint_name
                     , _overrideHandle = C.frameHandle frame
                     , _overrideRegMap = state ^.

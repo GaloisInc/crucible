@@ -32,6 +32,7 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.Online (BranchResult(..))
 import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.Operations
@@ -39,7 +40,6 @@ import           Lang.Crucible.Simulator.Operations
 import           What4.Concrete
 import           What4.Config
 import           What4.Interface
-import           What4.ProgramLoc
 import           What4.SatResult
 
 checkPathSatisfiability :: ConfigOption BaseBoolType

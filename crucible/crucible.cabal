@@ -81,6 +81,8 @@ library
     Lang.Crucible.CFG.Reg
     Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.FunctionHandle
+    Lang.Crucible.FunctionName
+    Lang.Crucible.ProgramLoc
     Lang.Crucible.Simulator
     Lang.Crucible.Simulator.Breakpoint
     Lang.Crucible.Simulator.BoundedExec

@@ -31,14 +31,14 @@ import           Data.Parameterized.TraversableF
 
 import           What4.Interface
 import           What4.Partial
-import           What4.ProgramLoc
 
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic(panic)
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Backend
-import           Lang.Crucible.Panic(panic)
 
 -- | As a map element, type @GlobalEntry sym tp@ models the contents
 -- of a 'GlobalVar', which is always defined.

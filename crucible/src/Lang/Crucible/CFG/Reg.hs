@@ -106,12 +106,12 @@ import           Data.String
 import           Data.Word (Word64)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           What4.ProgramLoc
 import           What4.Symbol
 
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Syntax (IsExpr(..))
 import           Lang.Crucible.Types
 

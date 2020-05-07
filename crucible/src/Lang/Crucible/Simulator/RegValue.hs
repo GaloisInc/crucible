@@ -62,13 +62,13 @@ import           GHC.TypeNats (KnownNat)
 
 import qualified Data.Parameterized.Context as Ctx
 
-import           What4.FunctionName
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Partial
 import           What4.WordMap
 
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types

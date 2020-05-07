@@ -96,18 +96,18 @@ import           System.IO.Error
 
 import           What4.Config
 import           What4.Interface
-import           What4.FunctionName
 import           What4.Partial (justPartExpr)
-import           What4.ProgramLoc
 import           What4.Utils.MonadST
 
 import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.CallFrame
 import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef)
 import           Lang.Crucible.Simulator.ExecutionTree

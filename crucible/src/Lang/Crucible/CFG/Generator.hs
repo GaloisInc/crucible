@@ -120,13 +120,12 @@ import qualified Data.Set as Set
 import           Data.Text (Text)
 import           Data.Void
 
-import           What4.ProgramLoc
-
 import           Lang.Crucible.CFG.Core (AnyCFG(..))
 import           Lang.Crucible.CFG.Expr(App(..))
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.StateContT
 
