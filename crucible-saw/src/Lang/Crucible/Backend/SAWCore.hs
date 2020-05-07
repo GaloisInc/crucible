@@ -15,6 +15,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -60,7 +61,6 @@ import           Lang.Crucible.Backend.Online
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
 
-import qualified Verifier.SAW.Recognizer as SC (asLambda)
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.TypedAST as SC
 
@@ -145,10 +145,13 @@ baseSCType sym sc bt =
     BaseBVRepr w -> SC.scBitvector sc $ fromIntegral (natValue w)
     BaseNatRepr  -> SC.scNatType sc
     BaseIntegerRepr -> SC.scIntegerType sc
-    BaseArrayRepr indexTypes range ->
-      do ts <- baseSCTypes indexTypes
-         t <- baseSCType sym sc range
-         SC.scFunAll sc ts t
+    BaseArrayRepr indexTypes range
+      | Ctx.Empty Ctx.:> idx_type <- indexTypes ->
+        do sc_idx_type <- baseSCType sym sc idx_type
+           sc_elm_type <- baseSCType sym sc range
+           SC.scArrayType sc sc_idx_type sc_elm_type
+      | otherwise ->
+        unsupported sym "SAW backend does not support multidimensional Arrays: baseSCType"
     BaseFloatRepr _ ->
       unsupported sym "SAW backend does not support IEEE-754 floating point values: baseSCType"
     BaseStringRepr _ ->
@@ -423,11 +426,6 @@ scIte sym sc tp (SAWExpr p) x y =
     BaseRealRepr    -> scIteReal sym sc p x y
     BaseNatRepr     -> scIteNat sc p x y
     BaseIntegerRepr -> scIteInt sc p x y
-    BaseArrayRepr indexTypes range ->
-        makeArray sym sc indexTypes [] $ \_ vars ->
-        do x' <- applyArray sym sc x vars
-           y' <- applyArray sym sc y vars
-           scIte sym sc range (SAWExpr p) x' y'
     _ ->
       do tp' <- baseSCType sym sc tp
          x' <- termOfSAWExpr sym sc x
@@ -587,125 +585,6 @@ termOfSAWExpr sym sc expr =
     IntToRealSAWExpr _
       -> unsupported sym "SAW backend does not support real values"
 
-makeArray ::
-  forall n solver fs idx tp.
-  SAWCoreBackend n solver fs ->
-  SC.SharedContext ->
-  Ctx.Assignment BaseTypeRepr idx ->
-  [Maybe SolverSymbol] ->
-  ([Maybe SolverSymbol] -> Ctx.Assignment SAWExpr idx -> IO (SAWExpr tp)) ->
-  IO (SAWExpr (BaseArrayType idx tp))
-makeArray sym sc idx env k =
-  do vars <- mkVars 0 idx
-     body <- k (replicate (Ctx.sizeInt $ Ctx.size vars) Nothing ++ env) vars
-             >>= termOfSAWExpr sym sc
-     SAWExpr <$> mkLambdas idx body
-  where
-    mkVars :: Int -> Ctx.Assignment BaseTypeRepr idx' -> IO (Ctx.Assignment SAWExpr idx')
-    mkVars _ Ctx.Empty = return Ctx.Empty
-    mkVars i (tys Ctx.:> _) =
-      do v <- SAWExpr <$> SC.scLocalVar sc i
-         vs <- mkVars (i+1) tys
-         return (vs Ctx.:> v)
-
-    mkLambdas :: Ctx.Assignment BaseTypeRepr idx' -> SC.Term -> IO SC.Term
-    mkLambdas Ctx.Empty e = return e
-    mkLambdas (tys Ctx.:> ty) e =
-      do let x = "x" ++ show (Ctx.size tys)
-         ty' <- baseSCType sym sc ty
-         mkLambdas tys =<< SC.scLambda sc x ty' e
-
-applyArray ::
-  forall n solver fs idx tp.
-  SAWCoreBackend n solver fs ->
-  SC.SharedContext ->
-  SAWExpr (BaseArrayType idx tp) ->
-  Ctx.Assignment SAWExpr idx ->
-  IO (SAWExpr tp)
-applyArray sym sc (SAWExpr f) args = SAWExpr <$> go args
-  where
-    go :: Ctx.Assignment SAWExpr idx' -> IO SC.Term
-    go Ctx.Empty = return f
-    go (xs Ctx.:> x) =
-      do f' <- go xs
-         x' <- termOfSAWExpr sym sc x
-         -- beta-reduce application if possible
-         case SC.asLambda f' of
-           Just (_, _, body) -> SC.instantiateVar sc 0 x' body
-           Nothing           -> SC.scApply sc f' x'
-
-maxIndexLit :: IndexLit tp -> IndexLit tp -> IndexLit tp
-maxIndexLit (NatIndexLit x) (NatIndexLit y) = NatIndexLit (max x y)
-maxIndexLit (BVIndexLit w x) (BVIndexLit _ y) = BVIndexLit w (max x y)
-
-sizeIndexLit :: forall tp. IndexLit tp -> Integer
-sizeIndexLit (NatIndexLit n) = toInteger n + 1
-sizeIndexLit (BVIndexLit _ n) = n + 1
-
-evalIndexLit :: SC.SharedContext -> IndexLit tp -> IO (SAWExpr tp)
-evalIndexLit sc l =
-  case l of
-    NatIndexLit n ->
-      do SAWExpr <$> SC.scNat sc (fromInteger (toInteger n))
-    BVIndexLit w n ->
-      do w' <- SC.scNat sc (natValue w)
-         n' <- SC.scNat sc (fromInteger n)
-         SAWExpr <$> SC.scBvNat sc w' n'
-
-makeTable ::
-  SC.SharedContext ->
-  Ctx.Assignment IndexLit ctx {- ^ maximum index -} ->
-  (Ctx.Assignment IndexLit ctx -> IO SC.Term) {- ^ generating function -} ->
-  SC.Term {- ^ table element type -} ->
-  IO SC.Term
-makeTable _sc Ctx.Empty mkElem _elemTy = mkElem Ctx.Empty
-makeTable sc (idxs Ctx.:> idx) mkElem elemTy =
-  do len <- SC.scNat sc (fromInteger (sizeIndexLit idx))
-     elemTy' <- SC.scVecType sc len elemTy
-     let mkElem' vars =
-           do elems <- traverse (\v -> mkElem (vars Ctx.:> v)) (upto idx)
-              SC.scVector sc elemTy elems
-     makeTable sc idxs mkElem' elemTy'
-  where
-    upto :: IndexLit tp -> [IndexLit tp]
-    upto (NatIndexLit n) = [ NatIndexLit i | i <- [0 .. n] ]
-    upto (BVIndexLit w n) = [ BVIndexLit w i | i <- [0 .. n] ]
-
-applyTable ::
-  forall n solver fs ctx ret.
-  SAWCoreBackend n solver fs ->
-  SC.SharedContext ->
-  SC.Term {- ^ table (nested vectors) -} ->
-  Ctx.Assignment IndexLit ctx {- ^ maximum index -} ->
-  Ctx.Assignment SAWExpr ctx {- ^ indices -} ->
-  SC.Term {- ^ element type -} ->
-  SAWExpr ret {- ^ fallback value for out-of-bounds -} ->
-  IO (SAWExpr ret)
-applyTable sym sc t0 maxidx vars ret fallback =
-  do fallback' <- termOfSAWExpr sym sc fallback
-     SAWExpr <$> go ret maxidx vars fallback'
-  where
-    go ::
-      SC.Term ->
-      Ctx.Assignment IndexLit ctx' ->
-      Ctx.Assignment SAWExpr ctx' ->
-      SC.Term ->
-      IO SC.Term
-    go _ty Ctx.Empty Ctx.Empty _fb = return t0
-    go ty (imax Ctx.:> NatIndexLit n) (xs Ctx.:> SAWExpr x) fb =
-      do len <- SC.scNat sc (fromInteger (toInteger (n + 1)))
-         ty' <- SC.scVecType sc len ty
-         fb' <- SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [len, ty, fb]
-         vec <- go ty' imax xs fb'
-         SC.scGlobalApply sc (SC.mkIdent SC.preludeName "atWithDefault") [len, ty, fb, vec, x]
-    go ty (imax Ctx.:> BVIndexLit w n) (xs Ctx.:> SAWExpr x) fb =
-      do len <- SC.scNat sc (fromInteger (n + 1))
-         ty' <- SC.scVecType sc len ty
-         fb' <- SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [len, ty, fb]
-         vec <- go ty' imax xs fb'
-         x' <- SC.scBvToNat sc (natValue w) x
-         SC.scGlobalApply sc (SC.mkIdent SC.preludeName "atWithDefault") [len, ty, fb, vec, x']
-
 applyExprSymFn ::
   forall n solver fs args ret.
   SAWCoreBackend n solver fs ->
@@ -790,6 +669,9 @@ evaluateExpr sym sc cache = f []
     stringFail :: IO a
     stringFail = unsupported sym "SAW backend does not support string values"
 
+    unimplemented :: String -> IO a
+    unimplemented x = unsupported sym $ "SAW backend: not implemented: " ++ x
+
     go :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO (SAWExpr tp')
 
     go _ (B.BoolExpr b _) = SAWExpr <$> SC.scBool sc b
@@ -835,17 +717,9 @@ evaluateExpr sym sc cache = f []
             _ -> unsupported sym "SAW backend only supports universal quantifiers over bitvectors"
         B.Exists{} ->
           unsupported sym "SAW backend does not support existential quantifiers"
-        B.ArrayFromFn fn ->
-          makeArray sym sc (B.symFnArgTypes fn) env $ \_ vars ->
-          applyExprSymFn sym sc fn vars
-        B.MapOverArrays fn idxs arrs ->
-          makeArray sym sc idxs env $ \env' vars ->
-          do args <- traverseFC
-                     (\arr -> do t <- eval env' (unwrapArrayResult arr); applyArray sym sc t vars)
-                     arrs
-             applyExprSymFn sym sc fn args
-        B.ArrayTrueOnEntries{} ->
-          unsupported sym "SAW backend: not yet implemented: ArrayTrueOnEntries"
+        B.ArrayFromFn{} -> unimplemented "ArrayFromFn"
+        B.MapOverArrays{} -> unimplemented "MapOverArrays"
+        B.ArrayTrueOnEntries{} -> unimplemented "ArrayTrueOnEntries"
         B.FnApp fn asgn ->
           do args <- traverseFC (eval env) asgn
              applyExprSymFn sym sc fn args
@@ -1034,55 +908,50 @@ evaluateExpr sym sc cache = f []
              x' <- f env x
              SAWExpr <$> SC.scBvCountTrailingZeros sc n x'
 
-        B.ArrayMap indexTypes range updates arr ->
-          do let m = AUM.toMap updates
-             let maxidx = foldr1 (Ctx.zipWith maxIndexLit) (Map.keys m)
-             let sizes = toListFC sizeIndexLit maxidx
-             case 2 * toInteger (Map.size m) >= product sizes of
-               -- Make vector table if it would be sufficiently (1/2) full.
-               True ->
-                 do elemTy <- baseSCType sym sc range
-                    arr' <- eval env arr
-                    let mkElem idxs =
-                          termOfSAWExpr sym sc =<<
-                          case Map.lookup idxs m of
-                            Just x -> eval env x
-                            Nothing ->
-                              do idxs' <- traverseFC (evalIndexLit sc) idxs
-                                 applyArray sym sc arr' idxs'
-                    table <- makeTable sc maxidx mkElem elemTy
-                    makeArray sym sc indexTypes env $ \_ vars ->
-                      do fallback <- applyArray sym sc arr' vars
-                         applyTable sym sc table maxidx vars elemTy fallback
-               -- If table would be too sparse, treat as repeated updates.
-               False ->
-                 makeArray sym sc indexTypes env $ \env' vars ->
-                 do arr' <- eval env arr
-                    fallback <- applyArray sym sc arr' vars
-                    let upd fb (idxs, x) =
-                          do idxs' <- traverseFC (evalIndexLit sc) idxs
-                             x' <- eval env' x
-                             p <- scAllEq sym sc indexTypes vars idxs'
-                             scIte sym sc range p x' fb
-                    foldM upd fallback (Map.assocs m)
+        -- Note: SAWCore supports only unidimensional arrays. As a result, What4 multidimensional
+        -- arrays cannot be translated to SAWCore.
+        B.ArrayMap indexTypes range updates arr
+          | Ctx.Empty Ctx.:> idx_type <- indexTypes ->
+            do sc_idx_type <- baseSCType sym sc idx_type
+               sc_elm_type <- baseSCType sym sc range
+               sc_arr <- f env arr
+               SAWExpr <$> foldM
+                 (\sc_acc_arr (Ctx.Empty Ctx.:> idx_lit, elm) ->
+                   do sc_idx <- f env =<< indexLit sym idx_lit
+                      sc_elm <- f env elm
+                      SC.scArrayUpdate sc sc_idx_type sc_elm_type sc_acc_arr sc_idx sc_elm)
+                 sc_arr
+                 (AUM.toList updates)
+          | otherwise -> unimplemented "multidimensional ArrayMap"
 
-        B.ConstantArray indexTypes _range v ->
-          makeArray sym sc indexTypes env $ \env' _ -> eval env' v
+        B.ConstantArray indexTypes range v
+          | Ctx.Empty Ctx.:> idx_type <- indexTypes ->
+            do sc_idx_type <- baseSCType sym sc idx_type
+               sc_elm_type <- baseSCType sym sc range
+               sc_elm <- f env v
+               SAWExpr <$> SC.scArrayConstant sc sc_idx_type sc_elm_type sc_elm
+          | otherwise -> unimplemented "multidimensional ConstantArray"
 
-        B.SelectArray _ arr indexTerms ->
-          do arr' <- eval env arr
-             xs <- traverseFC (eval env) indexTerms
-             applyArray sym sc arr' xs
+        B.SelectArray range arr indexTerms
+          | Ctx.Empty Ctx.:> idx <- indexTerms
+          , idx_type <- exprType idx ->
+            do sc_idx_type <- baseSCType sym sc idx_type
+               sc_elm_type <- baseSCType sym sc range
+               sc_arr <- f env arr
+               sc_idx <- f env idx
+               SAWExpr <$> SC.scArrayLookup sc sc_idx_type sc_elm_type sc_arr sc_idx
+          | otherwise -> unimplemented "multidimensional SelectArray"
 
-
-        B.UpdateArray range indexTypes arr indexTerms v ->
-          makeArray sym sc indexTypes env $ \env' vars ->
-          do idxs <- traverseFC (eval env) indexTerms
-             p <- scAllEq sym sc indexTypes vars idxs
-             v' <- eval env' v
-             arr' <- eval env' arr
-             x <- applyArray sym sc arr' vars
-             scIte sym sc range p v' x
+        B.UpdateArray range indexTypes arr indexTerms v
+          | Ctx.Empty Ctx.:> idx_type <- indexTypes
+          , Ctx.Empty Ctx.:> idx <- indexTerms ->
+            do sc_idx_type <- baseSCType sym sc idx_type
+               sc_elm_type <- baseSCType sym sc range
+               sc_arr <- f env arr
+               sc_idx <- f env idx
+               sc_elm <- f env v
+               SAWExpr <$> SC.scArrayUpdate sc sc_idx_type sc_elm_type sc_arr sc_idx sc_elm
+          | otherwise -> unimplemented "multidimensional UpdateArray"
 
         B.NatToInteger x -> NatToIntSAWExpr <$> eval env x
         B.IntegerToNat x ->
