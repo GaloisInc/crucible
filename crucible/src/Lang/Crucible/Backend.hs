@@ -18,6 +18,8 @@ for interacting with the symbolic simulator.
 module Lang.Crucible.Backend
   ( IsBoolSolver(..)
   , IsSymInterface
+  , CrucibleBackend
+  , CrucibleFloatMode
 
     -- * Assumption management
   , AssumptionReason(..)
@@ -56,11 +58,19 @@ module Lang.Crucible.Backend
   , ppProofObligation
   , backendOptions
   , assertThenAssumeConfigOption
+
+    -- * Re-exports
+  , FloatMode
+  , FloatIEEE
+  , FloatUninterpreted
+  , FloatReal
+  , FloatModeRepr(..)
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
 import           Control.Lens ((^.))
 import           Control.Monad
+import           Data.Kind (Type)
 import           Data.Foldable (toList)
 import           Data.Sequence (Seq)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -71,10 +81,20 @@ import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Partial
 import           What4.ProgramLoc
+import           What4.Expr
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
+
+data CrucibleBackend (s :: Type) (fm :: FloatMode)
+type family CrucibleFloatMode (t :: Type) :: FloatMode
+
+type instance ExprLoc (CrucibleBackend s fm) = ProgramLoc
+type instance ExprNonceBrand (CrucibleBackend s fm) = s
+
+type instance CrucibleFloatMode (CrucibleBackend s fm) = fm
+type instance CrucibleFloatMode (ExprBuilder t st) = CrucibleFloatMode t
 
 data AssumptionReason =
     AssumptionReason ProgramLoc String
@@ -156,13 +176,16 @@ ppLoc l = PP.pretty (plSourceLoc l)
 type IsSymInterface sym =
   ( IsBoolSolver sym
   , IsSymExprBuilder sym
-  , IsInterpretedFloatSymExprBuilder sym
+  , PrintExpr (SymExpr sym)
+  , SymLoc sym ~ ProgramLoc
+  , IsInterpretedFloatExprBuilder sym (CrucibleFloatMode sym)
   )
 
 -- | This class provides operations that interact with the symbolic simulator.
 --   It allows for logical assumptions/assertions to be added to the current
 --   path condition, and allows queries to be asked about branch conditions.
 class IsBoolSolver sym where
+  getFloatMode :: sym -> IO (FloatModeRepr (CrucibleFloatMode sym))
 
   ----------------------------------------------------------------------
   -- Branch manipulations
@@ -301,7 +324,7 @@ abortExecBecause err = throwIO err
 -- | Add a proof obligation using the current program location.
 --   Afterwards, assume the given fact.
 assert ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
+  IsSymInterface sym =>
   sym ->
   Pred sym ->
   SimErrorReason ->
@@ -314,7 +337,7 @@ assert sym p msg =
 -- of the current path, because after asserting false, we get to assume it,
 -- and so there is no need to check anything after.  This is why the resulting
 -- IO computation can have the fully polymorphic type.
-addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym) => sym -> SimErrorReason -> IO a
+addFailedAssertion :: IsSymInterface sym => sym -> SimErrorReason -> IO a
 addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
      let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
@@ -326,7 +349,7 @@ addFailedAssertion sym msg =
 
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
+  IsSymInterface sym =>
   sym ->
   IO (Pred sym) ->
   SimErrorReason ->
@@ -337,7 +360,7 @@ addAssertionM sym pf msg = do
 
 -- | Assert that the given real-valued expression is an integer.
 assertIsInteger ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
+  IsSymInterface sym =>
   sym ->
   SymReal sym ->
   SimErrorReason ->
@@ -348,7 +371,7 @@ assertIsInteger sym v msg = do
 -- | Given a partial expression, assert that it is defined
 --   and return the underlying value.
 readPartExpr ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
+  IsSymInterface sym =>
   sym ->
   PartExpr (Pred sym) v ->
   SimErrorReason ->

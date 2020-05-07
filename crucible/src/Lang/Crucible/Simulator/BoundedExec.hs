@@ -183,7 +183,7 @@ boundedExecFeature ::
   Bool {- ^ Produce a proof obligation when resources are exhausted? -} ->
   IO (GenericExecutionFeature sym)
 boundedExecFeature getLoopBounds generateSideConditions =
-  do gvRef <- newIORef (error "Global variable for BoundedExecFrameData not initialized")
+  do gvRef <- newIORef (error "Global variable for BoundedExecFrameData not initialized" :: BoundedExecGlobal)
      return $ GenericExecutionFeature $ onStep gvRef
 
  where

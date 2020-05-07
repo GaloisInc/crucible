@@ -110,13 +110,14 @@ evalLogFn verb s n msg = do
 evalExpr :: forall p sym ext ctx tp rtp blocks r.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ current verbosity -} ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   Expr ext ctx tp ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) IO (RegValue sym tp)
-evalExpr verb (App a) = ReaderT $ \s ->
+evalExpr verb fm (App a) = ReaderT $ \s ->
   do let iteFns = s^.stateIntrinsicTypes
      let sym = s^.stateSymInterface
      let logFn = evalLogFn verb s
-     r <- evalApp sym iteFns logFn
+     r <- evalApp sym fm iteFns logFn
             (extensionEval (extensionImpl (s^.stateContext)) sym iteFns logFn)
             (\r -> runReaderT (evalReg r) s)
             a
@@ -200,10 +201,11 @@ readRef sym iTypes tpr rs globs =
 stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   Stmt ext ctx ctx' {- ^ Statement to evaluate -} ->
   StmtSeq ext blocks r ctx' {- ^ Remaning statements in the block -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-stepStmt verb stmt rest =
+stepStmt verb fm stmt rest =
   do ctx <- view stateContext
      let sym = ctx^.ctxSymInterface
      let iTypes = ctxIntrinsicTypes ctx
@@ -212,7 +214,7 @@ stepStmt verb stmt rest =
      let continueWith :: forall rtp' blocks' r' c f a.
            (SimState p sym ext rtp' f a -> SimState p sym ext rtp' (CrucibleLang blocks' r') ('Just c)) ->
            ExecCont p sym ext rtp' f a
-         continueWith f = withReaderT f (checkConsTerm verb)
+         continueWith f = withReaderT f (checkConsTerm verb fm)
 
      case stmt of
        NewRefCell tpr x ->
@@ -272,11 +274,11 @@ stepStmt verb stmt rest =
 
        FreshFloat fi mnm ->
          do let nm = fromMaybe emptySymbol mnm
-            v <- liftIO $ freshFloatConstant sym nm fi
+            v <- liftIO $ freshFloatConstant sym fm nm fi
             continueWith $ stateCrucibleFrame %~ extendFrame (FloatRepr fi) v rest
 
        SetReg tp e ->
-         do v <- evalExpr verb e
+         do v <- evalExpr verb fm e
             continueWith $ stateCrucibleFrame %~ extendFrame tp v rest
 
        ExtendAssign estmt -> do
@@ -406,12 +408,13 @@ stepTerm _ (ErrorStmt msg) =
 checkConsTerm ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-checkConsTerm verb =
+checkConsTerm verb fm =
      do cf <- view stateCrucibleFrame
 
         case cf^.frameStmts of
-          ConsStmt _ _ _ -> stepBasicBlock verb
+          ConsStmt _ _ _ -> stepBasicBlock verb fm
           TermStmt _ _ -> continue (RunBlockEnd (cf^.frameBlockID))
 
 -- | Main evaluation operation for running a single step of
@@ -421,8 +424,9 @@ checkConsTerm verb =
 stepBasicBlock ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-stepBasicBlock verb =
+stepBasicBlock verb fm =
   do ctx <- view stateContext
      let sym = ctx^.ctxSymInterface
      let h = printHandle ctx
@@ -434,7 +438,7 @@ stepBasicBlock verb =
               do setCurrentProgramLoc sym pl
                  let sz = regMapSize (cf^.frameRegs)
                  when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
-            stepStmt verb stmt rest
+            stepStmt verb fm stmt rest
 
        TermStmt pl termStmt -> do
          do liftIO $
@@ -453,10 +457,11 @@ performStateRun ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   RunningStateInfo blocks ctx ->
   Int {- ^ Current verbosity -} ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
-performStateRun info verb = case info of
+performStateRun info verb fm = case info of
   RunPostBranchMerge bid -> continue (RunBlockStart bid)
-  _ -> stepBasicBlock verb
+  _ -> stepBasicBlock verb fm
 
 
 ----------------------------------------------------------------------
@@ -469,12 +474,13 @@ performStateRun info verb = case info of
 dispatchExecState ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   IO Int {- ^ Action to query the current verbosity -} ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   ExecState p sym ext rtp {- ^ Current execution state of the simulator -} ->
   (ExecResult p sym ext rtp -> IO z) {- ^ Final continuation for results -} ->
   (forall f a. ExecCont p sym ext rtp f a -> SimState p sym ext rtp f a -> IO z)
     {- ^ Intermediate continuation for running states -} ->
   IO z
-dispatchExecState getVerb exst kresult k =
+dispatchExecState getVerb fm exst kresult k =
   case exst of
     ResultState res ->
       kresult res
@@ -513,7 +519,7 @@ dispatchExecState getVerb exst kresult k =
 
     RunningState info st ->
       do v <- getVerb
-         k (performStateRun info v) st
+         k (performStateRun info v fm) st
 {-# INLINE dispatchExecState #-}
 
 
@@ -541,11 +547,13 @@ advanceCrucibleState m st =
 singleStepCrucible ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   ExecState p sym ext rtp ->
   IO (ExecState p sym ext rtp)
-singleStepCrucible verb exst =
+singleStepCrucible verb fm exst =
   dispatchExecState
     (return verb)
+    fm
     exst
     (return . ResultState)
     advanceCrucibleState
@@ -637,16 +645,18 @@ executeCrucible :: forall p sym ext rtp.
   ( IsSymInterface sym
   , IsSyntaxExtension ext
   ) =>
+  FloatModeRepr (CrucibleFloatMode sym) ->
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
   IO (ExecResult p sym ext rtp)
-executeCrucible execFeatures exst0 =
+executeCrucible fm execFeatures exst0 =
   do let cfg = getConfiguration . view ctxSymInterface . execStateContext $ exst0
      verbOpt <- getOptionSetting verbosity cfg
 
      let loop exst =
            dispatchExecState
              (fromInteger <$> getOpt verbOpt)
+             fm
              exst
              return
              (\m st -> knext =<< advanceCrucibleState m st)

@@ -81,7 +81,7 @@ boundedRecursionFeature ::
   IO (GenericExecutionFeature sym)
 
 boundedRecursionFeature getRecursionBound generateSideConditions =
-  do gvRef <- newIORef (error "Global variable for BoundedRecusionData not initilized")
+  do gvRef <- newIORef (error "Global variable for BoundedRecusionData not initilized" :: BoundedRecursionGlobal)
      return $ GenericExecutionFeature $ onStep gvRef
 
  where

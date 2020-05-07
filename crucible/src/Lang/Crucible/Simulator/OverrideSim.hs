@@ -409,7 +409,7 @@ withSimContext m =
 
 -- | Call a function with the given arguments.
 callFnVal ::
-  (IsExprBuilder sym, IsSyntaxExtension ext) =>
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
   FnVal sym args ret {- ^ Function to call -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
@@ -422,7 +422,7 @@ callFnVal cl args =
 -- | Call a function with the given arguments.  Provide the arguments as an
 --   @Assignment@ instead of as a @RegMap@.
 callFnVal' ::
-  (IsExprBuilder sym, IsSyntaxExtension ext) =>
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
   FnVal sym args ret {- ^ Function to call -} ->
   Ctx.Assignment (RegValue' sym) args {- ^ Arguments to the function -} ->
   OverrideSim p sym ext rtp a r (RegValue sym ret)

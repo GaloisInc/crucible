@@ -263,12 +263,13 @@ evalApp :: forall sym ext.
            ( IsSymInterface sym
            )
         => sym
+        -> FloatModeRepr (CrucibleFloatMode sym)
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
            -- ^ Function for logging messages.
         -> EvalAppFunc sym (ExprExtension ext)
         -> EvalAppFunc sym (App ext)
-evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sym tp)) a0 = do
+evalApp sym fm itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sym tp)) a0 = do
   case a0 of
 
     BaseIsEq tp xe ye -> do
@@ -525,119 +526,119 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ----------------------------------------------------------------------
     -- Float
 
-    FloatLit f -> iFloatLitSingle sym f
-    DoubleLit d -> iFloatLitDouble sym d
-    X86_80Lit ld -> iFloatLitLongDouble sym ld
-    FloatNaN fi -> iFloatNaN sym fi
-    FloatPInf fi -> iFloatPInf sym fi
-    FloatNInf fi -> iFloatNInf sym fi
-    FloatPZero fi -> iFloatPZero sym fi
-    FloatNZero fi -> iFloatNZero sym fi
+    FloatLit f -> iFloatLitSingle sym fm f
+    DoubleLit d -> iFloatLitDouble sym fm d
+    X86_80Lit ld -> iFloatLitLongDouble sym fm ld
+    FloatNaN fi -> iFloatNaN sym fm fi
+    FloatPInf fi -> iFloatPInf sym fm fi
+    FloatNInf fi -> iFloatNInf sym fm fi
+    FloatPZero fi -> iFloatPZero sym fm fi
+    FloatNZero fi -> iFloatNZero sym fm fi
     FloatNeg _ (x_expr :: f (FloatType fi)) ->
-      iFloatNeg @_ @fi sym =<< evalSub x_expr
+      iFloatNeg @_ @_ @fi sym fm =<< evalSub x_expr
     FloatAbs _ (x_expr :: f (FloatType fi)) ->
-      iFloatAbs @_ @fi sym =<< evalSub x_expr
+      iFloatAbs @_ @_ @fi sym fm =<< evalSub x_expr
     FloatSqrt _ rm (x_expr :: f (FloatType fi)) ->
-      iFloatSqrt @_ @fi sym rm =<< evalSub x_expr
+      iFloatSqrt @_ @_ @fi sym fm rm =<< evalSub x_expr
     FloatAdd _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatAdd @_ @fi sym rm x y
+      iFloatAdd @_ @_ @fi sym fm rm x y
     FloatSub _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatSub @_ @fi sym rm x y
+      iFloatSub @_ @_ @fi sym fm rm x y
     FloatMul _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatMul @_ @fi sym rm x y
+      iFloatMul @_ @_ @fi sym fm rm x y
     FloatDiv _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       -- TODO: handle division by zero
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatDiv @_ @fi sym rm x y
+      iFloatDiv @_ @_ @fi sym fm rm x y
     FloatRem _ (x_expr :: f (FloatType fi)) y_expr -> do
       -- TODO: handle division by zero
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatRem @_ @fi sym x y
+      iFloatRem @_ @_ @fi sym fm x y
     FloatMin _ (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatMin @_ @fi sym x y
+      iFloatMin @_ @_ @fi sym fm x y
     FloatMax _ (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatMax @_ @fi sym x y
+      iFloatMax @_ @_ @fi sym fm x y
     FloatFMA _ rm (x_expr :: f (FloatType fi)) y_expr z_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
       z <- evalSub z_expr
-      iFloatFMA @_ @fi sym rm x y z
+      iFloatFMA @_ @_ @fi sym fm rm x y z
     FloatEq (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatEq @_ @fi sym x y
+      iFloatEq @_ @_ @fi sym fm x y
     FloatFpEq (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatFpEq @_ @fi sym x y
+      iFloatFpEq @_ @_ @fi sym fm x y
     FloatIte _ c_expr (x_expr :: f (FloatType fi)) y_expr -> do
       c <- evalSub c_expr
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatIte @_ @fi sym c x y
+      iFloatIte @_ @_ @fi sym fm c x y
     FloatLt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatLt @_ @fi sym x y
+      iFloatLt @_ @_ @fi sym fm x y
     FloatLe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatLe @_ @fi sym x y
+      iFloatLe @_ @_ @fi sym fm x y
     FloatGt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatGt @_ @fi sym x y
+      iFloatGt @_ @_ @fi sym fm x y
     FloatGe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatGe @_ @fi sym x y
+      iFloatGe @_ @_ @fi sym fm x y
     FloatNe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatNe @_ @fi sym x y
+      iFloatNe @_ @_ @fi sym fm x y
     FloatFpNe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      iFloatFpNe @_ @fi sym x y
+      iFloatFpNe @_ @_ @fi sym fm x y
     FloatCast fi rm (x_expr :: f (FloatType fi')) ->
-      iFloatCast @_ @_ @fi' sym fi rm =<< evalSub x_expr
-    FloatFromBinary fi x_expr -> iFloatFromBinary sym fi =<< evalSub x_expr
-    FloatToBinary fi x_expr -> iFloatToBinary sym fi =<< evalSub x_expr
-    FloatFromBV fi rm x_expr -> iBVToFloat sym fi rm =<< evalSub x_expr
-    FloatFromSBV fi rm x_expr -> iSBVToFloat sym fi rm =<< evalSub x_expr
-    FloatFromReal fi rm x_expr -> iRealToFloat sym fi rm =<< evalSub x_expr
+      iFloatCast @_ @_ @_ @fi' sym fm fi rm =<< evalSub x_expr
+    FloatFromBinary fi x_expr -> iFloatFromBinary sym fm fi =<< evalSub x_expr
+    FloatToBinary fi x_expr -> iFloatToBinary sym fm fi =<< evalSub x_expr
+    FloatFromBV fi rm x_expr -> iBVToFloat sym fm fi rm =<< evalSub x_expr
+    FloatFromSBV fi rm x_expr -> iSBVToFloat sym fm fi rm =<< evalSub x_expr
+    FloatFromReal fi rm x_expr -> iRealToFloat sym fm fi rm =<< evalSub x_expr
     FloatToBV w rm (x_expr :: f (FloatType fi)) ->
-      iFloatToBV @_ @_ @fi sym w rm =<< evalSub x_expr
+      iFloatToBV @_ @_ @_ @fi sym fm w rm =<< evalSub x_expr
     FloatToSBV w rm (x_expr :: f (FloatType fi)) ->
-      iFloatToSBV @_ @_ @fi sym w rm =<< evalSub x_expr
+      iFloatToSBV @_ @_ @_ @fi sym fm w rm =<< evalSub x_expr
     FloatToReal (x_expr :: f (FloatType fi)) ->
-      iFloatToReal @_ @fi sym =<< evalSub x_expr
+      iFloatToReal @_ @_ @fi sym fm =<< evalSub x_expr
     FloatIsNaN (x_expr :: f (FloatType fi)) ->
-      iFloatIsNaN @_ @fi sym =<< evalSub x_expr
+      iFloatIsNaN @_ @_ @fi sym fm =<< evalSub x_expr
     FloatIsInfinite (x_expr :: f (FloatType fi)) ->
-      iFloatIsInf @_ @fi sym =<< evalSub x_expr
+      iFloatIsInf @_ @_ @fi sym fm =<< evalSub x_expr
     FloatIsZero (x_expr :: f (FloatType fi)) ->
-      iFloatIsZero @_ @fi sym =<< evalSub x_expr
+      iFloatIsZero @_ @_ @fi sym fm =<< evalSub x_expr
     FloatIsPositive (x_expr :: f (FloatType fi)) ->
-      iFloatIsPos @_ @fi sym =<< evalSub x_expr
+      iFloatIsPos @_ @_ @fi sym fm =<< evalSub x_expr
     FloatIsNegative (x_expr :: f (FloatType fi)) ->
-      iFloatIsNeg @_ @fi sym =<< evalSub x_expr
+      iFloatIsNeg @_ @_ @fi sym fm =<< evalSub x_expr
     FloatIsSubnormal (x_expr :: f (FloatType fi)) ->
-      iFloatIsSubnorm @_ @fi sym =<< evalSub x_expr
+      iFloatIsSubnorm @_ @_ @fi sym fm =<< evalSub x_expr
     FloatIsNormal (x_expr :: f (FloatType fi)) ->
-      iFloatIsNorm @_ @fi sym =<< evalSub x_expr
+      iFloatIsNorm @_ @_ @fi sym fm =<< evalSub x_expr
 
     ----------------------------------------------------------------------
     -- Conversions

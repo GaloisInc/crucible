@@ -61,13 +61,7 @@ module Lang.Crucible.Backend.Online
   , withSTPOnlineBackend
     -- * OnlineBackendState
   , OnlineBackendState(..)
-    -- * Re-exports
-  , B.FloatMode
-  , B.FloatModeRepr(..)
-  , B.FloatIEEE
-  , B.FloatUninterpreted
-  , B.FloatReal
-  , B.Flags
+
   ) where
 
 
@@ -136,18 +130,18 @@ onlineBackendOptions =
 
 -- | Get the connection for sending commands to the solver.
 withSolverConn ::
-  OnlineSolver scope solver =>
-  OnlineBackend scope solver fs ->
-  (WriterConn scope solver -> IO a) ->
+  OnlineSolver solver =>
+  OnlineBackend scope fm solver ->
+  (WriterConn (CrucibleBackend scope fm) solver -> IO a) ->
   IO a
 withSolverConn sym k = withSolverProcess sym (k . solverConn)
 
 --------------------------------------------------------------------------------
-type OnlineBackend scope solver fs =
-                        B.ExprBuilder scope (OnlineBackendState solver) fs
+type OnlineBackend scope fm solver =
+   B.ExprBuilder (CrucibleBackend scope fm) (OnlineBackendState solver)
 
 
-type YicesOnlineBackend scope fs = OnlineBackend scope (Yices.Connection scope) fs
+type YicesOnlineBackend scope fm = OnlineBackend scope fm Yices.Connection
 
 -- | Do something with a Yices online backend.
 --   The backend is only valid in the continuation.
@@ -160,19 +154,20 @@ type YicesOnlineBackend scope fs = OnlineBackend scope (Yices.Connection scope) 
 --   Example:
 --
 --   > withYicesOnlineBackend FloatRealRepr ng f'
-withYicesOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
-                       (B.FloatModeRepr fm)
-                       -> NonceGenerator IO scope
-                       -> UnsatFeatures
-                       -> (YicesOnlineBackend scope (B.Flags fm) -> m a)
-                       -> m a
-withYicesOnlineBackend fm gen unsatFeat action =
+withYicesOnlineBackend :: forall scope fm m a.
+  (MonadIO m, MonadMask m) =>
+  NonceGenerator IO scope ->
+  FloatModeRepr fm ->
+  UnsatFeatures ->
+  (YicesOnlineBackend scope fm -> m a) ->
+  m a
+withYicesOnlineBackend gen fm unsatFeat action =
   let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
-  withOnlineBackend fm gen feat $ \sym ->
+  withOnlineBackend gen fm feat $ \sym ->
     do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
        action sym
 
-type Z3OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Z3.Z3) fs
+type Z3OnlineBackend scope fm = OnlineBackend scope fm (SMT2.Writer Z3.Z3)
 
 -- | Do something with a Z3 online backend.
 --   The backend is only valid in the continuation.
@@ -185,19 +180,20 @@ type Z3OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Z3.Z3) fs
 --   Example:
 --
 --   > withz3OnlineBackend FloatRealRepr ng f'
-withZ3OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
-                    (B.FloatModeRepr fm)
-                    -> NonceGenerator IO scope
-                    -> UnsatFeatures
-                    -> (Z3OnlineBackend scope (B.Flags fm) -> m a)
-                    -> m a
-withZ3OnlineBackend fm gen unsatFeat action =
+withZ3OnlineBackend :: forall scope fm m a.
+  (MonadIO m, MonadMask m) =>
+  NonceGenerator IO scope ->
+  FloatModeRepr fm ->
+  UnsatFeatures ->
+  (Z3OnlineBackend scope fm -> m a) ->
+  m a
+withZ3OnlineBackend gen fm unsatFeat action =
   let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
-  withOnlineBackend fm gen feat $ \sym ->
+  withOnlineBackend gen fm feat $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
        action sym
 
-type BoolectorOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Boolector.Boolector) fs
+type BoolectorOnlineBackend scope fm = OnlineBackend scope fm (SMT2.Writer Boolector.Boolector)
 
 -- | Do something with a Boolector online backend.
 --   The backend is only valid in the continuation.
@@ -206,19 +202,20 @@ type BoolectorOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Boolecto
 --   installed into the backend configuration object.
 --
 --   > withBoolectorOnineBackend FloatRealRepr ng f'
-withBoolectorOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
-                           B.FloatModeRepr fm
-                           -> NonceGenerator IO scope
-                           -> UnsatFeatures
-                           -> (BoolectorOnlineBackend scope (B.Flags fm) -> m a)
-                           -> m a
-withBoolectorOnlineBackend fm gen unsatFeat action =
+withBoolectorOnlineBackend :: forall scope fm m a.
+  (MonadIO m, MonadMask m) =>
+  NonceGenerator IO scope ->
+  FloatModeRepr fm ->
+  UnsatFeatures ->
+  (BoolectorOnlineBackend scope fm -> m a) ->
+  m a
+withBoolectorOnlineBackend gen fm unsatFeat action =
   let feat = (SMT2.defaultFeatures Boolector.Boolector .|. unsatFeaturesToProblemFeatures unsatFeat) in
-  withOnlineBackend fm gen feat $ \sym -> do
+  withOnlineBackend gen fm feat $ \sym -> do
     liftIO $ extendConfig Boolector.boolectorOptions (getConfiguration sym)
     action sym
 
-type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
+type CVC4OnlineBackend scope fm = OnlineBackend scope fm (SMT2.Writer CVC4.CVC4)
 
 -- | Do something with a CVC4 online backend.
 --   The backend is only valid in the continuation.
@@ -231,19 +228,20 @@ type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
 --   Example:
 --
 --   > withCVC4OnlineBackend FloatRealRepr ng f'
-withCVC4OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
-                      (B.FloatModeRepr fm)
-                      -> NonceGenerator IO scope
-                      -> UnsatFeatures
-                      -> (CVC4OnlineBackend scope (B.Flags fm) -> m a)
-                      -> m a
-withCVC4OnlineBackend fm gen unsatFeat action =
+withCVC4OnlineBackend :: forall scope fm m a.
+  (MonadIO m, MonadMask m) =>
+  NonceGenerator IO scope ->
+  FloatModeRepr fm ->
+  UnsatFeatures ->
+  (CVC4OnlineBackend scope fm -> m a) ->
+  m a
+withCVC4OnlineBackend gen fm unsatFeat action =
   let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat) in
-  withOnlineBackend fm gen feat $ \sym -> do
+  withOnlineBackend gen fm feat $ \sym -> do
     liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
     action sym
 
-type STPOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer STP.STP) fs
+type STPOnlineBackend scope fm = OnlineBackend scope fm (SMT2.Writer STP.STP)
 
 -- | Do something with a STP online backend.
 --   The backend is only valid in the continuation.
@@ -256,13 +254,14 @@ type STPOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer STP.STP) fs
 --   Example:
 --
 --   > withSTPOnlineBackend FloatRealRepr ng f'
-withSTPOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
-                     (B.FloatModeRepr fm)
-                     -> NonceGenerator IO scope
-                     -> (STPOnlineBackend scope (B.Flags fm) -> m a)
-                     -> m a
-withSTPOnlineBackend fm gen action =
-  withOnlineBackend fm gen (SMT2.defaultFeatures STP.STP) $ \sym -> do
+withSTPOnlineBackend :: forall scope fm m a.
+  (MonadIO m, MonadMask m) =>
+  NonceGenerator IO scope ->
+  FloatModeRepr fm ->
+  (STPOnlineBackend scope fm -> m a) ->
+  m a
+withSTPOnlineBackend gen fm action =
+  withOnlineBackend gen fm (SMT2.defaultFeatures STP.STP) $ \sym -> do
     liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
     action sym
 
@@ -276,21 +275,24 @@ data SolverState scope solver =
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
-data OnlineBackendState solver scope = OnlineBackendState
+data OnlineBackendState solver t = OnlineBackendState
   { assumptionStack ::
-      !(AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+      !(AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
       -- ^ Number of times we have pushed
-  , solverProc :: !(IORef (SolverState scope solver))
+  , solverProc :: !(IORef (SolverState t solver))
     -- ^ The solver process, if any.
   , currentFeatures :: !(IORef ProblemFeatures)
+
+  , floatMode :: FloatModeRepr (CrucibleFloatMode t)
   }
 
 -- | Returns an initial execution state.
 initialOnlineBackendState ::
   NonceGenerator IO scope ->
+  FloatModeRepr fm ->
   ProblemFeatures ->
-  IO (OnlineBackendState solver scope)
-initialOnlineBackendState gen feats =
+  IO (OnlineBackendState solver (CrucibleBackend scope fm))
+initialOnlineBackendState gen fm feats =
   do stk <- initAssumptionStack gen
      procref <- newIORef SolverNotStarted
      featref <- newIORef feats
@@ -298,20 +300,20 @@ initialOnlineBackendState gen feats =
                  { assumptionStack = stk
                  , solverProc = procref
                  , currentFeatures = featref
+                 , floatMode = fm
                  }
 
 getAssumptionStack ::
-  OnlineBackend scope solver fs ->
-  IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+  OnlineBackend scope fm solver ->
+  IO (AssumptionStack (B.BoolExpr (CrucibleBackend scope fm)) AssumptionReason SimError)
 getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
-
 
 -- | Shutdown any currently-active solver process.
 --   A fresh solver process will be started on the
 --   next call to `getSolverProcess`.
 resetSolverProcess ::
-  OnlineSolver scope solver =>
-  OnlineBackend scope solver fs ->
+  OnlineSolver solver =>
+  OnlineBackend scope fm solver ->
   IO ()
 resetSolverProcess sym = do
   do st <- readIORef (B.sbStateManager sym)
@@ -327,10 +329,10 @@ resetSolverProcess sym = do
 -- | Get the solver process.
 --   Starts the solver, if that hasn't happened already.
 withSolverProcess' ::
-  OnlineSolver scope solver =>
-  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver scope)) ->
-  B.ExprBuilder scope s fs ->
-  (SolverProcess scope solver -> IO a) ->
+  (B.IsExprLoc t, OnlineSolver solver) =>
+  (B.ExprBuilder t s -> IO (OnlineBackendState solver t)) ->
+  B.ExprBuilder t s ->
+  (SolverProcess t solver -> IO a) ->
   IO a
 withSolverProcess' getSolver sym action = do
   st <- getSolver sym
@@ -372,9 +374,9 @@ withSolverProcess' getSolver sym action = do
 
 -- | Get the solver process, specialized to @OnlineBackend@.
 withSolverProcess ::
-  OnlineSolver scope solver =>
-  OnlineBackend scope solver fs ->
-  (SolverProcess scope solver -> IO a) ->
+  OnlineSolver solver =>
+  OnlineBackend scope fm solver ->
+  (SolverProcess (CrucibleBackend scope fm) solver -> IO a) ->
   IO a
 withSolverProcess = withSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
 
@@ -396,9 +398,9 @@ data BranchResult
 
 
 restoreAssumptionFrames ::
-  (OnlineSolver scope solver) =>
-  SolverProcess scope solver ->
-  AssumptionFrames (LabeledPred (B.BoolExpr scope) AssumptionReason) ->
+  (B.IsExprLoc t, OnlineSolver solver) =>
+  SolverProcess t solver ->
+  AssumptionFrames (LabeledPred (B.BoolExpr t) AssumptionReason) ->
   IO ()
 restoreAssumptionFrames proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
@@ -410,10 +412,10 @@ restoreAssumptionFrames proc (AssumptionFrames base frms) =
          mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList frm)
 
 considerSatisfiability ::
-  (OnlineSolver scope solver) =>
-  OnlineBackend scope solver fs ->
+  OnlineSolver solver =>
+  OnlineBackend scope fm solver ->
   Maybe ProgramLoc ->
-  B.BoolExpr scope ->
+  B.BoolExpr (CrucibleBackend scope fm) ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
   withSolverProcess sym $ \proc ->
@@ -436,15 +438,15 @@ considerSatisfiability sym mbPloc p =
 --   Configuration options are not automatically installed
 --   by this operation.
 withOnlineBackend ::
-  (OnlineSolver scope solver, MonadIO m, MonadMask m) =>
-  B.FloatModeRepr fm ->
+  (OnlineSolver solver, MonadIO m, MonadMask m) =>
   NonceGenerator IO scope ->
+  FloatModeRepr fm ->
   ProblemFeatures ->
-  (OnlineBackend scope solver (B.Flags fm) -> m a) ->
+  (OnlineBackend scope fm solver -> m a) ->
   m a
-withOnlineBackend floatMode gen feats action = do
-  st  <- liftIO $ initialOnlineBackendState gen feats
-  sym <- liftIO $ B.newExprBuilder floatMode st gen
+withOnlineBackend gen fm feats action = do
+  st  <- liftIO $ initialOnlineBackendState gen fm feats
+  sym <- liftIO $ B.newExprBuilder st gen initializationLoc
   liftIO $ extendConfig
     (backendOptions ++ onlineBackendOptions)
     (getConfiguration sym)
@@ -461,7 +463,8 @@ withOnlineBackend floatMode gen feats action = do
     )
 
 
-instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver fs) where
+instance OnlineSolver solver => IsBoolSolver (OnlineBackend scope fm solver) where
+  getFloatMode sym = floatMode <$> readIORef (B.sbStateManager sym)
 
   addDurableProofObligation sym a =
      AS.addProofObligation a =<< getAssumptionStack sym

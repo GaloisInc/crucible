@@ -57,6 +57,7 @@ import           Data.Parameterized.TraversableFC
 
 import           What4.Interface
 import           What4.WordMap
+import           What4.InterpretedFloatingPoint
 
 import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
@@ -213,7 +214,11 @@ muxRegForType s itefns p =
      NatRepr           -> muxReg s p
      IntegerRepr       -> muxReg s p
      RealValRepr       -> muxReg s p
-     FloatRepr _       -> muxReg s p
+     FloatRepr (_ :: FloatInfoRepr fi) ->
+       \c x y ->
+         do fm <- getFloatMode s
+            iFloatIte @_ @_ @fi s fm c x y
+          
      ComplexRealRepr   -> muxReg s p
      CharRepr          -> muxReg s p
      BoolRepr          -> muxReg s p

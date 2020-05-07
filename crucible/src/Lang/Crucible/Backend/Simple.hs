@@ -21,13 +21,7 @@ module Lang.Crucible.Backend.Simple
   , newSimpleBackend
     -- * SimpleBackendState
   , SimpleBackendState
-    -- * Re-exports
-  , B.FloatMode
-  , B.FloatModeRepr(..)
-  , B.FloatIEEE
-  , B.FloatUninterpreted
-  , B.FloatReal
-  , B.Flags
+  , getFloatMode
   ) where
 
 import           Control.Lens
@@ -36,14 +30,14 @@ import           Data.IORef
 import           Data.Parameterized.Nonce
 
 import           What4.Config
-import           What4.Interface
 import qualified What4.Expr.Builder as B
+import           What4.Interface
+import           What4.InterpretedFloatingPoint
+import           What4.ProgramLoc
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
-
-type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 
 ------------------------------------------------------------------------
 -- SimpleBackendState
@@ -51,29 +45,33 @@ type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertion stack.
 
-newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason SimError }
+data SimpleBackendState t =
+   SimpleBackendState
+   { sbAssumptionStack :: !(AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+   , sbFloatMode :: !(FloatModeRepr (CrucibleFloatMode t))
+   }
+
+type SimpleBackend t fm = B.ExprBuilder (CrucibleBackend t fm) SimpleBackendState
 
 -- | Returns an initial execution state.
-initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
-initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
-
+initialSimpleBackendState :: NonceGenerator IO t -> FloatModeRepr fm -> IO (SimpleBackendState (CrucibleBackend t fm))
+initialSimpleBackendState gen fm = SimpleBackendState <$> AS.initAssumptionStack gen <*> pure fm
 
 newSimpleBackend ::
-  B.FloatModeRepr fm
-  -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
-  -> NonceGenerator IO t
-  -> IO (SimpleBackend t (B.Flags fm))
-newSimpleBackend floatMode gen =
-  do st <- initialSimpleBackendState gen
-     sym <- B.newExprBuilder floatMode st gen
+  NonceGenerator IO t ->
+  FloatModeRepr fm ->  
+  IO (SimpleBackend t fm)
+newSimpleBackend gen fm =
+  do st <- initialSimpleBackendState gen fm
+     sym <- B.newExprBuilder st gen initializationLoc
      extendConfig backendOptions (getConfiguration sym)
      return sym
 
-getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack :: SimpleBackend t fm -> IO (AssumptionStack (B.BoolExpr (CrucibleBackend t fm)) AssumptionReason SimError)
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
 
-instance IsBoolSolver (SimpleBackend t fs) where
+instance IsBoolSolver (SimpleBackend t fm) where
+  getFloatMode sym = sbFloatMode <$> readIORef (B.sbStateManager sym)
 
   addDurableProofObligation sym a =
      AS.addProofObligation a =<< getAssumptionStack sym

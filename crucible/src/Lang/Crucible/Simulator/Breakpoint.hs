@@ -10,6 +10,7 @@
 -- This module provides execution features for changing the state on
 -- breakpoints.
 -----------------------------------------------------------------------
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
