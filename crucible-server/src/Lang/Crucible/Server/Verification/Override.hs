@@ -70,8 +70,6 @@ import qualified Cryptol.TypeCheck.AST as CT
 import qualified Cryptol.Utils.PP as PP
 
 import           What4.Interface
-import           What4.Expr.Builder (Flags, FloatReal)
-import           What4.FunctionName
 import           What4.Partial
 import qualified What4.Solver.Yices as Yices
 import           What4.WordMap
@@ -80,7 +78,7 @@ import           Lang.Crucible.Backend
 import qualified Lang.Crucible.Backend.SAWCore as SAW
 import           Lang.Crucible.Types
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
+import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.SimError
@@ -137,7 +135,7 @@ verificationHarnessOverrideHandle sim rw w cryEnv harness =
            (mkOverride' nm (StructRepr (verifStateRepr rw w))
               (verificationHarnessOverride sim rw w sc cryEnv harness))
 
-type SAWBack n = SAW.SAWCoreBackend n (Yices.Connection n) (Flags FloatReal)
+type SAWBack n = SAW.SAWCoreBackend n Yices.Connection FloatReal
 type N p n r args ret a = OverrideSim p (SAWBack n) () r args ret a
 
 ----------------------------------------------------------------------

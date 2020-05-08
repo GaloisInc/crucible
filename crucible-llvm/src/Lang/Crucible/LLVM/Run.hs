@@ -1,4 +1,5 @@
 {-# Language RankNTypes, ExistentialQuantification #-}
+{-# Language FlexibleContexts #-}
 {-# Language ImplicitParams #-}
 {-# Language RecordWildCards #-}
 {-# Language DataKinds #-}

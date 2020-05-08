@@ -86,11 +86,11 @@ import qualified Lang.Crucible.Simulator.RegMap        as C
 
 import qualified Lang.Crucible.Analysis.Postdom        as C
 import qualified Lang.Crucible.Utils.MuxTree           as C
+import           Lang.Crucible.ProgramLoc (Position(InternalPos))
+import           Lang.Crucible.FunctionName (FunctionName(..))
 
 -- what4
-import           What4.ProgramLoc (Position(InternalPos))
 import           What4.Interface (IsExprBuilder)
-import           What4.FunctionName (FunctionName(..))
 import qualified What4.Interface                       as W4
 import qualified What4.InterpretedFloatingPoint        as W4
 import qualified What4.Partial                         as W4
@@ -498,7 +498,7 @@ variantCase variant cases =
 --
 -- | Print out an integer represented value (if it is concrete)
 -- Needs access to the original Java type
-showInt :: (W4.IsExpr e, 1 <= w) => J.Type -> e (BaseBVType w) -> String
+showInt :: (W4.PrintExpr e, W4.IsExpr e, 1 <= w) => J.Type -> e (BaseBVType w) -> String
 showInt jty e = case BV.asSigned (W4.bvWidth e) <$> W4.asBV e of
               Just i  -> case jty of
                 J.IntType -> show i
@@ -512,7 +512,7 @@ showInt jty e = case BV.asSigned (W4.bvWidth e) <$> W4.asBV e of
                 _ -> fail "showInt: Not an int-like type"
               Nothing -> show $ W4.printSymExpr e
 
-showFloat :: W4.IsExpr e => e tp -> String
+showFloat :: (W4.PrintExpr e, W4.IsExpr e) => e tp -> String
 showFloat e = case floatAsRational e of
   Just rat -> show (fromRational rat :: Double)
   Nothing -> show $ W4.printSymExpr e

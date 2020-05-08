@@ -26,7 +26,8 @@ executable crucible-mc
     crucible-llvm,
     crux,
     crux-llvm,
-    pretty
+    pretty,
+    what4
   hs-source-dirs:      exe
   default-language:    Haskell2010
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns

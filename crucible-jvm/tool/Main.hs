@@ -52,9 +52,10 @@ import qualified Data.Parameterized.Map as MapF
 -- crucible/crucible
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle
+import Lang.Crucible.ProgramLoc
+import Lang.Crucible.Types
 
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.GlobalState
@@ -62,8 +63,7 @@ import Lang.Crucible.Simulator.PathSplitting
 import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.RegMap
 
--- crucible/what4
-import What4.ProgramLoc
+-- what4
 import qualified What4.Config as W4
 import qualified What4.Interface as W4
 import qualified What4.Partial as W4

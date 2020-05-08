@@ -234,7 +234,8 @@ explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
   BBLoadError ld         -> ppMemoryLoadError ld
 
-detailBB :: W4I.IsExpr (W4I.SymExpr sym) => BadBehavior (RegValue' sym) -> Doc
+detailBB :: (W4I.PrintExpr (W4I.SymExpr sym), W4I.IsExpr (W4I.SymExpr sym)) =>
+         BadBehavior (RegValue' sym) -> Doc
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
   BBLoadError ld         -> ppMemoryLoadError ld

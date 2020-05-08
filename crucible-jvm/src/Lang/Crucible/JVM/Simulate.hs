@@ -56,29 +56,28 @@ import           Data.Parameterized.NatRepr as NR
 import           Data.Parameterized.Nonce
 
 -- crucible
-import qualified Lang.Crucible.Backend as C (readPartExpr, addFailedAssertion)
+import qualified Lang.Crucible.Analysis.Postdom as C
+import qualified Lang.Crucible.Backend as C (IsSymInterface, readPartExpr, addFailedAssertion)
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle as C
+import           Lang.Crucible.FunctionName
+import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 import           Lang.Crucible.Types
 import           Lang.Crucible.Backend
-
 import           Lang.Crucible.Utils.MonadVerbosity
 import qualified Lang.Crucible.Utils.MuxTree as C (toMuxTree)
 
 import qualified Lang.Crucible.Simulator as C
 import qualified Lang.Crucible.Simulator.Evaluation as C (evalApp)
 import qualified Lang.Crucible.Simulator.GlobalState as C
-import qualified Lang.Crucible.Analysis.Postdom as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
 import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef)
 
 
 -- what4
-import qualified What4.ProgramLoc as W4 (Position(InternalPos))
-import           What4.FunctionName
 import qualified What4.Interface as W4
 import qualified What4.InterpretedFloatingPoint as W4
 import qualified What4.Config as W4
@@ -389,7 +388,7 @@ extendJVMContext halloc c = do
 -- | Make a binding for a Java method that, when invoked, immediately
 -- translates the Java source code and then runs it.
 mkDelayedBinding :: forall p sym .
-                    W4.IsExprBuilder sym
+                    C.IsSymInterface sym
                  => JVMContext
                  -> Verbosity
                  -> J.Class
@@ -421,7 +420,7 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
 -- to 'C.initSimContext'.
 mkDelayedBindings ::
   forall p sym .
-  W4.IsExprBuilder sym =>
+  C.IsSymInterface sym =>
   JVMContext ->
   Verbosity ->
   C.FunctionBindings p sym JVM
@@ -468,13 +467,14 @@ mkSimSt ::
   C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx) ->
   IO (C.ExecState p sym JVM (C.RegEntry sym ret))
 mkSimSt sym p halloc ctx verbosity ret k =
-  do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
+  do fm <- getFloatMode sym
+     globals <- Map.foldrWithKey (initField fm) (return globals0) (staticFields ctx)
      return $ C.InitialState simctx globals C.defaultAbortHandler ret k
   where
     -- initField :: (J.ClassName, J.FieldId) -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
-    initField (_, fi) var m =
+    initField fm (_, fi) var m =
       do gs <- m
-         z <- zeroValue sym (J.fieldIdType fi)
+         z <- zeroValue sym fm (J.fieldIdType fi)
          return (C.insertGlobal var z gs)
 
     simctx = jvmSimContext sym halloc stdout ctx verbosity p
@@ -482,16 +482,16 @@ mkSimSt sym p halloc ctx verbosity ret k =
 
 -- | Construct a zero value of the appropriate type. This is used for
 -- initializing static fields of classes.
-zeroValue :: IsSymInterface sym => sym -> J.Type -> IO (C.RegValue sym JVMValueType)
-zeroValue sym ty =
+zeroValue :: IsSymInterface sym => sym -> FloatModeRepr (CrucibleFloatMode sym) -> J.Type -> IO (C.RegValue sym JVMValueType)
+zeroValue sym fm ty =
   case ty of
     J.ArrayType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
     J.BooleanType -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
     J.ByteType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
     J.CharType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
     J.ClassType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
-    J.DoubleType  -> C.injectVariant sym knownRepr tagD <$> W4.iFloatPZero sym DoubleFloatRepr
-    J.FloatType   -> C.injectVariant sym knownRepr tagF <$> W4.iFloatPZero sym SingleFloatRepr
+    J.DoubleType  -> C.injectVariant sym knownRepr tagD <$> W4.iFloatPZero sym fm DoubleFloatRepr
+    J.FloatType   -> C.injectVariant sym knownRepr tagF <$> W4.iFloatPZero sym fm SingleFloatRepr
     J.IntType     -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
     J.LongType    -> C.injectVariant sym knownRepr tagL <$> W4.bvLit sym w64 (BV.zero w64)
     J.ShortType   -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
@@ -511,7 +511,7 @@ runClassInit halloc ctx verbosity name = do
                     f = do () <- initializeClass name
                            return (App EmptyApp)
       sng <- newIONonceGenerator
-      (SomeCFG g, []) <- defineFunction W4.InternalPos sng h def
+      (SomeCFG g, []) <- defineFunction InternalPos sng h def
       return (toSSA g)
   C.callCFG g' (C.RegMap Ctx.Empty)
 
@@ -549,8 +549,9 @@ runMethodHandle
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 runMethodHandle sym p halloc ctx verbosity classname h args =
-  do exst <- setupMethodHandleCrux sym p halloc ctx verbosity classname h args
-     C.executeCrucible [] exst
+  do fm <- getFloatMode sym
+     exst <- setupMethodHandleCrux sym p halloc ctx verbosity classname h args
+     C.executeCrucible fm [] exst
 
 --------------------------------------------------------------------------------
 
@@ -652,8 +653,9 @@ executeCrucibleJVM
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 executeCrucibleJVM cp v sym p classname methname args =
-  do exst <- setupCrucibleJVMCrux cp v sym p classname methname args
-     C.executeCrucible [] exst
+  do fm <- getFloatMode sym
+     exst <- setupCrucibleJVMCrux cp v sym p classname methname args
+     C.executeCrucible fm [] exst
 
 getGlobalPair ::
   C.PartialResult sym ext v ->
@@ -801,9 +803,11 @@ refIsEqual sym ref1 ref2 =
 doAppJVM ::
   IsSymInterface sym =>
   sym -> App JVM (C.RegValue' sym) tp -> IO (C.RegValue sym tp)
-doAppJVM sym =
-  C.evalApp sym jvmIntrinsicTypes out
-    (C.extensionEval jvmExtensionImpl sym jvmIntrinsicTypes out) (return . C.unRV)
+doAppJVM sym app =
+  do fm <- getFloatMode sym
+     C.evalApp sym fm jvmIntrinsicTypes out
+       (C.extensionEval jvmExtensionImpl sym jvmIntrinsicTypes out) (return . C.unRV)
+       app
   where
     out _verbosity _msg = return () --putStrLn
 

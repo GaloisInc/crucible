@@ -283,7 +283,7 @@ data OnlineBackendState solver t = OnlineBackendState
     -- ^ The solver process, if any.
   , currentFeatures :: !(IORef ProblemFeatures)
 
-  , floatMode :: FloatModeRepr (CrucibleFloatMode t)
+  , onlineFloatMode :: FloatModeRepr (CrucibleFloatMode t)
   }
 
 -- | Returns an initial execution state.
@@ -300,7 +300,7 @@ initialOnlineBackendState gen fm feats =
                  { assumptionStack = stk
                  , solverProc = procref
                  , currentFeatures = featref
-                 , floatMode = fm
+                 , onlineFloatMode = fm
                  }
 
 getAssumptionStack ::
@@ -464,7 +464,7 @@ withOnlineBackend gen fm feats action = do
 
 
 instance OnlineSolver solver => IsBoolSolver (OnlineBackend scope fm solver) where
-  getFloatMode sym = floatMode <$> readIORef (B.sbStateManager sym)
+  getFloatMode sym = onlineFloatMode <$> readIORef (B.sbStateManager sym)
 
   addDurableProofObligation sym a =
      AS.addProofObligation a =<< getAssumptionStack sym

@@ -20,10 +20,12 @@ import Data.Parameterized.Map (MapF)
 import Data.Parameterized.Pair(Pair(..))
 import qualified Data.Parameterized.Map as MapF
 
-import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType,FloatPrecisionRepr(..))
-import Lang.Crucible.Simulator.RegMap(RegValue)
 import What4.Expr (GroundEvalFn(..),ExprBuilder)
-import What4.ProgramLoc
+
+import Lang.Crucible.ProgramLoc
+import Lang.Crucible.Simulator.RegMap(RegValue)
+import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType,FloatPrecisionRepr(..))
+
 
 import Crux.UI.JS
 import Crux.Types
@@ -53,14 +55,14 @@ addVar l nm k v (Model mp) = Model (MapF.insertWith jn k (Vars [ ent ]) mp)
   where jn (Vars new) (Vars old) = Vars (new ++ old)
         ent = Entry { entryName = nm, entryLoc = l, entryValue = v }
 
-evalVars :: GroundEvalFn s -> Vars (ExprBuilder s t fs) ty -> IO (Vals ty)
+evalVars :: GroundEvalFn s -> Vars (ExprBuilder s t) ty -> IO (Vals ty)
 evalVars ev (Vars xs) = Vals . reverse <$> mapM evEntry xs
   where evEntry e = do v <- groundEval ev (entryValue e)
                        return e { entryValue = v }
 
 evalModel ::
   GroundEvalFn s ->
-  Model (ExprBuilder s t fs) ->
+  Model (ExprBuilder s t) ->
   IO (MapF BaseTypeRepr Vals)
 evalModel ev (Model mp) = traverseF (evalVars ev) mp
 

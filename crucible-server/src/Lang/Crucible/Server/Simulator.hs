@@ -43,12 +43,12 @@ import           Data.Parameterized.Nonce (indexValue)
 import           Data.Parameterized.Some
 
 import           What4.Config
-import           What4.FunctionName
-import           What4.ProgramLoc
 import           What4.Interface
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionName
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator
 import           Lang.Crucible.Simulator.ExecutionTree (stateTree, activeFrames, filterCrucibleFrames)
 import           Lang.Crucible.Simulator.Operations( abortExec )

@@ -24,6 +24,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Partial
   ( PartLLVMVal(..)
@@ -204,79 +205,84 @@ ppAssertion (PLV (Err e)) = text $
 --
 
 floatToBV ::
-  IsSymInterface sym => sym ->
+  IsSymInterface sym =>
+  sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-floatToBV _ (NoErr p (LLVMValUndef (StorageType Float _))) =
+floatToBV _ _ (NoErr p (LLVMValUndef (StorageType Float _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 4)))
 
-floatToBV sym (NoErr p (LLVMValZero (StorageType Float _))) =
+floatToBV sym _ (NoErr p (LLVMValZero (StorageType Float _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvLit sym (knownNat @32) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
-floatToBV sym (NoErr p (LLVMValFloat Value.SingleSize v)) =
+floatToBV sym fm (NoErr p (LLVMValFloat Value.SingleSize v)) =
   do nz <- W4I.natLit sym 0
-     i  <- W4IFP.iFloatToBinary sym W4IFP.SingleFloatRepr v
+     i  <- W4IFP.iFloatToBinary sym fm W4IFP.SingleFloatRepr v
      return (NoErr p (LLVMValInt nz i))
 
-floatToBV _ (Err e) =
+floatToBV _ _ (Err e) =
   let msg = "While converting from a float to a bitvector"
   in return $ Err $ PreviousErrors msg [e]
 
-floatToBV _ (NoErr _ v) =
+floatToBV _ _ (NoErr _ v) =
   let msg = "While converting from a float to a bitvector"
   in return $ Err $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 doubleToBV ::
-  IsSymInterface sym => sym ->
+  IsSymInterface sym =>
+  sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-doubleToBV _ (NoErr p (LLVMValUndef (StorageType Double _))) =
+doubleToBV _ _ (NoErr p (LLVMValUndef (StorageType Double _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 8)))
 
-doubleToBV sym (NoErr p (LLVMValZero (StorageType Double _))) =
+doubleToBV sym _ (NoErr p (LLVMValZero (StorageType Double _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvLit sym (knownNat @64) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
-doubleToBV sym (NoErr p (LLVMValFloat Value.DoubleSize v)) =
+doubleToBV sym fm (NoErr p (LLVMValFloat Value.DoubleSize v)) =
   do nz <- W4I.natLit sym 0
-     i  <- W4IFP.iFloatToBinary sym W4IFP.DoubleFloatRepr v
+     i  <- W4IFP.iFloatToBinary sym fm W4IFP.DoubleFloatRepr v
      return (NoErr p (LLVMValInt nz i))
 
-doubleToBV _ (Err e) =
+doubleToBV _ _ (Err e) =
   let msg = "While converting from a double to a bitvector"
   in return $ Err $ PreviousErrors msg [e]
 
-doubleToBV _ (NoErr _ v) =
+doubleToBV _ _ (NoErr _ v) =
   let msg = "While converting from a double to a bitvector"
   in return $ Err $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 fp80ToBV ::
   IsSymInterface sym => sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-fp80ToBV _ (NoErr p (LLVMValUndef (StorageType X86_FP80 _))) =
+fp80ToBV _ _ (NoErr p (LLVMValUndef (StorageType X86_FP80 _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 10)))
 
-fp80ToBV sym (NoErr p (LLVMValZero (StorageType X86_FP80 _))) =
+fp80ToBV sym _ (NoErr p (LLVMValZero (StorageType X86_FP80 _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvLit sym (knownNat @80) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
-fp80ToBV sym (NoErr p (LLVMValFloat Value.X86_FP80Size v)) =
+fp80ToBV sym fm (NoErr p (LLVMValFloat Value.X86_FP80Size v)) =
   do nz <- W4I.natLit sym 0
-     i  <- W4IFP.iFloatToBinary sym W4IFP.X86_80FloatRepr v
+     i  <- W4IFP.iFloatToBinary sym fm W4IFP.X86_80FloatRepr v
      return (NoErr p (LLVMValInt nz i))
 
-fp80ToBV _ (Err e) =
+fp80ToBV _ _ (Err e) =
   let msg = "While converting from a FP80 to a bitvector"
   in return $ Err $ PreviousErrors msg [e]
 
-fp80ToBV _ (NoErr _ v) =
+fp80ToBV _ _ (NoErr _ v) =
   let msg = "While converting from a FP80 to a bitvector"
   in return $ Err $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
@@ -284,27 +290,28 @@ fp80ToBV _ (NoErr _ v) =
 bvToFloat :: forall sym.
   (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToFloat sym (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
+bvToFloat sym fm (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
   NoErr p . LLVMValFloat Value.SingleSize <$>
-    (W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr =<<
+    (W4IFP.iFloatFromBinary sym fm W4IFP.SingleFloatRepr =<<
        W4I.bvLit sym (knownNat @32) (BV.zero knownNat))
 
-bvToFloat sym (NoErr p (LLVMValInt blk off))
+bvToFloat sym fm (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @32) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
       let ub = UB.PointerCast (RV blk, RV off) Float
       p' <- W4I.andPred sym p =<< annotateUB sym ub pz
       NoErr p' . LLVMValFloat Value.SingleSize <$>
-        W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr off
+        W4IFP.iFloatFromBinary sym fm W4IFP.SingleFloatRepr off
 
-bvToFloat _ (Err e) =
+bvToFloat _ _ (Err e) =
   let msg = "While converting from a bitvector to a float"
   in return $ Err $ PreviousErrors msg [e]
 
-bvToFloat _ (NoErr _ v) =
+bvToFloat _ _ (NoErr _ v) =
   let msg = "While converting from a bitvector to a float"
   in return $ Err $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
@@ -313,28 +320,29 @@ bvToFloat _ (NoErr _ v) =
 bvToDouble ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToDouble sym (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
+bvToDouble sym fm (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
   NoErr p . LLVMValFloat Value.DoubleSize <$>
-    (W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr =<<
+    (W4IFP.iFloatFromBinary sym fm W4IFP.DoubleFloatRepr =<<
        W4I.bvLit sym (knownNat @64) (BV.zero knownNat))
 
-bvToDouble sym (NoErr p (LLVMValInt blk off))
+bvToDouble sym fm (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @64) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
       let ub = UB.PointerCast (RV blk, RV off) Double
       p' <- W4I.andPred sym p =<< annotateUB sym ub pz
       NoErr p' .
         LLVMValFloat Value.DoubleSize <$>
-        W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr off
+        W4IFP.iFloatFromBinary sym fm W4IFP.DoubleFloatRepr off
 
-bvToDouble _ (Err e) =
+bvToDouble _ _ (Err e) =
   let msg = "While converting from a bitvector to a double"
   in return $ Err $ PreviousErrors msg [e]
 
-bvToDouble _ (NoErr _ v) =
+bvToDouble _ _ (NoErr _ v) =
   let msg = "While converting from a bitvector to a double"
   in return $ Err $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
@@ -343,27 +351,28 @@ bvToDouble _ (NoErr _ v) =
 bvToX86_FP80 ::
   (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToX86_FP80 sym (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
+bvToX86_FP80 sym fm (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
   NoErr p . LLVMValFloat Value.X86_FP80Size <$>
-    (W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr =<<
+    (W4IFP.iFloatFromBinary sym fm W4IFP.X86_80FloatRepr =<<
        W4I.bvLit sym (knownNat @80) (BV.zero knownNat))
 
-bvToX86_FP80 sym (NoErr p (LLVMValInt blk off))
+bvToX86_FP80 sym fm (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @80) =
       do pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
          let ub = UB.PointerCast (RV blk, RV off) X86_FP80
          p' <- W4I.andPred sym p =<< annotateUB sym ub pz
          NoErr p' . LLVMValFloat Value.X86_FP80Size <$>
-           W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
+           W4IFP.iFloatFromBinary sym fm W4IFP.X86_80FloatRepr off
 
-bvToX86_FP80 _ (Err e) =
+bvToX86_FP80 _ _ (Err e) =
   let msg = "While converting from a bitvector to a X86_FP80"
   in return $ Err $ PreviousErrors msg [e]
 
-bvToX86_FP80 _ (NoErr _ v) =
+bvToX86_FP80 _ _ (NoErr _ v) =
   let msg = "While converting from a bitvector to a X86_FP80"
   in return $ Err $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
@@ -730,11 +739,12 @@ merge sym f cond (NoErr px x) (NoErr py y) = do
 muxLLVMVal :: forall sym.
   (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   Pred sym ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-muxLLVMVal sym = merge sym muxval
+muxLLVMVal sym fm = merge sym muxval
   where
 
     muxzero :: Pred sym -> StorageType -> LLVMVal sym -> IO (LLVMVal sym)
@@ -752,16 +762,16 @@ muxLLVMVal sym = merge sym muxval
            off'  <- W4I.bvIte sym cond zoff off
            return $ LLVMValInt base' off'
       LLVMValFloat Value.SingleSize x ->
-        do zerof <- (W4IFP.iFloatLit sym W4IFP.SingleFloatRepr 0)
-           x'    <- (W4IFP.iFloatIte @_ @W4IFP.SingleFloat sym cond zerof x)
+        do zerof <- (W4IFP.iFloatLit sym fm W4IFP.SingleFloatRepr 0)
+           x'    <- (W4IFP.iFloatIte @_ @_ @W4IFP.SingleFloat sym fm cond zerof x)
            return $ LLVMValFloat Value.SingleSize x'
       LLVMValFloat Value.DoubleSize x ->
-        do zerof <- (W4IFP.iFloatLit sym W4IFP.DoubleFloatRepr 0)
-           x'    <- (W4IFP.iFloatIte @_ @W4IFP.DoubleFloat sym cond zerof x)
+        do zerof <- (W4IFP.iFloatLit sym fm W4IFP.DoubleFloatRepr 0)
+           x'    <- (W4IFP.iFloatIte @_ @_ @W4IFP.DoubleFloat sym fm cond zerof x)
            return $ LLVMValFloat Value.DoubleSize x'
       LLVMValFloat Value.X86_FP80Size x ->
-        do zerof <- (W4IFP.iFloatLit sym W4IFP.X86_80FloatRepr 0)
-           x'    <- (W4IFP.iFloatIte @_ @W4IFP.X86_80Float sym cond zerof x)
+        do zerof <- (W4IFP.iFloatLit sym fm W4IFP.X86_80FloatRepr 0)
+           x'    <- (W4IFP.iFloatIte @_ @_ @W4IFP.X86_80Float sym fm cond zerof x)
            return $ LLVMValFloat Value.X86_FP80Size x'
 
       LLVMValArray tp vec -> LLVMValArray tp <$>
@@ -786,7 +796,7 @@ muxLLVMVal sym = merge sym muxval
     muxval cond (LLVMValFloat (xsz :: Value.FloatSize fi) x) (LLVMValFloat ysz y)
       | Just Refl <- testEquality xsz ysz
       = LLVMValFloat xsz <$>
-          (liftIO $ W4IFP.iFloatIte @_ @fi sym cond x y)
+          (liftIO $ W4IFP.iFloatIte @_ @_ @fi sym fm cond x y)
 
     muxval cond (LLVMValStruct fls1) (LLVMValStruct fls2)
       | fmap fst fls1 == fmap fst fls2 =

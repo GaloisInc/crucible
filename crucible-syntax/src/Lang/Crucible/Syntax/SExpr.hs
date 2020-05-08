@@ -27,11 +27,11 @@ module Lang.Crucible.Syntax.SExpr
   ) where
 
 import Data.Char (isDigit, isLetter)
-import Data.Semigroup (Semigroup(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void
-import What4.ProgramLoc as C
+
+import Lang.Crucible.ProgramLoc as C
 
 import Text.Megaparsec as MP
 import Text.Megaparsec.Char

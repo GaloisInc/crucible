@@ -21,7 +21,6 @@ module Lang.Crucible.Backend.Simple
   , newSimpleBackend
     -- * SimpleBackendState
   , SimpleBackendState
-  , getFloatMode
   ) where
 
 import           Control.Lens

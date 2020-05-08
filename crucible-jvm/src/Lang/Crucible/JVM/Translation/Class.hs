@@ -129,6 +129,7 @@ import qualified Language.JVM.Parser as J
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 import           Lang.Crucible.Types
 
 -- crucible-jvm
@@ -138,7 +139,7 @@ import           Lang.Crucible.JVM.Translation.Monad
 
 -- what4
 import           What4.Interface (StringLiteral(..))
-import           What4.ProgramLoc (Position(InternalPos))
+
 
 import           GHC.Stack
 import           Prelude

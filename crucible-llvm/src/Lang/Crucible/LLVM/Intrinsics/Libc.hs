@@ -39,10 +39,10 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.Interface
-import           What4.ProgramLoc (plSourceLoc)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
+import           Lang.Crucible.ProgramLoc (plSourceLoc)
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.OverrideSim
@@ -322,7 +322,8 @@ callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue ->
           modifyGlobal mvar $ \mem -> liftIO $
              do loc <- plSourceLoc <$> getCurrentProgramLoc sym
                 (p, mem') <- doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz a
-                mem'' <- storeRaw sym mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
+                fm <- liftIO (getFloatMode sym)
+                mem'' <- storeRaw sym fm mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
                 z <- bvLit sym knownNat (BV.zero knownNat)
                 return (z, mem'')
 

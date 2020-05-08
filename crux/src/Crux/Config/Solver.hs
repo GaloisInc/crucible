@@ -15,6 +15,7 @@ module Crux.Config.Solver (
 import           Control.Applicative ( (<|>), empty, Alternative )
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
+import qualified Lang.Crucible.Backend as CBS
 import qualified Lang.Crucible.Backend.Simple as CBS
 import           Text.Printf ( printf )
 import qualified What4.Expr.Builder as WEB
@@ -28,22 +29,27 @@ data SolverOffline = SolverOnline SolverOnline | Boolector | DReal
   deriving (Eq, Ord, Show)
 
 class HasDefaultFloatRepr solver where
-  withDefaultFloatRepr :: proxy s -> solver -> (forall fm . (WIF.IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (WEB.Flags fm))) => WEB.FloatModeRepr fm -> a) -> a
+  withDefaultFloatRepr ::
+    proxy s ->
+    solver ->
+    (forall fm . (WIF.IsInterpretedFloatExprBuilder (WEB.ExprBuilder (CBS.CrucibleBackend s fm) CBS.SimpleBackendState) fm) =>
+         WIF.FloatModeRepr fm -> a) ->
+    a
 
 instance HasDefaultFloatRepr SolverOnline where
   withDefaultFloatRepr _ s k =
     case s of
-      CVC4 -> k WEB.FloatRealRepr
-      STP -> k WEB.FloatRealRepr
-      Yices -> k WEB.FloatRealRepr
-      Z3 -> k WEB.FloatIEEERepr
+      CVC4 -> k WIF.FloatRealRepr
+      STP -> k WIF.FloatRealRepr
+      Yices -> k WIF.FloatRealRepr
+      Z3 -> k WIF.FloatIEEERepr
 
 instance HasDefaultFloatRepr SolverOffline where
   withDefaultFloatRepr proxy s k =
     case s of
       SolverOnline s' -> withDefaultFloatRepr proxy s' k
-      Boolector -> k WEB.FloatUninterpretedRepr
-      DReal -> k WEB.FloatRealRepr
+      Boolector -> k WIF.FloatUninterpretedRepr
+      DReal -> k WIF.FloatRealRepr
 
 -- | Test to see if an online and offline solver are actually the same
 sameSolver :: SolverOnline -> SolverOffline -> Bool

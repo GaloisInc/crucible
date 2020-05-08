@@ -87,7 +87,7 @@ data LLVMVal sym where
   -- numbers correspond to pointer values, where the 'SymBV' value is an
   -- offset from the base pointer of the allocation.
   LLVMValInt :: (1 <= w) => SymNat sym -> SymBV sym w -> LLVMVal sym
-  LLVMValFloat :: FloatSize fi -> SymInterpretedFloat sym fi -> LLVMVal sym
+  LLVMValFloat :: FloatSize fi -> SymInterpretedFloat sym (CrucibleFloatMode sym) fi -> LLVMVal sym
   LLVMValStruct :: Vector (Field StorageType, LLVMVal sym) -> LLVMVal sym
   LLVMValArray :: StorageType -> Vector (LLVMVal sym) -> LLVMVal sym
 
@@ -255,9 +255,9 @@ commuteMaybe Nothing    = pure Nothing
 
 -- | This should be used with caution: it is very inefficient to expand zeroes,
 -- especially to large data structures (e.g. long arrays).
-zeroExpandLLVMVal :: (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym)
-                  => sym -> StorageType -> IO (LLVMVal sym)
-zeroExpandLLVMVal sym (StorageType tpf _sz) =
+zeroExpandLLVMVal :: IsSymInterface sym =>
+  sym -> FloatModeRepr (CrucibleFloatMode sym) -> StorageType -> IO (LLVMVal sym)
+zeroExpandLLVMVal sym fm (StorageType tpf _sz) =
   case tpf of
     Bitvector bytes ->
       case mkNatRepr (bytesToBits bytes) of
@@ -268,15 +268,15 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
             NatCaseEQ -> panic "zeroExpandLLVMVal" ["Zero value inside Bytes"]
             NatCaseGT (LeqProof :: LeqProof (w + 1) 0) ->
               panic "zeroExpandLLVMVal" ["Impossible: (w + 1) </= 0"]
-    Float    -> LLVMValFloat SingleSize <$> iFloatPZero sym SingleFloatRepr
-    Double   -> LLVMValFloat DoubleSize <$> iFloatPZero sym DoubleFloatRepr
-    X86_FP80 -> LLVMValFloat X86_FP80Size <$> iFloatPZero sym X86_80FloatRepr
+    Float    -> LLVMValFloat SingleSize <$> iFloatPZero sym fm SingleFloatRepr
+    Double   -> LLVMValFloat DoubleSize <$> iFloatPZero sym fm DoubleFloatRepr
+    X86_FP80 -> LLVMValFloat X86_FP80Size <$> iFloatPZero sym fm X86_80FloatRepr
     Array n ty ->
       LLVMValArray ty . V.replicate (fromIntegral (bytesToInteger n)) <$>
-        zeroExpandLLVMVal sym ty
+        zeroExpandLLVMVal sym fm ty
     Struct vec ->
       LLVMValStruct <$>
-        V.zipWithM (\f t -> (f,) <$> zeroExpandLLVMVal sym t) vec (fmap (view fieldVal) vec)
+        V.zipWithM (\f t -> (f,) <$> zeroExpandLLVMVal sym fm t) vec (fmap (view fieldVal) vec)
 
 -- | A special case for comparing values to the distinguished zero value.
 --
@@ -285,9 +285,9 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
 -- early on a constantly false answer or 'LLVMValUndef'.
 --
 -- Returns 'Nothing' for 'LLVMValUndef'.
-isZero :: forall sym. (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym)
-       => sym -> LLVMVal sym -> IO (Maybe (Pred sym))
-isZero sym v =
+isZero :: forall sym. IsSymInterface sym =>
+       sym -> FloatModeRepr (CrucibleFloatMode sym) -> LLVMVal sym -> IO (Maybe (Pred sym))
+isZero sym fm v =
   case v of
     LLVMValStruct fs  -> areZero' (fmap snd fs)
     LLVMValArray _ vs -> areZero' vs
@@ -295,10 +295,10 @@ isZero sym v =
     LLVMValUndef _    -> pure Nothing
     _                 ->
       -- For atomic types, we simply expand and compare.
-      testEqual sym v =<< zeroExpandLLVMVal sym (llvmValStorableType v)
+      testEqual sym fm v =<< zeroExpandLLVMVal sym fm (llvmValStorableType v)
   where
     areZero :: Traversable t => t (LLVMVal sym) -> IO (Maybe (t (Pred sym)))
-    areZero = fmap sequence . traverse (isZero sym)
+    areZero = fmap sequence . traverse (isZero sym fm)
     areZero' :: Traversable t => t (LLVMVal sym) -> IO (Maybe (Pred sym))
     areZero' vs =
       -- This could probably be simplified with a well-placed =<<...
@@ -307,9 +307,9 @@ isZero sym v =
 -- | A predicate denoting the equality of two LLVMVals.
 --
 -- Returns 'Nothing' in the event that one of the values contains 'LLVMValUndef'.
-testEqual :: forall sym. (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym)
-          => sym -> LLVMVal sym -> LLVMVal sym -> IO (Maybe (Pred sym))
-testEqual sym v1 v2 =
+testEqual :: forall sym. IsSymInterface sym =>
+          sym -> FloatModeRepr (CrucibleFloatMode sym) -> LLVMVal sym -> LLVMVal sym -> IO (Maybe (Pred sym))
+testEqual sym fm v1 v2 =
   case (v1, v2) of
     (LLVMValInt blk1 off1, LLVMValInt blk2 off2) ->
       case testEquality (bvWidth off1) (bvWidth off2) of
@@ -320,7 +320,7 @@ testEqual sym v1 v2 =
     (LLVMValFloat (sz1 :: FloatSize fi1) flt1, LLVMValFloat sz2 flt2) ->
       case testEquality sz1 sz2 of
         Nothing   -> false
-        Just Refl -> Just <$> iFloatEq @_ @fi1 sym flt1 flt2
+        Just Refl -> Just <$> iFloatEq @_ @_ @fi1 sym fm flt1 flt2
     (LLVMValArray tp1 vec1, LLVMValArray tp2 vec2) ->
       andAlso (tp1 == tp2) (allEqual vec1 vec2)
     (LLVMValStruct vec1, LLVMValStruct vec2) ->
@@ -341,8 +341,8 @@ testEqual sym v1 v2 =
 
         allEqual vs1 vs2 =
           foldM (\x y -> commuteMaybe (andPred sym <$> x <*> y)) (Just $ truePred sym) =<<
-            V.zipWithM (testEqual sym) vs1 vs2
+            V.zipWithM (testEqual sym fm) vs1 vs2
 
         -- This is probably inefficient:
         compareZero tp other =
-          andAlso (llvmValStorableType other == tp) $ isZero sym other
+          andAlso (llvmValStorableType other == tp) $ isZero sym fm other

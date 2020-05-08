@@ -8,6 +8,7 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE RankNTypes #-}
@@ -53,14 +54,13 @@ import           Lang.Crucible.Backend (IsSymInterface)
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
 import           Lang.Crucible.FunctionHandle ( mkHandle' )
+import           Lang.Crucible.FunctionName
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator (stateContext, simHandleAllocator)
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Utils.MonadVerbosity (getLogFunction)
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Types
-
-import           What4.FunctionName
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel

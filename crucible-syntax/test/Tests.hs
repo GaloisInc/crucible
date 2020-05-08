@@ -21,6 +21,7 @@ import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.ExprParse
 import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
 import Lang.Crucible.CFG.SSAConversion
+import Lang.Crucible.ProgramLoc
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
@@ -30,9 +31,7 @@ import System.FilePath
 import System.Directory
 
 import What4.Config
-import What4.ProgramLoc
 import What4.Solver.Z3 (z3Options)
-
 
 
 import Overrides as TestOvrs

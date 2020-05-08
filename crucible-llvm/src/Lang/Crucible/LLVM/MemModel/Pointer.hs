@@ -265,7 +265,7 @@ ptrIsNull sym w (LLVMPointer blk off) =
      andPred sym pblk poff
 
 
-ppPtr  :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc
+ppPtr  :: (IsExpr (SymExpr sym), PrintExpr (SymExpr sym)) => LLVMPtr sym wptr -> Doc
 ppPtr (llvmPointerView -> (blk, bv))
   | Just 0 <- asNat blk = printSymExpr bv
   | otherwise =

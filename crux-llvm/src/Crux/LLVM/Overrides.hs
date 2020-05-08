@@ -28,7 +28,6 @@ import qualified Data.BitVector.Sized as BV
 import Data.Parameterized.Context.Unsafe (Assignment)
 import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 
-import What4.ProgramLoc( Position(..), ProgramLoc(..) )
 import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
           (freshConstant, bvLit, bvAdd, asBV, predToBV,
@@ -37,6 +36,7 @@ import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(GlobalVar)
+import Lang.Crucible.ProgramLoc( Position(..), ProgramLoc(..) )
 import Lang.Crucible.Simulator.RegMap(regValue,RegValue,RegEntry)
 import Lang.Crucible.Simulator.ExecutionTree
   ( stateContext, cruciblePersonality, printHandle )
@@ -49,7 +49,9 @@ import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
           ( IsSymInterface, addDurableAssertion, addFailedAssertion
-          , addAssumption, LabeledPred(..), AssumptionReason(..))
+          , addAssumption, LabeledPred(..), AssumptionReason(..)
+          , getFloatMode
+          )
 import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
@@ -318,13 +320,14 @@ mkFreshFloat
   -> OverM sym (LLVM arch) (RegValue sym (FloatType fi))
 mkFreshFloat nm fi = do
   sym  <- getSymInterface
+  fm <- liftIO $ getFloatMode sym
   name <- case userSymbol nm of
             Left err -> fail (show err) -- XXX
             Right a  -> return a
-  elt  <- liftIO $ freshFloatConstant sym name fi
+  elt  <- liftIO $ freshFloatConstant sym fm name fi
   loc  <- liftIO $ getCurrentProgramLoc sym
   stateContext.cruciblePersonality %=
-    addVar loc nm (iFloatBaseTypeRepr sym fi) elt
+    addVar loc nm (iFloatBaseTypeRepr sym fm fi) elt
   return elt
 
 lookupString ::

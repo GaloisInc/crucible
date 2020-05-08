@@ -12,6 +12,7 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
@@ -48,14 +49,13 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 
-import           What4.ProgramLoc
 import           What4.Utils.StringLiteral
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
+import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.ValueConv

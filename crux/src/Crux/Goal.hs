@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language ImplicitParams #-}
@@ -156,8 +157,8 @@ data ProcessedGoals =
 --
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
-proveGoalsOffline :: forall st sym p asmp ast t fs
-                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs)
+proveGoalsOffline :: forall st sym p asmp ast t
+                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st, IsSymInterface sym)
                   => WS.SolverAdapter st
                   -> CruxOptions
                   -> SimCtxt sym p
@@ -240,10 +241,12 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
 -- 'SimCtxt'.  We do that so that we can use separate solvers for path
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
-  , OnlineSolver s solver
-  , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
-  , OnlineSolver s goalSolver
+  ( sym ~ ExprBuilder (CrucibleBackend s fm) (OnlineBackendState solver)
+  , IsSymInterface sym
+  , OnlineSolver solver
+  , goalSym ~ ExprBuilder (CrucibleBackend s fm) (OnlineBackendState goalSolver)
+  , IsSymInterface goalSym
+  , OnlineSolver goalSolver
   , ?outputConfig :: OutputConfig
   ) =>
   goalSym ->

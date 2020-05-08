@@ -49,11 +49,9 @@ import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 import           Lang.Crucible.Types
 import           Lang.Crucible.Panic
-
--- what4
-import           What4.ProgramLoc (Position(InternalPos))
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types

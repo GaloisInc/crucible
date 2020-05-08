@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
@@ -36,13 +37,13 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Backend.ProofGoals
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
+import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
 import What4.Expr.Builder (ExprBuilder)
-import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)
 
@@ -82,7 +83,7 @@ simulateProgram
    -> Handle   -- ^ A handle that will receive the output
    -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
-   -> (forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+   -> (forall p sym ext t st. (IsSymInterface sym, sym ~ (ExprBuilder t st)) =>
          sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
    -> IO ()
 simulateProgram fn theInput outh profh opts setup =
@@ -94,7 +95,7 @@ simulateProgram fn theInput outh profh opts setup =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do sym <- newSimpleBackend FloatIEEERepr nonceGen
+         do sym <- newSimpleBackend nonceGen FloatIEEERepr 
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
@@ -122,11 +123,11 @@ simulateProgram fn theInput outh profh opts setup =
 
                        case profh of
                          Nothing ->
-                           void $ executeCrucible [] simSt
+                           void $ executeCrucible FloatIEEERepr [] simSt
                          Just ph ->
                            do proftab <- newProfilingTable
                               pf <- profilingFeature proftab Nothing
-                              void $ executeCrucible [genericToExecutionFeature pf] simSt
+                              void $ executeCrucible FloatIEEERepr [genericToExecutionFeature pf] simSt
                               hPutStrLn ph =<< symProUIString "crucibler-prof" fn proftab
 
                        hPutStrLn outh "\n==== Finish Simulation ===="

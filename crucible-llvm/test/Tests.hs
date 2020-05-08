@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns     #-}
 {-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE ExplicitForAll   #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase       #-}
 {-# LANGUAGE RankNTypes #-}
@@ -25,6 +26,8 @@ import           Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx
 import qualified What4.Expr.Builder as What4
 import qualified What4.Interface as What4
+import qualified What4.InterpretedFloatingPoint as What4
+import qualified What4.Partial as What4
 import qualified What4.Protocol.Online as What4
 import qualified What4.SatResult as What4
 
@@ -320,7 +323,7 @@ withLLVMCtx mod' action =
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
-        sym <- Crucible.newSimpleBackend What4.FloatRealRepr nonceGen
+        sym <- Crucible.newSimpleBackend nonceGen What4.FloatRealRepr
         let ?laxArith = False
         Some (ModuleTranslation _ ctx _ _) <- translateModule halloc mod'
         case llvmArch ctx                   of { X86Repr width ->
@@ -359,16 +362,16 @@ userSymbol' s = case What4.userSymbol s of
 
 withMem ::
   EndianForm ->
-  (forall sym scope solver fs wptr .
-    ( sym ~ Crucible.OnlineBackend scope solver fs
+  (forall sym scope solver fm wptr .
+    ( sym ~ Crucible.OnlineBackend scope fm solver
     , Crucible.IsSymInterface sym
     , HasLLVMAnn sym
-    , What4.OnlineSolver scope solver
+    , What4.OnlineSolver solver
     , HasPtrWidth wptr ) =>
     sym -> MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
-  Crucible.withZ3OnlineBackend What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures $ \sym -> do
+  Crucible.withZ3OnlineBackend nonce_gen What4.FloatIEEERepr Crucible.NoUnsatFeatures $ \sym -> do
     let ?ptrWidth = knownNat @64
     mem <- emptyMem endianess
     bbMapRef <- newIORef mempty
@@ -382,9 +385,9 @@ assume sym p = do
     Crucible.LabeledPred p $ Crucible.AssumptionReason loc ""
 
 checkSat ::
-  What4.OnlineSolver scope solver =>
-  Crucible.OnlineBackend scope solver fs ->
-  What4.BoolExpr scope ->
+  What4.OnlineSolver solver =>
+  Crucible.OnlineBackend scope fm solver ->
+  What4.Pred (Crucible.OnlineBackend scope fm solver) ->
   IO (What4.SatResult () ())
 checkSat sym p = do
   Crucible.withSolverProcess sym $ \proc ->
@@ -392,6 +395,7 @@ checkSat sym p = do
 
 testArrayStride :: TestTree
 testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
+  fm <- Crucible.getFloatMode sym
   sz <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth (1024 * 1024)
   (base_ptr, mem1) <- mallocRaw sym mem0 sz noAlignment
 
@@ -405,6 +409,7 @@ testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
         =<< What4.bvLit sym (knownNat @8) (BV.mkBV knownNat (fromIntegral (mod i (512 * 1024)))))
   mem2 <- storeRaw
     sym
+    fm
     mem1
     base_ptr
     (arrayType (1024 * 1024) byte_storage_type)

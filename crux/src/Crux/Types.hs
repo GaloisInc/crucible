@@ -4,12 +4,11 @@ module Crux.Types where
 import Data.Sequence (Seq)
 import Data.Parameterized.Map (MapF)
 
-import What4.Expr
-        (GroundValue)
-import What4.ProgramLoc
+import What4.Expr (GroundValue)
 import What4.Interface (Pred)
 
 import Lang.Crucible.Backend
+import Lang.Crucible.ProgramLoc
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator
 import Lang.Crucible.Types

@@ -38,8 +38,6 @@ where
 
 import Prelude hiding (fail)
 
-import Data.Semigroup (Semigroup(..))
-
 import Control.Lens hiding (cons, backwards)
 import Control.Applicative
 import Control.Monad.Identity hiding (fail)
@@ -74,11 +72,12 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Numeric.Natural
 
+import Lang.Crucible.ProgramLoc
+import Lang.Crucible.FunctionName
+
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
 import qualified Lang.Crucible.Syntax.ExprParse as SP
 
-import What4.ProgramLoc
-import What4.FunctionName
 import What4.Symbol
 import What4.Utils.StringLiteral
 

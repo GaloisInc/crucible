@@ -34,12 +34,11 @@ import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.Types
 import           Lang.Crucible.Panic
+import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
 import           Lang.Crucible.JVM.Context
--- what4
-import           What4.ProgramLoc (Position(InternalPos))
 
 import Debug.Trace
 

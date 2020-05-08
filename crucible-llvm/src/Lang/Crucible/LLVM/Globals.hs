@@ -68,7 +68,7 @@ import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Backend (IsSymInterface, getFloatMode)
 
 import           What4.Interface
 
@@ -346,5 +346,6 @@ populateGlobal sym gl memty cval giMap mem =
 
      ty <- toStorableType memty
      ptr <- doResolveGlobal sym mem (L.globalSym gl)
-     (val, mem') <- runStateT (constToLLVMValP sym populateRec cval) mem
+     fm <- getFloatMode sym
+     (val, mem') <- runStateT (constToLLVMValP sym fm populateRec cval) mem
      storeConstRaw sym mem' ptr ty alignment val

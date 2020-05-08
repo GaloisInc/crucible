@@ -13,6 +13,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
@@ -58,7 +59,6 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Some
 
 import           What4.Config
-import           What4.FunctionName
 import           What4.Concrete
 import           What4.Interface
 
@@ -69,6 +69,7 @@ import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.FunctionName
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import qualified Lang.Crucible.Simulator.Evaluation as Sim
@@ -176,7 +177,8 @@ fulfillRunCallRequest sim f_val encoded_args = do
       let simSt = InitialState ctx emptyGlobals (serverErrorHandler sim) res_tp
                     $ runOverrideSim res_tp (regValue <$> callFnVal f (RegMap args))
       -- Send messages to server with bytestring.
-      exec_res <- executeCrucible (map genericToExecutionFeature (simExecFeatures sim)) simSt
+      fm <- getFloatMode (ctx^.ctxSymInterface)
+      exec_res <- executeCrucible fm (map genericToExecutionFeature (simExecFeatures sim)) simSt
       case exec_res of
         FinishedResult ctx' (TotalRes (GlobalPair r _globals)) -> do
           writeIORef (simContext sim) $! ctx'
@@ -332,7 +334,8 @@ fulfillApplyPrimitiveRequest sim p_op args res_type = do
     Right (Some a) -> do
       let logLn _ _ = return ()
       sym <- getInterface sim
-      r <- Sim.evalApp sym MapF.empty logLn (\_ x -> case x of) (\(RegEntry _ v) -> return v) a
+      fm <- getFloatMode sym
+      r <- Sim.evalApp sym fm MapF.empty logLn (\_ x -> case x of) (\(RegEntry _ v) -> return v) a
       pv <- toProtoValue sim (RegEntry (appType a) r)
       let resp =
            mempty & P.simulatorValueResponse_successful .~ True

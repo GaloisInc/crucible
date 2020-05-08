@@ -272,11 +272,11 @@ emptyMem endianness = do
   blkRef <- newIORef 1
   return $ MemImpl (BlockSource blkRef) Map.empty Map.empty (G.emptyMem endianness)
 
-ppMem :: IsExprBuilder sym => MemImpl sym -> Doc
+ppMem :: IsSymInterface sym => MemImpl sym -> Doc
 ppMem mem = G.ppMem (memImplHeap mem)
 
 -- | Pretty print a memory state to the given handle.
-doDumpMem :: IsExprBuilder sym => Handle -> MemImpl sym -> IO ()
+doDumpMem :: IsSymInterface sym => Handle -> MemImpl sym -> IO ()
 doDumpMem h mem = do
   hPutStrLn h (show (ppMem mem))
 
@@ -529,9 +529,10 @@ doLoad ::
   Alignment        {- ^ assumed pointer alignment -} ->
   IO (RegValue sym tp)
 doLoad sym mem ptr valType tpr alignment = do
-  unpackMemValue sym tpr =<<
+  fm <- getFloatMode sym
+  unpackMemValue sym fm tpr =<<
     Partial.assertSafe sym =<<
-      loadRaw sym mem ptr valType alignment
+      loadRaw sym fm mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
 -- arguments should be computed from a single 'MemType' using
@@ -551,8 +552,9 @@ doStore ::
   IO (MemImpl sym)
 doStore sym mem ptr tpr valType alignment val = do
     --putStrLn "MEM STORE"
+    fm <- getFloatMode sym
     val' <- packMemValue sym valType tpr val
-    storeRaw sym mem ptr valType alignment val'
+    storeRaw sym fm mem ptr valType alignment val'
 
 data SomeFnHandle where
   SomeFnHandle    :: FnHandle args ret -> SomeFnHandle
@@ -981,10 +983,12 @@ strLen :: forall sym wptr.
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
   IO (SymBV sym wptr)
-strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
+strLen sym mem p0 =
+   do fm <- getFloatMode sym
+      go fm (BV.zero PtrWidth) (truePred sym) p0
   where
-  go !n cond p =
-    loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
+  go fm !n cond p =
+    loadRaw sym fm mem p (bitvectorType 1) noAlignment >>= \case
       Partial.Err e ->
         do ast <- impliesPred sym cond (falsePred sym)
            let msg = show (ppMemoryLoadError e)
@@ -993,14 +997,14 @@ strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
       Partial.NoErr loadok llvmval ->
         do ast <- impliesPred sym cond loadok
            assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
-           v <- unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
+           v <- unpackMemValue sym fm (LLVMPointerRepr (knownNat @8)) llvmval
            test <- bvIsNonzero sym =<< projectLLVM_bv sym v
            iteM bvIte sym
              test
              (do cond' <- andPred sym cond test
                  p'    <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth (BV.one PtrWidth)
                  case BV.succUnsigned PtrWidth n of
-                   Just n_1 -> go n_1 cond' p'
+                   Just n_1 -> go fm n_1 cond' p'
                    Nothing -> panic "Lang.Crucible.LLVM.MemModel.strLen" ["string length exceeds pointer width"])
              (bvLit sym PtrWidth n)
 
@@ -1086,26 +1090,28 @@ toStorableType mt =
 -- result value is not undefined.
 loadRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
         => sym
+        -> FloatModeRepr (CrucibleFloatMode sym)
         -> MemImpl sym
         -> LLVMPtr sym wptr
         -> StorageType
         -> Alignment
         -> IO (Partial.PartLLVMVal sym)
-loadRaw sym mem ptr valType alignment = do
-  G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
+loadRaw sym fm mem ptr valType alignment = do
+   G.readMem sym PtrWidth fm ptr valType alignment (memImplHeap mem)
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
 -- to a mutable memory region.
 storeRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => sym
+  -> FloatModeRepr (CrucibleFloatMode sym)
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
   -> StorageType      {- ^ type of value to store -}
   -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
-storeRaw sym mem ptr valType alignment val = do
-    (heap', p1, p2) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
+storeRaw sym fm mem ptr valType alignment val = do
+    (heap', p1, p2) <- G.writeMem sym PtrWidth fm ptr valType alignment val (memImplHeap mem)
     let errMsg1 = "The region wasn't allocated, or wasn't mutable"
     let errMsg2 = "The region's alignment wasn't correct"
     let err = AssertFailureSimError "Invalid memory store"
@@ -1182,7 +1188,9 @@ condStoreRaw sym mem cond ptr valType alignment val = do
   -- Push a branch to the heap
   let postBranchHeap = G.branchMem preBranchHeap
   -- Write to the heap
-  (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
+  fm <- getFloatMode sym
+  (postWriteHeap, isAllocated, isAligned) <-
+     G.writeMem sym PtrWidth fm ptr valType alignment val (memImplHeap mem)
   -- Assert is allocated if write executes
   do condIsAllocated <- impliesPred sym cond isAllocated
      let errMsg1 = "The region wasn't allocated, or wasn't mutable"
@@ -1208,7 +1216,8 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 storeConstRaw sym mem ptr valType alignment val = do
-    (heap', p1, p2) <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
+    fm <- getFloatMode sym
+    (heap', p1, p2) <- G.writeConstMem sym PtrWidth fm ptr valType alignment val (memImplHeap mem)
     let errMsg1 = "The region wasn't allocated"
     let errMsg2 = "The region's alignment wasn't correct"
     let err = AssertFailureSimError "Invalid memory store"
@@ -1245,10 +1254,11 @@ mallocConstRaw sym mem sz alignment =
 unpackZero ::
   (HasCallStack, IsSymInterface sym) =>
   sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   StorageType ->
   TypeRepr tp {- ^ Crucible type     -} ->
   IO (RegValue sym tp)
-unpackZero sym tp tpr =
+unpackZero sym fm tp tpr =
  let mismatch = storageTypeMismatch "MemModel.unpackZero" tp tpr in
  case storageTypeF tp of
   Bitvector bytes ->
@@ -1261,23 +1271,23 @@ unpackZero sym tp tpr =
 
   Float  ->
     case tpr of
-      FloatRepr SingleFloatRepr -> iFloatLit sym SingleFloatRepr 0
+      FloatRepr SingleFloatRepr -> iFloatLit sym fm SingleFloatRepr 0
       _ -> mismatch
 
   Double ->
     case tpr of
-      FloatRepr DoubleFloatRepr -> iFloatLit sym DoubleFloatRepr 0
+      FloatRepr DoubleFloatRepr -> iFloatLit sym fm DoubleFloatRepr 0
       _ -> mismatch
 
   X86_FP80 ->
     case tpr of
-      FloatRepr X86_80FloatRepr -> iFloatLit sym X86_80FloatRepr 0
+      FloatRepr X86_80FloatRepr -> iFloatLit sym fm X86_80FloatRepr 0
       _ -> mismatch
 
   Array n tp' ->
     case tpr of
       VectorRepr tpr' ->
-        do v <- unpackZero sym tp' tpr'
+        do v <- unpackZero sym fm tp' tpr'
            return $ V.replicate (fromIntegral n) v
       _ -> mismatch
 
@@ -1285,7 +1295,7 @@ unpackZero sym tp tpr =
     case tpr of
       StructRepr fldCtx | V.length flds == Ctx.sizeInt (Ctx.size fldCtx) ->
         Ctx.traverseWithIndex
-          (\i tpr' -> RV <$> unpackZero sym (flds V.! (Ctx.indexVal i) ^. fieldVal) tpr')
+          (\i tpr' -> RV <$> unpackZero sym fm (flds V.! (Ctx.indexVal i) ^. fieldVal) tpr')
           fldCtx
 
       _ -> mismatch
@@ -1307,44 +1317,45 @@ storageTypeMismatch nm tp tpr =
 unpackMemValue ::
   (HasCallStack, IsSymInterface sym) =>
   sym ->
+  FloatModeRepr (CrucibleFloatMode sym) ->
   TypeRepr tp ->
   LLVMVal sym ->
   IO (RegValue sym tp)
 
-unpackMemValue sym tpr (LLVMValZero tp)  = unpackZero sym tp tpr
+unpackMemValue sym fm tpr (LLVMValZero tp)  = unpackZero sym fm tp tpr
 
-unpackMemValue _sym (LLVMPointerRepr w) (LLVMValInt blk bv)
+unpackMemValue _sym _ (LLVMPointerRepr w) (LLVMValInt blk bv)
   | Just Refl <- testEquality (bvWidth bv) w
   = return $ LLVMPointer blk bv
 
-unpackMemValue _ (FloatRepr SingleFloatRepr) (LLVMValFloat SingleSize x) = return x
-unpackMemValue _ (FloatRepr DoubleFloatRepr) (LLVMValFloat DoubleSize x) = return x
-unpackMemValue _ (FloatRepr X86_80FloatRepr) (LLVMValFloat X86_FP80Size x) = return x
+unpackMemValue _ _ (FloatRepr SingleFloatRepr) (LLVMValFloat SingleSize x) = return x
+unpackMemValue _ _ (FloatRepr DoubleFloatRepr) (LLVMValFloat DoubleSize x) = return x
+unpackMemValue _ _ (FloatRepr X86_80FloatRepr) (LLVMValFloat X86_FP80Size x) = return x
 
-unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
+unpackMemValue sym fm (StructRepr ctx) (LLVMValStruct xs)
   | V.length xs == Ctx.sizeInt (Ctx.size ctx)
   = Ctx.traverseWithIndex
-       (\i tpr -> RV <$> unpackMemValue sym tpr (xs V.! Ctx.indexVal i ^. _2))
+       (\i tpr -> RV <$> unpackMemValue sym fm tpr (xs V.! Ctx.indexVal i ^. _2))
        ctx
 
-unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
-  = traverse (unpackMemValue sym tpr) xs
+unpackMemValue sym fm (VectorRepr tpr) (LLVMValArray _tp xs)
+  = traverse (unpackMemValue sym fm tpr) xs
 
-unpackMemValue _sym ctp@(BVRepr _) lval@(LLVMValInt _ _) =
+unpackMemValue _sym _fm ctp@(BVRepr _) lval@(LLVMValInt _ _) =
     panic "MemModel.unpackMemValue"
       [ "Cannot unpack an integer LLVM value to a crucible bitvector type"
       , "*** Crucible type: " ++ show ctp
       , "*** LLVM value: " ++ show lval
       ]
 
-unpackMemValue _ tpr v@(LLVMValUndef _) =
+unpackMemValue _sym _fm tpr v@(LLVMValUndef _) =
   panic "MemModel.unpackMemValue"
     [ "Cannot unpack an `undef` value"
     , "*** Crucible type: " ++ show tpr
     , "*** Undef value: " ++ show v
     ]
 
-unpackMemValue _ tpr v =
+unpackMemValue _sym _fm tpr v =
   panic "MemModel.unpackMemValue"
     [ "Crucible type mismatch when unpacking LLVM value"
     , "*** Crucible type: " ++ show tpr
@@ -1488,41 +1499,42 @@ constToLLVMValP :: forall wptr sym io.
   , IsSymInterface sym
   , HasCallStack
   ) => sym                                 -- ^ The symbolic backend
+    -> FloatModeRepr (CrucibleFloatMode sym)
     -> (L.Symbol -> io (LLVMPtr sym wptr)) -- ^ How to look up global symbols
     -> LLVMConst                           -- ^ Constant expression to translate
     -> io (LLVMVal sym)
 
 -- See comment on @LLVMVal@ on why we use a literal 0.
-constToLLVMValP sym _ (IntConst w i) = liftIO $
+constToLLVMValP sym _ _ (IntConst w i) = liftIO $
   LLVMValInt <$> natLit sym 0 <*> bvLit sym w i
 
-constToLLVMValP sym _ (FloatConst f) = liftIO $
-  LLVMValFloat SingleSize <$> iFloatLitSingle sym f
+constToLLVMValP sym fm _ (FloatConst f) = liftIO $
+  LLVMValFloat SingleSize <$> iFloatLitSingle sym fm f
 
-constToLLVMValP sym _ (DoubleConst d) = liftIO $
-  LLVMValFloat DoubleSize <$> iFloatLitDouble sym d
+constToLLVMValP sym fm _ (DoubleConst d) = liftIO $
+  LLVMValFloat DoubleSize <$> iFloatLitDouble sym fm d
 
-constToLLVMValP sym _ (LongDoubleConst (L.FP80_LongDouble e s)) = liftIO $
-  LLVMValFloat X86_FP80Size <$> iFloatLitLongDouble sym (X86_80Val e s)
+constToLLVMValP sym fm _ (LongDoubleConst (L.FP80_LongDouble e s)) = liftIO $
+  LLVMValFloat X86_FP80Size <$> iFloatLitLongDouble sym fm (X86_80Val e s)
 
-constToLLVMValP sym look (ArrayConst memty xs) =
+constToLLVMValP sym fm look (ArrayConst memty xs) =
   LLVMValArray <$> liftIO (toStorableType memty)
-               <*> (V.fromList <$> traverse (constToLLVMValP sym look) xs)
+               <*> (V.fromList <$> traverse (constToLLVMValP sym fm look) xs)
 
 -- Same as the array case
-constToLLVMValP sym look (VectorConst memty xs) =
+constToLLVMValP sym fm look (VectorConst memty xs) =
   LLVMValArray <$> liftIO (toStorableType memty)
-               <*> (V.fromList <$> traverse (constToLLVMValP sym look) xs)
+               <*> (V.fromList <$> traverse (constToLLVMValP sym fm look) xs)
 
-constToLLVMValP sym look (StructConst sInfo xs) =
+constToLLVMValP sym fm look (StructConst sInfo xs) =
   LLVMValStruct <$>
-    V.zipWithM (\x y -> (,) <$> liftIO (fiToFT x) <*> constToLLVMValP sym look y)
+    V.zipWithM (\x y -> (,) <$> liftIO (fiToFT x) <*> constToLLVMValP sym fm look y)
                (siFields sInfo)
                (V.fromList xs)
 
 -- SymbolConsts are offsets from global pointers. We translate them into the
 -- pointer they represent.
-constToLLVMValP sym look (SymbolConst symb i) = do
+constToLLVMValP sym _ look (SymbolConst symb i) = do
   -- Pointer to the global "symb"
   ptr <- look symb
   -- Offset to be added, as a bitvector
@@ -1533,9 +1545,9 @@ constToLLVMValP sym look (SymbolConst symb i) = do
   let (blk, offset) = llvmPointerView ptr
   LLVMValInt blk <$> liftIO (bvAdd sym offset ibv)
 
-constToLLVMValP _sym _look (ZeroConst memty) = liftIO $
+constToLLVMValP _sym _ _look (ZeroConst memty) = liftIO $
   LLVMValZero <$> toStorableType memty
-constToLLVMValP _sym _look (UndefConst memty) = liftIO $
+constToLLVMValP _sym _ _look (UndefConst memty) = liftIO $
   LLVMValUndef <$> toStorableType memty
 
 
@@ -1553,8 +1565,9 @@ constToLLVMVal :: forall wptr sym io.
     -> io (LLVMVal sym)  -- ^ Runtime representation of the constant expression
 
 -- See comment on @LLVMVal@ on why we use a literal 0.
-constToLLVMVal sym mem =
-  constToLLVMValP sym (\symb -> liftIO $ doResolveGlobal sym mem symb)
+constToLLVMVal sym mem c =
+  do fm <- liftIO (getFloatMode sym)
+     constToLLVMValP sym fm (\symb -> liftIO $ doResolveGlobal sym mem symb) c
 
 -- TODO are these types just identical? Maybe we should combine them.
 fiToFT :: (HasPtrWidth wptr, MonadFail m) => FieldInfo -> m (Field StorageType)

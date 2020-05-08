@@ -44,6 +44,7 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import qualified Lang.Crucible.Backend.Simple as CBS
 import Lang.Crucible.CFG.Extension
+import Lang.Crucible.FunctionName (FunctionName)
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.BoundedExec
 import Lang.Crucible.Simulator.BoundedRecursion
@@ -53,11 +54,12 @@ import Lang.Crucible.Simulator.PathSplitting
 import Lang.Crucible.Types
 
 
+
+
 import What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, extendConfig)
 import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (IsExprBuilder, getConfiguration)
 import qualified What4.Expr.Builder as WEB
-import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
 import qualified What4.Solver as WS
 import What4.Solver.CVC4 (cvc4Timeout)
@@ -171,7 +173,7 @@ withFloatRepr ::
   CruxOptions ->
   solver ->
   (forall fm .
-    IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (Flags fm)) =>
+    IsInterpretedFloatExprBuilder (WEB.ExprBuilder (CrucibleBackend s fm) CBS.SimpleBackendState) fm =>
     FloatModeRepr fm ->
     IO a) ->
   IO a
@@ -209,10 +211,10 @@ withSelectedOnlineBackend ::
   -- The string is an optional explicitly-requested float mode that supersedes the choice in
   -- the configuration (probably due to using two different online connections)
   (forall solver fm .
-    ( OnlineSolver scope solver
-    , IsInterpretedFloatExprBuilder (OnlineBackend scope solver (Flags fm))
+    ( OnlineSolver solver
+    , IsInterpretedFloatExprBuilder (OnlineBackend scope fm solver) fm
     ) =>
-    FloatModeRepr fm -> OnlineBackend scope solver (Flags fm) -> IO a) -> IO a
+    FloatModeRepr fm -> OnlineBackend scope fm solver -> IO a) -> IO a
 withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMode k =
   case fromMaybe (floatMode cruxOpts) maybeExplicitFloatMode of
     "real" -> withOnlineBackendFM FloatRealRepr
@@ -231,18 +233,18 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
 
     withOnlineBackendFM floatRepr =
       case selectedSolver of
-        CCS.Yices -> withYicesOnlineBackend floatRepr nonceGen unsatCores $ \sym -> do
+        CCS.Yices -> withYicesOnlineBackend nonceGen floatRepr unsatCores $ \sym -> do
           symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
           case goalTimeout cruxOpts of
             Just s -> symCfg sym yicesGoalTimeout (floor s)
             Nothing -> return ()
           k floatRepr sym
-        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen ProduceUnsatCores $ \sym -> do
+        CCS.CVC4 -> withCVC4OnlineBackend nonceGen floatRepr ProduceUnsatCores $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
             Nothing -> return ()
           k floatRepr sym
-        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen ProduceUnsatCores $ \sym -> do
+        CCS.Z3 -> withZ3OnlineBackend nonceGen floatRepr ProduceUnsatCores $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym z3Timeout (floor (s * 1000))
             Nothing -> return ()
@@ -252,7 +254,7 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
           case goalTimeout cruxOpts of
             Just _ -> sayWarn "Crux" "Goal timeout requested but not supported by STP"
             Nothing -> return ()
-          withSTPOnlineBackend floatRepr nonceGen (k floatRepr)
+          withSTPOnlineBackend nonceGen floatRepr (k floatRepr)
 
 symCfg :: (IsExprBuilder sym, Opt t a) => sym -> ConfigOption t -> a -> IO ()
 symCfg sym x y =
@@ -318,7 +320,7 @@ execFeatureMaybe mb m =
 
 
 -- | Common setup for all solver connections
-setupSolver :: (IsExprBuilder sym, sym ~ WEB.ExprBuilder t st fs) => CruxOptions -> Maybe FilePath -> sym -> IO ()
+setupSolver :: (IsExprBuilder sym, sym ~ WEB.ExprBuilder t st) => CruxOptions -> Maybe FilePath -> sym -> IO ()
 setupSolver cruxOpts mInteractionFile sym = do
   mapM_ (symCfg sym solverInteractionFile) (fmap T.pack mInteractionFile)
 
@@ -334,8 +336,8 @@ setupSolver cruxOpts mInteractionFile sym = do
 
 -- | A GADT to capture the online solver constraints when we need them
 data SomeOnlineSolver sym where
-  SomeOnlineSolver :: (sym ~ OnlineBackend scope solver fs
-                      , OnlineSolver scope solver
+  SomeOnlineSolver :: (sym ~ OnlineBackend scope fm solver
+                      , OnlineSolver solver
                       ) => SomeOnlineSolver sym
 
 -- | Common code for initializing all of the requested execution features
@@ -441,7 +443,7 @@ runSimulator cruxOpts simCallback = do
     Right (CCS.OnlyOfflineSolver offSolver) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
         withSolverAdapter offSolver $ \adapter -> do
-          sym <- CBS.newSimpleBackend floatRepr nonceGen
+          sym <- CBS.newSimpleBackend nonceGen floatRepr
           setupSolver cruxOpts Nothing sym
           -- Since we have a bare SimpleBackend here, we have to initialize it
           -- with the options taken from the solver adapter (e.g., solver path)
@@ -499,7 +501,7 @@ doSimWithResults ::
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO CruxSimulationResult
 doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline goalProver = do
-
+  fm <- getFloatMode sym
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
@@ -508,10 +510,10 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
-        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
+        do res <- executeCrucible fm (map genericToExecutionFeature execFeatures ++ exts) initSt
            void $ resultCont frm (Result res)
       SplitAndExploreDepthFirst ->
-        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
+        do (i,ws) <- executeCrucibleDFSPaths fm (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
            say "Crux" ("Total paths explored: " ++ show i)
            unless (null ws) $
              sayWarn "Crux"

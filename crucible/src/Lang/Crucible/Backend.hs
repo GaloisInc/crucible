@@ -324,7 +324,7 @@ abortExecBecause err = throwIO err
 -- | Add a proof obligation using the current program location.
 --   Afterwards, assume the given fact.
 assert ::
-  IsSymInterface sym =>
+  (IsExprBuilder sym, IsBoolSolver sym, SymLoc sym ~ ProgramLoc) =>
   sym ->
   Pred sym ->
   SimErrorReason ->
@@ -337,7 +337,9 @@ assert sym p msg =
 -- of the current path, because after asserting false, we get to assume it,
 -- and so there is no need to check anything after.  This is why the resulting
 -- IO computation can have the fully polymorphic type.
-addFailedAssertion :: IsSymInterface sym => sym -> SimErrorReason -> IO a
+addFailedAssertion ::
+  (IsExprBuilder sym, IsBoolSolver sym, SymLoc sym ~ ProgramLoc) =>
+  sym -> SimErrorReason -> IO a
 addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
      let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
@@ -349,7 +351,7 @@ addFailedAssertion sym msg =
 
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM ::
-  IsSymInterface sym =>
+  (IsExprBuilder sym, IsBoolSolver sym, SymLoc sym ~ ProgramLoc) =>
   sym ->
   IO (Pred sym) ->
   SimErrorReason ->
@@ -360,7 +362,7 @@ addAssertionM sym pf msg = do
 
 -- | Assert that the given real-valued expression is an integer.
 assertIsInteger ::
-  IsSymInterface sym =>
+  (IsExprBuilder sym, IsBoolSolver sym, SymLoc sym ~ ProgramLoc) =>
   sym ->
   SymReal sym ->
   SimErrorReason ->
@@ -371,7 +373,7 @@ assertIsInteger sym v msg = do
 -- | Given a partial expression, assert that it is defined
 --   and return the underlying value.
 readPartExpr ::
-  IsSymInterface sym =>
+  (IsExprBuilder sym, IsBoolSolver sym, SymLoc sym ~ ProgramLoc) =>
   sym ->
   PartExpr (Pred sym) v ->
   SimErrorReason ->
@@ -383,7 +385,7 @@ readPartExpr sym (PE p v) msg = do
   addAssertion sym (AS.LabeledPred p (SimError loc msg))
   return v
 
-ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc
+ppProofObligation :: (IsExpr (SymExpr sym), PrintExpr (SymExpr sym)) => sym -> ProofObligation sym -> PP.Doc
 ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
   (if null as then PP.empty else
     PP.text "Assuming:" PP.<$$>

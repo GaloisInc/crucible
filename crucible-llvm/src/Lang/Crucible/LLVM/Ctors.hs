@@ -50,8 +50,6 @@ import           GHC.TypeNats
 
 import qualified Data.Parameterized.Context.Unsafe as Ctx
 
-import           What4.FunctionName (functionNameFromText)
-import           What4.ProgramLoc (Position(InternalPos))
 
 import qualified Lang.Crucible.CFG.Core as Core
 import           Lang.Crucible.CFG.Expr (App(EmptyApp))
@@ -60,6 +58,8 @@ import           Lang.Crucible.CFG.Reg (Expr(App))
 import qualified Lang.Crucible.CFG.Reg as Reg
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle (HandleAllocator, mkHandle')
+import           Lang.Crucible.FunctionName (functionNameFromText)
+import           Lang.Crucible.ProgramLoc (Position(InternalPos))
 import           Lang.Crucible.Types (UnitType, TypeRepr(UnitRepr))
 import           Lang.Crucible.LLVM.Extension (LLVM, ArchWidth)
 import           Lang.Crucible.LLVM.Translation.Monad (LLVMContext, _llvmTypeCtx, malformedLLVMModule)

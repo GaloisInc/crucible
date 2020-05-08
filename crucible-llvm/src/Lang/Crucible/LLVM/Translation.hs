@@ -101,12 +101,11 @@ import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
 import           Data.Parameterized.Nonce
 
-import           What4.FunctionName
-import           What4.ProgramLoc
-
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion( toSSA )
+import           Lang.Crucible.FunctionName
+import           Lang.Crucible.ProgramLoc
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.LLVM.Extension

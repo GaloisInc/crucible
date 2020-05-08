@@ -99,7 +99,8 @@ ppPtrComparison Leq = text "Ordering comparison (<=)"
 type PointerPair e w = (e NatType, e (BVType w))
 
 -- | TODO: duplication with ppPtr
-ppPointerPair :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
+ppPointerPair :: (W4I.PrintExpr (W4I.SymExpr sym), W4I.IsExpr (W4I.SymExpr sym)) =>
+  PointerPair (RegValue' sym) w -> Doc
 ppPointerPair (RV blk, RV bv)
   | Just 0 <- W4I.asNat blk = W4I.printSymExpr bv
   | otherwise =
@@ -357,7 +358,7 @@ explain =
 
 -- | Pretty-print the additional information held by the constructors
 -- (for symbolic expressions)
-detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
+detailsReg :: (W4I.PrintExpr (W4I.SymExpr sym), W4I.IsExpr (W4I.SymExpr sym))
            => UndefinedBehavior (RegValue' sym)
            -> [Doc]
 detailsReg =
@@ -425,14 +426,15 @@ detailsReg =
 
     PoisonValueCreated p -> Poison.detailsReg p
 
-  where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
+  where ppPtr1 :: (W4I.PrintExpr (W4I.SymExpr sym), W4I.IsExpr (W4I.SymExpr sym)) =>
+               PointerPair (RegValue' sym) w -> Doc
         ppPtr1 = ("Pointer:" <+>) . ppPointerPair
 
         ppPtr2 ptr1 ptr2 = vcat [ "Pointer 1:" <+>  ppPointerPair ptr1
                                 , "Pointer 2:" <+>  ppPointerPair ptr2
                                 ]
 
-        ppOffset :: W4I.IsExpr e => e (BaseBVType w) -> Doc
+        ppOffset :: (W4I.PrintExpr e, W4I.IsExpr e) => e (BaseBVType w) -> Doc
         ppOffset = ("Offset:" <+>) . W4I.printSymExpr
 
 pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
@@ -452,7 +454,7 @@ pp extra ub = vcat $
 
 -- | Pretty-printer for symbolic backends
 ppReg ::
-  W4I.IsExpr (W4I.SymExpr sym) =>
+  (W4I.PrintExpr (W4I.SymExpr sym), W4I.IsExpr (W4I.SymExpr sym)) =>
   UndefinedBehavior (RegValue' sym) ->
   Doc
 ppReg = pp (detailsReg)

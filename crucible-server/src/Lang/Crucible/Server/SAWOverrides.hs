@@ -147,6 +147,8 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
      let addrWidth = verificationAddressWidth harness'
      let regFileWidth = verificationRegFileWidth harness'
 
+     fm <- getFloatMode sym
+
      -- Clear all proof-management context and restore it afterwards
      SAW.inFreshNamingContext sym $
        case someNat (toInteger regFileWidth) of
@@ -162,7 +164,7 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
                                 $ runOverrideSim UnitRepr
                                     (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
 
-                  exec_res <- executeCrucible (map genericToExecutionFeature (simExecFeatures sim)) simSt
+                  exec_res <- executeCrucible fm (map genericToExecutionFeature (simExecFeatures sim)) simSt
                   case exec_res of
                     TimeoutResult exst -> do
                       let ctx' = execStateContext exst

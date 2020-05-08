@@ -23,6 +23,8 @@ import           Data.HPB
 
 import           Data.Parameterized.Nonce
 
+import           What4.InterpretedFloatingPoint (FloatModeRepr(..))
+
 import           Lang.Crucible.Backend.Simple
 import qualified Lang.Crucible.Backend.SAWCore as SAW
 import           Lang.Crucible.Simulator.PathSatisfiability
@@ -100,7 +102,7 @@ runSimpleSimulator hin hout = do
   withIONonceGenerator $ \gen -> do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
-    sym <- newSimpleBackend FloatRealRepr gen
+    sym <- newSimpleBackend gen FloatRealRepr
     s <- newSimulator sym simpleServerOptions CrucibleServerPersonality [] simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp

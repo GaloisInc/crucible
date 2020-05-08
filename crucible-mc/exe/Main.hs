@@ -1,4 +1,5 @@
 {-# Language RankNTypes, TypeApplications, TypeFamilies #-}
+{-# Language FlexibleContexts #-}
 {-# Language ImplicitParams #-}
 {-# Language PatternSynonyms #-}
 module Main(main) where
@@ -13,12 +14,12 @@ import Data.Parameterized.Context (pattern Empty)
 
 import qualified Data.LLVM.BitCode as BC
 
+import What4.InterpretedFloatingPoint (FloatIEEE, FloatModeRepr(..))
+
 import Lang.Crucible.Types(TypeRepr(..))
 import Lang.Crucible.Backend.Online
-          ( Z3OnlineBackend, withZ3OnlineBackend, UnsatFeatures(..)
-          , Flags, FloatIEEE, FloatModeRepr(..)
-          )
-import Lang.Crucible.Backend(IsSymInterface)
+          ( Z3OnlineBackend, withZ3OnlineBackend, UnsatFeatures(..) )
+import Lang.Crucible.Backend(IsSymInterface, CrucibleFloatMode)
 import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
 import Lang.Crucible.Simulator
 
@@ -58,25 +59,27 @@ main =
                                      _ <- callCFG cfg emptyRegMap
                                      pure ()
                  , cruxUserState = emptyModel
-                 , cruxGo  = runFrom
+                 , cruxGo  = runFrom FloatIEEERepr
                  }
 
         _ -> throwIO (UnsupportedFunType test_fun)
 
-runFrom :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch)) =>
-            ExecState p sym (LLVM arch) rtp ->  IO ()
-runFrom st =
+runFrom ::
+  (IsSymInterface sym, HasPtrWidth (ArchWidth arch)) =>
+  FloatModeRepr (CrucibleFloatMode sym) ->
+  ExecState p sym (LLVM arch) rtp ->  IO ()
+runFrom fm st =
   do print (ppExecState st)
      _ <- getLine
-     st1 <- singleStepCrucible 5 st
-     runFrom st1
+     st1 <- singleStepCrucible 5 fm st
+     runFrom fm st1 
 
 
 -- | Create a Z3 backend for the simulator.
-withZ3 :: (forall s. Z3OnlineBackend s (Flags FloatIEEE) -> IO a) -> IO a
+withZ3 :: (forall s. Z3OnlineBackend s FloatIEEE -> IO a) -> IO a
 withZ3 k =
   withIONonceGenerator $ \nonceGen ->
-  withZ3OnlineBackend FloatIEEERepr nonceGen ProduceUnsatCores k
+  withZ3OnlineBackend nonceGen FloatIEEERepr ProduceUnsatCores k
 
 
 -- | This exception is thrown when we fail to parse a bit-code file.

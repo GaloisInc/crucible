@@ -7,7 +7,7 @@ import Data.List(intercalate)
 import Data.Maybe(fromMaybe)
 import System.FilePath(isRelative,(</>))
 
-import What4.ProgramLoc
+import Lang.Crucible.ProgramLoc
 
 
 jsLoc :: FilePath -> ProgramLoc -> JS
