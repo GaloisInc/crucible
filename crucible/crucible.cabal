@@ -42,7 +42,7 @@ library
     lens,
     mtl,
     panic >= 0.3,
-    parameterized-utils >= 1.0.8 && < 2.1,
+    parameterized-utils >= 1.0.8 && < 2.2,
     process,
     template-haskell,
     text,

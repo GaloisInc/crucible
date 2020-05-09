@@ -30,7 +30,7 @@ library
     itanium-abi >= 0.1.1.1 && < 0.2,
     llvm-pretty >= 0.8 && < 0.11,
     mtl,
-    parameterized-utils >= 1.0.4 && < 2.1,
+    parameterized-utils >= 1.0.4 && < 2.2,
     text,
     template-haskell,
     transformers,
