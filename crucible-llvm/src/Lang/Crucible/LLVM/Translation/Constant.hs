@@ -705,7 +705,7 @@ evalBitwise op w x y = IntConst w <$>
                  (throwError "Signed overflow in left shift")
             return (BV.ofResult zres)
        L.Lshr exact ->
-         do let z = BV.lshr x yshf
+         do let z = BV.lshr w x yshf
             when (exact && x /= BV.shl w z yshf)
                  (throwError "Exact right shift failed")
             return z

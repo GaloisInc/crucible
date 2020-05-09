@@ -18,7 +18,7 @@ library
     ansi-wl-pprint,
     array,
     attoparsec,
-    bv-sized,
+    bv-sized >= 1.0.0,
     containers,
     crucible,
     directory,

@@ -15,7 +15,7 @@ Description:
 library
   build-depends:
     base >= 4.7 && < 4.15,
-    bv-sized,
+    bv-sized >= 1.0.0,
     containers,
     crucible >= 0.1,
     what4 >= 0.4,

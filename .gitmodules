@@ -43,6 +43,3 @@
 [submodule "dependencies/what4"]
 	path = dependencies/what4
 	url = https://github.com/GaloisInc/what4.git
-[submodule "dependencies/bv-sized"]
-	path = dependencies/bv-sized
-	url = git@github.com:/GaloisInc/bv-sized

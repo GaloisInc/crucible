@@ -18,7 +18,7 @@ library
   build-depends:
     ansi-wl-pprint,
     base >= 4.7,
-    bv-sized,
+    bv-sized >= 1.0.0,
     bytestring >= 0.10.2,
     containers,
     crucible >= 0.1,

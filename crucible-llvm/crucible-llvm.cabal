@@ -15,7 +15,7 @@ library
     base >= 4.7 && < 4.15,
     ansi-wl-pprint,
     attoparsec,
-    bv-sized,
+    bv-sized >= 1.0.0,
     bytestring,
     containers >= 0.5.8.0,
     crucible >= 0.5,
