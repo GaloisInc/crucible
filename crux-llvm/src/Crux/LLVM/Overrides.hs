@@ -9,6 +9,7 @@
 {-# Language TypeApplications #-}
 {-# Language TypeFamilies #-}
 {-# Language TypeOperators #-}
+{-# Language ViewPatterns #-}
 module Crux.LLVM.Overrides
   ( cruxLLVMOverrides
   , svCompOverrides
@@ -30,7 +31,7 @@ import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 import What4.ProgramLoc( Position(..), ProgramLoc(..) )
 import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
-          (freshConstant, bvLit, bvAdd, asUnsignedBV,
+          (freshConstant, bvLit, bvAdd, asUnsignedBV, predToBV,
           getCurrentProgramLoc, printSymExpr, arrayUpdate, bvIsNonzero)
 import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
@@ -55,12 +56,14 @@ import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel
   (Mem, LLVMPointerType, loadString, HasPtrWidth,
    doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
-   doArrayStore, doArrayConstStore, HasLLVMAnn)
+   doArrayStore, doArrayConstStore, HasLLVMAnn,
+   isAllocatedAlignedPointer, Mutability(..),
+   pattern PtrWidth
+   )
 
 import           Lang.Crucible.LLVM.TypeContext( TypeContext )
 import           Lang.Crucible.LLVM.Intrinsics
 
-import Lang.Crucible.LLVM.Extension(LLVM)
 import Lang.Crucible.LLVM.Extension(ArchWidth)
 
 import Crux.Types
@@ -148,11 +151,16 @@ cbmcOverrides =
   , basic_llvm_override $
       [llvmOvr| void @__CPROVER_assert( i32, i8* ) |]
       cprover_assert
+  , basic_llvm_override $
+      [llvmOvr| i1 @__CPROVER_r_ok( i8*, size_t ) |]
+      cprover_r_ok
+  , basic_llvm_override $
+      [llvmOvr| i1 @__CPROVER_w_ok( i8*, size_t ) |]
+      cprover_w_ok
 
   , basic_llvm_override $
       [llvmOvr| i1 @nondet_bool() |]
       (sv_comp_fresh_bits (knownNat @1))
-
   , basic_llvm_override $
       [llvmOvr| i8 @nondet_char() |]
       (sv_comp_fresh_bits (knownNat @8))
@@ -488,6 +496,28 @@ cprover_assert mvar sym (Empty :> p :> pMsg) =
      loc <- liftIO $ getCurrentProgramLoc sym
      let msg = AssertFailureSimError "__CPROVER_assert" str
      liftIO $ addDurableAssertion sym (LabeledPred cond (SimError loc msg))
+
+cprover_r_ok ::
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
+  OverM sym (LLVM arch) (RegValue sym (BVType 1))
+cprover_r_ok mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
+  do mem <- readGlobal mvar
+     x <- liftIO $ isAllocatedAlignedPointer sym PtrWidth noAlignment Immutable p (Just sz) mem
+     liftIO $ predToBV sym x knownNat
+
+cprover_w_ok ::
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  GlobalVar Mem ->
+  sym ->
+  Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
+  OverM sym (LLVM arch) (RegValue sym (BVType 1))
+cprover_w_ok mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
+  do mem <- readGlobal mvar
+     x <- liftIO $ isAllocatedAlignedPointer sym PtrWidth noAlignment Mutable p (Just sz) mem
+     liftIO $ predToBV sym x knownNat
 
 sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>
