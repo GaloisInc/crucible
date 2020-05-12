@@ -4,9 +4,6 @@ import System.IO
 import System.Console.ANSI
 import Control.Monad(zipWithM)
 
-import Control.Concurrent
-
-
 prepStatus :: String -> Int -> IO (Integer -> IO (), IO (), IO ())
 prepStatus pref tot =
    do ansi <- hSupportsANSI stdout
@@ -19,8 +16,7 @@ prepStatus pref tot =
   start n = do hSaveCursor stdout
                hPutStr stdout (msg n)
                hFlush stdout
-  end     = do threadDelay 100000
-               hRestoreCursor stdout
+  end     = do hRestoreCursor stdout
                hFlush stdout
 
   finish = do hClearLine stdout
