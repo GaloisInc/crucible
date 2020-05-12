@@ -48,6 +48,9 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Foldable (toList)
+import           Data.Hashable
+import           Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import           Data.IORef
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -231,6 +234,7 @@ symProUIJSON nm source tbl =
 data ProfilingTable =
   ProfilingTable
   { callGraphEvents :: IORef (Seq CGEvent)
+  , eventDedups :: IORef (HashSet EventDedup)
   , metrics :: Metrics IORef
   , eventIDRef :: IORef Integer
   , solverEvents :: IORef (Seq (UTCTime, SolverEvent))
@@ -242,6 +246,13 @@ data CrucibleProfile =
   , crucibleProfileCGEvents :: [CGEvent]
   , crucibleProfileSolverEvents :: [SolverEvent]
   } deriving (Show, Generic)
+
+data EventDedup =
+    BlockDedup FunctionName String
+  | BranchDedup FunctionName [String]
+  deriving (Eq, Generic)
+
+instance Hashable EventDedup
 
 readProfilingState :: ProfilingTable -> IO (UTCTime, [CGEvent], [(UTCTime, SolverEvent)])
 readProfilingState tbl =
@@ -289,9 +300,10 @@ newProfilingTable =
                         -- the JS front end works around this by
                         -- assuming that any missing value is a zero.
      evs <- newIORef mempty
+     dedups <- newIORef mempty
      idref <- newIORef 0
      solverevs <- newIORef mempty
-     let tbl = ProfilingTable evs m idref solverevs
+     let tbl = ProfilingTable evs dedups m idref solverevs
      return tbl
 
 recordSolverEvent :: ProfilingTable -> SolverEvent -> IO ()
@@ -313,6 +325,13 @@ nextEventID tbl =
   do i <- readIORef (eventIDRef tbl)
      writeIORef (eventIDRef tbl) $! (i+1)
      return i
+
+dedupEvent :: ProfilingTable -> EventDedup -> IO () -> IO ()
+dedupEvent tbl evt f =
+  do seen <- readIORef (eventDedups tbl)
+     when (not $ HashSet.member evt seen) $
+       do writeIORef (eventDedups tbl) (HashSet.insert evt seen)
+          f
 
 inProfilingFrame ::
   ProfilingTable ->
@@ -358,6 +377,7 @@ blockEvent ::
   Some (BlockID blocks) ->
   IO ()
 blockEvent tbl nm callLoc blk =
+  dedupEvent tbl (BlockDedup nm (show blk)) $
   do now <- getCurrentTime
      m <- readMetrics tbl
      i <- nextEventID tbl
@@ -372,6 +392,7 @@ branchEvent ::
   [Some (BlockID blocks)] ->
   IO ()
 branchEvent tbl nm callLoc blks =
+  dedupEvent tbl (BranchDedup nm (map show blks)) $
   do now <- getCurrentTime
      m <- readMetrics tbl
      i <- nextEventID tbl
