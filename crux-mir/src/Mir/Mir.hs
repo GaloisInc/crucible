@@ -340,11 +340,17 @@ data Terminator =
       | Unreachable
       | Drop { _dloc    :: Lvalue,
                _dtarget :: BasicBlockInfo,
-               _dunwind :: Maybe BasicBlockInfo }
+               _dunwind :: Maybe BasicBlockInfo,
+               -- | The DefId of the `drop_in_place` implementation for the
+               -- type being dropped.  `Nothing` indicates the type has no
+               -- custom drop implementation (and neither do its fields,
+               -- transitively).
+               _ddrop_fn :: Maybe MethName }
       | DropAndReplace { _drloc    :: Lvalue,
                          _drval    :: Operand,
                          _drtarget :: BasicBlockInfo,
-                         _drunwind :: Maybe BasicBlockInfo }
+                         _drunwind :: Maybe BasicBlockInfo,
+                         _drdrop_fn :: Maybe MethName }
       | Call { _cfunc   :: Operand,
                _cargs   :: [Operand],
                _cdest   :: Maybe (Lvalue, BasicBlockInfo),

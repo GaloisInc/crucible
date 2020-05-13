@@ -1319,7 +1319,7 @@ transTerminator (M.SwitchInt swop _swty svals stargs) _ | all Maybe.isJust svals
     transSwitch s (Maybe.catMaybes svals) stargs
 transTerminator (M.Return) tr =
     doReturn tr
-transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
+transTerminator (M.DropAndReplace dlv dop dtarg _ _dropFn) _ = do
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
@@ -1345,7 +1345,7 @@ transTerminator (M.Assert cond expected msg target _cleanup) _ = do
     jumpToBlock target
 transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
-transTerminator (M.Drop _dl dt _dunwind) _ =
+transTerminator (M.Drop _dl dt _dunwind _dropFn) _ = do
     jumpToBlock dt -- FIXME! drop: just keep going
 transTerminator M.Abort tr =
     G.reportError (S.litExpr "process abort in unwinding")
