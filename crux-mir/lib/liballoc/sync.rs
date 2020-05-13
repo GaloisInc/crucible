@@ -757,7 +757,7 @@ impl<T: ?Sized> Arc<T> {
 
         if self.inner().weak.fetch_sub(1, Release) == 1 {
             acquire!(self.inner().weak);
-            Global.dealloc(self.ptr.cast(), Layout::for_value(self.ptr.as_ref()))
+            // Crux: we should deallocate `self.ptr` here, but we don't support `deallocate` yet.
         }
     }
 

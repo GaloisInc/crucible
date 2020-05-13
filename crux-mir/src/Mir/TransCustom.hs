@@ -146,7 +146,6 @@ customOpDefs = Map.fromList $ [
                          , ptr_read
                          , ptr_write
                          , ptr_swap
-                         , ptr_drop_in_place
                          , intrinsics_copy
                          , intrinsics_copy_nonoverlapping
 
@@ -563,17 +562,6 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
             writeMirRef ptr2 x1
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
-    _ -> Nothing)
-
-ptr_drop_in_place :: (ExplodedDefId, CustomRHS)
-ptr_drop_in_place = ( ["core", "ptr", "drop_in_place"], \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr _tpr) _ptr] ->
-            -- We don't implement drops, so this is currently a no-op
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
-        [MirExp (MirSliceRepr _tpr) _ptr] ->
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
-        _ -> mirFail $ "bad arguments for ptr::drop_in_place: " ++ show ops
     _ -> Nothing)
 
 
@@ -1523,7 +1511,7 @@ fnPtrShimDef (TyFnDef defId) = CustomMirOp $ \ops -> case ops of
         argBase <- case argTuple of
             Copy lv -> return lv
             Move lv -> return lv
-            OpConstant _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
+            _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
                 " for fnptr shim of " ++ show defId
         let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
         callExp defId argOps

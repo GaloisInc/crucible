@@ -229,6 +229,7 @@ instance Pretty Operand where
     pretty (OpConstant c) = pretty c
     pretty (Move c) = pretty c
     pretty (Copy c) = pretty c
+    pretty (Temp c) = pretty c
 
 instance Pretty Constant where
     pretty (Constant _a b) = pretty b

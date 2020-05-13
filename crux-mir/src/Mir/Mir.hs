@@ -366,6 +366,9 @@ data Operand =
         Copy Lvalue
       | Move Lvalue
       | OpConstant Constant
+      -- | The result of evaluating an Rvalue.  This never appears in
+      -- rustc-generated MIR, but we produce them internally in some cases.
+      | Temp Rvalue
       deriving (Show, Eq, Ord, Generic)
 
 data NullOp =
@@ -681,6 +684,7 @@ instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv
     typeOf (Copy lv) = typeOf lv
     typeOf (OpConstant c) = typeOf c
+    typeOf (Temp rv) = typeOf rv
 
 instance TypeOf Constant where
     typeOf (Constant a _b) = a

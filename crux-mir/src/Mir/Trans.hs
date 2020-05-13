@@ -270,6 +270,7 @@ evalOperand (M.Copy lv) = evalPlace lv >>= readPlace
 evalOperand (M.Move lv) = evalPlace lv >>= readPlace
 evalOperand (M.OpConstant (M.Constant conty constval)) =
     transConstVal conty (tyToRepr conty) constval
+evalOperand (M.Temp rv) = evalRval rv
 
 -- | Dereference a `MirExp` (which must be `MirReferenceRepr` or other `TyRef`
 -- representation), producing a `MirPlace`.
@@ -1319,7 +1320,10 @@ transTerminator (M.SwitchInt swop _swty svals stargs) _ | all Maybe.isJust svals
     transSwitch s (Maybe.catMaybes svals) stargs
 transTerminator (M.Return) tr =
     doReturn tr
-transTerminator (M.DropAndReplace dlv dop dtarg _ _dropFn) _ = do
+transTerminator (M.DropAndReplace dlv dop dtarg _ dropFn) _ = do
+    let ptrOp = M.Temp $ M.Cast M.Misc
+            (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
+    maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
@@ -1345,8 +1349,11 @@ transTerminator (M.Assert cond expected msg target _cleanup) _ = do
     jumpToBlock target
 transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
-transTerminator (M.Drop _dl dt _dunwind _dropFn) _ = do
-    jumpToBlock dt -- FIXME! drop: just keep going
+transTerminator (M.Drop dlv dt _dunwind dropFn) _ = do
+    let ptrOp = M.Temp $ M.Cast M.Misc
+            (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
+    maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
+    jumpToBlock dt
 transTerminator M.Abort tr =
     G.reportError (S.litExpr "process abort in unwinding")
 transTerminator M.Unreachable tr =
