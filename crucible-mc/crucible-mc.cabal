@@ -4,70 +4,83 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 12a58c70b84b5bb63cfbdf12167c6bb5cd6114265c5a41619b45b0558579e763
+-- hash: dc6fc8eb14f6668dc7c568b9db8b9d6f2858fbb35ae2d3e2e356f8628d7fb390
 
-name:                crucible-mc
-version:             0.1.0.0
-license:             ISC
-license-file:        LICENSE
-build-type:          Simple
-author:              Iavor Diatchki <iavor.diatchki@gmail.com>,
-                     Valentin Robert <valentin.robert.42@gmail.com>
-maintainer:          Iavor Diatchki <iavor.diatchki@gmail.com>,
-                     Valentin Robert <valentin.robert.42@gmail.com>
+name:           crucible-mc
+version:        0.1.0.0
+author:         Iavor Diatchki <iavor.diatchki@gmail.com>,
+                Valentin Robert <valentin.robert.42@gmail.com>
+maintainer:     Iavor Diatchki <iavor.diatchki@gmail.com>,
+                Valentin Robert <valentin.robert.42@gmail.com>
+license:        ISC
+license-file:   LICENSE
+build-type:     Simple
 
 library
   exposed-modules:
-    Lang.Crucible.ModelChecker.Fresh
-    Lang.Crucible.ModelChecker.MCReader
-    Lang.Crucible.ModelChecker.MCState
+      Lang.Crucible.ModelChecker.AsBaseType
+      Lang.Crucible.ModelChecker.CrucibleMC
+      Lang.Crucible.ModelChecker.Fresh
+      Lang.Crucible.ModelChecker.GlobalInfo
+      Lang.Crucible.ModelChecker.NamingConventions
+      Lang.Crucible.ModelChecker.SallyWhat4
+      Lang.Crucible.ModelChecker.SymbolicExecution.BlockInfo
+      Lang.Crucible.ModelChecker.SymbolicExecution.Debugging
+      Lang.Crucible.ModelChecker.SymbolicExecution.Driver
+      Lang.Crucible.ModelChecker.SymbolicExecution.PrettyPrinting
+      Lang.Crucible.ModelChecker.TransitionSystem.Builder
+      Lang.Crucible.ModelChecker.TransitionSystem.InitialState
+      Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
+      Lang.Crucible.ModelChecker.TransitionSystem.Queries
+      Lang.Crucible.ModelChecker.TransitionSystem.Transitions
   other-modules:
-    Paths_crucible_mc
+      Paths_crucible_mc
   hs-source-dirs:
-    lib
+      src
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   build-depends:
-    ansi-wl-pprint,
-    base >=4.12.0.0 && <4.13,
-    containers,
-    crucible,
-    crucible-llvm,
-    crux,
-    crux-llvm,
-    language-sally,
-    lens,
-    llvm-pretty,
-    llvm-pretty-bc-parser,
-    mtl,
-    parameterized-utils,
-    pretty,
-    what4
+      ansi-wl-pprint
+    , base >=4.13.0.0 && <4.14
+    , containers
+    , crucible
+    , crucible-llvm
+    , crux
+    , crux-llvm
+    , extra
+    , language-sally
+    , lens
+    , llvm-pretty
+    , llvm-pretty-bc-parser
+    , mtl
+    , parameterized-utils
+    , pretty
+    , what4
   default-language: Haskell2010
 
 executable crucible-mc
   main-is: Main.hs
   other-modules:
-    Print
-    Paths_crucible_mc
+      Paths_crucible_mc
   hs-source-dirs:
-    exe
-  default-language: Haskell2010
+      exe
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   build-depends:
-    ansi-wl-pprint,
-    base >=4.12.0.0 && <4.13,
-    containers,
-    crucible,
-    crucible-llvm,
-    crucible-mc,
-    crux,
-    crux-llvm,
-    language-sally,
-    lens,
-    llvm-pretty,
-    llvm-pretty-bc-parser,
-    mtl,
-    parameterized-utils,
-    pretty,
-    what4
+      ansi-wl-pprint
+    , base >=4.13.0.0 && <4.14
+    , containers
+    , crucible
+    , crucible-llvm
+    , crucible-mc
+    , crux
+    , crux-llvm
+    , extra
+    , language-sally
+    , lens
+    , llvm-pretty
+    , llvm-pretty-bc-parser
+    , mtl
+    , parameterized-utils
+    , pretty
+    , what4
+  default-language: Haskell2010
 

@@ -4,12 +4,13 @@ author:
 
 dependencies:
   - ansi-wl-pprint
-  - base ^>= 4.12.0.0
+  - base ^>= 4.13.0.0
   - containers
   - crucible
   - crucible-llvm
   - crux
   - crux-llvm
+  - extra
   - language-sally
   - lens
   - llvm-pretty
@@ -34,10 +35,22 @@ ghc-options:
 
 library:
   exposed-modules:
+    - Lang.Crucible.ModelChecker.AsBaseType
+    - Lang.Crucible.ModelChecker.CrucibleMC
     - Lang.Crucible.ModelChecker.Fresh
-    - Lang.Crucible.ModelChecker.MCReader
-    - Lang.Crucible.ModelChecker.MCState
-  source-dirs: lib
+    - Lang.Crucible.ModelChecker.GlobalInfo
+    - Lang.Crucible.ModelChecker.NamingConventions
+    - Lang.Crucible.ModelChecker.SallyWhat4
+    - Lang.Crucible.ModelChecker.SymbolicExecution.BlockInfo
+    - Lang.Crucible.ModelChecker.SymbolicExecution.Debugging
+    - Lang.Crucible.ModelChecker.SymbolicExecution.Driver
+    - Lang.Crucible.ModelChecker.SymbolicExecution.PrettyPrinting
+    - Lang.Crucible.ModelChecker.TransitionSystem.Builder
+    - Lang.Crucible.ModelChecker.TransitionSystem.InitialState
+    - Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
+    - Lang.Crucible.ModelChecker.TransitionSystem.Queries
+    - Lang.Crucible.ModelChecker.TransitionSystem.Transitions
+  source-dirs: src
 
 license: ISC
 

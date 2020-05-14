@@ -3,7 +3,7 @@ CFLAGS=-O1 -Wall
 
 .PHONY: all clean
 
-all: example.bc
+all: diamond.bc example.bc loop-simple-deep-nested.bc
 
 clean:
 	-rm *.bc *.ll

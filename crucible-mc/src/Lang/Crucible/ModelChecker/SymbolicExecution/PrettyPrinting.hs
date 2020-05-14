@@ -3,12 +3,22 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Print where
+-- |
+-- Module           : Lang.Crucible.ModelChecker.SymbolicExecution.PrettyPrinting
+-- Description      : Symbolic simulation of Crucible blocks to gather @BlockInfo@s
+-- Copyright        : (c) Galois, Inc 2020
+-- License          : BSD3
+-- Maintainer       : Valentin Robert <valentin.robert.42@gmail.com>
+-- Stability        : provisional
+-- |
+module Lang.Crucible.ModelChecker.SymbolicExecution.PrettyPrinting
+  ( ppExecState,
+  )
+where
 
 import Control.Lens
--- import Data.Foldable
--- import Data.Maybe
 import Data.Parameterized.TraversableFC
+import Lang.Crucible.Backend
 import Lang.Crucible.CFG.Core
 import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.Simulator.CallFrame
@@ -25,23 +35,34 @@ ppRegEntry ::
 ppRegEntry RegEntry {..} =
   case regType of
     LLVMPointerRepr _ -> ppPtr regValue <+> ":" <+> pretty regType
+    UnitRepr -> "()"
     _ -> error $ show regType
 
 ppExecState ::
   IsSymExprBuilder sym =>
-  -- CFG ext blocks init ret ->
-  ExecState p sym ext rtp ->
+  ExecState p sym ext (RegEntry sym ret) ->
   Doc
-ppExecState (ResultState {}) = "---[ResultState]"
-ppExecState (AbortState {}) = "---[AbortState]"
+ppExecState (ResultState (FinishedResult _ (TotalRes gp))) =
+  vcat
+    [ "---[ResultState, FinishedResult, TotalRes]",
+      ppRegEntry (view gpValue gp)
+    ]
+ppExecState (ResultState (FinishedResult _ (PartialRes {}))) =
+  vcat
+    [ "---[ResultState, FinishedResult, PartialRes]"
+    ]
+ppExecState (ResultState (AbortedResult {})) = "---[ResultState, Aborted]"
+ppExecState (ResultState (TimeoutResult {})) = "---[ResultState, Timeout]"
+ppExecState (AbortState reason _) = vcat ["---[AbortState]", ppAbortExecReason reason]
 ppExecState (UnwindCallState {}) = "---[UnwindCallState]"
 ppExecState (CallState _ (CrucibleCall bID f) _) =
   vcat
     [ "---[CallState]",
-      "The simulator is about to call the Crucible function"
+      "The simulator is about to call within the Crucible function"
         <+> text (show $ frameHandle f)
         <+> "at block"
-        <+> pretty bID
+        <+> pretty bID,
+      "The arguments are: " <+> vcat (map pretty $ toListFC ppRegEntry (regMap (view frameRegs f)))
     ]
 ppExecState (CallState _ (OverrideCall _ f) _) =
   vcat
@@ -50,7 +71,11 @@ ppExecState (CallState _ (OverrideCall _ f) _) =
         <+> text (show $ view overrideHandle f)
     ]
 ppExecState (TailCallState {}) = "TailCallState"
-ppExecState (ReturnState {}) = "ReturnState"
+ppExecState (ReturnState _ _ ret _) =
+  vcat
+    [ "ReturnState",
+      ppRegEntry ret
+    ]
 ppExecState (RunningState (RunBlockStart bID) _) =
   vcat
     [ "---[RunningState]",
@@ -73,7 +98,7 @@ ppExecState (RunningState (RunPostBranchMerge bID) _) =
     ]
 ppExecState (SymbolicBranchState cond _true _false merge _) =
   vcat
-    [ "---[RunningState]",
+    [ "---[SymbolicBranchState]",
       "The simulator is now branching based on condition" <+> printSymExpr cond,
       "The merge point for this branching is" <+> text (ppBranchTarget merge)
     ]
@@ -112,11 +137,10 @@ ppExecState (BranchMergeState t _) =
         <+> text (ppBranchTarget t)
     ]
 ppExecState (InitialState {}) = "---[InitialState]"
-
-ppResolvedCall :: ResolvedCall p sym ext ret -> Doc
-ppResolvedCall (OverrideCall _o f) =
-  let fnHandle = view overrideHandle f
-   in "Override" <+> text (show fnHandle)
-ppResolvedCall (CrucibleCall _b f) =
-  let fnHandle = frameHandle f
-   in "Crucible" <+> text (show fnHandle)
+-- ppResolvedCall :: ResolvedCall p sym ext ret -> Doc
+-- ppResolvedCall (OverrideCall _o f) =
+--   let fnHandle = view overrideHandle f
+--    in "Override" <+> text (show fnHandle)
+-- ppResolvedCall (CrucibleCall _b f) =
+--   let fnHandle = frameHandle f
+--    in "Crucible" <+> text (show fnHandle)
