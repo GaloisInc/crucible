@@ -456,6 +456,10 @@ evalBinOp bop mat me1 me2 =
                 return (MirExp C.BoolRepr $ S.app $ E.Not eq, noOverflow)
             _ -> mirFail $ "No translation for pointer binop: " ++ fmt bop
 
+      (MirExp (MirReferenceRepr tpr) e1, MirExp UsizeRepr e2) -> do
+          newRef <- mirRef_offsetWrap tpr e1 e2
+          return (MirExp (MirReferenceRepr tpr) newRef, noOverflow)
+
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
   where
@@ -524,7 +528,9 @@ transNullaryOp M.Box ty = do
         vals <- mapM (\f -> mkBox $ f ^. fty) (v ^. vfields)
         buildStruct adt vals
     mkBox ty = mirFail $ "unsupported type in mkBox: " ++ show ty
-transNullaryOp _ _ = mirFail "nullop"
+transNullaryOp M.SizeOf _ = do
+    -- TODO: return the actual size, once mir-json exports size/layout info
+    return $ MirExp UsizeRepr $ R.App $ usizeLit 1
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
