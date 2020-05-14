@@ -5,7 +5,7 @@ failures:
 ---- override2/3a1fbbbh::f[0] counterexamples ----
 Failure for MIR assertion at test/symb_eval/overrides/override2.rs:9:5:
 	foo.wrapping_add(1) == foo
-in override2/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:39:41
+in override2/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:40:41
 
 [Crux] Goal status:
 [Crux]   Total: 1

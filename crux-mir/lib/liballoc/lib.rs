@@ -88,6 +88,7 @@
 #![feature(const_in_array_repeat_expressions)]
 #![feature(const_if_match)]
 #![feature(cow_is_borrowed)]
+#![feature(crucible_intrinsics)]
 #![feature(dispatch_from_dyn)]
 #![feature(core_intrinsics)]
 #![feature(container_error_extra)]

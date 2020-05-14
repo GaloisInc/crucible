@@ -15,7 +15,7 @@ in multi/3a1fbbbh::fail2[0] at internal
 ---- multi/3a1fbbbh::fail3[0] counterexamples ----
 Failure for MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 	x == 0
-in multi/3a1fbbbh::assert_zero[0] at ./lib/crucible/lib.rs:39:41
+in multi/3a1fbbbh::assert_zero[0] at ./lib/crucible/lib.rs:40:41
 
 [Crux] Goal status:
 [Crux]   Total: 4

@@ -1,5 +1,6 @@
 use super::*;
 use crate::cmp::Ordering::{self, Equal, Greater, Less};
+use crate::crucible;
 use crate::intrinsics;
 use crate::mem;
 
@@ -26,9 +27,7 @@ impl<T: ?Sized> *const T {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn is_null(self) -> bool {
-        // Compare via a cast to a thin pointer, so fat pointers are only
-        // considering their "data" part for null-ness.
-        (self as *const u8) == null()
+        crucible::ptr::compare_usize(self, 0)
     }
 
     /// Casts to a pointer of another type.

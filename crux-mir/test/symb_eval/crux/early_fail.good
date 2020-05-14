@@ -10,7 +10,7 @@ in early_fail/3a1fbbbh::fail1[0] at internal
 ---- early_fail/3a1fbbbh::fail2[0] counterexamples ----
 Failure for MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
 	x == 0
-in early_fail/3a1fbbbh::fail2[0] at ./lib/crucible/lib.rs:39:41
+in early_fail/3a1fbbbh::fail2[0] at ./lib/crucible/lib.rs:40:41
 
 [Crux] Goal status:
 [Crux]   Total: 2

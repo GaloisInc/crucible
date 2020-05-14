@@ -6,6 +6,7 @@ pub mod alloc;
 pub use core::crucible::any;
 pub mod array;
 pub mod bitvector;
+pub use core::crucible::ptr;
 pub mod symbolic;
 pub mod sym_bytes;
 pub mod vector;

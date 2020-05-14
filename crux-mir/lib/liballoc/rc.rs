@@ -251,6 +251,7 @@ use core::pin::Pin;
 use core::ptr::{self, NonNull};
 use core::slice::{self, from_raw_parts_mut};
 use core::usize;
+use crucible;
 
 use crate::alloc::{box_free, handle_alloc_error, AllocRef, Global, Layout};
 use crate::string::String;
@@ -1768,8 +1769,7 @@ impl<T> Weak<T> {
 }
 
 pub(crate) fn is_dangling<T: ?Sized>(ptr: NonNull<T>) -> bool {
-    let address = ptr.as_ptr() as *mut () as usize;
-    address == usize::MAX
+    crucible::ptr::compare_usize(ptr.as_ptr(), usize::MAX)
 }
 
 impl<T: ?Sized> Weak<T> {

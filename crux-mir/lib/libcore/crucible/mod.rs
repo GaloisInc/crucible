@@ -2,3 +2,6 @@
 //! `libcrucible` so users have a more consistent API.
 #[unstable(feature = "crucible_intrinsics", issue = "none")]
 pub mod any;
+
+#[unstable(feature = "crucible_intrinsics", issue = "none")]
+pub mod ptr;
