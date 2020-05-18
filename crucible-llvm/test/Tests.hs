@@ -24,8 +24,6 @@ import           Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx
 import qualified What4.Expr.Builder as What4
 import qualified What4.Interface as What4
-import qualified What4.Partial as What4
-import qualified What4.Partial as What4
 import qualified What4.Protocol.Online as What4
 import qualified What4.SatResult as What4
 
@@ -40,11 +38,9 @@ import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
 
 -- General
-import           Control.Monad.ST
 import           Data.Foldable
 import           Data.Sequence (Seq)
 import           Control.Monad
-import           Control.Monad.Except
 import           Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -58,7 +54,6 @@ import qualified System.Process as Proc
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Globals
-import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
@@ -139,6 +134,7 @@ main = do
   case translated of
     [Some g1, Some g2, Some g3, Some g4, Some l1] ->
       defaultMain (tests g1 g2 g3 g4 l1)
+    _ -> error "translation failure!"
 
 tests :: ModuleTranslation arch1
       -> ModuleTranslation arch2
@@ -241,9 +237,9 @@ tests int struct uninitialized _ lifetime = do
                                                , L.modAliases = as
                                                }
       in [ testCase "initializeMemory" $
-           let mod     = mkModule [mkAlias  "a" "g"] [mkGlobal "g"]
+           let mod'    = mkModule [mkAlias  "a" "g"] [mkGlobal "g"]
                inMap k = (Just () @=?) . fmap (const ()) . Map.lookup k
-           in withInitializedMemory mod $ \result ->
+           in withInitializedMemory mod' $ \result ->
                 inMap (L.Symbol "a") (memImplGlobalMap result)
          ]
 
@@ -292,11 +288,11 @@ tests int struct uninitialized _ lifetime = do
             , L.defComdat = Nothing
             }
       in [ testCase "initializeMemory (functions)" $
-           let mod     = L.emptyModule { L.modDefines = [def]
+           let mod'    = L.emptyModule { L.modDefines = [def]
                                        , L.modAliases = [alias]
                                        }
                inMap k = (Just () @=?) . fmap (const ()) . Map.lookup k
-           in withInitializedMemory mod $ \memImpl ->
+           in withInitializedMemory mod' $ \memImpl ->
               inMap
                 (L.Symbol "aliasName")
                 (memImplGlobalMap memImpl)
@@ -318,14 +314,14 @@ withLLVMCtx :: forall a. L.Module
                 -> sym
                 -> IO a)
             -> IO a
-withLLVMCtx mod action =
+withLLVMCtx mod' action =
   let -- This is a separate function because we need to use the scoped type variable
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
         sym <- Crucible.newSimpleBackend What4.FloatRealRepr nonceGen
         let ?laxArith = False
-        Some (ModuleTranslation _ ctx _ _) <- translateModule halloc mod
+        Some (ModuleTranslation _ ctx _ _) <- translateModule halloc mod'
         case llvmArch ctx                   of { X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do
@@ -345,9 +341,9 @@ withInitializedMemory :: forall a. L.Module
                           => MemImpl sym
                           -> IO a)
                       -> IO a
-withInitializedMemory mod action =
-  withLLVMCtx mod $ \(ctx :: LLVMContext arch) sym ->
-    action @(ArchWidth arch) =<< initializeAllMemory sym ctx mod
+withInitializedMemory mod' action =
+  withLLVMCtx mod' $ \(ctx :: LLVMContext arch) sym ->
+    action @(ArchWidth arch) =<< initializeAllMemory sym ctx mod'
 
 assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n
 assertLeq m n =
