@@ -467,6 +467,22 @@ callStrlen sym mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
   liftIO $ strLen sym mem strPtr
 
+callAssert
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  => GlobalVar Mem
+  -> sym
+  -> Ctx.Assignment (RegEntry sym)
+        (EmptyCtx ::> LLVMPointerType wptr
+                  ::> LLVMPointerType wptr
+                  ::> BVType 32
+                  ::> LLVMPointerType wptr)
+  -> OverrideSim p sym (LLVM arch) r args reg (RegValue sym UnitType)
+callAssert mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
+     do mem <- readGlobal mvar
+        txt <- liftIO $ loadString sym mem (regValue ptxt) Nothing
+        let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
+        liftIO $ addFailedAssertion sym err
+
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
   => sym
@@ -613,8 +629,9 @@ printfOps sym valist =
 ------------------------------------------------------------------------
 -- *** Other
 
+-- from OSX libc
 llvmAssertRtnOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
@@ -623,10 +640,21 @@ llvmAssertRtnOverride
         UnitType
 llvmAssertRtnOverride =
   [llvmOvr| void @__assert_rtn( i8*, i8*, i32, i8* ) |]
-  (\_ sym _args ->
-       do let err = AssertFailureSimError "Call to __assert_rtn" ""
-          liftIO $ assert sym (falsePred sym) err
-  )
+  callAssert
+
+-- From glibc
+llvmAssertFailOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+        (EmptyCtx ::> LLVMPointerType wptr
+                  ::> LLVMPointerType wptr
+                  ::> BVType 32
+                  ::> LLVMPointerType wptr)
+        UnitType
+llvmAssertFailOverride =
+  [llvmOvr| void @__assert_fail( i8*, i8*, i32, i8* ) |]
+  callAssert
+
 
 llvmAbortOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
