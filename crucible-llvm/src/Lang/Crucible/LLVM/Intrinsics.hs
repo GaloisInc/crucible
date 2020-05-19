@@ -220,6 +220,7 @@ declare_overrides =
   -- C standard library functions
   , basic_llvm_override Libc.llvmAbortOverride
   , basic_llvm_override Libc.llvmAssertRtnOverride
+  , basic_llvm_override Libc.llvmAssertFailOverride
   , basic_llvm_override Libc.llvmMemcpyOverride
   , basic_llvm_override Libc.llvmMemcpyChkOverride
   , basic_llvm_override Libc.llvmMemmoveOverride
