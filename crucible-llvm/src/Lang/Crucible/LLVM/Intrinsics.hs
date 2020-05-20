@@ -202,6 +202,11 @@ declare_overrides =
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
 
+  , polymorphic1_llvm_override "llvm.fshl"
+      (\w -> SomeLLVMOverride (LLVM.llvmFshl w))
+  , polymorphic1_llvm_override "llvm.fshr"
+      (\w -> SomeLLVMOverride (LLVM.llvmFshr w))
+
   , polymorphic1_llvm_override "llvm.expect"
       (\w -> SomeLLVMOverride (LLVM.llvmExpectOverride w))
   , polymorphic1_llvm_override "llvm.sadd.with.overflow"
