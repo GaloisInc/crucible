@@ -988,7 +988,7 @@ strLen sym mem = go 0 (truePred sym)
         do ast <- impliesPred sym cond (falsePred sym)
            let msg = show (ppMemoryLoadError e)
            assert sym ast $ AssertFailureSimError "Error during memory load: strlen" msg
-           bvLit sym PtrWidth (maxUnsigned PtrWidth) -- bogus value, but have to return something...
+           bvLit sym PtrWidth 0 -- bogus value, but have to return something...
       Partial.NoErr loadok llvmval ->
         do ast <- impliesPred sym cond loadok
            assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
