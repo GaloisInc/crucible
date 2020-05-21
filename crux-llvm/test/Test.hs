@@ -4,10 +4,11 @@ module Main where
 import Control.Exception (bracket)
 import Control.Monad (void)
 
-import GHC.IO.Handle (hDuplicate, hDuplicateTo, hSetBuffering, Handle, BufferMode(..))
+import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 
 import Data.Char ( isLetter )
 import Data.List ( isInfixOf )
+import System.Directory( doesFileExist )
 import System.Environment ( withArgs, lookupEnv )
 import System.FilePath (takeBaseName, replaceExtension)
 import System.IO --(IOMode(..), hFlush, withFile, stdout, stderr)
@@ -47,15 +48,18 @@ goldenTests dir =
      return $
        testGroup "Golden testing of crux-llvm"
          [ goldenVsFile (takeBaseName cFile) goodFile outFile $
-           withArgs ["--solver=z3",cFile] $
-           withFile outFile WriteMode $ \h ->
-             let cfg = C.OutputConfig False h h True in -- Quiet mode, don't print colors
-             void $ C.mainWithOutputConfig cfg
+           do ex <- doesFileExist configFile
+              let cfgargs = if ex then ["--config="++configFile] else []
+              withArgs (["--solver=z3",cFile] ++ cfgargs) $
+                withFile outFile WriteMode $ \h ->
+                  let cfg = C.OutputConfig False h h True in -- Quiet mode, don't print colors
+                  void $ C.mainWithOutputConfig cfg
 
          | cFile <- cFiles
          , notHidden cFile
          , let goodFile = replaceExtension cFile ".good"
          , let outFile = replaceExtension cFile ".out"
+         , let configFile = replaceExtension cFile ".config"
          ]
   where
     notHidden "" = True
