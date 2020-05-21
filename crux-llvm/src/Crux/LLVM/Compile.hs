@@ -2,7 +2,7 @@
 module Crux.LLVM.Compile where
 
 import Control.Exception
-  ( SomeException(..), try ) 
+  ( SomeException(..), try )
 import Control.Monad
   ( unless, forM_ )
 import qualified Data.Binary.IEEE754 as IEEE754
@@ -105,10 +105,14 @@ genBitCode cruxOpts llvmOpts =
          incs src = takeDirectory src :
                     (libDir llvmOpts </> "includes") :
                     incDirs llvmOpts
-         params (src, srcBC) =
-           [ "-c", "-g", "-emit-llvm", "-O0" ] ++
-           concat [ [ "-I", dir ] | dir <- incs src ] ++
-           [ "-o", srcBC, src ]
+         params (src, srcBC)
+           | ".ll" `isSuffixOf` src =
+              ["-c", "-emit-llvm", "-o", srcBC, src]
+
+           | otherwise =
+              [ "-c", "-g", "-emit-llvm", "-O1" ] ++
+              concat [ [ "-I", dir ] | dir <- incs src ] ++
+              [ "-o", srcBC, src ]
 
      finalBCExists <- doesFileExist finalBCFile
      unless (finalBCExists && lazyCompile llvmOpts) $
