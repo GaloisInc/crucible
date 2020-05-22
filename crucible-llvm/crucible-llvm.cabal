@@ -12,7 +12,7 @@ Synopsis:      Support for translating and executing LLVM code in Crucible
 
 library
   build-depends:
-    base >= 4.7 && < 4.14,
+    base >= 4.7 && < 4.15,
     ansi-wl-pprint,
     attoparsec,
     bytestring,
@@ -30,7 +30,7 @@ library
     itanium-abi >= 0.1.1.1 && < 0.2,
     llvm-pretty >= 0.8 && < 0.11,
     mtl,
-    parameterized-utils >= 1.0.4 && < 2.1,
+    parameterized-utils >= 1.0.4 && < 2.2,
     text,
     template-haskell,
     transformers,

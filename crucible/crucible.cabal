@@ -27,7 +27,7 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.8 && < 4.14,
+    base >= 4.8 && < 4.15,
     ansi-wl-pprint,
     bimap,
     bytestring,
@@ -42,7 +42,7 @@ library
     lens,
     mtl,
     panic >= 0.3,
-    parameterized-utils >= 1.0.8 && < 2.1,
+    parameterized-utils >= 1.0.8 && < 2.2,
     process,
     template-haskell,
     text,

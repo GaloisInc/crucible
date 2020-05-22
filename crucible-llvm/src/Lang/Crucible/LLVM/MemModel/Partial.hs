@@ -60,7 +60,6 @@ import           Prelude hiding (pred)
 
 import           Control.Lens ((^.), view)
 import           Control.Monad.Except
-import           Control.Monad.IO.Class (liftIO, MonadIO)
 import           Control.Monad.State.Strict (StateT, get, put, runStateT)
 import           Data.IORef
 import           Data.Maybe (isJust)

@@ -918,4 +918,6 @@ simulateHarness sim rw w sc cryEnv harness pc stack ret fn =
              -- FIXME, ugh, it's annoying to deal with this...
              --traverse (\x -> liftIO $ translateExpr sc cryEnv'' (snd x)) (verificationOutput harness)
 
+#if !MIN_VERSION_GLASGOW_HASKELL(8,10,0,0)
         _ -> fail "Impossible! failed to deconstruct verification result!"
+#endif

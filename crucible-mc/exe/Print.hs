@@ -1,3 +1,4 @@
+{-# Language GADTs #-}
 {-# Language OverloadedStrings #-}
 module Print where
 
