@@ -20,7 +20,7 @@ import qualified Data.Text as Text
 import Data.Time.Clock
   ( getCurrentTime, diffUTCTime, NominalDiffTime )
 import System.Exit
-  ( exitFailure, ExitCode(..) )
+  ( exitFailure, ExitCode(..), exitSuccess )
 import System.FilePath
   ( takeFileName, takeDirectory, (</>)
   , replaceExtension
@@ -28,7 +28,7 @@ import System.FilePath
 import System.Directory
   ( createDirectoryIfMissing, doesFileExist, copyFile )
 import System.IO
-  ( Handle, hGetContents, hClose, openFile, IOMode(..) )
+  ( Handle, hGetContents, hClose, openFile, IOMode(..), hFlush )
 
 -- unix
 import System.Posix.IO
@@ -136,8 +136,8 @@ hGetContentsStrict hdl =
 evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> BenchmarkSet -> IO ()
 evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts bs =
    bracket (openFile (svcompOutputFile svOpts) WriteMode) hClose $ \jsonOutHdl ->
-     mapM_ (evaluateVerificationTask jsonOutHdl) (zip [0::Int ..] (benchmarkTasks bs))
-
+     do mapM_ (evaluateVerificationTask jsonOutHdl) (zip [0::Int ..] (benchmarkTasks bs))
+        LBS.hPutStr jsonOutHdl "]\n"
 
  where
  megabyte = bit 20 :: Integer
@@ -176,6 +176,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts bs =
                    writeHdl <- fdToHandle writeFd
                    jsonHdl <- fdToHandle jsonWriteFd
                    evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task
+                   exitSuccess
 
        ast <- async (getProcessStatus True {- Block -} False {- stopped -} pid)
        aout <- async (hGetContentsStrict readHdl)
@@ -214,8 +215,15 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts bs =
                 , evaluationResult = res
                 , subprocessOutput = out
                 }
+
+       let leadingString
+              | num == 0 = "[\n"
+              | otherwise= ",\n"
+
+       LBS.hPutStr jsonOutHdl leadingString
        LBS.hPutStr jsonOutHdl (encode ed)
        LBS.hPutStr jsonOutHdl "\n"
+       hFlush jsonOutHdl
 
 instance ToJSON ProcessStatus where
   toJSON (Exited ec)        = object [("exited", toJSON x)]
