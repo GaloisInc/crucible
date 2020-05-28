@@ -1,24 +1,27 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Exception (bracket)
-import Control.Monad (void)
+import Control.Exception (bracket, SomeException, try)
 
 import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 
+import qualified Data.ByteString.Lazy as BSIO
 import Data.Char ( isLetter )
 import Data.List ( isInfixOf )
 import System.Directory( doesFileExist )
 import System.Environment ( withArgs, lookupEnv )
+import System.Exit ( ExitCode(..) )
 import System.FilePath (takeBaseName, replaceExtension)
 import System.IO --(IOMode(..), hFlush, withFile, stdout, stderr)
 import System.Process ( readProcess )
 
 import Test.Tasty (defaultMain, testGroup, TestTree)
-import Test.Tasty.Golden (goldenVsFile, findByExtension)
+import Test.Tasty.Golden (goldenVsString, findByExtension)
 
 import qualified Crux.Log as C
 import qualified CruxLLVMMain as C
+
 
 main :: IO ()
 main = do
@@ -47,13 +50,20 @@ goldenTests dir =
   do cFiles <- findByExtension [".c",".ll"] dir
      return $
        testGroup "Golden testing of crux-llvm"
-         [ goldenVsFile (takeBaseName cFile) goodFile outFile $
+         [ goldenVsString (takeBaseName cFile) goodFile $
            do ex <- doesFileExist configFile
               let cfgargs = if ex then ["--config="++configFile] else []
-              withArgs (["--solver=z3",cFile] ++ cfgargs) $
-                withFile outFile WriteMode $ \h ->
-                  let cfg = C.OutputConfig False h h True in -- Quiet mode, don't print colors
-                  void $ C.mainWithOutputConfig cfg
+
+              r <- withArgs (["--solver=z3",cFile] ++ cfgargs) $
+                     withFile outFile WriteMode $ \h ->
+                       let cfg = C.OutputConfig False h h True in -- Quiet mode, don't print colors
+                       (let bss = BSIO.pack . fmap (toEnum . fromEnum) . show in \case
+                         Left e -> "*** Crux failed with exception: " <> bss (show (e :: SomeException)) <> "\n"
+                         Right (ExitFailure v) -> "*** Crux failed with non-zero result: " <> bss (show v) <> "\n"
+                         Right ExitSuccess -> "")
+                       <$>
+                       (try $ C.mainWithOutputConfig cfg)
+              (<> r) <$> BSIO.readFile outFile
 
          | cFile <- cFiles
          , notHidden cFile
