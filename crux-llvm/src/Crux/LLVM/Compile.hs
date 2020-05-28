@@ -107,7 +107,7 @@ genBitCode cruxOpts llvmOpts =
                     incDirs llvmOpts
          params (src, srcBC)
            | ".ll" `isSuffixOf` src =
-              ["-c", "-emit-llvm", "-o", srcBC, src]
+              ["-c", "-emit-llvm", "-O0", "-o", srcBC, src]
 
            | otherwise =
               [ "-c", "-g", "-emit-llvm", "-O1" ] ++
