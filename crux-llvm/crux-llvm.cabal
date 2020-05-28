@@ -141,6 +141,7 @@ test-suite crux-llvm-test
 
   build-depends:
                 base             >= 4.7,
+                bytestring,
                 containers,
                 crucible,
                 crux,
