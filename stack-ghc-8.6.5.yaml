@@ -29,6 +29,8 @@ packages:
 
 extra-deps:
   - GraphSCC-1.0.4
+  - QuickCheck-2.14
+  - splitmix-0.0.4
   - aeson-1.4.7.1
   - data-inttrie-0.1.4
   - monadLib-3.7.3
