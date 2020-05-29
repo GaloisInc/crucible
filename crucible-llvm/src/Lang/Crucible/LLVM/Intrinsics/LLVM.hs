@@ -357,6 +357,28 @@ llvmObjectsizeOverride_64_null_dynamic =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic sym memOps knownNat) args)
 
+llvmFshl ::
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  NatRepr w ->
+  LLVMOverride p sym arch
+    (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
+    (BVType w)
+llvmFshl w =
+ let nm = L.Symbol ("llvm.fshl.i" ++ show (natValue w)) in
+ [llvmOvr| #w $nm ( #w, #w, #w ) |]
+ (\_memOps sym args -> Ctx.uncurryAssignment (callFshl sym w) args)
+
+llvmFshr ::
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  NatRepr w ->
+  LLVMOverride p sym arch
+    (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
+    (BVType w)
+llvmFshr w =
+ let nm = L.Symbol ("llvm.fshr.i" ++ show (natValue w)) in
+ [llvmOvr| #w $nm ( #w, #w, #w ) |]
+ (\_memOps sym args -> Ctx.uncurryAssignment (callFshr sym w) args)
+
 llvmSaddWithOverflow
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => NatRepr w ->
@@ -666,6 +688,55 @@ callCtlz sym _mvar
        p <- orPred sym isNonzero zeroOK
        assert sym p (AssertFailureSimError "Ctlz called with disallowed zero value" "")
        bvCountLeadingZeros sym val
+
+callFshl
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> NatRepr w
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
+callFshl sym w x y amt = liftIO $
+  do LeqProof <- return (dblPosIsPos (leqProof (knownNat @1) w))
+     Just LeqProof <- return (testLeq (addNat w (knownNat @1)) (addNat w w))
+
+     -- concatenate the values together
+     xy <- bvConcat sym (regValue x) (regValue y)
+
+     -- The shift argument is treated as an unsigned amount modulo the element size of the arguments.
+     m <- bvLit sym w (intValue w)
+     mamt <- bvUrem sym (regValue amt) m
+     mamt' <- bvZext sym (addNat w w) mamt
+
+     -- shift left, select high bits
+     z <- bvShl sym xy mamt'
+     bvSelect sym w w z
+
+callFshr
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> NatRepr w
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
+callFshr sym w x y amt = liftIO $
+  do LeqProof <- return (dblPosIsPos (leqProof (knownNat @1) w))
+     LeqProof <- return (addPrefixIsLeq w w)
+     Just LeqProof <- return (testLeq (addNat w (knownNat @1)) (addNat w w))
+
+     -- concatenate the values together
+     xy <- bvConcat sym (regValue x) (regValue y)
+
+     -- The shift argument is treated as an unsigned amount modulo the element size of the arguments.
+     m <- bvLit sym w (intValue w)
+     mamt <- bvUrem sym (regValue amt) m
+     mamt' <- bvZext sym (addNat w w) mamt
+
+     -- shift right, select low bits
+     z <- bvLshr sym xy mamt'
+     bvSelect sym (knownNat @0) w z
 
 callSaddWithOverflow
   :: (1 <= w, IsSymInterface sym)
