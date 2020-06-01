@@ -1,0 +1,93 @@
+Name:          crucible-jvm
+Version:       0.2
+Author:        Galois Inc.
+Copyright:     (c) Galois, Inc. 2018
+Maintainer:    huffman@galois.com, sweirich@galois.com
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.10
+Category:      Language
+Synopsis:      Support for translating and executing JVM code in Crucible
+
+executable crucible-jvm
+
+  hs-source-dirs: tool
+  main-is: Main.hs
+
+  build-depends:
+    base >= 4 && < 5,
+    aig,
+    ansi-wl-pprint,
+    array,
+    containers,
+    crucible,
+    crucible-jvm,
+    directory,
+    filepath,
+    haskeline >= 0.7,
+    lens,
+    mtl >= 2.1,
+    parameterized-utils >= 1.0 && < 2.2,
+    pretty >= 1.1,
+    split >= 0.2,
+    text,
+    transformers >= 0.3,
+    transformers-compat,
+    vector >= 0.7,
+    jvm-parser >= 0.3,
+    what4 >= 0.4,
+    crucible-jvm,
+    ansi-terminal,
+    crux
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
+library
+
+  build-depends:
+    base >= 4 && < 5,
+    aig,
+    ansi-wl-pprint,
+    array,
+    containers,
+    crucible,
+    directory,
+    filepath,
+    haskeline >= 0.7,
+    jvm-parser >= 0.3,
+    lens,
+    mtl >= 2.1,
+    parameterized-utils >= 1.0 && < 2.2,
+    pretty >= 1.1,
+    split >= 0.2,
+    text,
+    transformers >= 0.3,
+    transformers-compat,
+    vector >= 0.7,
+    what4 >= 0.4
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Lang.Crucible.JVM
+    Lang.Crucible.JVM.Types
+    Lang.Crucible.JVM.Context
+    Lang.Crucible.JVM.Simulate
+    Lang.Crucible.JVM.Translation
+    Lang.Crucible.JVM.Translation.Class
+    Lang.Crucible.JVM.Translation.Monad
+    Lang.Crucible.JVM.Translation.Numeric
+    Lang.Crucible.JVM.ClassRefs
+    Lang.Crucible.JVM.Overrides
+    Lang.JVM.Codebase
+  other-modules:
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+

@@ -1,0 +1,10 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  x is true
+  in main at test-data/simulator-tests/assert.cbl:4:5
+  cx@0:b
+COUNTEREXAMPLE

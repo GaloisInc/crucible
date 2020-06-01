@@ -10,13 +10,8 @@
 -- memory strucutures.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -24,13 +19,13 @@
 
 module Lang.Crucible.Server.MultipartOperations where
 
-#if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative
-#endif
 import           Control.Lens
-import           Control.Monad.ST (RealWorld, stToIO)
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Nonce
 import qualified Data.Text as Text
+
+import           What4.FunctionName
+import           What4.ProgramLoc
 
 import           Lang.Crucible.Analysis.Postdom
 import qualified Lang.Crucible.CFG.Core as C
@@ -38,8 +33,6 @@ import qualified Lang.Crucible.CFG.Generator as Gen
 import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
-import           Lang.Crucible.ProgramLoc
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Syntax
@@ -74,19 +67,20 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
     let nameStr = ("multipartStore_"++(show addrWidth)++"_"++(show cellWidth)++"_"++(show num))
     let name = functionNameFromText $ Text.pack nameStr
     let argsRepr = Ctx.empty
-                   Ctx.%> BoolRepr
-                   Ctx.%> BVRepr addrWidth
-                   Ctx.%> BVRepr valWidth
-                   Ctx.%> WordMapRepr addrWidth (BaseBVRepr cellWidth)
+                   Ctx.:> BoolRepr
+                   Ctx.:> BVRepr addrWidth
+                   Ctx.:> BVRepr valWidth
+                   Ctx.:> WordMapRepr addrWidth (BaseBVRepr cellWidth)
     let retRepr = WordMapRepr addrWidth (BaseBVRepr cellWidth)
     h <- simMkHandle sim name argsRepr retRepr
-    (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
+    sng <- newIONonceGenerator
+    (R.SomeCFG regCfg, _) <- Gen.defineFunction InternalPos sng h fndef
     case toSSA regCfg of
       C.SomeCFG cfg -> do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef RealWorld
+ where fndef :: Gen.FunctionDef ()
                                 Maybe
                                 (EmptyCtx
                                  ::> BoolType
@@ -95,23 +89,21 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
                                  ::> WordMapType addrWidth (BaseBVType cellWidth)
                                 )
                                (WordMapType addrWidth (BaseBVType cellWidth))
+                               IO
 
-       fndef regs = ( Nothing, Gen.endNow $ \_ -> do
-                          let endianFlag = regs^._1
+       fndef regs = ( Nothing,
+                       do let endianFlag = R.AtomExpr (regs^._1)
                           let basePtr    = R.AtomExpr (regs^._2)
                           let v          = R.AtomExpr (regs^._3)
                           let wordMap    = R.AtomExpr (regs^._4)
 
-                          be <- Gen.newLabel
-                          le <- Gen.newLabel
-
-                          Gen.endCurrentBlock (R.Br endianFlag be le)
-                          Gen.defineBlock be $ Gen.returnFromFunction $
-                                bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap
-                          Gen.defineBlock le $ Gen.returnFromFunction $
+                          be <- Gen.defineBlockLabel $ Gen.returnFromFunction $
+                                  bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap
+                          le <- Gen.defineBlockLabel $ Gen.returnFromFunction $
                                 littleEndianStore addrWidth cellWidth valWidth num basePtr v wordMap
-                    )
 
+                          Gen.branch endianFlag be le
+                    )
 
 -- | This function constructs a crucible function for loading multibyte
 --   values from a word map.  It supports both big- and
@@ -144,19 +136,20 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
     let nameStr = ("multipartLoad_"++(show addrWidth)++"_"++(show cellWidth)++"_"++(show num))
     let name = functionNameFromText $ Text.pack nameStr
     let argsRepr = Ctx.empty
-                   Ctx.%> BoolRepr
-                   Ctx.%> BVRepr addrWidth
-                   Ctx.%> WordMapRepr addrWidth (BaseBVRepr cellWidth)
-                   Ctx.%> MaybeRepr (BVRepr cellWidth)
+                   Ctx.:> BoolRepr
+                   Ctx.:> BVRepr addrWidth
+                   Ctx.:> WordMapRepr addrWidth (BaseBVRepr cellWidth)
+                   Ctx.:> MaybeRepr (BVRepr cellWidth)
     let retRepr = BVRepr valWidth
     h <- simMkHandle sim name argsRepr retRepr
-    (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
+    sng <- newIONonceGenerator
+    (R.SomeCFG regCfg, _) <- Gen.defineFunction InternalPos sng h fndef
     case toSSA regCfg of
       C.SomeCFG cfg -> do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef RealWorld
+ where fndef :: Gen.FunctionDef ()
                                Maybe
                                (EmptyCtx
                                ::> BoolType
@@ -165,12 +158,13 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
                                ::> MaybeType (BVType cellWidth)
                                )
                                (BVType valWidth)
+                               IO
 
-       fndef args = ( Nothing, Gen.endNow $ \_ -> do
-                          let endianFlag = args^._1
+       fndef args = ( Nothing,
+                       do let endianFlag = R.AtomExpr (args^._1)
                           let basePtr    = R.AtomExpr (args^._2)
                           let wordMap    = R.AtomExpr (args^._3)
-                          let maybeDefVal = args^._4
+                          let maybeDefVal = R.AtomExpr (args^._4)
 
                           be       <- Gen.newLabel
                           le       <- Gen.newLabel
@@ -179,13 +173,9 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
                           be_def   <- Gen.newLambdaLabel' (BVRepr cellWidth)
                           le_def   <- Gen.newLambdaLabel' (BVRepr cellWidth)
 
-                          Gen.endCurrentBlock (R.Br endianFlag be le)
+                          Gen.defineBlock be $ Gen.branchMaybe maybeDefVal be_def be_nodef
 
-                          Gen.defineBlock be $ Gen.endNow $ \_ -> Gen.endCurrentBlock $
-                                R.MaybeBranch (BVRepr cellWidth) maybeDefVal be_def be_nodef
-
-                          Gen.defineBlock le $ Gen.endNow $ \_ -> Gen.endCurrentBlock $
-                                R.MaybeBranch (BVRepr cellWidth) maybeDefVal le_def le_nodef
+                          Gen.defineBlock le $ Gen.branchMaybe maybeDefVal le_def le_nodef
 
                           Gen.defineBlock be_nodef $ Gen.returnFromFunction $
                                bigEndianLoad addrWidth cellWidth valWidth num basePtr wordMap
@@ -198,4 +188,6 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
 
                           Gen.defineLambdaBlock le_def $ \def -> Gen.returnFromFunction $
                                littleEndianLoadDef addrWidth cellWidth valWidth num basePtr wordMap def
+
+                          Gen.branch endianFlag be le
                     )

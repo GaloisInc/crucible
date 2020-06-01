@@ -1,10 +1,29 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Analysis.Fixpoint.Components
+-- Description      : Compute weak topological ordering of CFG
+-- Copyright        : (c) Galois, Inc 2015
+-- License          : BSD3
+-- Maintainer       : Tristan Ravitch <tristan@galois.com>
+-- Stability        : provisional
+--
+-- Compute a weak topological ordering over a control flow graph using
+-- Bourdoncle's algorithm (See Note [Bourdoncle Components]).
+------------------------------------------------------------------------
+
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+
 module Lang.Crucible.Analysis.Fixpoint.Components (
   weakTopologicalOrdering,
-  WTOComponent(..)
+  WTOComponent(..),
+  -- * Special cases
+  cfgWeakTopologicalOrdering,
+  cfgSuccessors,
+  cfgStart
   ) where
 
 import Control.Applicative
@@ -15,6 +34,10 @@ import qualified Data.Map as M
 import qualified Data.Traversable as T
 
 import Prelude
+
+import           Data.Parameterized.Some (Some(Some))
+import           Lang.Crucible.CFG.Core (CFG, BlockID)
+import qualified Lang.Crucible.CFG.Core as CFG
 
 -- | Compute a weak topological ordering over a control flow graph.
 --
@@ -37,6 +60,25 @@ data WTOComponent n = SCC { wtoHead :: n
                     | Vertex n
                     deriving (Functor, F.Foldable, T.Traversable, Show)
 
+-- | Useful for creating a first argument to 'weakTopologicalOrdering'. See
+-- also 'cfgWeakTopologicalOrdering'.
+cfgSuccessors ::
+  CFG ext blocks init ret ->
+  Some (BlockID blocks) -> [Some (BlockID blocks)]
+cfgSuccessors cfg = \(Some bid) -> CFG.nextBlocks (CFG.getBlock bid bm) where
+  bm = CFG.cfgBlockMap cfg
+
+-- | Useful for creating a second argument to 'weakTopologicalOrdering'. See
+-- also 'cfgWeakTopologicalOrdering'.
+cfgStart :: CFG ext blocks init ret -> Some (BlockID blocks)
+cfgStart cfg = Some (CFG.cfgEntryBlockID cfg)
+
+-- | Compute a weak topological order for the CFG.
+cfgWeakTopologicalOrdering ::
+  CFG ext blocks init ret ->
+  [WTOComponent (Some (BlockID blocks))]
+cfgWeakTopologicalOrdering cfg = weakTopologicalOrdering (cfgSuccessors cfg) (cfgStart cfg)
+
 visit :: (Ord n) => n -> M n Label
 visit v = do
   push v
@@ -52,15 +94,17 @@ visit v = do
     markDone v
     -- Note that we always have to pop, but we might only use the
     -- result if there was a loop
-    Just elt <- pop
-    case isLoop of
-      False ->
-        -- If there is no loop, add a singleton vertex to the partition
-        addComponent (Vertex v)
-      True -> do
-        -- Otherwise, unwind the stack and add a full component
-        unwindStack elt v
-        makeComponent v
+    pop >>= \case
+        Just elt ->
+            case isLoop of
+              False ->
+                -- If there is no loop, add a singleton vertex to the partition
+                addComponent (Vertex v)
+              True -> do
+                  -- Otherwise, unwind the stack and add a full component
+                unwindStack elt v
+                makeComponent v
+        Nothing -> error "Pop attempted on empty stack (Components:visit)"
   -- We return the least label in the strongly-connected component
   -- containing this vertex, which is used if we have to unwind back
   -- to the SCC head vertex.
@@ -76,8 +120,9 @@ unwindStack elt v =
     False -> return ()
     True -> do
       resetLabel elt
-      Just elt' <- pop
-      unwindStack elt' v
+      pop >>= \case
+          Just elt' -> unwindStack elt' v
+          Nothing -> error $ "Emptied stack without finding target element (Components:unwindStack)"
 
 -- | Make a component with the given head element by visiting
 -- everything in the SCC and recursively creating a new partition.

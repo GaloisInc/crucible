@@ -8,12 +8,10 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
+
 module Lang.Crucible.LLVM.MemType
   ( -- * Type information.
     SymType(..)
@@ -22,6 +20,7 @@ module Lang.Crucible.LLVM.MemType
   , memTypeSize
   , ppSymType
   , ppMemType
+  , memTypeBitwidth
     -- ** Function type information.
   , FunDecl(..)
   , RetType
@@ -61,14 +60,9 @@ import qualified Text.LLVM as L
 import qualified Text.LLVM.PP as L
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative ((<$>))
-import Data.Monoid (Monoid(..))
-#endif
-
+import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.PrettyPrint
-import Lang.Crucible.Utils.Arithmetic
 
 -- | Performs a binary search on a range of ints.
 binarySearch :: (Int -> Ordering)
@@ -104,6 +98,9 @@ data SymType
 instance Show SymType where
   show = show . ppSymType
 
+instance Pretty SymType where
+  pretty = ppSymType
+
 -- | Pretty-print a 'SymType'.
 ppSymType :: SymType -> Doc
 ppSymType (MemType tp) = ppMemType tp
@@ -119,14 +116,18 @@ data MemType
   | PtrType SymType
   | FloatType
   | DoubleType
-  | ArrayType Int MemType
-  | VecType Int MemType
+  | X86_FP80Type
+  | ArrayType Natural MemType
+  | VecType Natural MemType
   | StructType StructInfo
   | MetadataType
   deriving (Eq)
 
 instance Show MemType where
   show = show . ppMemType
+
+instance Pretty MemType where
+  pretty = ppMemType
 
 -- | Pretty-print a 'MemType'.
 ppMemType :: MemType -> Doc
@@ -135,6 +136,7 @@ ppMemType mtp =
     IntType w -> ppIntType w
     FloatType -> text "float"
     DoubleType -> text "double"
+    X86_FP80Type -> text "long double"
     PtrType tp -> ppPtrType (ppSymType tp)
     ArrayType n tp -> ppArrayType n (ppMemType tp)
     VecType n tp  -> ppVectorType n (ppMemType tp)
@@ -184,6 +186,17 @@ data FunDecl = FunDecl { fdRetType  :: !RetType
                        }
  deriving( Eq )
 
+-- | Return the number of bits that represent the given memtype, which
+--   must be either integer types, floating point types or vectors of
+--   the same.
+memTypeBitwidth :: MemType -> Maybe Natural
+memTypeBitwidth (IntType w)  = Just w
+memTypeBitwidth FloatType    = Just 32
+memTypeBitwidth DoubleType   = Just 64
+memTypeBitwidth X86_FP80Type = Just 80
+memTypeBitwidth (VecType n tp) = (fromIntegral n *) <$> memTypeBitwidth tp
+memTypeBitwidth _ = Nothing
+
 -- | Return type if any.
 type RetType = Maybe MemType
 
@@ -219,12 +232,13 @@ ppRetType :: RetType -> Doc
 ppRetType = maybe (text "void") ppMemType
 
 -- | Returns size of a 'MemType' in bytes.
-memTypeSize :: DataLayout -> MemType -> Size
+memTypeSize :: DataLayout -> MemType -> Bytes
 memTypeSize dl mtp =
   case mtp of
     IntType w -> intWidthSize w
     FloatType -> 4
     DoubleType -> 8
+    X86_FP80Type -> 10
     PtrType{} -> dl ^. ptrSize
     ArrayType n tp -> fromIntegral n * memTypeSize dl tp
     VecType n tp -> fromIntegral n * memTypeSize dl tp
@@ -232,7 +246,7 @@ memTypeSize dl mtp =
     MetadataType -> 0
 
 memTypeSizeInBits :: DataLayout -> MemType -> Natural
-memTypeSizeInBits dl tp = fromIntegral $ 8 * memTypeSize dl tp
+memTypeSizeInBits dl tp = bytesToBits (memTypeSize dl tp)
 
 -- | Returns ABI byte alignment constraint in bytes.
 memTypeAlign :: DataLayout -> MemType -> Alignment
@@ -243,17 +257,19 @@ memTypeAlign dl mtp =
       where Just a = floatAlignment dl 32
     DoubleType -> a
       where Just a = floatAlignment dl 64
+    X86_FP80Type -> a
+      where Just a = floatAlignment dl 80
     PtrType{} -> dl ^. ptrAlign
     ArrayType _ tp -> memTypeAlign dl tp
     VecType _n _tp -> vectorAlignment dl (memTypeSizeInBits dl mtp)
     StructType si  -> structAlign si
-    MetadataType -> 0
+    MetadataType   -> noAlignment
 
 -- | Information about size, alignment, and fields of a struct.
 data StructInfo = StructInfo
   { siDataLayout :: !DataLayout
   , siIsPacked   :: !Bool
-  , structSize   :: !Size -- ^ Size in bytes.
+  , structSize   :: !Bytes -- ^ Size in bytes.
   , structAlign  :: !Alignment
   , siFields     :: !(V.Vector FieldInfo)
   }
@@ -273,7 +289,7 @@ instance Eq StructInfo where
 data FieldInfo = FieldInfo
   { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
   , fiType      :: !MemType -- ^ Type of field.
-  , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
+  , fiPadding   :: !Bytes   -- ^ Number of bytes of padding at end of field.
   }
   deriving (Eq, Show)
 
@@ -286,21 +302,21 @@ mkStructInfo :: DataLayout
              -> [MemType] -- ^ Field types
              -> StructInfo
 mkStructInfo dl packed tps0 = go [] 0 a0 tps0
-  where a0 | packed    = 0
-           | otherwise = nextAlign 0 tps0 `max` aggregateAlignment dl
+  where a0 | packed    = noAlignment
+           | otherwise = nextAlign noAlignment tps0 `max` aggregateAlignment dl
         -- Padding after each field depends on the alignment of the
         -- type of the next field, if there is one. Padding after the
         -- last field depends on the alignment of the whole struct
         -- (i.e. the maximum alignment of any field). Alignment value
         -- of n means to align on 2^n byte boundaries.
         nextAlign :: Alignment -> [MemType] -> Alignment
-        nextAlign _ _ | packed = 0
+        nextAlign _ _ | packed = noAlignment
         nextAlign maxAlign [] = maxAlign
         nextAlign _ (tp:_) = memTypeAlign dl tp
 
         -- Process fields
         go :: [FieldInfo] -- ^ Fields so far in reverse order.
-           -> Size        -- ^ Total size so far (aligned to next element)
+           -> Bytes       -- ^ Total size so far (aligned to next element)
            -> Alignment   -- ^ Maximum alignment so far
            -> [MemType]   -- ^ Field types to process
            -> StructInfo
@@ -322,7 +338,7 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
             fieldAlign = nextAlign maxAlign tpl
 
             -- Size of field at alignment for next thing.
-            sz' = nextPow2Multiple e (fromIntegral fieldAlign)
+            sz' = padToAlignment e fieldAlign
 
         go flds sz maxAlign [] =
             StructInfo { siDataLayout = dl
@@ -362,12 +378,13 @@ siIndexOfOffset si o = binarySearch f 0 (V.length flds)
 commas :: [Doc] -> Doc
 commas = hsep . punctuate (char ',')
 
-structBraces :: Doc -> Doc
-structBraces b = char '{' <+> b <+> char '}'
+structBraces :: Bool -> Doc -> Doc
+structBraces False b = char '{' <+> b <+> char '}'
+structBraces True  b = string "<{" <+> b <+> string "}>"
 
 -- | Pretty print struct info.
 ppStructInfo :: StructInfo -> Doc
-ppStructInfo si = structBraces $ commas (V.toList fields)
+ppStructInfo si = structBraces (siIsPacked si) $ commas (V.toList fields)
   where fields = ppMemType <$> siFieldTypes si
 
 -- | Removes the last field from a struct if at least one field exists.

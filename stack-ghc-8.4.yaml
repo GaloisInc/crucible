@@ -1,0 +1,48 @@
+flags: {}
+packages:
+  - crucible/
+  - crucible-jvm/
+  - crucible-llvm/
+  - crucible-saw/
+  - crucible-server/
+  - crucible-syntax/
+  - crux/
+  - crux-llvm/
+
+  - dependencies/abcBridge/
+  - dependencies/aig/
+  - dependencies/blt/
+  - dependencies/cryptol/
+  - dependencies/cryptol-verifier/
+  - dependencies/hpb/
+  - dependencies/jvm-parser/
+  - dependencies/llvm-pretty/
+  - dependencies/llvm-pretty-bc-parser/
+  - dependencies/parameterized-utils/
+  - dependencies/saw-core/
+  - dependencies/saw-core-aig/
+  - dependencies/saw-core-sbv/
+  - dependencies/saw-core-what4/
+  - dependencies/what4/what4/
+  - dependencies/what4/what4-abc/
+  - dependencies/what4/what4-blt/
+
+extra-deps:
+  - GraphSCC-1.0.4
+  - data-inttrie-0.1.4
+  - monadLib-3.7.3
+  - simple-smt-0.7.1
+  - sbv-8.2
+  - fgl-visualize-0.1.0.1
+  - dotgen-0.4.2
+  - panic-0.3.0.0
+  - megaparsec-7.0.1
+  - s-cargot-0.1.4.0
+  - parser-combinators-1.0.0
+  - itanium-abi-0.1.1.1
+  - crackNum-2.3
+  - boomerang-1.4.5.6
+  - base-orphans-0.8.2
+  - zenc-0.1.1
+  - hedgehog-1.0.2
+resolver: lts-12.26

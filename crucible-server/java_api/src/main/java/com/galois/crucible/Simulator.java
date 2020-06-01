@@ -89,6 +89,17 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
         }
     }
 
+    protected void getNextAckResponse() throws IOException {
+        Protos.GenericResponse r = getNextResponse();
+
+        switch(r.getCode()) {
+        case AcknowledgementResp:
+            return;
+        }
+
+        throw new IOException( "Expected simulator ACK response!\n" + r.toString() );
+    }
+
     protected Protos.SimulatorValueResponse getNextSimulatorValueResponse() throws IOException {
         Protos.GenericResponse r = getNextResponse();
         Protos.SimulatorValueResponse svr = r.getSimValResponse();
@@ -667,10 +678,11 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
      *
      * @param p procedure to use
      */
-    public synchronized void useCfg(Procedure p) {
+    public synchronized void useCfg(Procedure p) throws IOException {
         issueRequest(Protos.Request.newBuilder()
                      .setCode(Protos.RequestCode.UseCFG)
                      .setCfg(p.getCfgRep()));
+        getNextAckResponse();
     }
 
     /**
@@ -678,10 +690,11 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
      *
      * @param p procedure to use
      */
-    public synchronized void printCFG(Procedure p) {
+    public synchronized void printCFG(Procedure p) throws IOException {
         issueRequest(Protos.Request.newBuilder()
                      .setCode(Protos.RequestCode.PrintCFG)
                      .setCfg(p.getCfgRep()));
+        getNextAckResponse();
     }
 
     /**
@@ -719,7 +732,7 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
     }
 
     /** Read a simulator value from the protocol buffer format. */
-    private static
+    protected static
     SimulatorValue fromProtosValue(Protos.Value v, Type expectedType) {
         // Declare local variables so intance variables are assigned once.
         switch (v.getCode()) {
@@ -777,7 +790,7 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
         return new FunctionHandle(handleId, displayName, argTypes, returnType);
     }
 
-    private FunctionHandle predefinedHandleInfoResponse() throws IOException {
+    protected FunctionHandle predefinedHandleInfoResponse() throws IOException {
 
         Protos.PredefinedHandleInfo pinfo = getNextPredefHandleResponse();
 
@@ -798,6 +811,7 @@ public abstract class Simulator extends ValueCreator<SimulatorValue> {
         issueRequest(Protos.Request.newBuilder()
                      .setCode(Protos.RequestCode.SetVerbosity)
                      .addArg(this.natLiteral(v).getValueRep()));
+        getNextAckResponse();
     }
 
     /**

@@ -1,0 +1,25 @@
+==== Begin Simulation ====
+=== q1 ===
+and cx@0:b cy@1:b cz@2:b
+=== (or q1 y) ===
+cy@1:b
+=== (or q1 (or y z)) ===
+not (and (not cy@1:b) (not cz@2:b))
+=== (and q1 y) ===
+and cx@0:b cy@1:b cz@2:b
+=== (and q1 (not y)) ===
+false
+=== (or (not q1) y) ===
+true
+=== (or q1 (not y)) ===
+not (and (not (and cx@0:b cy@1:b cz@2:b)) cy@1:b)
+====== expect single n-ary connective
+and (not cx@0:b) (not cy@1:b) (not cz@2:b) (not cw@3:b)
+not (and cx@0:b cy@1:b cz@2:b cw@3:b)
+not (and cx@0:b cy@1:b (not cz@2:b) (not cw@3:b))
+not (and cx@0:b cy@1:b (not cz@2:b) (not cw@3:b))
+====== expect absorption to (or z w)
+not (and (not cz@2:b) (not cw@3:b))
+
+==== Finish Simulation ====
+==== No proof obligations ====

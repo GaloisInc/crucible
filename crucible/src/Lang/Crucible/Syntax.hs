@@ -20,12 +20,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternGuards #-}
 module Lang.Crucible.Syntax
   ( IsExpr(..)
+  , eapp
+  , asEapp
     -- * Booleans
   , true
   , false
@@ -51,8 +54,6 @@ module Lang.Crucible.Syntax
   , realLit
   , imagLit
   , natToCplx
-    -- MatlabChar
-    -- String
     -- * Maybe
   , nothingValue
   , justValue
@@ -84,42 +85,53 @@ module Lang.Crucible.Syntax
   , littleEndianStore
   ) where
 
-import           Data.Text (Text)
-import           Data.Typeable
-import qualified Data.Vector as V
-
+import           Control.Lens
+import           Data.Kind
+import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+import           Data.Text (Text)
+import qualified Data.Vector as V
 import           Numeric.Natural
-
-import           Lang.MATLAB.MatlabChar
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
+
+import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
 -- IsExpr
 
 -- | A typeclass for injecting applications into expressions.
 class IsExpr e where
-  app   :: App e tp -> e tp
-  asApp :: e tp -> Maybe (App e tp)
+  type ExprExt e :: Type
+  app   :: App (ExprExt e) e tp -> e tp
+  asApp :: e tp -> Maybe (App (ExprExt e) e tp)
+  exprType :: e tp -> TypeRepr tp
+
+-- | Inject an extension app into the expression type
+eapp :: IsExpr e => ExprExtension (ExprExt e) e tp -> e tp
+eapp = app . ExtensionApp
+
+-- | Test if an expression is formed from an extension app
+asEapp :: IsExpr e => e tp -> Maybe (ExprExtension (ExprExt e) e tp)
+asEapp e =
+  case asApp e of
+    Just (ExtensionApp x) -> Just x
+    _ -> Nothing
 
 ------------------------------------------------------------------------
 -- LitExpr
 
 -- | An expression that embeds literal values of its type.
-class LitExpr tp ty | tp -> ty where
+class LitExpr e tp ty | tp -> ty where
   litExpr :: IsExpr e => ty -> e tp
-
-instance (Typeable a, Eq a, Ord a, Show a) => LitExpr (ConcreteType a) a where
-  litExpr x = app (ConcreteLit (TypeableValue x))
 
 ------------------------------------------------------------------------
 -- Booleans
 
-instance LitExpr BoolType Bool where
+instance LitExpr e BoolType Bool where
   litExpr b = app (BoolLit b)
 
 -- | True expression
@@ -145,7 +157,7 @@ infixr 2 .||
 ------------------------------------------------------------------------
 -- EqExpr
 
-class EqExpr tp where
+class EqExpr e tp where
   (.==) :: IsExpr e => e tp -> e tp -> e BoolType
 
   (./=) :: IsExpr e => e tp -> e tp -> e BoolType
@@ -157,7 +169,7 @@ infix 4 ./=
 ------------------------------------------------------------------------
 -- OrdExpr
 
-class EqExpr tp => OrdExpr tp where
+class EqExpr e tp => OrdExpr e tp where
   (.<) :: IsExpr e => e tp -> e tp -> e BoolType
 
   (.<=) :: IsExpr e => e tp -> e tp -> e BoolType
@@ -177,7 +189,7 @@ infix 4 .>=
 ------------------------------------------------------------------------
 -- NumExpr
 
-class NumExpr tp where
+class NumExpr e tp where
   (.+) :: IsExpr e => e tp -> e tp -> e tp
   (.-) :: IsExpr e => e tp -> e tp -> e tp
   (.*) :: IsExpr e => e tp -> e tp -> e tp
@@ -185,16 +197,16 @@ class NumExpr tp where
 ------------------------------------------------------------------------
 -- Nat
 
-instance LitExpr NatType Natural where
+instance LitExpr e NatType Natural where
   litExpr n = app (NatLit n)
 
-instance EqExpr NatType where
+instance EqExpr e NatType where
   x .== y = app (NatEq x y)
 
-instance OrdExpr NatType where
+instance OrdExpr e NatType where
   x .< y = app (NatLt x y)
 
-instance NumExpr NatType where
+instance NumExpr e NatType where
   x .+ y = app (NatAdd x y)
   x .- y = app (NatSub x y)
   x .* y = app (NatMul x y)
@@ -202,13 +214,13 @@ instance NumExpr NatType where
 ------------------------------------------------------------------------
 -- Integer
 
-instance LitExpr IntegerType Integer where
+instance LitExpr e IntegerType Integer where
   litExpr x = app (IntLit x)
 
 ------------------------------------------------------------------------
 -- ConvertableToNat
 
-class ConvertableToNat tp where
+class ConvertableToNat e tp where
   -- | Convert value of type to Nat.
   -- This may be partial, it is the responsibility of the calling
   -- code that it is correct for this type.
@@ -220,10 +232,10 @@ class ConvertableToNat tp where
 rationalLit :: IsExpr e => Rational -> e RealValType
 rationalLit v = app (RationalLit v)
 
-instance EqExpr RealValType where
+instance EqExpr e RealValType where
   x .== y = app (RealEq x y)
 
-instance OrdExpr RealValType where
+instance OrdExpr e RealValType where
   x .< y = app (RealLt x y)
 
 natToInteger :: IsExpr e => e NatType -> e IntegerType
@@ -235,7 +247,7 @@ integerToReal x = app (IntegerToReal x)
 natToReal :: IsExpr e => e NatType -> e RealValType
 natToReal = integerToReal . natToInteger
 
-instance ConvertableToNat RealValType where
+instance ConvertableToNat e RealValType where
   toNat v = app (RealToNat v)
 
 ------------------------------------------------------------------------
@@ -262,26 +274,14 @@ imagLit = imagToCplx . rationalLit
 natToCplx :: IsExpr e => e NatType -> e ComplexRealType
 natToCplx = realToCplx . natToReal
 
-instance ConvertableToNat ComplexRealType where
+instance ConvertableToNat e ComplexRealType where
   toNat = toNat . realPart
-
-------------------------------------------------------------------------
--- MatlabChar
-
-instance LitExpr CharType MatlabChar where
-  litExpr n = app (MatlabCharLit n)
-
-instance EqExpr CharType where
-  x .== y = app (MatlabCharEq x y)
-
-instance ConvertableToNat CharType where
-  toNat v = app (MatlabCharToNat v)
 
 ------------------------------------------------------------------------
 -- String
 
-instance LitExpr StringType Text where
-  litExpr t = app (TextLit t)
+instance LitExpr e (StringType Unicode) Text where
+  litExpr t = app (StringLit (UnicodeLiteral t))
 
 ------------------------------------------------------------------------
 -- Maybe
@@ -321,7 +321,7 @@ vecReplicate n v = app (VectorReplicate knownRepr n v)
 ------------------------------------------------------------------------
 -- Handles
 
-instance LitExpr (FunctionHandleType args ret) (FnHandle args ret) where
+instance LitExpr e (FunctionHandleType args ret) (FnHandle args ret) where
   litExpr h = app (HandleLit h)
 
 closure :: ( IsExpr e
@@ -362,15 +362,16 @@ mkStruct tps asgn = app (MkStruct tps asgn)
 getStruct :: (IsExpr e)
           => Ctx.Index ctx tp
           -> e (StructType ctx)
-          -> TypeRepr tp
           -> e tp
-getStruct i s tp
+getStruct i s
   | Just (MkStruct _ asgn) <- asApp s = asgn Ctx.! i
   | Just (SetStruct _ s' i' x) <- asApp s =
       case testEquality i i' of
         Just Refl -> x
-        Nothing -> getStruct i s' tp
-  | otherwise = app (GetStruct s i tp)
+        Nothing -> getStruct i s'
+  | otherwise =
+      case exprType s of
+        StructRepr tps -> app (GetStruct s i (tps Ctx.! i))
 
 setStruct :: IsExpr e
           => CtxRepr ctx
@@ -379,7 +380,7 @@ setStruct :: IsExpr e
           -> e tp
           -> e (StructType ctx)
 setStruct tps s i x
-  | Just (MkStruct _ asgn) <- asApp s = app (MkStruct tps (Ctx.update i x asgn))
+  | Just (MkStruct _ asgn) <- asApp s = app (MkStruct tps (asgn & ixF i .~ x))
   | otherwise = app (SetStruct tps s i x)
 
 
@@ -400,7 +401,7 @@ bigEndianStore
 bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
   where go 0 = wordMap
         go n
-          | Just (Some idx) <- someNat $ (toInteger (num-n)) * (toInteger (natValue cellWidth))
+          | Just (Some idx) <- someNat $ (fromIntegral (num-n)) * (intValue cellWidth)
           , Just LeqProof <- testLeq (addNat idx cellWidth) valWidth
             = app $ InsertWordMap addrWidth (BaseBVRepr cellWidth)
                   (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (toInteger (n-1))))
@@ -421,7 +422,7 @@ littleEndianStore
 littleEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
   where go 0 = wordMap
         go n
-          | Just (Some idx) <- someNat $ (toInteger (n-1)) * (toInteger (natValue cellWidth))
+          | Just (Some idx) <- someNat $ (fromIntegral (n-1)) * (intValue cellWidth)
           , Just LeqProof <- testLeq (addNat idx cellWidth) valWidth
             = app $ InsertWordMap addrWidth (BaseBVRepr cellWidth)
                   (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (toInteger (n-1))))

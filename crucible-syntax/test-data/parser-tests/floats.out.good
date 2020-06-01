@@ -1,0 +1,188 @@
+(defun @test-float () Unit
+   (start start:
+      (let a_f (fresh (FP Float)))
+      (let b_d (fresh (FP Double)))
+      (let c_h (fresh (FP Half)))
+      (let d_q (fresh (FP Quad)))
+      (let e_dd (fresh (FP DoubleDouble)))
+      (let f_x87 (fresh (FP X86_80)))
+      (let r1 (fresh Real))
+      (let r2 (fresh Real))
+      (let r3 (fresh Real))
+      (let bv16 (fresh (Bitvector 16)))
+      (let bv32 (fresh (Bitvector 32)))
+      (let bv64 (fresh (Bitvector 64)))
+      (let bv128 (fresh (Bitvector 128)))
+      (let bv80 (fresh (Bitvector 80)))
+      (let f16 (binary-to-fp Half bv16))
+      (let f32 (binary-to-fp Float bv32))
+      (let f64 (binary-to-fp Double bv64))
+      (let f128 (binary-to-fp Quad bv128))
+      (let fdd (binary-to-fp DoubleDouble bv128))
+      (let f80 (binary-to-fp X86_80 bv80))
+      (let n1 (fp-to-binary a_f))
+      (let n2 (fp-to-binary b_d))
+      (let n3 (fp-to-binary c_h))
+      (let n4 (fp-to-binary d_q))
+      (let n5 (fp-to-binary e_dd))
+      (let n6 (fp-to-binary f_x87))
+      (let u1 (ubv-to-fp Half rne bv64))
+      (let u2 (ubv-to-fp Float rna bv16))
+      (let u3 (ubv-to-fp Double rtp bv32))
+      (let u4 (ubv-to-fp Quad rtn bv80))
+      (let u5 (ubv-to-fp DoubleDouble rtz bv64))
+      (let s1 (sbv-to-fp Half rne bv64))
+      (let s2 (sbv-to-fp Float rna bv16))
+      (let s3 (sbv-to-fp Double rtp bv32))
+      (let s4 (sbv-to-fp Quad rtn bv80))
+      (let s5 (sbv-to-fp DoubleDouble rtz bv64))
+      (let x1 (fp-to-ubv 32 rne a_f))
+      (let x2 (fp-to-ubv 40 rna b_d))
+      (let x3 (fp-to-ubv 64 rtp c_h))
+      (let x4 (fp-to-ubv 16 rtn d_q))
+      (let x5 (fp-to-ubv 128 rtz e_dd))
+      (let y1 (fp-to-sbv 32 rne a_f))
+      (let y2 (fp-to-sbv 40 rna b_d))
+      (let y3 (fp-to-sbv 64 rtp c_h))
+      (let y4 (fp-to-sbv 16 rtn d_q))
+      (let y5 (fp-to-sbv 128 rtz e_dd))
+      (let w1 (fp-to-real a_f))
+      (let w2 (fp-to-real b_d))
+      (let w3 (fp-to-real c_h))
+      (let w4 (fp-to-real d_q))
+      (let w5 (fp-to-real e_dd))
+      (let w6 (fp-to-real f_x87))
+      (let q1 (real-to-fp Float rne r1))
+      (let q2 (real-to-fp Double rna r2))
+      (let q3 (real-to-fp Half rtp r3))
+      (let q4 (real-to-fp DoubleDouble rtn r1))
+      (let q5 (real-to-fp X86_80 rtz r2))
+      (let b (fresh Bool))
+      (let ite (if b u3 q2))
+      (return ())))
+
+test-float
+%0
+  % 5:14
+  $0 = fresh-float SingleFloatRepr a_f
+  % 6:14
+  $1 = fresh-float DoubleFloatRepr b_d
+  % 7:14
+  $2 = fresh-float HalfFloatRepr c_h
+  % 8:14
+  $3 = fresh-float QuadFloatRepr d_q
+  % 9:15
+  $4 = fresh-float DoubleDoubleFloatRepr e_dd
+  % 10:16
+  $5 = fresh-float X86_80FloatRepr f_x87
+  % 12:13
+  $6 = fresh BaseRealRepr r1
+  % 13:13
+  $7 = fresh BaseRealRepr r2
+  % 14:13
+  $8 = fresh BaseRealRepr r3
+  % 16:15
+  $9 = fresh BaseBVRepr 16 bv16
+  % 17:15
+  $10 = fresh BaseBVRepr 32 bv32
+  % 18:15
+  $11 = fresh BaseBVRepr 64 bv64
+  % 19:16
+  $12 = fresh BaseBVRepr 128 bv128
+  % 20:15
+  $13 = fresh BaseBVRepr 80 bv80
+  % 22:14
+  $14 = floatFromBinary(HalfFloatRepr, $9)
+  % 23:14
+  $15 = floatFromBinary(SingleFloatRepr, $10)
+  % 24:14
+  $16 = floatFromBinary(DoubleFloatRepr, $11)
+  % 25:15
+  $17 = floatFromBinary(QuadFloatRepr, $12)
+  % 26:14
+  $18 = floatFromBinary(DoubleDoubleFloatRepr, $12)
+  % 27:14
+  $19 = floatFromBinary(X86_80FloatRepr, $13)
+  % 29:13
+  $20 = floatToBinary(SingleFloatRepr, $0)
+  % 30:13
+  $21 = floatToBinary(DoubleFloatRepr, $1)
+  % 31:13
+  $22 = floatToBinary(HalfFloatRepr, $2)
+  % 32:13
+  $23 = floatToBinary(QuadFloatRepr, $3)
+  % 33:13
+  $24 = floatToBinary(DoubleDoubleFloatRepr, $4)
+  % 34:13
+  $25 = floatToBinary(X86_80FloatRepr, $5)
+  % 36:13
+  $26 = floatFromBV(HalfFloatRepr, RNE, $11)
+  % 37:13
+  $27 = floatFromBV(SingleFloatRepr, RNA, $9)
+  % 38:13
+  $28 = floatFromBV(DoubleFloatRepr, RTP, $10)
+  % 39:13
+  $29 = floatFromBV(QuadFloatRepr, RTN, $13)
+  % 40:13
+  $30 = floatFromBV(DoubleDoubleFloatRepr, RTZ, $11)
+  % 42:13
+  $31 = floatFromSBV(HalfFloatRepr, RNE, $11)
+  % 43:13
+  $32 = floatFromSBV(SingleFloatRepr, RNA, $9)
+  % 44:13
+  $33 = floatFromSBV(DoubleFloatRepr, RTP, $10)
+  % 45:13
+  $34 = floatFromSBV(QuadFloatRepr, RTN, $13)
+  % 46:13
+  $35 = floatFromSBV(DoubleDoubleFloatRepr, RTZ, $11)
+  % 48:13
+  $36 = floatToBV(32, RNE, $0)
+  % 49:13
+  $37 = floatToBV(40, RNA, $1)
+  % 50:13
+  $38 = floatToBV(64, RTP, $2)
+  % 51:13
+  $39 = floatToBV(16, RTN, $3)
+  % 52:13
+  $40 = floatToBV(128, RTZ, $4)
+  % 54:13
+  $41 = floatToSBV(32, RNE, $0)
+  % 55:13
+  $42 = floatToSBV(40, RNA, $1)
+  % 56:13
+  $43 = floatToSBV(64, RTP, $2)
+  % 57:13
+  $44 = floatToSBV(16, RTN, $3)
+  % 58:13
+  $45 = floatToSBV(128, RTZ, $4)
+  % 60:13
+  $46 = floatToReal($0)
+  % 61:13
+  $47 = floatToReal($1)
+  % 62:13
+  $48 = floatToReal($2)
+  % 63:13
+  $49 = floatToReal($3)
+  % 64:13
+  $50 = floatToReal($4)
+  % 65:13
+  $51 = floatToReal($5)
+  % 67:13
+  $52 = floatFromReal(SingleFloatRepr, RNE, $6)
+  % 68:13
+  $53 = floatFromReal(DoubleFloatRepr, RNA, $7)
+  % 69:13
+  $54 = floatFromReal(HalfFloatRepr, RTP, $8)
+  % 70:13
+  $55 = floatFromReal(DoubleDoubleFloatRepr, RTN, $6)
+  % 71:13
+  $56 = floatFromReal(X86_80FloatRepr, RTZ, $7)
+  % 73:12
+  $57 = fresh BaseBoolRepr b
+  % 74:14
+  $58 = floatIte(DoubleFloatRepr, $57, $28, $53)
+  % 76:13
+  $59 = emptyApp()
+  % 76:5
+  return $59
+  % no postdom

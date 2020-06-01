@@ -1,0 +1,63 @@
+(defun
+   @rot-cases
+   ((t (Variant Integer Bool (String Unicode))))
+   (Variant Bool (String Unicode) Integer)
+   (start go: (case t int: bool: string:))
+   (defblock (int: x Integer)
+      (let i (the (Variant Bool (String Unicode) Integer) (inj 2 x)))
+      (return i))
+   (defblock (bool: y Bool)
+      (let b (the (Variant Bool (String Unicode) Integer) (inj 0 y)))
+      (let b1 (from-just (proj 0 b) "proj0"))
+      (let b2 (from-just (proj 1 b) "proj1"))
+      (let b3 (from-just (proj 2 b) "proj2"))
+      (return b))
+   (defblock (string: z (String Unicode))
+      (let s (the (Variant Bool (String Unicode) Integer) (inj 1 z)))
+      (return s)))
+
+rot-cases
+%0
+  % 4:5
+  vswitch $0 {
+    0 -> %1();
+    1 -> %2();
+    2 -> %3();
+  }
+  % no postdom
+%1
+  % 9:12
+  $1 = injectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 2, $0)
+  % 10:5
+  return $1
+  % no postdom
+%2
+  % 12:12
+  $1 = injectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 0, $0)
+  % 13:13
+  $2 = projectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 0, $1)
+  % 13:13
+  $3 = stringLit("proj0")
+  % 13:13
+  $4 = fromJustValue(BoolRepr, $2, $3)
+  % 14:13
+  $5 = projectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 1, $1)
+  % 14:13
+  $6 = stringLit("proj1")
+  % 14:13
+  $7 = fromJustValue(StringRepr UnicodeRepr, $5, $6)
+  % 15:13
+  $8 = projectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 2, $1)
+  % 15:13
+  $9 = stringLit("proj2")
+  % 15:13
+  $10 = fromJustValue(IntegerRepr, $8, $9)
+  % 16:5
+  return $1
+  % no postdom
+%3
+  % 18:12
+  $1 = injectVariant([BoolRepr, StringRepr UnicodeRepr, IntegerRepr], 1, $0)
+  % 19:5
+  return $1
+  % no postdom

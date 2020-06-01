@@ -11,8 +11,10 @@
 {-# LANGUAGE ViewPatterns #-}
 module Main (main) where
 
+import           Control.Exception
 import           Control.Lens
 import           Control.Monad
+import qualified Data.Text as Text
 import           GHC.IO.Handle
 import           System.Exit
 import           System.IO
@@ -21,16 +23,20 @@ import           Data.HPB
 
 import           Data.Parameterized.Nonce
 
-import           Lang.Crucible.Solver.SimpleBackend
-import qualified Lang.Crucible.Solver.SAWCoreBackend as SAW
+import           Lang.Crucible.Backend.Simple
+import qualified Lang.Crucible.Backend.SAWCore as SAW
+import           Lang.Crucible.Simulator.PathSatisfiability
 
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.SAWOverrides
+import           Lang.Crucible.Server.Verification.Override(SAWBack)
 import           Lang.Crucible.Server.SimpleOverrides
 
+import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Prelude as SAW
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 main :: IO ()
 main = do
@@ -46,6 +52,7 @@ main = do
   hSetBinaryMode stdout True
   hSetBuffering stdout (BlockBuffering Nothing)
   runSimulator stdin stdout
+  hFlush stdout
 
 -- | No interesting state needs to be threaded through
 --   the crucible server...
@@ -55,33 +62,46 @@ runSimulator :: Handle -> Handle -> IO ()
 runSimulator hin hout = do
   handshake <- getDelimited hin
   let backend = handshake^.P.handShakeRequest_backend
-  let ok_resp = mempty
-           & P.handShakeResponse_code .~ P.HandShakeOK
---  let err_resp msg = mempty
---           & P.handShakeResponse_code .~ P.HandShakeError
---           & P.handShakeResponse_message .~ (Text.pack msg)
-  case backend of
-    P.SAWBackend -> do
-       putDelimited hout ok_resp
-       logMsg $ "Starting SAW server..."
-       runSAWSimulator hin hout
-    P.SimpleBackend -> do
-       putDelimited hout ok_resp
-       logMsg $ "Starting Simple server..."
-       runSimpleSimulator hin hout
-
+  catch
+    (case backend of
+       P.SAWBackend -> do
+         logMsg $ "Starting SAW server..."
+         runSAWSimulator hin hout
+       P.SimpleBackend -> do
+         logMsg $ "Starting Simple server..."
+         runSimpleSimulator hin hout
+    )
+    (\(ex::SomeException) ->
+       do let msg = Text.pack $ displayException ex
+          let err_resp = mempty
+                & P.handShakeResponse_code .~ P.HandShakeError
+                & P.handShakeResponse_message .~ msg
+          putDelimited hout err_resp
+    )
 
 runSAWSimulator :: Handle -> Handle -> IO ()
 runSAWSimulator hin hout =
-  SAW.withSAWCoreBackend SAW.preludeModule $ \(sym :: SAW.SAWCoreBackend n) -> do
-    s <- newSimulator sym CrucibleServerPersonality [] [] hin hout
-    -- Enter loop to start reading commands.
-    fulfillRequests s sawBackendRequests
+  do let ok_resp = mempty
+                   & P.handShakeResponse_code .~ P.HandShakeOK
+     withIONonceGenerator $ \gen -> do
+       sc <- SAW.mkSharedContext
+       SAW.scLoadPreludeModule sc
+       CryptolSAW.scLoadCryptolModule sc
+       (sym :: SAWBack n) <- SAW.newSAWCoreBackend FloatRealRepr sc gen
+       sawState <- initSAWServerPersonality sym
+       pathSatFeat <- pathSatisfiabilityFeature sym (SAW.considerSatisfiability sym)
+       s <- newSimulator sym sawServerOptions sawState [pathSatFeat] sawServerOverrides hin hout
+       putDelimited hout ok_resp
+       -- Enter loop to start reading commands.
+       fulfillRequests s sawBackendRequests
 
 runSimpleSimulator :: Handle -> Handle -> IO ()
 runSimpleSimulator hin hout = do
   withIONonceGenerator $ \gen -> do
-    sym <- newSimpleBackend gen
-    s <- newSimulator sym CrucibleServerPersonality simpleServerOptions simpleServerOverrides hin hout
+    let ok_resp = mempty
+                  & P.handShakeResponse_code .~ P.HandShakeOK
+    sym <- newSimpleBackend FloatRealRepr gen
+    s <- newSimulator sym simpleServerOptions CrucibleServerPersonality [] simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
+    putDelimited hout ok_resp
     fulfillRequests s simpleBackendRequests

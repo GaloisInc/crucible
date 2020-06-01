@@ -15,7 +15,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -23,34 +22,41 @@ module Lang.Crucible.Server.Translation
   ( unpackCFG
   ) where
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
 #endif
-import Control.Lens
-import Control.Monad
+
+import           Control.Lens
+import           Control.Monad
 import qualified Data.Foldable as Fold
-import Control.Monad.State.Strict
+import qualified Control.Monad.Catch as X
+import           Control.Monad.Reader
+import           Control.Monad.State
 import qualified Data.Map as Map
-import Data.IORef
-import Data.Maybe
+import           Data.IORef
+import           Data.Maybe
+import Data.Parameterized.Nonce ( Nonce, NonceGenerator
+                                , freshNonce, newIONonceGenerator )
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified Data.Parameterized.Context as Ctx
 
 
-import Data.HPB
-import Data.Parameterized.Some
-import Data.Parameterized.TraversableFC
+import           Data.HPB
+import           Data.Parameterized.Some
+import           Data.Parameterized.TraversableFC
 
+import           What4.ProgramLoc
+import           What4.Utils.StringLiteral
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Types
-import           Lang.Crucible.ProgramLoc
 import qualified Lang.Crucible.Proto as P
-import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Server.ValueConv
 import           Lang.Crucible.Server.Encoding
 import           Lang.Crucible.Server.Simulator
@@ -59,33 +65,26 @@ import           Lang.Crucible.Server.TypeConv
 ------------------------------------------------------------------------
 -- UseCFG request
 
-newtype GenState = GenState { _genAtomCount :: Int
-                            }
-
--- | Return number of registers added so far.
-genAtomCount :: Simple Lens GenState Int
-genAtomCount = lens _genAtomCount (\s v -> s { _genAtomCount = v })
-
-newtype Gen s (ret :: CrucibleType) a = Gen { unGen :: State GenState a }
+newtype Gen s (ret :: CrucibleType) a =
+  Gen { unGen :: ReaderT (NonceGenerator IO s) IO a }
   deriving ( Functor
            , Applicative
            , Monad
-           , MonadState GenState
+           , MonadFail
            )
 
-newAtomIdx :: Gen s ret Int
+newAtomIdx :: Gen s ret (Nonce s (tp :: CrucibleType))
 newAtomIdx = do
-  c <- use genAtomCount
-  genAtomCount .= c + 1
-  return c
+  ng <- Gen $ ask
+  Gen $ lift (freshNonce ng)
 
-genBlockID :: Int     -- ^ Index of block (0 is first index).
-           -> P.Block -- ^ Block to generate label for.
+genBlockID :: P.Block -- ^ Block to generate label for.
            -> Gen s ret (R.BlockID s)
-genBlockID idx b
+genBlockID b
   | b^.P.block_is_lambda = do
-     r_idx <- newAtomIdx
      Some tp <- fromProtoType (b^.P.block_lambda_type)
+     idx <- newAtomIdx
+     r_idx <- newAtomIdx
      let a = R.Atom { R.atomPosition = plSourceLoc $ fromProtoPos (b^.P.block_pos)
                     , R.atomId = r_idx
                     , R.atomSource = R.LambdaArg l
@@ -95,7 +94,7 @@ genBlockID idx b
                     }
          l = R.LambdaLabel idx a
      return $ R.LambdaID l
-  | otherwise = return $ R.LabelID (R.Label idx)
+  | otherwise = R.LabelID . R.Label <$> newAtomIdx
 
 type RegVector s = V.Vector (Some (R.Reg s))
 type StmtResultMap s = Map.Map (Word64, Word64) (Some (R.Atom s))
@@ -151,18 +150,18 @@ data TransState s = TransState { blockLabelMap :: !(Map.Map Word64 (R.BlockID s)
                                , handleMap :: !(Map.Map Word64 SomeHandle)
                                , argVec :: !(V.Vector (Some (R.Atom s)))
                                , regVec :: !(V.Vector (Some (R.Reg s)))
-                               , _atomIndex :: !Int
+                               , nonceGen :: NonceGenerator IO s
                                , stmtResultMap :: !(StmtResultMap s)
                                }
 
-atomIndex :: Simple Lens (TransState s) Int
-atomIndex = lens _atomIndex (\s v -> s { _atomIndex = v })
-
-newtype Trans s (ret :: CrucibleType) a = Trans { unTrans :: State (TransState s) a }
+newtype Trans s (ret :: CrucibleType) a = Trans { unTrans :: StateT (TransState s) IO a }
   deriving ( Functor
            , Applicative
            , Monad
+           , MonadFail
            , MonadState (TransState s)
+           , X.MonadThrow
+           , MonadIO
            )
 
 getBlockID :: Word64 -> Trans s ret (R.BlockID s)
@@ -234,7 +233,7 @@ getStmtResultWithType block_idx stmt_idx tp = do
     Just Refl -> return r
     Nothing -> fail $ "Statement result does not match type."
 
-transNatExpr :: Monad m => P.Expr -> m (Some NatRepr)
+transNatExpr :: MonadFail m => P.Expr -> m (Some NatRepr)
 transNatExpr pe = do
   case pe^.P.expr_code of
     P.NatExpr -> do
@@ -246,7 +245,7 @@ transNatExpr pe = do
 
 
 data BlockState s = BlockState { blockPos :: !Position
-                               , blockStmts :: ![Posd (R.Stmt s)]
+                               , blockStmts :: ![Posd (R.Stmt () s)]
                                }
 
 type StmtTrans s r = StateT (BlockState s) (Trans s r)
@@ -256,7 +255,7 @@ setPos p = do
   s <- get
   put $! s { blockPos = p }
 
-addStmt :: R.Stmt s -> StmtTrans s r ()
+addStmt :: R.Stmt () s -> StmtTrans s r ()
 addStmt stmt = seq stmt $ do
   s <- get
   let pstmt = Posd (blockPos s) stmt
@@ -264,10 +263,10 @@ addStmt stmt = seq stmt $ do
   let l = pstmt : blockStmts s
   put $! s { blockStmts = l }
 
-addAppStmt :: App (R.Atom s) tp -> StmtTrans s r (R.Atom s tp)
+addAppStmt :: App () (R.Atom s) tp -> StmtTrans s r (R.Atom s tp)
 addAppStmt app = do
-  i <- lift $ use atomIndex
-  lift $ atomIndex .= i + 1
+  ng <- lift $ gets nonceGen
+  i <- liftIO $ freshNonce ng
   p <- gets blockPos
   let a = R.Atom { R.atomPosition = p
                  , R.atomId = i
@@ -300,12 +299,12 @@ transExpr pe = do
           case isPosNat w of
             Nothing -> fail $ "Zero width bitvector."
             Just LeqProof -> do
-              let i = decodeUnsigned (pe^.P.expr_data)
+              let i = decodeSigned (pe^.P.expr_data)
               fmap Some $ addAppStmt $ BVLit w i
         Nothing -> fail "Width is too large"
     P.StringExpr -> do
       let s = pe^.P.expr_string_lit
-      fmap Some $ addAppStmt $ TextLit s
+      fmap Some $ addAppStmt $ StringLit $ UnicodeLiteral s
     P.UnitExpr -> do
       fmap Some $ addAppStmt $ EmptyApp
     P.FnHandleExpr -> do
@@ -336,7 +335,7 @@ transExprSeqWithTypes :: Seq P.Expr
                       -> CtxRepr ctx
                       -> StmtTrans s ret (Ctx.Assignment (R.Atom s) ctx)
 transExprSeqWithTypes s0 c0 =
-  case Ctx.view c0 of
+  case Ctx.viewAssign c0 of
     Ctx.AssignEmpty -> do
       when (not (Seq.null s0)) $ do
         fail $ "More expressions than expected."
@@ -345,7 +344,7 @@ transExprSeqWithTypes s0 c0 =
       case Seq.viewr s0 of
         Seq.EmptyR -> fail $ "Fewer expressions than expected."
         s Seq.:> pe -> do
-          (Ctx.%>) <$> transExprSeqWithTypes s c
+          (Ctx.:>) <$> transExprSeqWithTypes s c
                    <*> transExprWithType pe tp
 
 ------------------------------------------------------------------------
@@ -373,11 +372,11 @@ transStmt block_idx stmt_idx s = do
           addStmt $ R.DefineAtom res (R.Call f args ret)
         _ -> fail $ "Call given non-function."
     (P.Print, [pmsg]) -> do
-      msg <- transExprWithType pmsg StringRepr
+      msg <- transExprWithType pmsg (StringRepr UnicodeRepr)
       addStmt $ R.Print msg
     (P.Assert, [pc, pmsg]) -> do
       c   <- transExprWithType pc   BoolRepr
-      msg <- transExprWithType pmsg StringRepr
+      msg <- transExprWithType pmsg (StringRepr UnicodeRepr)
       addStmt $ R.Assert c msg
     (P.ReadReg, []) -> do
       Some r <- lift $ getReg (s^.P.statement_reg)
@@ -410,7 +409,7 @@ transTermStmt' retType t = do
       e <- transExprWithType pe retType
       return $ R.Return e
     (P.ErrorTermStmt, [pe], []) -> do
-      e <- transExprWithType pe StringRepr
+      e <- transExprWithType pe (StringRepr UnicodeRepr)
       return $ R.ErrorStmt e
     (P.TailCallTermStmt, (pf:pargs), []) -> do
       Some f <- transExpr pf
@@ -442,7 +441,7 @@ transTermStmt retType t = do
 transBlock :: TypeRepr ret
            -> Word64  -- ^ Index of block (0 is first index).
            -> P.Block -- ^ Block to write to.
-           -> Trans s ret (R.Block s ret)
+           -> Trans s ret (R.Block () s ret)
 transBlock retType idx b = do
   block_id <- getBlockID idx
   v <- gets argVec
@@ -457,27 +456,31 @@ transBlock retType idx b = do
     stmts <- gets blockStmts
     return $ R.mkBlock block_id inputs (Seq.fromList (reverse stmts)) term
 
-mkRegs :: Position
-       -> Int -- ^ Base for start of registers.
+mkRegs :: forall s ctx
+        . Position
+       -> NonceGenerator IO s
        -> CtxRepr ctx
-       -> V.Vector (Some (R.Reg s))
-mkRegs p base argTypes = V.generate (V.length v) f
+       -> IO (V.Vector (Some (R.Reg s)))
+mkRegs p ng argTypes = V.mapM (mapSomeM f) v
   where v = V.fromList (Fold.toList (ctxReprToSeq argTypes))
-        f :: Int -> Some (R.Reg s)
-        f i = mapSome (g i) (v V.! i)
+        f :: TypeRepr tp -> IO (R.Reg s tp)
+        f tp = do
+          i <- freshNonce ng
+          return $ R.Reg { R.regPosition = p
+                         , R.regId = i
+--                       , R.regSource = R.Assigned
+                         , R.typeOfReg = tp
+                         }
 
-        g :: Int -> TypeRepr tp -> R.Reg s tp
-        g i tp =
-          R.Reg { R.regPosition = p
-                , R.regId = base + i
---               , R.regSource = R.Assigned
-                , R.typeOfReg = tp
-                }
+        mapSomeM :: Functor m
+                 => (forall (x :: CrucibleType). a x -> m (b x))
+                 -> Some a -> m (Some b)
+        mapSomeM h (Some x) = Some <$> h x
 
 unpackCFG :: IsSymInterface sym
           => Simulator p sym
           -> P.Cfg
-          -> (forall s init ret. R.CFG s init ret -> IO a)
+          -> (forall s init ret. R.CFG () s init ret -> IO a)
           -> IO a
 unpackCFG sim pg cont = do
   let h_index   = pg^.P.cfg_handle_id
@@ -492,30 +495,31 @@ unpackCFG sim pg cont = do
 
   let p = plSourceLoc $ fromProtoPos $ pg^.P.cfg_pos
 
-  let argRegs = V.fromList $ toListFC Some $ R.mkInputAtoms p argTypes
-  let argCount = Ctx.sizeInt (Ctx.size argTypes)
-  let regRegs = mkRegs p argCount reg_types
+  Some ng <- newIONonceGenerator
+  argRegs <- V.fromList . toListFC Some <$> R.mkInputAtoms ng p argTypes
+  regRegs <- mkRegs p ng reg_types
 
-  let initGenState = GenState { _genAtomCount = argCount + V.length regRegs
-                              }
-  let initState = flip evalState initGenState $ unGen $ do
-        block_ids <- zipWithM genBlockID [0..] pblocks
-        let block_map = Map.fromList (zip [0..] block_ids)
-        stmt_result_map <- mkStmtResultMap regRegs pblocks
-        atom_cnt <- use genAtomCount
-        return TransState { blockLabelMap = block_map
-                          , handleMap = handle_map
-                          , argVec = argRegs
-                          , regVec = regRegs
-                          , _atomIndex = atom_cnt
-                          , stmtResultMap = stmt_result_map
-                          }
+  initState <- flip runReaderT ng $ unGen $ do
+    block_ids <- mapM genBlockID pblocks
+    let block_map = Map.fromList (zip [0..] block_ids)
+    stmt_result_map <- mkStmtResultMap regRegs pblocks
+    return TransState { blockLabelMap = block_map
+                      , handleMap = handle_map
+                      , argVec = argRegs
+                      , regVec = regRegs
+                      , nonceGen = ng
+                      , stmtResultMap = stmt_result_map
+                      }
 
-  let blocks = flip evalState initState $ unTrans $ do
-                 zipWithM (transBlock retType) [0..] pblocks
+  (blocks,_finalSt) <- flip runStateT initState $ unTrans $
+                         zipWithM (transBlock retType) [0..] pblocks
 
+  let entryLabel = case R.blockID (head blocks) of
+        R.LabelID lbl -> lbl
+        R.LambdaID {} -> error "entry block has lambda label"
 
   let g = R.CFG { R.cfgHandle = h
+                , R.cfgEntryLabel = entryLabel
                 , R.cfgBlocks = blocks
                 }
   cont g

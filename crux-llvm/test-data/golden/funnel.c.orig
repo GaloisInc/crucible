@@ -1,0 +1,38 @@
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+#include "crucible.h"
+
+
+uint32_t fshl32( uint32_t x, uint32_t y, uint32_t a ) {
+  uint64_t xy = (((uint64_t)x) << 32) | ((uint64_t)y);
+  uint64_t z  = xy << (uint64_t) (a % 32);
+
+  return ((uint32_t) (z >> 32));
+}
+
+uint32_t fshr32( uint32_t x, uint32_t y, uint32_t a ) {
+  uint64_t xy = (((uint64_t)x) << 32) | ((uint64_t)y);
+  uint64_t z  = xy >> (uint64_t) (a % 32);
+
+  return ((uint32_t) (z & 0xFFFFFFFFul));
+}
+
+uint32_t builtin_fshl32( uint32_t x, uint32_t y, uint32_t a ) {
+  return fshl32( x, y, a );
+}
+
+uint32_t builtin_fshr32( uint32_t x, uint32_t y, uint32_t a ) {
+  return fshr32( x, y, a );
+}
+
+int main () {
+  uint32_t x = crucible_uint32_t( "x" );
+  uint32_t y = crucible_uint32_t( "y" );
+  uint32_t a = crucible_uint32_t( "a" );
+
+  assert( builtin_fshl32( x, y, a) == fshl32( x, y, a ) );
+  assert( builtin_fshr32( x, y, a) == fshr32( x, y, a ) );
+
+  return 0;
+}

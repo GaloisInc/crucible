@@ -5,7 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module EvenOdd (
-  EvenOdd(..),
+  EvenOdd(..), EOExt,
   evenOddDom,
   evenOddInterp
   ) where
@@ -28,15 +28,18 @@ instance C.ShowF EvenOdd
 type EvenOdd' = Pointed EvenOdd
 
 evenOddDom :: Domain EvenOdd'
-evenOddDom = pointed j (==)
+evenOddDom = pointed j (==) WTO
   where
     j Even Odd = Top
     j Odd Even = Top
     j Even Even = Pointed Even
     j Odd Odd = Pointed Odd
 
-evenOddInterp :: Interpretation EvenOdd'
+type EOExt = ()
+
+evenOddInterp :: Interpretation EOExt EvenOdd'
 evenOddInterp = Interpretation { interpExpr = eoIExpr
+                               , interpExt = undefined
                                , interpCall = eoICall
                                , interpReadGlobal = eoIRdGlobal
                                , interpWriteGlobal = eoIWrGlobal
@@ -44,11 +47,12 @@ evenOddInterp = Interpretation { interpExpr = eoIExpr
                                , interpMaybe = eoIMaybe
                                }
 
-eoIExpr :: C.TypeRepr tp
-        -> C.Expr ctx tp
+eoIExpr :: ScopedReg
+        -> C.TypeRepr tp
+        -> C.Expr ext ctx tp
         -> PointAbstraction EvenOdd' ctx
         -> (Maybe (PointAbstraction EvenOdd' ctx), EvenOdd' tp)
-eoIExpr _tr (C.App e) abstr =
+eoIExpr _sr _tr (C.App e) abstr =
   case e of
     C.IntLit i -> (Nothing, if i `mod` 2 == 0 then Pointed Even else Pointed Odd)
     C.IntAdd r1 r2 ->

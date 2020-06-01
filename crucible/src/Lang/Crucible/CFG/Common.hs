@@ -8,21 +8,22 @@ Maintainer       : Joe Hendrix <jhendrix@galois.com>
 Data structures and operations that are common to both the
 registerized and the SSA form CFG representations.
 -}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 module Lang.Crucible.CFG.Common
   ( -- * Global variables
     GlobalVar(..)
   , freshGlobalVar
+  , BreakpointName(..)
   ) where
 
-import           Control.Monad.ST
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Nonce.Unsafe
+import           Data.Parameterized.Nonce
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
@@ -31,8 +32,8 @@ import           Lang.Crucible.Types
 -- GlobalVar
 
 -- | A global variable.
-data GlobalVar tp
-   = GlobalVar { globalNonce :: {-# UNPACK #-} !(Nonce tp)
+data GlobalVar (tp :: CrucibleType)
+   = GlobalVar { globalNonce :: {-# UNPACK #-} !(Nonce GlobalNonceGenerator tp)
                , globalName  :: !Text
                , globalType  :: !(TypeRepr tp)
                }
@@ -46,14 +47,16 @@ instance OrdF GlobalVar where
 instance Show (GlobalVar tp) where
   show = Text.unpack . globalName
 
+instance ShowF GlobalVar
+
 instance Pretty (GlobalVar tp) where
   pretty  = text . show
 
 
-freshGlobalVar :: HandleAllocator s
+freshGlobalVar :: HandleAllocator
                -> Text
                -> TypeRepr tp
-               -> ST s (GlobalVar tp)
+               -> IO (GlobalVar tp)
 freshGlobalVar halloc nm tp = do
   nonce <- freshNonce (haCounter halloc)
   return GlobalVar
@@ -61,3 +64,9 @@ freshGlobalVar halloc nm tp = do
          , globalName  = nm
          , globalType  = tp
          }
+
+newtype BreakpointName = BreakpointName { breakpointNameText :: Text }
+  deriving (Eq, Ord, Show)
+
+instance Pretty BreakpointName where
+  pretty = text . show

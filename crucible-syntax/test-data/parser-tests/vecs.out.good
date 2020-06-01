@@ -1,0 +1,81 @@
+(defun @vec-test ((n Nat) (x Integer)) (Vector (String Unicode))
+   (registers ($res (Vector (String Unicode))))
+   (start first:
+      (set-register! $res (vector "hello" "this" "is" "a" "vector"))
+      (let foo
+           (the (Vector (String Unicode)) (vector-replicate n (show x))))
+      (let a (vector-empty? (the (Vector Integer) (vector))))
+      (let b (vector-empty? (vector #t #f #f #t)))
+      (let done $res)
+      (let c (vector-size done))
+      (let d (vector-size foo))
+      (let e (vector-get done 3))
+      (let f (vector-set done 3 "isn't"))
+      (let g (vector-cons "well" f))
+      (let h (vector-replicate 132 "."))
+      (let i (vector-cons 12 (vector (vector-size done) 9)))
+      (return $res)))
+
+vec-test
+%0
+  % 6:9
+  $2 = stringLit("hello")
+  % 6:9
+  $3 = stringLit("this")
+  % 6:9
+  $4 = stringLit("is")
+  % 6:9
+  $5 = stringLit("a")
+  % 6:9
+  $6 = stringLit("vector")
+  % 6:9
+  $7 = vectorLit(StringRepr UnicodeRepr, [$2, $3, $4, $5, $6])
+  % 7:14
+  $8 = showValue(BaseIntegerRepr, $1)
+  % 7:14
+  $9 = vectorReplicate(StringRepr UnicodeRepr, $0, $8)
+  % 8:12
+  $10 = vectorLit(IntegerRepr, [])
+  % 8:12
+  $11 = vectorIsEmpty($10)
+  % 9:12
+  $12 = boolLit(True)
+  % 9:12
+  $13 = boolLit(False)
+  % 9:12
+  $14 = vectorLit(BoolRepr, [$12, $13, $13, $12])
+  % 9:12
+  $15 = vectorIsEmpty($14)
+  % 11:12
+  $16 = vectorSize($7)
+  % 12:12
+  $17 = vectorSize($9)
+  % 13:12
+  $18 = natLit(3)
+  % 13:12
+  $19 = vectorGetEntry(StringRepr UnicodeRepr, $7, $18)
+  % 14:12
+  $20 = stringLit("isn't")
+  % 14:12
+  $21 = vectorSetEntry(StringRepr UnicodeRepr, $7, $18, $20)
+  % 15:12
+  $22 = stringLit("well")
+  % 15:12
+  $23 = vectorCons(StringRepr UnicodeRepr, $22, $21)
+  % 16:12
+  $24 = natLit(132)
+  % 16:12
+  $25 = stringLit(".")
+  % 16:12
+  $26 = vectorReplicate(StringRepr UnicodeRepr, $24, $25)
+  % 17:12
+  $27 = natLit(12)
+  % 17:12
+  $28 = natLit(9)
+  % 17:12
+  $29 = vectorLit(NatRepr, [$16, $28])
+  % 17:12
+  $30 = vectorCons(NatRepr, $27, $29)
+  % 18:5
+  return $7
+  % no postdom

@@ -1,0 +1,10 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  bogus condition
+  in main at test-data/simulator-tests/branch.cbl:11:5
+  and (eq 42 cx@1:i) cp@0:b
+COUNTEREXAMPLE

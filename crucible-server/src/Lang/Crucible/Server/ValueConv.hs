@@ -13,32 +13,38 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
+
 module Lang.Crucible.Server.ValueConv where
 
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
 #endif
-import Control.Lens
-import Control.Monad
+
+import           Control.Lens
+import           Control.Monad
 import qualified Data.Sequence as Seq
 import qualified Data.HashTable.IO as HIO
-import Data.IORef
+import qualified Control.Monad.Catch as X
+import           Data.IORef
 import qualified Data.Foldable as Fold
-import Data.ByteString.Builder (Builder)
+import           Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LazyBS
 import qualified Data.Vector as V
 
-
-import Data.HPB
-import Data.Parameterized.Some
+import           Data.HPB
+import           Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
+
+import           What4.Interface
 
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
@@ -48,13 +54,53 @@ import           Lang.Crucible.Server.Encoding
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.TypeConv
-import           Lang.Crucible.Solver.Interface
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 
 
 toByteString :: Builder -> BS.ByteString
 toByteString b = LazyBS.toStrict (Builder.toLazyByteString b)
+
+----------------------------------------------------------------------
+-- Exceptions that can be thrown by functions here
+
+data ValueException where
+  InvalidUnaryOpArgCount  :: String -> Int -> ValueException
+  InvalidBinaryOpArgCount :: String -> Int -> ValueException
+  InvalidArgumentType :: String -> TypeRepr ty -> ValueException
+  InvalidElementType :: String -> TypeRepr ty -> ValueException
+  InvalidStructureIndex :: String -> Int -> Int -> ValueException
+  InvalidStructureArgCount :: String -> Int -> Int -> ValueException
+  InvalidResultType :: String -> TypeRepr ty -> ValueException
+  BadResultWidth :: String -> NatRepr w -> ValueException
+  OutOfBounds :: String -> NatRepr w_actual -> NatRepr w_limit -> ValueException
+  TypeMismatch :: String -> TypeRepr ty1 -> TypeRepr ty2 -> ValueException
+
+deriving instance Show ValueException
+instance X.Exception ValueException
+
+
+withOneArg :: (Show w, X.MonadThrow m, Fold.Foldable t) =>
+              w -> t a -> (a -> m b) -> m b
+withOneArg what args op1 =
+  if Fold.length args == 1
+  then let [a1] = take 1 $ Fold.toList args in op1 a1
+  else X.throwM $ InvalidUnaryOpArgCount (show what) (Fold.length args)
+
+with2Args :: (Show w, X.MonadThrow m, Fold.Foldable t) =>
+             w -> t a -> (a -> a -> m b) -> m b
+with2Args what args op2 =
+  if Fold.length args == 2
+  then let [a1, a2] = take 2 $ Fold.toList args in op2 a1 a2
+  else X.throwM $ InvalidBinaryOpArgCount (show what) (Fold.length args)
+
+with3Args :: (Show w, X.MonadThrow m, Fold.Foldable t) =>
+             w -> t a -> (a -> a -> a -> m b) -> m b
+with3Args what args op3 =
+  if Fold.length args == 3
+  then let [a1, a2, a3] = take 3 $ Fold.toList args in op3 a1 a2 a3
+  else X.throwM $ InvalidBinaryOpArgCount (show what) (Fold.length args)
+
 
 ------------------------------------------------------------------------
 -- RegEntry reference
@@ -86,20 +132,20 @@ class HasTypeRepr f where
 instance HasTypeRepr (RegEntry sym) where
   getTypeRepr (RegEntry tp _) = tp
 
-instance HasTypeRepr (R.Expr s) where
+instance HasTypeRepr (R.Expr () s) where
   getTypeRepr = R.exprType
 
 instance HasTypeRepr (R.Atom s) where
   getTypeRepr = R.typeOfAtom
 
-checkedRegEntry :: (Monad m, HasTypeRepr f)
+checkedRegEntry :: (MonadFail m, HasTypeRepr f)
                 => TypeRepr tp -> Some f -> m (f tp)
 checkedRegEntry tp (Some r) =
   case testEquality tp (getTypeRepr r) of
     Just Refl -> return r
-    Nothing -> fail "Unexpected type for protocol value."
+    Nothing -> fail $ unwords ["Unexpected type for protocol value. Expected", show tp, "but got", show (getTypeRepr r)]
 
-fromProtoValue :: IsSymInterface sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
+fromProtoValue :: IsSymExprBuilder sym => Simulator p sym -> P.Value -> IO (Some (RegEntry sym))
 fromProtoValue sim v = do
   sym <- getInterface sim
   case v^.P.value_code of
@@ -119,19 +165,19 @@ fromProtoValue sim v = do
       let width = v^.P.value_width
       case someNat (toInteger width) of
         Just (Some n) | Just LeqProof <- isPosNat n -> do
-          let i = decodeUnsigned (v^.P.value_data)
+          let i = decodeSigned (v^.P.value_data)
           Some . RegEntry (BVRepr n) <$> bvLit sym n i
         _ -> error "Width is too large"
     P.StringValue -> do
       let s = v^.P.value_string_lit
-      return $ Some $ RegEntry StringRepr s
+      Some . RegEntry (StringRepr UnicodeRepr) <$> stringLit sym (UnicodeLiteral s)
     P.UnitValue -> do
       return $ Some $ RegEntry UnitRepr ()
     P.FnHandleValue -> do
       SomeHandle h <- getHandleBinding sim (v^.P.value_index)
       return $ Some $ RegEntry (handleType h) (HandleFnVal h)
 
-toProtoValue :: IsSymInterface sym => Simulator p sym -> RegEntry sym tp -> IO P.Value
+toProtoValue :: IsSymExprBuilder sym => Simulator p sym -> RegEntry sym tp -> IO P.Value
 toProtoValue sim e@(RegEntry tp v) =
   case tp of
     BoolRepr
@@ -150,15 +196,16 @@ toProtoValue sim e@(RegEntry tp v) =
     RealValRepr | Just r <- asRational v -> do
       return $ mempty & P.value_code .~ P.RationalValue
                       & P.value_data .~ toByteString (encodeRational r)
-    BVRepr w | Just r <- asUnsignedBV v
+    BVRepr w | Just r <- asSignedBV v
              , wv <- natValue w
-             , wv <= toInteger (maxBound :: Word64) -> do
+             , wv <= fromIntegral (maxBound :: Word64) -> do
       return $ mempty & P.value_code  .~ P.BitvectorValue
-                      & P.value_width .~ fromInteger wv
-                      & P.value_data  .~ toByteString (encodeUnsigned r)
-    StringRepr -> do
-      return $ mempty & P.value_code .~ P.StringValue
-                      & P.value_string_lit .~ v
+                      & P.value_width .~ fromIntegral wv
+                      & P.value_data  .~ toByteString (encodeSigned r)
+    StringRepr UnicodeRepr
+      | Just (UnicodeLiteral txt) <- asString v -> do
+          return $ mempty & P.value_code .~ P.StringValue
+                          & P.value_string_lit .~ txt
     UnitRepr -> do
       return $ mempty & P.value_code .~ P.UnitValue
     FunctionHandleRepr _ _
@@ -172,15 +219,25 @@ toProtoValue sim e@(RegEntry tp v) =
                       & P.value_index .~ idx
 
 
-parseNatRepr :: Monad m => P.Value -> m (Some NatRepr)
+----------------------------------------------------------------------
+
+data NatReprParseFailure where
+  NatParseNegative :: Integer -> NatReprParseFailure
+  NotNatValue :: P.ValueCode -> NatReprParseFailure
+
+deriving instance Show NatReprParseFailure
+instance X.Exception NatReprParseFailure
+
+
+parseNatRepr :: (Monad m, X.MonadThrow m) => P.Value -> m (Some NatRepr)
 parseNatRepr v =
   case v^.P.value_code of
     P.NatValue -> do
       let i = decodeUnsigned (v^.P.value_data)
       case someNat i of
         Just rep -> return rep
-        Nothing -> fail "improper negative Nat value in parseNatRepr"
-    _ -> fail "expected Nat value in parseNatRepr"
+        Nothing -> X.throwM $ NatParseNegative i
+    _ -> X.throwM $ NotNatValue (v^.P.value_code)
 
 {-
 -- | Convert a protocol buffer value to a specific RegValue.
@@ -196,40 +253,32 @@ regValueFromProto sim v tp = do
 -- convertToCrucibleApp
 
 -- | A binary operation on bitvectores.
-type BVBinOp f n r = NatRepr n -> f (BVType n) -> f (BVType n) -> App f r
+type BVBinOp f n r = NatRepr n -> f (BVType n) -> f (BVType n) -> App () f r
 
 -- | A symbolic bitvector expression with some bitwidth.
 data SomeBV f = forall n . (1 <= n) => SomeBV (NatRepr n) (f (BVType n))
 
--- | A symbolic signed bitvector expression with some bitwidth.
-data SomeSBV f = forall n . (1 <= n) => SomeSBV (NatRepr n) (f (BVType n))
-
-convertToCrucibleApp :: (Applicative m, Monad m, HasTypeRepr f)
+convertToCrucibleApp :: (Applicative m, MonadFail m, HasTypeRepr f, X.MonadThrow m)
                      => (a -> m (Some f))
                      -> (a -> m (Some NatRepr))
                      -> P.PrimitiveOp
                      -> Seq a
                      -> P.CrucibleType
-                     -> m (Some (App f))
+                     -> m (Some (App () f))
 convertToCrucibleApp evalVal evalNatRepr prim_op args res_type = do
   Some res_tp <- fromProtoType res_type
   convertToCrucibleApp' evalVal evalNatRepr prim_op args res_tp
 
 convertToCrucibleApp' :: forall a f res_tp m
-                       . (Applicative m, Monad m, HasTypeRepr f)
+                       . (Applicative m, MonadFail m, HasTypeRepr f, X.MonadThrow m)
                       => (a -> m (Some f))
                       -> (a -> m (Some NatRepr))
                          -- ^ Parse argument as a concrete nat.
                       -> P.PrimitiveOp
                       -> Seq a
                       -> TypeRepr res_tp
-                      -> m (Some (App f))
+                      -> m (Some (App () f))
 convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
-  let getArgs :: Monad m => Int -> m [a]
-      getArgs n | Seq.length args == n = return $ Fold.toList args
-                | otherwise = fail $ "Unexpected number of arguments: "
-                                      ++ (show prim_op) ++ " " ++ show (Seq.length args)
-
   let evalTypedValue :: TypeRepr tp -> a -> m (f tp)
       evalTypedValue tp v = checkedRegEntry tp =<< evalVal v
 
@@ -239,14 +288,8 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
         Some r <- evalVal v
         case getTypeRepr r of
           BVRepr n -> return (SomeBV n r)
-          _ -> fail "Expected bitvector expression."
-  -- Gets a bitvector value.
-  let evalSBV :: a -> m (SomeSBV f)
-      evalSBV v = do
-        SomeBV n r <- evalBV v
-        case isPosNat n of
-          Nothing -> fail "Expected positive width."
-          Just LeqProof -> return $ SomeSBV n r
+          _ -> X.throwM $ InvalidArgumentType (show prim_op ++ "evalBV") $
+               getTypeRepr r
 
   let evalCtxIndex :: a -> CtxRepr ctx -> TypeRepr tp -> m (Ctx.Index ctx tp)
       evalCtxIndex a ctx_repr ty_repr = do
@@ -255,135 +298,99 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
              Just (Some idx) ->
                 case testEquality (ctx_repr Ctx.! idx) ty_repr of
                    Just Refl -> return idx
-                   Nothing -> fail $ "Type mismatch with structure index" ++ show i
-             Nothing -> fail $ "Invalid structure index" ++ show i
+                   Nothing -> X.throwM $ TypeMismatch
+                              (show prim_op <> " structure index " <> show i)
+                              (ctx_repr Ctx.! idx) ty_repr
+             Nothing -> X.throwM $ InvalidStructureIndex (show prim_op)
+                        (fromIntegral (natValue i))
+                        (Ctx.sizeInt $ Ctx.size ctx_repr)
 
   let defCoerce :: KnownRepr TypeRepr tp => a -> m (f tp)
       defCoerce v = evalTypedValue knownRepr v
 
-  let def :: m (App f tp) -> m (Some (App f))
+  let def :: m (App () f tp) -> m (Some (App () f))
       def a = Some <$> a
 
   let bvBinOp :: (forall n . (1 <= n) => BVBinOp f n (BVType n))
-              -> m (Some (App f))
-      bvBinOp f = do
-        [x, y] <- getArgs 2
-        SomeSBV n xr <- evalSBV x
-        let tp = getTypeRepr xr
-        yr <- evalTypedValue tp y
-        return $ Some $ f n xr yr
-
-  let bvsBinOp :: (forall n . (1 <= n) => BVBinOp f n (BVType n))
-               -> m (Some (App f))
-      bvsBinOp f = do
-        [x, y] <- getArgs 2
-        SomeSBV n xr <- evalSBV x
-        let tp = getTypeRepr xr
-        yr <- checkedRegEntry tp =<< evalVal y
-        return $ Some $ f n xr yr
-
-  let bvRel :: (forall n . (1 <= n) => BVBinOp f n BoolType)
-            -> m (Some (App f))
-      bvRel f = do
-        [x, y] <- getArgs 2
-        SomeSBV n xr <- evalSBV x
+              -> m (Some (App () f))
+      bvBinOp f = with2Args prim_op args $ \x y -> do
+        SomeBV n xr <- evalBV x
         yr <- evalTypedValue (getTypeRepr xr) y
         return $ Some $ f n xr yr
 
-  let bvsRel :: (forall n . (1 <= n) => BVBinOp f n BoolType)
-             -> m (Some (App f))
-      bvsRel f = do
-        [x, y] <- getArgs 2
-        SomeSBV n xr <- evalSBV x
-        let tp = getTypeRepr xr
-        yr <- checkedRegEntry tp =<< evalVal y
+  let bvRel :: (forall n . (1 <= n) => BVBinOp f n BoolType)
+            -> m (Some (App () f))
+      bvRel f = with2Args prim_op args $ \x y -> do
+        SomeBV n xr <- evalBV x
+        yr <- evalTypedValue (getTypeRepr xr) y
         return $ Some $ f n xr yr
 
   case prim_op of
-    P.BoolNot -> do
-      [x] <- getArgs 1
+    P.BoolNot -> withOneArg prim_op args $ \x ->
       def $ Not <$> defCoerce x
-    P.BoolAnd -> do
-      [x,y] <- getArgs 2
+    P.BoolAnd -> with2Args prim_op args $ \x y -> do
       def $ And <$> defCoerce x
                   <*> defCoerce y
-    P.BoolXor -> do
-      [x,y] <- getArgs 2
+    P.BoolXor -> with2Args prim_op args $ \x y -> do
       def $ BoolXor <$> defCoerce x
                       <*> defCoerce y
-    P.BoolIte -> do
-      [c,x,y] <- getArgs 3
+    P.BoolIte -> with3Args prim_op args $ \c x y -> do
       def $ BoolIte <$> defCoerce c
                       <*> defCoerce x
                       <*> defCoerce y
 
-    P.NatAdd -> do
-      [x,y] <- getArgs 2
+    P.NatAdd -> with2Args prim_op args $ \x y -> do
       def $ NatAdd <$> defCoerce x
                      <*> defCoerce y
-    P.NatMul -> do
-      [x,y] <- getArgs 2
+    P.NatMul -> with2Args prim_op args $ \x y -> do
       def $ NatMul <$> defCoerce x
                      <*> defCoerce y
-    P.NatEq -> do
-      [x,y] <- getArgs 2
+    P.NatEq -> with2Args prim_op args $ \x y -> do
       def $ NatEq <$> defCoerce x
                     <*> defCoerce y
-    P.NatLt -> do
-      [x,y] <- getArgs 2
+    P.NatLt -> with2Args prim_op args $ \x y -> do
       def $ NatLt <$> defCoerce x
                     <*> defCoerce y
 
     --------------------------------------------------------------------
     -- Operations on Integers
 
-    P.IntegerAdd -> do
-      [x,y] <- getArgs 2
+    P.IntegerAdd -> with2Args prim_op args $ \x y -> do
       def $ IntAdd <$> defCoerce x
                      <*> defCoerce y
-    P.IntegerSub -> do
-      [x,y] <- getArgs 2
+    P.IntegerSub -> with2Args prim_op args $ \x y -> do
       def $ IntSub <$> defCoerce x
                      <*> defCoerce y
-    P.IntegerMul -> do
-      [x,y] <- getArgs 2
+    P.IntegerMul -> with2Args prim_op args $ \x y -> do
       def $ IntMul <$> defCoerce x
                      <*> defCoerce y
-    P.IntegerEq -> do
-      [x,y] <- getArgs 2
+    P.IntegerEq -> with2Args prim_op args $ \x y -> do
       def $ IntEq <$> defCoerce x
                     <*> defCoerce y
-    P.IntegerLt -> do
-      [x,y] <- getArgs 2
+    P.IntegerLt -> with2Args prim_op args $ \x y -> do
       def $ IntLt <$> defCoerce x
                     <*> defCoerce y
 
     --------------------------------------------------------------------
     -- Operations on Reals
 
-    P.RealAdd -> do
-      [x,y] <- getArgs 2
+    P.RealAdd -> with2Args prim_op args $ \x y -> do
       def $ RealAdd <$> defCoerce x
                       <*> defCoerce y
-    P.RealSub -> do
-      [x,y] <- getArgs 2
+    P.RealSub -> with2Args prim_op args $ \x y -> do
       def $ RealSub <$> defCoerce x
                       <*> defCoerce y
-    P.RealMul -> do
-      [x,y] <- getArgs 2
+    P.RealMul -> with2Args prim_op args $ \x y -> do
       def $ RealMul <$> defCoerce x
                       <*> defCoerce y
-    P.RealIte -> do
-      [c,x,y] <- getArgs 3
+    P.RealIte -> with3Args prim_op args $ \c x y -> do
       def $ RealIte <$> defCoerce c
                       <*> defCoerce x
                       <*> defCoerce y
-    P.RealEq -> do
-      [x,y] <- getArgs 2
+    P.RealEq -> with2Args prim_op args $ \x y -> do
       def $ RealEq <$> defCoerce x
                      <*> defCoerce y
-    P.RealLt -> do
-      [x,y] <- getArgs 2
+    P.RealLt -> with2Args prim_op args $ \x y -> do
       def $ RealLt <$> defCoerce x
                      <*> defCoerce y
 
@@ -393,101 +400,100 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
     P.BVAdd -> bvBinOp BVAdd
     P.BVSub -> bvBinOp BVSub
     P.BVMul -> bvBinOp BVMul
-    P.BVUdiv -> bvBinOp  BVUdiv
-    P.BVUrem -> bvBinOp  BVUrem
-    P.BVSdiv -> bvsBinOp BVSdiv
-    P.BVSrem -> bvsBinOp BVSrem
-    P.BVIte -> do
-      [c,x,y] <- getArgs 3
+    P.BVUdiv -> bvBinOp BVUdiv
+    P.BVUrem -> bvBinOp BVUrem
+    P.BVSdiv -> bvBinOp BVSdiv
+    P.BVSrem -> bvBinOp BVSrem
+    P.BVIte -> with3Args prim_op args $ \c x y -> do
       cr <- defCoerce c :: m (f BoolType)
-      SomeSBV n xr <- evalSBV x
+      SomeBV n xr <- evalBV x
       let tp = getTypeRepr xr
       yr <- evalTypedValue tp y
       return $ Some $ BVIte cr n xr yr
     P.BVEq  -> bvRel  BVEq
     P.BVUle -> bvRel  BVUle
     P.BVUlt -> bvRel  BVUlt
-    P.BVSle -> bvsRel BVSle
-    P.BVSlt -> bvsRel BVSlt
+    P.BVSle -> bvRel BVSle
+    P.BVSlt -> bvRel BVSlt
     P.BVCarry -> bvRel BVCarry
-    P.BVSCarry -> bvsRel BVSCarry
-    P.BVSBorrow -> bvsRel BVSBorrow
+    P.BVSCarry -> bvRel BVSCarry
+    P.BVSBorrow -> bvRel BVSBorrow
 
     P.BVShl -> bvBinOp BVShl
     P.BVLshr -> bvBinOp BVLshr
-    P.BVAshr -> bvsBinOp BVAshr
-    P.BVNot -> do
-      [x] <- getArgs 1
-      SomeSBV n xr <- evalSBV x
+    P.BVAshr -> bvBinOp BVAshr
+    P.BVNot -> withOneArg prim_op args $ \x -> do
+      SomeBV n xr <- evalBV x
       return $ Some $ BVNot n xr
     P.BVAnd -> bvBinOp BVAnd
     P.BVOr  -> bvBinOp BVOr
     P.BVXor -> bvBinOp BVXor
-    P.BoolToBV -> do
-      [x] <- getArgs 1
+    P.BoolToBV -> withOneArg prim_op args $ \x -> do
       rx <- evalTypedValue BoolRepr x
       case result_type of
         BVRepr result_width | Just LeqProof <- isPosNat result_width -> do
           return $ Some $ BoolToBV result_width rx
-        _ -> fail "Invalid result type"
-    P.BVNonzero -> do
-      [x] <- getArgs 1
-      SomeSBV w xr <- evalSBV x
+        _ -> X.throwM $ InvalidResultType "BoolToBV" result_type
+    P.BVNonzero -> withOneArg prim_op args $ \x -> do
+      SomeBV w xr <- evalBV x
       return $ Some $ BVNonzero w xr
-    P.BVConcat -> do
-      [x,y] <- getArgs 2
-      SomeSBV w1 xr <- evalSBV x
-      SomeSBV w2 yr <- evalSBV y
-      Just LeqProof <- return $ isPosNat (addNat w1 w2)
-      return $ Some $ BVConcat w1 w2 xr yr
-    P.BVSelect -> do
-      [idx,n,x] <- getArgs 3
+    P.BVConcat -> with2Args prim_op args $ \x y -> do
+      SomeBV w1 xr <- evalBV x
+      SomeBV w2 yr <- evalBV y
+      case isPosNat (addNat w1 w2) of
+        Just LeqProof -> return $ Some $ BVConcat w1 w2 xr yr
+        Nothing -> X.throwM $ BadResultWidth "BVConcat" (addNat w1 w2)
+    P.BVSelect -> with3Args prim_op args $ \idx n x -> do
       Some idx_repr <- evalNatRepr idx
       Some n_repr   <- evalNatRepr n
       case isPosNat n_repr of
-        Nothing -> fail $ "BVSelect given bad result width."
+        Nothing -> X.throwM $ BadResultWidth "BVSelect" n_repr
         Just LeqProof -> do
-          SomeSBV w xr   <- evalSBV x
+          SomeBV w xr   <- evalBV x
           case (addNat idx_repr n_repr) `testLeq` w of
             Just LeqProof -> return $ Some $ BVSelect idx_repr n_repr w xr
-            Nothing -> fail $ "Invalid bitvector select: out of bounds"
-    P.BVTrunc -> do
-      [x] <- getArgs 1
-      SomeSBV n xr <- evalSBV x
+            Nothing -> X.throwM $
+                       OutOfBounds "BVSelect" (addNat idx_repr n_repr) w
+    P.BVTrunc -> withOneArg prim_op args $ \x -> do
+      SomeBV n xr <- evalBV x
       case result_type of
-        BVRepr result_width | Just LeqProof <- isPosNat result_width ->
-          case incNat result_width `testLeq` n of
-            Just LeqProof -> return $ Some $ BVTrunc result_width n xr
-            Nothing -> fail $ "Result width is larger than input."
-        _ -> fail "Invalid result type"
-    P.BVZext -> do
-      [x] <- getArgs 1
-      SomeSBV n xr <- evalSBV x
+        BVRepr result_width ->
+          case isPosNat result_width of
+            Just LeqProof ->
+              case incNat result_width `testLeq` n of
+                Just LeqProof -> return $ Some $ BVTrunc result_width n xr
+                Nothing -> X.throwM $ OutOfBounds
+                           "BVTrunc (larger than input)"
+                           (incNat result_width) n
+            Nothing -> X.throwM $ BadResultWidth "BVTrunc" result_width
+        _ -> X.throwM $ InvalidResultType "BVTrunc" result_type
+    P.BVZext -> withOneArg prim_op args $ \x -> do
+      SomeBV n xr <- evalBV x
       case result_type of
         BVRepr result_width ->
           case incNat n `testLeq` result_width of
-            Just LeqProof -> do
-              return $ Some $ BVZext result_width n xr
-            Nothing -> fail $ "Result width is less than input."
-        _ -> fail "Invalid result type"
-    P.BVSext -> do
-      [x] <- getArgs 1
-      SomeSBV n xr <- evalSBV x
+            Just LeqProof -> return $ Some $ BVZext result_width n xr
+            Nothing -> X.throwM $ OutOfBounds
+                       "BVZext (less than input)"
+                       (incNat n) result_width
+        _ -> X.throwM $ InvalidResultType "BVZext" result_type
+    P.BVSext -> withOneArg prim_op args $ \x -> do
+      SomeBV n xr <- evalBV x
       case result_type of
         BVRepr result_width ->
           case testLeq (incNat n) result_width of
             Just LeqProof -> return $ Some $ BVSext result_width n xr
-            Nothing -> fail $ "Result width is less than input."
-        _ -> fail "Invalid result type"
+            Nothing -> X.throwM $ OutOfBounds
+                       "BVSext (less than input)"
+                       (incNat n) result_width
+        _ -> X.throwM $ InvalidResultType "BVSext" result_type
 
     --------------------------------------------------------------------
     -- Conversions
 
-    P.NatToInteger -> do
-      [x] <- getArgs 1
+    P.NatToInteger -> withOneArg prim_op args $ \x -> do
       def $ NatToInteger <$> defCoerce x
-    P.IntegerToReal -> do
-      [x] <- getArgs 1
+    P.IntegerToReal -> withOneArg prim_op args $ \x -> do
       def $ IntegerToReal <$> defCoerce x
 
     --------------------------------------------------------------------
@@ -497,45 +503,43 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
       case result_type of
         WordMapRepr w tp ->
           return $ Some $ EmptyWordMap w tp
-        _ -> fail "invalid result type"
+        _ -> X.throwM $ InvalidResultType "WordMapEmpty" result_type
 
-    P.WordMapInsert -> do
-       [i,v,m] <- getArgs 3
-       SomeSBV w i' <- evalSBV i
-       Some v'      <- evalVal v
+    P.WordMapInsert -> with3Args prim_op args $ \i v m -> do
+       SomeBV w i' <- evalBV i
+       Some v'     <- evalVal v
        case asBaseType (getTypeRepr v') of
          AsBaseType bt -> do
            m' <- evalTypedValue (WordMapRepr w bt) m
            case isPosNat w of
              Just LeqProof ->
                return $ Some $ InsertWordMap w bt i' v' m'
-             Nothing -> fail ("Invalid word width" ++ show w)
-         _ -> fail ("Invalid word map element type: " ++ (show $ getTypeRepr v'))
+             Nothing -> X.throwM $ BadResultWidth "WordMapInsert word width" w
+         _ -> X.throwM $ InvalidElementType "WordMapInsert" $ getTypeRepr v'
 
-    P.WordMapLookup -> do
-       [i,m] <- getArgs 2
-       SomeSBV w i' <- evalSBV i
+    P.WordMapLookup -> with2Args prim_op args $ \i m -> do
+       SomeBV w i' <- evalBV i
        case asBaseType result_type of
          AsBaseType bt -> do
            m' <- evalTypedValue (WordMapRepr w bt) m
            case isPosNat w of
-             Nothing -> fail ("Invalid word width" ++ show w)
-             Just LeqProof ->
-               return $ Some $ LookupWordMap bt i' m'
-         _ -> fail ("Invalid word map element type: " ++ show result_type)
+             Just LeqProof -> return $ Some $ LookupWordMap bt i' m'
+             Nothing -> X.throwM $ BadResultWidth "WordMapLookup word width" w
+         _ -> X.throwM $ InvalidElementType "WordMapLookup" result_type
 
-    P.WordMapLookupWithDefault -> do
-       [i,m,d] <- getArgs 3
+    P.WordMapLookupWithDefault -> with3Args prim_op args $ \i m d -> do
        case asBaseType result_type of
          AsBaseType bt -> do
-           SomeSBV w i' <- evalSBV i
-           d'           <- evalTypedValue result_type d
-           m'           <- evalTypedValue (WordMapRepr w bt) m
+           SomeBV w i' <- evalBV i
+           d'          <- evalTypedValue result_type d
+           m'          <- evalTypedValue (WordMapRepr w bt) m
            case isPosNat w of
-             Nothing -> fail ("Invalid word width" ++ show w)
              Just LeqProof ->
                return $ Some $ LookupWordMapWithDefault bt i' m' d'
-         _ -> fail ("Invalid word map element type: " ++ show result_type)
+             Nothing -> X.throwM $ BadResultWidth
+                        "WordMapLookupWithDefault word width" w
+         _ -> X.throwM $ InvalidElementType
+              "WordMapLookupWithDefault" result_type
 
     -----------------------------------------------------------------------
     -- Struct Operations
@@ -543,32 +547,32 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
     P.StructLiteral -> do
       case result_type of
         StructRepr ctx_repr -> do
-           when (Seq.length args /= Ctx.sizeInt (Ctx.size ctx_repr))
-                (fail "argument list length does not match expected structure type when building a structure literal")
+           let sz = Ctx.size ctx_repr
+           when (Fold.length args /= Ctx.sizeInt sz) $
+             X.throwM $ InvalidStructureArgCount "StructLiteral"
+                        (Seq.length args) (Ctx.sizeInt sz)
            ctx <- Ctx.generateM (Ctx.size ctx_repr) $ \i -> do
                     let tp = ctx_repr Ctx.! i
                     evalTypedValue tp (Seq.index args (Ctx.indexVal i))
            return $ Some $ MkStruct ctx_repr ctx
-        _ -> fail "Expected structure type"
+        _ -> X.throwM $ InvalidResultType "StructLiteral" result_type
 
-    P.StructSet -> do
-      [s,i,x] <- getArgs 3
+    P.StructSet -> with3Args prim_op args $ \s i x -> do
       case result_type of
         StructRepr ctx_repr -> do
            sv       <- evalTypedValue result_type s
            Some xv  <- evalVal x
            idx      <- evalCtxIndex i ctx_repr (getTypeRepr xv)
            return $ Some $ SetStruct ctx_repr sv idx xv
-        _ -> fail "Expected structure type"
+        _ -> X.throwM $ InvalidResultType "StructSet" result_type
 
-    P.StructGet -> do
-      [i,s] <- getArgs 2
+    P.StructGet -> with2Args prim_op args $ \i s -> do
       Some sv <- evalVal s
       case getTypeRepr sv of
          StructRepr ctx_repr -> do
             idx <- evalCtxIndex i ctx_repr result_type
             return $ Some $ GetStruct sv idx result_type
-         _ -> fail "Expected structure type"
+         _ -> X.throwM $ InvalidResultType "StructGet" result_type
 
     --------------------------------------------------------------------
     -- Maybe Operations
@@ -576,41 +580,40 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
     P.NothingValue -> do
       case result_type of
         MaybeRepr tp -> return $ Some $ NothingValue tp
-        _ -> fail "invalid result type"
+        _ -> X.throwM $ InvalidResultType "NothingValue" result_type
 
     P.JustValue -> do
       case result_type of
-        MaybeRepr tp -> do
-          [x] <- getArgs 1
+        MaybeRepr tp -> withOneArg prim_op args $ \x -> do
           xr <- evalTypedValue tp x
           return $ Some $ JustValue tp xr
-        _ -> fail "invalid result type"
+        _ -> X.throwM $ InvalidResultType "JustValue" result_type
 
     --------------------------------------------------------------------
     -- Debugging operations
 
     P.ShowValue -> do
       case result_type of
-        StringRepr -> do
-          [x] <- getArgs 1
+        StringRepr UnicodeRepr -> withOneArg prim_op args $ \x -> do
           Some v <- evalVal x
           case asBaseType (getTypeRepr v) of
             AsBaseType bt -> return $ Some $ ShowValue bt v
-            NotBaseType -> fail "Expected a base type"
-        _ -> fail "invalid result type"
+            NotBaseType -> X.throwM $ InvalidResultType
+                           "ShowValue (expected base type)" $ getTypeRepr v
+        _ -> X.throwM $ InvalidResultType "ShowValue" result_type
 
     --------------------------------------------------------------------
     -- Introspection operations
 
     P.IsConcrete -> do
       case result_type of
-        BoolRepr -> do
-          [x] <- getArgs 1
+        BoolRepr -> withOneArg prim_op args $ \x -> do
           Some v <- evalVal x
           case asBaseType (getTypeRepr v) of
             AsBaseType bt -> return $ Some $ IsConcrete bt v
-            NotBaseType -> fail "Expected a base type"
-        _ -> fail "invalid result type"
+            NotBaseType -> X.throwM $ InvalidResultType
+                           "IsConcrete (expected base type)" $ getTypeRepr v
+        _ -> X.throwM $ InvalidResultType "IsConcrete" result_type
 
     --------------------------------------------------------------------
     -- Vector Operations
@@ -618,44 +621,39 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
     P.VectorLit -> do
       case result_type of
         VectorRepr tp -> do
-            xs <- sequence $ map (evalTypedValue tp) $ Fold.toList args
+            xs <- mapM (evalTypedValue tp) (Fold.toList args)
             let v = V.fromList xs
             return $ Some $ VectorLit tp v
-        _ -> fail "invalid result type"
+        _ -> X.throwM $ InvalidResultType "VectorLit" result_type
 
     P.VectorReplicate -> do
       case result_type of
-        VectorRepr tp -> do
-            [n,x] <- getArgs 2
+        VectorRepr tp -> with2Args prim_op args $ \x n -> do
             nr <- defCoerce n
             xr <- evalTypedValue tp x
             return $ Some $ VectorReplicate tp nr xr
-        _ -> fail "invalid result type"
+        _ -> X.throwM $ InvalidResultType "VectorRepr" result_type
 
-    P.VectorSize -> do
-      [x] <- getArgs 1
+    P.VectorSize -> withOneArg prim_op args $ \x -> do
       Some xr <- evalVal x
       case getTypeRepr xr of
         VectorRepr _tp -> return $ Some $ VectorSize xr
-        _ -> fail "invalid argument to VectorSize"
+        _ -> X.throwM $ InvalidResultType "VectorSize" result_type
 
-    P.VectorIsEmpty -> do
-      [x] <- getArgs 1
+    P.VectorIsEmpty -> withOneArg prim_op args $ \x -> do
       Some xr <- evalVal x
       case getTypeRepr xr of
         VectorRepr _tp -> return $ Some $ VectorIsEmpty xr
-        _ -> fail "invalid argument to VectorIsEmpty"
+        _ -> X.throwM $ InvalidResultType "VectorIsEmpty" result_type
 
-    P.VectorGetEntry -> do
-      [x,n] <- getArgs 2
+    P.VectorGetEntry -> with2Args prim_op args $ \x n -> do
       Some xr <- evalVal x
       nr <- evalTypedValue NatRepr n
       case getTypeRepr xr of
         VectorRepr tp -> return $ Some $ VectorGetEntry tp xr nr
-        _ -> fail "invalid argument to VectorGetEntry"
+        _ -> X.throwM $ InvalidResultType "VectorGetEntry" result_type
 
-    P.VectorSetEntry -> do
-      [x,n,a] <- getArgs 3
+    P.VectorSetEntry -> with3Args prim_op args $ \x n a -> do
       Some xr <- evalVal x
       nr <- evalTypedValue NatRepr n
       Some ar <- evalVal a
@@ -663,5 +661,5 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
         VectorRepr tp ->
            case testEquality tp (getTypeRepr ar) of
               Just Refl -> return $ Some $ VectorSetEntry tp xr nr ar
-              _ -> fail "type mismatch in VectorSetEntry"
-        _ -> fail "invalid argument to VectorSetEntry"
+              _ -> X.throwM $ TypeMismatch "VectorSetEntry" tp $ getTypeRepr ar
+        _ -> X.throwM $ InvalidArgumentType "VectorSetEntry" $ getTypeRepr xr

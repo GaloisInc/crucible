@@ -10,7 +10,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
@@ -19,15 +18,18 @@ module Lang.Crucible.CFG.ExtractSubgraph
   ) where
 
 import           Control.Lens
-import           Control.Monad.ST
-import           Data.Parameterized.Context as Ctx hiding ((++))
+import qualified Data.Bimap as Bimap
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map as MapF
 import           Data.Set as S
+import qualified Data.Map as Map
 import           Debug.Trace
+
+import           What4.FunctionName
+import           What4.ProgramLoc
+
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
-import           Lang.Crucible.ProgramLoc
 
 -- | Given a CFG @cfg@, a set of blocks @cuts@ that take the return type as their sole
 -- argument, and a block @bi@ that takes the CFG's init type as its sole argument,
@@ -36,12 +38,12 @@ import           Lang.Crucible.ProgramLoc
 -- passed to that block is returned.  If @bi `member` cuts@, then whenever the subgraph
 -- would transition to @bi@, it returns the value that would be passed to @bi@ instead.
 extractSubgraph :: (KnownCtx TypeRepr init, KnownRepr TypeRepr ret)
-                => CFG blocks init ret
+                => CFG ext blocks init ret
                 -> Set (BlockID blocks (EmptyCtx ::> ret))
                 -> BlockID blocks init
-                -> HandleAllocator s
-                -> ST s (Maybe (SomeCFG init ret))
-extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry}) cuts bi halloc =
+                -> HandleAllocator
+                -> IO (Maybe (SomeCFG ext init ret))
+extractSubgraph (CFG{cfgBlockMap = orig, cfgBreakpoints = breakpoints}) cuts bi halloc =
   extractSubgraphFirst orig cuts MapF.empty zeroSize bi $
     \(SubgraphIntermediate finalMap finalInitMap _sz entryID cb) -> do
         hn <- mkHandle halloc startFunctionName
@@ -51,35 +53,38 @@ extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry}) cuts bi 
             { cfgBlockMap = bm
             , cfgEntryBlockID = entryID
             , cfgHandle = hn
+            , cfgBreakpoints = Bimap.fromList $ Map.toList $
+                Map.mapMaybe (viewSome $ \bid -> Some <$> MapF.lookup bid finalMap) $
+                Bimap.toMap breakpoints
             }
 
 -- | Type for carrying intermediate results through subraph extraction
 -- the interesting field is the final one - it holds a callback for transforming
 -- the result of the previous portion of the subgraph extraction into the result
 -- of this subgraph extraction.
-data SubgraphIntermediate old ret init soFar new where
+data SubgraphIntermediate ext old ret init soFar new where
   SubgraphIntermediate :: MapF (BlockID old) (BlockID new)
                        -> MapF (BlockID old) (BlockID new)
                        -> Size new
                        -> BlockID new init
                        -> (forall all. (MapF (BlockID old) (BlockID all)
                                         -> MapF (BlockID old) (BlockID all)
-                                        -> Assignment (Block all ret) soFar
-                                        -> Maybe (Assignment (Block all ret) new)))
-                       -> SubgraphIntermediate old ret init soFar new
+                                        -> Assignment (Block ext all ret) soFar
+                                        -> Maybe (Assignment (Block ext all ret) new)))
+                       -> SubgraphIntermediate ext old ret init soFar new
 
 
 -- | The inner loop of subgraph extraction
 --   produces a callback with an existential type, in order to hide new
 extractSubgraph' :: KnownRepr TypeRepr ret
-                 => BlockMap old ret
+                 => BlockMap ext old ret
                  -> Set (BlockID old (EmptyCtx ::> ret))
                  -> MapF (BlockID old) (BlockID soFar)
                  -> MapF (BlockID old) (BlockID soFar)
                  -> Size soFar
                  -> BlockID old init
                  -> BlockID soFar args
-                 -> forall r . (forall new. SubgraphIntermediate old ret args soFar new -> r)
+                 -> forall r . (forall new. SubgraphIntermediate ext old ret args soFar new -> r)
                  -> r
 extractSubgraph' orig cuts mapF initMap sz bi ident f =
   let block = getBlock bi orig
@@ -105,12 +110,12 @@ extractSubgraph' orig cuts mapF initMap sz bi ident f =
 -- FIXME: write a generic version that this and extractSubgraph' can be wrappers
 -- around
 extractSubgraphFirst :: KnownRepr TypeRepr ret
-                     => BlockMap old ret
+                     => BlockMap ext old ret
                      -> Set (BlockID old (EmptyCtx ::> ret))
                      -> MapF (BlockID old) (BlockID soFar)
                      -> Size soFar
                      -> BlockID old init
-                     -> forall r . (forall new. SubgraphIntermediate old ret init soFar new -> r)
+                     -> forall r . (forall new. SubgraphIntermediate ext old ret init soFar new -> r)
                      -> r
 extractSubgraphFirst orig cuts mapF sz bi f =
   let block = getBlock bi orig
@@ -139,11 +144,11 @@ extractSubgraphFirst orig cuts mapF sz bi f =
 
 -- does the building of a new node - mutually recursive with exrtactSubgraph'
 visitChildNode :: KnownRepr TypeRepr ret
-               => BlockMap old ret
+               => BlockMap ext old ret
                -> Set (BlockID old (EmptyCtx ::> ret))
                -> BlockID old init
-               -> SubgraphIntermediate old ret args soFar prev
-               -> (forall r. (forall new . SubgraphIntermediate old ret args soFar new -> r)
+               -> SubgraphIntermediate ext old ret args soFar prev
+               -> (forall r. (forall new . SubgraphIntermediate ext old ret args soFar new -> r)
                -> r)
 visitChildNode orig cuts bi (SubgraphIntermediate sgMap initMap sz ident cb) f=
   case MapF.lookup bi sgMap of
@@ -169,9 +174,9 @@ visitChildNode orig cuts bi (SubgraphIntermediate sgMap initMap sz ident cb) f=
 
 
 mkRetBlock :: MapF (BlockID old) (BlockID new)
-           -> BlockMap old ret
+           -> BlockMap ext old ret
            -> BlockID old (EmptyCtx ::> ret)
-           -> Maybe (Block new ret (EmptyCtx ::> ret))
+           -> Maybe (Block ext new ret (EmptyCtx ::> ret))
 mkRetBlock mapF bm ident =
   case MapF.lookup ident mapF of
     Just id' ->
@@ -187,7 +192,7 @@ mkRetBlock mapF bm ident =
 
 
 cloneBlock :: MapF (BlockID old) (BlockID new)
-           -> BlockID new ctx -> Block old ret ctx -> Maybe (Block new ret ctx)
+           -> BlockID new ctx -> Block ext old ret ctx -> Maybe (Block ext new ret ctx)
 cloneBlock mapF newID b = do
   stmts' <- cloneStmtSeq mapF (b^.blockStmts)
   return Block{ blockID       = newID
@@ -195,7 +200,7 @@ cloneBlock mapF newID b = do
               , _blockStmts   = stmts'
               }
 
-cloneStmtSeq :: MapF (BlockID old) (BlockID new) -> StmtSeq old ret ctx -> Maybe (StmtSeq new ret ctx)
+cloneStmtSeq :: MapF (BlockID old) (BlockID new) -> StmtSeq ext old ret ctx -> Maybe (StmtSeq ext new ret ctx)
 cloneStmtSeq mapF (ConsStmt loc stmt rest) = do
   rest' <- cloneStmtSeq mapF rest
   return $ ConsStmt loc stmt rest'

@@ -6,18 +6,30 @@
 
 packages:
   crucible/
-  crucible-abc/
-  crucible-blt/
+  crucible-jvm/
   crucible-llvm/
   crucible-saw/
   crucible-server/
-  galois-matlab/
-
+  crucible-syntax/
+  crux/
+  crux-llvm/
+  crucible-mc/
+  
 optional-packages:
   dependencies/abcBridge/
   dependencies/aig/
   dependencies/blt/
+  dependencies/jvm-parser/
   dependencies/hpb/
   dependencies/llvm-pretty/
+  dependencies/llvm-pretty-bc-parser/
   dependencies/parameterized-utils/
   dependencies/saw-core/
+  dependencies/saw-core-aig/
+  dependencies/saw-core-sbv/
+  dependencies/saw-core-what4/
+  dependencies/cryptol/
+  dependencies/cryptol-verifier/
+  dependencies/what4/what4/
+  dependencies/what4/what4-abc/
+  dependencies/what4/what4-blt/

@@ -10,8 +10,8 @@
 -- the main crucible simulator.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternGuards #-}
@@ -20,12 +20,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 module Lang.Crucible.Server.Simulator where
 
-#if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative
-#endif
 import           Control.Exception
 import           Control.Lens
-import           Control.Monad.ST (RealWorld, stToIO)
+import           Control.Monad.IO.Class
 import           Data.Hashable
 import qualified Data.HashTable.IO as HIO
 import           Data.IORef
@@ -34,6 +31,7 @@ import           Data.Maybe ( mapMaybe )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import           Data.Text.Encoding (decodeUtf8)
+import           System.IO.Error
 
 import           GHC.Generics
 import           GHC.IO.Handle
@@ -41,20 +39,22 @@ import           GHC.IO.Handle
 
 import           Data.HPB
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.Nonce.Unsafe (indexValue)
+import           Data.Parameterized.Nonce (indexValue)
 import           Data.Parameterized.Some
 
-import           Lang.Crucible.Config
+import           What4.Config
+import           What4.FunctionName
+import           What4.ProgramLoc
+import           What4.Interface
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.FunctionName
-import           Lang.Crucible.ProgramLoc
-import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
-import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator
+import           Lang.Crucible.Simulator.ExecutionTree (stateTree, activeFrames, filterCrucibleFrames)
+import           Lang.Crucible.Simulator.Operations( abortExec )
 import           Lang.Crucible.Server.CallbackOutputHandle
 import           Lang.Crucible.Server.TypeConv
-import           Lang.Crucible.Solver.Interface
+
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.Proto as P
 
@@ -78,7 +78,7 @@ instance Hashable PredefinedHandle where
 -- | The simulator contains the state associated with the crucible-server
 -- interface.
 data Simulator p sym
-   = Simulator { simContext      :: !(IORef (SimContext p sym))
+   = Simulator { simContext      :: !(IORef (SimContext p sym ()))
                , requestHandle   :: !Handle
                , responseHandle  :: !Handle
                  -- | Maps handle ids to the associated handle.
@@ -88,12 +88,13 @@ data Simulator p sym
                    !(HIO.BasicHashTable PredefinedHandle SomeHandle)
                , simValueCache :: !(HIO.BasicHashTable Word64 (Some (RegEntry sym)))
                , simValueCounter :: !(IORef Word64)
+               , simExecFeatures :: [GenericExecutionFeature sym]
                }
 
-getSimContext :: Simulator p sym -> IO (SimContext p sym)
+getSimContext :: Simulator p sym -> IO (SimContext p sym ())
 getSimContext sim = readIORef (simContext sim)
 
-getHandleAllocator :: Simulator p sym -> IO (HandleAllocator RealWorld)
+getHandleAllocator :: Simulator p sym -> IO HandleAllocator
 getHandleAllocator sim = simHandleAllocator <$> getSimContext sim
 
 getInterface :: Simulator p sym -> IO sym
@@ -102,35 +103,41 @@ getInterface sim = (^.ctxSymInterface) <$> getSimContext sim
 -- | Create a new Simulator interface
 newSimulator :: IsSymInterface sym
              => sym
-             -> p sym
-             -> [ConfigDesc (SimConfigMonad p sym)] -- ^ Options to use
+             -> [ConfigDesc]
+             -> p
+             -> [GenericExecutionFeature sym]
+                  -- ^ Execution features to install in the simulator
              -> [Simulator p sym -> IO SomeHandle] -- ^ Predefined function handles to install
              -> Handle
                 -- ^ Handle for reading requests.
              -> Handle
                 -- ^ Handle for writing responses.
              -> IO (Simulator p sym)
-newSimulator sym p opts hdls request_handle response_handle = do
+newSimulator sym opts p execFeats hdls request_handle response_handle = do
   let cb = OutputCallbacks { devCallback = \s -> do
                                sendPrintValue response_handle (decodeUtf8 s)
                            , devClose = return ()
                            }
   h <- mkCallbackOutputHandle "crucible-server" cb
 
-  let initVerbosity = 0
-  cfg <- initialConfig initVerbosity opts
-
   withHandleAllocator $ \halloc -> do
 
   let bindings = emptyHandleMap
+  let extImpl :: ExtensionImpl p sym ()
+      extImpl = ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
+
+  -- add relevant configuration options
+  extendConfig opts (getConfiguration sym)
+
   -- Create new context
   ctxRef <- newIORef $
-    initSimContext sym MapF.empty cfg halloc h bindings p
+    initSimContext sym MapF.empty halloc h bindings extImpl p
 
   hc <- newIORef Map.empty
   ph <- HIO.new
   svc <- HIO.new
   svCounter <- newIORef 0
+
   let sim =
          Simulator { simContext = ctxRef
                    , requestHandle = request_handle
@@ -139,6 +146,7 @@ newSimulator sym p opts hdls request_handle response_handle = do
                    , predefinedHandles = ph
                    , simValueCache = svc
                    , simValueCounter = svCounter
+                   , simExecFeatures = execFeats
                    }
   populatePredefHandles sim hdls ph
   return sim
@@ -155,7 +163,7 @@ populatePredefHandles s (mkh : hs) ph = do
    populatePredefHandles s hs ph
 
 mkPredef :: (KnownCtx TypeRepr  args, KnownRepr TypeRepr ret, IsSymInterface sym)
-         => Override p sym args ret
+         => Override p sym () args ret
          -> Simulator p sym
          -> IO SomeHandle
 mkPredef ovr s = SomeHandle <$> simOverrideHandle s knownRepr knownRepr ovr
@@ -172,7 +180,7 @@ simMkHandle :: Simulator p sim
             -> IO (FnHandle args tp)
 simMkHandle sim nm args tp = do
   halloc <- getHandleAllocator sim
-  h <- stToIO $ mkHandle' halloc nm args tp
+  h <- mkHandle' halloc nm args tp
   modifyIORef' (handleCache sim) $ Map.insert (handleRef h) (SomeHandle h)
   return h
 
@@ -231,7 +239,7 @@ respondToPredefinedHandleRequest sim predef fallback = do
 -- Associate a function with the given handle.
 bindHandleToFunction :: Simulator p sym
                      -> FnHandle args ret
-                     -> FnState p sym args ret
+                     -> FnState p sym () args ret
                      -> IO ()
 bindHandleToFunction sim h s =
   modifyIORef' (simContext sim) $
@@ -240,7 +248,7 @@ bindHandleToFunction sim h s =
 simOverrideHandle :: Simulator p sym
                   -> CtxRepr args
                   -> TypeRepr tp
-                  -> Override p sym args tp
+                  -> Override p sym () args tp
                   -> IO (FnHandle args tp)
 simOverrideHandle sim args ret o = do
   h <- simMkHandle sim (overrideName o) args ret
@@ -252,11 +260,15 @@ simOverrideHandle sim args ret o = do
 sendExceptionResponse :: Simulator p sym
                       -> SomeException
                       -> IO ()
-sendExceptionResponse  sim ex = do
+sendExceptionResponse sim ex = do
+  let msg = case fromException ex of
+              Just ioex | isUserError ioex -> Text.pack $ ioeGetErrorString ioex
+              _ -> Text.pack $ displayException ex
   let gresp = mempty
             & P.genericResponse_code .~ P.ExceptionGenResp
-            & P.genericResponse_message .~ (Text.pack $ show ex)
+            & P.genericResponse_message .~ msg
   sendResponse sim gresp
+
 
 sendCallResponse :: Simulator p sym
                  -> P.CallResponse
@@ -266,6 +278,11 @@ sendCallResponse sim cresp = do
             & P.genericResponse_code .~ P.CallGenResp
             & P.genericResponse_callResponse .~ cresp
   sendResponse sim gresp
+
+sendAckResponse :: Simulator p sym
+                -> IO ()
+sendAckResponse sim =
+  sendResponse sim (mempty & P.genericResponse_code .~ P.AcknowledgementResp)
 
 sendCallReturnValue :: IsSymInterface sym
                     => Simulator p sym
@@ -279,6 +296,11 @@ sendCallReturnValue sim pv = do
 sendCallAllAborted :: Simulator p sym -> IO ()
 sendCallAllAborted sim = do
   sendCallResponse sim $ mempty & P.callResponse_code    .~ P.CallAllAborted
+
+sendTextResponse :: Simulator p sym
+                 -> Text
+                 -> IO ()
+sendTextResponse sim msg = sendPrintValue (responseHandle sim) msg
 
 -- | Send message to print value.
 sendPrintValue :: Handle -> Text -> IO ()
@@ -301,22 +323,29 @@ sendCallPathAborted sim code msg bt = do
 
 serverErrorHandler :: IsSymInterface sym
                    => Simulator p sym
-                   -> ErrorHandler p sym rtp
-serverErrorHandler sim = EH $ \e s -> do
-    let t = s^.stateTree
+                   -> AbortHandler p sym () rtp
+serverErrorHandler sim = AH $ \e ->
+ do t <- view stateTree
     let frames = activeFrames t
     -- Get location of frame.
     let loc = mapMaybe filterCrucibleFrames frames
     -- let msg = ppExceptionContext frames e
 
-    -- Tell client that a part aborted with the given message.
-    case simErrorReason e of
-      ReadBeforeWriteSimError msg -> do
-          sendCallPathAborted sim P.AbortedReadBeforeWrite (show msg) loc
-      AssertFailureSimError msg -> do
-          sendCallPathAborted sim P.AbortedUserAssertFailure (show msg) loc
-      _ -> do
-          sendCallPathAborted sim P.AbortedGeneric (show (simErrorReason e)) loc
+    -- If a branch aborted becasue of an error condition,
+    -- tell client that a part aborted with the given message.
+    liftIO $
+      case e of
+        AssumedFalse (AssumingNoError se) ->
+          case simErrorReason se of
+            ReadBeforeWriteSimError msg -> do
+              sendCallPathAborted sim P.AbortedReadBeforeWrite (show msg) loc
+            AssertFailureSimError msg _details -> do
+              sendCallPathAborted sim P.AbortedUserAssertFailure (show msg) loc
+            _ -> do
+              sendCallPathAborted sim P.AbortedGeneric (show (simErrorReason se)) loc
+
+        -- In other cases, do nothing
+        _ -> return ()
 
     -- Abort execution.
-    abortExec e s
+    abortExec e

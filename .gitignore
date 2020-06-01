@@ -1,6 +1,4 @@
 /build/
-/dependencies/
-/dependencies
 .cabal-sandbox
 .stack-work
 **/cabal.config
@@ -13,3 +11,5 @@ stack.yaml
 /dist-newstyle
 .*.swp
 cabal.project.local
+*.tix
+.ghc.environment.*

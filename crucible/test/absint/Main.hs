@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ViewPatterns #-}
 module Main ( main ) where
 
 import qualified Test.Tasty as T
@@ -12,4 +11,3 @@ main = T.defaultMain $ T.testGroup "Abstract Interpretation Tests" [
   wtoTests,
   aiTests
   ]
-

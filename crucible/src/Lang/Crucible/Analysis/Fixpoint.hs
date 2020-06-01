@@ -1,3 +1,19 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Analysis.Fixpoint
+-- Description      : Abstract interpretation over SSA function CFGs
+-- Copyright        : (c) Galois, Inc 2015
+-- License          : BSD3
+-- Maintainer       : Tristan Ravitch <tristan@galois.com>
+-- Stability        : provisional
+--
+--  Abstract interpretation over the Crucible IR
+--
+--  Supports widening with an iteration order based on weak
+--  topological orderings.  Some basic tests on hand-written IR
+--  programs are included.
+------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -11,33 +27,45 @@
 module Lang.Crucible.Analysis.Fixpoint (
   -- * Entry point
   forwardFixpoint,
+  forwardFixpoint',
+  ScopedReg(..),
+  lookupAbstractScopedRegValue,
+  lookupAbstractScopedRegValueByIndex,
+  Ignore(..),
   -- * Abstract Domains
   Domain(..),
   IterationStrategy(..),
   Interpretation(..),
-  PointAbstraction,
+  PointAbstraction(..),
   paGlobals,
   paRegisters,
   lookupAbstractRegValue,
+  modifyAbstractRegValue,
+  cfgWeakTopologicalOrdering,
   -- * Pointed domains
   -- $pointed
   Pointed(..),
   pointed
   ) where
 
-import Control.Applicative
-import Control.Lens.Operators ( (^.), (%~), (%=) )
+import           Control.Applicative
+import           Control.Lens.Operators ( (^.), (%=), (.~), (&), (%~) )
 import qualified Control.Monad.State.Strict as St
 import qualified Data.Functor.Identity as I
-import qualified Data.Parameterized.Context as PU
-import qualified Data.Parameterized.TraversableFC as PU
-import qualified Data.Parameterized.Map as PM
+import           Data.Kind
 import qualified Data.Set as S
+import           Text.Printf
 
-import Prelude
+import           Prelude
 
-import Lang.Crucible.CFG.Core
-import Lang.Crucible.Analysis.Fixpoint.Components
+import           Data.Parameterized.Classes
+import qualified Data.Parameterized.Context as PU
+import qualified Data.Parameterized.Map as PM
+import qualified Data.Parameterized.TraversableFC as PU
+
+import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.CFG.Extension
+import           Lang.Crucible.Analysis.Fixpoint.Components
 
 -- | A wrapper around widening strategies
 data WideningStrategy = WideningStrategy (Int -> Bool)
@@ -54,13 +82,13 @@ data WideningOperator dom = WideningOperator (forall tp . dom tp -> dom tp -> do
 -- operator).
 --
 -- A simple worklist approach is also available.
-data IterationStrategy (dom :: CrucibleType -> *) where
+data IterationStrategy (dom :: CrucibleType -> Type) where
   WTO :: IterationStrategy dom
   WTOWidening :: (Int -> Bool) -> (forall tp . dom tp -> dom tp -> dom tp) -> IterationStrategy dom
   Worklist :: IterationStrategy dom
 
 -- | A domain of abstract values, parameterized by a term type
-data Domain (dom :: CrucibleType -> *) =
+data Domain (dom :: CrucibleType -> Type) =
   Domain { domTop    :: forall tp . dom tp
          , domBottom :: forall tp . dom tp
          , domJoin   :: forall tp . dom tp -> dom tp -> dom tp
@@ -69,13 +97,26 @@ data Domain (dom :: CrucibleType -> *) =
          }
 
 -- | Transfer functions for each statement type
-data Interpretation (dom :: CrucibleType -> *) =
-  Interpretation { interpExpr       :: forall blocks ctx tp
-                                     . TypeRepr tp
-                                    -> Expr ctx tp
-                                    -> PointAbstraction blocks dom ctx
-                                    -> (Maybe (PointAbstraction blocks dom ctx), dom tp)
-                 , interpCall       :: forall blocks ctx args ret
+--
+-- Interpretation functions for some statement types --
+-- e.g. @interpExpr@ and @interpExt@ -- receive 'ScopedReg' arguments
+-- corresponding to the SSA tmp that the result of the interpreted
+-- statement get assigned to. Some interpretation functions that could
+-- receive this argument do not -- e.g. @interpCall@ -- because
+-- conathan didn't have a use for that.
+data Interpretation ext (dom :: CrucibleType -> Type) =
+  Interpretation { interpExpr       :: forall ctx tp
+                                     . ScopedReg
+                                    -> TypeRepr tp
+                                    -> Expr ext ctx tp
+                                    -> PointAbstraction dom ctx
+                                    -> (Maybe (PointAbstraction dom ctx), dom tp)
+                 , interpExt        :: forall ctx tp
+                                     . ScopedReg
+                                    -> StmtExtension ext (Reg ctx) tp
+                                    -> PointAbstraction dom ctx
+                                    -> (Maybe (PointAbstraction dom ctx), dom tp)
+                 , interpCall       :: forall ctx args ret
                                      . CtxRepr args
                                     -> TypeRepr ret
                                     -> Reg ctx (FunctionHandleType args ret)
@@ -191,21 +232,38 @@ instance ShowF dom => ShowF (PointAbstraction blocks dom)
 lookupAbstractRegValue :: PointAbstraction blocks dom ctx -> Reg ctx tp -> dom tp
 lookupAbstractRegValue pa (Reg ix) = (pa ^. paRegisters) PU.! ix
 
+-- | Modify the abstract value of a register at a program point
+modifyAbstractRegValue :: PointAbstraction dom ctx
+                       -> Reg ctx tp
+                       -> (dom tp -> dom tp)
+                       -> PointAbstraction dom ctx
+modifyAbstractRegValue pa (Reg ix) f = pa & paRegisters . ixF ix %~ f
+
 -- | The `FunctionAbstraction` contains the abstractions for the entry
 -- point of each basic block in the function, as well as the final
 -- abstract value for the returned register.
-data FunctionAbstraction (dom :: CrucibleType -> *) blocks ret =
-  FunctionAbstraction { _faRegs :: PU.Assignment (PointAbstraction blocks dom) blocks
+data FunctionAbstraction (dom :: CrucibleType -> Type) blocks ret =
+  FunctionAbstraction { _faEntryRegs :: PU.Assignment (PointAbstraction dom) blocks
+                        -- ^ Mapping from blocks to point abstractions
+                        -- at entry to blocks.
+                      , _faExitRegs :: PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+                        -- ^ Mapping from blocks to point abstractions
+                        -- at exit from blocks. Blocks are indexed by
+                        -- their entry context, but not by there exit
+                        -- contexts, so we wrap the point abstraction
+                        -- in @Ignore . Some@ to hide the context of
+                        -- SSA tmps at exit.
                       , _faRet :: dom ret
+                        -- ^ Abstract value at return from function.
                       }
 
-data IterationState (dom :: CrucibleType -> *) blocks ret =
+data IterationState (dom :: CrucibleType -> Type) blocks ret =
   IterationState { _isFuncAbstr :: FunctionAbstraction dom blocks ret
                  , _isRetAbstr  :: dom ret
                  , _processedOnce :: S.Set (Some (BlockID blocks))
                  }
 
-newtype M (dom :: CrucibleType -> *) blocks ret a = M { runM :: St.State (IterationState dom blocks ret) a }
+newtype M (dom :: CrucibleType -> Type) blocks ret a = M { runM :: St.State (IterationState dom blocks ret) a }
   deriving (St.MonadState (IterationState dom blocks ret), Monad, Applicative, Functor)
 
 -- | Extend the abstraction with a domain value for the next register.
@@ -240,14 +298,14 @@ extendRegisterRefs domVal refId refDomVal pa =
 -- there is an implicit join with bottom, which always results in the
 -- same element.  Since it is a no-op, we just skip it and keep the
 -- one present element.
-joinPointAbstractions :: forall blocks (dom :: CrucibleType -> *) ctx
+joinPointAbstractions :: forall (dom :: CrucibleType -> Type) ctx
                        . Domain dom
                       -> PointAbstraction blocks dom ctx
                       -> PointAbstraction blocks dom ctx
                       -> PointAbstraction blocks dom ctx
 joinPointAbstractions dom = zipPAWith (domJoin dom) unionRefSets
 
-zipPAWith :: forall blocks (dom :: CrucibleType -> *) ctx
+zipPAWith :: forall (dom :: CrucibleType -> Type) ctx
                        . (forall tp . dom tp -> dom tp -> dom tp)
                       -> (forall tp . RefSet blocks tp -> RefSet blocks tp -> RefSet blocks tp)
                       -> PointAbstraction blocks dom ctx
@@ -267,7 +325,7 @@ zipPAWith domOp refSetOp pa1 pa2 =
 -- Note that the globals maps are converted to a list and the lists
 -- are checked for equality.  This should be safe if order is
 -- preserved properly in the list functions...
-equalPointAbstractions :: forall blocks (dom :: CrucibleType -> *) ctx
+equalPointAbstractions :: forall (dom :: CrucibleType -> Type) ctx
                         . Domain dom
                        -> PointAbstraction blocks dom ctx
                        -> PointAbstraction blocks dom ctx
@@ -282,37 +340,118 @@ equalPointAbstractions dom pa1 pa2 =
     equalGlobals = and $ zipWith checkGlobal (PM.toList (pa1 ^. paGlobals)) (PM.toList (pa2 ^. paGlobals))
     pointwiseEqualRegs = PU.zipWith (\a b -> Ignore (domEq dom a b)) (pa1 ^. paRegisters) (pa2 ^. paRegisters)
 
+----------------------------------------------------------------
+
+-- | A CFG-scoped SSA temp register.
+--
+-- We don't care about the type params yet, hence the
+-- existential quantification. We may want to look up the instruction
+-- corresponding to a 'ScopedReg' after analysis though, and we'll
+-- surely want to compare 'ScopedReg's for equality, and use them to
+-- look up values in point abstractions after analysis.
+data ScopedReg where
+  ScopedReg :: BlockID blocks ctx1 -> Reg ctx2 tp -> ScopedReg
+-- The pretty-show library can't parse the derived version, because it
+-- doesn't like bare "%" and/or "$" in atoms.
+{- deriving instance Show ScopedReg -}
+instance Show ScopedReg where
+  show (ScopedReg b r) = printf "\"%s:%s\"" (show b) (show r)
+instance Eq ScopedReg where
+  sr1 == sr2 =
+    scopedRegIndexVals sr1 == scopedRegIndexVals sr2
+instance Ord ScopedReg where
+  sr1 `compare` sr2 =
+    scopedRegIndexVals sr1 `compare` scopedRegIndexVals sr2
+
+scopedRegIndexVals :: ScopedReg -> (Int, Int)
+scopedRegIndexVals (ScopedReg b r) = (blockIDIndexVal b, regIndexVal r)
+
+blockIDIndexVal :: BlockID ctx tp -> Int
+blockIDIndexVal = PU.indexVal . blockIDIndex
+
+regIndexVal :: Reg ctx tp -> Int
+regIndexVal = PU.indexVal . regIndex
+
+----------------------------------------------------------------
+
+-- | Lookup the abstract value of scoped reg in an exit assignment.
+lookupAbstractScopedRegValue :: ScopedReg
+  -> PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+  -> Maybe (Some dom)
+lookupAbstractScopedRegValue sr ass =
+  lookupAbstractScopedRegValueByIndex (scopedRegIndexVals sr) ass
+
+-- | Lookup the abstract value of scoped reg -- specified by 0-based
+-- int indices -- in an exit assignment.
+lookupAbstractScopedRegValueByIndex :: (Int, Int)
+  -> PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+  -> Maybe (Some dom)
+lookupAbstractScopedRegValueByIndex (b, r) ass = do
+  Some (Ignore (Some pa)) <- assignmentLookupByIndex b ass
+  assignmentLookupByIndex r (pa ^. paRegisters)
+
+-- | Lookup a value in an assignment based on it's 0-based int index.
+assignmentLookupByIndex :: Int -> PU.Assignment f ctx -> Maybe (Some f)
+assignmentLookupByIndex i ass =
+  let sz = PU.size ass
+  in case PU.intIndex i sz of
+    Nothing -> Nothing
+    Just (Some ix) -> Just (Some (ass PU.! ix))
+
+----------------------------------------------------------------
+
 -- | Apply the transfer functions from an interpretation to a block,
 -- given a starting set of abstract values.
-transfer :: forall dom blocks ret ctx
-          . Domain dom
-         -> Interpretation dom
+--
+-- Return a set of blocks to visit later.
+transfer :: forall ext dom blocks ret ctx
+          . ShowF dom
+         => Domain dom
+         -> Interpretation ext dom
          -> TypeRepr ret
-         -> Block blocks ret ctx
-         -> PointAbstraction blocks dom ctx
+         -> Block ext blocks ret ctx
+         -> PointAbstraction dom ctx
          -> M dom blocks ret (S.Set (Some (BlockID blocks)))
-transfer dom interp retRepr blk = transferSeq 0 (_blockStmts blk)
+transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
   where
+    blockInputSize :: PU.Size ctx
+    blockInputSize = PU.size $ blockInputs blk
+
+    lookupReg = flip lookupAbstractRegValue
+
+    -- We maintain the current 'Size' of the context so that we can
+    -- compute the SSA temp register corresponding to the current
+    -- statement.
     transferSeq :: forall ctx'
-                 . Int
-                -> StmtSeq blocks ret ctx'
-                -> PointAbstraction blocks dom ctx'
+                 . PU.Size ctx'
+                -> StmtSeq ext blocks ret ctx'
+                -> PointAbstraction dom ctx'
                 -> M dom blocks ret (S.Set (Some (BlockID blocks)))
-    transferSeq seqId (ConsStmt _loc stmt ss) =
-      let mkStmtId :: forall tp . TypeRepr tp -> StmtId blocks tp
-          mkStmtId typeRep = StmtId typeRep (Some (blockID blk)) seqId
-      in transferSeq (seqId + 1) ss . transferStmt mkStmtId stmt
-    transferSeq _ (TermStmt _loc term) = transferTerm term
+    transferSeq sz (ConsStmt _loc stmt ss) =
+      transferSeq (nextStmtHeight sz stmt) ss .
+      transferStmt sz stmt
+    transferSeq _sz (TermStmt _loc term) = transferTerm term
 
     transferStmt :: forall ctx1 ctx2
-                  . (forall (tp :: CrucibleType) . TypeRepr tp -> StmtId blocks tp)
-                 -> Stmt ctx1 ctx2
-                 -> PointAbstraction blocks dom ctx1
-                 -> PointAbstraction blocks dom ctx2
-    transferStmt mkStmtId s assignment =
+                  . PU.Size ctx1
+                 -> Stmt ext ctx1 ctx2
+                 -> PointAbstraction dom ctx1
+                 -> PointAbstraction dom ctx2
+    transferStmt sz s assignment =
       case s of
-        SetReg tp ex ->
-          let (assignment', absVal) = interpExpr interp tp ex assignment
+        SetReg (tp :: TypeRepr tp) ex ->
+          let reg :: Reg (ctx1 ::> tp) tp
+              reg = Reg (PU.nextIndex sz)
+              scopedReg = ScopedReg (blockID blk) reg
+              (assignment', absVal) = interpExpr interp scopedReg tp ex assignment
+              assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
+          in extendRegisters absVal assignment''
+
+        ExtendAssign (estmt :: StmtExtension ext (Reg ctx1) tp) ->
+          let reg :: Reg (ctx1 ::> tp) tp
+              reg = Reg (PU.nextIndex sz)
+              scopedReg = ScopedReg (blockID blk) reg
+              (assignment', absVal) = interpExt interp scopedReg estmt assignment
               assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
           in extendRegisters absVal assignment''
 
@@ -338,6 +477,7 @@ transfer dom interp retRepr blk = transferSeq 0 (_blockStmts blk)
         -- capture. We would need to extend the context,
         -- though... maybe with a unit type.
         Assert _ _ -> assignment
+        Assume _ _ -> assignment
 
         ReadGlobal gv ->
           let (assignment', absVal) = interpReadGlobal interp gv assignment
@@ -370,12 +510,26 @@ transfer dom interp retRepr blk = transferSeq 0 (_blockStmts blk)
               RefSet refSet = (assignment ^. paRegisterRefs) PU.! ix
               updateAssignment stmtId = PM.insert (RefStmtId stmtId) exprAbstraction
           in assignment { _paRefs = foldr updateAssignment (_paRefs assignment) (S.toList refSet) }
+        FreshConstant{} -> error "transferStmt: FreshConstant not supported"
+        FreshFloat{} -> error "transferStmt: FreshFloat not supported"
+        NewEmptyRefCell{} -> error "transferStmt: NewEmptyRefCell not supported"
+        --NewRefCell {} -> error "transferStmt: NewRefCell not supported"
+        --ReadRefCell {} -> error "transferStmt: ReadRefCell not supported"
+        --WriteRefCell {} -> error "transferStmt: WriteRefCell not supported"
+        DropRefCell {} -> error "transferStmt: DropRefCell not supported"
 
+    -- Transfer a block terminator statement.
     transferTerm :: forall ctx'
                   . TermStmt blocks ret ctx'
                  -> PointAbstraction blocks dom ctx'
                  -> M dom blocks ret (S.Set (Some (BlockID blocks)))
-    transferTerm s assignment =
+    transferTerm s assignment = do
+      -- Save the current point abstraction as the exit point
+      -- abstraction since we won't be defining any more SSA tmps in
+      -- this block.
+      let BlockID srcIdx = blockID blk
+      isFuncAbstr %= (faExitRegs . ixF srcIdx .~ Ignore (Some assignment))
+
       case s of
         ErrorStmt {} -> return S.empty
         Jump target -> transferJump target assignment
@@ -437,6 +591,10 @@ transfer dom interp retRepr blk = transferSeq 0 (_blockStmts blk)
                                    }
       transferTarget target blockAbstr0
 
+    -- Return the singleton set containing the target block if we
+    -- haven't converged yet on the current block, and otherwise
+    -- return an empty set while updating the function abstraction for
+    -- the current block.
     transferTarget :: forall ctx'
                     . BlockID blocks ctx'
                    -> PointAbstraction blocks dom ctx'
@@ -449,7 +607,7 @@ transfer dom interp retRepr blk = transferSeq 0 (_blockStmts blk)
         True -> return S.empty
         False -> do
           markVisited target
-          isFuncAbstr %= (faRegs %~ PU.update idx new)
+          isFuncAbstr %= (faEntryRegs . ixF idx .~ new)
           return (S.singleton (Some target))
 
 markVisited :: BlockID blocks ctx -> M dom blocks ret ()
@@ -474,20 +632,28 @@ isVisited bid = do
 --
 -- 1) For each block in the CFG, the abstraction computed at the *entry* to the block
 --
--- 2) The final abstract value for the value returned by the function
-forwardFixpoint :: forall dom blocks ret init
-                 . Domain dom
+-- 2) For each block in the CFG, the abstraction computed at the
+-- *exit* from the block. The 'PU.Assignment' for these "exit"
+-- abstractions ignores the @ctx@ index on the blocks, since that
+-- context is for *entry* to the blocks.
+--
+-- 3) The final abstract value for the value returned by the function
+forwardFixpoint' :: forall ext dom blocks ret init
+                 . ShowF dom
+                => Domain dom
                 -- ^ The domain of abstract values
-                -> Interpretation dom
+                -> Interpretation ext dom
                 -- ^ The transfer functions for each statement type
-                -> CFG blocks init ret
+                -> CFG ext blocks init ret
                 -- ^ The function to analyze
                 -> PM.MapF GlobalVar dom
                 -- ^ Assignments of abstract values to global variables at the function start
                 -> PU.Assignment dom init
                 -- ^ Assignments of abstract values to the function arguments
-                -> (PU.Assignment (PointAbstraction blocks dom) blocks, dom ret)
-forwardFixpoint dom interp cfg globals0 assignment0 =
+                -> ( PU.Assignment (PointAbstraction dom) blocks
+                   , PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+                   , dom ret )
+forwardFixpoint' dom interp cfg globals0 assignment0 =
   let BlockID idx = cfgEntryBlockID cfg
       pa0 = PointAbstraction { _paGlobals = globals0
                              , _paRegisters = assignment0
@@ -501,20 +667,41 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
                          , _paGlobals = PM.empty
                          , _paRefs = PM.empty
                          }
+      emptyFreshAssignment :: PU.Index blocks ctx -> Ignore (Some (PointAbstraction dom)) ctx
+      emptyFreshAssignment _i =
+        Ignore (Some (PointAbstraction { _paRegisters = PU.empty, _paGlobals = PM.empty }))
       s0 = IterationState { _isRetAbstr = domBottom dom
                           , _isFuncAbstr =
-                            FunctionAbstraction { _faRegs = PU.update idx pa0 $ PU.generate (PU.size (cfgBlockMap cfg)) freshAssignment
+                            FunctionAbstraction { _faEntryRegs =
+                                                    PU.generate (PU.size (cfgBlockMap cfg)) freshAssignment
+                                                      & ixF idx .~ pa0
+                                                , _faExitRegs = PU.generate (PU.size (cfgBlockMap cfg)) emptyFreshAssignment
                                                 , _faRet = domBottom dom
                                                 }
                           , _processedOnce = S.empty
                           }
       iterStrat = iterationStrategy dom
       abstr' = St.execState (runM (iterStrat interp cfg)) s0
-  in (_faRegs (_isFuncAbstr abstr'), _isRetAbstr abstr')
+  in ( _faEntryRegs (_isFuncAbstr abstr')
+     , _faExitRegs (_isFuncAbstr abstr')
+     , _isRetAbstr abstr' )
+
+-- Preserve old interface for now; fix tests later if my generalization is the right one.
+forwardFixpoint :: forall ext dom blocks ret init
+                . ShowF dom
+                => Domain dom
+                -> Interpretation ext dom
+                -> CFG ext blocks init ret
+                -> PM.MapF GlobalVar dom
+                -> PU.Assignment dom init
+                -> (PU.Assignment (PointAbstraction dom) blocks, dom ret)
+forwardFixpoint dom interp cfg globals0 assignment0 =
+  let (ass, _, ret) = forwardFixpoint' dom interp cfg globals0 assignment0
+  in (ass, ret)
 
 -- | Inspect the 'Domain' definition to determine which iteration
 -- strategy the caller requested.
-iterationStrategy :: Domain dom -> (Interpretation dom -> CFG blocks init ret -> M dom blocks ret ())
+iterationStrategy :: ShowF dom => Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
 iterationStrategy dom =
   case domIter dom of
     WTOWidening s op -> wtoIteration (Just (WideningStrategy s, WideningOperator op)) dom
@@ -527,10 +714,11 @@ iterationStrategy dom =
 --
 -- The worklist is actually processed by taking the lowest-numbered
 -- block in a set as the next work item.
-worklistIteration :: forall dom blocks ret init
-                   . Domain dom
-                  -> Interpretation dom
-                  -> CFG blocks init ret
+worklistIteration :: forall ext dom blocks ret init
+                   . ShowF dom
+                  => Domain dom
+                  -> Interpretation ext dom
+                  -> CFG ext blocks init ret
                   -> M dom blocks ret ()
 worklistIteration dom interp cfg =
   loop (S.singleton (Some (cfgEntryBlockID cfg)))
@@ -542,8 +730,8 @@ worklistIteration dom interp cfg =
           assignment <- lookupAssignment idx
           visit (getBlock target (cfgBlockMap cfg)) assignment worklist'
 
-    visit :: Block blocks ret ctx
-          -> PointAbstraction blocks dom ctx
+    visit :: Block ext blocks ret ctx
+          -> PointAbstraction dom ctx
           -> S.Set (Some (BlockID blocks))
           -> M dom blocks ret ()
     visit blk startingAssignment worklist' = do
@@ -559,14 +747,15 @@ worklistIteration dom interp cfg =
 -- heads of their respective strongly connected components.  Those
 -- block heads are suitable locations to apply widening operators
 -- (which can be provided to this iterator).
-wtoIteration :: forall dom blocks ret init
-              . Maybe (WideningStrategy, WideningOperator dom)
+wtoIteration :: forall ext dom blocks ret init
+              . ShowF dom
+             => Maybe (WideningStrategy, WideningOperator dom)
               -- ^ An optional widening operator
              -> Domain dom
-             -> Interpretation dom
-             -> CFG blocks init ret
+             -> Interpretation ext dom
+             -> CFG ext blocks init ret
              -> M dom blocks ret ()
-wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
+wtoIteration mWiden dom interp cfg = loop (cfgWeakTopologicalOrdering cfg)
   where
     loop [] = return ()
     loop (Vertex (Some bid@(BlockID idx)) : rest) = do
@@ -591,27 +780,21 @@ wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
         True -> return ()
         False -> do
           case mWiden of
+            -- TODO(conathan): figure out if we need to do something
+            -- here with 'faExitRegs'?
             Just (WideningStrategy strat, WideningOperator widen)
               | strat iterNum -> do
-                  let headInputW = zipPAWith widen unionRefSets headInput0 headInput1
-                  isFuncAbstr %= (faRegs %~ PU.update idx headInputW)
+                  let headInputW = zipPAWith widen headInput0 headInput1
+                  isFuncAbstr %= (faEntryRegs . ixF idx .~ headInputW)
             _ -> return ()
           processSCC (Some hbid) comps (iterNum + 1)
-
--- | Compute a weak topological order for the wto fixpoint iteration
-computeOrdering :: CFG blocks init ret
-                -> [WTOComponent (Some (BlockID blocks))]
-computeOrdering cfg = weakTopologicalOrdering successors (Some block0)
-  where
-    block0 = cfgEntryBlockID cfg
-    successors (Some bid) = nextBlocks (getBlock bid (cfgBlockMap cfg))
 
 lookupAssignment :: forall dom blocks ret tp
                   . PU.Index blocks tp
                  -> M dom blocks ret (PointAbstraction blocks dom tp)
 lookupAssignment idx = do
   abstr <- St.get
-  return ((abstr ^. isFuncAbstr . faRegs) PU.! idx)
+  return ((abstr ^. isFuncAbstr . faEntryRegs) PU.! idx)
 
 lookupReg :: Reg ctx tp -> PointAbstraction blocks dom ctx -> dom tp
 lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
@@ -619,6 +802,13 @@ lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
 lookupRegRefs :: Reg ctx tp -> PointAbstraction blocks dom ctx -> RefSet blocks tp
 lookupRegRefs reg assignment = (assignment ^. paRegisterRefs) PU.! regIndex reg
 
+-- | Turn a non paramaterized type into a parameterized type.
+--
+-- For when you want to use a @parameterized-utils@ style data
+-- structure with a type that doesn't have a parameter.
+--
+-- The same definition as 'Control.Applicative.Const', but with a
+-- different 'Show' instance.
 newtype Ignore a (b::k) = Ignore { _ignoreOut :: a }
  deriving (Eq, Ord)
 
@@ -658,6 +848,18 @@ faRegs :: (Functor f)
        -> FunctionAbstraction dom blocks ret
        -> f (FunctionAbstraction dom blocks ret)
 faRegs f fa = (\a -> fa { _faRegs = a }) <$> f (_faRegs fa)
+
+faEntryRegs :: (Functor f)
+            => (PU.Assignment (PointAbstraction dom) blocks -> f (PU.Assignment (PointAbstraction dom) blocks))
+            -> FunctionAbstraction dom blocks ret
+            -> f (FunctionAbstraction dom blocks ret)
+faEntryRegs f fa = (\a -> fa { _faEntryRegs = a }) <$> f (_faEntryRegs fa)
+
+faExitRegs :: (Functor f)
+           => (PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks -> f (PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks))
+           -> FunctionAbstraction dom blocks ret
+           -> f (FunctionAbstraction dom blocks ret)
+faExitRegs f fa = (\a -> fa { _faExitRegs = a }) <$> f (_faExitRegs fa)
 
 isFuncAbstr :: (Functor f)
             => (FunctionAbstraction dom blocks ret -> f (FunctionAbstraction dom blocks ret))
@@ -702,13 +904,17 @@ pointed :: (forall tp . dom tp -> dom tp -> Pointed dom tp)
         -- ^ Join of contained domain elements
         -> (forall tp . dom tp -> dom tp -> Bool)
         -- ^ Equality for domain elements
+        -> IterationStrategy (Pointed dom)
         -> Domain (Pointed dom)
-pointed j eq =
+pointed j eq iterStrat =
   Domain { domTop = Top
          , domBottom = Bottom
          , domJoin = pointedJoin j
          , domEq = pointedEq eq
-         , domIter = WTO
+           -- TODO(conathan): test faExitRegs computation with WTO
+           -- strategy. It was hardcoded to 'WTO' here before conathan
+           -- added block-exit point abstractions.
+         , domIter = iterStrat
          }
 
   where

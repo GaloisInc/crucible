@@ -1,0 +1,17 @@
+(defun @foo ((x (String Unicode))) (String Unicode)
+   (start beginning: (print x) (jump next:))
+   (defblock next: (print x) (return x)))
+
+foo
+%0
+  % 3:12
+  print($0)
+  % 4:5
+  jump %1($0)
+  % postdom %1
+%1
+  % 6:12
+  print($0)
+  % 7:5
+  return $0
+  % no postdom

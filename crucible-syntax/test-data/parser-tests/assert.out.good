@@ -1,0 +1,45 @@
+(defun @test ((n Integer)) Unit
+   (registers ($x Bool))
+   (start here:
+      (let one (the Integer 1))
+      (let ok (and (< n one) (< one n)))
+      (set-register! $x ok)
+      (jump next:))
+   (defblock next:
+      (let this-x $x)
+      (let thing (if this-x #f #t))
+      (let more ())
+      (assert! (not this-x) "No way, no way at all")
+      (return more)))
+
+test
+%0
+  % 4:14
+  $1 = intLit(1)
+  % 5:13
+  $2 = intLt($0, $1)
+  % 5:13
+  $3 = intLt($1, $0)
+  % 5:13
+  $4 = and($2, $3)
+  % 7:5
+  jump %1($4)
+  % postdom %1
+%1
+  % 10:16
+  $1 = boolLit(False)
+  % 10:16
+  $2 = boolLit(True)
+  % 10:16
+  $3 = baseIte(BaseBoolRepr, $0, $1, $2)
+  % 11:15
+  $4 = emptyApp()
+  % 12:14
+  $5 = not($0)
+  % 12:27
+  $6 = stringLit("No way, no way at all")
+  % 12:5
+  assert($5, $6)
+  % 13:5
+  return $4
+  % no postdom

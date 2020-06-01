@@ -1,0 +1,43 @@
+(defun @foo ((x (String Unicode))) (String Unicode)
+   (registers ($out (String Unicode)) ($count Integer))
+   (start beginning:
+      (print x)
+      (set-register! $out x)
+      (set-register! $count 3)
+      (jump loop:))
+   (defblock loop:
+      (let c $count)
+      (set-register! $count (- c 1))
+      (let out $out)
+      (set-register! $out (string-concat out x))
+      (let go (< c 0))
+      (branch go loop: done:))
+   (defblock done: (let val $out) (return val)))
+
+foo
+%0
+  % 6:12
+  print($0)
+  % 8:27
+  $1 = intLit(3)
+  % 9:5
+  jump %1($0, $1, $0)
+  % postdom %1 %2
+%1
+  % 12:27
+  $3 = intLit(1)
+  % 12:27
+  $4 = intSub($1, $3)
+  % 14:25
+  $5 = stringConcat(UnicodeRepr, $0, $2)
+  % 15:13
+  $6 = intLit(0)
+  % 15:13
+  $7 = intLt($1, $6)
+  % 16:5
+  br $7 %1($5, $4, $2) %2($5)
+  % postdom %2
+%2
+  % 19:5
+  return $0
+  % no postdom

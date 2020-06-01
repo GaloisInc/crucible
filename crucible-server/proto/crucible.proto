@@ -64,7 +64,7 @@ enum RequestCode {
   // Request code for running a function with a given list of arguments
   // (in Request.argument), and getting the result.  The first argument is
   // the function to call, and the remaining arguments are the arguments to pass
-  // to the function.  Since executing a function may take an arbitrary ammount of
+  // to the function.  Since executing a function may take an arbitrary amount of
   // time, this will transition the server into an Execution state, and the next message
   // returned will be a CallResponse message.
   RunCall = 6;
@@ -106,6 +106,21 @@ enum RequestCode {
   // in the requested format.
   ExportModel = 12;
 
+  // This request takes a verification harness and returns a function handle that
+  // can be used as an override for compositional verification.
+  CompileVerificationOverride = 13;
+
+  // Request the current setting of a configuration value.  Use the
+  // Request.config_setting_name field to identify the setting of interest.
+  GetConfigValue = 14;
+
+  // Set a configuration value.  Use the Request.config_setting_name field to
+  // identify the setting of interest, and use the Request.arg field for the
+  // value to set.
+  SetConfigValue = 15;
+
+  // Request that the simulator use a verification harness to simulate some code.
+  SimulateVerificationHarness = 16;
 
   /////////////////////////////////////////////////////////////////////////////
   // Operations to get predefined handles.
@@ -198,7 +213,20 @@ message Request {
 
   // The destination for an export operation
   optional string export_path = 13;
+
+  // Verification harness to use for the CompileVerificationHarness
+  // request, or SimulateVerificationHarness request
+  optional VerificationHarness verification_harness = 14;
+
+  // Name of the configuration value being read or written by a
+  // get or set option request
+  optional string config_setting_name = 15;
+
+  // Additional options necessary to setup verification simulations and
+  // define what to do with the simulation products.
+  optional VerificationSimulateOptions verification_sim_options = 16;
 }
+
 
 ////////////////////////////////////////////////////////////////////////
 // Responses
@@ -225,6 +253,10 @@ enum GenericResponseCode {
   // Respond with an Exception.  The message field of the GenericResponse
   // indicates the content of the exception.
   ExceptionGenResp = 5;
+
+  // Respond with an acknowledgement.  This message indicates that the requested
+  // action was taken successfully.  No additional information is transmitted.
+  AcknowledgementResp = 6;
 }
 
 message GenericResponse {
@@ -676,28 +708,11 @@ enum CrucibleTypeId {
   // for each value it may contain.
   StructType = 19;
 
-  // A concrete positive integer.
-  IntWidthType = 20;
-  // A concrete non-negative integer.
-  UIntWidthType = 21;
+  // NB: There is deliberately a gap here in the numbering from 20-31
+  // where other, now unused, types used to be.
 
   // A parametric type mapping strings to partial values.
   StringMapType = 32;
-  // A MATLAB multi-dimensional array of values.  This expects a parameter with the type.
-  MultiDimArrayType = 22;
-
-  // A signed matlab int.
-  MatlabIntType = 23;
-  // An unsigned matlab int.
-  MatlabUIntType = 24;
-
-  // An array of signed Matlab bitvector integers.
-  MatlabIntArrayType = 25;
-  // An array of unsigned Matlab bitvector integers.
-  MatlabUIntArrayType = 26;
-
-  // A Matlab value
-  MatlabValueType = 27;
 
   // A WordMap, which is a finite partial map from bitvectors to values
   WordMapType = 34;
@@ -708,6 +723,7 @@ message CrucibleType {
   required CrucibleTypeId id = 1;
   // Width for bitvector type.
   optional uint64 width = 2;
+  // Type parameters, if any
   repeated CrucibleType param = 3;
 }
 
@@ -756,6 +772,10 @@ enum PositionCode {
   // Position.path contains the full path to the binary.
   // Position.addr contains the address when loaded into memory.
   BinaryPos = 2;
+  // Unstructured string position.
+  // Position.pos_string contains an arbitrary string describing the
+  // program position.
+  OtherPos = 3;
 }
 
 // A position in the code.
@@ -766,6 +786,7 @@ message Position {
   optional uint64 col  = 4;
   optional uint64 addr = 5;
   optional string functionName = 6;
+  optional string value = 7;
 }
 
 message Cfg {
@@ -1011,7 +1032,7 @@ enum PathAbortedCode {
   // Attempted to call a value that does not represent a function
   AbortedNonFunction = 2;
 
-  // An explicit assertion (i.e., one specificly inserted into the a CFG) failed 
+  // An explicit assertion (i.e., one specificly inserted into the a CFG) failed
   AbortedUserAssertFailure = 3;
 }
 
@@ -1040,4 +1061,146 @@ enum CallRequestCode {
   ResumeCall = 1;
   // Stop executing the call and switch back to a paused state (no response needeD).
   AbortCall = 2;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
+// Messages related to compositional verification
+
+message VerificationHarness {
+  // Human-consumable name to give to the override function
+  optional string name = 1;
+
+  // Specification of prestate variables, register and memory state
+  optional StateSpecification prestate_specification = 2;
+
+  // Specification of poststate variables, register and memory state
+  optional StateSpecification poststate_specification = 3;
+
+  // Address word length, in bits;
+  optional uint64 address_width = 4;
+
+  // Machine endianess
+  optional Endianness endianness = 5;
+
+  // Register file width, in bits;
+  optional uint64 reg_file_width = 6;
+
+  // Optional function output term
+  optional string output_expr = 7;
+
+  // Cryptol specification files
+  repeated string cryptol_source = 8;
+}
+
+// Code for indicating which byte-order to assume for verification harnesses
+enum Endianness {
+  // Little-endian byte order
+  LittleEndian = 0;
+
+  // Big-endian byte order
+  BigEndian = 1;
+}
+
+message StateSpecification {
+  // specification variables
+  repeated VariableSpecification variable = 1;
+
+  // specification register assignments
+  repeated RegisterAssignment register_assignment = 2;
+
+  // specification memory assignments
+  repeated MemoryAssignment memory_assignment = 3;
+
+  // specification variable bindings
+  repeated VariableBinding variable_binding = 4;
+
+  // specification conditions
+  repeated string condition = 5;
+}
+
+message VariableSpecification {
+  // The name of the varible, which must be a valid Cryptol identifier.
+  optional string name = 1;
+
+  // The dimensions of the variable.  There must be exactly one
+  // or two dimensions, indicating words or vectors of words.
+  // The word dimension must be a multiple of 8.
+  repeated uint64 dimension = 2;
+}
+
+message RegisterAssignment {
+  // The offset of the register in the register file
+  optional uint64 reg_offset = 1;
+
+  // The index of the specification variable found in this register
+  optional VariableReference value = 2;
+}
+
+message MemoryAssignment {
+  // The base pointer of the memory address
+  optional VariableReference base = 1;
+
+  // An offset from the base pointer
+  optional uint64 offset = 2;
+
+  // The value pointed to at that location
+  optional VariableReference value = 3;
+}
+
+message VariableBinding {
+  // The variable to be bound
+  optional VariableReference var = 1;
+
+  // The cryptol expression to bind to this variable
+  optional string expr = 2;
+}
+
+enum VariableReferenceCode {
+  // The value of the stack pointer
+  StackPointerVar = 1;
+
+  // The value of the return address
+  ReturnAddressVar = 2;
+
+  // The value of a user-defined variable
+  UserVar = 3;
+}
+
+message VariableReference {
+  // The variable reference type
+  optional VariableReferenceCode code = 1;
+
+  // The name of the variable,
+  // for references to user-defined variables
+  optional string var_name = 2;
+}
+
+////////////////////////////////////////////////////////////////////////
+//
+// Additional data about setting up simulation and where to deposit
+// simulation results
+
+message VerificationSimulateOptions {
+  // Starting PC value for simulation
+  optional Value start_pc = 1;
+
+  // Starting stack pointer value for simulation
+  optional Value start_stack = 2;
+
+  // Return pointer value for simulation
+  optional Value return_address = 3;
+
+  // Function handle for the program to simulate
+  optional Value program = 4;
+
+  // Directory where to write output SAWCore terms
+  optional string output_directory = 5;
+
+  // Should we produce proof obligations for side-conditions and
+  // postconditions, etc?
+  // optional bool output_proof_obligations = 6;
+
+  // Shoule proof obligations be split into separate files?
+  optional bool separate_obligations = 7;
 }

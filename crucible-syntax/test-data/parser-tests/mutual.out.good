@@ -1,0 +1,72 @@
+(defun @evenp ((n Integer)) Bool
+   (start here:
+      (let zerop (equal? n (the Integer 0)))
+      (branch zerop yep: maybe:))
+   (defblock maybe:
+      (let next (- n 1))
+      (let res (funcall @oddp next))
+      (return res))
+   (defblock yep: (let indeed #t) (return indeed)))
+
+(defun @oddp ((n Integer)) Bool
+   (start here: (let onep (equal? n 1)) (branch onep yep: maybe:))
+   (defblock maybe:
+      (let next (- n 1))
+      (let res (funcall @evenp next))
+      (return res))
+   (defblock yep: (let indeed #t) (return indeed)))
+
+evenp
+%0
+  % 3:16
+  $1 = intLit(0)
+  % 3:16
+  $2 = baseIsEq(BaseIntegerRepr, $0, $1)
+  % 4:5
+  br $2 %2() %1($0)
+  % no postdom
+%1
+  % 6:15
+  $1 = intLit(1)
+  % 6:15
+  $2 = intSub($0, $1)
+  % 7:14
+  $3 = handleLit(oddp)
+  % 7:14
+  $4 = call $3($2);
+  % 8:5
+  return $4
+  % no postdom
+%2
+  % 10:17
+  $0 = boolLit(True)
+  % 11:5
+  return $0
+  % no postdom
+oddp
+%0
+  % 15:15
+  $1 = intLit(1)
+  % 15:15
+  $2 = baseIsEq(BaseIntegerRepr, $0, $1)
+  % 16:5
+  br $2 %2() %1($0)
+  % no postdom
+%1
+  % 18:15
+  $1 = intLit(1)
+  % 18:15
+  $2 = intSub($0, $1)
+  % 19:14
+  $3 = handleLit(evenp)
+  % 19:14
+  $4 = call $3($2);
+  % 20:5
+  return $4
+  % no postdom
+%2
+  % 22:17
+  $0 = boolLit(True)
+  % 23:5
+  return $0
+  % no postdom

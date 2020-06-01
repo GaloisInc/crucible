@@ -14,30 +14,20 @@ Description:
 
 library
   build-depends:
-    abcBridge,
-    aig,
-    ansi-wl-pprint,
-    base >= 4.7 && < 4.11,
+    base >= 4.7 && < 4.15,
     containers,
     crucible >= 0.1,
-    cryptol-verifier,
-    directory,
-    galois-matlab,
+    what4 >= 0.4,
     lens,
-    llvm-pretty,
-    mtl,
-    parameterized-utils,
-    saw-core >= 0.1,
-    saw-core-aig,
     text,
-    transformers,
-    vector
+    parameterized-utils,
+    saw-core >= 0.1
 
   hs-source-dirs: src
 
   exposed-modules:
-    Lang.Crucible.Solver.SAWCoreBackend
+    Lang.Crucible.Backend.SAWCore
 --    Lang.Crucible.Solver.ExtractSAWCore
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top

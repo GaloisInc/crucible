@@ -1,0 +1,54 @@
+(defun @foo ((n Integer)) Integer
+   (registers ($s Integer) ($i Integer))
+   (start begin:
+      (set-register! $s 0)
+      (set-register! $i 0)
+      (jump header:))
+   (defblock header:
+      (breakpoint "foo_header" (n $s $i))
+      (let i $i)
+      (let c (< i n))
+      (branch c body: end:))
+   (defblock body:
+      (breakpoint "foo_body" (n $s $i i))
+      (let s $s)
+      (set-register! $s (+ s i))
+      (set-register! $i (+ i 1))
+      (jump header:))
+   (defblock end: (let r $s) (return r)))
+
+foo
+%0
+  % 6:23
+  $1 = intLit(0)
+  % 8:5
+  jump %1($1, $1, $0)
+  % postdom %1 %2 %5
+%1
+  % 10:5
+  jump %2($2, $0, $1)
+  % postdom %2 %5
+%2
+  % 12:12
+  $3 = intLt($2, $0)
+  % 13:5
+  br $3 %3($1, $2, $0, $2) %5($1)
+  % postdom %5
+%3
+  % 15:5
+  jump %4($2, $0, $1, $3)
+  % postdom %4 %1 %2 %5
+%4
+  % 17:23
+  $4 = intAdd($1, $3)
+  % 18:23
+  $5 = intLit(1)
+  % 18:23
+  $6 = intAdd($3, $5)
+  % 19:5
+  jump %1($4, $6, $0)
+  % postdom %1 %2 %5
+%5
+  % 22:5
+  return $0
+  % no postdom

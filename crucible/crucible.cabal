@@ -1,8 +1,8 @@
 Name:          crucible
-Version:       0.3.1
+Version:       0.5
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
-Copyright:     (c) Galois, Inc 2014-2017
+Copyright:     (c) Galois, Inc 2014-2018
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
@@ -13,7 +13,7 @@ Description:
   Crucible provides a program representation format based on single-static assignment
   (SSA) form control flow graphs, and a symbolic simulation engine for executing
   programs expressed in this format.  It also provides support for communicating with
-  a variety of SAT and SMT solvers; including Z3, CVC4, Yices, STP, and dReal.
+  a variety of SAT and SMT solvers, including Z3, CVC4, Yices, STP, and dReal.
 
 
 -- Many (but not all, sadly) uses of unsafe operations are
@@ -27,36 +27,31 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.8 && < 4.11,
-    th-abstraction >=0.1 && <0.3,
+    base >= 4.8 && < 4.15,
     ansi-wl-pprint,
-    attoparsec,
-    bimap >= 0.2,
+    bimap,
     bytestring,
-    containers >= 0.5.0.0,
-    deepseq,
-    directory,
+    containers >= 0.5.9.0,
+    exceptions,
     fgl,
     filepath,
-    fingertree,
-    galois-matlab,
     ghc-prim,
     hashable,
     hashtables,
-    io-streams,
+    json >= 0.9 && < 1.0,
     lens,
     mtl,
-    parameterized-utils >= 0.1.10,
+    panic >= 0.3,
+    parameterized-utils >= 1.0.8 && < 2.2,
     process,
-    scientific,
-    smtLib,
-    temporary >= 1.2,
     template-haskell,
     text,
+    time >= 1.8 && < 2.0,
+    th-abstraction >=0.1 && <0.4,
     transformers,
     unordered-containers,
-    utf8-string,
-    vector
+    vector,
+    what4 >= 0.4
 
   default-language: Haskell2010
   default-extensions:
@@ -71,88 +66,60 @@ library
     Lang.Crucible.Analysis.Fixpoint.Components
     Lang.Crucible.Analysis.Postdom
     Lang.Crucible.Analysis.Reachable
-    --Lang.Crucible.Analysis.Shape
     Lang.Crucible.Analysis.Taint
-    Lang.Crucible.BaseTypes
+    Lang.Crucible.Backend
+    Lang.Crucible.Backend.AssumptionStack
+    Lang.Crucible.Backend.ProofGoals
+    Lang.Crucible.Backend.Online
+    Lang.Crucible.Backend.Simple
     Lang.Crucible.CFG.Common
     Lang.Crucible.CFG.Core
     Lang.Crucible.CFG.Expr
+    Lang.Crucible.CFG.Extension
     Lang.Crucible.CFG.ExtractSubgraph
     Lang.Crucible.CFG.Generator
     Lang.Crucible.CFG.Reg
     Lang.Crucible.CFG.SSAConversion
-    Lang.Crucible.Config
     Lang.Crucible.FunctionHandle
-    Lang.Crucible.FunctionName
-    Lang.Crucible.MATLAB.Intrinsics.Solver
-    Lang.Crucible.ProgramLoc
-    Lang.Crucible.Simulator.CallFns
+    Lang.Crucible.Simulator
+    Lang.Crucible.Simulator.Breakpoint
+    Lang.Crucible.Simulator.BoundedExec
+    Lang.Crucible.Simulator.BoundedRecursion
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
+    Lang.Crucible.Simulator.EvalStmt
     Lang.Crucible.Simulator.ExecutionTree
-    Lang.Crucible.Simulator.Frame
     Lang.Crucible.Simulator.Intrinsics
     Lang.Crucible.Simulator.GlobalState
+    Lang.Crucible.Simulator.Operations
     Lang.Crucible.Simulator.OverrideSim
+    Lang.Crucible.Simulator.PathSatisfiability
+    Lang.Crucible.Simulator.PathSplitting
+    Lang.Crucible.Simulator.Profiling
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
-    Lang.Crucible.Simulator.VarRecord
     Lang.Crucible.Simulator.SimError
-    Lang.Crucible.Simulator.Utils.Environment
-    Lang.Crucible.Solver.Adapter
-    Lang.Crucible.Solver.BoolInterface
-    Lang.Crucible.Solver.Interface
-    Lang.Crucible.Solver.OnlineBackend
-    Lang.Crucible.Solver.Partial
-    Lang.Crucible.Solver.ProcessUtils
-    Lang.Crucible.Solver.SatResult
-    Lang.Crucible.Solver.SimpleBackend
-    Lang.Crucible.Solver.SimpleBackend.AppTheory
-    Lang.Crucible.Solver.SimpleBackend.Boolector
-    Lang.Crucible.Solver.SimpleBackend.CVC4
-    Lang.Crucible.Solver.SimpleBackend.DReal
-    Lang.Crucible.Solver.SimpleBackend.GroundEval
-    Lang.Crucible.Solver.SimpleBackend.ProblemFeatures
-    Lang.Crucible.Solver.SimpleBackend.ReadDecimal
-    Lang.Crucible.Solver.SimpleBackend.Simplify
-    Lang.Crucible.Solver.SimpleBackend.SMTLib2
-    Lang.Crucible.Solver.SimpleBackend.SMTWriter
-    Lang.Crucible.Solver.SimpleBackend.STP
-    Lang.Crucible.Solver.SimpleBackend.VarIdentification
-    Lang.Crucible.Solver.SimpleBackend.Yices
-    Lang.Crucible.Solver.SimpleBackend.Z3
-    Lang.Crucible.Solver.SimpleBuilder
-    Lang.Crucible.Solver.Symbol
-    Lang.Crucible.Solver.Utils.PolyRoot
-    Lang.Crucible.Solver.WeightedSum
     Lang.Crucible.Syntax
     Lang.Crucible.Types
-    Lang.Crucible.Utils.AbstractDomains
-    Lang.Crucible.Utils.Arithmetic
+    Lang.Crucible.Vector
+    Lang.Crucible.Panic
     Lang.Crucible.Utils.BitSet
-    Lang.Crucible.Utils.BVDomain
-    Lang.Crucible.Utils.BVDomain.Empty
-    Lang.Crucible.Utils.BVDomain.Map
-    Lang.Crucible.Utils.Complex
     Lang.Crucible.Utils.CoreRewrite
-    Lang.Crucible.Utils.ConstK
-    Lang.Crucible.Utils.Hashable
-    Lang.Crucible.Utils.LeqMap
-    Lang.Crucible.Utils.MonadST
     Lang.Crucible.Utils.MonadVerbosity
-    Lang.Crucible.Utils.OnlyNatRepr
-    Lang.Crucible.Utils.SExp
+    Lang.Crucible.Utils.MuxTree
+    Lang.Crucible.Utils.PrettyPrint
+    Lang.Crucible.Utils.RegRewrite
     Lang.Crucible.Utils.StateContT
-    Lang.Crucible.Utils.Streams
     Lang.Crucible.Utils.Structural
-    Lang.Crucible.Utils.SymMultiDimArray
-    Lang.Crucible.Utils.UnaryBV
 
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
 
   if flag(unsafe-operations)
     cpp-options: -DUNSAFE_OPS
+
+  if impl(ghc >= 8.6)
+    default-extensions: NoStarIsType
 
 test-suite absint-tests
   type: exitcode-stdio-1.0
@@ -162,14 +129,34 @@ test-suite absint-tests
                  EvenOdd,
                  Max,
                  WTO
-  ghc-options: -Wall
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   main-is: Main.hs
   build-depends: base,
                  containers,
                  mtl,
                  crucible,
+                 what4,
                  parameterized-utils,
                  tasty >= 0.10,
                  tasty-hunit >= 0.9,
                  tasty-quickcheck >= 0.8,
                  QuickCheck
+
+test-suite helper-tests
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+  hs-source-dirs: test/helpers
+--  other-modules:
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  main-is: Main.hs
+  build-depends: base,
+                 containers,
+                 mtl,
+                 crucible,
+                 what4,
+                 parameterized-utils,
+                 panic >= 0.3,
+                 tasty >= 0.10,
+                 tasty-hunit >= 0.9,
+                 tasty-quickcheck >= 0.8,
+                 tasty-hspec >= 1.1

@@ -16,9 +16,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.Utils.CoreRewrite
 ( annotateCFGStmts
@@ -31,7 +29,7 @@ import           Data.Parameterized.Map (Pair(..))
 import           Data.Parameterized.TraversableFC
 
 import           Lang.Crucible.CFG.Core
-
+import           Lang.Crucible.CFG.Extension
 
 ------------------------------------------------------------------------
 -- CFG annotation
@@ -43,37 +41,39 @@ import           Lang.Crucible.CFG.Core
 -- result of the statement, if any) along with a context diff which
 -- describes any new variables.
 annotateCFGStmts ::
-   (forall cin cout. Some (BlockID blocks) -> Ctx.Size cout -> Stmt cin cout -> Maybe (StmtSeq blocks UnitType cout))
+   TraverseExt ext =>
+   (forall cin cout. Some (BlockID blocks) -> Ctx.Size cout -> Stmt ext cin cout -> Maybe (StmtSeq ext blocks UnitType cout))
   -- ^ This is the annotation function.  The resulting @StmtSeq@ gets
   -- spliced in after the statement so that they can inspect the
   -- result if desired.  The terminal statement is ignored.
-  -> (forall ctx'. Some (BlockID blocks)  -> Ctx.Size ctx' -> TermStmt blocks ret ctx' -> Maybe (StmtSeq blocks UnitType ctx'))
+  -> (forall ctx'. Some (BlockID blocks)  -> Ctx.Size ctx' -> TermStmt blocks ret ctx' -> Maybe (StmtSeq ext blocks UnitType ctx'))
   -- ^ As above but for the final term stmt, where the annotation will
   -- be _before_ the term stmt.
-  -> CFG blocks ctx ret -> CFG blocks ctx ret
+  -> CFG ext blocks ctx ret -> CFG ext blocks ctx ret
 annotateCFGStmts fS fT = mapCFGBlocks (annotateBlockStmts fS fT)
 
-mapCFGBlocks :: (forall x. Block blocks ret x -> Block blocks ret x)
-             -> CFG blocks ctx ret -> CFG blocks ctx ret
+mapCFGBlocks :: (forall x. Block ext blocks ret x -> Block ext blocks ret x)
+             -> CFG ext blocks ctx ret -> CFG ext blocks ctx ret
 mapCFGBlocks f cfg = cfg { cfgBlockMap = fmapFC f (cfgBlockMap cfg) }
 
 annotateBlockStmts ::
-  forall blocks ret ctx.
-  (forall cin cout. Some (BlockID blocks) -> Ctx.Size cout -> Stmt cin cout -> Maybe (StmtSeq blocks UnitType cout))
+  forall ext blocks ret ctx.
+  TraverseExt ext =>
+  (forall cin cout. Some (BlockID blocks) -> Ctx.Size cout -> Stmt ext cin cout -> Maybe (StmtSeq ext blocks UnitType cout))
   -- ^ This is the annotation function.  Annotation statements go
   -- after the statement so that they can inspect the result if
   -- desired.  We use Diff here over CtxEmbedding as the remainder of
   -- the statements can't use the result of the annotation function
-  -> (forall ctx'. Some (BlockID blocks) -> Ctx.Size ctx' -> TermStmt blocks ret ctx' -> Maybe (StmtSeq blocks UnitType ctx'))
+  -> (forall ctx'. Some (BlockID blocks) -> Ctx.Size ctx' -> TermStmt blocks ret ctx' -> Maybe (StmtSeq ext blocks UnitType ctx'))
   -- ^ As above but for the final term stmt, where the annotation will
   -- be _before_ the term stmt.
-  -> Block blocks ret ctx
-  -> Block blocks ret ctx
+  -> Block ext blocks ret ctx
+  -> Block ext blocks ret ctx
 annotateBlockStmts fS fT b = b & blockStmts %~ goStmts initialCtxe
   where
     initialCtxe = Ctx.identityEmbedding (Ctx.size (blockInputs b))
     goStmts :: forall ctx' ctx''. Ctx.CtxEmbedding ctx' ctx''
-            -> StmtSeq blocks ret ctx' -> StmtSeq blocks ret ctx''
+            -> StmtSeq ext blocks ret ctx' -> StmtSeq ext blocks ret ctx''
     goStmts ctxe (ConsStmt loc stmt rest) =
       case applyEmbeddingStmt ctxe stmt of
         Pair stmt' ctxe' ->
@@ -87,36 +87,42 @@ annotateBlockStmts fS fT b = b & blockStmts %~ goStmts initialCtxe
         Nothing -> TermStmt loc term'
         Just annotSeq ->
           -- FIXME: we could use extendContext here instead
-          let restf :: forall fctx. Ctx.CtxEmbedding ctx' fctx -> StmtSeq blocks ret fctx
+          let restf :: forall fctx. Ctx.CtxEmbedding ctx' fctx -> StmtSeq ext blocks ret fctx
               restf ctxe'' = TermStmt loc (Ctx.applyEmbedding ctxe'' term)
           in appendStmtSeq ctxe annotSeq restf
 
-stmtDiff :: Stmt ctx ctx' -> Ctx.Diff ctx ctx'
+stmtDiff :: Stmt ext ctx ctx' -> Ctx.Diff ctx ctx'
 stmtDiff stmt =
   case stmt of
     SetReg {}        -> Ctx.knownDiff
+    ExtendAssign{}   -> Ctx.knownDiff
     CallHandle {}    -> Ctx.knownDiff
     Print {}         -> Ctx.knownDiff
     ReadGlobal {}    -> Ctx.knownDiff
     WriteGlobal {}   -> Ctx.knownDiff
+    FreshConstant{}  -> Ctx.knownDiff
+    FreshFloat{}     -> Ctx.knownDiff
     NewRefCell {}    -> Ctx.knownDiff
+    NewEmptyRefCell{}-> Ctx.knownDiff
     ReadRefCell {}   -> Ctx.knownDiff
     WriteRefCell {}  -> Ctx.knownDiff
+    DropRefCell {}   -> Ctx.knownDiff
     Assert {}        -> Ctx.knownDiff
+    Assume {}        -> Ctx.knownDiff
 
 -- | This appends two @StmtSeq@, throwing away the @TermStmt@ from the first @StmtSeq@
 -- It could probably be generalized to @Ctx.Diff@ instead of an embedding.
-appendStmtSeq :: forall blocks ret ret' ctx ctx'.
+appendStmtSeq :: forall ext blocks ret ret' ctx ctx'.
                  Ctx.CtxEmbedding ctx ctx'
-              -> StmtSeq blocks ret  ctx'
-              -> (forall ctx''. Ctx.CtxEmbedding ctx ctx'' -> StmtSeq blocks ret' ctx'')
-              -> StmtSeq blocks ret' ctx'
+              -> StmtSeq ext blocks ret  ctx'
+              -> (forall ctx''. Ctx.CtxEmbedding ctx ctx'' -> StmtSeq ext blocks ret' ctx'')
+              -> StmtSeq ext blocks ret' ctx'
 appendStmtSeq ctxe seq1 seq2f = go ctxe seq1
   where
     go :: forall ctx''.
           Ctx.CtxEmbedding ctx ctx''
-          -> StmtSeq blocks ret ctx''
-          -> StmtSeq blocks ret' ctx''
+          -> StmtSeq ext blocks ret ctx''
+          -> StmtSeq ext blocks ret' ctx''
     go ctxe' (ConsStmt loc stmt rest) =
       -- This just throws away the new variables, which is OK as seq2
       -- can't reference them.

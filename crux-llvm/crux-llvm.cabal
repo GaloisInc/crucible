@@ -1,0 +1,162 @@
+Name:          crux-llvm
+Version:       0.3.2
+Author:        Galois Inc.
+Maintainer:    iavor.diatchki@gmail.com
+Copyright:     (c) Galois, Inc 2014-2017
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.10
+Category:      Language
+Synopsis:      A verification tool for C programs.
+Description:
+  This tool (and corresponding C library) are intended for writing Crucible
+  specifications by using C as the specification language.
+
+library
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    CruxLLVMMain
+    Crux.LLVM.Compile
+    Crux.LLVM.Config
+    Crux.LLVM.Overrides
+    Crux.LLVM.Simulate
+
+  build-depends:
+    ansi-terminal,
+    ansi-wl-pprint,
+    bytestring,
+    base >= 4.8 && < 4.15,
+    config-schema,
+    containers,
+    crucible,
+    crucible-llvm,
+    crux,
+    data-binary-ieee754,
+    directory,
+    filepath,
+    lens,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    mtl,
+    parameterized-utils,
+    process,
+    template-haskell,
+    text,
+    what4
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
+
+executable crux-llvm
+
+  hs-source-dirs: exe
+
+  build-depends:
+    ansi-terminal,
+    ansi-wl-pprint,
+    base >= 4.8 && < 4.15,
+    bytestring,
+    containers,
+    crucible,
+    crucible-llvm,
+    crux,
+    crux-llvm,
+    data-binary-ieee754,
+    directory,
+    filepath,
+    lens,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    mtl,
+    parameterized-utils,
+    process,
+    template-haskell,
+    text,
+    what4
+
+  if os(windows)
+    main-is: WinMain.hs
+  else
+    build-depends: unix
+    main-is: Main.hs
+
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
+executable crux-llvm-svcomp
+  hs-source-dirs: svcomp
+  main-is: Main.hs
+
+  build-depends:
+    aeson >= 1.4.7,
+    attoparsec >= 0.13,
+    async >= 2.2,
+    ansi-terminal,
+    ansi-wl-pprint,
+    base >= 4.8 && < 4.15,
+    bytestring,
+    containers,
+    crucible,
+    crucible-llvm,
+    crux,
+    crux-llvm,
+    data-binary-ieee754,
+    directory,
+    filepath,
+    lens,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    mtl,
+    parameterized-utils,
+    process,
+    template-haskell,
+    time,
+    text,
+    unix,
+    what4
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
+test-suite crux-llvm-test
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+
+  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -fprof-auto -O2
+
+  main-is: Test.hs
+
+  build-depends:
+                base             >= 4.7,
+                bytestring,
+                containers,
+                crucible,
+                crux,
+                crux-llvm,
+                deepseq,
+                directory,
+                filepath,
+                parsec,
+                process,
+                saw-core,
+                QuickCheck,
+                tasty            >= 0.10,
+                tasty-hunit      >= 0.10,
+                tasty-golden     >= 2.3,
+                text,
+                what4
+
+  default-language: Haskell2010

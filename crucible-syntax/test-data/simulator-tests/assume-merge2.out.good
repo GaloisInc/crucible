@@ -1,0 +1,14 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+Assuming:
+* in main test-data/simulator-tests/assume-merge2.cbl:9:5: odd
+    not (and (not (intLe 0 cx@0:i)) (not (eq 1 (intMod cx@0:i 2))))
+* in main test-data/simulator-tests/assume-merge2.cbl:6:5: even
+    not (and (intLe 0 cx@0:i) (not (eq 0 (intMod cx@0:i 2))))
+Prove:
+  oopsie!
+  in main at test-data/simulator-tests/assume-merge2.cbl:12:5
+  false
+COUNTEREXAMPLE

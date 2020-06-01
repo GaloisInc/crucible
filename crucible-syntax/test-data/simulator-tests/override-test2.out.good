@@ -1,0 +1,28 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+Assuming:
+* The branch in main from test-data/simulator-tests/override-test2.cbl:5:12 to after branch 0
+    not (eq 1 cx@0:i)
+* The branch in symbolicBranchesTest from after branch 0 to after branch 1
+    not (eq 2 cx@0:i)
+* The branch in symbolicBranchesTest from after branch 1 to after branch 2
+    not (eq 3 cx@0:i)
+Prove:
+  fall-through branch
+  in symbolicBranchesTest at default branch
+  false
+COUNTEREXAMPLE
+Assuming:
+* The branch in symbolicBranchesTest from after branch 1 to third branch
+    let -- default branch
+        v26 = and (not (eq 1 cx@0:i)) (not (eq 2 cx@0:i)) (not (eq 3 cx@0:i))
+     in not v26
+Prove:
+  bogus!
+  in main at test-data/simulator-tests/override-test2.cbl:6:5
+  let -- default branch
+      v19 = intSum (intMul 2 cx@0:i) (ite (eq 2 cx@0:i) 0 cy@1:i)
+   in eq (ite (eq 1 cx@0:i) cy@1:i v19) cx@0:i
+COUNTEREXAMPLE

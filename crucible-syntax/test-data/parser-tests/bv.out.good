@@ -1,0 +1,159 @@
+(defun @bv-test () Unit
+   (start start:
+      (let f (fresh (Bitvector 12)))
+      (let a (bv 1 99))
+      (let x (bv 12 0))
+      (let y (bv 12 -1))
+      (let p (equal? x y))
+      (let z (if p x (- (bv 12 123) y)))
+      (let q (+ (bv-xor x y) x))
+      (let qz (zero-extend 16 q))
+      (let qs (sign-extend 16 (negate q)))
+      (let qq (bv-concat qz qs))
+      (let q2 (bv-trunc 11 qq))
+      (let asdf (bv-select 5 3 x))
+      (let p2
+           (and (< x y)
+                (<= x y)
+                (<$ x y)
+                (<=$ x y)
+                (bv-nonzero f)
+                (bv-carry x y)
+                (bv-scarry x y)
+                (bv-sborrow x y)))
+      (let allarith
+           (+ (- x y) (* x y q) (/ x y) (mod x y) (/$ x y) (smod x y)))
+      (let allbitwise
+           (bv-xor x
+                   (bv-or x y q)
+                   (bv-and x y)
+                   (bv-not x)
+                   (shl x y)
+                   (lshr x y)
+                   (ashr x y)
+                   (bool-to-bv 12 p)))
+      (return ())))
+
+bv-test
+%0
+  % 3:12
+  $0 = fresh BaseBVRepr 12 f
+  % 4:12
+  $1 = bVLit(1, 99)
+  % 5:12
+  $2 = bVLit(12, 0)
+  % 6:12
+  $3 = bVLit(12, -1)
+  % 7:12
+  $4 = baseIsEq(BaseBVRepr 12, $2, $3)
+  % 8:12
+  $5 = bVLit(12, 123)
+  % 8:12
+  $6 = bVSub(12, $5, $3)
+  % 8:12
+  $7 = baseIte(BaseBVRepr 12, $4, $2, $6)
+  % 9:12
+  $8 = bVXor(12, $2, $3)
+  % 9:12
+  $9 = bVAdd(12, $8, $2)
+  % 10:13
+  $10 = bVZext(16, 12, $9)
+  % 11:13
+  $11 = bVNeg(12, $9)
+  % 11:13
+  $12 = bVSext(16, 12, $11)
+  % 12:13
+  $13 = bVConcat(16, 16, $10, $12)
+  % 13:13
+  $14 = bVTrunc(11, 32, $13)
+  % 14:15
+  $15 = bVSelect(5, 3, 12, $2)
+  % 16:13
+  $16 = bVUlt(12, $2, $3)
+  % 16:13
+  $17 = bVUle(12, $2, $3)
+  % 16:13
+  $18 = and($16, $17)
+  % 16:13
+  $19 = bVSlt(12, $2, $3)
+  % 16:13
+  $20 = and($18, $19)
+  % 16:13
+  $21 = bVSle(12, $2, $3)
+  % 16:13
+  $22 = and($20, $21)
+  % 16:13
+  $23 = bVNonzero(12, $0)
+  % 16:13
+  $24 = and($22, $23)
+  % 16:13
+  $25 = bVCarry(12, $2, $3)
+  % 16:13
+  $26 = and($24, $25)
+  % 16:13
+  $27 = bVSCarry(12, $2, $3)
+  % 16:13
+  $28 = and($26, $27)
+  % 16:13
+  $29 = bVSBorrow(12, $2, $3)
+  % 16:13
+  $30 = and($28, $29)
+  % 22:8
+  $31 = bVSub(12, $2, $3)
+  % 22:8
+  $32 = bVMul(12, $2, $3)
+  % 22:8
+  $33 = bVMul(12, $32, $9)
+  % 22:8
+  $34 = bVAdd(12, $31, $33)
+  % 22:8
+  $35 = bVUdiv(12, $2, $3)
+  % 22:8
+  $36 = bVAdd(12, $34, $35)
+  % 22:8
+  $37 = bVUrem(12, $2, $3)
+  % 22:8
+  $38 = bVAdd(12, $36, $37)
+  % 22:8
+  $39 = bVSdiv(12, $2, $3)
+  % 22:8
+  $40 = bVAdd(12, $38, $39)
+  % 22:8
+  $41 = bVSrem(12, $2, $3)
+  % 22:8
+  $42 = bVAdd(12, $40, $41)
+  % 26:8
+  $43 = bVOr(12, $2, $3)
+  % 26:8
+  $44 = bVOr(12, $43, $9)
+  % 26:8
+  $45 = bVXor(12, $2, $44)
+  % 26:8
+  $46 = bVAnd(12, $2, $3)
+  % 26:8
+  $47 = bVXor(12, $45, $46)
+  % 26:8
+  $48 = bVNot(12, $2)
+  % 26:8
+  $49 = bVXor(12, $47, $48)
+  % 26:8
+  $50 = bVShl(12, $2, $3)
+  % 26:8
+  $51 = bVXor(12, $49, $50)
+  % 26:8
+  $52 = bVLshr(12, $2, $3)
+  % 26:8
+  $53 = bVXor(12, $51, $52)
+  % 26:8
+  $54 = bVAshr(12, $2, $3)
+  % 26:8
+  $55 = bVXor(12, $53, $54)
+  % 26:8
+  $56 = boolToBV(12, $4)
+  % 26:8
+  $57 = bVXor(12, $55, $56)
+  % 29:13
+  $58 = emptyApp()
+  % 29:5
+  return $58
+  % no postdom

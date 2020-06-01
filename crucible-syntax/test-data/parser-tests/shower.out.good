@@ -1,0 +1,10 @@
+(defun @show-int ((x Integer)) (String Unicode)
+   (start at-the-beginning: (let res (show x)) (return res)))
+
+show-int
+%0
+  % 3:14
+  $1 = showValue(BaseIntegerRepr, $0)
+  % 4:5
+  return $1
+  % no postdom

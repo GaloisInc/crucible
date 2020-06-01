@@ -1,0 +1,16 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  OK to project z
+  in main at test-data/simulator-tests/from-maybe.cbl:11:12
+  cp@0:b
+COUNTEREXAMPLE
+
+Prove:
+  from-just eq (bogus)
+  in main at test-data/simulator-tests/from-maybe.cbl:12:5
+  false
+COUNTEREXAMPLE

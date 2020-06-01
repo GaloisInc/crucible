@@ -1,4 +1,4 @@
-------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Simulator.Evaluation
 -- Description      : Evaluation functions for Crucible core expressions
@@ -9,102 +9,83 @@
 --
 -- This module provides operations evaluating Crucible expressions.
 ------------------------------------------------------------------------
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Simulator.Evaluation
-  ( cplxArrayIsReal
-  , cplxArrayAsPosNat
-  , realArrayIsNonNeg
-  , matlabIntArrayAsPosNat
-  , matlabUIntArrayAsPosNat
-  , logicArrayToIndices
+  ( EvalAppFunc
   , evalApp
-  , dimLit
-  , asDimLit
-  , resizeDimLit
-  , failIfNothing
   , selectedIndices
-  , asConstantIndex
-  , symDimAsVecN
-  , symDimCount
-  , symDimNull
-  , symDimAt
   , indexSymbolic
-  , mda_symbolic_lookup
-  , mda_symbolic_update
   , integerAsChar
   , complexRealAsChar
+  , indexVectorWithSymNat
+  , adjustVectorWithSymNat
+  , updateVectorWithSymNat
   ) where
 
-import           Control.Exception (assert)
+import           Prelude hiding (pred)
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+#endif
+
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
-import qualified Data.Foldable as Fold
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.TraversableFC
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
 
-import qualified Lang.MATLAB.CharVector as CV
-import           Lang.MATLAB.MatlabChar
-import           Lang.MATLAB.MultiDimArray (ArrayDim, MultiDimArray)
-import qualified Lang.MATLAB.MultiDimArray as MDA
+import           Data.Parameterized.Classes
+import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.TraversableFC
 
+import           What4.Interface
+import           What4.InterpretedFloatingPoint
+import           What4.Partial (pattern PE, pattern Unassigned, joinMaybePE)
+import           What4.Utils.Complex
+import           What4.WordMap
+
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
-import           Lang.Crucible.Solver.Symbol (emptySymbol)
 import           Lang.Crucible.Types
-import           Lang.Crucible.Utils.Complex
-import qualified Lang.Crucible.Utils.SymMultiDimArray as SMDA
+import           Lang.Crucible.Utils.MuxTree
 
 ------------------------------------------------------------------------
 -- Utilities
 
--- | Call fail with the given message if the maybe value is nothing,
--- otherwise return the value.
-failIfNothing :: Monad m => String -> Maybe a -> m a
-failIfNothing msg Nothing = fail msg
-failIfNothing _  (Just v) = return v
 
 -- | Given a list of Booleans l, @selectedIndices@ returns the indices of
 -- true values in @l@.
 selectedIndices :: [Bool] -> [Natural]
-selectedIndices l = catMaybes $ zipWith selectIndex l [1..]
+selectedIndices l = catMaybes $ Prelude.zipWith selectIndex l [1..]
   where selectIndex True i  = Just i
         selectIndex False _ = Nothing
 
 ------------------------------------------------------------------------
 -- Coercion functions
 
--- | Returns predicate checking that all complex array predicates are real.
-cplxArrayValuesAreReal :: (IsExprBuilder sym)
-                       => sym
-                       -> MultiDimArray (SymCplx sym)
-                       -> IO (Pred sym)
-cplxArrayValuesAreReal sb a = do
-  eqs <- traverse (isReal sb) a
-  andAllOf sb folded eqs
-
 integerAsChar :: Integer -> Word16
 integerAsChar i = fromInteger ((i `max` 0) `min` (2^(16::Int)-1))
 
-complexRealAsChar :: (Monad m, IsExpr val)
+complexRealAsChar :: (MonadFail m, IsExpr val)
                   => val BaseComplexType
                   -> m Word16
 complexRealAsChar v = do
@@ -112,163 +93,11 @@ complexRealAsChar v = do
     -- Check number is printable.
     Just r | otherwise -> return (integerAsChar (floor r))
     Nothing -> fail "Symbolic value cannot be interpreted as a character."
+    -- XXX: Should this be a panic?
+    -- XXX: We should move this to crucible-matlab
 
 ------------------------------------------------------------------------
 -- Evaluating expressions
-
--- | Add checks to confirm each argument is at least one.
-checkAtLeast1 :: (IsExprBuilder sym, Traversable f) => sym -> f (SymNat sym) -> IO (Pred sym)
-checkAtLeast1 sym s = do
-  c0 <- natLit sym 0
-  andAllOf sym folded =<< traverse (natLt sym c0) s
-
-mkPE :: IsPred p => p -> a -> PartExpr p a
-mkPE p v =
-  case asConstantPred p of
-    Just False -> Unassigned
-    _ -> PE p v
-
-asConstantIndex :: IsExpr e => V.Vector (e BaseNatType) -> Maybe MDA.Index
-asConstantIndex v = MDA.indexFromVector <$> traverse asNat v
-
-asDimLit :: (Monad m, IsExpr e)
-         => V.Vector (e BaseNatType)
-         -> m ArrayDim
-asDimLit v =
-  case traverse asNat v of
-    Just vnat -> return $ MDA.fromDimList $ V.toList vnat
-    Nothing -> fail "mss requires the dimensions are concrete."
-
-resizeDimLit :: IsSymInterface sym
-             => sym
-             -> (Int -> String -> IO ())
-                -- ^ Logging function
-             -> ArrayDim
-             -> V.Vector (SymNat sym)
-             -> IO ArrayDim
-resizeDimLit sym logFn d v = do
-  case traverse asNat v of
-    Just vnat -> return $ MDA.fromDimList $ V.toList vnat
-    Nothing -> do
-      let n = V.length v
-      let bounds = MDA.asDimVectorN (fromIntegral n) d
-      logFn 2 "Warning! A symbolic size was detected.  MSS does not currently support symbolic sizes."
-      let go i b = do
-            addAssertionM sym
-                          (natLe sym i =<< natLit sym b)
-                          (GenericSimError "Symbolic sizes must not grow array.")
-      V.zipWithM_ go v bounds
-      return d
-
-type SymDim sym = V.Vector (SymNat sym)
-
-symDimAsVecN :: IsExprBuilder sym
-             => sym -- ^ Symbolic backend.
-             -> SymDim sym -- ^ Vector of dimensions.
-             -> Natural -- ^ Length of result vector
-             -> IO (SymDim sym)
-symDimAsVecN sym v (fromIntegral -> n)
-    | l == n = return v
-    | l < n  = do one <- natLit sym 1
-                  return (v V.++ V.replicate (n-l) one)
-    | True = do
-      when (n == 0) $ fail "Cannot get 0 length vector from dimensions."
-      -- TODO: Test this
-      let unchanged_elts = V.take (n-1) v
-          last_elt = v V.! (n-1)
-          rest = V.drop n v
-      new_last <- Fold.foldlM (natMul sym) last_elt rest
-      return (unchanged_elts `V.snoc` new_last)
-  where l = V.length v
-
-
-symDimAt :: IsSymInterface sym
-         => sym -- ^ Symbolic backend.
-         -> SymDim sym -- ^ Vector of dimensions.
-         -> Natural -- ^ Index to get at
-         -> Natural -- ^ Length of vector
-
-         -> IO (SymNat sym)
-symDimAt sym v (fromIntegral -> i) (fromIntegral -> n)
-    | i >= l = natLit sym 1
-      -- Get last element in vector.
-    | n < l && (i+1==n) = do
-      let last_elt = v V.! i
-          rest = V.drop (i+1) v
-      new_last <- Fold.foldlM (natMul sym) last_elt rest
-      return (new_last)
-    | True = return (v V.! i)
-  where l = V.length v
-
-natIteM :: IsSymInterface sym
-        => sym
-        -> Pred sym
-        -> IO (SymNat sym)
-        -> IO (SymNat sym)
-        -> IO (SymNat sym)
-natIteM sym p tm fm = do
-  case asConstantPred p of
-    Just True  -> tm
-    Just False -> fm
-    Nothing -> do
-      t <- tm
-      f <- fm
-      natIte sym p t f
-
--- | Returns number of dimensions in dim.  Dimensions after the count
--- all have value 1.
--- e.g. 2x3x4 returns 3 while 2x3x1 also returns 1.
-symDimCount :: IsSymInterface sym
-            => sym
-            -> SymDim sym
-            -> IO (SymNat sym)
-symDimCount sym d = do
-  one <- natLit sym 1
-  let go i | i <= 2 = natLit sym 2
-      go i = do
-        let entry = d V.! (i-1)
-        p <- natEq sym entry one
-        natIteM sym p (go (i-1)) (natLit sym (fromIntegral i))
-  go (V.length d)
-
--- | Returns true if dimensions contain a zero.
-symDimNull :: IsSymInterface sym
-           => sym
-           -> SymDim sym
-           -> IO (Pred sym)
-symDimNull sym d = do
-  z <- natLit sym 0
-  let f e = natEq sym e z
-  eqs <- traverse f d
-  V.foldM' (orPred sym) (falsePred sym) eqs
-
-withEquivWidths :: NatRepr m
-                -> NatRepr n
-                -> ((m :~: n) -> a)
-                -> a
-withEquivWidths wx wy f = do
-  case testEquality wx wy of
-    Just r -> f r
-    Nothing -> error "internal: Given incompatible widths."
-
--- | Return predicate that holds if all array entries are real numbers.
-cplxArrayIsReal :: IsSymInterface sym
-                => sym
-                -> MultiDimArray (SymCplx sym)
-                -> IO (Pred sym)
-cplxArrayIsReal sym a = do
-  andAllOf sym folded =<< traverse (isReal sym) a
-
--- | Return predicate that holds if all array entries are non-negative numbers.
-realArrayIsNonNeg :: IsSymInterface sym
-                => sym
-                -> MultiDimArray (SymReal sym)
-                -> IO (Pred sym)
-realArrayIsNonNeg sym a = do
-  andAllOf sym folded =<< traverse (realIsNonNeg sym) a
-
-dimBoundsN :: Natural -> MDA.ArrayDim -> [(Natural, Natural)]
-dimBoundsN n d = (1,) <$> MDA.asDimListN (fromIntegral n) d
 
 
 -- | Helper method for implementing 'indexSymbolic'
@@ -288,14 +117,31 @@ indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
   case asNat si of
     Just i
       | l <= i && i <= h -> subIndex i
-      | otherwise -> fail $ "Index exceeds matrix dimensions.\n" ++ show (l,i,h)
-    Nothing -> do
-      l_sym <- natLit sym l
-      h_sym <- natLit sym h
-      inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
-      addAssertion sym inRange (GenericSimError "Index exceeds matrix dimensions.")
-      let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-      muxIntegerRange predFn iteFn (subIndex . fromInteger) (toInteger l) (toInteger h)
+      | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
+        where msg = "Index outside matrix dimensions." ++ show (l,i,h)
+              details = unwords ["Index", show i, "is outside of range", show (l, h)]
+    Nothing ->
+      do ensureInRange sym l h si "Index outside matrix dimensions."
+         let predFn i = natEq sym si =<< natLit sym i
+         muxRange predFn iteFn subIndex l h
+
+
+ensureInRange ::
+  IsSymInterface sym =>
+  sym ->
+  Natural ->
+  Natural ->
+  SymNat sym ->
+  String ->
+  IO ()
+ensureInRange sym l h si msg =
+  do l_sym <- natLit sym l
+     h_sym <- natLit sym h
+     inRange <- join $ andPred sym <$> natLe sym l_sym si <*> natLe sym si h_sym
+     assert sym inRange (AssertFailureSimError msg details)
+  where details = unwords ["Range is", show (l, h)]
+
+
 
 -- | Lookup a value in an array that may be at a symbolic offset.
 --
@@ -312,194 +158,41 @@ indexSymbolic :: IsSymInterface sym
               -> IO a
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
 
--- | Lookup a value in an array that may be at a symbolic offset.
-mda_symbolic_lookup :: IsSymInterface sym
-                      => sym
-                      -> (Pred sym -> a  -> a -> IO a)
-                         -- ^ Function for combining results together.
-                      -> MultiDimArray a
-                         -- Concrete array to lookup
-                      -> V.Vector (SymNat sym)
-                         -- ^ Indices
-                      -> IO a
-mda_symbolic_lookup sym ite_fn a idx_v = indexSymbolic sym ite_fn elt_fn bounds idx_l
-  where d = MDA.dim a
-
-        elt_fn i = return r
-          where Just r = a MDA.!? (MDA.indexFromList i)
-
-        n = fromIntegral (V.length idx_v)
-        bounds = dimBoundsN n d
-        idx_l = V.toList idx_v
-
--- | Compute index of element in vector given bounds of array and indices to lookup.
-getLastIndex :: Natural -- ^ Base offset
-             -> Natural -- ^ What to multiply index by when adding to offset
-             -> [Natural] -- ^ Bounds on dimensions of elements.
-             -> [Natural]  -- ^ Indices to lookup
-             -> Natural
-getLastIndex o _ [] [] = o
-getLastIndex o m (d:dl) (i:il) = seq o' $ seq d' $ getLastIndex o' d' dl il
-  where o' = o + m * (i-1)
-        d' = m * d
-getLastIndex _ _ _ _ = error "getLastIndex given mismatched dimensions."
-
-asIndexVectorN :: MDA.ArrayDim -> MDA.Index -> Natural -> V.Vector Natural
-asIndexVectorN _ _  0 = error "Expected at least one index."
-asIndexVectorN d i0 req
-   | n < req = i V.++ V.replicate (fromIntegral (req - n)) 1
-   | req < n =
-       let toL v = V.toList (V.drop (fromIntegral (req-1)) v)
-           last_idx = getLastIndex 1 1 (toL dv) (toL i)
-        in V.take (fromIntegral (req-1)) i `V.snoc` last_idx
-   | otherwise = i
-  where i  = MDA.indexToVector i0
-        n = fromIntegral (V.length i)
-        dv = MDA.asDimVectorN n d
-
--- | Mux the dimensions of an array together.
-matchConcreteArrayIndex :: IsExprBuilder sym
-                              => sym
-                              -> MDA.ArrayDim
-                              -> MDA.Index
-                              -> V.Vector (SymNat sym)
-                              -> IO (Pred sym)
-matchConcreteArrayIndex sym d x0 y =
-    andAllOf sym folded =<< V.zipWithM eq x y
- where x = asIndexVectorN d x0 (fromIntegral (V.length y))
-       eq u v = natEq sym v =<< natLit sym u
-
--- | Update the multi-dim array at the given index.
---
--- This function assumes that the index is in range, and does not
--- grow the array to accomodate it.
-mda_symbolic_update
-  :: IsExprBuilder sym
-     => sym
-     -> (Pred sym -> a  -> a -> IO a)
-     -- ^ Function for combining results together.
-     -> MultiDimArray a
-     -> V.Vector (SymNat sym) -- ^ Index to update.
-     -> a -- ^ Value to assign
-     -> IO (MultiDimArray a)
-mda_symbolic_update sym ite_fn a sym_idx v =
-    MDA.generateM (MDA.dim a) $ \i -> do
-      p <- matchConcreteArrayIndex sym (MDA.dim a) i sym_idx
-      ite_fn p v (a MDA.! i)
-
-cplxArrayAsPosNat :: IsSymInterface sym
-                  => sym
-                  -> MultiDimArray (SymCplx sym)
-                  -> IO (PartExpr (Pred sym) (MultiDimArray (SymNat sym)))
-cplxArrayAsPosNat sym a = do
-  -- Collect assertions that numbers have no cplx part.
-  p0 <- andAllOf sym folded =<< traverse (isReal sym) a
-  -- Get just the real part of numbers.
-  ra <- traverse (getRealPart sym) a
-  -- Collect assertions that real numbers are integers.
-  p1 <- andAllOf sym folded =<< traverse (isInteger sym) ra
-  -- Get constant 1.
-  c1 <- realLit sym 1
-  -- Collect assertions that numbers are at least 1.
-  p2 <- andAllOf sym folded =<< traverse (realLe sym c1) ra
-  -- Conjoin predicates.
-  p <- andPred sym p0 =<< andPred sym p1 p2
-  -- Convert real numbers to naturals.
-  na <- traverse (realToNat sym) ra
-  -- Return result
-  return (mkPE p na)
-
-matlabIntArrayAsPosNat :: IsSymInterface sym
-                       => sym
-                       -> SomeBVArray (SymExpr sym)
-                       -> IO (PartExpr (Pred sym) (MultiDimArray (SymNat sym)))
-matlabIntArrayAsPosNat sym (SomeBVArray w a) = do
-  -- Get constant 0.
-  c0 <- bvLit sym w 0
-  -- Check to ensure all values are greater than 0 with signed comparison.
-  p <- andAllOf sym folded =<< traverse (bvSlt sym c0) a
-  -- Convert bitvectors to natural numbers.
-  r <- traverse (bvToNat sym) a
-  return (mkPE p r)
-
-matlabUIntArrayAsPosNat :: IsSymInterface sym
-                        => sym
-                        -> SomeBVArray (SymExpr sym)
-                        -> IO (PartExpr (Pred sym) (MultiDimArray (SymNat sym)))
-matlabUIntArrayAsPosNat sym (SomeBVArray _ a) = do
-  r <- traverse (bvToNat sym) a
-  p <- checkAtLeast1 sym r
-  return (mkPE p r)
-
-logicArrayToIndices :: IsExprBuilder sym
-                    => sym
-                    -> MultiDimArray (Pred sym)
-                    -> IO (MultiDimArray (SymNat sym))
-logicArrayToIndices sym a = do
-  m <- failIfNothing "Logical indices may not be symbolic." $ do
-         traverse asConstantPred a
-  let d = MDA.dim m
-  let vIndices = V.fromList $ selectedIndices (Fold.toList m)
-  let fixedM | MDA.rowDim d == 1 && MDA.higherDims d == [] = MDA.rowVector vIndices
-               -- Return indices on a single column.
-             | otherwise = MDA.colVector vIndices
-               -- Return indices on a single row.
-  -- Create terms for indices.
-  traverse (natLit sym) fixedM
-
-charArrayAsPosNat :: IsSymInterface sym
-                  => sym
-                  -> MDA.CharArray
-                  -> IO (PartExpr (Pred sym) (MultiDimArray (SymNat sym)))
-charArrayAsPosNat sym a = do
-  r <- traverse (natLit sym . fromIntegral . fromEnum) a
-  p <- checkAtLeast1 sym r
-  return (PE p r)
-
--- | Create a list of dimensions from an arraydim.
-dimLit :: IsExprBuilder sym
-       => sym
-       -> ArrayDim
-       -> IO (SymDim sym)
-dimLit sym d = traverse (natLit sym) (V.fromList (MDA.asDimList d))
-
 -- | Evaluate an indexTermterm to an index value.
-evalBase :: sym
-          -> (forall utp . f utp -> IO (RegValue sym utp))
-          -> BaseTerm f vtp
-          -> IO (SymExpr sym vtp)
-evalBase _ evalSub (BaseTerm tp e) =
-  case tp of
-    BaseBoolRepr    -> evalSub e
-    BaseBVRepr _    -> evalSub e
-    BaseNatRepr     -> evalSub e
-    BaseIntegerRepr -> evalSub e
-    BaseRealRepr    -> evalSub e
-    BaseComplexRepr -> evalSub e
-    BaseStructRepr  _ -> evalSub e
-    BaseArrayRepr _ _ -> evalSub e
+evalBase :: IsSymInterface sym =>
+            sym
+         -> (forall utp . f utp -> IO (RegValue sym utp))
+         -> BaseTerm f vtp
+         -> IO (SymExpr sym vtp)
+evalBase _ evalSub (BaseTerm _tp e) = evalSub e
 
 -- | Get value stored in vector at a symbolic index.
-indexVectorWithSymNat :: IsExprBuilder sym
+indexVectorWithSymNat :: IsSymInterface sym
                       => sym
                       -> (Pred sym -> a -> a -> IO a)
                          -- ^ Ite function
                       -> V.Vector a
                       -> SymNat sym
                       -> IO a
-indexVectorWithSymNat sym iteFn v si = do
-  let n = fromIntegral (V.length v)
-  assert (n > 0) $ do
+indexVectorWithSymNat sym iteFn v si =
+  Ex.assert (n > 0) $
   case asNat si of
-    Just i | 0 <= i && i <= n -> return (v V.! fromIntegral i)
-           | otherwise -> error "indexVectorWithSymNat given bad value"
-    Nothing -> do
-      let predFn i = natEq sym si =<< natLit sym (fromInteger i)
-      let getElt i = return (v V.! fromInteger i)
-      muxIntegerRange predFn iteFn getElt 0 (toInteger (n-1))
+    Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
+           | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
+    Nothing ->
+      do let predFn i = natEq sym si =<< natLit sym i
+         let getElt i = return (v V.! fromIntegral i)
+         ensureInRange sym 0 (n - 1) si msg
+         muxRange predFn iteFn getElt 0 (n - 1)
+  where
+  n   = fromIntegral (V.length v)
+  msg = "Vector index out of range"
+  details = unwords ["Range is", show (0 :: Natural, n)]
+
+
 
 -- | Update a vector at a given natural number index.
-updateVectorWithSymNat :: IsExprBuilder sym
+updateVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
                        -> (Pred sym -> a -> a -> IO a)
@@ -512,34 +205,88 @@ updateVectorWithSymNat :: IsExprBuilder sym
                           -- ^ New value to assign
                        -> IO (V.Vector a)
 updateVectorWithSymNat sym iteFn v si new_val = do
-  let n = V.length v
+  adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
+
+-- | Update a vector at a given natural number index.
+adjustVectorWithSymNat :: IsSymInterface sym
+                       => sym
+                          -- ^ Symbolic backend
+                       -> (Pred sym -> a -> a -> IO a)
+                          -- ^ Ite function
+                       -> V.Vector a
+                          -- ^ Vector to update
+                       -> SymNat sym
+                          -- ^ Index to update
+                       -> (a -> IO a)
+                          -- ^ Adjustment function to apply
+                       -> IO (V.Vector a)
+adjustVectorWithSymNat sym iteFn v si adj =
   case asNat si of
-    Just i | i < fromIntegral n -> do
-             return $ v V.// [(fromIntegral i, new_val)]
-           | otherwise -> fail $
-               "internal: Illegal index " ++ show i ++ " given to updateVectorWithSymNat"
-    Nothing -> do
-      let setFn j = do
-            -- Compare si and j.
+    Just i
+
+      | i < fromIntegral n ->
+        do new_val <- adj (v V.! fromIntegral i)
+           return $ v V.// [(fromIntegral i, new_val)]
+
+      | otherwise ->
+        addFailedAssertion sym $ AssertFailureSimError msg (details i)
+
+    Nothing ->
+      do ensureInRange sym 0 (fromIntegral (n-1)) si msg
+         V.generateM n setFn
+      where
+      setFn j =
+        do -- Compare si and j.
             c <- natEq sym si =<< natLit sym (fromIntegral j)
             -- Select old value or new value
-            iteFn c new_val (v V.! j)
-      V.generateM n setFn
+            case asConstantPred c of
+              Just True  -> adj (v V.! j)
+              Just False -> return (v V.! j)
+              Nothing ->
+                do new_val <- adj (v V.! j)
+                   iteFn c new_val (v V.! j)
+
+
+  where
+  n = V.length v
+  msg = "Illegal vector index"
+  details i = "Illegal index " ++ show i ++ "given to updateVectorWithSymNat"
+
+type EvalAppFunc sym app = forall f.
+  (forall tp. f tp -> IO (RegValue sym tp)) ->
+  (forall tp. app f tp -> IO (RegValue sym tp))
 
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
-evalApp :: forall sym f tp
-         . IsSymInterface sym
+evalApp :: forall sym ext.
+           ( IsSymInterface sym
+           )
         => sym
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
            -- ^ Function for logging messages.
-        -> (forall utp . f utp -> IO (RegValue sym utp))
-           -- ^ Evaluation function for arguments.
-        -> App f tp
-        -> IO (RegValue sym tp)
-evalApp sym itefns logFn evalSub a0 = do
+        -> EvalAppFunc sym (ExprExtension ext)
+        -> EvalAppFunc sym (App ext)
+evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sym tp)) a0 = do
   case a0 of
+
+    BaseIsEq tp xe ye -> do
+      x <- evalBase sym evalSub (BaseTerm tp xe)
+      y <- evalBase sym evalSub (BaseTerm tp ye)
+      isEq sym x y
+
+    BaseIte tp ce xe ye -> do
+      c <- evalSub ce
+      case asConstantPred c of
+        Just True  -> evalSub xe
+        Just False -> evalSub ye
+        Nothing -> do
+          x <- evalBase sym evalSub (BaseTerm tp xe)
+          y <- evalBase sym evalSub (BaseTerm tp ye)
+          baseTypeIte sym c x y
+
+    ----------------------------------------------------------------------
+    ExtensionApp x -> evalExt evalSub x
 
     ----------------------------------------------------------------------
     -- ()
@@ -560,12 +307,7 @@ evalApp sym itefns logFn evalSub a0 = do
           | Just Refl <- testEquality tp tpv ->
                return $! PE (truePred sym) v
           | otherwise ->
-               return $! Unassigned
-
-    ----------------------------------------------------------------------
-    -- Concrete
-
-    ConcreteLit (TypeableValue x) -> return x
+               return Unassigned
 
     ----------------------------------------------------------------------
     -- Bool
@@ -586,24 +328,11 @@ evalApp sym itefns logFn evalSub a0 = do
       xv <- evalSub x
       yv <- evalSub y
       xorPred sym xv yv
-    BoolIte ce x y -> do
-      c <- evalSub ce
-      case asConstantPred c of
-        Just True  -> evalSub x
-        Just False -> evalSub y
-        Nothing -> do
-          t <- evalSub x
-          f <- evalSub y
-          itePred sym c t f
 
     ----------------------------------------------------------------------
     -- Nat
 
     NatLit n -> natLit sym n
-    NatEq xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      natEq sym x y
     NatLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -624,19 +353,33 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       natMul sym x y
+    NatDiv xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natDiv sym x y
+    NatMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natMod sym x y
 
     ----------------------------------------------------------------------
     -- Int
 
     IntLit n -> intLit sym n
-    IntEq xe ye -> do
+    IntLe xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
-      intEq sym x y
+      intLe sym x y
     IntLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
       intLt sym x y
+    IntNeg xe -> do
+      x <- evalSub xe
+      intNeg sym x
+    IntAbs xe -> do
+      x <- evalSub xe
+      intAbs sym x
     IntAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -649,6 +392,14 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       intMul sym x y
+    IntDiv xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intDiv sym x y
+    IntMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intMod sym x y
 
     --------------------------------------------------------------------
     -- Maybe
@@ -657,7 +408,7 @@ evalApp sym itefns logFn evalSub a0 = do
       r <- evalSub e
       return $! PE (truePred sym) r
     NothingValue _ -> do
-      return $! Unassigned
+      return Unassigned
     FromJustValue _ maybe_expr msg_expr -> do
       maybe_val <- evalSub maybe_expr
       case maybe_val of
@@ -665,20 +416,17 @@ evalApp sym itefns logFn evalSub a0 = do
         PE (asConstantPred -> Just True) v -> return v
         _ -> do
           msg <- evalSub msg_expr
-          readPartExpr sym maybe_val (GenericSimError (Text.unpack msg))
-
-    ----------------------------------------------------------------------
-    -- Side conditions
-
-    AddSideCondition _ pe rsn e -> do
-      addAssertionM sym (evalSub pe) (AssertFailureSimError rsn)
-      evalSub e
+          case asString msg of
+            Just (UnicodeLiteral msg') -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
+            Nothing ->
+              addFailedAssertion sym $
+                Unsupported "Symbolic string in fromJustValue"
 
     ----------------------------------------------------------------------
     -- Recursive Types
 
-    RollRecursive _ e   -> RolledType <$> evalSub e
-    UnrollRecursive _ e -> unroll <$> evalSub e
+    RollRecursive _ _ e   -> RolledType <$> evalSub e
+    UnrollRecursive _ _ e -> unroll <$> evalSub e
 
     ----------------------------------------------------------------------
     -- Vector
@@ -687,7 +435,8 @@ evalApp sym itefns logFn evalSub a0 = do
     VectorReplicate _ n_expr e_expr -> do
       ne <- evalSub n_expr
       case asNat ne of
-        Nothing -> fail $ "mss does not support symbolic length arrays."
+        Nothing -> addFailedAssertion sym $
+                      Unsupported "vectors with symbolic length"
         Just n -> do
           e <- evalSub e_expr
           return $ V.replicate (fromIntegral n) e
@@ -711,8 +460,6 @@ evalApp sym itefns logFn evalSub a0 = do
       v <- evalSub v_expr
       return $ V.cons e v
 
-
-
     --------------------------------------------------------------------
     -- Symbolic Arrays
 
@@ -725,145 +472,6 @@ evalApp sym itefns logFn evalSub a0 = do
         <*> traverseFC (evalBase sym evalSub) i
         <*> evalSub v
 
-    --------------------------------------------------------------------
-    -- Symbolic Multi-dimensional Arrays
-
-    MatlabSymArrayDim ae -> do
-      SMDA.symDim <$> evalSub ae
-
-    MatlabSymArrayReplicate _bt de xe -> do
-      d <- evalSub de
-      x <- evalSub xe
-      SMDA.replicate sym d x
-
-    MatlabSymArrayLookup _bt ae ie -> do
-      join $ SMDA.lookup sym
-        <$> evalSub ae
-        <*> evalSub ie
-
-    MatlabSymArrayUpdate _ ae ie ve -> do
-      join $ SMDA.update sym
-        <$> evalSub  ae
-        <*> evalSub  ie
-        <*> evalSub  ve
-
-    MatlabSymArrayAsSingleton _bt ae -> do
-      a <- evalSub ae
-      SMDA.asSingleton sym a
-
-    MatlabSymArrayResize _bt a d def -> do
-      join $ SMDA.resize sym <$> evalSub a <*> evalSub d <*> evalSub def
-
-    MatlabSymIndexArray _bt ae idx_e -> do
-      a <- evalSub ae
-      idx <- evalSub idx_e
-      let f is = SMDA.lookup sym a is
-      traverse f idx
-
-    MatlabSymArraySymIndex _bt ae idx_e -> do
-      join $ SMDA.lookupArray sym <$> evalSub ae <*> traverse evalSub idx_e
-
-    MatlabSymArrayExternalize _ ae -> do
-      a <- evalSub ae
-      SMDA.externalizeArray sym a
-
-    MatlabArrayInternalize tp ae -> do
-      a <- evalSub ae
-      SMDA.internalizeArray sym tp a
-
-    --------------------------------------------------------------------
-    -- MultiDimArray
-
-    ArrayEmpty _ -> return MDA.empty
-    ArrayReplicate _ d_expr e_expr -> do
-      d_sym <- evalSub d_expr
-      e <- evalSub e_expr
-      d <- asDimLit d_sym
-      return $ MDA.replicate d e
-    ArrayDim a_expr -> do
-      a <- evalSub a_expr
-      dimLit sym (MDA.dim a)
-    ArrayResize _ a_expr d_expr v_expr -> do
-      a <- evalSub a_expr
-      d_sym <- evalSub d_expr
-      d <- resizeDimLit sym logFn (MDA.dim a) d_sym
-      if d == MDA.dim a then
-        return a
-       else do
-        v <- evalSub v_expr
-        return $ MDA.generate d $ \i -> fromMaybe v (a MDA.!? i)
-    ArrayLookup rtp a_expr i_expr -> do
-      let ite_fn = muxRegForType sym itefns rtp
-      join $ mda_symbolic_lookup sym ite_fn
-        <$> evalSub a_expr
-        <*> evalSub i_expr
-    ArrayUpdate rtp a_expr i_expr v_expr -> do
-      let ite_fn = muxRegForType sym itefns rtp
-      join $ mda_symbolic_update sym ite_fn
-        <$> evalSub a_expr
-        <*> evalSub i_expr
-        <*> evalSub v_expr
-    ArrayAsSingleton _ x_expr -> do
-      x <- evalSub x_expr
-      return $ maybePartExpr sym (MDA.asSingleton x)
-    IndexArray rtp a_expr i_expr -> do
-      a <- evalSub a_expr
-      idx <- evalSub i_expr
-      let iteFn = muxRegForType sym itefns rtp
-      traverse (mda_symbolic_lookup sym iteFn a) idx
-    ArrayEntry _ ae args -> do
-      a <- evalSub ae
-      -- Compute indices into array based on dimensions of a.
-      sIndices <- evalSub args
-      -- Get constants indices
-      let noSymbolicMsg = "Simulator does not support symbolic indices in this context."
-      cIndices <- failIfNothing noSymbolicMsg $
-                    asConstantIndex sIndices
-      -- By requirements in translation, index should be defined.
-      let Just r = a MDA.!? cIndices
-      return r
-    ArrayProduct _ v_expr -> do
-      v <- traverse evalSub (V.toList v_expr)
-      return $ V.fromList <$> (MDA.arrayProduct v)
-    MultiDimArrayToVec _ a_expr -> do
-      a <- evalSub a_expr
-      return $ MDA.mdVec a
-
-    MatlabExtArraySymIndex rtp a_expr i_expr -> do
-      a <- evalSub a_expr
-      i_mda <- traverse (SMDA.externalizeArray sym <=< evalSub) i_expr
-      let idx = V.fromList <$> MDA.arrayProduct (V.toList i_mda)
-      let iteFn = muxRegForType sym itefns rtp
-      traverse (mda_symbolic_lookup sym iteFn a) idx
-
-    ----------------------------------------------------------------------
-    -- Conversion to vector based indexing.
-
-    CplxVecToNat v_expr -> do
-      let cplxToNat = realToNat sym <=< getRealPart sym
-      traverse cplxToNat =<< evalSub v_expr
-    LogicVecToIndex v_expr -> do
-      v <- evalSub v_expr
-      let go :: [Natural] -> Int -> IO [Natural]
-          go l i
-            | i < V.length v =
-              case asConstantPred (v V.! i) of
-                Just True  -> (go $! (fromIntegral i:l)) (i+1)
-                Just False -> go l (i+1)
-                Nothing -> fail "Simulator does not support symbolic logical indexing."
-            | otherwise = return $ reverse l
-      l <- go [] 0
-      -- Create natural number literals.
-      traverse (\i -> natLit sym (i+1)) (V.fromList l)
-    MatlabCharVecToNat v_expr -> do
-      traverse (natLit sym . fromIntegral) =<< evalSub v_expr
-    MatlabIntArrayToNat a_expr -> do
-      SomeBVArray _ a <- evalSub a_expr
-      traverse (bvToNat sym) (MDA.mdVec a)
-    MatlabUIntArrayToNat a_expr -> do
-      SomeBVArray _ a <- evalSub a_expr
-      traverse (bvToNat sym) (MDA.mdVec a)
-
     ----------------------------------------------------------------------
     -- Handle
 
@@ -875,20 +483,12 @@ evalApp sym itefns logFn evalSub a0 = do
       return $! ClosureFnVal h tp v
 
     ----------------------------------------------------------------------
-    -- PosNat
-
-    EnumTo e -> do
-      ne <- evalSub e
-      case asNat ne of
-        Nothing -> fail "mss does not support symbolic length vectors."
-        Just n ->
-          fmap MDA.colVector $
-            V.generateM (fromIntegral n) (\i ->  natLit sym (fromIntegral (i+1)))
-
-    ----------------------------------------------------------------------
     -- RealVal
 
     RationalLit d -> realLit sym d
+    RealNeg xe -> do
+      x <- evalSub xe
+      realNeg sym x
     RealAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -909,26 +509,134 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       realMod sym x y
-    RealIte ce te fe -> do
-      c <- evalSub ce
-      case asConstantPred c of
-        Just True  -> evalSub te
-        Just False -> evalSub fe
-        Nothing -> do
-          t <- evalSub te
-          f <- evalSub fe
-          realIte sym c t f
-    RealEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      realEq sym x y
     RealLt x_expr y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
       realLt sym x y
+    RealLe x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realLe sym x y
     RealIsInteger x_expr -> do
       x <- evalSub x_expr
       isInteger sym x
+
+    ----------------------------------------------------------------------
+    -- Float
+
+    FloatLit f -> iFloatLitSingle sym f
+    DoubleLit d -> iFloatLitDouble sym d
+    X86_80Lit ld -> iFloatLitLongDouble sym ld
+    FloatNaN fi -> iFloatNaN sym fi
+    FloatPInf fi -> iFloatPInf sym fi
+    FloatNInf fi -> iFloatNInf sym fi
+    FloatPZero fi -> iFloatPZero sym fi
+    FloatNZero fi -> iFloatNZero sym fi
+    FloatNeg _ (x_expr :: f (FloatType fi)) ->
+      iFloatNeg @_ @fi sym =<< evalSub x_expr
+    FloatAbs _ (x_expr :: f (FloatType fi)) ->
+      iFloatAbs @_ @fi sym =<< evalSub x_expr
+    FloatSqrt _ rm (x_expr :: f (FloatType fi)) ->
+      iFloatSqrt @_ @fi sym rm =<< evalSub x_expr
+    FloatAdd _ rm (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatAdd @_ @fi sym rm x y
+    FloatSub _ rm (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatSub @_ @fi sym rm x y
+    FloatMul _ rm (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatMul @_ @fi sym rm x y
+    FloatDiv _ rm (x_expr :: f (FloatType fi)) y_expr -> do
+      -- TODO: handle division by zero
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatDiv @_ @fi sym rm x y
+    FloatRem _ (x_expr :: f (FloatType fi)) y_expr -> do
+      -- TODO: handle division by zero
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatRem @_ @fi sym x y
+    FloatMin _ (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatMin @_ @fi sym x y
+    FloatMax _ (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatMax @_ @fi sym x y
+    FloatFMA _ rm (x_expr :: f (FloatType fi)) y_expr z_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      z <- evalSub z_expr
+      iFloatFMA @_ @fi sym rm x y z
+    FloatEq (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatEq @_ @fi sym x y
+    FloatFpEq (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatFpEq @_ @fi sym x y
+    FloatIte _ c_expr (x_expr :: f (FloatType fi)) y_expr -> do
+      c <- evalSub c_expr
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatIte @_ @fi sym c x y
+    FloatLt (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatLt @_ @fi sym x y
+    FloatLe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatLe @_ @fi sym x y
+    FloatGt (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatGt @_ @fi sym x y
+    FloatGe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatGe @_ @fi sym x y
+    FloatNe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatNe @_ @fi sym x y
+    FloatFpNe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatFpNe @_ @fi sym x y
+    FloatCast fi rm (x_expr :: f (FloatType fi')) ->
+      iFloatCast @_ @_ @fi' sym fi rm =<< evalSub x_expr
+    FloatFromBinary fi x_expr -> iFloatFromBinary sym fi =<< evalSub x_expr
+    FloatToBinary fi x_expr -> iFloatToBinary sym fi =<< evalSub x_expr
+    FloatFromBV fi rm x_expr -> iBVToFloat sym fi rm =<< evalSub x_expr
+    FloatFromSBV fi rm x_expr -> iSBVToFloat sym fi rm =<< evalSub x_expr
+    FloatFromReal fi rm x_expr -> iRealToFloat sym fi rm =<< evalSub x_expr
+    FloatToBV w rm (x_expr :: f (FloatType fi)) ->
+      iFloatToBV @_ @_ @fi sym w rm =<< evalSub x_expr
+    FloatToSBV w rm (x_expr :: f (FloatType fi)) ->
+      iFloatToSBV @_ @_ @fi sym w rm =<< evalSub x_expr
+    FloatToReal (x_expr :: f (FloatType fi)) ->
+      iFloatToReal @_ @fi sym =<< evalSub x_expr
+    FloatIsNaN (x_expr :: f (FloatType fi)) ->
+      iFloatIsNaN @_ @fi sym =<< evalSub x_expr
+    FloatIsInfinite (x_expr :: f (FloatType fi)) ->
+      iFloatIsInf @_ @fi sym =<< evalSub x_expr
+    FloatIsZero (x_expr :: f (FloatType fi)) ->
+      iFloatIsZero @_ @fi sym =<< evalSub x_expr
+    FloatIsPositive (x_expr :: f (FloatType fi)) ->
+      iFloatIsPos @_ @fi sym =<< evalSub x_expr
+    FloatIsNegative (x_expr :: f (FloatType fi)) ->
+      iFloatIsNeg @_ @fi sym =<< evalSub x_expr
+    FloatIsSubnormal (x_expr :: f (FloatType fi)) ->
+      iFloatIsSubnorm @_ @fi sym =<< evalSub x_expr
+    FloatIsNormal (x_expr :: f (FloatType fi)) ->
+      iFloatIsNorm @_ @fi sym =<< evalSub x_expr
 
     ----------------------------------------------------------------------
     -- Conversions
@@ -942,6 +650,21 @@ evalApp sym itefns logFn evalSub a0 = do
     RealToNat x_expr -> do
       x <- evalSub x_expr
       realToNat sym x
+    BvToNat _ xe -> do
+      bvToNat sym =<< evalSub xe
+    BvToInteger _ xe -> do
+      bvToInteger sym =<< evalSub xe
+    SbvToInteger _ xe -> do
+      sbvToInteger sym =<< evalSub xe
+    RealFloor xe ->
+      realFloor sym =<< evalSub xe
+    RealCeil xe ->
+      realCeil sym =<< evalSub xe
+    RealRound xe ->
+      realRound sym =<< evalSub xe
+    IntegerToBV w xe -> do
+      x <- evalSub xe
+      integerToBV sym x w
 
     ----------------------------------------------------------------------
     -- ComplexReal
@@ -952,207 +675,6 @@ evalApp sym itefns logFn evalSub a0 = do
       mkComplex sym (r :+ i)
     RealPart c_expr -> getRealPart sym =<< evalSub c_expr
     ImagPart c_expr -> getImagPart sym =<< evalSub c_expr
-
-    ----------------------------------------------------------------------
-    -- MatlabChar
-
-    MatlabCharLit (MatlabChar w) -> return w
-    MatlabCharEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      return $ backendPred sym (x == y)
-    MatlabCharToNat x_expr -> do
-      x <- evalSub x_expr
-      natLit sym (fromIntegral x)
-
-    --------------------------------------------------------------------
-    -- CplxArrayType
-
-    CplxArrayEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      if MDA.dim x == MDA.dim y then do
-        eq <- MDA.zipWithM (cplxEq sym) x y
-        andAllOf sym folded eq
-       else
-        return $ falsePred sym
-    CplxArrayToRealArray x_expr -> do
-      x <- evalSub x_expr
-      r <- cplxArrayIsReal sym x
-      addAssertion sym r (GenericSimError "Cannot coerce complex numbers to real numbers")
-      traverse (getRealPart sym) x
-    CplxArrayToIntegerArray x_expr -> do
-      x <- evalSub x_expr
-      r <- cplxArrayIsReal sym x
-      addAssertion sym r (GenericSimError "Cannot coerce complex numbers to real numbers")
-      let toint v = do
-            a <- getRealPart sym v
-            addAssertionM sym (isInteger sym a) (GenericSimError "Expected integer value")
-            realFloor sym a
-      traverse toint x
-    RealArrayToIntegerArray x_expr -> do
-      x <- evalSub x_expr
-      traverse (realToInteger sym) x
-    IntArrayToIntegerArray x_expr -> do
-      SomeBVArray _w x <- evalSub x_expr
-      traverse (sbvToInteger sym) x
-    UIntArrayToIntegerArray x_expr -> do
-      SomeBVArray _w x <- evalSub x_expr
-      traverse (bvToInteger sym) x
-    LogicArrayToIntegerArray x_expr -> do
-      x <- evalSub x_expr
-      z <- intLit sym 0
-      o <- intLit sym 1
-      traverse (\b -> intIte sym b o z) x
-    CharArrayToIntegerArray e -> do
-      a <- evalSub e
-      let charToReal = intLit sym . fromIntegral
-      traverse charToReal a
-    CplxArrayIsReal x_expr -> do
-      x <- evalSub x_expr
-      cplxArrayIsReal sym x
-    RealArrayToCplxArray e -> do
-      a <- evalSub e
-      traverse (cplxFromReal sym) a
-    IntegerArrayToCplxArray e -> do
-      a <- evalSub e
-      traverse (cplxFromReal sym <=< integerToReal sym) a
-    IntArrayToCplxArray e -> do
-      SomeBVArray _ a <- evalSub e
-      traverse (cplxFromReal sym <=< integerToReal sym <=< sbvToInteger sym) a
-    UIntArrayToCplxArray e -> do
-      SomeBVArray _ a <- evalSub e
-      traverse (cplxFromReal sym <=< integerToReal sym <=< bvToInteger sym) a
-    LogicArrayToCplxArray e -> do
-      a <- evalSub e
-      traverse (cplxFromReal sym <=< predToReal sym) a
-    CharArrayToCplxArray e -> do
-      a <- evalSub e
-      let charToReal = mkRational sym . toRational
-      traverse charToReal a
-    CplxArrayAsPosNat e -> cplxArrayAsPosNat sym =<< evalSub e
-
-    --------------------------------------------------------------------
-    -- IntWidth
-
-    IntArrayWidth e -> do
-      SomeBVArray w _ <- evalSub e
-      return $! IntWidth w
-
-    --------------------------------------------------------------------
-    -- MatlabInt
-
-    MatlabIntLit w x -> do
-      SomeInt w <$> bvLit sym w x
-    MatlabIntEq xe ye -> do
-      SomeInt wx x <- evalSub xe
-      SomeInt wy y <- evalSub ye
-      withEquivWidths wx wy $ \Refl -> do
-        bvEq sym x y
-    MatlabIntLt xe ye -> do
-      SomeInt wx x <- evalSub xe
-      SomeInt wy y <- evalSub ye
-      withEquivWidths wx wy $ \Refl -> do
-        bvSlt sym x y
-    MatlabIntIsPos xe -> do
-      SomeInt w x <- evalSub xe
-      z <- bvLit sym w 0
-      bvSgt sym x z
-    MatlabIntToNat xe -> do
-      SomeInt w x <- evalSub xe
-      -- Check if x is less than zero.
-      p <- bvSlt sym x =<< bvLit sym w 0
-      -- If it is then return 0, else return nat.
-      zero <- natLit sym 0
-      natIte sym p zero =<< bvToNat sym x
-
-
-    --------------------------------------------------------------------
-    -- IntArrayType
-
-    MatlabIntArrayEmpty e -> do
-      IntWidth w <- evalSub e
-      return $ SomeBVArray w MDA.empty
-    MatlabIntArraySingleton e -> do
-      SomeInt w n <- evalSub e
-      return $ SomeBVArray w (MDA.singleton n)
-    MatlabIntArrayLookup a_expr i_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      i <- evalSub i_expr
-      SomeInt w <$> mda_symbolic_lookup sym (bvIte sym) a i
-    MatlabIntArrayUpdate a_expr i_expr v_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      i <- evalSub i_expr
-      SomeInt wn v <- evalSub v_expr
-      case testEquality w wn of
-        Nothing ->
-          fail "Incompatiable widths given to MatlabIntArrayUpdate"
-        Just Refl -> do
-          let ite_fn = bvIte sym
-          SomeBVArray w <$> mda_symbolic_update sym ite_fn a i v
-    MatlabIntArrayDim a_sym -> do
-      a <- evalSub a_sym
-      dimLit sym (MDA.dim a)
-    MatlabIntArrayResize a_expr d_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      d_sym <- evalSub d_expr
-      d <- resizeDimLit sym logFn (MDA.dim a) d_sym
-      if d == MDA.dim a then
-        return (SomeBVArray w a)
-       else do
-        v <- bvLit sym w 0
-        return $ SomeBVArray w $ MDA.generate d $ \i -> fromMaybe v (a MDA.!? i)
-    MatlabIntArrayAsSingleton a_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      return $ maybePartExpr sym (SomeInt w <$> MDA.asSingleton a)
-    MatlabIntArrayIndex f args -> do
-      SomeBVArray w a <- evalSub f
-      idx <- evalSub args
-      let ite c x y = bvIte sym c x y
-      SomeBVArray w <$> traverse (mda_symbolic_lookup sym ite a) idx
-    MatlabIntArrayEq x_expr y_expr -> do
-      SomeBVArray wx x <- evalSub x_expr
-      SomeBVArray wy y <- evalSub y_expr
-      case testEquality wx wy of
-        Just Refl | MDA.dim x == MDA.dim y -> do
-          eq <- MDA.zipWithM (bvEq sym) x y
-          andAllOf sym folded eq
-        _ -> return $ falsePred sym
-    MatlabIntArrayAsPosNat a_expr -> matlabIntArrayAsPosNat sym =<< evalSub a_expr
-    CplxArrayToMatlabInt a_exp w_exp -> do
-      a <- evalSub a_exp
-      IntWidth w <- evalSub w_exp
-      let f c = do
-            r <- getRealPart sym c
-            realToInt sym r w
-      SomeBVArray w <$> traverse f a
-    MatlabIntArraySetWidth a_exp w_exp -> do
-      SomeBVArray u a <- evalSub a_exp
-      IntWidth w <- evalSub w_exp
-      SomeBVArray w <$>
-        case w `testEquality` u of
-          Just Refl -> return a
-          Nothing -> traverse (\e -> intSetWidth sym e w) a
-    MatlabUIntArrayToInt a_exp w_exp -> do
-      SomeBVArray _ a <- evalSub a_exp
-      IntWidth w <- evalSub w_exp
-      SomeBVArray w <$> traverse (\e -> uintToInt sym e w) a
-    LogicArrayToMatlabInt a_exp w_exp -> do
-      a <- evalSub a_exp
-      IntWidth w <- evalSub w_exp
-      SomeBVArray w <$> traverse (\v -> predToBV sym v w) a
-    CharArrayToMatlabInt a_exp w_exp -> do
-      a <- evalSub a_exp
-      IntWidth w <- evalSub w_exp
-      let charToInt = bvLit sym w . toInteger
-      SomeBVArray w <$> traverse charToInt a
-
-    --------------------------------------------------------------------
-    -- UIntWidth
-
-    UIntArrayWidth e -> do
-      SomeBVArray w _ <- evalSub e
-      return (UIntWidth w)
 
     --------------------------------------------------------------------
     -- BVs
@@ -1179,10 +701,6 @@ evalApp sym itefns logFn evalSub a0 = do
     BVSext w' _ xe -> do
       x <- evalSub xe
       bvSext sym w' x
-    BVEq _ xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      bvEq sym x y
     BVNot _ xe ->
       bvNotBits sym =<< evalSub xe
     BVAnd _ xe ye -> do
@@ -1201,6 +719,9 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       bvAdd sym x y
+    BVNeg _ xe -> do
+      x <- evalSub xe
+      bvNeg sym x
     BVSub _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -1226,12 +747,6 @@ evalApp sym itefns logFn evalSub a0 = do
       y <- evalSub ye
       bvSrem sym x y
 
-    BvToNat _ xe -> do
-      bvToNat sym =<< evalSub xe
-    BvToInteger _ xe -> do
-      bvToInteger sym =<< evalSub xe
-    SbvToInteger _ xe -> do
-      sbvToInteger sym =<< evalSub xe
     BVUlt _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -1280,97 +795,26 @@ evalApp sym itefns logFn evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       bvSle sym x y
-    BVIte ce _ xe ye -> do
-      c <- evalSub ce
+    BVUMin _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
+      c <- bvUle sym x y
       bvIte sym c x y
-
-    --------------------------------------------------------------------
-    -- Symbolic (u)int arrays
-
-    MatlabSymIntArrayResize ae de -> do
-       SomeSymbolicBVArray w arr  <- evalSub ae
-       newdims <- evalSub de
-       def <- bvLit sym w 0
-       SomeSymbolicBVArray w <$> SMDA.resize sym arr newdims def
-    MatlabSymIntArrayLookup ae ie -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      i <- evalSub ie
-      SomeInt w <$> SMDA.lookup sym a i
-    MatlabSymIntArrayUpdate a_expr i_expr v_expr -> do
-      SomeSymbolicBVArray w a <- evalSub a_expr
-      i <- evalSub i_expr
-      SomeInt w' v <- evalSub v_expr
-      case testEquality w w' of
-        Just Refl ->
-          SomeSymbolicBVArray w <$> SMDA.update sym a i v
-        Nothing ->
-          fail $ unwords ["MatlabSymIntArrayUpdate: width mismatch",show w, show w']
-
-    SymIntArrayWidth e -> do
-      SomeSymbolicBVArray w _ <- evalSub e
-      return $! IntWidth w
-
-    SymUIntArrayWidth e -> do
-      SomeSymbolicBVArray w _ <- evalSub e
-      return $! UIntWidth w
-
-    MatlabSymbolicIntArrayDim ae -> do
-      SomeSymbolicBVArray _ a <- evalSub ae
-      return $! SMDA.symDim a
-
-    MatlabSymbolicUIntArrayDim ae -> do
-      SomeSymbolicBVArray _ a <- evalSub ae
-      return $! SMDA.symDim a
-
-    MatlabSymUIntArrayResize ae de -> do
-       SomeSymbolicBVArray w arr  <- evalSub ae
-       newdims <- evalSub de
-       def <- bvLit sym w 0
-       SomeSymbolicBVArray w <$> SMDA.resize sym arr newdims def
-
-    MatlabSymUIntArrayLookup ae ie -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      i <- evalSub ie
-      SomeUInt w <$> SMDA.lookup sym a i
-
-    MatlabSymUIntArrayUpdate a_expr i_expr v_expr -> do
-      SomeSymbolicBVArray w a <- evalSub a_expr
-      i <- evalSub i_expr
-      SomeUInt w' v <- evalSub v_expr
-      case testEquality w w' of
-        Just Refl ->
-          SomeSymbolicBVArray w <$> SMDA.update sym a i v
-        Nothing ->
-          fail $ unwords ["MatlabSymUIntArrayUpdate: width mismatch",show w, show w']
-    MatlabSymIntArrayAsSingleton ae -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      fmap (SomeInt w) <$> SMDA.asSingleton sym a
-
-    MatlabSymUIntArrayAsSingleton ae -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      fmap (SomeUInt w) <$> SMDA.asSingleton sym a
-
-    SymIndexIntArray ae idx_e -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      idx <- evalSub idx_e
-      let f is = SMDA.lookup sym a is
-      SomeBVArray w <$> traverse f idx
-
-    SymIndexUIntArray ae idx_e -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      idx <- evalSub idx_e
-      let f is = SMDA.lookup sym a is
-      SomeBVArray w <$> traverse f idx
-
-    SymIntArrayExternalize ae -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      SomeBVArray w <$> SMDA.externalizeArray sym a
-
-    SymUIntArrayExternalize ae -> do
-      SomeSymbolicBVArray w a <- evalSub ae
-      SomeBVArray w <$> SMDA.externalizeArray sym a
+    BVUMax _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      c <- bvUgt sym x y
+      bvIte sym c x y
+    BVSMin _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      c <- bvSle sym x y
+      bvIte sym c x y
+    BVSMax _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      c <- bvSgt sym x y
+      bvIte sym c x y
 
     --------------------------------------------------------------------
     -- Word Maps
@@ -1405,182 +849,6 @@ evalApp sym itefns logFn evalSub a0 = do
         PE p v -> do
           muxRegForType sym itefns (baseToType tp) p v d
 
-    --------------------------------------------------------------------
-    -- LLVM Pointers
-
---    NullPointer -> nullLLVMPointer sym
---    UndefPointer -> undefLLVMPointer sym
-
-    --------------------------------------------------------------------
-    -- MatlabUInt
-
-    MatlabUIntLit w x -> do
-      SomeUInt w <$> bvLit sym w x
-    MatlabUIntEq xe ye -> do
-      SomeUInt wx x <- evalSub xe
-      SomeUInt wy y <- evalSub ye
-      withEquivWidths wx wy $ \Refl -> do
-        bvEq sym x y
-    MatlabUIntLt xe ye -> do
-      SomeUInt wx x <- evalSub xe
-      SomeUInt wy y <- evalSub ye
-      withEquivWidths wx wy $ \Refl -> do
-        bvUlt sym x y
-    MatlabUIntIsPos xe -> do
-      SomeUInt _ x <- evalSub xe
-      bvIsNonzero sym x
-    MatlabUIntToNat xe -> do
-      SomeUInt _ x <- evalSub xe
-      bvToNat sym x
-
-    --------------------------------------------------------------------
-    -- UIntArrayType
-
-    MatlabUIntArrayEmpty e -> do
-      UIntWidth w <- evalSub e
-      return $ SomeBVArray w MDA.empty
-    MatlabUIntArraySingleton e -> do
-      SomeUInt w n <- evalSub e
-      return $ SomeBVArray w (MDA.singleton n)
-    MatlabUIntArrayLookup a_expr i_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      i <- evalSub i_expr
-      SomeUInt w <$> mda_symbolic_lookup sym (bvIte sym) a i
-    MatlabUIntArrayUpdate  a_expr i_expr v_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      i <- evalSub i_expr
-      SomeUInt wv v <- evalSub v_expr
-      case testEquality w wv of
-        Nothing -> fail "Incompatiable widths given to MatlabUIntArrayUpdate"
-        Just Refl -> do
-          let ite_fn = bvIte sym
-          SomeBVArray w <$> mda_symbolic_update sym ite_fn a i v
-    MatlabUIntArrayDim a_expr -> do
-      a <- evalSub a_expr
-      dimLit sym (MDA.dim a)
-    MatlabUIntArrayResize a_expr d_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      d_sym <- evalSub d_expr
-      d <- resizeDimLit sym logFn (MDA.dim a) d_sym
-      if d == MDA.dim a then
-        return (SomeBVArray w a)
-       else do
-        v <- bvLit sym w 0
-        return $ SomeBVArray w $ MDA.generate d $ \i -> fromMaybe v (a MDA.!? i)
-    MatlabUIntArrayAsSingleton a_expr -> do
-      SomeBVArray w a <- evalSub a_expr
-      return $ maybePartExpr sym (SomeUInt w <$> MDA.asSingleton a)
-    MatlabUIntArrayIndex f args -> do
-      SomeBVArray w a <- evalSub f
-      idx <- evalSub args
-      let ite = bvIte sym
-      SomeBVArray w <$> traverse (mda_symbolic_lookup sym ite a) idx
-    MatlabUIntArrayEq x_expr y_expr -> do
-      SomeBVArray wx x <- evalSub x_expr
-      SomeBVArray wy y <- evalSub y_expr
-      case testEquality wx wy of
-        Just Refl | MDA.dim x == MDA.dim y -> do
-          eqs <- MDA.zipWithM (bvEq sym) x y
-          andAllOf sym folded eqs
-        _ -> return $ falsePred sym
-    MatlabUIntArrayAsPosNat a_expr -> do
-      matlabUIntArrayAsPosNat sym =<< evalSub a_expr
-
-    CplxArrayToMatlabUInt a_exp w_exp -> do
-      a <- evalSub a_exp
-      UIntWidth w <- evalSub w_exp
-      let f c = do
-            r <- getRealPart sym c
-            realToUInt sym r w
-      SomeBVArray w <$> traverse f a
-    MatlabIntArrayToUInt a_exp w_exp -> do
-      SomeBVArray _ a <- evalSub a_exp
-      UIntWidth w <- evalSub w_exp
-      SomeBVArray w <$> traverse (\e -> intToUInt sym e w) a
-    MatlabUIntArraySetWidth a_exp w_exp -> do
-      SomeBVArray u a <- evalSub a_exp
-      UIntWidth w <- evalSub w_exp
-      SomeBVArray w <$>
-        case w `testEquality` u of
-          Just Refl -> return a
-          Nothing -> traverse (\e -> uintSetWidth sym e w) a
-    LogicArrayToMatlabUInt a_exp w_exp -> do
-      a <- evalSub a_exp
-      UIntWidth w <- evalSub w_exp
-      SomeBVArray w <$> traverse (\v -> predToBV sym v w) a
-    CharArrayToMatlabUInt a_exp w_exp -> do
-      a <- evalSub a_exp
-      UIntWidth w <- evalSub w_exp
-      let charToUInt = bvLit sym w . toInteger
-      SomeBVArray w <$> traverse charToUInt a
-
-    --------------------------------------------------------------------
-    -- LogicArrayType
-
-    LogicArrayEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      if MDA.dim x == MDA.dim y then do
-        andAllOf sym folded =<< MDA.zipWithM (eqPred sym) x y
-       else
-        return $ falsePred sym
-    LogicArrayToIndices a_expr -> do
-      a <- evalSub a_expr
-      logicArrayToIndices sym a
-    CplxArrayToLogic e -> do
-      a <- evalSub e
-      addAssertionM sym
-                    (cplxArrayValuesAreReal sym a)
-                    (GenericSimError "Complex numbers cannot be converted to logicals.")
-      z <- mkRational sym 0
-      traverse (\v -> cplxNe sym v z) a
-    RealArrayToLogic e -> do
-      a <- evalSub e
-      z <- realLit sym 0
-      traverse (\v -> realNe sym v z) a
-    IntegerArrayToLogic e -> do
-      a <- evalSub e
-      z <- intLit sym 0
-      traverse (\v -> notPred sym =<< intEq sym v z) a
-    MatlabIntArrayToLogic e -> do
-      SomeBVArray _ a <- evalSub e
-      traverse (bvIsNonzero sym) a
-    MatlabUIntArrayToLogic e -> do
-      SomeBVArray _ a <- evalSub e
-      traverse (bvIsNonzero sym) a
-    AllEntriesAreTrue src -> do
-      e <- evalSub src
-      andAllOf sym folded e
-
-    ----------------------------------------------------------------------
-    -- CharArrayType
-
-    CharVectorLit s_lit -> return $ MDA.rowVector $ CV.toVector s_lit
-    CharArrayEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      return $ backendPred sym (x == y)
-    CplxArrayToChar a_exp -> do
-      a <- evalSub a_exp
-      traverse complexRealAsChar a
-    CharArrayAsPosNat a_expr -> charArrayAsPosNat sym =<< evalSub a_expr
-    CharArrayToLogic e -> do
-      a <- evalSub e
-      return $ (\v -> backendPred sym (v /= 0)) <$> a
-
-    --------------------------------------------------------------------
-    -- StructFields
-
-    EmptyStructFields -> return V.empty
-    FieldsEq x y -> do
-      xv <- evalSub x
-      yv <- evalSub y
-      return $ backendPred sym (xv == yv)
-    HasField e s_expr -> do
-      ev <- evalSub e
-      sv <- evalSub s_expr
-      return $ backendPred sym (ev `V.elem` sv)
-
     ---------------------------------------------------------------------
     -- Struct
 
@@ -1593,63 +861,95 @@ evalApp sym itefns logFn evalSub a0 = do
     SetStruct _ st idx x -> do
       struct <- evalSub st
       v <- evalSub x
-      return $ Ctx.update idx (RV v) struct
+      return $ struct & ixF idx .~ RV v
 
     ----------------------------------------------------------------------
     -- Variant
 
     InjectVariant ctx idx ve -> do
          v <- evalSub ve
-         let voidVariant = Ctx.generate (Ctx.size ctx) (\_ -> VB $ Unassigned)
-         return $ Ctx.update idx (VB (PE (truePred sym) v)) voidVariant
+         return $ injectVariant sym ctx idx v
+
+    ProjectVariant _ctx idx ve -> do
+         v <- evalSub ve
+         return $ unVB $ v Ctx.! idx
 
     ----------------------------------------------------------------------
     -- IdentValueMap
 
     EmptyStringMap _ -> return Map.empty
+
     LookupStringMapEntry _ m_expr i_expr -> do
       i <- evalSub i_expr
       m <- evalSub m_expr
-      return $ joinMaybePE (Map.lookup i m)
+      case asString i of
+        Just (UnicodeLiteral i') -> return $ joinMaybePE (Map.lookup i' m)
+        Nothing -> addFailedAssertion sym $
+                    Unsupported "Symbolic string in lookupStringMapEntry"
+
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
-      return $ Map.insert i v m
-
-    ----------------------------------------------------
-    -- Uncategorized
-    RealArrayEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      if MDA.dim x == MDA.dim y then do
-        eq <- MDA.zipWithM (realEq sym) x y
-        andAllOf sym folded eq
-       else
-        return $ falsePred sym
-
-    IntegerArrayEq x_expr y_expr -> do
-      x <- evalSub x_expr
-      y <- evalSub y_expr
-      if MDA.dim x == MDA.dim y then do
-        eq <- MDA.zipWithM (intEq sym) x y
-        andAllOf sym folded eq
-       else
-        return $ falsePred sym
+      case asString i of
+        Just (UnicodeLiteral i') -> return $ Map.insert i' v m
+        Nothing -> addFailedAssertion sym $
+                     Unsupported "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
-    -- Text
+    -- Strings
 
-    TextLit txt -> return txt
+    StringLit x -> stringLit sym x
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
-      return $! Text.pack (show (printSymExpr x))
-    AppendString x y ->
-      Text.append <$> evalSub x <*> evalSub y
+      stringLit sym (UnicodeLiteral (Text.pack (show (printSymExpr x))))
+    ShowFloat _fi x_expr -> do
+      x <- evalSub x_expr
+      stringLit sym (UnicodeLiteral (Text.pack (show (printSymExpr x))))
+    StringConcat _si x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringConcat sym x' y'
+    StringEmpty si ->
+      stringEmpty sym si
+    StringLength x -> do
+      x' <- evalSub x
+      stringLength sym x'
+    StringContains x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringContains sym x' y'
+    StringIsPrefixOf x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringIsPrefixOf sym x' y'
+    StringIsSuffixOf x y -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      stringIsSuffixOf sym x' y'
+    StringIndexOf x y k -> do
+      x' <- evalSub x
+      y' <- evalSub y
+      k' <- evalSub k
+      stringIndexOf sym x' y' k'
+    StringSubstring _si x off len -> do
+      x' <- evalSub x
+      off' <- evalSub off
+      len' <- evalSub len
+      stringSubstring sym x' off' len'
 
     ---------------------------------------------------------------------
     -- Introspection
 
     IsConcrete _ v -> do
-      x <- baseIsConcrete sym =<< evalSub v
+      x <- baseIsConcrete <$> evalSub v
       return $! if x then truePred sym else falsePred sym
+
+    ---------------------------------------------------------------------
+    -- References
+
+    ReferenceEq _ ref1 ref2 -> do
+      cell1 <- evalSub ref1
+      cell2 <- evalSub ref2
+      let f r1 r2 = return (backendPred sym (r1 == r2))
+      muxTreeCmpOp sym f cell1 cell2

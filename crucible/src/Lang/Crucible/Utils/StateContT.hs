@@ -29,7 +29,12 @@ import Control.Monad.Reader.Class (MonadReader(..))
 import Control.Monad.State.Class  (MonadState(..))
 import Control.Monad.Trans (MonadTrans(..))
 
-import Lang.Crucible.Utils.MonadST
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail( MonadFail )
+import qualified Control.Monad.Fail
+#endif
+
+import What4.Utils.MonadST
 
 -- | A monad transformer that provides @MonadCont@ and @MonadState@.
 newtype StateContT s r m a
@@ -66,7 +71,9 @@ instance Applicative (StateContT s r m) where
 instance Monad (StateContT s r m) where
   (>>=) = bindStateContT
   return = returnStateContT
-  fail = \msg -> StateContT $ \_ -> fail msg
+
+instance MonadFail m => MonadFail (StateContT s r m) where
+  fail = \msg -> StateContT $ \_ _ -> fail msg
 
 instance MonadCont (StateContT s r m) where
   callCC f = StateContT $ \c -> runStateContT (f (\a -> seq a $ StateContT $ \_ s -> c a s)) c

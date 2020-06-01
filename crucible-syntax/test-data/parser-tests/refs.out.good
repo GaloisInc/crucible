@@ -1,0 +1,23 @@
+(defun @refs ((s (String Unicode))) (Ref (String Unicode))
+   (start st:
+      (let x (ref s))
+      (let y (deref x))
+      (set-ref! x (string-concat y s))
+      (drop-ref! x)
+      (return x)))
+
+refs
+%0
+  % 3:12
+  $1 = newref($0)
+  % 4:12
+  $2 = !$1
+  % 5:17
+  $3 = stringConcat(UnicodeRepr, $2, $0)
+  % 5:5
+  $1 := $3
+  % 6:5
+  drop $1
+  % 7:5
+  return $1
+  % no postdom

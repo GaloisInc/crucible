@@ -8,16 +8,19 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
+
 module Lang.Crucible.LLVM.DataLayout
-  ( Size
-  , Offset
-  , Alignment
+  ( -- * Alignments
+    Alignment
+  , noAlignment
+  , padToAlignment
+  , toAlignment
+  , fromAlignment
+  , exponentToAlignment
+  , alignmentToExponent
     -- * Data layout declarations.
   , DataLayout
   , EndianForm(..)
@@ -40,24 +43,48 @@ import Control.Monad.State.Strict
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
-import Data.Word (Word32, Word64)
+import Data.Word (Word32)
 import qualified Text.LLVM as L
 import Numeric.Natural
 
-import Lang.Crucible.Utils.Arithmetic
+import What4.Utils.Arithmetic
+import Lang.Crucible.LLVM.Bytes
 
 
 ------------------------------------------------------------------------
 -- Data layout
 
--- | Size is in bytes unless bits is explicitly stated.
-type Size = Word64
+-- | An @Alignment@ represents a number of bytes that must be a power of two.
+newtype Alignment = Alignment Word32
+  deriving (Eq, Ord, Show)
+-- The representation just stores the exponent. E.g., @Alignment 3@
+-- indicates alignment to a 2^3-byte boundary.
 
-type Offset = Word64
+-- | 1-byte alignment, which is the minimum possible.
+noAlignment :: Alignment
+noAlignment = Alignment 0
 
--- | Alignments must be a power of two, so we just store the exponent.
--- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
-type Alignment = Word32
+-- | @padToAlignment x a@ returns the smallest value greater than or
+-- equal to @x@ that is aligned to @a@.
+padToAlignment :: Bytes -> Alignment -> Bytes
+padToAlignment x (Alignment n) = toBytes (nextPow2Multiple (bytesToNatural x) (fromIntegral n))
+
+-- | Convert a number of bytes into an alignment, if it is a power of 2.
+toAlignment :: Bytes -> Maybe Alignment
+toAlignment (Bytes x)
+  | isPow2 x = Just (Alignment (fromIntegral (lg x)))
+  | otherwise = Nothing
+
+-- | Convert an alignment to a number of bytes.
+fromAlignment :: Alignment -> Bytes
+fromAlignment (Alignment n) = Bytes (2 ^ n)
+
+-- | Convert an exponent @n@ to an alignment of @2^n@ bytes.
+exponentToAlignment :: Natural -> Alignment
+exponentToAlignment n = Alignment (fromIntegral n)
+
+alignmentToExponent :: Alignment -> Natural
+alignmentToExponent (Alignment n) = fromIntegral n
 
 newtype AlignInfo = AT (Map Natural Alignment)
   deriving (Eq)
@@ -84,7 +111,7 @@ integerAlignment dl w =
     Nothing ->
       case Map.toDescList t of
         ((_, a) : _) -> a
-        _ -> 0
+        _ -> noAlignment
   where AT t = dl^.integerInfo
 
 -- | Get alignment for a vector type of the specified bitwidth, using
@@ -96,7 +123,7 @@ vectorAlignment :: DataLayout -> Natural -> Alignment
 vectorAlignment dl w =
   case Map.lookupLE w t of
     Just (_, a) -> a
-    Nothing -> 0
+    Nothing -> noAlignment
   where AT t = dl^.vectorInfo
 
 -- | Get alignment for a float type of the specified bitwidth.
@@ -107,11 +134,11 @@ floatAlignment dl w = Map.lookup w t
 -- | Get the basic alignment for aggregate types.
 aggregateAlignment :: DataLayout -> Alignment
 aggregateAlignment dl =
-  fromMaybe 0 (findExact 0 (dl^.aggInfo))
+  fromMaybe noAlignment (findExact 0 (dl^.aggInfo))
 
 -- | Return maximum alignment constraint stored in tree.
 maxAlignmentInTree :: AlignInfo -> Alignment
-maxAlignmentInTree (AT t) = foldrOf folded max 0 t
+maxAlignmentInTree (AT t) = foldrOf folded max noAlignment t
 
 -- | Update alignment tree
 updateAlign :: Natural
@@ -131,13 +158,13 @@ instance At AlignInfo where
 
 -- | Flags byte orientation of target machine.
 data EndianForm = BigEndian | LittleEndian
-  deriving (Eq)
+  deriving (Eq,Show)
 
 -- | Parsed data layout
 data DataLayout
    = DL { _intLayout :: EndianForm
         , _stackAlignment :: !Alignment
-        , _ptrSize     :: !Size
+        , _ptrSize     :: !Bytes
         , _ptrAlign    :: !Alignment
         , _integerInfo :: !AlignInfo
         , _vectorInfo  :: !AlignInfo
@@ -150,43 +177,43 @@ data DataLayout
 instance Show DataLayout where
    show _ = "<<DataLayout>>"
 
-intLayout :: Simple Lens DataLayout EndianForm
+intLayout :: Lens' DataLayout EndianForm
 intLayout = lens _intLayout (\s v -> s { _intLayout = v})
 
-stackAlignment :: Simple Lens DataLayout Alignment
+stackAlignment :: Lens' DataLayout Alignment
 stackAlignment = lens _stackAlignment (\s v -> s { _stackAlignment = v})
 
 -- | Size of pointers in bytes.
-ptrSize :: Simple Lens DataLayout Size
+ptrSize :: Lens' DataLayout Bytes
 ptrSize = lens _ptrSize (\s v -> s { _ptrSize = v})
 
 -- | ABI pointer alignment in bytes.
-ptrAlign :: Simple Lens DataLayout Alignment
+ptrAlign :: Lens' DataLayout Alignment
 ptrAlign = lens _ptrAlign (\s v -> s { _ptrAlign = v})
 
-integerInfo :: Simple Lens DataLayout AlignInfo
+integerInfo :: Lens' DataLayout AlignInfo
 integerInfo = lens _integerInfo (\s v -> s { _integerInfo = v})
 
-vectorInfo :: Simple Lens DataLayout AlignInfo
+vectorInfo :: Lens' DataLayout AlignInfo
 vectorInfo = lens _vectorInfo (\s v -> s { _vectorInfo = v})
 
-floatInfo :: Simple Lens DataLayout AlignInfo
+floatInfo :: Lens' DataLayout AlignInfo
 floatInfo = lens _floatInfo (\s v -> s { _floatInfo = v})
 
 -- | Information about aggregate size.
-aggInfo :: Simple Lens DataLayout AlignInfo
+aggInfo :: Lens' DataLayout AlignInfo
 aggInfo = lens _aggInfo (\s v -> s { _aggInfo = v})
 
 -- | Layout constraints on a stack object with the given size.
-stackInfo :: Simple Lens DataLayout AlignInfo
+stackInfo :: Lens' DataLayout AlignInfo
 stackInfo = lens _stackInfo (\s v -> s { _stackInfo = v})
 
 -- | Layout specs that could not be parsed.
-layoutWarnings :: Simple Lens DataLayout [L.LayoutSpec]
+layoutWarnings :: Lens' DataLayout [L.LayoutSpec]
 layoutWarnings = lens _layoutWarnings (\s v -> s { _layoutWarnings = v})
 
 ptrBitwidth :: DataLayout -> Natural
-ptrBitwidth dl = 8 * fromIntegral (dl^.ptrSize)
+ptrBitwidth dl = bytesToBits (dl^.ptrSize)
 
 -- | Reduce the bit level alignment to a byte value, and error if it is not
 -- a multiple of 8.
@@ -194,11 +221,11 @@ fromBits :: Int -> Either String Alignment
 fromBits a | w <= 0 = Left $ "Alignment must be a positive number."
            | r /= 0 = Left $ "Alignment specification must occupy a byte boundary."
            | not (isPow2 w) = Left $ "Alignment must be a power of two."
-           | otherwise = Right $ fromIntegral (lg w)
+           | otherwise = Right $ Alignment (fromIntegral (lg w))
   where (w,r) = toInteger a `divMod` 8
 
 -- | Insert alignment into spec.
-setAt :: Simple Lens DataLayout AlignInfo -> Natural -> Alignment -> State DataLayout ()
+setAt :: Lens' DataLayout AlignInfo -> Natural -> Alignment -> State DataLayout ()
 setAt f sz a = f . at sz ?= a
 
 -- | The default data layout if no spec is defined. From the LLVM
@@ -209,9 +236,9 @@ setAt f sz a = f . at sz ?= a
 defaultDataLayout :: DataLayout
 defaultDataLayout = execState defaults dl
   where dl = DL { _intLayout = BigEndian
-                , _stackAlignment = 1
+                , _stackAlignment = noAlignment
                 , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
-                , _ptrAlign = 3 -- 64 bit alignment: 2^3=8 byte boundaries
+                , _ptrAlign = Alignment 3 -- 64 bit alignment: 2^3=8 byte boundaries
                 , _integerInfo = emptyAlignInfo
                 , _floatInfo   = emptyAlignInfo
                 , _vectorInfo  = emptyAlignInfo
@@ -221,21 +248,21 @@ defaultDataLayout = execState defaults dl
                 }
         defaults = do
           -- Default integer alignments
-          setAt integerInfo  1 0 -- 1-bit values aligned on byte addresses.
-          setAt integerInfo  8 0 -- 8-bit values aligned on byte addresses.
-          setAt integerInfo 16 1 -- 16-bit values aligned on 2 byte addresses.
-          setAt integerInfo 32 2 -- 32-bit values aligned on 4 byte addresses.
-          setAt integerInfo 64 3 -- 64-bit values aligned on 8 byte addresses.
+          setAt integerInfo  1 noAlignment -- 1-bit values aligned on byte addresses.
+          setAt integerInfo  8 noAlignment -- 8-bit values aligned on byte addresses.
+          setAt integerInfo 16 (Alignment 1) -- 16-bit values aligned on 2 byte addresses.
+          setAt integerInfo 32 (Alignment 2) -- 32-bit values aligned on 4 byte addresses.
+          setAt integerInfo 64 (Alignment 3) -- 64-bit values aligned on 8 byte addresses.
           -- Default float alignments
-          setAt floatInfo  16 1 -- Half is aligned on 2 byte addresses.
-          setAt floatInfo  32 2 -- Float is aligned on 4 byte addresses.
-          setAt floatInfo  64 3 -- Double is aligned on 8 byte addresses.
-          setAt floatInfo 128 4 -- Quad is aligned on 16 byte addresses.
+          setAt floatInfo  16 (Alignment 1) -- Half is aligned on 2 byte addresses.
+          setAt floatInfo  32 (Alignment 2) -- Float is aligned on 4 byte addresses.
+          setAt floatInfo  64 (Alignment 3) -- Double is aligned on 8 byte addresses.
+          setAt floatInfo 128 (Alignment 4) -- Quad is aligned on 16 byte addresses.
           -- Default vector alignments.
-          setAt vectorInfo  64 3 -- 64-bit vector is 8 byte aligned.
-          setAt vectorInfo 128 4  -- 128-bit vector is 16 byte aligned.
+          setAt vectorInfo  64 (Alignment 3) -- 64-bit vector is 8 byte aligned.
+          setAt vectorInfo 128 (Alignment 4) -- 128-bit vector is 16 byte aligned.
           -- Default aggregate alignments.
-          setAt aggInfo  0 0  -- Aggregates are 1-byte aligned.
+          setAt aggInfo  0 noAlignment  -- Aggregates are 1-byte aligned.
 
 -- | Maximum alignment for any type (used by malloc).
 maxAlignment :: DataLayout -> Alignment
@@ -254,14 +281,14 @@ fromSize i | i < 0 = error $ "Negative size given in data layout."
            | otherwise = fromIntegral i
 
 -- | Insert alignment into spec.
-setAtBits :: Simple Lens DataLayout AlignInfo -> L.LayoutSpec -> Int -> Int -> State DataLayout ()
+setAtBits :: Lens' DataLayout AlignInfo -> L.LayoutSpec -> Int -> Int -> State DataLayout ()
 setAtBits f spec sz a =
   case fromBits a of
     Left{} -> layoutWarnings %= (spec:)
     Right w -> f . at (fromSize sz) .= Just w
 
 -- | Insert alignment into spec.
-setBits :: Simple Lens DataLayout Alignment -> L.LayoutSpec -> Int -> State DataLayout ()
+setBits :: Lens' DataLayout Alignment -> L.LayoutSpec -> Int -> State DataLayout ()
 setBits f spec a =
   case fromBits a of
     Left{} -> layoutWarnings %= (spec:)
@@ -276,10 +303,10 @@ addLayoutSpec ls =
       L.LittleEndian -> intLayout .= LittleEndian
       L.PointerSize _n sz a _ ->
          case fromBits a of
-           Right a' | r == 0 -> do ptrSize .= w
+           Right a' | r == 0 -> do ptrSize .= fromIntegral w
                                    ptrAlign .= a'
            _ -> layoutWarnings %= (ls:)
-       where (w,r) = fromIntegral sz `divMod` 8
+       where (w,r) = sz `divMod` 8
       L.IntegerSize    sz a _ -> setAtBits integerInfo ls sz a
       L.VectorSize     sz a _ -> setAtBits vectorInfo  ls sz a
       L.FloatSize      sz a _ -> setAtBits floatInfo   ls sz a
@@ -294,5 +321,5 @@ parseDataLayout :: L.DataLayout -> DataLayout
 parseDataLayout dl = execState (mapM_ addLayoutSpec dl) defaultDataLayout
 
 -- | The size of an integer of the given bitwidth, in bytes.
-intWidthSize :: Natural -> Size
-intWidthSize w = (fromIntegral w + 7) `div` 8
+intWidthSize :: Natural -> Bytes
+intWidthSize w = bitsToBytes w
