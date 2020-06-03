@@ -26,15 +26,8 @@ library
                      , mtl
                      , data-default-class
                      , lens-simple
+                     , what4
   hs-source-dirs:      src
-  default-language:    Haskell2010
-
-executable go-test
-  main-is:  Main.hs
-  build-depends: go-crucible
-               , base >=4.8 && < 5
-               , golang
-               , crucible
   default-language:    Haskell2010
 
 test-suite go-crucible-tests

@@ -14,11 +14,14 @@ packages:
   crux/
   crux-llvm/
   crucible-mc/
-  
+  go-crucible/
+
 optional-packages:
   dependencies/abcBridge/
   dependencies/aig/
+  dependencies/anastasia/
   dependencies/blt/
+  dependencies/golang/
   dependencies/jvm-parser/
   dependencies/hpb/
   dependencies/llvm-pretty/

@@ -41,9 +41,7 @@ module Lang.Crucible.CFG.Generator
   , getPosition
   , setPosition
   , withPosition
-    -- * Globals and references
-  , readGlobal
-  , writeGlobal
+    -- * References
   , newReference
   , readReference
   , writeReference
@@ -347,28 +345,19 @@ mkAtom :: (Monad m, IsSyntaxExtension ext) => Expr ext s tp -> Generator ext s t
 mkAtom (AtomExpr a)   = return a
 mkAtom (App a)        = freshAtom . EvalApp =<< traverseFC mkAtom a
 
--- | Generate a new virtual register with the given initial value.
-newReg :: Expr s tp -> Generator h s t ret (Reg s tp)
-newReg e = do
-  a <- mkAtom e
-  Generator $ do
-    r <- newUnassignedReg'' (typeOfAtom a)
-    addStmt (SetReg r a)
-    return r
-
 -- | Create a new reference bound to the value of the expression
-newReference :: Expr s tp -> Generator h s t ret (Expr s (ReferenceType tp))
+newReference :: (Monad m, IsSyntaxExtension ext) => Expr ext s tp -> Generator ext s t ret m (Expr ext s (ReferenceType tp))
 newReference e = do a <- mkAtom e
                     AtomExpr <$> freshAtom (NewRef a)
 
-readReference :: Expr s (ReferenceType tp) -> Generator h s t ret (Expr s tp)
+readReference :: (Monad m, IsSyntaxExtension ext) => Expr ext s (ReferenceType tp) -> Generator ext s t ret m (Expr ext s tp)
 readReference ref = do a <- mkAtom ref
                        AtomExpr <$> freshAtom (ReadRef a)
 
-writeReference :: Expr s (ReferenceType tp) -> Expr s tp -> Generator h s t ret ()
+writeReference :: (Monad m, IsSyntaxExtension ext) => Expr ext s (ReferenceType tp) -> Expr ext s tp -> Generator ext s t ret m ()
 writeReference ref val = do aref <- mkAtom ref
                             aval <- mkAtom val
-                            Generator $ addStmt $ WriteRef aref aval
+                            undefined -- Generator $ addStmt $ WriteRef aref aval
 
 -- | Read a global variable.
 readGlobal :: (Monad m, IsSyntaxExtension ext) => GlobalVar tp -> Generator ext s t ret m (Expr ext s tp)

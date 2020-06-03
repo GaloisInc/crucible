@@ -24,11 +24,13 @@ data Tainted (tp :: CrucibleType) where
   Untainted :: Tainted tp
   deriving (Eq, Show)
 
+instance ShowF Tainted where
+
 join :: Tainted a -> Tainted b -> Tainted c
 join t1 t2 = if t1 == Tainted || t2 == Tainted then Tainted
              else Untainted
 
-cfgTaintAnalysis :: PU.Assignment Tainted init -> CFG blocks init ret -> Tainted ret
+cfgTaintAnalysis :: PU.Assignment Tainted init -> CFG ext blocks init ret -> Tainted ret
 cfgTaintAnalysis paramTaints cfg = snd $ forwardFixpoint taintDomain taintInterp cfg PM.empty paramTaints
 
 taintDomain :: Domain Tainted
@@ -39,7 +41,7 @@ taintDomain = Domain {domTop = Tainted
                      ,domIter = WTO
                      }
 
-taintInterp :: Interpretation Tainted
+taintInterp :: Interpretation ext Tainted
 taintInterp = Interpretation {interpExpr = taintExpr
                              ,interpCall = taintCall
                              ,interpReadGlobal = taintReadGlobal
@@ -48,11 +50,13 @@ taintInterp = Interpretation {interpExpr = taintExpr
                              ,interpMaybe = taintMaybe
                              }
 
-taintExpr :: forall blocks ctx tp. TypeRepr tp
-          -> Expr ctx tp
+taintExpr :: forall ext blocks ctx tp
+           . ScopedReg
+          -> TypeRepr tp
+          -> Expr ext ctx tp
           -> PointAbstraction blocks Tainted ctx
           -> (Maybe (PointAbstraction blocks Tainted ctx), Tainted tp)
-taintExpr _tyrepr (App expr) taintMap = case expr of
+taintExpr _reg _tyrepr (App expr) taintMap = case expr of
   EmptyApp -> puret Untainted
 
   IntLit _ -> puret Untainted
@@ -96,7 +100,7 @@ taintExpr _tyrepr (App expr) taintMap = case expr of
   Or r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   BoolXor r1 r2 -> puret $ depOnRegs [r1, r2] taintMap
   BoolIte g t e -> puret $ depOnRegs [g, t, e] taintMap
-  TextLit _ -> puret Untainted
+  --TextLit _ -> puret Untainted
   MkStruct _ctxrepr asgn ->
     -- We label the whole structure with the join of the labels of its
     -- elements. This is not the most precise way; having a structured
