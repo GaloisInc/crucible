@@ -1,4 +1,4 @@
-# Revision history for go-crucible
+# Revision history for crucible-go
 
 ## 0.1.0.0  -- YYYY-mm-dd
 

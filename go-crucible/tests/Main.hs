@@ -98,7 +98,7 @@ withSimulatedResult (C.AnyCFG cfg) k = do
 --
 -- Currently, we only support returning a single int32, int64, or
 -- float (which is wrapped in a single-element struct by our
--- go-crucible translation).  Floats are translated to rationals,
+-- crucible-go translation).  Floats are translated to rationals,
 -- unfortunately.
 toSimpleResult :: forall t tp . C.RegEntry (Sym t) tp -> SimpleResult
 toSimpleResult re =

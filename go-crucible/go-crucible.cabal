@@ -1,4 +1,4 @@
-name:                go-crucible
+name:                crucible-go
 version:             0.1.0.0
 synopsis:            A Go frontend for Crucible
 license:             BSD3
@@ -30,7 +30,7 @@ library
   hs-source-dirs:      src
   default-language:    Haskell2010
 
-test-suite go-crucible-tests
+test-suite crucible-go-tests
   type: exitcode-stdio-1.0
   default-language: Haskell2010
   ghc-options: -Wall
@@ -45,5 +45,5 @@ test-suite go-crucible-tests
                  parameterized-utils,
                  crucible,
                  golang,
-                 go-crucible
+                 crucible-go
                  
