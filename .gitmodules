@@ -43,3 +43,9 @@
 [submodule "dependencies/what4"]
 	path = dependencies/what4
 	url = https://github.com/GaloisInc/what4.git
+[submodule "dependencies/golang"]
+	path = dependencies/golang
+	url = https://github.com/GaloisInc/golang.git
+[submodule "dependencies/anastasia"]
+	path = dependencies/anastasia
+	url = https://github.com/galoisinc/anastasia

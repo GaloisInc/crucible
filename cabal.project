@@ -6,6 +6,7 @@
 
 packages:
   crucible/
+  crucible-go/
   crucible-jvm/
   crucible-llvm/
   crucible-saw/
@@ -14,7 +15,6 @@ packages:
   crux/
   crux-llvm/
   crucible-mc/
-  go-crucible/
 
 optional-packages:
   dependencies/abcBridge/
