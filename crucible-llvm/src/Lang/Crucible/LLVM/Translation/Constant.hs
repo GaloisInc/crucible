@@ -692,7 +692,7 @@ evalBitwise ::
   NatRepr w ->
   BV.BV w -> BV.BV w -> m LLVMConst
 evalBitwise op w x y = IntConst w <$>
-  let yshf = fromInteger (BV.asUnsigned y)
+  let yshf = fromInteger (BV.asUnsigned y) :: Natural
   in case op of
        L.And -> return (BV.and x y)
        L.Or  -> return (BV.or  x y)
@@ -753,20 +753,20 @@ evalConv expr op mt x = case op of
     L.UiToFp
       | FloatType <- mt
       , IntConst _w i <- x
-      -> return $ FloatConst (fromInteger (BV.asUnsigned i))
+      -> return $ FloatConst (fromInteger (BV.asUnsigned i) :: Float)
 
       | DoubleType <- mt
       , IntConst _w i <- x
-      -> return $ DoubleConst (fromInteger (BV.asUnsigned i))
+      -> return $ DoubleConst (fromInteger (BV.asUnsigned i) :: Double)
 
     L.SiToFp
       | FloatType <- mt
       , IntConst w i <- x
-      -> return $ FloatConst (fromInteger (BV.asSigned w i))
+      -> return $ FloatConst (fromInteger (BV.asSigned w i) :: Float)
 
       | DoubleType <- mt
       , IntConst w i <- x
-      -> return $ DoubleConst (fromInteger (BV.asSigned w i))
+      -> return $ DoubleConst (fromInteger (BV.asSigned w i) :: Double)
 
     L.Trunc
       | IntType n <- mt
