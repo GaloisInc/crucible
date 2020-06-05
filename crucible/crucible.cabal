@@ -30,7 +30,7 @@ library
     base >= 4.8 && < 4.15,
     ansi-wl-pprint,
     bimap,
-    bv-sized >= 1.0.0,
+    bv-sized >= 1.0.0 && < 1.1,
     bytestring,
     containers >= 0.5.9.0,
     exceptions,

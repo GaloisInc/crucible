@@ -18,7 +18,6 @@ packages:
 optional-packages:
   dependencies/abcBridge/
   dependencies/aig/
-  dependencies/bv-sized
   dependencies/blt/
   dependencies/jvm-parser/
   dependencies/hpb/
