@@ -9,6 +9,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 
+void crucible_breakpoint(void);
 void crucible_assume(uint8_t x, const char *file, int line);
 void crucible_assert(uint8_t x, const char *file, int line);
 
