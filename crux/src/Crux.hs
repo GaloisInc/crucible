@@ -1,6 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NoMonoLocalBinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
@@ -11,6 +12,7 @@ module Crux
   , withOutputConfig
   , SimulatorCallback(..)
   , RunnableState(..)
+  , pattern RunnableState
   , CruxOptions(..)
   , SomeOnlineSolver(..)
   , module Crux.Config
@@ -73,11 +75,12 @@ import Crux.Config.Common
 import Crux.Config.Doc
 import qualified Crux.Version as Crux
 
+pattern RunnableState :: forall sym . () => forall ext . (IsSyntaxExtension ext) => ExecState (Model sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
+pattern RunnableState es = RunnableStateWithExtensions es []
 
 -- | A crucible @ExecState@ that is ready to be passed into the simulator.
 --   This will usually, but not necessarily, be an @InitialState@.
 data RunnableState sym where
-  RunnableState :: (IsSyntaxExtension ext) => ExecState (Model sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
   RunnableStateWithExtensions :: (IsSyntaxExtension ext)
                               => ExecState (Model sym) sym ext (RegEntry sym UnitType)
                               -> [ExecutionFeature (Model sym) sym ext (RegEntry sym UnitType)]
@@ -501,32 +504,18 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
 
-    rs <- initSimulatorState simCallback sym monline
-    case rs of
-      RunnableState initSt -> do
-        -- execute the simulator
-        case pathStrategy cruxOpts of
-          AlwaysMergePaths ->
-            do res <- executeCrucible (map genericToExecutionFeature execFeatures) initSt
-               void $ resultCont frm (Result res)
-          SplitAndExploreDepthFirst ->
-            do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures) initSt (resultCont frm . Result)
-               say "Crux" ("Total paths explored: " ++ show i)
-               unless (null ws) $
-                 sayWarn "Crux"
-                   (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
-      RunnableStateWithExtensions initSt exts -> do
-        -- execute the simulator
-        case pathStrategy cruxOpts of
-          AlwaysMergePaths ->
-            do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
-               void $ resultCont frm (Result res)
-          SplitAndExploreDepthFirst ->
-            do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
-               say "Crux" ("Total paths explored: " ++ show i)
-               unless (null ws) $
-                 sayWarn "Crux"
-                   (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
+    RunnableStateWithExtensions initSt exts <- initSimulatorState simCallback sym monline
+    -- execute the simulator
+    case pathStrategy cruxOpts of
+      AlwaysMergePaths ->
+        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
+           void $ resultCont frm (Result res)
+      SplitAndExploreDepthFirst ->
+        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
+           say "Crux" ("Total paths explored: " ++ show i)
+           unless (null ws) $
+             sayWarn "Crux"
+               (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
 
   when (simVerbose cruxOpts > 1) $ do
     say "Crux" "Simulation complete."
