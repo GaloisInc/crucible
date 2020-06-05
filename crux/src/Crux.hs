@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NoMonoLocalBinds #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
@@ -11,6 +12,7 @@ module Crux
   , withOutputConfig
   , SimulatorCallback(..)
   , RunnableState(..)
+  , pattern RunnableState
   , CruxOptions(..)
   , SomeOnlineSolver(..)
   , module Crux.Config
@@ -73,12 +75,16 @@ import Crux.Config.Common
 import Crux.Config.Doc
 import qualified Crux.Version as Crux
 
+pattern RunnableState :: forall sym . () => forall ext . (IsSyntaxExtension ext) => ExecState (Model sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
+pattern RunnableState es = RunnableStateWithExtensions es []
 
 -- | A crucible @ExecState@ that is ready to be passed into the simulator.
 --   This will usually, but not necessarily, be an @InitialState@.
-data RunnableState sym =
-  forall ext. IsSyntaxExtension ext =>
-    RunnableState (ExecState (Model sym) sym ext (RegEntry sym UnitType))
+data RunnableState sym where
+  RunnableStateWithExtensions :: (IsSyntaxExtension ext)
+                              => ExecState (Model sym) sym ext (RegEntry sym UnitType)
+                              -> [ExecutionFeature (Model sym) sym ext (RegEntry sym UnitType)]
+                              -> RunnableState sym
 
 -- | Individual crux tools will generally call the @runSimulator@ combinator
 --   to handle the nitty-gritty of setting up and running the simulator.
@@ -497,15 +503,15 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
-    RunnableState initSt <- initSimulatorState simCallback sym monline
 
+    RunnableStateWithExtensions initSt exts <- initSimulatorState simCallback sym monline
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
-        do res <- executeCrucible (map genericToExecutionFeature execFeatures) initSt
+        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
            void $ resultCont frm (Result res)
       SplitAndExploreDepthFirst ->
-        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures) initSt (resultCont frm . Result)
+        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
            say "Crux" ("Total paths explored: " ++ show i)
            unless (null ws) $
              sayWarn "Crux"
