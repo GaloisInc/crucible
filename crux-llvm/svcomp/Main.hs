@@ -39,10 +39,9 @@ import System.Posix.Resource
 import qualified Crux
 import Crux.Config.Common(CruxOptions(..))
 import Crux.Log
-import Crux.Goal
 import Crux.Report
 import Crux.SVCOMP
-import Crux.Types
+import Crux.Types as Crux
 
 -- local
 import Crux.LLVM.Config
@@ -252,10 +251,11 @@ data EvaluationResult =
   EvaluationResult
   { computedResult :: Maybe Bool
   , expectedResult :: Maybe Bool
-  , totalGoals :: Int
-  , disprovedGoals :: Int
-  , unknownGoals :: Int
-  , provedGoals :: Int
+  , totalGoals :: Integer
+  , disprovedGoals :: Integer
+  , unknownGoals :: Integer
+  , provedGoals :: Integer
+  , incompleteGoals :: Integer
   , programComplete :: Bool
   }
  deriving (Eq,Ord,Show,Generic)
@@ -275,10 +275,12 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task =
       res@(CruxSimulationResult cmpl gls) <- Crux.runSimulator cruxOpts' (simulateLLVM cruxOpts' llvmOpts)
       generateReport cruxOpts' res
 
-      let totalGoals = sum (fmap countTotalGoals gls)
-      let disprovedGoals = sum (fmap countDisprovedGoals gls)
-      let unknownGoals = sum (fmap countUnknownGoals gls)
-      let provedGoals = sum (fmap countProvedGoals gls)
+      let totalGoals = sum (Crux.totalProcessedGoals . fst <$> gls)
+      let disprovedGoals = sum (Crux.disprovedGoals . fst <$> gls)
+      let provedGoals = sum (Crux.provedGoals . fst <$> gls)
+      let incompleteGoals = sum (Crux.incompleteGoals . fst <$> gls)
+      let unknownGoals = totalGoals - (disprovedGoals + provedGoals + incompleteGoals)
+
       let programComplete =
             case cmpl of
               ProgramComplete -> True
@@ -287,10 +289,11 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task =
       let verdict
             | disprovedGoals > 0 = Falsified
             | ProgramComplete <- cmpl
-            , unknownGoals == 0 = Verified
+            , provedGoals == totalGoals = Verified
             | otherwise = Unknown
 
       let expectedResult = propertyVerdict task
+
       let computedResult = case verdict of
                              Verified -> Just True
                              Falsified -> Just False

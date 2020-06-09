@@ -473,7 +473,7 @@ type ProverCallback sym =
     CruxOptions ->
     SimCtxt sym ext ->
     Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
-    IO (Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
+    IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
 
 -- | Core invocation of the symbolic execution engine
 --
@@ -489,7 +489,7 @@ doSimWithResults ::
   CruxOptions ->
   SimulatorCallback ->
   IORef ProgramCompleteness ->
-  IORef (Seq.Seq (ProvedGoals (Either AssumptionReason SimError))) ->
+  IORef (Seq.Seq (ProcessedGoals, ProvedGoals (Either AssumptionReason SimError))) ->
   sym ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
@@ -539,13 +539,13 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
         todo <- getProofObligations sym
         when (isJust todo) $
           say "Crux" "Attempting to prove verification conditions."
-        proved <- goalProver cruxOpts ctx todo
+        (nms, proved) <- goalProver cruxOpts ctx todo
         mgt <- provedGoalsTree ctx proved
         case mgt of
           Nothing -> return (not timedOut)
           Just gt ->
-            do modifyIORef glsRef (Seq.|> gt)
-               return (not (timedOut || (failfast && countDisprovedGoals gt > 0)))
+            do modifyIORef glsRef (Seq.|> (nms,gt))
+               return (not (timedOut || (failfast && disprovedGoals nms > 0)))
 
 isProfiling :: CruxOptions -> Bool
 isProfiling cruxOpts = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts
@@ -556,9 +556,9 @@ computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . t
  base = case cmpl of
           ProgramComplete   -> ExitSuccess
           ProgramIncomplete -> ExitFailure 1
- f gl =
-  let tot = countTotalGoals gl
-      proved = countProvedGoals gl
+ f (nms,_gl) =
+  let tot = totalProcessedGoals nms
+      proved = provedGoals nms
   in if proved == tot then
        ExitSuccess
      else
@@ -569,11 +569,11 @@ reportStatus ::
   CruxSimulationResult ->
   IO ()
 reportStatus (CruxSimulationResult cmpl gls) =
-  do let tot        = sum (fmap countTotalGoals gls)
-         proved     = sum (fmap countProvedGoals gls)
-         incomplete = sum (fmap countIncompleteGoals gls)
-         disproved  = sum (fmap countDisprovedGoals gls)
-         unknown    = sum (fmap countUnknownGoals gls) - incomplete
+  do let tot        = sum (totalProcessedGoals . fst <$> gls)
+         proved     = sum (provedGoals . fst <$> gls)
+         disproved  = sum (disprovedGoals . fst <$> gls)
+         incomplete = sum (incompleteGoals . fst <$> gls)
+         unknown    = tot - (proved + disproved + incomplete)
      if tot == 0 then
        do say "Crux" "All goals discharged through internal simplification."
      else

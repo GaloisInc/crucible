@@ -67,8 +67,8 @@ maybeGenerateSource opts files =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: FilePath -> Seq (ProvedGoals b) -> [ JS ]
-renderSideConds cwd = concatMap (go []) . Fold.toList 
+renderSideConds :: FilePath -> Seq (ProcessedGoals, ProvedGoals b) -> [ JS ]
+renderSideConds cwd = concatMap (go [] . snd) . Fold.toList
   where
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
   flatBranch (x : more)          = x : flatBranch more
@@ -129,4 +129,3 @@ jsSideCond cwd path asmps (conc,_) triv status =
           ]
 
   goalReason = simErrorReasonMsg (simErrorReason conc)
-
