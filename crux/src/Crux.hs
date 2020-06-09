@@ -96,8 +96,8 @@ data RunnableState sym where
 newtype SimulatorCallback
   = SimulatorCallback
     { initSimulatorState ::
-        forall sym. (IsSymInterface sym, Logs) =>
-          sym -> Maybe (SomeOnlineSolver sym) -> IO (RunnableState sym)
+        forall s st fs . (IsSymInterface (WEB.ExprBuilder s st fs), Logs) =>
+          WEB.ExprBuilder s st fs -> Maybe (SomeOnlineSolver (WEB.ExprBuilder s st fs)) -> IO (RunnableState (WEB.ExprBuilder s st fs))
     }
 
 -- | Given the reuslt of a simulation and proof run, report the overall
@@ -485,7 +485,7 @@ type ProverCallback sym =
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  (Logs, IsSymInterface sym) =>
+  (Logs, IsSymInterface sym, sym ~ WEB.ExprBuilder s st fs) =>
   CruxOptions ->
   SimulatorCallback ->
   IORef ProgramCompleteness ->
