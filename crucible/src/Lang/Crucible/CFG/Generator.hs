@@ -63,6 +63,8 @@ module Lang.Crucible.CFG.Generator
   , addBreakpointStmt
   , extensionStmt
   , mkAtom
+  , mkFresh
+  , mkFreshFloat
   , forceEvaluation
     -- * Labels
   , newLabel
@@ -334,6 +336,13 @@ freshAtom av =
                      }
      addStmt (DefineAtom atom av)
      return atom
+
+
+mkFresh :: (Monad m, IsSyntaxExtension ext) => BaseTypeRepr tp -> Generator ext s t ret m (Atom s (BaseToType tp))
+mkFresh tr = freshAtom (FreshConstant tr Nothing)
+
+mkFreshFloat :: (Monad m, IsSyntaxExtension ext) => FloatInfoRepr fi -> Generator ext s t ret m (Atom s (FloatType fi))
+mkFreshFloat fi = freshAtom (FreshFloat fi Nothing)
 
 -- | Create an atom equivalent to the given expression if it is
 -- not already an 'AtomExpr'.
