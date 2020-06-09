@@ -56,7 +56,9 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Numeric.Natural
 
+import Lang.Crucible.Panic
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 
@@ -176,19 +178,20 @@ splitTypeValue tp d subFn = assert (d > 0) $
     X86_FP80 -> BVToX86_FP80 (subFn 0 (bitvectorType 10))
     Array n0 etp -> assert (n0 > 0) $ do
       let esz = storageTypeSize etp
-      let (c,part) = assert (esz > 0) $ d `divMod` esz
-      let n = n0 - c
-      let o = d - part -- (Bytes c) * esz
+      let (c,part) = assert (esz > 0) $ toInteger d `divMod` toInteger esz
+      let n = toInteger n0 - toInteger c
+      let o = d - toBytes part -- (Bytes c) * esz
       let consPartial
-            | part == 0 = subFn o (arrayType n etp)
+            | n < 0 = panic "splitTypeValue" ["Unexpected array size: " ++ show n, show tp, show d]
+            | part == 0 = subFn o (arrayType (fromInteger n) etp)
             | n > 1 =
                 ConsArray (subFn o etp)
-                          (subFn (o+esz) (arrayType (n-1) etp))
+                          (subFn (o+esz) (arrayType (fromInteger (n-1)) etp))
             | otherwise = assert (n == 1) $
                 singletonArray etp (subFn o etp)
       let result
-            | c > 0 = assert (c < n0) $
-              AppendArray (subFn 0 (arrayType c etp))
+            | c > 0 = assert (c < toInteger n0) $
+              AppendArray (subFn 0 (arrayType (fromInteger c) etp))
                           consPartial
             | otherwise = consPartial
       result
@@ -398,7 +401,7 @@ data ValueView
   | FloatToBV ValueView
   | DoubleToBV ValueView
   | X86_FP80ToBV ValueView
-  | ArrayElt Bytes StorageType Bytes ValueView
+  | ArrayElt Natural StorageType Natural ValueView
 
   | FieldVal (Vector (Field StorageType)) Int ValueView
   deriving (Show, Eq, Ord)
@@ -472,12 +475,14 @@ loadBitvector lo lw so v = do
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
             esz = storageTypeSize tp
-            c0 = assert (esz > 0) $ (lo - so) `div` esz
-            (c1,p1) = (le - so) `divMod` esz
+            c0 = assert (esz > 0) $ toInteger (lo - so) `div` toInteger esz
+            (c1, p1) = toInteger (le - so) `divMod` toInteger esz
             -- Get range of indices to read.
             r | p1 == 0 = assert (c1 > c0) [c0..c1-1]
               | otherwise = assert (c1 >= c0) [c0..c1]
-            val i = retValue (so + i*esz) (ArrayElt n tp i v)
+            val i
+              | i >= 0 = retValue (so + natBytesMul (fromInteger i) esz) (ArrayElt n tp (fromInteger i) v)
+              | otherwise = panic "loadBitvector" ["Bad array index", show i, show (lo, lw, so, v)]
     Struct sflds -> assert (not (null r)) $ snd $ foldl1 cv r
       where cv (wx,x) (wy,y) = (wx+wy, concatBV wx x wy y)
             r = concat (zipWith val [0..] (V.toList sflds))

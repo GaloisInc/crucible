@@ -67,6 +67,7 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
+import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.BitVector.Sized as BV
@@ -641,9 +642,9 @@ selectHighBv _ _ _ (NoErr _ v) =
 -- | Look up an element in a partial LLVM array value.
 arrayElt ::
   IsExprBuilder sym =>
-  Bytes ->
+  Natural ->
   StorageType ->
-  Bytes ->
+  Natural ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 arrayElt sz tp idx (NoErr p (LLVMValZero _)) -- TODO(langston) typecheck

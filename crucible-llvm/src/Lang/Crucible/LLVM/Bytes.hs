@@ -21,6 +21,7 @@ module Lang.Crucible.LLVM.Bytes
   , bytesToBV
   , toBytes
   , bitsToBytes
+  , natBytesMul
   )  where
 
 import qualified Data.BitVector.Sized as BV
@@ -53,6 +54,10 @@ toBytes = Bytes . fromIntegral
 
 bitsToBytes :: Integral a => a -> Bytes
 bitsToBytes n = Bytes ( (fromIntegral n + 7) `div` 8 )
+
+-- | Multiply a number of bytes by a natural number
+natBytesMul :: Natural -> Bytes -> Bytes
+natBytesMul n (Bytes x) = Bytes (toInteger n * x)
 
 type Addr = Bytes
 type Offset = Bytes
