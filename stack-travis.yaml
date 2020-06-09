@@ -12,7 +12,6 @@ packages:
 - crucible-server
 - dependencies/abcBridge
 - dependencies/aig
-- dependencies/parameterized-utils
 - dependencies/hpb
 - dependencies/saw-core
 - dependencies/llvm-pretty
