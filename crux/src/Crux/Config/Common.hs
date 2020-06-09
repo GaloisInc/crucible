@@ -68,6 +68,10 @@ data CruxOptions = CruxOptions
   , makeCexes                :: Bool
     -- ^ Should we construct counter-example executables
 
+  , unsatCores               :: Bool
+    -- ^ Should we attempt to compute unsatisfiable cores for successful
+    --   proofs?
+
   , simVerbose               :: Int
 
   , solver                   :: String
@@ -166,6 +170,10 @@ cruxOptions = Config
           makeCexes <-
             section "make-executables" yesOrNoSpec True
             "Should we generate counter-example executables. (default: yes)"
+
+          unsatCores <-
+            section "unsat-cores" yesOrNoSpec True
+            "Should we attempt to compute unsatisfiable cores for successfult proofs (default: yes)"
 
           solver <-
             section "solver" stringSpec "yices"
@@ -294,6 +302,10 @@ cruxOptions = Config
       , Option "x" ["no-execs"]
         "Disable generating counter-example executables"
         $ NoArg $ \opts -> Right opts { makeCexes = False }
+
+      , Option [] ["no-unsat-cores"]
+        "Disable computing unsat cores for successful proofs"
+        $ NoArg $ \opts -> Right opts { unsatCores = False }
 
       , Option "s" ["solver"]
         "Select the solver to use to discharge proof obligations"

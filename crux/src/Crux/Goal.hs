@@ -286,7 +286,7 @@ proveGoalsOnline _ _opts _ctxt Nothing =
 proveGoalsOnline sym opts ctxt (Just gs0) =
   do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
-     unless hasUnsatCores $
+     when (unsatCores opts && yicesMCSat opts) $
        sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      (start,end,finish) <-
        if view quiet ?outputConfig then
@@ -302,7 +302,7 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
 
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
 
-  hasUnsatCores = not (yicesMCSat opts)
+  hasUnsatCores = unsatCores opts && not (yicesMCSat opts)
 
   failfast = proofGoalsFailFast opts
 
