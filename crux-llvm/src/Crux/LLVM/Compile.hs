@@ -128,7 +128,7 @@ genBitCode cruxOpts llvmOpts =
 makeCounterExamplesLLVM ::
   Logs => CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
 makeCounterExamplesLLVM cruxOpts llvmOpts res
-  | makeCexes cruxOpts = mapM_ go . Fold.toList $ (cruxSimResultGoals res)
+  | makeCexes cruxOpts = mapM_ (go . snd) . Fold.toList $ (cruxSimResultGoals res)
   | otherwise = return ()
 
  where

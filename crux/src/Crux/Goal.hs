@@ -4,6 +4,7 @@
 {-# Language MultiWayIf #-}
 {-# Language PatternSynonyms #-}
 {-# Language TypeFamilies #-}
+{-# Language ViewPatterns #-}
 
 module Crux.Goal where
 
@@ -135,11 +136,31 @@ proveToGoal _ allAsmps p pr =
  where
  showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
 
-data ProcessedGoals =
-  ProcessedGoals { totalProcessedGoals :: !Integer
-                 , provedGoals :: !Integer
-                 , disprovedGoals :: !Integer
-                 }
+
+
+
+updateProcessedGoals ::
+  LabeledPred p SimError ->
+  ProofResult a ->
+  ProcessedGoals ->
+  ProcessedGoals
+updateProcessedGoals _ (Proved _) pgs =
+  pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
+     , provedGoals = 1 + provedGoals pgs
+     }
+
+updateProcessedGoals (view labeledPredMsg -> SimError _ (ResourceExhausted _)) (NotProved _) pgs =
+  pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
+     , incompleteGoals = 1 + incompleteGoals pgs
+     }
+
+updateProcessedGoals _ (NotProved (Just _)) pgs =
+  pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
+     , disprovedGoals = 1 + disprovedGoals pgs
+     }
+
+updateProcessedGoals _ (NotProved Nothing) pgs =
+  pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs }
 
 -- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
 --
@@ -156,22 +177,25 @@ data ProcessedGoals =
 --
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
-proveGoalsOffline :: forall st sym p asmp ast t fs
+proveGoalsOffline :: forall st sym p asmp t fs
                    . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs)
                   => WS.SolverAdapter st
                   -> CruxOptions
                   -> SimCtxt sym p
-                  -> Maybe (Goals (LPred sym asmp) (LPred sym ast))
-                  -> IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
-proveGoalsOffline _adapter _opts _ctx Nothing = return Nothing
+                  -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
+                  -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
+proveGoalsOffline _adapter _opts _ctx Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
 proveGoalsOffline adapter opts ctx (Just gs0) = do
-  goalNum <- newIORef (ProcessedGoals 0 0 0)
+  goalNum <- newIORef (ProcessedGoals 0 0 0 0)
   (start,end,finish) <-
      if view quiet ?outputConfig then
        return (\_ -> return (), return (), return ())
      else
        prepStatus "Checking: " (countGoals gs0)
-  (Just <$> go (start,end) goalNum [] gs0) <* finish
+  gs <- go (start,end) goalNum [] gs0
+  nms <- readIORef goalNum
+  finish
+  return (nms, Just gs)
 
   where
     withTimeout action
@@ -183,8 +207,8 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
     go :: (Integer -> IO (), IO ())
        -> IORef ProcessedGoals
        -> [Seq.Seq (LPred sym asmp)]
-       -> Goals (LPred sym asmp) (LPred sym ast)
-       -> IO (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast))))
+       -> Goals (LPred sym asmp) (LPred sym SimError)
+       -> IO (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError))))
     go (start,end) goalNum assumptionsInScope gs =
       case gs of
         Assuming ps gs1 -> do
@@ -199,8 +223,8 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
             else ProveConj g1' <$> go (start,end) goalNum assumptionsInScope g2
 
         Prove p -> do
-          num <- atomicModifyIORef' goalNum (\pg -> (pg { totalProcessedGoals = totalProcessedGoals pg + 1 }, totalProcessedGoals pg))
-          start num
+          start . totalProcessedGoals =<< readIORef goalNum
+
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
           let sym = ctx ^. ctxSymInterface
@@ -212,20 +236,23 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
           mres <- withTimeout $ WS.solver_adapter_check_sat adapter sym logData [assumptions, goal] $ \satRes ->
             case satRes of
               Unsat _ -> do
-                modifyIORef' goalNum (\pg -> pg { provedGoals = provedGoals pg + 1 })
                 -- NOTE: We don't have an easy way to get an unsat core here
                 -- because we don't have a solver connection.
                 let core = fmap Left (F.toList (mconcat assumptionsInScope))
                 end
+                modifyIORef' goalNum (updateProcessedGoals p (Proved core))
                 return (Prove (p, Proved core))
               Sat (evalFn, _) -> do
-                modifyIORef' goalNum (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
-                end
-                when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
                 let model = ctx ^. cruciblePersonality
                 vals <- evalModel evalFn model
+                end
+                modifyIORef' goalNum (updateProcessedGoals p (NotProved (Just (ModelView vals))))
+                when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
                 return (Prove (p, NotProved (Just (ModelView vals))))
-              Unknown -> end >> return (Prove (p, NotProved Nothing))
+              Unknown -> do
+                end
+                modifyIORef' goalNum (updateProcessedGoals p (NotProved Nothing))
+                return (Prove (p, NotProved Nothing))
           case mres of
             Just res -> return res
             Nothing -> return (Prove (p, NotProved Nothing))
@@ -241,6 +268,7 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
+  , ast ~ SimError
   , OnlineSolver s solver
   , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
   , OnlineSolver s goalSolver
@@ -250,13 +278,13 @@ proveGoalsOnline ::
   CruxOptions ->
   SimCtxt sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
-  IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
+  IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
 proveGoalsOnline _ _opts _ctxt Nothing =
-     return Nothing
+     return (ProcessedGoals 0 0 0 0, Nothing)
 
 proveGoalsOnline sym opts ctxt (Just gs0) =
-  do goalNum <- newIORef (ProcessedGoals 0 0 0)
+  do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
        sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
@@ -267,8 +295,9 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
          prepStatus "Checking: " (countGoals gs0)
      res <- withSolverProcess sym $ \sp ->
               inNewFrame sp (go (start,end) sp goalNum gs0 nameMap)
+     nms <- readIORef goalNum
      finish
-     return (Just res)
+     return (nms, Just res)
   where
 
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
@@ -289,39 +318,41 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
            return (Assuming ps res)
 
       Prove p ->
-        do num <- atomicModifyIORef' gn (\pg -> (pg { totalProcessedGoals = totalProcessedGoals pg + 1 }, totalProcessedGoals pg))
-           start num
+        do start . totalProcessedGoals =<< readIORef gn
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
 
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->
-                        do modifyIORef' gn (\pg -> pg { provedGoals = provedGoals pg + 1 })
-                           namemap <- readIORef nameMap
+                        do namemap <- readIORef nameMap
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
                            end
+                           modifyIORef' gn (updateProcessedGoals p (Proved core))
                            return (Prove (p, (Proved core)))
 
                       Sat ()  ->
-                        do modifyIORef' gn (\pg -> pg { disprovedGoals = disprovedGoals pg + 1 })
-                           f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
+                        do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
                            vals <- evalModel f model
                            end
+                           modifyIORef' gn (updateProcessedGoals p (NotProved (Just (ModelView vals))))
                            when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            return (Prove (p, NotProved (Just (ModelView vals))))
 
-                      Unknown -> end >> return (Prove (p, NotProved Nothing))
+                      Unknown ->
+                        do end
+                           modifyIORef' gn (updateProcessedGoals p (NotProved Nothing))
+                           return (Prove (p, NotProved Nothing))
            return ret
 
       ProveConj g1 g2 ->
         do g1' <- inNewFrame sp (go (start,end) sp gn g1 nameMap)
+
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
-
            if failfast then
              do numDisproved <- disprovedGoals <$> readIORef gn
                 if numDisproved > 0 then
