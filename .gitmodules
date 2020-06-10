@@ -25,9 +25,6 @@
 [submodule "dependencies/hpb"]
 	path = dependencies/hpb
 	url = https://github.com/GaloisInc/hpb.git
-[submodule "dependencies/parameterized-utils"]
-	path = dependencies/parameterized-utils
-	url = https://github.com/GaloisInc/parameterized-utils.git
 [submodule "dependencies/saw-core"]
 	path = dependencies/saw-core
 	url = https://github.com/GaloisInc/saw-core.git
