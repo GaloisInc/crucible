@@ -45,6 +45,9 @@ import qualified Control.Lens
 import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 
+-- bv-sized
+import qualified Data.BitVector.Sized as BV
+
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Classes as Ctx (ixF)
@@ -483,15 +486,15 @@ zeroValue :: IsSymInterface sym => sym -> J.Type -> IO (C.RegValue sym JVMValueT
 zeroValue sym ty =
   case ty of
     J.ArrayType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
-    J.BooleanType -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
-    J.ByteType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
-    J.CharType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.BooleanType -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
+    J.ByteType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
+    J.CharType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
     J.ClassType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
     J.DoubleType  -> C.injectVariant sym knownRepr tagD <$> W4.iFloatPZero sym DoubleFloatRepr
     J.FloatType   -> C.injectVariant sym knownRepr tagF <$> W4.iFloatPZero sym SingleFloatRepr
-    J.IntType     -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
-    J.LongType    -> C.injectVariant sym knownRepr tagL <$> W4.bvLit sym w64 0
-    J.ShortType   -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.IntType     -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
+    J.LongType    -> C.injectVariant sym knownRepr tagL <$> W4.bvLit sym w64 (BV.zero w64)
+    J.ShortType   -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 (BV.zero w32)
 
 -- (currently unused)
 -- Way to run initialization code before simulation starts
@@ -916,7 +919,7 @@ doAllocateArray ::
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
 doAllocateArray sym halloc jc len elemTy globals =
-  do len' <- liftIO $ W4.bvLit sym w32 (toInteger len)
+  do len' <- liftIO $ W4.bvLit sym w32 (BV.mkBV w32 (toInteger len))
      let vec = V.replicate len unassignedJVMValue
      rep <- makeJVMTypeRep sym globals jc elemTy
      let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV rep
@@ -983,15 +986,15 @@ makeJVMTypeRep sym globals jc ty =
       do ety' <- makeJVMTypeRep sym globals jc ety
          return $ C.RolledType (C.injectVariant sym knownRepr Ctx.i1of3 ety')
     J.ClassType _cn ->
-      primTypeRep 8 -- FIXME: temporary hack
-    J.BooleanType -> primTypeRep 0
-    J.ByteType    -> primTypeRep 1
-    J.CharType    -> primTypeRep 2
-    J.DoubleType  -> primTypeRep 3
-    J.FloatType   -> primTypeRep 4
-    J.IntType     -> primTypeRep 5
-    J.LongType    -> primTypeRep 6
-    J.ShortType   -> primTypeRep 7
+      primTypeRep (BV.mkBV knownRepr 8) -- FIXME: temporary hack
+    J.BooleanType -> primTypeRep (BV.zero knownRepr)
+    J.ByteType    -> primTypeRep (BV.one  knownRepr)
+    J.CharType    -> primTypeRep (BV.mkBV knownRepr 2)
+    J.DoubleType  -> primTypeRep (BV.mkBV knownRepr 3)
+    J.FloatType   -> primTypeRep (BV.mkBV knownRepr 4)
+    J.IntType     -> primTypeRep (BV.mkBV knownRepr 5)
+    J.LongType    -> primTypeRep (BV.mkBV knownRepr 6)
+    J.ShortType   -> primTypeRep (BV.mkBV knownRepr 7)
   where
     primTypeRep n =
       do n' <- W4.bvLit sym w32 n

@@ -69,6 +69,7 @@ import           Data.Vector (Vector)
 import qualified Data.Vector as V
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes (toOrdering, OrdF(..))
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(..))
@@ -211,7 +212,7 @@ floatToBV _ (NoErr p (LLVMValUndef (StorageType Float _))) =
 
 floatToBV sym (NoErr p (LLVMValZero (StorageType Float _))) =
   do nz <- W4I.natLit sym 0
-     iz <- W4I.bvLit sym (knownNat @32) 0
+     iz <- W4I.bvLit sym (knownNat @32) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
 floatToBV sym (NoErr p (LLVMValFloat Value.SingleSize v)) =
@@ -237,7 +238,7 @@ doubleToBV _ (NoErr p (LLVMValUndef (StorageType Double _))) =
 
 doubleToBV sym (NoErr p (LLVMValZero (StorageType Double _))) =
   do nz <- W4I.natLit sym 0
-     iz <- W4I.bvLit sym (knownNat @64) 0
+     iz <- W4I.bvLit sym (knownNat @64) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
 doubleToBV sym (NoErr p (LLVMValFloat Value.DoubleSize v)) =
@@ -263,7 +264,7 @@ fp80ToBV _ (NoErr p (LLVMValUndef (StorageType X86_FP80 _))) =
 
 fp80ToBV sym (NoErr p (LLVMValZero (StorageType X86_FP80 _))) =
   do nz <- W4I.natLit sym 0
-     iz <- W4I.bvLit sym (knownNat @80) 0
+     iz <- W4I.bvLit sym (knownNat @80) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
 fp80ToBV sym (NoErr p (LLVMValFloat Value.X86_FP80Size v)) =
@@ -289,7 +290,7 @@ bvToFloat :: forall sym.
 bvToFloat sym (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
   NoErr p . LLVMValFloat Value.SingleSize <$>
     (W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr =<<
-       W4I.bvLit sym (knownNat @32) 0)
+       W4I.bvLit sym (knownNat @32) (BV.zero knownNat))
 
 bvToFloat sym (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @32) = do
@@ -318,7 +319,7 @@ bvToDouble ::
 bvToDouble sym (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
   NoErr p . LLVMValFloat Value.DoubleSize <$>
     (W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr =<<
-       W4I.bvLit sym (knownNat @64) 0)
+       W4I.bvLit sym (knownNat @64) (BV.zero knownNat))
 
 bvToDouble sym (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @64) = do
@@ -348,7 +349,7 @@ bvToX86_FP80 ::
 bvToX86_FP80 sym (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
   NoErr p . LLVMValFloat Value.X86_FP80Size <$>
     (W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr =<<
-       W4I.bvLit sym (knownNat @80) 0)
+       W4I.bvLit sym (knownNat @80) (BV.zero knownNat))
 
 bvToX86_FP80 sym (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @80) =
@@ -746,7 +747,7 @@ muxLLVMVal sym = merge sym muxval
                                           ]
       LLVMValInt base off ->
         do zbase <- W4I.natLit sym 0
-           zoff  <- W4I.bvLit sym (W4I.bvWidth off) 0
+           zoff  <- W4I.bvLit sym (W4I.bvWidth off) (BV.zero (W4I.bvWidth off))
            base' <- W4I.natIte sym cond zbase base
            off'  <- W4I.bvIte sym cond zoff off
            return $ LLVMValInt base' off'

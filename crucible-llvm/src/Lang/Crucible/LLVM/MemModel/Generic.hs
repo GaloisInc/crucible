@@ -90,7 +90,7 @@ import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           Lang.Crucible.Panic (panic)
 
-
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Ctx (SingleCtx)
@@ -212,7 +212,7 @@ genIntExpr sym w f@(ExprEnv _load _store size) expr =
       case (e1', e2') of
         (Just e1'', Just e2'') -> Just <$> bvAdd sym e1'' e2''
         _                      -> return Nothing -- Unbounded space added to anything is unbounded
-    CValue i -> Just <$> bvLit sym w (bytesToInteger i)
+    CValue i -> Just <$> bvLit sym w (bytesToBV w i)
     StoreSize -> return size
 
 -- | Interpret a conditional as a symbolic predicate.
@@ -369,8 +369,8 @@ readMemCopy ::
   (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
   ReadMem sym (PartLLVMVal sym)
 readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
-  do let ld = asUnsignedBV off
-     let dd = asUnsignedBV d
+  do let ld = BV.asUnsigned <$> asBV off
+     let dd = BV.asUnsigned <$> asBV d
      let varFn = ExprEnv off d (Just sz)
 
      case (ld, dd) of
@@ -378,11 +378,11 @@ readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
        (Just lo, Just so) ->
          do let subFn :: RangeLoad Addr Addr -> ReadMem sym (PartLLVMVal sym)
                 subFn (OutOfRange o tp') = do
-                  o' <- liftIO $ bvLit sym w (bytesToInteger o)
+                  o' <- liftIO $ bvLit sym w (bytesToBV w o)
                   readPrev tp' (LLVMPointer blk o')
                 subFn (InRange o tp') =
                   readPrev tp' =<< liftIO (tgAddPtrC sym w src o)
-            case asUnsignedBV sz of
+            case BV.asUnsigned <$> asBV sz of
               Just csz -> do
                 let s = R (fromInteger so) (fromInteger (so + csz))
                 let vcr = rangeLoad (fromInteger lo) tp s
@@ -409,7 +409,7 @@ readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
-            let mux0 | Just csz <- asUnsignedBV sz =
+            let mux0 | Just csz <- BV.asUnsigned <$> asBV sz =
                          fixedSizeRangeLoad pref tp (fromInteger csz)
                      | otherwise =
                          symbolicRangeLoad pref tp
@@ -429,22 +429,22 @@ readMemSet ::
   (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
   ReadMem sym (PartLLVMVal sym)
 readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
-  do let ld = asUnsignedBV off
-     let dd = asUnsignedBV d
+  do let ld = BV.asUnsigned <$> asBV off
+     let dd = BV.asUnsigned <$> asBV d
      let varFn = ExprEnv off d (Just sz)
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
          do let subFn :: RangeLoad Addr Addr -> ReadMem sym (PartLLVMVal sym)
                 subFn (OutOfRange o tp') = do
-                  o' <- liftIO $ bvLit sym w (bytesToInteger o)
+                  o' <- liftIO $ bvLit sym w (bytesToBV w o)
                   readPrev tp' (LLVMPointer blk o')
                 subFn (InRange   _o tp') = do
                   blk0 <- liftIO $ natLit sym 0
                   let val = LLVMValInt blk0 byte
                   let b   = Partial.totalLLVMVal sym val
                   liftIO $ genValueCtor sym end (memsetValue b tp')
-            case asUnsignedBV sz of
+            case BV.asUnsigned <$> asBV sz of
               Just csz -> do
                 let s = R (fromInteger so) (fromInteger (so + csz))
                 let vcr = rangeLoad (fromInteger lo) tp s
@@ -465,7 +465,7 @@ readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
-            let mux0 | Just csz <- asUnsignedBV sz =
+            let mux0 | Just csz <- BV.asUnsigned <$> asBV sz =
                          fixedSizeRangeLoad pref tp (fromInteger csz)
                      | otherwise =
                          symbolicRangeLoad pref tp
@@ -489,17 +489,17 @@ readMemStore ::
   {- ^ A callback function for when reading fails -} ->
   ReadMem sym (PartLLVMVal sym)
 readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign readPrev =
-  do ssz <- liftIO $ bvLit sym w (bytesToInteger (storageTypeSize stp))
+  do ssz <- liftIO $ bvLit sym w (bytesToBV w (storageTypeSize stp))
      let varFn = ExprEnv off d (Just ssz)
-     let ld = asUnsignedBV off
-     let dd = asUnsignedBV d
+     let ld = BV.asUnsigned <$> asBV off
+     let dd = BV.asUnsigned <$> asBV d
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
          do let subFn :: ValueLoad Addr -> ReadMem sym (PartLLVMVal sym)
                 subFn (OldMemory o tp')  =
                   readPrev tp' . LLVMPointer blk =<<
-                    liftIO (bvLit sym w (bytesToInteger o))
+                    liftIO (bvLit sym w (bytesToBV w o))
                 subFn (LastStore v)      = liftIO $
                   applyView sym end (Partial.totalLLVMVal sym t) v
                 subFn (InvalidMemory tp) = return $ Partial.partErr $ Partial.Invalid tp
@@ -525,22 +525,23 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
                   | Just (load_a, _x, load_b) <- asAffineVar off
                   , Just (store_a, _y, store_b) <- asAffineVar d = do
                     let stride' = gcd
-                          (W4.fromConcreteUnsignedBV load_a)
-                          (W4.fromConcreteUnsignedBV store_a)
+                          (BV.asUnsigned (W4.fromConcreteBV load_a))
+                          (BV.asUnsigned (W4.fromConcreteBV store_a))
                     -- mod returns a non-negative integer
                     let delta' = mod
-                          (W4.fromConcreteUnsignedBV load_b - W4.fromConcreteUnsignedBV store_b)
+                          (BV.asUnsigned (W4.fromConcreteBV load_b) -
+                           BV.asUnsigned (W4.fromConcreteBV store_b))
                           stride'
                     (fromInteger stride', fromInteger delta')
                   | Just (load_a, _x, load_b) <- asAffineVar off
-                  , Just store_b <- asUnsignedBV d = do
-                    let stride' = W4.fromConcreteUnsignedBV load_a
-                    let delta' = mod (W4.fromConcreteUnsignedBV load_b - store_b) stride'
+                  , Just store_b <- BV.asUnsigned <$> asBV d = do
+                    let stride' = BV.asUnsigned (W4.fromConcreteBV load_a)
+                    let delta' = mod (BV.asUnsigned (W4.fromConcreteBV load_b) - store_b) stride'
                     (fromInteger stride', fromInteger delta')
-                  | Just load_b <- asUnsignedBV off
+                  | Just load_b <- BV.asUnsigned <$> asBV off
                   , Just (store_a, _y, store_b) <- asAffineVar d = do
-                    let stride' = W4.fromConcreteUnsignedBV store_a
-                    let delta' = mod (load_b - W4.fromConcreteUnsignedBV store_b) stride'
+                    let stride' = BV.asUnsigned (W4.fromConcreteBV store_a)
+                    let delta' = mod (load_b - BV.asUnsigned (W4.fromConcreteBV store_b)) stride'
                     (fromInteger stride', fromInteger delta')
                   | otherwise = (1, 0)
 
@@ -581,24 +582,24 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
         let loadArrayByteFn :: Offset -> IO (PartLLVMVal sym)
             loadArrayByteFn off = do
               blk0 <- natLit sym 0
-              idx <- bvAdd sym base =<< bvLit sym w (bytesToInteger off)
+              idx <- bvAdd sym base =<< bvLit sym w (bytesToBV w off)
               byte <- arrayLookup sym arr $ Ctx.singleton idx
               return $ Partial.totalLLVMVal sym $ LLVMValInt blk0 byte
         genValueCtor sym end =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
   let varFn = ExprEnv read_off write_off size
-  case (asUnsignedBV read_off, asUnsignedBV write_off) of
+  case (BV.asUnsigned <$> asBV read_off, BV.asUnsigned <$> asBV write_off) of
     -- known read and write offsets
     (Just lo, Just so) -> do
       let subFn :: RangeLoad Addr Addr -> ReadMem sym (PartLLVMVal sym)
           subFn = \case
             OutOfRange o tp' -> do
-              o' <- liftIO $ bvLit sym w $ bytesToInteger o
+              o' <- liftIO $ bvLit sym w $ bytesToBV w o
               read_prev tp' $ LLVMPointer blk o'
             InRange o tp' -> do
-              o' <- liftIO $ bvLit sym w $ bytesToInteger o
+              o' <- liftIO $ bvLit sym w $ bytesToBV w o
               loadFn o' tp'
-      case asUnsignedBV <$> size of
-        Just (Just concrete_size) -> do
+      case BV.asUnsigned <$> (asBV =<< size) of
+        Just concrete_size -> do
           let s = R (fromInteger so) (fromInteger (so + concrete_size))
           let vcr = rangeLoad (fromInteger lo) tp s
           liftIO . genValueCtor sym end =<< traverse subFn vcr
@@ -622,8 +623,8 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
                               , "*** Under environment:  " ++ show (ppExprEnv varFn)
                               ]
       let pref
-            | Just{} <- asUnsignedBV write_off = FixedStore
-            | Just{} <- asUnsignedBV read_off = FixedLoad
+            | Just{} <- BV.asUnsigned <$> asBV write_off = FixedStore
+            | Just{} <- BV.asUnsigned <$> asBV read_off = FixedLoad
             | otherwise = NeitherFixed
       let rngLd
             -- if the size of the data is bounded, use symbolicRangeLoad
@@ -645,19 +646,19 @@ readMemInvalidate ::
   (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
   ReadMem sym (PartLLVMVal sym)
 readMemInvalidate sym w end (LLVMPointer blk off) tp d msg sz readPrev =
-  do let ld = asUnsignedBV off
-     let dd = asUnsignedBV d
+  do let ld = BV.asUnsigned <$> asBV off
+     let dd = BV.asUnsigned <$> asBV d
      let varFn = ExprEnv off d (Just sz)
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
          do let subFn :: RangeLoad Addr Addr -> ReadMem sym (PartLLVMVal sym)
                 subFn (OutOfRange o tp') = do
-                  o' <- liftIO $ bvLit sym w (bytesToInteger o)
+                  o' <- liftIO $ bvLit sym w (bytesToBV w o)
                   readPrev tp' (LLVMPointer blk o')
                 subFn (InRange _o _tp') =
                   pure . Partial.partErr $ Partial.Invalidated msg
-            case asUnsignedBV sz of
+            case BV.asUnsigned <$> asBV sz of
               Just csz -> do
                 let s = R (fromInteger so) (fromInteger (so + csz))
                 let vcr = rangeLoad (fromInteger lo) tp s
@@ -675,7 +676,7 @@ readMemInvalidate sym w end (LLVMPointer blk off) tp d msg sz readPrev =
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
-            let mux0 | Just csz <- asUnsignedBV sz =
+            let mux0 | Just csz <- BV.asUnsigned <$> asBV sz =
                          fixedSizeRangeLoad pref tp (fromInteger csz)
                      | otherwise =
                          symbolicRangeLoad pref tp
@@ -691,7 +692,7 @@ readMem :: forall sym w.
   Mem sym ->
   IO (PartLLVMVal sym)
 readMem sym w l tp alignment m = do
-  sz         <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+  sz         <- bvLit sym w (bytesToBV w (typeEnd 0 tp))
   p1         <- isAllocated sym w alignment l (Just sz) m
   p2         <- isAligned sym w l alignment
   maybe_allocation_array <- asMemAllocationArrayStore sym w l m
@@ -705,7 +706,7 @@ readMem sym w l tp alignment m = do
           loadArrayByteFn off = do
             blk0 <- natLit sym 0
             idx <- bvAdd sym (llvmPointerOffset l)
-              =<< bvLit sym w (bytesToInteger off)
+              =<< bvLit sym w (bytesToBV w off)
             byte <- arrayLookup sym arr $ Ctx.singleton idx
             return $ Partial.totalLLVMVal sym $ LLVMValInt blk0 byte
       genValueCtor sym (memEndianForm m)
@@ -1126,13 +1127,13 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
       case sz of
         Nothing ->
           -- Unbounded access of an unbounded allocation must start at offset 0.
-          bvEq sym off =<< bvLit sym w 0
+          bvEq sym off =<< bvLit sym w (BV.zero w)
         Just currSize ->
           -- Bounded access of an unbounded allocation requires that
           -- @offset + size <= 2^w@, or equivalently @offset <= 2^w -
           -- size@. Note that @bvNeg sym size@ computes @2^w - size@
           -- for any nonzero @size@.
-          do zeroSize <- bvEq sym currSize =<< bvLit sym w 0
+          do zeroSize <- bvEq sym currSize =<< bvLit sym w (BV.zero w)
              noWrap <- bvUle sym off =<< bvNeg sym currSize
              orPred sym zeroSize noWrap
 
@@ -1253,7 +1254,7 @@ isAligned sym w (LLVMPointer _blk offset) a
   , Just LeqProof <- isPosNat bits
   , Just LeqProof <- testLeq bits w =
     do lowbits <- bvSelect sym (knownNat :: NatRepr 0) bits offset
-       bvEq sym lowbits =<< bvLit sym bits 0
+       bvEq sym lowbits =<< bvLit sym bits (BV.zero bits)
 isAligned sym _ _ _ =
   return (falsePred sym)
 
@@ -1384,7 +1385,7 @@ writeMemWithAllocationCheck is_allocated sym w ptr tp alignment val mem = do
               LLVMValInt _ byte
                 | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
                   idx <- bvAdd sym (llvmPointerOffset ptr)
-                    =<< bvLit sym w (bytesToInteger off)
+                    =<< bvLit sym w (bytesToBV w off)
                   arrayUpdate sym acc_arr (Ctx.singleton idx) byte
               _ -> return acc_arr
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
@@ -1497,9 +1498,9 @@ allocAndWriteMem ::
   LLVMVal sym {- ^ Value to write -}          ->
   Mem sym -> IO (Mem sym)
 allocAndWriteMem sym w a b tp alignment mut loc v m =
-  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+  do sz <- bvLit sym w (bytesToBV w (typeEnd 0 tp))
      base <- natLit sym b
-     off <- bvLit sym w 0
+     off <- bvLit sym w (BV.zero w)
      let p = LLVMPointer base off
      return (m & memAddAlloc (Alloc a b (Just sz) mut alignment loc)
                & memAddWrite p (MemStore v tp alignment))
@@ -1549,7 +1550,7 @@ freeMem :: forall sym w .
   Mem sym ->
   IO (Mem sym, Pred sym, Pred sym)
 freeMem sym w (LLVMPointer blk off) m =
-  do p1 <- bvEq sym off =<< bvLit sym w 0
+  do p1 <- bvEq sym off =<< bvLit sym w (BV.zero w)
      p2 <- isHeapAllocated (return (falsePred sym)) (memAllocs m)
      return (memAddAlloc (MemFree blk) m, p1, p2)
   where
@@ -1668,7 +1669,7 @@ asMemAllocationArrayStore ::
 asMemAllocationArrayStore sym w ptr mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
   , [SomeAlloc _ _ (Just sz_bv) _ _ _] <- List.nub (possibleAllocs blk_no mem)
-  , Just sz <- asUnsignedBV sz_bv = do
+  , Just sz <- BV.asUnsigned <$> asBV sz_bv = do
     let findArrayStore ::
           [MemWrite sym] ->
           IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
@@ -1678,7 +1679,7 @@ asMemAllocationArrayStore sym w ptr mem
               | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
               , blk_no == write_blk_no
               , MemArrayStore arr (Just arr_store_sz_bv) <- write_source
-              , Just arr_store_sz <- asUnsignedBV arr_store_sz_bv
+              , Just arr_store_sz <- BV.asUnsigned <$> asBV arr_store_sz_bv
               , sz == arr_store_sz
               , Just Refl <- testEquality w (ptrWidth write_ptr) ->
                 return $ Just arr

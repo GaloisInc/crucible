@@ -54,6 +54,7 @@ import           Data.Maybe (fromMaybe)
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as LPP
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.NatRepr as NatRepr
 
 import           Lang.Crucible.LLVM.Bytes
@@ -228,7 +229,7 @@ allocLLVMFunPtr sym llvm_ctx mem decl =
   do let symbol@(L.Symbol sym_str) = L.decName decl
      let funAliases = llvmFunctionAliases llvm_ctx
      let aliases = map L.aliasName $ maybe [] Set.toList $ Map.lookup symbol funAliases
-     z <- bvLit sym ?ptrWidth 0
+     z <- bvLit sym ?ptrWidth (BV.zero ?ptrWidth)
      (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Immutable sym_str mem z noAlignment
      return $ registerGlobal mem' (symbol:aliases) ptr
 

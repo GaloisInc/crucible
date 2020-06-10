@@ -25,6 +25,7 @@ module Lang.Crucible.Backend.SAWCore where
 import           Control.Exception ( bracket )
 import           Control.Lens
 import           Control.Monad
+import qualified Data.BitVector.Sized as BV
 import           Data.IORef
 import           Data.List (elemIndex)
 import           Data.List.NonEmpty (NonEmpty(..))
@@ -282,8 +283,8 @@ scIntLit sc i
 scNatLit :: SC.SharedContext -> Natural -> IO (SAWExpr BaseNatType)
 scNatLit sc n = SAWExpr <$> SC.scNat sc n
 
-scBvLit :: SC.SharedContext -> NatRepr w -> Integer -> IO (SAWExpr (BaseBVType w))
-scBvLit sc w x = SAWExpr <$> SC.scBvConst sc (natValue w) x
+scBvLit :: SC.SharedContext -> NatRepr w -> BV.BV w -> IO (SAWExpr (BaseBVType w))
+scBvLit sc w bv = SAWExpr <$> SC.scBvConst sc (natValue w) (BV.asUnsigned bv)
 
 
 scRealCmpop ::
@@ -765,11 +766,11 @@ evaluateExpr sym sc cache = f []
              B.SemiRingBVRepr B.BVArithRepr w ->
                do n <- SC.scNat sc (natValue w)
                   pd' <- WSum.prodEvalM (SC.scBvMul sc n) (f env) pd
-                  maybe (scBvLit sc w 1) (return . SAWExpr) pd'
+                  maybe (scBvLit sc w (BV.one w)) (return . SAWExpr) pd'
              B.SemiRingBVRepr B.BVBitsRepr w ->
                do n <- SC.scNat sc (natValue w)
                   pd' <- WSum.prodEvalM (SC.scBvAnd sc n) (f env) pd
-                  maybe (scBvLit sc w (maxUnsigned w)) (return . SAWExpr) pd'
+                  maybe (scBvLit sc w (BV.maxUnsigned w)) (return . SAWExpr) pd'
 
         B.SemiRingSum ss ->
           case WSum.sumRepr ss of
@@ -786,14 +787,14 @@ evaluateExpr sym sc cache = f []
                      smul 1  e = eval env e
                      smul sm e = join $ scMulNat sc <$> scNatLit sc sm <*> eval env e
             B.SemiRingBVRepr B.BVArithRepr w -> WSum.evalM add smul (scBvLit sc w) ss
-               where add x y   = scBvAdd sc w x y
-                     smul 1  e = eval env e
-                     smul sm e = join (scBvMul sc w <$> scBvLit sc w sm <*> eval env e)
+               where add x y          = scBvAdd sc w x y
+                     smul (BV.BV 1) e = eval env e
+                     smul sm e        = join (scBvMul sc w <$> scBvLit sc w sm <*> eval env e)
             B.SemiRingBVRepr B.BVBitsRepr w
-               | ss^.WSum.sumOffset == one -> scBvNot sc w =<< bitwise_eval (ss & WSum.sumOffset .~ 0)
+               | ss^.WSum.sumOffset == one -> scBvNot sc w =<< bitwise_eval (ss & WSum.sumOffset .~ BV.zero w)
                | otherwise -> bitwise_eval ss
 
-              where one = maxUnsigned w
+              where one = BV.maxUnsigned w
                     bitwise_eval = WSum.evalM add smul (scBvLit sc w)
                     add x y = scBvXor sc w x y
                     smul sm e
@@ -806,7 +807,7 @@ evaluateExpr sym sc cache = f []
           do n <- SC.scNat sc (natValue w)
              bs' <- traverse (f env) (B.bvOrToList bs)
              case bs' of
-               [] -> scBvLit sc w 0
+               [] -> scBvLit sc w (BV.zero w)
                x:xs -> SAWExpr <$> foldM (SC.scBvOr sc n) x xs
 
         B.BVFill w p ->

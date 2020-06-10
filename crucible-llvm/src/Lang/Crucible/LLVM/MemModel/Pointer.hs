@@ -74,6 +74,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           GHC.TypeLits (TypeError, ErrorMessage(..))
 import           GHC.TypeNats
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
@@ -148,7 +149,7 @@ llvmPointer_bv sym bv =
 
 -- | Produce the distinguished null pointer value.
 mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (LLVMPtr sym w)
-mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w 0
+mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w (BV.zero w)
 
 -- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
@@ -181,7 +182,7 @@ instance TestEquality FloatSize where
 
 -- | Generate a concrete offset value from an @Addr@ value.
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
-constOffset sym w x = bvLit sym w (G.bytesToInteger x)
+constOffset sym w x = bvLit sym w (G.bytesToBV w x)
 
 -- | Test whether two pointers are equal.
 ptrEq :: (1 <= w, IsSymInterface sym)
@@ -258,9 +259,9 @@ ptrIsNull :: (1 <= w, IsSymInterface sym)
           -> NatRepr w
           -> LLVMPtr sym w
           -> IO (Pred sym)
-ptrIsNull sym _w (LLVMPointer blk off) =
+ptrIsNull sym w (LLVMPointer blk off) =
   do pblk <- natEq sym blk =<< natLit sym 0
-     poff <- bvEq sym off =<< bvLit sym (bvWidth off) 0
+     poff <- bvEq sym off =<< bvLit sym (bvWidth off) (BV.zero w)
      andPred sym pblk poff
 
 

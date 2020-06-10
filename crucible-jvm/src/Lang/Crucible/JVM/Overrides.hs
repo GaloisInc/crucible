@@ -60,6 +60,9 @@ import System.IO
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
 
+-- bv-sized
+import qualified Data.BitVector.Sized as BV
+
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
@@ -290,7 +293,7 @@ gc_override =
 --
 -- Concrete values: if the result of static simulation is a unique, concrete value
 -- figure out what it is.
--- Essentially, this is a generalization of the `W4.asInteger`, `W4.asSignedBV`
+-- Essentially, this is a generalization of the `W4.asInteger`, `W4.asBV`
 -- etc. operations.
 --
 
@@ -401,8 +404,8 @@ instance Concretize JVMValueType where
     (Ctx.Empty
       `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> floatAsRational x))
       `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> floatAsRational x))
-      `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> W4.asSignedBV x))
-      `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> W4.asSignedBV x))
+      `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> BV.asSigned knownRepr <$> W4.asBV x))
+      `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> BV.asSigned knownRepr <$> W4.asBV x))
       `Ctx.extend` Dispatch (\x -> do mb <- concretize @JVMRefType (C.RV x)
                                       return (CRef <$> mb)))
 
@@ -440,7 +443,7 @@ instance Concretize JVMInstanceType where
 instance Concretize JVMInitStatusType where
   type Concrete JVMInitStatusType = CInitStatus
   concretize (C.RV x) = do
-    return $ case W4.asUnsignedBV x of
+    return $ case BV.asUnsigned <$> W4.asBV x of
       Just 0 -> Just CNotStarted
       Just 1 -> Just CStarted
       Just 2 -> Just CInitialized
@@ -496,7 +499,7 @@ variantCase variant cases =
 -- | Print out an integer represented value (if it is concrete)
 -- Needs access to the original Java type
 showInt :: (W4.IsExpr e, 1 <= w) => J.Type -> e (BaseBVType w) -> String
-showInt jty e = case W4.asSignedBV e of
+showInt jty e = case BV.asSigned (W4.bvWidth e) <$> W4.asBV e of
               Just i  -> case jty of
                 J.IntType -> show i
                 J.CharType -> [chr (fromInteger i)]
@@ -677,7 +680,7 @@ isArray_override =
                   \sym args -> do
                     let reg :: W4.PartExpr (W4.Pred sym) (C.MuxTree sym (RefCell JVMObjectType))
                         reg = C.regValue (Ctx.last args)
-                    bvFalse <- liftIO $ return $ W4.bvLit sym knownRepr 0
+                    bvFalse <- liftIO $ return $ W4.bvLit sym knownRepr (BV.zero knownRepr)
 {-
                     let k :: RefCell JVMObjectType -> IO (W4.SymBV sym 32)
                         k = undefined
