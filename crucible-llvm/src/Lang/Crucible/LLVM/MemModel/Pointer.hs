@@ -127,9 +127,6 @@ llvmPointerView (LLVMPointer blk off) = (blk, off)
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
 ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
-instance IsExprBuilder sym => TestEquality (LLVMPointer sym) where
-  testEquality ptr1 ptr2 = testEquality (ptrWidth ptr1) (ptrWidth ptr2)
-
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
 projectLLVM_bv ::
   IsSymInterface sym => sym -> LLVMPtr sym w -> IO (SymBV sym w)
@@ -286,7 +283,7 @@ isGlobalPointer :: forall sym w. (IsSymInterface sym, 1 <= w)
 isGlobalPointer sym globalMap needle =
   let fun :: L.Symbol -> SomePointer sym -> IO (Maybe L.Symbol)
       fun symb (SomePointer ptr)
-        | Just Refl <- testEquality ptr needle -- do they have the same width?
+        | Just Refl <- testEquality (ptrWidth ptr) (ptrWidth needle)
         = ptrEq sym (ptrWidth ptr) ptr needle <&> \equalityPredicate ->
             case asConstantPred equalityPredicate of
               Just True  -> Just symb
