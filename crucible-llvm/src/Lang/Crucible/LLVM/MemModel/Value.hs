@@ -272,7 +272,7 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
     Double   -> LLVMValFloat DoubleSize <$> iFloatPZero sym DoubleFloatRepr
     X86_FP80 -> LLVMValFloat X86_FP80Size <$> iFloatPZero sym X86_80FloatRepr
     Array n ty
-      | toInteger n < toInteger (maxBound :: Int) ->
+      | toInteger n <= toInteger (maxBound :: Int) ->
         LLVMValArray ty . V.replicate (fromIntegral n :: Int) <$>
           zeroExpandLLVMVal sym ty
       | otherwise -> panic "zeroExpandLLVMVal" ["Array length too large", show n]
