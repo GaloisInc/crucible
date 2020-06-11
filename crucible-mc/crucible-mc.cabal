@@ -1,10 +1,8 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.34.2.
 --
 -- see: https://github.com/sol/hpack
---
--- hash: dc6fc8eb14f6668dc7c568b9db8b9d6f2858fbb35ae2d3e2e356f8628d7fb390
 
 name:           crucible-mc
 version:        0.1.0.0
@@ -12,7 +10,7 @@ author:         Iavor Diatchki <iavor.diatchki@gmail.com>,
                 Valentin Robert <valentin.robert.42@gmail.com>
 maintainer:     Iavor Diatchki <iavor.diatchki@gmail.com>,
                 Valentin Robert <valentin.robert.42@gmail.com>
-license:        ISC
+license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
 
@@ -32,6 +30,7 @@ library
       Lang.Crucible.ModelChecker.TransitionSystem.InitialState
       Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
       Lang.Crucible.ModelChecker.TransitionSystem.Queries
+      Lang.Crucible.ModelChecker.TransitionSystem.StateCtx
       Lang.Crucible.ModelChecker.TransitionSystem.Transitions
   other-modules:
       Paths_crucible_mc
@@ -40,14 +39,14 @@ library
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   build-depends:
       ansi-wl-pprint
-    , base >=4.13.0.0 && <4.14
+    , base >=4.13 && <4.14
     , containers
     , crucible
     , crucible-llvm
     , crux
     , crux-llvm
     , extra
-    , language-sally
+    , language-sally >=0.2 && <0.3
     , lens
     , llvm-pretty
     , llvm-pretty-bc-parser
@@ -55,6 +54,7 @@ library
     , parameterized-utils
     , pretty
     , what4
+    , what4-transition-system
   default-language: Haskell2010
 
 executable crucible-mc
@@ -66,7 +66,7 @@ executable crucible-mc
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   build-depends:
       ansi-wl-pprint
-    , base >=4.13.0.0 && <4.14
+    , base >=4.13 && <4.14
     , containers
     , crucible
     , crucible-llvm
@@ -74,7 +74,7 @@ executable crucible-mc
     , crux
     , crux-llvm
     , extra
-    , language-sally
+    , language-sally >=0.2 && <0.3
     , lens
     , llvm-pretty
     , llvm-pretty-bc-parser
@@ -82,5 +82,6 @@ executable crucible-mc
     , parameterized-utils
     , pretty
     , what4
+    , what4-transition-system
   default-language: Haskell2010
 

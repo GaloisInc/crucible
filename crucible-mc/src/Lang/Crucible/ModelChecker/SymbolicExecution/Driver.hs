@@ -91,13 +91,12 @@ doDebugExecState llvmCtx execState =
       dumpObligations execState
     when stepManually (void getLine)
 
-data RunBlockReader sym globCtx arch ext blocks ret ctx
-  = RunBlockReader
-      { runBlockBlock :: Core.Block ext blocks ret ctx,
-        runBlockGlobalContext :: Ctx.Assignment (GlobalInfo sym) globCtx,
-        runBlockLLVMContext :: LLVMContext arch,
-        runBlockSym :: sym
-      }
+data RunBlockReader sym globCtx arch ext blocks ret ctx = RunBlockReader
+  { runBlockBlock :: Core.Block ext blocks ret ctx,
+    runBlockGlobalContext :: Ctx.Assignment (GlobalInfo sym) globCtx,
+    runBlockLLVMContext :: LLVMContext arch,
+    runBlockSym :: sym
+  }
 
 getMemory ::
   LLVMContext arch ->

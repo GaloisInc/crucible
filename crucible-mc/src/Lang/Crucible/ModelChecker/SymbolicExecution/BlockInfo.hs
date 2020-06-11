@@ -34,15 +34,14 @@ data BlockEnd sym
   | BlockEndJumps (Core.Some (ResolvedJump sym))
   | BlockEndReturns (Core.Some (RegEntry sym))
 
-data BlockInfo sym (globCtx :: Ctx CrucibleType) (block :: Ctx CrucibleType)
-  = BlockInfo
-      { -- | how this block ends
-        blockInfoEnd :: BlockEnd sym,
-        -- | symbolic value for global variables at the end of the block
-        blockInfoGlobals :: Ctx.Assignment (RegEntry sym) globCtx,
-        blockInfoID :: Natural,
-        -- | assumptions that hold at the **end** of the block
-        blockInfoAssumptions :: [What4.Pred sym],
-        -- | obligations pending at the **end** of the block
-        blockInfoObligations :: [What4.Pred sym]
-      }
+data BlockInfo sym (globCtx :: Ctx CrucibleType) (block :: Ctx CrucibleType) = BlockInfo
+  { -- | how this block ends
+    blockInfoEnd :: BlockEnd sym,
+    -- | symbolic value for global variables at the end of the block
+    blockInfoGlobals :: Ctx.Assignment (RegEntry sym) globCtx,
+    blockInfoID :: Natural,
+    -- | assumptions that hold at the **end** of the block
+    blockInfoAssumptions :: [What4.Pred sym],
+    -- | obligations pending at the **end** of the block
+    blockInfoObligations :: [What4.Pred sym]
+  }

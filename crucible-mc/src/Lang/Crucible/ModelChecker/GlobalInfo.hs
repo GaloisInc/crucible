@@ -17,7 +17,7 @@ module Lang.Crucible.ModelChecker.GlobalInfo
   ( GlobalInfo (..),
     getGlobalInfo,
     globalSymbols,
-    globalSymbolsAsStrings,
+    globalSymbolsAsSolverSymbols,
     globalTypeReprs,
     symbolString,
   )
@@ -33,22 +33,21 @@ import Lang.Crucible.LLVM.MemModel hiding (nextBlock)
 import Lang.Crucible.LLVM.MemType
 import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.TypeContext
+import Lang.Crucible.ModelChecker.SallyWhat4
 import Lang.Crucible.Simulator
 import qualified Text.LLVM as TL
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
-
--- FIXME: try and make GlobalInfo use a BaseType rather than a CrucibleType
+import qualified What4.Interface as What4
 
 -- | @GlobalInfo sym tp@ captures the information we collect about global
 -- variables.  Currently we retain their name @Symbol@, their type @TypeRepr@,
 -- and their initial value @RegValue@.
-data GlobalInfo sym tp
-  = GlobalInfo
-      { globalMemType :: MemType,
-        globalTypeRepr :: Core.TypeRepr tp,
-        globalSymbol :: TL.Symbol,
-        globalRegValue :: RegValue sym tp
-      }
+data GlobalInfo sym tp = GlobalInfo
+  { globalMemType :: MemType,
+    globalTypeRepr :: Core.TypeRepr tp,
+    globalSymbol :: TL.Symbol,
+    globalRegValue :: RegValue sym tp
+  }
 
 instance PP.Pretty (GlobalInfo sym tp) where
   pretty GlobalInfo {..} = PP.text (show globalSymbol) PP.<+> ":" PP.<+> PP.pretty globalTypeRepr PP.<+> ":=" PP.<+> "TODO"
@@ -59,8 +58,8 @@ globalSymbols = fmapFC (Const . globalSymbol)
 symbolString :: TL.Symbol -> String
 symbolString (TL.Symbol s) = s
 
-globalSymbolsAsStrings :: Ctx.Assignment (GlobalInfo sym) ctx -> Ctx.Assignment (Const String) ctx
-globalSymbolsAsStrings = fmapFC (Const . symbolString . globalSymbol)
+globalSymbolsAsSolverSymbols :: Ctx.Assignment (GlobalInfo sym) ctx -> Ctx.Assignment (Const What4.SolverSymbol) ctx
+globalSymbolsAsSolverSymbols = fmapFC (Const . userSymbol' . symbolString . globalSymbol)
 
 globalTypeReprs :: Ctx.Assignment (GlobalInfo sym) ctx -> Ctx.Assignment Core.TypeRepr ctx
 globalTypeReprs = fmapFC globalTypeRepr

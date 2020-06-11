@@ -1,6 +1,14 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module           : Lang.Crucible.ModelChecker.TransitionSystem.Transitions
@@ -31,31 +39,39 @@ import Lang.Crucible.ModelChecker.NamingConventions
 import Lang.Crucible.ModelChecker.SallyWhat4
 import Lang.Crucible.ModelChecker.SymbolicExecution.BlockInfo
 import Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
+import Lang.Crucible.ModelChecker.TransitionSystem.StateCtx
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Types
 import qualified What4.Interface as What4
+import Prelude hiding (init)
 
-data TransitionSystemReader sym globCtx stateFields
-  = TransitionSystemReader
-      { tsCurrentBlock :: What4.SymNat sym,
-        tsCurrentHasReturned :: What4.Pred sym,
-        tsCurrentState :: What4.SymStruct sym stateFields,
-        tsGlobalInfos :: Ctx.Assignment (GlobalInfo sym) globCtx,
-        -- | @tsNamespacer@ is a function that can manipulate any expression to
-        -- add a given namespace to all variables, turning variables @v@ into
-        -- either @state.v@ or @next.v@ depending on which namespace is passed.
-        -- It will always be equal to @addNamespaceToVariables@ in practice, but
-        -- abstracting it like this allows us to make all type signatures be in
-        -- terms of an abstracted @sym@ rather than the verbose concrete
-        -- expression type.
-        tsNamespacer :: Namespacer sym stateFields,
-        tsNextBlock :: What4.SymNat sym,
-        tsNextHasReturned :: What4.Pred sym,
-        tsNextState :: What4.SymStruct sym stateFields,
-        tsStateFieldsRepr :: Ctx.Assignment BaseTypeRepr stateFields,
-        tsSym :: sym
-      }
+data TransitionSystemReader sym blocks globCtx init = TransitionSystemReader
+  { -- | @tsBlockSizes@ retains the size of every block, so that we can
+    -- adjust indices scoping over just the global context into indices
+    -- scoping over the aggregate @StateCtx@
+    tsBlockSizes :: Ctx.Assignment Ctx.Size blocks,
+    -- | @tsInitSize@ retains the size of the initial data, as we don't
+    -- retain any other assignment we could retrieve it from
+    tsInitSize :: Ctx.Size init,
+    tsCurrentBlock :: What4.SymNat sym,
+    tsCurrentHasReturned :: What4.Pred sym,
+    tsCurrentState :: What4.SymStruct sym (StateCtx blocks globCtx init),
+    tsGlobalInfos :: Ctx.Assignment (GlobalInfo sym) globCtx,
+    -- | @tsNamespacer@ is a function that can manipulate any expression to
+    -- add a given namespace to all variables, turning variables @v@ into
+    -- either @state.v@ or @next.v@ depending on which namespace is passed.
+    -- It will always be equal to @addNamespaceToVariables@ in practice, but
+    -- abstracting it like this allows us to make all type signatures be in
+    -- terms of an abstracted @sym@ rather than the verbose concrete
+    -- expression type.
+    tsNamespacer :: Namespacer sym (StateCtx blocks globCtx init),
+    tsNextBlock :: What4.SymNat sym,
+    tsNextHasReturned :: What4.Pred sym,
+    tsNextState :: What4.SymStruct sym (StateCtx blocks globCtx init),
+    tsStateRepr :: Ctx.Assignment BaseTypeRepr (StateCtx blocks globCtx init),
+    tsSym :: sym
+  }
 
 regEntryExpr ::
   Backend.IsSymInterface sym =>
@@ -73,8 +89,8 @@ regEntryExpr (RegEntry {..}) =
 nextArgPred ::
   Backend.IsSymInterface sym =>
   MonadIO m =>
-  MonadReader (TransitionSystemReader sym globCtx stateFields) m =>
-  Core.BlockID blocks tp ->
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
+  Core.BlockID blocks' tp ->
   Ctx.Index block arg ->
   RegEntry sym arg ->
   m (Const (What4.Pred sym) arg)
@@ -86,7 +102,7 @@ nextArgPred blockID idx regEntry@(RegEntry {..}) =
     sym <- asks tsSym
     liftIO $ do
       let varName = blockArgumentName blockID idx
-      argVar <- What4.freshConstant sym (userSymbol' varName) (asBaseTypeRepr regType)
+      argVar <- What4.freshConstant sym varName (asBaseTypeRepr regType)
       arg <- runNamespacer namespacer next argVar
       argValue <- runNamespacer namespacer state =<< regEntryExpr regEntry
       Const <$> What4.isEq sym arg argValue
@@ -94,8 +110,8 @@ nextArgPred blockID idx regEntry@(RegEntry {..}) =
 nextArgsPred ::
   Backend.IsSymInterface sym =>
   MonadIO m =>
-  MonadReader (TransitionSystemReader sym globCtx stateFields) m =>
-  Core.BlockID blocks tp ->
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
+  Core.BlockID blocks' tp ->
   RegMap sym block ->
   m (What4.Pred sym)
 nextArgsPred blockID rm =
@@ -111,7 +127,7 @@ nextArgsPred blockID rm =
 makeBlockEndPred ::
   Backend.IsSymInterface sym =>
   MonadIO m =>
-  MonadReader (TransitionSystemReader sym globCtx stateFields) m =>
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
   BlockEnd sym ->
   m (What4.Pred sym)
 makeBlockEndPred BlockEndAborts =
@@ -157,22 +173,28 @@ makeBlockEndPred (BlockEndReturns (Core.Some _regEntry)) =
   asks tsNextHasReturned -- FIXME: set return value?
 
 makeGlobalPred ::
+  forall sym m blocks globCtx init tp.
   Backend.IsSymInterface sym =>
   MonadIO m =>
-  MonadReader (TransitionSystemReader sym globCtx stateFields) m =>
-  GlobalInfo sym tp ->
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
+  Ctx.Index globCtx tp ->
   RegEntry sym tp ->
   m (Const (What4.Pred sym) tp)
-makeGlobalPred (GlobalInfo {..}) regEntry@(RegEntry {..}) =
+makeGlobalPred ndx regEntry =
   do
     namespacer <- asks tsNamespacer
-    next <- asks tsNextState
+    next :: What4.SymStruct sym (StateCtx blocks globCtx init) <- asks tsNextState
     state <- asks tsCurrentState
-    stateFieldsRepr <- asks tsStateFieldsRepr
+    -- stateFieldsRepr <- asks tsStateCtxRepr
     sym <- asks tsSym
+    ndx' <-
+      globalIndexToStateIndex
+        <$> asks tsBlockSizes
+        <*> (Ctx.size <$> asks tsGlobalInfos)
+        <*> asks tsInitSize
+        <*> pure ndx
     liftIO $ do
-      let accessGlobal = fieldAccess sym stateFieldsRepr (symbolString globalSymbol) (asBaseTypeRepr regType)
-      globalNext <- accessGlobal next
+      globalNext <- What4.structField sym next ndx'
       -- the expression we have is not namespaced, it scopes over the current state
       nextValue <- runNamespacer namespacer state =<< regEntryExpr regEntry
       globalPred <- What4.isEq sym globalNext nextValue
@@ -181,22 +203,21 @@ makeGlobalPred (GlobalInfo {..}) regEntry@(RegEntry {..}) =
 makeGlobalsPred ::
   Backend.IsSymInterface sym =>
   MonadIO m =>
-  MonadReader (TransitionSystemReader sym globCtx stateFields) m =>
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
   Ctx.Assignment (RegEntry sym) globCtx ->
   m (What4.Pred sym)
 makeGlobalsPred globalValues =
   do
-    globalInfos <- asks tsGlobalInfos
+    globalPreds <- toListFC getConst <$> Ctx.traverseWithIndex makeGlobalPred globalValues
     sym <- asks tsSym
-    globalPreds <- toListFC getConst <$> Ctx.zipWithM makeGlobalPred globalInfos globalValues
     liftIO $ What4.andAllOf sym L.folded globalPreds
 
 stateTransitionForBlock ::
   Backend.IsSymInterface sym =>
   MonadIO m =>
-  MonadReader (TransitionSystemReader sym globCtx stateFields) m =>
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
   BlockInfo sym globCtx block ->
-  m (String, What4.Pred sym)
+  m (What4.SolverSymbol, What4.Pred sym)
 stateTransitionForBlock (BlockInfo {..}) =
   do
     currentBlock <- asks tsCurrentBlock
@@ -233,39 +254,59 @@ stateTransitionForBlock (BlockInfo {..}) =
               -- this predicate describes how global variables change
               blockGlobalsPred
             ]
-      return ("Transition_for_block_" ++ show blockInfoID, transition)
+      return (userSymbol' ("Transition_for_block_" ++ show blockInfoID), transition)
 
--- | @makeStateTransitions@ builds the actual transitions of the transition
--- system based on information about the basic blocks and transitions across them.
-makeStateTransitions ::
+makeStateTransition ::
+  stateFields ~ StateCtx blocks globCtx init =>
   Backend.IsSymInterface sym =>
   sym ->
   Namespacer sym stateFields ->
   Ctx.Assignment BaseTypeRepr stateFields ->
+  Ctx.Assignment Ctx.Size blocks ->
+  Ctx.Assignment (GlobalInfo sym) globCtx ->
+  Ctx.Size init ->
+  What4.SymStruct sym stateFields ->
+  What4.SymStruct sym stateFields ->
+  BlockInfo sym globCtx block ->
+  IO (What4.SolverSymbol, What4.Pred sym)
+makeStateTransition sym namespacer stateFieldsRepr blockSizes globInfos initSize state next blockInfo = do
+  let currentBlockIndex = makeCurrentBlockIndex blockSizes (Ctx.size globInfos) initSize
+  let hasReturnedIndex = makeHasReturnedIndex blockSizes (Ctx.size globInfos) initSize
+  stateBlock <- What4.structField sym state currentBlockIndex
+  nextBlock <- What4.structField sym next currentBlockIndex
+  stateHasReturned <- What4.structField sym state hasReturnedIndex
+  nextHasReturned <- What4.structField sym next hasReturnedIndex
+  let reader =
+        TransitionSystemReader
+          { tsBlockSizes = blockSizes,
+            tsInitSize = initSize,
+            tsCurrentBlock = stateBlock,
+            tsCurrentHasReturned = stateHasReturned,
+            tsCurrentState = state,
+            tsGlobalInfos = globInfos,
+            tsNextBlock = nextBlock,
+            tsNextHasReturned = nextHasReturned,
+            tsNextState = next,
+            tsStateRepr = stateFieldsRepr,
+            tsNamespacer = namespacer,
+            tsSym = sym
+          }
+  flip runReaderT reader $ stateTransitionForBlock blockInfo
+
+-- | @makeStateTransitions@ builds the actual transitions of the transition
+-- system based on information about the basic blocks and transitions across them.
+makeStateTransitions ::
+  stateFields ~ StateCtx blocks globCtx init =>
+  Backend.IsSymInterface sym =>
+  sym ->
+  Namespacer sym stateFields ->
+  Ctx.Assignment BaseTypeRepr stateFields ->
+  Ctx.Assignment Ctx.Size blocks ->
   Ctx.Assignment (BlockInfo sym globCtx) blocks ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
+  Ctx.Size init ->
   What4.SymStruct sym stateFields ->
   What4.SymStruct sym stateFields ->
-  IO [(String, What4.Pred sym)]
-makeStateTransitions sym namespacer stateFieldsRepr blockInfos globInfos state next =
-  do
-    let accessCurrentBlock = fieldAccess sym stateFieldsRepr currentBlockVariable BaseNatRepr
-    stateBlock <- accessCurrentBlock state
-    nextBlock <- accessCurrentBlock next
-    let accessHasReturned = fieldAccess sym stateFieldsRepr hasReturnedVariable BaseBoolRepr
-    stateHasReturned <- accessHasReturned state
-    nextHasReturned <- accessHasReturned next
-    let reader =
-          TransitionSystemReader
-            { tsCurrentBlock = stateBlock,
-              tsCurrentHasReturned = stateHasReturned,
-              tsCurrentState = state,
-              tsGlobalInfos = globInfos,
-              tsNextBlock = nextBlock,
-              tsNextHasReturned = nextHasReturned,
-              tsNextState = next,
-              tsStateFieldsRepr = stateFieldsRepr,
-              tsNamespacer = namespacer,
-              tsSym = sym
-            }
-    flip runReaderT reader $ sequenceA $ toListFC stateTransitionForBlock blockInfos
+  IO [(What4.SolverSymbol, What4.Pred sym)]
+makeStateTransitions sym namespacer stateFieldsRepr blockSizes blockInfos globInfos initSize state next =
+  sequence $ toListFC (makeStateTransition sym namespacer stateFieldsRepr blockSizes globInfos initSize state next) blockInfos

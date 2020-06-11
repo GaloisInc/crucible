@@ -40,7 +40,6 @@ import Lang.Crucible.ModelChecker.SallyWhat4
 import Lang.Crucible.Simulator
 import qualified Text.LLVM as TL
 import qualified What4.Interface as What4
-import What4.Interface
 
 freshGlobals ::
   (?lc :: TypeContext) =>
@@ -99,10 +98,10 @@ freshRegValue ::
 freshRegValue sym argName argTypeRepr =
   case argTypeRepr of
     (asBaseType -> AsBaseType bt) ->
-      liftIO $ freshConstant sym (userSymbol' argName) bt
+      liftIO $ What4.freshConstant sym (userSymbol' argName) bt
     (LLVMPointerRepr w) ->
       do
-        freshBV <- freshBoundedBV sym (userSymbol' argName) w Nothing Nothing
+        freshBV <- What4.freshBoundedBV sym (userSymbol' argName) w Nothing Nothing
         llvmPointer_bv sym freshBV
     _ -> error $ "freshRegValue: unhandled repr " ++ show argTypeRepr
 
@@ -121,11 +120,11 @@ freshRegMap ::
   forall sym ctx.
   Backend.IsSymInterface sym =>
   sym ->
-  Ctx.Assignment (Const String) ctx ->
+  Ctx.Assignment (Const What4.SolverSymbol) ctx ->
   CtxRepr ctx ->
   IO (RegMap sym ctx)
 freshRegMap sym nameCtx typeCtx =
   RegMap
     <$> traverseFC
-      (\(Pair (Const argName) argTypeRepr) -> freshRegEntry sym argName argTypeRepr)
+      (\(Pair (Const argName) argTypeRepr) -> freshRegEntry sym (show argName) argTypeRepr)
       (Ctx.zipWith Pair nameCtx typeCtx)

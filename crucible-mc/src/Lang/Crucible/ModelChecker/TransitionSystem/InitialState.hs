@@ -42,7 +42,7 @@ initialStateGlobal sym (GlobalInfo {..}) =
         let TL.Symbol globalName = globalSymbol
         v <- What4.freshBoundedBV sym (userSymbol' globalName) w Nothing Nothing
         What4.bvEq sym v bv
-    _ -> error "TODO"
+    _ -> error "initialStateGlobal: encountered a global variable that was not an LLVM pointer, please report to the maintainers."
 
 makeInitialState ::
   Backend.IsSymInterface sym =>

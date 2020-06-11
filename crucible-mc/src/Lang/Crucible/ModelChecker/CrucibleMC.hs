@@ -41,8 +41,8 @@ import Lang.Crucible.ModelChecker.SymbolicExecution.Driver
 import Lang.Crucible.ModelChecker.TransitionSystem.Builder
 import Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
 import Lang.Crucible.Simulator (fnBindingsFromList, initSimContext)
+import Language.Sally
 import System.IO (stdout)
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import What4.Expr.Builder (Flags, FloatIEEE)
 import What4.Protocol.Online (OnlineSolver)
 import qualified What4.TransitionSystem as TS
@@ -90,7 +90,7 @@ runCrucibleMC sym llvmModule hAlloc moduleTranslation functionToSimulate =
         -- This bit pushes a frame before running any block.  This is incorrect, as,
         -- in particular, the first block will now push its frame on top of the
         -- pre-existing frame, but this analysis does not care about such frames.
-        return $ mem1 {memImplHeap = pushStackFrameMem (memImplHeap mem1)} -- test
+        return $ mem1 {memImplHeap = pushStackFrameMem (memImplHeap mem1)}
     let globSt = llvmGlobals llvmCtxt mem
     let simCtx =
           initSimContext
@@ -116,5 +116,7 @@ runCrucibleMC sym llvmModule hAlloc moduleTranslation functionToSimulate =
           let ?lc = L.view llvmTypeCtx llvmCtx
           blockInfos <- analyzeBlocks llvmModule moduleTranslation cfg llvmCtx simCtx globSt globInfos
           ts <- makeTransitionSystem sym cfg (sallyNamespacer sym) globInfos blockInfos
-          print . PP.pretty =<< TS.transitionSystemToSally sym TS.mySallyNames ts
+          sts <- TS.transitionSystemToSally sym TS.mySallyNames ts
+          sexp <- sexpOfSally sym sts
+          print . sexpToDoc $ sexp
           return ()

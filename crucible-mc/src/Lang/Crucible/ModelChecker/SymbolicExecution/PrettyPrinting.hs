@@ -137,6 +137,7 @@ ppExecState (BranchMergeState t _) =
         <+> text (ppBranchTarget t)
     ]
 ppExecState (InitialState {}) = "---[InitialState]"
+
 -- ppResolvedCall :: ResolvedCall p sym ext ret -> Doc
 -- ppResolvedCall (OverrideCall _o f) =
 --   let fnHandle = view overrideHandle f

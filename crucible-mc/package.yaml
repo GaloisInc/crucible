@@ -4,14 +4,14 @@ author:
 
 dependencies:
   - ansi-wl-pprint
-  - base ^>= 4.13.0.0
+  - base ^>= 4.13
   - containers
   - crucible
   - crucible-llvm
   - crux
   - crux-llvm
   - extra
-  - language-sally
+  - language-sally ^>= 0.2
   - lens
   - llvm-pretty
   - llvm-pretty-bc-parser
@@ -19,6 +19,7 @@ dependencies:
   - parameterized-utils
   - pretty
   - what4
+  - what4-transition-system
 
 executables:
   crucible-mc:
@@ -49,10 +50,11 @@ library:
     - Lang.Crucible.ModelChecker.TransitionSystem.InitialState
     - Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
     - Lang.Crucible.ModelChecker.TransitionSystem.Queries
+    - Lang.Crucible.ModelChecker.TransitionSystem.StateCtx
     - Lang.Crucible.ModelChecker.TransitionSystem.Transitions
   source-dirs: src
 
-license: ISC
+license: BSD3
 
 name: crucible-mc
 

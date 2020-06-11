@@ -25,12 +25,14 @@ import Data.Functor.Identity (runIdentity)
 import qualified Data.Parameterized.Context as Ctx
 import GHC.Natural
 import qualified Lang.Crucible.CFG.Core as Core
+import Lang.Crucible.ModelChecker.SallyWhat4
 import Lang.Crucible.Types
+import qualified What4.Interface as What4
 
 -- | @currentBlockVariable@ will be used for the name of the variable
 -- representing the current basic block of execution
-currentBlockVariable :: String
-currentBlockVariable = "block__CRUCIBLEMC__"
+currentBlockVariable :: What4.SolverSymbol
+currentBlockVariable = userSymbol' "block__CRUCIBLEMC__"
 
 -- | @returnValueVariable@ will be used for the name of the variable
 -- representing the return value of the entire program
@@ -40,8 +42,8 @@ currentBlockVariable = "block__CRUCIBLEMC__"
 -- | @hasReturnedVariable@ will be used to indicate when the original program is
 -- considered to have returned, so as to condition when the final result
 -- equation is meant to hold
-hasReturnedVariable :: String
-hasReturnedVariable = "hasReturned__CRUCIBLEMC__"
+hasReturnedVariable :: What4.SolverSymbol
+hasReturnedVariable = userSymbol' "hasReturned__CRUCIBLEMC__"
 
 natOfBlockID :: Core.BlockID ctx tp -> Natural
 natOfBlockID = intToNatural . Ctx.indexVal . Core.blockIDIndex
@@ -50,22 +52,22 @@ natOfBlockID = intToNatural . Ctx.indexVal . Core.blockIDIndex
 blockArgumentName ::
   Core.BlockID ctx tp ->
   -- we actually don't care that the index comes from the same context
-  forall ctx' (tp' :: CrucibleType). Ctx.Index ctx' tp' -> String
+  forall ctx' (tp' :: CrucibleType). Ctx.Index ctx' tp' -> What4.SolverSymbol
 blockArgumentName blockID idx =
-  "block_" ++ show (natOfBlockID blockID) ++ "_argument_" ++ Core.showF idx
+  userSymbol' ("block_" ++ show (natOfBlockID blockID) ++ "_argument_" ++ Core.showF idx)
 
 -- | @functionArgumentName@ is the naming convention for the arguments of a given function
 -- FIXME: pass the function name and use it?
 functionArgumentName ::
-  forall ctx (tp :: CrucibleType). Ctx.Index ctx tp -> String
+  forall ctx (tp :: CrucibleType). Ctx.Index ctx tp -> What4.SolverSymbol
 functionArgumentName idx =
-  "function_argument_" ++ Core.showF idx
+  userSymbol' ("function_argument_" ++ Core.showF idx)
 
 -- | @namesForContext@ takes as input a naming convention for some elements of
 -- an assignment, and returns the corresponding assignment of names
 namesForContext ::
-  (forall tp. Ctx.Index ctx tp -> String) ->
+  (forall tp. Ctx.Index ctx tp -> What4.SolverSymbol) ->
   Ctx.Assignment TypeRepr ctx ->
-  Ctx.Assignment (Const String) ctx
+  Ctx.Assignment (Const What4.SolverSymbol) ctx
 namesForContext nameForIndex =
   runIdentity . Ctx.traverseWithIndex (\index _ -> pure (Const (nameForIndex index)))
