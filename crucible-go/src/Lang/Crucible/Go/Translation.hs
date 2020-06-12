@@ -132,6 +132,7 @@ bindParams plist f =
                                                                  void $ declareVar pname (Gen.AtomExpr (Ctx.last a)) t))
   in case plist of
     NamedParameterList _ params mspread -> go (params ++ maybeToList mspread) f
+    AnonymousParameterList _ [] Nothing -> go [] f
     AnonymousParameterList _ _ _ -> error "Unexpected anonymous parameter list in a function definition"
 
 -- | State of translation: the user state part of the Generator monad used here.
@@ -269,6 +270,7 @@ translateStatement s retCtxRepr = case s of
   AssignStmt _ lhs Assignment rhs
     | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs)
     | otherwise -> error "Mismatched assignment expression lengths"
+  ReturnStmt _ [] -> error $ "translateStatement error: no return value (functions with no return type are not supported): " ++ show s
   ReturnStmt _ [e] ->
     withTranslatedExpression e $ \_ e' ->
       case e' of

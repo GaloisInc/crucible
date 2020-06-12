@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# Language ImplicitParams #-}
+{-# Language PartialTypeSignatures #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -131,6 +132,7 @@ simulateGo copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
 
    -- Set up initial crucible execution state
    initSt <- setupCrucibleGoCrux f verbosity sym Crux.emptyModel regmap
+     -- :: IO (ExecState _ _ Go (RegEntry _ (BVType 32)))
 
    return $ Crux.RunnableState $ initSt
 
