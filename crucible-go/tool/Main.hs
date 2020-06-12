@@ -120,20 +120,17 @@ simulateGo copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
    file <- case files of
-             [file] -> return file
+             [f] -> return f
              _ -> fail "crux-go requires a single file name as an argument"
 
    -- Load the file
-   f <- parseFile file
-   let file = case f of
-         Left msg -> error msg
-         Right file' -> file'
+   f <- either error id <$> parseFile file
 
    -- Initialize arguments to the function
    let regmap = RegMap Ctx.Empty
 
    -- Set up initial crucible execution state
-   initSt <- setupCrucibleGoCrux file verbosity sym Crux.emptyModel regmap
+   initSt <- setupCrucibleGoCrux f verbosity sym Crux.emptyModel regmap
 
    return $ Crux.RunnableState $ initSt
 
