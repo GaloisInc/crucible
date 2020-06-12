@@ -11,8 +11,45 @@ build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
+executable crucible-go
+
+  hs-source-dirs: tool
+  main-is: Main.hs
+
+  build-depends:
+    base >= 4 && < 5,
+    aig,
+    ansi-wl-pprint,
+    array,
+    containers,
+    crucible,
+    directory,
+    filepath,
+    haskeline >= 0.7,
+    lens,
+    mtl >= 2.1,
+    parameterized-utils >= 1.0 && < 2.2,
+    pretty >= 1.1,
+    split >= 0.2,
+    text,
+    transformers >= 0.3,
+    transformers-compat,
+    vector >= 0.7,
+    golang,
+    what4 >= 0.4,
+    crucible-go,
+    ansi-terminal,
+    crux
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
 library
-  exposed-modules:     Lang.Crucible.Go.Translation
+  exposed-modules:     Lang.Crucible.Go.Simulate
+                       Lang.Crucible.Go.Translation
                        Lang.Crucible.Go.Types
   -- other-modules:       
   -- other-extensions:    

@@ -41,6 +41,7 @@ import Text.Printf ( printf )
 -- | (Currently) the entry point of the module: translates one go
 -- function to a Crucible control-flow graph. The parameters are the
 -- same as for the `FunctionDecl` AST constructor.
+-- translateFunction :: (C.IsSyntaxExtension ext, ?machineWordWidth :: Int)
 translateFunction :: (C.IsSyntaxExtension ext, ?machineWordWidth :: Int)
                   => Id SourceRange -- ^ Function name
                   -> ParameterList SourceRange -- ^ Function parameters
@@ -285,10 +286,10 @@ translateStatement s retCtxRepr = case s of
     Gen.defineBlock lbl $ do
       -- NOTE: I'm not sure if this state modification is valid in
       -- the presence of this continuation... will require testing.
-      St.modify' $ \st -> st { explicitLabels = HM.insert labelName lbl (explicitLabels st) }
+      -- St.modify' $ \st -> st { explicitLabels = HM.insert labelName lbl (explicitLabels st) }
       translateStatement stmt retCtxRepr
       Gen.jump exit_label
-    Gen.continue exit_label (Gen.jump lbl)
+    Gen.continue exit_label (Gen.jump lbl)    
   GotoStmt _ (Label _ labelName) -> do
     lbls <- St.gets explicitLabels
     case HM.lookup labelName lbls of
@@ -501,7 +502,8 @@ translateVarSpec s = case s of
 -- 4) Dereference expressions
 withTranslatedExpression :: (C.IsSyntaxExtension ext) =>
                             Expression SourceRange
-                         -> (forall typ . Maybe (Gen.Reg s (ReferenceType typ)) -> Gen.Expr ext s typ -> GoGenerator ext s rctx a)
+                         -> (forall typ . Maybe (Gen.Reg s (ReferenceType typ)) ->
+                              Gen.Expr ext s typ -> GoGenerator ext s rctx a)
                          -> GoGenerator ext s rctx a
 withTranslatedExpression e k = case e of
   IntLit _ i ->
