@@ -1058,6 +1058,7 @@ evaluateExpr sym sc cache = f []
         B.FloatToBinary{} -> floatFail
 
         B.RoundReal{} -> realFail
+        B.RoundEvenReal{} -> realFail
         B.FloorReal{} -> realFail
         B.CeilReal{} -> realFail
         B.RealDiv{} -> realFail
