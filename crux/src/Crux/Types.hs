@@ -1,6 +1,7 @@
 {-# Language DeriveFunctor, RankNTypes, ConstraintKinds, TypeFamilies, ScopedTypeVariables, GADTs #-}
 module Crux.Types where
 
+import qualified Control.Lens as L
 import Data.Sequence (Seq)
 import Data.Parameterized.Map (MapF)
 
@@ -14,16 +15,24 @@ import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator
 import Lang.Crucible.Types
 
+class HasModel personality where
+  personalityModel :: L.Lens' (personality sym) (Model sym)
 
--- | A simulator context 
-type SimCtxt sym p = SimContext (Model sym) sym p
+instance HasModel Model where
+  personalityModel = idLens
+
+idLens :: L.Lens' a a
+idLens f a = fmap id (f a)
+
+-- | A simulator context
+type SimCtxt personality sym p = SimContext (personality sym) sym p
 
 -- | The instance of the override monad we use,
 -- when we don't care about the context of the surrounding function.
-type OverM sym ext a =
+type OverM personality sym ext a =
   forall r args ret.
   OverrideSim
-    (Model sym)
+    (personality sym)
     sym                                    -- the backend
     ext                                      -- the extension
     r
@@ -32,10 +41,10 @@ type OverM sym ext a =
     a
 
 -- | This is the instance of the 'OverrideSim' monad that we use.
-type Fun sym ext args ret =
+type Fun personality sym ext args ret =
   forall r.
   OverrideSim
-    (Model sym)
+    (personality sym)
     sym                                    -- the backend
     ext
     r
@@ -44,8 +53,8 @@ type Fun sym ext args ret =
     (RegValue sym ret)
 
 -- NEW: the result of the simulation function, which hides the 'ext'
-data Result sym where
-  Result :: (ExecResult (Model sym) sym ext (RegEntry sym UnitType)) -> Result sym
+data Result personality sym where
+  Result :: (ExecResult (personality sym) sym ext (RegEntry sym UnitType)) -> Result personality sym
 
 --- From Goal
 
