@@ -34,6 +34,9 @@ import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
 
+-- bv-sized
+import qualified Data.BitVector.Sized as BV
+
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
@@ -184,7 +187,7 @@ staticOverrides className methodKey
   | className == "java/lang/Object" && J.methodKeyName methodKey == "hashCode"
   =  Just $ do
         -- TODO: hashCode always returns 0, can we make it be an "abstract" int?
-        iPush (App $ BVLit knownRepr 0)
+        iPush (App $ BVLit knownRepr (BV.zero knownRepr))
 
   | className == "java/lang/Class" &&
     J.methodKeyName methodKey == "getPrimitiveClass"

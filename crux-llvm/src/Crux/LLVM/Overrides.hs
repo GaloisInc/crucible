@@ -24,14 +24,14 @@ import Control.Monad.IO.Class(liftIO)
 import System.IO (hPutStrLn)
 import qualified Data.Text as T
 
-
+import qualified Data.BitVector.Sized as BV
 import Data.Parameterized.Context.Unsafe (Assignment)
 import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 
 import What4.ProgramLoc( Position(..), ProgramLoc(..) )
 import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
-          (freshConstant, bvLit, bvAdd, asUnsignedBV, predToBV,
+          (freshConstant, bvLit, bvAdd, asBV, predToBV,
           getCurrentProgramLoc, printSymExpr, arrayUpdate, bvIsNonzero)
 import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
@@ -387,7 +387,7 @@ fresh_str mvar sym (Empty :> pName :> maxLen) =
 
      -- Compute the allocation length, which is the requested length plus one
      -- to hold the NUL terminator
-     one <- liftIO $ bvLit sym ?ptrWidth 1
+     one <- liftIO $ bvLit sym ?ptrWidth (BV.one ?ptrWidth)
      -- maxLenBV <- liftIO $ projectLLVM_bv sym (regValue maxLen)
      len <- liftIO $ bvAdd sym (regValue maxLen) one
      mem0 <- readGlobal mvar
@@ -404,7 +404,7 @@ fresh_str mvar sym (Empty :> pName :> maxLen) =
        Right nm -> return nm
      let arrayRep = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
      initContents <- liftIO $ freshConstant sym contentsName arrayRep
-     zeroByte <- liftIO $ bvLit sym (knownNat @8) 0
+     zeroByte <- liftIO $ bvLit sym (knownNat @8) (BV.zero knownNat)
      -- Put the NUL terminator in place
      initContentsZ <- liftIO $ arrayUpdate sym initContents (singleton (regValue maxLen)) zeroByte
      mem2 <- liftIO $ doArrayConstStore sym mem1 ptr noAlignment initContentsZ len
@@ -421,8 +421,8 @@ do_assume ::
 do_assume mvar sym (Empty :> p :> pFile :> line) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
      file <- lookupString mvar pFile
-     l <- case asUnsignedBV (regValue line) of
-            Just l  -> return (fromInteger l)
+     l <- case asBV (regValue line) of
+            Just (BV.BV l)  -> return (fromInteger l)
             Nothing -> return 0
      let pos = SourcePos (T.pack file) l 0
      loc <- liftIO $ getCurrentProgramLoc sym
@@ -439,8 +439,8 @@ do_assert ::
 do_assert mvar sym (Empty :> p :> pFile :> line) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
      file <- lookupString mvar pFile
-     l <- case asUnsignedBV (regValue line) of
-            Just l  -> return (fromInteger l)
+     l <- case asBV (regValue line) of
+            Just (BV.BV l)  -> return (fromInteger l)
             Nothing -> return 0
      let pos = SourcePos (T.pack file) l 0
      loc <- liftIO $ getCurrentProgramLoc sym

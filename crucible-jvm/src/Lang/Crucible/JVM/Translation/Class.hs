@@ -115,6 +115,9 @@ import qualified Data.Text as Text
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
 
+-- bv-sized
+import qualified Data.BitVector.Sized as BV
+
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr as NR
@@ -160,10 +163,10 @@ lookupClassGen cName = do
 
 -- | Initialization status values.
 notStarted, started, initialized, erroneous :: JVMInitStatus f
-notStarted   = App $ BVLit knownRepr 0
-started      = App $ BVLit knownRepr 1
-initialized  = App $ BVLit knownRepr 2
-erroneous    = App $ BVLit knownRepr 3
+notStarted   = App $ BVLit knownRepr (BV.zero knownRepr)
+started      = App $ BVLit knownRepr (BV.one  knownRepr)
+initialized  = App $ BVLit knownRepr (BV.mkBV knownRepr 2)
+erroneous    = App $ BVLit knownRepr (BV.mkBV knownRepr 3)
 
 
 -- | Expression for the class name.
@@ -508,9 +511,9 @@ initialFieldValue f =
      Just (J.Float v) ->
         return (FValue (App (FloatLit v)))
      Just (J.Integer v) ->
-        return (IValue (App (BVLit knownRepr (toInteger v))))
+        return (IValue (App (BVLit knownRepr (BV.int32 v))))
      Just (J.Long v) ->
-        return (LValue (App (BVLit knownRepr (toInteger v))))
+        return (LValue (App (BVLit knownRepr (BV.int64 v))))
      Just (J.String v) ->
         RValue <$> refFromString v
      Nothing ->
@@ -600,14 +603,14 @@ primIndex :: J.Type -> Maybe (JVMInt s)
 primIndex ty =
   (App . BVLit w32) <$>
   case ty of
-    J.BooleanType -> return 0
-    J.ByteType    -> return 1
-    J.CharType    -> return 2
-    J.DoubleType  -> return 3
-    J.FloatType   -> return 4
-    J.IntType     -> return 5
-    J.LongType    -> return 6
-    J.ShortType   -> return 7
+    J.BooleanType -> return (BV.zero w32)
+    J.ByteType    -> return (BV.one  w32)
+    J.CharType    -> return (BV.mkBV w32 2)
+    J.DoubleType  -> return (BV.mkBV w32 3)
+    J.FloatType   -> return (BV.mkBV w32 4)
+    J.IntType     -> return (BV.mkBV w32 5)
+    J.LongType    -> return (BV.mkBV w32 6)
+    J.ShortType   -> return (BV.mkBV w32 7)
     _             -> Nothing
 
 -- | Given a JVM type, generate a runtime value for its representation.
@@ -871,7 +874,7 @@ getJVMInstanceClass obj = do
 -- * String Creation
 
 charLit :: Char -> Expr JVM s JVMValueType
-charLit c = App (InjectVariant knownRepr tagI (App (BVLit w32 (toInteger (fromEnum c)))))
+charLit c = App (InjectVariant knownRepr tagI (App (BVLit w32 (BV.mkBV w32 (toInteger (fromEnum c))))))
 
 -- | Constructor for statically known string objects.
 --
@@ -907,7 +910,7 @@ refFromString s =  do
     obj1
     (J.FieldId "java/lang/String" "hash" J.IntType)
     -- TODO: hash is always 0, should be symbolic
-    (IValue (App (BVLit w32 0)))
+    (IValue (App (BVLit w32 (BV.zero w32))))
 
   rawRef <-  newRef obj2
   let ref = App (JustValue knownRepr rawRef)
@@ -928,7 +931,7 @@ newArray ::
   -> JVMGenerator s ret (JVMObject s)
 newArray count jty@(J.ArrayType elemType) = do
   debug 4 $ "new array of type " ++ show jty
-  let nonneg = App (BVSle w32 (App (BVLit w32 0)) count)
+  let nonneg = App (BVSle w32 (App (BVLit w32 (BV.zero w32))) count)
   assertExpr nonneg "java/lang/NegativeArraySizeException"
   let val = valueToExpr $ defaultValue elemType
   let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
@@ -980,7 +983,7 @@ newarrayFromVec ::
   -> JVMGenerator s ret (JVMObject s)
 newarrayFromVec aty vec = do
   debug 4 $ "new arrayFromVec of type " ++ show aty
-  let count = App $ BVLit w32 (toInteger (V.length vec))
+  let count = App $ BVLit w32 (BV.mkBV w32 (toInteger (V.length vec)))
   ty <- makeJVMTypeRep aty
   let ctx   = Ctx.empty `Ctx.extend` count `Ctx.extend` (App $ VectorLit knownRepr vec) `Ctx.extend` ty
   let arr   = App (MkStruct knownRepr ctx)

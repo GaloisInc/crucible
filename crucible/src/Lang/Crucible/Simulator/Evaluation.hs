@@ -42,6 +42,7 @@ import Control.Monad.Fail( MonadFail )
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import qualified Data.Text as Text
@@ -682,7 +683,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     BVUndef w ->
       freshConstant sym emptySymbol (BaseBVRepr w)
 
-    BVLit w x -> bvLit sym w x
+    BVLit w bv -> bvLit sym w bv
 
     BVConcat _ _ xe ye -> do
       x <- evalSub xe
@@ -757,8 +758,8 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       bvSlt sym x y
     BoolToBV w xe -> do
       x <- evalSub xe
-      one <- bvLit sym w 1
-      zro <- bvLit sym w 0
+      one <- bvLit sym w (BV.one w)
+      zro <- bvLit sym w (BV.zero w)
       bvIte sym x one zro
     BVNonzero _ xe -> do
       x <- evalSub xe
@@ -833,9 +834,9 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       m <- evalSub me
       x <- lookupWordMap sym (bvWidth i) tp i m
       let msg = "WordMap: read an undefined index" ++
-                case asUnsignedBV i of
+                case asBV i of
                    Nothing  -> ""
-                   Just idx -> " 0x" ++ showHex idx ""
+                   Just (BV.BV idx) -> " 0x" ++ showHex idx ""
       let ex = ReadBeforeWriteSimError msg
       readPartExpr sym x ex
 

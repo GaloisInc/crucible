@@ -59,6 +59,12 @@ data Result personality sym where
 --- From Goal
 
 
+data ProcessedGoals =
+  ProcessedGoals { totalProcessedGoals :: !Integer
+                 , provedGoals :: !Integer
+                 , disprovedGoals :: !Integer
+                 , incompleteGoals :: !Integer
+                 }
 
 data ProofResult a
    = Proved [a]
@@ -89,7 +95,7 @@ data ProgramCompleteness
 data CruxSimulationResult =
   CruxSimulationResult
   { cruxSimResultCompleteness :: ProgramCompleteness
-  , cruxSimResultGoals        :: Seq (ProvedGoals (Either AssumptionReason SimError))
+  , cruxSimResultGoals        :: Seq (ProcessedGoals, ProvedGoals (Either AssumptionReason SimError))
   }
 
 

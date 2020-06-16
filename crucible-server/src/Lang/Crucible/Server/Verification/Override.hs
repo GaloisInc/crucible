@@ -62,6 +62,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import           Data.Word
 
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 
@@ -344,7 +345,7 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
           case Map.lookup val varTypes of
             Just (HarnessVarWord n) ->
               do baseAddr <- substTermAsBV sym w basetm
-                 off <- liftIO $ bvLit sym w (toInteger offset)
+                 off <- liftIO $ bvLit sym w (BV.trunc' w (BV.word64 offset))
                  addr <- liftIO (bvAdd sym baseAddr off)
                  withValidSize ("MemPointsTo word " <> (show $ PP.pp val)) n $ \x ->
                   case Map.lookup val sub of
@@ -360,7 +361,7 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
 
             Just (HarnessVarArray elems n) ->
               do baseAddr <- substTermAsBV sym w basetm
-                 off <- liftIO $ bvLit sym w (toInteger offset)
+                 off <- liftIO $ bvLit sym w (BV.trunc' w (BV.word64 offset))
                  addr <- liftIO (bvAdd sym baseAddr off)
                  withValidSize ("MemPointsTo array " <> (show $ PP.pp val)) n $ \x ->
                   case Map.lookup val sub of
@@ -417,7 +418,7 @@ readArray ::
    N p n r args ret (Seq (SymBV (SAWBack n) x))
 readArray sim sym w addr endianness elems n x mem =
   Seq.fromList <$> (forM [ 0 .. elems-1 ] $ \i ->
-    do off   <- liftIO $ bvLit sym w (toInteger i * toInteger (n `div` 8))
+    do off   <- liftIO $ bvLit sym w (BV.trunc' w (BV.word64 (i * (n `div` 8))))
        addr' <- liftIO $ bvAdd sym addr off
        SomeBV v <- readMap sim w addr' n endianness mem
        case testEquality (bvWidth v) x of
@@ -442,7 +443,7 @@ writeArray sim sym w addr endianness elems n x val mem0 =
    do vals <- substTermAsArray sym elems x val
       foldM
         (\mem (i,v) ->
-          do off <- liftIO $ bvLit sym w (toInteger i * toInteger (n `div` 8))
+          do off <- liftIO $ bvLit sym w (BV.trunc' w (BV.word64 (i * (n `div` 8))))
              addr' <- liftIO $ bvAdd sym addr off
              liftIO (sendTextResponse sim (T.pack ("WriteArray: " ++ show (printSymExpr addr'))))
              writeMap sim w addr' n endianness (SomeBV v) mem
@@ -565,7 +566,7 @@ computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase re
              case Map.lookup base sub of
                Just basetm ->
                     do baseAddr <- substTermAsBV sym w basetm
-                       off <- liftIO $ bvLit sym w (toInteger offset)
+                       off <- liftIO $ bvLit sym w (BV.trunc' w (BV.word64 offset))
                        addr <- liftIO (bvAdd sym baseAddr off)
                        SomeBV x <- readMap sim w addr n endianness mem
                        tm <- liftIO $ SAW.toSC sym x
@@ -584,7 +585,7 @@ computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase re
              case Map.lookup base sub of
                Just basetm ->
                     do baseAddr <- substTermAsBV sym w basetm
-                       off <- liftIO $ bvLit sym w (toInteger offset)
+                       off <- liftIO $ bvLit sym w (BV.trunc' w (BV.word64 offset))
                        addr <- liftIO (bvAdd sym baseAddr off)
                        withValidSize ("MemPointsTo array.2 " <> (show $ PP.pp base)) n $ \valSize -> do
                          vals <- readArray sim sym w addr endianness elems n valSize mem
@@ -623,7 +624,7 @@ termToSubstTerm sym sc (HarnessVarWord n) tm =
   do x <- liftIO $ termAsConcrete sc tm
      case x of
        Just i  -> withValidSize "substTerm" n $ \w -> do
-                     bv <- liftIO $ bvLit sym w i
+                     bv <- liftIO $ bvLit sym w (BV.mkBV w i)
                      return (SubstWord bv)
        Nothing -> return (SubstTerm tm)
 
@@ -701,7 +702,7 @@ readReg ::
    N p n r args ret (SomeBV (SAWBack n))
 readReg sim rw offset size endianness regs =
    do sym <- getSymInterface
-      addr <- liftIO $ bvLit sym rw (toInteger offset)
+      addr <- liftIO $ bvLit sym rw (BV.trunc' rw (BV.word64 offset))
       readMap sim rw addr size endianness regs
 
 writeReg ::
@@ -716,7 +717,7 @@ writeReg ::
    N p n r args ret (WordMap (SAWBack n) rw (BaseBVType 8))
 writeReg sim rw offset size endianness val regs =
   do sym <- getSymInterface
-     addr <- liftIO $ bvLit sym rw (toInteger offset)
+     addr <- liftIO $ bvLit sym rw (BV.trunc' rw (BV.word64 offset))
      writeMap sim rw addr size endianness val regs
 
 writeMap ::

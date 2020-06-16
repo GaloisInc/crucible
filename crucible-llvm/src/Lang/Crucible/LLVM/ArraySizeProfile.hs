@@ -34,6 +34,7 @@ import qualified Data.Vector as Vector
 import Data.Map (Map)
 import qualified Data.Map as Map
 
+import qualified Data.BitVector.Sized as BV
 import Data.Parameterized.SymbolRepr
 import Data.Parameterized.Context
 import Data.Parameterized.TraversableFC
@@ -62,7 +63,7 @@ ptrStartsAlloc ::
   W4.IsExpr (W4.SymExpr sym) =>
   C.LLVMPtr sym w ->
   Bool
-ptrStartsAlloc (C.llvmPointerView -> (_, W4.asUnsignedBV -> Just 0)) = True
+ptrStartsAlloc (C.llvmPointerView -> (_, W4.asBV -> Just (BV.BV 0))) = True
 ptrStartsAlloc _ = False
 
 ptrAllocSize ::
@@ -75,7 +76,7 @@ ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> mem
         inAlloc memAlloc
           | G.Alloc _ a (Just sz) _ _ _ <- memAlloc
           , Just a == W4.asNat blk =
-            fromIntegral <$> W4.asUnsignedBV sz
+            fromIntegral <$> BV.asUnsigned <$> W4.asBV sz
           | otherwise = Nothing
 
 ptrArraySize ::

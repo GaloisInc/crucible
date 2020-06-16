@@ -14,6 +14,8 @@ Stability        : provisional
 
 module Lang.Crucible.JVM.Translation.Numeric where
 
+import qualified Data.BitVector.Sized as BV
+
 import Lang.Crucible.CFG.Expr
 import Lang.Crucible.CFG.Reg (Expr(..))
 import Lang.Crucible.Types
@@ -63,7 +65,7 @@ intFromLong l = App (BVTrunc w32 w64 l)
 -- * Int operations
 
 iConst :: Integer -> JVMInt s
-iConst i = App (BVLit w32 i)
+iConst i = App (BVLit w32 (BV.mkBV w32 i))
 
 iZero :: JVMInt s
 iZero = iConst 0
@@ -101,7 +103,7 @@ iIte cond e1 e2 = App (BVIte cond w32 e1 e2)
 -- * Long operations
 
 lConst :: Integer -> JVMLong s
-lConst i = App (BVLit w64 i)
+lConst i = App (BVLit w64 (BV.mkBV w64 i))
 
 lZero :: JVMLong s
 lZero = lConst 0

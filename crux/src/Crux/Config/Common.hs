@@ -68,6 +68,10 @@ data CruxOptions = CruxOptions
   , makeCexes                :: Bool
     -- ^ Should we construct counter-example executables
 
+  , unsatCores               :: Bool
+    -- ^ Should we attempt to compute unsatisfiable cores for successful
+    --   proofs?
+
   , simVerbose               :: Int
 
   , solver                   :: String
@@ -91,6 +95,7 @@ data CruxOptions = CruxOptions
 
   , yicesMCSat               :: Bool
     -- ^ Should the MC-SAT Yices solver be enabled (disables unsat cores; default: no)
+
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
 
@@ -102,6 +107,12 @@ data CruxOptions = CruxOptions
 
   , skipReport               :: Bool
     -- ^ Don't produce the HTML reports that describe the verification task
+
+  , skipSuccessReports       :: Bool
+    -- ^ Skip reporting on successful proof obligations
+
+  , skipIncompleteReports    :: Bool
+    -- ^ Skip reporting on goals that arise from resource exhaustion
 
   , hashConsing              :: Bool
     -- ^ Turn on hash-consing in the symbolic expression backend
@@ -160,6 +171,10 @@ cruxOptions = Config
             section "make-executables" yesOrNoSpec True
             "Should we generate counter-example executables. (default: yes)"
 
+          unsatCores <-
+            section "unsat-cores" yesOrNoSpec True
+            "Should we attempt to compute unsatisfiable cores for successfult proofs (default: yes)"
+
           solver <-
             section "solver" stringSpec "yices"
             "Select the solver to use to discharge proof obligations. (default: \"yices\")"
@@ -201,6 +216,14 @@ cruxOptions = Config
           skipReport <-
             section "skip-report" yesOrNoSpec False
             "Skip producing the HTML report after verification"
+
+          skipSuccessReports <-
+            section "skip-success-reports" yesOrNoSpec False
+            "Skip reporting on successful proof obligations"
+
+          skipIncompleteReports <-
+            section "skip-incomplete-reports" yesOrNoSpec False
+            "Skip reporting on proof obligations that arise from timeouts and resource exhaustion"
 
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
@@ -280,6 +303,10 @@ cruxOptions = Config
         "Disable generating counter-example executables"
         $ NoArg $ \opts -> Right opts { makeCexes = False }
 
+      , Option [] ["no-unsat-cores"]
+        "Disable computing unsat cores for successful proofs"
+        $ NoArg $ \opts -> Right opts { unsatCores = False }
+
       , Option "s" ["solver"]
         "Select the solver to use to discharge proof obligations"
         $ ReqArg "solver" $ \v opts -> Right opts { solver = map toLower v }
@@ -307,6 +334,14 @@ cruxOptions = Config
       , Option [] ["skip-report"]
         "Skip producing the HTML report following verificaion"
         $ NoArg $ \opts -> Right opts { skipReport = True }
+
+      , Option [] ["skip-success-reports"]
+        "Skip reporting on successful proof obligations"
+        $ NoArg $ \opts -> Right opts { skipSuccessReports = True }
+
+      , Option [] ["skip-incomplete-reports"]
+        "Skip reporting on proof obligations that arise from timeouts and resource exhaustion"
+        $ NoArg $ \opts -> Right opts { skipIncompleteReports = True }
 
       , Option [] ["hash-consing"]
         "Enable hash-consing in the symbolic expression backend"

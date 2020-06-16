@@ -18,10 +18,14 @@ module Lang.Crucible.LLVM.Bytes
   , bytesToBits
   , bytesToNatural
   , bytesToInteger
+  , bytesToBV
   , toBytes
   , bitsToBytes
+  , natBytesMul
   )  where
 
+import qualified Data.BitVector.Sized as BV
+import Data.Parameterized.NatRepr
 import Numeric.Natural
 
 -- | A newtype for expressing numbers of bytes.
@@ -42,11 +46,18 @@ bytesToNatural (Bytes n) = fromIntegral n
 bytesToInteger :: Bytes -> Integer
 bytesToInteger (Bytes n) = n
 
+bytesToBV :: NatRepr w -> Bytes -> BV.BV w
+bytesToBV w = BV.mkBV w . bytesToInteger
+
 toBytes :: Integral a => a -> Bytes
 toBytes = Bytes . fromIntegral
 
 bitsToBytes :: Integral a => a -> Bytes
 bitsToBytes n = Bytes ( (fromIntegral n + 7) `div` 8 )
+
+-- | Multiply a number of bytes by a natural number
+natBytesMul :: Natural -> Bytes -> Bytes
+natBytesMul n (Bytes x) = Bytes (toInteger n * x)
 
 type Addr = Bytes
 type Offset = Bytes

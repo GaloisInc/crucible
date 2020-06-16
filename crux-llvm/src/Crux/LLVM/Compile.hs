@@ -6,6 +6,7 @@ import Control.Exception
 import Control.Monad
   ( unless, forM_ )
 import qualified Data.Binary.IEEE754 as IEEE754
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Foldable as Fold
 import Data.List
   ( intercalate, isSuffixOf )
@@ -127,7 +128,7 @@ genBitCode cruxOpts llvmOpts =
 makeCounterExamplesLLVM ::
   Logs => CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
 makeCounterExamplesLLVM cruxOpts llvmOpts res
-  | makeCexes cruxOpts = mapM_ go . Fold.toList $ (cruxSimResultGoals res)
+  | makeCexes cruxOpts = mapM_ (go . snd) . Fold.toList $ (cruxSimResultGoals res)
   | otherwise = return ()
 
  where
@@ -194,10 +195,10 @@ ppValsC ty (Vals xs) =
           ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", show)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 8, natValue sb == 24
-          -> ("float", "float", show . IEEE754.wordToFloat . fromInteger)
+          -> ("float", "float", show . IEEE754.wordToFloat . fromInteger . BV.asUnsigned)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 11, natValue sb == 53
-          -> ("double", "double", show . IEEE754.wordToDouble . fromInteger)
+          -> ("double", "double", show . IEEE754.wordToDouble . fromInteger . BV.asUnsigned)
         BaseRealRepr -> ("double", "real", (show . toDouble))
         _ -> error ("Type not implemented: " ++ show ty)
   in unlines
