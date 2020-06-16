@@ -15,14 +15,21 @@ import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator
 import Lang.Crucible.Types
 
+-- | A constraint on crucible personality types that requires them to contain a 'Model'
+--
+-- The personality is extra data carried around by the symbolic execution engine
+-- for frontend-specific purposes.  Typically, the personality is consulted from
+-- overrides and can allow extensible data sharing between overrides.  Crux
+-- requires that the personality include at least a 'Model', which it will
+-- populate based on SMT solver results.
 class HasModel personality where
   personalityModel :: L.Lens' (personality sym) (Model sym)
 
+-- | This instance handles the common case where a crux frontend does not need
+-- any special instantiation of the personality parameter, and so can just use a
+-- 'Model' directly.
 instance HasModel Model where
-  personalityModel = idLens
-
-idLens :: L.Lens' a a
-idLens f a = fmap id (f a)
+  personalityModel = \f a -> fmap id (f a)
 
 -- | A simulator context
 type SimCtxt personality sym p = SimContext (personality sym) sym p
@@ -32,9 +39,9 @@ type SimCtxt personality sym p = SimContext (personality sym) sym p
 type OverM personality sym ext a =
   forall r args ret.
   OverrideSim
-    (personality sym)
-    sym                                    -- the backend
-    ext                                      -- the extension
+    (personality sym)  -- Extra data available in overrides (frontend-specific)
+    sym                -- The symbolic backend (usually a what4 ExprBuilder in some form)
+    ext                -- The Crucible syntax extension for the target language
     r
     args
     ret
