@@ -504,7 +504,6 @@ doSimWithResults ::
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO CruxSimulationResult
 doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline goalProver = do
-  fm <- getFloatMode sym
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
@@ -513,10 +512,10 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
-        do res <- executeCrucible fm (map genericToExecutionFeature execFeatures ++ exts) initSt
+        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
            void $ resultCont frm (Result res)
       SplitAndExploreDepthFirst ->
-        do (i,ws) <- executeCrucibleDFSPaths fm (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
+        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
            say "Crux" ("Total paths explored: " ++ show i)
            unless (null ws) $
              sayWarn "Crux"

@@ -645,13 +645,14 @@ executeCrucible :: forall p sym ext rtp.
   ( IsSymInterface sym
   , IsSyntaxExtension ext
   ) =>
-  FloatModeRepr (CrucibleFloatMode sym) ->
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
   IO (ExecResult p sym ext rtp)
-executeCrucible fm execFeatures exst0 =
-  do let cfg = getConfiguration . view ctxSymInterface . execStateContext $ exst0
+executeCrucible execFeatures exst0 =
+  do let sym = view ctxSymInterface . execStateContext $ exst0
+     let cfg = getConfiguration sym
      verbOpt <- getOptionSetting verbosity cfg
+     fm <- getFloatMode sym
 
      let loop exst =
            dispatchExecState

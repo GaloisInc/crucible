@@ -177,8 +177,7 @@ fulfillRunCallRequest sim f_val encoded_args = do
       let simSt = InitialState ctx emptyGlobals (serverErrorHandler sim) res_tp
                     $ runOverrideSim res_tp (regValue <$> callFnVal f (RegMap args))
       -- Send messages to server with bytestring.
-      fm <- getFloatMode (ctx^.ctxSymInterface)
-      exec_res <- executeCrucible fm (map genericToExecutionFeature (simExecFeatures sim)) simSt
+      exec_res <- executeCrucible (map genericToExecutionFeature (simExecFeatures sim)) simSt
       case exec_res of
         FinishedResult ctx' (TotalRes (GlobalPair r _globals)) -> do
           writeIORef (simContext sim) $! ctx'

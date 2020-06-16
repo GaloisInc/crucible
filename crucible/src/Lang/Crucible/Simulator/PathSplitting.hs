@@ -154,13 +154,12 @@ executeCrucibleDFSPaths :: forall p sym ext rtp.
   ( IsSymInterface sym
   , IsSyntaxExtension ext
   ) =>
-  FloatModeRepr (CrucibleFloatMode sym) ->
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
   (ExecResult p sym ext rtp -> IO Bool)
     {- ^ Path result continuation, return 'True' to explore more paths -} ->
   IO (Word64, Seq (WorkItem p sym ext rtp))
-executeCrucibleDFSPaths fm execFeatures exst0 cont =
+executeCrucibleDFSPaths execFeatures exst0 cont =
   do wl <- newIORef Seq.empty
      cnt <- newIORef (1::Word64)
      let feats = execFeatures ++ [pathSplittingFeature wl]
@@ -168,7 +167,7 @@ executeCrucibleDFSPaths fm execFeatures exst0 cont =
 
  where
  go wl cnt feats exst =
-   do res <- executeCrucible fm feats exst
+   do res <- executeCrucible feats exst
       goOn <- cont res
       case res of
         TimeoutResult _ ->

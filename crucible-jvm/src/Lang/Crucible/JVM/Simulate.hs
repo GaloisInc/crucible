@@ -549,9 +549,8 @@ runMethodHandle
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 runMethodHandle sym p halloc ctx verbosity classname h args =
-  do fm <- getFloatMode sym
-     exst <- setupMethodHandleCrux sym p halloc ctx verbosity classname h args
-     C.executeCrucible fm [] exst
+  do exst <- setupMethodHandleCrux sym p halloc ctx verbosity classname h args
+     C.executeCrucible  [] exst
 
 --------------------------------------------------------------------------------
 
@@ -653,9 +652,8 @@ executeCrucibleJVM
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 executeCrucibleJVM cp v sym p classname methname args =
-  do fm <- getFloatMode sym
-     exst <- setupCrucibleJVMCrux cp v sym p classname methname args
-     C.executeCrucible fm [] exst
+  do exst <- setupCrucibleJVMCrux cp v sym p classname methname args
+     C.executeCrucible [] exst
 
 getGlobalPair ::
   C.PartialResult sym ext v ->

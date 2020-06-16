@@ -123,11 +123,11 @@ simulateProgram fn theInput outh profh opts setup =
 
                        case profh of
                          Nothing ->
-                           void $ executeCrucible FloatIEEERepr [] simSt
+                           void $ executeCrucible [] simSt
                          Just ph ->
                            do proftab <- newProfilingTable
                               pf <- profilingFeature proftab Nothing
-                              void $ executeCrucible FloatIEEERepr [genericToExecutionFeature pf] simSt
+                              void $ executeCrucible [genericToExecutionFeature pf] simSt
                               hPutStrLn ph =<< symProUIString "crucibler-prof" fn proftab
 
                        hPutStrLn outh "\n==== Finish Simulation ===="
