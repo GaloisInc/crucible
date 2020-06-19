@@ -1,6 +1,7 @@
 {-# Language DeriveFunctor, RankNTypes, ConstraintKinds, TypeFamilies, ScopedTypeVariables, GADTs #-}
 module Crux.Types where
 
+import qualified Control.Lens as L
 import Data.Sequence (Seq)
 import Data.Parameterized.Map (MapF)
 
@@ -14,28 +15,43 @@ import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Simulator
 import Lang.Crucible.Types
 
+-- | A constraint on crucible personality types that requires them to contain a 'Model'
+--
+-- The personality is extra data carried around by the symbolic execution engine
+-- for frontend-specific purposes.  Typically, the personality is consulted from
+-- overrides and can allow extensible data sharing between overrides.  Crux
+-- requires that the personality include at least a 'Model', which it will
+-- populate based on SMT solver results.
+class HasModel personality where
+  personalityModel :: L.Lens' (personality sym) (Model sym)
 
--- | A simulator context 
-type SimCtxt sym p = SimContext (Model sym) sym p
+-- | This instance handles the common case where a crux frontend does not need
+-- any special instantiation of the personality parameter, and so can just use a
+-- 'Model' directly.
+instance HasModel Model where
+  personalityModel = \f a -> fmap id (f a)
+
+-- | A simulator context
+type SimCtxt personality sym p = SimContext (personality sym) sym p
 
 -- | The instance of the override monad we use,
 -- when we don't care about the context of the surrounding function.
-type OverM sym ext a =
+type OverM personality sym ext a =
   forall r args ret.
   OverrideSim
-    (Model sym)
-    sym                                    -- the backend
-    ext                                      -- the extension
+    (personality sym)  -- Extra data available in overrides (frontend-specific)
+    sym                -- The symbolic backend (usually a what4 ExprBuilder in some form)
+    ext                -- The Crucible syntax extension for the target language
     r
     args
     ret
     a
 
 -- | This is the instance of the 'OverrideSim' monad that we use.
-type Fun sym ext args ret =
+type Fun personality sym ext args ret =
   forall r.
   OverrideSim
-    (Model sym)
+    (personality sym)
     sym                                    -- the backend
     ext
     r
@@ -44,8 +60,8 @@ type Fun sym ext args ret =
     (RegValue sym ret)
 
 -- NEW: the result of the simulation function, which hides the 'ext'
-data Result sym where
-  Result :: (ExecResult (Model sym) sym ext (RegEntry sym UnitType)) -> Result sym
+data Result personality sym where
+  Result :: (ExecResult (personality sym) sym ext (RegEntry sym UnitType)) -> Result personality sym
 
 --- From Goal
 

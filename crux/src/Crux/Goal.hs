@@ -49,7 +49,7 @@ import Crux.ProgressBar
 provedGoalsTree ::
   ( IsSymInterface sym
   ) =>
-  SimCtxt sym p ->
+  SimCtxt personality sym p ->
   Maybe (Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym)))) ->
   IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
 provedGoalsTree ctxt = traverse (go [])
@@ -119,7 +119,7 @@ countIncompleteGoals gs =
 
 proveToGoal ::
   (IsSymInterface sym) =>
-  SimCtxt sym p ->
+  SimCtxt personality sym p ->
   [Assumption sym] ->
   Assertion sym ->
   ProofResult (Either (Assumption sym) (Assertion sym)) ->
@@ -177,11 +177,11 @@ updateProcessedGoals _ (NotProved Nothing) pgs =
 --
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
-proveGoalsOffline :: forall st sym p asmp t fs
-                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs)
+proveGoalsOffline :: forall st sym p asmp t fs personality
+                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs, HasModel personality)
                   => WS.SolverAdapter st
                   -> CruxOptions
-                  -> SimCtxt sym p
+                  -> SimCtxt personality sym p
                   -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
                   -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
 proveGoalsOffline _adapter _opts _ctx Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
@@ -243,7 +243,7 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
                 modifyIORef' goalNum (updateProcessedGoals p (Proved core))
                 return (Prove (p, Proved core))
               Sat (evalFn, _) -> do
-                let model = ctx ^. cruciblePersonality
+                let model = ctx ^. cruciblePersonality . personalityModel
                 vals <- evalModel evalFn model
                 end
                 modifyIORef' goalNum (updateProcessedGoals p (NotProved (Just (ModelView vals))))
@@ -272,11 +272,12 @@ proveGoalsOnline ::
   , OnlineSolver s solver
   , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
   , OnlineSolver s goalSolver
+  , HasModel personality
   , ?outputConfig :: OutputConfig
   ) =>
   goalSym ->
   CruxOptions ->
-  SimCtxt sym p ->
+  SimCtxt personality sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
@@ -335,7 +336,7 @@ proveGoalsOnline sym opts ctxt (Just gs0) =
 
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
-                           let model = ctxt ^. cruciblePersonality
+                           let model = ctxt ^. cruciblePersonality . personalityModel
                            vals <- evalModel f model
                            end
                            modifyIORef' gn (updateProcessedGoals p (NotProved (Just (ModelView vals))))
