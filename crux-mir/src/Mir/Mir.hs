@@ -33,7 +33,6 @@ module Mir.Mir where
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
 import Data.Text (Text)
-import Data.Vector (Vector)
 
 import Data.Semigroup (Semigroup(..))
 
@@ -75,10 +74,6 @@ newtype Substs = Substs [Ty]
   deriving (Eq, Ord, Show, Generic)
   deriving newtype (Semigroup, Monoid)
 
--- | Associated types
---   The projection of an associated type from a Rust trait, at specific types
-type AssocTy = (DefId, Substs)
-
 data Ty =
         TyBool               -- The primitive boolean type. Written as bool.
       | TyChar
@@ -94,22 +89,19 @@ data Ty =
       -- that's present in the `Adt` entry, but the `Adt` (actually the whole
       -- `Collection`) is not accessible inside `tyToRepr`.
       | TyAdt !DefId !DefId !Substs -- first DefId is the monomorphized name, second is pre-mono
-      | TyUnsupported
-      | TyParam !Integer
-      | TyFnDef !DefId !Substs
+      | TyFnDef !DefId
       | TyClosure [Ty]      -- the Tys are the types of the upvars
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
-      | TyDynamic !TraitName [Predicate] -- trait object (defid is trait name)
+      | TyDynamic !TraitName        -- trait object (defid is trait name)
       | TyRawPtr !Ty !Mutability    -- Written as *mut T or *const T
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
-      | TyProjection !DefId !Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
       | TyNever
+      | TyForeign       -- External types, of unknown size and alignment
 
       | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
       | TyConst         -- Placeholder for representing constants in `Substs`
-      | TyForeign       -- External types, of unknown size and alignment
 
       -- | The erased concrete type of a trait object.  This is never emitted
       -- by mir-json.  It's used in vtable shims, to replace the type of the
@@ -131,9 +123,6 @@ data NamedTy = NamedTy { _ntName :: Text, _ntTy :: Ty }
 data FnSig = FnSig {
     _fsarg_tys    :: ![Ty]
   , _fsreturn_ty  :: !Ty
-  , _fsgenerics   :: ![Param]
-  , _fspredicates :: ![Predicate]
-  , _fsassoc_tys  :: ![AssocTy]    -- new params added in a pre-pass
   , _fsabi        :: Abi
   -- TODO: current handling of spread_arg is a hack.
   --
@@ -214,7 +203,7 @@ data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [F
     deriving (Eq, Ord,Show, Generic)
 
 
-data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: Substs}
+data Field = Field {_fName :: DefId, _fty :: Ty}
     deriving (Show, Eq, Ord, Generic)
 
 
@@ -227,13 +216,11 @@ data Var = Var {
     _varname :: Text,
     _varmut :: Mutability,
     _varty :: Ty,
-    _varIsZST :: Bool,
-    _varscope :: VisibilityScope,
-    _varpos :: Text }
+    _varIsZST :: Bool }
     deriving (Eq, Show, Generic)
 
 instance Ord Var where
-    compare (Var n _ _ _ _ _) (Var m _ _ _ _ _) = compare n m
+    compare (Var n _ _ _) (Var m _ _ _) = compare n m
 
 data Collection = Collection {
     _functions :: !(Map MethName Fn),
@@ -241,7 +228,6 @@ data Collection = Collection {
     -- ADTs, indexed by original (pre-monomorphization) DefId
     _adtsOrig  :: !(Map AdtName [Adt]),
     _traits    :: !(Map TraitName Trait),
-    _impls     :: !([TraitImpl]),
     -- Static decls, indexed by name.  For each of these, there is an
     -- initializer in `functions` with the same name.
     _statics   :: !(Map DefId Static),
@@ -257,43 +243,12 @@ data Intrinsic = Intrinsic
     }
     deriving (Show, Eq, Ord, Generic)
 
-data Predicate =
-  TraitPredicate {
-    _ptrait :: !DefId,
-    _psubst :: !Substs
-    }
-  | TraitProjection {
-      _plhs    :: !Ty
-    , _prhs    :: !Ty
-    }
-  -- | Special representation for auto-trait predicates in `TyDynamic`.  This
-  -- is equivalent to `TraitPredicate ptrait (Substs [])`, but auto-trait
-  -- predicates need special handling around vtables, so it's useful to have a
-  -- separate variant.
-  | AutoTraitPredicate {
-    _ptrait :: !DefId
-    }
-  | UnknownPredicate
-    deriving (Show, Eq, Ord, Generic)
-
-data Param = Param {
-    _pname :: Text
-} deriving (Show, Eq, Ord, Generic)
-
-newtype Params = Params [Param]
-   deriving (Show, Eq, Ord, Generic)
-
-
-newtype Predicates = Predicates [Predicate]
-   deriving (Show, Eq, Ord, Generic)
-
 
 data Fn = Fn {
      _fname       :: DefId
     ,_fargs       :: [Var]
     ,_fsig        :: FnSig
     ,_fbody       :: MirBody
-    ,_fpromoted   :: Vector DefId
     }
     deriving (Show,Eq, Ord, Generic)
 
@@ -329,12 +284,6 @@ data Statement =
       | Nop
     deriving (Show,Eq, Ord, Generic)
 
-data PlaceBase =
-        Local { _lvar :: Var }
-      | PStatic DefId Ty
-      | PPromoted Int Ty
-      deriving (Show, Eq, Generic)
-
 data PlaceElem =
         Deref
       | PField Int Ty
@@ -346,7 +295,7 @@ data PlaceElem =
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
 data Lvalue =
-        LBase PlaceBase
+        LBase Var
       | LProj Lvalue PlaceElem
       deriving (Show, Eq, Generic)
 
@@ -413,10 +362,6 @@ data Operand =
       | OpConstant Constant
       deriving (Show, Eq, Ord, Generic)
 
-data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic)
-
-
-
 data NullOp =
         SizeOf
       | Box
@@ -479,11 +424,8 @@ data CastKind =
       | MutToConstPointer
       deriving (Show,Eq, Ord, Generic)
 
-data Literal =
-    Item DefId Substs
-  | Value ConstVal
-  | LitPromoted Promoted
-  deriving (Show,Eq, Ord, Generic)
+data Constant = Constant Ty ConstVal
+  deriving (Eq, Ord, Show, Generic)
 
 data IntLit
   = U8 Integer
@@ -513,11 +455,11 @@ data ConstVal =
   | ConstBool Bool
   | ConstChar Char
   | ConstVariant DefId
-  | ConstFunction DefId Substs
+  | ConstFunction DefId
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
-  | ConstInitializer DefId Substs
+  | ConstInitializer DefId
   -- | A reference to a static, of type `&T`.
   | ConstStaticRef DefId
   | ConstZST
@@ -529,79 +471,23 @@ data ConstVal =
 data AggregateKind =
         AKArray Ty
       | AKTuple
-      | AKClosure DefId Substs
+      | AKClosure
       deriving (Show,Eq, Ord, Generic)
 
 data Trait = Trait { _traitName       :: !DefId,
-                     _traitItems      :: ![TraitItem],
-                     _traitSupers     :: ![TraitName],
-                     _traitParams     :: ![Param],
-                     _traitPredicates :: ![Predicate],
-                     _traitAssocTys   :: ![AssocTy]    -- new params added in a pre-pass
+                     _traitItems      :: ![TraitItem]
                    } 
     deriving (Eq, Ord, Show, Generic)
 
 
 data TraitItem
     = TraitMethod DefId FnSig 
-    | TraitType DefId         -- associated type
-    | TraitConst DefId Ty
     deriving (Eq, Ord, Show, Generic)
-
-data TraitRef
-    = TraitRef DefId Substs 
-      -- Indicates the trait this impl implements.
-      -- The two `substs` gives the type arguments for the trait
-      -- both the initial arguments, plus any extra after the
-      -- associated types translation
-    deriving (Show, Eq, Ord, Generic)
-
-data TraitImpl
-    = TraitImpl { _tiName       :: DefId
-                -- name of the impl group 
-                , _tiTraitRef   :: TraitRef
-                -- name of the trait and the type we are implementing it
-                , _tiPreTraitRef :: TraitRef
-                -- pre-AT translation trait ref
-                , _tiGenerics   :: [Param]
-                , _tiPredicates :: [Predicate]
-                , _tiItems      :: [TraitImplItem]
-                , _tiAssocTys   :: [AssocTy]
-                }
-    deriving (Show, Eq, Ord, Generic)
-data TraitImplItem
-    = TraitImplMethod { _tiiName :: DefId
-                        -- the def path of the item
-                        -- should match the name of the corresponding entry in 'fns'
-                      , _tiiImplements :: DefId
-                        -- The def path of the trait-item that this impl-item implements.
-                        -- If there is no impl-item that `implements` a particular
-                        -- trait-item, that means the impl uses the default from the trait.
-                      , _tiiGenerics :: [Param]
-                        -- Generics for the method itself.  
-                        -- should match the generics of the `fn`.  This consists of the generics
-                        -- inherited from the impl (if any), followed by any generics
-                        -- declared on the impl-item itself.
-                      , _tiiPredicates :: [Predicate]
-                      , _tiiSignature  :: FnSig
-                      }
-      | TraitImplType { _tiiName       :: DefId
-                      , _tiiImplements :: DefId
-                      , _tiiGenerics   :: [Param]
-                      , _tiiPredicates :: [Predicate]
-                      , _tiiType       :: Ty
-                      }
-      deriving (Show, Eq, Ord, Generic)
-
-newtype Promoted = Promoted Int
-  deriving (Show, Eq, Ord, Generic)
 
 data Static   = Static {
     _sName          :: DefId            -- ^ name of fn that initializes this static
   , _sTy            :: Ty
   , _sMutable       :: Bool             -- ^ true for "static mut"          
-  , _sPromotedFrom  :: Maybe DefId      -- ^ name of fn that static was promoted from
-  , _sPromoted      :: Maybe Promoted
   }
   deriving (Show, Eq, Ord, Generic)
 
@@ -612,14 +498,10 @@ type AdtName    = DefId
 type VtableName = DefId
 type IntrinsicName = DefId
 
-
-
-
 --- Other texts
 type ConstUsize = Integer
 type VisibilityScope = Text
 type AssertMessage = Text
-type ClosureSubsts = Text
 type BasicBlockInfo = Text
 type TyName     = Text
 
@@ -647,18 +529,15 @@ makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
 
-makeLenses ''TraitImpl
-makeLenses ''TraitImplItem
-
 --------------------------------------------------------------------------------------
 -- Other instances for ADT types
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 a1' t1 i1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 a2' t2 i2 s2 v2 n2 tys2 r2) =
-    Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
+  (Collection f1 a1 a1' t1 s1 v1 n1 tys1 r1) <> (Collection f2 a2 a2' t2 s2 v2 n2 tys2 r2) =
+    Collection (f1 <> f2) (a1 <> a2) (a1' <> a2') (t1 <> t2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (tys1 <> tys2) (r1 <> r2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   
@@ -718,17 +597,11 @@ instance TypeOf Ty where
     typeOf ty = ty
 
 instance TypeOf Var where
-    typeOf (Var _ _ t _ _ _) = t
+    typeOf (Var _ _ t _) = t
 
 instance TypeOf Lvalue where
     typeOf (LBase base) = typeOf base
     typeOf (LProj l elm) = typeOfProj elm $ typeOf l
-
-instance TypeOf PlaceBase where
-    typeOf pb = case pb of
-        Local (Var _ _ t _ _ _) -> t
-        PStatic _ t -> t
-        PPromoted _ t -> t
 
 typeOfProj :: PlaceElem -> Ty -> Ty
 typeOfProj elm baseTy = case elm of
@@ -795,7 +668,7 @@ instance TypeOf Rvalue where
   typeOf (Discriminant _lv) = TyInt USize
   typeOf (Aggregate (AKArray ty) ops) = TyArray ty (length ops)
   typeOf (Aggregate AKTuple ops) = TyTuple $ map typeOf ops
-  typeOf (Aggregate (AKClosure _did _substs) ops) = TyClosure $ map typeOf ops
+  typeOf (Aggregate AKClosure ops) = TyClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
 
 instance TypeOf Operand where

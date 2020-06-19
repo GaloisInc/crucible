@@ -41,7 +41,6 @@ import qualified Data.List as List
 
 import Mir.DefId
 import Mir.Mir
-import Mir.MirTy
 
 import GHC.Stack
 
@@ -65,7 +64,7 @@ go fn = fn & fbody %~ addLocals
 
   newStmts :: [Statement]
   newStmts =
-    zipWith (\v1 v2 -> Assign (LBase (Local v1)) (Use (Copy (LBase (Local v2))))
+    zipWith (\v1 v2 -> Assign (LBase v1) (Use (Copy (LBase v2)))
           "Internal variable") mutVars newImmuts
     
   addLocals :: MirBody -> MirBody

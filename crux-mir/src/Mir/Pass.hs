@@ -22,7 +22,6 @@ import GHC.Stack
 
 import Mir.Mir
 import Mir.DefId
-import Mir.MirTy
 import Mir.PP(fmt)
 import Mir.GenericOps
 
@@ -45,7 +44,6 @@ rewriteCollection col =
   col
     |> toCollectionPass passNoMutParams
     |> passAllocateEnum 
-    |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
 
 --------------------------------------------------------------------------------------
 
@@ -61,16 +59,6 @@ passTrace str col =
                 ++ fmt col ++ "\n****************************")
        col)
   else col
-
---------------------------------------------------------------------------------------
---
--- Most of the implementation of this pass is in GenericOps
-
-passRemoveUnknownPreds :: Pass
-passRemoveUnknownPreds col = modifyPreds ff col 
-  where
-     allTraits = ?mirLib^.traits <> col^.traits
-     ff did = Map.member did allTraits
 
 --------------------------------------------------------------------------------------
 

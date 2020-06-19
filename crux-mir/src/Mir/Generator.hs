@@ -97,7 +97,6 @@ import qualified Lang.Crucible.Syntax as S
 
 import           Mir.DefId
 import           Mir.Mir
-import           Mir.MirTy
 import           Mir.Intrinsics
 import           Mir.PP
 
@@ -368,27 +367,18 @@ mirFail str = do
 -- | Determine whether a function call can be resolved via explicit name bound in the handleMap
 --
 
-resolveFn :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
-resolveFn nm tys = do
+resolveFn :: HasCallStack => MethName -> MirGenerator h s ret (Maybe MirHandle)
+resolveFn nm = do
   hmap <- use (cs.handleMap)
-  case Map.lookup nm hmap of
-    Just h@(MirHandle _nm fs fh) -> do
-      -- make sure the number of type arguments is consistent with the impl
-      -- we don't have to instantiate all of them, but we can't have too many
-      if lengthSubsts tys <= length (fs^.fsgenerics) then
-        return (Just h)
-      else
-        return Nothing
-    Nothing -> return Nothing
+  return $ Map.lookup nm hmap
 
 ---------------------------------------------------------------------------------------------------
 
--- Now that intrinsics are monomorphized, the `Substs` is always empty.  The
--- `DefId` refers to an entry in the `intrinsics` map, which contains the
+-- The `DefId` refers to an entry in the `intrinsics` map, which contains the
 -- original `DefId` and `Substs` used to produce the monomorphized instance.
 -- Those are what we look up in `customOps`.
-resolveCustom :: DefId -> Substs -> MirGenerator h s ret (Maybe CustomOp)
-resolveCustom instDefId _substs = do
+resolveCustom :: DefId -> MirGenerator h s ret (Maybe CustomOp)
+resolveCustom instDefId = do
     optIntr <- use $ cs . collection . intrinsics . at instDefId
     case optIntr of
         Nothing -> return Nothing
@@ -447,8 +437,8 @@ makeTempLvalue ty exp = do
     -- varIsZST is used only for deciding whether to initialize the variable at
     -- the start of the function, which is not relevant for temporaries created
     -- mid-translation.
-    let var = Var name Immut ty {-varIsZST-} False "__dummy_scope__" "__temporary__"
-    return $ LBase $ Local var
+    let var = Var name Immut ty {-varIsZST-} False
+    return $ LBase var
 
 makeTempOperand :: Ty -> MirExp s -> MirGenerator h s ret Operand
 makeTempOperand ty exp = do

@@ -81,32 +81,25 @@ instance FromJSON InlineTy where
       Just (String "Char") -> pure TyChar
       Just (String "Int") -> TyInt <$> v .: "intkind"
       Just (String "Uint") -> TyUint <$> v .: "uintkind"
-      Just (String "Unsupported") -> pure TyUnsupported
       Just (String "Tuple") -> TyTuple <$> v .: "tys"
       Just (String "Slice") -> TySlice <$> v .: "ty"
       Just (String "Array") -> do
         lit <- v .: "size"
         case lit of
-          Value (ConstInt (Usize i)) ->
+          Constant _ (ConstInt (Usize i)) ->
              TyArray <$> v .: "ty" <*> pure (fromInteger i)
           _ -> fail $ "unsupported array size: " ++ show lit
       Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
-      Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
+      Just (String "FnDef") -> TyFnDef <$> v .: "defid"
       Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "orig_def_id" <*> v .: "substs"
-      Just (String "Param") -> TyParam <$> v .: "param"
       Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
       Just (String "Str") -> pure TyStr
       Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
-      Just (String "Dynamic") -> TyDynamic <$>
-            (v .: "trait_id") <*>
-            (v .: "predicates" >>= \xs -> mapM parsePred xs)
+      Just (String "Dynamic") -> TyDynamic <$> v .: "trait_id"
       Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
-      Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
       Just (String "Foreign") -> pure TyForeign
-      Just (String "Lifetime") -> pure TyLifetime
-      Just (String "Const") -> pure TyConst
       r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON NamedTy where
@@ -137,15 +130,9 @@ instance FromJSON Instance where
 instance FromJSON FnSig where
     parseJSON =
       withObject "FnSig" $ \v -> do
-         let gens  = return []
-         let preds = return []
-         let atys  = return []
          let spread = return Nothing
          FnSig <$> v .: "inputs"
                <*> v .: "output"
-               <*> gens
-               <*> preds
-               <*> atys
                <*> v .: "abi"
                <*> spread
                
@@ -180,7 +167,7 @@ instance FromJSON Variant where
     parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
 
 instance FromJSON Field where
-    parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
+    parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty"
 
 instance FromJSON Mutability where
     parseJSON = withObject "Mutability" $ \v -> case HML.lookup "kind" v of
@@ -197,15 +184,12 @@ instance FromJSON Var where
         <*>  v .: "mut"
         <*>  v .: "ty"
         <*>  v .: "is_zst"
-        <*>  v .: "scope"
-        <*>  v .: "pos"
 
 instance FromJSON Collection where
     parseJSON = withObject "Collection" $ \v -> do
       (fns    :: [Fn])        <- v .: "fns"
       (adts   :: [Adt])       <- v .: "adts"
       (traits :: [Trait])     <- v .: "traits"
-      (impls  :: [TraitImpl]) <- v .: "impls"
       (statics :: [Static]  ) <- v .: "statics"
       (vtables :: [Vtable]  ) <- v .: "vtables"
       (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
@@ -216,7 +200,6 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
         (foldr (\ x m -> Map.insertWith (++) (x^.adtOrigDefId) [x] m) Map.empty adts)
         (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
-        impls
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
         (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
         (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
@@ -226,14 +209,9 @@ instance FromJSON Collection where
 
 instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> do
-      pg <- v .: "generics"
-      pp <- v .: "predicates"
       args <- v .: "args"
       let sig = FnSig <$> return (map typeOf args)
                       <*> v .: "return_ty"
-                      <*> (withObject "Param" (\u -> u .: "params") pg)
-                      <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-                      <*> return []
                       <*> v .: "abi"
                       <*> v .: "spread_arg"
 
@@ -242,7 +220,6 @@ instance FromJSON Fn where
         <*> return args
         <*> sig        
         <*> v .: "body"
-        <*> v .: "promoted"
 
 instance FromJSON Abi where
     parseJSON = withObject "Abi" $ \v -> case HML.lookup "kind" v of
@@ -272,22 +249,14 @@ instance FromJSON Statement where
                              k -> fail $ "kind not found for statement: " ++ show k
 
 
-data RustcPlace = RustcPlace PlaceBase [PlaceElem]
+data RustcPlace = RustcPlace Var [PlaceElem]
 
 instance FromJSON RustcPlace where
     parseJSON = withObject "Place" $ \v ->
-        RustcPlace <$> v .: "base" <*> v .: "data"
-
-instance FromJSON PlaceBase where
-    parseJSON = withObject "PlaceBase" $ \v ->
-      case HML.lookup "kind" v of
-        Just (String "Local")      -> Local       <$> v .: "localvar"
-        Just (String "Static")     -> PStatic     <$> v .: "def_id" <*> v .: "ty"
-        Just (String "Promoted")   -> PPromoted   <$> v .: "index" <*> v .: "ty"
-        k -> fail $ "kind not found for PlaceBase " ++ show k
+        RustcPlace <$> v .: "var" <*> v .: "data"
 
 instance FromJSON PlaceElem where
-    parseJSON = withObject "Lvpelem" $ \v ->
+    parseJSON = withObject "PlaceElem" $ \v ->
       case HML.lookup "kind" v of
         Just (String "Deref") -> pure Deref
         Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
@@ -295,18 +264,12 @@ instance FromJSON PlaceElem where
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
         Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
-        x -> fail ("bad lvpelem: " ++ show x)
+        x -> fail ("bad PlaceElem: " ++ show x)
 
 instance FromJSON Lvalue where
     parseJSON j = convert <$> parseJSON j
       where
         convert (RustcPlace base elems) = foldl LProj (LBase base) elems
-
-instance FromJSON Promoted where
-    parseJSON = withScientific "Promoted" $ \sci ->
-                  case Scientific.toBoundedInteger sci of
-                    Just b  -> pure (Promoted b)
-                    Nothing -> fail $ "cannot read " ++ show sci
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of
@@ -351,9 +314,6 @@ instance FromJSON Operand where
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
 
-instance FromJSON Constant where
-    parseJSON = withObject "Constant" $ \v -> Constant <$> v .: "ty" <*> v .: "literal"
-    
 instance FromJSON NullOp where
     parseJSON = withObject "NullOp" $ \v -> case HML.lookup "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
@@ -418,29 +378,25 @@ instance FromJSON CastKind where
                                                Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
                                                x -> fail ("bad CastKind: " ++ show x)
 
-instance FromJSON Literal where
-    parseJSON = withObject "Literal" $ \v ->
-      case HML.lookup "kind" v of
-        Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
-        Just (String "Const") -> do
-          rend <- v .:? "rendered"
-          init <- v .:? "initializer"
-          case (rend, init) of
-            (Just (RustcRenderedConst rend), _) ->
-                pure $ Value rend
-            (Nothing, Just (RustcConstInitializer defid substs)) ->
-                pure $ Value $ ConstInitializer defid substs
-            (Nothing, Nothing) ->
-                fail $ "need either rendered value or initializer in constant literal"
-        Just (String "Promoted") -> LitPromoted <$> v .: "index"
-        x -> fail ("bad Literal: " ++ show x)
+instance FromJSON Constant where
+    parseJSON = withObject "Literal" $ \v -> do
+      ty <- v .: "ty"
+      rend <- v .:? "rendered"
+      init <- v .:? "initializer"
+      case (rend, init) of
+        (Just (RustcRenderedConst rend), _) ->
+            pure $ Constant ty rend
+        (Nothing, Just (RustcConstInitializer defid)) ->
+            pure $ Constant ty $ ConstInitializer defid
+        (Nothing, Nothing) ->
+            fail $ "need either rendered value or initializer in constant literal"
 
 
-data RustcConstInitializer = RustcConstInitializer DefId Substs
+data RustcConstInitializer = RustcConstInitializer DefId
 
 instance FromJSON RustcConstInitializer where
     parseJSON = withObject "Initializer" $ \v ->
-        RustcConstInitializer <$> v .: "def_id" <*> v .: "substs"
+        RustcConstInitializer <$> v .: "def_id"
 
 newtype RustcRenderedConst = RustcRenderedConst ConstVal
 
@@ -521,7 +477,7 @@ instance FromJSON RustcRenderedConst where
             fields <- map (\(RustcRenderedConst val) -> val) <$> v .: "fields"
             return $ ConstEnum variant fields
 
-        Just (String "fndef") -> ConstFunction <$> v .: "def_id" <*> v .: "substs"
+        Just (String "fndef") -> ConstFunction <$> v .: "def_id"
         Just (String "static_ref") -> ConstStaticRef <$> v .: "def_id"
         Just (String "zst") -> pure ConstZST
         Just (String "raw_ptr") -> do
@@ -543,36 +499,20 @@ instance FromJSON AggregateKind where
     parseJSON = withObject "AggregateKind" $ \v -> case HML.lookup "kind" v of
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
-                                                     Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
+                                                     Just (String "Closure") -> pure AKClosure
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk
                                                      x -> fail ("bad AggregateKind: " ++ show x)
 
 instance FromJSON Trait where
     parseJSON = withObject "Trait" $ \v -> do
-      pg <- v .: "generics"
-      pp <- v .: "predicates"
-      params <- (withObject "Param" (\u -> u .: "params") pg)
       Trait <$> v .: "name"
             <*> v .: "items"
-            <*> v .: "supertraits"
-            <*> pure params
-            <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-            <*> pure []
 
 instance FromJSON TraitItem where
     parseJSON = withObject "TraitItem" $ \v ->
                 case HML.lookup "kind" v of
                   Just (String "Method") -> do
-                    sig <- v .: "signature"
-                    pg  <- v .: "generics"
-                    pp  <- v .: "predicates"
-                    params <- withObject "Param" (\u -> u .: "params") pg
-                    preds  <- withObject "Predicates" (\u -> u .: "predicates") pp
-                    let sig' = sig & fsgenerics   .~ params
-                                   & fspredicates .~ preds
-                    TraitMethod <$> v .: "item_id" <*> return sig'
-                  Just (String "Type") -> TraitType <$> v .: "name"
-                  Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
+                    TraitMethod <$> v .: "item_id" <*> v .: "signature"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
                   Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ show x
                   k -> fail $ "bad kind field in TraitItem " ++ show k
@@ -588,84 +528,11 @@ instance FromJSON MirBody where
         <$> v .: "vars"
         <*> v .: "blocks"
 
-parsePred :: HML.HashMap Text Value -> Aeson.Parser Predicate
-parsePred v = 
-  case HML.lookup "kind" v of
-    Just (String "Trait") -> do
-      TraitPredicate <$> v .: "trait" <*> v .: "substs"
-    Just (String "Projection") -> do
-      TraitProjection <$> (TyProjection <$> v .: "proj" <*> v .: "substs") <*> v .: "rhs_ty" 
-    Just (String "AutoTrait") ->
-      AutoTraitPredicate <$> v .: "trait"
-    k -> fail $ "cannot parse predicate " ++ show k
-
-instance FromJSON Predicate where
-    parseJSON obj = case obj of
-      Object v -> do
-        mpobj <- v .:? "trait_pred"
-        case mpobj of
-          Just pobj -> do
-            TraitPredicate <$> pobj .: "trait" <*> pobj .: "substs"
-          Nothing -> do
-            mpobj <- v .:? "trait_proj"
-            case mpobj of
-              Just ppobj -> do
-                pobj <- ppobj .: "projection_ty"
-                TraitProjection <$> (TyProjection <$> pobj .: "item_def_id" <*> pobj .: "substs")
-                                <*> ppobj .: "ty"
-              Nothing -> return UnknownPredicate
-      String t | t == "unknown_pred" -> return UnknownPredicate
-      wat -> Aeson.typeMismatch "Predicate" wat           
-
-instance FromJSON Param where
-    parseJSON = withObject "Param" $ \v ->
-      Param <$> v .: "param_def"
-
-instance FromJSON TraitRef where
-    parseJSON = withObject "TraitRef" $ \v ->
-      TraitRef <$> v .: "trait" <*> v .: "substs"
-
-
-instance FromJSON TraitImplItem where
-    parseJSON = withObject "TraitImplItem" $ \v -> do
-      pg <- v .: "generics"
-      pp <- v .: "predicates"
-      case HML.lookup "kind" v of
-        Just (String "Method") -> TraitImplMethod
-                                  <$> v .: "name"
-                                  <*> v .:? "implements" .!= "unknown[0]::UNKNOWN[0]"
-                                  <*> (withObject "Param" (\u -> u .: "params") pg)
-                                  <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-                                  <*> v .: "signature"
-        Just (String "Type") -> TraitImplType
-                                  <$> v .: "name"  
-                                  <*> v .:? "implements" .!= "unknown[0]::UNKNOWN[0]"
-                                  <*> (withObject "Param" (\u -> u .: "params") pg)
-                                  <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-                                  <*> v .: "type"                                  
-        Just (String x) -> fail $ "Incorrect format of the kind field in TraitImplItem: " ++ show x
-        k -> fail $ "bad kind field in TraitImplItem " ++ show k
-
-instance FromJSON TraitImpl where
-  parseJSON = withObject "TraitImpl" $ \v -> do
-    pg <- v .: "generics"
-    pp <- v .: "predicates"
-    tr <- v .: "trait_ref"
-    TraitImpl <$> v .: "name"
-              <*> pure tr
-              <*> pure tr
-              <*> withObject "Param" (\u -> u .: "params") pg
-              <*> withObject "Predicates" (\u -> u .: "predicates") pp
-              <*> v .: "items"
-              <*> pure []
-
 instance FromJSON Static where
   parseJSON = withObject "Static" $ \v -> do
     Static <$> v .: "name"
            <*> v .: "ty"
            <*> v .: "mutable"
-           <*> v .:? "promoted_from"
-           <*> v .:? "promoted_index"
 
            
 --  LocalWords:  initializer supertraits deserialization impls
