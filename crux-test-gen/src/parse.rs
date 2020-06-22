@@ -46,6 +46,7 @@ impl GrammarBuilder {
         struct PendingBlock {
             lhs: NonterminalId,
             start_line: usize,
+            end_line: usize,
             min_indent: usize,
         }
 
@@ -54,8 +55,9 @@ impl GrammarBuilder {
             let trimmed = line.trim_start();
             if let Some(ref mut block) = cur_block {
                 if trimmed.len() == 0 {
-                    // Include blank or all-whitespace lines in the block, regardless of their
-                    // indentation level.
+                    // Internal blank or all-whitespace are accepted, regardless of their
+                    // indentation level.  However, we don't update `end_line`, so trailing blank
+                    // lines after a block are ignored.
                     continue;
                 }
 
@@ -63,13 +65,14 @@ impl GrammarBuilder {
                 if indent > 0 {
                     // Include non-blank lines as long as they're indented by some amount.
                     block.min_indent = cmp::min(block.min_indent, indent);
+                    block.end_line = i + 1;
                     continue;
                 } else {
                     // The first non-indented line marks the end of the block.
                     let block = cur_block.take().unwrap();
                     let prod = self.parse_block(
                         block.start_line,
-                        &lines[block.start_line .. i],
+                        &lines[block.start_line .. block.end_line],
                         block.min_indent,
                     );
                     self.add_prod(block.lhs, prod);
@@ -97,6 +100,7 @@ impl GrammarBuilder {
                     cur_block = Some(PendingBlock {
                         lhs: nt,
                         start_line: i + 1,
+                        end_line: i + 1,
                         min_indent: usize::MAX,
                     });
                 } else {
@@ -114,7 +118,7 @@ impl GrammarBuilder {
         if let Some(block) = cur_block {
             let prod = self.parse_block(
                 block.start_line,
-                &lines[block.start_line ..],
+                &lines[block.start_line .. block.end_line],
                 block.min_indent,
             );
             self.add_prod(block.lhs, prod);
@@ -132,8 +136,11 @@ impl GrammarBuilder {
 
         let mut prod = Production::default();
         for (i, line) in lines.iter().enumerate() {
+            // The last line never gets a trailing newline.
+            let newline = i < lines.len() - 1;
+
             if line.len() < indent {
-                prod.chunks.push(Chunk::Text(self.intern_text(""), true));
+                prod.chunks.push(Chunk::Text(self.intern_text(""), newline));
                 continue;
             }
 
@@ -149,9 +156,9 @@ impl GrammarBuilder {
                 prod.chunks.push(Chunk::Nt(nt_idx));
                 prod.nts.push(self.nt_id(&caps[2]));
                 prod.chunks.push(Chunk::Indent(-indent_amount));
-                prod.chunks.push(Chunk::Text(self.intern_text(""), true));
+                prod.chunks.push(Chunk::Text(self.intern_text(""), newline));
             } else {
-                self.parse_line(&mut prod, line, true);
+                self.parse_line(&mut prod, line, newline);
             }
         }
         prod
@@ -194,6 +201,16 @@ impl GrammarBuilder {
 
 pub fn parse_grammar(lines: &[&str]) -> Context {
     let mut gb = GrammarBuilder::default();
+
+    // Set up the anonymous nonterminal #0, which expands to `<<start>>` via production #0.
+    let root_id = 0;
+    gb.nts.push(Nonterminal::default());
+    let start_id = gb.nt_id("start");
+    gb.add_prod(0, Production {
+        chunks: vec![Chunk::Nt(0)],
+        nts: vec![start_id],
+    });
+
     gb.parse_grammar(lines);
     gb.finish()
 }

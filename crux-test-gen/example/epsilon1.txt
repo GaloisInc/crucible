@@ -1,0 +1,19 @@
+// `epsilon`'s block contains only blank lines, so it expands to nothing.
+epsilon ::=
+
+// `start` uses `epsilon` to make the final line non-blank, ensuring that the
+// trailing blank lines are kept.
+start ::=
+    {
+        <<X>>
+        <<X>>
+    }
+
+    <<epsilon>>
+
+X ::=
+    one
+    one
+X ::=
+    two
+    two
