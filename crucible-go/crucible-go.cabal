@@ -64,6 +64,9 @@ library
                      , data-default-class
                      , lens-simple
                      , what4
+                     , transformers >= 0.3
+                     , ansi-wl-pprint
+                     , crux
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -83,4 +86,3 @@ test-suite crucible-go-tests
                  crucible,
                  golang,
                  crucible-go
-                 

@@ -131,16 +131,18 @@ simulateGo copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let regmap = RegMap Ctx.Empty
 
    -- Set up initial crucible execution state
-   initSt <- setupCrucibleGoCrux f verbosity sym Crux.emptyModel regmap
+   initSt <- let ?machineWordWidth = 32 in
+     setupCrucibleGoCrux f verbosity sym Crux.emptyModel regmap
      -- :: IO (ExecState _ _ Go (RegEntry _ (BVType 32)))
 
    return $ Crux.RunnableState $ initSt
 
 
--- | Entry point, parse command line opions
+-- | Entry point, parse command line options
 main :: IO ()
 main =
   Crux.loadOptions Crux.defaultOutputConfig "crux-go" "0.1" cruxGoConfig $
     \(cruxOpts, goOpts) ->
       exitWith =<< Crux.postprocessSimResult cruxOpts =<<
-        Crux.runSimulator cruxOpts (simulateGo cruxOpts goOpts)
+        Crux.runSimulator (cruxOpts { Crux.outDir = "report"
+                                    , Crux.skipReport = False }) (simulateGo cruxOpts goOpts)
