@@ -1,22 +1,31 @@
+use std::env;
+use std::fs::File;
+use std::process;
 use std::rc::Rc;
+
+mod parse;
 
 type NonterminalId = usize;
 type ProductionId = usize;
 
+#[derive(Debug, Default)]
 struct Production {
     chunks: Vec<Chunk>,
     nts: Vec<NonterminalId>,
 }
 
+#[derive(Debug, Default)]
 struct Nonterminal {
     productions: Vec<ProductionId>
 }
 
-struct Context {
+#[derive(Debug, Default)]
+pub struct Context {
     productions: Vec<Production>,
     nonterminals: Vec<Nonterminal>,
 }
 
+#[derive(Debug)]
 enum Chunk {
     /// A chunk of literal text.  Must not contain newlines.  The `bool`
     /// indicates whether to insert a newline after this text.
@@ -247,35 +256,16 @@ fn render_expansion(cx: &Context, exp: &Expansion) -> String {
 
 
 fn main() {
-    let cx = Context {
-        productions: vec![
-            // S -> XX
-            Production {
-                chunks: vec![Chunk::Nt(0), Chunk::Nt(1)],
-                nts: vec![1, 1],
-            },
-            // X -> "a"
-            Production {
-                chunks: vec![Chunk::Text("a".to_owned().into(), false)],
-                nts: vec![],
-            },
-            // X -> "b"
-            Production {
-                chunks: vec![Chunk::Text("b".to_owned().into(), false)],
-                nts: vec![],
-            },
-        ],
-        nonterminals: vec![
-            // S
-            Nonterminal {
-                productions: vec![0],
-            },
-            // X
-            Nonterminal {
-                productions: vec![1, 2],
-            },
-        ],
-    };
+    let args = env::args().collect::<Vec<_>>();
+    if args.len() != 2 {
+        println!("usage: {} <grammar.txt>", args.get(0).map_or("crux-test-gen", |s| s));
+        process::exit(1);
+    }
+
+    let mut f = File::open(&args[1]).unwrap();
+    let cx = parse::read_grammar(f).unwrap();
+
+    eprintln!("{:?}", cx);
 
     let mut conts = vec![Continuation::new(0)];
     while let Some(exp) = expand_next(&cx, &mut conts) {

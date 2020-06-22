@@ -1,0 +1,12 @@
+start ::=
+    {
+        <<X>>
+        <<X>>
+    }
+
+X ::=
+    one
+    one
+X ::=
+    two
+    two
