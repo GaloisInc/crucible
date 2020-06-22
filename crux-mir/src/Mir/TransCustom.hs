@@ -1381,7 +1381,7 @@ unsafe_cell_get =
 
 unsafe_cell_raw_get :: (ExplodedDefId, CustomRHS)
 unsafe_cell_raw_get =
-    (["core", "cell", "{{impl}}", "raw_get", "crucible_hook"], unsafe_cell_get_impl)
+    (["core", "cell", "{{impl}}", "raw_get"], unsafe_cell_get_impl)
 
 
 --------------------------------------------------------------------------------------------------------------------------
