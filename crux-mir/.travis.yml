@@ -65,7 +65,7 @@ before_install:
   # Install a recent version of z3
   - if [[ $TRAVIS_OS_NAME == 'linux' ]];
     then
-        curl -sSfL https://github.com/Z3Prover/z3/releases/download/Nightly/z3-4.8.8-x64-ubuntu-16.04.zip -o z3.zip;
+        curl -sSfL https://github.com/Z3Prover/z3/releases/download/z3-4.8.8/z3-4.8.8-x64-ubuntu-16.04.zip -o z3.zip;
         unzip z3.zip;
         export PATH=$PATH:$PWD/z3-4.8.8-x64-ubuntu-16.04/bin;
     fi
