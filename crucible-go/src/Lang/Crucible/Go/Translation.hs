@@ -8,11 +8,12 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Lang.Crucible.Go.Translation (mkFnEnv, translateFunction) where
 
 import           Control.Monad.ST (ST)
-import           Control.Monad (zipWithM, void)
+import           Control.Monad (forM_, zipWithM, void)
 import           Control.Monad.Fail (MonadFail)
 import qualified Control.Monad.State as St
 
@@ -148,7 +149,6 @@ data TransState ctx s = TransState
      -- multiplex return values in a struct that would store references
      -- to return values. The struct is going to be created from the
      -- variable assignment in this component of the user state.
-     -- TODO: why references?
   , machineWordWidth :: !Int -- ^ size of the machine word
   }
 
@@ -189,7 +189,7 @@ bindReturns rlist f =
                     goNamed ps (\ctx gen -> k (ctx Ctx.:> t)
                                  (do assign <- gen
                                      reg <- declareVar rname (zeroValue t) t
-                                     return (assign Ctx.:> GoVarOpen reg))
+                                     return $ assign Ctx.:> GoVarOpen reg)
                                ))
       goAnon :: [Type SourceRange] -> (forall ctx. CtxRepr ctx -> a) -> a
       goAnon [] k = k Ctx.empty
@@ -244,11 +244,11 @@ declareVar :: (C.IsSyntaxExtension ext) =>
               GoGenerator ext s rctx (Gen.Reg s (ReferenceType tp))
 declareVar name value t = do ref <- Gen.newReference value
                              reg <- Gen.newReg ref
-                             trace ("declareVar") $
-                               trace ("name: " ++ show name) $
-                               trace ("reg: " ++ show reg) $ do
-                               St.modify' (\ts -> ts {lexenv = HM.insert name (GoVarReg t reg) (lexenv ts)})
-                               return reg
+                             -- trace ("declareVar") $
+                             --   trace ("name: " ++ show name) $
+                             --   trace ("reg: " ++ show reg) $ do
+                             St.modify' (\ts -> ts {lexenv = HM.insert name (GoVarReg t reg) (lexenv ts)})
+                             return reg
 
 graphGenerator :: (C.IsSyntaxExtension ext) =>
   [Statement SourceRange] -> CtxRepr rctx -> GoGenerator ext s rctx a --(Gen.Expr s (StructType rctx))
@@ -338,19 +338,25 @@ translateStatement retCtxRepr s = case s of
   AssignStmt _ lhs Assignment rhs
     | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs)
     | otherwise -> error "Mismatched assignment expression lengths"
-  ReturnStmt _ [] ->
-    case testEquality retCtxRepr Ctx.empty of
-      Just Refl -> Gen.returnFromFunction $ Gen.App $ C.MkStruct retCtxRepr Ctx.empty
-    -- This doesnt work because retCtxRepr is a CtxRepr, not a TypeRepr
-    -- case testEquality retCtxRepr UnitRepr of
-    --   Just Refl -> Gen.returnFromFunction $ Gen.App $ C.EmptyApp
-      _ -> error $ "translateStatement error: expected null return type, got " ++ show retCtxRepr
+  ReturnStmt _ [] -> do
+    retSlots <- St.gets returnSlots
+    case retSlots of
+      -- If there are no returnSlots, then this function doesn't have
+      -- named return variables so an empty return statement is only
+      -- valid if the function has no return type at all.
+      Nothing ->
+        case testEquality retCtxRepr Ctx.empty of
+          Just Refl -> Gen.returnFromFunction $ Gen.App $ C.MkStruct retCtxRepr Ctx.empty
+          _ -> error $ "translateStatement error: expected null return type, got " ++ show retCtxRepr
+      -- If there are returnSlots, then we can use them to produce a
+      -- struct containing the return values.
+      Just slots ->
+        -- TODO: fold over slots to produce the return value (may need
+        -- to dereference them).
+        undefined
   ReturnStmt _ [e] ->
     withTranslatedExpression e $ \_ e' ->
-      case e' of
-        _ | Just Refl <- testEquality (Ctx.empty Ctx.:> (exprType e')) retCtxRepr ->
-            Gen.returnFromFunction $ Gen.App $ C.MkStruct retCtxRepr (Ctx.empty Ctx.:> e')
-          | otherwise -> error ("translateStatement error: Incorrect return type: " ++ show e ++ " Expected type: " ++ show retCtxRepr ++ " Actual type: " ++ show (exprType e'))
+    asType (StructRepr retCtxRepr) e' $ \e'' -> Gen.returnFromFunction e''
   ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
   EmptyStmt _ -> return ()
   LabeledStmt _ (Label _ labelName) stmt -> do
@@ -518,6 +524,9 @@ translateAssignment :: (C.IsSyntaxExtension ext) =>
                        (Expression SourceRange, Expression SourceRange)
                     -> GoGenerator ext s rctx ()
 translateAssignment (lhs, rhs) =
+  -- trace "translateAssignment" $
+  -- trace ("lhs: " ++ show lhs) $
+  -- trace ("rhs: " ++ show rhs) $
   withTranslatedExpression lhs $ \mAssignLoc lhs' -> do
     withTranslatedExpression rhs $ \_ rhs' -> do
       case () of
@@ -539,8 +548,16 @@ translateVarSpec s = case s of
       if null initialValues then
         -- declare variables with zero values;
         mapM_ (\ident -> declareIdent ident (zeroValue typeRepr) typeRepr) $ NE.toList identifiers
-      else if NE.length identifiers /= length initialValues then error "The number of variable declared doesn't match the number of initial values provided. This is either a syntax error or a destructuring assignment. The latter is not supported."
-           else void $ zipWithM bindExpr (NE.toList identifiers) initialValues
+      else if NE.length identifiers /= length initialValues then
+        error "The number of variable declared doesn't match the number of initial values provided. This is either a syntax error or a destructuring assignment. The latter is not supported."
+      else
+        -- Declare the variables and check that the types of the
+        -- initial values have the correct type.
+        forM_ (zip (NE.toList identifiers) initialValues) $ \(ident, value) ->
+        withTranslatedExpression value $ \_ expr ->
+        asType typeRepr expr $ \expr' ->
+        declareIdent ident expr' typeRepr
+        
   UntypedVarSpec _ identifiers initialValues
     | F.length identifiers == F.length initialValues ->
       void $ zipWithM bindExpr (F.toList identifiers) (F.toList initialValues)
@@ -548,7 +565,7 @@ translateVarSpec s = case s of
   where
     bindExpr ident value = do
       withTranslatedExpression value $ \_ expr ->
-        declareIdent ident expr (exprType expr)
+        declareIdent ident expr (exprType expr)      
 
 -- | Translate a Go expression into a Crucible expression
 --
@@ -577,15 +594,13 @@ translateVarSpec s = case s of
 --
 -- 4) Dereference expressions
 
-withTranslatedExpression :: (C.IsSyntaxExtension ext)
+withTranslatedExpression :: C.IsSyntaxExtension ext
                          => Expression SourceRange
-                         -> (forall typ .
-                              Maybe (Gen.Reg s (ReferenceType typ)) ->
+                         -> (forall typ. Maybe (Gen.Reg s (ReferenceType typ)) ->
                               Gen.Expr ext s typ -> GoGenerator ext s rctx a)
                          -> GoGenerator ext s rctx a
 withTranslatedExpression e k = case e of
-  -- NilLit _ -> k Nothing $ Gen.App $ C.NothingValue
-  NilLit _ -> k Nothing undefined
+  NilLit _ -> k Nothing $ Gen.App $ C.EmptyApp
   BoolLit _ b -> k Nothing $ Gen.App $ C.BoolLit b
   IntLit _ i ->
     (translateTypeM (fromRight $ getType e)) $ \typerepr ->
@@ -635,28 +650,23 @@ withTranslatedExpression e k = case e of
         Right toType' -> translateTypeM toType' $ \typerepr ->
           translateConversion k typerepr baseE'
         Left err -> error ("withTranslatedExpression: Unexpected conversion type: " ++ show (toType, err))
-        
   CallExpr _ f _t args Nothing ->
     withTranslatedExpression f $ \_ f' ->
     withTranslatedExpressions args $ \ctxRepr assignment -> do
     case Gen.exprType f' of
-      MaybeRepr (FunctionHandleRepr argsRepr _retRepr)
-        | Just Refl <- testEquality argsRepr ctxRepr ->
-          case f' of
-            Gen.App (C.JustValue _repr f'') -> Gen.call f'' assignment >>= k Nothing
-            Gen.App (C.NothingValue _repr) ->
-              error "withTranslatedExpression: attempt to call nil function"
-            _ -> do
-              f'' <- Gen.fromJustExpr f' $ Gen.App $ C.StringLit $ C.UnicodeLiteral $
-                               T.pack $ "attempt to call nil function in function "
-                               ++ show f' ++ " translated from " ++ show f
-              Gen.call f'' assignment >>= k Nothing
-      MaybeRepr (FunctionHandleRepr argsRepr _) ->
-        error $ "withTranslatedExpression: function argument type mismatch. expected "
-        ++ show argsRepr ++ ", got " ++ show ctxRepr
+      MaybeRepr (FunctionHandleRepr argsRepr _retRepr) ->
+        asTypes argsRepr assignment $ \assignment' ->
+        case f' of
+          Gen.App (C.JustValue _repr f'') -> Gen.call f'' assignment' >>= k Nothing
+          Gen.App (C.NothingValue _repr) ->
+            error "withTranslatedExpression: attempt to call nil function"
+          _ -> do
+            f'' <- Gen.fromJustExpr f' $ Gen.App $ C.StringLit $ C.UnicodeLiteral $
+                   T.pack $ "attempt to call nil function in function "
+                   ++ show f' ++ " translated from " ++ show f
+            Gen.call f'' assignment' >>= k Nothing
       _ -> error $ "withTranslatedExpression: expected optional function type, got "
-           ++ show (Gen.exprType f')
-           
+           ++ show (Gen.exprType f')           
   CallExpr rng _ _ _ (Just vararg) ->
     error $ "withTranslatedExpression: unexpected variadic argument at " ++ show rng
   _ -> error "Unsupported expression type"
@@ -928,3 +938,45 @@ failIfNotEqual :: forall k f m a (b :: k).
 failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
   | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
+
+
+-- Use this function to assert that an expression has a certain
+-- type. Unit values may be coerced to Nothing values of a Maybe
+-- type. The following variations ultimately use this function so this
+-- is the one place to handle type coercion logic.
+asType' :: C.IsSyntaxExtension ext => TypeRepr b -> Gen.Expr ext s a -> Gen.Expr ext s b
+asType' repr e =
+  case testEquality (exprType e) repr of
+    Just Refl -> e
+    Nothing ->
+      case (exprType e, repr) of
+        (UnitRepr, MaybeRepr repr') -> Gen.App $ C.NothingValue repr'
+        (StructRepr (Ctx.Empty Ctx.:> typeRepr), _)
+          | Just Refl <- testEquality typeRepr repr ->
+              Gen.App $ C.GetStruct e Ctx.baseIndex typeRepr
+        (_, StructRepr (Ctx.Empty Ctx.:> typeRepr))
+          | Just Refl <- testEquality (exprType e) typeRepr ->
+              Gen.App $ C.MkStruct (Ctx.singleton typeRepr) (Ctx.singleton e)
+        _ -> error $ "asType fail: expression " ++ show e ++ " of type "
+             ++ show (exprType e) ++ " incompatible with type " ++ show repr
+
+-- CPS version
+asType :: C.IsSyntaxExtension ext => TypeRepr b -> Gen.Expr ext s a -> (Gen.Expr ext s b -> c) -> c
+asType repr e k = k $ asType' repr e
+
+-- asType' lifted to assignments.
+asTypes' :: C.IsSyntaxExtension ext =>
+           CtxRepr ctx' ->
+           Ctx.Assignment (Gen.Expr ext s) ctx ->
+           Ctx.Assignment (Gen.Expr ext s) ctx'
+asTypes' Ctx.Empty Ctx.Empty = Ctx.Empty
+asTypes' (reprs Ctx.:> repr) (es Ctx.:> e) = asTypes' reprs es Ctx.:> asType' repr e
+asTypes' ctx assignment =
+  error $ "asTypes: " ++ show assignment ++ " incompatible with " ++ show ctx
+
+-- CPS version
+asTypes :: C.IsSyntaxExtension ext =>
+            CtxRepr ctx' ->
+            Ctx.Assignment (Gen.Expr ext s) ctx ->
+            (Ctx.Assignment (Gen.Expr ext s) ctx' -> a) -> a
+asTypes ctxRepr assignment k = k $ asTypes' ctxRepr assignment

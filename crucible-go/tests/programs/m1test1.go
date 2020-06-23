@@ -15,6 +15,7 @@ func g (z int32, y bool, w string) int32 {
 
 func h(k func(int32)(int32)) int32 {
 	return k(0)
+	// return 0
 }
 
 // func main () {
