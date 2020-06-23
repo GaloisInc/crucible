@@ -781,7 +781,7 @@ doInvalidate sym w mem dest msg len = do
   (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
   assert sym p $ AssertFailureSimError
-    "Invalidation of unallocated or immutable region"
+    "Invalidation of unallocated or readonly region"
     (unwords [ "Region of"
              , show $ printSymExpr len
              , "bytes at"
@@ -830,7 +830,7 @@ doArrayStoreSize
 doArrayStoreSize len sym mem ptr alignment arr = do
   (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
-  let errMsg1 = "Array store to unallocated or immutable region"
+  let errMsg1 = "Array store to unallocated or readonly region"
   let errMsg2 = "Array store to improperly aligned region"
   assert sym p1 $ AssertFailureSimError errMsg1 (show (G.ppPtr ptr))
   assert sym p2 $ AssertFailureSimError errMsg2 (show (G.ppPtr ptr))
@@ -888,7 +888,7 @@ doMemcpy sym w mem dest src len = do
   let errMsg1 = PP.text "Source region was one of the following:"
               : reasons
   let errMsg2 = PP.text "Dest region was one of the following:"
-              : PP.text "- Not mutable"
+              : PP.text "- Readonly"
               : reasons
   assert sym p1 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg1))
   assert sym p2 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg2))
@@ -1106,7 +1106,7 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType alignment val = do
     (heap', p1, p2) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg1 = "The region wasn't allocated, or wasn't mutable"
+    let errMsg1 = "The region wasn't allocated, or was marked as readonly"
     let errMsg2 = "The region's alignment wasn't correct"
     let err = AssertFailureSimError "Invalid memory store"
     assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
@@ -1185,7 +1185,7 @@ condStoreRaw sym mem cond ptr valType alignment val = do
   (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
   -- Assert is allocated if write executes
   do condIsAllocated <- impliesPred sym cond isAllocated
-     let errMsg1 = "The region wasn't allocated, or wasn't mutable"
+     let errMsg1 = "The region wasn't allocated, or was marked as readonly"
      assert sym condIsAllocated (err $ ptrMessage errMsg1 ptr valType)
   -- Assert is aligned if write executes
   do condIsAligned <- impliesPred sym cond isAligned
