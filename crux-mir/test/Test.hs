@@ -3,6 +3,8 @@
 {-# Language OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.UTF8 as BS8
 import           Data.Char (isSpace)
 import           Data.List (dropWhileEnd, isPrefixOf)
 import           Data.Maybe (catMaybes)
@@ -16,7 +18,8 @@ import qualified System.Process as Proc
 
 import           Test.Tasty (defaultMain, testGroup, TestTree)
 import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
-import           Test.Tasty.Golden (goldenVsFile, findByExtension)
+import           Test.Tasty.Golden (findByExtension)
+import           Test.Tasty.Golden.Advanced (goldenTest)
 import           Test.Tasty.ExpectedFailure (expectFailBecause)
 
 import qualified Mir.Language as Mir
@@ -61,12 +64,13 @@ defaultCruxOptions = case res of
 
 runCrux :: FilePath -> Handle -> Bool -> IO ()
 runCrux rustFile outHandle concrete = do
-    -- goalTimeout is bumped from 60 to 120 because scalar.rs symbolic
-    -- verification runs close to the timeout, causing flaky results.
+    -- goalTimeout is bumped from 60 to 180 because scalar.rs symbolic
+    -- verification runs close to the timeout, causing flaky results
+    -- (especially in CI).
     let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
                                         Crux.simVerbose = 0,
-                                        Crux.globalTimeout = Just 120,
-                                        Crux.goalTimeout = Just 120,
+                                        Crux.globalTimeout = Just 180,
+                                        Crux.goalTimeout = Just 180,
                                         Crux.solver = "z3" } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = concrete })
     let ?outputConfig = Crux.OutputConfig False outHandle outHandle False
@@ -103,7 +107,7 @@ symbTest dir =
   do rustFiles <- findByExtension [".rs"] dir
      return $
        testGroup "Output testing"
-         [ goldenVsFile (takeBaseName rustFile) goodFile outFile $
+         [ doTest (takeBaseName rustFile) goodFile outFile $
            withFile outFile WriteMode $ \h ->
            runCrux rustFile h False
          | rustFile <- rustFiles
@@ -115,6 +119,14 @@ symbTest dir =
    notHidden "" = True
    notHidden ('.' : _) = False
    notHidden _ = True
+
+   doTest rustFile goodFile outFile act = goldenTest (takeBaseName rustFile)
+     (BS.readFile goodFile)
+     (act >> BS.readFile outFile)
+     (\good out -> return $ if good == out then Nothing else
+       Just $ "files " ++ goodFile ++ " and " ++ outFile ++ " differ; " ++
+         goodFile ++ " contains:\n" ++ BS8.toString out)
+    (\out -> BS.writeFile goodFile out)
 
 main :: IO ()
 main = defaultMain =<< suite

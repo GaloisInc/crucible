@@ -6,7 +6,9 @@ compile() {
 }
 
 compile_2015() {
-    rustc -L rlibs_native --out-dir rlibs_native --crate-type rlib "$@"
+    rustc -L rlibs_native --out-dir rlibs_native --crate-type rlib \
+        --remap-path-prefix $PWD=. \
+        "$@"
 }
 
 translate() {
@@ -14,7 +16,9 @@ translate() {
 }
 
 translate_2015() {
-    mir-json -L rlibs --out-dir rlibs --crate-type rlib "$@"
+    mir-json -L rlibs --out-dir rlibs --crate-type rlib \
+        --remap-path-prefix $PWD=. \
+        "$@"
 }
 
 
