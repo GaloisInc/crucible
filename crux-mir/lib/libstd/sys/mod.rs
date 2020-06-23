@@ -52,6 +52,8 @@ cfg_if::cfg_if! {
     }
 }
 
+pub mod crux;
+
 // Import essential modules from both platforms when documenting. These are
 // then later used in the `std::os` module when documenting, for example,
 // Windows when we're compiling for Linux.

@@ -1636,10 +1636,16 @@ impl<T: ?Sized> UnsafeCell<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[rustc_const_stable(feature = "const_unsafecell_get", since = "1.32.0")]
     pub const fn get(&self) -> *mut T {
-        // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
-        // #[repr(transparent)]. This exploits libstd's special status, there is
-        // no guarantee for user code that this will work in future versions of the compiler!
-        self as *const UnsafeCell<T> as *const T as *mut T
+        // Crux: We wrap the body of this function in an inner function to give us a unique name to
+        // override.  An override on `core::cell::{{impl}}::get` would match both `UnsafeCell::get`
+        // and `Cell::get`, but there is only one `core::cell::{{impl}}::get::crucible_hook`.
+        const fn crucible_hook<T: ?Sized>(this: &UnsafeCell<T>) -> *mut T {
+            // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
+            // #[repr(transparent)]. This exploits libstd's special status, there is
+            // no guarantee for user code that this will work in future versions of the compiler!
+            this as *const UnsafeCell<T> as *const T as *mut T
+        }
+        crucible_hook(self)
     }
 
     /// Gets a mutable pointer to the wrapped value.

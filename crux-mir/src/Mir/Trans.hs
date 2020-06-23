@@ -36,7 +36,8 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , vectorCopy, ptrCopy
                 , evalRval
                 , callExp
-                , derefExp, readPlace
+                , derefExp, readPlace, addrOfPlace
+                , initialValue
                 ) where
 
 import Control.Monad
@@ -97,41 +98,6 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import GHC.Stack
 
 import Debug.Trace
-
-
------------
--- ** Expression generation
-
-packBase
-    :: HasCallStack => C.TypeRepr tp
-    -> C.CtxRepr ctx
-    -> Ctx.Assignment (R.Atom s) ctx
-    -> (forall ctx'. Some (R.Atom s) -> C.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a)
-    -> a
-packBase ctp ctx0 asgn k =
-  case Ctx.viewAssign ctx0 of
-    Ctx.AssignEmpty -> error "packType: ran out of actual arguments!"
-    Ctx.AssignExtend ctx' ctp' ->
-      case testEquality ctp ctp' of
-        Nothing -> error $ unwords ["crucible type mismatch: given",show ctp,"but ctxrepr had", show ctp', "even though ctx was", show ctx0]
-        Just Refl ->
-          let asgn' = Ctx.init asgn
-              idx   = Ctx.nextIndex (Ctx.size asgn')
-           in k (Some (asgn Ctx.! idx))
-                ctx'
-                asgn'
-
-unfold_ctx_assgn
-    :: HasCallStack =>
-       M.Ty
-    -> C.CtxRepr ctx
-    -> Ctx.Assignment (R.Atom s) ctx
-    -> (forall ctx'. Some (R.Atom s) -> C.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a)
-    -> a
-unfold_ctx_assgn tp ctx asgn k =
-    tyToReprCont tp $ \repr ->
-        packBase repr ctx asgn k
-
 
 
 
@@ -541,6 +507,13 @@ transNullaryOp M.Box ty = do
     mkBox (M.TyRawPtr ty' _) = do
         Some tpr <- return $ tyToRepr ty'
         ptr <- newMirRef tpr
+        maybeInitVal <- initialValue ty'
+        case maybeInitVal of
+            Just (MirExp tpr' initVal) -> do
+                Refl <- testEqualityOrFail tpr tpr' $
+                    "bad initial value for box: expected " ++ show tpr ++ " but got " ++ show tpr'
+                writeMirRef ptr initVal
+            Nothing -> return ()
         return $ MirExp (MirReferenceRepr tpr) ptr
     mkBox ty@(M.TyAdt aname _ _) = do
         adt <- findAdt aname
@@ -758,6 +731,11 @@ evalCast' ck ty1 e ty2  =
         | m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
         -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
 
+      -- *const [T; N] -> *const T (get first element)
+      (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
+        | t1 == t2, m1 == m2, MirExp (MirReferenceRepr (MirVectorRepr tpr)) e' <- e
+        -> MirExp (MirReferenceRepr tpr) <$> subindexRef tpr e' (R.App $ usizeLit 0)
+
       -- *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
         | m1 == m2 -> return e
@@ -967,6 +945,9 @@ evalPlaceProj ty pl@(MirPlace tpr ref NoMeta) M.Deref = do
         return $ MirPlace tpr' ptr (SliceMeta len)
 
 evalPlaceProj ty (MirPlace tpr ref NoMeta) (M.PField idx _mirTy) = case ty of
+    CTyMaybeUninit _ -> do
+        return $ MirPlace tpr ref NoMeta
+
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt^.adtkind of
@@ -1003,21 +984,22 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         return idx
 evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) = case (ty, tpr, meta) of
     -- TODO: should this check sz >= minLen?
-    (M.TyArray elemTy _sz, MirVectorRepr elemTpr, NoMeta) -> do
-        idx' <- getIdx idx fromEnd
+    (M.TyArray elemTy sz, MirVectorRepr elemTpr, NoMeta) -> do
+        idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
         MirPlace elemTpr <$> subindexRef elemTpr ref idx' <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
-        idx <- getIdx idx fromEnd
+        idx <- getIdx idx len fromEnd
         G.assertExpr (R.App $ usizeLt idx len)
             (S.litExpr "Index out of range for access to slice")
         MirPlace elemTpr <$> mirRef_offset elemTpr ref idx <*> pure NoMeta
 
     _ -> mirFail $ "indexing not supported on " ++ show (ty, tpr, meta)
   where
-    getIdx :: Int -> Bool -> MirGenerator h s ret (R.Expr MIR s UsizeType)
-    getIdx _ True = mirFail $ "fromEnd indexing is not yet implemented"
-    getIdx idx _ = return $ R.App $ usizeLit $ fromIntegral idx
+    getIdx :: Int -> R.Expr MIR s UsizeType -> Bool ->
+        MirGenerator h s ret (R.Expr MIR s UsizeType)
+    getIdx idx len True = return $ R.App $ usizeSub len $ R.App $ usizeLit $ fromIntegral idx
+    getIdx idx _ False = return $ R.App $ usizeLit $ fromIntegral idx
 -- Downcast is a no-op - it only affects the type reported by `M.type_of`.  The
 -- `PField` case above looks for `TyDowncast` to handle enum accesses.
 evalPlaceProj _ pl (M.Downcast _idx) = return pl
@@ -1417,13 +1399,9 @@ initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usiz
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
 initialValue (M.TyArray t size) = do
-    mv <- initialValue t 
-    case mv of
-      Just (MirExp tp e) -> do
-        let n = fromInteger (toInteger size)
-        vec <- mirVector_fromVector tp $ S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e
-        return $ Just $ MirExp (MirVectorRepr tp) vec
-      Nothing -> return Nothing
+    Some tpr <- return $ tyToRepr t
+    mv <- mirVector_uninit tpr $ S.app $ E.BVLit knownNat (fromIntegral size)
+    return $ Just $ MirExp (MirVectorRepr tpr) mv
 -- TODO: disabled to workaround for a bug with muxing null and non-null refs
 -- The problem is with
 --      if (*) {
@@ -1490,7 +1468,9 @@ initialValue M.TyChar = do
 initialValue (M.TyClosure tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps
-
+initialValue (CTyMaybeUninit t) = do
+    adt <- findAdtInst (M.textId "core::mem::manually_drop::ManuallyDrop") (Substs [t])
+    initialValue $ M.TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
 initialValue (M.TyAdt nm _ _) = do
     adt <- findAdt nm
     case adt ^. adtkind of
@@ -1581,10 +1561,9 @@ initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             => CollectionState
             -> Fn
             -> FH.FnHandle args ret 
-            -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args 
             -> FnState s
-initFnState colState fn handle inputs =
-  FnState { _varMap     = mkVarMap (reverse argtups) argtypes inputs Map.empty,
+initFnState colState fn handle =
+  FnState { _varMap     = Map.empty,
             _currentFn  = fn,
             _debugLevel = ?debug,
             _cs         = colState,
@@ -1592,19 +1571,6 @@ initFnState colState fn handle inputs =
             _customOps  = ?customOps,
             _assertFalseOnError = ?assertFalseOnError
          }
-    where
-      args = fn^.fargs
-
-      argtups  = map (\(M.Var n _ t _) -> (n,t)) args
-      argtypes = FH.handleArgTypes handle
-
-      mkVarMap :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
-      mkVarMap [] ctx _ m
-            | Ctx.null ctx = m
-            | otherwise = error "wrong number of args"
-      mkVarMap ((name,ti):ts) ctx asgn m =
-            unfold_ctx_assgn ti ctx asgn $ \(Some atom) ctx' asgn' ->
-                 mkVarMap ts ctx' asgn' (Map.insert name (Some (VarAtom atom)) m)
 
 
 -- do the statements and then the terminator
@@ -1630,15 +1596,19 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 -- | Translate a MIR function, returning a jump expression to its entry block
 -- argvars are registers
 -- The first block in the list is the entrance block
-genFn :: HasCallStack => M.Fn -> C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
-genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype = do
+genFn :: HasCallStack =>
+    M.Fn ->
+    C.TypeRepr ret ->
+    Ctx.Assignment (R.Atom s) args ->
+    MirGenerator h s ret (R.Expr MIR s ret)
+genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype inputs = do
 
   lm <- buildLabelMap body
   labelMap .= lm
 
   let addrTaken = mconcat (map addrTakenVars blocks)
-  initLocals localvars addrTaken
-  -- TODO: copy arg values into the new locals so we can remove NoMutArgs pass
+  initLocals (argvars ++ localvars) addrTaken
+  initArgs inputs (reverse argvars)
 
   db <- use debugLevel
   when (db > 3) $ do
@@ -1660,6 +1630,29 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype = do
        G.jump lbl
     _ -> mirFail "bad thing happened"
 
+  where
+    initArgs :: HasCallStack =>
+        Ctx.Assignment (R.Atom s) args -> [M.Var] -> MirGenerator h s ret ()
+    initArgs inputs vars =
+        case (Ctx.viewAssign inputs, vars) of
+            (Ctx.AssignEmpty, []) -> return ()
+            (Ctx.AssignExtend inputs' input, var : vars') -> do
+                mvi <- use $ varMap . at (var ^. varname)
+                Some vi <- case mvi of
+                    Just x -> return x
+                    Nothing -> mirFail $ "no varinfo for arg " ++ show (var ^. varname)
+                Refl <- testEqualityOrFail (R.typeOfAtom input) (varInfoRepr vi) $
+                    "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
+                        show (R.typeOfAtom input) ++ " != " ++ show (varInfoRepr vi)
+                case vi of
+                    VarRegister reg -> G.assignReg reg $ R.AtomExpr input
+                    VarReference refReg -> do
+                        ref <- G.readReg refReg
+                        writeMirRef ref $ R.AtomExpr input
+                    VarAtom _ -> mirFail $ "unexpected VarAtom"
+                initArgs inputs' vars'
+            _ -> mirFail $ "mismatched argument count for " ++ show fname
+
 transDefine :: forall h.
   ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
   , ?printCrucible::Bool) 
@@ -1673,8 +1666,8 @@ transDefine colState fn@(M.Fn fname fargs fsig _) =
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR FnState args ret (ST s2)
           def inputs = (s,f) where
-            s = initFnState colState fn handle inputs 
-            f = genFn fn rettype
+            s = initFnState colState fn handle
+            f = genFn fn rettype inputs
       ng <- newSTNonceGenerator
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng handle def
       when ?printCrucible $ do

@@ -1623,56 +1623,24 @@ impl<T> Vec<T> {
 
         unsafe {
             let mut ptr = self.as_mut_ptr().add(self.len());
-            // Use SetLenOnDrop to work around bug where compiler
-            // may not realize the store through `ptr` through self.set_len()
-            // don't alias.
-            let mut local_len = SetLenOnDrop::new(&mut self.len);
+            let mut local_len = self.len;
 
             // Write all elements except the last one
             for _ in 1..n {
                 ptr::write(ptr, value.next());
                 ptr = ptr.offset(1);
                 // Increment the length in every step in case next() panics
-                local_len.increment_len(1);
+                local_len += 1;
             }
 
             if n > 0 {
                 // We can write the last element directly without cloning needlessly
                 ptr::write(ptr, value.last());
-                local_len.increment_len(1);
+                local_len += 1;
             }
 
-            // len set by scope guard
+            self.set_len(local_len);
         }
-    }
-}
-
-// Set the length of the vec when the `SetLenOnDrop` value goes out of scope.
-//
-// The idea is: The length field in SetLenOnDrop is a local variable
-// that the optimizer will see does not alias with any stores through the Vec's data
-// pointer. This is a workaround for alias analysis issue #32155
-struct SetLenOnDrop<'a> {
-    len: &'a mut usize,
-    local_len: usize,
-}
-
-impl<'a> SetLenOnDrop<'a> {
-    #[inline]
-    fn new(len: &'a mut usize) -> Self {
-        SetLenOnDrop { local_len: *len, len }
-    }
-
-    #[inline]
-    fn increment_len(&mut self, increment: usize) {
-        self.local_len += increment;
-    }
-}
-
-impl Drop for SetLenOnDrop<'_> {
-    #[inline]
-    fn drop(&mut self) {
-        *self.len = self.local_len;
     }
 }
 
@@ -2058,13 +2026,14 @@ where
             self.reserve(additional);
             unsafe {
                 let mut ptr = self.as_mut_ptr().add(self.len());
-                let mut local_len = SetLenOnDrop::new(&mut self.len);
-                iterator.for_each(move |element| {
+                let mut local_len = self.len;
+                for element in iterator {
                     ptr::write(ptr, element);
                     ptr = ptr.offset(1);
                     // NB can't overflow since we would have had to alloc the address space
-                    local_len.increment_len(1);
-                });
+                    local_len += 1;
+                }
+                self.set_len(local_len);
             }
         } else {
             self.extend_desugared(iterator)

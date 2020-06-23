@@ -894,7 +894,7 @@ impl<T> Arc<[T]> {
                     let slice = from_raw_parts_mut(self.elems, self.n_elems);
                     ptr::drop_in_place(slice);
 
-                    Global.dealloc(self.mem.cast(), self.layout);
+                    // Crux: we should deallocate here, but we don't support `deallocate` yet.
                 }
             }
         }
@@ -1719,7 +1719,7 @@ impl<T: ?Sized> Drop for Weak<T> {
 
         if inner.weak.fetch_sub(1, Release) == 1 {
             acquire!(inner.weak);
-            unsafe { Global.dealloc(self.ptr.cast(), Layout::for_value(self.ptr.as_ref())) }
+            // Crux: we should deallocate here, but we don't support `deallocate` yet.
         }
     }
 }

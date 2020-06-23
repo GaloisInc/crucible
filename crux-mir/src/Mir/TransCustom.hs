@@ -103,7 +103,9 @@ customOpDefs = Map.fromList $ [
                          , size_of
                          , min_align_of
                          , intrinsics_assume
+                         , assert_inhabited
 
+                         , mem_transmute
                          , mem_crucible_identity_transmute
                          , array_from_slice
 
@@ -153,10 +155,16 @@ customOpDefs = Map.fromList $ [
                          , panicking_begin_panic
                          , panicking_panic
                          , panicking_panic_fmt
+                         , panicking_panicking
 
                          , allocate
+                         , allocate_zeroed
                          , reallocate
 
+                         , unsafe_cell_get
+                         , unsafe_cell_raw_get
+
+                         , maybe_uninit_uninit
 
                          , integer_from_u8
                          , integer_from_i32
@@ -172,7 +180,7 @@ customOpDefs = Map.fromList $ [
                          , integer_rem
                          , integer_eq
                          , integer_lt
-                         ] ++ bv_funcs
+                         ] ++ bv_funcs ++ atomic_funcs
 
 
  
@@ -204,6 +212,10 @@ panicking_panic_fmt = (["core", "panicking", "panic_fmt"], \s -> Just $ CustomOp
     name <- use $ currentFn . fname
     return $ "panicking::panic_fmt, called from " <> M.idText name
     )
+
+panicking_panicking :: (ExplodedDefId, CustomRHS)
+panicking_panicking = (["std", "panicking", "panicking"], \_ -> Just $ CustomOp $ \_ _ -> do
+    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False)
 
 
 -----------------------------------------------------------------------------------------------------
@@ -897,6 +909,21 @@ mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"]
       _ -> Nothing
     )
 
+mem_transmute ::  (ExplodedDefId, CustomRHS)
+mem_transmute = (["core", "intrinsics", "", "transmute"],
+    \ substs -> case substs of
+      Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
+        [e@(MirExp argTy _)] -> do
+            Some retTy <- return $ tyToRepr tyU
+            case testEquality argTy retTy of
+                Just Refl -> return e
+                Nothing -> mirFail $
+                    "representation mismatch in transmute: " ++ show argTy ++ " != " ++ show retTy
+        _ -> mirFail $ "bad arguments to transmute: "
+          ++ show (tyT, tyU, ops)
+      _ -> Nothing)
+
+
 intrinsics_assume :: (ExplodedDefId, CustomRHS)
 intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
     Just $ CustomOp $ \_ ops -> case ops of
@@ -905,6 +932,11 @@ intrinsics_assume = (["core", "intrinsics", "", "assume"], \_substs ->
                 S.litExpr "undefined behavior: core::intrinsics::assume(false)"
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
     )
+
+-- TODO: needs layout info from mir-json
+assert_inhabited :: (ExplodedDefId, CustomRHS)
+assert_inhabited = (["core", "intrinsics", "", "assert_inhabited"], \_substs ->
+    Just $ CustomOp $ \_ _ -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp)
 
 array_from_slice ::  (ExplodedDefId, CustomRHS)
 array_from_slice = (["core","array", "{{impl}}", "try_from", "crucible_array_from_slice_hook"],
@@ -1280,6 +1312,27 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
 
+allocate_zeroed :: (ExplodedDefId, CustomRHS)
+allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp UsizeRepr len] -> do
+            Some tpr <- return $ tyToRepr t
+            zero <- mkZero tpr
+            let lenNat = R.App $ usizeToNat len
+            let vec = R.App $ E.VectorReplicate tpr lenNat zero
+            vec <- mirVector_fromVector tpr vec
+
+            ref <- newMirRef (MirVectorRepr tpr)
+            writeMirRef ref vec
+            ptr <- subindexRef tpr ref (R.App $ usizeLit 0)
+            return $ MirExp (MirReferenceRepr tpr) ptr
+        _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
+    _ -> Nothing)
+
+mkZero :: C.TypeRepr tp -> MirGenerator h s ret (R.Expr MIR s tp)
+mkZero tpr@(C.BVRepr w) = return $ R.App $ E.BVLit w 0
+mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
+
 -- fn reallocate<T>(ptr: *mut T, new_len: usize)
 reallocate :: (ExplodedDefId, CustomRHS)
 reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
@@ -1302,6 +1355,156 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
 -- (since we need to get from the first-element pointer to the underlying
 -- RefCell that we want to drop).
 
+
+--------------------------------------------------------------------------------------------------------------------------
+-- UnsafeCell
+
+-- The `get` and `raw_get` methods have identical Crucible representation:
+-- fn UnsafeCell<T>::get(&self) -> *mut T
+-- fn UnsafeCell<T>::raw_get(this: *const Self) -> *mut T
+unsafe_cell_get_impl :: CustomRHS
+unsafe_cell_get_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    ([TyRef (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
+    ([TyRawPtr (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
+    _ -> mirFail $ "BUG: invalid arguments to UnsafeCell::get: " ++ show ops
+  where
+    go :: AdtName -> C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
+        MirGenerator h s ret (MirExp s)
+    go aname tpr ref = do
+        adt <- findAdt aname
+        fieldPl <- structFieldRef adt 0 tpr ref
+        addrOfPlace fieldPl
+
+unsafe_cell_get :: (ExplodedDefId, CustomRHS)
+unsafe_cell_get =
+    (["core", "cell", "{{impl}}", "get", "crucible_hook"], unsafe_cell_get_impl)
+
+unsafe_cell_raw_get :: (ExplodedDefId, CustomRHS)
+unsafe_cell_raw_get =
+    (["core", "cell", "{{impl}}", "raw_get"], unsafe_cell_get_impl)
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- Atomic operations
+--
+-- These intrinsics come in many varieties that differ only in memory ordering.
+-- We don't support multithreading, so there are no visible differences between
+-- orderings, and we can use a single implementation for each group.
+
+-- Make a group of atomic intrinsics.  If `name` is "foo", this generates
+-- overrides for `atomic_foo`, `atomic_foo_variant1`, `atomic_foo_variant2`,
+-- etc., all with the same `rhs`.
+makeAtomicIntrinsics :: Text -> [Text] -> CustomRHS -> [(ExplodedDefId, CustomRHS)]
+makeAtomicIntrinsics name variants rhs =
+    [(["core", "intrinsics", "", "atomic_" <> name <> suffix], rhs)
+        | suffix <- "" : map ("_" <>) variants]
+
+atomic_store_impl :: CustomRHS
+atomic_store_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' val]
+      | Just Refl <- testEquality tpr tpr' -> do
+        writeMirRef ref val
+        return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+    _ -> mirFail $ "BUG: invalid arguments to atomic_store: " ++ show ops
+
+atomic_load_impl :: CustomRHS
+atomic_load_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (MirReferenceRepr tpr) ref] ->
+        MirExp tpr <$> readMirRef tpr ref
+    _ -> mirFail $ "BUG: invalid arguments to atomic_load: " ++ show ops
+
+atomic_cxchg_impl :: CustomRHS
+atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    ([_, ty, _], [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' expect, MirExp tpr'' val])
+      | Just Refl <- testEquality tpr tpr'
+      , Just Refl <- testEquality tpr tpr''
+      , C.BVRepr w <- tpr -> do
+        old <- readMirRef tpr ref
+        let eq = R.App $ E.BVEq w old expect
+        let new = R.App $ E.BVIte eq w val old
+        writeMirRef ref new
+        return $ buildTupleMaybe [ty, TyBool] $
+            [Just $ MirExp tpr old, Just $ MirExp C.BoolRepr eq]
+    _ -> mirFail $ "BUG: invalid arguments to atomic_cxchg: " ++ show ops
+
+atomic_fence_impl :: CustomRHS
+atomic_fence_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [] -> return $ MirExp C.UnitRepr $ R.App E.EmptyApp
+    _ -> mirFail $ "BUG: invalid arguments to atomic_fence: " ++ show ops
+
+-- Common implementation for all atomic read-modify-write operations.  These
+-- all read the value, apply some operation, write the result back, and return
+-- the old value.
+atomic_rmw_impl ::
+    String ->
+    (forall w h s ret. (1 <= w) =>
+        C.NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
+    CustomRHS
+atomic_rmw_impl name rmw = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (MirReferenceRepr tpr) ref, MirExp tpr' val]
+      | Just Refl <- testEquality tpr tpr'
+      , C.BVRepr w <- tpr -> do
+        old <- readMirRef tpr ref
+        new <- rmw w old val
+        writeMirRef ref new
+        return $ MirExp tpr old
+    _ -> mirFail $ "BUG: invalid arguments to atomic_" ++ name ++ ": " ++ show ops
+
+makeAtomicRMW ::
+    String ->
+    (forall w h s ret. (1 <= w) =>
+        C.NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        MirGenerator h s ret (R.Expr MIR s (C.BVType w))) ->
+    [(ExplodedDefId, CustomRHS)]
+makeAtomicRMW name rmw =
+    makeAtomicIntrinsics (Text.pack name) ["acq", "rel", "acqrel", "relaxed"] $
+        atomic_rmw_impl name rmw
+
+atomic_funcs =
+    makeAtomicIntrinsics "store" ["rel", "relaxed"] atomic_store_impl ++
+    makeAtomicIntrinsics "load" ["acq", "relaxed"] atomic_load_impl ++
+    makeAtomicIntrinsics "cxchg" compareExchangeVariants atomic_cxchg_impl ++
+    makeAtomicIntrinsics "cxchgweak" compareExchangeVariants atomic_cxchg_impl ++
+    makeAtomicIntrinsics "fence" fenceVariants atomic_fence_impl ++
+    makeAtomicIntrinsics "singlethreadfence" fenceVariants atomic_fence_impl ++
+    concat [
+        makeAtomicRMW "xchg" $ \w old val -> return val,
+        makeAtomicRMW "xadd" $ \w old val -> return $ R.App $ E.BVAdd w old val,
+        makeAtomicRMW "xsub" $ \w old val -> return $ R.App $ E.BVSub w old val,
+        makeAtomicRMW "and" $ \w old val -> return $ R.App $ E.BVAnd w old val,
+        makeAtomicRMW "or" $ \w old val -> return $ R.App $ E.BVOr w old val,
+        makeAtomicRMW "xor" $ \w old val -> return $ R.App $ E.BVXor w old val,
+        makeAtomicRMW "nand" $ \w old val ->
+            return $ R.App $ E.BVNot w $ R.App $ E.BVAnd w old val,
+        makeAtomicRMW "max" $ \w old val -> return $ R.App $ E.BVSMax w old val,
+        makeAtomicRMW "min" $ \w old val -> return $ R.App $ E.BVSMin w old val,
+        makeAtomicRMW "umax" $ \w old val -> return $ R.App $ E.BVUMax w old val,
+        makeAtomicRMW "umin" $ \w old val -> return $ R.App $ E.BVUMin w old val
+    ]
+  where
+    compareExchangeVariants = ["acq", "rel", "acqrel", "relaxed",
+        "acq_failrelaxed", "acqrel_failrelaxed", "failrelaxed", "failacq"]
+    fenceVariants = ["acq", "rel", "acqrel"]
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- MaybeUninit
+
+maybe_uninit_uninit :: (ExplodedDefId, CustomRHS)
+maybe_uninit_uninit = (["core", "mem", "maybe_uninit", "{{impl}}", "uninit"],
+    \substs -> case substs of
+        Substs [t] -> Just $ CustomOp $ \_ _ -> do
+            adt <- findAdtInst (M.textId "core::mem::maybe_uninit::MaybeUninit") (Substs [t])
+            let t = TyAdt (adt ^. adtname) (adt ^. adtOrigDefId) (adt ^. adtOrigSubsts)
+            initialValue t >>= \mv -> case mv of
+                Just v -> return v
+                Nothing -> mirFail $ "MaybeUninit::uninit unsupported for " ++ show t
+        _ -> Nothing)
 
 
 --------------------------------------------------------------------------------------------------------------------------

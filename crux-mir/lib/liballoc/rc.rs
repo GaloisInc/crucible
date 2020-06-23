@@ -1016,7 +1016,7 @@ impl<T> Rc<[T]> {
                     let slice = from_raw_parts_mut(self.elems, self.n_elems);
                     ptr::drop_in_place(slice);
 
-                    Global.dealloc(self.mem, self.layout);
+                    // Crux: we should deallocate here, but we don't support `deallocate` yet.
                 }
             }
         }
@@ -1116,7 +1116,7 @@ unsafe impl<#[may_dangle] T: ?Sized> Drop for Rc<T> {
                 self.dec_weak();
 
                 if self.weak() == 0 {
-                    Global.dealloc(self.ptr.cast(), Layout::for_value(self.ptr.as_ref()));
+                    // Crux: we should deallocate here, but we don't support `deallocate` yet.
                 }
             }
         }
@@ -1924,7 +1924,7 @@ impl<T: ?Sized> Drop for Weak<T> {
             // the strong pointers have disappeared.
             if inner.weak() == 0 {
                 unsafe {
-                    Global.dealloc(self.ptr.cast(), Layout::for_value(self.ptr.as_ref()));
+                    // Crux: we should deallocate here, but we don't support `deallocate` yet.
                 }
             }
         }

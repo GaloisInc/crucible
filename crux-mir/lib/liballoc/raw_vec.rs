@@ -73,7 +73,7 @@ impl<T, A: AllocRef> RawVec<T, A> {
         RawVec::allocate_in(capacity, true, a)
     }
 
-    fn allocate_in(capacity: usize, _zeroed: bool, a: A) -> Self {
+    fn allocate_in(capacity: usize, zeroed: bool, a: A) -> Self {
         let elem_size = mem::size_of::<T>();
 
         let alloc_size = capacity.checked_mul(elem_size).unwrap_or_else(|| capacity_overflow());
@@ -83,8 +83,12 @@ impl<T, A: AllocRef> RawVec<T, A> {
         let ptr = if alloc_size == 0 {
             NonNull::<T>::dangling()
         } else {
-            // NB: This ignores both the choice of allocator and the `zeroed` flag
-            let ptr = crucible::alloc::allocate::<T>(capacity);
+            // NB: This ignores the choice of allocator
+            let ptr = if zeroed {
+                crucible::alloc::allocate_zeroed::<T>(capacity)
+            } else {
+                crucible::alloc::allocate::<T>(capacity)
+            };
             unsafe { NonNull::new_unchecked(ptr) }
         };
 

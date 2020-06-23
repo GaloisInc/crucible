@@ -265,7 +265,6 @@
 #![feature(format_args_nl)]
 #![feature(generator_trait)]
 #![feature(global_asm)]
-#![feature(hash_raw_entry)]
 #![feature(hashmap_internals)]
 #![feature(int_error_internals)]
 #![feature(int_error_matching)]
@@ -293,6 +292,7 @@
 #![feature(shrink_to)]
 #![feature(slice_concat_ext)]
 #![feature(slice_internals)]
+#![feature(slice_iter_mut_as_slice)]
 #![cfg_attr(bootstrap, feature(specialization))]
 #![cfg_attr(not(bootstrap), feature(min_specialization))]
 #![feature(staged_api)]
@@ -309,6 +309,7 @@
 #![feature(unboxed_closures)]
 #![feature(untagged_unions)]
 #![feature(unwind_attributes)]
+#![feature(vec_drain_as_slice)]
 #![feature(vec_into_raw_parts)]
 // NB: the above list is sorted to minimize merge conflicts.
 #![default_lib_allocator]
