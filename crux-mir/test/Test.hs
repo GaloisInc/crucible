@@ -16,7 +16,7 @@ import qualified System.Process as Proc
 
 import           Test.Tasty (defaultMain, testGroup, TestTree)
 import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
-import           Test.Tasty.Golden (goldenVsFile, findByExtension)
+import           Test.Tasty.Golden (goldenVsFileDiff, findByExtension)
 import           Test.Tasty.ExpectedFailure (expectFailBecause)
 
 import qualified Mir.Language as Mir
@@ -103,9 +103,10 @@ symbTest dir =
   do rustFiles <- findByExtension [".rs"] dir
      return $
        testGroup "Output testing"
-         [ goldenVsFile (takeBaseName rustFile) goodFile outFile $
-           withFile outFile WriteMode $ \h ->
-           runCrux rustFile h False
+         [ goldenVsFileDiff (takeBaseName rustFile) (\a b -> ["diff", "-u", a, b])
+             goodFile outFile $
+               withFile outFile WriteMode $ \h ->
+               runCrux rustFile h False
          | rustFile <- rustFiles
          , notHidden rustFile
          , let goodFile = replaceExtension rustFile ".good"
