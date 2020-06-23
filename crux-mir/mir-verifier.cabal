@@ -136,6 +136,8 @@ test-suite test
                 crux,
                 crucible,
                 config-schema,
-                config-value
+                config-value,
+                bytestring,
+                utf8-string
                 
   default-language: Haskell2010
