@@ -270,6 +270,7 @@ evalOperand (M.Copy lv) = evalPlace lv >>= readPlace
 evalOperand (M.Move lv) = evalPlace lv >>= readPlace
 evalOperand (M.OpConstant (M.Constant conty constval)) =
     transConstVal conty (tyToRepr conty) constval
+evalOperand (M.Temp rv) = evalRval rv
 
 -- | Dereference a `MirExp` (which must be `MirReferenceRepr` or other `TyRef`
 -- representation), producing a `MirPlace`.
@@ -455,6 +456,10 @@ evalBinOp bop mat me1 me2 =
                 return (MirExp C.BoolRepr $ S.app $ E.Not eq, noOverflow)
             _ -> mirFail $ "No translation for pointer binop: " ++ fmt bop
 
+      (MirExp (MirReferenceRepr tpr) e1, MirExp UsizeRepr e2) -> do
+          newRef <- mirRef_offsetWrap tpr e1 e2
+          return (MirExp (MirReferenceRepr tpr) newRef, noOverflow)
+
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
   where
@@ -523,7 +528,9 @@ transNullaryOp M.Box ty = do
         vals <- mapM (\f -> mkBox $ f ^. fty) (v ^. vfields)
         buildStruct adt vals
     mkBox ty = mirFail $ "unsupported type in mkBox: " ++ show ty
-transNullaryOp _ _ = mirFail "nullop"
+transNullaryOp M.SizeOf _ = do
+    -- TODO: return the actual size, once mir-json exports size/layout info
+    return $ MirExp UsizeRepr $ R.App $ usizeLit 1
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
@@ -1319,7 +1326,10 @@ transTerminator (M.SwitchInt swop _swty svals stargs) _ | all Maybe.isJust svals
     transSwitch s (Maybe.catMaybes svals) stargs
 transTerminator (M.Return) tr =
     doReturn tr
-transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
+transTerminator (M.DropAndReplace dlv dop dtarg _ dropFn) _ = do
+    let ptrOp = M.Temp $ M.Cast M.Misc
+            (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
+    maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
@@ -1345,8 +1355,11 @@ transTerminator (M.Assert cond expected msg target _cleanup) _ = do
     jumpToBlock target
 transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
-transTerminator (M.Drop _dl dt _dunwind) _ =
-    jumpToBlock dt -- FIXME! drop: just keep going
+transTerminator (M.Drop dlv dt _dunwind dropFn) _ = do
+    let ptrOp = M.Temp $ M.Cast M.Misc
+            (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
+    maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
+    jumpToBlock dt
 transTerminator M.Abort tr =
     G.reportError (S.litExpr "process abort in unwinding")
 transTerminator M.Unreachable tr =

@@ -5,7 +5,7 @@ failures:
 ---- construct/3a1fbbbh::crux_test[0] counterexamples ----
 Failure for MIR assertion at test/symb_eval/sym_bytes/construct.rs:13:5:
 	sym2[0] == 0
-in construct/3a1fbbbh::crux_test[0] at ./lib/crucible/lib.rs:39:41
+in construct/3a1fbbbh::crux_test[0] at ./lib/crucible/lib.rs:40:41
 
 [Crux] Goal status:
 [Crux]   Total: 1

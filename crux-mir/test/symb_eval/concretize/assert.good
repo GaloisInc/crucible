@@ -5,7 +5,7 @@ failures:
 ---- assert/3a1fbbbh::crux_test[0] counterexamples ----
 Failure for MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
 	100 + 157 == 1
-in assert/3a1fbbbh::crux_test[0] at ./lib/crucible/lib.rs:49:17
+in assert/3a1fbbbh::crux_test[0] at ./lib/crucible/lib.rs:50:17
 
 [Crux] Goal status:
 [Crux]   Total: 1

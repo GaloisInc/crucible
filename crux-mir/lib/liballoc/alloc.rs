@@ -236,14 +236,8 @@ unsafe fn exchange_malloc(size: usize, align: usize) -> *mut u8 {
 // well.
 // For example if `Box` is changed to  `struct Box<T: ?Sized, A: AllocRef>(Unique<T>, A)`,
 // this function has to be changed to `fn box_free<T: ?Sized, A: AllocRef>(Unique<T>, A)` as well.
-pub(crate) unsafe fn box_free<T: ?Sized>(ptr: Unique<T>) {
-    let size = size_of_val(ptr.as_ref());
-    let align = min_align_of_val(ptr.as_ref());
-    // We do not allocate for Box<T> when T is ZST, so deallocation is also not necessary.
-    if size != 0 {
-        let layout = Layout::from_size_align_unchecked(size, align);
-        Global.dealloc(ptr.cast().into(), layout);
-    }
+pub(crate) unsafe fn box_free<T: ?Sized>(_ptr: Unique<T>) {
+    // Crux: currently we don't implement `deallocate`, so this is a no-op.
 }
 
 /// Abort on memory allocation error or failure.

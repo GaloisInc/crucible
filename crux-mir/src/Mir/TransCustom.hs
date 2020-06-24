@@ -137,8 +137,7 @@ customOpDefs = Map.fromList $ [
                          , ptr_wrapping_offset_mut
                          , ptr_offset_from
                          , ptr_offset_from_mut
-                         , ptr_is_null
-                         , ptr_is_null_mut
+                         , ptr_compare_usize
                          , is_aligned_and_not_null
                          , ptr_slice_from_raw_parts
                          , ptr_slice_from_raw_parts_mut
@@ -146,7 +145,6 @@ customOpDefs = Map.fromList $ [
                          , ptr_read
                          , ptr_write
                          , ptr_swap
-                         , ptr_drop_in_place
                          , intrinsics_copy
                          , intrinsics_copy_nonoverlapping
 
@@ -484,27 +482,20 @@ ptr_offset_from = (["core", "ptr", "const_ptr", "{{impl}}", "offset_from"], ptr_
 ptr_offset_from_mut :: (ExplodedDefId, CustomRHS)
 ptr_offset_from_mut = (["core", "ptr", "mut_ptr", "{{impl}}", "offset_from"], ptr_offset_from_impl)
 
--- is_null isn't just `self == ptr::null()`, since it has to work on fat
--- pointers too.  The libcore implementation works by casting to `*const u8` (a
--- thin pointer), but we don't support `*const T -> *const U` casts, so we need
--- this override.
-ptr_is_null_impl :: CustomRHS
-ptr_is_null_impl = \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr tpr) ref] -> do
-            null <- integerToMirRef tpr $ R.App $ usizeLit 0
-            MirExp C.BoolRepr <$> mirRef_eq ref null
-        [MirExp (MirSliceRepr tpr) slice] -> do
-            null <- integerToMirRef tpr $ R.App $ usizeLit 0
-            MirExp C.BoolRepr <$> mirRef_eq (getSlicePtr slice) null
-        -- TODO: `&dyn Tr` case (after defining MirDynRepr)
-        _ -> mirFail $ "bad arguments for ptr::is_null: " ++ show ops
-    _ -> Nothing
-
-ptr_is_null :: (ExplodedDefId, CustomRHS)
-ptr_is_null = (["core", "ptr", "const_ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
-ptr_is_null_mut :: (ExplodedDefId, CustomRHS)
-ptr_is_null_mut = (["core", "ptr", "mut_ptr", "{{impl}}", "is_null"], ptr_is_null_impl)
+ptr_compare_usize :: (ExplodedDefId, CustomRHS)
+ptr_compare_usize = (["core", "crucible", "ptr", "compare_usize"],
+    \substs -> case substs of
+        Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+            [MirExp (MirReferenceRepr tpr) ptr, MirExp UsizeRepr val] -> do
+                valAsPtr <- integerToMirRef tpr val
+                MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
+            [MirExp (MirSliceRepr tpr) slice, MirExp UsizeRepr val] -> do
+                let ptr = getSlicePtr slice
+                valAsPtr <- integerToMirRef tpr val
+                MirExp C.BoolRepr <$> mirRef_eq ptr valAsPtr
+            -- TODO: `&dyn Tr` case (after defining MirDynRepr)
+            _ -> mirFail $ "bad arguments for ptr::compare_usize: " ++ show ops
+        _ -> Nothing)
 
 is_aligned_and_not_null :: (ExplodedDefId, CustomRHS)
 -- Not an actual intrinsic, so it's not in an `extern` block, so it doesn't
@@ -563,17 +554,6 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
             writeMirRef ptr2 x1
             return $ MirExp C.UnitRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
-    _ -> Nothing)
-
-ptr_drop_in_place :: (ExplodedDefId, CustomRHS)
-ptr_drop_in_place = ( ["core", "ptr", "drop_in_place"], \substs -> case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp (MirReferenceRepr _tpr) _ptr] ->
-            -- We don't implement drops, so this is currently a no-op
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
-        [MirExp (MirSliceRepr _tpr) _ptr] ->
-            return $ MirExp C.UnitRepr $ R.App E.EmptyApp
-        _ -> mirFail $ "bad arguments for ptr::drop_in_place: " ++ show ops
     _ -> Nothing)
 
 
@@ -1523,7 +1503,7 @@ fnPtrShimDef (TyFnDef defId) = CustomMirOp $ \ops -> case ops of
         argBase <- case argTuple of
             Copy lv -> return lv
             Move lv -> return lv
-            OpConstant _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
+            _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
                 " for fnptr shim of " ++ show defId
         let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
         callExp defId argOps
