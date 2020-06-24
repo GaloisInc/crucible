@@ -13,6 +13,9 @@
 [submodule "dependencies/jvm-parser"]
 	path = dependencies/jvm-parser
 	url = https://github.com/GaloisInc/jvm-parser.git
+[submodule "dependencies/language-sally"]
+	path = dependencies/language-sally
+	url = https://github.com/GaloisInc/language-sally.git
 [submodule "dependencies/llvm-pretty"]
 	path = dependencies/llvm-pretty
 	url = https://github.com/elliottt/llvm-pretty.git
@@ -28,3 +31,4 @@
 [submodule "dependencies/haskell-wasm"]
 	path = dependencies/haskell-wasm
 	url = https://github.com/SPY/haskell-wasm
+

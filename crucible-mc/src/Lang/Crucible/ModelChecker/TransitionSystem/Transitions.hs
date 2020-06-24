@@ -183,7 +183,7 @@ makeGlobalPred ::
 makeGlobalPred ndx regEntry =
   do
     namespacer <- asks tsNamespacer
-    next :: What4.SymStruct sym (StateCtx blocks globCtx init) <- asks tsNextState
+    next <- asks tsNextState
     state <- asks tsCurrentState
     -- stateFieldsRepr <- asks tsStateCtxRepr
     sym <- asks tsSym

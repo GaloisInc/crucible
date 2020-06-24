@@ -62,12 +62,9 @@ makeTransitionSystem sym cfg namespacer globInfos blockInfos =
     let initArgs :: CtxRepr init = Core.cfgArgTypes cfg
     let initArgsNames = namesForContext functionArgumentName initArgs
     -- let retTp = regType retVal
-    let blocksInputs ::
-          Ctx.Assignment (Ctx.Assignment TypeRepr) blocks =
-            fmapFC Core.blockInputs (Core.cfgBlockMap cfg)
+    let blocksInputs = fmapFC Core.blockInputs (Core.cfgBlockMap cfg)
     let blocksIDs = fmapFC Core.blockID (Core.cfgBlockMap cfg)
-    let blocksInputsNames ::
-          Ctx.Assignment (Ctx.Assignment (Const What4.SolverSymbol)) blocks =
+    let blocksInputsNames =
             Ctx.zipWith
               (\blockID blockInputs -> namesForContext (blockArgumentName blockID) blockInputs)
               blocksIDs
@@ -94,6 +91,7 @@ makeTransitionSystem sym cfg namespacer globInfos blockInfos =
             `Ctx.extend` Const currentBlockVariable
     currentBlock <- What4.freshConstant sym currentBlockVariable BaseNatRepr
     hasReturned <- What4.freshConstant sym hasReturnedVariable BaseBoolRepr
+    let actualNamespacer = namespacer stateSymbols stateReprs
     return $
       TS.TransitionSystem
         { stateReprs,
@@ -102,11 +100,11 @@ makeTransitionSystem sym cfg namespacer globInfos blockInfos =
           stateTransitions =
             makeStateTransitions
               sym
-              (namespacer stateSymbols stateReprs)
+              actualNamespacer
               stateReprs
               (fmapFC Ctx.size blocksInputs)
               blockInfos
               globInfos
               (Ctx.size initArgs),
-          queries = makeQueries sym currentBlock hasReturned blockInfos
+          queries = makeQueries sym actualNamespacer currentBlock hasReturned blockInfos
         }

@@ -14,11 +14,17 @@ module Lang.Crucible.ModelChecker.TransitionSystem.Queries
 where
 
 import qualified Control.Lens as L
+import Control.Monad
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.TraversableFC
 import qualified Lang.Crucible.Backend as Backend
 import Lang.Crucible.ModelChecker.SymbolicExecution.BlockInfo
 import qualified What4.Interface as What4
+import Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
+import Prelude hiding (init)
+
+-- NOTE: we don't need to know the actual relationship between @ctx@ and
+-- @globCtx@ here so we conveniently forget it
 
 makeBlockQuery ::
   Backend.IsSymInterface sym =>
@@ -31,7 +37,7 @@ makeBlockQuery sym currentBlock hasReturned (BlockInfo {..}) =
   do
     thisBlock <- What4.natLit sym blockInfoID
     isCurrentBlock <- What4.natEq sym currentBlock thisBlock
-    -- we need to state that the program has not returned, because the
+    -- NOTE: we need to state that the program has not returned, because the
     -- transition to the state where the program has returned allows arbitrary
     -- changes to variables of the last block
     notHasReturned <- What4.notPred sym hasReturned
@@ -42,13 +48,16 @@ makeBlockQuery sym currentBlock hasReturned (BlockInfo {..}) =
 makeQueries ::
   Backend.IsSymInterface sym =>
   sym ->
+  Namespacer sym state ->
   What4.SymNat sym ->
   What4.Pred sym ->
   Ctx.Assignment (BlockInfo sym globCtx) blocks ->
+  What4.SymStruct sym state ->
   IO [What4.Pred sym]
-makeQueries sym currentBlock hasReturned blockInfos =
+makeQueries sym namespacer currentBlock hasReturned blockInfos queryState =
   do
-    blockQueries <- sequenceA $ toListFC (makeBlockQuery sym currentBlock hasReturned) blockInfos
+    blockQueries <- sequenceA $ toListFC (runNamespacer namespacer queryState
+                                         <=< makeBlockQuery sym currentBlock hasReturned) blockInfos
     -- finalQuery <-
     --   do
     --     finalObligation <- What4.andAllOf sym L.folded finalObligations

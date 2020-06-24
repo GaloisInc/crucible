@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           crucible-mc
-version:        0.1.0.0
+version:        0.1.1.0
 author:         Iavor Diatchki <iavor.diatchki@gmail.com>,
                 Valentin Robert <valentin.robert.42@gmail.com>
 maintainer:     Iavor Diatchki <iavor.diatchki@gmail.com>,

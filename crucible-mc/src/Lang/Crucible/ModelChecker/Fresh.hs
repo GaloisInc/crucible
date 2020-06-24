@@ -101,7 +101,7 @@ freshRegValue sym argName argTypeRepr =
       liftIO $ What4.freshConstant sym (userSymbol' argName) bt
     (LLVMPointerRepr w) ->
       do
-        freshBV <- What4.freshBoundedBV sym (userSymbol' argName) w Nothing Nothing
+        freshBV <- What4.freshConstant sym (userSymbol' argName) (BaseBVRepr w)
         llvmPointer_bv sym freshBV
     _ -> error $ "freshRegValue: unhandled repr " ++ show argTypeRepr
 
