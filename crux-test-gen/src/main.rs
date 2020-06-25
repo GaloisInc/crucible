@@ -4,6 +4,7 @@ use std::process;
 use std::rc::Rc;
 
 mod parse;
+mod ty;
 
 type NonterminalId = usize;
 type ProductionId = usize;
