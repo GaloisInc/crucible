@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Read};
 use std::rc::Rc;
 use regex::Regex;
-use crate::{Context, Production, Nonterminal, ProductionId, NonterminalId, Chunk};
+use crate::{Context, Production, Nonterminal, ProductionId, NonterminalId, NonterminalRef, Chunk};
 
 #[derive(Default)]
 struct GrammarBuilder {
@@ -154,7 +154,10 @@ impl GrammarBuilder {
                 prod.chunks.push(Chunk::Indent(indent_amount));
                 let nt_idx = prod.nts.len();
                 prod.chunks.push(Chunk::Nt(nt_idx));
-                prod.nts.push(self.nt_id(&caps[2]));
+                prod.nts.push(NonterminalRef {
+                    id: self.nt_id(&caps[2]),
+                    args: Box::new([]),
+                });
                 prod.chunks.push(Chunk::Indent(-indent_amount));
                 prod.chunks.push(Chunk::Text(self.intern_text(""), newline));
             } else {
@@ -177,7 +180,10 @@ impl GrammarBuilder {
             }
             let nt_idx = prod.nts.len();
             prod.chunks.push(Chunk::Nt(nt_idx));
-            prod.nts.push(self.nt_id(&caps[1]));
+            prod.nts.push(NonterminalRef {
+                id: self.nt_id(&caps[1]),
+                args: Box::new([]),
+            });
 
             prev_end = m.end();
         }
@@ -207,8 +213,13 @@ pub fn parse_grammar(lines: &[&str]) -> Context {
     gb.nts.push(Nonterminal::default());
     let start_id = gb.nt_id("start");
     gb.add_prod(0, Production {
+        vars: vec![],
+        args: vec![],
         chunks: vec![Chunk::Nt(0)],
-        nts: vec![start_id],
+        nts: vec![NonterminalRef {
+            id: start_id,
+            args: Box::new([]),
+        }],
     });
 
     gb.parse_grammar(lines);

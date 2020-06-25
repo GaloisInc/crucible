@@ -6,17 +6,34 @@ use std::rc::Rc;
 mod parse;
 mod ty;
 
+use self::ty::{Ty, Subst, UnifyState, VarId};
+
+
 type NonterminalId = usize;
 type ProductionId = usize;
 
 #[derive(Debug, Default)]
+struct NonterminalRef {
+    id: NonterminalId,
+    args: Box<[Ty]>,
+}
+
+#[derive(Debug, Default)]
 struct Production {
+    /// The generic type parameters of this production, declared with `for[T, U, ...]`.
+    vars: Vec<Rc<str>>,
+    /// The arguments to the nonterminal on the LHS of this production.  The arguments of the
+    /// `NonterminalRef` must match these for the production to apply.  In `for[T] expr[Vec[T]]`,
+    /// the `args` are `[Vec[T]]`.
+    args: Vec<Ty>,
     chunks: Vec<Chunk>,
-    nts: Vec<NonterminalId>,
+    nts: Vec<NonterminalRef>,
 }
 
 #[derive(Debug, Default)]
 struct Nonterminal {
+    /// All productions for this nonterminal.  This is an upper bound on possible expansion
+    /// options; some productions may not be valid for the `args` of a given `NonterminalRef`.
     productions: Vec<ProductionId>
 }
 
@@ -46,6 +63,9 @@ struct Expansion {
 #[derive(Clone)]
 struct PartialExpansion {
     production: ProductionId,
+    /// Translation from local type variables of the production to global `VarId`s in the parent
+    /// `ExpState`'s `unify` table.
+    subst: Subst,
     num_nts: usize,
     subexpansions: Vec<Expansion>,
     // ...
@@ -54,6 +74,7 @@ struct PartialExpansion {
 #[derive(Clone)]
 struct ExpState {
     exp: Vec<PartialExpansion>,
+    unify: ty::UnifyState,
     // scope: ...,
 }
 
@@ -76,11 +97,17 @@ enum ExpResult {
 
 
 impl PartialExpansion {
-    pub fn new(cx: &Context, production: ProductionId) -> PartialExpansion {
+    pub fn new(
+        cx: &Context,
+        unify: &mut UnifyState,
+        production: ProductionId,
+    ) -> PartialExpansion {
+        let subst = unify.fresh_subst(cx.productions[production].vars.len());
         let num_nts = cx.productions[production].nts.len();
         let subexpansions = Vec::with_capacity(num_nts);
         PartialExpansion {
             production,
+            subst,
             num_nts,
             subexpansions,
         }
@@ -98,9 +125,9 @@ impl PartialExpansion {
         }
     }
 
-    fn next_nonterminal(&self, cx: &Context) -> NonterminalId {
+    fn next_nonterminal<'cx>(&self, cx: &'cx Context) -> &'cx NonterminalRef {
         let idx = self.subexpansions.len();
-        cx.productions[self.production].nts[idx]
+        &cx.productions[self.production].nts[idx]
     }
 }
 
@@ -108,11 +135,32 @@ impl ExpState {
     fn new() -> ExpState {
         ExpState {
             exp: Vec::new(),
+            unify: UnifyState::new(),
         }
     }
 
-    fn apply_production(&mut self, cx: &Context, production: ProductionId) {
-        let mut pe = PartialExpansion::new(cx, production);
+    fn apply_production(
+        &mut self,
+        cx: &Context,
+        production: ProductionId,
+    ) -> bool {
+        let mut pe = PartialExpansion::new(cx, &mut self.unify, production);
+
+        if !self.exp.is_empty() {
+            let tys1 = self.cur_partial().subst.clone()
+                .and(&self.cur_partial().next_nonterminal(cx).args as &[_]);
+            let tys2 = pe.subst.clone().and(&cx.productions[production].args as &[_]);
+
+            if !self.unify.unify(tys1, tys2) {
+                return false;
+            }
+        } else {
+            // When resuming the initial continuation, there is no current nonterminal we can unify
+            // with the production's LHS.  However, this is okay as long as the production has no
+            // arguments.
+            assert!(cx.productions[production].args.len() == 0);
+        }
+
         // TODO: pre-expansion actions
         if pe.is_finished() {
             // TODO: post-expansion actions
@@ -120,6 +168,7 @@ impl ExpState {
         } else {
             self.exp.push(pe);
         }
+        true
     }
 
     fn cur_partial(&self) -> &PartialExpansion {
@@ -150,23 +199,28 @@ impl ExpState {
             // The current expansion frame is guaranteed to be unfinished.  Choose a production for
             // its next nonterminal, then apply that production (pushing a new frame).
             let next_nt = self.cur_partial().next_nonterminal(cx);
-            let alts = cx.nonterminals[next_nt].productions.clone();
+            let alts = cx.nonterminals[next_nt.id].productions.clone();
 
-            let next_prod = if alts.len() == 0 {
+            let saved_state = if alts.len() > 1 { Some(self.clone()) } else { None };
+
+            let mut found = false;
+            for (i, &alt) in alts.iter().enumerate() {
+                if self.apply_production(cx, alt) {
+                    found = true;
+                    if i < alts.len() - 1 {
+                        continuations.push(Continuation {
+                            state: saved_state.unwrap(),
+                            alternatives: alts,
+                            next: i + 1,
+                        });
+                    }
+                    break;
+                }
+            }
+            if !found {
                 // There's no way to continue this expansion.
                 return (ExpResult::Abort, continuations);
-            } else if alts.len() == 1 {
-                alts[0]
-            } else {
-                let prod = alts[0];
-                continuations.push(Continuation {
-                    state: self.clone(),
-                    alternatives: alts,
-                    next: 1,
-                });
-                prod
-            };
-            self.apply_production(cx, next_prod);
+            }
         }
     }
 }
@@ -186,9 +240,14 @@ impl Continuation {
         }
 
         let mut st = self.state.clone();
-        st.apply_production(cx, self.alternatives[self.next]);
-        self.next += 1;
-        Some(st)
+        for (i, &alt) in self.alternatives.iter().enumerate().skip(self.next) {
+            if st.apply_production(cx, self.alternatives[self.next]) {
+                self.next = i + 1;
+                return Some(st);
+            }
+        }
+        self.next = self.alternatives.len();
+        None
     }
 }
 

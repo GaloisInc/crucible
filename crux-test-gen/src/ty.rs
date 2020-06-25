@@ -100,13 +100,19 @@ impl Subst {
         self.0[v.0 as usize]
     }
 
-    pub fn and<T>(&self, x: T) -> SubstAnd<T> {
-        SubstAnd::new(self.clone(), x)
+    pub fn and<T>(self, x: T) -> SubstAnd<T> {
+        SubstAnd::new(self, x)
     }
 }
 
 impl<'a> From<&'a [VarId]> for Subst {
     fn from(x: &[VarId]) -> Subst {
+        Subst(Rc::new(<Box<[_]>>::from(x)))
+    }
+}
+
+impl From<Vec<VarId>> for Subst {
+    fn from(x: Vec<VarId>) -> Subst {
         Subst(Rc::new(<Box<[_]>>::from(x)))
     }
 }
@@ -137,6 +143,7 @@ impl<T> SubstAnd<T> {
 }
 
 
+#[derive(Clone)]
 pub struct UnifyState {
     t: InPlaceUnificationTable<VarId>,
 }
@@ -150,6 +157,10 @@ impl UnifyState {
 
     pub fn fresh(&mut self) -> VarId {
         self.t.new_key(None)
+    }
+
+    pub fn fresh_subst(&mut self, n: usize) -> Subst {
+        (0 .. n).map(|_| self.fresh()).collect::<Vec<_>>().into()
     }
 
     /// Unify the corresponding elements of `a` and `b`.  Returns `true` (and updates internal
@@ -280,19 +291,19 @@ mod test {
 
     macro_rules! unify_one {
         ($u:expr, ($s1:expr, $s2:expr), $a:expr, $b:expr) => {
-            $u.unify_one($s1.and(&$a), $s2.and(&$b))
+            $u.unify_one($s1.clone().and(&$a), $s2.clone().and(&$b))
         };
         ($u:expr, $s:expr, $a:expr, $b:expr) => {
-            $u.unify_one($s.and(&$a), $s.and(&$b))
+            $u.unify_one($s.clone().and(&$a), $s.clone().and(&$b))
         };
     }
 
     macro_rules! unify {
         ($u:expr, ($s1:expr, $s2:expr), $a:expr, $b:expr) => {
-            $u.unify($s1.and(&$a), $s2.and(&$b))
+            $u.unify($s1.clone().and(&$a), $s2.clone().and(&$b))
         };
         ($u:expr, $s:expr, $a:expr, $b:expr) => {
-            $u.unify($s.and(&$a), $s.and(&$b))
+            $u.unify($s.clone().and(&$a), $s.clone().and(&$b))
         };
     }
 
