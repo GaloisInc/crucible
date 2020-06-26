@@ -1,0 +1,18 @@
+start ::=
+    fn test() {
+        let mut v: Vec<u8> = <<vec_init[u8]>>;
+        <<stmt>>
+        <<stmt>>
+    }
+
+
+for[T] vec_init[T] ::= Vec::new()
+for[T] vec_init[T] ::= vec![<<expr[T]>>]
+for[T] vec_init[T] ::= vec![<<expr[T]>>, <<expr[T]>>]
+
+expr[Vec[u8]] ::= v
+expr[u8] ::= 0
+expr[u8] ::= 1
+
+for[T] stmt ::=
+    <<expr[Vec[T]]>>.push(<<expr[T]>>);
