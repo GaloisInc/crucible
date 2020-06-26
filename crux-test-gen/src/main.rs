@@ -325,7 +325,7 @@ fn main() {
     let mut f = File::open(&args[1]).unwrap();
     let cx = parse::read_grammar(f).unwrap();
 
-    eprintln!("{:?}", cx);
+    eprintln!("{:#?}", cx);
 
     let mut conts = vec![Continuation::new(0)];
     while let Some(exp) = expand_next(&cx, &mut conts) {

@@ -4,7 +4,7 @@ use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
 
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct VarId(u32);
+pub struct VarId(pub u32);
 
 impl UnifyKey for VarId {
     type Value = Option<Term>;
@@ -21,8 +21,8 @@ pub enum Ty {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CtorTy {
-    ctor: Rc<str>,
-    args: Rc<[Ty]>,
+    pub ctor: Rc<str>,
+    pub args: Rc<[Ty]>,
 }
 
 impl Ty {

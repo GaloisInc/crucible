@@ -4,6 +4,7 @@ use std::io::{self, Read};
 use std::rc::Rc;
 use regex::Regex;
 use crate::{Context, Production, Nonterminal, ProductionId, NonterminalId, NonterminalRef, Chunk};
+use crate::ty::{Ty, CtorTy, VarId};
 
 #[derive(Default)]
 struct GrammarBuilder {
@@ -12,6 +13,17 @@ struct GrammarBuilder {
 
     nts_by_name: HashMap<String, NonterminalId>,
     text_interner: HashSet<Rc<str>>,
+}
+
+struct ProductionLhs {
+    vars: Vec<Rc<str>>,
+    nt: NonterminalRef,
+}
+
+#[derive(Default)]
+struct ProductionRhs {
+    chunks: Vec<Chunk>,
+    nts: Vec<NonterminalRef>,
 }
 
 impl GrammarBuilder {
@@ -26,10 +38,18 @@ impl GrammarBuilder {
         }
     }
 
-    pub fn add_prod(&mut self, nt: NonterminalId, prod: Production) {
+    pub fn add_prod(&mut self, lhs: ProductionLhs, rhs: ProductionRhs) {
+        let ProductionLhs { vars, nt } = lhs;
+        let ProductionRhs { chunks, nts } = rhs;
+
         let id = self.prods.len();
-        self.prods.push(prod);
-        self.nts[nt].productions.push(id);
+        self.prods.push(Production {
+            vars,
+            args: nt.args.into(),
+            chunks,
+            nts,
+        });
+        self.nts[nt.id].productions.push(id);
     }
 
     pub fn intern_text(&mut self, s: &str) -> Rc<str> {
@@ -42,9 +62,51 @@ impl GrammarBuilder {
         }
     }
 
+    fn build_ty(&mut self, p: ParsedTy, vars: &HashMap<&str, VarId>) -> Ty {
+        if let Some(&var) = vars.get(p.ctor) {
+            assert!(p.args.len() == 0, "unexpected args for type variable {:?}", p.ctor);
+            return Ty::Var(var);
+        }
+
+        let ctor = CtorTy {
+            ctor: self.intern_text(p.ctor),
+            args: p.args.into_iter().map(|p2| self.build_ty(p2, vars)).collect::<Rc<[_]>>(),
+        };
+        Ty::Ctor(Rc::new(ctor))
+    }
+
+    fn parse_production_lhs<'s>(
+        &mut self,
+        s: &'s str,
+    ) -> (ProductionLhs, HashMap<&'s str, VarId>) {
+        let parsed = Parser::from_str(s).parse_lhs().unwrap();
+        let vars_map = make_vars_table(&parsed.vars);
+        let lhs = ProductionLhs {
+            vars: parsed.vars.into_iter().map(|s| self.intern_text(s)).collect(),
+            nt: NonterminalRef {
+                id: self.nt_id(&parsed.nt.name),
+                args: parsed.nt.args.into_iter().map(|p| self.build_ty(p, &vars_map)).collect(),
+            },
+        };
+        (lhs, vars_map)
+    }
+
+    fn parse_nonterminal_ref(
+        &mut self,
+        s: &str,
+        vars_map: &HashMap<&str, VarId>,
+    ) -> NonterminalRef {
+        let parsed = Parser::from_str(s).parse_nt().unwrap();
+        NonterminalRef {
+            id: self.nt_id(&parsed.name),
+            args: parsed.args.into_iter().map(|p| self.build_ty(p, &vars_map)).collect(),
+        }
+    }
+
     fn parse_grammar(&mut self, lines: &[&str]) {
-        struct PendingBlock {
-            lhs: NonterminalId,
+        struct PendingBlock<'a> {
+            lhs: ProductionLhs,
+            vars_map: HashMap<&'a str, VarId>,
             start_line: usize,
             end_line: usize,
             min_indent: usize,
@@ -70,12 +132,13 @@ impl GrammarBuilder {
                 } else {
                     // The first non-indented line marks the end of the block.
                     let block = cur_block.take().unwrap();
-                    let prod = self.parse_block(
+                    let rhs = self.parse_block(
                         block.start_line,
                         &lines[block.start_line .. block.end_line],
                         block.min_indent,
+                        &block.vars_map,
                     );
-                    self.add_prod(block.lhs, prod);
+                    self.add_prod(block.lhs, rhs);
                 }
             }
 
@@ -93,21 +156,22 @@ impl GrammarBuilder {
             if let Some(delim) = line.find("::=") {
                 let before = line[.. delim].trim();
                 let after = line[delim + 3 ..].trim();
-                let nt = self.nt_id(before);
+                let (lhs, vars_map) = self.parse_production_lhs(before);
 
                 if after.len() == 0 {
                     // Start of a multi-line block
                     cur_block = Some(PendingBlock {
-                        lhs: nt,
+                        lhs,
+                        vars_map,
                         start_line: i + 1,
                         end_line: i + 1,
                         min_indent: usize::MAX,
                     });
                 } else {
                     // Single-line case
-                    let mut prod = Production::default();
-                    self.parse_line(&mut prod, after, false);
-                    self.add_prod(nt, prod);
+                    let mut rhs = ProductionRhs::default();
+                    self.parse_line(&mut rhs, after, false, &vars_map);
+                    self.add_prod(lhs, rhs);
                 }
             } else {
                 eprintln!("line {}: error: expected `::=`", i + 1);
@@ -116,12 +180,13 @@ impl GrammarBuilder {
         }
 
         if let Some(block) = cur_block {
-            let prod = self.parse_block(
+            let rhs = self.parse_block(
                 block.start_line,
                 &lines[block.start_line .. block.end_line],
                 block.min_indent,
+                &block.vars_map,
             );
-            self.add_prod(block.lhs, prod);
+            self.add_prod(block.lhs, rhs);
         }
     }
 
@@ -131,10 +196,13 @@ impl GrammarBuilder {
         first_line: usize,
         lines: &[&str],
         indent: usize,
-    ) -> Production {
-        let marker_line_re = Regex::new(r"^(\s*)<<([a-zA-Z0-9_]+)>>$").unwrap();
+        vars_map: &HashMap<&str, VarId>,
+    ) -> ProductionRhs {
+        let marker_line_re = Regex::new(
+            r"^(\s*)<<([a-zA-Z0-9_]+(\[[a-zA-Z0-9_, \[\]]*\])?)>>$",
+        ).unwrap();
 
-        let mut prod = Production::default();
+        let mut prod = ProductionRhs::default();
         for (i, line) in lines.iter().enumerate() {
             // The last line never gets a trailing newline.
             let newline = i < lines.len() - 1;
@@ -154,22 +222,27 @@ impl GrammarBuilder {
                 prod.chunks.push(Chunk::Indent(indent_amount));
                 let nt_idx = prod.nts.len();
                 prod.chunks.push(Chunk::Nt(nt_idx));
-                prod.nts.push(NonterminalRef {
-                    id: self.nt_id(&caps[2]),
-                    args: Box::new([]),
-                });
+                prod.nts.push(self.parse_nonterminal_ref(&caps[2], vars_map));
                 prod.chunks.push(Chunk::Indent(-indent_amount));
                 prod.chunks.push(Chunk::Text(self.intern_text(""), newline));
             } else {
-                self.parse_line(&mut prod, line, newline);
+                self.parse_line(&mut prod, line, newline, vars_map);
             }
         }
         prod
     }
 
-    fn parse_line(&mut self, prod: &mut Production, line: &str, full_line: bool) {
+    fn parse_line(
+        &mut self,
+        prod: &mut ProductionRhs,
+        line: &str,
+        full_line: bool,
+        vars_map: &HashMap<&str, VarId>,
+    ) {
         let mut prev_end = 0;
-        let marker_re = Regex::new(r"<<([a-zA-Z0-9_]+)>>").unwrap();
+        let marker_re = Regex::new(
+            r"<<([a-zA-Z0-9_]+(\[[a-zA-Z0-9_, \[\]]*\])?)>>",
+        ).unwrap();
         for caps in marker_re.captures_iter(line) {
             let m = caps.get(0).unwrap();
 
@@ -180,10 +253,7 @@ impl GrammarBuilder {
             }
             let nt_idx = prod.nts.len();
             prod.chunks.push(Chunk::Nt(nt_idx));
-            prod.nts.push(NonterminalRef {
-                id: self.nt_id(&caps[1]),
-                args: Box::new([]),
-            });
+            prod.nts.push(self.parse_nonterminal_ref(&caps[1], vars_map));
 
             prev_end = m.end();
         }
@@ -212,15 +282,22 @@ pub fn parse_grammar(lines: &[&str]) -> Context {
     let root_id = 0;
     gb.nts.push(Nonterminal::default());
     let start_id = gb.nt_id("start");
-    gb.add_prod(0, Production {
-        vars: vec![],
-        args: vec![],
-        chunks: vec![Chunk::Nt(0)],
-        nts: vec![NonterminalRef {
-            id: start_id,
-            args: Box::new([]),
-        }],
-    });
+    gb.add_prod(
+        ProductionLhs {
+            vars: vec![],
+            nt: NonterminalRef {
+                id: 0,
+                args: Box::new([]),
+            },
+        },
+        ProductionRhs {
+            chunks: vec![Chunk::Nt(0)],
+            nts: vec![NonterminalRef {
+                id: start_id,
+                args: Box::new([]),
+            }],
+        },
+    );
 
     gb.parse_grammar(lines);
     gb.finish()
@@ -235,4 +312,171 @@ pub fn read_grammar<R: Read>(mut r: R) -> io::Result<Context> {
     let mut s = String::new();
     r.read_to_string(&mut s)?;
     Ok(parse_grammar_str(&s))
+}
+
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Token<'s> {
+    Open,
+    Close,
+    Comma,
+    Word(&'s str),
+}
+
+fn tokenize<'s>(s: &'s str) -> Vec<Token<'s>> {
+    let word_re = Regex::new(r"^[a-zA-Z0-9_]+").unwrap();
+    let space_re = Regex::new(r"^\s+").unwrap();
+
+    let mut s = s;
+    let mut tokens = Vec::new();
+    while s.len() > 0 {
+        if let Some(word) = word_re.find(s) {
+            tokens.push(Token::Word(word.as_str()));
+            s = &s[word.end()..];
+        } else if let Some(space) = space_re.find(s) {
+            s = &s[space.end()..];
+        } else {
+            match s.chars().next().unwrap() {
+                '[' => tokens.push(Token::Open),
+                ']' => tokens.push(Token::Close),
+                ',' => tokens.push(Token::Comma),
+                c => panic!("unexpected character {:?}", c),
+            }
+            s = &s[1..];
+        }
+    }
+    tokens
+}
+
+struct Parser<'s> {
+    tokens: Vec<Token<'s>>,
+    pos: usize,
+}
+
+type PResult<T> = Result<T, ()>;
+
+struct ParsedNt<'s> {
+    name: &'s str,
+    args: Vec<ParsedTy<'s>>,
+}
+
+struct ParsedTy<'s> {
+    ctor: &'s str,
+    args: Vec<ParsedTy<'s>>,
+}
+
+struct ParsedLhs<'s> {
+    vars: Vec<&'s str>,
+    nt: ParsedNt<'s>,
+}
+
+impl<'s> Parser<'s> {
+    pub fn new(tokens: Vec<Token<'s>>) -> Parser<'s> {
+        Parser {
+            tokens,
+            pos: 0,
+        }
+    }
+
+    pub fn from_str(s: &'s str) -> Parser<'s> {
+        Self::new(tokenize(s))
+    }
+
+    pub fn eof(&self) -> bool {
+        self.pos >= self.tokens.len()
+    }
+
+    pub fn peek(&self) -> PResult<Token<'s>> {
+        let t = self.tokens.get(self.pos).ok_or(())?.clone();
+        Ok(t)
+    }
+
+    pub fn take(&mut self) -> PResult<Token<'s>> {
+        let t = self.peek()?;
+        self.pos += 1;
+        Ok(t)
+    }
+
+    pub fn take_word(&mut self) -> PResult<&'s str> {
+        match self.take()? {
+            Token::Word(s) => Ok(s),
+            _ => Err(()),
+        }
+    }
+
+    pub fn eat(&mut self, t: Token) -> bool {
+        if self.tokens.get(self.pos) == Some(&t) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn eat_word(&mut self, s: &str) -> bool {
+        if self.tokens.get(self.pos) == Some(&Token::Word(s)) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn expect(&mut self, t: Token) -> PResult<()> {
+        if !self.eat(t) {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn parse_ty_list(&mut self) -> PResult<Vec<ParsedTy<'s>>> {
+        let mut tys = Vec::new();
+        if self.eat(Token::Open) {
+            loop {
+                tys.push(self.parse_ty()?);
+                if self.eat(Token::Close) {
+                    break;
+                } else {
+                    self.expect(Token::Comma)?;
+                }
+            }
+        }
+        Ok(tys)
+    }
+
+    pub fn parse_ty(&mut self) -> PResult<ParsedTy<'s>> {
+        let ctor = self.take_word()?;
+        let args = self.parse_ty_list()?;
+        Ok(ParsedTy { ctor, args })
+    }
+
+    pub fn parse_nt(&mut self) -> PResult<ParsedNt<'s>> {
+        let name = self.take_word()?;
+        let args = self.parse_ty_list()?;
+        Ok(ParsedNt { name, args })
+    }
+
+    pub fn parse_lhs(&mut self) -> PResult<ParsedLhs<'s>> {
+        let mut vars = Vec::new();
+        if self.eat_word("for") {
+            self.expect(Token::Open)?;
+            loop {
+                vars.push(self.take_word()?);
+                if self.eat(Token::Close) {
+                    break;
+                } else {
+                    self.expect(Token::Comma)?;
+                }
+            }
+        }
+
+        let nt = self.parse_nt()?;
+        Ok(ParsedLhs { vars, nt })
+    }
+}
+
+fn make_vars_table<'a>(vars: &[&'a str]) -> HashMap<&'a str, VarId> {
+    assert!(vars.len() <= u32::MAX as usize);
+    vars.iter().enumerate().map(|(idx, &name)| (name, VarId(idx as u32))).collect()
 }
