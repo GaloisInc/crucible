@@ -241,7 +241,7 @@ impl Continuation {
 
         let mut st = self.state.clone();
         for (i, &alt) in self.alternatives.iter().enumerate().skip(self.next) {
-            if st.apply_production(cx, self.alternatives[self.next]) {
+            if st.apply_production(cx, alt) {
                 self.next = i + 1;
                 return Some(st);
             }
