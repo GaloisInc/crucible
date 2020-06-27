@@ -33,7 +33,7 @@ import Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Control.Monad(when)
-import System.Exit(exitSuccess, ExitCode(..), exitFailure)
+import System.Exit(exitSuccess, ExitCode(..), exitFailure, exitWith)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
 
@@ -146,8 +146,9 @@ loadOptions outCfg nm ver config cont =
 
  `Ex.catch` \(e :: Ex.SomeException) ->
    do let ?outputConfig = outCfg
-      sayFail "Crux" (Ex.displayException e)
-      exitFailure
+      case (Ex.fromException e :: Maybe ExitCode) of
+        Just exitCode -> exitWith exitCode
+        Nothing -> sayFail "Crux" (Ex.displayException e) >> exitFailure
 
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = outputLn (show (configDocs nm cfg))
