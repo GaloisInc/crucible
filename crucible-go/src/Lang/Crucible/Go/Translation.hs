@@ -10,7 +10,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Lang.Crucible.Go.Translation (mkFnEnv, translateFunction) where
+module Lang.Crucible.Go.Translation (mkInitialFnEnv, translateFunction) where
 
 import           Control.Monad.ST (ST)
 import           Control.Monad (forM_, zipWithM, void)
@@ -50,23 +50,22 @@ import qualified What4.Utils.StringLiteral as C
 -- Given a list of top-level definitions, build a function environment
 -- mapping function names to newly allocated function handles along
 -- with the corresponding TopLevel data).
-mkFnEnv :: forall p sym.
-  (?machineWordWidth :: Int)
-  => HandleAllocator
-  -> [TopLevel SourceRange]
-  -> IO (HM.HashMap Text SomeHandle)
-mkFnEnv _ [] = return HM.empty
-mkFnEnv halloc (FunctionDecl _ fName@(Id _ _ fnm) params returns (Just body) : toplevels) = do
-  env <- mkFnEnv halloc toplevels
+mkInitialFnEnv :: (?machineWordWidth :: Int) =>
+           HandleAllocator ->
+           [TopLevel SourceRange] ->
+           IO FnEnv
+mkInitialFnEnv _ [] = return emptyFnEnv
+mkInitialFnEnv halloc (FunctionDecl _ fName@(Id _ _ fnm) params returns (Just body) : toplevels) = do
+  env <- mkInitialFnEnv halloc toplevels
   paramTypes params $ \paramsRepr ->
     returnTypes returns $ \retRepr -> do
     h <- mkHandle' halloc (functionNameFromText fnm) paramsRepr (StructRepr retRepr)
-    return $ HM.insert fnm (SomeHandle h) env
+    return $ insertFnEnv fnm (SomeHandle h) env
 
 -- Build crucible type context from parameter list.
-paramTypes :: (?machineWordWidth :: Int)
-  => ParameterList SourceRange
-  -> (forall ctx. CtxRepr ctx -> a) -> a
+paramTypes :: (?machineWordWidth :: Int) =>
+              ParameterList SourceRange ->
+              (forall ctx. CtxRepr ctx -> a) -> a
 paramTypes l k = case l of
    NamedParameterList _ ps Nothing -> go ps k
    AnonymousParameterList _ ps Nothing -> go ps k
@@ -79,9 +78,9 @@ paramTypes l k = case l of
       translateType (fromRight $ getType p) $ \trepr -> k $ ctx Ctx.:> trepr
 
 -- Build crucible type context from return list.
-returnTypes :: (?machineWordWidth :: Int)
-  => ReturnList SourceRange
-  -> (forall ctx. CtxRepr ctx -> a) -> a
+returnTypes :: (?machineWordWidth :: Int) =>
+               ReturnList SourceRange ->
+               (forall ctx. CtxRepr ctx -> a) -> a
 returnTypes l k = case l of
    NamedReturnList _ rs -> go rs k
    AnonymousReturnList _ rs -> go rs k
@@ -92,21 +91,14 @@ returnTypes l k = case l of
       go rs $ \ctx ->
       translateType (fromRight $ getType r) $ \trepr -> k $ ctx Ctx.:> trepr
 
-lookupNil :: TypeRepr tp -> [ReprAndValue] -> Maybe (Gen.Expr ext s tp)
-lookupNil repr [] = Nothing
-lookupNil repr (ReprAndValue repr' val : reprs) =
-  case testEquality repr repr' of
-    Just Refl -> return val
-    Nothing   -> lookupNil repr reprs
-
--- -- | (Currently) the entry point of the module: translates one go
--- -- function to a Crucible control-flow graph. The parameters after
--- -- the first two are the same as for the `FunctionDecl` AST
--- -- constructor.
+-- | (Currently) the entry point of the module: translates one go
+-- function to a Crucible control-flow graph. The parameters after
+-- the first two are the same as for the `FunctionDecl` AST
+-- constructor.
 translateFunction :: forall ext args ret.
   (C.IsSyntaxExtension ext, ?machineWordWidth :: Int)
   => FnHandle args ret
-  -> HashMap Text SomeHandle
+  -> FnEnv -- ^ File-global function environment
   -> Id SourceRange -- ^ Function name
   -> ParameterList SourceRange -- ^ Function parameters
   -> ReturnList SourceRange
@@ -134,7 +126,7 @@ translateFunction h handleMap (Id _ _bind fname) params returns body =
 -- | State of translation: the user state part of the Generator monad used here.
 data TransState ctx s = TransState
   { lexenv :: !(HashMap Text (GoVarReg s)) -- ^ A mapping from variable names to registers
-  , delta :: !(HashMap Text SomeHandle) -- ^ Function environment
+  , delta :: !FnEnv -- ^ Function environment
   , explicitLabels :: !(HashMap Text (Gen.Label s))
     -- ^ A mapping of explicitly-introduced Go label names to their
     -- corresponding Crucible block labels
@@ -154,7 +146,7 @@ data TransState ctx s = TransState
 
 instance Default (TransState ctx s) where
   def = TransState { lexenv = HM.empty
-                   , delta = HM.empty
+                   , delta = emptyFnEnv
                    , explicitLabels = HM.empty
                    , enclosingBreaks = LabelStack []
                    , enclosingContinues = LabelStack []
@@ -356,7 +348,7 @@ translateStatement retCtxRepr s = case s of
         undefined
   ReturnStmt _ [e] ->
     withTranslatedExpression e $ \_ e' ->
-    asType (StructRepr retCtxRepr) e' $ \e'' -> Gen.returnFromFunction e''
+    asType (StructRepr retCtxRepr) (box e') $ \e'' -> Gen.returnFromFunction e''
   ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
   EmptyStmt _ -> return ()
   LabeledStmt _ (Label _ labelName) stmt -> do
@@ -380,11 +372,9 @@ translateStatement retCtxRepr s = case s of
   BlockStmt _ body -> translateBlock body retCtxRepr
   IfStmt _ mguard e then_ else_ -> do
     F.forM_ mguard $ translateStatement retCtxRepr
-    withTranslatedExpression e $ \_ e' -> do
-      case e' of
-        _ | Just Refl <- testEquality (exprType e') BoolRepr ->
-              Gen.ifte_ e' (translateBlock then_ retCtxRepr) (translateBlock else_ retCtxRepr)
-          | otherwise -> error ("translateStatement: Invalid type for if statement condition: " ++ show e)
+    withTranslatedExpression e $ \_ e' ->
+      asType BoolRepr e' $ \e'' ->
+      Gen.ifte_ e'' (translateBlock then_ retCtxRepr) (translateBlock else_ retCtxRepr)
 
   -- This translation is very verbose because we can't re-use the
   -- Gen.when combinator.  We need the labels to implement break and
@@ -406,11 +396,9 @@ translateStatement retCtxRepr s = case s of
       case mcondition of
         Nothing -> Gen.jump loop_lbl
         Just cond -> do
-          withTranslatedExpression cond $ \_ cond' -> do
-            case cond' of
-              _ | Just Refl <- testEquality (exprType cond') BoolRepr ->
-                  Gen.branch cond' loop_lbl exit_lbl
-                | otherwise -> error ("Invalid condition type in for loop: " ++ show s)
+          withTranslatedExpression cond $ \_ cond' ->
+            asType BoolRepr cond' $ \cond'' ->
+            Gen.branch cond'' loop_lbl exit_lbl
 
     Gen.defineBlock loop_lbl $ do
       -- Push the break and continue labels onto the stack so that
@@ -527,14 +515,14 @@ translateAssignment (lhs, rhs) =
   -- trace "translateAssignment" $
   -- trace ("lhs: " ++ show lhs) $
   -- trace ("rhs: " ++ show rhs) $
-  withTranslatedExpression lhs $ \mAssignLoc lhs' -> do
-    withTranslatedExpression rhs $ \_ rhs' -> do
-      case () of
-        _ | Just Refl <- testEquality (exprType lhs') (exprType rhs')
-          , Just reg <- mAssignLoc -> do
-            ref0 <- Gen.readReg reg
-            Gen.writeReference ref0 rhs'
-          | otherwise -> error ("translateAssignment: type mismatch between lhs and rhs: " ++ show (lhs, rhs))
+  withTranslatedExpression lhs $ \mAssignLoc lhs' ->
+  withTranslatedExpression rhs $ \_ rhs' ->
+  asType (exprType lhs') rhs' $ \rhs'' ->
+  case mAssignLoc of
+    Just reg -> do
+      ref0 <- Gen.readReg reg
+      Gen.writeReference ref0 rhs''
+    Nothing -> error "translateStatement: expected assignable location"
 
 translateVarSpec :: (C.IsSyntaxExtension ext) => VarSpec SourceRange -> GoGenerator ext s rctx ()
 translateVarSpec s = case s of
@@ -616,7 +604,7 @@ withTranslatedExpression e k = case e of
     case HM.lookup ident lenv of
       Nothing ->
         -- If not found in lenv, look up in the function environment δ.
-        case HM.lookup ident δ of
+        case lookupFnEnv ident δ of
           Nothing -> error ("withTranslatedExpression: Undefined identifier: " ++ show ident)
           Just (SomeHandle h) ->
             k Nothing $ Gen.App $
@@ -625,31 +613,57 @@ withTranslatedExpression e k = case e of
       Just (GoVarReg _typeRep refReg) -> do
         regExp <- Gen.readReg refReg
         Gen.readReference regExp >>= k (Just refReg)
+
   UnaryExpr _ op operand -> do
     exprTypeRepr e $ \tp ->
       withTranslatedExpression operand $ \mAssignLoc innerExpr -> do
       translateUnaryExpression e tp (zeroValue tp) k op mAssignLoc innerExpr
-  BinaryExpr _ op e1 e2 -> do
+
+  BinaryExpr  _ op e1 e2 -> do
     withTranslatedExpression e1 $ \_ e1' ->
       withTranslatedExpression e2 $ \_ e2' ->
         case (exprType e1', exprType e2') of
           (BVRepr w1, BVRepr w2)
             | Just Refl <- testEquality w1 w2
             , Just LeqProof <- isPosNat w1 ->
+              trace (show e1) $
+              trace (show e2) $
               case (getType e1, getType e2) of
                 (Right (Int _ isSigned1), Right (Int _ isSigned2))
                   | isSigned1 && isSigned2 -> translateBitvectorBinaryOp k op Signed w1 e1' e2'
                   | not isSigned1 && not isSigned2 -> translateBitvectorBinaryOp k op Unsigned w1 e1' e2'
-                _ -> error ("withTranslatedExpression: mixed signedness in binary operator: " ++ show (op, e1, e2))
+                (t1, t2) -> error $ "withTranslatedExpression: mixed signedness in binary operator: " ++
+                               show (op, e1, e2) ++ "\n" ++ show t1 ++ "\n" ++ show t2
           (RealValRepr, RealValRepr) -> translateFloatingOp e k op e1' e2'
           (BoolRepr, BoolRepr) -> translateBooleanBinaryOp e k op e1' e2'
-          _ -> error ("withTranslatedExpression: unsupported operation: " ++ show (op, e1, e2))
+          (lrepr, rrepr) ->
+            error $ "withTranslatedExpression: unsupported operation: " ++ show (op, e1, e2) ++
+            "\n" ++ show lrepr ++ "\n" ++ show rrepr
   Conversion _ toType baseE ->
     withTranslatedExpression baseE $ \_ baseE' ->
       case getType toType of
         Right toType' -> translateTypeM toType' $ \typerepr ->
           translateConversion k typerepr baseE'
         Left err -> error ("withTranslatedExpression: Unexpected conversion type: " ++ show (toType, err))
+
+  -- CallExpr _ f _t args Nothing ->
+  --   withTranslatedExpression f $ \_ f' ->
+  --   withTranslatedExpressions args $ \ctxRepr assignment -> do
+  --   case Gen.exprType f' of
+  --     MaybeRepr (FunctionHandleRepr argsRepr _retRepr) ->
+  --       asTypes argsRepr assignment $ \assignment' ->
+  --       case f' of
+  --         Gen.App (C.JustValue _repr f'') -> Gen.call f'' assignment' >>= k Nothing
+  --         Gen.App (C.NothingValue _repr) ->
+  --           error "withTranslatedExpression: attempt to call nil function"
+  --         _ -> do
+  --           f'' <- Gen.fromJustExpr f' $ Gen.App $ C.StringLit $ C.UnicodeLiteral $
+  --                  T.pack $ "attempt to call nil function in function "
+  --                  ++ show f' ++ " translated from " ++ show f
+  --           Gen.call f'' assignment' >>= k Nothing
+  --     _ -> error $ "withTranslatedExpression: expected optional function type, got "
+  --          ++ show (Gen.exprType f')
+        
   CallExpr _ f _t args Nothing ->
     withTranslatedExpression f $ \_ f' ->
     withTranslatedExpressions args $ \ctxRepr assignment -> do
@@ -657,16 +671,20 @@ withTranslatedExpression e k = case e of
       MaybeRepr (FunctionHandleRepr argsRepr _retRepr) ->
         asTypes argsRepr assignment $ \assignment' ->
         case f' of
-          Gen.App (C.JustValue _repr f'') -> Gen.call f'' assignment' >>= k Nothing
+          Gen.App (C.JustValue _repr f'') -> do
+            e <- Gen.call f'' assignment'
+            asSingletonStruct e $ \e' -> k Nothing $ unbox e'
           Gen.App (C.NothingValue _repr) ->
             error "withTranslatedExpression: attempt to call nil function"
           _ -> do
             f'' <- Gen.fromJustExpr f' $ Gen.App $ C.StringLit $ C.UnicodeLiteral $
                    T.pack $ "attempt to call nil function in function "
                    ++ show f' ++ " translated from " ++ show f
-            Gen.call f'' assignment' >>= k Nothing
+            e <- Gen.call f'' assignment'
+            asSingletonStruct e $ \e' -> k Nothing $ unbox e'
       _ -> error $ "withTranslatedExpression: expected optional function type, got "
-           ++ show (Gen.exprType f')           
+           ++ show (Gen.exprType f')
+
   CallExpr rng _ _ _ (Just vararg) ->
     error $ "withTranslatedExpression: unexpected variadic argument at " ++ show rng
   _ -> error "Unsupported expression type"
@@ -869,34 +887,34 @@ typeAsRepr :: forall ext a. VarType
            -> (forall typ. TypeRepr typ -> a)
            -> a
 typeAsRepr typ lifter = injectType (toTypeRepr typ)
-   where injectType :: SomeRepr -> a
-         injectType (SomeRepr repr) = lifter repr
+   where injectType :: Some TypeRepr -> a
+         injectType (Some repr) = lifter repr
 
-toTypeRepr :: VarType -> SomeRepr
+toTypeRepr :: VarType -> Some TypeRepr
 toTypeRepr typ = case typ of
   Int (Just width) _ -> case someNat (fromIntegral width) of
-    Just (Some w) | Just LeqProof <- isPosNat w -> SomeRepr (BVRepr w)
+    Just (Some w) | Just LeqProof <- isPosNat w -> Some (BVRepr w)
     _ -> error $ unwords ["invalid integer width",show width]
   Int Nothing _ -> error $ "Type translation: Unexpected integer type without width: expectin all integers to have width specified explicitly."
-  Float _width -> SomeRepr RealValRepr
-  Boolean -> SomeRepr BoolRepr
-  Complex _width -> SomeRepr ComplexRealRepr
-  Iota -> SomeRepr IntegerRepr
-  Nil -> SomeRepr (MaybeRepr AnyRepr)
-  -- String -> SomeRepr (VectorRepr $ BVRepr (knownNat :: NatRepr 8))
-  String -> SomeRepr (StringRepr UnicodeRepr)
+  Float _width -> Some RealValRepr
+  Boolean -> Some BoolRepr
+  Complex _width -> Some ComplexRealRepr
+  Iota -> Some IntegerRepr
+  Nil -> Some (MaybeRepr AnyRepr)
+  -- String -> Some (VectorRepr $ BVRepr (knownNat :: NatRepr 8))
+  String -> Some (StringRepr UnicodeRepr)
   Function _mrecv_ty param_tys Nothing ret_tys ->
     someReprCtx (toTypeRepr <$> param_tys) $ \paramsRepr ->
     someReprCtx (toTypeRepr <$> ret_tys) $ \retCtxRepr ->
-    SomeRepr (MaybeRepr $ FunctionHandleRepr paramsRepr $ StructRepr retCtxRepr)
+    Some (MaybeRepr $ FunctionHandleRepr paramsRepr $ StructRepr retCtxRepr)
   Function _ _ (Just _) _ -> error "toTypeRepr: unexpected variadic parameter to function"
   -- TODO: use array length somehow?
-  Array _len typ' -> typeAsRepr typ' $ \t -> SomeRepr (VectorRepr t)
+  Array _len typ' -> typeAsRepr typ' $ \t -> Some (VectorRepr t)
   Struct _fields -> undefined
-  Pointer _typ -> SomeRepr (MaybeRepr (ReferenceRepr AnyRepr))
-  Interface _sig -> SomeRepr (MaybeRepr undefined)
-  Map _keyType _valueType -> SomeRepr (MaybeRepr undefined)
-  Slice typ' -> typeAsRepr typ' $ \_t -> SomeRepr (MaybeRepr (StructRepr undefined))
+  Pointer _typ -> Some (MaybeRepr (ReferenceRepr AnyRepr))
+  Interface _sig -> Some (MaybeRepr undefined)
+  Map _keyType _valueType -> Some (MaybeRepr undefined)
+  Slice typ' -> typeAsRepr typ' $ \_t -> Some (MaybeRepr (StructRepr undefined))
   Channel _ typ' -> toTypeRepr typ'
   BuiltIn _name -> undefined -- ^ built-in function
   Alias (TypeName _ _ _) -> undefined
@@ -927,9 +945,9 @@ zeroValue ty = case ty of
   where
     real0 = Gen.App $ C.RationalLit $ realToFrac (0::Int)
 
-someReprCtx :: [SomeRepr] -> (forall ctx. CtxRepr ctx -> a) -> a
+someReprCtx :: [Some TypeRepr] -> (forall ctx. CtxRepr ctx -> a) -> a
 someReprCtx [] k = k $ Ctx.empty
-someReprCtx (SomeRepr repr : rs) k =
+someReprCtx (Some repr : rs) k =
  someReprCtx rs $ \ctxRepr -> k $ ctxRepr Ctx.:> repr
 
 failIfNotEqual :: forall k f m a (b :: k).
@@ -939,26 +957,68 @@ failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
   | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
 
+asStruct :: C.IsSyntaxExtension ext =>
+            Gen.Expr ext s a ->
+            (forall ctx. Gen.Expr ext s (StructType ctx) -> b) -> b
+asStruct e k =
+  case exprType e of
+    StructRepr _tp -> k e
+    _ -> error "asStruct: expected struct"
+
+asNonemptyStruct :: C.IsSyntaxExtension ext =>
+                     Gen.Expr ext s a ->
+                     (forall ctx tp. Gen.Expr ext s (StructType (ctx ::> tp)) -> b) -> b
+asNonemptyStruct e k =
+  case exprType e of
+    StructRepr (ctx Ctx.:> _tp) -> k e
+    _ -> error "asNonemptyStruct: expected nonempty struct"
+
+asSingletonStruct :: C.IsSyntaxExtension ext =>
+                     Gen.Expr ext s a ->
+                     (forall b. Gen.Expr ext s (StructType (SingleCtx b)) -> c) -> c
+asSingletonStruct e k =
+  case exprType e of
+    StructRepr (Ctx.Empty Ctx.:> _tp) -> k e
+    _ -> error "asSingletonStruct: expected singleton struct"
+
+box :: C.IsSyntaxExtension ext =>
+        Gen.Expr ext s a ->
+        Gen.Expr ext s (StructType (Ctx.SingleCtx a))
+box e = Gen.App $ C.MkStruct (Ctx.singleton $ exprType e) (Ctx.singleton e)
+
+unbox :: C.IsSyntaxExtension ext =>
+          Gen.Expr ext s (StructType (Ctx.SingleCtx a)) ->
+          Gen.Expr ext s a
+unbox e = case exprType e of
+            StructRepr (Ctx.Empty Ctx.:> repr) ->
+              Gen.App $ C.GetStruct e Ctx.baseIndex repr
 
 -- Use this function to assert that an expression has a certain
 -- type. Unit values may be coerced to Nothing values of a Maybe
 -- type. The following variations ultimately use this function so this
--- is the one place to handle type coercion logic.
-asType' :: C.IsSyntaxExtension ext => TypeRepr b -> Gen.Expr ext s a -> Gen.Expr ext s b
-asType' repr e =
+-- is the one place to handle type coercion logic.             
+asTypeMaybe :: C.IsSyntaxExtension ext =>
+               TypeRepr b -> Gen.Expr ext s a -> Maybe (Gen.Expr ext s b)
+asTypeMaybe repr e =
   case testEquality (exprType e) repr of
-    Just Refl -> e
+    Just Refl -> Just e
     Nothing ->
       case (exprType e, repr) of
-        (UnitRepr, MaybeRepr repr') -> Gen.App $ C.NothingValue repr'
-        (StructRepr (Ctx.Empty Ctx.:> typeRepr), _)
-          | Just Refl <- testEquality typeRepr repr ->
-              Gen.App $ C.GetStruct e Ctx.baseIndex typeRepr
-        (_, StructRepr (Ctx.Empty Ctx.:> typeRepr))
-          | Just Refl <- testEquality (exprType e) typeRepr ->
-              Gen.App $ C.MkStruct (Ctx.singleton typeRepr) (Ctx.singleton e)
-        _ -> error $ "asType fail: expression " ++ show e ++ " of type "
-             ++ show (exprType e) ++ " incompatible with type " ++ show repr
+        (UnitRepr, MaybeRepr repr') -> Just $ Gen.App $ C.NothingValue repr'
+        -- (StructRepr (Ctx.Empty Ctx.:> typeRepr), _)
+        --   | Just Refl <- testEquality typeRepr repr ->
+        --       Just $ Gen.App $ C.GetStruct e Ctx.baseIndex typeRepr
+        -- (_, StructRepr (Ctx.Empty Ctx.:> typeRepr))
+        --   | Just Refl <- testEquality (exprType e) typeRepr ->
+        --       Just $ Gen.App $ C.MkStruct (Ctx.singleton typeRepr) (Ctx.singleton e)
+        _ -> Nothing
+
+asType' :: C.IsSyntaxExtension ext => TypeRepr b -> Gen.Expr ext s a -> Gen.Expr ext s b
+asType' repr e =
+  case asTypeMaybe repr e of
+    Just e' -> e'
+    Nothing -> error $ "asType fail: expression " ++ show e ++ " of type "
+               ++ show (exprType e) ++ " incompatible with type " ++ show repr
 
 -- CPS version
 asType :: C.IsSyntaxExtension ext => TypeRepr b -> Gen.Expr ext s a -> (Gen.Expr ext s b -> c) -> c
