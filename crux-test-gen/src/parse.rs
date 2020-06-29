@@ -4,64 +4,12 @@ use std::io::{self, Read};
 use std::rc::Rc;
 use regex::Regex;
 use crate::{Context, Production, Nonterminal, ProductionId, NonterminalId, NonterminalRef, Chunk};
+use crate::builder::{GrammarBuilder, ProductionLhs, ProductionRhs};
 use crate::ty::{Ty, CtorTy, VarId};
 
-#[derive(Default)]
-struct GrammarBuilder {
-    prods: Vec<Production>,
-    nts: Vec<Nonterminal>,
 
-    nts_by_name: HashMap<String, NonterminalId>,
-    text_interner: HashSet<Rc<str>>,
-}
-
-struct ProductionLhs {
-    vars: Vec<Rc<str>>,
-    nt: NonterminalRef,
-}
-
-#[derive(Default)]
-struct ProductionRhs {
-    chunks: Vec<Chunk>,
-    nts: Vec<NonterminalRef>,
-}
-
+// TODO: better organization - shouldn't `impl GrammarBuilder` outside the `builder` module
 impl GrammarBuilder {
-    pub fn nt_id(&mut self, name: &str) -> NonterminalId {
-        if let Some(&id) = self.nts_by_name.get(name) {
-            id
-        } else {
-            let id = self.nts.len();
-            self.nts.push(Nonterminal::default());
-            self.nts_by_name.insert(name.to_owned(), id);
-            id
-        }
-    }
-
-    pub fn add_prod(&mut self, lhs: ProductionLhs, rhs: ProductionRhs) {
-        let ProductionLhs { vars, nt } = lhs;
-        let ProductionRhs { chunks, nts } = rhs;
-
-        let id = self.prods.len();
-        self.prods.push(Production {
-            vars,
-            args: nt.args.into(),
-            chunks,
-            nts,
-        });
-        self.nts[nt.id].productions.push(id);
-    }
-
-    pub fn intern_text(&mut self, s: &str) -> Rc<str> {
-        if let Some(x) = self.text_interner.get(s) {
-            return x.clone();
-        } else {
-            let x: Rc<str> = s.into();
-            self.text_interner.insert(x.clone());
-            x
-        }
-    }
-
     fn build_ty(&mut self, p: ParsedTy, vars: &HashMap<&str, VarId>) -> Ty {
         if let Some(&var) = vars.get(p.ctor) {
             assert!(p.args.len() == 0, "unexpected args for type variable {:?}", p.ctor);
@@ -103,7 +51,7 @@ impl GrammarBuilder {
         }
     }
 
-    fn parse_grammar(&mut self, lines: &[&str]) {
+    pub fn parse_grammar(&mut self, lines: &[&str]) {
         struct PendingBlock<'a> {
             lhs: ProductionLhs,
             vars_map: HashMap<&'a str, VarId>,
@@ -265,53 +213,6 @@ impl GrammarBuilder {
             prod.chunks.push(Chunk::Text(s, full_line));
         }
     }
-
-    pub fn finish(self) -> Context {
-        Context {
-            productions: self.prods,
-            nonterminals: self.nts,
-        }
-    }
-}
-
-
-pub fn parse_grammar(lines: &[&str]) -> Context {
-    let mut gb = GrammarBuilder::default();
-
-    // Set up the anonymous nonterminal #0, which expands to `<<start>>` via production #0.
-    let root_id = 0;
-    gb.nts.push(Nonterminal::default());
-    let start_id = gb.nt_id("start");
-    gb.add_prod(
-        ProductionLhs {
-            vars: vec![],
-            nt: NonterminalRef {
-                id: 0,
-                args: Box::new([]),
-            },
-        },
-        ProductionRhs {
-            chunks: vec![Chunk::Nt(0)],
-            nts: vec![NonterminalRef {
-                id: start_id,
-                args: Box::new([]),
-            }],
-        },
-    );
-
-    gb.parse_grammar(lines);
-    gb.finish()
-}
-
-pub fn parse_grammar_str(s: &str) -> Context {
-    let lines = s.lines().map(|l| l.trim_end()).collect::<Vec<_>>();
-    parse_grammar(&lines)
-}
-
-pub fn read_grammar<R: Read>(mut r: R) -> io::Result<Context> {
-    let mut s = String::new();
-    r.read_to_string(&mut s)?;
-    Ok(parse_grammar_str(&s))
 }
 
 

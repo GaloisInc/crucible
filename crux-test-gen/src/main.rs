@@ -1,25 +1,28 @@
 use std::env;
 use std::fs::File;
+use std::io::Read;
 use std::process;
 use std::rc::Rc;
 
+use crate::builder::{GrammarBuilder, ProductionLhs, ProductionRhs};
+use crate::ty::{Ty, Subst, UnifyState, VarId};
+
+mod builder;
 mod parse;
 mod ty;
-
-use self::ty::{Ty, Subst, UnifyState, VarId};
 
 
 type NonterminalId = usize;
 type ProductionId = usize;
 
 #[derive(Debug, Default)]
-struct NonterminalRef {
+pub struct NonterminalRef {
     id: NonterminalId,
     args: Box<[Ty]>,
 }
 
 #[derive(Debug, Default)]
-struct Production {
+pub struct Production {
     /// The generic type parameters of this production, declared with `for[T, U, ...]`.
     vars: Vec<Rc<str>>,
     /// The arguments to the nonterminal on the LHS of this production.  The arguments of the
@@ -31,7 +34,7 @@ struct Production {
 }
 
 #[derive(Debug, Default)]
-struct Nonterminal {
+pub struct Nonterminal {
     /// All productions for this nonterminal.  This is an upper bound on possible expansion
     /// options; some productions may not be valid for the `args` of a given `NonterminalRef`.
     productions: Vec<ProductionId>
@@ -44,7 +47,7 @@ pub struct Context {
 }
 
 #[derive(Debug)]
-enum Chunk {
+pub enum Chunk {
     /// A chunk of literal text.  Must not contain newlines.  The `bool`
     /// indicates whether to insert a newline after this text.
     Text(Rc<str>, bool),
@@ -315,6 +318,21 @@ fn render_expansion(cx: &Context, exp: &Expansion) -> String {
 }
 
 
+fn add_start_production(gb: &mut GrammarBuilder) {
+    // Set up the nonterminal __root__, with ID 0, which expands to `<<start>>` via production 0.
+    let root_id = gb.nt_id("__root__");
+    assert_eq!(root_id, 0);
+    let start_id = gb.nt_id("start");
+    let lhs = gb.mk_simple_lhs("__root__");
+    let rhs = ProductionRhs {
+        chunks: vec![Chunk::Nt(0)],
+        nts: vec![gb.mk_simple_nt_ref("start")],
+    };
+    let start_prod_id = gb.add_prod(lhs, rhs);
+    assert_eq!(start_prod_id, 0);
+}
+
+
 fn main() {
     let args = env::args().collect::<Vec<_>>();
     if args.len() != 2 {
@@ -323,7 +341,14 @@ fn main() {
     }
 
     let mut f = File::open(&args[1]).unwrap();
-    let cx = parse::read_grammar(f).unwrap();
+    let mut src = String::new();
+    f.read_to_string(&mut src).unwrap();
+    let lines = src.lines().map(|l| l.trim_end()).collect::<Vec<_>>();
+
+    let mut gb = GrammarBuilder::default();
+    add_start_production(&mut gb);
+    gb.parse_grammar(&lines);
+    let cx = gb.finish();
 
     eprintln!("{:#?}", cx);
 
