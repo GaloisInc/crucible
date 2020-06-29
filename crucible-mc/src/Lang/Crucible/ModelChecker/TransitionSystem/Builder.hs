@@ -102,7 +102,6 @@ makeTransitionSystem sym cfg namespacer globInfos blockInfos =
               sym
               actualNamespacer
               stateReprs
-              (fmapFC Ctx.size blocksInputs)
               blockInfos
               globInfos
               (Ctx.size initArgs),

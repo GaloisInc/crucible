@@ -55,6 +55,8 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState (lookupGlobal)
 
+-- TODO: turn these flags into command-line options
+
 -- whether to print the current execution state as we step through the symbolic
 -- execution
 debugExecState :: Bool
@@ -77,24 +79,29 @@ stepManually :: Bool
 stepManually = False
 
 doDebugExecState ::
+  MonadIO m =>
+  MonadReader (RunBlockReader sym globCtx arch ext blocks ret block) m =>
   Backend.IsSymInterface sym =>
   LLVMContext arch ->
   ExecState p sym ext (RegEntry sym rtp) ->
-  IO ()
+  m ()
 doDebugExecState llvmCtx execState =
   do
-    when (debugExecState || debugMemory || debugPredicates) $ putStrLn (replicate 80 '=')
-    when debugExecState $ print (ppExecState execState)
-    when debugMemory $ dumpMemory llvmCtx execState
-    when debugPredicates $ do
-      dumpAssumptions execState
-      dumpObligations execState
-    when stepManually (void getLine)
+    currentBlock <- asks runBlockBlock
+    liftIO $ do
+      when (debugExecState || debugMemory || debugPredicates) $ putStrLn (replicate 80 '=')
+      when debugExecState $ putStrLn ("[Block " ++ show (Core.blockID currentBlock) ++ "] " ++ show (ppExecState execState))
+      when debugMemory $ dumpMemory llvmCtx execState
+      when debugPredicates $ do
+        dumpAssumptions execState
+        dumpObligations execState
+      when stepManually (void getLine)
 
-data RunBlockReader sym globCtx arch ext blocks ret ctx = RunBlockReader
-  { runBlockBlock :: Core.Block ext blocks ret ctx,
+data RunBlockReader sym globCtx arch ext blocks ret block = RunBlockReader
+  { runBlockBlock :: Core.Block ext blocks ret block,
     runBlockGlobalContext :: Ctx.Assignment (GlobalInfo sym) globCtx,
     runBlockLLVMContext :: LLVMContext arch,
+    runBlockSize :: Ctx.Size block,
     runBlockSym :: sym
   }
 
@@ -164,13 +171,15 @@ endBlock execState blockEnd =
     assumptionsSeq <- liftIO $ Backend.collectAssumptions sym
     let assumptions = L.view Backend.labeledPred <$> toList assumptionsSeq
     obligations <- liftIO $ mapM (proofGoalExpr sym) =<< Backend.proofGoalsToList <$> Backend.getProofObligations sym
+    blockInfoSize <- asks runBlockSize
     return $
       BlockInfo
         { blockInfoEnd = blockEnd,
           blockInfoGlobals = globals,
           blockInfoID = blockID,
           blockInfoAssumptions = assumptions,
-          blockInfoObligations = obligations
+          blockInfoObligations = obligations,
+          blockInfoSize
         }
 
 runBlock ::
@@ -186,7 +195,7 @@ runBlock ::
 runBlock es =
   do
     llvmCtx <- asks runBlockLLVMContext
-    liftIO $ doDebugExecState llvmCtx es
+    doDebugExecState llvmCtx es
     case es of
       AbortState {} -> endBlock es BlockEndAborts
       ControlTransferState controlResumption _ ->
@@ -245,6 +254,7 @@ analyzeBlock llvmModule moduleTranslation cfg llvmCtx simCtx globSt globCtx bloc
             { runBlockBlock = block,
               runBlockGlobalContext = globCtx,
               runBlockLLVMContext = llvmCtx,
+              runBlockSize = Ctx.size (Core.blockInputs block),
               runBlockSym = sym
             }
     let fnRet = Core.cfgReturnType cfg

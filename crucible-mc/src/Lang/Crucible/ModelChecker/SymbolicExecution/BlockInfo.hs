@@ -43,5 +43,7 @@ data BlockInfo sym (globCtx :: Ctx CrucibleType) (block :: Ctx CrucibleType) = B
     -- | assumptions that hold at the **end** of the block
     blockInfoAssumptions :: [What4.Pred sym],
     -- | obligations pending at the **end** of the block
-    blockInfoObligations :: [What4.Pred sym]
+    blockInfoObligations :: [What4.Pred sym],
+    -- | retains the size of the original block
+    blockInfoSize :: Ctx.Size block
   }

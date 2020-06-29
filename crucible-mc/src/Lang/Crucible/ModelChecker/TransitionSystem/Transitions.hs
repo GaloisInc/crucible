@@ -47,10 +47,13 @@ import qualified What4.Interface as What4
 import Prelude hiding (init)
 
 data TransitionSystemReader sym blocks globCtx init = TransitionSystemReader
-  { -- | @tsBlockSizes@ retains the size of every block, so that we can
-    -- adjust indices scoping over just the global context into indices
-    -- scoping over the aggregate @StateCtx@
-    tsBlockSizes :: Ctx.Assignment Ctx.Size blocks,
+  { -- | @tsBlocks@ is used in two ways:
+    -- 1. to make outgoing transitions into a given block, we want to use the
+    -- target block's assumptions as predicates, therefore, we need information
+    -- about other blocks than the current one,
+    -- 2. we need the size of this assignment to adjust indices in the compound
+    -- context we build.
+    tsBlocks :: Ctx.Assignment (BlockInfo sym globCtx) blocks,
     -- | @tsInitSize@ retains the size of the initial data, as we don't
     -- retain any other assignment we could retrieve it from
     tsInitSize :: Ctx.Size init,
@@ -124,7 +127,33 @@ nextArgsPred blockID rm =
           (regMap rm)
     liftIO $ What4.andAllOf sym L.folded nextArgsPreds
 
+-- | @findBlockAssumptions@ retrieves the assumptions of the target block.
+findBlockAssumptions ::
+  Backend.IsSymInterface sym =>
+  MonadIO m =>
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
+  sym ->
+  -- because we retrieve this block from an existential package, we have lost
+  -- the equality @blocks ~ blocks'@
+  Core.BlockID blocks' args ->
+  m (What4.Pred sym)
+findBlockAssumptions sym blockID = do
+  allBlockAssumptions <- toListFC (\bi -> (blockInfoID bi, blockInfoAssumptions bi)) <$> asks tsBlocks
+  case lookup (natOfBlockID blockID) allBlockAssumptions of
+    Nothing -> error $ "findBlockAssumptions: could not find block " ++ show blockID ++ ". Please report."
+    Just assumptions -> liftIO $ What4.andAllOf sym L.folded assumptions
+
+-- | @makeBlockEndPred@ creates the predicated that dictates what happens at the
+-- end of the block, based on the @BlockEnd@ information.  This can be one of
+-- ending the program, jumping to a block, branching between two blocks, or
+-- aborting.
+--
+-- Note that there is a complication here: blocks have been so far analyzed in
+-- isolation, but in order to allow transition into some block, we must satisfy
+-- its assumptions.  So @makeBlockEndPred@ must find what are the assumptions
+-- for the block it claims it can transition to.
 makeBlockEndPred ::
+  forall sym m blocks globCtx init.
   Backend.IsSymInterface sym =>
   MonadIO m =>
   MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
@@ -140,37 +169,45 @@ makeBlockEndPred
     ) =
     do
       namespacer <- asks tsNamespacer
-      nextBlock <- asks tsNextBlock
-      nextHasReturned <- asks tsNextHasReturned
       state <- asks tsCurrentState
       sym <- asks tsSym
-      let nextBlockIs b = What4.natEq sym nextBlock =<< What4.natLit sym b
-      trueBlockArgs <- nextArgsPred trueTarget trueArgs
-      falseBlockArgs <- nextArgsPred falseTarget falseArgs
-      liftIO $ do
-        doesNotReturn <- What4.notPred sym nextHasReturned
-        truePred <- runNamespacer namespacer state rawTruePred
-        falsePred <- runNamespacer namespacer state =<< What4.notPred sym truePred
-        nextBlockIsTrueBlock <- nextBlockIs (natOfBlockID trueTarget)
-        trueBlockConclusion <- What4.andPred sym nextBlockIsTrueBlock trueBlockArgs
-        trueBlock <- What4.impliesPred sym truePred trueBlockConclusion
-        nextBlockIsFalseBlock <- nextBlockIs (natOfBlockID falseTarget)
-        falseBlockConclusion <- What4.andPred sym nextBlockIsFalseBlock falseBlockArgs
-        falseBlock <- What4.impliesPred sym falsePred falseBlockConclusion
-        What4.andAllOf sym L.folded [doesNotReturn, trueBlock, falseBlock]
+      truePred <- liftIO $ runNamespacer namespacer state rawTruePred
+      falsePred <- liftIO $ What4.notPred sym truePred
+      trueBlock <- makeTargetPred trueTarget trueArgs truePred
+      falseBlock <- makeTargetPred falseTarget falseArgs falsePred
+      liftIO $ What4.andAllOf sym L.folded [trueBlock, falseBlock]
 makeBlockEndPred (BlockEndJumps (Core.Some (ResolvedJump targetBlock args))) =
   do
-    nextBlock <- asks tsNextBlock
-    nextHasReturned <- asks tsNextHasReturned
     sym <- asks tsSym
-    let nextBlockIs b = What4.natEq sym nextBlock =<< What4.natLit sym b
-    nextBlockArgs <- nextArgsPred targetBlock args
-    liftIO $ do
-      doesNotReturn <- What4.notPred sym nextHasReturned
-      nextBlockEq <- nextBlockIs (natOfBlockID targetBlock)
-      What4.andAllOf sym L.folded [doesNotReturn, nextBlockEq, nextBlockArgs]
+    makeTargetPred targetBlock args (What4.truePred sym)
 makeBlockEndPred (BlockEndReturns (Core.Some _regEntry)) =
   asks tsNextHasReturned -- FIXME: set return value?
+
+makeTargetPred ::
+  Backend.IsSymInterface sym =>
+  MonadIO m =>
+  MonadReader (TransitionSystemReader sym blocks globCtx init) m =>
+  Core.BlockID blocks' tp ->
+  RegMap sym block ->
+  What4.Pred sym ->
+  m (What4.Pred sym)
+makeTargetPred targetBlock args blockCondition = do
+  namespacer <- asks tsNamespacer
+  next <- asks tsNextState
+  nextBlock <- asks tsNextBlock
+  nextHasReturned <- asks tsNextHasReturned
+  sym <- asks tsSym
+  let nextBlockIs b = What4.natEq sym nextBlock =<< What4.natLit sym b
+  nextBlockArgs <- nextArgsPred targetBlock args
+  rawBlockAssumptions <- findBlockAssumptions sym targetBlock
+  -- NOTE: because we wish for the predicate to hold for entering the next
+  -- state, we require that it holds of the "next" state
+  nextBlockAssumptions <- liftIO $ runNamespacer namespacer next rawBlockAssumptions
+  liftIO $ do
+    doesNotReturn <- What4.notPred sym nextHasReturned
+    nextBlockEq <- nextBlockIs (natOfBlockID targetBlock)
+    blockConclusion <- What4.andAllOf sym L.folded [doesNotReturn, nextBlockEq, nextBlockArgs, nextBlockAssumptions]
+    What4.impliesPred sym blockCondition blockConclusion
 
 makeGlobalPred ::
   forall sym m blocks globCtx init tp.
@@ -189,7 +226,7 @@ makeGlobalPred ndx regEntry =
     sym <- asks tsSym
     ndx' <-
       globalIndexToStateIndex
-        <$> asks tsBlockSizes
+        <$> (fmapFC blockInfoSize <$> asks tsBlocks)
         <*> (Ctx.size <$> asks tsGlobalInfos)
         <*> asks tsInitSize
         <*> pure ndx
@@ -212,6 +249,17 @@ makeGlobalsPred globalValues =
     sym <- asks tsSym
     liftIO $ What4.andAllOf sym L.folded globalPreds
 
+-- | @stateTransitionForBlock@ computes the state transition predicate for a
+-- given block.  It returns a supposedly fresh name for it, and the predicate,
+-- which is made of:
+--
+-- * a predicate asserting the program has not terminated
+--
+-- * a predicate asserting the current block is this one
+--
+-- * predicates about the possible next block(s)
+--
+-- * predicates freezing the global variables across the block transition
 stateTransitionForBlock ::
   Backend.IsSymInterface sym =>
   MonadIO m =>
@@ -262,14 +310,15 @@ makeStateTransition ::
   sym ->
   Namespacer sym stateFields ->
   Ctx.Assignment BaseTypeRepr stateFields ->
-  Ctx.Assignment Ctx.Size blocks ->
+  Ctx.Assignment (BlockInfo sym globCtx) blocks ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
   Ctx.Size init ->
   What4.SymStruct sym stateFields ->
   What4.SymStruct sym stateFields ->
   BlockInfo sym globCtx block ->
   IO (What4.SolverSymbol, What4.Pred sym)
-makeStateTransition sym namespacer stateFieldsRepr blockSizes globInfos initSize state next blockInfo = do
+makeStateTransition sym namespacer stateFieldsRepr blocks globInfos initSize state next blockInfo = do
+  let blockSizes = fmapFC blockInfoSize blocks
   let currentBlockIndex = makeCurrentBlockIndex blockSizes (Ctx.size globInfos) initSize
   let hasReturnedIndex = makeHasReturnedIndex blockSizes (Ctx.size globInfos) initSize
   stateBlock <- What4.structField sym state currentBlockIndex
@@ -278,7 +327,7 @@ makeStateTransition sym namespacer stateFieldsRepr blockSizes globInfos initSize
   nextHasReturned <- What4.structField sym next hasReturnedIndex
   let reader =
         TransitionSystemReader
-          { tsBlockSizes = blockSizes,
+          { tsBlocks = blocks,
             tsInitSize = initSize,
             tsCurrentBlock = stateBlock,
             tsCurrentHasReturned = stateHasReturned,
@@ -301,12 +350,11 @@ makeStateTransitions ::
   sym ->
   Namespacer sym stateFields ->
   Ctx.Assignment BaseTypeRepr stateFields ->
-  Ctx.Assignment Ctx.Size blocks ->
   Ctx.Assignment (BlockInfo sym globCtx) blocks ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
   Ctx.Size init ->
   What4.SymStruct sym stateFields ->
   What4.SymStruct sym stateFields ->
   IO [(What4.SolverSymbol, What4.Pred sym)]
-makeStateTransitions sym namespacer stateFieldsRepr blockSizes blockInfos globInfos initSize state next =
-  sequence $ toListFC (makeStateTransition sym namespacer stateFieldsRepr blockSizes globInfos initSize state next) blockInfos
+makeStateTransitions sym namespacer stateFieldsRepr blockInfos globInfos initSize state next =
+  sequence $ toListFC (makeStateTransition sym namespacer stateFieldsRepr blockInfos globInfos initSize state next) blockInfos
