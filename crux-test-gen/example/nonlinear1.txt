@@ -1,0 +1,7 @@
+start ::= <<x[A,A]>> <<x[A,B]>>
+
+for[T] x[T, T] ::= same[<<y[T]>>]
+for[T, U] x[T, U] ::= diff[<<y[T]>>, <<y[U]>>]
+
+y[A] ::= A
+y[B] ::= B
