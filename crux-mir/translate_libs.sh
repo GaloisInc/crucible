@@ -48,8 +48,14 @@ translate lib/cfg-if/src/lib.rs --crate-name cfg_if --cfg 'feature="rustc-dep-of
 translate_2015 lib/libc/src/lib.rs --crate-name libc \
     --cfg 'feature="rustc-dep-of-std"' --cfg libc_align \
     --extern rustc_std_workspace_core=rlibs/libcore.rlib
+
+if [ "$(uname)" = "Linux" ]; then
+    # Under cargo, this flag would be set by libunwind's `build.rs` file.
+    libunwind_extra_flags=-lgcc_s
+fi
 translate lib/libunwind/lib.rs --crate-name unwind \
-    --extern cfg_if --extern libc
+    --extern cfg_if --extern libc $libunwind_extra_flags
+
 translate lib/libpanic_abort/lib.rs --crate-name panic_abort -C panic=abort \
     --extern libc
 translate lib/libpanic_unwind/lib.rs --crate-name panic_unwind -C panic=unwind \
