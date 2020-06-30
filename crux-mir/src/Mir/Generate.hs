@@ -30,6 +30,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Map as M
 import qualified Data.Text as T
 
+import System.Environment
 import System.FilePath
 import System.IO
 import qualified System.Process as Proc
@@ -76,13 +77,17 @@ needsRebuild output inputs = do
 mirJsonOutFile :: FilePath -> FilePath
 mirJsonOutFile rustFile = rustFile -<.> "mir"
 
+getRlibsDir :: IO FilePath
+getRlibsDir = maybe "rlibs" id <$> lookupEnv "CRUX_RUST_LIBRARY_PATH"
+
 compileMirJson :: Bool -> Bool -> FilePath -> IO ()
 compileMirJson keepRlib quiet rustFile = do
     let outFile = rustFile -<.> "bin"
 
+    rlibsDir <- getRlibsDir
     -- TODO: don't hardcode -L library path
     let cp = Proc.proc "mir-json"
-            [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"
+            [rustFile, "-L", rlibsDir, "--crate-type=rlib", "--edition=2018"
             , "--cfg", "crux", "--cfg", "crux_top_level"
             , "-o", outFile]
     let cp' = if not quiet then cp else
@@ -133,20 +138,20 @@ maybeLinkJson jsonFiles cacheFile = do
 
 
 libJsonFiles =
-    [ "rlibs/libcore.mir"
-    , "rlibs/libcompiler_builtins.mir"
-    , "rlibs/libint512.mir"
-    , "rlibs/libcrucible.mir"
+    [ "libcore.mir"
+    , "libcompiler_builtins.mir"
+    , "libint512.mir"
+    , "libcrucible.mir"
 
-    , "rlibs/liballoc.mir"
-    , "rlibs/libstd.mir"
-    , "rlibs/libunwind.mir"
-    , "rlibs/libcfg_if.mir"
-    , "rlibs/libhashbrown.mir"
-    , "rlibs/liblibc.mir"
+    , "liballoc.mir"
+    , "libstd.mir"
+    , "libunwind.mir"
+    , "libcfg_if.mir"
+    , "libhashbrown.mir"
+    , "liblibc.mir"
 
-    , "rlibs/libbyteorder.mir"
-    , "rlibs/libbytes.mir"
+    , "libbyteorder.mir"
+    , "libbytes.mir"
     ]
 
 
@@ -164,7 +169,9 @@ generateMIR inputFile keepRlib
         traceM $ "Generating " ++ stem <.> "mir"
     let rustFile = inputFile
     maybeCompileMirJson keepRlib (?debug <= 2) rustFile
-    b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonFiles) (linkOutFile rustFile)
+    rlibsDir <- getRlibsDir
+    let libJsonPaths = map (rlibsDir </>) libJsonFiles
+    b <- maybeLinkJson (mirJsonOutFile rustFile : libJsonPaths) (linkOutFile rustFile)
     parseMir (linkOutFile rustFile) b
   | ext == ".json" = do
     b <- B.readFile inputFile
