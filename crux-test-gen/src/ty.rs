@@ -73,6 +73,8 @@ impl CtorTy {
 }
 
 
+/// `Term` is effectively `CtorTy`, but stored unnormalized to avoid allocating.  The normalize
+/// value is the result of substituting `.0.subst` into `.0.val`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Term(SubstAnd<Rc<CtorTy>>);
 
@@ -265,6 +267,10 @@ impl UnifyState {
         }
 
         self.t.unify_var_var(v1, v2)
+    }
+
+    pub fn resolve_ctor(&mut self, v: VarId) -> Option<Rc<str>> {
+        self.t.probe_value(v).map(|Term(x)| x.val.ctor.clone())
     }
 }
 

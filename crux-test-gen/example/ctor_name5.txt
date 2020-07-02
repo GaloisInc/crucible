@@ -1,0 +1,4 @@
+start ::= <<test>>
+
+// Test output for an unconstrained type variable
+for[T] test ::= <<ctor_name[T]>>

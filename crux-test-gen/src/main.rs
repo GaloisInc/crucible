@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::process;
@@ -21,6 +22,14 @@ pub struct NonterminalRef {
     args: Box<[Ty]>,
 }
 
+struct ProductionHandler(Box<dyn Fn(&mut ExpState, &mut PartialExpansion) -> bool>);
+
+impl fmt::Debug for ProductionHandler {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "ProductionHandler(..)")
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Production {
     /// The generic type parameters of this production, declared with `for[T, U, ...]`.
@@ -31,6 +40,7 @@ pub struct Production {
     args: Vec<Ty>,
     chunks: Vec<Chunk>,
     nts: Vec<NonterminalRef>,
+    handler: Option<ProductionHandler>,
 }
 
 #[derive(Debug, Default)]
@@ -55,12 +65,15 @@ pub enum Chunk {
     Indent(isize),
     /// Expand the nonterminal at the given index.
     Nt(usize),
+
+    Special(usize),
 }
 
 #[derive(Clone)]
 struct Expansion {
     production: ProductionId,
     subexpansions: Box<[Expansion]>,
+    specials: Box<[Rc<dyn Fn(&mut ty::UnifyState) -> String>]>,
 }
 
 #[derive(Clone)]
@@ -71,6 +84,7 @@ struct PartialExpansion {
     subst: Subst,
     num_nts: usize,
     subexpansions: Vec<Expansion>,
+    specials: Vec<Rc<dyn Fn(&mut ty::UnifyState) -> String>>,
     // ...
 }
 
@@ -93,7 +107,7 @@ struct Continuation {
 #[derive(Clone)]
 enum ExpResult {
     Progress,
-    Done(Expansion),
+    Done(Expansion, UnifyState),
     Abort,
 }
 
@@ -113,6 +127,7 @@ impl PartialExpansion {
             subst,
             num_nts,
             subexpansions,
+            specials: Vec::new(),
         }
     }
 
@@ -125,6 +140,7 @@ impl PartialExpansion {
         Expansion {
             production: self.production,
             subexpansions: self.subexpansions.into_boxed_slice(),
+            specials: self.specials.into_boxed_slice(),
         }
     }
 
@@ -164,9 +180,14 @@ impl ExpState {
             assert!(cx.productions[production].args.len() == 0);
         }
 
-        // TODO: pre-expansion actions
+        if let Some(ref handler) = cx.productions[production].handler {
+            let ok = (*handler.0)(self, &mut pe);
+            if !ok {
+                return false;
+            }
+        }
+
         if pe.is_finished() {
-            // TODO: post-expansion actions
             self.cur_partial_mut().subexpansions.push(pe.into_expansion());
         } else {
             self.exp.push(pe);
@@ -195,7 +216,7 @@ impl ExpState {
                     cur.subexpansions.push(prev);
                 } else {
                     // We popped the last frame.  Expansion is complete.
-                    return (ExpResult::Done(prev), continuations);
+                    return (ExpResult::Done(prev, self.unify), continuations);
                 }
             }
 
@@ -254,13 +275,16 @@ impl Continuation {
     }
 }
 
-fn expand_next(cx: &Context, continuations: &mut Vec<Continuation>) -> Option<Expansion> {
+fn expand_next(
+    cx: &Context,
+    continuations: &mut Vec<Continuation>,
+) -> Option<(Expansion, UnifyState)> {
     while let Some(cont) = continuations.last_mut() {
         if let Some(state) = cont.resume(cx) {
             let (result, new_continuations) = state.expand(cx);
             continuations.extend(new_continuations);
             match result {
-                ExpResult::Done(exp) => return Some(exp),
+                ExpResult::Done(exp, unify) => return Some((exp, unify)),
                 ExpResult::Abort => {},
                 ExpResult::Progress => unimplemented!(),
             }
@@ -272,7 +296,7 @@ fn expand_next(cx: &Context, continuations: &mut Vec<Continuation>) -> Option<Ex
 }
 
 
-fn render_expansion(cx: &Context, exp: &Expansion) -> String {
+fn render_expansion(cx: &Context, unify: &mut UnifyState, exp: &Expansion) -> String {
     let mut stack: Vec<(&Chunk, &Expansion)> = Vec::new();
     for chunk in cx.productions[exp.production].chunks.iter().rev() {
         stack.push((chunk, exp));
@@ -311,6 +335,9 @@ fn render_expansion(cx: &Context, exp: &Expansion) -> String {
                     stack.push((subchunk, subexp));
                 }
             },
+            Chunk::Special(idx) => {
+                output.push_str(&(exp.specials[idx])(unify));
+            },
         }
     }
 
@@ -332,6 +359,26 @@ fn add_start_production(gb: &mut GrammarBuilder) {
     assert_eq!(start_prod_id, 0);
 }
 
+fn add_builtin_ctor_name(gb: &mut GrammarBuilder) {
+    let (lhs, vars) = gb.mk_lhs_with_args("ctor_name", 1);
+    let var = vars[0];
+    let rhs = ProductionRhs {
+        chunks: vec![Chunk::Special(0)],
+        nts: vec![],
+    };
+    gb.add_prod_with_handler(lhs, rhs, move |_, partial| {
+        let var = partial.subst.subst(var);
+        partial.specials.push(Rc::new(move |unify| {
+            if let Some(name) = unify.resolve_ctor(var) {
+                name.to_string()
+            } else {
+                format!("[unconstrained {:?}]", var)
+            }
+        }));
+        true
+    });
+}
+
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
@@ -347,13 +394,14 @@ fn main() {
 
     let mut gb = GrammarBuilder::default();
     add_start_production(&mut gb);
+    add_builtin_ctor_name(&mut gb);
     gb.parse_grammar(&lines);
     let cx = gb.finish();
 
     eprintln!("{:#?}", cx);
 
     let mut conts = vec![Continuation::new(0)];
-    while let Some(exp) = expand_next(&cx, &mut conts) {
-        println!("{}", render_expansion(&cx, &exp));
+    while let Some((exp, mut unify)) = expand_next(&cx, &mut conts) {
+        println!("{}", render_expansion(&cx, &mut unify, &exp));
     }
 }

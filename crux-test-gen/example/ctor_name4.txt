@@ -1,0 +1,12 @@
+start ::= <<dummy[A]>> <<test>>
+
+// Define an extra unification variable first, so that `test`'s variable `T`
+// doesn't get global ID 0.  This will detect if `ctor_name` is failing to
+// convert local vars to global ones.
+for[T] dummy[T] ::= dummy
+
+for[T] test ::= <<one[T]>>, <<two[T]>>
+
+for[T] one[T] ::= resolved <<ctor_name[T]>>
+two[X] ::= chose X
+two[Y] ::= chose Y
