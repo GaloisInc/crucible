@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::process;
 use std::rc::Rc;
+use std::str::FromStr;
 
 use crate::builder::{GrammarBuilder, ProductionLhs, ProductionRhs};
 use crate::ty::{Ty, Subst, UnifyState, VarId};
@@ -16,7 +18,7 @@ mod ty;
 type NonterminalId = usize;
 type ProductionId = usize;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NonterminalRef {
     id: NonterminalId,
     args: Box<[Ty]>,
@@ -56,7 +58,7 @@ pub struct Context {
     nonterminals: Vec<Nonterminal>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Chunk {
     /// A chunk of literal text.  Must not contain newlines.  The `bool`
     /// indicates whether to insert a newline after this text.
@@ -85,14 +87,13 @@ struct PartialExpansion {
     num_nts: usize,
     subexpansions: Vec<Expansion>,
     specials: Vec<Rc<dyn Fn(&mut ty::UnifyState) -> String>>,
-    // ...
 }
 
 #[derive(Clone)]
 struct ExpState {
     exp: Vec<PartialExpansion>,
     unify: ty::UnifyState,
-    // scope: ...,
+    budget: Budget,
 }
 
 #[derive(Clone)]
@@ -109,6 +110,42 @@ enum ExpResult {
     Progress,
     Done(Expansion, UnifyState),
     Abort,
+}
+
+
+#[derive(Clone, Default, Debug)]
+pub struct Budget(HashMap<String, usize>);
+
+impl Budget {
+    pub fn set(&mut self, key: &str, amount: usize) {
+        self.0.insert(key.to_owned(), amount);
+    }
+
+    pub fn get(&self, key: &str) -> usize {
+        self.0.get(key).cloned().unwrap_or(0)
+    }
+
+    pub fn add(&mut self, key: &str, amount: usize) {
+        *self.0.entry(key.to_owned()).or_insert(0) += amount;
+    }
+
+    pub fn take(&mut self, key: &str, amount: usize) -> bool {
+        match self.0.get_mut(key) {
+            Some(x) => {
+                if *x >= amount {
+                    *x -= amount;
+                    true
+                } else {
+                    false
+                }
+            },
+            None => {
+                // Taking 0 is always okay.  Taking any positive amount from an uninitialized
+                // budget will fails.
+                amount == 0
+            },
+        }
+    }
 }
 
 
@@ -155,6 +192,7 @@ impl ExpState {
         ExpState {
             exp: Vec::new(),
             unify: UnifyState::new(),
+            budget: Budget::default(),
         }
     }
 
@@ -379,6 +417,88 @@ fn add_builtin_ctor_name(gb: &mut GrammarBuilder) {
     });
 }
 
+fn parse_budget_args(
+    s: &mut ExpState,
+    partial: &PartialExpansion,
+    v_name: VarId,
+    v_amount: VarId,
+) -> Result<(Rc<str>, usize), String> {
+    let name = match s.unify.resolve_ctor(partial.subst.subst(v_name)) {
+        Some(x) => x,
+        None => {
+            return Err(format!("name is unconstrained"));
+        },
+    };
+    let amount = match s.unify.resolve_ctor(partial.subst.subst(v_amount)) {
+        Some(x) => match usize::from_str(&x) {
+            Ok(x) => x,
+            Err(e) => {
+                return Err(format!("amount is not an integer ({:?})", x));
+            },
+        },
+        None => {
+            return Err(format!("amount is unconstrained"));
+        },
+    };
+    Ok((name, amount))
+}
+
+fn add_builtin_budget(gb: &mut GrammarBuilder) {
+    // All budget nonterminals expand to the empty string.
+    let rhs = ProductionRhs { chunks: vec![], nts: vec![] };
+
+    // set_budget[K,V]: sets the current budget for `K` to `V`; expands to the empty string.
+    //
+    // In all budget productions, if the constructor of the key or the value type is not yet known,
+    // then expansion fails.
+    let (lhs, vars) = gb.mk_lhs_with_args("set_budget", 2);
+    let v_name = vars[0];
+    let v_amount = vars[1];
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial| {
+        let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("warning: set_budget: {}", e);
+                return false;
+            },
+        };
+        s.budget.set(&name, amount);
+        true
+    });
+
+    // add_budget[K,V]: adds `V` to the current budget for `K`; expands to the empty string.
+    let (lhs, vars) = gb.mk_lhs_with_args("add_budget", 2);
+    let v_name = vars[0];
+    let v_amount = vars[1];
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial| {
+        let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("warning: add_budget: {}", e);
+                return false;
+            },
+        };
+        s.budget.add(&name, amount);
+        true
+    });
+
+    // take_budget[K,V]: subtracts `V` from the current budget for `K`, and expands to the empty
+    // string.  If the current budget is less than `V`, it instead fails to expand.
+    let (lhs, vars) = gb.mk_lhs_with_args("take_budget", 2);
+    let v_name = vars[0];
+    let v_amount = vars[1];
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial| {
+        let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("warning: take_budget: {}", e);
+                return false;
+            },
+        };
+        s.budget.take(&name, amount)
+    });
+}
+
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
@@ -395,10 +515,9 @@ fn main() {
     let mut gb = GrammarBuilder::default();
     add_start_production(&mut gb);
     add_builtin_ctor_name(&mut gb);
+    add_builtin_budget(&mut gb);
     gb.parse_grammar(&lines);
     let cx = gb.finish();
-
-    eprintln!("{:#?}", cx);
 
     let mut conts = vec![Continuation::new(0)];
     while let Some((exp, mut unify)) = expand_next(&cx, &mut conts) {

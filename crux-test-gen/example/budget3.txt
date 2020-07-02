@@ -1,0 +1,7 @@
+start ::= <<set_budget[A,2]>><<set_budget[B,2]>><<x>><<x>><<x>>
+
+// This fails, since `T` is still a variable at the time of `take_budget`.
+for[T] x ::= <<take_budget[T,1]>><<choose[T]>>
+
+choose[A] ::= A
+choose[B] ::= B

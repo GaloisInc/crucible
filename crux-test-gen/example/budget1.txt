@@ -1,0 +1,5 @@
+// Three characters, containing at most two As and at most two Bs
+start ::= <<set_budget[A,2]>><<set_budget[B,2]>><<x>><<x>><<x>>
+
+x ::= <<take_budget[A,1]>>A
+x ::= <<take_budget[B,1]>>B

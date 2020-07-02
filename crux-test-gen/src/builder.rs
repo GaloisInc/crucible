@@ -19,12 +19,13 @@ pub struct GrammarBuilder {
     text_interner: HashSet<Rc<str>>,
 }
 
+#[derive(Clone)]
 pub struct ProductionLhs {
     pub vars: Vec<Rc<str>>,
     pub nt: NonterminalRef,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ProductionRhs {
     pub chunks: Vec<Chunk>,
     pub nts: Vec<NonterminalRef>,

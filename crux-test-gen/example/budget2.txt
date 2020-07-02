@@ -1,0 +1,8 @@
+start ::= <<set_budget[A,2]>><<set_budget[B,2]>><<x>><<x>><<x>>
+
+// Pass a type variable as the `name` argument of `take_budget`.  This works as
+// long as the constructor of `T` is known before `take_budget` is expanded.
+for[T] x ::= <<choose[T]>><<take_budget[T,1]>>
+
+choose[A] ::= A
+choose[B] ::= B
