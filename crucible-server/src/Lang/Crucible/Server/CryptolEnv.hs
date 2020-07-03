@@ -542,7 +542,7 @@ typeNoUser t =
     T.TCon tc ts   -> T.TCon tc (map typeNoUser ts)
     T.TVar {}      -> t
     T.TUser _ _ ty -> typeNoUser ty
-    T.TRec fields  -> T.TRec [ (n, typeNoUser ty) | (n, ty) <- fields ]
+    T.TRec fields  -> T.TRec $ typeNoUser <$> fields
 
 schemaNoUser :: T.Schema -> T.Schema
 schemaNoUser (T.Forall params props ty) = T.Forall params props (typeNoUser ty)
