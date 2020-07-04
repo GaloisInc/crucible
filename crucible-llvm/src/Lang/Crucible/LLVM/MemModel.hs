@@ -154,6 +154,7 @@ module Lang.Crucible.LLVM.MemModel
   , llvmStatementExec
   , G.pushStackFrameMem
   , G.popStackFrameMem
+  , G.asMemAllocationArrayStore
   , SomeFnHandle(..)
   , G.SomeAlloc(..)
   , G.possibleAllocs
