@@ -13,6 +13,8 @@ import           Config.Schema
 import           Control.Applicative
 import           Control.Monad
 import qualified Data.Attoparsec.Text as Atto
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
@@ -84,6 +86,7 @@ data ComputedVerdict
   = Verified
   | Falsified
   | Unknown
+ deriving (Show,Eq,Ord)
 
 data BenchmarkSet =
   BenchmarkSet
@@ -92,7 +95,7 @@ data BenchmarkSet =
   , benchmarkArchWidth   :: Maybe Int
   , benchmarkTasks :: [VerificationTask]
   }
- deriving Show
+ deriving (Show,Eq,Ord)
 
 data SVCompProperty
   = CheckNoError Text
@@ -104,7 +107,7 @@ data SVCompProperty
   | CheckNoOverflow
   | CheckTerminates
   | CoverageFQL Text
- deriving Show
+ deriving (Show,Eq,Ord)
 
 data VerificationTask =
   VerificationTask
@@ -112,7 +115,7 @@ data VerificationTask =
   , verificationInputFiles :: [FilePath]
   , verificationProperties :: [(SVCompProperty, Maybe Bool)]
   }
- deriving Show
+ deriving (Show,Eq,Ord)
 
 checkParse :: Atto.Parser SVCompProperty
 checkParse = Atto.skipSpace *> Atto.string "init(main())," *> Atto.skipSpace *> ltl
@@ -263,3 +266,18 @@ loadBenchmarkSet fp =
             , benchmarkArchWidth = arch
             , benchmarkTasks = tasks
             }
+
+
+type TaskMap = Map (VerificationTask, Maybe Int) [BenchmarkSet]
+
+-- | There is significant overlap between the various verification tasks found in
+--   different benchmark sets in the SV-COMP repository.  This operation collects
+--   together all the potentially duplicated tasks found in a collection of benchmark sets
+--   and places them in a map, ensuring there is at most one reference to each one.
+--   The task and it's assumed architecture width are the keys of the map;
+--   the benchmark set(s) that referenced a given task are stored in the elements the map.
+deduplicateTasks :: [BenchmarkSet] -> TaskMap
+deduplicateTasks = Map.unionsWith (++) . map f
+  where
+  f bs = Map.fromList
+           [ ((t, benchmarkArchWidth bs), [bs]) | t <- benchmarkTasks bs ]

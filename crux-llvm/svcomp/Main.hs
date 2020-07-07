@@ -16,7 +16,7 @@ import qualified Data.ByteString.Lazy as LBS
 import GHC.Generics (Generic)
 import Data.List
   ( isSuffixOf )
-import qualified Data.Text as Text
+import qualified Data.Map as Map
 import Data.Time.Clock
   ( getCurrentTime, diffUTCTime, NominalDiffTime )
 import System.Exit
@@ -53,29 +53,41 @@ main :: IO ()
 main = do
   let opts = Crux.cfgJoin llvmCruxConfig svcompOptions
   Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" "0.1" opts $ \(co0,(lo0,svOpts)) ->
-    do (cruxOpts, llvmOpts) <- processLLVMOptions (co0,lo0)
+    do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        bss <- loadSVCOMPBenchmarks cruxOpts
-       genSVCOMPBitCode cruxOpts llvmOpts svOpts bss
-       mapM_ (evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts) bss
+       let taskMap = deduplicateTasks bss
+       genSVCOMPBitCode cruxOpts llvmOpts svOpts taskMap
+       evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts taskMap
 
 
-genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> [BenchmarkSet] -> IO ()
-genSVCOMPBitCode cruxOpts llvmOpts svOpts = mapM_ processBenchmark
+genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap -> IO ()
+genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = mapM_ goTask (zip [0::Int ..] (Map.toList tm))
  where
- processBenchmark bs =
-   do let nm = benchmarkName bs
-      say "SVCOMP" $ unwords ["Preparing", show nm]
-      tgt <- getTarget bs
-      mapM_ (processVerificationTask tgt (Text.unpack nm)) (zip [0::Int ..] (benchmarkTasks bs))
+ goTask (n, ((task, tgtWidth), bss)) =
+   do tgt <- getTarget tgtWidth bss
+      processVerificationTask tgt n task
 
- processVerificationTask _tgt _benchName (_num,task)
+ getTarget tgtWidth bss =
+   case tgtWidth of
+     Just 32 -> return "i386-unknown-linux-elf"
+     Just 64 -> return "x86_64-unknown-linux-elf"
+     Just x ->
+       do sayFail "SVCOMP" $
+             "Unexpected architecture width (" ++ show x ++ ") for benchmark(s) " ++ show (map benchmarkName bss)
+          exitFailure
+     Nothing ->
+       do sayFail "SVCOMP" $
+             "Missing architecture width for benchmark(s) " ++ show (map benchmarkName bss)
+          exitFailure
+
+ processVerificationTask _tgt _num task
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
    = return ()
 
- processVerificationTask tgt benchName (num,task) =
+ processVerificationTask tgt num task =
    do let files = verificationInputFiles task
           inputBase = takeDirectory (verificationSourceFile task)
-          outputPath  = svTaskDirectory (Crux.outDir cruxOpts </> benchName) num task
+          outputPath  = svTaskDirectory (Crux.outDir cruxOpts) num task
           finalBCFile = outputPath </> "combined.bc"
           srcBCNames = [ (inputBase </> src, outputPath </> replaceExtension src ".bc") | src <- files ]
           incs src = [ inputBase </> takeDirectory src
@@ -98,19 +110,6 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts = mapM_ processBenchmark
                    runClang llvmOpts (params (src, srcBC))
            llvmLink llvmOpts (map snd srcBCNames) finalBCFile
 
- getTarget bs =
-   case benchmarkArchWidth bs of
-     Just 32 -> return "i386-unknown-linux-elf"
-     Just 64 -> return "x86_64-unknown-linux-elf"
-     Just x ->
-       do sayFail "SVCOMP" $
-             "Unexpected architecture width (" ++ show x ++ ") for benchmark " ++ show (benchmarkName bs)
-          exitFailure
-     Nothing ->
-       do sayFail "SVCOMP" $
-             "Missing architecture width for benchmark " ++ show (benchmarkName bs)
-          exitFailure
-
 svTaskDirectory :: FilePath -> Int -> VerificationTask -> FilePath
 svTaskDirectory base num task = base </> path
  where
@@ -132,11 +131,11 @@ hGetContentsStrict hdl =
   do s <- hGetContents hdl
      length s `seq` return s
 
-evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> BenchmarkSet -> IO ()
-evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts bs =
-   bracket (openFile (svcompOutputFile svOpts) WriteMode) hClose $ \jsonOutHdl ->
-     do mapM_ (evaluateVerificationTask jsonOutHdl) (zip [0::Int ..] (benchmarkTasks bs))
-        LBS.hPutStr jsonOutHdl "]\n"
+evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap -> IO ()
+evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts tm =
+   bracket (openFile (svcompOutputFile svOpts) WriteMode)
+           (\jsonOutHdl -> LBS.hPutStr jsonOutHdl "]\n" >> hClose jsonOutHdl)
+           (\jsonOutHdl -> mapM_ (evaluateVerificationTask jsonOutHdl) (zip [0::Int ..] (Map.toList tm)))
 
  where
  megabyte = bit 20 :: Integer
@@ -145,22 +144,22 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts bs =
  maybeSetLim res (Just lim) =
    setResourceLimit res (ResourceLimits (ResourceLimit lim) ResourceLimitUnknown)
 
- bsRoot = Crux.outDir cruxOpts </> Text.unpack (benchmarkName bs)
+ root = Crux.outDir cruxOpts
 
- evaluateVerificationTask _ (_num,task)
+ evaluateVerificationTask _ (_num,((task,_arch), _bss))
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
    = sayWarn "SVCOMP" $ unlines
         [ "Skipping:"
         , "  " ++ verificationSourceFile task
         ]
 
- evaluateVerificationTask jsonOutHdl (num, task) =
+ evaluateVerificationTask jsonOutHdl (num, ((task,_arch),_bss)) =
     do (readFd, writeFd) <- createPipe
        (jsonReadFd, jsonWriteFd) <- createPipe
        readHdl <- fdToHandle readFd
        jsonReadHdl <- fdToHandle jsonReadFd
 
-       let taskRoot = svTaskDirectory bsRoot num task
+       let taskRoot = svTaskDirectory root num task
        let sourceFile = verificationSourceFile task
        sayOK "SVCOMP" $ concat
          [ "Evaluating:\n"
@@ -174,7 +173,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts bs =
                    maybeSetLim ResourceTotalMemory ((megabyte *) <$> svcompMemlimit svOpts)
                    writeHdl <- fdToHandle writeFd
                    jsonHdl <- fdToHandle jsonWriteFd
-                   evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task
+                   evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts root num task
                    exitSuccess
 
        ast <- async (getProcessStatus True {- Block -} False {- stopped -} pid)
