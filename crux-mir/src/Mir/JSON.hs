@@ -296,7 +296,7 @@ instance FromJSON Terminator where
                                                                lmt <- v .: "values"
                                                                mapM (mapM convertIntegerText) lmt
                                                     in
-                                                    SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets"
+                                                    SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets" <*> v .: "pos"
                                                   Just (String "Resume") -> pure Resume
                                                   Just (String "Abort") -> pure Abort
                                                   Just (String "Return") -> pure Return

@@ -198,7 +198,7 @@ instance Pretty AdtAg where
 
 instance Pretty Terminator where
     pretty (Goto g) = pretty_fn1 "goto" g <> semi
-    pretty (SwitchInt op ty vs bs) =
+    pretty (SwitchInt op ty vs bs _pos) =
       text "switchint" <+> pretty op <+> colon <> pretty ty <+>
       pretty vs <+> arrow <+> pretty bs
     pretty Return = text "return;"

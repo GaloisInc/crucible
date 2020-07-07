@@ -1321,7 +1321,7 @@ doCall funid cargs cdest retRepr = do
 transTerminator :: HasCallStack => M.Terminator -> C.TypeRepr ret -> MirGenerator h s ret a
 transTerminator (M.Goto bbi) _ =
     jumpToBlock bbi
-transTerminator (M.SwitchInt swop _swty svals stargs) _ | all Maybe.isJust svals = do
+transTerminator (M.SwitchInt swop _swty svals stargs _pos) _ | all Maybe.isJust svals = do
     s <- evalOperand swop
     transSwitch s (Maybe.catMaybes svals) stargs
 transTerminator (M.Return) tr =

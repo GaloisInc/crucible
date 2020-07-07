@@ -328,10 +328,12 @@ data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _
 data Terminator =
         Goto { _gbb :: BasicBlockInfo}
         -- ^ normal control flow
+      -- TODO: the rest of these variants also have positions
       | SwitchInt { _sdiscr    :: Operand,
                     _switch_ty :: Ty,
                     _svalues   :: [Maybe Integer],
-                    _stargets  :: [BasicBlockInfo] }
+                    _stargets  :: [BasicBlockInfo],
+                    _spos      :: Text }
         -- ^ case  
       | Resume
       | Abort
