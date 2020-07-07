@@ -5,7 +5,7 @@ test multi/3a1fbbbh::fail3[0]: FAILED
 failures:
 
 ---- multi/3a1fbbbh::fail1[0] counterexamples ----
-Failure for test/symb_eval/crux/multi.rs:8:22: error: in multi/3a1fbbbh::fail1[0]
+Failure for test/symb_eval/crux/multi.rs:8:22: 8:27: error: in multi/3a1fbbbh::fail1[0]
 attempt to add with overflow
 Failure for ./lib/crucible/lib.rs:34:41: error: in multi/3a1fbbbh::fail1[0]
 MIR assertion at test/symb_eval/crux/multi.rs:8:5:

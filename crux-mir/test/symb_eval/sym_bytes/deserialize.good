@@ -3,7 +3,7 @@ test deserialize/3a1fbbbh::crux_test[0]: returned Symbolic BV, FAILED
 failures:
 
 ---- deserialize/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for test/symb_eval/sym_bytes/deserialize.rs:19:21: error: in deserialize/3a1fbbbh::deserialize[0]
+Failure for test/symb_eval/sym_bytes/deserialize.rs:19:21: 19:44: error: in deserialize/3a1fbbbh::deserialize[0]
 attempt to add with overflow
 
 [Crux] Overall status: Invalid.

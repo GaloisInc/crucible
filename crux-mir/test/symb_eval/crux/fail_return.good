@@ -4,14 +4,14 @@ test fail_return/3a1fbbbh::fail2[0]: returned 123, FAILED
 failures:
 
 ---- fail_return/3a1fbbbh::fail1[0] counterexamples ----
-Failure for test/symb_eval/crux/fail_return.rs:8:22: error: in fail_return/3a1fbbbh::fail1[0]
+Failure for test/symb_eval/crux/fail_return.rs:8:22: 8:27: error: in fail_return/3a1fbbbh::fail1[0]
 attempt to add with overflow
 Failure for ./lib/crucible/lib.rs:34:41: error: in fail_return/3a1fbbbh::fail1[0]
 MIR assertion at test/symb_eval/crux/fail_return.rs:8:5:
 	x + 1 > x
 
 ---- fail_return/3a1fbbbh::fail2[0] counterexamples ----
-Failure for test/symb_eval/crux/fail_return.rs:15:22: error: in fail_return/3a1fbbbh::fail2[0]
+Failure for test/symb_eval/crux/fail_return.rs:15:22: 15:27: error: in fail_return/3a1fbbbh::fail2[0]
 attempt to add with overflow
 Failure for ./lib/crucible/lib.rs:34:41: error: in fail_return/3a1fbbbh::fail2[0]
 MIR assertion at test/symb_eval/crux/fail_return.rs:15:5:

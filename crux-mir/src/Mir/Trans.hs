@@ -106,10 +106,6 @@ import Debug.Trace
 parsePosition :: Text.Text -> PL.Position
 parsePosition posText =
   case Text.split (==':') posText of
-    [fname,line,col,_line2,_col2]
-      | (l,[]):_ <- readDec (Text.unpack line)
-      , (c,[]):_ <- readDec (Text.unpack col)
-      -> PL.SourcePos fname l c
     [fname,line,col]
       | (l,[]):_ <- readDec (Text.unpack line)
       , (c,[]):_ <- readDec (Text.unpack col)

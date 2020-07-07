@@ -6,7 +6,7 @@ failures:
 Failure for ./lib/crucible/lib.rs:44:17: error: in assert/3a1fbbbh::crux_test[0]
 MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
 	100 + 157 == 1
-Failure for test/symb_eval/concretize/assert.rs:11:16: error: in assert/3a1fbbbh::crux_test[0]
+Failure for test/symb_eval/concretize/assert.rs:11:16: 11:17: error: in assert/3a1fbbbh::crux_test[0]
 Unsupported feature: Attempted to mux ANY values of different runtime type StructRepr [BVRepr 8] IntrinsicRepr MirReference [BVRepr 8]
 
 [Crux] Overall status: Invalid.
