@@ -339,7 +339,7 @@ failIfNotEqual :: forall f m a (b :: k).
                => f a -> f b -> String -> m (a :~: b)
 failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
-  | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
+  | otherwise = error $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
 
 setSimulatorVerbosity :: (W4.IsSymExprBuilder sym) => Int -> sym -> IO ()
 setSimulatorVerbosity verbosity sym = do
