@@ -269,9 +269,9 @@ proveGoalsOffline adapter opts ctx (Just gs0) = do
 proveGoalsOnline ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , ast ~ SimError
-  , OnlineSolver s solver
+  , OnlineSolver solver
   , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
-  , OnlineSolver s goalSolver
+  , OnlineSolver goalSolver
   , HasModel personality
   , ?outputConfig :: OutputConfig
   ) =>
