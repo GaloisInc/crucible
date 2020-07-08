@@ -363,7 +363,7 @@ withMem ::
     ( sym ~ Crucible.OnlineBackend scope solver fs
     , Crucible.IsSymInterface sym
     , HasLLVMAnn sym
-    , What4.OnlineSolver scope solver
+    , What4.OnlineSolver solver
     , HasPtrWidth wptr ) =>
     sym -> MemImpl sym -> IO a) ->
   IO a
@@ -382,7 +382,7 @@ assume sym p = do
     Crucible.LabeledPred p $ Crucible.AssumptionReason loc ""
 
 checkSat ::
-  What4.OnlineSolver scope solver =>
+  What4.OnlineSolver solver =>
   Crucible.OnlineBackend scope solver fs ->
   What4.BoolExpr scope ->
   IO (What4.SatResult () ())
