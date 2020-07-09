@@ -55,6 +55,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , branchMem
   , branchAbortMem
   , mergeMem
+  , asMemAllocationArrayStore
 
   , SomeAlloc(..)
   , possibleAllocs
@@ -1389,8 +1390,7 @@ writeMemWithAllocationCheck is_allocated sym w ptr tp alignment val mem = do
                   arrayUpdate sym acc_arr (Ctx.singleton idx) byte
               _ -> return acc_arr
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
-      arr_sz_bv <- constOffset sym w arr_sz
-      return $ memAddWrite ptr (MemArrayStore res_arr (Just arr_sz_bv)) mem
+      return $ memAddWrite ptr (MemArrayStore res_arr (Just arr_sz)) mem
     Nothing -> return $ memAddWrite ptr (MemStore val tp alignment) mem
   return (mem', p1, p2)
 
@@ -1665,11 +1665,11 @@ asMemAllocationArrayStore ::
   NatRepr w ->
   LLVMPtr sym w {- ^ Pointer -} ->
   Mem sym ->
-  IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8), Bytes))
+  IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8), (SymBV sym w)))
 asMemAllocationArrayStore sym w ptr mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
-  , [SomeAlloc _ _ (Just sz_bv) _ _ _] <- List.nub (possibleAllocs blk_no mem)
-  , Just sz <- BV.asUnsigned <$> asBV sz_bv = do
+  , [SomeAlloc _ _ (Just sz) _ _ _] <- List.nub (possibleAllocs blk_no mem)
+  , Just Refl <- testEquality w (bvWidth sz) = do
     let findArrayStore ::
           [MemWrite sym] ->
           IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
@@ -1678,11 +1678,12 @@ asMemAllocationArrayStore sym w ptr mem
             MemWrite write_ptr write_source
               | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
               , blk_no == write_blk_no
-              , MemArrayStore arr (Just arr_store_sz_bv) <- write_source
-              , Just arr_store_sz <- BV.asUnsigned <$> asBV arr_store_sz_bv
-              , sz == arr_store_sz
-              , Just Refl <- testEquality w (ptrWidth write_ptr) ->
-                return $ Just arr
+              , MemArrayStore arr (Just arr_store_sz) <- write_source
+              , Just Refl <- testEquality w (ptrWidth write_ptr) -> do
+                sz_eq <- bvEq sym sz arr_store_sz
+                case asConstantPred sz_eq of
+                  Just True -> return $ Just arr
+                  _ -> return Nothing
               | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
               , blk_no /= write_blk_no ->
                 findArrayStore tail_mem_writes
@@ -1699,7 +1700,7 @@ asMemAllocationArrayStore sym w ptr mem
           [] -> return Nothing
     result <- findArrayStore $ memWritesAtConstant blk_no $ memWrites mem
     return $ case result of
-      Just arr -> Just (arr, fromInteger sz)
+      Just arr -> Just (arr, sz)
       Nothing -> Nothing
   | otherwise = return Nothing
 
