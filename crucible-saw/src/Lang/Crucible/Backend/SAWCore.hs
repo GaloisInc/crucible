@@ -82,8 +82,12 @@ data SAWCoreState solver fs n
       -- The key is the "indexValue" of the "symFunId" for the function
 
     , saw_elt_cache :: B.IdxCache n SAWExpr
+      -- ^ cache mapping a What4 variable nonce to its corresponding SAWCore term.
 
     , saw_elt_cache_r :: IORef (Map SC.Term (Some (B.SymExpr (SAWCoreBackend n solver fs))))
+      -- ^ reverse cache mapping a SAWCore term to its corresponding What4 variable.
+      -- 'saw_elt_cache' and 'saw_elt_cache_r' implement a bidirectional map between
+      -- SAWCore terms and What4 variables.
 
     , saw_online_state :: OnlineBackendState solver n
     }
