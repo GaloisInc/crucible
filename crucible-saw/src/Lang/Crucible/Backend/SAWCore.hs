@@ -33,6 +33,7 @@ import           Data.Map ( Map )
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
+import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
 import           Data.Sequence (Seq)
@@ -69,7 +70,7 @@ data SAWCruciblePersonality sym = SAWCruciblePersonality
 
 -- | The SAWCoreBackend is a crucible backend that represents symbolic values
 --   as SAWCore terms.
-data SAWCoreState solver n
+data SAWCoreState solver fs n
   = SAWCoreState
     { saw_ctx       :: SC.SharedContext                         -- ^ the main SAWCore datastructure for building shared terms
     , saw_inputs    :: IORef (Seq (SC.ExtCns SC.Term ))
@@ -81,6 +82,12 @@ data SAWCoreState solver n
       -- The key is the "indexValue" of the "symFunId" for the function
 
     , saw_elt_cache :: B.IdxCache n SAWExpr
+      -- ^ cache mapping a What4 variable nonce to its corresponding SAWCore term.
+
+    , saw_elt_cache_r :: IORef (Map SC.Term (Some (B.SymExpr (SAWCoreBackend n solver fs))))
+      -- ^ reverse cache mapping a SAWCore term to its corresponding What4 variable.
+      -- 'saw_elt_cache' and 'saw_elt_cache_r' implement a bidirectional map between
+      -- SAWCore terms and What4 variables.
 
     , saw_online_state :: OnlineBackendState solver n
     }
@@ -95,7 +102,7 @@ data SAWExpr (bt :: BaseType) where
   -- implicit nat-to-integer conversion.
   NatToIntSAWExpr :: !(SAWExpr BaseNatType) -> SAWExpr BaseIntegerType
 
-type SAWCoreBackend n solver fs = B.ExprBuilder n (SAWCoreState solver) fs
+type SAWCoreBackend n solver fs = B.ExprBuilder n (SAWCoreState solver fs) fs
 
 
 -- | Run the given IO action with the given SAW backend.
@@ -120,12 +127,14 @@ inFreshNamingContext sym f =
 
  mkNew _gen old =
    do ch <- B.newIdxCache
+      ch_r <- newIORef Map.empty
       iref <- newIORef mempty
       let new = SAWCoreState
                 { saw_ctx = saw_ctx old
                 , saw_inputs = iref
                 , saw_symMap = mempty
                 , saw_elt_cache = ch
+                , saw_elt_cache_r = ch_r
                 , saw_online_state = saw_online_state old
                 }
       return new
@@ -191,9 +200,16 @@ bindSAWTerm :: SAWCoreBackend n solver fs
             -> IO (B.Expr n bt)
 bindSAWTerm sym bt t = do
   st <- readIORef $ B.sbStateManager sym
-  sbVar@(B.BoundVarExpr bv) <- freshConstant sym emptySymbol bt
-  B.insertIdxValue (saw_elt_cache st) (B.bvarId bv) (SAWExpr t)
-  return sbVar
+  ch_r <- readIORef $ saw_elt_cache_r st
+  case Map.lookup t ch_r of
+    Just (Some var) -> do
+      Just Refl <- return $ testEquality bt (B.exprType var)
+      return var
+    Nothing -> do
+      sbVar@(B.BoundVarExpr bv) <- freshConstant sym emptySymbol bt
+      B.insertIdxValue (saw_elt_cache st) (B.bvarId bv) (SAWExpr t)
+      modifyIORef' (saw_elt_cache_r st) $ Map.insert t (Some sbVar)
+      return sbVar
 
 newSAWCoreBackend ::
   FloatModeRepr fm ->
@@ -203,6 +219,7 @@ newSAWCoreBackend ::
 newSAWCoreBackend fm sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache
+  ch_r <- newIORef Map.empty
   let feats = Yices.yicesDefaultFeatures
   ob_st  <- initialOnlineBackendState gen feats
   let st = SAWCoreState
@@ -210,6 +227,7 @@ newSAWCoreBackend fm sc gen = do
               , saw_inputs = inpr
               , saw_symMap = Map.empty
               , saw_elt_cache = ch
+              , saw_elt_cache_r = ch_r
               , saw_online_state = ob_st
               }
   sym <- B.newExprBuilder fm st gen
