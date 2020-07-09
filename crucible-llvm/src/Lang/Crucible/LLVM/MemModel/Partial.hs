@@ -33,7 +33,7 @@ module Lang.Crucible.LLVM.MemModel.Partial
   , attachSideCondition
   , assertSafe
   , ppAssertion
-  , MemoryLoadError(..)
+  , MemoryError(..)
   , totalLLVMVal
   , bvConcat
   , consArray
@@ -44,6 +44,8 @@ module Lang.Crucible.LLVM.MemModel.Partial
   , LLVMAnnMap
   , BoolAnn(..)
   , lookupBBAnnotation
+  , annotateME
+  , annotateUB
 
   , floatToBV
   , doubleToBV
@@ -221,15 +223,15 @@ annotateUB sym ub p =
      modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBUndefinedBehavior ub))
      return p'
 
-annotateLE :: (IsSymInterface sym, HasLLVMAnn sym) =>
+annotateME :: (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   LLVMPtr sym w ->
-  MemoryLoadError ->
+  MemoryError ->
   Pred sym ->
   IO (Pred sym)
-annotateLE sym ptr le p =
+annotateME sym ptr le p =
   do (n, p') <- annotateTerm sym p
-     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBLoadError ptr le))
+     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError ptr le))
      return p'
 
 ------------------------------------------------------------------------
@@ -241,9 +243,10 @@ data PartLLVMVal sym where
   Err :: Pred sym -> PartLLVMVal sym
   NoErr :: Pred sym -> LLVMVal sym -> PartLLVMVal sym
 
-partErr :: (IsSymInterface sym, HasLLVMAnn sym) => sym -> LLVMPtr sym w -> MemoryLoadError -> IO (PartLLVMVal sym)
+partErr :: (IsSymInterface sym, HasLLVMAnn sym) =>
+  sym -> LLVMPtr sym w -> MemoryError -> IO (PartLLVMVal sym)
 partErr sym ptr err =
-  do p <- annotateLE sym ptr err (falsePred sym)
+  do p <- annotateME sym ptr err (falsePred sym)
      pure (Err p)
 
 attachSideCondition ::
@@ -276,17 +279,16 @@ totalLLVMVal sym = NoErr (truePred sym)
 assertSafe :: (IsSymInterface sym)
            => sym
            -> LLVMPtr sym w
+           -> StorageType
            -> PartLLVMVal sym
            -> IO (LLVMVal sym)
-assertSafe sym ptr (NoErr p v) =
-  do let ptrmsg = text "While loading from: " <> UB.ppPointerPair (UB.pointerView ptr)
-     let rsn = AssertFailureSimError "Error during memory load" (show ptrmsg)
+assertSafe sym _ptr valTy (NoErr p v) =
+  do let rsn = AssertFailureSimError "Error during memory load" ("Loading at type: " ++ show (Type.ppType valTy))
      assert sym p rsn
      return v
 
-assertSafe sym ptr (Err p) = do
-  do let ptrmsg = text "While loading from: " <> UB.ppPointerPair (UB.pointerView ptr)
-     let rsn = AssertFailureSimError "Error during memory load" (show ptrmsg)
+assertSafe sym _ptr valTy (Err p) = do
+  do let rsn = AssertFailureSimError "Error during memory load" ("Loading at type: " ++ show (Type.ppType valTy))
      loc <- getCurrentProgramLoc sym
      let err = SimError loc rsn
      addProofObligation sym (LabeledPred p err)

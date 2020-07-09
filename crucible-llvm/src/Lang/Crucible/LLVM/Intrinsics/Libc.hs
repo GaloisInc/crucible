@@ -117,7 +117,7 @@ llvmMemmoveOverride =
     )
 
 llvmMemsetOverride :: forall p sym arch wptr.
-     (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+     (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType 32
@@ -137,7 +137,7 @@ llvmMemsetOverride =
     )
 
 llvmMemsetChkOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                  ::> BVType 32
@@ -161,7 +161,7 @@ llvmMemsetChkOverride =
 -- *** Allocation
 
 llvmCallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
   => LLVMOverride p sym arch
          (EmptyCtx ::> BVType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
@@ -172,7 +172,7 @@ llvmCallocOverride =
 
 
 llvmReallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
@@ -204,7 +204,7 @@ posixMemalignOverride =
 
 
 llvmFreeOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr)
          UnitType
@@ -266,7 +266,7 @@ llvmStrlenOverride =
 -- *** Allocation
 
 callRealloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, HasLLVMAnn sym)
   => sym
   -> GlobalVar Mem
   -> Alignment
@@ -339,7 +339,7 @@ callMalloc sym mvar alignment (regValue -> sz) =
        doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz alignment
 
 callCalloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
   -> Alignment
@@ -353,7 +353,7 @@ callCalloc sym mvar alignment
     doCalloc sym mem sz num alignment
 
 callFree
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -410,7 +410,7 @@ callMemmove sym mvar
        return ((), mem')
 
 callMemset
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)

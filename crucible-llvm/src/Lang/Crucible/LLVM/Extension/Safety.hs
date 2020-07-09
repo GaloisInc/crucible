@@ -24,13 +24,13 @@
 module Lang.Crucible.LLVM.Extension.Safety
   ( LLVMSafetyAssertion
   , BadBehavior(..)
-  , MemoryLoadError(..)
-  , ppMemoryLoadError
+  , MemoryError(..)
+  , ppMemoryError
   , undefinedBehavior
   , undefinedBehavior'
   , poison
   , poison'
-  , memoryLoadError
+  , memoryError
   , detailBB
   , explainBB
     -- ** Lenses
@@ -42,7 +42,7 @@ module Lang.Crucible.LLVM.Extension.Safety
 import           Prelude hiding (pred)
 
 import           Control.Lens
-import           Data.Kind (Type)
+--import           Data.Kind (Type)
 import           Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -52,12 +52,9 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           What4.Interface
 
-import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
-import qualified Data.Parameterized.TraversableF as TF
-
-import           Lang.Crucible.Types
+--import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
+import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
@@ -70,23 +67,25 @@ import           Lang.Crucible.LLVM.MemModel.Type
 
 -- | The kinds of type errors that arise while reading memory/constructing LLVM
 -- values
-data MemoryLoadError =
+data MemoryError =
     TypeMismatch StorageType StorageType
   | UnexpectedArgumentType Text [StorageType]
   | ApplyViewFail ValueView
   | Invalid StorageType
   | Invalidated Text
-  | NoSatisfyingWrite Doc
+  | NoSatisfyingWrite [Doc]
+  | UnalignedPointer Alignment
+  | UnwritableRegion
   deriving (Generic)
 
-instance Pretty MemoryLoadError where
-  pretty = ppMemoryLoadError
+instance Pretty MemoryError where
+  pretty = ppMemoryError
 
-instance Show MemoryLoadError where
-  show = show . ppMemoryLoadError
+instance Show MemoryError where
+  show = show . ppMemoryError
 
-ppMemoryLoadError :: MemoryLoadError -> Doc
-ppMemoryLoadError =
+ppMemoryError :: MemoryError -> Doc
+ppMemoryError =
   \case
     TypeMismatch ty1 ty2 ->
       "Type mismatch: "
@@ -104,11 +103,23 @@ ppMemoryLoadError =
       "Load from invalid memory at type " <+> text (show ty)
     Invalidated msg ->
       "Load from explicitly invalidated memory:" <+> text (Text.unpack msg)
+    NoSatisfyingWrite [] ->
+      "No previous write to this location was found"
     NoSatisfyingWrite doc ->
       vcat
        [ "No previous write to this location was found"
-       , indent 2 doc
+       , indent 2 (vcat doc)
        ]
+    UnalignedPointer a ->
+      vcat
+       [ "Pointer not sufficently aligned."
+       , "Required alignment:" <+> text (show (fromAlignment a)) <+> "bytes."
+       ]
+    UnwritableRegion ->
+      vcat
+       [ "The region wasn't allocated, or was marked as readonly"
+       ]
+
 
 -- -----------------------------------------------------------------------
 -- ** BadBehavior
@@ -117,7 +128,10 @@ ppMemoryLoadError =
 --
 data BadBehavior sym where
   BBUndefinedBehavior :: UB.UndefinedBehavior (RegValue' sym) -> BadBehavior sym
-  BBLoadError :: LLVMPtr sym w -> MemoryLoadError -> BadBehavior sym
+  BBMemoryError ::
+    LLVMPtr sym w ->
+    MemoryError ->
+    BadBehavior sym
  deriving Typeable
 
 -- -----------------------------------------------------------------------
@@ -160,9 +174,9 @@ undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
-memoryLoadError :: LLVMPtr sym w -> MemoryLoadError -> Pred sym -> LLVMSafetyAssertion sym
-memoryLoadError pp ld pred =
-  LLVMSafetyAssertion (BBLoadError pp ld) pred Nothing
+memoryError :: LLVMPtr sym w -> MemoryError -> Pred sym -> LLVMSafetyAssertion sym
+memoryError pp ld pred =
+  LLVMSafetyAssertion (BBMemoryError pp ld) pred Nothing
 
 poison' :: Poison.Poison (RegValue' sym)
         -> Pred sym
@@ -192,9 +206,10 @@ extra = lens _extra (\s v -> s { _extra = v})
 explainBB :: BadBehavior sym -> Doc
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
-  BBLoadError _ ld         -> ppMemoryLoadError ld
+  BBMemoryError _ ld     -> ppMemoryError ld
 
 detailBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
-  BBLoadError p _ld      -> text "While loading from" <+> UB.ppPointerPair (UB.pointerView p)
+  BBMemoryError p _ld    ->
+    text "Via pointer:" <+> UB.ppPointerPair (UB.pointerView p)

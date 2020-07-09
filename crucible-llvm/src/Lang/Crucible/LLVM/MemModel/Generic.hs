@@ -830,12 +830,11 @@ initReadMemDebugState :: ReadMemDebugState sym
 initReadMemDebugState = ReadMemDebugState []
 
 ppReadMemDebugState :: (IsExprBuilder sym, IsSymInterface sym)
-                    => ReadMemDebugState sym -> Doc
+                    => ReadMemDebugState sym -> [Doc]
 ppReadMemDebugState (ReadMemDebugState st) =
   case st of
-    [] -> text "No matching writes to this memory were found."
-          -- TODO: include UB ref to "read from uninitialized memory"
-    _  -> vcat $
+    [] -> []
+    _  ->
       [ text "Matching writes:"
       , vcat $ flip map st $ \(w, v) ->
           text "* Write: " <> ppWrite w
@@ -1389,7 +1388,7 @@ writeMemWithAllocationCheck is_allocated sym w ptr tp alignment val mem = do
               =<< traverse subFn (loadBitvector off 1 0 (ValueViewVar tp))
 
             -- TODO! we're abusing assertSafe here a little
-            v <- Partial.assertSafe sym ptr partial_byte
+            v <- Partial.assertSafe sym ptr (bitvectorType (toBytes (1::Integer))) partial_byte
             case v of
               LLVMValInt _ byte
                 | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
@@ -1733,18 +1732,6 @@ ppTermExpr t = -- FIXME, do something with the predicate?
                       v'
     LLVMValArray _tp v -> encloseSep lbracket rbracket comma v'
       where v' = ppTermExpr <$> V.toList v
-
--- | Pretty print type.
-ppType :: StorageType -> Doc
-ppType tp =
-  case storageTypeF tp of
-    Bitvector w -> text ('i': show (bytesToBits w))
-    Float -> text "float"
-    Double -> text "double"
-    X86_FP80 -> text "long double"
-    Array n etp -> brackets (text (show n) <+> char 'x' <+> ppType etp)
-    Struct flds -> braces $ hsep $ punctuate (char ',') $ V.toList $ ppFld <$> flds
-      where ppFld f = ppType (f^.fieldVal)
 
 ppMerge :: IsExpr e
         => (v -> Doc)

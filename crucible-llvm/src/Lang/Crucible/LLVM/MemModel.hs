@@ -227,6 +227,7 @@ import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.Value
+import           Lang.Crucible.LLVM.Extension.Safety
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
@@ -289,15 +290,28 @@ doDumpMem h mem = do
 
 -- | Assert that some undefined behavior doesn't occur when performing memory
 -- model operations
-assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
-                => sym
-                -> Pred sym
-                -> (UB.UndefinedBehavior (RegValue' sym)) -- ^ The undesirable behavior
-                -> IO ()
-assertUndefined sym p ub = assert sym p $ AssertFailureSimError msg details
-  where
-    msg = show (UB.explain ub)
-    details = show (UB.ppReg ub)
+assertUndefined ::
+  (IsSymInterface sym, Partial.HasLLVMAnn sym) =>   -- HasPtrWidth wptr)
+  sym ->
+  Pred sym ->
+  (UB.UndefinedBehavior (RegValue' sym)) {- ^ The undesirable behavior -} ->
+  IO ()
+assertUndefined sym p ub =
+  do p' <- Partial.annotateUB sym ub p
+     assert sym p' $ AssertFailureSimError "Undefined behavior encountered" ""
+
+
+assertStoreError ::
+  (IsSymInterface sym, Partial.HasLLVMAnn sym) =>
+  sym ->
+  LLVMPtr sym wptr ->
+  StorageType -> 
+  MemoryError ->
+  Pred sym ->
+  IO ()
+assertStoreError sym ptr valTy le p = 
+  do p' <- Partial.annotateME sym ptr le p
+     assert sym p' $ AssertFailureSimError "Memory store failed" ("Storing at type: " ++ show (G.ppType valTy))
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -532,7 +546,7 @@ doLoad ::
   IO (RegValue sym tp)
 doLoad sym mem ptr valType tpr alignment = do
   unpackMemValue sym tpr =<<
-    Partial.assertSafe sym ptr =<<
+    Partial.assertSafe sym ptr valType =<<
       loadRaw sym mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
@@ -580,7 +594,7 @@ sextendBVTo sym w w' x
 --
 -- Precondition: the multiplication /size * number/ does not overflow.
 doCalloc ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym ->
   SymBV sym wptr {- ^ size   -} ->
@@ -591,7 +605,7 @@ doCalloc sym mem sz num alignment = do
   (ov, sz') <- unsignedWideMultiplyBV sym sz num
   ov_iszero <- notPred sym =<< bvIsNonzero sym ov
   assert sym ov_iszero
-     (AssertFailureSimError "Multiplication overflow in calloc()" "")
+     (AssertFailureSimError "Multiplication overflow in calloc()" "") -- TODO make UB
 
   z <- bvLit sym knownNat (BV.zero knownNat)
   (ptr, mem') <- doMalloc sym G.HeapAlloc G.Mutable "<calloc>" mem sz' alignment
@@ -722,7 +736,7 @@ doLookupHandle _sym mem ptr = do
 -- Precondition: the pointer either points to the beginning of an allocated
 -- region, or is null. Freeing a null pointer has no effect.
 doFree
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -750,7 +764,7 @@ doFree sym mem ptr = do
 --
 -- Precondition: the memory range falls within a valid allocated region.
 doMemset ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   NatRepr w ->
   MemImpl sym ->
@@ -782,7 +796,7 @@ doInvalidate sym w mem dest msg len = do
 
   (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
-  assert sym p $ AssertFailureSimError
+  assert sym p $ AssertFailureSimError -- TODO, make this some class of BadBehavior
     "Invalidation of unallocated or readonly region"
     (unwords [ "Region of"
              , show $ printSymExpr len
@@ -914,7 +928,7 @@ uncheckedMemcpy sym mem dest src len = do
   return mem{ memImplHeap = heap' }
 
 doPtrSubtract ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr ->
@@ -928,7 +942,7 @@ doPtrSubtract sym _m x y = do
 
 -- | Add an offset to a pointer and asserts that the result is a valid pointer.
 doPtrAddOffset ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ base pointer -} ->
@@ -989,13 +1003,11 @@ strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
     loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
       Partial.Err pe ->
         do ast <- impliesPred sym cond pe
-           let ptrmsg = text "While loading from: " <> UB.ppPointerPair (UB.pointerView p)
-           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" (show ptrmsg)
+           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
            bvLit sym PtrWidth (BV.zero PtrWidth) -- bogus value, but have to return something...
       Partial.NoErr loadok llvmval ->
         do ast <- impliesPred sym cond loadok
-           let ptrmsg = text "While loading from: " <> UB.ppPointerPair (UB.pointerView p)
-           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" (show ptrmsg)
+           assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
            v <- unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
            test <- bvIsNonzero sym =<< projectLLVM_bv sym v
            iteM bvIte sym
@@ -1109,11 +1121,10 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType alignment val = do
     (heap', p1, p2) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg1 = "The region wasn't allocated, or was marked as readonly"
-    let errMsg2 = "The region's alignment wasn't correct"
-    let err = AssertFailureSimError "Invalid memory store"
-    assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
-    assert sym p2 (err $ ptrMessage errMsg2 ptr valType)
+
+    assertStoreError sym ptr valType UnwritableRegion p1
+    assertStoreError sym ptr valType (UnalignedPointer alignment) p2
+
     return mem{ memImplHeap = heap' }
 
 -- | Perform a memory write operation if the condition is true,
@@ -1179,7 +1190,6 @@ condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 condStoreRaw sym mem cond ptr valType alignment val = do
-  let err = AssertFailureSimError "Invalid memory store"
   -- Get current heap
   let preBranchHeap = memImplHeap mem
   -- Push a branch to the heap
@@ -1188,12 +1198,10 @@ condStoreRaw sym mem cond ptr valType alignment val = do
   (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
   -- Assert is allocated if write executes
   do condIsAllocated <- impliesPred sym cond isAllocated
-     let errMsg1 = "The region wasn't allocated, or was marked as readonly"
-     assert sym condIsAllocated (err $ ptrMessage errMsg1 ptr valType)
+     assertStoreError sym ptr valType UnwritableRegion condIsAllocated
   -- Assert is aligned if write executes
   do condIsAligned <- impliesPred sym cond isAligned
-     let errMsg2 = "The region's alignment wasn't correct"
-     assert sym condIsAligned (err $ ptrMessage errMsg2 ptr valType)
+     assertStoreError sym ptr valType (UnalignedPointer alignment) condIsAligned
   -- Merge the write heap and non-write heap
   let mergedHeap = G.mergeMem cond postWriteHeap postBranchHeap
   -- Return new memory
@@ -1212,11 +1220,10 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> IO (MemImpl sym)
 storeConstRaw sym mem ptr valType alignment val = do
     (heap', p1, p2) <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg1 = "The region wasn't allocated"
-    let errMsg2 = "The region's alignment wasn't correct"
-    let err = AssertFailureSimError "Invalid memory store"
-    assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
-    assert sym p2 (err $ ptrMessage errMsg2 ptr valType)
+    
+    assertStoreError sym ptr valType UnwritableRegion p1
+    assertStoreError sym ptr valType (UnalignedPointer alignment) p2
+
     return mem{ memImplHeap = heap' }
 
 -- | Allocate a memory region on the heap, with no source location info.
@@ -1433,7 +1440,7 @@ assertDisjointRegions' ::
   IO ()
 assertDisjointRegions' lbl sym w dest dlen src slen = do
   c <- buildDisjointRegionsAssertion sym w dest dlen src slen
-  assert sym c
+  assert sym c -- TODO: make this a BadBehavior
      (AssertFailureSimError "Memory regions not disjoint" ("In: " ++ lbl))
 
 
