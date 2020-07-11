@@ -11,7 +11,7 @@ Stability        : provisional
 
 module Lang.Crucible.JVM.ClassRefs where
 
-import Data.List
+import Data.List ( isPrefixOf )
 import GHC.Stack (HasCallStack)
 
 import qualified Language.JVM.Parser as J

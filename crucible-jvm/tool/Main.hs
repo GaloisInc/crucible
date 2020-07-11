@@ -35,7 +35,6 @@ import Control.Monad
 import Control.Monad.State.Strict
 
 import Control.Exception(SomeException(..),displayException,catch)
-import Data.List
 
 import System.Console.GetOpt
 import System.IO
