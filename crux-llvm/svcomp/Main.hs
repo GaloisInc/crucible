@@ -1,13 +1,16 @@
 {-# Language DeriveGeneric #-}
 {-# Language ImplicitParams #-}
+{-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
 {-# Language RecordWildCards #-}
+{-# Language ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main (main) where
 
 import Control.Concurrent.Async( async, wait )
-import Control.Exception (bracket)
+import Control.Exception
+  (bracket, catch, throwIO, SomeException, fromException, AsyncException, displayException, try )
 import Control.Monad
 
 import Data.Aeson ( encode, ToJSON(..), FromJSON, ToJSONKey, eitherDecode', object )
@@ -20,13 +23,15 @@ import qualified Data.Map as Map
 import Data.Time.Clock
   ( getCurrentTime, diffUTCTime, NominalDiffTime )
 import System.Exit
-  ( exitFailure, ExitCode(..), exitSuccess )
+  ( ExitCode(..), exitSuccess, exitFailure )
 import System.FilePath
   ( takeFileName, takeDirectory, (</>)
   , replaceExtension
   )
 import System.Directory
-  ( createDirectoryIfMissing, doesFileExist, copyFile )
+  ( createDirectoryIfMissing, doesFileExist, copyFile
+  , removeDirectoryRecursive
+  )
 import System.IO
   ( Handle, hGetContents, hClose, openFile, IOMode(..), hFlush )
 
@@ -56,33 +61,40 @@ main = do
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        bss <- loadSVCOMPBenchmarks cruxOpts
        let taskMap = deduplicateTasks bss
-       genSVCOMPBitCode cruxOpts llvmOpts svOpts taskMap
-       evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts taskMap
+       ts <- genSVCOMPBitCode cruxOpts llvmOpts svOpts taskMap
+       evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts
 
 
-genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap -> IO ()
-genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = mapM_ goTask (zip [0::Int ..] (Map.toList tm))
+genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap -> IO [(Int, VerificationTask, Maybe SomeException)]
+genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::Int ..] (Map.toList tm))
  where
- goTask (n, ((task, tgtWidth), bss)) =
-   do tgt <- getTarget tgtWidth bss
-      processVerificationTask tgt n task
+ goTask (n, ((task, tgtWidth), bss)) = action `catch` handler
+   where
+   outputPath = svTaskDirectory (Crux.outDir cruxOpts) n task
+
+   action =
+     do tgt <- getTarget tgtWidth bss
+        skip <- processVerificationTask tgt n task
+        return $! if skip then [] else [(n, task, Nothing)]
+
+   handler e
+     | Just (_::AsyncException) <- fromException e = throwIO e
+     | otherwise =
+         do sayFail "SVCOMP" $ unlines ["Failed to compile task:", show (verificationSourceFile task), displayException e]
+            removeDirectoryRecursive outputPath `catch` \e' ->
+               sayFail "SVCOMP" $ unlines ["Double fault! While trying to remove:", outputPath, displayException (e'::SomeException)]
+            return [(n, task, Just e)]
 
  getTarget tgtWidth bss =
    case tgtWidth of
      Just 32 -> return "i386-unknown-linux-elf"
      Just 64 -> return "x86_64-unknown-linux-elf"
-     Just x ->
-       do sayFail "SVCOMP" $
-             "Unexpected architecture width (" ++ show x ++ ") for benchmark(s) " ++ show (map benchmarkName bss)
-          exitFailure
-     Nothing ->
-       do sayFail "SVCOMP" $
-             "Missing architecture width for benchmark(s) " ++ show (map benchmarkName bss)
-          exitFailure
+     Just x  -> fail $ "Unexpected architecture width (" ++ show x ++ ") for benchmark(s) " ++ show (map benchmarkName bss)
+     Nothing -> fail $ "Missing architecture width for benchmark(s) " ++ show (map benchmarkName bss)
 
  processVerificationTask _tgt _num task
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = return ()
+   = return True
 
  processVerificationTask tgt num task =
    do let files = verificationInputFiles task
@@ -109,6 +121,7 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = mapM_ goTask (zip [0::Int ..] (Ma
                  unless (bcExists && lazyCompile llvmOpts) $
                    runClang llvmOpts (params (src, srcBC))
            llvmLink llvmOpts (map snd srcBCNames) finalBCFile
+      return False
 
 svTaskDirectory :: FilePath -> Int -> VerificationTask -> FilePath
 svTaskDirectory base num task = base </> path
@@ -131,11 +144,11 @@ hGetContentsStrict hdl =
   do s <- hGetContents hdl
      length s `seq` return s
 
-evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap -> IO ()
-evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts tm =
+evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> [(Int, VerificationTask, Maybe SomeException)] -> IO ()
+evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
    bracket (openFile (svcompOutputFile svOpts) WriteMode)
            (\jsonOutHdl -> LBS.hPutStr jsonOutHdl "]\n" >> hClose jsonOutHdl)
-           (\jsonOutHdl -> mapM_ (evaluateVerificationTask jsonOutHdl) (zip [0::Int ..] (Map.toList tm)))
+           (\jsonOutHdl -> mapM_ (evaluateVerificationTask jsonOutHdl) ts)
 
  where
  megabyte = bit 20 :: Integer
@@ -146,21 +159,55 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts tm =
 
  root = Crux.outDir cruxOpts
 
- evaluateVerificationTask _ (_num,((task,_arch), _bss))
+ evaluateVerificationTask _ (_num, task, _)
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
    = sayWarn "SVCOMP" $ unlines
         [ "Skipping:"
         , "  " ++ verificationSourceFile task
         ]
 
- evaluateVerificationTask jsonOutHdl (num, ((task,_arch),_bss)) =
-    do (readFd, writeFd) <- createPipe
+ evaluateVerificationTask jsonOutHdl (num, task, compileErr) =
+    do ed <- case compileErr of
+         Just ex ->
+           failTask num task "Failed to compile task" ex
+         Nothing ->
+           try (executeTask num task) >>= \case
+             Left ex
+               | Just (_::AsyncException) <- fromException ex -> throwIO ex
+               | otherwise -> failTask num task "Failed during process coordination" ex
+             Right ed -> return ed
+
+       let leadingString
+              | num == 0 = "[\n"
+              | otherwise= ",\n"
+
+       LBS.hPutStr jsonOutHdl leadingString
+       LBS.hPutStr jsonOutHdl (encode ed)
+       LBS.hPutStr jsonOutHdl "\n"
+       hFlush jsonOutHdl
+
+ failTask num task msg ex =
+    do let taskRoot = svTaskDirectory root num task
+       let sourceFile = verificationSourceFile task
+       let err = unlines [msg, displayException ex]
+       return EvaluationData
+              { taskRoot = taskRoot
+              , sourceFile = sourceFile
+              , elapsedTime = 0
+              , exitCode = Nothing
+              , evaluationResult = Left err
+              , subprocessOutput = ""
+              }
+
+ executeTask num task =
+    do let taskRoot = svTaskDirectory root num task
+       let sourceFile = verificationSourceFile task
+
+       (readFd, writeFd) <- createPipe
        (jsonReadFd, jsonWriteFd) <- createPipe
        readHdl <- fdToHandle readFd
        jsonReadHdl <- fdToHandle jsonReadFd
 
-       let taskRoot = svTaskDirectory root num task
-       let sourceFile = verificationSourceFile task
        sayOK "SVCOMP" $ concat
          [ "Evaluating:\n"
          , "  " ++ taskRoot ++ "\n"
@@ -168,6 +215,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts tm =
          ]
 
        startTime <- getCurrentTime
+
        pid <- forkProcess $
                 do maybeSetLim ResourceCPUTime (svcompCPUlimit svOpts)
                    maybeSetLim ResourceTotalMemory ((megabyte *) <$> svcompMemlimit svOpts)
@@ -176,7 +224,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts tm =
                    evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts root num task
                    exitSuccess
 
-       ast <- async (getProcessStatus True {- Block -} False {- stopped -} pid)
+       ast  <- async (getProcessStatus True {- Block -} False {- stopped -} pid)
        aout <- async (hGetContentsStrict readHdl)
        ares <- async (eitherDecode' <$> LBS.hGetContents jsonReadHdl)
 
@@ -190,6 +238,9 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts tm =
        closeFd jsonWriteFd
        res <- wait ares
 
+       let wallTime = diffUTCTime endTime startTime
+       sayOK "SVCOMP" $ unwords ["Elapsed wall-clock time:", show wallTime]
+
        case st of
          Just (Exited ExitSuccess) ->
            return ()
@@ -202,26 +253,15 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts tm =
          Nothing ->
            sayFail "SVCOMP" "Could not retrieve evauation process status"
 
-       let wallTime = diffUTCTime endTime startTime
-       sayOK "SVCOMP" $ unwords ["Elapsed wall-clock time:", show wallTime]
+       return EvaluationData
+              { taskRoot = taskRoot
+              , sourceFile = sourceFile
+              , elapsedTime = wallTime
+              , exitCode = st
+              , evaluationResult = res
+              , subprocessOutput = out
+              }
 
-       let ed = EvaluationData
-                { taskRoot = taskRoot
-                , sourceFile = sourceFile
-                , elapsedTime = wallTime
-                , exitCode = st
-                , evaluationResult = res
-                , subprocessOutput = out
-                }
-
-       let leadingString
-              | num == 0 = "[\n"
-              | otherwise= ",\n"
-
-       LBS.hPutStr jsonOutHdl leadingString
-       LBS.hPutStr jsonOutHdl (encode ed)
-       LBS.hPutStr jsonOutHdl "\n"
-       hFlush jsonOutHdl
 
 instance ToJSON ProcessStatus where
   toJSON (Exited ec)        = object [("exited", toJSON x)]
@@ -271,52 +311,66 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task =
       let cruxOpts' = cruxOpts { outDir = taskRoot, inputFiles = inputs }
 
       let ?outputConfig = OutputConfig False writeHdl writeHdl False
-      res@(CruxSimulationResult cmpl gls) <- Crux.runSimulator cruxOpts' (simulateLLVM cruxOpts' llvmOpts)
-      generateReport cruxOpts' res
 
-      let totalGoals = sum (Crux.totalProcessedGoals . fst <$> gls)
-      let disprovedGoals = sum (Crux.disprovedGoals . fst <$> gls)
-      let provedGoals = sum (Crux.provedGoals . fst <$> gls)
-      let incompleteGoals = sum (Crux.incompleteGoals . fst <$> gls)
-      let unknownGoals = totalGoals - (disprovedGoals + provedGoals + incompleteGoals)
+      mres <- try $
+               do res <- Crux.runSimulator cruxOpts' (simulateLLVM cruxOpts' llvmOpts)
+                  generateReport cruxOpts' res
+                  return res
 
-      let programComplete =
-            case cmpl of
-              ProgramComplete -> True
-              ProgramIncomplete -> False
+      case mres of
+        Left e ->
+          do sayFail "SVCOMP" $ unlines
+               [ "Simulator threw exception:"
+               , displayException (e :: SomeException)
+               ]
+             hClose writeHdl
+             hClose jsonHdl
+             exitFailure
 
-      let verdict
-            | disprovedGoals > 0 = Falsified
-            | ProgramComplete <- cmpl
-            , provedGoals == totalGoals = Verified
-            | otherwise = Unknown
+        Right (CruxSimulationResult cmpl gls) ->
+          do let totalGoals = sum (Crux.totalProcessedGoals . fst <$> gls)
+             let disprovedGoals = sum (Crux.disprovedGoals . fst <$> gls)
+             let provedGoals = sum (Crux.provedGoals . fst <$> gls)
+             let incompleteGoals = sum (Crux.incompleteGoals . fst <$> gls)
+             let unknownGoals = totalGoals - (disprovedGoals + provedGoals + incompleteGoals)
 
-      let expectedResult = propertyVerdict task
+             let programComplete =
+                   case cmpl of
+                     ProgramComplete -> True
+                     ProgramIncomplete -> False
 
-      let computedResult = case verdict of
-                             Verified -> Just True
-                             Falsified -> Just False
-                             Unknown -> Nothing
+             let verdict
+                   | disprovedGoals > 0 = Falsified
+                   | ProgramComplete <- cmpl
+                   , provedGoals == totalGoals = Verified
+                   | otherwise = Unknown
 
-      case expectedResult of
-        Nothing -> sayWarn "SVCOMP" $ unlines (["No verdict to evaluate!"] ++ map show (verificationProperties task))
-        Just True ->
-          case verdict of
-            Verified  ->
-               sayOK "SVCOMP" "CORRECT (Verified)"
-            Falsified ->
-               sayFail "SVCOMP" $ unwords ["FAILED! benchmark should be verified"]
-            Unknown   -> sayWarn "SVCOMP" "UNKNOWN (Should verify)"
-        Just False ->
-          case verdict of
-            Verified  ->
-               sayFail "SVCOMP" $ unwords ["FAILED! benchmark should contain an error!"]
-            Falsified ->
-               sayOK "SVCOMP" "CORRECT (Falisifed)"
-            Unknown ->
-               sayWarn "SVCOMP" "UNKNOWN (Should falsify)"
+             let expectedResult = propertyVerdict task
 
-      LBS.hPut jsonHdl (encode EvaluationResult{ .. })
+             let computedResult = case verdict of
+                                    Verified -> Just True
+                                    Falsified -> Just False
+                                    Unknown -> Nothing
 
-      hClose writeHdl
-      hClose jsonHdl
+             case expectedResult of
+               Nothing -> sayWarn "SVCOMP" $ unlines (["No verdict to evaluate!"] ++ map show (verificationProperties task))
+               Just True ->
+                 case verdict of
+                   Verified  ->
+                      sayOK "SVCOMP" "CORRECT (Verified)"
+                   Falsified ->
+                      sayFail "SVCOMP" $ unwords ["FAILED! benchmark should be verified"]
+                   Unknown   -> sayWarn "SVCOMP" "UNKNOWN (Should verify)"
+               Just False ->
+                 case verdict of
+                   Verified  ->
+                      sayFail "SVCOMP" $ unwords ["FAILED! benchmark should contain an error!"]
+                   Falsified ->
+                      sayOK "SVCOMP" "CORRECT (Falisifed)"
+                   Unknown ->
+                      sayWarn "SVCOMP" "UNKNOWN (Should falsify)"
+
+             LBS.hPut jsonHdl (encode EvaluationResult{ .. })
+
+             hClose writeHdl
+             hClose jsonHdl
