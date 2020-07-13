@@ -115,7 +115,7 @@ llvmValStorableType v =
 
 
 ppTermExpr :: forall sym.
-  IsExprBuilder sym => LLVMVal sym -> Doc
+  IsExpr (SymExpr sym) => LLVMVal sym -> Doc
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
     LLVMValZero _tp -> text "0"

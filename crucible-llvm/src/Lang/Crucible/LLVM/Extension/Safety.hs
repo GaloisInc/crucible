@@ -60,10 +60,11 @@ import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Type
+import           Lang.Crucible.LLVM.MemModel.MemLog
 
 
 ------------------------------------------------------------------------
--- ** MemoryLoadError
+-- ** MemoryError
 
 -- | The kinds of type errors that arise while reading memory/constructing LLVM
 -- values
@@ -130,6 +131,7 @@ data BadBehavior sym where
   BBUndefinedBehavior :: UB.UndefinedBehavior (RegValue' sym) -> BadBehavior sym
   BBMemoryError ::
     LLVMPtr sym w ->
+    Mem sym ->
     MemoryError ->
     BadBehavior sym
  deriving Typeable
@@ -174,9 +176,9 @@ undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
-memoryError :: LLVMPtr sym w -> MemoryError -> Pred sym -> LLVMSafetyAssertion sym
-memoryError pp ld pred =
-  LLVMSafetyAssertion (BBMemoryError pp ld) pred Nothing
+memoryError :: LLVMPtr sym w -> Mem sym -> MemoryError -> Pred sym -> LLVMSafetyAssertion sym
+memoryError pp mem ld pred =
+  LLVMSafetyAssertion (BBMemoryError pp mem ld) pred Nothing
 
 poison' :: Poison.Poison (RegValue' sym)
         -> Pred sym
@@ -206,10 +208,14 @@ extra = lens _extra (\s v -> s { _extra = v})
 explainBB :: BadBehavior sym -> Doc
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
-  BBMemoryError _ ld     -> ppMemoryError ld
+  BBMemoryError _ _ ld     -> ppMemoryError ld
 
 detailBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
-  BBMemoryError p _ld    ->
-    text "Via pointer:" <+> UB.ppPointerPair (UB.pointerView p)
+  BBMemoryError p mem _ld    ->
+    vcat
+      [ text "Via pointer:" <+> UB.ppPointerPair (UB.pointerView p)
+      , text "In memory state"
+      , indent 2 (ppMem mem)
+      ]

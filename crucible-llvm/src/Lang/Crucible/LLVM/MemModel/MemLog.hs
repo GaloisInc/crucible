@@ -215,7 +215,7 @@ ppAlignment :: Alignment -> Doc
 ppAlignment a =
   text $ show (fromAlignment a) ++ "-byte-aligned"
 
-ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
+ppAlloc :: IsExpr (SymExpr sym) => MemAlloc sym -> Doc
 ppAlloc (Alloc atp base sz mut alignment loc) =
   text (show atp)
   <+> text (show base)
@@ -228,10 +228,10 @@ ppAlloc (MemFree base) =
 ppAlloc (AllocMerge c x y) = do
   text "Merge" <$$> ppMerge ppAlloc c x y
 
-ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
+ppAllocs :: IsExpr (SymExpr sym) => [MemAlloc sym] -> Doc
 ppAllocs xs = vcat $ map ppAlloc xs
 
-ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
+ppWrite :: IsExpr (SymExpr sym) => MemWrite sym -> Doc
 ppWrite (MemWrite d (MemCopy s l)) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemWrite d (MemSet v l)) = do
@@ -245,7 +245,7 @@ ppWrite (MemWrite d (MemInvalidate msg l)) = do
 ppWrite (WriteMerge c (MemWrites x) (MemWrites y)) = do
   text "merge" <$$> ppMerge ppMemWritesChunk c x y
 
-ppMemWritesChunk :: IsExprBuilder sym => MemWritesChunk sym -> Doc
+ppMemWritesChunk :: IsExpr (SymExpr sym) => MemWritesChunk sym -> Doc
 ppMemWritesChunk = \case
   MemWritesChunkIndexed indexed_writes ->
     text "Indexed chunk:" <$$>
@@ -258,10 +258,10 @@ ppMemWritesChunk = \case
     text "Flat chunk:" <$$>
     indent 2 (vcat $ map ppWrite flat_writes)
 
-ppMemWrites :: IsExprBuilder sym => MemWrites sym -> Doc
+ppMemWrites :: IsExpr (SymExpr sym) => MemWrites sym -> Doc
 ppMemWrites (MemWrites ws) = vcat $ map ppMemWritesChunk ws
 
-ppMemChanges :: IsExprBuilder sym => MemChanges sym -> Doc
+ppMemChanges :: IsExpr (SymExpr sym) => MemChanges sym -> Doc
 ppMemChanges (al,wl) =
   text "Allocations:" <$$>
   indent 2 (ppAllocs al) <$$>
@@ -280,5 +280,5 @@ ppMemState f (BranchFrame _ _ d ms) = do
     indent 2 (f d) <$$>
     ppMemState f ms
 
-ppMem :: IsExprBuilder sym => Mem sym -> Doc
+ppMem :: IsExpr (SymExpr sym) => Mem sym -> Doc
 ppMem m = ppMemState ppMemChanges (m^.memState)
