@@ -1,6 +1,7 @@
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read};
+use std::mem;
 use std::rc::Rc;
 use regex::Regex;
 use crate::{Context, Production, Nonterminal, ProductionId, NonterminalId, NonterminalRef, Chunk};
@@ -43,12 +44,13 @@ impl GrammarBuilder {
         &mut self,
         s: &str,
         vars_map: &HashMap<&str, VarId>,
-    ) -> NonterminalRef {
-        let parsed = Parser::from_str(s).parse_nt().unwrap();
-        NonterminalRef {
+    ) -> (NonterminalRef, Order) {
+        let parsed = Parser::from_str(s).parse_nt(true).unwrap();
+        let nt = NonterminalRef {
             id: self.nt_id(&parsed.name),
             args: parsed.args.into_iter().map(|p| self.build_ty(p, &vars_map)).collect(),
-        }
+        };
+        (nt, parsed.order)
     }
 
     pub fn parse_grammar(&mut self, lines: &[&str]) {
@@ -117,9 +119,9 @@ impl GrammarBuilder {
                     });
                 } else {
                     // Single-line case
-                    let mut rhs = ProductionRhs::default();
+                    let mut rhs = PartialProductionRhs::default();
                     self.parse_line(&mut rhs, after, false, &vars_map);
-                    self.add_prod(lhs, rhs);
+                    self.add_prod(lhs, rhs.finish());
                 }
             } else {
                 eprintln!("line {}: error: expected `::=`", i + 1);
@@ -146,11 +148,9 @@ impl GrammarBuilder {
         indent: usize,
         vars_map: &HashMap<&str, VarId>,
     ) -> ProductionRhs {
-        let marker_line_re = Regex::new(
-            r"^(\s*)<<([a-zA-Z0-9_]+(\[[a-zA-Z0-9_, \[\]]*\])?)>>$",
-        ).unwrap();
+        let nt_line_re = Regex::new(&format!(r"^(\s*){}$", NT_RE)).unwrap();
 
-        let mut prod = ProductionRhs::default();
+        let mut prod = PartialProductionRhs::default();
         for (i, line) in lines.iter().enumerate() {
             // The last line never gets a trailing newline.
             let newline = i < lines.len() - 1;
@@ -165,7 +165,7 @@ impl GrammarBuilder {
             }
             let line = &line[indent..];
 
-            if let Some(caps) = marker_line_re.captures(line) {
+            if let Some(caps) = nt_line_re.captures(line) {
                 let indent_amount = caps.get(1).map(|m| m.end() as isize).unwrap();
                 prod.chunks.push(Chunk::Indent(indent_amount));
                 let nt_idx = prod.nts.len();
@@ -177,21 +177,19 @@ impl GrammarBuilder {
                 self.parse_line(&mut prod, line, newline, vars_map);
             }
         }
-        prod
+        prod.finish()
     }
 
     fn parse_line(
         &mut self,
-        prod: &mut ProductionRhs,
+        prod: &mut PartialProductionRhs,
         line: &str,
         full_line: bool,
         vars_map: &HashMap<&str, VarId>,
     ) {
         let mut prev_end = 0;
-        let marker_re = Regex::new(
-            r"<<([a-zA-Z0-9_]+(\[[a-zA-Z0-9_, \[\]]*\])?)>>",
-        ).unwrap();
-        for caps in marker_re.captures_iter(line) {
+        let nt_re = Regex::new(NT_RE).unwrap();
+        for caps in nt_re.captures_iter(line) {
             let m = caps.get(0).unwrap();
 
             let start = m.start();
@@ -215,6 +213,60 @@ impl GrammarBuilder {
     }
 }
 
+const NT_RE: &'static str = r"<<([$^]?[a-zA-Z0-9_]+(\[[a-zA-Z0-9_, \[\]]*\])?)>>";
+
+
+/// Data for in-progress construction of a `ProductionRhs`.  Notably, the `nts` don't have to be in
+/// their final order at this point - they can be added in parsing order, and `finish` will sort
+/// them as needed.
+#[derive(Default)]
+struct PartialProductionRhs {
+    chunks: Vec<Chunk>,
+    nts: Vec<(NonterminalRef, Order)>,
+}
+
+impl PartialProductionRhs {
+    fn finish(mut self) -> ProductionRhs {
+        // Compute the final order of nonterminals.
+        let mut early: Vec<usize> = Vec::new();
+        let mut late: Vec<usize> = Vec::new();
+        let mut default: Vec<usize> = Vec::with_capacity(self.nts.len());
+
+        for (i, (ref nt, order)) in self.nts.iter().enumerate() {
+            match order {
+                Order::Default => default.push(i),
+                Order::Early => early.push(i),
+                Order::Late => late.push(i),
+            }
+        }
+
+        // The order of nonterminals.  For each output index, `orig_idx` gives the index in
+        // `self.nts` where the nonterminal originally appeared.
+        let orig_idx: Vec<usize> = early.into_iter()
+            .chain(default.into_iter())
+            .chain(late.into_iter())
+            .collect::<Vec<_>>();
+
+        // The nonterminals, in sorted order.
+        let mut nts = Vec::with_capacity(self.nts.len());
+        // The reverse of `orig_idx`: for each input index in `self.nts`, `new_idx` gives the
+        // position of that nonterminal in the output list.
+        let mut new_idx = vec![0; self.nts.len()];
+        for i in orig_idx {
+            new_idx[i] = nts.len();
+            nts.push(mem::take(&mut self.nts[i].0));
+        }
+
+        // Remap `Chunk::Nt` chunks using `new_idx`.
+        let chunks = self.chunks.into_iter().map(|c| match c {
+            Chunk::Nt(i) => Chunk::Nt(new_idx[i]),
+            c => c,
+        }).collect::<Vec<_>>();
+
+        ProductionRhs { chunks, nts }
+    }
+}
+
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Token<'s> {
@@ -222,6 +274,8 @@ enum Token<'s> {
     Close,
     Comma,
     Word(&'s str),
+    Dollar,
+    Caret,
 }
 
 fn tokenize<'s>(s: &'s str) -> Vec<Token<'s>> {
@@ -241,6 +295,8 @@ fn tokenize<'s>(s: &'s str) -> Vec<Token<'s>> {
                 '[' => tokens.push(Token::Open),
                 ']' => tokens.push(Token::Close),
                 ',' => tokens.push(Token::Comma),
+                '$' => tokens.push(Token::Dollar),
+                '^' => tokens.push(Token::Caret),
                 c => panic!("unexpected character {:?}", c),
             }
             s = &s[1..];
@@ -256,9 +312,16 @@ struct Parser<'s> {
 
 type PResult<T> = Result<T, ()>;
 
+enum Order {
+    Default,
+    Early,
+    Late,
+}
+
 struct ParsedNt<'s> {
     name: &'s str,
     args: Vec<ParsedTy<'s>>,
+    order: Order,
 }
 
 struct ParsedTy<'s> {
@@ -352,10 +415,19 @@ impl<'s> Parser<'s> {
         Ok(ParsedTy { ctor, args })
     }
 
-    pub fn parse_nt(&mut self) -> PResult<ParsedNt<'s>> {
+    pub fn parse_nt(&mut self, accept_order: bool) -> PResult<ParsedNt<'s>> {
+        let early = if accept_order { self.eat(Token::Caret) } else { false };
+        let late = if accept_order { self.eat(Token::Dollar) } else { false };
+
         let name = self.take_word()?;
         let args = self.parse_ty_list()?;
-        Ok(ParsedNt { name, args })
+        let order = match (early, late) {
+            (false, false) => Order::Default,
+            (true, false) => Order::Early,
+            (false, true) => Order::Late,
+            _ => return Err(()),
+        };
+        Ok(ParsedNt { name, args, order })
     }
 
     pub fn parse_lhs(&mut self) -> PResult<ParsedLhs<'s>> {
@@ -372,7 +444,7 @@ impl<'s> Parser<'s> {
             }
         }
 
-        let nt = self.parse_nt()?;
+        let nt = self.parse_nt(false)?;
         Ok(ParsedLhs { vars, nt })
     }
 }
