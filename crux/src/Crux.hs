@@ -5,6 +5,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
+
+{-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
 module Crux
   ( runSimulator
   , postprocessSimResult
@@ -211,7 +213,7 @@ withSelectedOnlineBackend ::
   -- The string is an optional explicitly-requested float mode that supersedes the choice in
   -- the configuration (probably due to using two different online connections)
   (forall solver fm .
-    ( OnlineSolver scope solver
+    ( OnlineSolver solver
     , IsInterpretedFloatExprBuilder (OnlineBackend scope solver (Flags fm))
     ) =>
     FloatModeRepr fm -> OnlineBackend scope solver (Flags fm) -> IO a) -> IO a
@@ -338,7 +340,7 @@ setupSolver cruxOpts mInteractionFile sym = do
 -- | A GADT to capture the online solver constraints when we need them
 data SomeOnlineSolver sym where
   SomeOnlineSolver :: (sym ~ OnlineBackend scope solver fs
-                      , OnlineSolver scope solver
+                      , OnlineSolver solver
                       ) => SomeOnlineSolver sym
 
 -- | Common code for initializing all of the requested execution features

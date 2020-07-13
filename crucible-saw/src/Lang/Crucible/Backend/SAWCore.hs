@@ -215,7 +215,7 @@ newSAWCoreBackend ::
   FloatModeRepr fm ->
   SC.SharedContext ->
   NonceGenerator IO s ->
-  IO (SAWCoreBackend s (Yices.Connection s) (Flags fm))
+  IO (SAWCoreBackend s Yices.Connection (Flags fm))
 newSAWCoreBackend fm sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache
@@ -243,7 +243,7 @@ newSAWCoreBackend fm sc gen = do
 -- arguments in regular (left-to-right) order.
 sawRegisterSymFunInterp ::
   SAWCoreBackend n solver fs ->
-  B.ExprSymFn n args ret ->
+  B.ExprSymFn n (B.Expr n) args ret ->
   (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
   IO ()
 sawRegisterSymFunInterp sym f i =
@@ -608,7 +608,7 @@ applyExprSymFn ::
   forall n solver fs args ret.
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
-  B.ExprSymFn n args ret ->
+  B.ExprSymFn n (B.Expr n) args ret ->
   Ctx.Assignment SAWExpr args ->
   IO (SAWExpr ret)
 applyExprSymFn sym sc fn args =
@@ -632,7 +632,7 @@ applyExprSymFn sym sc fn args =
 
 
 considerSatisfiability ::
-  (OnlineSolver n solver) =>
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   Maybe ProgramLoc ->
   B.BoolExpr n ->
