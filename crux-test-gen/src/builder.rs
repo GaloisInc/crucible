@@ -1,13 +1,10 @@
-use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io::{self, Read};
 use std::rc::Rc;
-use regex::Regex;
 use crate::{
-    Context, Production, ProductionHandler, Nonterminal, ProductionId, NonterminalId,
+    Context, Production, ProductionHandler, Nonterminal, NonterminalId,
     NonterminalRef, Chunk, ExpState, PartialExpansion,
 };
-use crate::ty::{Ty, CtorTy, VarId};
+use crate::ty::{Ty, VarId};
 
 
 #[derive(Default)]

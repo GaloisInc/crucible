@@ -7,7 +7,7 @@ use std::process;
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::builder::{GrammarBuilder, ProductionLhs, ProductionRhs};
+use crate::builder::{GrammarBuilder, ProductionRhs};
 use crate::ty::{Ty, Subst, UnifyState, VarId};
 
 mod builder;
@@ -36,7 +36,7 @@ pub struct NonterminalRef {
 /// If the callback returns false, it must also leave the `ExpState` unchanged.  The caller may try
 /// a different production if this one fails, and the callback must leave no visible side effects
 /// in that case.
-struct ProductionHandler(Box<dyn Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool>);
+pub struct ProductionHandler(Box<dyn Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool>);
 
 /// Compute the number of instances in this builtin production family.
 ///
@@ -45,7 +45,7 @@ struct ProductionHandler(Box<dyn Fn(&mut ExpState, &mut PartialExpansion, usize)
 /// of ways to expand the builtin nonterminal is not known in advance.  For example, the
 /// `choose_local` builtin expands to any of the variables in scope, so the number of possible
 /// expansions depends on the available variables.
-struct ProductionMultiplicity(Box<dyn Fn(&ExpState) -> usize>);
+pub struct ProductionMultiplicity(Box<dyn Fn(&ExpState) -> usize>);
 
 impl fmt::Debug for ProductionHandler {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -100,14 +100,14 @@ pub enum Chunk {
 }
 
 #[derive(Clone)]
-struct Expansion {
+pub struct Expansion {
     production: ProductionId,
     subexpansions: Box<[Expansion]>,
     specials: Box<[Rc<dyn Fn(&mut ty::UnifyState) -> String>]>,
 }
 
 #[derive(Clone)]
-struct PartialExpansion {
+pub struct PartialExpansion {
     production: ProductionId,
     /// Translation from local type variables of the production to global `VarId`s in the parent
     /// `ExpState`'s `unify` table.
@@ -118,7 +118,7 @@ struct PartialExpansion {
 }
 
 #[derive(Clone)]
-struct ExpState {
+pub struct ExpState {
     exp: Vec<PartialExpansion>,
     unify: ty::UnifyState,
     budget: Budget,
@@ -127,7 +127,7 @@ struct ExpState {
 #[derive(Clone)]
 /// Represents alternatives not taken during expansion of the grammar.  Can be
 /// resumed into a new `ExpState` to generate the next alternative.
-struct Continuation {
+pub struct Continuation {
     state: ExpState,
     kind: ContinuationKind,
 }
@@ -148,7 +148,7 @@ enum ContinuationKind {
 }
 
 #[derive(Clone)]
-enum ExpResult {
+pub enum ExpResult {
     Progress,
     Done(Expansion, UnifyState),
     Abort,
@@ -487,7 +487,6 @@ fn add_start_production(gb: &mut GrammarBuilder) {
     // Set up the nonterminal __root__, with ID 0, which expands to `<<start>>` via production 0.
     let root_id = gb.nt_id("__root__");
     assert_eq!(root_id, 0);
-    let start_id = gb.nt_id("start");
     let lhs = gb.mk_simple_lhs("__root__");
     let rhs = ProductionRhs {
         chunks: vec![Chunk::Nt(0)],
@@ -537,7 +536,7 @@ fn parse_budget_args(
         Some(x) => match usize::from_str(&x) {
             Ok(x) => x,
             Err(e) => {
-                return Err(format!("amount is not an integer ({:?})", x));
+                return Err(format!("error parsing amount {:?}: {}", x, e));
             },
         },
         None => {

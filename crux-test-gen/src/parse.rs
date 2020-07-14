@@ -1,10 +1,9 @@
 use std::cmp;
-use std::collections::{HashMap, HashSet};
-use std::io::{self, Read};
+use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 use regex::Regex;
-use crate::{Context, Production, Nonterminal, ProductionId, NonterminalId, NonterminalRef, Chunk};
+use crate::{NonterminalRef, Chunk};
 use crate::builder::{GrammarBuilder, ProductionLhs, ProductionRhs};
 use crate::ty::{Ty, CtorTy, VarId};
 
@@ -232,7 +231,7 @@ impl PartialProductionRhs {
         let mut late: Vec<usize> = Vec::new();
         let mut default: Vec<usize> = Vec::with_capacity(self.nts.len());
 
-        for (i, (ref nt, order)) in self.nts.iter().enumerate() {
+        for (i, (_, order)) in self.nts.iter().enumerate() {
             match order {
                 Order::Default => default.push(i),
                 Order::Early => early.push(i),
