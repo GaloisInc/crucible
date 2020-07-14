@@ -101,8 +101,17 @@ struct ExpState {
 /// resumed into a new `ExpState` to generate the next alternative.
 struct Continuation {
     state: ExpState,
-    alternatives: Vec<ProductionId>,
-    next: usize,
+    kind: ContinuationKind,
+}
+
+#[derive(Clone)]
+enum ContinuationKind {
+    /// Continue with the next in a sequence of alternative productions.
+    Alts {
+        alternatives: Vec<ProductionId>,
+        next: usize,
+    },
+    // TODO: more variants
 }
 
 #[derive(Clone)]
@@ -241,46 +250,56 @@ impl ExpState {
         self.exp.last_mut().unwrap()
     }
 
-    pub fn expand(mut self, cx: &Context) -> (ExpResult, Vec<Continuation>) {
+    pub fn expand(self, cx: &Context) -> (ExpResult, Vec<Continuation>) {
+        let mut st = self;
         let mut continuations = Vec::new();
 
         loop {
             // Pop any finished frames from the expansion stack.
-            while self.cur_partial().is_finished() {
-                let prev_partial = self.exp.pop().unwrap();
+            while st.cur_partial().is_finished() {
+                let prev_partial = st.exp.pop().unwrap();
                 // TODO: post-expansion actions
                 let prev = prev_partial.into_expansion();
-                if let Some(cur) = self.exp.last_mut() {
+                if let Some(cur) = st.exp.last_mut() {
                     cur.subexpansions.push(prev);
                 } else {
                     // We popped the last frame.  Expansion is complete.
-                    return (ExpResult::Done(prev, self.unify), continuations);
+                    return (ExpResult::Done(prev, st.unify), continuations);
                 }
             }
 
             // The current expansion frame is guaranteed to be unfinished.  Choose a production for
             // its next nonterminal, then apply that production (pushing a new frame).
-            let next_nt = self.cur_partial().next_nonterminal(cx);
+            let next_nt = st.cur_partial().next_nonterminal(cx);
             let alts = cx.nonterminals[next_nt.id].productions.clone();
 
-            let saved_state = if alts.len() > 1 { Some(self.clone()) } else { None };
-
-            let mut found = false;
-            for (i, &alt) in alts.iter().enumerate() {
-                if self.apply_production(cx, alt) {
-                    found = true;
-                    if i < alts.len() - 1 {
-                        continuations.push(Continuation {
-                            state: saved_state.unwrap(),
-                            alternatives: alts,
-                            next: i + 1,
-                        });
-                    }
-                    break;
+            // We suspend the current state at the branching point for choosing between `alts`,
+            // then immediately resume the continuation to continue with the current expansion.
+            let mut cont = if alts.len() == 1 {
+                let prod = alts[0];
+                // Shortcut: if there's exactly one option, we simply apply it.  This avoids a
+                // clone inside `Continuation::resume`.
+                if st.apply_production(cx, prod) {
+                    continue;
+                } else {
+                    return (ExpResult::Abort, continuations);
                 }
-            }
-            if !found {
-                // There's no way to continue this expansion.
+            } else {
+                // Note this handles the `alts.len() == 0` case.  Since `next == len == 0` from the
+                // start, `resume` will bail out before cloning the state.
+                Continuation {
+                    state: st,
+                    kind: ContinuationKind::Alts {
+                        alternatives: alts,
+                        next: 0,
+                    },
+                }
+            };
+
+            if let Some(new_st) = cont.resume(cx) {
+                st = new_st;
+                continuations.push(cont);
+            } else {
                 return (ExpResult::Abort, continuations);
             }
         }
@@ -291,25 +310,31 @@ impl Continuation {
     pub fn new(production: ProductionId) -> Continuation {
         Continuation {
             state: ExpState::new(),
-            alternatives: vec![production],
-            next: 0,
+            kind: ContinuationKind::Alts {
+                alternatives: vec![production],
+                next: 0,
+            },
         }
     }
 
     pub fn resume(&mut self, cx: &Context) -> Option<ExpState> {
-        if self.next >= self.alternatives.len() {
-            return None;
-        }
+        match self.kind {
+            ContinuationKind::Alts { ref mut alternatives, ref mut next } => {
+                if *next >= alternatives.len() {
+                    return None;
+                }
 
-        let mut st = self.state.clone();
-        for (i, &alt) in self.alternatives.iter().enumerate().skip(self.next) {
-            if st.apply_production(cx, alt) {
-                self.next = i + 1;
-                return Some(st);
-            }
+                let mut st = self.state.clone();
+                for (i, &alt) in alternatives.iter().enumerate().skip(*next) {
+                    if st.apply_production(cx, alt) {
+                        *next = i + 1;
+                        return Some(st);
+                    }
+                }
+                *next = alternatives.len();
+                None
+            },
         }
-        self.next = self.alternatives.len();
-        None
     }
 }
 
