@@ -1,0 +1,3 @@
+// Sibling scopes can reuse names (in this case, the name `x1`).
+start ::= <<push_scope>><<fresh_local[A]>> <<inner>> <<inner>> -> <<choose_local[A]>>
+inner ::= (<<push_scope>><<fresh_local[A]>> -> <<choose_local[A]>><<pop_scope>>)

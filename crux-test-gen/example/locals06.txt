@@ -1,0 +1,2 @@
+// `choose_local` ignores locals of incompatible types
+start ::= <<push_scope>> <<fresh_local[A]>> <<fresh_local[B]>> -> <<choose_local[A]>>

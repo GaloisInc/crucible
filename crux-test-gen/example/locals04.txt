@@ -1,0 +1,2 @@
+// `choose_local` succeeds if a matching local exists
+start ::= <<push_scope>> <<fresh_local[A]>> -> <<choose_local[A]>>

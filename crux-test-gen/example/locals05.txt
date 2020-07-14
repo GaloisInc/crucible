@@ -1,0 +1,2 @@
+// `choose_local` selects between multiple matching locals
+start ::= <<push_scope>> <<fresh_local[A]>> <<fresh_local[A]>> -> <<choose_local[A]>>

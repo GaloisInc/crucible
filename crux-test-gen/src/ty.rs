@@ -172,19 +172,20 @@ impl UnifyState {
     /// combinations of `Subst`s and `Ty`s without having to allocate a new substituted `Ty` for
     /// each one.
     pub fn unify(&mut self, a: SubstAnd<&[Ty]>, b: SubstAnd<&[Ty]>) -> bool {
-        let snap = self.t.snapshot();
-        let ok = self.do_unify_list(a, b).is_ok();
-        if ok {
-            self.t.commit(snap);
-        } else {
-            self.t.rollback_to(snap);
-        }
-        ok
+        self.run_unify(move |u| u.do_unify_list(a, b))
     }
 
     pub fn unify_one(&mut self, a: SubstAnd<&Ty>, b: SubstAnd<&Ty>) -> bool {
+        self.run_unify(move |u| u.do_unify(a, b))
+    }
+
+    pub fn unify_vars(&mut self, a: VarId, b: VarId) -> bool {
+        self.run_unify(move |u| u.do_unify_var_var(a, b))
+    }
+
+    fn run_unify(&mut self, f: impl FnOnce(&mut Self) -> Result<(), ()>) -> bool {
         let snap = self.t.snapshot();
-        let ok = self.do_unify(a, b).is_ok();
+        let ok = f(self).is_ok();
         if ok {
             self.t.commit(snap);
         } else {

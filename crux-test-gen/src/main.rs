@@ -122,6 +122,7 @@ pub struct ExpState {
     exp: Vec<PartialExpansion>,
     unify: ty::UnifyState,
     budget: Budget,
+    scopes: Vec<Scope>,
 }
 
 #[derive(Clone)]
@@ -183,13 +184,44 @@ impl Budget {
             },
             None => {
                 // Taking 0 is always okay.  Taking any positive amount from an uninitialized
-                // budget will fails.
+                // budget will fail.
                 amount == 0
             },
         }
     }
 }
 
+
+/// A local variable scope.
+///
+/// Terminology note: we use "locals" to refer to variables in the target program, as managed by
+/// `fresh_local` and related builtins.  "Var", in contrast, refers to a type variable in the
+/// grammar.
+#[derive(Clone)]
+pub struct Scope {
+    first_local_id: usize,
+    /// Gives the grammar-level type of each local.  Typically, the grammar will use types that
+    /// mirror those of the target language, though this is not a strict requirement.  Since the
+    /// type is taken from the argument of the `fresh_local` production, we simply store a type
+    /// variable here (in the global `UnifyState` namespace, i.e., already substituted) and rely on
+    /// unification to map it to a concrete type.
+    locals: Vec<VarId>,
+}
+
+impl Scope {
+    pub fn new(first_local_id: usize) -> Scope {
+        Scope {
+            first_local_id,
+            locals: Vec::new(),
+        }
+    }
+
+    pub fn fresh_local(&mut self, ty: VarId) -> usize {
+        let idx = self.locals.len();
+        self.locals.push(ty);
+        self.first_local_id + idx
+    }
+}
 
 
 impl PartialExpansion {
@@ -235,6 +267,7 @@ impl ExpState {
             exp: Vec::new(),
             unify: UnifyState::new(),
             budget: Budget::default(),
+            scopes: Vec::new(),
         }
     }
 
@@ -362,6 +395,38 @@ impl ExpState {
                 return (ExpResult::Abort, continuations);
             }
         }
+    }
+
+    pub fn cur_scope(&self) -> Option<&Scope> {
+        self.scopes.last()
+    }
+
+    pub fn cur_scope_mut(&mut self) -> Option<&mut Scope> {
+        self.scopes.last_mut()
+    }
+
+    pub fn count_locals(&self) -> usize {
+        self.cur_scope().map_or(0, |s| s.first_local_id + s.locals.len())
+    }
+
+    pub fn get_local(&self, idx: usize) -> Option<VarId> {
+        for s in self.scopes.iter() {
+            if idx >= s.first_local_id && idx < s.first_local_id + s.locals.len() {
+                return Some(s.locals[idx - s.first_local_id]);
+            }
+        }
+        None
+    }
+
+    pub fn push_scope(&mut self) {
+        let next_id = self.count_locals();
+        self.scopes.push(Scope::new(next_id));
+    }
+
+    /// Pop a scope from the stack.  Returns `true` on success, or `false` if there were no scopes
+    /// to pop.
+    pub fn pop_scope(&mut self) -> bool {
+        self.scopes.pop().is_some()
     }
 }
 
@@ -602,6 +667,63 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
     });
 }
 
+fn add_builtin_locals(gb: &mut GrammarBuilder) {
+    let empty_rhs = ProductionRhs { chunks: vec![], nts: vec![] };
+    let special_rhs = ProductionRhs { chunks: vec![Chunk::Special(0)], nts: vec![] };
+
+    // fresh_local[T]: declares a fresh local of type `T`, and expands to the name of the new
+    // local.  The local is added to the innermost open scope; if no scopes are open, expansion
+    // fails.  Currently, the name of the local is not customizable: it always consists of `x`
+    // followed by a number.
+    let (lhs, vars) = gb.mk_lhs_with_args("fresh_local", 1);
+    let v_ty = vars[0];
+    gb.add_prod_with_handler(lhs, special_rhs.clone(), move |s, partial, _| {
+        let scope = match s.cur_scope_mut() {
+            Some(x) => x,
+            None => return false,
+        };
+        let local_id = scope.fresh_local(partial.subst.subst(v_ty));
+        partial.specials.push(Rc::new(move |_| format!("x{}", local_id)));
+        true
+    });
+
+    // choose_local[T]: expands to the name of a local of type `T`.  Specifically, this looks for a
+    // local whose type unifies with `T`, so it works even if `T` or the local's type is
+    // underconstrained.  
+    let (lhs, vars) = gb.mk_lhs_with_args("choose_local", 1);
+    let v_ty = vars[0];
+    gb.add_prod_family(
+        lhs,
+        special_rhs.clone(),
+        move |s| s.count_locals(),
+        move |s, partial, index| {
+            let local_ty_var = s.get_local(index).unwrap();
+            let arg_ty_var = partial.subst.subst(v_ty);
+            if !s.unify.unify_vars(local_ty_var, arg_ty_var) {
+                return false;
+            }
+            // Success - the var at `index` has the requested type.  Expand to its name.
+            partial.specials.push(Rc::new(move |_| format!("x{}", index)));
+            true
+        },
+    );
+
+    // push_scope: pushes a new scope for tracking locals, and expands to the empty string.  Any
+    // locals declared in the new scope will be discarded at the matching `pop_scope`.
+    let lhs = gb.mk_simple_lhs("push_scope");
+    gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |s, _, _| {
+        s.push_scope();
+        true
+    });
+
+    // pop_scope: pops the innermost scope, erasing any locals it contains, and expands to the
+    // empty string.  If there is no open scope, expansion fails.
+    let lhs = gb.mk_simple_lhs("pop_scope");
+    gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |s, _, _| {
+        s.pop_scope()
+    });
+}
+
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
@@ -619,6 +741,7 @@ fn main() {
     add_start_production(&mut gb);
     add_builtin_ctor_name(&mut gb);
     add_builtin_budget(&mut gb);
+    add_builtin_locals(&mut gb);
     gb.parse_grammar(&lines);
     let cx = gb.finish();
 

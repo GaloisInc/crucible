@@ -1,0 +1,6 @@
+// Locals' types are subject to unification.
+start ::= <<push_scope>><<decl>> -> <<use>>
+for[T] decl ::= <<fresh_local[T]>> <<fresh_local[Vec[T]]>> <<fresh_local[u8]>>
+// This never emits `x0, x0`, since the type `T` in the expansion of `decl`
+// can't be both `u8` and `Vec[u8]` at the same time.
+use ::= u8 <<choose_local[u8]>>, vec <<choose_local[Vec[u8]]>>

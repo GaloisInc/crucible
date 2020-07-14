@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use crate::{
-    Context, Production, ProductionHandler, Nonterminal, NonterminalId,
+    Context, Production, ProductionHandler, ProductionMultiplicity, Nonterminal, NonterminalId,
     NonterminalRef, Chunk, ExpState, PartialExpansion,
 };
 use crate::ty::{Ty, VarId};
@@ -41,7 +41,7 @@ impl GrammarBuilder {
     }
 
     pub fn add_prod(&mut self, lhs: ProductionLhs, rhs: ProductionRhs) -> usize {
-        self.add_prod_with_opt_handler(lhs, rhs, None)
+        self.add_prod_with_opt_callbacks(lhs, rhs, None, None)
     }
 
     pub fn add_prod_with_handler(
@@ -50,14 +50,35 @@ impl GrammarBuilder {
         rhs: ProductionRhs,
         handler: impl Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool + 'static,
     ) -> usize {
-        self.add_prod_with_opt_handler(lhs, rhs, Some(ProductionHandler(Box::new(handler))))
+        self.add_prod_with_opt_callbacks(
+            lhs,
+            rhs,
+            Some(ProductionHandler(Box::new(handler))),
+            None,
+        )
     }
 
-    pub fn add_prod_with_opt_handler(
+    pub fn add_prod_family(
+        &mut self,
+        lhs: ProductionLhs,
+        rhs: ProductionRhs,
+        multiplicity: impl Fn(&ExpState) -> usize + 'static,
+        handler: impl Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool + 'static,
+    ) -> usize {
+        self.add_prod_with_opt_callbacks(
+            lhs,
+            rhs,
+            Some(ProductionHandler(Box::new(handler))),
+            Some(ProductionMultiplicity(Box::new(multiplicity))),
+        )
+    }
+
+    pub fn add_prod_with_opt_callbacks(
         &mut self,
         lhs: ProductionLhs,
         rhs: ProductionRhs,
         handler: Option<ProductionHandler>,
+        multiplicity: Option<ProductionMultiplicity>,
     ) -> usize {
         let ProductionLhs { vars, nt } = lhs;
         let ProductionRhs { chunks, nts } = rhs;
@@ -69,7 +90,7 @@ impl GrammarBuilder {
             chunks,
             nts,
             handler,
-            multiplicity: None,
+            multiplicity,
         });
         self.nts[nt.id].productions.push(id);
         id

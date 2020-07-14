@@ -1,0 +1,3 @@
+// `fresh_local` should fail to expand if `push_scope` isn't called first.
+start ::= A <<push_scope>> <<fresh_local[A]>>
+start ::= B <<fresh_local[A]>>

@@ -1,0 +1,3 @@
+// `pop_scope` removes the inner scope's locals from consideration.
+start ::= <<push_scope>><<fresh_local[A]>> <<inner>> -> <<choose_local[A]>>
+inner ::= (<<push_scope>><<fresh_local[A]>> -> <<choose_local[A]>><<pop_scope>>)
