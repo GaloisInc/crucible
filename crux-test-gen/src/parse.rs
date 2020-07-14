@@ -27,7 +27,7 @@ impl GrammarBuilder {
         &mut self,
         s: &'s str,
     ) -> (ProductionLhs, HashMap<&'s str, VarId>) {
-        let parsed = Parser::from_str(s).parse_lhs().unwrap();
+        let parsed = Parser::from_str(s).parse_lhs_exact().unwrap();
         let vars_map = make_vars_table(&parsed.vars);
         let lhs = ProductionLhs {
             vars: parsed.vars.into_iter().map(|s| self.intern_text(s)).collect(),
@@ -44,7 +44,7 @@ impl GrammarBuilder {
         s: &str,
         vars_map: &HashMap<&str, VarId>,
     ) -> (NonterminalRef, Order) {
-        let parsed = Parser::from_str(s).parse_nt(true).unwrap();
+        let parsed = Parser::from_str(s).parse_nt_exact(true).unwrap();
         let nt = NonterminalRef {
             id: self.nt_id(&parsed.name),
             args: parsed.args.into_iter().map(|p| self.build_ty(p, &vars_map)).collect(),
@@ -393,6 +393,14 @@ impl<'s> Parser<'s> {
         }
     }
 
+    pub fn expect_eof(&self) -> PResult<()> {
+        if self.eof() {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
     pub fn parse_ty_list(&mut self) -> PResult<Vec<ParsedTy<'s>>> {
         let mut tys = Vec::new();
         if self.eat(Token::Open) {
@@ -429,6 +437,12 @@ impl<'s> Parser<'s> {
         Ok(ParsedNt { name, args, order })
     }
 
+    pub fn parse_nt_exact(&mut self, accept_order: bool) -> PResult<ParsedNt<'s>> {
+        let x = self.parse_nt(accept_order)?;
+        self.expect_eof()?;
+        Ok(x)
+    }
+
     pub fn parse_lhs(&mut self) -> PResult<ParsedLhs<'s>> {
         let mut vars = Vec::new();
         if self.eat_word("for") {
@@ -445,6 +459,12 @@ impl<'s> Parser<'s> {
 
         let nt = self.parse_nt(false)?;
         Ok(ParsedLhs { vars, nt })
+    }
+
+    pub fn parse_lhs_exact(&mut self) -> PResult<ParsedLhs<'s>> {
+        let x = self.parse_lhs()?;
+        self.expect_eof()?;
+        Ok(x)
     }
 }
 
