@@ -51,7 +51,7 @@ impl GrammarBuilder {
         &mut self,
         lhs: ProductionLhs,
         rhs: ProductionRhs,
-        handler: impl Fn(&mut ExpState, &mut PartialExpansion) -> bool + 'static,
+        handler: impl Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool + 'static,
     ) -> usize {
         self.add_prod_with_opt_handler(lhs, rhs, Some(ProductionHandler(Box::new(handler))))
     }
@@ -72,6 +72,7 @@ impl GrammarBuilder {
             chunks,
             nts,
             handler,
+            multiplicity: None,
         });
         self.nts[nt.id].productions.push(id);
         id

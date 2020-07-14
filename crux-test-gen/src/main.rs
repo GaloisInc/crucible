@@ -24,11 +24,38 @@ pub struct NonterminalRef {
     args: Box<[Ty]>,
 }
 
-struct ProductionHandler(Box<dyn Fn(&mut ExpState, &mut PartialExpansion) -> bool>);
+/// The implementation of a "magic" built-in production.  The callback can manipulate the
+/// surrounding expansion state (for example, to adjust the current budget values) and the
+/// expansion of the current production (for example, to provide a callback for use in rendering
+/// `Chunk::Special`s).  The third argument is the instance index, used for families of built-in
+/// productions.  (If this is a single production and not a family - in other words, if
+/// `multiplicity` is not defined - then the index is always zero.)  The callback should return
+/// `true` to indicate success, or `false` for failure (in which case the current expansion will be
+/// aborted, and control will resume from the next alternative `Continuation`).
+///
+/// If the callback returns false, it must also leave the `ExpState` unchanged.  The caller may try
+/// a different production if this one fails, and the callback must leave no visible side effects
+/// in that case.
+struct ProductionHandler(Box<dyn Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool>);
+
+/// Compute the number of instances in this builtin production family.
+///
+/// Most builtins define of a single nonterminal along with one or more productions (usually
+/// exactly one, in fact) for expanding that nonterminal.  However, for some builtins, the number
+/// of ways to expand the builtin nonterminal is not known in advance.  For example, the
+/// `choose_local` builtin expands to any of the variables in scope, so the number of possible
+/// expansions depends on the available variables.
+struct ProductionMultiplicity(Box<dyn Fn(&ExpState) -> usize>);
 
 impl fmt::Debug for ProductionHandler {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "ProductionHandler(..)")
+    }
+}
+
+impl fmt::Debug for ProductionMultiplicity {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "ProductionMultiplicity(..)")
     }
 }
 
@@ -43,6 +70,7 @@ pub struct Production {
     chunks: Vec<Chunk>,
     nts: Vec<NonterminalRef>,
     handler: Option<ProductionHandler>,
+    multiplicity: Option<ProductionMultiplicity>,
 }
 
 #[derive(Debug, Default)]
@@ -111,7 +139,12 @@ enum ContinuationKind {
         alternatives: Vec<ProductionId>,
         next: usize,
     },
-    // TODO: more variants
+    /// Continue with the next instance of a single family of productions.
+    Family {
+        production: ProductionId,
+        multiplicity: usize,
+        next: usize,
+    },
 }
 
 #[derive(Clone)]
@@ -209,6 +242,7 @@ impl ExpState {
         &mut self,
         cx: &Context,
         production: ProductionId,
+        index: Option<usize>,
     ) -> bool {
         let mut pe = PartialExpansion::new(cx, &mut self.unify, production);
 
@@ -227,9 +261,19 @@ impl ExpState {
             assert!(cx.productions[production].args.len() == 0);
         }
 
+        // Sanity check.  This will fail if a nonterminal has multiple productions and at least one
+        // is a production family.
+        assert!(cx.productions[production].multiplicity.is_some() == index.is_some());
+
         if let Some(ref handler) = cx.productions[production].handler {
-            let ok = (*handler.0)(self, &mut pe);
+            let ok = (*handler.0)(self, &mut pe, index.unwrap_or(0));
             if !ok {
+                // FIXME: If the handler fails after unification has already happened, we need to
+                // roll back the unification state.  Otherwise, this production could have visible
+                // side effects, even if it logically was never applied.  Currently, this doesn't
+                // cause us any problems, because all of the builtin productions use patterns that
+                // are linear and fully general, meaning they never unify a pre-existing variable
+                // with another pre-existing variable or any concrete type.
                 return false;
             }
         }
@@ -277,12 +321,27 @@ impl ExpState {
             // then immediately resume the continuation to continue with the current expansion.
             let mut cont = if alts.len() == 1 {
                 let prod = alts[0];
+                let multiplicity = cx.productions[prod].multiplicity.as_ref()
+                    .map(|f| (f.0)(&st));
+
                 // Shortcut: if there's exactly one option, we simply apply it.  This avoids a
                 // clone inside `Continuation::resume`.
-                if st.apply_production(cx, prod) {
-                    continue;
-                } else {
-                    return (ExpResult::Abort, continuations);
+                if multiplicity.is_none() || multiplicity == Some(1) {
+                    let index = multiplicity.map(|_| 0);
+                    if st.apply_production(cx, prod, index) {
+                        continue;
+                    } else {
+                        return (ExpResult::Abort, continuations);
+                    }
+                }
+
+                Continuation {
+                    state: st,
+                    kind: ContinuationKind::Family {
+                        production: prod,
+                        multiplicity: multiplicity.unwrap(),
+                        next: 0,
+                    },
                 }
             } else {
                 // Note this handles the `alts.len() == 0` case.  Since `next == len == 0` from the
@@ -326,12 +385,28 @@ impl Continuation {
 
                 let mut st = self.state.clone();
                 for (i, &alt) in alternatives.iter().enumerate().skip(*next) {
-                    if st.apply_production(cx, alt) {
+                    if st.apply_production(cx, alt, None) {
                         *next = i + 1;
                         return Some(st);
                     }
                 }
                 *next = alternatives.len();
+                None
+            },
+
+            ContinuationKind::Family { production, multiplicity, ref mut next } => {
+                if *next >= multiplicity {
+                    return None;
+                }
+
+                let mut st = self.state.clone();
+                for i in *next .. multiplicity {
+                    if st.apply_production(cx, production, Some(i)) {
+                        *next = i + 1;
+                        return Some(st);
+                    }
+                }
+                *next = multiplicity;
                 None
             },
         }
@@ -422,6 +497,10 @@ fn add_start_production(gb: &mut GrammarBuilder) {
     assert_eq!(start_prod_id, 0);
 }
 
+// NB: Currently, builtin production LHSs should only use a sequence of distinct variables as their
+// patterns.  Variables should not repeat, and no pattern should include a concrete type
+// constructor.  See the FIXME in `apply_production` for more info.
+
 fn add_builtin_ctor_name(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("ctor_name", 1);
     let var = vars[0];
@@ -429,7 +508,7 @@ fn add_builtin_ctor_name(gb: &mut GrammarBuilder) {
         chunks: vec![Chunk::Special(0)],
         nts: vec![],
     };
-    gb.add_prod_with_handler(lhs, rhs, move |_, partial| {
+    gb.add_prod_with_handler(lhs, rhs, move |_, partial, _| {
         let var = partial.subst.subst(var);
         partial.specials.push(Rc::new(move |unify| {
             if let Some(name) = unify.resolve_ctor(var) {
@@ -479,7 +558,7 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("set_budget", 2);
     let v_name = vars[0];
     let v_amount = vars[1];
-    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial| {
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial, _| {
         let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
             Ok(x) => x,
             Err(e) => {
@@ -495,7 +574,7 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("add_budget", 2);
     let v_name = vars[0];
     let v_amount = vars[1];
-    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial| {
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial, _| {
         let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
             Ok(x) => x,
             Err(e) => {
@@ -512,7 +591,7 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("take_budget", 2);
     let v_name = vars[0];
     let v_amount = vars[1];
-    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial| {
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial, _| {
         let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
             Ok(x) => x,
             Err(e) => {
