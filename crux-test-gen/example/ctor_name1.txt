@@ -1,1 +1,3 @@
 start ::= <<ctor_name[T]>>
+
+// output: T

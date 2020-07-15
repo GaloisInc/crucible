@@ -7,3 +7,5 @@ D ::= D<<take_budget[D, 1]>>
 // This actually just tests the implementation of A/B/C/D.  Ordering is tested
 // later.
 start ::= <<A>><<B>><<C>><<D>>
+
+// output: ABCD

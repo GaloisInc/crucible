@@ -10,3 +10,6 @@ for[T] test ::= <<one[T]>>, <<two[T]>>
 for[T] one[T] ::= resolved <<ctor_name[T]>>
 two[X] ::= chose X
 two[Y] ::= chose Y
+
+// output 0: dummy resolved X, chose X
+// output 1: dummy resolved Y, chose Y

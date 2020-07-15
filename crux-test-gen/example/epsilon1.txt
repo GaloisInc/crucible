@@ -17,3 +17,35 @@ X ::=
 X ::=
     two
     two
+
+// output 0: {
+// output 0:     one
+// output 0:     one
+// output 0:     one
+// output 0:     one
+// output 0: }
+// output 0: 
+
+// output 1: {
+// output 1:     one
+// output 1:     one
+// output 1:     two
+// output 1:     two
+// output 1: }
+// output 1: 
+
+// output 2: {
+// output 2:     two
+// output 2:     two
+// output 2:     one
+// output 2:     one
+// output 2: }
+// output 2: 
+
+// output 3: {
+// output 3:     two
+// output 3:     two
+// output 3:     two
+// output 3:     two
+// output 3: }
+// output 3: 

@@ -1,2 +1,4 @@
 // Declare two locals, which should get distinct names.
 start ::= <<push_scope>><<fresh_local[A]>> <<fresh_local[B]>>
+
+// output: x0 x1

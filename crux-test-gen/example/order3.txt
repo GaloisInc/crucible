@@ -6,3 +6,5 @@ D ::= D<<take_budget[D, 1]>>
 
 // Multiple early nonterminals are expanded in source order.
 start ::= <<C>><<^A>><<D>><<^B>>
+
+// output: CADB

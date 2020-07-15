@@ -5,3 +5,5 @@ for[T] x ::= <<take_budget[T,1]>><<choose[T]>>
 
 choose[A] ::= A
 choose[B] ::= B
+
+// no outputs

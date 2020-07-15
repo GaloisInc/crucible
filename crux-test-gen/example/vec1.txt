@@ -16,3 +16,172 @@ expr[u8] ::= 1
 
 for[T] stmt ::=
     <<expr[Vec[T]]>>.push(<<expr[T]>>);
+
+
+// output 0: fn test() {
+// output 0:     let mut v: Vec<u8> = Vec::new();
+// output 0:     v.push(0);
+// output 0:     v.push(0);
+// output 0: }
+
+// output 1: fn test() {
+// output 1:     let mut v: Vec<u8> = Vec::new();
+// output 1:     v.push(0);
+// output 1:     v.push(1);
+// output 1: }
+
+// output 2: fn test() {
+// output 2:     let mut v: Vec<u8> = Vec::new();
+// output 2:     v.push(1);
+// output 2:     v.push(0);
+// output 2: }
+
+// output 3: fn test() {
+// output 3:     let mut v: Vec<u8> = Vec::new();
+// output 3:     v.push(1);
+// output 3:     v.push(1);
+// output 3: }
+
+// output 4: fn test() {
+// output 4:     let mut v: Vec<u8> = vec![0];
+// output 4:     v.push(0);
+// output 4:     v.push(0);
+// output 4: }
+
+// output 5: fn test() {
+// output 5:     let mut v: Vec<u8> = vec![0];
+// output 5:     v.push(0);
+// output 5:     v.push(1);
+// output 5: }
+
+// output 6: fn test() {
+// output 6:     let mut v: Vec<u8> = vec![0];
+// output 6:     v.push(1);
+// output 6:     v.push(0);
+// output 6: }
+
+// output 7: fn test() {
+// output 7:     let mut v: Vec<u8> = vec![0];
+// output 7:     v.push(1);
+// output 7:     v.push(1);
+// output 7: }
+
+// output 8: fn test() {
+// output 8:     let mut v: Vec<u8> = vec![1];
+// output 8:     v.push(0);
+// output 8:     v.push(0);
+// output 8: }
+
+// output 9: fn test() {
+// output 9:     let mut v: Vec<u8> = vec![1];
+// output 9:     v.push(0);
+// output 9:     v.push(1);
+// output 9: }
+
+// output 10: fn test() {
+// output 10:     let mut v: Vec<u8> = vec![1];
+// output 10:     v.push(1);
+// output 10:     v.push(0);
+// output 10: }
+
+// output 11: fn test() {
+// output 11:     let mut v: Vec<u8> = vec![1];
+// output 11:     v.push(1);
+// output 11:     v.push(1);
+// output 11: }
+
+// output 12: fn test() {
+// output 12:     let mut v: Vec<u8> = vec![0, 0];
+// output 12:     v.push(0);
+// output 12:     v.push(0);
+// output 12: }
+
+// output 13: fn test() {
+// output 13:     let mut v: Vec<u8> = vec![0, 0];
+// output 13:     v.push(0);
+// output 13:     v.push(1);
+// output 13: }
+
+// output 14: fn test() {
+// output 14:     let mut v: Vec<u8> = vec![0, 0];
+// output 14:     v.push(1);
+// output 14:     v.push(0);
+// output 14: }
+
+// output 15: fn test() {
+// output 15:     let mut v: Vec<u8> = vec![0, 0];
+// output 15:     v.push(1);
+// output 15:     v.push(1);
+// output 15: }
+
+// output 16: fn test() {
+// output 16:     let mut v: Vec<u8> = vec![0, 1];
+// output 16:     v.push(0);
+// output 16:     v.push(0);
+// output 16: }
+
+// output 17: fn test() {
+// output 17:     let mut v: Vec<u8> = vec![0, 1];
+// output 17:     v.push(0);
+// output 17:     v.push(1);
+// output 17: }
+
+// output 18: fn test() {
+// output 18:     let mut v: Vec<u8> = vec![0, 1];
+// output 18:     v.push(1);
+// output 18:     v.push(0);
+// output 18: }
+
+// output 19: fn test() {
+// output 19:     let mut v: Vec<u8> = vec![0, 1];
+// output 19:     v.push(1);
+// output 19:     v.push(1);
+// output 19: }
+
+// output 20: fn test() {
+// output 20:     let mut v: Vec<u8> = vec![1, 0];
+// output 20:     v.push(0);
+// output 20:     v.push(0);
+// output 20: }
+
+// output 21: fn test() {
+// output 21:     let mut v: Vec<u8> = vec![1, 0];
+// output 21:     v.push(0);
+// output 21:     v.push(1);
+// output 21: }
+
+// output 22: fn test() {
+// output 22:     let mut v: Vec<u8> = vec![1, 0];
+// output 22:     v.push(1);
+// output 22:     v.push(0);
+// output 22: }
+
+// output 23: fn test() {
+// output 23:     let mut v: Vec<u8> = vec![1, 0];
+// output 23:     v.push(1);
+// output 23:     v.push(1);
+// output 23: }
+
+// output 24: fn test() {
+// output 24:     let mut v: Vec<u8> = vec![1, 1];
+// output 24:     v.push(0);
+// output 24:     v.push(0);
+// output 24: }
+
+// output 25: fn test() {
+// output 25:     let mut v: Vec<u8> = vec![1, 1];
+// output 25:     v.push(0);
+// output 25:     v.push(1);
+// output 25: }
+
+// output 26: fn test() {
+// output 26:     let mut v: Vec<u8> = vec![1, 1];
+// output 26:     v.push(1);
+// output 26:     v.push(0);
+// output 26: }
+
+// output 27: fn test() {
+// output 27:     let mut v: Vec<u8> = vec![1, 1];
+// output 27:     v.push(1);
+// output 27:     v.push(1);
+// output 27: }

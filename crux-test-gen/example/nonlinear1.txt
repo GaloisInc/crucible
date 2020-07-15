@@ -5,3 +5,6 @@ for[T, U] x[T, U] ::= diff[<<y[T]>>, <<y[U]>>]
 
 y[A] ::= A
 y[B] ::= B
+
+// output 0: same[A] diff[A, B]
+// output 1: diff[A, A] diff[A, B]

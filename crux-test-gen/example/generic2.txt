@@ -3,3 +3,8 @@ start ::= <<x[A]>> <<x[B]>>
 x[A] ::= a
 x[B] ::= b
 for[T] x[T] ::= c
+
+// output 0: a b
+// output 1: a c
+// output 2: c b
+// output 3: c c

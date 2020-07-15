@@ -1,3 +1,5 @@
 // `pop_scope` should fail to expand if `push_scope` isn't called first.
 start ::= A <<push_scope>> <<pop_scope>>
 start ::= B <<pop_scope>>
+
+// output: A  

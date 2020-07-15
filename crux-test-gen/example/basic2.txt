@@ -4,3 +4,15 @@ start ::=
 
 X ::= a
 X ::= b
+
+// output 0: a
+// output 0: a
+
+// output 1: a
+// output 1: b
+
+// output 2: b
+// output 2: a
+
+// output 3: b
+// output 3: b
