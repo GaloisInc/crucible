@@ -7,8 +7,10 @@ use crate::{
 use crate::ty::{Ty, VarId};
 
 
+// TODO: Shouldn't need `pub(crate)` here, but rustc wrongly thinks these types are leaked.
+
 #[derive(Default)]
-pub struct GrammarBuilder {
+pub(crate) struct GrammarBuilder {
     prods: Vec<Production>,
     nts: Vec<Nonterminal>,
 
@@ -17,13 +19,13 @@ pub struct GrammarBuilder {
 }
 
 #[derive(Clone)]
-pub struct ProductionLhs {
+pub(crate) struct ProductionLhs {
     pub vars: Vec<Rc<str>>,
     pub nt: NonterminalRef,
 }
 
 #[derive(Clone, Default)]
-pub struct ProductionRhs {
+pub(crate) struct ProductionRhs {
     pub chunks: Vec<Chunk>,
     pub nts: Vec<NonterminalRef>,
 }

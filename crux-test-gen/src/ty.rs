@@ -304,15 +304,6 @@ mod test {
         };
     }
 
-    macro_rules! unify {
-        ($u:expr, ($s1:expr, $s2:expr), $a:expr, $b:expr) => {
-            $u.unify($s1.clone().and(&$a), $s2.clone().and(&$b))
-        };
-        ($u:expr, $s:expr, $a:expr, $b:expr) => {
-            $u.unify($s.clone().and(&$a), $s.clone().and(&$b))
-        };
-    }
-
     #[test]
     fn basic() {
         let mut u = UnifyState::new();
