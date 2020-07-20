@@ -752,6 +752,17 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
     });
 }
 
+fn add_builtin_counter(gb: &mut GrammarBuilder) {
+    let special_rhs = ProductionRhs { chunks: vec![Chunk::Special(0)], nts: vec![] };
+
+    // expansion_counter: Expands to an integer indicating the index of the current expansion.
+    let lhs = gb.mk_simple_lhs("expansion_counter");
+    gb.add_prod_with_handler(lhs, special_rhs, move |_, partial, _| {
+        partial.specials.push(Rc::new(move |rcx| format!("{}", rcx.counter)));
+        true
+    });
+}
+
 
 pub fn parse_grammar_from_str(src: &str) -> Context {
     let lines = src.lines().map(|l| l.trim_end()).collect::<Vec<_>>();
@@ -761,6 +772,7 @@ pub fn parse_grammar_from_str(src: &str) -> Context {
     add_builtin_ctor_name(&mut gb);
     add_builtin_budget(&mut gb);
     add_builtin_locals(&mut gb);
+    add_builtin_counter(&mut gb);
     gb.parse_grammar(&lines);
 
     gb.finish()

@@ -281,6 +281,11 @@ in the case where `T = int`.
  * `ctor_name[T]`: Expands to the topmost "type constructor name" of the
    argument `T`.  For example, `ctor_name[array[int]]` expands to `array`.
 
+ * `expansion_counter`: Expands to an integer indicating the index of the
+   current expansion.  That is, this expands to `0` in the first output, `1` in
+   the second output, and so on.  This is useful for assigning a unique name to
+   each generated test case.
+
 
 ## Expansion order
 
