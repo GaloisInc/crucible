@@ -5,7 +5,7 @@ use std::io::{self, Read, BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::str::FromStr;
 
-use crux_test_gen::{self, Continuation};
+use crux_test_gen::{self, BranchingState};
 
 /// Evaluate each grammar in `examples/*.txt`, checking that the actual output matches the expected
 /// output included in the grammar file.
@@ -141,10 +141,10 @@ fn run_one(path: &Path) -> io::Result<bool> {
 
     let cx = crux_test_gen::parse_grammar_from_str(&src);
 
-    let mut conts = vec![Continuation::new(0)];
+    let mut bcx = BranchingState::new(0);
     let mut actual_outputs = Vec::with_capacity(expected_outputs.len());
-    while let Some((exp, mut unify)) = crux_test_gen::expand_next(&cx, &mut conts) {
-        let mut out = crux_test_gen::render_expansion(&cx, &mut unify, &exp);
+    while let Some((exp, mut rcx)) = crux_test_gen::expand_next(&cx, &mut bcx) {
+        let mut out = crux_test_gen::render_expansion(&mut rcx, &exp);
         // Always include end-of-line, to match parsing of expected outputs.
         if out.len() > 0 && !out.ends_with("\n") {
             out.push('\n');

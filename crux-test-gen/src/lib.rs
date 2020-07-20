@@ -104,7 +104,7 @@ enum Chunk {
 pub struct Expansion {
     production: ProductionId,
     subexpansions: Box<[Expansion]>,
-    specials: Box<[Rc<dyn Fn(&mut ty::UnifyState) -> String>]>,
+    specials: Box<[Rc<dyn Fn(&mut RenderContext) -> String>]>,
 }
 
 #[derive(Clone)]
@@ -115,7 +115,7 @@ struct PartialExpansion {
     subst: Subst,
     num_nts: usize,
     subexpansions: Vec<Expansion>,
-    specials: Vec<Rc<dyn Fn(&mut ty::UnifyState) -> String>>,
+    specials: Vec<Rc<dyn Fn(&mut RenderContext) -> String>>,
 }
 
 #[derive(Clone)]
@@ -126,10 +126,22 @@ struct ExpState {
     scopes: Vec<Scope>,
 }
 
-#[derive(Clone)]
 /// Represents alternatives not taken during expansion of the grammar.  Can be
 /// resumed into a new `ExpState` to generate the next alternative.
-pub struct Continuation {
+#[derive(Clone)]
+pub struct BranchingState {
+    continuations: Vec<Continuation>,
+    expansion_counter: usize,
+}
+
+pub struct RenderContext<'a> {
+    pub cx: &'a Context,
+    pub unify: UnifyState,
+    pub counter: usize,
+}
+
+#[derive(Clone)]
+struct Continuation {
     state: ExpState,
     kind: ContinuationKind,
 }
@@ -428,7 +440,7 @@ impl ExpState {
 }
 
 impl Continuation {
-    pub fn new(production: ProductionId) -> Continuation {
+    fn new(production: ProductionId) -> Continuation {
         Continuation {
             state: ExpState::new(),
             kind: ContinuationKind::Alts {
@@ -475,29 +487,49 @@ impl Continuation {
     }
 }
 
-pub fn expand_next(
-    cx: &Context,
-    continuations: &mut Vec<Continuation>,
-) -> Option<(Expansion, UnifyState)> {
-    while let Some(cont) = continuations.last_mut() {
+impl BranchingState {
+    pub fn new(production: ProductionId) -> BranchingState {
+        BranchingState {
+            continuations: vec![Continuation::new(production)],
+            expansion_counter: 0,
+        }
+    }
+
+    fn next_counter(&mut self) -> usize {
+        let x = self.expansion_counter;
+        self.expansion_counter += 1;
+        x
+    }
+}
+
+
+pub fn expand_next<'a>(
+    cx: &'a Context,
+    branching: &mut BranchingState,
+) -> Option<(Expansion, RenderContext<'a>)> {
+    while let Some(cont) = branching.continuations.last_mut() {
         if let Some(state) = cont.resume(cx) {
             let (result, new_continuations) = state.expand(cx);
-            continuations.extend(new_continuations);
+            branching.continuations.extend(new_continuations);
             match result {
-                ExpResult::Done(exp, unify) => return Some((exp, unify)),
+                ExpResult::Done(exp, unify) => {
+                    let counter = branching.next_counter();
+                    let rcx = RenderContext { cx, unify, counter };
+                    return Some((exp, rcx));
+                },
                 ExpResult::Abort => {},
             }
         } else {
-            continuations.pop();
+            branching.continuations.pop();
         }
     }
     None
 }
 
 
-pub fn render_expansion(cx: &Context, unify: &mut UnifyState, exp: &Expansion) -> String {
+pub fn render_expansion(rcx: &mut RenderContext, exp: &Expansion) -> String {
     let mut stack: Vec<(&Chunk, &Expansion)> = Vec::new();
-    for chunk in cx.productions[exp.production].chunks.iter().rev() {
+    for chunk in rcx.cx.productions[exp.production].chunks.iter().rev() {
         stack.push((chunk, exp));
     }
 
@@ -530,12 +562,12 @@ pub fn render_expansion(cx: &Context, unify: &mut UnifyState, exp: &Expansion) -
             },
             Chunk::Nt(idx) => {
                 let subexp = &exp.subexpansions[idx];
-                for subchunk in cx.productions[subexp.production].chunks.iter().rev() {
+                for subchunk in rcx.cx.productions[subexp.production].chunks.iter().rev() {
                     stack.push((subchunk, subexp));
                 }
             },
             Chunk::Special(idx) => {
-                output.push_str(&(exp.specials[idx])(unify));
+                output.push_str(&(exp.specials[idx])(rcx));
             },
         }
     }
@@ -570,8 +602,8 @@ fn add_builtin_ctor_name(gb: &mut GrammarBuilder) {
     };
     gb.add_prod_with_handler(lhs, rhs, move |_, partial, _| {
         let var = partial.subst.subst(var);
-        partial.specials.push(Rc::new(move |unify| {
-            if let Some(name) = unify.resolve_ctor(var) {
+        partial.specials.push(Rc::new(move |rcx| {
+            if let Some(name) = rcx.unify.resolve_ctor(var) {
                 name.to_string()
             } else {
                 format!("[unconstrained {:?}]", var)

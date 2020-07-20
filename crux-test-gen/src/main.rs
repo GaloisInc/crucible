@@ -1,7 +1,7 @@
 use std::env;
 use std::process;
 
-use crux_test_gen::{self, Continuation};
+use crux_test_gen::{self, BranchingState};
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
@@ -12,8 +12,8 @@ fn main() {
 
     let cx = crux_test_gen::parse_grammar_from_file(&args[1]).unwrap();
 
-    let mut conts = vec![Continuation::new(0)];
-    while let Some((exp, mut unify)) = crux_test_gen::expand_next(&cx, &mut conts) {
-        println!("{}", crux_test_gen::render_expansion(&cx, &mut unify, &exp));
+    let mut bcx = BranchingState::new(0);
+    while let Some((exp, mut rcx)) = crux_test_gen::expand_next(&cx, &mut bcx) {
+        println!("{}", crux_test_gen::render_expansion(&mut rcx, &exp));
     }
 }
