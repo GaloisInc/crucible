@@ -443,56 +443,56 @@ instance IsSymInterface sym => Show (MirReference sym tp) where
     show (MirReference root path) = "(MirReference " ++ show root ++ " " ++ show path ++ ")"
     show (MirReference_Integer tpr _) = "(MirReference_Integer " ++ show tpr ++ " _)"
 
-instance OrdSkel1 (MirReference sym) where
-    compareSkel1 (MirReference r1 p1) (MirReference r2 p2) =
-        compareSkel1 r1 r2 <> compareSkel2 p1 p2
-    compareSkel1 (MirReference _ _) _ = LT
-    compareSkel1 _ (MirReference _ _) = GT
-    compareSkel1 (MirReference_Integer tpr1 _) (MirReference_Integer tpr2 _) =
-        compareSkelF tpr1 tpr2
-
 instance OrdSkel (MirReference sym tp) where
-    compareSkel = compareSkel1
+    compareSkel = cmpRef
+      where
+        cmpRef :: MirReference sym tp1 -> MirReference sym tp2 -> Ordering
+        cmpRef (MirReference r1 p1) (MirReference r2 p2) =
+            cmpRoot r1 r2 <> cmpPath p1 p2
+        cmpRef (MirReference _ _) _ = LT
+        cmpRef _ (MirReference _ _) = GT
+        cmpRef (MirReference_Integer tpr1 _) (MirReference_Integer tpr2 _) =
+            compareSkelF tpr1 tpr2
 
-instance OrdSkel1 (MirReferenceRoot sym) where
-    compareSkel1 (RefCell_RefRoot rc1) (RefCell_RefRoot rc2) = compareSkelF rc1 rc2
-    compareSkel1 (RefCell_RefRoot _) _ = LT
-    compareSkel1 _ (RefCell_RefRoot _) = GT
-    compareSkel1 (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2) = compareSkelF gv1 gv2
-    compareSkel1 (GlobalVar_RefRoot _) _ = LT
-    compareSkel1 _ (GlobalVar_RefRoot _) = GT
-    compareSkel1 (Const_RefRoot tpr1 _) (Const_RefRoot tpr2 _) = compareSkelF tpr1 tpr2
+        cmpRoot :: MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 -> Ordering
+        cmpRoot (RefCell_RefRoot rc1) (RefCell_RefRoot rc2) = compareSkelF rc1 rc2
+        cmpRoot (RefCell_RefRoot _) _ = LT
+        cmpRoot _ (RefCell_RefRoot _) = GT
+        cmpRoot (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2) = compareSkelF gv1 gv2
+        cmpRoot (GlobalVar_RefRoot _) _ = LT
+        cmpRoot _ (GlobalVar_RefRoot _) = GT
+        cmpRoot (Const_RefRoot tpr1 _) (Const_RefRoot tpr2 _) = compareSkelF tpr1 tpr2
 
-instance OrdSkel2 (MirReferencePath sym) where
-    compareSkel2 Empty_RefPath Empty_RefPath = EQ
-    compareSkel2 Empty_RefPath _ = LT
-    compareSkel2 _ Empty_RefPath = GT
-    compareSkel2 (Any_RefPath tpr1 p1) (Any_RefPath tpr2 p2) =
-        compareSkelF tpr1 tpr2 <> compareSkel2 p1 p2
-    compareSkel2 (Any_RefPath _ _) _ = LT
-    compareSkel2 _ (Any_RefPath _ _) = GT
-    compareSkel2 (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2) =
-        compareSkelF2 ctx1 idx1 ctx2 idx2 <> compareSkel2 p1 p2
-    compareSkel2 (Field_RefPath _ _ _) _ = LT
-    compareSkel2 _ (Field_RefPath _ _ _) = GT
-    compareSkel2 (Variant_RefPath ctx1 p1 idx1) (Variant_RefPath ctx2 p2 idx2) =
-        compareSkelF2 ctx1 idx1 ctx2 idx2 <> compareSkel2 p1 p2
-    compareSkel2 (Variant_RefPath _ _ _) _ = LT
-    compareSkel2 _ (Variant_RefPath _ _ _) = GT
-    compareSkel2 (Index_RefPath tpr1 p1 _) (Index_RefPath tpr2 p2 _) =
-        compareSkelF tpr1 tpr2 <> compareSkel2 p1 p2
-    compareSkel2 (Index_RefPath _ _ _) _ = LT
-    compareSkel2 _ (Index_RefPath _ _ _) = GT
-    compareSkel2 (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2) =
-        compareSkelF tpr1 tpr2 <> compareSkel2 p1 p2
-    compareSkel2 (Just_RefPath _ _) _ = LT
-    compareSkel2 _ (Just_RefPath _ _) = GT
-    compareSkel2 (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr2 p2) =
-        compareSkelF tpr1 tpr2 <> compareSkel2 p1 p2
-    compareSkel2 (VectorAsMirVector_RefPath _ _) _ = LT
-    compareSkel2 _ (VectorAsMirVector_RefPath _ _) = GT
-    compareSkel2 (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2) =
-        compareSkelF tpr1 tpr2 <> compareSkel2 p1 p2
+        cmpPath :: MirReferencePath sym tp1 tp1' -> MirReferencePath sym tp2 tp2' -> Ordering
+        cmpPath Empty_RefPath Empty_RefPath = EQ
+        cmpPath Empty_RefPath _ = LT
+        cmpPath _ Empty_RefPath = GT
+        cmpPath (Any_RefPath tpr1 p1) (Any_RefPath tpr2 p2) =
+            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
+        cmpPath (Any_RefPath _ _) _ = LT
+        cmpPath _ (Any_RefPath _ _) = GT
+        cmpPath (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2) =
+            compareSkelF2 ctx1 idx1 ctx2 idx2 <> cmpPath p1 p2
+        cmpPath (Field_RefPath _ _ _) _ = LT
+        cmpPath _ (Field_RefPath _ _ _) = GT
+        cmpPath (Variant_RefPath ctx1 p1 idx1) (Variant_RefPath ctx2 p2 idx2) =
+            compareSkelF2 ctx1 idx1 ctx2 idx2 <> cmpPath p1 p2
+        cmpPath (Variant_RefPath _ _ _) _ = LT
+        cmpPath _ (Variant_RefPath _ _ _) = GT
+        cmpPath (Index_RefPath tpr1 p1 _) (Index_RefPath tpr2 p2 _) =
+            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
+        cmpPath (Index_RefPath _ _ _) _ = LT
+        cmpPath _ (Index_RefPath _ _ _) = GT
+        cmpPath (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2) =
+            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
+        cmpPath (Just_RefPath _ _) _ = LT
+        cmpPath _ (Just_RefPath _ _) = GT
+        cmpPath (VectorAsMirVector_RefPath tpr1 p1) (VectorAsMirVector_RefPath tpr2 p2) =
+            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
+        cmpPath (VectorAsMirVector_RefPath _ _) _ = LT
+        cmpPath _ (VectorAsMirVector_RefPath _ _) = GT
+        cmpPath (ArrayAsMirVector_RefPath tpr1 p1) (ArrayAsMirVector_RefPath tpr2 p2) =
+            compareSkelF tpr1 tpr2 <> cmpPath p1 p2
 
 refRootType :: MirReferenceRoot sym tp -> TypeRepr tp
 refRootType (RefCell_RefRoot r) = refType r

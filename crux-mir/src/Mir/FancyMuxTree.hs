@@ -143,12 +143,6 @@ newtype FancyMuxTree sym a = FancyMuxTree (Map (Skeleton a) (a, Pred sym))
 class OrdSkel t where
     compareSkel :: t -> t -> Ordering
 
-class OrdSkel1 (t :: k1 -> Type) where
-    compareSkel1 :: t a -> t a' -> Ordering
-
-class OrdSkel2 (t :: k1 -> k2 -> Type) where
-    compareSkel2 :: t a b -> t a' b' -> Ordering
-
 compareSkelF :: OrdF t => t a -> t a' -> Ordering
 compareSkelF x y = toOrdering $ compareF x y
 
