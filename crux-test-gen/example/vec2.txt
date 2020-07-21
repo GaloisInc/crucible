@@ -1,0 +1,51 @@
+start ::=
+    #[test]
+    fn test<<expansion_counter>>() {
+        <<push_scope>>
+        <<set_budget[stmts,3]>>
+        <<set_budget[lvalue,7]>>
+        <<set_budget[rvalue,5]>>
+        <<set_budget[temporary,0]>>
+        <<stmts>>
+        <<pop_scope>>
+    }
+
+stmts ::=
+stmts ::=
+    <<take_budget[stmts,1]>>
+    <<stmt>>
+    <<stmts>>
+
+for[T] stmt ::= let <<fresh_local[T]>> = <<^rvalue[T]>>;
+for[T] stmt ::=
+    <<push_scope>>
+    for <<fresh_local[T]>> in <<^lvalue[Vec[T]]>> {
+        <<stmts>>
+    }
+    <<pop_scope>>
+for[T] stmt ::=
+    <<push_scope>>
+    if let Some(<<fresh_local[T]>>) = <<^rvalue[Option[T]]>> {
+        <<stmts>>
+    }
+    <<pop_scope>>
+
+for[T] rvalue[T] ::= <<type_ok[T]>><<take_budget[rvalue,1]>><<rvalue_[T]>>
+for[T] rvalue_[T] ::= <<lvalue[T]>>
+for[T] rvalue_[Vec[T]] ::= Vec::new()
+for[T] rvalue_[Option[T]] ::= <<lvalue[Vec[T]]>>.pop()
+for[T] rvalue_[unit] ::= <<lvalue[Vec[T]]>>.push(<<rvalue[T]>>)
+rvalue_[i32] ::= i32::symbolic("x")
+
+for[T] lvalue[T] ::= <<take_budget[lvalue,1]>><<lvalue_[T]>>
+for[T] lvalue_[T] ::= <<take_budget[temporary,1]>><<rvalue[T]>>
+for[T] lvalue_[T] ::= <<choose_local[T]>>
+
+type_ok[unit] ::=
+type_ok[i32] ::=
+type_ok[Vec[i32]] ::=
+type_ok[Option[i32]] ::=
+type_ok[Vec[Vec[i32]]] ::=
+type_ok[Option[Vec[i32]]] ::=
+
+// skip test
