@@ -73,6 +73,7 @@ fn run_one(path: &Path) -> io::Result<bool> {
     let mut no_outputs: bool = false;
     let mut saw_indexed: bool = false;
     let mut saw_unindexed: bool = false;
+    let mut skip_test: bool = false;
 
     let mut f = BufReader::new(File::open(&path)?);
     for line in f.by_ref().lines() {
@@ -103,10 +104,15 @@ fn run_one(path: &Path) -> io::Result<bool> {
             }
         } else if line == "// no outputs" {
             no_outputs = true;
+        } else if line == "// skip test" {
+            skip_test = true;
         }
     }
 
     // Process the output specifications.
+    if skip_test {
+        return Ok(true);
+    }
     if no_outputs && (output_lines.len() > 0 || empty_outputs.len() > 0) {
         die!("{}: test declares `no outputs`, but has output lines", path.display());
     }
