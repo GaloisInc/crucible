@@ -96,6 +96,13 @@ enum Chunk {
     Indent(isize),
     /// Expand the nonterminal at the given index.
     Nt(usize),
+    /// Add a newline, if the current line is nonempty.
+    ///
+    /// In a multiline production, when a nonterminal appears on a line by itself, it's followed by
+    /// a `MagicNewline` instead of `Text("", true)`.  This avoids inserting a blank line when the
+    /// nonterminal expands to the empty string, allowing the user to set up scopes and budgets
+    /// using one command per line, without adding a bunch of unwanted blank lines to the output.
+    MagicNewline,
 
     Special(usize),
 }
@@ -539,11 +546,14 @@ pub fn render_expansion(rcx: &mut RenderContext, exp: &Expansion) -> String {
     while let Some((chunk, exp)) = stack.pop() {
         match *chunk {
             Chunk::Text(ref s, newline) => {
-                if start_of_line {
-                    output.push_str(&indent);
+                // Avoid indenting if `s` is empty.
+                if s.len() > 0 {
+                    if start_of_line {
+                        output.push_str(&indent);
+                    }
+                    start_of_line = false;
+                    output.push_str(s);
                 }
-                start_of_line = false;
-                output.push_str(s);
                 if newline {
                     output.push('\n');
                     start_of_line = true;
@@ -564,6 +574,12 @@ pub fn render_expansion(rcx: &mut RenderContext, exp: &Expansion) -> String {
                 let subexp = &exp.subexpansions[idx];
                 for subchunk in rcx.cx.productions[subexp.production].chunks.iter().rev() {
                     stack.push((subchunk, subexp));
+                }
+            },
+            Chunk::MagicNewline => {
+                if !start_of_line {
+                    output.push('\n');
+                    start_of_line = true;
                 }
             },
             Chunk::Special(idx) => {

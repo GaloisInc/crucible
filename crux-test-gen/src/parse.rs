@@ -171,7 +171,7 @@ impl GrammarBuilder {
                 prod.chunks.push(Chunk::Nt(nt_idx));
                 prod.nts.push(self.parse_nonterminal_ref(&caps[2], vars_map));
                 prod.chunks.push(Chunk::Indent(-indent_amount));
-                prod.chunks.push(Chunk::Text(self.intern_text(""), newline));
+                prod.chunks.push(Chunk::MagicNewline);
             } else {
                 self.parse_line(&mut prod, line, newline, vars_map);
             }
