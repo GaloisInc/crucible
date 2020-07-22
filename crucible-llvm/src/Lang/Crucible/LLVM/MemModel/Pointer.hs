@@ -110,7 +110,7 @@ type family LLVMPointerImpl sym ctx where
                                        'ShowType ctx)
 
 -- | A pointer with an existentially-quantified width
-data SomePointer sym = forall w. SomePointer !(LLVMPtr sym w)
+data SomePointer sym = forall w. (1 <= w) => SomePointer !(LLVMPtr sym w)
 
 instance (IsSymInterface sym) => IntrinsicClass sym "LLVM_pointer" where
   type Intrinsic sym "LLVM_pointer" ctx = LLVMPointerImpl sym ctx

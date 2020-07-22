@@ -40,6 +40,7 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , emptyChanges
   , emptyMem
   , memEndian
+  , memWritesSingleton
 
     -- * Pretty printing
   , ppType
@@ -48,9 +49,15 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , ppAllocs
   , ppMem
   , ppWrite
+
+    -- * Concretization
+  , concPtr
+  , concLLVMVal
+  , concMem
   ) where
 
 import           Control.Lens
+import           Data.Foldable
 import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import qualified Data.List.Extra as List
@@ -61,6 +68,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           Data.Parameterized.Ctx (SingleCtx)
 
 import           What4.Interface
+import           What4.Expr (GroundValue)
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment, EndianForm(..))
 import           Lang.Crucible.LLVM.MemModel.Pointer
@@ -79,7 +87,7 @@ data MemAlloc sym
      -- size or @Nothing@ representing an unbounded allocation. The 'Mutability'
      -- indicates whether the region is read-only. The 'String' contains source
      -- location information for use in error messages.
-   = forall w. Alloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
+   = forall w. (1 <= w) => Alloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
      -- | Freeing of the given block ID.
    | MemFree (SymNat sym)
      -- | The merger of two allocations.
@@ -102,7 +110,7 @@ data WriteSource sym w
 
 data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
-  = forall w. MemWrite (LLVMPtr sym w) (WriteSource sym w)
+  = forall w. (1 <= w) => MemWrite (LLVMPtr sym w) (WriteSource sym w)
     -- | The merger of two memories.
   | WriteMerge (Pred sym) (MemWrites sym) (MemWrites sym)
 
@@ -181,6 +189,30 @@ instance Semigroup (MemWrites sym) where
 
 instance Monoid (MemWrites sym) where
   mempty = MemWrites []
+
+
+memWritesSingleton ::
+  (IsExprBuilder sym, 1 <= w) =>
+  LLVMPtr sym w ->
+  WriteSource sym w ->
+  MemWrites sym
+memWritesSingleton ptr src
+  | Just blk <- asNat (llvmPointerBlock ptr)
+  , isIndexableSource src =
+    MemWrites
+      [ MemWritesChunkIndexed $
+          IntMap.singleton (fromIntegral blk) [MemWrite ptr src]
+      ]
+  | otherwise = MemWrites [MemWritesChunkFlat [MemWrite ptr src]]
+  where
+    isIndexableSource ::  WriteSource sym w -> Bool
+    isIndexableSource = \case
+      MemStore{} -> True
+      MemArrayStore{} -> True
+      MemSet{} -> True
+      MemInvalidate{} -> True
+      MemCopy{} -> False
+
 
 
 emptyChanges :: MemChanges sym
@@ -282,3 +314,145 @@ ppMemState f (BranchFrame _ _ d ms) = do
 
 ppMem :: IsExpr (SymExpr sym) => Mem sym -> Doc
 ppMem m = ppMemState ppMemChanges (m^.memState)
+
+
+------------------------------------------------------------------------------
+-- Concretization
+
+
+concBV ::
+  (IsExprBuilder sym, 1 <= w) =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  SymBV sym w -> IO (SymBV sym w)
+concBV sym conc bv =
+  do bv' <- conc bv
+     bvLit sym (bvWidth bv) bv'
+
+concPtr ::
+  (IsExprBuilder sym, 1 <= wptr) =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  LLVMPtr sym wptr -> IO (LLVMPtr sym wptr)
+concPtr sym conc (LLVMPointer blk off) =
+  LLVMPointer <$>
+     (natLit sym =<< conc blk) <*>
+     (concBV sym conc off)
+
+concAlloc ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemAlloc sym -> IO [MemAlloc sym]
+concAlloc sym conc (Alloc atp blk sz m a nm) =
+  do sz' <- traverse (concBV sym conc) sz
+     pure [Alloc atp blk sz' m a nm]
+concAlloc sym conc (MemFree blk) =
+  do blk' <- natLit sym =<< conc blk
+     pure [MemFree blk']
+concAlloc sym conc (AllocMerge p m1 m2) =
+  do b <- conc p
+     if b then (concat <$> mapM (concAlloc sym conc) m1)
+          else (concat <$> mapM (concAlloc sym conc) m2)
+
+concLLVMVal ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  LLVMVal sym -> IO (LLVMVal sym)
+concLLVMVal sym conc (LLVMValInt blk off) =
+  LLVMValInt <$> (natLit sym =<< conc blk) <*> (concBV sym conc off)
+concLLVMVal _sym _conc (LLVMValFloat fs fi) =
+  pure (LLVMValFloat fs fi) -- TODO concreteize floats
+concLLVMVal sym conc (LLVMValStruct fs) =
+  LLVMValStruct <$> traverse (\ (fi,v) -> (,) <$> pure fi <*> concLLVMVal sym conc v) fs
+concLLVMVal sym conc (LLVMValArray st vs) =
+  LLVMValArray st <$> traverse (concLLVMVal sym conc) vs
+concLLVMVal _ _ (LLVMValZero st) =
+  pure (LLVMValZero st)
+concLLVMVal _ _ (LLVMValUndef st) =
+  pure (LLVMValZero st) -- ??? does it make sense to turn Undef into Zero?
+
+
+concWriteSource ::
+  (IsExprBuilder sym, 1 <= w) =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  WriteSource sym w -> IO (WriteSource sym w)
+concWriteSource sym conc (MemCopy src len) =
+  MemCopy <$> (concPtr sym conc src) <*> (concBV sym conc len)
+concWriteSource sym conc (MemSet val len) =
+  MemSet <$> (concBV sym conc val) <*> (concBV sym conc len)
+concWriteSource sym conc (MemStore val st a) =
+  MemStore <$> concLLVMVal sym conc val <*> pure st <*> pure a
+
+concWriteSource _sym _conc (MemArrayStore arr Nothing) =
+  -- TODO, concretize the actual array
+  pure (MemArrayStore arr Nothing)
+concWriteSource sym conc (MemArrayStore arr (Just sz)) =
+  -- TODO, concretize the actual array
+  MemArrayStore arr . Just <$> concBV sym conc sz
+
+concWriteSource sym conc (MemInvalidate nm len) =
+  MemInvalidate nm <$> concBV sym conc len
+
+concMemWrite ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemWrite sym -> IO (MemWrites sym)
+concMemWrite sym conc (MemWrite ptr wsrc) =
+  do ptr' <- concPtr sym conc ptr
+     wsrc' <- concWriteSource sym conc wsrc
+     pure $ memWritesSingleton ptr' wsrc'
+concMemWrite sym conc (WriteMerge p m1 m2) =
+  do b <- conc p
+     if b then concMemWrites sym conc m1
+          else concMemWrites sym conc m2
+
+concMemWrites ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemWrites sym -> IO (MemWrites sym)
+concMemWrites sym conc (MemWrites cs) =
+  fold <$> mapM (concMemWritesChunk sym conc) cs
+
+concMemWritesChunk ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemWritesChunk sym -> IO (MemWrites sym)
+concMemWritesChunk sym conc (MemWritesChunkFlat ws) =
+  fold <$> mapM (concMemWrite sym conc) ws
+concMemWritesChunk sym conc (MemWritesChunkIndexed mp) =
+  fold <$> mapM (concMemWrite sym conc) (concat (IntMap.elems mp))
+
+concMemChanges ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemChanges sym -> IO (MemChanges sym)
+concMemChanges sym conc (as, ws) =
+  (,) <$> (concat <$> mapM (concAlloc sym conc) as) <*> concMemWrites sym conc ws
+
+
+concMemState ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemState sym -> IO (MemState sym)
+concMemState sym conc (EmptyMem a w chs) =
+  EmptyMem a w <$> concMemChanges sym conc chs
+concMemState sym conc (StackFrame a w frm stk) =
+  StackFrame a w <$> concMemChanges sym conc frm <*> concMemState sym conc stk
+concMemState sym conc (BranchFrame a w frm stk) =
+  BranchFrame a w <$> concMemChanges sym conc frm <*> concMemState sym conc stk
+
+concMem ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  Mem sym -> IO (Mem sym)
+concMem sym conc (Mem endian st) =
+  Mem endian <$> concMemState sym conc st

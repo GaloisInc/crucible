@@ -833,28 +833,6 @@ addMatchingWrite w v = ReadMem (modify (coerce ((w,v):)))
 
 --------------------------------------------------------------------------------
 
-memWritesSingleton ::
-  IsExprBuilder sym =>
-  LLVMPtr sym w ->
-  WriteSource sym w ->
-  MemWrites sym
-memWritesSingleton ptr src
-  | Just blk <- asNat (llvmPointerBlock ptr)
-  , isIndexableSource src =
-    MemWrites
-      [ MemWritesChunkIndexed $
-          IntMap.singleton (fromIntegral blk) [MemWrite ptr src]
-      ]
-  | otherwise = MemWrites [MemWritesChunkFlat [MemWrite ptr src]]
-  where
-    isIndexableSource ::  WriteSource sym w -> Bool
-    isIndexableSource = \case
-      MemStore{} -> True
-      MemArrayStore{} -> True
-      MemSet{} -> True
-      MemInvalidate{} -> True
-      MemCopy{} -> False
-
 memWritesSize :: MemWrites sym -> Int
 memWritesSize (MemWrites writes) = getSum $ foldMap
   (\case
@@ -961,7 +939,7 @@ memAddAlloc x = memState %~ \case
   BranchFrame ac wc (a, w) s -> BranchFrame (ac+1) wc (x:a, w) s
 
 memAddWrite ::
-  IsExprBuilder sym =>
+  (IsExprBuilder sym, 1 <= w) =>
   LLVMPtr sym w ->
   WriteSource sym w ->
   Mem sym ->
@@ -1375,7 +1353,8 @@ invalidateMem sym w ptr msg sz m =
      return (memAddWrite ptr (MemInvalidate msg sz) m, p)
 
 -- | Allocate a new empty memory region.
-allocMem :: AllocType -- ^ Type of allocation
+allocMem :: (1 <= w) =>
+            AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
          -> Maybe (SymBV sym w) -- ^ Size
          -> Alignment
@@ -1507,7 +1486,7 @@ mergeMem c x y =
 -- to the solver and get (overapproximate) concrete answers.
 
 data SomeAlloc sym =
-  forall w. SomeAlloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
+  forall w. (1 <= w) => SomeAlloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
 
 instance IsSymInterface sym => Eq (SomeAlloc sym) where
   SomeAlloc x_atp x_base x_sz x_mut x_alignment x_loc == SomeAlloc y_atp y_base y_sz y_mut y_alignment y_loc = do

@@ -55,6 +55,7 @@ import Lang.Crucible.LLVM.MemModel
         ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
         , explainCex, CexExplanation(..), pattern LLVMPointer
+        , ppMem, concMem
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
@@ -153,12 +154,15 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                        do ex <- explainCex sym evalFn >>= \f -> f (gl ^. labeledPred)
                           let ppBB (BBUndefinedBehavior ub) =
                                  pure (vcat [ UB.explain ub, UB.ppReg ub ])
-                              ppBB (BBMemoryError (LLVMPointer blk off) le) =
+                              ppBB (BBMemoryError (LLVMPointer blk off) mem le) =
                                  do blk' <- groundEval evalFn blk
                                     off' <- groundEval evalFn off
+                                    mem' <- concMem sym (groundEval evalFn) mem
                                     pure $ vcat
                                       [ ppMemoryError le
                                       , "Via pointer" <+> parens (text (show blk') <> ", " <> text (BV.ppHex (bvWidth off) off'))
+                                      , "In memory state:"
+                                      , indent 2 (ppMem mem')
                                       ]
                           details <- case ex of
                                 NoExplanation -> return "No detailed explanation"

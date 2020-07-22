@@ -171,6 +171,12 @@ module Lang.Crucible.LLVM.MemModel
   , HasPtrWidth
   , pattern PtrWidth
   , withPtrWidth
+
+    -- * Concretization
+  , ML.concPtr
+  , ML.concLLVMVal
+  , ML.concMem
+  , concMemImpl
   ) where
 
 import           Prelude hiding (seq)
@@ -205,6 +211,7 @@ import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
 import           What4.Interface
+import           What4.Expr( GroundValue )
 import           What4.InterpretedFloatingPoint
 
 import           Lang.Crucible.Backend
@@ -221,6 +228,7 @@ import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemType
+import qualified Lang.Crucible.LLVM.MemModel.MemLog as ML
 import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
@@ -303,11 +311,11 @@ assertStoreError ::
   sym ->
   LLVMPtr sym wptr ->
   G.Mem sym ->
-  StorageType -> 
+  StorageType ->
   MemoryError ->
   Pred sym ->
   IO ()
-assertStoreError sym ptr mem valTy le p = 
+assertStoreError sym ptr mem valTy le p =
   do p' <- Partial.annotateME sym ptr mem le p
      assert sym p' $ AssertFailureSimError "Memory store failed" ("Storing at type: " ++ show (G.ppType valTy))
 
@@ -1218,7 +1226,7 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> IO (MemImpl sym)
 storeConstRaw sym mem ptr valType alignment val = do
     (heap', p1, p2) <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    
+
     assertStoreError sym ptr (memImplHeap mem) valType UnwritableRegion p1
     assertStoreError sym ptr (memImplHeap mem) valType (UnalignedPointer alignment) p2
 
@@ -1603,7 +1611,7 @@ doResolveGlobal sym mem symbol@(L.Symbol name) =
 -- | Add an entry to the global map of the given 'MemImpl'.
 --
 -- This takes a list of symbols because there may be aliases to a global.
-registerGlobal :: MemImpl sym -> [L.Symbol] -> LLVMPtr sym wptr -> MemImpl sym
+registerGlobal :: (1 <= wptr) => MemImpl sym -> [L.Symbol] -> LLVMPtr sym wptr -> MemImpl sym
 registerGlobal (MemImpl blockSource gMap hMap mem) symbols ptr =
   let gMap' = foldr (\s m -> Map.insert s (SomePointer ptr) m) gMap symbols
   in MemImpl blockSource gMap' hMap mem
@@ -1629,3 +1637,22 @@ allocGlobal sym mem (g, aliases, sz, alignment) = do
   -- TODO: Aliases are not propagated to doMalloc for error messages
   (ptr, mem') <- doMalloc sym G.GlobalAlloc mut sym_str mem sz' alignment
   return (registerGlobal mem' (symbol:aliases) ptr)
+
+
+concSomePointer ::
+  IsSymInterface sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  SomePointer sym -> IO (SomePointer sym)
+concSomePointer sym conc (SomePointer ptr) =
+  SomePointer <$> ML.concPtr sym conc ptr
+
+concMemImpl ::
+  IsSymInterface sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemImpl sym -> IO (MemImpl sym)
+concMemImpl sym conc mem =
+  do heap' <- ML.concMem sym conc (memImplHeap mem)
+     gm'   <- traverse (concSomePointer sym conc) (memImplGlobalMap mem)
+     pure mem{ memImplHeap = heap', memImplGlobalMap = gm' }
