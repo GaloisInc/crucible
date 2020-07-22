@@ -52,6 +52,8 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   , PointerPair
   , pointerView
   , ppPointerPair
+
+  , concUB
   ) where
 
 import           Prelude
@@ -71,10 +73,12 @@ import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), T
 import qualified Data.Parameterized.TraversableF as TF
 
 import qualified What4.Interface as W4I
+import           What4.Expr (GroundValue)
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
+import           Lang.Crucible.LLVM.MemModel.MemLog (concBV)
 import           Lang.Crucible.LLVM.MemModel.Pointer (llvmPointerView)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
@@ -123,14 +127,14 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
 
   -- -------------------------------- Memory management
 
-  FreeBadOffset :: PointerPair e w
+  FreeBadOffset :: (1 <= w) => PointerPair e w
                 -> UndefinedBehavior e
 
-  FreeUnallocated :: PointerPair e w
+  FreeUnallocated :: (1 <= w) => PointerPair e w
                   -> UndefinedBehavior e
 
   -- | Arguments: Destination pointer, fill byte, length
-  MemsetInvalidRegion :: PointerPair e w
+  MemsetInvalidRegion :: (1 <= w, 1 <= v) => PointerPair e w
                       -> e (BVType 8)
                       -> e (BVType v)
                       -> UndefinedBehavior e
@@ -138,58 +142,58 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
   -- | Is this actually undefined? I (Langston) can't find anything about it
   --
   -- Arguments: Read destination, alignment
-  ReadBadAlignment :: PointerPair e w
+  ReadBadAlignment :: (1 <= w) => PointerPair e w
                    -> Alignment
                    -> UndefinedBehavior e
 
-  ReadUnallocated :: PointerPair e w
+  ReadUnallocated :: (1 <= w) => PointerPair e w
                   -> UndefinedBehavior e
 
   -- -------------------------------- Pointer arithmetic
 
-  PtrAddOffsetOutOfBounds :: PointerPair e w
+  PtrAddOffsetOutOfBounds :: (1 <= w) => PointerPair e w
                           -> e (BVType w)
                           -> UndefinedBehavior e
 
   -- | Arguments: kind of comparison, the invalid pointer, the other pointer
-  CompareInvalidPointer :: PtrComparisonOperator
+  CompareInvalidPointer :: (1 <= w) => PtrComparisonOperator
                         -> PointerPair e w
                         -> PointerPair e w
                         -> UndefinedBehavior e
 
   -- | "In all other cases, the behavior is undefined"
   -- TODO: 'PtrComparisonOperator' argument?
-  CompareDifferentAllocs :: PointerPair e w
+  CompareDifferentAllocs :: (1 <= w) => PointerPair e w
                          -> PointerPair e w
                          -> UndefinedBehavior e
 
   -- | "When two pointers are subtracted, both shall point to elements of the
   -- same array object"
-  PtrSubDifferentAllocs :: PointerPair e w
+  PtrSubDifferentAllocs :: (1 <= w) => PointerPair e w
                         -> PointerPair e w
                         -> UndefinedBehavior e
 
-  PointerCast :: PointerPair e w
+  PointerCast :: (1 <= w) => PointerPair e w
               -> StorageTypeF ()
               -> UndefinedBehavior e
 
   -- | "One of the following shall hold: [...] one operand is a pointer and the
   -- other is a null pointer constant."
-  ComparePointerToBV :: PointerPair e w
+  ComparePointerToBV :: (1 <= w) => PointerPair e w
                      -> e (BVType w)
                      -> UndefinedBehavior e
 
   -------------------------------- LLVM: arithmetic
 
   -- | @SymBV@ or @Expr _ _ (BVType w)@
-  UDivByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SDivByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  URemByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SRemByZero   :: e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SDivOverflow :: e (BVType w)
+  UDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  SDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  URemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  SRemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  SDivOverflow :: (1 <= w) => e (BVType w)
                -> e (BVType w)
                -> UndefinedBehavior e
-  SRemOverflow :: e (BVType w)
+  SRemOverflow :: (1 <= w) => e (BVType w)
                -> e (BVType w)
                -> UndefinedBehavior e
 
@@ -525,3 +529,61 @@ instance TraversableF UndefinedBehavior where
 
        ]
      ) subterms
+
+
+concPtrPair ::
+  (W4I.IsExprBuilder sym, 1 <= w) =>
+  sym ->
+  (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
+  PointerPair (RegValue' sym) w ->
+  IO (PointerPair (RegValue' sym) w)
+concPtrPair sym conc (RV blk,RV off) =
+  (,) <$> (RV <$> (W4I.natLit sym =<< conc blk)) <*> (RV <$> concBV sym conc off)
+
+concUB :: forall sym.
+  W4I.IsExprBuilder sym =>
+  sym ->
+  (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
+  UndefinedBehavior (RegValue' sym) -> IO (UndefinedBehavior (RegValue' sym))
+concUB sym conc ub =
+  let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))
+      bv (RV x) = RV <$> concBV sym conc x in
+  case ub of
+    FreeBadOffset ptr ->
+      FreeBadOffset <$> concPtrPair sym conc ptr
+    FreeUnallocated ptr ->
+      FreeUnallocated <$> concPtrPair sym conc ptr
+    MemsetInvalidRegion ptr val len ->
+      MemsetInvalidRegion <$> concPtrPair sym conc ptr <*> bv val <*> bv len
+    ReadBadAlignment ptr a ->
+      ReadBadAlignment <$> concPtrPair sym conc ptr <*> pure a
+    ReadUnallocated ptr ->
+      ReadUnallocated <$> concPtrPair sym conc ptr
+
+    PtrAddOffsetOutOfBounds ptr off ->
+      PtrAddOffsetOutOfBounds <$> concPtrPair sym conc ptr <*> bv off
+    CompareInvalidPointer op p1 p2 ->
+      CompareInvalidPointer op <$> concPtrPair sym conc p1 <*> concPtrPair sym conc p2
+    CompareDifferentAllocs p1 p2 ->
+      CompareDifferentAllocs <$> concPtrPair sym conc p1 <*> concPtrPair sym conc p2
+    PtrSubDifferentAllocs p1 p2 ->
+      PtrSubDifferentAllocs <$> concPtrPair sym conc p1 <*> concPtrPair sym conc p2
+    PointerCast ptr tp ->
+      PointerCast <$> concPtrPair sym conc ptr <*> pure tp
+    ComparePointerToBV ptr val ->
+      ComparePointerToBV <$> concPtrPair sym conc ptr <*> bv val
+    UDivByZero v1 v2 ->
+      UDivByZero <$> bv v1 <*> bv v2
+    SDivByZero v1 v2 ->
+      SDivByZero <$> bv v1 <*> bv v2
+    URemByZero v1 v2 ->
+      URemByZero <$> bv v1 <*> bv v2
+    SRemByZero v1 v2 ->
+      SRemByZero <$> bv v1 <*> bv v2
+    SDivOverflow v1 v2 ->
+      SDivOverflow <$> bv v1 <*> bv v2
+    SRemOverflow v1 v2 ->
+      SRemOverflow <$> bv v1 <*> bv v2
+
+    PoisonValueCreated poison ->
+      PoisonValueCreated <$> Poison.concPoison sym conc poison

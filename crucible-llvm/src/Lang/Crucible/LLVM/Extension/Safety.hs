@@ -20,6 +20,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.Extension.Safety
   ( LLVMSafetyAssertion
@@ -33,6 +34,8 @@ module Lang.Crucible.LLVM.Extension.Safety
   , memoryError
   , detailBB
   , explainBB
+  , ppBB
+  , concBadBehavior
     -- ** Lenses
   , classifier
   , predicate
@@ -42,7 +45,6 @@ module Lang.Crucible.LLVM.Extension.Safety
 import           Prelude hiding (pred)
 
 import           Control.Lens
---import           Data.Kind (Type)
 import           Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -51,8 +53,8 @@ import           GHC.Generics (Generic)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           What4.Interface
+import           What4.Expr (GroundValue)
 
---import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
@@ -129,12 +131,22 @@ ppMemoryError =
 --
 data BadBehavior sym where
   BBUndefinedBehavior :: UB.UndefinedBehavior (RegValue' sym) -> BadBehavior sym
-  BBMemoryError ::
+  BBMemoryError :: (1 <= w) =>
     LLVMPtr sym w ->
     Mem sym ->
     MemoryError ->
     BadBehavior sym
  deriving Typeable
+
+concBadBehavior ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  BadBehavior sym -> IO (BadBehavior sym)
+concBadBehavior sym conc (BBUndefinedBehavior ub) =
+  BBUndefinedBehavior <$> UB.concUB sym conc ub
+concBadBehavior sym conc (BBMemoryError ptr mem me) =
+  BBMemoryError <$> concPtr sym conc ptr <*> concMem sym conc mem <*> pure me
 
 -- -----------------------------------------------------------------------
 -- *** Instances
@@ -176,7 +188,7 @@ undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
-memoryError :: LLVMPtr sym w -> Mem sym -> MemoryError -> Pred sym -> LLVMSafetyAssertion sym
+memoryError :: (1 <= w) => LLVMPtr sym w -> Mem sym -> MemoryError -> Pred sym -> LLVMSafetyAssertion sym
 memoryError pp mem ld pred =
   LLVMSafetyAssertion (BBMemoryError pp mem ld) pred Nothing
 
@@ -219,3 +231,13 @@ detailBB = \case
       , text "In memory state"
       , indent 2 (ppMem mem)
       ]
+
+ppBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
+ppBB = \case
+  BBUndefinedBehavior ub -> vcat [ UB.explain ub, UB.ppReg ub ]
+  BBMemoryError p mem le -> vcat
+    [ text "Via pointer:" <+> UB.ppPointerPair (UB.pointerView p)
+    , ppMemoryError le
+    , text "In memory state"
+    , indent 2 (ppMem mem)
+    ]

@@ -213,7 +213,7 @@ maybeBVLe sym _        Nothing  = return $ truePred sym
 maybeBVLe sym Nothing  (Just _) = return $ falsePred sym
 
 genValueCtor :: forall sym w.
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   EndianForm ->
   LLVMPtr sym w ->
@@ -252,7 +252,7 @@ genValueCtor sym end ptr mem v =
 
 -- | Compute the actual value of a value deconstructor expression.
 applyView ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   EndianForm ->
   LLVMPtr sym w ->

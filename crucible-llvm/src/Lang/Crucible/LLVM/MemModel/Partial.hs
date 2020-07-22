@@ -143,7 +143,9 @@ explainCex sym evalFn =
       (asNonceApp -> Just (Annotation BaseBoolRepr annId e')) ->
         lookupBBAnnotation sym annId >>= \case
           Nothing -> evalPos posCache negCache e'
-          Just bb -> pure (DisjOfFailures [ bb ])
+          Just bb ->
+            do bb' <- concBadBehavior sym (groundEval evalFn) bb
+               pure (DisjOfFailures [ bb' ])
 
       (asApp -> Just (BaseIte BaseBoolRepr _ c x y)) ->
          do c' <- groundEval evalFn c
@@ -224,7 +226,7 @@ annotateUB sym ub p =
      modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBUndefinedBehavior ub))
      return p'
 
-annotateME :: (IsSymInterface sym, HasLLVMAnn sym) =>
+annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -245,7 +247,7 @@ data PartLLVMVal sym where
   Err :: Pred sym -> PartLLVMVal sym
   NoErr :: Pred sym -> LLVMVal sym -> PartLLVMVal sym
 
-partErr :: (IsSymInterface sym, HasLLVMAnn sym) =>
+partErr :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym -> LLVMPtr sym w -> Mem sym -> MemoryError -> IO (PartLLVMVal sym)
 partErr sym ptr mem err =
   do p <- annotateME sym ptr mem err (falsePred sym)
@@ -323,7 +325,7 @@ ppAssertion (PLV (Err e)) = text $
 --
 
 floatToBV ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym -> 
@@ -350,7 +352,7 @@ floatToBV sym ptr mem (NoErr _ v) =
        UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 doubleToBV ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -377,7 +379,7 @@ doubleToBV sym ptr mem (NoErr _ v) =
        UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 fp80ToBV ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -404,7 +406,7 @@ fp80ToBV sym ptr mem (NoErr _ v) =
 
 -- | Convert a bitvector to a float, asserting that it is not a pointer
 bvToFloat :: forall sym w.
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -433,7 +435,7 @@ bvToFloat sym ptr mem (NoErr _ v) =
 
 -- | Convert a bitvector to a double, asserting that it is not a pointer
 bvToDouble ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -463,7 +465,7 @@ bvToDouble sym ptr mem (NoErr _ v) =
 
 -- | Convert a bitvector to an FP80 float, asserting that it is not a pointer
 bvToX86_FP80 ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -493,7 +495,7 @@ bvToX86_FP80 sym ptr mem (NoErr _ v) =
 -- (low) bytes are given first. The allocation block number of each
 -- argument is asserted to equal 0, indicating non-pointers.
 bvConcat :: forall sym w.
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -556,7 +558,7 @@ bvConcat _ _ _ (Err e) _ = pure (Err e)
 
 -- | Cons an element onto a partial LLVM array value.
 consArray ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -588,7 +590,7 @@ consArray sym ptr mem _ (NoErr _ v) =
 
 -- | Append two partial LLVM array values.
 appendArray ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -683,7 +685,7 @@ mkStruct sym vec =
 -- bitvector value. The allocation block number of the argument is
 -- asserted to equal 0, indicating a non-pointer.
 selectLowBv ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -719,7 +721,7 @@ selectLowBv _ _ _ _ _ (Err e) = pure (Err e)
 -- bitvector value. The allocation block number of the argument is
 -- asserted to equal 0, indicating a non-pointer.
 selectHighBv ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -752,7 +754,7 @@ selectHighBv sym ptr mem _ _ (NoErr _ v) =
 
 -- | Look up an element in a partial LLVM array value.
 arrayElt ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->
@@ -781,7 +783,7 @@ arrayElt sym ptr mem _ _ _ (NoErr _ v) =
 
 -- | Look up a field in a partial LLVM struct value.
 fieldVal ::
-  (IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
   Mem sym ->

@@ -307,7 +307,7 @@ assertUndefined sym p ub =
 
 
 assertStoreError ::
-  (IsSymInterface sym, Partial.HasLLVMAnn sym) =>
+  (IsSymInterface sym, Partial.HasLLVMAnn sym, 1 <= wptr) =>
   sym ->
   LLVMPtr sym wptr ->
   G.Mem sym ->

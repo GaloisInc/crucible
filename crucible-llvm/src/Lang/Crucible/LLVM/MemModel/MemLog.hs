@@ -51,6 +51,7 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , ppWrite
 
     -- * Concretization
+  , concBV
   , concPtr
   , concLLVMVal
   , concMem

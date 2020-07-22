@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
@@ -13,7 +14,6 @@ import Data.IORef
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
-import qualified Data.BitVector.Sized as BV
 
 import System.FilePath( (</>) )
 import System.IO (stdout)
@@ -27,8 +27,6 @@ import qualified Text.LLVM as LLVM
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (</>))
 
 -- what4
-import What4.Expr.GroundEval
-import What4.Interface( bvWidth )
 
 -- crucible
 import Lang.Crucible.Backend
@@ -41,6 +39,7 @@ import Lang.Crucible.Simulator
   , initSimContext, profilingMetrics
   , ExecState( InitialState )
   , SimState, defaultAbortHandler, printHandle
+  , ppSimError
   )
 import Lang.Crucible.Simulator.ExecutionTree ( stateGlobals )
 import Lang.Crucible.Simulator.GlobalState ( lookupGlobal )
@@ -54,8 +53,7 @@ import Lang.Crucible.LLVM.Globals
 import Lang.Crucible.LLVM.MemModel
         ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
-        , explainCex, CexExplanation(..), pattern LLVMPointer
-        , ppMem, concMem
+        , explainCex, CexExplanation(..)
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
@@ -152,33 +150,17 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
 
                  let explainFailure evalFn gl =
                        do ex <- explainCex sym evalFn >>= \f -> f (gl ^. labeledPred)
-                          let ppBB (BBUndefinedBehavior ub) =
-                                 pure (vcat [ UB.explain ub, UB.ppReg ub ])
-                              ppBB (BBMemoryError (LLVMPointer blk off) mem le) =
-                                 do blk' <- groundEval evalFn blk
-                                    off' <- groundEval evalFn off
-                                    mem' <- concMem sym (groundEval evalFn) mem
-                                    pure $ vcat
-                                      [ ppMemoryError le
-                                      , "Via pointer" <+> parens (text (show blk') <> ", " <> text (BV.ppHex (bvWidth off) off'))
-                                      , "In memory state:"
-                                      , indent 2 (ppMem mem')
-                                      ]
-                          details <- case ex of
-                                NoExplanation -> return "No detailed explanation"
+                          let details = case ex of
+                                NoExplanation -> "No detailed explanation"
                                 DisjOfFailures xs ->
-                                  do mapM ppBB xs >>= \case
-                                       []  -> pure mempty
-                                       [x] -> pure (indent 2 x)
-                                       xs' -> pure ("All of the following conditions failed:" <> line <> indent 2 (vcat xs'))
+                                  case map ppBB xs of
+                                    []  -> mempty
+                                    [x] -> indent 2 x
+                                    xs' -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
 
-                          sayFail "CRUX-LLVM" $ show $ vcat
-                            [ "Explaining a goal failure!"
-                            , text (show (gl^.labeledPredMsg))
-                            , details
-                            --, show (printSymExpr (gl ^. labeledPred))
-                            ]
-                          return mempty
+                          let failureMsg = vcat [ ppSimError (gl^.labeledPredMsg), details ]
+                          sayFail "CRUX-LLVM" $ show $ vcat ["Explaining a goal failure!", failureMsg]
+                          return failureMsg
 
                  return (Crux.RunnableState initSt, explainFailure)
 

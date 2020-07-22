@@ -48,6 +48,7 @@ module Lang.Crucible.Simulator
     -- * SimError
   , SimErrorReason(..)
   , SimError(..)
+  , ppSimError
 
     -- * SimGlobalState
   , GlobalVar(..)

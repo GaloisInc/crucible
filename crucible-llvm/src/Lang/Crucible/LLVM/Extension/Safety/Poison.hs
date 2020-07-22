@@ -24,8 +24,10 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.Extension.Safety.Poison
   ( Poison(..)
@@ -35,6 +37,7 @@ module Lang.Crucible.LLVM.Extension.Safety.Poison
   , detailsReg
   , pp
   , ppReg
+  , concPoison
   ) where
 
 import           Data.Kind (Type)
@@ -50,78 +53,81 @@ import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
 
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
+import           Lang.Crucible.LLVM.MemModel.MemLog (concBV)
+import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.Types
---import qualified What4.Interface as W4I
+import qualified What4.Interface as W4I
+import           What4.Expr (GroundValue)
 
 data Poison (e :: CrucibleType -> Type) where
   -- | Arguments: @op1@, @op2@
-  AddNoUnsignedWrap   :: e (BVType w)
+  AddNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  AddNoSignedWrap     :: e (BVType w)
+  AddNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  SubNoUnsignedWrap   :: e (BVType w)
+  SubNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  SubNoSignedWrap     :: e (BVType w)
+  SubNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  MulNoUnsignedWrap   :: e (BVType w)
+  MulNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  MulNoSignedWrap     :: e (BVType w)
+  MulNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  UDivExact           :: e (BVType w)
+  UDivExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  SDivExact           :: e (BVType w)
+  SDivExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  ShlOp2Big           :: e (BVType w)
+  ShlOp2Big           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  ShlNoUnsignedWrap   :: e (BVType w)
+  ShlNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  ShlNoSignedWrap     :: e (BVType w)
+  ShlNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  LshrExact           :: e (BVType w)
+  LshrExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  LshrOp2Big          :: e (BVType w)
+  LshrOp2Big          :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  AshrExact           :: e (BVType w)
+  AshrExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  AshrOp2Big          :: e (BVType w)
+  AshrOp2Big          :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'Vector'
-  ExtractElementIndex :: e (BVType w)
+  ExtractElementIndex :: (1 <= w) => e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'Vector'
-  InsertElementIndex  :: e (BVType w)
+  InsertElementIndex  :: (1 <= w) => e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'LLVMPointerType'
-  GEPOutOfBounds      :: e (BVType w)
+  GEPOutOfBounds      :: (1 <= w) => e (BVType w)
                       -> Poison e
   deriving (Typeable)
 
@@ -271,6 +277,53 @@ pp extra poison = vcat $
 ppReg :: Poison e -> Doc
 ppReg = pp detailsReg
 
+concPoison :: forall sym.
+  W4I.IsExprBuilder sym =>
+  sym ->
+  (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
+  Poison (RegValue' sym) -> IO (Poison (RegValue' sym))
+concPoison sym conc poison =
+  let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))
+      bv (RV x) = RV <$> concBV sym conc x in
+  case poison of
+    AddNoUnsignedWrap v1 v2 ->
+      AddNoUnsignedWrap <$> bv v1 <*> bv v2
+    AddNoSignedWrap v1 v2 ->
+      AddNoSignedWrap <$> bv v1 <*> bv v2
+    SubNoUnsignedWrap v1 v2 ->
+      SubNoUnsignedWrap <$> bv v1 <*> bv v2
+    SubNoSignedWrap v1 v2 ->
+      SubNoSignedWrap <$> bv v1 <*> bv v2
+    MulNoUnsignedWrap v1 v2 ->
+      MulNoUnsignedWrap<$> bv v1 <*> bv v2
+    MulNoSignedWrap v1 v2 ->
+      MulNoSignedWrap <$> bv v1 <*> bv v2
+    UDivExact v1 v2 ->
+      UDivExact <$> bv v1 <*> bv v2
+    SDivExact v1 v2 ->
+      SDivExact <$> bv v1 <*> bv v2
+    ShlOp2Big v1 v2 ->
+      ShlOp2Big <$> bv v1 <*> bv v2
+    ShlNoUnsignedWrap v1 v2 ->
+      ShlNoUnsignedWrap <$> bv v1 <*> bv v2
+    ShlNoSignedWrap v1 v2 ->
+      ShlNoSignedWrap <$> bv v1 <*> bv v2
+    LshrExact v1 v2 ->
+      LshrExact <$> bv v1 <*> bv v2
+    LshrOp2Big v1 v2 ->
+      LshrOp2Big <$> bv v1 <*> bv v2
+    AshrExact v1 v2 ->
+      AshrExact <$> bv v1 <*> bv v2
+    AshrOp2Big v1 v2 ->
+      AshrOp2Big <$> bv v1 <*> bv v2
+    ExtractElementIndex v ->
+      ExtractElementIndex <$> bv v
+    InsertElementIndex v ->
+      InsertElementIndex <$> bv v
+    GEPOutOfBounds v ->
+      GEPOutOfBounds <$> bv v
+
+
 -- -----------------------------------------------------------------------
 -- ** Instances
 
@@ -279,28 +332,39 @@ ppReg = pp detailsReg
 
 $(return [])
 
+eqcPoison :: forall e.
+  (forall t1 t2. e t1 -> e t2 -> Maybe (t1 :~: t2)) ->
+  Poison e -> Poison e -> Maybe (() :~: ())
+eqcPoison subterms =
+  let subterms' :: forall p q. e p -> e q -> Maybe (() :~: ())
+      subterms' a b =
+         case subterms a b of
+           Just Refl -> Just Refl
+           Nothing   -> Nothing
+   in $(U.structuralTypeEquality [t|Poison|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType, [| subterms' |])
+       ])
+
+ordcPoison :: forall e f.
+  (forall t1 t2. e t1 -> f t2 -> OrderingF t1 t2) ->
+  Poison e -> Poison f -> OrderingF () ()
+ordcPoison subterms =
+  let subterms' :: forall p q. e p -> f q -> OrderingF () ()
+      subterms' a b =
+         case subterms a b of
+           EQF -> (EQF :: OrderingF () ())
+           GTF -> (GTF :: OrderingF () ())
+           LTF -> (LTF :: OrderingF () ())
+
+   in $(U.structuralTypeOrd [t|Poison|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType, [| subterms' |])
+       ])
+
 instance TestEqualityC Poison where
-  testEqualityC subterms x y = isJust $
-    $(U.structuralTypeEquality [t|Poison|]
-       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
-         , [| \z w -> subterms z w >> Just Refl |]
-         )
-       ]
-     ) x y
+  testEqualityC subterms x y = isJust $ eqcPoison subterms x y
 
 instance OrdC Poison where
-  compareC subterms p1 p2 = toOrdering $
-    $(U.structuralTypeOrd [t|Poison|]
-       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
-         , [| \z w -> case subterms z w of
-                        EQF -> (EQF :: OrderingF () ())
-                        GTF -> (GTF :: OrderingF () ())
-                        LTF -> (LTF :: OrderingF () ())
-
-            |]
-         )
-       ]
-     ) p1 p2
+  compareC subterms x y = toOrdering $ ordcPoison subterms x y
 
 instance FunctorF Poison where
   fmapF = TF.fmapFDefault
@@ -320,3 +384,4 @@ instance TraversableF Poison where
          )
        ]
      )
+
