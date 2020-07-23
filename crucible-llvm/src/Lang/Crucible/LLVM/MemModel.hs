@@ -954,10 +954,12 @@ doPtrAddOffset ::
   LLVMPtr sym wptr {- ^ base pointer -} ->
   SymBV sym wptr   {- ^ offset       -} ->
   IO (LLVMPtr sym wptr)
-doPtrAddOffset sym m x off = do
+doPtrAddOffset sym m x@(LLVMPointer blk _) off = do
   x' <- ptrAdd sym PtrWidth x off
   v  <- isValidPointer sym x' m
-  assertUndefined sym v $
+  isBV <- natEq sym blk =<< natLit sym 0
+  v' <- orPred sym isBV v
+  assertUndefined sym v' $
     UB.PtrAddOffsetOutOfBounds (UB.pointerView x) (RV off)
   return x'
 
