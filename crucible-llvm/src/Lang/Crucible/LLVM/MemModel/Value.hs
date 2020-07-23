@@ -31,6 +31,7 @@ module Lang.Crucible.LLVM.MemModel.Value
   , ptrToPtrVal
   , zeroInt
   , ppTermExpr
+  , explodeStringValue
 
   , llvmValStorableType
   , isZero
@@ -39,6 +40,8 @@ module Lang.Crucible.LLVM.MemModel.Value
 
 import           Control.Lens (view, over, _2)
 import           Control.Monad (foldM, join)
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import           Data.Map (Map)
 import           Data.Coerce (coerce)
 import           Data.Foldable (toList)
@@ -92,6 +95,9 @@ data LLVMVal sym where
   LLVMValStruct :: Vector (Field StorageType, LLVMVal sym) -> LLVMVal sym
   LLVMValArray :: StorageType -> Vector (LLVMVal sym) -> LLVMVal sym
 
+  -- | LLVM Value Data given by a constant string of bytes
+  LLVMValString :: ByteString -> LLVMVal sym
+
   -- | The zero value exists at all storage types, and represents the the value
   -- which is obtained by loading the approprite number of all zero bytes.
   -- It is useful for compactly representing large zero-initialized data structures.
@@ -110,6 +116,7 @@ llvmValStorableType v =
     LLVMValFloat X86_FP80Size _ -> x86_fp80Type
     LLVMValStruct fs -> structType (fmap fst fs)
     LLVMValArray tp vs -> arrayType (fromIntegral (V.length vs)) tp
+    LLVMValString bs -> arrayType (fromIntegral (BS.length bs)) (bitvectorType (Bytes 1))
     LLVMValZero tp -> tp
     LLVMValUndef tp -> tp
 
@@ -120,6 +127,7 @@ ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
     LLVMValZero _tp -> text "0"
     LLVMValUndef tp -> text "<undef : " <> text (show tp) <> text ">"
+    LLVMValString bs -> text (show bs)
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
     LLVMValFloat _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
@@ -165,6 +173,7 @@ ppLLVMVal ppInt =
     \case
       (LLVMValZero tp) -> pure $ angles (typed "zero" tp)
       (LLVMValUndef tp) -> pure $ angles (typed "undef" tp)
+      (LLVMValString bs) -> pure $ text (show bs)
       (LLVMValInt blk w) -> fromMaybe otherDoc <$> ppInt blk w
         where
           otherDoc =
@@ -227,6 +236,7 @@ instance IsExpr (SymExpr sym) => Pretty (LLVMVal sym) where
 instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValZero _tp) = "0"
   show (LLVMValUndef tp) = "<undef : " ++ show tp ++ ">"
+  show (LLVMValString  _) = "<string>"
   show (LLVMValInt blk w)
     | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
     | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
@@ -311,6 +321,7 @@ isZero sym v =
   case v of
     LLVMValStruct fs  -> areZero' (fmap snd fs)
     LLVMValArray _ vs -> areZero' vs
+    LLVMValString bs  -> pure $ Just $ backendPred sym $ not $ isJust $ BS.find (/= 0) bs
     LLVMValZero _     -> pure (Just $ truePred sym)
     LLVMValUndef _    -> pure Nothing
     _                 ->
@@ -348,6 +359,14 @@ testEqual sym v1 v2 =
           (fd1, fd2) = (fmap snd vec1, fmap snd vec2)
       in andAlso (V.and (V.zipWith (==) si1 si2))
                  (allEqual fd1 fd2)
+
+    (LLVMValString bs1, LLVMValString bs2) -> if bs1 == bs2 then true else false
+    (LLVMValString bs, v@LLVMValArray{}) ->
+      do bsv <- explodeStringValue sym bs
+         testEqual sym bsv v
+    (v@LLVMValArray{}, LLVMValString bs) ->
+      do bsv <- explodeStringValue sym bs
+         testEqual sym v bsv
     (LLVMValZero tp1, LLVMValZero tp2) -> if tp1 == tp2 then true else false
     (LLVMValZero tp, other) -> compareZero tp other
     (other, LLVMValZero tp) -> compareZero tp other
@@ -366,3 +385,13 @@ testEqual sym v1 v2 =
         -- This is probably inefficient:
         compareZero tp other =
           andAlso (llvmValStorableType other == tp) $ isZero sym other
+
+
+-- | Turns a bytestring into an explicit array of bytes
+explodeStringValue :: forall sym. (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym) =>
+  sym -> ByteString -> IO (LLVMVal sym)
+explodeStringValue sym bs =
+  do blk <- natLit sym 0
+     vs <- V.generateM (BS.length bs)
+              (\i -> LLVMValInt blk <$> bvLit sym (knownNat @8) (BV.word8 (BS.index bs i)))
+     pure (LLVMValArray (bitvectorType (Bytes 1)) vs)

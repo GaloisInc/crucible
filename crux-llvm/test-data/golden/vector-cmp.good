@@ -3,8 +3,8 @@ let -- internal
     -- internal
     v3 = floatFromBinary 0x42280000:[32]
     -- internal
-    v18 = ite (floatLe v3 v2) 0x0:[1] 0x1:[1]
+    v36 = ite (floatLe v3 v2) 0x0:[1] 0x1:[1]
     -- internal
-    v20 = bvZext 32 (bvAnd (ite (floatLe v2 v3) 0x1:[1] 0x0:[1]) v18)
- in bvOr 0x1:[32] (bvShl v20 0x1:[32])
+    v38 = bvZext 32 (bvAnd (ite (floatLe v2 v3) 0x1:[1] 0x0:[1]) v36)
+ in bvOr 0x1:[32] (bvShl v38 0x1:[32])
 [Crux] Overall status: Valid.

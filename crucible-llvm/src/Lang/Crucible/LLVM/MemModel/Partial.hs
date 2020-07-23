@@ -68,6 +68,7 @@ import           Prelude hiding (pred)
 import           Control.Lens ((^.), view)
 import           Control.Monad.Except
 import           Control.Monad.State.Strict (StateT, get, put, runStateT)
+import qualified Data.ByteString as BS
 import qualified Data.Foldable as Fold
 import           Data.IORef
 import           Data.Maybe (isJust)
@@ -77,6 +78,7 @@ import           Data.Vector (Vector)
 import qualified Data.Vector as V
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes (toOrdering, OrdF(..))
@@ -328,7 +330,7 @@ floatToBV ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   LLVMPtr sym w ->
-  Mem sym -> 
+  Mem sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 floatToBV _ _ _ (NoErr p (LLVMValUndef (StorageType Float _))) =
@@ -576,6 +578,16 @@ consArray sym _ _ (NoErr p1 hd) (NoErr p2 (LLVMValZero (StorageType (Array m tp)
          return $ NoErr p' $
            LLVMValArray tp (V.cons hd (V.replicate (fromIntegral m) (LLVMValZero tp)))
 
+consArray sym _ _ (NoErr p1 (LLVMValInt blk off)) (NoErr p2 (LLVMValString bs))
+  | Just Refl <- testEquality (bvWidth off) (knownNat @8)
+  , Just 0    <- asNat blk
+  , Just bv   <- asBV off
+  = do p' <- andPred sym p1 p2
+       return $ NoErr p' (LLVMValString (BS.cons (fromInteger (BV.asUnsigned bv)) bs))
+
+consArray sym ptr mem (NoErr p1 v) (NoErr p2 (LLVMValString bs))
+  = consArray sym ptr mem (NoErr p1 v) . NoErr p2 =<< Value.explodeStringValue sym bs
+
 consArray sym _ _ (NoErr p1 hd) (NoErr p2 (LLVMValArray tp vec))
   | Value.llvmValStorableType hd == tp =
       do p' <- andPred sym p1 p2
@@ -603,6 +615,20 @@ appendArray sym _ _
   | tp1 == tp2 =
       do p' <- andPred sym p1 p2
          return $ NoErr p' $ LLVMValZero (Type.arrayType (n1+n2) tp1)
+
+appendArray sym _ _
+  (NoErr p1 (LLVMValString bs1))
+  (NoErr p2 (LLVMValString bs2))
+  = do p' <- andPred sym p1 p2
+       pure $ NoErr p' $ LLVMValString (bs1 <> bs2)
+
+appendArray sym ptr mem (NoErr p1 (LLVMValString bs1)) (NoErr p2 v2)
+  = do bsv <- Value.explodeStringValue sym bs1
+       appendArray sym ptr mem (NoErr p1 bsv) (NoErr p2 v2)
+
+appendArray sym ptr mem (NoErr p1 v1) (NoErr p2 (LLVMValString bs2))
+  = do bsv <- Value.explodeStringValue sym bs2
+       appendArray sym ptr mem (NoErr p1 v1) (NoErr p2 bsv)
 
 appendArray sym _ _
   (NoErr p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
@@ -768,6 +794,15 @@ arrayElt _ _ _ sz tp idx (NoErr p (LLVMValZero _)) -- TODO(langston) typecheck
   , idx < sz =
     return $ NoErr p (LLVMValZero tp)
 
+arrayElt sym _ _ sz tp idx (NoErr p (LLVMValString bs))
+  | sz == fromIntegral (BS.length bs)
+  , 0 <= idx
+  , idx < sz
+  , tp == Type.bitvectorType (Bytes.Bytes 1)
+  = do blk <- natLit sym 0
+       off <- bvLit sym (knownNat @8) (BV.word8 (BS.index bs (fromIntegral idx)))
+       return $ NoErr p (LLVMValInt blk off)
+
 arrayElt _ _ _ sz tp idx (NoErr p (LLVMValArray tp' vec))
   | sz == fromIntegral (V.length vec)
   , 0 <= idx
@@ -860,6 +895,9 @@ muxLLVMVal sym = merge sym muxval
         panic "Cannot mux zero and undef" [ "Zero type: " ++ show tpz
                                           , "Undef type: " ++ show tpu
                                           ]
+
+      LLVMValString bs -> muxzero cond tpz =<< Value.explodeStringValue sym bs
+
       LLVMValInt base off ->
         do zbase <- W4I.natLit sym 0
            zoff  <- W4I.bvLit sym (W4I.bvWidth off) (BV.zero (W4I.bvWidth off))
@@ -907,6 +945,21 @@ muxLLVMVal sym = merge sym muxval
       | fmap fst fls1 == fmap fst fls2 =
           LLVMValStruct <$>
             V.zipWithM (\(f, x) (_, y) -> (f,) <$> muxval cond x y) fls1 fls2
+
+    muxval cond (LLVMValString bs1) (LLVMValString bs2)
+      | bs1 == bs2 = pure (LLVMValString bs1)
+      | BS.length bs1 == BS.length bs2
+      =  do v1 <- Value.explodeStringValue sym bs1
+            v2 <- Value.explodeStringValue sym bs2
+            muxval cond v1 v2
+
+    muxval cond (LLVMValString bs) v@LLVMValArray{}
+      = do bsv <- Value.explodeStringValue sym bs
+           muxval cond bsv v
+
+    muxval cond v@LLVMValArray{} (LLVMValString bs)
+      = do bsv <- Value.explodeStringValue sym bs
+           muxval cond v bsv
 
     muxval cond (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
       | tp1 == tp2 && V.length v1 == V.length v2 = do

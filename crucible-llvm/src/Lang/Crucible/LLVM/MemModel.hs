@@ -1521,6 +1521,9 @@ constToLLVMValP sym _ (DoubleConst d) = liftIO $
 constToLLVMValP sym _ (LongDoubleConst (L.FP80_LongDouble e s)) = liftIO $
   LLVMValFloat X86_FP80Size <$> iFloatLitLongDouble sym (X86_80Val e s)
 
+constToLLVMValP _ _ (StringConst bs) =
+  pure (LLVMValString bs)
+
 constToLLVMValP sym look (ArrayConst memty xs) =
   LLVMValArray <$> liftIO (toStorableType memty)
                <*> (V.fromList <$> traverse (constToLLVMValP sym look) xs)

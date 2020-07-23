@@ -59,6 +59,7 @@ module Lang.Crucible.LLVM.Translation.Expr
 import Control.Lens hiding ((:>))
 import Control.Monad
 import Control.Monad.Except
+import qualified Data.ByteString as BS
 import Data.Foldable (toList)
 import qualified Data.List as List
 --import Data.Map.Strict (Map)
@@ -315,6 +316,11 @@ liftConstant c = case c of
     return $ BaseExpr (FloatRepr DoubleFloatRepr) (App (DoubleLit d))
   LongDoubleConst (L.FP80_LongDouble ex man) ->
     return $ BaseExpr (FloatRepr X86_80FloatRepr) (App (X86_80Lit (X86_80Val ex man)))
+  StringConst bs ->
+    -- TODO? Should we have a StringExpr? It seems like this case doesn't
+    --  actually ever arise...
+    do vs <- mapM (\b -> liftConstant (IntConst knownNat (BV.word8 b))) (BS.unpack bs)
+       return (VecExpr i8 $ Seq.fromList vs)
   ArrayConst mt vs ->
     do vs' <- mapM liftConstant vs
        return (VecExpr mt $ Seq.fromList vs')

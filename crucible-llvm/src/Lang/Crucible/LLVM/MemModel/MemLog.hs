@@ -369,8 +369,8 @@ concLLVMVal sym conc (LLVMValStruct fs) =
   LLVMValStruct <$> traverse (\ (fi,v) -> (,) <$> pure fi <*> concLLVMVal sym conc v) fs
 concLLVMVal sym conc (LLVMValArray st vs) =
   LLVMValArray st <$> traverse (concLLVMVal sym conc) vs
-concLLVMVal _ _ (LLVMValZero st) =
-  pure (LLVMValZero st)
+concLLVMVal _ _ v@LLVMValString{} = pure v
+concLLVMVal _ _ v@LLVMValZero{} = pure v
 concLLVMVal _ _ (LLVMValUndef st) =
   pure (LLVMValZero st) -- ??? does it make sense to turn Undef into Zero?
 
