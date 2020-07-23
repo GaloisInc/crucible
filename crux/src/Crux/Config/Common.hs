@@ -121,6 +121,9 @@ data CruxOptions = CruxOptions
 
   , onlineProblemFeatures    :: ProblemFeatures
     -- ^ Problem Features to force in online solvers
+
+  , printFailures            :: Bool
+    -- ^ Print errors regarding failed verification goals
   }
 
 
@@ -216,6 +219,10 @@ cruxOptions = Config
           hashConsing <-
             section "hash-consing" yesOrNoSpec False
             "Enable hash-consing in the symbolic expression backend"
+
+          printFailures <-
+            section "print-failures" yesOrNoSpec True
+            "Print error messages regarding failed verification goals"
 
           skipReport <-
             section "skip-report" yesOrNoSpec False
@@ -352,6 +359,10 @@ cruxOptions = Config
       , Option [] ["hash-consing"]
         "Enable hash-consing in the symbolic expression backend"
         $ NoArg $ \opts -> Right opts{ hashConsing = True }
+
+      , Option [] ["skip-print-failures"]
+        "Skip printing messages related to failed verification goals"
+        $ NoArg $ \opts -> Right opts{ printFailures = False }
 
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"

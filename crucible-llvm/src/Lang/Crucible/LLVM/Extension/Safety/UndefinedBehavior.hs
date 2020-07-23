@@ -46,7 +46,6 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   , cite
   , explain
   , ppReg
-  -- , ppExpr
 
   -- ** Pointers
   , PointerPair

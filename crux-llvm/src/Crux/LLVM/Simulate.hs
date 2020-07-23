@@ -66,7 +66,6 @@ import Lang.Crucible.LLVM.Intrinsics
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 import Lang.Crucible.LLVM.Extension.Safety
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 
 -- crux
 import qualified Crux
@@ -158,9 +157,7 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                                     [x] -> indent 2 x
                                     xs' -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
 
-                          let failureMsg = vcat [ ppSimError (gl^.labeledPredMsg), details ]
-                          sayFail "CRUX-LLVM" $ show $ vcat ["Explaining a goal failure!", failureMsg]
-                          return failureMsg
+                          return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
 
                  return (Crux.RunnableState initSt, explainFailure)
 

@@ -111,7 +111,10 @@ newtype SimulatorCallback
 --   status, generate user-consumable reports and compute the exit code.
 postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
 postprocessSimResult opts res =
-  do -- print the overall result
+  do -- print goals that failed
+     printFailedGoals opts res
+
+     -- print the overall result
      reportStatus res
 
      -- Generate report
@@ -579,6 +582,31 @@ computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . t
        ExitSuccess
      else
        ExitFailure 1
+
+printFailedGoals ::
+  Logs =>
+  CruxOptions ->
+  CruxSimulationResult ->
+  IO ()
+printFailedGoals opts (CruxSimulationResult _cmpl allGls)
+  | printFailures opts && not (quietMode opts) = mapM_ (printFailed . snd) (toList allGls)
+  | otherwise = return ()
+
+  where
+  printFailed (AtLoc _ _ gls) = printFailed gls
+  printFailed (Branch gls1 gls2) = printFailed gls1 >> printFailed gls2
+  printFailed (Goal _asmps _goal _trivial (Proved _)) = return () 
+  printFailed (Goal _asmps (err,msg) _trivial (NotProved ex mdl))
+    | skipIncompleteReports opts
+    , SimError _ (ResourceExhausted _) <- err
+    = return ()
+
+    | Just _ <- mdl
+    = sayFail "Crux" (show $ vcat [ "Found counterexample for verification goal", ex ])
+
+    | otherwise
+    = sayFail "Crux" (show $ vcat [ "Failed to prove verification goal", ex, ppSimError err, text msg])
+
 
 reportStatus ::
   Logs =>

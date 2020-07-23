@@ -75,8 +75,8 @@ instance Show SimError where
 
 ppSimError :: SimError -> Doc
 ppSimError er =
-  vcat $ [ text (simErrorReasonMsg rsn)
-         , indent 2 (text "in" <+> text (show (plFunction loc)) <+> text "at" <+> text (show (plSourceLoc loc)))
+  vcat $ [ pretty (plSourceLoc loc) <> text ": error: in" <+> pretty (plFunction loc)
+         , text (simErrorReasonMsg rsn)
          ] ++ if null details
               then []
               else [ text "Details:"
