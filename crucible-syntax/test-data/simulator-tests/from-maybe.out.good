@@ -4,13 +4,13 @@
 ==== Proof obligations ====
 
 Prove:
+  test-data/simulator-tests/from-maybe.cbl:11:12: error: in main
   OK to project z
-  in main at test-data/simulator-tests/from-maybe.cbl:11:12
   cp@0:b
 COUNTEREXAMPLE
 
 Prove:
+  test-data/simulator-tests/from-maybe.cbl:12:5: error: in main
   from-just eq (bogus)
-  in main at test-data/simulator-tests/from-maybe.cbl:12:5
   false
 COUNTEREXAMPLE

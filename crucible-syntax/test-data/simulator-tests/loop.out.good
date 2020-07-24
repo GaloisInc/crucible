@@ -6,7 +6,7 @@ Assuming:
 * in main test-data/simulator-tests/loop.cbl:10:5: nonzero start
     not (eq 0 cx@0:n)
 Prove:
+  test-data/simulator-tests/loop.cbl:19:5: error: in main
   nonzero
-  in main at test-data/simulator-tests/loop.cbl:19:5
   not (natLe (natSum (natMul 8 cx@0:n)) 0)
 PROVED
