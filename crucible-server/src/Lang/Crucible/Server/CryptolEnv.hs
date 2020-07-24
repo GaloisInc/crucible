@@ -41,9 +41,11 @@ module Lang.Crucible.Server.CryptolEnv
   where
 
 --import qualified Control.Exception as X
+import qualified Data.ByteString as BS
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+
 import Data.Maybe (fromMaybe)
 import Data.Text (Text, pack)
 
@@ -550,7 +552,7 @@ schemaNoUser (T.Forall params props ty) = T.Forall params props (typeNoUser ty)
 ------------------------------------------------------------
 
 liftModuleM :: ME.ModuleEnv -> MM.ModuleM a -> IO (a, ME.ModuleEnv)
-liftModuleM env m = MM.runModuleM (defaultEvalOpts, env) m >>= moduleCmdResult
+liftModuleM env m = MM.runModuleM (defaultEvalOpts, BS.readFile, env) m >>= moduleCmdResult
 
 defaultEvalOpts :: E.EvalOpts
 defaultEvalOpts = E.EvalOpts quietLogger E.defaultPPOpts
