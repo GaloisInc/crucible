@@ -102,9 +102,12 @@ module Lang.Crucible.LLVM.MemModel
   , ptrMessage
   , Partial.PartLLVMVal(..)
   , Partial.assertSafe
+  , explodeStringValue
+
     -- Re-exports from MemModel.Value
   , isZero
   , testEqual
+  , llvmValStorableType
 
     -- * Storage types
   , StorageType

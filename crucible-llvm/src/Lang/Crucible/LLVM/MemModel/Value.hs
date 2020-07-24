@@ -353,11 +353,11 @@ testEqual sym v1 v2 =
         Nothing   -> false
         Just Refl -> Just <$> iFloatEq @_ @fi1 sym flt1 flt2
     (LLVMValArray tp1 vec1, LLVMValArray tp2 vec2) ->
-      andAlso (tp1 == tp2) (allEqual vec1 vec2)
+      andAlso (tp1 == tp2 && V.length vec1 == V.length vec2) (allEqual vec1 vec2)
     (LLVMValStruct vec1, LLVMValStruct vec2) ->
       let (si1, si2) = (fmap fst vec1, fmap fst vec2)
           (fd1, fd2) = (fmap snd vec1, fmap snd vec2)
-      in andAlso (V.and (V.zipWith (==) si1 si2))
+      in andAlso (V.length vec1 == V.length vec2 && V.and (V.zipWith (==) si1 si2))
                  (allEqual fd1 fd2)
 
     (LLVMValString bs1, LLVMValString bs2) -> if bs1 == bs2 then true else false
@@ -367,12 +367,14 @@ testEqual sym v1 v2 =
     (v@LLVMValArray{}, LLVMValString bs) ->
       do bsv <- explodeStringValue sym bs
          testEqual sym v bsv
+
     (LLVMValZero tp1, LLVMValZero tp2) -> if tp1 == tp2 then true else false
     (LLVMValZero tp, other) -> compareZero tp other
     (other, LLVMValZero tp) -> compareZero tp other
     (LLVMValUndef _, _) -> pure Nothing
     (_, LLVMValUndef _) -> pure Nothing
     (_, _) -> false -- type mismatch
+
   where true = pure (Just $ truePred sym)
         false = pure (Just $ falsePred sym)
 
