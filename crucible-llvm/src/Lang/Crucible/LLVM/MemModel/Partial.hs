@@ -89,7 +89,6 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
-import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
@@ -281,16 +280,15 @@ totalLLVMVal sym = NoErr (truePred sym)
 -- | Take a partial value and assert its safety
 assertSafe :: (IsSymInterface sym)
            => sym
-           -> LLVMPtr sym w
            -> StorageType
            -> PartLLVMVal sym
            -> IO (LLVMVal sym)
-assertSafe sym _ptr valTy (NoErr p v) =
+assertSafe sym valTy (NoErr p v) =
   do let rsn = AssertFailureSimError "Error during memory load" ("Loading at type: " ++ show (Type.ppType valTy))
      assert sym p rsn
      return v
 
-assertSafe sym _ptr valTy (Err p) = do
+assertSafe sym valTy (Err p) = do
   do let rsn = AssertFailureSimError "Error during memory load" ("Loading at type: " ++ show (Type.ppType valTy))
      loc <- getCurrentProgramLoc sym
      let err = SimError loc rsn

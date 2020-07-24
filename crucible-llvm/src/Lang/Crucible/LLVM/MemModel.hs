@@ -558,7 +558,7 @@ doLoad ::
   IO (RegValue sym tp)
 doLoad sym mem ptr valType tpr alignment = do
   unpackMemValue sym tpr =<<
-    Partial.assertSafe sym ptr valType =<<
+    Partial.assertSafe sym valType =<<
       loadRaw sym mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'

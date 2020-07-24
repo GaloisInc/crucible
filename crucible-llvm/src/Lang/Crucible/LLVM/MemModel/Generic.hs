@@ -1274,7 +1274,7 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
               =<< traverse subFn (loadBitvector off 1 0 (ValueViewVar tp))
 
             -- TODO! we're abusing assertSafe here a little
-            v <- Partial.assertSafe sym ptr (bitvectorType (toBytes (1::Integer))) partial_byte
+            v <- Partial.assertSafe sym (bitvectorType (toBytes (1::Integer))) partial_byte
             case v of
               LLVMValInt _ byte
                 | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
