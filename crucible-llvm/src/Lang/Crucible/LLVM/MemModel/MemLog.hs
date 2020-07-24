@@ -148,9 +148,10 @@ data MemState sym =
     -- of the list.
     EmptyMem !Int !Int (MemChanges sym)
     -- | Represents a push of a stack frame, and changes since that stack push.
+    -- The text value gives a user-consumable name for the stack frame.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | StackFrame !Int !Int (MemChanges sym) (MemState sym)
+  | StackFrame !Int !Int Text (MemChanges sym) (MemState sym)
     -- | Represents a push of a branch frame, and changes since that branch.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
@@ -161,6 +162,10 @@ type MemChanges sym = ([MemAlloc sym], MemWrites sym)
 -- | Memory writes are represented as a list of chunks of writes.
 --   Chunks alternate between being indexed and being flat.
 newtype MemWrites sym = MemWrites [MemWritesChunk sym]
+
+-- | Returns true if this consists of a empty collection of memory writes
+nullMemWrites :: MemWrites sym -> Bool
+nullMemWrites (MemWrites ws) = null ws
 
 -- | A chunk of memory writes is either indexed or flat (unindexed).
 --   An indexed chunk consists of writes to addresses with concrete
@@ -284,7 +289,7 @@ ppMemWritesChunk = \case
     text "Indexed chunk:" <$$>
     indent 2 (vcat $ map
       (\(blk, blk_writes) ->
-        text (show blk) <+> "|->" <$$>
+        text (show blk) <+> "|->" <> softline <>
         indent 2 (vcat $ map ppWrite blk_writes))
       (IntMap.toList indexed_writes))
   MemWritesChunkFlat flat_writes ->
@@ -294,28 +299,25 @@ ppMemWritesChunk = \case
 ppMemWrites :: IsExpr (SymExpr sym) => MemWrites sym -> Doc
 ppMemWrites (MemWrites ws) = vcat $ map ppMemWritesChunk ws
 
-ppMemChanges :: IsExpr (SymExpr sym) => MemChanges sym -> Doc
-ppMemChanges (al,wl) =
-  text "Allocations:" <$$>
-  indent 2 (ppAllocs al) <$$>
-  text "Writes:" <$$>
-  indent 2 (ppMemWrites wl)
+ppMemChanges :: IsExpr (SymExpr sym) => MemChanges sym -> [Doc]
+ppMemChanges (al,wl)
+  | null al && nullMemWrites wl = [text "No write or allocations"]
+  | otherwise =
+      (if null al then [] else [text "Allocations:", indent 2 (ppAllocs al)]) <>
+      (if nullMemWrites wl then [] else [text "Writes:", indent 2 (ppMemWrites wl)])
 
-ppMemState :: (MemChanges sym -> Doc) -> MemState sym -> Doc
-ppMemState f (EmptyMem _ _ d) = do
-  text "Base memory" <$$> indent 2 (f d)
-ppMemState f (StackFrame _ _ d ms) = do
-  text "Stack frame" <$$>
-    indent 2 (f d) <$$>
-    ppMemState f ms
-ppMemState f (BranchFrame _ _ d ms) = do
-  text "Branch frame" <$$>
-    indent 2 (f d) <$$>
-    ppMemState f ms
+ppMemState :: (MemChanges sym -> [Doc]) -> MemState sym -> Doc
+ppMemState f (EmptyMem _ _ d) =
+  vcat (text "Base memory" : map (indent 2) (f d))
+ppMemState f (StackFrame _ _ nm d ms) =
+  vcat ((text "Stack frame" <+> text (show nm)) : map (indent 2) (f d)) <$$>
+  ppMemState f ms
+ppMemState f (BranchFrame _ _ d ms) =
+  vcat (text "Branch frame" : map (indent 2) (f d)) <$$>
+  ppMemState f ms
 
 ppMem :: IsExpr (SymExpr sym) => Mem sym -> Doc
 ppMem m = ppMemState ppMemChanges (m^.memState)
-
 
 ------------------------------------------------------------------------------
 -- Concretization
@@ -445,8 +447,8 @@ concMemState ::
   MemState sym -> IO (MemState sym)
 concMemState sym conc (EmptyMem a w chs) =
   EmptyMem a w <$> concMemChanges sym conc chs
-concMemState sym conc (StackFrame a w frm stk) =
-  StackFrame a w <$> concMemChanges sym conc frm <*> concMemState sym conc stk
+concMemState sym conc (StackFrame a w nm frm stk) =
+  StackFrame a w nm <$> concMemChanges sym conc frm <*> concMemState sym conc stk
 concMemState sym conc (BranchFrame a w frm stk) =
   BranchFrame a w <$> concMemChanges sym conc frm <*> concMemState sym conc stk
 

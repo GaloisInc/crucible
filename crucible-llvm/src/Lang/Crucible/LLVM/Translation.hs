@@ -318,7 +318,8 @@ genDefn defn retType =
     [] -> fail "LLVM define with no blocks!"
     ( L.BasicBlock{ L.bbLabel = Nothing } : _ ) -> fail $ unwords ["entry block has no label"]
     ( L.BasicBlock{ L.bbLabel = Just entry_lab } : _ ) -> do
-      callPushFrame
+      let (L.Symbol nm) = L.defName defn
+      callPushFrame $ Text.pack nm
       setLocation $ Map.toList (L.defMetadata defn)
 
       bim <- buildBlockInfoMap defn

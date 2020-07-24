@@ -75,6 +75,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>) )
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
+import           Data.Text (Text)
 
 import qualified Text.LLVM.AST as L
 
@@ -476,10 +477,10 @@ callAlloca sz alignment = do
    loc <- show <$> getPosition
    extensionStmt (LLVM_Alloca ?ptrWidth memVar sz alignment loc)
 
-callPushFrame :: LLVMGenerator s arch ret ()
-callPushFrame = do
+callPushFrame :: Text -> LLVMGenerator s arch ret ()
+callPushFrame nm = do
    memVar <- getMemVar
-   void $ extensionStmt (LLVM_PushFrame memVar)
+   void $ extensionStmt (LLVM_PushFrame nm memVar)
 
 callPopFrame :: LLVMGenerator s arch ret ()
 callPopFrame = do

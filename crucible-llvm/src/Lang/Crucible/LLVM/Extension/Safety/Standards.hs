@@ -86,12 +86,12 @@ stdURL (LLVMRef LLVM4)  = Just "https://releases.llvm.org/4.0.1/docs/LangRef.htm
 stdURL (LLVMRef LLVM5)  = Just "https://releases.llvm.org/5.0.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM6)  = Just "https://releases.llvm.org/6.0.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM7)  = Just "https://releases.llvm.org/7.0.0/docs/LangRef.html"
-stdURL (LLVMRef LLVM8)  = Just "https://llvm.org/docs/LangRef.html"
+stdURL (LLVMRef LLVM8)  = Just "https://releases.llvm.org/8.0.0/docs/LangRef.html"
 stdURL _                = Nothing
 
 ppStd :: Standard -> Text
 ppStd =
   \case
-    CStd    ver -> "The C language standard, version "    <> pack (show ver)
-    CXXStd  ver -> "The C++ language standard, version "  <> ppCXXStdVer ver
-    LLVMRef ver -> "The LLVM language reference, version" <> ppLLVMRefVer ver
+    CStd    ver -> "The C language standard, version "     <> pack (show ver)
+    CXXStd  ver -> "The C++ language standard, version "   <> ppCXXStdVer ver
+    LLVMRef ver -> "The LLVM language reference, version " <> ppLLVMRefVer ver

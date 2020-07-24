@@ -306,10 +306,10 @@ explain =
     FreeBadOffset _ -> cat $
       [ "`free` called on pointer that was not previously returned by `malloc`"
       , "`calloc`, or another memory management function (the pointer did not"
-      , "point to the base of an allocation, its offset should be 0)."
+      , "point to the base of an allocation, its offset should be 0)"
       ]
     FreeUnallocated _ ->
-      "`free` called on pointer that didn't point to a live region of the heap."
+      "`free` called on pointer that didn't point to a live region of the heap"
     MemsetInvalidRegion{} -> cat $
       [ "Pointer passed to `memset` didn't point to a mutable allocation with"
       , "enough space."
@@ -321,14 +321,10 @@ explain =
 
     -- -------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds _ _ -> cat $
-      [ "Addition of an offset to a pointer resulted in a pointer to an"
-      , "address outside of the allocation."
-      ]
-    CompareInvalidPointer{} -> cat $
-      [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
-      , "object."
-      ]
+    PtrAddOffsetOutOfBounds _ _ ->
+      "Addition of an offset to a pointer resulted in a pointer to an address outside of the allocation"
+    CompareInvalidPointer{} ->
+      "Comparison of a pointer which wasn't null or a pointer to a live heap object"
     CompareDifferentAllocs _ _ ->
       "Comparison of pointers from different allocations"
     PtrSubDifferentAllocs _ _ ->
@@ -347,7 +343,7 @@ explain =
     SDivOverflow{} -> "Overflow during signed division"
     SRemOverflow{} -> "Overflow during signed division (via signed remainder)"
 
-    PoisonValueCreated p -> vcat [ "LLVM Poison value created", Poison.explain p ]
+    PoisonValueCreated p -> vcat [ "Poison value created", Poison.explain p ]
 
     -------------------------------- Other
 
@@ -443,12 +439,11 @@ pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
    -> Doc
 pp extra ub = vcat $
-  "Undefined behavior encountered: "
-  : explain ub
+    explain ub
   : extra ub
   ++ cat [ "Reference: "
-         , text (unpack (ppStd (standard ub)))
-         , cite ub
+         , indent 2 (text (unpack (ppStd (standard ub))))
+         , indent 2 (cite ub)
          ]
      : case stdURL (standard ub) of
          Just url -> ["Document URL:" <+> text (unpack url)]
@@ -459,7 +454,7 @@ ppReg ::
   W4I.IsExpr (W4I.SymExpr sym) =>
   UndefinedBehavior (RegValue' sym) ->
   Doc
-ppReg = pp (detailsReg)
+ppReg = pp detailsReg
 
 -- -----------------------------------------------------------------------
 -- ** Instances

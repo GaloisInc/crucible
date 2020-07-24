@@ -79,7 +79,6 @@ import qualified Data.Vector as V
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes (toOrdering, OrdF(..))
 import           Data.Parameterized.NatRepr
@@ -90,7 +89,6 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
-import           Lang.Crucible.LLVM.MemModel.MemLog (Mem)
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
@@ -230,14 +228,13 @@ annotateUB sym ub p =
 
 annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   MemoryError ->
   Pred sym ->
   IO (Pred sym)
-annotateME sym ptr mem le p =
+annotateME sym (gsym,ptr,mem) le p =
   do (n, p') <- annotateTerm sym p
-     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError ptr mem le))
+     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError gsym ptr mem le))
      return p'
 
 ------------------------------------------------------------------------
@@ -250,9 +247,9 @@ data PartLLVMVal sym where
   NoErr :: Pred sym -> LLVMVal sym -> PartLLVMVal sym
 
 partErr :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
-  sym -> LLVMPtr sym w -> Mem sym -> MemoryError -> IO (PartLLVMVal sym)
-partErr sym ptr mem err =
-  do p <- annotateME sym ptr mem err (falsePred sym)
+  sym -> MemErrContext sym w -> MemoryError -> IO (PartLLVMVal sym)
+partErr sym errCtx err =
+  do p <- annotateME sym errCtx err (falsePred sym)
      pure (Err p)
 
 attachSideCondition ::
@@ -329,98 +326,94 @@ ppAssertion (PLV (Err e)) = text $
 floatToBV ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-floatToBV _ _ _ (NoErr p (LLVMValUndef (StorageType Float _))) =
+floatToBV _ _ (NoErr p (LLVMValUndef (StorageType Float _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 4)))
 
-floatToBV sym _ _ (NoErr p (LLVMValZero (StorageType Float _))) =
+floatToBV sym _ (NoErr p (LLVMValZero (StorageType Float _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvLit sym (knownNat @32) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
-floatToBV sym _ _ (NoErr p (LLVMValFloat Value.SingleSize v)) =
+floatToBV sym _ (NoErr p (LLVMValFloat Value.SingleSize v)) =
   do nz <- natLit sym 0
      i  <- W4IFP.iFloatToBinary sym W4IFP.SingleFloatRepr v
      return (NoErr p (LLVMValInt nz i))
 
-floatToBV _ _ _ (Err p) = pure (Err p)
+floatToBV _ _ (Err p) = pure (Err p)
 
-floatToBV sym ptr mem (NoErr _ v) =
+floatToBV sym errCtx (NoErr _ v) =
   do let msg = "While converting from a float to a bitvector"
-     partErr sym ptr mem $
+     partErr sym errCtx $
        UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 doubleToBV ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-doubleToBV _ _ _ (NoErr p (LLVMValUndef (StorageType Double _))) =
+doubleToBV _ _ (NoErr p (LLVMValUndef (StorageType Double _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 8)))
 
-doubleToBV sym _ _ (NoErr p (LLVMValZero (StorageType Double _))) =
+doubleToBV sym _ (NoErr p (LLVMValZero (StorageType Double _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvLit sym (knownNat @64) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
-doubleToBV sym _ _ (NoErr p (LLVMValFloat Value.DoubleSize v)) =
+doubleToBV sym _ (NoErr p (LLVMValFloat Value.DoubleSize v)) =
   do nz <- natLit sym 0
      i  <- W4IFP.iFloatToBinary sym W4IFP.DoubleFloatRepr v
      return (NoErr p (LLVMValInt nz i))
 
-doubleToBV _ _ _ (Err p) = pure (Err p)
+doubleToBV _ _ (Err p) = pure (Err p)
 
-doubleToBV sym ptr mem (NoErr _ v) =
+doubleToBV sym errCtx (NoErr _ v) =
   do let msg = "While converting from a double to a bitvector"
-     partErr sym ptr mem $
+     partErr sym errCtx $
        UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 fp80ToBV ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-fp80ToBV _ _ _ (NoErr p (LLVMValUndef (StorageType X86_FP80 _))) =
+fp80ToBV _ _ (NoErr p (LLVMValUndef (StorageType X86_FP80 _))) =
   return (NoErr p (LLVMValUndef (Type.bitvectorType 10)))
 
-fp80ToBV sym _ _ (NoErr p (LLVMValZero (StorageType X86_FP80 _))) =
+fp80ToBV sym _ (NoErr p (LLVMValZero (StorageType X86_FP80 _))) =
   do nz <- W4I.natLit sym 0
      iz <- W4I.bvLit sym (knownNat @80) (BV.zero knownNat)
      return (NoErr p (LLVMValInt nz iz))
 
-fp80ToBV sym _ _ (NoErr p (LLVMValFloat Value.X86_FP80Size v)) =
+fp80ToBV sym _ (NoErr p (LLVMValFloat Value.X86_FP80Size v)) =
   do nz <- natLit sym 0
      i  <- W4IFP.iFloatToBinary sym W4IFP.X86_80FloatRepr v
      return (NoErr p (LLVMValInt nz i))
 
-fp80ToBV _ _ _ (Err p) = pure (Err p)
+fp80ToBV _ _ (Err p) = pure (Err p)
 
-fp80ToBV sym ptr mem (NoErr _ v) =
+fp80ToBV sym errCtx (NoErr _ v) =
   do let msg = "While converting from a FP80 to a bitvector"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 -- | Convert a bitvector to a float, asserting that it is not a pointer
 bvToFloat :: forall sym w.
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToFloat sym _ _ (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
+bvToFloat sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
   NoErr p . LLVMValFloat Value.SingleSize <$>
     (W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr =<<
        W4I.bvLit sym (knownNat @32) (BV.zero knownNat))
 
-bvToFloat sym _ _ (NoErr p (LLVMValInt blk off))
+bvToFloat sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @32) = do
       pz <- natEq sym blk =<< natLit sym 0
       let ub = UB.PointerCast (RV blk, RV off) Float
@@ -428,28 +421,27 @@ bvToFloat sym _ _ (NoErr p (LLVMValInt blk off))
       NoErr p' . LLVMValFloat Value.SingleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr off
 
-bvToFloat _ _ _ (Err p) = pure (Err p)
+bvToFloat _ _ (Err p) = pure (Err p)
 
-bvToFloat sym ptr mem (NoErr _ v) =
+bvToFloat sym errCtx (NoErr _ v) =
   do let msg = "While converting from a bitvector to a float"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 -- | Convert a bitvector to a double, asserting that it is not a pointer
 bvToDouble ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToDouble sym _ _ (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
+bvToDouble sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
   NoErr p . LLVMValFloat Value.DoubleSize <$>
     (W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr =<<
        W4I.bvLit sym (knownNat @64) (BV.zero knownNat))
 
-bvToDouble sym _ _ (NoErr p (LLVMValInt blk off))
+bvToDouble sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @64) = do
       pz <- natEq sym blk =<< natLit sym 0
       let ub = UB.PointerCast (RV blk, RV off) Double
@@ -458,28 +450,27 @@ bvToDouble sym _ _ (NoErr p (LLVMValInt blk off))
         LLVMValFloat Value.DoubleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr off
 
-bvToDouble _ _ _ (Err p) = pure (Err p)
+bvToDouble _ _ (Err p) = pure (Err p)
 
-bvToDouble sym ptr mem (NoErr _ v) =
+bvToDouble sym errCtx (NoErr _ v) =
   do let msg = "While converting from a bitvector to a double"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 -- | Convert a bitvector to an FP80 float, asserting that it is not a pointer
 bvToX86_FP80 ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToX86_FP80 sym _ _ (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
+bvToX86_FP80 sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
   NoErr p . LLVMValFloat Value.X86_FP80Size <$>
     (W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr =<<
        W4I.bvLit sym (knownNat @80) (BV.zero knownNat))
 
-bvToX86_FP80 sym _ _ (NoErr p (LLVMValInt blk off))
+bvToX86_FP80 sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @80) =
       do pz <- natEq sym blk =<< natLit sym 0
          let ub = UB.PointerCast (RV blk, RV off) X86_FP80
@@ -487,11 +478,11 @@ bvToX86_FP80 sym _ _ (NoErr p (LLVMValInt blk off))
          NoErr p' . LLVMValFloat Value.X86_FP80Size <$>
            W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
 
-bvToX86_FP80 _ _ _ (Err p) = pure (Err p)
+bvToX86_FP80 _ _ (Err p) = pure (Err p)
 
-bvToX86_FP80 sym ptr mem (NoErr _ v) =
+bvToX86_FP80 sym errCtx (NoErr _ v) =
   do let msg = "While converting from a bitvector to a X86_FP80"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 -- | Concatenate partial LLVM bitvector values. The least-significant
 -- (low) bytes are given first. The allocation block number of each
@@ -499,29 +490,28 @@ bvToX86_FP80 sym ptr mem (NoErr _ v) =
 bvConcat :: forall sym w.
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvConcat sym ptr mem (NoErr p1 v1) (NoErr p2 v2) =
+bvConcat sym errCtx (NoErr p1 v1) (NoErr p2 v2) =
     case (v1, v2) of
       (LLVMValInt blk_low low, LLVMValInt blk_high high) ->
         do go blk_low low blk_high high
       (LLVMValInt blk_low low, LLVMValZero t@(StorageType (Bitvector high_bytes) _)) ->
         Value.zeroInt sym high_bytes $ \case
-          Nothing -> partErr sym ptr mem $ TypeMismatch (typeOfBitvector (Just sym) low) t
+          Nothing -> partErr sym errCtx $ TypeMismatch (typeOfBitvector (Just sym) low) t
           Just (blk_high, high) ->
             go blk_low low blk_high high
       (LLVMValZero t@(StorageType (Bitvector low_bytes) _), LLVMValInt blk_high high) ->
          Value.zeroInt sym low_bytes $ \case
-           Nothing -> partErr sym ptr mem $ TypeMismatch (typeOfBitvector (Just sym) high) t
+           Nothing -> partErr sym errCtx $ TypeMismatch (typeOfBitvector (Just sym) high) t
            Just (blk_low, low) ->
              go blk_low low blk_high high
       (LLVMValZero (StorageType (Bitvector low_bytes) _), LLVMValZero (StorageType (Bitvector high_bytes) _)) ->
         pure $ totalLLVMVal sym (LLVMValZero (Type.bitvectorType (low_bytes + high_bytes)))
-      (a, b) -> partErr sym ptr mem $ UnexpectedArgumentType "While concatenating bitvectors"
+      (a, b) -> partErr sym errCtx $ UnexpectedArgumentType "While concatenating bitvectors"
                   [Value.llvmValStorableType a, Value.llvmValStorableType b]
 
  where
@@ -547,90 +537,88 @@ bvConcat sym ptr mem (NoErr p1 v1) (NoErr p2 v2) =
          p' <- andPred sym p1 =<< andPred sym p2 =<< andPred sym predLow predHigh
          return $ NoErr p' (LLVMValInt blk0 bv)
 
-    | otherwise = partErr sym ptr mem $
+    | otherwise = partErr sym errCtx $
         UnexpectedArgumentType "Non-byte-sized bitvectors"
           [Value.llvmValStorableType v1, Value.llvmValStorableType v2]
 
     where low_w' = bvWidth low
           high_w' = bvWidth high
 
-bvConcat sym _ _ (Err e1) (Err e2) = Err <$> andPred sym e1 e2
-bvConcat _ _ _ _ (Err e) = pure (Err e)
-bvConcat _ _ _ (Err e) _ = pure (Err e)
+bvConcat sym _ (Err e1) (Err e2) = Err <$> andPred sym e1 e2
+bvConcat _ _ _ (Err e) = pure (Err e)
+bvConcat _ _ (Err e) _ = pure (Err e)
 
 -- | Cons an element onto a partial LLVM array value.
 consArray ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-consArray sym _ _ (NoErr p1 (LLVMValZero tp)) (NoErr p2 (LLVMValZero (StorageType (Array m tp') _)))
+consArray sym _ (NoErr p1 (LLVMValZero tp)) (NoErr p2 (LLVMValZero (StorageType (Array m tp') _)))
   | tp == tp' =
       do p' <- andPred sym p1 p2
          return $ NoErr p' $ LLVMValZero (Type.arrayType (m+1) tp')
 
-consArray sym _ _ (NoErr p1 hd) (NoErr p2 (LLVMValZero (StorageType (Array m tp) _)))
+consArray sym _ (NoErr p1 hd) (NoErr p2 (LLVMValZero (StorageType (Array m tp) _)))
   | Value.llvmValStorableType hd == tp =
       do p' <- andPred sym p1 p2
          return $ NoErr p' $
            LLVMValArray tp (V.cons hd (V.replicate (fromIntegral m) (LLVMValZero tp)))
 
-consArray sym _ _ (NoErr p1 (LLVMValInt blk off)) (NoErr p2 (LLVMValString bs))
+consArray sym _ (NoErr p1 (LLVMValInt blk off)) (NoErr p2 (LLVMValString bs))
   | Just Refl <- testEquality (bvWidth off) (knownNat @8)
   , Just 0    <- asNat blk
   , Just bv   <- asBV off
   = do p' <- andPred sym p1 p2
        return $ NoErr p' (LLVMValString (BS.cons (fromInteger (BV.asUnsigned bv)) bs))
 
-consArray sym ptr mem (NoErr p1 v) (NoErr p2 (LLVMValString bs))
-  = consArray sym ptr mem (NoErr p1 v) . NoErr p2 =<< Value.explodeStringValue sym bs
+consArray sym errCtx (NoErr p1 v) (NoErr p2 (LLVMValString bs))
+  = consArray sym errCtx (NoErr p1 v) . NoErr p2 =<< Value.explodeStringValue sym bs
 
-consArray sym _ _ (NoErr p1 hd) (NoErr p2 (LLVMValArray tp vec))
+consArray sym _ (NoErr p1 hd) (NoErr p2 (LLVMValArray tp vec))
   | Value.llvmValStorableType hd == tp =
       do p' <- andPred sym p1 p2
          return $ NoErr p' $ LLVMValArray tp (V.cons hd vec)
 
-consArray sym _ _ (Err e1) (Err e2) = Err <$> andPred sym e1 e2
-consArray _ _ _ (Err e) _ = pure (Err e)
-consArray _ _ _ _ (Err e) = pure (Err e)
+consArray sym _ (Err e1) (Err e2) = Err <$> andPred sym e1 e2
+consArray _ _ (Err e) _ = pure (Err e)
+consArray _ _ _ (Err e) = pure (Err e)
 
-consArray sym ptr mem _ (NoErr _ v) =
-  partErr sym ptr mem $ UnexpectedArgumentType "Non-array value" [Value.llvmValStorableType v]
+consArray sym errCtx _ (NoErr _ v) =
+  partErr sym errCtx $ UnexpectedArgumentType "Non-array value" [Value.llvmValStorableType v]
 
 -- | Append two partial LLVM array values.
 appendArray ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-appendArray sym _ _
+appendArray sym _
   (NoErr p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
   (NoErr p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
   | tp1 == tp2 =
       do p' <- andPred sym p1 p2
          return $ NoErr p' $ LLVMValZero (Type.arrayType (n1+n2) tp1)
 
-appendArray sym _ _
+appendArray sym _
   (NoErr p1 (LLVMValString bs1))
   (NoErr p2 (LLVMValString bs2))
   = do p' <- andPred sym p1 p2
        pure $ NoErr p' $ LLVMValString (bs1 <> bs2)
 
-appendArray sym ptr mem (NoErr p1 (LLVMValString bs1)) (NoErr p2 v2)
+appendArray sym errCtx (NoErr p1 (LLVMValString bs1)) (NoErr p2 v2)
   = do bsv <- Value.explodeStringValue sym bs1
-       appendArray sym ptr mem (NoErr p1 bsv) (NoErr p2 v2)
+       appendArray sym errCtx (NoErr p1 bsv) (NoErr p2 v2)
 
-appendArray sym ptr mem (NoErr p1 v1) (NoErr p2 (LLVMValString bs2))
+appendArray sym errCtx (NoErr p1 v1) (NoErr p2 (LLVMValString bs2))
   = do bsv <- Value.explodeStringValue sym bs2
-       appendArray sym ptr mem (NoErr p1 v1) (NoErr p2 bsv)
+       appendArray sym errCtx (NoErr p1 v1) (NoErr p2 bsv)
 
-appendArray sym _ _
+appendArray sym _
   (NoErr p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
   (NoErr p2 (LLVMValArray tp2 v2))
   | tp1 == tp2 =
@@ -638,7 +626,7 @@ appendArray sym _ _
          p' <- andPred sym p1 p2
          return $ NoErr p' $ LLVMValArray tp1 (v1 V.++ v2)
 
-appendArray sym _ _
+appendArray sym _
   (NoErr p1 (LLVMValArray tp1 v1))
   (NoErr p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
   | tp1 == tp2 =
@@ -646,19 +634,19 @@ appendArray sym _ _
          p' <- andPred sym p1 p2
          return $ NoErr p' $ LLVMValArray tp1 (v1 V.++ v2)
 
-appendArray sym _ _
+appendArray sym _
   (NoErr p1 (LLVMValArray tp1 v1))
   (NoErr p2 (LLVMValArray tp2 v2))
   | tp1 == tp2 =
       do p' <- andPred sym p1 p2
          return $ NoErr p' $ LLVMValArray tp1 (v1 V.++ v2)
 
-appendArray sym _ _ (Err e1) (Err e2) = Err <$> andPred sym e1 e2
-appendArray _ _ _ (Err e) _ = pure (Err e)
-appendArray _ _ _ _ (Err e) = pure (Err e)
+appendArray sym _ (Err e1) (Err e2) = Err <$> andPred sym e1 e2
+appendArray _ _ (Err e) _ = pure (Err e)
+appendArray _ _ _ (Err e) = pure (Err e)
 
-appendArray sym ptr mem (NoErr _ v1) (NoErr _ v2) =
-  partErr sym ptr mem $ UnexpectedArgumentType "Non-array value when appending arrays"
+appendArray sym errCtx (NoErr _ v1) (NoErr _ v2) =
+  partErr sym errCtx $ UnexpectedArgumentType "Non-array value when appending arrays"
           [Value.llvmValStorableType v1, Value.llvmValStorableType v2]
 
 -- | Make a partial LLVM array value.
@@ -713,18 +701,17 @@ mkStruct sym vec =
 selectLowBv ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   Bytes ->
   Bytes ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-selectLowBv _sym _ _ low hi (NoErr p (LLVMValZero (StorageType (Bitvector bytes) _)))
+selectLowBv _sym _ low hi (NoErr p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
       return $ NoErr p $ LLVMValZero (Type.bitvectorType low)
 
-selectLowBv sym _ _ low hi (NoErr p (LLVMValInt blk bv))
+selectLowBv sym _ low hi (NoErr p (LLVMValInt blk bv))
   | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
   , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
   , Just LeqProof       <- isPosNat low_w
@@ -737,11 +724,11 @@ selectLowBv sym _ _ low hi (NoErr p (LLVMValInt blk bv))
          return $ NoErr p' $ LLVMValInt blk bv'
  where w = bvWidth bv
 
-selectLowBv sym ptr mem _ _ (NoErr _ v) =
+selectLowBv sym errCtx _ _ (NoErr _ v) =
   do let msg = "While selecting the low bits of a bitvector"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
-selectLowBv _ _ _ _ _ (Err e) = pure (Err e)
+selectLowBv _ _ _ _ (Err e) = pure (Err e)
 
 -- | Select some of the most significant bytes of a partial LLVM
 -- bitvector value. The allocation block number of the argument is
@@ -749,18 +736,17 @@ selectLowBv _ _ _ _ _ (Err e) = pure (Err e)
 selectHighBv ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   Bytes ->
   Bytes ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-selectHighBv _sym _ _ low hi (NoErr p (LLVMValZero (StorageType (Bitvector bytes) _)))
+selectHighBv _sym _ low hi (NoErr p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
       return $ NoErr p $ LLVMValZero (Type.bitvectorType hi)
 
-selectHighBv sym _ _ low hi (NoErr p (LLVMValInt blk bv))
+selectHighBv sym _ low hi (NoErr p (LLVMValInt blk bv))
   | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
   , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
   , Just LeqProof <- isPosNat hi_w
@@ -771,30 +757,29 @@ selectHighBv sym _ _ low hi (NoErr p (LLVMValInt blk bv))
        p' <- andPred sym p =<< annotateUB sym ub pz
        return $ NoErr p' $ LLVMValInt blk bv'
   where w = bvWidth bv
-selectHighBv _ _ _ _ _ (Err e) = pure (Err e)
+selectHighBv _ _ _ _ (Err e) = pure (Err e)
 
-selectHighBv sym ptr mem _ _ (NoErr _ v) =
+selectHighBv sym errCtx _ _ (NoErr _ v) =
   do let msg = "While selecting the high bits of a bitvector"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 
 -- | Look up an element in a partial LLVM array value.
 arrayElt ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   Natural ->
   StorageType ->
   Natural ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-arrayElt _ _ _ sz tp idx (NoErr p (LLVMValZero _)) -- TODO(langston) typecheck
+arrayElt _ _ sz tp idx (NoErr p (LLVMValZero _)) -- TODO(langston) typecheck
   | 0 <= idx
   , idx < sz =
     return $ NoErr p (LLVMValZero tp)
 
-arrayElt sym _ _ sz tp idx (NoErr p (LLVMValString bs))
+arrayElt sym _ sz tp idx (NoErr p (LLVMValString bs))
   | sz == fromIntegral (BS.length bs)
   , 0 <= idx
   , idx < sz
@@ -803,45 +788,44 @@ arrayElt sym _ _ sz tp idx (NoErr p (LLVMValString bs))
        off <- bvLit sym (knownNat @8) (BV.word8 (BS.index bs (fromIntegral idx)))
        return $ NoErr p (LLVMValInt blk off)
 
-arrayElt _ _ _ sz tp idx (NoErr p (LLVMValArray tp' vec))
+arrayElt _ _ sz tp idx (NoErr p (LLVMValArray tp' vec))
   | sz == fromIntegral (V.length vec)
   , 0 <= idx
   , idx < sz
   , tp == tp' =
     return $ NoErr p (vec V.! fromIntegral idx)
 
-arrayElt _ _ _ _ _ _ (Err e) = pure (Err e)
+arrayElt _ _ _ _ _ (Err e) = pure (Err e)
 
-arrayElt sym ptr mem _ _ _ (NoErr _ v) =
+arrayElt sym errCtx _ _ _ (NoErr _ v) =
   do let msg = "While selecting and element of an array"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 -- | Look up a field in a partial LLVM struct value.
 fieldVal ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  LLVMPtr sym w ->
-  Mem sym ->
+  MemErrContext sym w ->
   (Vector (Field StorageType)) ->
   Int ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-fieldVal _ _ _ flds idx (NoErr p (LLVMValZero _)) -- TODO(langston) typecheck
+fieldVal _ _ flds idx (NoErr p (LLVMValZero _)) -- TODO(langston) typecheck
   | 0 <= idx
   , idx < V.length flds =
       return $ NoErr p $ LLVMValZero $ view Type.fieldVal $ flds V.! idx
 
-fieldVal _ _ _ flds idx (NoErr p (LLVMValStruct vec))
+fieldVal _ _ flds idx (NoErr p (LLVMValStruct vec))
   | flds == fmap fst vec
   , 0 <= idx
   , idx < V.length vec =
     return $ NoErr p $ snd $ (vec V.! idx)
 
-fieldVal _ _ _ _ _ (Err e) = pure (Err e)
+fieldVal _ _ _ _ (Err e) = pure (Err e)
 
-fieldVal sym ptr mem _ _ (NoErr _ v) =
+fieldVal sym errCtx _ _ (NoErr _ v) =
   do let msg = "While getting a struct field"
-     partErr sym ptr mem $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
+     partErr sym errCtx $ UnexpectedArgumentType msg [Value.llvmValStorableType v]
 
 ------------------------------------------------------------------------
 -- ** Merging and muxing

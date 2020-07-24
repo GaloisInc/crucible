@@ -24,6 +24,7 @@ module Lang.Crucible.LLVM.Extension.Syntax where
 import           Data.Kind
 import           Data.List.NonEmpty (NonEmpty)
 import           GHC.TypeLits
+import           Data.Text (Text)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Functor.Classes (Eq1(..), Ord1(..))
@@ -101,6 +102,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
 
   -- | Indicate the beginning of a new stack frame upon entry to a function.
   LLVM_PushFrame ::
+     !Text ->
      !(GlobalVar Mem) {- Memory global variable -} ->
      LLVMStmt wptr f UnitType
 
@@ -305,8 +307,8 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
 
 instance PrettyApp (LLVMStmt wptr) where
   ppApp pp = \case
-    LLVM_PushFrame mvar ->
-       text "pushFrame" <+> text (show mvar)
+    LLVM_PushFrame nm mvar ->
+       text "pushFrame" <+> text (show nm) <+> text (show mvar)
     LLVM_PopFrame mvar  ->
        text "popFrame" <+> text (show mvar)
     LLVM_Alloca _ mvar sz a loc ->

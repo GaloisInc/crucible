@@ -26,6 +26,7 @@ module Lang.Crucible.LLVM.Extension.Safety
   ( LLVMSafetyAssertion
   , BadBehavior(..)
   , MemoryError(..)
+  , MemErrContext
   , ppMemoryError
   , undefinedBehavior
   , undefinedBehavior'
@@ -79,6 +80,7 @@ data MemoryError =
   | NoSatisfyingWrite [Doc]
   | UnalignedPointer Alignment
   | UnwritableRegion
+  | BadFunctionPointer Doc
   deriving (Generic)
 
 instance Pretty MemoryError where
@@ -115,14 +117,19 @@ ppMemoryError =
        ]
     UnalignedPointer a ->
       vcat
-       [ "Pointer not sufficently aligned."
-       , "Required alignment:" <+> text (show (fromAlignment a)) <+> "bytes."
+       [ "Pointer not sufficently aligned"
+       , "Required alignment:" <+> text (show (fromAlignment a)) <+> "bytes"
        ]
     UnwritableRegion ->
       vcat
        [ "The region wasn't allocated, or was marked as readonly"
        ]
 
+    BadFunctionPointer msg ->
+      vcat
+       [ "The given pointer could not be resolved to a callable function"
+       , msg
+       ]
 
 -- -----------------------------------------------------------------------
 -- ** BadBehavior
@@ -132,6 +139,7 @@ ppMemoryError =
 data BadBehavior sym where
   BBUndefinedBehavior :: UB.UndefinedBehavior (RegValue' sym) -> BadBehavior sym
   BBMemoryError :: (1 <= w) =>
+    Maybe String ->
     LLVMPtr sym w ->
     Mem sym ->
     MemoryError ->
@@ -145,8 +153,8 @@ concBadBehavior ::
   BadBehavior sym -> IO (BadBehavior sym)
 concBadBehavior sym conc (BBUndefinedBehavior ub) =
   BBUndefinedBehavior <$> UB.concUB sym conc ub
-concBadBehavior sym conc (BBMemoryError ptr mem me) =
-  BBMemoryError <$> concPtr sym conc ptr <*> concMem sym conc mem <*> pure me
+concBadBehavior sym conc (BBMemoryError gsym ptr mem me) =
+  BBMemoryError gsym <$> concPtr sym conc ptr <*> concMem sym conc mem <*> pure me
 
 -- -----------------------------------------------------------------------
 -- *** Instances
@@ -188,9 +196,11 @@ undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
-memoryError :: (1 <= w) => LLVMPtr sym w -> Mem sym -> MemoryError -> Pred sym -> LLVMSafetyAssertion sym
-memoryError pp mem ld pred =
-  LLVMSafetyAssertion (BBMemoryError pp mem ld) pred Nothing
+type MemErrContext sym w = (Maybe String, LLVMPtr sym w, Mem sym)
+
+memoryError :: (1 <= w) => MemErrContext sym w -> MemoryError -> Pred sym -> LLVMSafetyAssertion sym
+memoryError (gsym,pp,mem) ld pred =
+  LLVMSafetyAssertion (BBMemoryError gsym pp mem ld) pred Nothing
 
 poison' :: Poison.Poison (RegValue' sym)
         -> Pred sym
@@ -220,24 +230,29 @@ extra = lens _extra (\s v -> s { _extra = v})
 explainBB :: BadBehavior sym -> Doc
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
-  BBMemoryError _ _ ld     -> ppMemoryError ld
+  BBMemoryError _ _ _ ld     -> ppMemoryError ld
+
+ppGSym :: Maybe String -> [Doc]
+ppGSym Nothing = []
+ppGSym (Just nm) = [ text "Global symbol", text (show nm) ]
 
 detailBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
-  BBMemoryError p mem _ld    ->
+  BBMemoryError gsym p mem _ld    ->
     vcat
-      [ text "Via pointer:" <+> UB.ppPointerPair (UB.pointerView p)
-      , text "In memory state"
-      , indent 2 (ppMem mem)
-      ]
+       [ hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [UB.ppPointerPair (UB.pointerView p) ])
+       , text "In memory state:"
+       , indent 2 (ppMem mem)
+       ]
 
 ppBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 ppBB = \case
-  BBUndefinedBehavior ub -> vcat [ UB.explain ub, UB.ppReg ub ]
-  BBMemoryError p mem le -> vcat
-    [ text "Via pointer:" <+> UB.ppPointerPair (UB.pointerView p)
-    , ppMemoryError le
-    , text "In memory state"
-    , indent 2 (ppMem mem)
-    ]
+  BBUndefinedBehavior ub -> UB.ppReg ub
+  BBMemoryError gsym p mem le ->
+    vcat
+       [ hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [UB.ppPointerPair (UB.pointerView p) ])
+       , ppMemoryError le
+       , text "In memory state:"
+       , indent 2 (ppMem mem)
+       ]

@@ -180,7 +180,7 @@ initializeMemory predicate sym llvm_ctx m = do
 
    -- allocate pointers values for function symbols, but do not
    -- yet bind them to function handles
-   let decls = allModuleDeclares m
+   let decls = map Left (L.modDeclares m) ++ map Right (L.modDefines m)
    mem <- foldM (allocLLVMFunPtr sym llvm_ctx) mem0 decls
 
    -- Allocate global values
@@ -223,14 +223,21 @@ allocLLVMFunPtr ::
   sym ->
   LLVMContext arch ->
   MemImpl sym ->
-  L.Declare ->
+  Either L.Declare L.Define ->
   IO (MemImpl sym)
 allocLLVMFunPtr sym llvm_ctx mem decl =
-  do let symbol@(L.Symbol sym_str) = L.decName decl
+  do let (symbol, displayString) =
+           case decl of
+             Left d ->
+               let s@(L.Symbol nm) = L.decName d
+                in ( s, "[external function] " ++ nm )
+             Right d ->
+               let s@(L.Symbol nm) = L.defName d
+                in ( s, "[defined  function] " ++ nm)
      let funAliases = llvmFunctionAliases llvm_ctx
      let aliases = map L.aliasName $ maybe [] Set.toList $ Map.lookup symbol funAliases
      z <- bvLit sym ?ptrWidth (BV.zero ?ptrWidth)
-     (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Immutable sym_str mem z noAlignment
+     (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Immutable displayString mem z noAlignment
      return $ registerGlobal mem' (symbol:aliases) ptr
 
 ------------------------------------------------------------------------

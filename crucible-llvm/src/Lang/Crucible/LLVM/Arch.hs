@@ -20,22 +20,23 @@ import           Lang.Crucible.Simulator.SimError
 
 import qualified Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Extension
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.MemModel.Partial
 
 -- TODO! This isn't really the right place for this...
 
 assertSideCondition ::
-  IsSymInterface sym =>
+  (HasLLVMAnn sym, IsSymInterface sym) =>
   sym ->
   LLVMSideCondition (RegValue' sym) ->
   IO ()
-assertSideCondition sym (LLVMSideCondition p ub) =
-  do let err = AssertFailureSimError (show (UB.explain ub)) (show (UB.ppReg ub))
-     assert sym (unRV p) err
+assertSideCondition sym (LLVMSideCondition (RV p) ub) =
+  do p' <- annotateUB sym ub p
+     let err = AssertFailureSimError "Undefined behavior encountered" ""
+     assert sym p' err
 
 llvmExtensionEval :: forall sym arch.
-  IsSymInterface sym =>
+  (HasLLVMAnn sym, IsSymInterface sym) =>
   sym ->
   IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->

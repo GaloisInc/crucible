@@ -195,32 +195,20 @@ explain =
       "Inexact signed division even though the `exact` flag was set"
     UDivExact _ _ ->
       "Inexact unsigned division even though the `exact` flag was set"
-    ShlOp2Big _ _ -> cat $
-      [ "The second operand of `shl` was equal to or greater than the number of"
-      , "bits in the first operand"
-      ]
+    ShlOp2Big _ _ ->
+      "The second operand of `shl` was equal to or greater than the number of bits in the first operand"
     ShlNoUnsignedWrap _ _ ->
       "Left shift shifted out non-zero bits even though the `nuw` flag was set"
-    ShlNoSignedWrap _ _ -> cat $
-      [ "Left shift shifted out some bits that disagreed with the sign bit"
-      , "even though the `nsw` flag was set"
-      ]
-    LshrExact _ _ -> cat $
-      [ "Inexact `lshr` (logical right shift) result even though the `exact`"
-      , "flag was set"
-      ]
-    LshrOp2Big _ _ -> cat $
-      [ "The second operand of `lshr` was equal to or greater than the number of"
-      , "bits in the first operand"
-      ]
-    AshrExact _ _ -> cat $
-      [ "Inexact `ashr` (arithmetic right shift) result even though the `exact`"
-      , "flag was set"
-      ]
-    AshrOp2Big _ _   -> cat $
-      [ "The second operand of `ashr` was equal to or greater than the number of"
-      , "bits in the first operand"
-      ]
+    ShlNoSignedWrap _ _ ->
+      "Left shift shifted out some bits that disagreed with the sign bit even though the `nsw` flag was set"
+    LshrExact _ _ ->
+      "Inexact `lshr` (logical right shift) result even though the `exact` flag was set"
+    LshrOp2Big _ _ ->
+      "The second operand of `lshr` was equal to or greater than the number of bits in the first operand"
+    AshrExact _ _ ->
+      "Inexact `ashr` (arithmetic right shift) result even though the `exact` flag was set"
+    AshrOp2Big _ _   ->
+      "The second operand of `ashr` was equal to or greater than the number of bits in the first operand"
     ExtractElementIndex _   -> cat $
       [ "Attempted to extract an element from a vector at an index that was"
       , "greater than the length of the vector"
@@ -229,37 +217,44 @@ explain =
       [ "Attempted to insert an element into a vector at an index that was"
       , "greater than the length of the vector"
       ]
+
     -- The following explanation is a bit unsatisfactory, because it is specific
     -- to how we treat this instruction in Crucible.
     GEPOutOfBounds _   -> cat $
-      [ "Calling `getelementptr` resulted in an index that was out of bounds for"
-      , "the given allocation (likely due to arithmetic overflow), but Crucible"
-      , "currently treats all GEP instructions as if they had the `inbounds`"
-      , "flag set."
+      [ "Calling `getelementptr` resulted in an index that was out of bounds for the"
+      , "given allocation (likely due to arithmetic overflow), but Crucible currently"
+      , "treats all GEP instructions as if they had the `inbounds` flag set."
       ]
 
-detailsReg ::
-  Poison e -> [Doc]
-detailsReg = const [] -- TODO: details
-  -- \case
-  --   AddNoUnsignedWrap _ _ -> _
-  --   AddNoSignedWrap _ _ -> _
-  --   SubNoUnsignedWrap _ _ -> _
-  --   SubNoSignedWrap _ _  -> _
-  --   MulNoUnsignedWrap _ _ -> _
-  --   MulNoSignedWrap _ _ -> _
-  --   SDivExact _ _ -> _
-  --   UDivExact _ _ -> _
-  --   ShlOp2Big _ _ -> _
-  --   ShlNoUnsignedWrap _ _ -> _
-  --   ShlNoSignedWrap _ _ -> _
-  --   LshrExact _ _ -> _
-  --   LshrOp2Big _ _ -> _
-  --   AshrExact _ _ -> _
-  --   AshrOp2Big _ _   -> _
-  --   ExtractElementIndex _   -> _
-  --   InsertElementIndex _   -> _
-  --   GEPOutOfBounds _   -> _
+detailsReg :: forall sym.
+  W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc]
+detailsReg =
+  \case
+    AddNoUnsignedWrap v1 v2 -> args [v1, v2]
+    AddNoSignedWrap   v1 v2 -> args [v1, v2]
+    SubNoUnsignedWrap v1 v2 -> args [v1, v2]
+    SubNoSignedWrap   v1 v2 -> args [v1, v2]
+    MulNoUnsignedWrap v1 v2 -> args [v1, v2]
+    MulNoSignedWrap   v1 v2 -> args [v1, v2]
+    SDivExact         v1 v2 -> args [v1, v2]
+    UDivExact         v1 v2 -> args [v1, v2]
+    ShlOp2Big         v1 v2 -> args [v1, v2]
+    ShlNoUnsignedWrap v1 v2 -> args [v1, v2]
+    ShlNoSignedWrap   v1 v2 -> args [v1, v2]
+    LshrExact         v1 v2 -> args [v1, v2]
+    LshrOp2Big        v1 v2 -> args [v1, v2]
+    AshrExact         v1 v2 -> args [v1, v2]
+    AshrOp2Big        v1 v2 -> args [v1, v2]
+    ExtractElementIndex v   -> args [v]
+    InsertElementIndex v    -> args [v]
+    GEPOutOfBounds v        -> args [v]
+
+ where
+ args :: forall w. [RegValue' sym (BVType w)] -> [Doc]
+ args []     = [ text "No arguments" ]
+ args [RV v] = [ text "Argument:" <+> W4I.printSymExpr v ]
+ args vs     = [ hsep (text "Arguments:" : map (W4I.printSymExpr . unRV) vs) ]
+
 
 pp :: (Poison e -> [Doc]) -> Poison e -> Doc
 pp extra poison = vcat $
@@ -274,7 +269,7 @@ pp extra poison = vcat $
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
-ppReg :: Poison e -> Doc
+ppReg ::W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> Doc
 ppReg = pp detailsReg
 
 concPoison :: forall sym.
@@ -384,4 +379,3 @@ instance TraversableF Poison where
          )
        ]
      )
-
