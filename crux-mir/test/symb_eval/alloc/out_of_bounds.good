@@ -3,10 +3,8 @@ test out_of_bounds/3a1fbbbh::crux_test[0]: FAILED
 failures:
 
 ---- out_of_bounds/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for Vector index out of range
+Failure for vector index out of range: the length is 10 but the index is 12
 in out_of_bounds/3a1fbbbh::crux_test[0] at test/symb_eval/alloc/out_of_bounds.rs:12:9
-Details:
-Range is (0,10)
 
 [Crux] Goal status:
 [Crux]   Total: 1

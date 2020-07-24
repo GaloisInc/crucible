@@ -24,7 +24,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, catMaybes)
 import Data.Semigroup
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -80,6 +80,7 @@ import Crux.Model (addVar, evalModel)
 import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 
 import Mir.DefId
+import Mir.FancyMuxTree
 import Mir.Intrinsics
 
 
@@ -92,8 +93,8 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
     len <- readBV lenExpr
     bytes <- forM [0 .. len - 1] $ \i -> do
         iExpr <- liftIO $ bvLit sym knownRepr i
-        elemPtr <- liftIO $ mirRef_offsetWrapIO sym knownRepr mirPtr iExpr
-        bExpr <- liftIO $ readMirRefIO state sym elemPtr
+        elemPtr <- lift $ mirRef_offsetWrapSim knownRepr mirPtr iExpr
+        bExpr <- lift $ readMirRefSim knownRepr elemPtr
         b <- readBV bExpr
         return $ fromIntegral b
     return $ Text.decodeUtf8 $ BS.pack bytes
@@ -218,13 +219,13 @@ regEval sym baseEval tpr v = go tpr v
 
         vals <- forM [0 .. lenBV - 1] $ \i -> do
             i' <- liftIO $ bvLit sym knownRepr i
-            ptr' <- liftIO $ mirRef_offsetIO sym tpr' ptr i'
-            val <- liftIO $ readMirRefIO state sym ptr'
+            ptr' <- mirRef_offsetSim tpr' ptr i'
+            val <- readMirRefSim tpr' ptr'
             go tpr' val
 
         let vec = MirVector_Vector $ V.fromList vals
-        let vecRef = newConstMirRef (MirVectorRepr tpr') vec
-        ptr <- liftIO $ subindexMirRefIO sym tpr' vecRef =<< bvLit sym knownRepr 0
+        let vecRef = newConstMirRef sym (MirVectorRepr tpr') vec
+        ptr <- subindexMirRefSim tpr' vecRef =<< liftIO (bvLit sym knownRepr 0)
         return $ Empty :> RV ptr :> RV len'
 
     go (FloatRepr fi) v = pure v
@@ -244,10 +245,14 @@ regEval sym baseEval tpr v = go tpr v
         return $ toMuxTree sym rc'
     -- TODO: WordMapRepr
     -- TODO: RecursiveRepr
-    go (MirReferenceRepr tpr') (MirReference root path) =
-        MirReference <$> goMirReferenceRoot root <*> goMirReferencePath path
-    go (MirReferenceRepr tpr') (MirReference_Integer _tpr i) =
-        MirReference_Integer tpr' <$> go UsizeRepr i
+    go (MirReferenceRepr tpr') (MirReferenceMux mux) = do
+        ref <- goMuxTreeEntries tpr (viewFancyMuxTree mux)
+        ref' <- case ref of
+            MirReference root path ->
+                MirReference <$> goMirReferenceRoot root <*> goMirReferencePath path
+            (MirReference_Integer _tpr i) ->
+                MirReference_Integer tpr' <$> go UsizeRepr i
+        return $ MirReferenceMux $ toFancyMuxTree sym ref'
     go (MirVectorRepr tpr') vec = case vec of
         MirVector_Vector v -> MirVector_Vector <$> go (VectorRepr tpr') v
         MirVector_Array a

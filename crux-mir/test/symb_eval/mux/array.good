@@ -1,8 +1,8 @@
-test mux_slice/3a1fbbbh::crux_test[0]: returned Symbolic BV, ok
+test array/3a1fbbbh::crux_test[0]: returned Symbolic BV, ok
 
 [Crux] Goal status:
-[Crux]   Total: 1
-[Crux]   Proved: 1
+[Crux]   Total: 9
+[Crux]   Proved: 9
 [Crux]   Disproved: 0
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0
