@@ -218,3 +218,14 @@ translateMIR lib col halloc =
   let ?customOps = Mir.customOps in
   let col0 = let ?mirLib  = lib^.collection in rewriteCollection col
   in let ?libCS = lib in transCollection col0 halloc
+
+
+loadAndTranslateMIR ::
+    (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool) =>
+    FilePath ->
+    C.HandleAllocator ->
+    IO RustModule
+loadAndTranslateMIR path halloc = do
+    col <- generateMIR path False
+    translateMIR mempty col halloc
+
