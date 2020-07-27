@@ -68,11 +68,11 @@ import           Lang.Crucible.CFG.Generator
 
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.DataLayout
+import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad

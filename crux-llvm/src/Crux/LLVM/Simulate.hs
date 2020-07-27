@@ -64,8 +64,8 @@ import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, register_llvm_overrides)
 
-import Lang.Crucible.LLVM.Extension(LLVM)
-import Lang.Crucible.LLVM.Extension.Safety
+import Lang.Crucible.LLVM.Errors( ppBB )
+import Lang.Crucible.LLVM.Extension( LLVM )
 
 -- crux
 import qualified Crux

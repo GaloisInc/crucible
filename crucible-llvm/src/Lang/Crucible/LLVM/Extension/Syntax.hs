@@ -41,8 +41,8 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.Errors.UndefinedBehavior( UndefinedBehavior )
 import           Lang.Crucible.LLVM.Extension.Arch
-import           Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior( UndefinedBehavior )
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types

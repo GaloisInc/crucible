@@ -100,6 +100,8 @@ import qualified What4.Concrete as W4
 import           Lang.Crucible.Backend
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.Errors (MemErrContext)
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.MemLog
 import           Lang.Crucible.LLVM.MemModel.Pointer
@@ -107,9 +109,6 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
-import           Lang.Crucible.LLVM.Extension.Safety (MemErrContext)
-
 
 --------------------------------------------------------------------------------
 -- Reading from memory

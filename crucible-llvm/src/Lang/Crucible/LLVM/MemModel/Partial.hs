@@ -93,8 +93,8 @@ import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
-import           Lang.Crucible.LLVM.Extension.Safety
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.Errors
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.Panic (panic)
 
 import           What4.Expr

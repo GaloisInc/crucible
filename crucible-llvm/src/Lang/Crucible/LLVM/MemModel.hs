@@ -231,6 +231,8 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
+import           Lang.Crucible.LLVM.Errors
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemType
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as ML
 import           Lang.Crucible.LLVM.MemModel.Type
@@ -239,12 +241,9 @@ import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.Value
-import           Lang.Crucible.LLVM.Extension.Safety
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic (panic)
-
 
 
 import           GHC.Stack

@@ -50,10 +50,10 @@ library
     Lang.Crucible.LLVM.Bytes
     Lang.Crucible.LLVM.Ctors
     Lang.Crucible.LLVM.DataLayout
+    Lang.Crucible.LLVM.Errors
+    Lang.Crucible.LLVM.Errors.Poison
+    Lang.Crucible.LLVM.Errors.UndefinedBehavior
     Lang.Crucible.LLVM.Extension
-    Lang.Crucible.LLVM.Extension.Safety
-    Lang.Crucible.LLVM.Extension.Safety.Poison
-    Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.MalformedLLVMModule
@@ -68,9 +68,9 @@ library
     Lang.Crucible.LLVM.TypeContext
 
   other-modules:
+    Lang.Crucible.LLVM.Errors.Standards
     Lang.Crucible.LLVM.Extension.Arch
     Lang.Crucible.LLVM.Extension.Syntax
-    Lang.Crucible.LLVM.Extension.Safety.Standards
     Lang.Crucible.LLVM.Intrinsics.Common
     Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.Libcxx
