@@ -48,4 +48,3 @@ type instance ExprExtension (LLVM arch) = LLVMExtensionExpr arch
 type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 
 instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)
-

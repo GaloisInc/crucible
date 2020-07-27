@@ -231,7 +231,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
-import           Lang.Crucible.LLVM.Errors
+import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..))
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemType
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as ML
@@ -250,7 +250,6 @@ import           GHC.Stack
 
 ----------------------------------------------------------------------
 -- The MemImpl type
---
 
 newtype BlockSource = BlockSource (IORef Natural)
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
@@ -314,11 +313,11 @@ assertStoreError ::
   sym ->
   MemErrContext sym wptr ->
   StorageType ->
-  MemoryError ->
+  MemoryErrorReason ->
   Pred sym ->
   IO ()
-assertStoreError sym errCtx valTy le p =
-  do p' <- Partial.annotateME sym errCtx le p
+assertStoreError sym errCtx valTy rsn p =
+  do p' <- Partial.annotateME sym errCtx rsn p
      assert sym p' $ AssertFailureSimError "Memory store failed" ("Storing at type: " ++ show (G.ppType valTy))
 
 instance IntrinsicClass sym "LLVM_memory" where

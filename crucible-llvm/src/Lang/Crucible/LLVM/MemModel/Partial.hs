@@ -95,6 +95,7 @@ import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
 import           Lang.Crucible.LLVM.Errors
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryError(..), MemoryErrorReason(..))
 import           Lang.Crucible.Panic (panic)
 
 import           What4.Expr
@@ -228,12 +229,12 @@ annotateUB sym ub p =
 annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
   MemErrContext sym w ->
-  MemoryError ->
+  MemoryErrorReason ->
   Pred sym ->
   IO (Pred sym)
 annotateME sym (gsym,ptr,mem) le p =
   do (n, p') <- annotateTerm sym p
-     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError gsym ptr mem le))
+     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError (MemoryError gsym ptr mem le)))
      return p'
 
 ------------------------------------------------------------------------
@@ -246,7 +247,7 @@ data PartLLVMVal sym where
   NoErr :: Pred sym -> LLVMVal sym -> PartLLVMVal sym
 
 partErr :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
-  sym -> MemErrContext sym w -> MemoryError -> IO (PartLLVMVal sym)
+  sym -> MemErrContext sym w -> MemoryErrorReason -> IO (PartLLVMVal sym)
 partErr sym errCtx err =
   do p <- annotateME sym errCtx err (falsePred sym)
      pure (Err p)

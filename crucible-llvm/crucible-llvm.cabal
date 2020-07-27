@@ -51,6 +51,7 @@ library
     Lang.Crucible.LLVM.Ctors
     Lang.Crucible.LLVM.DataLayout
     Lang.Crucible.LLVM.Errors
+    Lang.Crucible.LLVM.Errors.MemoryError
     Lang.Crucible.LLVM.Errors.Poison
     Lang.Crucible.LLVM.Errors.UndefinedBehavior
     Lang.Crucible.LLVM.Extension

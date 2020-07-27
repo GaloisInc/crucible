@@ -100,7 +100,7 @@ import qualified What4.Concrete as W4
 import           Lang.Crucible.Backend
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
-import           Lang.Crucible.LLVM.Errors (MemErrContext)
+import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..))
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.MemLog
@@ -109,6 +109,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
+
 
 --------------------------------------------------------------------------------
 -- Reading from memory
@@ -481,7 +482,7 @@ readMemStore sym w end gsym loadPtr@(LLVMPointer blk off) origMem ltp d t stp lo
                     liftIO (bvLit sym w (bytesToBV w o))
                 subFn (LastStore v)      = liftIO $
                   applyView sym end errCtx (Partial.totalLLVMVal sym t) v
-                subFn (InvalidMemory tp) = liftIO (Partial.partErr sym errCtx $ Partial.Invalid tp)
+                subFn (InvalidMemory tp) = liftIO (Partial.partErr sym errCtx $ Invalid tp)
             let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
             liftIO . genValueCtor sym end errCtx =<< traverse subFn vcr
        -- Symbolic offsets
@@ -492,7 +493,7 @@ readMemStore sym w end gsym loadPtr@(LLVMPointer blk off) origMem ltp d t stp lo
                   readPrev tp' (LLVMPointer blk o')
                 subFn (LastStore v)      = liftIO $
                   applyView sym end errCtx (Partial.totalLLVMVal sym t) v
-                subFn (InvalidMemory tp) = liftIO (Partial.partErr sym errCtx $ Partial.Invalid tp)
+                subFn (InvalidMemory tp) = liftIO (Partial.partErr sym errCtx $ Invalid tp)
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -642,7 +643,7 @@ readMemInvalidate sym w end gsym loadPtr@(LLVMPointer blk off) origMem tp d msg 
                   o' <- liftIO $ bvLit sym w (bytesToBV w o)
                   readPrev tp' (LLVMPointer blk o')
                 subFn (InRange _o _tp') =
-                  liftIO (Partial.partErr sym errCtx $ Partial.Invalidated msg)
+                  liftIO (Partial.partErr sym errCtx $ Invalidated msg)
 --                  pure . Partial.partErr $ Partial.Invalidated msg
             case BV.asUnsigned <$> asBV sz of
               Just csz -> do
@@ -658,7 +659,7 @@ readMemInvalidate sym w end gsym loadPtr@(LLVMPointer blk off) origMem tp d msg 
                   o' <- liftIO $ genOffsetExpr sym w varFn o
                   readPrev tp' (LLVMPointer blk o')
                 subFn (InRange _o _tp') =
-                  liftIO (Partial.partErr sym errCtx $ Partial.Invalidated msg)
+                  liftIO (Partial.partErr sym errCtx $ Invalidated msg)
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -744,7 +745,7 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
       ReadMem sym (PartLLVMVal sym)
     fallback0 _ l =
       do x <- get
-         liftIO (Partial.partErr sym (gsym,l,origMem) $ Partial.NoSatisfyingWrite (ppReadMemDebugState @sym x))
+         liftIO (Partial.partErr sym (gsym,l,origMem) $ NoSatisfyingWrite (ppReadMemDebugState @sym x))
     go :: (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
           LLVMPtr sym w ->
           StorageType ->
@@ -1258,7 +1259,7 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
               errCtx
               (Partial.totalLLVMVal sym val)
               val_view
-            InvalidMemory tp'-> Partial.partErr sym errCtx $ Partial.Invalid tp'
+            InvalidMemory tp'-> Partial.partErr sym errCtx $ Invalid tp'
             OldMemory off _ -> panic "Generic.writeMemWithAllocationCheck"
               [ "Unexpected offset in storage type"
               , "*** Offset:  " ++ show off
