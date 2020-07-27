@@ -301,7 +301,7 @@ ppMemWrites (MemWrites ws) = vcat $ map ppMemWritesChunk ws
 
 ppMemChanges :: IsExpr (SymExpr sym) => MemChanges sym -> [Doc]
 ppMemChanges (al,wl)
-  | null al && nullMemWrites wl = [text "No write or allocations"]
+  | null al && nullMemWrites wl = [text "No writes or allocations"]
   | otherwise =
       (if null al then [] else [text "Allocations:", indent 2 (ppAllocs al)]) <>
       (if nullMemWrites wl then [] else [text "Writes:", indent 2 (ppMemWrites wl)])
