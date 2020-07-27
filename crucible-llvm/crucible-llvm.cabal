@@ -43,7 +43,6 @@ library
 
   exposed-modules:
     Lang.Crucible.LLVM
-    Lang.Crucible.LLVM.Arch
     Lang.Crucible.LLVM.Arch.Util
     Lang.Crucible.LLVM.Arch.X86
     Lang.Crucible.LLVM.ArraySizeProfile
@@ -54,6 +53,7 @@ library
     Lang.Crucible.LLVM.Errors.MemoryError
     Lang.Crucible.LLVM.Errors.Poison
     Lang.Crucible.LLVM.Errors.UndefinedBehavior
+    Lang.Crucible.LLVM.Eval
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics

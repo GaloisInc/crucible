@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-module Lang.Crucible.LLVM.Arch
+module Lang.Crucible.LLVM.Eval
   ( llvmExtensionEval
   ) where
 
@@ -22,8 +22,6 @@ import qualified Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Partial
-
--- TODO! This isn't really the right place for this...
 
 assertSideCondition ::
   (HasLLVMAnn sym, IsSymInterface sym) =>
