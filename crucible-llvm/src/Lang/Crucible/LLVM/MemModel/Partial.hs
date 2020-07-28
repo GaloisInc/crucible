@@ -89,6 +89,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
+import           Lang.Crucible.LLVM.MemModel.Pointer ( pattern LLVMPointer )
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
@@ -415,7 +416,7 @@ bvToFloat sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
 bvToFloat sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @32) = do
       pz <- natEq sym blk =<< natLit sym 0
-      let ub = UB.PointerCast (RV blk, RV off) Float
+      let ub = UB.PointerCast (RV (LLVMPointer blk off)) Type.floatType
       p' <- andPred sym p =<< annotateUB sym ub pz
       NoErr p' . LLVMValFloat Value.SingleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr off
@@ -443,7 +444,7 @@ bvToDouble sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
 bvToDouble sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @64) = do
       pz <- natEq sym blk =<< natLit sym 0
-      let ub = UB.PointerCast (RV blk, RV off) Double
+      let ub = UB.PointerCast (RV (LLVMPointer blk off)) Type.doubleType
       p' <- andPred sym p =<< annotateUB sym ub pz
       NoErr p' .
         LLVMValFloat Value.DoubleSize <$>
@@ -472,7 +473,7 @@ bvToX86_FP80 sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
 bvToX86_FP80 sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @80) =
       do pz <- natEq sym blk =<< natLit sym 0
-         let ub = UB.PointerCast (RV blk, RV off) X86_FP80
+         let ub = UB.PointerCast (RV (LLVMPointer blk off)) Type.x86_fp80Type
          p' <- andPred sym p =<< annotateUB sym ub pz
          NoErr p' . LLVMValFloat Value.X86_FP80Size <$>
            W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
@@ -522,13 +523,13 @@ bvConcat sym errCtx (NoErr p1 v1) (NoErr p2 v2) =
     -- result from e.g. writing an i1 or an i20 into memory.  This is consistent with LLVM
     -- documentation, which says that non-integral number of bytes loads will only succeed
     -- if the value was written orignally with the same type.
-    | natValue low_w' `mod` 8 == 0
-    , natValue high_w' `mod` 8 == 0 =
+    | low_nat  `mod` 8 == 0
+    , high_nat `mod` 8 == 0 =
       do blk0   <- natLit sym 0
          -- TODO: Why won't this pattern match fail?
          Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
-         let ub1 = UB.PointerCast (RV blk_low, RV low)   (Bitvector 0)
-             ub2 = UB.PointerCast (RV blk_high, RV high) (Bitvector 0)
+         let ub1 = UB.PointerCast (RV (LLVMPointer blk_low low))   low_tp
+             ub2 = UB.PointerCast (RV (LLVMPointer blk_high high)) high_tp
          predLow       <- annotateUB sym ub1 =<< natEq sym blk_low blk0
          predHigh      <- annotateUB sym ub2 =<< natEq sym blk_high blk0
          bv            <- W4I.bvConcat sym high low
@@ -540,8 +541,13 @@ bvConcat sym errCtx (NoErr p1 v1) (NoErr p2 v2) =
         UnexpectedArgumentType "Non-byte-sized bitvectors"
           [Value.llvmValStorableType v1, Value.llvmValStorableType v2]
 
-    where low_w' = bvWidth low
-          high_w' = bvWidth high
+    where low_w'  = bvWidth low
+          low_nat = natValue low_w'
+          low_tp  = Type.bitvectorType (Bytes.bitsToBytes low_nat)
+
+          high_w'  = bvWidth high
+          high_nat = natValue high_w'
+          high_tp  = Type.bitvectorType (Bytes.bitsToBytes high_nat)
 
 bvConcat sym _ (Err e1) (Err e2) = Err <$> andPred sym e1 e2
 bvConcat _ _ _ (Err e) = pure (Err e)
@@ -718,10 +724,11 @@ selectLowBv sym _ low hi (NoErr p (LLVMValInt blk bv))
   , Just LeqProof       <- testLeq low_w w =
       do pz  <- natEq sym blk =<< natLit sym 0
          bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
-         let ub = UB.PointerCast (RV blk, RV bv) (Bitvector 0)
+         let ub = UB.PointerCast (RV (LLVMPointer blk bv)) tp
          p' <- andPred sym p =<< annotateUB sym ub pz
          return $ NoErr p' $ LLVMValInt blk bv'
  where w = bvWidth bv
+       tp = Type.bitvectorType (Bytes.bitsToBytes (natValue w))
 
 selectLowBv sym errCtx _ _ (NoErr _ v) =
   do let msg = "While selecting the low bits of a bitvector"
@@ -752,10 +759,11 @@ selectHighBv sym _ low hi (NoErr p (LLVMValInt blk bv))
   , Just Refl <- testEquality (addNat low_w hi_w) w =
     do pz <-  natEq sym blk =<< natLit sym 0
        bv' <- bvSelect sym low_w hi_w bv
-       let ub = UB.PointerCast (RV blk, RV bv) (Bitvector 0)
+       let ub = UB.PointerCast (RV (LLVMPointer blk bv)) tp
        p' <- andPred sym p =<< annotateUB sym ub pz
        return $ NoErr p' $ LLVMValInt blk bv'
   where w = bvWidth bv
+        tp = Type.bitvectorType (Bytes.bitsToBytes (natValue w))
 selectHighBv _ _ _ _ (Err e) = pure (Err e)
 
 selectHighBv sym errCtx _ _ (NoErr _ v) =

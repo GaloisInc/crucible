@@ -109,7 +109,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
-
+import           Lang.Crucible.Simulator.RegMap (RegValue'(..))
 
 --------------------------------------------------------------------------------
 -- Reading from memory
@@ -703,8 +703,8 @@ readMem sym w gsym l tp alignment m = do
         =<< loadTypedValueFromBytes 0 tp loadArrayByteFn
     Nothing -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
 
-  Partial.attachSideCondition sym p1 (UB.ReadUnallocated  (UB.pointerView l)) =<<
-    Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (UB.pointerView l) alignment) part_val
+  Partial.attachSideCondition sym p1 (UB.ReadUnallocated (RV l)) =<<
+    Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (RV l) alignment) part_val
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)

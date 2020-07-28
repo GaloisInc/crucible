@@ -50,6 +50,11 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , llvmPointer_bv
   , mkNullPointer
 
+    -- * Concretization
+  , concBV
+  , concPtr
+  , concPtr'
+
     -- * Operations on valid pointers
   , constOffset
   , ptrEq
@@ -82,14 +87,18 @@ import qualified Text.LLVM.AST as L
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
+import           What4.Expr (GroundValue)
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.LLVM.MemModel.Options
+
+
 
 data LLVMPointer sym w =
   -- |A pointer is a base point offset.
@@ -147,6 +156,34 @@ llvmPointer_bv sym bv =
 -- | Produce the distinguished null pointer value.
 mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (LLVMPtr sym w)
 mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w (BV.zero w)
+
+
+concBV ::
+  (IsExprBuilder sym, 1 <= w) =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  SymBV sym w -> IO (SymBV sym w)
+concBV sym conc bv =
+  do bv' <- conc bv
+     bvLit sym (bvWidth bv) bv'
+
+concPtr ::
+  (IsExprBuilder sym, 1 <= w) =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  RegValue sym (LLVMPointerType w) ->
+  IO (RegValue sym (LLVMPointerType w))
+concPtr sym conc (LLVMPointer blk off) =
+  LLVMPointer <$> (natLit sym =<< conc blk) <*> concBV sym conc off
+
+concPtr' ::
+  (IsExprBuilder sym, 1 <= w) =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  RegValue' sym (LLVMPointerType w) ->
+  IO (RegValue' sym (LLVMPointerType w))
+concPtr' sym conc (RV ptr) = RV <$> concPtr sym conc ptr
+
 
 -- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
@@ -260,7 +297,6 @@ ptrIsNull sym w (LLVMPointer blk off) =
   do pblk <- natEq sym blk =<< natLit sym 0
      poff <- bvEq sym off =<< bvLit sym (bvWidth off) (BV.zero w)
      andPred sym pblk poff
-
 
 ppPtr  :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc
 ppPtr (llvmPointerView -> (blk, bv))

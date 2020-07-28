@@ -34,7 +34,7 @@ module Lang.Crucible.LLVM.Errors.Poison
   , cite
   , explain
   , standard
-  , detailsReg
+  , details
   , pp
   , ppReg
   , concPoison
@@ -53,7 +53,7 @@ import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
 
 import           Lang.Crucible.LLVM.Errors.Standards
-import           Lang.Crucible.LLVM.MemModel.MemLog (concBV)
+import           Lang.Crucible.LLVM.MemModel.Pointer (concBV)
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.Types
 import qualified What4.Interface as W4I
@@ -226,9 +226,9 @@ explain =
       , "treats all GEP instructions as if they had the `inbounds` flag set."
       ]
 
-detailsReg :: forall sym.
+details :: forall sym.
   W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc]
-detailsReg =
+details =
   \case
     AddNoUnsignedWrap v1 v2 -> args [v1, v2]
     AddNoSignedWrap   v1 v2 -> args [v1, v2]
@@ -256,6 +256,8 @@ detailsReg =
  args vs     = [ hsep (text "Arguments:" : map (W4I.printSymExpr . unRV) vs) ]
 
 
+-- | Pretty print an error message relating to LLVM poison values,
+--   when given a printer to produce a detailed message.
 pp :: (Poison e -> [Doc]) -> Poison e -> Doc
 pp extra poison = vcat $
   [ "Poison value encountered: "
@@ -269,9 +271,11 @@ pp extra poison = vcat $
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
+-- | Pretty print an error message relating to LLVM poison values
 ppReg ::W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> Doc
-ppReg = pp detailsReg
+ppReg = pp details
 
+-- | Concretize a poison error message.
 concPoison :: forall sym.
   W4I.IsExprBuilder sym =>
   sym ->

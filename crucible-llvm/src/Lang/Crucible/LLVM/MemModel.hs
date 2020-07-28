@@ -477,9 +477,9 @@ evalStmt sym = eval
         v3 <- G.notAliasable sym x y (memImplHeap mem)
 
         assertUndefined sym v1 $
-          UB.CompareInvalidPointer UB.Eq (UB.pointerView x) (UB.pointerView y)
+          UB.CompareInvalidPointer UB.Eq (RV x) (RV y)
         assertUndefined sym v2 $
-          UB.CompareInvalidPointer UB.Eq (UB.pointerView x) (UB.pointerView y)
+          UB.CompareInvalidPointer UB.Eq (RV x) (RV y)
 
         unless (laxConstantEquality ?memOpts) $
           do let allocs_doc = G.ppAllocs (G.memAllocs (memImplHeap mem))
@@ -501,16 +501,13 @@ evalStmt sym = eval
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
        assertUndefined sym v1
-        (UB.CompareInvalidPointer UB.Leq
-          (UB.pointerView x) (UB.pointerView y))
+        (UB.CompareInvalidPointer UB.Leq (RV x) (RV y))
        assertUndefined sym v2
-        (UB.CompareInvalidPointer UB.Leq
-          (UB.pointerView x) (UB.pointerView y))
+        (UB.CompareInvalidPointer UB.Leq (RV x) (RV y))
 
        (le, valid) <- ptrLe sym PtrWidth x y
        assertUndefined sym valid
-         (UB.CompareDifferentAllocs
-           (UB.pointerView x) (UB.pointerView y))
+         (UB.CompareDifferentAllocs (RV x) (RV y))
 
        pure le
 
@@ -771,8 +768,8 @@ doFree sym mem ptr = do
   isNull <- ptrIsNull sym PtrWidth ptr
   p1'    <- orPred sym p1 isNull
   p2'    <- orPred sym p2 isNull
-  assertUndefined sym p1' (UB.FreeBadOffset (UB.pointerView ptr))
-  assertUndefined sym p2' (UB.FreeUnallocated (UB.pointerView ptr))
+  assertUndefined sym p1' (UB.FreeBadOffset (RV ptr))
+  assertUndefined sym p2' (UB.FreeUnallocated (RV ptr))
 
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
@@ -794,7 +791,7 @@ doMemset sym w mem dest val len = do
   (heap', p) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
 
   assertUndefined sym p $
-    UB.MemsetInvalidRegion (UB.pointerView dest) (RV val) (RV len)
+    UB.MemsetInvalidRegion (RV dest) (RV val) (RV len)
 
   return mem{ memImplHeap = heap' }
 
@@ -955,7 +952,7 @@ doPtrSubtract ::
 doPtrSubtract sym _m x y = do
   (diff, valid) <- ptrDiff sym PtrWidth x y
   assertUndefined sym valid $
-    UB.PtrSubDifferentAllocs (UB.pointerView x) (UB.pointerView y)
+    UB.PtrSubDifferentAllocs (RV x) (RV y)
   pure diff
 
 -- | Add an offset to a pointer and asserts that the result is a valid pointer.
@@ -972,7 +969,7 @@ doPtrAddOffset sym m x@(LLVMPointer blk _) off = do
   v <- case asConstantPred isBV of
          Just True  -> return isBV
          _ -> orPred sym isBV =<< G.isValidPointer sym PtrWidth x' (memImplHeap m)
-  assertUndefined sym v (UB.PtrAddOffsetOutOfBounds (UB.pointerView x) (RV off))
+  assertUndefined sym v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
   return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer

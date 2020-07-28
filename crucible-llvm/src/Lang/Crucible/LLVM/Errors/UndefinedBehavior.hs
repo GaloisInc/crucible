@@ -47,11 +47,6 @@ module Lang.Crucible.LLVM.Errors.UndefinedBehavior
   , explain
   , ppReg
 
-  -- ** Pointers
-  , PointerPair
-  , pointerView
-  , ppPointerPair
-
   , concUB
   ) where
 
@@ -65,7 +60,7 @@ import           Data.Text (unpack)
 import           Data.Typeable (Typeable)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Data.Parameterized.Classes (toOrdering, fromOrdering, OrderingF(..))
+import           Data.Parameterized.Classes (toOrdering, fromOrdering)
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
@@ -79,10 +74,9 @@ import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
 import           Lang.Crucible.LLVM.Errors.Standards
 import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
-import           Lang.Crucible.LLVM.MemModel.MemLog (concBV)
-import           Lang.Crucible.LLVM.MemModel.Pointer (llvmPointerView)
-import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
-import           Lang.Crucible.LLVM.Types (LLVMPtr)
+import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr, concBV, concPtr')
+import           Lang.Crucible.LLVM.MemModel.Type (StorageType)
+import           Lang.Crucible.LLVM.Types (LLVMPointerType)
 
 -- -----------------------------------------------------------------------
 -- ** UndefinedBehavior
@@ -97,23 +91,6 @@ ppPtrComparison :: PtrComparisonOperator -> Doc
 ppPtrComparison Eq  = text "Equality comparison (==)"
 ppPtrComparison Leq = text "Ordering comparison (<=)"
 
--- | We can't use LLVMPtr, because one of those can't be constructed at
--- translation time, whereas we don't want 'UndefinedBehavior' to be a GADT
--- (beyond some existential quantification of bitvector widths).
-type PointerPair e w = (e NatType, e (BVType w))
-
--- | TODO: duplication with ppPtr
-ppPointerPair :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
-ppPointerPair (RV blk, RV bv)
-  | Just 0 <- W4I.asNat blk = W4I.printSymExpr bv
-  | otherwise =
-     let blk_doc = W4I.printSymExpr blk
-         off_doc = W4I.printSymExpr bv
-      in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
-
-pointerView :: LLVMPtr sym w -> (RegValue' sym NatType, RegValue' sym (BVType w))
-pointerView ptr = let (blk, off) = llvmPointerView ptr in (RV blk, RV off)
-
 -- | This type is parameterized on a higher-kinded term constructor so that it
 -- can be instantiated for expressions at translation time (i.e. the 'Expr' in
 -- 'LLVMGenerator'), or for expressions at runtime ('SymExpr').
@@ -126,61 +103,83 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
 
   -- -------------------------------- Memory management
 
-  FreeBadOffset :: (1 <= w) => PointerPair e w
-                -> UndefinedBehavior e
+  FreeBadOffset ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    UndefinedBehavior e
 
-  FreeUnallocated :: (1 <= w) => PointerPair e w
-                  -> UndefinedBehavior e
+  FreeUnallocated ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    UndefinedBehavior e
 
   -- | Arguments: Destination pointer, fill byte, length
-  MemsetInvalidRegion :: (1 <= w, 1 <= v) => PointerPair e w
-                      -> e (BVType 8)
-                      -> e (BVType v)
-                      -> UndefinedBehavior e
+  MemsetInvalidRegion ::
+    (1 <= w, 1 <= v) =>
+    e (LLVMPointerType w) ->
+    e (BVType 8) ->
+    e (BVType v) ->
+    UndefinedBehavior e
 
   -- | Is this actually undefined? I (Langston) can't find anything about it
   --
   -- Arguments: Read destination, alignment
-  ReadBadAlignment :: (1 <= w) => PointerPair e w
-                   -> Alignment
-                   -> UndefinedBehavior e
+  ReadBadAlignment ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    Alignment ->
+    UndefinedBehavior e
 
-  ReadUnallocated :: (1 <= w) => PointerPair e w
-                  -> UndefinedBehavior e
+  ReadUnallocated ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    UndefinedBehavior e
 
   -- -------------------------------- Pointer arithmetic
 
-  PtrAddOffsetOutOfBounds :: (1 <= w) => PointerPair e w
-                          -> e (BVType w)
-                          -> UndefinedBehavior e
+  PtrAddOffsetOutOfBounds ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    e (BVType w) ->
+    UndefinedBehavior e
 
   -- | Arguments: kind of comparison, the invalid pointer, the other pointer
-  CompareInvalidPointer :: (1 <= w) => PtrComparisonOperator
-                        -> PointerPair e w
-                        -> PointerPair e w
-                        -> UndefinedBehavior e
+  CompareInvalidPointer ::
+    (1 <= w) =>
+    PtrComparisonOperator ->
+    e (LLVMPointerType w) ->
+    e (LLVMPointerType w) ->
+    UndefinedBehavior e
 
   -- | "In all other cases, the behavior is undefined"
   -- TODO: 'PtrComparisonOperator' argument?
-  CompareDifferentAllocs :: (1 <= w) => PointerPair e w
-                         -> PointerPair e w
-                         -> UndefinedBehavior e
+  CompareDifferentAllocs ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    e (LLVMPointerType w) ->
+    UndefinedBehavior e
 
   -- | "When two pointers are subtracted, both shall point to elements of the
   -- same array object"
-  PtrSubDifferentAllocs :: (1 <= w) => PointerPair e w
-                        -> PointerPair e w
-                        -> UndefinedBehavior e
+  PtrSubDifferentAllocs ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    e (LLVMPointerType w) ->
+    UndefinedBehavior e
 
-  PointerCast :: (1 <= w) => PointerPair e w
-              -> StorageTypeF ()
-              -> UndefinedBehavior e
+  PointerCast ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    StorageType ->
+    UndefinedBehavior e
 
   -- | "One of the following shall hold: [...] one operand is a pointer and the
   -- other is a null pointer constant."
-  ComparePointerToBV :: (1 <= w) => PointerPair e w
-                     -> e (BVType w)
-                     -> UndefinedBehavior e
+  ComparePointerToBV ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    e (BVType w) ->
+    UndefinedBehavior e
 
   -------------------------------- LLVM: arithmetic
 
@@ -189,12 +188,8 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
   SDivByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
   URemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
   SRemByZero   :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
-  SDivOverflow :: (1 <= w) => e (BVType w)
-               -> e (BVType w)
-               -> UndefinedBehavior e
-  SRemOverflow :: (1 <= w) => e (BVType w)
-               -> e (BVType w)
-               -> UndefinedBehavior e
+  SDivOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
+  SRemOverflow :: (1 <= w) => e (BVType w) -> e (BVType w) -> UndefinedBehavior e
 
   PoisonValueCreated ::
     Poison.Poison e ->
@@ -365,10 +360,10 @@ detailsReg =
 
     -------------------------------- Memory management
 
-    FreeBadOffset ptr   -> [ "Pointer:" <+> ppPointerPair ptr ]
-    FreeUnallocated ptr -> [ "Pointer:" <+> ppPointerPair ptr ]
+    FreeBadOffset ptr   -> [ "Pointer:" <+> ppPtr1 ptr ]
+    FreeUnallocated ptr -> [ "Pointer:" <+> ppPtr1 ptr ]
     MemsetInvalidRegion destPtr fillByte len ->
-      [ "Destination pointer:" <+> ppPointerPair destPtr
+      [ "Destination pointer:" <+> ppPtr1 destPtr
       , "Fill byte:          " <+> (W4I.printSymExpr $ unRV fillByte)
       , "Length:             " <+> (W4I.printSymExpr $ unRV len)
       ]
@@ -386,8 +381,8 @@ detailsReg =
       ]
     CompareInvalidPointer comparison invalid other ->
       [ "Comparison:                    " <+> ppPtrComparison comparison
-      , "Invalid pointer:               " <+> ppPointerPair invalid
-      , "Other (possibly valid) pointer:" <+> ppPointerPair other
+      , "Invalid pointer:               " <+> ppPtr1 invalid
+      , "Other (possibly valid) pointer:" <+> ppPtr1 other
       ]
     CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
     PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
@@ -423,14 +418,15 @@ detailsReg =
                           , "op2: " <+> (W4I.printSymExpr $ unRV v2)
                           ]
 
-    PoisonValueCreated p -> Poison.detailsReg p
+    PoisonValueCreated p -> Poison.details p
 
-  where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
-        ppPtr1 = ("Pointer:" <+>) . ppPointerPair
+  where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => RegValue' sym (LLVMPointerType w) -> Doc
+        ppPtr1 (RV p) = "Pointer:" <+> ppPtr p
 
-        ppPtr2 ptr1 ptr2 = vcat [ "Pointer 1:" <+>  ppPointerPair ptr1
-                                , "Pointer 2:" <+>  ppPointerPair ptr2
-                                ]
+        ppPtr2 (RV ptr1) (RV ptr2) =
+          vcat [ "Pointer 1:" <+>  ppPtr ptr1
+               , "Pointer 2:" <+>  ppPtr ptr2
+               ]
 
         ppOffset :: W4I.IsExpr e => e (BaseBVType w) -> Doc
         ppOffset = ("Offset:" <+>) . W4I.printSymExpr
@@ -470,9 +466,6 @@ instance TestEqualityC UndefinedBehavior where
        , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
          , [| \a b -> if testEqualityC subterms a b then Just Refl else Nothing |]
          )
-       , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
-         , [| \(b1, o1) (b2, o2) -> subterms o1 o2 >> subterms b1 b2 |]
-         )
        ]
      ) x y
 
@@ -484,20 +477,6 @@ instance OrdC UndefinedBehavior where
          )
        , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
          , [| \a b -> fromOrdering (compareC subterms a b) |]
-         )
-       , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
-         , [| \(b1, o1) (b2, o2) ->
-               -- This looks pretty strange, but we can't use the EQF from the
-               -- second comparison because of the existentially-quantified width
-               case subterms b1 b2 of
-                 GTF -> GTF
-                 LTF -> LTF
-                 e@EQF ->
-                  case subterms o1 o2 of
-                    GTF -> (GTF :: OrderingF NatType NatType)
-                    LTF -> (GTF :: OrderingF NatType NatType)
-                    EQF -> e
-           |]
          )
        ]
      ) ub1 ub2
@@ -517,22 +496,9 @@ instance TraversableF UndefinedBehavior where
        , ( U.ConType [t|Poison.Poison|] `U.TypeApp` U.AnyType
          , [| \_ x -> traverseF subterms x |]
          )
-       , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
-         , [| \_ (b, o) -> (,) <$> subterms b <*> subterms o |]
-         )
-
        ]
      ) subterms
 
-
-concPtrPair ::
-  (W4I.IsExprBuilder sym, 1 <= w) =>
-  sym ->
-  (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
-  PointerPair (RegValue' sym) w ->
-  IO (PointerPair (RegValue' sym) w)
-concPtrPair sym conc (RV blk,RV off) =
-  (,) <$> (RV <$> (W4I.natLit sym =<< conc blk)) <*> (RV <$> concBV sym conc off)
 
 concUB :: forall sym.
   W4I.IsExprBuilder sym =>
@@ -544,28 +510,28 @@ concUB sym conc ub =
       bv (RV x) = RV <$> concBV sym conc x in
   case ub of
     FreeBadOffset ptr ->
-      FreeBadOffset <$> concPtrPair sym conc ptr
+      FreeBadOffset <$> concPtr' sym conc ptr
     FreeUnallocated ptr ->
-      FreeUnallocated <$> concPtrPair sym conc ptr
+      FreeUnallocated <$> concPtr' sym conc ptr
     MemsetInvalidRegion ptr val len ->
-      MemsetInvalidRegion <$> concPtrPair sym conc ptr <*> bv val <*> bv len
+      MemsetInvalidRegion <$> concPtr' sym conc ptr <*> bv val <*> bv len
     ReadBadAlignment ptr a ->
-      ReadBadAlignment <$> concPtrPair sym conc ptr <*> pure a
+      ReadBadAlignment <$> concPtr' sym conc ptr <*> pure a
     ReadUnallocated ptr ->
-      ReadUnallocated <$> concPtrPair sym conc ptr
+      ReadUnallocated <$> concPtr' sym conc ptr
 
     PtrAddOffsetOutOfBounds ptr off ->
-      PtrAddOffsetOutOfBounds <$> concPtrPair sym conc ptr <*> bv off
+      PtrAddOffsetOutOfBounds <$> concPtr' sym conc ptr <*> bv off
     CompareInvalidPointer op p1 p2 ->
-      CompareInvalidPointer op <$> concPtrPair sym conc p1 <*> concPtrPair sym conc p2
+      CompareInvalidPointer op <$> concPtr' sym conc p1 <*> concPtr' sym conc p2
     CompareDifferentAllocs p1 p2 ->
-      CompareDifferentAllocs <$> concPtrPair sym conc p1 <*> concPtrPair sym conc p2
+      CompareDifferentAllocs <$> concPtr' sym conc p1 <*> concPtr' sym conc p2
     PtrSubDifferentAllocs p1 p2 ->
-      PtrSubDifferentAllocs <$> concPtrPair sym conc p1 <*> concPtrPair sym conc p2
+      PtrSubDifferentAllocs <$> concPtr' sym conc p1 <*> concPtr' sym conc p2
     PointerCast ptr tp ->
-      PointerCast <$> concPtrPair sym conc ptr <*> pure tp
+      PointerCast <$> concPtr' sym conc ptr <*> pure tp
     ComparePointerToBV ptr val ->
-      ComparePointerToBV <$> concPtrPair sym conc ptr <*> bv val
+      ComparePointerToBV <$> concPtr' sym conc ptr <*> bv val
     UDivByZero v1 v2 ->
       UDivByZero <$> bv v1 <*> bv v2
     SDivByZero v1 v2 ->

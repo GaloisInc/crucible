@@ -51,7 +51,6 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , ppWrite
 
     -- * Concretization
-  , concBV
   , concPtr
   , concLLVMVal
   , concMem
@@ -321,26 +320,6 @@ ppMem m = ppMemState ppMemChanges (m^.memState)
 
 ------------------------------------------------------------------------------
 -- Concretization
-
-
-concBV ::
-  (IsExprBuilder sym, 1 <= w) =>
-  sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
-  SymBV sym w -> IO (SymBV sym w)
-concBV sym conc bv =
-  do bv' <- conc bv
-     bvLit sym (bvWidth bv) bv'
-
-concPtr ::
-  (IsExprBuilder sym, 1 <= wptr) =>
-  sym ->
-  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
-  LLVMPtr sym wptr -> IO (LLVMPtr sym wptr)
-concPtr sym conc (LLVMPointer blk off) =
-  LLVMPointer <$>
-     (natLit sym =<< conc blk) <*>
-     (concBV sym conc off)
 
 concAlloc ::
   IsExprBuilder sym =>

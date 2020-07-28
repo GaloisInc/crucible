@@ -37,7 +37,6 @@ import           What4.Interface
 import           What4.Expr (GroundValue)
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
-import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Type
@@ -64,7 +63,7 @@ explain (MemoryError _ _ _ rsn) = ppMemoryErrorReason rsn
 details :: IsExpr (SymExpr sym) => MemoryError sym -> Doc
 details (MemoryError gsym p mem _rsn) =
     vcat
-       [ hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [UB.ppPointerPair (UB.pointerView p) ])
+       [ hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr p ])
        , text "In memory state:"
        , indent 2 (ppMem mem)
        ]
@@ -72,7 +71,7 @@ details (MemoryError gsym p mem _rsn) =
 ppME :: IsExpr (SymExpr sym) => MemoryError sym -> Doc
 ppME (MemoryError gsym p mem rsn) =
     vcat
-       [ hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [UB.ppPointerPair (UB.pointerView p) ])
+       [ hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr p ])
        , ppMemoryErrorReason rsn
        , text "In memory state:"
        , indent 2 (ppMem mem)
