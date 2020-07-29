@@ -320,7 +320,7 @@ assertStoreError sym errCtx valTy rsn p =
   do p' <- Partial.annotateME sym errCtx rsn p
      assert sym p' $ AssertFailureSimError "Memory store failed" ("Storing at type: " ++ show (G.ppType valTy))
 
-instance IntrinsicClass sym "LLVM_memory" where
+instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
 
   -- NB: Here we are assuming the global maps of both memories are identical.

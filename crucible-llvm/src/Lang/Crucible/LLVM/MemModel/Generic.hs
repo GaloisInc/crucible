@@ -823,14 +823,26 @@ memWritesSize (MemWrites writes) = getSum $ foldMap
     MemWritesChunkFlat flat_writes -> Sum $ length flat_writes)
   writes
 
-muxChanges :: Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
+muxChanges :: IsExpr (SymExpr sym) => Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
 muxChanges c (left_allocs, lhs_writes) (rhs_allocs, rhs_writes) =
-  ( [AllocMerge c left_allocs rhs_allocs]
+  ( muxAllocs c left_allocs rhs_allocs
   , muxWrites c lhs_writes rhs_writes
   )
 
-muxWrites :: Pred sym -> MemWrites sym -> MemWrites sym -> MemWrites sym
+muxAllocs :: IsExpr (SymExpr sym) => Pred sym -> [MemAlloc sym] -> [MemAlloc sym] -> [MemAlloc sym]
+muxAllocs _ [] [] = []
+muxAllocs c xs ys =
+  case asConstantPred c of
+    Just True -> xs
+    Just False -> ys
+    Nothing -> [ AllocMerge c xs ys ]
+
+muxWrites :: IsExpr (SymExpr sym) => Pred sym -> MemWrites sym -> MemWrites sym -> MemWrites sym
 muxWrites _ (MemWrites []) (MemWrites []) = MemWrites []
+
+muxWrites c lhs_writes rhs_writes
+  | Just b <- asConstantPred c = if b then lhs_writes else rhs_writes
+
 muxWrites c lhs_writes rhs_writes
   | Just lhs_indexed_writes <- asIndexedChunkMap lhs_writes
   , Just rhs_indexed_writes <- asIndexedChunkMap rhs_writes =
@@ -1456,7 +1468,7 @@ branchAbortMem = memState %~ popf
   where popf (BranchFrame _ _ c s) = s & memStateAddChanges c
         popf _ = error "branchAbortMem given unexpected memory"
 
-mergeMem :: Pred sym -> Mem sym -> Mem sym -> Mem sym
+mergeMem :: IsExpr (SymExpr sym) => Pred sym -> Mem sym -> Mem sym -> Mem sym
 mergeMem c x y =
   case (x^.memState, y^.memState) of
     (BranchFrame _ _ a s, BranchFrame _ _ b _) ->
