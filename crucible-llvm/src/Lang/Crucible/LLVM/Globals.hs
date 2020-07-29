@@ -233,7 +233,7 @@ allocLLVMFunPtr sym llvm_ctx mem decl =
                 in ( s, "[external function] " ++ nm )
              Right d ->
                let s@(L.Symbol nm) = L.defName d
-                in ( s, "[defined  function] " ++ nm)
+                in ( s, "[defined function ] " ++ nm)
      let funAliases = llvmFunctionAliases llvm_ctx
      let aliases = map L.aliasName $ maybe [] Set.toList $ Map.lookup symbol funAliases
      z <- bvLit sym ?ptrWidth (BV.zero ?ptrWidth)
