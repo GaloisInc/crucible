@@ -43,6 +43,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
 
 import Control.Monad
 import Control.Monad.ST
+import Control.Monad.Trans.Class
 
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
@@ -58,6 +59,7 @@ import qualified Data.Maybe as Maybe
 import Data.Semigroup(Semigroup(..))
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.STRef
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as V
@@ -1076,65 +1078,53 @@ transStatement (M.SetDiscriminant lv i) = do
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatement M.Nop = return ()
 
-ifteAny :: R.Expr MIR s C.BoolType
-        -> (forall a. MirGenerator h s ret a) -- ^ true branch
-        -> (forall a. MirGenerator h s ret a) -- ^ false branch
-        -> MirGenerator h s ret a
-ifteAny e x y = do
-  x_id <- G.defineBlockLabel x
-  y_id <- G.defineBlockLabel y
-  G.branch e x_id y_id
+recordBlockTransInfo :: BlockTransInfo -> MirGenerator h s ret ()
+recordBlockTransInfo blk = do
+    blkID <- G.currentBlockID
+    fn <- use $ currentFn.fname
+    blockTransInfo %= Map.insert (Text.pack $ show $ blkID) blk
 
-transSwitch :: MirExp s -> -- thing switching over
-    [Integer] -> -- switch comparisons
-        [M.BasicBlockInfo] -> -- jumps
-                MirGenerator h s ret a
-transSwitch _ [] [targ] = jumpToBlock targ
-transSwitch (MirExp (C.BoolRepr) e) [v] [t1,t2] =
-    if v == 1 then
-              doBoolBranch e t1 t2
-    else
-              doBoolBranch e t2 t1
-transSwitch (MirExp (C.IntegerRepr) e) vs ts =
-    doIntBranch e vs ts
-transSwitch (MirExp (C.BVRepr w) e) vs ts =
-    doBVBranch w e vs ts
-
-transSwitch (MirExp f _e) _ _  = mirFail $ "bad switch: " ++ show f
-
-doBoolBranch :: R.Expr MIR s C.BoolType -> M.BasicBlockInfo -> M.BasicBlockInfo -> MirGenerator h s ret a
-doBoolBranch e t f = do
+transSwitch ::
+    Text ->         -- source location
+    MirExp s ->     -- thing switching over
+    [Integer] ->    -- switch comparisons
+    [M.BasicBlockInfo] -> -- jumps
+    MirGenerator h s ret a
+transSwitch _pos _ [] [targ] = jumpToBlock targ
+transSwitch pos exp vals blks = do
+    setPosition pos
     lm <- use labelMap
-    case (Map.lookup t lm, Map.lookup f lm) of
-      (Just tb, Just fb) -> G.branch e tb fb
-      _ -> mirFail "bad lookup on boolbranch"
+    conds <- mapM (doCompare exp) vals
+    labels <- forM blks $ \b -> case Map.lookup b lm of
+        Just lab -> return lab
+        Nothing -> mirFail "bad jump"
+    let mkInfo i = SwitchBranch vals (map (Text.pack . show . R.LabelID) labels) i
+    go mkInfo 0 conds labels
+  where
+    doCompare :: MirExp s -> Integer -> MirGenerator h s ret (R.Expr MIR s C.BoolType)
+    doCompare (MirExp C.BoolRepr e) x = case x of
+        0 -> return $ S.app $ E.Not e
+        1 -> return e
+        _ -> mirFail $ "invalid BoolRepr constant " ++ show x ++ " in switch"
+    doCompare (MirExp C.IntegerRepr e) x =
+        return $ S.app $ E.IntEq e $ S.app $ E.IntLit x
+    doCompare (MirExp (C.BVRepr w) e) x =
+        return $ S.app $ E.BVEq w e $ S.app $ eBVLit w x
+    doCompare (MirExp tpr _) _ =
+        mirFail $ "invalid input type " ++ show tpr ++ " in switch"
 
--- nat branch: branch by iterating through list
-doIntBranch :: R.Expr MIR s C.IntegerType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
-doIntBranch _ _ [i] = do
-    lm <- use labelMap
-    case (Map.lookup i lm) of
-      Just lab -> G.jump lab
-      _ -> mirFail "bad jump"
-doIntBranch e (v:vs) (i:is) = do
-    let test = S.app $ E.IntEq e $ S.app $ E.IntLit v
-    ifteAny test (jumpToBlock i) (doIntBranch e vs is)
-doIntBranch _ _ _ =
-    mirFail "doIntBranch: improper switch!"
-
--- bitvector branch: branch by iterating through list
-doBVBranch :: (1 <= w) => NatRepr w -> R.Expr MIR s (C.BVType w) ->
-    [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
-doBVBranch w _ _ [i] = do
-    lm <- use labelMap
-    case (Map.lookup i lm) of
-      Just lab -> G.jump lab
-      _ -> mirFail "bad jump"
-doBVBranch w e (v:vs) (i:is) = do
-    let test = S.app $ E.BVEq w e $ S.app $ eBVLit w v
-    ifteAny test (jumpToBlock i) (doBVBranch w e vs is)
-doBVBranch _ _ _ _ =
-    mirFail "doBVBranch: improper switch!"
+    go :: (Int -> BlockTransInfo) -> Int -> [R.Expr MIR s C.BoolType] -> [R.Label s] ->
+        MirGenerator h s ret a
+    go mkInfo i [] [lab] = do
+        recordBlockTransInfo $ mkInfo i
+        G.jump lab
+    go mkInfo i [cond] [lab1, lab2] = do
+        recordBlockTransInfo $ mkInfo i
+        G.branch cond lab1 lab2
+    go mkInfo i (cond : conds) (lab : labs) = do
+        recordBlockTransInfo $ mkInfo i
+        fallthrough <- G.defineBlockLabel $ go mkInfo (i + 1) conds labs
+        G.branch cond lab fallthrough
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
@@ -1321,9 +1311,9 @@ doCall funid cargs cdest retRepr = do
 transTerminator :: HasCallStack => M.Terminator -> C.TypeRepr ret -> MirGenerator h s ret a
 transTerminator (M.Goto bbi) _ =
     jumpToBlock bbi
-transTerminator (M.SwitchInt swop _swty svals stargs _pos) _ | all Maybe.isJust svals = do
+transTerminator (M.SwitchInt swop _swty svals stargs spos) _ | all Maybe.isJust svals = do
     s <- evalOperand swop
-    transSwitch s (Maybe.catMaybes svals) stargs
+    transSwitch spos s (Maybe.catMaybes svals) stargs
 transTerminator (M.Return) tr =
     doReturn tr
 transTerminator (M.DropAndReplace dlv dop dtarg _ dropFn) _ = do
@@ -1362,7 +1352,8 @@ transTerminator (M.Drop dlv dt _dunwind dropFn) _ = do
     jumpToBlock dt
 transTerminator M.Abort tr =
     G.reportError (S.litExpr "process abort in unwinding")
-transTerminator M.Unreachable tr =
+transTerminator M.Unreachable tr = do
+    recordBlockTransInfo UnreachableTerm
     G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminator t _tr =
     mirFail $ "unknown terminator: " ++ (show t)
@@ -1582,7 +1573,8 @@ initFnState colState fn handle =
             _cs         = colState,
             _labelMap   = Map.empty,
             _customOps  = ?customOps,
-            _assertFalseOnError = ?assertFalseOnError
+            _assertFalseOnError = ?assertFalseOnError,
+            _blockTransInfo = mempty
          }
 
 
@@ -1613,7 +1605,7 @@ genFn :: HasCallStack =>
     M.Fn ->
     C.TypeRepr ret ->
     Ctx.Assignment (R.Atom s) args ->
-    MirGenerator h s ret (R.Expr MIR s ret)
+    MirGenerator h s ret (G.Label s)
 genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype inputs = do
 
   lm <- buildLabelMap body
@@ -1639,8 +1631,7 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype inputs = 
   let (M.BasicBlock bbi _) = enter
   lm <- use labelMap
   case (Map.lookup bbi lm) of
-    Just lbl -> do
-       G.jump lbl
+    Just lbl -> return lbl
     _ -> mirFail "bad thing happened"
 
   where
@@ -1671,24 +1662,30 @@ transDefine :: forall h.
   , ?printCrucible::Bool) 
   => CollectionState 
   -> M.Fn 
-  -> ST h (Text, Core.AnyCFG MIR)
+  -> ST h (Text, Core.AnyCFG MIR, FnTransInfo)
 transDefine colState fn@(M.Fn fname fargs fsig _) =
   case (Map.lookup fname (colState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
+      btiRef <- newSTRef mempty
       let rettype  = FH.handleReturnType handle
-      let def :: G.FunctionDef MIR FnState args ret (ST s2)
+      let def :: G.FunctionDef MIR FnState args ret (ST h)
           def inputs = (s,f) where
             s = initFnState colState fn handle
-            f = genFn fn rettype inputs
+            f = do
+                lbl <- genFn fn rettype inputs
+                bti <- use blockTransInfo
+                lift $ writeSTRef btiRef bti
+                G.jump lbl
       ng <- newSTNonceGenerator
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng handle def
       when ?printCrucible $ do
           traceM $ unwords [" =======", show fname, "======="]
           traceShowM $ pretty g
           traceM $ unwords [" ======= end", show fname, "======="]
+      bti <- readSTRef btiRef
       case SSA.toSSA g of
-        Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
+        Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa, bti)
 
 
 -- | Allocate method handles for each of the functions in the Collection
@@ -2113,7 +2110,9 @@ transCollection col halloc = do
         colState = CollectionState hmap vm sm dm col
 
     -- translate all of the functions
-    pairs1 <- mapM (stToIO . transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
+    fnInfo <- mapM (stToIO . transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
+    let pairs1 = [(name, cfg) | (name, cfg, _) <- fnInfo]
+    let transInfo = Map.fromList [(name, fti) | (name, _, fti) <- fnInfo]
     pairs2 <- mapM (stToIO . transVtable (?libCS <> colState)) (Map.elems (col^.M.vtables))
 
     pairs3 <- Maybe.catMaybes <$> mapM (\intr -> case intr^.M.intrInst of
@@ -2125,6 +2124,7 @@ transCollection col halloc = do
     return $ RustModule
                 { _rmCS    = colState
                 , _rmCFGs  = Map.fromList (pairs1 <> concat pairs2 <> pairs3)
+                , _rmTransInfo = transInfo
                 }
 
 -- | Produce a crucible CFG that initializes the global variables for the static

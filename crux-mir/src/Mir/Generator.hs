@@ -24,6 +24,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 -- Turn off some warnings during active development
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
@@ -63,13 +64,16 @@ where
 
 import           Data.Kind(Type)
 
+import qualified Data.Aeson as Aeson
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
+import           Data.STRef
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Functor.Identity
+import           GHC.Generics (Generic)
 
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
@@ -112,6 +116,7 @@ import           GHC.Stack
 data RustModule = RustModule {
          _rmCS    :: CollectionState
        , _rmCFGs  :: Map Text (Core.AnyCFG MIR)
+       , _rmTransInfo :: TransInfo
      }
 
 
@@ -161,7 +166,8 @@ data FnState (s :: Type)
               _currentFn  :: !Fn,
               _cs         :: !CollectionState,
               _customOps  :: !CustomOpMap,
-              _assertFalseOnError :: !Bool              
+              _assertFalseOnError :: !Bool,
+              _blockTransInfo :: !(Map Text BlockTransInfo)
             }
 
 -- | State about the entire collection used for the translation
@@ -268,6 +274,45 @@ data MirHandle = forall init ret.
 type VtableMap = Map VtableName [MirHandle]
 
 
+
+
+---------------------------------------------------------------------------
+-- *** BlockTransInfo
+
+-- | Metadata from the translation that produced some Crucible block.
+-- Currently, we just record detailed terminator info for some blocks.
+-- Coverage reporting uses this info to turn Crucible-level branch coverage
+-- data into a useful source-level coverage report.
+data BlockTransInfo =
+    -- | Block ends with one part of an unrolled integer switch.  `SwitchBranch
+    -- vals dests idx` indicates that this block ends with a comparison of the
+    -- input to `vals !! idx`, branching to `dests !! idx` if they're equal.
+    -- There is one more entry in `dests` than `vals`; the final entry is the
+    -- default destination if none of the comparisons succeeded.
+      SwitchBranch [Integer] [Text] Int
+    -- | Block ends with a MIR `Unreachable` terminator.  This appears in the
+    -- translation of exhaustive Rust `match` statements with no default case.
+    | UnreachableTerm
+  deriving (Show, Generic)
+
+instance Aeson.ToJSON BlockTransInfo where
+    toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+
+-- | Translation metadata for a function.  This is a map from block names to
+-- translation info for that block.  Keys are the printed form of BlockID - we
+-- don't store the actual BlockID because we'd have to add the `s` type
+-- parameter to a bunch of things.
+type FnTransInfo = Map Text BlockTransInfo
+
+-- | Translation info for the entire crate.  Keys are printed function DefIds,
+-- since that's what's convenient in transCollection (and because the only
+-- purpose of this type is to be JSON-serialized, which stringifies map keys
+-- anyway).
+type TransInfo = Map Text FnTransInfo
+
+
+
+
  
 
 -------------------------------------------------------------------------------------------------------
@@ -285,9 +330,10 @@ $(return [])
 -- ** Operations and instances
 
 instance Semigroup RustModule where
-  (RustModule cs1 cm1) <> (RustModule cs2 cm2) = RustModule (cs1 <> cs2) (cm1 <> cm2)
+  (RustModule cs1 cm1 ex1) <> (RustModule cs2 cm2 ex2) =
+    RustModule (cs1 <> cs2) (cm1 <> cm2) (ex1 <> ex2)
 instance Monoid RustModule where
-  mempty  = RustModule mempty mempty
+  mempty  = RustModule mempty mempty mempty
   mappend = (<>)
 
 instance Semigroup CollectionState  where

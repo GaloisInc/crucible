@@ -15,6 +15,7 @@
 module Mir.Language (main, mainWithOutputTo, mainWithOutputConfig, runTests,
                      MIROptions(..), defaultMirOptions) where
 
+import qualified Data.Aeson as Aeson
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Char       as Char
 import           Data.Functor.Const (Const(..))
@@ -76,7 +77,6 @@ import           Mir.PP ()
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, pattern MirVectorRepr, MirVector(..))
-import           Mir.DefId (cleanVariantName, parseFieldName, idText)
 import           Mir.Generator
 import           Mir.Generate (generateMIR, translateMIR)
 import           Mir.Trans (transStatics)
@@ -230,6 +230,17 @@ runTests (cruxOpts, mirOpts) = do
                 Crux.outDir = if Crux.outDir cruxOpts == "" then ""
                     else Crux.outDir cruxOpts </> show fnName
             }
+
+        -- When profiling Crucible evaluation, also save metadata about the
+        -- translation.
+        when (Crux.profileCrucibleFunctions cruxOpts' && not (null $ Crux.outDir cruxOpts')) $ do
+            let path = Crux.outDir cruxOpts' </> "translation.json"
+            -- It's a bit redundant to emit the entire crate's translation
+            -- metadata for each test, but we do it anyway.  This keeps us from
+            -- overwriting the metadata when multiple tests are run with the
+            -- same `outDir`.
+            Aeson.encodeFile path (mir ^. rmTransInfo)
+
         res <- Crux.runSimulator cruxOpts' $ simCallback fnName
         when (not $ printResultOnly mirOpts) $ do
             clearFromCursorToLineEnd
