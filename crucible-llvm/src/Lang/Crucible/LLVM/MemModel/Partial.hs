@@ -32,7 +32,6 @@ module Lang.Crucible.LLVM.MemModel.Partial
   , partErr
   , attachSideCondition
   , assertSafe
-  , ppAssertion
   , MemoryError(..)
   , totalLLVMVal
   , bvConcat
@@ -77,7 +76,6 @@ import qualified Data.Map as Map
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes (toOrdering, OrdF(..))
@@ -201,12 +199,12 @@ explainCex sym evalFn =
         go ((x,Positive):xs) es =
           do ex <- evalNeg posCache negCache x
              case ex of
-               NoExplanation -> pure NoExplanation
+               NoExplanation -> go xs es
                DisjOfFailures es' -> go xs (es' ++ es)
         go ((x,Negative):xs) es =
           do ex <- evalPos posCache negCache x
              case ex of
-               NoExplanation -> pure NoExplanation
+               NoExplanation -> go xs es
                DisjOfFailures es' -> go xs (es' ++ es)
 
       _ -> pure NoExplanation
@@ -297,27 +295,6 @@ assertSafe sym valTy (Err p) = do
      addProofObligation sym (LabeledPred p err)
      abortExecBecause $ AssumedFalse $ AssumingNoError err
 
-
--- | Get a pretty version of the assertion attached to this value
-ppAssertion :: (IsSymInterface sym)
-            => PartLLVMVal sym
-            -> Doc
-ppAssertion _ = mempty -- TODO!
-{-
--- | Get a pretty version of the assertion attached to this value
-ppAssertion :: (IsSymInterface sym)
-            => PartLLVMVal arch sym
-            -> Doc
-ppAssertion (PLV (NoErr v)) =
-  explainTree
-    (Proxy :: Proxy (LLVM arch))
-    (Proxy :: Proxy sym)
-    (v ^. partialPred)
-ppAssertion (PLV (Err e)) = text $
-  unlines [ "Error during memory load: "
-          , show (ppMemoryLoadError e)
-          ]
--}
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal interface
