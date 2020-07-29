@@ -74,7 +74,6 @@ import           Prelude hiding (pred)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.State.Strict
-import           Data.Coerce (coerce)
 import           Data.IORef
 import           Data.Maybe
 import qualified Data.List as List
@@ -83,7 +82,6 @@ import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import           Data.Monoid
 import           Data.Text (Text)
-import           GHC.Generics (Generic, Generic1)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           Lang.Crucible.Panic (panic)
@@ -737,15 +735,21 @@ readMem' ::
   MemWrites sym  {- ^ List of writes                    -} ->
   IO (PartLLVMVal sym)
 readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
-  runReadMem initReadMemDebugState (go fallback0 l0 tp0 [] ws)
+   do runReadMem {- initReadMemDebugState -} (go fallback0 l0 tp0 [] ws)
   where
     fallback0 ::
       StorageType ->
       LLVMPtr sym w ->
       ReadMem sym (PartLLVMVal sym)
     fallback0 _ l =
-      do x <- get
-         liftIO (Partial.partErr sym (gsym,l,origMem) $ NoSatisfyingWrite (ppReadMemDebugState @sym x))
+      do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
+         -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
+         -- and we can be relatively sure the annotation will survive.
+         liftIO $ do
+           b <- freshConstant sym emptySymbol BaseBoolRepr
+           Partial.Err <$>
+             Partial.annotateME sym (gsym,l,origMem) (NoSatisfyingWrite mempty) b
+
     go :: (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
           LLVMPtr sym w ->
           StorageType ->
@@ -793,7 +797,6 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
                     case asConstantPred sameBlock of
                       Just True  -> do
                         result <- readCurrent
-                        addMatchingWrite h result
                         pure result
                       Just False -> readPrev tp l
                       Nothing ->
@@ -803,45 +806,12 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
 
 --------------------------------------------------------------------------------
 
--- | Our algorithm for reading memory has a lot of backtracking, making it
--- difficult to determine what went wrong if the read fails. This datatype keeps
--- some state so that we can provide better error messages.
---
--- In particular, every time we attempt a read from a write with a matching
--- allocation index, it keeps track of the write and the result we got.
-newtype ReadMemDebugState sym =
-  ReadMemDebugState [(MemWrite sym, PartLLVMVal sym)]
-  deriving (Generic)
+-- | Dummy newtype for now...
+--   It may be useful later to add additional plumbing
+--   to this monad.
+newtype ReadMem sym a = ReadMem { runReadMem :: IO a }
+  deriving (Applicative, Functor, Monad, MonadIO)
 
-initReadMemDebugState :: ReadMemDebugState sym
-initReadMemDebugState = ReadMemDebugState []
-
-ppReadMemDebugState :: (IsExprBuilder sym, IsSymInterface sym)
-                    => ReadMemDebugState sym -> [Doc]
-ppReadMemDebugState (ReadMemDebugState st) =
-  case st of
-    [] -> []
-    _  ->
-      [ text "Matching writes:"
-      , vcat $ flip map st $ \(w, v) ->
-          text "* Write: " <> ppWrite w
-          <$$> indent 2 (text "Failed assertion: " <$$>
-                         indent 2 (Partial.ppAssertion v))
-      ]
-
-newtype ReadMem sym a =
-  ReadMem { getReadMem :: StateT (ReadMemDebugState sym) IO a }
-  deriving (Applicative, Functor, Generic, Generic1, Monad, MonadIO)
-
-deriving instance MonadState (ReadMemDebugState sym) (ReadMem sym)
-
-instance Wrapped (ReadMem sym a) where
-
-runReadMem :: ReadMemDebugState sym -> ReadMem sym a -> IO a
-runReadMem st (ReadMem c) = evalStateT c st
-
-addMatchingWrite :: MemWrite sym -> PartLLVMVal sym -> ReadMem sym ()
-addMatchingWrite w v = ReadMem (modify (coerce ((w,v):)))
 
 --------------------------------------------------------------------------------
 
