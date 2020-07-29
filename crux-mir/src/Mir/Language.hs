@@ -94,48 +94,30 @@ mainWithOutputConfig outCfg =
     Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTests
 
 runTests :: (Crux.Logs) => (Crux.CruxOptions, MIROptions) -> IO ExitCode
-runTests (cruxOpts, mirOpts) = do
+runTests (cruxOpts, mirOpts)
+  | printMirPath mirOpts = do
+    let ?debug              = Crux.simVerbose cruxOpts
+    let (filename, _) = getFilename cruxOpts mirOpts
+    putStrLn filename
+    return ExitSuccess
+
+  | onlyPP mirOpts = do
+    let ?debug              = Crux.simVerbose cruxOpts
+    let (filename, _) = getFilename cruxOpts mirOpts
+    col <- generateMIR filename False
+    print $ pretty col
+    return ExitSuccess
+
+  | otherwise = do
     let ?debug              = Crux.simVerbose cruxOpts
     --let ?assertFalseOnError = assertFalse mirOpts
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
 
-    let (filename, nameFilter) = case cargoTestFile mirOpts of
-            -- This case is terrible a hack.  The goal is to mimic the behavior
-            -- of the test binaries produced by `cargo test`, which take a test
-            -- filter string as their main argument, not a filename.  Since we
-            -- can't customize the way Crux parses its non-option arguments, we
-            -- just let it parse its `inputFiles` argument as normal, but we
-            -- treat the value as a test filter instead of a filename.  The
-            -- actual input filename is taken from the `--cargo-test-file`
-            -- option.
-            --
-            -- TODO: Write a proper "cargo-test-like" frontend that does its
-            -- own argument parsing, so we can get rid of this hack and also
-            -- have better `cargo test` compatibility in general.
-            Just file -> case (Crux.inputFiles cruxOpts, testFilter mirOpts) of
-                ([], Nothing) -> (file, Nothing)
-                ([], Just filt) -> (file, Just filt)
-                ([filt], Nothing) -> (file, Just $ Text.pack filt)
-                ([filt1], Just filt2) -> error $
-                    "expected at most 1 test filter, but got both " ++ show filt1
-                        ++ " and " ++ show filt2
-                (ifs, _) -> error $
-                    "expected at most 1 test filter, but got " ++ show ifs
-
-            -- In non-`--cargo-test-file` mode, the input file and
-            -- `--test-filter` options are handled as normal.
-            Nothing -> case Crux.inputFiles cruxOpts of
-                [x] -> (x, testFilter mirOpts)
-                ifs -> error $ "expected exactly 1 input file, but got " ++ show (length ifs) ++ " files"
+    let (filename, nameFilter) = getFilename cruxOpts mirOpts
 
     -- Load the MIR collection
     col <- generateMIR filename False
-
-    when (onlyPP mirOpts) $ do
-      -- TODO: make this exit more gracefully somehow
-      print $ pretty col
-      liftIO $ exitSuccess
 
     -- Translate to crucible
     halloc  <- C.newHandleAllocator
@@ -297,9 +279,43 @@ runTests (cruxOpts, mirOpts) = do
         return ExitSuccess
 
 
+getFilename :: Crux.CruxOptions -> MIROptions -> (FilePath, Maybe Text)
+getFilename cruxOpts mirOpts =
+    case cargoTestFile mirOpts of
+        -- This case is terrible a hack.  The goal is to mimic the behavior
+        -- of the test binaries produced by `cargo test`, which take a test
+        -- filter string as their main argument, not a filename.  Since we
+        -- can't customize the way Crux parses its non-option arguments, we
+        -- just let it parse its `inputFiles` argument as normal, but we
+        -- treat the value as a test filter instead of a filename.  The
+        -- actual input filename is taken from the `--cargo-test-file`
+        -- option.
+        --
+        -- TODO: Write a proper "cargo-test-like" frontend that does its
+        -- own argument parsing, so we can get rid of this hack and also
+        -- have better `cargo test` compatibility in general.
+        Just file -> case (Crux.inputFiles cruxOpts, testFilter mirOpts) of
+            ([], Nothing) -> (file, Nothing)
+            ([], Just filt) -> (file, Just filt)
+            ([filt], Nothing) -> (file, Just $ Text.pack filt)
+            ([filt1], Just filt2) -> error $
+                "expected at most 1 test filter, but got both " ++ show filt1
+                    ++ " and " ++ show filt2
+            (ifs, _) -> error $
+                "expected at most 1 test filter, but got " ++ show ifs
+
+        -- In non-`--cargo-test-file` mode, the input file and
+        -- `--test-filter` options are handled as normal.
+        Nothing -> case Crux.inputFiles cruxOpts of
+            [x] -> (x, testFilter mirOpts)
+            ifs -> error $ "expected exactly 1 input file, but got " ++
+                show (length ifs) ++ " files"
+
+
 data MIROptions = MIROptions
     { onlyPP       :: Bool
     , printCrucible :: Bool
+    , printMirPath :: Bool
     , showModel    :: Bool
     , assertFalse  :: Bool
     -- | Print only the result of evaluation, with no additional text.  On
@@ -314,6 +330,7 @@ defaultMirOptions :: MIROptions
 defaultMirOptions = MIROptions
     { onlyPP = False
     , printCrucible = False
+    , printMirPath = False
     , showModel = False
     , assertFalse = False
     , printResultOnly = False
@@ -333,6 +350,16 @@ mirConfig = Crux.Config
         , GetOpt.Option []    ["print-crucible"]
             "pretty-print crucible after translation"
             (GetOpt.NoArg (\opts -> Right opts { printCrucible = True }))
+
+        -- This option may seem kind of useless: it just prints the value of
+        -- one of the other command line arguments.  But it's meant for use
+        -- with wrappers such as `cargo crux-test`, where the path to the MIR
+        -- JSON file is set by the wrapper, and then additional arguments from
+        -- the user are passed through.  So `--print-mir-path` is a general way
+        -- to get the file path provided by the wrapper.
+        , GetOpt.Option []    ["print-mir-path"]
+            "print the path to the MIR file, then exit"
+            (GetOpt.NoArg (\opts -> Right opts { printMirPath = True }))
 
         , GetOpt.Option []    ["print-result-only"]
             "print the result of evaluation and nothing else (used for concrete tests)"
