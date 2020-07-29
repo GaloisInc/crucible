@@ -284,16 +284,19 @@ ppWrite (WriteMerge c (MemWrites x) (MemWrites y)) = do
 
 ppMemWritesChunk :: IsExpr (SymExpr sym) => MemWritesChunk sym -> Doc
 ppMemWritesChunk = \case
+  MemWritesChunkFlat [] ->
+    text "No writes"
+  MemWritesChunkFlat flat_writes ->
+    vcat $ map ppWrite flat_writes
   MemWritesChunkIndexed indexed_writes ->
     text "Indexed chunk:" <$$>
     indent 2 (vcat $ map
       (\(blk, blk_writes) ->
-        text (show blk) <+> "|->" <> softline <>
-        indent 2 (vcat $ map ppWrite blk_writes))
+        case blk_writes of
+          [] -> empty
+          _  -> text (show blk) <+> "|->" <> softline <>
+                  indent 2 (vcat $ map ppWrite blk_writes))
       (IntMap.toList indexed_writes))
-  MemWritesChunkFlat flat_writes ->
-    text "Flat chunk:" <$$>
-    indent 2 (vcat $ map ppWrite flat_writes)
 
 ppMemWrites :: IsExpr (SymExpr sym) => MemWrites sym -> Doc
 ppMemWrites (MemWrites ws) = vcat $ map ppMemWritesChunk ws
