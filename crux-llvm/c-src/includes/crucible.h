@@ -30,6 +30,16 @@ size_t   crucible_size_t   (const char *name);
 // The string contents are read-only.
 const char* crucible_string(const char *name, size_t max_len);
 
+// Fill a region of memory with fresh symbolic bytes
+void crucible_havoc_memory( char* p, size_t len );
+
+// Print a symbolic value to stdout
+void crucible_print_uint32( uint32_t val );
+
+// Print the current state of the symbolic memory to stdout
+void crucible_dump_memory(void);
+
+
 #define crucible_uint8_t(n)  ((uint8_t)crucible_int8_t(n))
 #define crucible_uint16_t(n)  ((uint16_t)crucible_int16_t(n))
 #define crucible_uint32_t(n)  ((uint32_t)crucible_int32_t(n))

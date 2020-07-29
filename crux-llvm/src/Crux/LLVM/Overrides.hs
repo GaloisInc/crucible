@@ -58,7 +58,7 @@ import Lang.Crucible.LLVM.MemModel
    doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
    doArrayStore, doArrayConstStore, HasLLVMAnn,
    isAllocatedAlignedPointer, Mutability(..),
-   pattern PtrWidth
+   pattern PtrWidth, doDumpMem
    )
 
 import           Lang.Crucible.LLVM.TypeContext( TypeContext )
@@ -138,6 +138,13 @@ cruxLLVMOverrides =
   , basic_llvm_override $
         [llvmOvr| void @crucible_havoc_memory( i8*, size_t ) |]
         do_havoc_memory
+
+  , basic_llvm_override $
+        [llvmOvr| void @crucible_dump_memory( ) |]
+        $ \mvar _sym _args ->
+          do mem <- readGlobal mvar
+             h <- printHandle <$> getContext
+             liftIO (doDumpMem h mem)
   ]
 
 
