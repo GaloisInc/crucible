@@ -106,9 +106,9 @@ undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
-memoryError :: (1 <= w) => ME.MemErrContext sym w -> ME.MemoryErrorReason -> Pred sym -> LLVMSafetyAssertion sym
-memoryError (gsym,pp,mem) ld pred =
-  LLVMSafetyAssertion (BBMemoryError (ME.MemoryError gsym pp mem ld)) pred Nothing
+memoryError :: (1 <= w) => ME.MemoryOp sym w -> ME.MemoryErrorReason sym w -> Pred sym -> LLVMSafetyAssertion sym
+memoryError mop rsn pred =
+  LLVMSafetyAssertion (BBMemoryError (ME.MemoryError mop rsn)) pred Nothing
 
 poison' :: Poison.Poison (RegValue' sym)
         -> Pred sym
@@ -135,7 +135,7 @@ predicate = lens _predicate (\s v -> s { _predicate = v})
 extra :: Simple Lens (LLVMSafetyAssertion sym) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
 
-explainBB :: BadBehavior sym -> Doc
+explainBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
   BBMemoryError me       -> ME.explain me
@@ -148,4 +148,4 @@ detailBB = \case
 ppBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 ppBB = \case
   BBUndefinedBehavior ub -> UB.ppReg ub
-  BBMemoryError me -> ME.ppME me
+  BBMemoryError me -> ME.ppMemoryError me

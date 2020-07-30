@@ -231,7 +231,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
-import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..))
+import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..), MemoryOp(..))
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemType
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as ML
@@ -312,13 +312,12 @@ assertStoreError ::
   (IsSymInterface sym, Partial.HasLLVMAnn sym, 1 <= wptr) =>
   sym ->
   MemErrContext sym wptr ->
-  StorageType ->
-  MemoryErrorReason ->
+  MemoryErrorReason sym wptr ->
   Pred sym ->
   IO ()
-assertStoreError sym errCtx valTy rsn p =
+assertStoreError sym errCtx rsn p =
   do p' <- Partial.annotateME sym errCtx rsn p
-     assert sym p' $ AssertFailureSimError "Memory store failed" ("Storing at type: " ++ show (G.ppType valTy))
+     assert sym p' $ AssertFailureSimError "Memory store failed" ""
 
 instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -429,15 +428,16 @@ evalStmt sym = eval
         mem' <- liftIO $ doStore sym mem ptr tpr valType alignment val
         setMem mvar mem'
 
-  eval (LLVM_LoadHandle mvar (regValue -> ptr) args ret) =
+  eval (LLVM_LoadHandle mvar ltp (regValue -> ptr) args ret) =
      do mem <- getMem mvar
         gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr)
         mhandle <- liftIO $ doLookupHandle sym mem ptr
+        let mop = MemLoadHandleOp ltp gsym ptr (memImplHeap mem)
         let expectedTp = FunctionHandleRepr args ret
             handleTp h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
         case mhandle of
            Left doc -> lift $
-             do p <- Partial.annotateME sym (gsym,ptr,memImplHeap mem) (BadFunctionPointer doc) (falsePred sym)
+             do p <- Partial.annotateME sym mop (BadFunctionPointer doc) (falsePred sym)
                 loc <- getCurrentProgramLoc sym
                 let err = SimError loc (AssertFailureSimError "Failed to load function handle" "")
                 addProofObligation sym (LabeledPred p err)
@@ -556,7 +556,7 @@ doLoad ::
   IO (RegValue sym tp)
 doLoad sym mem ptr valType tpr alignment = do
   unpackMemValue sym tpr =<<
-    Partial.assertSafe sym valType =<<
+    Partial.assertSafe sym =<<
       loadRaw sym mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
@@ -1141,8 +1141,10 @@ storeRaw sym mem ptr valType alignment val = do
     gsym <- fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr
     (heap', p1, p2) <- G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
 
-    assertStoreError sym (gsym,ptr,memImplHeap mem) valType UnwritableRegion p1
-    assertStoreError sym (gsym,ptr,memImplHeap mem) valType (UnalignedPointer alignment) p2
+    let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
+
+    assertStoreError sym mop UnwritableRegion p1
+    assertStoreError sym mop (UnalignedPointer alignment) p2
 
     return mem{ memImplHeap = heap' }
 
@@ -1210,19 +1212,21 @@ condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> IO (MemImpl sym)
 condStoreRaw sym mem cond ptr valType alignment val = do
   gsym <- fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr
-
   -- Get current heap
   let preBranchHeap = memImplHeap mem
   -- Push a branch to the heap
   let postBranchHeap = G.branchMem preBranchHeap
+
+  let mop = MemStoreOp valType gsym ptr preBranchHeap
+
   -- Write to the heap
   (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
   -- Assert is allocated if write executes
   do condIsAllocated <- impliesPred sym cond isAllocated
-     assertStoreError sym (gsym,ptr,preBranchHeap) valType UnwritableRegion condIsAllocated
+     assertStoreError sym mop UnwritableRegion condIsAllocated
   -- Assert is aligned if write executes
   do condIsAligned <- impliesPred sym cond isAligned
-     assertStoreError sym (gsym,ptr,preBranchHeap) valType (UnalignedPointer alignment) condIsAligned
+     assertStoreError sym mop (UnalignedPointer alignment) condIsAligned
   -- Merge the write heap and non-write heap
   let mergedHeap = G.mergeMem cond postWriteHeap postBranchHeap
   -- Return new memory
@@ -1243,8 +1247,10 @@ storeConstRaw sym mem ptr valType alignment val = do
     gsym <- fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr
     (heap', p1, p2) <- G.writeConstMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
 
-    assertStoreError sym (gsym,ptr,memImplHeap mem) valType UnwritableRegion p1
-    assertStoreError sym (gsym,ptr,memImplHeap mem) valType (UnalignedPointer alignment) p2
+    let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
+
+    assertStoreError sym mop UnwritableRegion p1
+    assertStoreError sym mop (UnalignedPointer alignment) p2
 
     return mem{ memImplHeap = heap' }
 

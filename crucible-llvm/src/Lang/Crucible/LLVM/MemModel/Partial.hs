@@ -94,7 +94,7 @@ import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
 import           Lang.Crucible.LLVM.Errors
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
-import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryError(..), MemoryErrorReason(..))
+import           Lang.Crucible.LLVM.Errors.MemoryError (MemoryError(..), MemoryErrorReason(..), MemoryOp(..))
 import           Lang.Crucible.Panic (panic)
 
 import           What4.Expr
@@ -227,13 +227,13 @@ annotateUB sym ub p =
 
 annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
-  MemoryErrorReason ->
+  MemoryOp sym w ->
+  MemoryErrorReason sym w ->
   Pred sym ->
   IO (Pred sym)
-annotateME sym (gsym,ptr,mem) le p =
+annotateME sym mop rsn p =
   do (n, p') <- annotateTerm sym p
-     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError (MemoryError gsym ptr mem le)))
+     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError (MemoryError mop rsn)))
      return p'
 
 ------------------------------------------------------------------------
@@ -246,9 +246,9 @@ data PartLLVMVal sym where
   NoErr :: Pred sym -> LLVMVal sym -> PartLLVMVal sym
 
 partErr :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
-  sym -> MemErrContext sym w -> MemoryErrorReason -> IO (PartLLVMVal sym)
-partErr sym errCtx err =
-  do p <- annotateME sym errCtx err (falsePred sym)
+  sym -> MemoryOp sym w -> MemoryErrorReason sym w -> IO (PartLLVMVal sym)
+partErr sym errCtx rsn =
+  do p <- annotateME sym errCtx rsn (falsePred sym)
      pure (Err p)
 
 attachSideCondition ::
@@ -280,16 +280,15 @@ totalLLVMVal sym = NoErr (truePred sym)
 -- | Take a partial value and assert its safety
 assertSafe :: (IsSymInterface sym)
            => sym
-           -> StorageType
            -> PartLLVMVal sym
            -> IO (LLVMVal sym)
-assertSafe sym valTy (NoErr p v) =
-  do let rsn = AssertFailureSimError "Error during memory load" ("Loading at type: " ++ show (Type.ppType valTy))
+assertSafe sym (NoErr p v) =
+  do let rsn = AssertFailureSimError "Error during memory load" ""
      assert sym p rsn
      return v
 
-assertSafe sym valTy (Err p) = do
-  do let rsn = AssertFailureSimError "Error during memory load" ("Loading at type: " ++ show (Type.ppType valTy))
+assertSafe sym (Err p) = do
+  do let rsn = AssertFailureSimError "Error during memory load" ""
      loc <- getCurrentProgramLoc sym
      let err = SimError loc rsn
      addProofObligation sym (LabeledPred p err)
@@ -303,7 +302,7 @@ assertSafe sym valTy (Err p) = do
 floatToBV ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 floatToBV _ _ (NoErr p (LLVMValUndef (StorageType Float _))) =
@@ -329,7 +328,7 @@ floatToBV sym errCtx (NoErr _ v) =
 doubleToBV ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 doubleToBV _ _ (NoErr p (LLVMValUndef (StorageType Double _))) =
@@ -355,7 +354,7 @@ doubleToBV sym errCtx (NoErr _ v) =
 fp80ToBV ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 fp80ToBV _ _ (NoErr p (LLVMValUndef (StorageType X86_FP80 _))) =
@@ -381,7 +380,7 @@ fp80ToBV sym errCtx (NoErr _ v) =
 bvToFloat :: forall sym w.
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
@@ -409,7 +408,7 @@ bvToFloat sym errCtx (NoErr _ v) =
 bvToDouble ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
@@ -438,7 +437,7 @@ bvToDouble sym errCtx (NoErr _ v) =
 bvToX86_FP80 ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
@@ -467,7 +466,7 @@ bvToX86_FP80 sym errCtx (NoErr _ v) =
 bvConcat :: forall sym w.
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
@@ -534,7 +533,7 @@ bvConcat _ _ (Err e) _ = pure (Err e)
 consArray ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
@@ -575,7 +574,7 @@ consArray sym errCtx _ (NoErr _ v) =
 appendArray ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
@@ -683,7 +682,7 @@ mkStruct sym vec =
 selectLowBv ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   Bytes ->
   Bytes ->
   PartLLVMVal sym ->
@@ -719,7 +718,7 @@ selectLowBv _ _ _ _ (Err e) = pure (Err e)
 selectHighBv ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   Bytes ->
   Bytes ->
   PartLLVMVal sym ->
@@ -752,7 +751,7 @@ selectHighBv sym errCtx _ _ (NoErr _ v) =
 arrayElt ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   Natural ->
   StorageType ->
   Natural ->
@@ -789,7 +788,7 @@ arrayElt sym errCtx _ _ _ (NoErr _ v) =
 fieldVal ::
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
-  MemErrContext sym w ->
+  MemoryOp sym w ->
   (Vector (Field StorageType)) ->
   Int ->
   PartLLVMVal sym ->

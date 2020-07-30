@@ -1794,7 +1794,7 @@ callFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args ass
       case asScalar fn' of
         Scalar PtrRepr ptr -> do
           memVar <- getMemVar
-          v   <- extensionStmt (LLVM_LoadHandle memVar ptr argTypes retTy)
+          v   <- extensionStmt (LLVM_LoadHandle memVar fnTy ptr argTypes retTy)
           ret <- call v args''
           assign_f (BaseExpr retTy ret)
         _ -> fail $ unwords ["unsupported function value", show fn]
