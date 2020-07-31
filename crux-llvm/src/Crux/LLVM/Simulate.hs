@@ -150,7 +150,7 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                  let explainFailure evalFn gl =
                        do ex <- explainCex sym evalFn >>= \f -> f (gl ^. labeledPred)
                           let details = case ex of
-                                NoExplanation -> "No detailed explanation"
+                                NoExplanation -> mempty
                                 DisjOfFailures xs ->
                                   case map ppBB xs of
                                     []  -> mempty

@@ -41,7 +41,6 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           What4.Interface
 import           What4.Expr (GroundValue)
 
-import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Type
@@ -68,7 +67,6 @@ data MemoryErrorReason sym w =
   | Invalid StorageType
   | Invalidated Text
   | NoSatisfyingWrite StorageType (LLVMPtr sym w)
-  | UnalignedPointer Alignment
   | UnwritableRegion
   | BadFunctionPointer Doc
 
@@ -130,19 +128,14 @@ ppMemoryErrorReason =
       "Load from explicitly invalidated memory:" <+> text (Text.unpack msg)
     NoSatisfyingWrite tp ptr ->
       vcat
-       [ "No previous write to this location was found attempting load at type:" <+> ppType tp
+       [ "No previous write to this location was found"
+       , indent 2 ("Attempting load at type:" <+> ppType tp)
        , indent 2 ("Via pointer:" <+> ppPtr ptr)
-       ]
-    UnalignedPointer a ->
-      vcat
-       [ "Pointer not sufficently aligned"
-       , "Required alignment:" <+> text (show (fromAlignment a)) <+> "bytes"
        ]
     UnwritableRegion ->
       vcat
        [ "The region wasn't allocated, or was marked as readonly"
        ]
-
     BadFunctionPointer msg ->
       vcat
        [ "The given pointer could not be resolved to a callable function"
@@ -182,6 +175,5 @@ concMemoryErrorReason sym conc rsn = case rsn of
   Invalid tp -> pure (Invalid tp)
   Invalidated msg -> pure (Invalidated msg)
   NoSatisfyingWrite tp ptr -> NoSatisfyingWrite tp <$> concPtr sym conc ptr
-  UnalignedPointer a -> pure (UnalignedPointer a)
   UnwritableRegion -> pure UnwritableRegion
   BadFunctionPointer msg -> pure (BadFunctionPointer msg)

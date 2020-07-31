@@ -71,7 +71,7 @@ import           What4.Expr (GroundValue)
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
-import           Lang.Crucible.LLVM.DataLayout (Alignment)
+import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 import           Lang.Crucible.LLVM.Errors.Standards
 import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
 import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr, concBV, concPtr')
@@ -121,18 +121,24 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     e (BVType v) ->
     UndefinedBehavior e
 
-  -- | Is this actually undefined? I (Langston) can't find anything about it
-  --
-  -- Arguments: Read destination, alignment
+  -- | Arguments: Read destination, alignment
   ReadBadAlignment ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
     Alignment ->
     UndefinedBehavior e
 
+  -- | Read from an unallocated region
   ReadUnallocated ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
+    UndefinedBehavior e
+
+  -- | Arguments: Write destination, alignment
+  WriteBadAlignment ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    Alignment ->
     UndefinedBehavior e
 
   -- -------------------------------- Pointer arithmetic
@@ -167,7 +173,16 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     e (LLVMPointerType w) ->
     UndefinedBehavior e
 
-  PointerCast ::
+  -- | Pointer cast to an integer type other than
+  --   pointer width integers
+  PointerIntCast ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    StorageType ->
+    UndefinedBehavior e
+
+  -- | Pointer cast to a floating-point type
+  PointerFloatCast ::
     (1 <= w) =>
     e (LLVMPointerType w) ->
     StorageType ->
@@ -210,41 +225,39 @@ standard =
 
     -- -------------------------------- Memory management
 
-    FreeBadOffset _           -> CStd C99
-    FreeUnallocated _         -> CStd C99
-    MemsetInvalidRegion{} -> CXXStd CXX17
-    ReadBadAlignment _ _      -> CStd C99
-    ReadUnallocated _         -> CStd C99
+    FreeBadOffset{}           -> CStd C11
+    FreeUnallocated{}         -> CStd C11
+    MemsetInvalidRegion{}     -> CStd C11
+    ReadBadAlignment{}        -> CStd C11
+    WriteBadAlignment{}       -> CStd C11
+    ReadUnallocated{}         -> CStd C11
 
     -- -------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds _ _ -> CStd C99
-    CompareInvalidPointer{} -> CStd C99
-    CompareDifferentAllocs _ _  -> CStd C99
-    PtrSubDifferentAllocs _ _   -> CStd C99
-    ComparePointerToBV _ _      -> CStd C99
-    PointerCast _ _             -> CStd C99
+    PtrAddOffsetOutOfBounds{} -> CStd C11
+    CompareInvalidPointer{}   -> CStd C11
+    CompareDifferentAllocs{}  -> CStd C11
+    PtrSubDifferentAllocs{}   -> CStd C11
+    ComparePointerToBV{}      -> CStd C11
+    PointerFloatCast{}        -> CStd C11
+    PointerIntCast{}          -> CStd C11
 
     -- -------------------------------- LLVM: arithmetic
 
-    UDivByZero{}   -> LLVMRef LLVM8
-    SDivByZero{}   -> LLVMRef LLVM8
-    URemByZero{}   -> LLVMRef LLVM8
-    SRemByZero{}   -> LLVMRef LLVM8
-    SDivOverflow{} -> LLVMRef LLVM8
-    SRemOverflow{} -> LLVMRef LLVM8
+    UDivByZero{}   -> CStd C11
+    SDivByZero{}   -> CStd C11
+    URemByZero{}   -> CStd C11
+    SRemByZero{}   -> CStd C11
+    SDivOverflow{} -> CStd C11
+    SRemOverflow{} -> CStd C11
 
     PoisonValueCreated p -> Poison.standard p
 
-    -------------------------------- Other
-
---    Other _ -> CStd C99
-
     {-
-    MemcpyDisjoint          -> CStd C99
-    DoubleFree              -> CStd C99
-    DereferenceBadAlignment -> CStd C99
-    ModifiedStringLiteral   -> CStd C99
+    MemcpyDisjoint          -> CStd C11
+    DoubleFree              -> CStd C11
+    DereferenceBadAlignment -> CStd C11
+    ModifiedStringLiteral   -> CStd C11
     -}
 
 -- | Which section(s) of the document prohibit this behavior?
@@ -254,29 +267,31 @@ cite =
 
     -------------------------------- Memory management
 
-    FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
-    FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
-    MemsetInvalidRegion{} -> "https://en.cppreference.com/w/cpp/string/byte/memset"
-    ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
-    ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
+    FreeBadOffset{}           -> "§7.22.3.3 The free function, ¶2"
+    FreeUnallocated{}         -> "§7.22.3.3 The free function, ¶2"
+    MemsetInvalidRegion{}     -> "§7.24.1 String function conventions, ¶1"
+    ReadBadAlignment{}        -> "§6.5.3.2 Address and indirection operators, ¶4"
+    WriteBadAlignment{}       -> "§6.5.3.2 Address and indirection operators, ¶4"
+    ReadUnallocated{}         -> "§6.2.4 Storage durations of objects, ¶2"
 
-    -- -------------------------------- Pointer arithmetic
+    ---------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds _ _ -> "§6.5.6 Additive operators, ¶8"
-    CompareInvalidPointer{} -> "§6.5.8 Relational operators, ¶5"
-    CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
-    PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
-    ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
-    PointerCast _ _             -> "TODO"
+    PtrAddOffsetOutOfBounds{} -> "§6.5.6 Additive operators, ¶8"
+    CompareInvalidPointer{}   -> "§6.5.8 Relational operators, ¶5"
+    CompareDifferentAllocs{}  -> "§6.5.8 Relational operators, ¶5"
+    PtrSubDifferentAllocs{}   -> "§6.5.6 Additive operators, ¶9"
+    ComparePointerToBV{}      -> "§6.5.9 Equality operators, ¶2"
+    PointerFloatCast{}        -> "§6.5.4 Cast operators, ¶4"
+    PointerIntCast{}          -> "§6.3.2.3 Conversions, pointers, ¶6"
 
-    -------------------------------- LLVM: arithmetic
+    -------------------------------- Division operators
 
-    UDivByZero{}   -> "‘udiv’ Instruction (Semantics)"
-    SDivByZero{}   -> "‘sdiv’ Instruction (Semantics)"
-    URemByZero{}   -> "‘urem’ Instruction (Semantics)"
-    SRemByZero{}   -> "‘srem’ Instruction (Semantics)"
-    SDivOverflow{} -> "‘sdiv’ Instruction (Semantics)"
-    SRemOverflow{} -> "‘srem’ Instruction (Semantics)"
+    UDivByZero{}   -> "§6.5.5 Multiplicitive operators, ¶5"
+    SDivByZero{}   -> "§6.5.5 Multiplicitive operators, ¶5"
+    URemByZero{}   -> "§6.5.5 Multiplicitive operators, ¶5"
+    SRemByZero{}   -> "§6.5.5 Multiplicitive operators, ¶5"
+    SDivOverflow{} -> "§6.5.5 Multiplicitive operators, ¶6"
+    SRemOverflow{} -> "§6.5.5 Multiplicitive operators, ¶6"
 
     PoisonValueCreated p -> Poison.cite p
 
@@ -286,7 +301,7 @@ cite =
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
     DoubleFree              -> "§7.22.3.3 The free function"
     DereferenceBadAlignment -> "§6.5.3.2 Address and indirection operators"
-    ModifiedStringLiteral   -> "§J.2 Undefined behavior"
+    ModifiedStringLiteral   -> "§J.2 Undefined behavior" -- 6.4.5
     -}
 
 -- | What happened, and why is it a problem?
@@ -305,12 +320,12 @@ explain =
       ]
     FreeUnallocated _ ->
       "`free` called on pointer that didn't point to a live region of the heap"
-    MemsetInvalidRegion{} -> cat $
-      [ "Pointer passed to `memset` didn't point to a mutable allocation with"
-      , "enough space."
-      ]
+    MemsetInvalidRegion{} ->
+      "Pointer passed to `memset` didn't point to a mutable allocation with enough space"
+    WriteBadAlignment _ _ ->
+      "Wrote a value into a pointer with insufficent alignment"
     ReadBadAlignment _ _ ->
-      "Read a value from a pointer with incorrect alignment"
+      "Read a value from a pointer with insufficent alignment"
     ReadUnallocated _ ->
       "Read a value from a pointer into an unallocated region"
 
@@ -326,8 +341,10 @@ explain =
       "Subtraction of pointers from different allocations"
     ComparePointerToBV _ _ ->
       "Comparison of a pointer to a non zero (null) integer value"
-    PointerCast _ _     ->
-      "Cast of a pointer to a non-integer type"
+    PointerFloatCast{} ->
+      "Cast of a pointer to a floating-point type"
+    PointerIntCast{} ->
+      "Cast of a pointer to an incompatible integer type"
 
     -------------------------------- LLVM: arithmetic
 
@@ -367,8 +384,12 @@ detailsReg =
       , "Fill byte:          " <+> (W4I.printSymExpr $ unRV fillByte)
       , "Length:             " <+> (W4I.printSymExpr $ unRV len)
       ]
+    WriteBadAlignment ptr alignment ->
+      [ "Required alignment:" <+> text (show (fromAlignment alignment)) <+> "bytes"
+      , ppPtr1 ptr
+      ]
     ReadBadAlignment ptr alignment ->
-      [ "Alignment: " <+> text (show alignment)
+      [ "Required alignment:" <+> text (show (fromAlignment alignment)) <+> "bytes"
       , ppPtr1 ptr
       ]
     ReadUnallocated ptr -> [ ppPtr1 ptr ]
@@ -390,12 +411,16 @@ detailsReg =
       [ ppPtr1 ptr
       , "Bitvector:" <+> (W4I.printSymExpr $ unRV bv)
       ]
-    PointerCast ptr castToType ->
+    PointerFloatCast ptr castType ->
       [ ppPtr1 ptr
-      , "Cast to:" <+> text (show castToType)
+      , "Cast to:" <+> text (show castType)
+      ]
+    PointerIntCast ptr castType ->
+      [ ppPtr1 ptr
+      , "Cast to:" <+> text (show castType)
       ]
 
-    -------------------------------- LLVM: arithmetic
+    -------------------------------- Division operators
 
     -- The cases are manually listed to prevent unintentional fallthrough if a
     -- constructor is added.
@@ -442,7 +467,7 @@ pp extra ub = vcat $
          , indent 2 (cite ub)
          ]
      : case stdURL (standard ub) of
-         Just url -> ["Document URL:" <+> text (unpack url)]
+         Just url -> [ indent 2 ("Document URL:" <+> text (unpack url)) ]
          Nothing  -> []
 
 -- | Pretty-printer for symbolic backends
@@ -519,6 +544,8 @@ concUB sym conc ub =
       ReadBadAlignment <$> concPtr' sym conc ptr <*> pure a
     ReadUnallocated ptr ->
       ReadUnallocated <$> concPtr' sym conc ptr
+    WriteBadAlignment ptr a ->
+      WriteBadAlignment <$> concPtr' sym conc ptr <*> pure a
 
     PtrAddOffsetOutOfBounds ptr off ->
       PtrAddOffsetOutOfBounds <$> concPtr' sym conc ptr <*> bv off
@@ -528,8 +555,10 @@ concUB sym conc ub =
       CompareDifferentAllocs <$> concPtr' sym conc p1 <*> concPtr' sym conc p2
     PtrSubDifferentAllocs p1 p2 ->
       PtrSubDifferentAllocs <$> concPtr' sym conc p1 <*> concPtr' sym conc p2
-    PointerCast ptr tp ->
-      PointerCast <$> concPtr' sym conc ptr <*> pure tp
+    PointerFloatCast ptr tp ->
+      PointerFloatCast <$> concPtr' sym conc ptr <*> pure tp
+    PointerIntCast ptr tp ->
+      PointerIntCast <$> concPtr' sym conc ptr <*> pure tp
     ComparePointerToBV ptr val ->
       ComparePointerToBV <$> concPtr' sym conc ptr <*> bv val
     UDivByZero v1 v2 ->

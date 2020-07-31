@@ -392,7 +392,7 @@ bvToFloat sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 4) _))) =
 bvToFloat sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @32) = do
       pz <- natEq sym blk =<< natLit sym 0
-      let ub = UB.PointerCast (RV (LLVMPointer blk off)) Type.floatType
+      let ub = UB.PointerFloatCast (RV (LLVMPointer blk off)) Type.floatType
       p' <- andPred sym p =<< annotateUB sym ub pz
       NoErr p' . LLVMValFloat Value.SingleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr off
@@ -420,7 +420,7 @@ bvToDouble sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 8) _))) =
 bvToDouble sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @64) = do
       pz <- natEq sym blk =<< natLit sym 0
-      let ub = UB.PointerCast (RV (LLVMPointer blk off)) Type.doubleType
+      let ub = UB.PointerFloatCast (RV (LLVMPointer blk off)) Type.doubleType
       p' <- andPred sym p =<< annotateUB sym ub pz
       NoErr p' .
         LLVMValFloat Value.DoubleSize <$>
@@ -449,7 +449,7 @@ bvToX86_FP80 sym _ (NoErr p (LLVMValZero (StorageType (Bitvector 10) _))) =
 bvToX86_FP80 sym _ (NoErr p (LLVMValInt blk off))
   | Just Refl <- testEquality (bvWidth off) (knownNat @80) =
       do pz <- natEq sym blk =<< natLit sym 0
-         let ub = UB.PointerCast (RV (LLVMPointer blk off)) Type.x86_fp80Type
+         let ub = UB.PointerFloatCast (RV (LLVMPointer blk off)) Type.x86_fp80Type
          p' <- andPred sym p =<< annotateUB sym ub pz
          NoErr p' . LLVMValFloat Value.X86_FP80Size <$>
            W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
@@ -504,8 +504,8 @@ bvConcat sym errCtx (NoErr p1 v1) (NoErr p2 v2) =
       do blk0   <- natLit sym 0
          -- TODO: Why won't this pattern match fail?
          Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
-         let ub1 = UB.PointerCast (RV (LLVMPointer blk_low low))   low_tp
-             ub2 = UB.PointerCast (RV (LLVMPointer blk_high high)) high_tp
+         let ub1 = UB.PointerIntCast (RV (LLVMPointer blk_low low))   low_tp
+             ub2 = UB.PointerIntCast (RV (LLVMPointer blk_high high)) high_tp
          predLow       <- annotateUB sym ub1 =<< natEq sym blk_low blk0
          predHigh      <- annotateUB sym ub2 =<< natEq sym blk_high blk0
          bv            <- W4I.bvConcat sym high low
@@ -700,7 +700,7 @@ selectLowBv sym _ low hi (NoErr p (LLVMValInt blk bv))
   , Just LeqProof       <- testLeq low_w w =
       do pz  <- natEq sym blk =<< natLit sym 0
          bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
-         let ub = UB.PointerCast (RV (LLVMPointer blk bv)) tp
+         let ub = UB.PointerIntCast (RV (LLVMPointer blk bv)) tp
          p' <- andPred sym p =<< annotateUB sym ub pz
          return $ NoErr p' $ LLVMValInt blk bv'
  where w = bvWidth bv
@@ -735,7 +735,7 @@ selectHighBv sym _ low hi (NoErr p (LLVMValInt blk bv))
   , Just Refl <- testEquality (addNat low_w hi_w) w =
     do pz <-  natEq sym blk =<< natLit sym 0
        bv' <- bvSelect sym low_w hi_w bv
-       let ub = UB.PointerCast (RV (LLVMPointer blk bv)) tp
+       let ub = UB.PointerIntCast (RV (LLVMPointer blk bv)) tp
        p' <- andPred sym p =<< annotateUB sym ub pz
        return $ NoErr p' $ LLVMValInt blk bv'
   where w = bvWidth bv

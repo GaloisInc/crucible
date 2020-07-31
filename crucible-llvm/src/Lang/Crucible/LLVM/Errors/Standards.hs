@@ -79,7 +79,7 @@ ppLLVMRefVer LLVM7  = "7"
 ppLLVMRefVer LLVM8  = "8"
 
 stdURL :: Standard -> Maybe Text
-stdURL (CStd   C99)     = Just "http://www.iso-9899.info/n1570.html"
+stdURL (CStd   C11)     = Just "http://www.iso-9899.info/n1570.html"
 stdURL (CXXStd CXX17)   = Just "http://www.open-std.org/jtc1/sc22/wg14/www/abq/c17_updated_proposed_fdis.pdf"
 stdURL (LLVMRef LLVM38) = Just "https://releases.llvm.org/3.8.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM4)  = Just "https://releases.llvm.org/4.0.1/docs/LangRef.html"

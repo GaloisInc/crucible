@@ -1144,7 +1144,7 @@ storeRaw sym mem ptr valType alignment val = do
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
     assertStoreError sym mop UnwritableRegion p1
-    assertStoreError sym mop (UnalignedPointer alignment) p2
+    assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
 
     return mem{ memImplHeap = heap' }
 
@@ -1226,7 +1226,7 @@ condStoreRaw sym mem cond ptr valType alignment val = do
      assertStoreError sym mop UnwritableRegion condIsAllocated
   -- Assert is aligned if write executes
   do condIsAligned <- impliesPred sym cond isAligned
-     assertStoreError sym mop (UnalignedPointer alignment) condIsAligned
+     assertUndefined sym condIsAligned (UB.WriteBadAlignment (RV ptr) alignment)
   -- Merge the write heap and non-write heap
   let mergedHeap = G.mergeMem cond postWriteHeap postBranchHeap
   -- Return new memory
@@ -1250,7 +1250,7 @@ storeConstRaw sym mem ptr valType alignment val = do
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
 
     assertStoreError sym mop UnwritableRegion p1
-    assertStoreError sym mop (UnalignedPointer alignment) p2
+    assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
 
     return mem{ memImplHeap = heap' }
 
