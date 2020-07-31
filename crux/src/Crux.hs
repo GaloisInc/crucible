@@ -244,12 +244,12 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
             Just s -> symCfg sym yicesGoalTimeout (floor s)
             Nothing -> return ()
           k floatRepr sym
-        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen ProduceUnsatCores extraFeatures $ \sym -> do
+        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
             Nothing -> return ()
           k floatRepr sym
-        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen ProduceUnsatCores extraFeatures $ \sym -> do
+        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym z3Timeout (floor (s * 1000))
             Nothing -> return ()
