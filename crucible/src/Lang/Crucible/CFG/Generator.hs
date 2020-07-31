@@ -63,6 +63,8 @@ module Lang.Crucible.CFG.Generator
   , addBreakpointStmt
   , extensionStmt
   , mkAtom
+  , mkFresh
+  , mkFreshFloat
   , forceEvaluation
     -- * Labels
   , newLabel
@@ -121,6 +123,7 @@ import           Data.Text (Text)
 import           Data.Void
 
 import           What4.ProgramLoc
+import           What4.Symbol
 
 import           Lang.Crucible.CFG.Core (AnyCFG(..))
 import           Lang.Crucible.CFG.Expr(App(..))
@@ -334,6 +337,19 @@ freshAtom av =
                      }
      addStmt (DefineAtom atom av)
      return atom
+
+
+mkFresh :: (Monad m, IsSyntaxExtension ext)
+        => BaseTypeRepr tp
+        -> Maybe SolverSymbol
+        -> Generator ext s t ret m (Atom s (BaseToType tp))
+mkFresh tr symb = freshAtom (FreshConstant tr symb)
+
+mkFreshFloat :: (Monad m, IsSyntaxExtension ext)
+             => FloatInfoRepr fi
+             -> Maybe SolverSymbol
+             -> Generator ext s t ret m (Atom s (FloatType fi))
+mkFreshFloat fi symb = freshAtom (FreshFloat fi symb)
 
 -- | Create an atom equivalent to the given expression if it is
 -- not already an 'AtomExpr'.
