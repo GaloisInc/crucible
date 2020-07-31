@@ -66,7 +66,7 @@ import           Lang.Crucible.LLVM.Intrinsics.Common
 
 
 llvmMemcpyOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
            (EmptyCtx ::> LLVMPointerType wptr
                      ::> LLVMPointerType wptr
@@ -83,7 +83,7 @@ llvmMemcpyOverride =
 
 
 llvmMemcpyChkOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> LLVMPointerType wptr
@@ -101,7 +101,7 @@ llvmMemcpyChkOverride =
     )
 
 llvmMemmoveOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> (LLVMPointerType wptr)
                    ::> (LLVMPointerType wptr)
@@ -373,7 +373,7 @@ callFree sym mvar
 -- *** Memory manipulation
 
 callMemcpy
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -387,8 +387,7 @@ callMemcpy sym mvar
            (RegEntry (BVRepr w) len)
            _volatile =
   modifyGlobal mvar $ \mem -> liftIO $
-    do assertDisjointRegions sym w dest src len
-       mem' <- doMemcpy sym w mem dest src len
+    do mem' <- doMemcpy sym w mem True dest src len
        return ((), mem')
 
 -- NB the only difference between memcpy and memove
@@ -396,7 +395,7 @@ callMemcpy sym mvar
 -- ranges are disjoint.  The underlying operation
 -- works correctly in both cases.
 callMemmove
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -411,7 +410,7 @@ callMemmove sym mvar
            _volatile =
   -- FIXME? add assertions about alignment
   modifyGlobal mvar $ \mem -> liftIO $
-    do mem' <- doMemcpy sym w mem dest src len
+    do mem' <- doMemcpy sym w mem False dest src len
        return ((), mem')
 
 callMemset

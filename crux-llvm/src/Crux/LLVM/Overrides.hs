@@ -466,7 +466,7 @@ do_print_uint32 _mvar _sym (Empty :> x) =
      liftIO $ hPutStrLn h (show (printSymExpr (regValue x)))
 
 do_havoc_memory ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) ->

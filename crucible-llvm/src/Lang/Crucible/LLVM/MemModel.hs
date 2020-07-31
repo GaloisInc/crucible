@@ -142,7 +142,6 @@ module Lang.Crucible.LLVM.MemModel
 
     -- * Disjointness
   , assertDisjointRegions
-  , assertDisjointRegions'
   , buildDisjointRegionsAssertion
 
     -- * Globals
@@ -203,7 +202,6 @@ import           GHC.TypeNats
 import           Numeric.Natural
 import           System.IO (Handle, hPutStrLn)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-import qualified Text.PrettyPrint.ANSI.Leijen as PP hiding ((<$>))
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
@@ -614,8 +612,9 @@ doCalloc ::
 doCalloc sym mem sz num alignment = do
   (ov, sz') <- unsignedWideMultiplyBV sym sz num
   ov_iszero <- notPred sym =<< bvIsNonzero sym ov
+  -- TODO, this probably shouldn't be UB
   assert sym ov_iszero
-     (AssertFailureSimError "Multiplication overflow in calloc()" "") -- TODO make UB
+     (AssertFailureSimError "Multiplication overflow in calloc()" "")
 
   loc <- plSourceLoc <$> getCurrentProgramLoc sym
   let displayString = "<calloc> " ++ show loc
@@ -796,7 +795,7 @@ doMemset sym w mem dest val len = do
   return mem{ memImplHeap = heap' }
 
 doInvalidate ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   NatRepr w ->
   MemImpl sym ->
@@ -809,13 +808,10 @@ doInvalidate sym w mem dest msg len = do
 
   (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
-  assert sym p $ AssertFailureSimError -- TODO, make this some class of BadBehavior
-    "Invalidation of unallocated or readonly region"
-    (unwords [ "Region of"
-             , show $ printSymExpr len
-             , "bytes at"
-             , show $ G.ppPtr dest
-             ])
+  gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) dest)
+  let mop = MemInvalidateOp msg gsym dest len (memImplHeap mem)
+  p' <- Partial.annotateME sym mop UnwritableRegion p
+  assert sym p' $ AssertFailureSimError "Invalidation of unallocated or readonly region" ""
 
   return mem{ memImplHeap = heap' }
 
@@ -823,7 +819,7 @@ doInvalidate sym w mem dest msg len = do
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStore
-  :: (IsSymInterface sym, HasPtrWidth w)
+  :: (IsSymInterface sym, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -837,7 +833,7 @@ doArrayStore sym mem ptr alignment arr len = doArrayStoreSize (Just len) sym mem
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStoreUnbounded
-  :: (IsSymInterface sym, HasPtrWidth w)
+  :: (IsSymInterface sym, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -848,7 +844,7 @@ doArrayStoreUnbounded = doArrayStoreSize Nothing
 
 
 doArrayStoreSize
-  :: (IsSymInterface sym, HasPtrWidth w)
+  :: (IsSymInterface sym, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => Maybe (SymBV sym w) {- ^ possibly-unbounded array length -}
   -> sym
   -> MemImpl sym
@@ -859,10 +855,13 @@ doArrayStoreSize
 doArrayStoreSize len sym mem ptr alignment arr = do
   (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
-  let errMsg1 = "Array store to unallocated or readonly region"
-  let errMsg2 = "Array store to improperly aligned region"
-  assert sym p1 $ AssertFailureSimError errMsg1 (show (G.ppPtr ptr))
-  assert sym p2 $ AssertFailureSimError errMsg2 (show (G.ppPtr ptr))
+
+  gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr)
+  let mop = MemStoreBytesOp gsym ptr len (memImplHeap mem)
+
+  assertStoreError sym mop UnwritableRegion p1
+  assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
+
   return mem { memImplHeap = heap' }
 
 -- | Store an array in memory.
@@ -870,7 +869,7 @@ doArrayStoreSize len sym mem ptr alignment arr = do
 -- Precondition: the pointer is valid and points to a mutable or immutable memory region.
 -- Therefore it can be used to initialize read-only memory regions.
 doArrayConstStore
-  :: (IsSymInterface sym, HasPtrWidth w)
+  :: (IsSymInterface sym, HasPtrWidth w, Partial.HasLLVMAnn sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
@@ -881,10 +880,13 @@ doArrayConstStore
 doArrayConstStore sym mem ptr alignment arr len = do
   (heap', p1, p2) <-
     G.writeArrayConstMem sym PtrWidth ptr alignment arr (Just len) (memImplHeap mem)
-  let errMsg1 = "Array store to unallocated region"
-  let errMsg2 = "Array store to improperly aligned region"
-  assert sym p1 $ AssertFailureSimError errMsg1 (show (G.ppPtr ptr))
-  assert sym p2 $ AssertFailureSimError errMsg2 (show (G.ppPtr ptr))
+
+  gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr)
+  let mop = MemStoreBytesOp gsym ptr (Just len) (memImplHeap mem)
+
+  assertStoreError sym mop UnwritableRegion p1
+  assertUndefined sym p2 (UB.WriteBadAlignment (RV ptr) alignment)
+
   return mem { memImplHeap = heap' }
 
 -- | Copy memory from source to destination.
@@ -892,35 +894,32 @@ doArrayConstStore sym mem ptr alignment arr len = do
 -- Precondition: the source and destination pointers fall within valid allocated
 -- regions.
 doMemcpy ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
   NatRepr w ->
   MemImpl sym ->
+  Bool {- ^ if true, require disjoint memory regions -} ->
   LLVMPtr sym wptr {- ^ destination -} ->
   LLVMPtr sym wptr {- ^ source      -} ->
   SymBV sym w      {- ^ length      -} ->
   IO (MemImpl sym)
-doMemcpy sym w mem dest src len = do
+doMemcpy sym w mem mustBeDisjoint dest src len = do
   len' <- sextendBVTo sym w PtrWidth len
 
   (heap', p1, p2) <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
 
-  let mkMsg = show . vcat .
-        ([ PP.indent 2 $ PP.text "Source pointer:" PP.<+> G.ppPtr src
-         , PP.indent 2 $ PP.text "Dest pointer:  " PP.<+> G.ppPtr dest
-         , PP.indent 2 $ PP.text "Size of copy:  " PP.<+> printSymExpr len
-         , PP.text "The error was:"
-        ] ++)
-  let reasons = map PP.text [ "- Not allocated"
-                            , "- Not allocated with enough size"
-                            ]
-  let errMsg1 = PP.text "Source region was one of the following:"
-              : reasons
-  let errMsg2 = PP.text "Dest region was one of the following:"
-              : PP.text "- Readonly"
-              : reasons
-  assert sym p1 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg1))
-  assert sym p2 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg2))
+  gsym_dest <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) dest)
+  gsym_src <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) src)
+
+  let mop = MemCopyOp (gsym_dest, dest) (gsym_src, src) len (memImplHeap mem)
+
+  p1' <- Partial.annotateME sym mop UnreadableRegion p1
+  p2' <- Partial.annotateME sym mop UnwritableRegion p2
+
+  assert sym p1' $ AssertFailureSimError "Mem copy failed" "Invalid copy source"
+  assert sym p2' $ AssertFailureSimError "Mem copy failed" "Invalid copy destination"
+
+  when mustBeDisjoint (assertDisjointRegions sym mop (bvWidth len) dest len src len)
 
   return mem{ memImplHeap = heap' }
 
@@ -1456,21 +1455,20 @@ packMemValue _ stTy crTy _ =
 --   1. Their block pointers are different
 --   2. Their blocks are the same, but /dest+dlen/ <= /src/
 --   3. Their blocks are the same, but /src+slen/ <= /dest/
-assertDisjointRegions' ::
-  (1 <= w, HasPtrWidth wptr, IsSymInterface sym) =>
-  String {- ^ label used for error message -} ->
+assertDisjointRegions ::
+  (1 <= w, HasPtrWidth wptr, IsSymInterface sym, Partial.HasLLVMAnn sym) =>
   sym ->
+  MemoryOp sym wptr ->
   NatRepr w ->
   LLVMPtr sym wptr {- ^ pointer to region 1 -} ->
   SymBV sym w      {- ^ length of region 1  -} ->
   LLVMPtr sym wptr {- ^ pointer to region 2 -} ->
   SymBV sym w      {- ^ length of region 2  -} ->
   IO ()
-assertDisjointRegions' lbl sym w dest dlen src slen = do
+assertDisjointRegions sym mop w dest dlen src slen = do
   c <- buildDisjointRegionsAssertion sym w dest dlen src slen
-  assert sym c -- TODO: make this a BadBehavior
-     (AssertFailureSimError "Memory regions not disjoint" ("In: " ++ lbl))
-
+  c' <- Partial.annotateME sym mop OverlappingRegions c
+  assert sym c' (AssertFailureSimError "Memory regions not disjoint" "")
 
 buildDisjointRegionsAssertion ::
   (1 <= w, HasPtrWidth wptr, IsSymInterface sym) =>
@@ -1494,19 +1492,6 @@ buildDisjointRegionsAssertion sym w dest dlen src slen = do
 
   orPred sym diffBlk =<< orPred sym destfirst srcfirst
 
-
--- | Simpler interface to 'assertDisjointRegions'' where the lengths
--- of the two regions are equal as used by the @memcpy@ operation.
-assertDisjointRegions ::
-  (1 <= w, HasPtrWidth wptr, IsSymInterface sym) =>
-  sym ->
-  NatRepr w ->
-  LLVMPtr sym wptr {- ^ pointer to region 1       -} ->
-  LLVMPtr sym wptr {- ^ pointer to region 2       -} ->
-  SymBV sym w      {- ^ length of regions 1 and 2 -} ->
-  IO ()
-assertDisjointRegions sym w dest src len =
-  assertDisjointRegions' "memcpy" sym w dest len src len
 
 ----------------------------------------------------------------------
 -- constToLLVMVal

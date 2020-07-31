@@ -41,7 +41,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           What4.Interface
 import           What4.Expr (GroundValue)
 
-import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr)
+import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPtr, concBV)
 import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.MemLog
@@ -50,7 +50,15 @@ import           Lang.Crucible.LLVM.MemModel.MemLog
 data MemoryOp sym w
   = MemLoadOp  StorageType (Maybe String) (LLVMPtr sym w) (Mem sym)
   | MemStoreOp StorageType (Maybe String) (LLVMPtr sym w) (Mem sym)
+  | MemStoreBytesOp (Maybe String) (LLVMPtr sym w) (Maybe (SymBV sym w)) (Mem sym)
+  | forall wlen. (1 <= wlen) => MemCopyOp
+       (Maybe String, LLVMPtr sym w) -- dest
+       (Maybe String, LLVMPtr sym w) -- src
+       (SymBV sym wlen) -- length
+       (Mem sym)
   | MemLoadHandleOp L.Type (Maybe String) (LLVMPtr sym w) (Mem sym)
+  | forall wlen. (1 <= wlen) => MemInvalidateOp
+       Text (Maybe String) (LLVMPtr sym w) (SymBV sym wlen) (Mem sym)
 
 data MemoryError sym where
   MemoryError :: (1 <= w) =>
@@ -68,7 +76,9 @@ data MemoryErrorReason sym w =
   | Invalidated Text
   | NoSatisfyingWrite StorageType (LLVMPtr sym w)
   | UnwritableRegion
+  | UnreadableRegion
   | BadFunctionPointer Doc
+  | OverlappingRegions
 
 type MemErrContext sym w = MemoryOp sym w
 
@@ -91,8 +101,38 @@ ppMemoryOp (MemStoreOp tp gsym ptr mem) =
        , indent 2 (ppMem mem)
        ]
 
+ppMemoryOp (MemStoreBytesOp gsym ptr Nothing mem) =
+  vsep [ "Performing byte array store for entire address space"
+       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , text "In memory state:"
+       , indent 2 (ppMem mem)
+       ]
+
+ppMemoryOp (MemStoreBytesOp gsym ptr (Just len) mem) =
+  vsep [ "Performing byte array store of length:" <+> printSymExpr len
+       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , text "In memory state:"
+       , indent 2 (ppMem mem)
+       ]
+
+ppMemoryOp (MemCopyOp (gsym_dest, dest) (gsym_src, src) len mem) =
+  vsep [ "Performing a memory copy of" <+> printSymExpr len <+> "bytes"
+       , indent 2 (hsep ([ text "Destination:" ] ++ ppGSym gsym_dest ++ [ ppPtr dest ]))
+       , indent 2 (hsep ([ text "Source:     " ] ++ ppGSym gsym_src ++ [ ppPtr src ]))
+       , text "In memory state:"
+       , indent 2 (ppMem mem)
+       ]
+
 ppMemoryOp (MemLoadHandleOp sig gsym ptr mem) =
   vsep [ "Loading callable function with type:" <+> text (show sig)
+       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , text "In memory state:"
+       , indent 2 (ppMem mem)
+       ]
+
+ppMemoryOp (MemInvalidateOp msg gsym ptr len mem) =
+  vsep [ "Performing explicit memory invalidation of" <+> printSymExpr len <+> "bytes"
+       , text (Text.unpack msg)
        , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
        , text "In memory state:"
        , indent 2 (ppMem mem)
@@ -133,15 +173,16 @@ ppMemoryErrorReason =
        , indent 2 ("Via pointer:" <+> ppPtr ptr)
        ]
     UnwritableRegion ->
-      vcat
-       [ "The region wasn't allocated, or was marked as readonly"
-       ]
+      "The region wasn't allocated, wasn't large enough, or was marked as readonly"
+    UnreadableRegion ->
+      "The region wasn't allocated or wasn't large enough"
     BadFunctionPointer msg ->
       vcat
        [ "The given pointer could not be resolved to a callable function"
        , msg
        ]
-
+    OverlappingRegions ->
+      "Memory regions required to be disjoint"
 
 concMemoryError ::
   IsExprBuilder sym =>
@@ -160,8 +201,24 @@ concMemoryOp sym conc (MemLoadOp tp gsym ptr mem) =
   MemLoadOp tp gsym <$> concPtr sym conc ptr <*> concMem sym conc mem
 concMemoryOp sym conc (MemStoreOp tp gsym ptr mem) =
   MemStoreOp tp gsym <$> concPtr sym conc ptr <*> concMem sym conc mem
+concMemoryOp sym conc (MemStoreBytesOp gsym ptr len mem) =
+  MemStoreBytesOp gsym <$>
+    concPtr sym conc ptr <*>
+    traverse (concBV sym conc) len <*>
+    concMem sym conc mem
 concMemoryOp sym conc (MemLoadHandleOp tp gsym ptr mem) =
   MemLoadHandleOp tp gsym <$> concPtr sym conc ptr <*> concMem sym conc mem
+concMemoryOp sym conc (MemCopyOp (gsym_dest, dest) (gsym_src, src) len mem) =
+  do dest' <- concPtr sym conc dest
+     src'  <- concPtr sym conc src
+     len'  <- concBV sym conc len
+     mem'  <- concMem sym conc mem
+     pure (MemCopyOp (gsym_dest, dest') (gsym_src, src') len' mem')
+concMemoryOp sym conc (MemInvalidateOp msg gsym ptr len mem) =
+  MemInvalidateOp msg gsym <$>
+    concPtr sym conc ptr <*>
+    concBV sym conc len <*>
+    concMem sym conc mem
 
 concMemoryErrorReason ::
   (1 <= w, IsExprBuilder sym) =>
@@ -176,4 +233,6 @@ concMemoryErrorReason sym conc rsn = case rsn of
   Invalidated msg -> pure (Invalidated msg)
   NoSatisfyingWrite tp ptr -> NoSatisfyingWrite tp <$> concPtr sym conc ptr
   UnwritableRegion -> pure UnwritableRegion
+  UnreadableRegion -> pure UnreadableRegion
   BadFunctionPointer msg -> pure (BadFunctionPointer msg)
+  OverlappingRegions -> pure OverlappingRegions
