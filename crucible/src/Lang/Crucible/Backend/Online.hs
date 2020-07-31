@@ -164,10 +164,11 @@ withYicesOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                        (B.FloatModeRepr fm)
                        -> NonceGenerator IO scope
                        -> UnsatFeatures
+                       -> ProblemFeatures
                        -> (YicesOnlineBackend scope (B.Flags fm) -> m a)
                        -> m a
-withYicesOnlineBackend fm gen unsatFeat action =
-  let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
+withYicesOnlineBackend fm gen unsatFeat extraFeatures action =
+  let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat  .|. extraFeatures in
   withOnlineBackend fm gen feat $ \sym ->
     do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
        action sym
@@ -189,10 +190,11 @@ withZ3OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                     (B.FloatModeRepr fm)
                     -> NonceGenerator IO scope
                     -> UnsatFeatures
+                    -> ProblemFeatures
                     -> (Z3OnlineBackend scope (B.Flags fm) -> m a)
                     -> m a
-withZ3OnlineBackend fm gen unsatFeat action =
-  let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
+withZ3OnlineBackend fm gen unsatFeat extraFeatures action =
+  let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
   withOnlineBackend fm gen feat $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
        action sym
@@ -235,10 +237,11 @@ withCVC4OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                       (B.FloatModeRepr fm)
                       -> NonceGenerator IO scope
                       -> UnsatFeatures
+                      -> ProblemFeatures
                       -> (CVC4OnlineBackend scope (B.Flags fm) -> m a)
                       -> m a
-withCVC4OnlineBackend fm gen unsatFeat action =
-  let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat) in
+withCVC4OnlineBackend fm gen unsatFeat extraFeatures action =
+  let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat .|. extraFeatures) in
   withOnlineBackend fm gen feat $ \sym -> do
     liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
     action sym

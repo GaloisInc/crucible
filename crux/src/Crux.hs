@@ -234,20 +234,22 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
                   , not (yicesMCSat cruxOpts) = ProduceUnsatCores
                   | otherwise                 = NoUnsatFeatures
 
+    extraFeatures = onlineProblemFeatures cruxOpts
+
     withOnlineBackendFM floatRepr =
       case selectedSolver of
-        CCS.Yices -> withYicesOnlineBackend floatRepr nonceGen unsatCoreFeat $ \sym -> do
+        CCS.Yices -> withYicesOnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
           case goalTimeout cruxOpts of
             Just s -> symCfg sym yicesGoalTimeout (floor s)
             Nothing -> return ()
           k floatRepr sym
-        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen unsatCoreFeat $ \sym -> do
+        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
             Nothing -> return ()
           k floatRepr sym
-        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen unsatCoreFeat $ \sym -> do
+        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym z3Timeout (floor (s * 1000))
             Nothing -> return ()

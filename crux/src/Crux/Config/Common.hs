@@ -13,6 +13,8 @@ import Crux.Config
 import Crux.Log
 import Config.Schema
 
+import What4.ProblemFeatures
+
 data PathStrategy
   = AlwaysMergePaths
   | SplitAndExploreDepthFirst
@@ -117,6 +119,8 @@ data CruxOptions = CruxOptions
   , hashConsing              :: Bool
     -- ^ Turn on hash-consing in the symbolic expression backend
 
+  , onlineProblemFeatures    :: ProblemFeatures
+    -- ^ Problem Features to force in online solvers
   }
 
 
@@ -232,6 +236,8 @@ cruxOptions = Config
           proofGoalsFailFast <-
             section "proof-goals-fail-fast" yesOrNoSpec False
             "If true, stop attempting to prove goals as soon as one of them is disproved"
+
+          onlineProblemFeatures <- pure noFeatures
 
           pure CruxOptions { .. }
 
