@@ -25,6 +25,7 @@ import           Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx
 import qualified What4.Expr.Builder as What4
 import qualified What4.Interface as What4
+import           What4.ProblemFeatures ( noFeatures )
 import qualified What4.Protocol.Online as What4
 import qualified What4.SatResult as What4
 
@@ -368,7 +369,7 @@ withMem ::
     sym -> MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
-  Crucible.withZ3OnlineBackend What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures $ \sym -> do
+  Crucible.withZ3OnlineBackend What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures noFeatures $ \sym -> do
     let ?ptrWidth = knownNat @64
     mem <- emptyMem endianess
     bbMapRef <- newIORef mempty
