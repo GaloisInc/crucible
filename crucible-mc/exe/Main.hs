@@ -21,6 +21,7 @@ import Lang.Crucible.Backend.Online
 import Lang.Crucible.Backend(IsSymInterface)
 import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
 import Lang.Crucible.Simulator
+import What4.ProblemFeatures ( noFeatures )
 
 import Lang.Crucible.LLVM.MemModel(defaultMemOptions, LLVMAnnMap)
 import Lang.Crucible.LLVM.Run
@@ -76,7 +77,7 @@ runFrom st =
 withZ3 :: (forall s. Z3OnlineBackend s (Flags FloatIEEE) -> IO a) -> IO a
 withZ3 k =
   withIONonceGenerator $ \nonceGen ->
-  withZ3OnlineBackend FloatIEEERepr nonceGen ProduceUnsatCores k
+  withZ3OnlineBackend FloatIEEERepr nonceGen ProduceUnsatCores noFeatures k
 
 
 -- | This exception is thrown when we fail to parse a bit-code file.
