@@ -1098,8 +1098,16 @@ transSwitch pos exp vals blks = do
     labels <- forM blks $ \b -> case Map.lookup b lm of
         Just lab -> return lab
         Nothing -> mirFail "bad jump"
-    let mkInfo i = SwitchBranch vals (map (Text.pack . show . R.LabelID) labels) i
-    go mkInfo 0 conds labels
+
+    let info = case (exp, vals, labels) of
+            (MirExp C.BoolRepr _, [0], [fd, td]) ->
+                BoolBranch (labelText td) (labelText fd) pos
+            (MirExp C.BoolRepr _, [1], [td, fd]) ->
+                BoolBranch (labelText td) (labelText fd) pos
+            _ -> IntBranch vals (map labelText labels) pos
+    recordBlockTransInfo info
+
+    go conds labels
   where
     doCompare :: MirExp s -> Integer -> MirGenerator h s ret (R.Expr MIR s C.BoolType)
     doCompare (MirExp C.BoolRepr e) x = case x of
@@ -1113,18 +1121,18 @@ transSwitch pos exp vals blks = do
     doCompare (MirExp tpr _) _ =
         mirFail $ "invalid input type " ++ show tpr ++ " in switch"
 
-    go :: (Int -> BlockTransInfo) -> Int -> [R.Expr MIR s C.BoolType] -> [R.Label s] ->
+    go :: [R.Expr MIR s C.BoolType] -> [R.Label s] ->
         MirGenerator h s ret a
-    go mkInfo i [] [lab] = do
-        recordBlockTransInfo $ mkInfo i
+    go [] [lab] = do
         G.jump lab
-    go mkInfo i [cond] [lab1, lab2] = do
-        recordBlockTransInfo $ mkInfo i
+    go [cond] [lab1, lab2] = do
         G.branch cond lab1 lab2
-    go mkInfo i (cond : conds) (lab : labs) = do
-        recordBlockTransInfo $ mkInfo i
-        fallthrough <- G.defineBlockLabel $ go mkInfo (i + 1) conds labs
+    go (cond : conds) (lab : labs) = do
+        fallthrough <- G.defineBlockLabel $ go conds labs
         G.branch cond lab fallthrough
+
+    labelText :: R.Label s -> Text
+    labelText l = Text.pack $ show $ R.LabelID l
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do

@@ -284,12 +284,21 @@ type VtableMap = Map VtableName [MirHandle]
 -- Coverage reporting uses this info to turn Crucible-level branch coverage
 -- data into a useful source-level coverage report.
 data BlockTransInfo =
-    -- | Block ends with one part of an unrolled integer switch.  `SwitchBranch
-    -- vals dests idx` indicates that this block ends with a comparison of the
-    -- input to `vals !! idx`, branching to `dests !! idx` if they're equal.
-    -- There is one more entry in `dests` than `vals`; the final entry is the
-    -- default destination if none of the comparisons succeeded.
-      SwitchBranch [Integer] [Text] Int
+    -- | Block ends with a two-way branch on a boolean value.  `BoolBranch
+    -- trueDest falseDest span` represents a MIR branch on some input, which
+    -- goes to `trueDest` on nonzero and `falseDest` on zero.  Both `dest`
+    -- values are stringified `BlockID`s, which lets us avoid threading an
+    -- extra type parameter `s` through a bunch of places.  The `span` is the
+    -- Rust source location of the branch.
+      BoolBranch Text Text Text
+    -- | Block ends with an integer switch.  `IntBranch vals dests span`
+    -- represents a MIR switch terminator that compares its input to each value
+    -- in `vals`, branching to the corresponding entry in `dests` if they're
+    -- equal.  There is one more entry in `dests` than in `vals`, which gives
+    -- the default destination if the input matches none of the `vals`.  The
+    -- `span` argument gives the source location of the switch in the original
+    -- Rust code.
+    | IntBranch [Integer] [Text] Text
     -- | Block ends with a MIR `Unreachable` terminator.  This appears in the
     -- translation of exhaustive Rust `match` statements with no default case.
     | UnreachableTerm

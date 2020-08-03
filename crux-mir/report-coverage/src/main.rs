@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -22,13 +21,6 @@ struct Report {
 #[derive(Clone, Debug, Default)]
 struct FnReport {
     visited_blocks: HashSet<BlockId>,
-    branches: Vec<BranchReport>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct BranchReport {
-    span: String,
-    dests: Vec<BlockId>,
 }
 
 fn parse_report(json: Value) -> Result<Report, String> {
@@ -54,13 +46,6 @@ fn parse_report(json: Value) -> Result<Report, String> {
                 let fn_id = event_function(evt)?;
                 r.fns.entry(fn_id).or_insert_with(FnReport::default)
                     .visited_blocks.extend(event_blocks(evt)?);
-            } else if evt.get("type").map_or(false, |j| j == "BRANCH") {
-                let fn_id = event_function(evt)?;
-                r.fns.entry(fn_id).or_insert_with(FnReport::default)
-                    .branches.push(BranchReport {
-                        span: event_callsite(evt)?,
-                        dests: event_blocks(evt)?,
-                    });
             }
         }
     }
@@ -73,16 +58,6 @@ fn event_function(evt: &serde_json::Map<String, Value>) -> Result<FnId, String> 
        .ok_or_else(|| format!("event has no `function` field"))?
        .as_str()
        .ok_or_else(|| format!("expected event `function` field to be a string"))?
-       .to_owned())
-}
-
-fn event_callsite(evt: &serde_json::Map<String, Value>) -> Result<String, String> {
-    let callsite = match evt.get("callsite") {
-        Some(x) => x,
-        None => return Ok(String::new()),
-    };
-    Ok(callsite.as_str()
-       .ok_or_else(|| format!("expected event `callsite` field to be a string"))?
        .to_owned())
 }
 
@@ -110,13 +85,22 @@ struct Trans {
 #[derive(Clone, Debug, Default)]
 struct FnTrans {
     branches: HashMap<BlockId, BranchTrans>,
-    dest_to_branch: HashMap<BlockId, Vec<BlockId>>,
 }
 
 #[derive(Clone, Debug)]
 enum BranchTrans {
-    Switch(Vec<i64>, Vec<BlockId>, usize),
+    Bool(BlockId, BlockId, String),
+    Int(Vec<i64>, Vec<BlockId>, String),
     Unreachable,
+}
+
+impl BranchTrans {
+    fn is_unreachable(&self) -> bool {
+        match *self {
+            BranchTrans::Unreachable => true,
+            _ => false,
+        }
+    }
 }
 
 fn parse_trans(json: Value) -> Result<Trans, String> {
@@ -137,19 +121,6 @@ fn parse_trans(json: Value) -> Result<Trans, String> {
         }
     }
 
-    for ft in t.fns.values_mut() {
-        for (blk, branch) in &ft.branches {
-            // Only record the block with the start of the switch, not every block that occurs in
-            // its expansion.
-            if let BranchTrans::Switch(_, ref dests, 0) = *branch {
-                for dest in dests {
-                    ft.dest_to_branch.entry(dest.to_owned()).or_insert_with(Vec::new)
-                        .push(blk.to_owned());
-                }
-            }
-        }
-    }
-
     Ok(t)
 }
 
@@ -167,7 +138,26 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
     };
 
     match tag {
-        "SwitchBranch" => {
+        "BoolBranch" => {
+            if args.len() != 3 {
+                die!("expected 3 args for {}, but got {}", tag, args.len());
+            }
+
+            let true_dest = args[0].as_str()
+                .ok_or_else(|| format!("expected {} arg 0 to be a string", tag))?
+                .to_owned();
+
+            let false_dest = args[1].as_str()
+                .ok_or_else(|| format!("expected {} arg 1 to be a string", tag))?
+                .to_owned();
+
+            let span = args[2].as_str()
+                .ok_or_else(|| format!("expected {} arg 2 to be a string", tag))?
+                .to_owned();
+
+            Ok(BranchTrans::Bool(true_dest, false_dest, span))
+        },
+        "IntBranch" => {
             if args.len() != 3 {
                 die!("expected 3 args for {}, but got {}", tag, args.len());
             }
@@ -188,19 +178,15 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
                         .to_owned())
                 }).collect::<Result<Vec<_>, _>>()?;
 
-            let idx = args[2].as_u64()
-                .ok_or_else(|| format!("expected {} arg 2 to be an integer", tag))?;
-            let idx = usize::try_from(idx)
-                .map_err(|e| e.to_string())?;
+            let span = args[2].as_str()
+                .ok_or_else(|| format!("expected {} arg 2 to be a string", tag))?
+                .to_owned();
 
             if dests.len() != vals.len() + 1 {
                 die!("wrong number of dests in {}: {} != {}", tag, dests.len(), vals.len() + 1);
             }
-            if !(idx < vals.len() || (vals.len() == 1 && idx == 0)) {
-                die!("bad index {} in {}: there are {} vals", idx, tag, vals.len());
-            }
 
-            Ok(BranchTrans::Switch(vals, dests, idx))
+            Ok(BranchTrans::Int(vals, dests, span))
         },
         "UnreachableTerm" => {
             if args.len() != 0 {
@@ -214,71 +200,67 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
 
 
 fn process(fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
-    // Find the set of visited MIR-level branches, identified by the ID of the containing block
-    // (which is the key in `trans.branches`).  For each visited branch, record its span for future
-    // reference.  Since we map Crucible branches to MIR ones by looking at destination block IDs,
-    // it's theoretically possible to find multiple spans for the same branch, but this should
-    // never happen given the code patterns that rustc is known to generate.
-    let mut visited_branches: HashMap<BlockId, HashSet<String>> = HashMap::new();
+    let mut branch_ids = trans.branches.keys().collect::<Vec<_>>();
+    branch_ids.sort();
 
-    for branch in &report.branches {
-        let mut found_switch = false;
-        for dest in &branch.dests {
-            if let Some(switch_blocks) = trans.dest_to_branch.get(dest) {
-                for switch_block in switch_blocks {
-                    found_switch = true;
-                    visited_branches.entry(switch_block.clone()).or_insert_with(HashSet::new)
-                        .insert(branch.span.clone());
+    for branch_id in branch_ids {
+        // Only consider branches that were visited at least once.
+        if !report.visited_blocks.contains(branch_id) {
+            continue;
+        }
+
+        let branch = trans.branches.get(branch_id)
+            .expect("branch_id is not a key in branches?");
+        match *branch {
+            BranchTrans::Bool(ref true_dest, ref false_dest, ref span) => {
+                let true_ok = report.visited_blocks.contains(true_dest) ||
+                   trans.branches.get(true_dest).map_or(false, |b| b.is_unreachable());
+                let false_ok = report.visited_blocks.contains(false_dest) ||
+                   trans.branches.get(false_dest).map_or(false, |b| b.is_unreachable());
+
+                if !true_ok {
+                    eprintln!("{}: branch condition never takes on the value true", span);
                 }
-            }
-        }
-        if !found_switch {
-            eprintln!("warning: found no translation info for {:?}", branch);
-        }
-    }
-
-    // For each visited branch, check which exits were taken.
-    for (branch_key, spans) in &visited_branches {
-        let branch = trans.branches.get(branch_key)
-            .expect("values in dest_to_branch should all be present as keys in branches");
-        let (vals, dests) = match *branch {
-            BranchTrans::Switch(ref vals, ref dests, _) => (vals, dests),
-            _ => panic!("branches in dest_to_branch should be Switch"),
-        };
-
-        if spans.len() != 1 {
-            eprintln!(
-                "warning: found {} spans for branch at {}, {}: {:?}",
-                spans.len(), fn_id, branch_key, spans,
-            );
-        }
-        let span = spans.iter().next().unwrap();
-
-        let mut vals_seen = Vec::new();
-        for (i, dest) in dests.iter().enumerate() {
-            if report.visited_blocks.contains(dest) {
-                if i < vals.len() {
-                    vals_seen.push(vals[i]);
+                if !false_ok {
+                    eprintln!("{}: branch condition never takes on the value false", span);
                 }
-                continue;
-            }
+            },
 
-            // If this destination is `Unreachable`, don't complain that the edge wasn't taken.
-            // Branches to unreachable blocks are generated in exhaustive `match` expressions: the
-            // switch covers every legal discriminant, then ends with an unreachable "else" case.
-            match trans.branches.get(dest) {
-                Some(&BranchTrans::Unreachable) => continue,
-                _ => {},
-            }
+            BranchTrans::Int(ref vals, ref dests, ref span) => {
+                let mut vals_seen = Vec::new();
+                for (i, dest) in dests.iter().enumerate() {
+                    if report.visited_blocks.contains(dest) {
+                        eprintln!("branch at {}, {} has visited {}", fn_id, branch_id, dest);
+                        if i < vals.len() {
+                            vals_seen.push(vals[i]);
+                        }
+                        continue;
+                    }
 
-            if i < vals.len() {
-                eprintln!("{} ({}, {}): branch condition never takes on the value {}", span, fn_id, branch_key, vals[i]);
-            } else {
-                eprintln!(
-                    "{}: branch condition never takes on a value other than {:?}",
-                    span, vals_seen,
-                );
-            }
+                    // If this destination is `Unreachable`, don't complain that the edge wasn't
+                    // taken.  Branches to unreachable blocks are generated in exhaustive `match`
+                    // expressions: the switch covers every legal discriminant, then ends with an
+                    // unreachable "else" case.
+                    match trans.branches.get(dest) {
+                        Some(&BranchTrans::Unreachable) => continue,
+                        _ => {},
+                    }
+
+                    if i < vals.len() {
+                        eprintln!(
+                            "{} ({}, {}): branch condition never takes on the value {}",
+                            span, fn_id, branch_id, vals[i],
+                        );
+                    } else {
+                        eprintln!(
+                            "{}: branch condition never takes on a value other than {:?}",
+                            span, vals_seen,
+                        );
+                    }
+                }
+            },
+
+            BranchTrans::Unreachable => continue,
         }
     }
 }
@@ -305,7 +287,11 @@ fn main() {
     let trans = parse_trans(trans_json).unwrap();
 
     let default_ft = FnTrans::default();
-    for (fn_id, fr) in &report.fns {
+    let mut fn_ids = report.fns.keys().collect::<Vec<_>>();
+    fn_ids.sort();
+    for fn_id in fn_ids {
+        let fr = report.fns.get(fn_id)
+            .expect("fn_id is not a key in report.fns?");
         let ft = trans.fns.get(fn_id).unwrap_or(&default_ft);
         process(fn_id, fr, ft);
     }
