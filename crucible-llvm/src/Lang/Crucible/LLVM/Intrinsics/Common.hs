@@ -152,7 +152,7 @@ transformLLVMRet sym (BVRepr w) (LLVMPointerRepr w')
   = return (ValTransformer (liftIO . llvmPointer_bv sym))
 transformLLVMRet sym (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . projectLLVM_bv sym "value coercion"))
+  = return (ValTransformer (liftIO . projectLLVM_bv sym))
 transformLLVMRet sym (VectorRepr tp) (VectorRepr tp')
   = do ValTransformer f <- transformLLVMRet sym tp tp'
        return (ValTransformer (traverse f))

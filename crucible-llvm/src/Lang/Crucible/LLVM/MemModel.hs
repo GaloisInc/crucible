@@ -1026,7 +1026,7 @@ strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
         do ast <- impliesPred sym cond loadok
            assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
            v <- unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
-           test <- bvIsNonzero sym =<< Partial.projectLLVM_bv sym "strlen" v
+           test <- bvIsNonzero sym =<< Partial.projectLLVM_bv sym v
            iteM bvIte sym
              test
              (do cond' <- andPred sym cond test
@@ -1059,7 +1059,7 @@ loadString sym mem = go id
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
      v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) noAlignment
-     x <- Partial.projectLLVM_bv sym "load string" v
+     x <- Partial.projectLLVM_bv sym v
      case BV.asUnsigned <$> asBV x of
        Just 0 -> return $ f []
        Just c -> do
