@@ -69,7 +69,10 @@ import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
-import           Data.STRef
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Functor.Identity
@@ -167,7 +170,7 @@ data FnState (s :: Type)
               _cs         :: !CollectionState,
               _customOps  :: !CustomOpMap,
               _assertFalseOnError :: !Bool,
-              _blockTransInfo :: !(Map Text BlockTransInfo)
+              _transInfo  :: !FnTransInfo
             }
 
 -- | State about the entire collection used for the translation
@@ -277,41 +280,53 @@ type VtableMap = Map VtableName [MirHandle]
 
 
 ---------------------------------------------------------------------------
--- *** BlockTransInfo
+-- *** TransInfo
 
 -- | Metadata from the translation that produced some Crucible block.
 -- Currently, we just record detailed terminator info for some blocks.
 -- Coverage reporting uses this info to turn Crucible-level branch coverage
 -- data into a useful source-level coverage report.
-data BlockTransInfo =
-    -- | Block ends with a two-way branch on a boolean value.  `BoolBranch
-    -- trueDest falseDest span` represents a MIR branch on some input, which
-    -- goes to `trueDest` on nonzero and `falseDest` on zero.  Both `dest`
-    -- values are stringified `BlockID`s, which lets us avoid threading an
-    -- extra type parameter `s` through a bunch of places.  The `span` is the
-    -- Rust source location of the branch.
+data BranchTransInfo =
+    -- | A two-way branch on a boolean value.  `BoolBranch trueDest falseDest
+    -- span` represents a MIR branch on some input, which goes to `trueDest` on
+    -- nonzero and `falseDest` on zero.  Both `dest` values are stringified
+    -- `BlockID`s, which lets us avoid threading an extra type parameter `s`
+    -- through a bunch of places.  The `span` is the Rust source location of
+    -- the branch.
       BoolBranch Text Text Text
-    -- | Block ends with an integer switch.  `IntBranch vals dests span`
-    -- represents a MIR switch terminator that compares its input to each value
-    -- in `vals`, branching to the corresponding entry in `dests` if they're
-    -- equal.  There is one more entry in `dests` than in `vals`, which gives
-    -- the default destination if the input matches none of the `vals`.  The
-    -- `span` argument gives the source location of the switch in the original
-    -- Rust code.
+    -- | An integer switch.  `IntBranch vals dests span` represents a MIR
+    -- switch terminator that compares its input to each value in `vals`,
+    -- branching to the corresponding entry in `dests` if they're equal.  There
+    -- is one more entry in `dests` than in `vals`, which gives the default
+    -- destination if the input matches none of the `vals`.  The `span`
+    -- argument gives the source location of the switch in the original Rust
+    -- code.
     | IntBranch [Integer] [Text] Text
-    -- | Block ends with a MIR `Unreachable` terminator.  This appears in the
-    -- translation of exhaustive Rust `match` statements with no default case.
-    | UnreachableTerm
   deriving (Show, Generic)
 
-instance Aeson.ToJSON BlockTransInfo where
+instance Aeson.ToJSON BranchTransInfo where
     toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
 -- | Translation metadata for a function.  This is a map from block names to
 -- translation info for that block.  Keys are the printed form of BlockID - we
 -- don't store the actual BlockID because we'd have to add the `s` type
 -- parameter to a bunch of things.
-type FnTransInfo = Map Text BlockTransInfo
+data FnTransInfo = FnTransInfo
+    { _ftiBranches :: Seq BranchTransInfo
+    , _ftiUnreachable :: Set Text
+    }
+  deriving (Generic)
+
+instance Aeson.ToJSON FnTransInfo where
+    toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+
+instance Semigroup FnTransInfo where
+    (FnTransInfo b1 u1) <> (FnTransInfo b2 u2) =
+        FnTransInfo (b1 <> b2) (u1 <> u2)
+
+instance Monoid FnTransInfo where
+    mempty = FnTransInfo mempty mempty
+    mappend = (<>)
 
 -- | Translation info for the entire crate.  Keys are printed function DefIds,
 -- since that's what's convenient in transCollection (and because the only
@@ -331,6 +346,7 @@ makeLenses ''MirHandle
 makeLenses ''CollectionState
 makeLenses ''RustModule
 makeLenses ''CustomOpMap
+makeLenses ''FnTransInfo
 
 $(return [])
 

@@ -57,6 +57,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import Data.Semigroup(Semigroup(..))
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.STRef
@@ -1078,11 +1080,20 @@ transStatement (M.SetDiscriminant lv i) = do
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatement M.Nop = return ()
 
-recordBlockTransInfo :: BlockTransInfo -> MirGenerator h s ret ()
-recordBlockTransInfo blk = do
+-- | Add a new `BranchTransInfo` entry for the current function.  Returns the
+-- index of the new entry.
+recordBranchTransInfo :: BranchTransInfo -> MirGenerator h s ret Int
+recordBranchTransInfo info = do
+    cur <- use $ transInfo . ftiBranches
+    let idx = Seq.length cur
+    transInfo . ftiBranches %= (Seq.|> info)
+    return idx
+
+-- | Mark the current block as unreachable in the translation metadata.
+recordUnreachable :: MirGenerator h s ret ()
+recordUnreachable = do
     blkID <- G.currentBlockID
-    fn <- use $ currentFn.fname
-    blockTransInfo %= Map.insert (Text.pack $ show $ blkID) blk
+    transInfo . ftiUnreachable %= Set.insert (Text.pack $ show $ blkID)
 
 transSwitch ::
     Text ->         -- source location
@@ -1105,9 +1116,9 @@ transSwitch pos exp vals blks = do
             (MirExp C.BoolRepr _, [1], [td, fd]) ->
                 BoolBranch (labelText td) (labelText fd) pos
             _ -> IntBranch vals (map labelText labels) pos
-    recordBlockTransInfo info
+    branchId <- recordBranchTransInfo info
 
-    go conds labels
+    go branchId 0 conds labels
   where
     doCompare :: MirExp s -> Integer -> MirGenerator h s ret (R.Expr MIR s C.BoolType)
     doCompare (MirExp C.BoolRepr e) x = case x of
@@ -1121,18 +1132,24 @@ transSwitch pos exp vals blks = do
     doCompare (MirExp tpr _) _ =
         mirFail $ "invalid input type " ++ show tpr ++ " in switch"
 
-    go :: [R.Expr MIR s C.BoolType] -> [R.Label s] ->
+    go :: Int -> Int -> [R.Expr MIR s C.BoolType] -> [R.Label s] ->
         MirGenerator h s ret a
-    go [] [lab] = do
+    go branchId idx [] [lab] = do
         G.jump lab
-    go [cond] [lab1, lab2] = do
+    go branchId idx [cond] [lab1, lab2] = do
+        setPosition $ posStr branchId idx
         G.branch cond lab1 lab2
-    go (cond : conds) (lab : labs) = do
-        fallthrough <- G.defineBlockLabel $ go conds labs
+    go branchId idx (cond : conds) (lab : labs) = do
+        fallthrough <- G.defineBlockLabel $ go branchId (idx + 1) conds labs
+        setPosition $ posStr branchId idx
         G.branch cond lab fallthrough
 
     labelText :: R.Label s -> Text
     labelText l = Text.pack $ show $ R.LabelID l
+
+    posStr :: Int -> Int -> Text
+    posStr branchId idx =
+        pos <> " #" <> Text.pack (show branchId) <> "," <> Text.pack (show idx)
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
@@ -1361,7 +1378,7 @@ transTerminator (M.Drop dlv dt _dunwind dropFn) _ = do
 transTerminator M.Abort tr =
     G.reportError (S.litExpr "process abort in unwinding")
 transTerminator M.Unreachable tr = do
-    recordBlockTransInfo UnreachableTerm
+    recordUnreachable
     G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminator t _tr =
     mirFail $ "unknown terminator: " ++ (show t)
@@ -1582,7 +1599,7 @@ initFnState colState fn handle =
             _labelMap   = Map.empty,
             _customOps  = ?customOps,
             _assertFalseOnError = ?assertFalseOnError,
-            _blockTransInfo = mempty
+            _transInfo  = mempty
          }
 
 
@@ -1675,15 +1692,15 @@ transDefine colState fn@(M.Fn fname fargs fsig _) =
   case (Map.lookup fname (colState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
-      btiRef <- newSTRef mempty
+      ftiRef <- newSTRef mempty
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR FnState args ret (ST h)
           def inputs = (s,f) where
             s = initFnState colState fn handle
             f = do
                 lbl <- genFn fn rettype inputs
-                bti <- use blockTransInfo
-                lift $ writeSTRef btiRef bti
+                fti <- use transInfo
+                lift $ writeSTRef ftiRef fti
                 G.jump lbl
       ng <- newSTNonceGenerator
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos ng handle def
@@ -1691,9 +1708,9 @@ transDefine colState fn@(M.Fn fname fargs fsig _) =
           traceM $ unwords [" =======", show fname, "======="]
           traceShowM $ pretty g
           traceM $ unwords [" ======= end", show fname, "======="]
-      bti <- readSTRef btiRef
+      fti <- readSTRef ftiRef
       case SSA.toSSA g of
-        Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa, bti)
+        Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa, fti)
 
 
 -- | Allocate method handles for each of the functions in the Collection

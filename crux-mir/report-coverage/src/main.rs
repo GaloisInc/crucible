@@ -11,7 +11,17 @@ macro_rules! die {
 }
 
 type FnId = String;
-type BlockId = String;
+
+/// The string representation of a `Lang.Crucible.CFG.Reg.BlockID`.  These appear in translation
+/// metadata.  They have the same format as Core `BlockId`s, but are not interchangeable (the
+/// translation from CFG to Core can renumber some blocks).
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Default)]
+struct RegBlockId(pub String);
+
+/// The string representation of a `Lang.Crucible.CFG.Core.BlockID`.  These appear in profiling
+/// reports.
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Default)]
+struct BlockId(pub String);
 
 #[derive(Clone, Debug, Default)]
 struct Report {
@@ -21,6 +31,14 @@ struct Report {
 #[derive(Clone, Debug, Default)]
 struct FnReport {
     visited_blocks: HashSet<BlockId>,
+    branches: Vec<BranchReport>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct BranchReport {
+    branch_id: u32,
+    index: usize,
+    dests: [BlockId; 2],
 }
 
 fn parse_report(json: Value) -> Result<Report, String> {
@@ -46,11 +64,47 @@ fn parse_report(json: Value) -> Result<Report, String> {
                 let fn_id = event_function(evt)?;
                 r.fns.entry(fn_id).or_insert_with(FnReport::default)
                     .visited_blocks.extend(event_blocks(evt)?);
+            } else if evt.get("type").map_or(false, |j| j == "BRANCH") {
+                let fn_id = event_function(evt)?;
+                let span = event_callsite(evt)?;
+                if let Some((branch_id, index)) = parse_callsite(&span) {
+                    let blocks = event_blocks(evt)?;
+                    if blocks.len() != 2 {
+                        die!("expected exactly two blocks in BRANCH event at {}", span);
+                    }
+                    let mut it = blocks.into_iter();
+                    let dests = [it.next().unwrap(), it.next().unwrap()];
+                    r.fns.entry(fn_id).or_insert_with(FnReport::default)
+                        .branches.push(BranchReport { branch_id, index, dests });
+                }
             }
         }
     }
 
     Ok(r)
+}
+
+fn event_callsite(evt: &serde_json::Map<String, Value>) -> Result<String, String> {
+    let callsite = match evt.get("callsite") {
+        Some(x) => x,
+        None => return Ok(String::new()),
+    };
+    Ok(callsite.as_str()
+       .ok_or_else(|| format!("expected event `callsite` field to be a string"))?
+       .to_owned())
+}
+
+fn parse_callsite(s: &str) -> Option<(u32, usize)> {
+    for word in s.split_whitespace() {
+        if !word.starts_with('#') {
+            continue;
+        }
+        let comma = word.find(',')?;
+        let branch_id = word[1..comma].parse().ok()?;
+        let index = word[comma + 1 ..].parse().ok()?;
+        return Some((branch_id, index));
+    }
+    None
 }
 
 fn event_function(evt: &serde_json::Map<String, Value>) -> Result<FnId, String> {
@@ -71,7 +125,7 @@ fn event_blocks(evt: &serde_json::Map<String, Value>) -> Result<Vec<BlockId>, St
     let names = blocks.iter().map(|blk| -> Result<_, String> {
         let blk = blk.as_str()
             .ok_or_else(|| format!("expected `blocks` entry to be a string"))?;
-        Ok(blk.to_owned())
+        Ok(BlockId(blk.to_owned()))
     }).collect::<Result<Vec<_>, _>>()?;
     Ok(names)
 }
@@ -84,21 +138,21 @@ struct Trans {
 
 #[derive(Clone, Debug, Default)]
 struct FnTrans {
-    branches: HashMap<BlockId, BranchTrans>,
+    branches: Vec<BranchTrans>,
+    unreachable: HashSet<RegBlockId>,
 }
 
 #[derive(Clone, Debug)]
 enum BranchTrans {
-    Bool(BlockId, BlockId, String),
-    Int(Vec<i64>, Vec<BlockId>, String),
-    Unreachable,
+    Bool([RegBlockId; 2], String),
+    Int(Vec<i64>, Vec<RegBlockId>, String),
 }
 
 impl BranchTrans {
-    fn is_unreachable(&self) -> bool {
+    fn dests(&self) -> &[RegBlockId] {
         match *self {
-            BranchTrans::Unreachable => true,
-            _ => false,
+            BranchTrans::Bool(ref dests, _) => dests,
+            BranchTrans::Int(_, ref dests, _) => dests,
         }
     }
 }
@@ -108,16 +162,29 @@ fn parse_trans(json: Value) -> Result<Trans, String> {
 
     let fns = json.as_object()
         .ok_or_else(|| format!("expected object at top level"))?;
-    for (fn_name, branches) in fns {
+    for (fn_name, fn_json) in fns {
         let ft = t.fns.entry(fn_name.to_owned()).or_insert_with(FnTrans::default);
 
-        let branches = branches.as_object()
+        let fn_json = fn_json.as_object()
             .ok_or_else(|| format!("expected value for {:?} to be an object", fn_name))?;
-        for (block, branch) in branches {
-            ft.branches.insert(
-                block.to_owned(),
-                parse_branch(branch)?,
-            );
+
+        let branches_json = fn_json.get("_ftiBranches")
+            .ok_or_else(|| format!("info for {:?} has no _ftiBranches?", fn_name))?
+            .as_array()
+            .ok_or_else(|| format!("expected {:?} _ftiBranches to be an array", fn_name))?;
+        for branch_json in branches_json {
+            ft.branches.push(parse_branch(branch_json)?);
+        }
+
+        let unreachable_json = fn_json.get("_ftiUnreachable")
+            .ok_or_else(|| format!("info for {:?} has no _ftiUnreachable?", fn_name))?
+            .as_array()
+            .ok_or_else(|| format!("expected {:?} _ftiUnreachable to be an array", fn_name))?;
+        for block_id in unreachable_json {
+            let block_id = block_id.as_str()
+                .ok_or_else(|| format!("expected {:?} block ID to be a string", fn_name))?;
+            let block_id = RegBlockId(block_id.to_owned());
+            ft.unreachable.insert(block_id);
         }
     }
 
@@ -143,19 +210,19 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
                 die!("expected 3 args for {}, but got {}", tag, args.len());
             }
 
-            let true_dest = args[0].as_str()
+            let true_dest = RegBlockId(args[0].as_str()
                 .ok_or_else(|| format!("expected {} arg 0 to be a string", tag))?
-                .to_owned();
+                .to_owned());
 
-            let false_dest = args[1].as_str()
+            let false_dest = RegBlockId(args[1].as_str()
                 .ok_or_else(|| format!("expected {} arg 1 to be a string", tag))?
-                .to_owned();
+                .to_owned());
 
             let span = args[2].as_str()
                 .ok_or_else(|| format!("expected {} arg 2 to be a string", tag))?
                 .to_owned();
 
-            Ok(BranchTrans::Bool(true_dest, false_dest, span))
+            Ok(BranchTrans::Bool([true_dest, false_dest], span))
         },
         "IntBranch" => {
             if args.len() != 3 {
@@ -173,9 +240,9 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
             let dests = args[1].as_array()
                 .ok_or_else(|| format!("expected {} arg 1 to be an array", tag))?
                 .iter().map(|v| -> Result<_, String> {
-                    Ok(v.as_str()
+                    Ok(RegBlockId(v.as_str()
                         .ok_or_else(|| format!("expected {} arg 1 to contain only strings", tag))?
-                        .to_owned())
+                        .to_owned()))
                 }).collect::<Result<Vec<_>, _>>()?;
 
             let span = args[2].as_str()
@@ -188,49 +255,96 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
 
             Ok(BranchTrans::Int(vals, dests, span))
         },
-        "UnreachableTerm" => {
-            if args.len() != 0 {
-                die!("expected 0 args for {}, but got {}", tag, args.len());
-            }
-            Ok(BranchTrans::Unreachable)
-        },
         _ => die!("unknown tag {:?} for branch", tag),
     }
 }
 
 
 fn process(fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
-    let mut branch_ids = trans.branches.keys().collect::<Vec<_>>();
-    branch_ids.sort();
+    // Maps (branch ID, dest index) to the Core `BlockId` of the destination.
+    let mut dest_map: HashMap<(u32, usize), BlockId> = HashMap::new();
+    let mut visited_branches = HashSet::new();
 
-    for branch_id in branch_ids {
-        // Only consider branches that were visited at least once.
-        if !report.visited_blocks.contains(branch_id) {
+    fn insert_dest(
+        fn_id: &FnId,
+        dm: &mut HashMap<(u32, usize), BlockId>,
+        branch_id: u32,
+        index: usize,
+        dest: &BlockId,
+    ) {
+        let old = dm.insert((branch_id, index), dest.clone());
+        if let Some(old) = old {
+            if &old != dest {
+                eprintln!(
+                    "{}: multiple dests reported for branch {}, index {}: {:?} != {:?}",
+                    fn_id, branch_id, index, old, dest,
+                );
+            }
+        }
+    }
+
+    for branch in &report.branches {
+        let BranchReport { branch_id, index, ref dests } = *branch;
+
+        let bt = match trans.branches.get(branch_id as usize) {
+            Some(x) => x,
+            None => {
+                eprintln!("{}: bad branch id {}", fn_id, branch_id);
+                continue;
+            },
+        };
+
+        if index >= bt.dests().len() {
+            eprintln!(
+                "{}: index {} out of range for branch {} ({} dests)",
+                fn_id, index, branch_id, bt.dests().len(),
+            );
             continue;
         }
 
-        let branch = trans.branches.get(branch_id)
-            .expect("branch_id is not a key in branches?");
-        match *branch {
-            BranchTrans::Bool(ref true_dest, ref false_dest, ref span) => {
-                let true_ok = report.visited_blocks.contains(true_dest) ||
-                   trans.branches.get(true_dest).map_or(false, |b| b.is_unreachable());
-                let false_ok = report.visited_blocks.contains(false_dest) ||
-                   trans.branches.get(false_dest).map_or(false, |b| b.is_unreachable());
+        visited_branches.insert(branch_id);
 
-                if !true_ok {
+        insert_dest(fn_id, &mut dest_map, branch_id, index, &dests[0]);
+
+        if index + 2 == bt.dests().len() {
+            // This is the last branch of the switch, meaning the `false` exit goes to the default
+            // case instead of to another branch.
+            insert_dest(fn_id, &mut dest_map, branch_id, index + 1, &dests[1]);
+        }
+    }
+
+
+    let mut branch_ids = visited_branches.into_iter().collect::<Vec<_>>();
+    branch_ids.sort();
+    for branch_id in branch_ids {
+        let bt = &trans.branches[branch_id as usize];
+
+        let dest_visited = |index| {
+            let block_id = match dest_map.get(&(branch_id, index)) {
+                Some(x) => x,
+                None => return false,
+            };
+            report.visited_blocks.contains(block_id)
+        };
+
+        let dest_unreachable = |index| {
+            trans.unreachable.contains(&bt.dests()[index])
+        };
+
+        match *bt {
+            BranchTrans::Bool(_, ref span) => {
+                if !dest_visited(0) && !dest_unreachable(0) {
                     eprintln!("{}: branch condition never takes on the value true", span);
                 }
-                if !false_ok {
+                if !dest_visited(1) && !dest_unreachable(1) {
                     eprintln!("{}: branch condition never takes on the value false", span);
                 }
             },
 
             BranchTrans::Int(ref vals, ref dests, ref span) => {
                 let mut vals_seen = Vec::new();
-                for (i, dest) in dests.iter().enumerate() {
-                    if report.visited_blocks.contains(dest) {
-                        eprintln!("branch at {}, {} has visited {}", fn_id, branch_id, dest);
+                for i in 0 .. dests.len() {
+                    if dest_visited(i) {
                         if i < vals.len() {
                             vals_seen.push(vals[i]);
                         }
@@ -241,15 +355,14 @@ fn process(fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
                     // taken.  Branches to unreachable blocks are generated in exhaustive `match`
                     // expressions: the switch covers every legal discriminant, then ends with an
                     // unreachable "else" case.
-                    match trans.branches.get(dest) {
-                        Some(&BranchTrans::Unreachable) => continue,
-                        _ => {},
+                    if dest_unreachable(i) {
+                        continue;
                     }
 
                     if i < vals.len() {
                         eprintln!(
-                            "{} ({}, {}): branch condition never takes on the value {}",
-                            span, fn_id, branch_id, vals[i],
+                            "{}: branch condition never takes on the value {}",
+                            span, vals[i],
                         );
                     } else {
                         eprintln!(
@@ -259,8 +372,6 @@ fn process(fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
                     }
                 }
             },
-
-            BranchTrans::Unreachable => continue,
         }
     }
 }
