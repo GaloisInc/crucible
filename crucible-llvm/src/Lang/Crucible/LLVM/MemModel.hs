@@ -59,7 +59,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.ppPtr
   , G.ppTermExpr
   , llvmPointer_bv
-  , projectLLVM_bv
+  , Partial.projectLLVM_bv
 
     -- * Memory operations
   , doMalloc
@@ -755,7 +755,8 @@ doFree
   -> IO (MemImpl sym)
 doFree sym mem ptr = do
   let LLVMPointer blk _off = ptr
-  (heap', p1, p2) <- G.freeMem sym PtrWidth ptr (memImplHeap mem)
+  loc <- show . plSourceLoc <$> getCurrentProgramLoc sym
+  (heap', p1, p2) <- G.freeMem sym PtrWidth ptr (memImplHeap mem) loc
 
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
@@ -1025,7 +1026,7 @@ strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
         do ast <- impliesPred sym cond loadok
            assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
            v <- unpackMemValue sym (LLVMPointerRepr (knownNat @8)) llvmval
-           test <- bvIsNonzero sym =<< projectLLVM_bv sym v
+           test <- bvIsNonzero sym =<< Partial.projectLLVM_bv sym "strlen" v
            iteM bvIte sym
              test
              (do cond' <- andPred sym cond test
@@ -1058,7 +1059,7 @@ loadString sym mem = go id
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
      v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) noAlignment
-     x <- projectLLVM_bv sym v
+     x <- Partial.projectLLVM_bv sym "load string" v
      case BV.asUnsigned <$> asBV x of
        Just 0 -> return $ f []
        Just c -> do

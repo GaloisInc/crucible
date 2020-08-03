@@ -128,12 +128,6 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     Alignment ->
     UndefinedBehavior e
 
-  -- | Read from an unallocated region
-  ReadUnallocated ::
-    (1 <= w) =>
-    e (LLVMPointerType w) ->
-    UndefinedBehavior e
-
   -- | Arguments: Write destination, alignment
   WriteBadAlignment ::
     (1 <= w) =>
@@ -179,6 +173,13 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     (1 <= w) =>
     e (LLVMPointerType w) ->
     StorageType ->
+    UndefinedBehavior e
+
+  -- | Pointer used in an unsupported arithmetic or bitvector operation
+  PointerUnsupportedOp ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    String ->
     UndefinedBehavior e
 
   -- | Pointer cast to a floating-point type
@@ -230,7 +231,6 @@ standard =
     MemsetInvalidRegion{}     -> CStd C11
     ReadBadAlignment{}        -> CStd C11
     WriteBadAlignment{}       -> CStd C11
-    ReadUnallocated{}         -> CStd C11
 
     -- -------------------------------- Pointer arithmetic
 
@@ -241,6 +241,7 @@ standard =
     ComparePointerToBV{}      -> CStd C11
     PointerFloatCast{}        -> CStd C11
     PointerIntCast{}          -> CStd C11
+    PointerUnsupportedOp{}    -> CStd C11
 
     -- -------------------------------- LLVM: arithmetic
 
@@ -272,7 +273,6 @@ cite =
     MemsetInvalidRegion{}     -> "§7.24.1 String function conventions, ¶1"
     ReadBadAlignment{}        -> "§6.5.3.2 Address and indirection operators, ¶4"
     WriteBadAlignment{}       -> "§6.5.3.2 Address and indirection operators, ¶4"
-    ReadUnallocated{}         -> "§6.2.4 Storage durations of objects, ¶2"
 
     ---------------------------------- Pointer arithmetic
 
@@ -283,6 +283,7 @@ cite =
     ComparePointerToBV{}      -> "§6.5.9 Equality operators, ¶2"
     PointerFloatCast{}        -> "§6.5.4 Cast operators, ¶4"
     PointerIntCast{}          -> "§6.3.2.3 Conversions, pointers, ¶6"
+    PointerUnsupportedOp{}    -> "§6.3.2.3 Conversions, pointers, ¶6"
 
     -------------------------------- Division operators
 
@@ -326,8 +327,6 @@ explain =
       "Wrote a value into a pointer with insufficent alignment"
     ReadBadAlignment _ _ ->
       "Read a value from a pointer with insufficent alignment"
-    ReadUnallocated _ ->
-      "Read a value from a pointer into an unallocated region"
 
     -- -------------------------------- Pointer arithmetic
 
@@ -345,6 +344,8 @@ explain =
       "Cast of a pointer to a floating-point type"
     PointerIntCast{} ->
       "Cast of a pointer to an incompatible integer type"
+    PointerUnsupportedOp{} ->
+      "Pointer cast to an integer used in an unsupported operation"
 
     -------------------------------- LLVM: arithmetic
 
@@ -392,7 +393,6 @@ detailsReg =
       [ "Required alignment:" <+> text (show (fromAlignment alignment)) <+> "bytes"
       , ppPtr1 ptr
       ]
-    ReadUnallocated ptr -> [ ppPtr1 ptr ]
 
     -------------------------------- Pointer arithmetic
 
@@ -418,6 +418,10 @@ detailsReg =
     PointerIntCast ptr castType ->
       [ ppPtr1 ptr
       , "Cast to:" <+> text (show castType)
+      ]
+    PointerUnsupportedOp ptr msg ->
+      [ ppPtr1 ptr
+      , text msg
       ]
 
     -------------------------------- Division operators
@@ -542,8 +546,6 @@ concUB sym conc ub =
       MemsetInvalidRegion <$> concPtr' sym conc ptr <*> bv val <*> bv len
     ReadBadAlignment ptr a ->
       ReadBadAlignment <$> concPtr' sym conc ptr <*> pure a
-    ReadUnallocated ptr ->
-      ReadUnallocated <$> concPtr' sym conc ptr
     WriteBadAlignment ptr a ->
       WriteBadAlignment <$> concPtr' sym conc ptr <*> pure a
 
@@ -559,6 +561,8 @@ concUB sym conc ub =
       PointerFloatCast <$> concPtr' sym conc ptr <*> pure tp
     PointerIntCast ptr tp ->
       PointerIntCast <$> concPtr' sym conc ptr <*> pure tp
+    PointerUnsupportedOp ptr msg ->
+      PointerUnsupportedOp <$> concPtr' sym conc ptr <*> pure msg
     ComparePointerToBV ptr val ->
       ComparePointerToBV <$> concPtr' sym conc ptr <*> bv val
     UDivByZero v1 v2 ->

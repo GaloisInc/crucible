@@ -46,7 +46,6 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , llvmPointerBlock
   , llvmPointerOffset
   , muxLLVMPtr
-  , projectLLVM_bv
   , llvmPointer_bv
   , mkNullPointer
 
@@ -92,7 +91,6 @@ import           What4.Expr (GroundValue)
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.Types
@@ -135,17 +133,6 @@ llvmPointerView (LLVMPointer blk off) = (blk, off)
 -- | Compute the width of a pointer value.
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
 ptrWidth (LLVMPointer _blk bv) = bvWidth bv
-
--- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
-projectLLVM_bv ::
-  IsSymInterface sym => sym -> LLVMPtr sym w -> IO (SymBV sym w)
-projectLLVM_bv sym ptr@(LLVMPointer blk bv) =
-  do p <- natEq sym blk =<< natLit sym 0
-     assert sym p $
-        AssertFailureSimError
-        "Pointer value coerced to bitvector"
-        (unwords ["***", show (ppPtr ptr)])
-     return bv
 
 -- | Convert a raw bitvector value into an LLVM pointer value.
 llvmPointer_bv :: IsSymInterface sym => sym -> SymBV sym w -> IO (LLVMPtr sym w)

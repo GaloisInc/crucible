@@ -35,6 +35,7 @@ import           Prelude hiding (pred)
 
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Text.LLVM.PP as L
 import qualified Text.LLVM.AST as L
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -124,7 +125,7 @@ ppMemoryOp (MemCopyOp (gsym_dest, dest) (gsym_src, src) len mem) =
        ]
 
 ppMemoryOp (MemLoadHandleOp sig gsym ptr mem) =
-  vsep [ "Loading callable function with type:" <+> text (show sig)
+  vsep [ "Attempting to load callable function with type:" <+> text (show (L.ppType sig))
        , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
        , text "In memory state:"
        , indent 2 (ppMem mem)

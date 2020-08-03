@@ -521,7 +521,7 @@ printfOps sym valist =
   , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
        Just (AnyValue (LLVMPointerRepr w) x) ->
-         do bv <- liftIO (projectLLVM_bv sym x)
+         do bv <- liftIO (projectLLVM_bv sym "printf integer conversion code" x)
             if sgn then
               return $ BV.asSigned w <$> asBV bv
             else

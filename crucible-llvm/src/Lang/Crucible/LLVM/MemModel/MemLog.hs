@@ -89,7 +89,7 @@ data MemAlloc sym
      -- location information for use in error messages.
    = forall w. (1 <= w) => Alloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
      -- | Freeing of the given block ID.
-   | MemFree (SymNat sym)
+   | MemFree (SymNat sym) String
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym] [MemAlloc sym]
 
@@ -260,8 +260,8 @@ ppAlloc (Alloc atp base sz mut alignment loc) =
   <+> text (show mut)
   <+> ppAlignment alignment
   <+> text loc
-ppAlloc (MemFree base) =
-  text "Free" <+> printSymExpr base
+ppAlloc (MemFree base loc) =
+  text "Free" <+> printSymExpr base <+> text loc
 ppAlloc (AllocMerge c x y) = do
   text "Merge" <$$> ppMerge ppAlloc c x y
 
@@ -332,9 +332,9 @@ concAlloc ::
 concAlloc sym conc (Alloc atp blk sz m a nm) =
   do sz' <- traverse (concBV sym conc) sz
      pure [Alloc atp blk sz' m a nm]
-concAlloc sym conc (MemFree blk) =
+concAlloc sym conc (MemFree blk loc) =
   do blk' <- natLit sym =<< conc blk
-     pure [MemFree blk']
+     pure [MemFree blk' loc]
 concAlloc sym conc (AllocMerge p m1 m2) =
   do b <- conc p
      if b then (concat <$> mapM (concAlloc sym conc) m1)

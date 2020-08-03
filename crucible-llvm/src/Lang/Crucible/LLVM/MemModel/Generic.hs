@@ -691,7 +691,7 @@ readMem sym w gsym l tp alignment m = do
         =<< loadTypedValueFromBytes 0 tp loadArrayByteFn
     Nothing -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
 
-  Partial.attachSideCondition sym p1 (UB.ReadUnallocated (RV l)) =<<
+  Partial.attachMemoryError sym p1 mop UnreadableRegion =<<
     Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (RV l) alignment) part_val
 
 data CacheEntry sym w =
@@ -1024,7 +1024,7 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
         do sameBlock <- natEq sym blk =<< natLit sym a
            itePredM sym sameBlock (inThisAllocation asz) (go fallback r)
       | otherwise = go fallback r
-    go fallback (MemFree a : r) =
+    go fallback (MemFree a _ : r) =
       do notSameBlock <- notPred sym =<< natEq sym blk a
          andPred sym notSameBlock =<< go fallback r
     go fallback (AllocMerge _ [] [] : r) = go fallback r
@@ -1148,7 +1148,7 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
       do p1 <- natEq sym blk =<< natLit sym a
          p2 <- isMutable blk r
          orPred sym p1 p2
-    isMutable blk (MemFree _ : r) = isMutable blk r
+    isMutable blk (MemFree _ _ : r) = isMutable blk r
     isMutable blk (AllocMerge c x y : r) =
       do px <- isMutable blk x
          py <- isMutable blk y
@@ -1400,7 +1400,7 @@ popStackFrameMem m = m & memState %~ popf
         pa (Alloc StackAlloc _ _ _ _ _) = Nothing
         pa a@(Alloc HeapAlloc _ _ _ _ _) = Just a
         pa a@(Alloc GlobalAlloc _ _ _ _ _) = Just a
-        pa a@(MemFree _) = Just a
+        pa a@(MemFree _ _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
 -- | Free a heap-allocated block of memory.
@@ -1413,14 +1413,16 @@ popStackFrameMem m = m & memState %~ popf
 -- freeing an immutable block could lead to unsoundness.
 freeMem :: forall sym w .
   (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w ->
+  sym ->
+  NatRepr w ->
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
+  String {- ^ Source location -} -> 
   IO (Mem sym, Pred sym, Pred sym)
-freeMem sym w (LLVMPointer blk off) m =
+freeMem sym w (LLVMPointer blk off) m loc =
   do p1 <- bvEq sym off =<< bvLit sym w (BV.zero w)
      p2 <- isHeapAllocated (return (falsePred sym)) (memAllocs m)
-     return (memAddAlloc (MemFree blk) m, p1, p2)
+     return (memAddAlloc (MemFree blk loc) m, p1, p2)
   where
     isHeapAllocated :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
     isHeapAllocated fallback [] = fallback
@@ -1434,7 +1436,7 @@ freeMem sym w (LLVMPointer blk off) m =
                Nothing    -> orPred sym sameBlock =<< isHeapAllocated fallback r
         Alloc{} ->
           isHeapAllocated fallback r
-        MemFree a ->
+        MemFree a _ ->
           do sameBlock <- natEq sym blk a
              case asConstantPred sameBlock of
                Just True  -> return (falsePred sym)
@@ -1508,7 +1510,7 @@ possibleAllocs n = helper . memAllocs
   where helper =
           foldMap $
             \case
-              MemFree _ -> []
+              MemFree _ _ -> []
               Alloc atp base sz mut alignment loc ->
                 if base == n
                 then [SomeAlloc atp base sz mut alignment loc]

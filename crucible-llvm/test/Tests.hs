@@ -425,7 +425,7 @@ testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
   mem4 <-
     doStore sym mem3 ptr_i' byte_type_repr byte_storage_type noAlignment one_bv
 
-  at_0_val <- projectLLVM_bv sym
+  at_0_val <- projectLLVM_bv sym "test"
     =<< doLoad sym mem4 base_ptr byte_storage_type ptr_byte_repr noAlignment
   (Just (BV.zero knownNat)) @=? What4.asBV at_0_val
 
@@ -433,11 +433,11 @@ testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
   ptr_j <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvMul sym stride j
   ptr_j' <- ptrAdd sym ?ptrWidth ptr_j =<< What4.bvLit sym ?ptrWidth (BV.one ?ptrWidth)
 
-  at_j_val <- projectLLVM_bv sym
+  at_j_val <- projectLLVM_bv sym "test"
     =<< doLoad sym mem4 ptr_j byte_storage_type ptr_byte_repr noAlignment
   (Just (BV.zero knownNat)) @=? What4.asBV at_j_val
 
-  at_j'_val <- projectLLVM_bv  sym
+  at_j'_val <- projectLLVM_bv  sym "test"
     =<< doLoad sym mem4 ptr_j' byte_storage_type ptr_byte_repr noAlignment
   (Just (BV.one knownNat)) @=? What4.asBV at_j'_val
 
@@ -464,7 +464,7 @@ testMemArray = testCase "smt array memory model" $ withMem BigEndian $ \sym mem0
   some_val <- What4.bvLit sym (knownNat @64) (BV.mkBV knownNat 0x88888888f0f0f0f0)
   mem3 <-
     doStore sym mem2 ptr_i long_type_repr long_storage_type noAlignment some_val
-  at_i_val <- projectLLVM_bv sym
+  at_i_val <- projectLLVM_bv sym "test"
     =<< doLoad sym mem3 ptr_i long_storage_type ptr_long_repr noAlignment
   res_i <- checkSat sym =<< What4.bvNe sym some_val at_i_val
   True @=? What4.isUnsat res_i
@@ -472,7 +472,7 @@ testMemArray = testCase "smt array memory model" $ withMem BigEndian $ \sym mem0
   j <- What4.freshConstant sym (userSymbol' "j") $ What4.BaseBVRepr ?ptrWidth
   ptr_j <- ptrAdd sym ?ptrWidth base_ptr j
   assume sym =<< What4.bvEq sym i j
-  at_j_val <- projectLLVM_bv sym
+  at_j_val <- projectLLVM_bv sym "test"
     =<< doLoad sym mem3 ptr_j long_storage_type ptr_long_repr noAlignment
   res_j <- checkSat sym =<< What4.bvNe sym some_val at_j_val
   True @=? What4.isUnsat res_j
@@ -507,10 +507,10 @@ testMemWritesIndexed = testCase "indexed memory writes" $ withMem BigEndian $ \s
     (BV.enumFromToUnsigned (BV.zero (knownNat @64)) (BV.mkBV knownNat count))
 
   forM_ [0 .. count] $ \_ -> do
-    val1 <- projectLLVM_bv sym
+    val1 <- projectLLVM_bv sym "test"
       =<< doLoad sym mem4 base_ptr1 long_storage_type ptr_long_repr noAlignment
     (Just (BV.zero knownNat)) @=? What4.asBV val1
 
-  val2 <- projectLLVM_bv sym
+  val2 <- projectLLVM_bv sym "test"
     =<< doLoad sym mem4 base_ptr2 long_storage_type ptr_long_repr noAlignment
   (Just (BV.mkBV knownNat count)) @=? What4.asBV val2

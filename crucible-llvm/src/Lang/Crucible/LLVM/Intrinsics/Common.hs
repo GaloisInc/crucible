@@ -122,7 +122,7 @@ newtype ValTransformer p sym tp tp' =
     OverrideSim p sym (LLVM arch) rtp l a (RegValue sym tp')) }
 
 transformLLVMArgs :: forall m p sym args args'.
-  (IsSymInterface sym, Monad m) =>
+  (IsSymInterface sym, Monad m, HasLLVMAnn sym) =>
   sym ->
   CtxRepr args' ->
   CtxRepr args ->
@@ -142,7 +142,7 @@ transformLLVMArgs _ _ _ =
     [ "transformLLVMArgs: argument shape mismatch!" ]
 
 transformLLVMRet ::
-  (IsSymInterface sym, Monad m) =>
+  (IsSymInterface sym, Monad m, HasLLVMAnn sym) =>
   sym ->
   TypeRepr ret  ->
   TypeRepr ret' ->
@@ -152,7 +152,7 @@ transformLLVMRet sym (BVRepr w) (LLVMPointerRepr w')
   = return (ValTransformer (liftIO . llvmPointer_bv sym))
 transformLLVMRet sym (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . projectLLVM_bv sym))
+  = return (ValTransformer (liftIO . projectLLVM_bv sym "value coercion"))
 transformLLVMRet sym (VectorRepr tp) (VectorRepr tp')
   = do ValTransformer f <- transformLLVMRet sym tp tp'
        return (ValTransformer (traverse f))
@@ -176,7 +176,7 @@ transformLLVMRet _sym ret ret'
 --   expected by the LLVM calling convention.  This basically just coerces
 --   between values of @BVType w@ and values of @LLVMPointerType w@.
 build_llvm_override ::
-  IsSymInterface sym =>
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   FunctionName ->
   CtxRepr args ->
@@ -194,7 +194,7 @@ build_llvm_override sym fnm args ret args' ret' llvmOverride =
                applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
 
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   String ->
   (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
   OverrideTemplate p sym arch rtp l a
@@ -202,7 +202,7 @@ polymorphic1_llvm_override prefix fn =
   OverrideTemplate (PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
 
 register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   String ->
   (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
   RegOverrideM p sym arch rtp l a ()
@@ -216,7 +216,7 @@ register_1arg_polymorphic_override prefix overrideFn =
        _ -> empty
 
 basic_llvm_override :: forall p args ret sym arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   LLVMOverride p sym arch args ret ->
   OverrideTemplate p sym arch rtp l a
 basic_llvm_override ovr = OverrideTemplate (ExactMatch nm) (register_llvm_override ovr)
@@ -241,7 +241,7 @@ isMatchingDeclaration requested provided = and
  matchingArgList (x:xs) (y:ys) = x == y && matchingArgList xs ys
 
 register_llvm_override :: forall p args ret sym arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, HasLLVMAnn sym) =>
   LLVMOverride p sym arch args ret ->
   RegOverrideM p sym arch rtp l a ()
 register_llvm_override llvmOverride = do

@@ -31,6 +31,7 @@ module Lang.Crucible.LLVM.MemModel.Partial
   ( PartLLVMVal(..)
   , partErr
   , attachSideCondition
+  , attachMemoryError
   , assertSafe
   , MemoryError(..)
   , totalLLVMVal
@@ -45,6 +46,7 @@ module Lang.Crucible.LLVM.MemModel.Partial
   , lookupBBAnnotation
   , annotateME
   , annotateUB
+  , projectLLVM_bv
 
   , floatToBV
   , doubleToBV
@@ -87,7 +89,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
-import           Lang.Crucible.LLVM.MemModel.Pointer ( pattern LLVMPointer )
+import           Lang.Crucible.LLVM.MemModel.Pointer ( pattern LLVMPointer, LLVMPtr )
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
@@ -236,6 +238,16 @@ annotateME sym mop rsn p =
      modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError (MemoryError mop rsn)))
      return p'
 
+-- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
+projectLLVM_bv ::
+  (HasLLVMAnn sym, IsSymInterface sym, 1 <= w) =>
+  sym -> String -> LLVMPtr sym w -> IO (SymBV sym w)
+projectLLVM_bv sym opname ptr@(LLVMPointer blk bv) =
+  do p <- natEq sym blk =<< natLit sym 0
+     p' <- annotateUB sym (UB.PointerUnsupportedOp (RV ptr) opname) p
+     assert sym p' $ AssertFailureSimError "Pointer value coerced to bitvector" ""
+     return bv
+
 ------------------------------------------------------------------------
 -- ** PartLLVMVal
 
@@ -263,6 +275,21 @@ attachSideCondition sym pnew ub pv =
     Err p -> pure (Err p)
     NoErr p v ->
       do p' <- andPred sym p =<< annotateUB sym ub pnew
+         return $ NoErr p' v
+
+attachMemoryError ::
+  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  sym ->
+  Pred sym ->
+  MemoryOp sym w ->
+  MemoryErrorReason sym w ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+attachMemoryError sym pnew mop rsn pv =
+  case pv of
+    Err p -> pure (Err p)
+    NoErr p v ->
+      do p' <- andPred sym p =<< annotateME sym mop rsn pnew
          return $ NoErr p' v
 
 typeOfBitvector :: IsExpr (SymExpr sym)
