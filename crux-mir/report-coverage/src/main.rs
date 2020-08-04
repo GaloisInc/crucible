@@ -435,10 +435,10 @@ fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnT
         match *bt {
             BranchTrans::Bool(_, ref span) => {
                 if !dest_visited(0) && !dest_unreachable(0) {
-                    reporter.warn(span, "branch condition never takes on the value true");
+                    reporter.warn(span, "branch condition never has value true");
                 }
                 if !dest_visited(1) && !dest_unreachable(1) {
-                    reporter.warn(span, "branch condition never takes on the value false");
+                    reporter.warn(span, "branch condition never has value false");
                 }
             },
 
@@ -464,7 +464,7 @@ fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnT
                         reporter.warn(
                             span,
                             format_args!(
-                                "branch condition never takes on the value {}",
+                                "branch condition never has value {}",
                                 vals[i],
                             ),
                         );
@@ -472,7 +472,7 @@ fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnT
                         reporter.warn(
                             span,
                             format_args!(
-                                "branch condition never takes on a value other than {:?}",
+                                "branch condition never has a value other than {:?}",
                                 vals_seen,
                             ),
                         );
