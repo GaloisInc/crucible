@@ -36,7 +36,7 @@ import Control.Lens.TH
 import Control.Monad
 import Control.Lens
 
-import Data.Type.Equality ((:~:)(..), testEquality)
+import Data.Type.Equality (testEquality)
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -65,7 +65,6 @@ import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.Translation.Monad as C
 
 import qualified What4.Interface as W4
-import qualified What4.Partial as W4
 
 ------------------------------------------------------------------------
 -- Profiles
@@ -124,18 +123,18 @@ ptrArraySize mem ptr
   | otherwise = Nothing
 
 ptrIsInitialized ::
-  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
   sym ->
   G.Mem sym ->
   C.LLVMPtr sym w ->
   IO Bool
 ptrIsInitialized sym mem ptr =
   G.readMem sym C.PtrWidth ptr (C.bitvectorType 1) C.noAlignment mem >>= \case
-  W4.NoErr{} -> pure True
+  C.NoErr{} -> pure True
   _ -> pure False
 
 intrinsicArgProfile ::
-  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
   sym ->
   G.Mem sym ->
   SymbolRepr nm ->
@@ -149,7 +148,7 @@ intrinsicArgProfile sym mem
 intrinsicArgProfile _ _ _ _ _ = pure $ ArgProfile Nothing False
 
 regValueArgProfile ::
-  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
   sym ->
   G.Mem sym ->
   C.TypeRepr tp ->
@@ -159,7 +158,7 @@ regValueArgProfile sym mem (C.IntrinsicRepr nm ctx) i = intrinsicArgProfile sym 
 regValueArgProfile _ _ _ _ = pure $ ArgProfile Nothing False
 
 regEntryArgProfile ::
-  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
   sym ->
   G.Mem sym ->
   C.RegEntry sym tp ->
@@ -168,7 +167,7 @@ regEntryArgProfile sym mem (C.RegEntry t v) = regValueArgProfile sym mem t v
 
 newtype Wrap a (b :: C.CrucibleType) = Wrap { unwrap :: a }
 argProfiles ::
-  (C.IsSymInterface sym, C.HasPtrWidth w) =>
+  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
   sym ->
   G.Mem sym ->
   Ctx.Assignment (C.RegEntry sym) ctx ->
@@ -180,7 +179,7 @@ argProfiles sym mem as =
 -- Execution feature for learning profiles
 
 updateProfiles ::
-  (C.IsSymInterface sym, C.HasPtrWidth (C.ArchWidth arch)) =>
+  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)) =>
   C.LLVMContext arch ->
   IORef (Map Text [FunctionProfile]) ->
   C.ExecState p sym (C.LLVM arch) rtp ->
@@ -203,7 +202,7 @@ updateProfiles llvm cell state
 
 arraySizeProfile ::
   forall sym arch p rtp.
-  (C.IsSymInterface sym, C.HasPtrWidth (C.ArchWidth arch)) =>
+  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)) =>
   C.LLVMContext arch ->
   IORef (Map Text [FunctionProfile]) ->
   IO (C.ExecutionFeature p sym (C.LLVM arch) rtp)
