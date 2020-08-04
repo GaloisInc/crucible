@@ -117,6 +117,7 @@ countIncompleteGoals gs =
     Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved _ Nothing) -> 1
     Goal _ _ _ _ -> 0
 
+
 proveToGoal ::
   (IsSymInterface sym) =>
   SimCtxt personality sym p ->
@@ -137,7 +138,9 @@ proveToGoal _ allAsmps p pr =
  showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
 
 
-
+isResourceExhausted :: LabeledPred p SimError -> Bool
+isResourceExhausted (view labeledPredMsg -> SimError _ (ResourceExhausted _)) = True
+isResourceExhausted _ = False
 
 updateProcessedGoals ::
   LabeledPred p SimError ->
@@ -149,7 +152,7 @@ updateProcessedGoals _ (Proved _) pgs =
      , provedGoals = 1 + provedGoals pgs
      }
 
-updateProcessedGoals (view labeledPredMsg -> SimError _ (ResourceExhausted _)) (NotProved _ _) pgs =
+updateProcessedGoals res (NotProved _ _) pgs | isResourceExhausted res =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs
      , incompleteGoals = 1 + incompleteGoals pgs
      }
@@ -250,7 +253,8 @@ proveGoalsOffline adapter opts ctx explainFailure (Just gs0) = do
                 end
                 let gt = NotProved explain (Just (ModelView vals))
                 modifyIORef' goalNum (updateProcessedGoals p gt)
-                when failfast $ sayOK "Crux" "Counterexample found, skipping remaining goals"
+                when (failfast && not (isResourceExhausted p)) $
+                  sayOK "Crux" "Counterexample found, skipping remaining goals"
                 return (Prove (p, gt))
               Unknown -> do
                 end
@@ -346,7 +350,8 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                            end
                            let gt = NotProved explain (Just (ModelView vals))
                            modifyIORef' gn (updateProcessedGoals p gt)
-                           when failfast (sayOK "Crux" "Counterexample found, skipping remaining goals.")
+                           when (failfast && not (isResourceExhausted p)) $
+                             (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            return (Prove (p, gt))
                       Unknown ->
                         do end
