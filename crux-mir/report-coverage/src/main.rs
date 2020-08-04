@@ -1,8 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::fmt::Display;
 use std::fs;
 use std::path::Path;
+use codespan_reporting::diagnostic::{Diagnostic, Label};
+use codespan_reporting::files::{SimpleFiles, Files};
 use serde_json::Value;
+use termcolor;
 
 macro_rules! die {
     ($($args:tt)*) => {
@@ -260,7 +264,104 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
 }
 
 
-fn process(fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
+struct Reporter {
+    files: SimpleFiles<String, String>,
+    file_map: HashMap<String, usize>,
+}
+
+impl Reporter {
+    fn new() -> Reporter {
+        Reporter {
+            files: SimpleFiles::new(),
+            file_map: HashMap::new(),
+        }
+    }
+
+    fn warn(&mut self, span: &str, msg: impl Display) {
+        let (filename, line1, col1, line2, col2) = match parse_span(span) {
+            Some(x) => x,
+            None => {
+                eprintln!("invalid span {:?}", span);
+                eprintln!("{}: {}", span, msg);
+                return;
+            },
+        };
+
+        let file_id = self.load_file(filename);
+        let start = self.pos_to_bytes(file_id, line1, col1);
+        let end = self.pos_to_bytes(file_id, line2, col2);
+
+        let label = Label::primary(file_id, start .. end);
+        let diag = Diagnostic::warning()
+            .with_message(msg.to_string())
+            .with_labels(vec![label]);
+
+        codespan_reporting::term::emit(
+            &mut termcolor::StandardStream::stdout(termcolor::ColorChoice::Auto),
+            &codespan_reporting::term::Config::default(),
+            &self.files,
+            &diag,
+        ).unwrap();
+    }
+
+    fn load_file(&mut self, name: &str) -> usize {
+        if let Some(&id) = self.file_map.get(name) {
+            return id;
+        }
+
+        let content = match fs::read_to_string(name) {
+            Ok(x) => x,
+            Err(_) => String::new(),
+        };
+        let id = self.files.add(name.to_owned(), content);
+        self.file_map.insert(name.to_owned(), id);
+        id
+    }
+
+    fn pos_to_bytes(&self, file_id: usize, line: usize, col: usize) -> usize {
+        let line = line.saturating_sub(1);
+        let col = col.saturating_sub(1);
+        let range = match self.files.line_range(file_id, line) {
+            Some(x) => x,
+            None => return 0,
+        };
+        if col >= range.end - range.start {
+            range.end
+        } else {
+            range.start + col
+        }
+    }
+}
+
+fn parse_span(s: &str) -> Option<(&str, usize, usize, usize, usize)> {
+    // Remove branch info if present
+    let s = match s.rfind('#') {
+        Some(idx) => &s[..idx],
+        None => s,
+    };
+
+    // Span format is something like "file.rs:1:2: 3:4", consisting of filename, start line and
+    // column, and end line and column.  We also support the truncated form "file.rs:1:2", which
+    // uses the start line and column for the end position as well.
+    let mut it = s.split(':').map(|s| s.trim());
+    let filename = it.next()?;
+    let line1 = it.next()?.parse().ok()?;
+    let col1 = it.next()?.parse().ok()?;
+    if let Some(x) = it.next() {
+        let line2 = x.parse().ok()?;
+        let col2 = it.next()?.parse().ok()?;
+        if it.next().is_some() {
+            // Too many pieces - should be exactly 5.
+            return None;
+        }
+        Some((filename, line1, col1, line2, col2))
+    } else {
+        // Exactly 3 pieces, so there's only one line/column pair.
+        Some((filename, line1, col1, line1, col1))
+    }
+}
+
+fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
     // Maps (branch ID, dest index) to the Core `BlockId` of the destination.
     let mut dest_map: HashMap<(u32, usize), BlockId> = HashMap::new();
     let mut visited_branches = HashSet::new();
@@ -334,10 +435,10 @@ fn process(fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
         match *bt {
             BranchTrans::Bool(_, ref span) => {
                 if !dest_visited(0) && !dest_unreachable(0) {
-                    eprintln!("{}: branch condition never takes on the value true", span);
+                    reporter.warn(span, "branch condition never takes on the value true");
                 }
                 if !dest_visited(1) && !dest_unreachable(1) {
-                    eprintln!("{}: branch condition never takes on the value false", span);
+                    reporter.warn(span, "branch condition never takes on the value false");
                 }
             },
 
@@ -360,14 +461,20 @@ fn process(fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
                     }
 
                     if i < vals.len() {
-                        eprintln!(
-                            "{}: branch condition never takes on the value {}",
-                            span, vals[i],
+                        reporter.warn(
+                            span,
+                            format_args!(
+                                "branch condition never takes on the value {}",
+                                vals[i],
+                            ),
                         );
                     } else {
-                        eprintln!(
-                            "{}: branch condition never takes on a value other than {:?}",
-                            span, vals_seen,
+                        reporter.warn(
+                            span,
+                            format_args!(
+                                "branch condition never takes on a value other than {:?}",
+                                vals_seen,
+                            ),
                         );
                     }
                 }
@@ -398,12 +505,13 @@ fn main() {
     let trans = parse_trans(trans_json).unwrap();
 
     let default_ft = FnTrans::default();
+    let mut reporter = Reporter::new();
     let mut fn_ids = report.fns.keys().collect::<Vec<_>>();
     fn_ids.sort();
     for fn_id in fn_ids {
         let fr = report.fns.get(fn_id)
             .expect("fn_id is not a key in report.fns?");
         let ft = trans.fns.get(fn_id).unwrap_or(&default_ft);
-        process(fn_id, fr, ft);
+        process(&mut reporter, fn_id, fr, ft);
     }
 }
