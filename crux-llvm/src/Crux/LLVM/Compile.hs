@@ -113,6 +113,7 @@ genBitCode cruxOpts llvmOpts =
            | otherwise =
               [ "-c", "-g", "-emit-llvm", "-O1" ] ++
               concat [ [ "-I", dir ] | dir <- incs src ] ++
+              concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
               [ "-o", srcBC, src ]
 
      finalBCExists <- doesFileExist finalBCFile
