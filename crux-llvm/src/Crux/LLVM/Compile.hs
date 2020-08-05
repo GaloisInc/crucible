@@ -70,7 +70,7 @@ runClang :: Logs => LLVMOptions -> [String] -> IO ()
 runClang llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     say "CLANG" $ unwords (clang : map show params)
+     say "CLANG" $ unwords (clang : map show allParams)
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
