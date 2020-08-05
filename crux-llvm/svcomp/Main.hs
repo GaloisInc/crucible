@@ -106,8 +106,9 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
                      , libDir llvmOpts </> "includes"
                      ] ++ incDirs llvmOpts
           params (src, srcBC) =
-            [ "-c", "-g", "-emit-llvm", "-O1", "-fsanitize=shift", "-fsanitize-trap=shift", "--target=" ++ tgt ] ++
+            [ "-c", "-g", "-emit-llvm", "-O1", "--target=" ++ tgt ] ++
             concat [ ["-I", dir] | dir <- incs src ] ++
+            concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
             [ "-o", srcBC, src ]
 
       createDirectoryIfMissing True outputPath

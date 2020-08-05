@@ -7,7 +7,7 @@ module Crux.Config
     -- ** Configuration files
   , SectionsSpec, section, sectionMaybe
   , yesOrNoSpec, stringSpec, numSpec, fractionalSpec
-  , oneOrList, fileSpec, dirSpec
+  , oneOrList, fileSpec, dirSpec, listSpec
 
     -- ** Environment variables
   , EnvDescr(..), mapEnvDescr
