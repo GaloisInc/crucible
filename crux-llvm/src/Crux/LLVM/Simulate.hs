@@ -130,7 +130,8 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
 
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
-         do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+         do liftIO $ say "Crux" $ unwords ["Using pointer width:", show ptrW]
+            bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
             let ?lc = llvmCtxt^.llvmTypeCtx
             -- shrug... some weird interaction between do notation and implicit parameters here...
             -- not sure why I have to let/in this expression...

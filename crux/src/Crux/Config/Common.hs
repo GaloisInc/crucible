@@ -5,7 +5,6 @@ import Data.Functor.Alt
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
-import Text.Read(readMaybe)
 import Data.Word (Word64)
 import Data.Text (pack)
 
@@ -382,14 +381,6 @@ cruxOptions = Config
 
 dflt :: String -> (String -> OptSetter opts) -> (Maybe String -> OptSetter opts)
 dflt x p mb = p (fromMaybe x mb)
-
-
-parsePosNum :: (Read a, Num a, Ord a) =>
-  String -> (a -> opts -> opts) -> String -> OptSetter opts
-parsePosNum thing mk = \txt opts ->
-  case readMaybe txt of
-    Just a | a >= 0 -> Right (mk a opts)
-    _ -> Left ("Invalid " ++ thing)
 
 parseDiffTime ::
   String -> (DiffTime -> opts -> opts) -> String -> OptSetter opts
