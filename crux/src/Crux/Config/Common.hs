@@ -1,6 +1,7 @@
 {-# Language RecordWildCards, OverloadedStrings, ApplicativeDo #-}
 module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
 
+import Data.Function ( (&) )
 import Data.Functor.Alt
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
@@ -18,6 +19,7 @@ import What4.ProblemFeatures
 data PathStrategy
   = AlwaysMergePaths
   | SplitAndExploreDepthFirst
+  deriving (Eq)
 
 pathStrategySpec :: ValueSpec PathStrategy
 pathStrategySpec =
@@ -399,3 +401,54 @@ parsePathStrategy ::
 parsePathStrategy mk "always-merge" opts = Right $ mk AlwaysMergePaths opts
 parsePathStrategy mk "split-dfs"    opts = Right $ mk SplitAndExploreDepthFirst opts
 parsePathStrategy _mk nm _opts = Left ("Unknown path strategy: " ++ show nm)
+
+
+
+--------------------------------------------------------------------------------
+-- NEW: Common options using the unified config code
+--------------------------------------------------------------------------------
+
+
+-- | A few examples in the new unified format:
+cruxOptions' :: CmdLineOptions CruxOptions
+cruxOptions' = CmdLineOptions
+  { cmdLineParamDocs = [("FILES", "Input files to process.")]
+  , cmdLineParamFn = \f opts -> Right opts { inputFiles = f : inputFiles opts }
+  , cmdLineParamConfigSection = "files"
+  , cmdLineOpts =
+    [ opt "Simulator Verbosity Level"
+      (atom "sim-verbose")
+      "Enable path satisfiability checking."
+      (NoArgUpdater FlagIsYes (\ans opts -> Right opts { checkPathSat = ans }) checkPathSat)
+      & withShortFlag 'd'
+      & withDocumentation
+      (concat [ "When enabled, the solver is queried before exploring code paths to determine"
+              , " if they are reachable. This adds some overhead throughout verification but"
+              , " avoids wasting time in unreachable paths."
+              ])
+    , opt "Path Satisfiability Checking"
+      (atom "path-sat")
+      "Enable path satisfiability checking."
+      (NoArgUpdater FlagIsYes (\ans opts -> Right opts { checkPathSat = ans }) checkPathSat)
+      & withDocumentation
+      (concat [ "When enabled, the solver is queried before exploring code paths to determine"
+              , " if they are reachable. This adds some overhead throughout verification but"
+              , " avoids wasting time in unreachable paths."
+              ])
+    , opt "Output Directory"
+      (atom "output-directory")
+      "Location to save reports. If unset, no reports will be generated."
+      (ReqArgUpdater pathVal (\path opts -> Right opts { outDir = path }) outDir)
+    , opt "Simulator Path Strategy"
+      (atom "path-strategy")
+      "Simulator strategy for path exploration."
+      (ReqArgUpdater
+        (EnumVal [ ("always-merge", AlwaysMergePaths)
+                 , ("split-dfs", SplitAndExploreDepthFirst)])
+        (\strategy opts -> Right opts { pathStrategy = strategy })
+        pathStrategy)
+    ]
+  }
+
+
+
