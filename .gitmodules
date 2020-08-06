@@ -13,6 +13,9 @@
 [submodule "dependencies/cryptol-verifier"]
 	path = dependencies/cryptol-verifier
 	url = https://github.com/GaloisInc/cryptol-verifier.git
+[submodule "dependencies/golang"]
+	path = dependencies/golang
+	url = https://github.com/GaloisInc/golang.git
 [submodule "dependencies/jvm-parser"]
 	path = dependencies/jvm-parser
 	url = https://github.com/GaloisInc/jvm-parser.git
@@ -43,9 +46,3 @@
 [submodule "dependencies/what4"]
 	path = dependencies/what4
 	url = https://github.com/GaloisInc/what4.git
-[submodule "dependencies/golang"]
-	path = dependencies/golang
-	url = https://github.com/GaloisInc/golang.git
-[submodule "dependencies/anastasia"]
-	path = dependencies/anastasia
-	url = https://github.com/galoisinc/anastasia
