@@ -42,6 +42,7 @@ import           Data.List (isInfixOf)
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 import qualified Text.LLVM.AST as L
 
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (knownNat)
 
@@ -207,7 +208,7 @@ trueOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              -> SomeCPPOverride p sym arch
 trueOverride =
   fixedOverride (LLVMPointerRepr knownNat) $ \_mem sym ->
-    LLVMPointer <$> natLit sym 0 <*> bvLit sym (knownNat @1) 1
+    LLVMPointer <$> natLit sym 0 <*> bvLit sym (knownNat @1) (BV.one knownNat)
 
 ------------------------------------------------------------------------
 -- ** Declarations

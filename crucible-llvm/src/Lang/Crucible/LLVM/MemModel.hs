@@ -154,6 +154,7 @@ module Lang.Crucible.LLVM.MemModel
   , llvmStatementExec
   , G.pushStackFrameMem
   , G.popStackFrameMem
+  , G.asMemAllocationArrayStore
   , SomeFnHandle(..)
   , G.SomeAlloc(..)
   , G.possibleAllocs
@@ -193,6 +194,7 @@ import           System.IO (Handle, hPutStrLn)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP hiding ((<$>))
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
@@ -381,7 +383,7 @@ evalStmt sym = eval
      do mem <- getMem mvar
         blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
         blk <- liftIO $ natLit sym blkNum
-        z <- liftIO $ bvLit sym PtrWidth 0
+        z <- liftIO $ bvLit sym PtrWidth (BV.zero PtrWidth)
 
         let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable (show loc) (memImplHeap mem)
         let ptr = LLVMPointer blk z
@@ -395,8 +397,8 @@ evalStmt sym = eval
 
   eval (LLVM_MemClear mvar (regValue -> ptr) bytes) =
     do mem <- getMem mvar
-       z   <- liftIO $ bvLit sym knownNat 0
-       len <- liftIO $ bvLit sym PtrWidth (bytesToInteger bytes)
+       z   <- liftIO $ bvLit sym knownNat (BV.zero knownNat)
+       len <- liftIO $ bvLit sym PtrWidth (bytesToBV PtrWidth bytes)
        mem' <- liftIO $ doMemset sym PtrWidth mem ptr z len
        setMem mvar mem'
 
@@ -590,7 +592,7 @@ doCalloc sym mem sz num alignment = do
   assert sym ov_iszero
      (AssertFailureSimError "Multiplication overflow in calloc()" "")
 
-  z <- bvLit sym knownNat 0
+  z <- bvLit sym knownNat (BV.zero knownNat)
   (ptr, mem') <- doMalloc sym G.HeapAlloc G.Mutable "<calloc>" mem sz' alignment
   mem'' <- doMemset sym PtrWidth mem' ptr z sz'
   return (ptr, mem'')
@@ -633,7 +635,7 @@ doMallocSize
 doMallocSize sz sym allocType mut loc mem alignment = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk    <- natLit sym blkNum
-  z      <- bvLit sym PtrWidth 0
+  z      <- bvLit sym PtrWidth (BV.zero PtrWidth)
   let heap' = G.allocMem allocType blkNum sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
@@ -686,7 +688,7 @@ doMallocHandle
 doMallocHandle sym allocType loc mem x = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym blkNum
-  z <- bvLit sym PtrWidth 0
+  z <- bvLit sym PtrWidth (BV.zero PtrWidth)
 
   let heap' = G.allocMem allocType blkNum (Just z) noAlignment G.Immutable loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
@@ -780,7 +782,7 @@ doInvalidate sym w mem dest msg len = do
   (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
   assert sym p $ AssertFailureSimError
-    "Invalidation of unallocated or immutable region"
+    "Invalidation of unallocated or readonly region"
     (unwords [ "Region of"
              , show $ printSymExpr len
              , "bytes at"
@@ -829,7 +831,7 @@ doArrayStoreSize
 doArrayStoreSize len sym mem ptr alignment arr = do
   (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
-  let errMsg1 = "Array store to unallocated or immutable region"
+  let errMsg1 = "Array store to unallocated or readonly region"
   let errMsg2 = "Array store to improperly aligned region"
   assert sym p1 $ AssertFailureSimError errMsg1 (show (G.ppPtr ptr))
   assert sym p2 $ AssertFailureSimError errMsg2 (show (G.ppPtr ptr))
@@ -887,7 +889,7 @@ doMemcpy sym w mem dest src len = do
   let errMsg1 = PP.text "Source region was one of the following:"
               : reasons
   let errMsg2 = PP.text "Dest region was one of the following:"
-              : PP.text "- Not mutable"
+              : PP.text "- Readonly"
               : reasons
   assert sym p1 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg1))
   assert sym p2 (AssertFailureSimError "Error in call to memcpy" (mkMsg errMsg2))
@@ -980,7 +982,7 @@ strLen :: forall sym wptr.
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
   IO (SymBV sym wptr)
-strLen sym mem = go 0 (truePred sym)
+strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
   where
   go !n cond p =
     loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
@@ -988,7 +990,7 @@ strLen sym mem = go 0 (truePred sym)
         do ast <- impliesPred sym cond (falsePred sym)
            let msg = show (ppMemoryLoadError e)
            assert sym ast $ AssertFailureSimError "Error during memory load: strlen" msg
-           bvLit sym PtrWidth 0 -- bogus value, but have to return something...
+           bvLit sym PtrWidth (BV.zero PtrWidth) -- bogus value, but have to return something...
       Partial.NoErr loadok llvmval ->
         do ast <- impliesPred sym cond loadok
            assert sym ast $ AssertFailureSimError "Error during memory load: strlen" ""
@@ -997,8 +999,10 @@ strLen sym mem = go 0 (truePred sym)
            iteM bvIte sym
              test
              (do cond' <- andPred sym cond test
-                 p'    <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
-                 go (n+1) cond' p')
+                 p'    <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth (BV.one PtrWidth)
+                 case BV.succUnsigned PtrWidth n of
+                   Just n_1 -> go n_1 cond' p'
+                   Nothing -> panic "Lang.Crucible.LLVM.MemModel.strLen" ["string length exceeds pointer width"])
              (bvLit sym PtrWidth n)
 
 
@@ -1025,11 +1029,11 @@ loadString sym mem = go id
   go f p maxChars = do
      v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) noAlignment
      x <- projectLLVM_bv sym v
-     case asUnsignedBV x of
+     case BV.asUnsigned <$> asBV x of
        Just 0 -> return $ f []
        Just c -> do
            let c' :: Word8 = toEnum $ fromInteger c
-           p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
+           p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth (BV.one PtrWidth)
            go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
        Nothing ->
          addFailedAssertion sym
@@ -1103,7 +1107,7 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType alignment val = do
     (heap', p1, p2) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg1 = "The region wasn't allocated, or wasn't mutable"
+    let errMsg1 = "The region wasn't allocated, or was marked as readonly"
     let errMsg2 = "The region's alignment wasn't correct"
     let err = AssertFailureSimError "Invalid memory store"
     assert sym p1 (err $ ptrMessage errMsg1 ptr valType)
@@ -1182,7 +1186,7 @@ condStoreRaw sym mem cond ptr valType alignment val = do
   (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
   -- Assert is allocated if write executes
   do condIsAllocated <- impliesPred sym cond isAllocated
-     let errMsg1 = "The region wasn't allocated, or wasn't mutable"
+     let errMsg1 = "The region wasn't allocated, or was marked as readonly"
      assert sym condIsAllocated (err $ ptrMessage errMsg1 ptr valType)
   -- Assert is aligned if write executes
   do condIsAligned <- impliesPred sym cond isAligned
@@ -1491,7 +1495,7 @@ constToLLVMValP :: forall wptr sym io.
 
 -- See comment on @LLVMVal@ on why we use a literal 0.
 constToLLVMValP sym _ (IntConst w i) = liftIO $
-  LLVMValInt <$> natLit sym 0 <*> (bvLit sym w i)
+  LLVMValInt <$> natLit sym 0 <*> bvLit sym w i
 
 constToLLVMValP sym _ (FloatConst f) = liftIO $
   LLVMValFloat SingleSize <$> iFloatLitSingle sym f
@@ -1520,8 +1524,10 @@ constToLLVMValP sym look (StructConst sInfo xs) =
 -- SymbolConsts are offsets from global pointers. We translate them into the
 -- pointer they represent.
 constToLLVMValP sym look (SymbolConst symb i) = do
-  ptr <- look symb                       -- Pointer to the global "symb"
-  ibv <- liftIO $ bvLit sym ?ptrWidth i  -- Offset to be added, as a bitvector
+  -- Pointer to the global "symb"
+  ptr <- look symb
+  -- Offset to be added, as a bitvector
+  ibv <- liftIO $ bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth i)
 
   -- blk is the allocation number that this global is stored in.
   -- In contrast to the case for @IntConst@ above, it is non-zero.
@@ -1612,7 +1618,7 @@ allocGlobal :: (IsSymInterface sym, HasPtrWidth wptr)
 allocGlobal sym mem (g, aliases, sz, alignment) = do
   let symbol@(L.Symbol sym_str) = L.globalSym g
   let mut = if L.gaConstant (L.globalAttrs g) then G.Immutable else G.Mutable
-  sz' <- bvLit sym PtrWidth (bytesToInteger sz)
+  sz' <- bvLit sym PtrWidth (bytesToBV PtrWidth sz)
   -- TODO: Aliases are not propagated to doMalloc for error messages
   (ptr, mem') <- doMalloc sym G.GlobalAlloc mut sym_str mem sz' alignment
   return (registerGlobal mem' (symbol:aliases) ptr)

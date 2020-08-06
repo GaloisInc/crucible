@@ -77,7 +77,7 @@ setupSimCtxt ::
   sym ->
   MemOptions ->
   LLVMContext arch ->
-  SimCtxt sym (LLVM arch)
+  SimCtxt Model sym (LLVM arch)
 setupSimCtxt halloc sym mo llvmCtxt =
   initSimContext sym
                  llvmIntrinsicTypes
@@ -101,7 +101,7 @@ registerFunctions ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   LLVM.Module ->
   ModuleTranslation arch ->
-  OverM sym (LLVM arch) ()
+  OverM Model sym (LLVM arch) ()
 registerFunctions llvm_module mtrans =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
@@ -144,7 +144,7 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
 
 checkFun ::
   (ArchOk arch, Logs) =>
-  String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
+  String -> ModuleCFGMap arch -> OverM personality sym (LLVM arch) ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (_, AnyCFG anyCfg) ->

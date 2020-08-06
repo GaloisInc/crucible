@@ -86,6 +86,7 @@ module Lang.Crucible.Syntax
   ) where
 
 import           Control.Lens
+import qualified Data.BitVector.Sized as BV
 import           Data.Kind
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -404,7 +405,7 @@ bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
           | Just (Some idx) <- someNat $ (fromIntegral (num-n)) * (intValue cellWidth)
           , Just LeqProof <- testLeq (addNat idx cellWidth) valWidth
             = app $ InsertWordMap addrWidth (BaseBVRepr cellWidth)
-                  (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (toInteger (n-1))))
+                  (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (BV.mkBV addrWidth (toInteger (n-1)))))
                   (app $ BVSelect idx cellWidth valWidth v)
                   (go (n-1))
         go _ = error "bad size parameters in bigEndianStore!"
@@ -425,7 +426,7 @@ littleEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
           | Just (Some idx) <- someNat $ (fromIntegral (n-1)) * (intValue cellWidth)
           , Just LeqProof <- testLeq (addNat idx cellWidth) valWidth
             = app $ InsertWordMap addrWidth (BaseBVRepr cellWidth)
-                  (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (toInteger (n-1))))
+                  (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (BV.mkBV addrWidth (toInteger (n-1)))))
                   (app $ BVSelect idx cellWidth valWidth v)
                   (go (n-1))
         go _ = error "bad size parameters in littleEndianStore!"
@@ -462,9 +463,9 @@ bigEndianLoad
 bigEndianLoad addrWidth cellWidth valWidth num basePtr wordMap =
           let segs = [ app $ LookupWordMap (BaseBVRepr cellWidth)
                             (app $ BVAdd addrWidth basePtr
-                                     (app $ BVLit addrWidth (toInteger i)))
+                                     (app $ BVLit addrWidth i))
                             wordMap
-                     | i <- [0 .. num-1]
+                     | i <- BV.enumFromToUnsigned (BV.zero addrWidth) (BV.mkBV addrWidth (toInteger (num-1)))
                      ] in
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of
@@ -485,10 +486,10 @@ bigEndianLoadDef
 bigEndianLoadDef addrWidth cellWidth valWidth num basePtr wordMap defVal =
           let segs = [ app $ LookupWordMapWithDefault (BaseBVRepr cellWidth)
                             (app $ BVAdd addrWidth basePtr
-                                      (app $ BVLit addrWidth (toInteger i)))
+                                      (app $ BVLit addrWidth i))
                             wordMap
                             defVal
-                     | i <- [0 .. num-1]
+                     | i <- BV.enumFromToUnsigned (BV.zero addrWidth) (BV.mkBV addrWidth (toInteger (num-1)))
                      ] in
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of
@@ -507,9 +508,9 @@ littleEndianLoad
 littleEndianLoad addrWidth cellWidth valWidth num basePtr wordMap =
           let segs = [ app $ LookupWordMap (BaseBVRepr cellWidth)
                             (app $ BVAdd addrWidth basePtr
-                                   (app $ BVLit addrWidth (toInteger i)))
+                                   (app $ BVLit addrWidth i))
                             wordMap
-                     | i <- reverse [0 .. num-1]
+                     | i <- reverse $ BV.enumFromToUnsigned (BV.zero addrWidth) (BV.mkBV addrWidth (toInteger (num-1)))
                      ] in
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of
@@ -529,10 +530,10 @@ littleEndianLoadDef
 littleEndianLoadDef addrWidth cellWidth valWidth num basePtr wordMap defVal =
           let segs = [ app $ LookupWordMapWithDefault (BaseBVRepr cellWidth)
                             (app $ BVAdd addrWidth basePtr
-                                      (app $ BVLit addrWidth (toInteger i)))
+                                      (app $ BVLit addrWidth i))
                             wordMap
                             defVal
-                     | i <- reverse [0 .. num-1]
+                     | i <- reverse $ BV.enumFromToUnsigned (BV.zero addrWidth) (BV.mkBV addrWidth (toInteger (num-1)))
                      ] in
           concatExprs cellWidth segs $ \w x ->
             case testEquality w valWidth of

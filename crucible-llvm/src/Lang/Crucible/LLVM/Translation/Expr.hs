@@ -69,6 +69,7 @@ import Data.String
 import qualified Data.Vector as V
 import Numeric.Natural
 
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>) )
 import           Data.Parameterized.NatRepr as NatRepr
@@ -149,7 +150,7 @@ asVector = fmap snd . asVectorWithType
 
 
 nullPointerExpr :: (HasPtrWidth w) => Expr (LLVM arch) s (LLVMPointerType w)
-nullPointerExpr = PointerExpr PtrWidth (App (NatLit 0)) (App (BVLit PtrWidth 0))
+nullPointerExpr = PointerExpr PtrWidth (App (NatLit 0)) (App (BVLit PtrWidth (BV.zero PtrWidth)))
 
 pattern PointerExpr
     :: (1 <= w)
@@ -240,7 +241,7 @@ zeroExpand (IntType w) k =
     Some w' | Just LeqProof <- isPosNat w' ->
       k (LLVMPointerRepr w') $
          BitvectorAsPointerExpr w' $
-         App $ BVLit w' 0
+         App $ BVLit w' (BV.zero w')
 
     _ -> ?err $ unwords ["illegal integer size", show w]
 
@@ -333,7 +334,7 @@ liftConstant c = case c of
   SymbolConst sym off ->
     do memVar <- getMemVar
        base <- extensionStmt (LLVM_ResolveGlobal ?ptrWidth memVar (GlobalSymbol sym))
-       let off' = app $ BVLit ?ptrWidth off
+       let off' = app $ BVLit ?ptrWidth (BV.mkBV ?ptrWidth off)
        ptr  <- extensionStmt (LLVM_PtrAddOffset ?ptrWidth memVar base off')
        return (BaseExpr PtrRepr ptr)
 
@@ -380,7 +381,7 @@ transValue ty@(IntType _) L.ValNull =
 transValue _ (L.ValString str) = do
   let eight = knownNat :: NatRepr 8
   let bv8   = LLVMPointerRepr eight
-  let chars = V.fromList $ map (BitvectorAsPointerExpr eight . App . BVLit eight . toInteger . fromEnum) $ str
+  let chars = V.fromList $ map (BitvectorAsPointerExpr eight . App . BVLit eight . BV.mkBV eight . toInteger . fromEnum) $ str
   return $ BaseExpr (VectorRepr bv8) (App $ VectorLit bv8 $ chars)
 
 transValue _ (L.ValIdent i) = do
@@ -451,7 +452,7 @@ callIntToBool
   -> LLVMGenerator s arch ret (Expr (LLVM arch) s BoolType)
 callIntToBool w (BitvectorAsPointerExpr _ bv) =
   case bv of
-    App (BVLit _ i) -> if i == 0 then return false else return true
+    App (BVLit _ i) -> if i == BV.zero w then return false else return true
     _ -> return (App (BVNonzero w bv))
 callIntToBool w ex =
   do ex' <- forceEvaluation ex

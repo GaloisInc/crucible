@@ -39,7 +39,7 @@ generateReport opts res
        maybeGenerateSource opts (inputFiles opts)
        cwd <- getCurrentDirectory
        writeFile (outDir opts </> "report.js")
-          $ "var goals = " ++ renderJS (jsList (renderSideConds cwd xs))
+          $ "var goals = " ++ renderJS (jsList (renderSideConds opts cwd xs))
        T.writeFile (outDir opts </> "index.html") indexHtml
        T.writeFile (outDir opts </> "jquery.min.js") jquery
 
@@ -67,8 +67,8 @@ maybeGenerateSource opts files =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: FilePath -> Seq (ProvedGoals b) -> [ JS ]
-renderSideConds cwd = concatMap (go []) . Fold.toList 
+renderSideConds :: CruxOptions -> FilePath -> Seq (ProcessedGoals, ProvedGoals b) -> [ JS ]
+renderSideConds opts cwd = concatMap (go [] . snd) . Fold.toList
   where
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
   flatBranch (x : more)          = x : flatBranch more
@@ -85,13 +85,24 @@ renderSideConds cwd = concatMap (go []) . Fold.toList
         let (now,rest) = partition isGoal (flatBranch [g1,g2])
         in concatMap (go path) now ++ concatMap (go path) rest
 
-      Goal asmps conc triv proved ->
-        let (ls,ps) = unzip (reverse path)
+      Goal asmps conc triv proved
+        | skipSuccessReports opts
+        , Proved _ <- proved
+        -> []
+
+        | skipIncompleteReports opts
+        , (SimError _ (ResourceExhausted _), _) <- conc
+        -> []
+
+        | otherwise
+        -> [ jsSideCond cwd apath asmps conc triv proved ]
+
+          where
+            (ls,ps) = unzip (reverse path)
             ap      = map fst (annotateLoops ps)
             mkStep a l = jsObj [ "loop" ~> jsList (map jsNum a)
                                , "loc"  ~> l ]
             apath   = zipWith mkStep ap ls
-        in [ jsSideCond cwd apath asmps conc triv proved ]
 
 
 jsSideCond ::
@@ -129,4 +140,3 @@ jsSideCond cwd path asmps (conc,_) triv status =
           ]
 
   goalReason = simErrorReasonMsg (simErrorReason conc)
-

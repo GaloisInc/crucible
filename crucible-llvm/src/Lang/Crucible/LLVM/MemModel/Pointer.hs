@@ -74,6 +74,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           GHC.TypeLits (TypeError, ErrorMessage(..))
 import           GHC.TypeNats
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
@@ -126,9 +127,6 @@ llvmPointerView (LLVMPointer blk off) = (blk, off)
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
 ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
-instance IsExprBuilder sym => TestEquality (LLVMPointer sym) where
-  testEquality ptr1 ptr2 = testEquality (ptrWidth ptr1) (ptrWidth ptr2)
-
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
 projectLLVM_bv ::
   IsSymInterface sym => sym -> LLVMPtr sym w -> IO (SymBV sym w)
@@ -148,7 +146,7 @@ llvmPointer_bv sym bv =
 
 -- | Produce the distinguished null pointer value.
 mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (LLVMPtr sym w)
-mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w 0
+mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w (BV.zero w)
 
 -- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
@@ -181,7 +179,7 @@ instance TestEquality FloatSize where
 
 -- | Generate a concrete offset value from an @Addr@ value.
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
-constOffset sym w x = bvLit sym w (G.bytesToInteger x)
+constOffset sym w x = bvLit sym w (G.bytesToBV w x)
 
 -- | Test whether two pointers are equal.
 ptrEq :: (1 <= w, IsSymInterface sym)
@@ -258,9 +256,9 @@ ptrIsNull :: (1 <= w, IsSymInterface sym)
           -> NatRepr w
           -> LLVMPtr sym w
           -> IO (Pred sym)
-ptrIsNull sym _w (LLVMPointer blk off) =
+ptrIsNull sym w (LLVMPointer blk off) =
   do pblk <- natEq sym blk =<< natLit sym 0
-     poff <- bvEq sym off =<< bvLit sym (bvWidth off) 0
+     poff <- bvEq sym off =<< bvLit sym (bvWidth off) (BV.zero w)
      andPred sym pblk poff
 
 
@@ -285,7 +283,7 @@ isGlobalPointer :: forall sym w. (IsSymInterface sym, 1 <= w)
 isGlobalPointer sym globalMap needle =
   let fun :: L.Symbol -> SomePointer sym -> IO (Maybe L.Symbol)
       fun symb (SomePointer ptr)
-        | Just Refl <- testEquality ptr needle -- do they have the same width?
+        | Just Refl <- testEquality (ptrWidth ptr) (ptrWidth needle)
         = ptrEq sym (ptrWidth ptr) ptr needle <&> \equalityPredicate ->
             case asConstantPred equalityPredicate of
               Just True  -> Just symb

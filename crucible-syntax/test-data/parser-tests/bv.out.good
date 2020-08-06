@@ -39,15 +39,15 @@ bv-test
   % 3:12
   $0 = fresh BaseBVRepr 12 f
   % 4:12
-  $1 = bVLit(1, 99)
+  $1 = bVLit(1, BV 1)
   % 5:12
-  $2 = bVLit(12, 0)
+  $2 = bVLit(12, BV 0)
   % 6:12
-  $3 = bVLit(12, -1)
+  $3 = bVLit(12, BV 4095)
   % 7:12
   $4 = baseIsEq(BaseBVRepr 12, $2, $3)
   % 8:12
-  $5 = bVLit(12, 123)
+  $5 = bVLit(12, BV 123)
   % 8:12
   $6 = bVSub(12, $5, $3)
   % 8:12

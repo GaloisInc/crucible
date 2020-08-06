@@ -54,6 +54,7 @@ import Control.Monad.Writer.Class ()
 
 import Lang.Crucible.Types
 
+import qualified Data.BitVector.Sized as BV
 import Data.Foldable
 import Data.Functor
 import qualified Data.Functor.Product as Functor
@@ -340,12 +341,12 @@ evalOverloaded ast tpr k = withFocus ast .
     (Plus, NatRepr)     -> nary NatAdd    (NatLit 0)
     (Plus, IntegerRepr) -> nary IntAdd    (IntLit 0)
     (Plus, RealValRepr) -> nary RealAdd   (RationalLit 0)
-    (Plus, BVRepr w)    -> nary (BVAdd w) (BVLit w 0)
+    (Plus, BVRepr w)    -> nary (BVAdd w) (BVLit w (BV.zero w))
 
     (Times, NatRepr)     -> nary NatMul    (NatLit 1)
     (Times, IntegerRepr) -> nary IntMul    (IntLit 1)
     (Times, RealValRepr) -> nary RealMul   (RationalLit 1)
-    (Times, BVRepr w)    -> nary (BVMul w) (BVLit w 1)
+    (Times, BVRepr w)    -> nary (BVMul w) (BVLit w (BV.one w))
 
     (Minus, NatRepr)     -> bin NatSub
     (Minus, IntegerRepr) -> bin IntSub
@@ -955,7 +956,7 @@ synthBV widthHint =
     bvLit =
       describe "bitvector literal" $
       do (BoundedNat w, i) <- binary BV posNat int
-         return $ SomeBVExpr w $ EApp $ BVLit w i
+         return $ SomeBVExpr w $ EApp $ BVLit w (BV.mkBV w i)
 
     unaryBV :: Keyword
           -> (forall w. (1 <= w) => NatRepr w -> E s (BVType w) -> App () (E s) (BVType w))
@@ -985,7 +986,7 @@ synthBV widthHint =
          case args of
            [] -> case widthHint of
                    NoHint    -> later $ describe "ambiguous width" empty
-                   NatHint w -> return $ SomeBVExpr w $ EApp $ BVLit w u
+                   NatHint w -> return $ SomeBVExpr w $ EApp $ BVLit w (BV.mkBV w u)
            (SomeBVExpr wx x:xs) -> SomeBVExpr wx <$> go wx x xs
 
      where

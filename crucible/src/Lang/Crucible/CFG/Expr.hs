@@ -63,6 +63,7 @@ module Lang.Crucible.CFG.Expr
 
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
+import qualified Data.BitVector.Sized as BV
 import           Data.Kind (Type)
 import           Data.Vector (Vector)
 import           Numeric.Natural
@@ -581,7 +582,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- generate an "undefined" bitvector value
   BVUndef :: (1 <= w) => NatRepr w -> App ext f (BVType w)
 
-  BVLit :: (1 <= w) => NatRepr w -> Integer -> App ext f (BVType w)
+  BVLit :: (1 <= w) => NatRepr w -> BV.BV w -> App ext f (BVType w)
 
   -- concatenate two bitvectors
   BVConcat :: (1 <= u, 1 <= v, 1 <= u+v)

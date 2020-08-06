@@ -13,7 +13,6 @@ import Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
 
 import qualified Crux
 
-
 --
 -- LLVM specific errors
 --
@@ -56,6 +55,7 @@ data LLVMOptions = LLVMOptions
   , clangOpts  :: [String]
   , libDir     :: FilePath
   , incDirs    :: [FilePath]
+  , ubSanitizers :: [String]
   , memOpts    :: MemOptions
   , laxArithmetic :: Bool
   , entryPoint :: String
@@ -99,6 +99,9 @@ llvmCruxConfig =
 
          lazyCompile <- Crux.section "lazy-compile" Crux.yesOrNoSpec False
                            "Avoid compiling bitcode from source if intermediate files already exist"
+
+         ubSanitizers <- Crux.section "ub-sanitizers" (Crux.listSpec Crux.stringSpec) []
+                           "Undefined Behavior sanitizers to enable in Clang"
 
          return LLVMOptions { .. }
 

@@ -44,6 +44,7 @@ import qualified Data.Parameterized.Context as Ctx
 
 
 import           Data.HPB
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 
@@ -300,7 +301,7 @@ transExpr pe = do
             Nothing -> fail $ "Zero width bitvector."
             Just LeqProof -> do
               let i = decodeSigned (pe^.P.expr_data)
-              fmap Some $ addAppStmt $ BVLit w i
+              fmap Some $ addAppStmt $ BVLit w (BV.mkBV w i)
         Nothing -> fail "Width is too large"
     P.StringExpr -> do
       let s = pe^.P.expr_string_lit

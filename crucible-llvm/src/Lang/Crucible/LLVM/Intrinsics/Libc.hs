@@ -34,6 +34,7 @@ import           Control.Monad.State
 import qualified Data.Vector as V
 import           System.IO
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 
@@ -74,7 +75,7 @@ llvmMemcpyOverride
 llvmMemcpyOverride =
   [llvmOvr| i8* @memcpy( i8*, i8*, size_t ) |]
   (\memOps sym args ->
-       do volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
+       do volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
           Ctx.uncurryAssignment (callMemcpy sym memOps)
                                 (args :> volatile)
           return $ regValue $ args^._1 -- return first argument
@@ -93,7 +94,7 @@ llvmMemcpyChkOverride =
   [llvmOvr| i8* @__memcpy_chk ( i8*, i8*, size_t, size_t ) |]
   (\memOps sym args ->
       do let args' = Empty :> (args^._1) :> (args^._2) :> (args^._3)
-         volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
+         volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat)
          Ctx.uncurryAssignment (callMemcpy sym memOps)
                                (args' :> volatile)
          return $ regValue $ args^._1 -- return first argument
@@ -109,7 +110,7 @@ llvmMemmoveOverride
 llvmMemmoveOverride =
   [llvmOvr| i8* @memmove( i8*, i8*, size_t ) |]
   (\memOps sym args ->
-      do volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
+      do volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
          Ctx.uncurryAssignment (callMemmove sym memOps)
                                (args :> volatile)
          return $ regValue $ args^._1 -- return first argument
@@ -130,7 +131,7 @@ llvmMemsetOverride =
          val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args^._2)))
          let len = args^._3
          volatile <- liftIO
-            (RegEntry knownRepr <$> bvLit sym knownNat 0)
+            (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
          callMemset sym memOps dest val len volatile
          return (regValue dest)
     )
@@ -151,7 +152,7 @@ llvmMemsetChkOverride =
               (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
          let len = args^._3
          volatile <- liftIO
-            (RegEntry knownRepr <$> bvLit sym knownNat 0)
+            (RegEntry knownRepr <$> bvLit sym knownNat (BV.zero knownNat))
          callMemset sym memOps dest val len volatile
          return (regValue dest)
     )
@@ -311,10 +312,10 @@ callPosixMemalign
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
 callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
-  case asUnsignedBV align of
+  case asBV align of
     Nothing -> fail $ unwords ["posix_memalign: alignment value must be concrete:", show (printSymExpr align)]
     Just concrete_align ->
-      case toAlignment (toBytes concrete_align) of
+      case toAlignment (toBytes (BV.asUnsigned concrete_align)) of
         Nothing -> fail $ unwords ["posix_memalign: invalid alignment value:", show concrete_align]
         Just a ->
           let dl = llvmDataLayout ?lc in
@@ -322,7 +323,7 @@ callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue ->
              do loc <- plSourceLoc <$> getCurrentProgramLoc sym
                 (p, mem') <- doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz a
                 mem'' <- storeRaw sym mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
-                z <- bvLit sym knownNat 0
+                z <- bvLit sym knownNat (BV.zero knownNat)
                 return (z, mem'')
 
 callMalloc
@@ -438,7 +439,7 @@ callPutChar
 callPutChar _sym _mvar
  (regValue -> ch) = do
     h <- printHandle <$> getContext
-    let chval = maybe '?' (toEnum . fromInteger) (asUnsignedBV ch)
+    let chval = maybe '?' (toEnum . fromInteger) (BV.asUnsigned <$> asBV ch)
     liftIO $ hPutChar h chval
     return ch
 
@@ -455,7 +456,7 @@ callPuts sym mvar
     h <- printHandle <$> getContext
     liftIO $ hPutStrLn h (UTF8.toString str)
     -- return non-negative value on success
-    liftIO $ bvLit sym knownNat 1
+    liftIO $ bvLit sym knownNat (BV.one knownNat)
 
 callStrlen
   :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
@@ -502,7 +503,7 @@ callPrintf sym mvar
         writeGlobal mvar mem'
         h <- printHandle <$> getContext
         liftIO $ hPutStr h str
-        liftIO $ bvLit sym knownNat (toInteger n)
+        liftIO $ bvLit sym knownNat (BV.mkBV knownNat (toInteger n))
 
 printfOps :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
           => sym
@@ -515,12 +516,12 @@ printfOps sym valist =
 
   , printfGetInteger = \i sgn _len ->
      case valist V.!? (i-1) of
-       Just (AnyValue (LLVMPointerRepr _w) x) ->
+       Just (AnyValue (LLVMPointerRepr w) x) ->
          do bv <- liftIO (projectLLVM_bv sym x)
             if sgn then
-              return $ asSignedBV bv
+              return $ BV.asSigned w <$> asBV bv
             else
-              return $ asUnsignedBV bv
+              return $ BV.asUnsigned <$> asBV bv
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
@@ -587,25 +588,25 @@ printfOps sym valist =
               Len_Byte  -> do
                  let w8 = knownNat :: NatRepr 8
                  let tp = G.bitvectorType 1
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w8 (toInteger v))
+                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w8 (BV.mkBV w8 (toInteger v)))
                  mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp noAlignment x
                  put mem'
               Len_Short -> do
                  let w16 = knownNat :: NatRepr 16
                  let tp = G.bitvectorType 2
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w16 (toInteger v))
+                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w16 (BV.mkBV w16 (toInteger v)))
                  mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp noAlignment x
                  put mem'
               Len_NoMod -> do
                  let w32  = knownNat :: NatRepr 32
                  let tp = G.bitvectorType 4
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w32 (toInteger v))
+                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w32 (BV.mkBV w32 (toInteger v)))
                  mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp noAlignment x
                  put mem'
               Len_Long  -> do
                  let w64 = knownNat :: NatRepr 64
                  let tp = G.bitvectorType 8
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w64 (toInteger v))
+                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w64 (BV.mkBV w64 (toInteger v)))
                  mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp noAlignment x
                  put mem'
               _ ->
@@ -685,4 +686,4 @@ cxa_atexitOverride
         (BVType 32)
 cxa_atexitOverride =
   [llvmOvr| i32 @__cxa_atexit( void (i8*)*, i8*, i8* ) |]
-  (\_ sym _args -> liftIO $ bvLit sym knownNat 0)
+  (\_ sym _args -> liftIO $ bvLit sym knownNat (BV.zero knownNat))

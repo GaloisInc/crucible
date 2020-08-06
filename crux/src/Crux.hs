@@ -1,9 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NoMonoLocalBinds #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
+
+{-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
 module Crux
   ( runSimulator
   , postprocessSimResult
@@ -11,8 +14,10 @@ module Crux
   , withOutputConfig
   , SimulatorCallback(..)
   , RunnableState(..)
+  , pattern RunnableState
   , CruxOptions(..)
   , SomeOnlineSolver(..)
+  , HasModel(..)
   , module Crux.Config
   , module Crux.Log
   ) where
@@ -30,7 +35,7 @@ import Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Control.Monad(when)
-import System.Exit(exitSuccess, ExitCode(..), exitFailure)
+import System.Exit(exitSuccess, ExitCode(..), exitFailure, exitWith)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
 
@@ -73,12 +78,16 @@ import Crux.Config.Common
 import Crux.Config.Doc
 import qualified Crux.Version as Crux
 
+pattern RunnableState :: forall sym . () => forall ext personality . (IsSyntaxExtension ext, HasModel personality) => ExecState (personality sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
+pattern RunnableState es = RunnableStateWithExtensions es []
 
 -- | A crucible @ExecState@ that is ready to be passed into the simulator.
 --   This will usually, but not necessarily, be an @InitialState@.
-data RunnableState sym =
-  forall ext. IsSyntaxExtension ext =>
-    RunnableState (ExecState (Model sym) sym ext (RegEntry sym UnitType))
+data RunnableState sym where
+  RunnableStateWithExtensions :: (IsSyntaxExtension ext, HasModel personality)
+                              => ExecState (personality sym) sym ext (RegEntry sym UnitType)
+                              -> [ExecutionFeature (personality sym) sym ext (RegEntry sym UnitType)]
+                              -> RunnableState sym
 
 -- | Individual crux tools will generally call the @runSimulator@ combinator
 --   to handle the nitty-gritty of setting up and running the simulator.
@@ -90,8 +99,8 @@ data RunnableState sym =
 newtype SimulatorCallback
   = SimulatorCallback
     { initSimulatorState ::
-        forall sym. (IsSymInterface sym, Logs) =>
-          sym -> Maybe (SomeOnlineSolver sym) -> IO (RunnableState sym)
+        forall s st fs . (IsSymInterface (WEB.ExprBuilder s st fs), Logs) =>
+          WEB.ExprBuilder s st fs -> Maybe (SomeOnlineSolver (WEB.ExprBuilder s st fs)) -> IO (RunnableState (WEB.ExprBuilder s st fs))
     }
 
 -- | Given the reuslt of a simulation and proof run, report the overall
@@ -139,8 +148,9 @@ loadOptions outCfg nm ver config cont =
 
  `Ex.catch` \(e :: Ex.SomeException) ->
    do let ?outputConfig = outCfg
-      sayFail "Crux" (Ex.displayException e)
-      exitFailure
+      case (Ex.fromException e :: Maybe ExitCode) of
+        Just exitCode -> exitWith exitCode
+        Nothing -> sayFail "Crux" (Ex.displayException e) >> exitFailure
 
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = outputLn (show (configDocs nm cfg))
@@ -203,7 +213,7 @@ withSelectedOnlineBackend ::
   -- The string is an optional explicitly-requested float mode that supersedes the choice in
   -- the configuration (probably due to using two different online connections)
   (forall solver fm .
-    ( OnlineSolver scope solver
+    ( OnlineSolver solver
     , IsInterpretedFloatExprBuilder (OnlineBackend scope solver (Flags fm))
     ) =>
     FloatModeRepr fm -> OnlineBackend scope solver (Flags fm) -> IO a) -> IO a
@@ -220,23 +230,26 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
         CCS.Z3 -> withOnlineBackendFM FloatIEEERepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
   where
-    unsatCores | yicesMCSat cruxOpts = NoUnsatFeatures
-               | otherwise           = ProduceUnsatCores
+    unsatCoreFeat | unsatCores cruxOpts
+                  , not (yicesMCSat cruxOpts) = ProduceUnsatCores
+                  | otherwise                 = NoUnsatFeatures
+
+    extraFeatures = onlineProblemFeatures cruxOpts
 
     withOnlineBackendFM floatRepr =
       case selectedSolver of
-        CCS.Yices -> withYicesOnlineBackend floatRepr nonceGen unsatCores $ \sym -> do
+        CCS.Yices -> withYicesOnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
           case goalTimeout cruxOpts of
             Just s -> symCfg sym yicesGoalTimeout (floor s)
             Nothing -> return ()
           k floatRepr sym
-        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen ProduceUnsatCores $ \sym -> do
+        CCS.CVC4 -> withCVC4OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym cvc4Timeout (floor (s * 1000))
             Nothing -> return ()
           k floatRepr sym
-        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen ProduceUnsatCores $ \sym -> do
+        CCS.Z3 -> withZ3OnlineBackend floatRepr nonceGen unsatCoreFeat extraFeatures $ \sym -> do
           case goalTimeout cruxOpts of
             Just s -> symCfg sym z3Timeout (floor (s * 1000))
             Nothing -> return ()
@@ -329,7 +342,7 @@ setupSolver cruxOpts mInteractionFile sym = do
 -- | A GADT to capture the online solver constraints when we need them
 data SomeOnlineSolver sym where
   SomeOnlineSolver :: (sym ~ OnlineBackend scope solver fs
-                      , OnlineSolver scope solver
+                      , OnlineSolver solver
                       ) => SomeOnlineSolver sym
 
 -- | Common code for initializing all of the requested execution features
@@ -463,11 +476,12 @@ runSimulator cruxOpts simCallback = do
 
 
 type ProverCallback sym =
-  forall ext .
+  forall ext personality .
+    (HasModel personality) =>
     CruxOptions ->
-    SimCtxt sym ext ->
+    SimCtxt personality sym ext ->
     Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
-    IO (Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
+    IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
 
 -- | Core invocation of the symbolic execution engine
 --
@@ -479,11 +493,11 @@ type ProverCallback sym =
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  (Logs, IsSymInterface sym) =>
+  (Logs, IsSymInterface sym, sym ~ WEB.ExprBuilder s st fs) =>
   CruxOptions ->
   SimulatorCallback ->
   IORef ProgramCompleteness ->
-  IORef (Seq.Seq (ProvedGoals (Either AssumptionReason SimError))) ->
+  IORef (Seq.Seq (ProcessedGoals, ProvedGoals (Either AssumptionReason SimError))) ->
   sym ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
@@ -497,15 +511,15 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
-    RunnableState initSt <- initSimulatorState simCallback sym monline
 
+    RunnableStateWithExtensions initSt exts <- initSimulatorState simCallback sym monline
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
-        do res <- executeCrucible (map genericToExecutionFeature execFeatures) initSt
+        do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
            void $ resultCont frm (Result res)
       SplitAndExploreDepthFirst ->
-        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures) initSt (resultCont frm . Result)
+        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
            say "Crux" ("Total paths explored: " ++ show i)
            unless (null ws) $
              sayWarn "Crux"
@@ -533,13 +547,13 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
         todo <- getProofObligations sym
         when (isJust todo) $
           say "Crux" "Attempting to prove verification conditions."
-        proved <- goalProver cruxOpts ctx todo
+        (nms, proved) <- goalProver cruxOpts ctx todo
         mgt <- provedGoalsTree ctx proved
         case mgt of
           Nothing -> return (not timedOut)
           Just gt ->
-            do modifyIORef glsRef (Seq.|> gt)
-               return (not (timedOut || (failfast && countDisprovedGoals gt > 0)))
+            do modifyIORef glsRef (Seq.|> (nms,gt))
+               return (not (timedOut || (failfast && disprovedGoals nms > 0)))
 
 isProfiling :: CruxOptions -> Bool
 isProfiling cruxOpts = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts
@@ -550,9 +564,9 @@ computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . t
  base = case cmpl of
           ProgramComplete   -> ExitSuccess
           ProgramIncomplete -> ExitFailure 1
- f gl =
-  let tot = countTotalGoals gl
-      proved = countProvedGoals gl
+ f (nms,_gl) =
+  let tot = totalProcessedGoals nms
+      proved = provedGoals nms
   in if proved == tot then
        ExitSuccess
      else
@@ -563,11 +577,11 @@ reportStatus ::
   CruxSimulationResult ->
   IO ()
 reportStatus (CruxSimulationResult cmpl gls) =
-  do let tot        = sum (fmap countTotalGoals gls)
-         proved     = sum (fmap countProvedGoals gls)
-         incomplete = sum (fmap countIncompleteGoals gls)
-         disproved  = sum (fmap countDisprovedGoals gls)
-         unknown    = sum (fmap countUnknownGoals gls) - incomplete
+  do let tot        = sum (totalProcessedGoals . fst <$> gls)
+         proved     = sum (provedGoals . fst <$> gls)
+         disproved  = sum (disprovedGoals . fst <$> gls)
+         incomplete = sum (incompleteGoals . fst <$> gls)
+         unknown    = tot - (proved + disproved + incomplete)
      if tot == 0 then
        do say "Crux" "All goals discharged through internal simplification."
      else

@@ -10,6 +10,7 @@
 {-# Language MultiWayIf #-}
 module Lang.Crucible.LLVM.Arch.X86 where
 
+import qualified Data.BitVector.Sized as BV
 import Data.Word(Word8)
 import Data.Bits
 import Data.Kind
@@ -66,7 +67,7 @@ eval sym ev ext =
 vShiftL :: (I.IsSymExprBuilder sym, 1 <= w) =>
            sym -> NatRepr w -> Word8 -> SymBV sym w -> IO (SymBV sym w)
 vShiftL sym w amt v =
-  do i <- I.bvLit sym w (8 * fromIntegral amt)
+  do i <- I.bvLit sym w (BV.mkBV w (8 * fromIntegral amt))
      I.bvShl sym v i
 
 

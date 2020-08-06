@@ -40,6 +40,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LazyBS
 import qualified Data.Vector as V
 
+import qualified Data.BitVector.Sized as BV
 import           Data.HPB
 import           Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
@@ -166,7 +167,7 @@ fromProtoValue sim v = do
       case someNat (toInteger width) of
         Just (Some n) | Just LeqProof <- isPosNat n -> do
           let i = decodeSigned (v^.P.value_data)
-          Some . RegEntry (BVRepr n) <$> bvLit sym n i
+          Some . RegEntry (BVRepr n) <$> bvLit sym n (BV.mkBV n i)
         _ -> error "Width is too large"
     P.StringValue -> do
       let s = v^.P.value_string_lit
@@ -196,7 +197,7 @@ toProtoValue sim e@(RegEntry tp v) =
     RealValRepr | Just r <- asRational v -> do
       return $ mempty & P.value_code .~ P.RationalValue
                       & P.value_data .~ toByteString (encodeRational r)
-    BVRepr w | Just r <- asSignedBV v
+    BVRepr w | Just r <- BV.asSigned w <$> asBV v
              , wv <- natValue w
              , wv <= fromIntegral (maxBound :: Word64) -> do
       return $ mempty & P.value_code  .~ P.BitvectorValue

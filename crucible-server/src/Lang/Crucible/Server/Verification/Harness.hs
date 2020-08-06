@@ -45,6 +45,7 @@ import           Control.Monad.State.Strict
 import           Control.Monad.Reader
 import           Control.Monad.Writer.Strict
 --import           Control.Monad
+import qualified Data.ByteString as BS
 import           Data.Foldable
 import qualified Data.Map as Map
 import           Data.Set (Set)
@@ -559,7 +560,7 @@ tcVar ident =
          cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
+         (res, ws) <- io $ MM.runModuleM (defaultEvalOpts, BS.readFile, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
          unless (null ws) $ io $
            mapM_ (hout . show . PP.pp) ws
@@ -620,7 +621,7 @@ resolveSetupVar var =
          cryEnv <- get
          let nameEnv = eExtraNames cryEnv
          let modEnv  = eModuleEnv cryEnv
-         (res, ws) <- io $ MM.runModuleM (defaultEvalOpts, modEnv)
+         (res, ws) <- io $ MM.runModuleM (defaultEvalOpts, BS.readFile, modEnv)
                         (MM.interactive (MB.rename C.interactiveName nameEnv (MR.renameVar (CP.mkUnqual ident))))
          unless (null ws) $ io $
            mapM_ (hout . show . PP.pp) ws
