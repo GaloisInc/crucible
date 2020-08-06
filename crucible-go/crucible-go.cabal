@@ -39,7 +39,8 @@ executable crucible-go
     what4 >= 0.4,
     crucible-go,
     ansi-terminal,
-    crux
+    crux,
+    bytestring
 
   ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top
@@ -48,7 +49,8 @@ executable crucible-go
 
 
 library
-  exposed-modules:     Lang.Crucible.Go.Simulate
+  exposed-modules:     Lang.Crucible.Go.Overrides
+                       Lang.Crucible.Go.Simulate
                        Lang.Crucible.Go.Translation
                        Lang.Crucible.Go.Types
   -- other-modules:       
@@ -67,6 +69,7 @@ library
                      , transformers >= 0.3
                      , ansi-wl-pprint
                      , crux
+                     , vector
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -84,5 +87,4 @@ test-suite crucible-go-tests
                  filemanip >= 0.3.6 && < 0.4,
                  parameterized-utils,
                  crucible,
-                 golang,
                  crucible-go

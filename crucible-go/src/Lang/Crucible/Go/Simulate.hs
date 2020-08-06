@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -14,55 +15,46 @@ module Lang.Crucible.Go.Simulate (setupCrucibleGoCrux) where
 
 import           Control.Monad
 import           Control.Monad.Fail (MonadFail)
-import           Control.Monad.Identity
-import           Control.Monad.State
 
-import           Data.Bifunctor (first)
-import           Data.Default.Class
-import           Data.Functor.Const
-import qualified Data.HashMap.Strict as HM
-import           Data.Text (Text, pack, unpack)
+import           Data.Text (Text, unpack)
+
+import           Debug.Trace (trace)
 
 import           System.IO
 
 -- parameterized-utils
-import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Classes
-import           Data.Parameterized.Nonce
--- import           Data.Parameterized.NatRepr as N
+import           Data.Parameterized.Context as Ctx
 
 -- crucible
 import qualified Lang.Crucible.Analysis.Postdom as C
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
-import           Lang.Crucible.CFG.Expr as E
+import           Lang.Crucible.CFG.Expr as C
 import qualified Lang.Crucible.CFG.Reg as Reg
-import           Lang.Crucible.CFG.SSAConversion (toSSA)
+import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Types
 
 import           Lang.Crucible.FunctionHandle as C
 import qualified Lang.Crucible.Simulator as C
-
-import qualified Lang.Crucible.CFG.Generator as Gen
 
 -- crux
 import qualified Crux.Types   as Crux
 
 -- what4
 import qualified What4.Config as W4
-import qualified What4.Expr.Builder as W4
-import           What4.FunctionName (FunctionName, functionNameFromText, startFunctionName)
+import           What4.FunctionName (FunctionName)
 import qualified What4.Interface as W4
-import           What4.ProgramLoc as W4
-import           What4.Utils.StringLiteral
 
 -- go
 import            Language.Go.AST
-import            Language.Go.Parser
+import            Language.Go.Desugar
+import            Language.Go.Parser as P
+import            Language.Go.Rename
+import            Language.Go.Types
+
+import            Lang.Crucible.Go.Overrides
 import            Lang.Crucible.Go.Translation
 import            Lang.Crucible.Go.Types
 
@@ -72,7 +64,7 @@ setSimulatorVerbosity verbosity sym = do
   verbSetting <- W4.getOptionSetting W4.verbosity (W4.getConfiguration sym)
   _ <- W4.setOpt verbSetting (toInteger verbosity)
   return ()
-
+  
 -- | No syntax extensions.
 goExtensionImpl :: C.ExtensionImpl p sym Go
 goExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
@@ -84,157 +76,108 @@ failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
   | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
 
-mkFresh :: IsSymInterface sym =>
-           String ->
-           BaseTypeRepr ty ->
-           -- C.OverrideSim p sym ext gret EmptyCtx (BaseToType ty) (RegValue sym (BaseToType ty))
-           -- OverM sym (LLVM arch) (RegValue sym (BaseToType ty))
-           Crux.OverM sym ext (RegValue sym (BaseToType ty))
-mkFresh nm ty =
-  do sym  <- C.getSymInterface
-     name <- case W4.userSymbol nm of
-               Left err -> fail (show err) -- XXX
-               Right a  -> return a
-     liftIO $ W4.freshConstant sym name ty
+mkFunctionBindings :: forall sym p ext.
+                      [SomeOverride p sym ext]
+                   -> [(Maybe (Text, FunctionName), AnyCFG ext)]
+                   -> FunctionBindings p sym ext
+mkFunctionBindings _overrides [] = emptyHandleMap
+mkFunctionBindings overrides ((ident, AnyCFG cfg) : cfgs) =
+  let f = case lookupOverride' ident overrides of
+        Just (SomeOverride _pkg argsRepr retRepr override) ->
+          case (testEquality (cfgArgTypes cfg) argsRepr,
+                testEquality (cfgReturnType cfg) retRepr) of
+            (Just Refl, Just Refl) -> UseOverride override
+            _ -> error $ "mkFunctionBindings: override " ++ show ident ++
+                 " type mismatch. expected " ++ show (cfgArgTypes cfg) ++
+                 " -> " ++ show (cfgReturnType cfg) ++ ", got " ++
+                 show argsRepr ++ " -> " ++ show retRepr
+        Nothing -> UseCFG cfg $ C.postdomInfo cfg in
+    insertHandleMap (cfgHandle cfg) f $ mkFunctionBindings overrides cfgs
 
-fresh_int :: (IsSymInterface sym, 1 <= w) =>
-             NatRepr w ->
-             -- C.OverrideSim p sym ext gret EmptyCtx (BVType w) (RegValue sym (BVType w))
-             Crux.OverM sym ext (RegValue sym (BVType w))
-fresh_int w = mkFresh "X" (BaseBVRepr w)
+asApp :: MonadFail m => Reg.Expr ext s tp -> (App ext (Reg.Expr ext s) tp -> m a) -> m a
+asApp (Reg.App e) k = k e
+asApp (Reg.AtomExpr a) _k = fail $ "asApp: expected App constructor, got atom " ++ show a
 
-do_assume :: IsSymInterface sym =>
-             C.OverrideSim p sym ext gret (SingleCtx BoolType) (StructType EmptyCtx)
-             (RegValue sym (StructType EmptyCtx))
-do_assume = do
-  sym <- C.getSymInterface
-  RegMap (Ctx.Empty Ctx.:> b) <- C.getOverrideArgs
-  loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addAssumption sym (LabeledPred (regValue b) (AssumptionReason loc "assume"))
-  return Ctx.empty
+evalExpr :: IsSymInterface sym
+         => sym
+         -> Reg.Expr Go s tp
+         -> IO (C.RegValue sym tp)
+evalExpr sym e = asApp e $ doAppGo sym
 
-do_assert :: IsSymInterface sym =>
-             C.OverrideSim p sym ext gret (SingleCtx BoolType) (StructType EmptyCtx)
-             (RegValue sym (StructType EmptyCtx))
-do_assert = do
-  sym <- C.getSymInterface
-  RegMap (Ctx.Empty Ctx.:> b) <- C.getOverrideArgs
-  loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addDurableAssertion sym (LabeledPred (regValue b)
-                                    (C.SimError loc $ C.AssertFailureSimError
-                                     "assertion_failure" ""))
-  return Ctx.empty
-
-data SomeOverride p sym ext where
-  SomeOverride :: CtxRepr args ->
-                  TypeRepr ret ->
-                  Override p sym ext args ret ->
-                  SomeOverride p sym ext
-
-nameOfOverride :: Override p sym ext args ret -> Text
-nameOfOverride (Override { overrideName = nm }) =
-  pack $ show nm
-
-mkSomeOverride :: String -> CtxRepr args -> TypeRepr ret ->
-                  (forall r. C.OverrideSim p sym ext r args ret (RegValue sym ret)) ->
-                  SomeOverride p sym ext
-mkSomeOverride nm argsRepr retRepr overrideSim =
-  SomeOverride argsRepr retRepr $
-  Override { overrideName = functionNameFromText $ pack nm
-           , overrideHandler = C.runOverrideSim retRepr overrideSim }
-
--- go_overrides :: (IsSymInterface sym, 1 <= w) => NatRepr w -> [(SomeOverride p sym ext)]
-go_overrides :: (IsSymInterface sym, 1 <= w) => NatRepr w -> [(SomeOverride (Crux.Model sym) sym ext)]
-go_overrides w =
-  [ mkSomeOverride "fresh_int" Ctx.empty                (BVRepr w)             (fresh_int w)
-  , mkSomeOverride "assume"    (Ctx.singleton BoolRepr) (StructRepr Ctx.empty) do_assume
-  , mkSomeOverride "assert"    (Ctx.singleton BoolRepr) (StructRepr Ctx.empty) do_assert ]
-
--- | Given a list of overrides, a function environment, and
--- FunctionBindings, allocate new function handles for the overrides
--- and produce updated environment and FunctionBindings which include
--- the overrides.
-addOverrides :: HandleAllocator ->
-                [SomeOverride p sym ext] ->
-                FnEnv ->
-                IO (FnEnv, FunctionBindings p sym ext)
-addOverrides _ [] env = return (env, emptyHandleMap)
-addOverrides ha (SomeOverride argsRepr retRepr override : overrides) env = do
-  (env', binds) <- addOverrides ha overrides env
-  h <- mkHandle' ha (functionNameFromText nm) argsRepr retRepr
-  return $ (insertFnEnv nm (SomeHandle h) env', insertHandleMap h (UseOverride override) binds)
+-- | Evaluate an App expression in the @IO@ monad.
+doAppGo :: IsSymInterface sym
+        => sym
+        -> App Go (Reg.Expr Go s) tp
+        -> IO (C.RegValue sym tp)
+doAppGo sym =
+  evalApp sym goIntrinsicTypes out
+  (C.extensionEval goExtensionImpl sym goIntrinsicTypes out) $
+  flip asApp $ doAppGo sym
   where
-    nm = nameOfOverride override
+    out = const putStrLn
 
--- | Existentially packaged positive natural number.
-data PosNat = forall w. PosNat (NatRepr w) (LeqProof 1 w)
-
-intToPosNat :: Int -> Maybe PosNat
-intToPosNat i = do
-  Some w <- someNat (fromIntegral i)
-  LeqProof <- isPosNat w
-  return $ PosNat w LeqProof
-
--- | Given a function environment (containing pre-allocated handles for
--- every function in the file) and a list of the toplevel definitions
--- of the file, translate all of the functions and produce a
--- FunctionBindings mapping handles to translated CFGs.
-translateFuns :: (IsSymInterface sym, IsSyntaxExtension ext, ?machineWordWidth :: Int) =>
-                 FnEnv ->
-                 FunctionBindings p sym ext ->
-                 [TopLevel SourceRange] ->
-                 IO (FunctionBindings p sym ext)
-translateFuns _ binds [] = return binds
-translateFuns env binds (FunctionDecl _ fName@(Id _ _ fnm) params returns (Just body) : toplevels) = do
-  binds' <- translateFuns env binds toplevels
-  flip (maybe $ error $ "translateFuns: handle for function " ++ unpack fnm ++ " not found")
-    (lookupFnEnv fnm env) $ \(SomeHandle h) -> do
-    SomeCFG cfg <- translateFunction h env fName params returns body
-    putStrLn $ "Translating function " ++ show (() <$ fName)
-    putStrLn $ show cfg
-    return $ insertHandleMap h (UseCFG cfg $ C.postdomInfo cfg) binds'
-translateFuns env binds (_ : toplevels) = translateFuns env binds toplevels
+mkGlobals :: IsSymInterface sym
+          => sym
+          -> [GoGlobal]
+          -> IO (SymGlobalState sym)
+mkGlobals sym globals =
+  foldM (\state (GoGlobal glob zero) -> do
+            zv <- evalExpr sym zero
+            return $ insertGlobal glob zv state)
+  emptyGlobals globals
 
 setupCrucibleGoCrux :: forall sym args.
   (IsSymInterface sym, KnownRepr CtxRepr args, ?machineWordWidth :: Int)
-  => File SourceRange
+  => Node P.SourcePos Main
   -> Int               -- ^ Verbosity level
   -> sym               -- ^ Simulator state
-  -- -> p                 -- ^ Personality
   -> Crux.Model sym    -- ^ Personality
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecState (Crux.Model sym) sym Go (C.RegEntry sym UnitType))
-setupCrucibleGoCrux (File _ fileName pkgName _imports toplevels) verbosity sym p args = do
-  
+setupCrucibleGoCrux fwi verbosity sym p args = do  
   when (verbosity > 2) $
     putStrLn "starting setupCrucibleGoCrux"
   setSimulatorVerbosity verbosity sym
-  halloc <- newHandleAllocator
-  
+
+  -- putStrLn "ORIGINAL:"
+  -- putStrLn $ show $ fwi
+  -- putStrLn "DESUGARED:"
+  -- putStrLn $ show $ desugar fwi
+  -- putStrLn "RENAMED:"
+  -- putStrLn $ show $ rename $ desugar fwi
+
   case intToPosNat ?machineWordWidth of
     Nothing -> error "machineWordWidth should be >= 1"
     Just (PosNat w LeqProof) -> do
-      env <- mkInitialFnEnv halloc toplevels
-      let mainHandle = lookupFnEnv (pack "main") env
+      translated <- translate (PosNat w LeqProof) $ rename $ desugar fwi
+      case translated of
+        Left msg -> fail msg
+        Right (TranslatedMain
+                _main _imports (SomeCFG ini) (Just (AnyCFG cfg)) globs funs halloc) -> do
+          putStrLn "done translating."
+          -- putStrLn $ show fwi
 
-      flip (maybe (error "expected a 'main' function")) mainHandle $ \(SomeHandle h) -> do
-        Refl <- failIfNotEqual (handleArgTypes h) (knownRepr :: CtxRepr args) $
-                "Checking argument types for main"
-        Refl <- failIfNotEqual (handleReturnType h) (StructRepr Ctx.empty) $
-                "Checking return type for main"
+          putStrLn "INITIALIZER:"
+          putStrLn $ show ini
 
-        (env', bindings) <- addOverrides halloc (go_overrides w) env
-        bindings' <- translateFuns env' bindings toplevels
+          putStrLn "MAIN:"
+          putStrLn $ show cfg
 
-        -- Ignore the function's return value (which we know can only
-        -- be the single inhabitant of 'StructType EmptyCtx') and
-        -- return unit instead to appease crux.
-        let k = C.runOverrideSim UnitRepr $ C.callFnVal (C.HandleFnVal h) args >> return ()
+          Refl <- failIfNotEqual (cfgArgTypes cfg) (knownRepr :: CtxRepr args) $
+                  "Checking argument types for main"
+          Refl <- failIfNotEqual (cfgReturnType cfg) (StructRepr Ctx.empty) $
+                  "Checking return type for main"
+          let fnBindings = mkFunctionBindings (go_overrides w) funs
 
-        -- Set up initial simulator state to call the translated
-        -- function.
-        let intrinsics = emptyIntrinsicTypes
-        let simctx = initSimContext sym intrinsics halloc stdout bindings' goExtensionImpl p
-        let simGlobals = emptyGlobals
-        let abortHandler = C.defaultAbortHandler
-        return $ C.InitialState simctx simGlobals abortHandler knownRepr k
+          -- Call initializer before main.
+          let k = C.runOverrideSim UnitRepr $ do
+                C.callFnVal (C.HandleFnVal $ cfgHandle ini) C.emptyRegMap
+                C.callFnVal (C.HandleFnVal $ cfgHandle cfg) args
+                return ()
+
+          -- Set up initial simulator state to call the main.
+          let simctx = initSimContext sym goIntrinsicTypes halloc stdout
+                       fnBindings goExtensionImpl p          
+          simGlobals <- mkGlobals sym globs
+          let abortHandler = C.defaultAbortHandler
+          return $ C.InitialState simctx simGlobals abortHandler knownRepr k

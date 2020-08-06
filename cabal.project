@@ -19,7 +19,6 @@ packages:
 optional-packages:
   dependencies/abcBridge/
   dependencies/aig/
-  dependencies/anastasia/
   dependencies/blt/
   dependencies/golang/
   dependencies/jvm-parser/

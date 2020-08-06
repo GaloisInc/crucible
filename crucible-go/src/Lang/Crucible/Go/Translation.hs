@@ -1,1042 +1,1274 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeOperators #-}
+module Lang.Crucible.Go.Translation (translate) where
 
-module Lang.Crucible.Go.Translation (mkInitialFnEnv, translateFunction) where
-
-import           Control.Monad.ST (ST)
-import           Control.Monad (forM_, zipWithM, void)
+import           Control.Monad.Except
 import           Control.Monad.Fail (MonadFail)
-import qualified Control.Monad.State as St
+import           Control.Monad.Identity
+import           Control.Monad.State
 
-import qualified Data.Foldable as F
-import           Data.Maybe (maybeToList)
-import           Data.Text as T (Text, empty, pack)
-import           Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import           Data.Default.Class
-import qualified Data.List.NonEmpty as NE
+import           Data.Functor.Product
+import           Data.HashMap.Strict as HM hiding (foldl)
+import           Data.Maybe (fromJust, fromMaybe, maybeToList)
+import           Data.Text as T hiding (foldl, length, zip)
+import qualified Data.Vector as V
+
+import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Nonce
+import           Data.Parameterized.Some (Some(..))
+import           Data.Parameterized.TraversableFC
 
 import           Debug.Trace (trace)
-
-import           Data.Parameterized.Nonce
-import           Data.Parameterized.Some
-import qualified Data.Parameterized.Context as Ctx
-
-import           Language.Go.AST
-import           Language.Go.Types
 
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
 import qualified Lang.Crucible.CFG.Generator as Gen
-import           Lang.Crucible.Go.Types
-import           Lang.Crucible.Types
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Types
+import           Lang.Crucible.Syntax
 
 import           What4.FunctionName (functionNameFromText)
 import           What4.ProgramLoc
-import qualified What4.Utils.StringLiteral as C
+import           What4.Utils.StringLiteral
 
+import           Language.Go.AST
+import           Language.Go.Rec
+import           Language.Go.Types
 
--- Given a list of top-level definitions, build a function environment
--- mapping function names to newly allocated function handles along
--- with the corresponding TopLevel data).
-mkInitialFnEnv :: (?machineWordWidth :: Int) =>
-           HandleAllocator ->
-           [TopLevel SourceRange] ->
-           IO FnEnv
-mkInitialFnEnv _ [] = return emptyFnEnv
-mkInitialFnEnv halloc (FunctionDecl _ fName@(Id _ _ fnm) params returns (Just body) : toplevels) = do
-  env <- mkInitialFnEnv halloc toplevels
-  paramTypes params $ \paramsRepr ->
-    returnTypes returns $ \retRepr -> do
-    h <- mkHandle' halloc (functionNameFromText fnm) paramsRepr (StructRepr retRepr)
-    return $ insertFnEnv fnm (SomeHandle h) env
+import           Lang.Crucible.Go.Types
 
--- Build crucible type context from parameter list.
-paramTypes :: (?machineWordWidth :: Int) =>
-              ParameterList SourceRange ->
-              (forall ctx. CtxRepr ctx -> a) -> a
-paramTypes l k = case l of
-   NamedParameterList _ ps Nothing -> go ps k
-   AnonymousParameterList _ ps Nothing -> go ps k
-   _ -> error "paramTypes: unexpected variadic parameter"
-  where
-    go :: (Typed p, ?machineWordWidth :: Int) => [p] -> (forall ctx. CtxRepr ctx -> a) -> a
-    go [] k = k Ctx.empty
-    go (p : ps) k =
-      go ps $ \ctx ->
-      translateType (fromRight $ getType p) $ \trepr -> k $ ctx Ctx.:> trepr
+-- TODO: float constants may appear as int literals, and they are
+-- presented as rationals when they are actually float
+-- literals. Allowing coercion from bitvector to float solved the
+-- first part, and I guess we can just parse the floats as rationals
+-- and then convert to float... who knows if that will be actually
+-- correct.
 
--- Build crucible type context from return list.
-returnTypes :: (?machineWordWidth :: Int) =>
-               ReturnList SourceRange ->
-               (forall ctx. CtxRepr ctx -> a) -> a
-returnTypes l k = case l of
-   NamedReturnList _ rs -> go rs k
-   AnonymousReturnList _ rs -> go rs k
-  where
-    go :: (Typed r, ?machineWordWidth :: Int) => [r] -> (forall ctx. CtxRepr ctx -> a) -> a
-    go [] k = k Ctx.empty
-    go (r : rs) k =
-      go rs $ \ctx ->
-      translateType (fromRight $ getType r) $ \trepr -> k $ ctx Ctx.:> trepr
+-- | Entry point.
+translate :: Show a
+          => PosNat -- ^ machine word width
+          -> Node a tp -- ^ AST to translate
+          -> IO (Either String (Translated tp))
+translate w = evalTranslateM (def { machineWordWidth = w }) . translateM
 
--- | (Currently) the entry point of the module: translates one go
--- function to a Crucible control-flow graph. The parameters after
--- the first two are the same as for the `FunctionDecl` AST
--- constructor.
-translateFunction :: forall ext args ret.
-  (C.IsSyntaxExtension ext, ?machineWordWidth :: Int)
-  => FnHandle args ret
-  -> FnEnv -- ^ File-global function environment
-  -> Id SourceRange -- ^ Function name
-  -> ParameterList SourceRange -- ^ Function parameters
-  -> ReturnList SourceRange
-  -> [Statement SourceRange]
-  -> IO (C.SomeCFG ext args ret)
-translateFunction h handleMap (Id _ _bind fname) params returns body =
-  bindReturns @ext returns $ \(retctx :: CtxRepr tretctx) setupReturns ->
-  bindParams @ext params $ \(ctx :: CtxRepr tctx) setupParams -> do
-  Refl <- failIfNotEqual (StructRepr retctx) (handleReturnType h) $
-          "translateFunction: checking return type"
-  Refl <- failIfNotEqual ctx (handleArgTypes h) $
-          "translateFunction: checking argument types"
-  sng <- newIONonceGenerator
-  (Gen.SomeCFG g, []) <- Gen.defineFunction InternalPos sng h
-    (\assignment -> (def,
-                      do retslots <- setupReturns
-                         St.modify' (\ts -> ts { returnSlots = retslots
-                                               , delta = handleMap })
-                         setupParams assignment
-                         graphGenerator body retctx))
-  case toSSA g of
-    C.SomeCFG gs -> return $ C.SomeCFG gs
+translateM :: Show a => Node a tp -> TranslateM tp
+translateM = para translate_alg
 
+evalTranslateM :: TransState -> TranslateM a -> IO (Either String (Translated a))
+evalTranslateM st (TranslateM m) = runExceptT $ evalStateT m st
 
--- | State of translation: the user state part of the Generator monad used here.
-data TransState ctx s = TransState
-  { lexenv :: !(HashMap Text (GoVarReg s)) -- ^ A mapping from variable names to registers
-  , delta :: !FnEnv -- ^ Function environment
-  , explicitLabels :: !(HashMap Text (Gen.Label s))
-    -- ^ A mapping of explicitly-introduced Go label names to their
-    -- corresponding Crucible block labels
-  , enclosingBreaks :: !(LabelStack s)
-    -- ^ The stack of enclosing break labels
-  , enclosingContinues :: !(LabelStack s)
-    -- ^ The stack of enclosing continue labels
-  , returnSlots :: !(Maybe (VariableAssignment s ctx))
-     -- ^ The list of registers that represent the components of the
-     -- return value. Crucible functions can only have one return value,
-     -- while Go functions can have multiple. To deal with that we
-     -- multiplex return values in a struct that would store references
-     -- to return values. The struct is going to be created from the
-     -- variable assignment in this component of the user state.
-  , machineWordWidth :: !Int -- ^ size of the machine word
-  }
+translate_alg :: Show a
+              => NodeF a (Product (Node a) TranslateM) tp
+              -> TranslateM tp
 
-instance Default (TransState ctx s) where
-  def = TransState { lexenv = HM.empty
-                   , delta = emptyFnEnv
-                   , explicitLabels = HM.empty
-                   , enclosingBreaks = LabelStack []
-                   , enclosingContinues = LabelStack []
-                   , returnSlots = Nothing
-                   , machineWordWidth = 32
-                   }
+translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
+  -- trace ("number of imports: " ++ show (length imports)) $
+  TranslateM $ do
+  sng <- liftIO' newIONonceGenerator
+  halloc <- liftIO' newHandleAllocator
+  modify $ \ts -> ts { sng = Just sng, halloc = Just halloc }
 
--- The Go generator monad.
-type GoGenerator ext s rctx a = Gen.Generator ext s (TransState rctx) (StructType rctx) IO a
+  -- First translate the imports in the order in which they appear.
+  imports' <- forM imports $ \(Pair import_node (TranslateM importM)) -> do
+    -- Build namespace for the package and add it to the state.
+    let name = packageName import_node
+    -- modify $ \ts -> ts { retRepr = Some UnitRepr }
+    ns <- mkPackageNamespace import_node
+    modify $ \ts -> ts { pkgName = name
+                       , namespaces = HM.insert name ns (namespaces ts) }
+    -- Translate the package.
+    -- trace ("translating package " ++ show name) $
+      -- trace ("ns: " ++ show ns) $
+    importM
 
+  -- Build local namespace for the file.
+  ns <- mkPackageNamespace main_node
+  modify $ \ts -> ts { pkgName = nm
+                     , namespaces = HM.insert nm ns (namespaces ts) }
 
--- | Bind the list of return values to both the function return type
--- in the crucible CFG and, if the return values are named, to
--- crucible registers mapped to the names. Like many functions here,
--- uses, continuation-passing style to construct heterogeneous lists
--- and work with type-level literals.
-bindReturns :: (C.IsSyntaxExtension ext, ?machineWordWidth :: Int)
-            => ReturnList SourceRange
-            -> (forall ctx. CtxRepr ctx ->
-                (forall s rctx. GoGenerator ext s rctx (Maybe (VariableAssignment s ctx))) -> a)
-            -> a
-bindReturns rlist f =
-  let goNamed :: (C.IsSyntaxExtension ext) =>
-                 [NamedParameter SourceRange]
-              -> (forall ctx. CtxRepr ctx ->
-                  (forall s rctx. GoGenerator ext s rctx (VariableAssignment s ctx)) -> a)
-              -> a
-      goNamed [] k = k Ctx.empty (return Ctx.empty)
-      goNamed (np@(NamedParameter _ (Id _ _ rname) _):ps) k =
-        translateType {- TODO Abstract this: implicit parameter or generator state -}
-           (fromRight $ getType np) (\t ->
-                    goNamed ps (\ctx gen -> k (ctx Ctx.:> t)
-                                 (do assign <- gen
-                                     reg <- declareVar rname (zeroValue t) t
-                                     return $ assign Ctx.:> GoVarOpen reg)
-                               ))
-      goAnon :: [Type SourceRange] -> (forall ctx. CtxRepr ctx -> a) -> a
-      goAnon [] k = k Ctx.empty
-      goAnon (t:ts) k = case getType t of
-        Right vt -> translateType vt $ \t' ->
-          goAnon ts (\ctx -> k (ctx Ctx.:> t'))
-        _ -> error "Expecting a semantic type inferred for a return type, but found none"
-  in case rlist of
-    NamedReturnList _ nrets -> goNamed nrets $ \ctx gen -> f ctx (Just <$> gen)
-    AnonymousReturnList _ rtypes -> goAnon rtypes $ \ctx -> f ctx (return Nothing)
+  -- Translate the main package.
+  main' <- mainM
 
--- | Generate the Crucible type context and bind parameter names to
--- (typed) Crucible registers.
-bindParams ::
-  (C.IsSyntaxExtension ext, ?machineWordWidth :: Int)
-  => ParameterList SourceRange
-  -> (forall ctx. CtxRepr ctx ->
-      (forall s rctx a. Ctx.Assignment (Gen.Atom s) ctx -> GoGenerator ext s rctx ()) -> a)
-  -> a
-bindParams plist f =
-  let go ::  (C.IsSyntaxExtension ext) =>
-             [NamedParameter SourceRange]
-         -> (forall ctx. CtxRepr ctx
-             -> (forall s rctx a. Ctx.Assignment (Gen.Atom s) ctx -> GoGenerator ext s rctx ())
-             -> a)
-         -> a
-      go []     k = k Ctx.empty (\_ -> return ())
-      go (np@(NamedParameter _ (Id _ _ pname) _):ps) k =
-        translateType
-        (fromRight $ getType np) $ \t ->
-        go ps (\ctx f' -> k (ctx Ctx.:> t) 
-                          (\a -> do f' (Ctx.init a)
-                                    void $ declareVar pname (Gen.AtomExpr (Ctx.last a)) t))
-  in case plist of
-    NamedParameterList _ params mspread -> go (params ++ maybeToList mspread) f
-    AnonymousParameterList _ [] Nothing -> go [] f
-    AnonymousParameterList _ _ _ -> error "Unexpected anonymous parameter list in a function definition"
+  -- Build initializer CFG.
+  ini <- mkInitializer $ main' : imports'
 
-getMachineWordWidth :: GoGenerator ext s rctx Int
-getMachineWordWidth = St.gets machineWordWidth
+  -- Get stuff from the state.
+  globs <- gets globals
+  funs <- gets functions
+  mainFun <- gets mainFunction
 
-setMachineWordWidth :: Int -> GoGenerator ext s rctx ()
-setMachineWordWidth w = St.modify' (\ts -> ts {machineWordWidth = w})
+  -- Produce the final result.
+  return $ TranslatedMain main' imports' ini mainFun globs funs halloc
 
--- | Fully specialize a type with the current machine word width
-specializeTypeM :: VarType -> GoGenerator ext s rctx VarType
-specializeTypeM typ = do w <- getMachineWordWidth
-                         return $ specializeType w typ
+translate_alg (PackageNode name path import_paths file_paths files inits) =
+  -- trace ("translating package " ++ show name) $
+  TranslateM $ do
+  files' <- mapM runTranslated files
+  modify $ \ts -> ts { retRepr = Some UnitRepr }
+  inits' <- mapM runTranslated inits
+  return $ TranslatedPackage name path import_paths file_paths files' $
+    -- Build a single initializer generator action from all of the
+    -- initializer statements.
+    SomeGoGenerator UnitRepr $ forM_ inits' $ runTranslatedStmt UnitRepr
 
-declareVar :: (C.IsSyntaxExtension ext) =>
-              Text -> Gen.Expr ext s tp -> TypeRepr tp ->
-              GoGenerator ext s rctx (Gen.Reg s (ReferenceType tp))
-declareVar name value t = do ref <- Gen.newReference value
-                             reg <- Gen.newReg ref
-                             -- trace ("declareVar") $
-                             --   trace ("name: " ++ show name) $
-                             --   trace ("reg: " ++ show reg) $ do
-                             St.modify' (\ts -> ts {lexenv = HM.insert name (GoVarReg t reg) (lexenv ts)})
-                             return reg
+translate_alg (FileNode path name decls imports) =
+  TranslateM $ TranslatedFile path name <$>
+  mapM runTranslated decls <*> mapM runTranslated imports
 
-graphGenerator :: (C.IsSyntaxExtension ext) =>
-  [Statement SourceRange] -> CtxRepr rctx -> GoGenerator ext s rctx a --(Gen.Expr s (StructType rctx))
-graphGenerator body ctxrepr = do
-  -- First, traverse all of the statements of the function to allocate
-  -- Crucible labels for each source level label.  We need this to
-  -- handle gotos, named breaks, and named continues.
-  -- Gen.endNow $ \cont -> do
-  --   entry_label <- Gen.newLabel
-  --   labelMap <- F.foldlM buildLabelMap HM.empty body
-  --   St.modify' $ \s -> s { explicitLabels = labelMap }
-  --   Gen.resume_ entry_label cont
+-- TODO: maybe a bug here when there's a single ident on the LHS of a
+-- short declaration. It should introduce a new variable shadowing the
+-- old one (possibly with a different type).  Actually it may be a
+-- more general problem related to nested scopes.. It's not that
+-- locals always shadow globals, but that the current scope takes
+-- priority over all outer scopes. So we could change gamma to be a
+-- stack of scopes and have some notion of "inner-most lookup" vs
+-- recursive lookup, or maybe we should just introduce new variables
+-- always and live with the occasional inefficiency.
+translate_alg (AssignStmt _ assign_tp op lhs rhs) =
+  TranslateM $ do
+  lhs' <- mapM runTranslated lhs
+  rhs_gens <- mapM runTranslated rhs
+  Some retRepr <- gets retRepr
+  ts <- get
+  return $ TranslatedStmt $ SomeGoGenerator retRepr $ do
+    rhs' <- mapM (runTranslatedExpr retRepr) rhs_gens
+    case assign_tp of
+      Assign -> do
+        lhs'' <- mapM (runTranslatedExpr retRepr) lhs'
+        forM_ (zip lhs'' rhs') $ \(Some (GoExpr (Just loc) l), r) ->
+                                  writeToLoc (exprType l) loc r
+      -- Here I think we could indiscriminately introduce new
+      -- variables for each name on the LHS (shadowing any existing
+      -- variables with the same name) and the result would be
+      -- correct, but it's more efficient to reuse existing locations.
+      Define ->
+        forM_ (zip3 (proj1 <$> lhs) lhs' rhs') $
+        \(In (IdentExpr _x _tp qual name), l, r) ->
+          case l of
+            -- If bound, write to the existing location.
+            TranslatedExpr gen -> do
+              -- trace ("asdf") $ do
+              Some (GoExpr (Just loc) l) <- runSomeGoGenerator retRepr gen
+              writeToLoc (exprType l) loc r
+            -- If unbound, declare new variable
+            TranslatedUnbound _qual (Ident _k nm) -> do
+              Some (GoExpr _loc r') <- return r
+              declareVar nm r'
+      AssignOperator ->
+        fail "translate_alg AssignStmt: expected AssignOperator to be desugared"
 
-  mapM_ (translateStatement ctxrepr) body
-  -- The following is going to be a fallthrough block that would
-  -- never be reachable if all the exit paths in the function graph
-  -- end with a return statement.
-  -- TODO: insert missing returns for void functions?
-  Gen.reportError $ Gen.App (C.StringLit "Expected a return statement, but found none.")
+translate_alg (BlockStmt _ block) =
+  TranslateM $ do
+  TranslatedBlock gen <- runTranslated block
+  return $ TranslatedStmt gen
 
--- | For each statement defining a label, populate the hash map with a
--- fresh crucible label.
-buildLabelMap :: HashMap Text (Gen.Label s)
-              -> Statement SourceRange
-              -> GoGenerator ext s rctx (HashMap Text (Gen.Label s))
-buildLabelMap m stmt =
-  case stmt of
-    LabeledStmt _ (Label _ labelName) stmt' -> do
-      lbl <- Gen.newLabel
-      buildLabelMap (HM.insert labelName lbl m) stmt'
-    BlockStmt _ stmts -> F.foldlM buildLabelMap m stmts
-    IfStmt _ mguard _ then_ else_ -> do
-      m1 <- maybe (return m) (buildLabelMap m) mguard
-      m2 <- F.foldlM buildLabelMap m1 then_
-      F.foldlM buildLabelMap m2 else_
-    ExprSwitchStmt _ mguard _ clauses -> do
-      m1 <- maybe (return m) (buildLabelMap m) mguard
-      F.foldlM (\m' (ExprClause _ _ stmts) -> F.foldlM buildLabelMap m' stmts) m1 clauses
-    TypeSwitchStmt _ mguard _ clauses -> do
-      m1 <- maybe (return m) (buildLabelMap m) mguard
-      F.foldlM (\m' (TypeClause _ _ stmts) -> F.foldlM buildLabelMap m' stmts) m1 clauses
-    ForStmt _ (ForClause _ minit _ mpost) stmts -> do
-      m1 <- maybe (return m) (buildLabelMap m) minit
-      m2 <- maybe (return m1) (buildLabelMap m1) mpost
-      F.foldlM buildLabelMap m2 stmts
-    ForStmt _ (ForRange {}) stmts ->
-      F.foldlM buildLabelMap m stmts
-    GoStmt {} -> return m
-    SelectStmt _ clauses ->
-      F.foldlM (\m' (CommClause _ _ stmts) -> F.foldlM buildLabelMap m' stmts) m clauses
-    BreakStmt {} -> return m
-    ContinueStmt {} -> return m
-    ReturnStmt {} -> return m
-    GotoStmt {} -> return m
-    FallthroughStmt {} -> return m
-    DeferStmt {} -> return m
-    ShortVarDeclStmt {} -> return m
-    AssignStmt {} -> return m
-    UnaryAssignStmt {} -> return m
-    DeclStmt {} -> return m
-    ExpressionStmt {} -> return m
-    EmptyStmt {} -> return m
-    SendStmt {} -> return m
+translate_alg (BranchStmt _ branch_tp label) =
+  TranslateM $ fail "translate_alg BranchStmt: unsupported"
 
--- | Translates individual statements. This is where Go statement
--- semantics is encoded.
---
--- Note that we currently only support single return values (and no
--- return via named return values).
-translateStatement :: (C.IsSyntaxExtension ext) =>
-                      CtxRepr rctx
-                   -> Statement SourceRange
-                   -> GoGenerator ext s rctx ()
-translateStatement retCtxRepr s = case s of
-  DeclStmt _ (VarDecl _ varspecs)     -> mapM_ translateVarSpec varspecs
-  DeclStmt _ (ConstDecl _ constspecs) -> mapM_ translateConstSpec constspecs
-  ShortVarDeclStmt annot ids inits -> translateVarSpec (UntypedVarSpec annot ids inits)
-  DeclStmt _ (TypeDecl _ _) ->
-    -- type declarations are only reflected in type analysis results
-    -- and type translations; they are not executable
-    return ()
-  ExpressionStmt _ expr -> withTranslatedExpression expr $ \_ _ -> return ()
-    -- The number of expressions (|e|) in `lhs` and `rhs` should
-    -- either be the same, or |rhs| = 1. Assigning multi-valued
-    -- right-hand sides (|rhs|=1 and |lhs| > 1) is not currently
-    -- supported.
-  AssignStmt _ lhs Assignment rhs
-    | F.length lhs == F.length rhs -> mapM_ translateAssignment (NE.zip lhs rhs)
-    | otherwise -> error "Mismatched assignment expression lengths"
-  ReturnStmt _ [] -> do
-    retSlots <- St.gets returnSlots
-    case retSlots of
-      -- If there are no returnSlots, then this function doesn't have
-      -- named return variables so an empty return statement is only
-      -- valid if the function has no return type at all.
-      Nothing ->
-        case testEquality retCtxRepr Ctx.empty of
-          Just Refl -> Gen.returnFromFunction $ Gen.App $ C.MkStruct retCtxRepr Ctx.empty
-          _ -> error $ "translateStatement error: expected null return type, got " ++ show retCtxRepr
-      -- If there are returnSlots, then we can use them to produce a
-      -- struct containing the return values.
-      Just slots ->
-        -- TODO: fold over slots to produce the return value (may need
-        -- to dereference them).
-        undefined
-  ReturnStmt _ [e] ->
-    withTranslatedExpression e $ \_ e' ->
-    asType (StructRepr retCtxRepr) (box e') $ \e'' -> Gen.returnFromFunction e''
-  ReturnStmt _ _ -> error ("translateStatement: Multiple return values are not yet supported: " ++ show s)
-  EmptyStmt _ -> return ()
-  LabeledStmt _ (Label _ labelName) stmt -> do
-    lbls <- St.gets explicitLabels
-    lbl <- case HM.lookup labelName lbls of
-      Nothing -> error ("Missing definition of label: " ++ show labelName)
-      Just l -> return l
-    exit_label <- Gen.newLabel
-    Gen.defineBlock lbl $ do
-      -- NOTE: I'm not sure if this state modification is valid in
-      -- the presence of this continuation... will require testing.
-      -- St.modify' $ \st -> st { explicitLabels = HM.insert labelName lbl (explicitLabels st) }
-      translateStatement retCtxRepr stmt
-      Gen.jump exit_label
-    Gen.continue exit_label (Gen.jump lbl)    
-  GotoStmt _ (Label _ labelName) -> do
-    lbls <- St.gets explicitLabels
-    case HM.lookup labelName lbls of
-      Nothing -> error ("Jump to undeclared label: " ++ show s)
-      Just lbl -> Gen.jump lbl
-  BlockStmt _ body -> translateBlock body retCtxRepr
-  IfStmt _ mguard e then_ else_ -> do
-    F.forM_ mguard $ translateStatement retCtxRepr
-    withTranslatedExpression e $ \_ e' ->
-      asType BoolRepr e' $ \e'' ->
-      Gen.ifte_ e'' (translateBlock then_ retCtxRepr) (translateBlock else_ retCtxRepr)
+-- const, type, or var declaration (similar to assign)
+translate_alg (DeclStmt _ decl) = TranslateM $ do
+  TranslatedGenDecl specs <- runTranslated decl
+  Some retRepr <- gets retRepr
+  return $ TranslatedStmt $ SomeGoGenerator retRepr $ forM_ specs $ runSpec retRepr
 
-  -- This translation is very verbose because we can't re-use the
-  -- Gen.when combinator.  We need the labels to implement break and
-  -- continue, and Gen.when would make them inaccessible.  Note that
-  -- this will still be tricky, because we somehow need to get those
-  -- labels out of the End monad so that we can store them in the
-  -- state.
-  --
-  -- Instead of that, maybe we just need to explicitly pass the
-  -- current loop context into translateStatement and translateBlock.
-  -- Maybe we can just capture them in the scope of translateBlock.
-  ForStmt _ (ForClause _ minitializer mcondition mincrement) body -> do
-    F.forM_ minitializer $ translateStatement retCtxRepr
-    cond_lbl <- Gen.newLabel
-    loop_lbl <- Gen.newLabel
-    exit_lbl <- Gen.newLabel
+translate_alg (DeferStmt _ call_expr) =
+  TranslateM $ fail "translate_alg DeferStmt: unsupported"
 
-    Gen.defineBlock cond_lbl $ do
-      case mcondition of
-        Nothing -> Gen.jump loop_lbl
-        Just cond -> do
-          withTranslatedExpression cond $ \_ cond' ->
-            asType BoolRepr cond' $ \cond'' ->
-            Gen.branch cond'' loop_lbl exit_lbl
+translate_alg (EmptyStmt _) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  return $ TranslatedStmt $ SomeGoGenerator retRepr $ return ()
 
-    Gen.defineBlock loop_lbl $ do
-      -- Push the break and continue labels onto the stack so that
-      -- nested break statements can reference them.  We'll pop them
-      -- back off once we are done translating the body.
-      withLoopLabels exit_lbl cond_lbl $ do
-        translateBlock body retCtxRepr
-        F.forM_ mincrement $ translateStatement retCtxRepr
+translate_alg (ExprStmt _ expr) = TranslateM $ do
+  TranslatedExpr somegen <- runTranslated expr
+  Some retRepr <- gets retRepr
+  return $ TranslatedStmt $ SomeGoGenerator retRepr $
+    runSomeGoGenerator retRepr somegen >> return ()
 
-      Gen.jump cond_lbl
+-- TODO
+translate_alg (ForStmt _ ini cond pos body) =
+  TranslateM $ fail "translate_alg ForStmt: unsupported"
 
-    Gen.continue exit_lbl (Gen.jump cond_lbl)
+translate_alg (GoStmt _ call_expr) =
+  TranslateM $ fail "translate_alg GoStmt: unsupported"
 
-  BreakStmt _ Nothing -> do
-    bs <- St.gets enclosingBreaks
-    case bs of
-      LabelStack (b:_) -> Gen.jump b
-      LabelStack [] -> error "Empty break stack for break statement"
-  BreakStmt _ (Just _) -> error "Named breaks are not supported yet"
-  ContinueStmt _ Nothing -> do
-    cs <- St.gets enclosingContinues
-    case cs of
-      LabelStack (c:_) -> Gen.jump c
-      LabelStack [] -> error "Empty continue stack for continue statement"
-  ContinueStmt _ (Just _) -> error "Named continues are not supported yet"
-  SendStmt {} -> error "Send statements are not supported yet"
+translate_alg (IfStmt _ ini cond body els) = TranslateM $ do
+  ini_gen <- mapM runTranslated ini
+  TranslatedExpr cond_gen <- runTranslated cond
+  body_gen <- runTranslated body
+  els_gen <- mapM runTranslated els
+  Some retRepr <- gets retRepr
+  return $ TranslatedStmt $ SomeGoGenerator retRepr $ do
+    forM_ ini_gen $ runTranslatedStmt retRepr
+    Some (GoExpr _loc cond') <- runSomeGoGenerator retRepr cond_gen
+    asType' BoolRepr cond' $ \cond'' ->
+      Gen.ifte_ cond'' (runTranslatedBlock retRepr body_gen) $ case els_gen of
+      Nothing -> return ()
+      Just (TranslatedStmt gen) -> runSomeGoGenerator retRepr gen
 
-  UnaryAssignStmt _ e incdec ->
-    withTranslatedExpression e $ \mAssignLoc e' -> do
-    case mAssignLoc of
-      Nothing -> error ("Assignment to unassignable location: " ++ show e)
-      Just loc ->
-        withIncDecWrapper (exprType e') incdec $ \op -> do
-          ref0 <- Gen.readReg loc
-          e0 <- Gen.readReference ref0
-          Gen.writeReference ref0 (op e0)
+translate_alg (IncDecStmt _ expr is_incr) = TranslateM $
+  fail "translate_alg IncDecStmt: should have been desugared to an assignment"
 
-  ExprSwitchStmt {} -> error "Expr switch statements are not supported yet"
-  TypeSwitchStmt {} -> error "Type switch statements are not supported yet"
-  GoStmt {} -> error "go statements are not supported yet"
-  ForStmt _ (ForRange {}) _ -> error "For range statements are not supported yet"
-  AssignStmt _ _ (ComplexAssign _) _ -> error "Complex assignments are not supported yet"
-  SelectStmt {} -> error "Select statements are not supported yet"
-  FallthroughStmt {} -> error "Fallthrough statements are not supported yet"
-  DeferStmt {} -> error "Defer statements are not supported yet"
+translate_alg (LabeledStmt _ label stmt) =
+  TranslateM $ fail "translate_alg LabeledStmt: unsupported"
+translate_alg (RangeStmt _ key value range body is_assign) =
+  TranslateM $ fail "translate_alg RangeStmt: unsupported"
 
--- | Given a type witness, return the correct expression constructor
--- to either add or subtract one from the expression
---
--- Only integral (bitvector) and float (real) types are supported.
-withIncDecWrapper :: TypeRepr tp
-                  -> IncDec
-                  -> ((Gen.Expr ext s tp -> Gen.Expr ext s tp) -> GoGenerator ext s ctx a)
-                  -> GoGenerator ext s ctx a
-withIncDecWrapper tp incdec k =
-  case (tp, incdec) of
-    (C.BVRepr w, Inc) -> k (\val -> Gen.App (C.BVAdd w val (Gen.App (C.BVLit w 1))))
-    (C.RealValRepr, Inc) -> k (\val -> Gen.App (C.RealAdd val (Gen.App (C.RationalLit 1))))
-    (C.BVRepr w, Dec) -> k (\val -> Gen.App (C.BVSub w val (Gen.App (C.BVLit w 1))))
-    (C.RealValRepr, Dec) -> k (\val -> Gen.App (C.RealSub val (Gen.App (C.RationalLit 1))))
-    _ -> error ("Unsupported increment/decrement base type: " ++ show tp)
+translate_alg (ReturnStmt _ exprs) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  case exprs of
+    [expr] -> do
+      TranslatedExpr expr_gen <- runTranslated expr
+      return $ TranslatedStmt $ SomeGoGenerator retRepr $ do
+        Some (GoExpr _loc e) <- runSomeGoGenerator retRepr expr_gen
+        asType' retRepr e Gen.returnFromFunction
+    _ ->
+      fail $ "translate_alg ReturnStmt: expected a single return value, got "
+      ++ show (proj1 <$> exprs)
 
-withLoopLabels :: Gen.Label s
-               -> Gen.Label s
-               -> GoGenerator ext s ctx ()
-               -> GoGenerator ext s ctx ()
-withLoopLabels breakLabel contLabel gen = do
-  pushLabels breakLabel contLabel
-  gen
-  popLabels
+translate_alg (SelectStmt _ body) =
+  TranslateM $ fail "translate_alg SelectStmt: unsupported"
+translate_alg (SendStmt _ chan value) =
+  TranslateM $ fail "translate_alg SendStmt: unsupported"
+translate_alg (SwitchStmt _ ini tag body) =
+  TranslateM $ fail "translate_alg SwitchStmt: unsupported"
+translate_alg (TypeSwitchStmt _ ini assign body) =
+  TranslateM $ fail "translate_alg TypeSwitchStmt: unsupported"
+translate_alg (CaseClauseStmt _ cases body) =
+  TranslateM $ fail "translate_alg CaseClauseStmt: unsupported"
+translate_alg (CommClauseStmt _ send_or_recv body) =
+  TranslateM $ fail "translate_alg CommClauseStmt: unsupported"
 
-pushLabels :: Gen.Label s -> Gen.Label s -> GoGenerator ext s ctx ()
-pushLabels breakLabel contLabel =
-  St.modify' $ \s ->
-    case (enclosingBreaks s, enclosingContinues s) of
-      (LabelStack bs, LabelStack cs) ->
-        s { enclosingBreaks = LabelStack (breakLabel : bs)
-          , enclosingContinues = LabelStack (contLabel : cs)
-          }
+-- All constants/variables should already be declared.
+translate_alg (InitializerStmt vars values) = TranslateM $
+  trace ("initializing: " ++ show (proj1 <$> vars) ++ ", " ++ show (proj1 <$> values)) $
+  do
+  vars' <- mapM runTranslated vars
+  values' <- mapM runTranslated values
+  return $ TranslatedStmt $ SomeGoGenerator UnitRepr $
+    forM_ (zip vars' values') $ \(var, value) -> do
+      Some (GoExpr (Just loc) var') <- runTranslatedExpr UnitRepr var
+      value' <- runTranslatedExpr UnitRepr value
+      trace ("value: " ++ show value') $
+        writeToLoc (exprType var') loc value'
 
-popLabels :: GoGenerator ext s ctx ()
-popLabels = do
-  St.modify' $ \s ->
-    case (enclosingBreaks s, enclosingContinues s) of
-      (LabelStack [], _) -> error "popLabels: empty break stack"
-      (_, LabelStack []) -> error "popLabels: empty continue stack"
-      (LabelStack (_:bs), LabelStack (_:cs)) ->
-        s { enclosingBreaks = LabelStack bs
-          , enclosingContinues = LabelStack cs
-          }
+-- | The default type of an untyped constant is bool, rune, int,
+-- float64, complex128 or string respectively, depending on whether it
+-- is a boolean, rune, integer, floating-point, complex, or string
+-- constant. -- GO LANGUAGE SPEC
+translate_alg (BasicLitExpr _ tp
+               (BasicLit { basiclit_type = lit_ty
+                         , basiclit_value = lit_value })) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  PosNat w LeqProof <- gets machineWordWidth
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ case lit_ty of
+    LiteralBool ->
+      return $ Some $ GoExpr Nothing $ Gen.App $ C.BoolLit $ readBool lit_value
+    LiteralInt -> return $ Some $ GoExpr Nothing $ Gen.App $
+                  C.BVLit w $ read $ T.unpack lit_value
+    LiteralFloat -> return $ Some $ GoExpr Nothing $ Gen.App $
+                    C.DoubleLit $ read $ T.unpack lit_value
+    LiteralComplex -> fail "translate_alg: complex literals not yet supported"
+    LiteralImag -> fail "translate_alg: imaginary literals not yet supported"
+    LiteralChar -> case fromJust $ intToPosNat 8 of
+      PosNat w8 LeqProof ->
+        return $ Some $ GoExpr Nothing $ Gen.App $ C.BVLit w8 $
+                 -- This is probably wrong (need to parse the character code correctly)
+                 read $ T.unpack lit_value
+    LiteralString ->
+      return $ Some $ GoExpr Nothing $ Gen.App $
+      C.StringLit $ UnicodeLiteral lit_value
 
--- | Translate a basic block, saving and restoring the lexical
--- environment around the block
-translateBlock :: (C.IsSyntaxExtension ext, Traversable t)
-               => t (Statement SourceRange)
-               -> CtxRepr ctx
-               -> GoGenerator ext s ctx ()
-translateBlock stmts retCtxRepr = do
-  env0 <- St.gets lexenv
-  mapM_ (translateStatement retCtxRepr) stmts
-  St.modify' $ \s -> s { lexenv = env0 }
+translate_alg (BasicConstExpr _x tp c) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  w <- gets machineWordWidth
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ case mkBasicConst w c of
+    Some e -> return $ Some $ GoExpr Nothing $ e
 
-exprType :: (C.IsSyntaxExtension ext) => Gen.Expr ext s typ -> TypeRepr typ
-exprType (Gen.App app) = C.appType app
-exprType (Gen.AtomExpr atom) = Gen.typeOfAtom atom
+-- | Coerce "untyped" operands to the type of the other side.
+translate_alg (BinaryExpr _ tp
+               (Pair left_node (TranslateM leftM)) op
+               (Pair right_node (TranslateM rightM))) = TranslateM $ do
+  (TranslatedExpr left_gen, TranslatedExpr right_gen) <- pairM leftM rightM
+  let (left_ty, right_ty) = (typeOf' left_node, typeOf' right_node)
+  Some retRepr <- gets retRepr
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+    (left, right) <- pairM (runSomeGoGenerator retRepr left_gen)
+                     (runSomeGoGenerator retRepr right_gen)
+    case op of
+      x | x `elem` [BPlus, BMinus, BMult, BDiv, BMod,
+                    BAnd, BOr, BXor, BAndNot, BLAnd, BLOr] -> do
+            (tp', Some (PairIx left' right')) <-
+              unify_exprs left_ty right_ty left right
+            Some . GoExpr Nothing <$> translateHomoBinop tp' op left' right'
+      x | x `elem` [BEq, BLt, BGt, BNeq, BLeq, BGeq] -> do
+            (tp', Some (PairIx left' right')) <-
+              unify_exprs left_ty right_ty left right
+            Some . GoExpr Nothing <$> translateComparison tp' op left' right'
+      BShiftL -> fail "translate_alg BinaryExpr: BShiftL not yet supported"
+      BShiftR -> fail "translate_alg BinaryExpr: BShiftR not yet supported"
 
-fromRight :: Either a b -> b
-fromRight (Right x) = x
+translate_alg (CallExpr _ tp fun args) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  translated_fun <- runTranslated fun
+  translated_args <- mapM runTranslated args
+  case translated_fun of
+    TranslatedExpr fun_gen ->
+      return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+        Some (GoExpr _loc fun') <- runSomeGoGenerator retRepr fun_gen
+        args' <- mapM (runSomeGoGenerator retRepr . unTranslatedExpr) translated_args
+        withAssignment args' $ \ctxRepr assignment ->
+          case exprType fun' of
+            MaybeRepr (FunctionHandleRepr argsRepr _retRepr) ->
+              case fun' of
+                Gen.App (C.JustValue _repr f) -> Some . GoExpr Nothing <$>
+                  Gen.call f (coerceAssignment argsRepr assignment)
+                Gen.App (C.NothingValue _repr) ->
+                  fail "translate_alg CallExpr: attempt to call nil function"
+                _ -> do
+                  f <- Gen.fromJustExpr fun' $ Gen.App $ C.StringLit $
+                    UnicodeLiteral $ T.pack $
+                    "attempt to call nil function in function "
+                    ++ show fun' ++ " translated from " ++ show (proj1 fun)
+                  Some . GoExpr Nothing <$>
+                    Gen.call f (coerceAssignment argsRepr assignment)
+            _ -> fail $ "translate_alg CallExpr: expected function type, got "
+                 ++ show (exprType fun')
+    TranslatedUnbound qual ident ->
+      translateBuiltin qual ident translated_args
 
-translateAssignment :: (C.IsSyntaxExtension ext) =>
-                       (Expression SourceRange, Expression SourceRange)
-                    -> GoGenerator ext s rctx ()
-translateAssignment (lhs, rhs) =
-  -- trace "translateAssignment" $
-  -- trace ("lhs: " ++ show lhs) $
-  -- trace ("rhs: " ++ show rhs) $
-  withTranslatedExpression lhs $ \mAssignLoc lhs' ->
-  withTranslatedExpression rhs $ \_ rhs' ->
-  asType (exprType lhs') rhs' $ \rhs'' ->
-  case mAssignLoc of
-    Just reg -> do
-      ref0 <- Gen.readReg reg
-      Gen.writeReference ref0 rhs''
-    Nothing -> error "translateStatement: expected assignable location"
+translate_alg (CastExpr _ tp expr ty) =
+  TranslateM $ fail "translate_alg CastExpr: unsupported"
 
-translateVarSpec :: (C.IsSyntaxExtension ext) => VarSpec SourceRange -> GoGenerator ext s rctx ()
-translateVarSpec s = case s of
-  -- the rules for matching multiple variables and expressions are the
-  -- same as for normal assignment expressions, with the addition of
-  -- an empty list of initial values. We don't support multi-valued
-  -- right-hand-sides yet.
-  TypedVarSpec _ identifiers typ initialValues ->
-    translateTypeM (fromRight $ getType typ) $
-    \typeRepr ->
-      if null initialValues then
-        -- declare variables with zero values;
-        mapM_ (\ident -> declareIdent ident (zeroValue typeRepr) typeRepr) $ NE.toList identifiers
-      else if NE.length identifiers /= length initialValues then
-        error "The number of variable declared doesn't match the number of initial values provided. This is either a syntax error or a destructuring assignment. The latter is not supported."
-      else
-        -- Declare the variables and check that the types of the
-        -- initial values have the correct type.
-        forM_ (zip (NE.toList identifiers) initialValues) $ \(ident, value) ->
-        withTranslatedExpression value $ \_ expr ->
-        asType typeRepr expr $ \expr' ->
-        declareIdent ident expr' typeRepr
-        
-  UntypedVarSpec _ identifiers initialValues
-    | F.length identifiers == F.length initialValues ->
-      void $ zipWithM bindExpr (F.toList identifiers) (F.toList initialValues)
-    | otherwise -> error "Mismatched length untyped variable declarations will be supported in V4"
-  where
-    bindExpr ident value = do
-      withTranslatedExpression value $ \_ expr ->
-        declareIdent ident expr (exprType expr)      
+-- TODO
+translate_alg (CompositeLitExpr _ tp ty elements) =
+  TranslateM $ fail "translate_alg CompositeLitExpr: unsupported"
 
--- | Translate a Go expression into a Crucible expression
---
--- This needs to be in 'Generator' because:
---
--- 1) We need access to the 'lexenv' in 'TransState' to look up the
---    Crucible register associated with each reference, and
---
--- 2) We need to be able to dereference all of the references holding
---    values, and 'readReference' is in 'Generator'
---
--- The continuation is called with the assignable location associated
--- with the expression, if any (e.g., the address of operation returns
--- an expression along with an assignable location, while a simple
--- binary addition only returns an expression).
---
--- We can only update reference locations, so the target of an
--- assignment *must* be an addressable location.  Addressable
--- locations are:
---
--- 1) Named variables
---
--- 2) Field selectors
---
--- 3) Index expressions
---
--- 4) Dereference expressions
+-- | A translated IdentExpr is either:
+-- 1) a GoExpr containing the location of the variable as well as its
+-- value.
+-- 2) a TranslatedUnbound value to indicate lookup failure.
+-- Lookup failure isn't necessarily an error; there are a few places
+-- where we might expect it to happen:
+-- 1) the function appearing in a call expression is the name of a builtin.
+-- 2) a variable on the LHS of an assign statement doesn't already exist.
+translate_alg (IdentExpr _ tp qual ident@(Ident _kind name)) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  case qual of
+    -- No qualifier means local variable.
+    Nothing ->
+      return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+      gamma <- gets gamma
+      case HM.lookup name gamma of
+        Just (Some gr@(GoReg _repr reg)) -> do
+          ref <- Gen.readReg reg
+          e <- Gen.readRef ref
+          return $ Some $ GoExpr (Just $ GoLocRef ref) e
+        Nothing ->
+          fail $ "translate_alg IdentExpr: unbound local " ++ show name
+    Just q -> lookupGlobal q ident
 
-withTranslatedExpression :: C.IsSyntaxExtension ext
-                         => Expression SourceRange
-                         -> (forall typ. Maybe (Gen.Reg s (ReferenceType typ)) ->
-                              Gen.Expr ext s typ -> GoGenerator ext s rctx a)
-                         -> GoGenerator ext s rctx a
-withTranslatedExpression e k = case e of
-  NilLit _ -> k Nothing $ Gen.App $ C.EmptyApp
-  BoolLit _ b -> k Nothing $ Gen.App $ C.BoolLit b
-  IntLit _ i ->
-    (translateTypeM (fromRight $ getType e)) $ \typerepr ->
-    case typerepr of
-      (BVRepr repr) -> k Nothing (Gen.App (C.BVLit repr i))
-      _ -> error ("withTranslatedExpression: impossible literal type: " ++ show e)
-  FloatLit _ d -> k Nothing (Gen.App (C.RationalLit (realToFrac d)))
-  StringLit _ t -> k Nothing (Gen.App (C.StringLit (C.UnicodeLiteral t)))
-  Name _ Nothing (Id _ _ ident) -> do
-    lenv <- St.gets lexenv
-    δ <- St.gets delta
-    -- First look up in the lexical environment.
-    case HM.lookup ident lenv of
-      Nothing ->
-        -- If not found in lenv, look up in the function environment δ.
-        case lookupFnEnv ident δ of
-          Nothing -> error ("withTranslatedExpression: Undefined identifier: " ++ show ident)
-          Just (SomeHandle h) ->
-            k Nothing $ Gen.App $
-            C.JustValue (FunctionHandleRepr (handleArgTypes h) (handleReturnType h)) $
-            Gen.App $ C.HandleLit h
-      Just (GoVarReg _typeRep refReg) -> do
-        regExp <- Gen.readReg refReg
-        Gen.readReference regExp >>= k (Just refReg)
+-- TODO: should we split this into two forms for types and expressions?
+translate_alg (EllipsisExpr _ tp ty) =
+  TranslateM $ fail "translate_alg EllipsisExpr: unsupported"
 
-  UnaryExpr _ op operand -> do
-    exprTypeRepr e $ \tp ->
-      withTranslatedExpression operand $ \mAssignLoc innerExpr -> do
-      translateUnaryExpression e tp (zeroValue tp) k op mAssignLoc innerExpr
-
-  BinaryExpr  _ op e1 e2 -> do
-    withTranslatedExpression e1 $ \_ e1' ->
-      withTranslatedExpression e2 $ \_ e2' ->
-        case (exprType e1', exprType e2') of
-          (BVRepr w1, BVRepr w2)
-            | Just Refl <- testEquality w1 w2
-            , Just LeqProof <- isPosNat w1 ->
-              trace (show e1) $
-              trace (show e2) $
-              case (getType e1, getType e2) of
-                (Right (Int _ isSigned1), Right (Int _ isSigned2))
-                  | isSigned1 && isSigned2 -> translateBitvectorBinaryOp k op Signed w1 e1' e2'
-                  | not isSigned1 && not isSigned2 -> translateBitvectorBinaryOp k op Unsigned w1 e1' e2'
-                (t1, t2) -> error $ "withTranslatedExpression: mixed signedness in binary operator: " ++
-                               show (op, e1, e2) ++ "\n" ++ show t1 ++ "\n" ++ show t2
-          (RealValRepr, RealValRepr) -> translateFloatingOp e k op e1' e2'
-          (BoolRepr, BoolRepr) -> translateBooleanBinaryOp e k op e1' e2'
-          (lrepr, rrepr) ->
-            error $ "withTranslatedExpression: unsupported operation: " ++ show (op, e1, e2) ++
-            "\n" ++ show lrepr ++ "\n" ++ show rrepr
-  Conversion _ toType baseE ->
-    withTranslatedExpression baseE $ \_ baseE' ->
-      case getType toType of
-        Right toType' -> translateTypeM toType' $ \typerepr ->
-          translateConversion k typerepr baseE'
-        Left err -> error ("withTranslatedExpression: Unexpected conversion type: " ++ show (toType, err))
-
-  -- CallExpr _ f _t args Nothing ->
-  --   withTranslatedExpression f $ \_ f' ->
-  --   withTranslatedExpressions args $ \ctxRepr assignment -> do
-  --   case Gen.exprType f' of
-  --     MaybeRepr (FunctionHandleRepr argsRepr _retRepr) ->
-  --       asTypes argsRepr assignment $ \assignment' ->
-  --       case f' of
-  --         Gen.App (C.JustValue _repr f'') -> Gen.call f'' assignment' >>= k Nothing
-  --         Gen.App (C.NothingValue _repr) ->
-  --           error "withTranslatedExpression: attempt to call nil function"
-  --         _ -> do
-  --           f'' <- Gen.fromJustExpr f' $ Gen.App $ C.StringLit $ C.UnicodeLiteral $
-  --                  T.pack $ "attempt to call nil function in function "
-  --                  ++ show f' ++ " translated from " ++ show f
-  --           Gen.call f'' assignment' >>= k Nothing
-  --     _ -> error $ "withTranslatedExpression: expected optional function type, got "
-  --          ++ show (Gen.exprType f')
-        
-  CallExpr _ f _t args Nothing ->
-    withTranslatedExpression f $ \_ f' ->
-    withTranslatedExpressions args $ \ctxRepr assignment -> do
-    case Gen.exprType f' of
-      MaybeRepr (FunctionHandleRepr argsRepr _retRepr) ->
-        asTypes argsRepr assignment $ \assignment' ->
-        case f' of
-          Gen.App (C.JustValue _repr f'') -> do
-            e <- Gen.call f'' assignment'
-            asSingletonStruct e $ \e' -> k Nothing $ unbox e'
-          Gen.App (C.NothingValue _repr) ->
-            error "withTranslatedExpression: attempt to call nil function"
-          _ -> do
-            f'' <- Gen.fromJustExpr f' $ Gen.App $ C.StringLit $ C.UnicodeLiteral $
-                   T.pack $ "attempt to call nil function in function "
-                   ++ show f' ++ " translated from " ++ show f
-            e <- Gen.call f'' assignment'
-            asSingletonStruct e $ \e' -> k Nothing $ unbox e'
-      _ -> error $ "withTranslatedExpression: expected optional function type, got "
-           ++ show (Gen.exprType f')
-
-  CallExpr rng _ _ _ (Just vararg) ->
-    error $ "withTranslatedExpression: unexpected variadic argument at " ++ show rng
-  _ -> error "Unsupported expression type"
-
-withTranslatedExpressions :: (C.IsSyntaxExtension ext)
-                          => [Expression SourceRange]
-                          -> (forall args. CtxRepr args ->
-                              Ctx.Assignment (Gen.Expr ext s) args -> GoGenerator ext s rctx a)
-                          -> GoGenerator ext s rctx a
-withTranslatedExpressions [] k = k Ctx.empty Ctx.empty
-withTranslatedExpressions (e : es) k =
-  withTranslatedExpressions es $ \ctxRepr assignment ->
-  withTranslatedExpression e $ \_ e' ->
-  k (ctxRepr Ctx.:> Gen.exprType e') (assignment Ctx.:> e')
-
-
-translateConversion :: (C.IsSyntaxExtension ext) =>
-                       (Maybe (Gen.Reg s (ReferenceType toTyp)) -> Gen.Expr ext s toTyp -> GoGenerator ext s rctx a)
-                    -> TypeRepr toTyp
-                    -> Gen.Expr ext s fromTyp
-                    -> GoGenerator ext s rctx a
-translateConversion k toType e =
-  case (exprType e, toType) of
-    (BoolRepr, BVRepr w) -> k Nothing (Gen.App (C.BoolToBV w e))
-    -- FIXME: Need sign information if this is integral
-    -- (BVRepr w1, ReprAndValue (BVRepr w2) _)
-    --   | Just LeqProof <- isPosNat w1
-    --   , Just LeqProof <- isPosNat w2
-    --   , Just LeqProof <- testLeq (incNat w2) w1 -> k (Gen.App (C.BVSext w1 w2 e))
-
-data SignedOrUnsigned = Signed | Unsigned
-
-isSigned :: SignedOrUnsigned -> Bool
-isSigned Signed = True
-isSigned Unsigned = False
-
--- We need to be able to desugar these with short circuiting.
-translateBooleanBinaryOp :: Expression SourceRange
-                         -> (Maybe (Gen.Reg s (ReferenceType BoolType)) -> Gen.Expr ext s BoolType -> a)
-                         -> BinaryOp
-                         -> Gen.Expr ext s BoolType
-                         -> Gen.Expr ext s BoolType
-                         -> a
-translateBooleanBinaryOp =
-  error "Boolean binary operators are not supported"
-
--- | Translate floating point arithmetic to Crucible
---
--- Note that the translation is to *real* valued arithmetic, as we
--- don't have models of IEEE floats.
-translateFloatingOp :: Expression SourceRange
-                    -> (forall typ . Maybe (Gen.Reg s (ReferenceType typ)) -> Gen.Expr ext s typ -> a)
-                    -> BinaryOp
-                    -> Gen.Expr ext s RealValType
-                    -> Gen.Expr ext s RealValType
-                    -> a
-translateFloatingOp e k op e1 e2 =
-  case op of
-    Add -> k Nothing (Gen.App (C.RealAdd e1 e2))
-    Subtract -> k Nothing (Gen.App (C.RealSub e1 e2))
-    Multiply -> k Nothing (Gen.App (C.RealMul e1 e2))
-    Equals -> k Nothing (Gen.App (C.RealEq e1 e2))
-    NotEquals -> k Nothing (Gen.App (C.Not (Gen.App (C.RealEq e1 e2))))
-    Less -> k Nothing (Gen.App (C.RealLt e1 e2))
-    LessEq -> k Nothing (Gen.App (C.Not (Gen.App (C.RealLt e2 e1))))
-    Greater -> k Nothing (Gen.App (C.RealLt e2 e1))
-    GreaterEq -> k Nothing (Gen.App (C.Not (Gen.App (C.RealLt e1 e2))))
-    Divide -> error ("translateFloatingOp: Division is not supported: " ++ show e)
-    Remainder -> error ("translateFloatingOp: Remainder is not supported: " ++ show e)
-    BitwiseAnd -> error ("translateFloatingOp: BitwiseAnd is not supported: " ++ show e)
-    BitwiseOr -> error ("translateFloatingOp: BitwiseOr is not supported: " ++ show e)
-    BitwiseXOr -> error ("translateFloatingOp: BitwiseXOr is not supported: " ++ show e)
-    BitwiseNAnd -> error ("translateFloatingOp: BitwiseNAnd is not supported: " ++ show e)
-    LeftShift -> error ("translateFloatingOp: LeftShift is not supported: " ++ show e)
-    RightShift -> error ("translateFloatingOp: RightShift is not supported: " ++ show e)
-    LogicalAnd -> error ("translateFloatingOp: LogicalAnd is not supported: " ++ show e)
-    LogicalOr -> error ("translateFloatingOp: LogicalOr is not supported: " ++ show e)
-
--- | Translate a binary operation over bitvectors
---
--- This includes translations for ==, /=, <, >, <=, and >= (which also
--- need other implementations for other types)
-translateBitvectorBinaryOp :: (C.IsSyntaxExtension ext, 1 <= w)
-                         => (forall typ . Maybe (Gen.Reg s (ReferenceType typ)) -> Gen.Expr ext s typ -> a)
-                         -> BinaryOp
-                         -> SignedOrUnsigned
-                         -> NatRepr w
-                         -> Gen.Expr ext s (BVType w)
-                         -> Gen.Expr ext s (BVType w)
-                         -> a
-translateBitvectorBinaryOp k op sou w e1 e2 =
-  case op of
-    Add -> k Nothing (Gen.App (C.BVAdd w e1 e2))
-    Subtract -> k Nothing (Gen.App (C.BVSub w e1 e2))
-    Multiply -> k Nothing (Gen.App (C.BVMul w e1 e2))
-    Divide | isSigned sou -> k Nothing (Gen.App (C.BVSdiv w e1 e2))
-           | otherwise -> k Nothing (Gen.App (C.BVUdiv w e1 e2))
-    Remainder | isSigned sou -> k Nothing (Gen.App (C.BVSrem w e1 e2))
-              | otherwise -> k Nothing (Gen.App (C.BVUrem w e1 e2))
-    BitwiseAnd -> k Nothing (Gen.App (C.BVAnd w e1 e2))
-    BitwiseOr -> k Nothing (Gen.App (C.BVOr w e1 e2))
-    BitwiseXOr -> k Nothing (Gen.App (C.BVXor w e1 e2))
-    BitwiseNAnd -> k Nothing (Gen.App (C.BVNot w (Gen.App (C.BVAnd w e1 e2))))
-    LeftShift -> k Nothing (Gen.App (C.BVShl w e1 e2))
-    RightShift | isSigned sou -> k Nothing (Gen.App (C.BVAshr w e1 e2))
-               | otherwise -> k Nothing (Gen.App (C.BVLshr w e1 e2))
-    Equals -> k Nothing (Gen.App (C.BVEq w e1 e2))
-    NotEquals -> k Nothing (Gen.App (C.Not (Gen.App (C.BVEq w e1 e2))))
-    LessEq | isSigned sou -> k Nothing (Gen.App (C.BVSle w e1 e2))
-           | otherwise -> k Nothing (Gen.App (C.BVUle w e1 e2))
-    Less | isSigned sou -> k Nothing (Gen.App (C.BVSlt w e1 e2))
-         | otherwise -> k Nothing (Gen.App (C.BVUlt w e1 e2))
-    GreaterEq | isSigned sou -> k Nothing (Gen.App (C.Not (Gen.App (C.BVSlt w e1 e2))))
-              | otherwise -> k Nothing (Gen.App (C.Not (Gen.App (C.BVUlt w e1 e2))))
-    Greater | isSigned sou -> k Nothing (Gen.App (C.Not (Gen.App (C.BVSle w e1 e2))))
-            | otherwise -> k Nothing (Gen.App (C.Not (Gen.App (C.BVUle w e1 e2))))
-    LogicalAnd -> error "translateBitvectorBinaryOp: logical and of bitvectors is not supported"
-    LogicalOr -> error "translateBitvectorBinaryOp: logical and of bitvectors is not supported"
-
-
-translateUnaryExpression :: (C.IsSyntaxExtension ext) =>
-                            Expression SourceRange
-                         -- ^ The original expression
-                         -> TypeRepr tp'
-                         -- ^ The typerepr of the result
-                         -> Gen.Expr ext s tp'
-                         -- ^ The zero value for the result type
-                         -> (Maybe (Gen.Reg s (ReferenceType tp')) -> Gen.Expr ext s tp' -> GoGenerator ext s rctx a)
-                         -- ^ The continuation to call
-                         -> UnaryOp
-                         -- ^ The operator applied by this unary expression
-                         -> Maybe (Gen.Reg s (ReferenceType tp))
-                         -- ^ The original inner expression
-                         -> Gen.Expr ext s tp
-                         -- ^ The translated inner expression
-                         -> GoGenerator ext s rctx a
-translateUnaryExpression e resRepr zero k op mAssignLoc innerExpr =
-  case (op, exprType innerExpr, resRepr) of
-    (Plus, innerTp, _)
-      | Just Refl <- testEquality innerTp resRepr -> k Nothing innerExpr
-      | otherwise -> error ("translateUnaryExpression: mismatch in return type of addition: " ++ show e)
-    (Minus, BVRepr w, BVRepr w')
-      | Just Refl <- testEquality w w'
-      , Just LeqProof <- isPosNat w ->
-        k Nothing (Gen.App (C.BVSub w zero innerExpr))
-    (Minus, _, _) -> error ("withTranslatedExpression: invalid argument to unary minus: " ++ show e)
-    (Not, BoolRepr, BoolRepr) ->
-      k Nothing (Gen.App (C.Not innerExpr))
-    (Not, _, _) -> error ("withTranslatedExpression: invalid argument to not: " ++ show e)
-    (Complement, BVRepr w, BVRepr w')
-      | Just Refl <- testEquality w w'
-      , Just LeqProof <- isPosNat w ->
-        k Nothing (Gen.App (C.BVNot w innerExpr))
-    (Address, innerTypeRepr, _)
-      | Just Refl <- testEquality resRepr (ReferenceRepr innerTypeRepr)
-      , Just loc <- mAssignLoc ->
-        Gen.readReg loc >>= k Nothing
-      | Nothing <- mAssignLoc -> error ("Address taken of non-assignable location: " ++ show e)
-      | otherwise -> error ("Type mismatch while translating address of operation: " ++ show e)
-    (Complement, _, _) -> error ("withTranslatedExpression: invalid argument to complement: " ++ show e)
-    (Receive, _, _) -> error "withTranslatedExpression: unary Receive is not supported"
-    (Deref, _, _) -> error "withTranslatedExpression: deref is not supported"
-
--- | This is a trivial wrapper around 'getType' and 'toTypeRepr' to
--- fix the Monad instance of 'getType' (inlining this without a type
--- annotation gives an ambiguous type variable error). Note that it
--- can potentially `fail` if the expression cannot be typed
--- (e.g. because of type or lexical mismatch), but, in practice, the
--- parser guarantees that expressions will be well typed.
-exprTypeRepr :: Expression SourceRange
-             -> (forall typ. TypeRepr typ -> GoGenerator ext s rctx a)
-               -> GoGenerator ext s rctx a
-exprTypeRepr e k = case getType e of
-  Left err -> fail (show err)
-  Right typ -> translateTypeM typ k
-
--- | Declares an identifier; ignores blank identifiers. A thin wrapper
--- around `declareVar` that doesn't return the register
-declareIdent :: (C.IsSyntaxExtension ext) => Id a -> Gen.Expr ext s tp -> TypeRepr tp -> GoGenerator ext s rctx ()
-declareIdent ident value typ = case ident of
-  BlankId _ -> return ()
-  Id _ _ name -> void $ declareVar name value typ
-
-translateConstSpec :: ConstSpec SourceRange -> GoGenerator ext s rctx ()
-translateConstSpec = undefined
-
--- | Translate a Go type to a Crucible type. This is where type semantics is encoded.
-translateType :: forall ext a. (?machineWordWidth :: Int) => VarType
-              -> (forall typ. TypeRepr typ -> a)
-              -> a 
-translateType typ = typeAsRepr (specializeType ?machineWordWidth typ)
-
-translateTypeM :: forall ext s rctx a. VarType
-               -> (forall typ. TypeRepr typ -> GoGenerator ext s rctx a)
-               -> GoGenerator ext s rctx a
-translateTypeM typ f = do w <- getMachineWordWidth
-                          let ?machineWordWidth = w in translateType typ f
-
-typeAsRepr :: forall ext a. VarType
-           -> (forall typ. TypeRepr typ -> a)
-           -> a
-typeAsRepr typ lifter = injectType (toTypeRepr typ)
-   where injectType :: Some TypeRepr -> a
-         injectType (Some repr) = lifter repr
-
-toTypeRepr :: VarType -> Some TypeRepr
-toTypeRepr typ = case typ of
-  Int (Just width) _ -> case someNat (fromIntegral width) of
-    Just (Some w) | Just LeqProof <- isPosNat w -> Some (BVRepr w)
-    _ -> error $ unwords ["invalid integer width",show width]
-  Int Nothing _ -> error $ "Type translation: Unexpected integer type without width: expectin all integers to have width specified explicitly."
-  Float _width -> Some RealValRepr
-  Boolean -> Some BoolRepr
-  Complex _width -> Some ComplexRealRepr
-  Iota -> Some IntegerRepr
-  Nil -> Some (MaybeRepr AnyRepr)
-  -- String -> Some (VectorRepr $ BVRepr (knownNat :: NatRepr 8))
-  String -> Some (StringRepr UnicodeRepr)
-  Function _mrecv_ty param_tys Nothing ret_tys ->
-    someReprCtx (toTypeRepr <$> param_tys) $ \paramsRepr ->
-    someReprCtx (toTypeRepr <$> ret_tys) $ \retCtxRepr ->
-    Some (MaybeRepr $ FunctionHandleRepr paramsRepr $ StructRepr retCtxRepr)
-  Function _ _ (Just _) _ -> error "toTypeRepr: unexpected variadic parameter to function"
-  -- TODO: use array length somehow?
-  Array _len typ' -> typeAsRepr typ' $ \t -> Some (VectorRepr t)
-  Struct _fields -> undefined
-  Pointer _typ -> Some (MaybeRepr (ReferenceRepr AnyRepr))
-  Interface _sig -> Some (MaybeRepr undefined)
-  Map _keyType _valueType -> Some (MaybeRepr undefined)
-  Slice typ' -> typeAsRepr typ' $ \_t -> Some (MaybeRepr (StructRepr undefined))
-  Channel _ typ' -> toTypeRepr typ'
-  BuiltIn _name -> undefined -- ^ built-in function
-  Alias (TypeName _ _ _) -> undefined
-  _ -> error $ "Unmatched pattern for " ++ show typ
-  where
-    real0 = Gen.App (C.RationalLit (realToFrac (0::Int)))
-
-zeroValue :: TypeRepr a -> Gen.Expr ext s a
-zeroValue ty = case ty of
-  BVRepr w -> Gen.App $ C.BVLit w 0
-  RealValRepr -> real0
-  BoolRepr -> Gen.App $ C.BoolLit False
-  ComplexRealRepr -> Gen.App $ C.Complex real0 real0
-  StringRepr UnicodeRepr -> Gen.App $ C.StringLit $ C.UnicodeLiteral $ T.empty
-  StringRepr repr ->
-    error $ "zeroValue: unsupported string format. expected unicode, got " ++ show repr
-  -- TODO: shouldn't have to differentiate between strings and arrays
-  -- I guess.. Actually, the zero value of an array depends on its
-  -- declared size which isn't part of its type information. So we may
-  -- have to treat arrays as a special case to generate the correct
-  -- initialization code. Oh wait, maybe it is part of the type..
+translate_alg (FuncLitExpr _ tp params results body) =  
+  TranslateM $ do
+  Some retRepr <- gets retRepr
+  -- body' <- runTranslated body
+  C.AnyCFG g <- mkFunction Nothing Nothing params Nothing results (Just $ proj2 body)
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $
+    return $ Some $ GoExpr Nothing $ Gen.App $ C.HandleLit $ C.cfgHandle g
   
-  -- TODO: arrays should have length in their type?
-  VectorRepr (BVRepr n) -> undefined
-  MaybeRepr repr -> Gen.App $ C.NothingValue repr
-  ReferenceRepr AnyRepr -> undefined
-  _ -> error $ "zeroValue: no zero value for type " ++ show ty
-  where
-    real0 = Gen.App $ C.RationalLit $ realToFrac (0::Int)
+-- TODO: I guess this probably will need to branch on the type. Only
+-- support array/slice indexing for now?
+translate_alg (IndexExpr _ tp expr index) =
+  TranslateM $ fail "translate_alg IndexExpr: unsupported"
+translate_alg (KeyValueExpr _ tp key value) =
+  TranslateM $ fail "translate_alg KeyValueExpr: unsupported"
 
-someReprCtx :: [Some TypeRepr] -> (forall ctx. CtxRepr ctx -> a) -> a
-someReprCtx [] k = k $ Ctx.empty
-someReprCtx (Some repr : rs) k =
- someReprCtx rs $ \ctxRepr -> k $ ctxRepr Ctx.:> repr
+translate_alg (ParenExpr _ _tp (Pair _ expr)) = expr
+
+translate_alg (SelectorExpr _ tp expr field) =
+  TranslateM $ fail "translate_alg SelectorExpr: unsupported"
+
+translate_alg (SliceExpr _ tp expr begin end cap is_3) = TranslateM $ do
+  TranslatedExpr arr_gen <- runTranslated expr
+  begin_gen <- mapM runTranslated begin
+  end_gen <- mapM runTranslated end
+  cap_gen <- mapM runTranslated cap
+  Some retRepr <- gets retRepr
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+    Some (GoExpr arr_loc arr) <- runSomeGoGenerator retRepr arr_gen
+    begin' <- mapM (runTranslatedExpr retRepr >=> goExprToNat) begin_gen
+    end' <- mapM (runTranslatedExpr retRepr >=> goExprToNat) end_gen
+    cap' <- mapM (runTranslatedExpr retRepr >=> goExprToNat) cap_gen
+    -- If the array has a corresponding assignable location, use
+    -- that. Otherwise, allocate a new reference cell for it.
+    arr_ref <- case arr_loc of
+      Just (GoLocRef ref) -> return ref
+      Nothing -> Gen.newRef arr
+    case exprType arr_ref of
+      ReferenceRepr (VectorRepr _repr) -> do
+        Some . GoExpr Nothing <$> sliceValue arr_ref begin' end' cap'
+      repr ->
+        fail $ "translate_alg SliceExpr: expected vector type, got " ++ show repr
+
+-- Dereference a pointer. Still need to return the reference itself
+-- for the assignable location in order to supprt *x = y syntax.
+translate_alg (StarExpr _ tp operand) =
+  TranslateM $ fail "translate_alg StarExpr: unsupported"
+
+translate_alg (TypeAssertExpr _ tp expr asserted_ty) =
+  TranslateM $ fail "translate_alg TypeAssertExpr: unsupported"
+
+translate_alg (UnaryExpr _ tp op e) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  TranslatedExpr e_gen <- runTranslated e
+  let e_tp = typeOf' $ proj1 e
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+    Some (GoExpr loc e') <- runSomeGoGenerator retRepr e_gen
+    case op of
+      -- Not sure about this.
+      UPlus -> case exprType e' of
+        BVRepr w -> do
+          zero <- zeroValue' e_tp $ BVRepr w
+          return $ Some $ GoExpr Nothing $ Gen.App $ C.BVAdd w zero e'
+        FloatRepr fi -> do
+          zero <- zeroValue' e_tp $ FloatRepr fi
+          return $ Some $ GoExpr Nothing $ Gen.App $ C.FloatAdd fi C.RNE zero e'
+        ty ->
+          fail $ "translate_alg UnaryExpr UPlus: unsupported type " ++ show ty
+      UMinus -> case exprType e' of
+        BVRepr w -> do
+          zero <- zeroValue' e_tp $ BVRepr w
+          return $ Some $ GoExpr Nothing $ Gen.App $ C.BVSub w zero e'
+        FloatRepr fi -> return $ Some $ GoExpr Nothing $ Gen.App $ C.FloatNeg fi e'
+        ty ->
+          fail $ "translate_alg UnaryExpr UMinus: unsupported type " ++ show ty
+      UNot -> case exprType e' of
+        BoolRepr -> return $ Some $ GoExpr Nothing $ Gen.App $ C.Not e'
+        ty ->
+          fail $ "translate_alg UnaryExpr UNot: unsupported type " ++ show ty
+      UBitwiseNot -> case exprType e' of
+        BoolRepr -> return $ Some $ GoExpr Nothing $ Gen.App $ C.Not e'
+        BVRepr w -> return $ Some $ GoExpr Nothing $ Gen.App $ C.BVNot w e'
+      UStar -> fail "translate_alg UnaryExpr UStar: not yet supported"
+      UAddress -> case loc of
+        Just (GoLocRef ref) -> return $ Some $ GoExpr Nothing ref
+        Nothing -> fail "translate_alg UnaryExpr UAddress: no location"
+      UArrow -> fail "translate_alg UnaryExpr UArrow: not yet supported"
+
+-- Hopefully this is sufficient (need to check if 'tp' emitted by
+-- goblin is the actual type denoted by the name).
+translate_alg (NamedTypeExpr _ tp (Ident _kind _name)) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (PointerTypeExpr _ tp _e) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (ArrayTypeExpr _ tp _len _elt) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (FuncTypeExpr _ tp _params _variadic _results) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (InterfaceTypeExpr _ tp _methods _is_incomplete) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (MapTypeExpr _ tp _key _value) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (StructTypeExpr _ tp _fields) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (ChanTypeExpr _ tp _dir _ty) =
+  TranslateM $ TranslatedType <$> translateType tp
+
+translate_alg (TupleExpr _ tp es) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  es_gen <- mapM runTranslated es
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+    es' <- mapM (\(TranslatedExpr gen) -> runSomeGoGenerator retRepr gen) es_gen
+    withAssignment es' $ \ctxRepr assignment ->
+      return $ Some $ GoExpr Nothing $ Gen.App $ C.MkStruct ctxRepr assignment
+
+translate_alg (ProjExpr _ tp tuple i) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  TranslatedExpr tuple_gen <- runTranslated tuple
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+    Some (GoExpr _loc tuple') <- runSomeGoGenerator retRepr tuple_gen
+    case exprType tuple' of
+      StructRepr ctxRepr ->
+        withIndex ctxRepr i $ \ix repr ->
+        return $ Some $ GoExpr Nothing $ Gen.App $ C.GetStruct tuple' ix repr
+      repr ->
+        fail $ "translate_alg ProjExpr: expected struct type, got" ++ show repr
+
+-- -- | Generate the CFG for a function.
+-- translate_alg (FuncDecl _ recv name params variadic results body) =
+--   TranslateM $ TranslatedFuncDecl name <$>
+--   mkFunction recv (Just name) params variadic results body
+
+-- | Generate the CFG for a function.
+translate_alg (FuncDecl _ recv name params variadic results body) =
+  trace (show $ proj1 <$> body) $
+  TranslateM $
+  TranslatedFuncDecl name <$>
+  mkFunction recv (Just name) params variadic results (proj2 <$> body)
+
+translate_alg (GenDecl _ specs) =
+  TranslateM $ TranslatedGenDecl <$> mapM runTranslated specs
+
+translate_alg (TypeAliasDecl _ binds) =
+  TranslateM $ return $ TranslatedGenDecl [] -- TODO: nothing?
+
+translate_alg (Binding ident expr) =
+  TranslateM $ TranslatedBinding ident <$> runTranslated expr
+
+translate_alg (ImportSpec _ pkg_name path) =
+  TranslateM $ return TranslatedImportSpec
+
+translate_alg (ConstSpec _ names ty values) = TranslateM $
+  TranslatedVarSpec names <$> mapM runTranslated ty <*> mapM runTranslated values
+translate_alg (VarSpec _ names ty values) = TranslateM $
+  TranslatedVarSpec names <$> mapM runTranslated ty <*> mapM runTranslated values
+
+translate_alg (TypeSpec _ name ty) = TranslateM $ return TranslatedTypeSpec
+
+translate_alg (FieldNode names ty _tag) = TranslateM $ do
+  ty' <- runTranslated ty
+  TranslatedField names <$> typeOfTranslatedExpr ty'
+
+translate_alg (BlockNode stmts) = TranslateM $ do
+  translated_stmts <- mapM runTranslated stmts
+  Some retRepr <- gets retRepr
+  return $ TranslatedBlock $ SomeGoGenerator retRepr $ do
+    -- Save and restore the lexical environment around the block.
+    gamma <- gets gamma
+    -- seq_stmts retRepr translated_stmts
+    forM_ translated_stmts $ runTranslatedStmt retRepr
+    modify $ \s -> s { gamma = gamma }
+
+
+-- -- | Chain a list of translated statements (each containing a
+-- -- generator action polymorphic in 's') into a single generator
+-- -- action. Checks that the return types match.
+-- seq_stmts :: forall s ret.
+--              TypeRepr ret
+--           -> [Translated Stmt]
+--           -> GoGenerator s ret ()
+-- seq_stmts _ [] = return ()
+-- seq_stmts retRepr (TranslatedStmt somegen : stmts) =
+--   -- case somegen @s of
+--   --   SomeGoGenerator retRepr' gen ->
+--   --     case testEquality retRepr retRepr' of
+--   --       Just Refl -> gen >> seq_stmts retRepr stmts
+--   --       _ -> error ""
+--   runSomeGo
+--     case somegen of
+--     SomeGoGenerator retRepr' gen ->
+--       runSomeGoGenerator 
+--         Just Refl -> gen >> seq_stmts retRepr stmts
+--         _ -> error ""
+
+
+----------------------------------------------------------------------
+-- Translating types
+
+-- TODO: maybe generalize to MonadFail and use implicit parameter for
+-- machineWordWidth.
+translateType :: Type -> TranslateM' (Some TypeRepr)
+translateType NoType = return $ Some UnitRepr
+translateType (ArrayType _len tp) = do
+  Some repr <- translateType tp
+  return $ Some $ ReferenceRepr $ VectorRepr repr
+translateType (BasicType bkind) = case bkind of
+  BasicInvalid -> fail "translateType: invalid type"
+  BasicBool -> return $ Some BoolRepr
+  BasicInt n -> do
+    PosNat w LeqProof <- case n of
+      Just w' -> return $ fromJust $ intToPosNat w'
+      Nothing -> gets machineWordWidth
+    return $ Some $ BVRepr w
+  BasicUInt n -> do
+    PosNat w LeqProof <- case n of
+      Just w' -> return $ fromJust $ intToPosNat w'
+      Nothing -> gets machineWordWidth
+    return $ Some $ BVRepr w
+  -- Not sure how to deal with uintptr. It's intended to be a type
+  -- that can contain any pointer. Maybe an AnyType reference?
+  BasicUIntptr -> fail "translateType: uintptr not supported"
+  BasicFloat 32 -> return $ Some $ FloatRepr SingleFloatRepr
+  BasicFloat 64 -> return $ Some $ FloatRepr DoubleFloatRepr
+  BasicComplex 64 -> return $ Some $ StructRepr $
+    Ctx.empty :> FloatRepr SingleFloatRepr :> FloatRepr SingleFloatRepr
+  BasicComplex 128 -> return $ Some $ StructRepr $
+    Ctx.empty :> FloatRepr DoubleFloatRepr :> FloatRepr DoubleFloatRepr
+  BasicString -> return $ Some $ StringRepr UnicodeRepr
+  BasicUnsafePointer -> fail "translateType: unsafe pointers not supported"
+  BasicUntyped ukind -> case ukind of
+    UntypedBool -> return $ Some BoolRepr
+    UntypedInt -> do
+      PosNat w LeqProof <- gets machineWordWidth
+      return $ Some $ BVRepr w
+    UntypedRune -> do
+      PosNat w LeqProof <- return $ fromJust $ intToPosNat 8
+      return $ Some $ BVRepr w
+    UntypedFloat -> return $ Some $ FloatRepr SingleFloatRepr
+    UntypedComplex -> return $ Some $ StructRepr $
+      Ctx.empty :> FloatRepr SingleFloatRepr :> FloatRepr SingleFloatRepr
+    UntypedString -> return $ Some $ StringRepr UnicodeRepr
+    UntypedNil -> return $ Some UnitRepr
+translateType (ChanType dir tp) = fail "translateType: ChanType not supported"
+translateType (InterfaceType method) =
+  fail "translateType: InterfaceType not supported"
+translateType (MapType key value) = fail "translateType: MapType not supported"
+translateType (NamedType tp) = trace ("NamedType: " ++ show tp) $ translateType tp
+translateType (PointerType tp) = do
+  Some repr <- translateType tp
+  return $ Some $ MaybeRepr $ ReferenceRepr repr
+translateType (FuncType recv params result variadic) = do
+  Some params' <- someCtxRepr <$>
+    mapM translateType ((snd <$> maybeToList recv) ++ params)
+  Some result' <- translateType result
+  return $ Some $ MaybeRepr $ FunctionHandleRepr params' result'
+translateType (SliceType tp) = do
+  Some repr <- translateType tp
+  return $ Some $ MaybeRepr $ StructRepr $
+    Empty :> ReferenceRepr (VectorRepr repr) :> NatRepr :> NatRepr :> NatRepr
+translateType (StructType fields) = do
+  Some ctxRepr <- someCtxRepr <$> mapM (translateType . typeOfNameType) fields
+  return $ Some $ StructRepr ctxRepr
+-- translateType (TupleType []) = return $ Some UnitRepr
+translateType (TupleType elts) = translateType (StructType elts)
+
+someCtxRepr :: [Some TypeRepr] -> Some CtxRepr
+someCtxRepr [] = Some Ctx.empty
+someCtxRepr (Some repr : reprs) = case someCtxRepr reprs of
+  Some ctxRepr -> Some $ ctxRepr :> repr
+
+typeOfTranslatedExpr :: MonadFail m => Translated Expr -> m (Some TypeRepr)
+typeOfTranslatedExpr (TranslatedType repr) = return repr
+typeOfTranslatedExpr (TranslatedExpr _gen) =
+  fail "typeOfTranslatedExpr: expected TranslatedType, got TranslatedExpr"
+
+
+----------------------------------------------------------------------
+-- Helper functions
+
+runTranslated :: forall f s a. Product f TranslateM a -> TranslateM' (Translated a)
+runTranslated = runTranslateM . proj2
 
 failIfNotEqual :: forall k f m a (b :: k).
                   (MonadFail m, Show (f a), Show (f b), TestEquality f)
                => f a -> f b -> String -> m (a :~: b)
 failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
-  | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
+  | otherwise =
+    fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
 
-asStruct :: C.IsSyntaxExtension ext =>
-            Gen.Expr ext s a ->
-            (forall ctx. Gen.Expr ext s (StructType ctx) -> b) -> b
-asStruct e k =
-  case exprType e of
-    StructRepr _tp -> k e
-    _ -> error "asStruct: expected struct"
+runSomeGoGenerator :: TypeRepr ret -> SomeGoGenerator s a -> GoGenerator s ret a
+runSomeGoGenerator retRepr (SomeGoGenerator repr gen) = do
+  Refl <- failIfNotEqual retRepr repr
+          "runSomeGoGenerator: checking return type"
+  gen
 
-asNonemptyStruct :: C.IsSyntaxExtension ext =>
-                     Gen.Expr ext s a ->
-                     (forall ctx tp. Gen.Expr ext s (StructType (ctx ::> tp)) -> b) -> b
-asNonemptyStruct e k =
-  case exprType e of
-    StructRepr (ctx Ctx.:> _tp) -> k e
-    _ -> error "asNonemptyStruct: expected nonempty struct"
+runTranslatedStmt :: TypeRepr ret -> Translated Stmt -> GoGenerator s ret ()
+runTranslatedStmt repr (TranslatedStmt gen) = runSomeGoGenerator repr gen
 
-asSingletonStruct :: C.IsSyntaxExtension ext =>
-                     Gen.Expr ext s a ->
-                     (forall b. Gen.Expr ext s (StructType (SingleCtx b)) -> c) -> c
-asSingletonStruct e k =
-  case exprType e of
-    StructRepr (Ctx.Empty Ctx.:> _tp) -> k e
-    _ -> error "asSingletonStruct: expected singleton struct"
+runTranslatedBlock :: TypeRepr ret -> Translated Block -> GoGenerator s ret ()
+runTranslatedBlock repr (TranslatedBlock gen) = runSomeGoGenerator repr gen
 
-box :: C.IsSyntaxExtension ext =>
-        Gen.Expr ext s a ->
-        Gen.Expr ext s (StructType (Ctx.SingleCtx a))
-box e = Gen.App $ C.MkStruct (Ctx.singleton $ exprType e) (Ctx.singleton e)
+unTranslatedExpr :: Translated Expr -> (forall s. SomeGoGenerator s (SomeGoExpr s))
+unTranslatedExpr (TranslatedExpr gen) = gen
 
-unbox :: C.IsSyntaxExtension ext =>
-          Gen.Expr ext s (StructType (Ctx.SingleCtx a)) ->
-          Gen.Expr ext s a
-unbox e = case exprType e of
-            StructRepr (Ctx.Empty Ctx.:> repr) ->
-              Gen.App $ C.GetStruct e Ctx.baseIndex repr
+runTranslatedExpr :: TypeRepr ret -> Translated Expr
+                  -> GoGenerator s ret (SomeGoExpr s)
+runTranslatedExpr repr (TranslatedExpr gen) = runSomeGoGenerator repr gen
 
--- Use this function to assert that an expression has a certain
+-- | Use this function to assert that an expression has a certain
 -- type. Unit values may be coerced to Nothing values of a Maybe
--- type. The following variations ultimately use this function so this
--- is the one place to handle type coercion logic.             
-asTypeMaybe :: C.IsSyntaxExtension ext =>
-               TypeRepr b -> Gen.Expr ext s a -> Maybe (Gen.Expr ext s b)
+-- type. Bit vector literals may be resized. Floats may be cast
+-- (usually from float literals being double by default but allowed to
+-- implicitly cast to single precision).
+asTypeMaybe :: TypeRepr b -> Gen.Expr Go s a -> Maybe (Gen.Expr Go s b)
 asTypeMaybe repr e =
   case testEquality (exprType e) repr of
     Just Refl -> Just e
     Nothing ->
-      case (exprType e, repr) of
-        (UnitRepr, MaybeRepr repr') -> Just $ Gen.App $ C.NothingValue repr'
-        -- (StructRepr (Ctx.Empty Ctx.:> typeRepr), _)
-        --   | Just Refl <- testEquality typeRepr repr ->
-        --       Just $ Gen.App $ C.GetStruct e Ctx.baseIndex typeRepr
-        -- (_, StructRepr (Ctx.Empty Ctx.:> typeRepr))
-        --   | Just Refl <- testEquality (exprType e) typeRepr ->
-        --       Just $ Gen.App $ C.MkStruct (Ctx.singleton typeRepr) (Ctx.singleton e)
+      -- When the types are not equal, try to coerce the value.
+      case (e, exprType e, repr) of
+        -- Send unit to Nothing.
+        (Gen.App C.EmptyApp, _repr, MaybeRepr repr') ->
+          Just $ Gen.App $ C.NothingValue repr'
+        -- Resize bitvector literals.
+        (Gen.App (C.BVLit n i), _repr, BVRepr m) ->
+          Just $ Gen.App $ C.BVLit m i
+        -- Coerce floats (usually double to float 
+        (_e, FloatRepr _fi, FloatRepr fi) ->
+          Just $ Gen.App $ C.FloatCast fi C.RNE e
         _ -> Nothing
 
-asType' :: C.IsSyntaxExtension ext => TypeRepr b -> Gen.Expr ext s a -> Gen.Expr ext s b
-asType' repr e =
+asType :: TypeRepr b -> Gen.Expr Go s a -> Gen.Expr Go s b
+asType repr e =
   case asTypeMaybe repr e of
     Just e' -> e'
     Nothing -> error $ "asType fail: expression " ++ show e ++ " of type "
                ++ show (exprType e) ++ " incompatible with type " ++ show repr
 
--- CPS version
-asType :: C.IsSyntaxExtension ext => TypeRepr b -> Gen.Expr ext s a -> (Gen.Expr ext s b -> c) -> c
-asType repr e k = k $ asType' repr e
+-- | CPS version of asType
+asType' :: TypeRepr b -> Gen.Expr Go s a -> (Gen.Expr Go s b -> c) -> c
+asType' repr e k = k $ asType repr e
 
--- asType' lifted to assignments.
-asTypes' :: C.IsSyntaxExtension ext =>
-           CtxRepr ctx' ->
-           Ctx.Assignment (Gen.Expr ext s) ctx ->
-           Ctx.Assignment (Gen.Expr ext s) ctx'
-asTypes' Ctx.Empty Ctx.Empty = Ctx.Empty
-asTypes' (reprs Ctx.:> repr) (es Ctx.:> e) = asTypes' reprs es Ctx.:> asType' repr e
-asTypes' ctx assignment =
-  error $ "asTypes: " ++ show assignment ++ " incompatible with " ++ show ctx
+-- | asTypeMaybe lifted to assignments.
+asTypesMaybe :: CtxRepr ctx' ->
+                Assignment (Gen.Expr Go s) ctx ->
+                Maybe (Assignment (Gen.Expr Go s) ctx')
+asTypesMaybe Empty Empty = Just Empty
+asTypesMaybe (reprs :> repr) (es :> e) =
+  pure (:>) <*> asTypesMaybe reprs es <*> asTypeMaybe repr e
+asTypesMaybe ctx assignment = Nothing
 
--- CPS version
-asTypes :: C.IsSyntaxExtension ext =>
-            CtxRepr ctx' ->
-            Ctx.Assignment (Gen.Expr ext s) ctx ->
-            (Ctx.Assignment (Gen.Expr ext s) ctx' -> a) -> a
-asTypes ctxRepr assignment k = k $ asTypes' ctxRepr assignment
+asTypes :: CtxRepr ctx' ->
+           Assignment (Gen.Expr Go s) ctx ->
+           Assignment (Gen.Expr Go s) ctx'
+asTypes ctx assignment = case asTypesMaybe ctx assignment of
+  Just assignment' -> assignment'
+  Nothing ->
+    error $ "asTypes: " ++ show assignment ++ " incompatible with " ++ show ctx
+
+-- | CPS version of asTypes
+asTypes' :: CtxRepr ctx' ->
+            Assignment (Gen.Expr Go s) ctx ->
+            (Assignment (Gen.Expr Go s) ctx' -> a) -> a
+asTypes' ctxRepr assignment k = k $ asTypes ctxRepr assignment
+
+coerceAssignment :: CtxRepr expectedCtx ->
+                    Assignment (Gen.Expr Go s) ctx ->
+                    Assignment (Gen.Expr Go s) expectedCtx
+coerceAssignment expectedCtx assignment =
+  case asTypesMaybe expectedCtx assignment of
+    Just assignment' -> assignment'
+    Nothing -> error $ "coerceAssignment: assignment " ++ show assignment ++
+               " incompatible with ctx " ++ show expectedCtx
+
+withAssignment :: [SomeGoExpr s]
+               -> (forall args. CtxRepr args ->
+                   Assignment (Gen.Expr Go s) args -> a)
+               -> a
+withAssignment [] k = k Empty Empty
+withAssignment (Some (GoExpr _loc e) : es) k =
+  withAssignment es $ \ctx assignment ->
+  k (ctx :> exprType e) (assignment :> e)
+
+unify_exprs :: MonadFail m => Type -> Type -> SomeGoExpr s -> SomeGoExpr s
+            -> m (Type, SomeExprPair s)
+unify_exprs t1 t2 (Some (GoExpr _loc1 e1)) (Some (GoExpr _loc2 e2)) =
+  case (t1, t2) of
+    (BasicType (BasicUntyped _ukind), _) ->
+      return (t2, Some $ PairIx (asType (exprType e2) e1) e2)
+    (_, BasicType (BasicUntyped _ukind)) ->
+      return (t1, Some $ PairIx e1 $ asType (exprType e1) e2)
+    _ ->
+      if t1 == t2 then
+        return (t1, Some $ PairIx e1 $ asType (exprType e1) e2)
+      else
+        fail $ "unify_types: incompatible types: " ++ show t1 ++ ", " ++ show t2
+
+-- | Translate binops for which the argument types and return type are
+-- all the same.
+translateHomoBinop :: Type -> BinaryOp -> Gen.Expr Go s a -> Gen.Expr Go s a
+                   -> GoGenerator s ret (Gen.Expr Go s a)
+translateHomoBinop tp op left right = case op of
+  BPlus -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVAdd w left right
+    -- | Rounding uses IEEE 754 round-to-even rules but with an IEEE
+    -- negative zero further simplified to an unsigned zero. -- SPEC
+    FloatRepr fi -> return $ Gen.App $ C.FloatAdd fi C.RNE left right
+    StringRepr si -> return $ Gen.App $ C.StringConcat si left right
+    ty -> fail $ "translateHomoBinop BPlus: unsupported type " ++ show ty
+  BMinus -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVSub w left right
+    FloatRepr fi -> return $ Gen.App $ C.FloatSub fi C.RNE left right
+    ty -> fail $ "translateHomoBinop BMinus: unsupported type " ++ show ty
+  BMult -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVMul w left right
+    FloatRepr fi -> return $ Gen.App $ C.FloatMul fi C.RNE left right
+    ty -> fail $ "translateHomoBinop BMult: unsupported type " ++ show ty
+  BDiv -> case exprType left of
+    BVRepr w -> case tp of
+      BasicType (BasicInt _w) -> return $ Gen.App $ C.BVSdiv w left right
+      BasicType (BasicUInt _w) -> return $ Gen.App $ C.BVUdiv w left right
+      _ -> fail $ "translateHomoBinop BDiv: unexpected type " ++ show tp
+    FloatRepr fi -> return $ Gen.App $ C.FloatDiv fi C.RNE left right
+    ty -> fail $ "translateHomoBinop BDiv: unsupported type " ++ show ty
+  BAnd -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVAnd w left right
+    BoolRepr -> return $ Gen.App $ C.And left right
+    ty -> fail $ "translateHomoBinop BAnd: unsupported type " ++ show ty
+  BOr -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVOr w left right
+    BoolRepr -> return $ Gen.App $ C.Or left right
+    ty -> fail $ "translateHomoBinop BOr: unsupported type " ++ show ty
+  BXor -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVXor w left right
+    BoolRepr -> return $ Gen.App $ C.BoolXor left right
+    ty -> fail $ "translateHomoBinop BXor: unsupported type " ++ show ty
+  BAndNot -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVAnd w left (Gen.App $ C.BVNot w right)
+    BoolRepr -> return $ Gen.App $ C.And left (Gen.App $ C.Not right)
+    ty -> fail $ "translateHomoBinop BAndNot: unsupported type " ++ show ty
+  -- Short-circuit evaluation for logical AND and OR
+  BLAnd -> case exprType left of
+    BoolRepr -> Gen.ifte left (return right) $ return $ Gen.App $ C.BoolLit False
+    ty -> fail $ "translateHomoBinop BLAnd: unsupported type " ++ show ty
+  BLOr -> case exprType left of
+    BoolRepr -> Gen.ifte left (return $ Gen.App $ C.BoolLit True) $ return right
+    ty -> fail $ "translateHomoBinop BLOr: unsupported type " ++ show ty
+  _ -> fail $ "translateHomoBinop: unexpected binop " ++ show op
+
+-- | Translate comparison binops (argument types are the same and
+-- result type is bool).
+translateComparison :: Type -> BinaryOp -> Gen.Expr Go s a -> Gen.Expr Go s a
+                    -> GoGenerator s ret (Gen.Expr Go s BoolType)
+translateComparison tp op left right = Gen.App <$> case op of
+  BEq -> case exprType left of
+    BoolRepr -> return $ C.BoolEq left right
+    BVRepr w -> return $ C.BVEq w left right
+    FloatRepr _fi -> return $ C.FloatEq left right
+    -- TODO: support other types given by the spec
+    ty -> fail $ "translateComparison BEq: unsupported type " ++ show ty
+  BLt -> case exprType left of
+    BVRepr w -> return $ C.BVSlt w left right
+    FloatRepr _fi -> return $ C.FloatLt left right
+    ty -> fail $ "translateComparison BLt: unsupported type " ++ show ty
+  BGt -> case exprType left of
+    BVRepr w -> return $ C.Not $ Gen.App $ C.BVSle w left right
+    FloatRepr _fi -> return $ C.FloatGt left right
+    ty -> fail $ "translateComparison BGt: unsupported type " ++ show ty
+  -- We could desugar neq before translation to avoid duplication here.
+  BNeq -> case exprType left of
+    BoolRepr -> return $ C.Not $ Gen.App $ C.BoolEq left right
+    BVRepr w -> return $ C.Not $ Gen.App $ C.BVEq w left right
+    FloatRepr _fi -> return $ C.Not $ Gen.App $ C.FloatEq left right
+    -- TODO: support other types given by the spec
+    ty -> fail $ "translateComparison BNeq: unsupported type " ++ show ty
+  BLeq -> case exprType left of
+    BVRepr w -> return $ C.BVSle w left right
+    FloatRepr _fi -> return $ C.FloatLe left right
+    ty -> fail $ "translateComparison BLeq: unsupported type " ++ show ty
+  BGeq -> case exprType left of
+    BVRepr w -> return $ C.Not $ Gen.App $ C.BVSlt w left right
+    FloatRepr _fi -> return $ C.FloatGe left right
+    ty -> fail $ "translateComparison BGeq: unsupported type " ++ show ty
+  _ -> fail $ "translateComparison: unexpected binop " ++ show op
+
+-- | Set up parameter and return variables for function declarations.
+bindFields :: [Translated Field]
+           -> (forall ctx. CtxRepr ctx ->
+               (forall s ret. Assignment (Gen.Expr Go s) ctx ->
+                GoGenerator s ret ()) -> a)
+           -> a
+bindFields [] k = k Ctx.empty $ const $ return ()
+bindFields (TranslatedField [] (Some repr) : fields) k =
+  bindFields fields $ \ctxRepr f ->
+  k (ctxRepr :> repr) $ \(assignment :> _x) -> f assignment
+bindFields (TranslatedField [Ident _kind name] (Some repr) : fields) k =
+  bindFields fields $ \ctxRepr f ->
+  k (ctxRepr :> repr) $ \(assignment :> x) ->
+  -- Declare variable and initialize with value x.
+  declareVar name x >> f assignment  
+bindFields (TranslatedField names _repr : _fields) k =
+  k Ctx.empty $ const $ fail $
+  "bindFields: unexpected multiple names " ++ show names
+
+-- | Declare variable with initial value.
+declareVar :: Text -> Gen.Expr Go s tp -> GoGenerator s ret ()
+declareVar name e = do
+  ref <- Gen.newReference e
+  reg <- Gen.newReg ref
+  modify (\ts -> ts { gamma = HM.insert name
+                      (Some $ GoReg (exprType e) reg) (gamma ts) })
+
+writeToLoc :: TypeRepr tp -> GoLoc s tp -> SomeGoExpr s -> GoGenerator s ret ()
+writeToLoc repr loc (Some (GoExpr _loc e)) = case loc of
+  GoLocRef ref ->
+    trace ("writing " ++ show e ++ " to reference " ++ show ref) $
+    asType' repr e $ \e' -> Gen.writeRef ref e'
+  GoLocGlobal glob ->
+    trace ("writing " ++ show e ++ " to global " ++ show glob) $
+    trace ("global type: " ++ show (Gen.globalType glob)) $
+    asType' repr e $ \e' -> Gen.writeGlobal glob e'
+  GoLocArray arr index -> fail "writeToLoc: arrays not yet supported"
+
+bindResult :: [Translated Field]
+           -> (forall r. TypeRepr r ->
+               (forall s ret. Gen.Expr Go s r -> GoGenerator s ret ()) -> a)
+           -> a
+bindResult fields k = bindFields fields $ \ctxRepr f -> 
+  case ctxRepr of
+    Empty :> repr -> k repr $ \x -> f $ Ctx.empty :> x
+    _ -> k (StructRepr ctxRepr) $ \x -> case x of
+      Gen.App (C.MkStruct _repr assignment) -> f assignment
+      _ -> fail "bindReturn: expected MkStruct constructor"
+
+-- zeroValue :: MonadFail m => Type -> TypeRepr a -> m (Gen.Expr Go s a)
+-- zeroValue tp repr = Gen.App <$> case repr of
+--   UnitRepr -> return C.EmptyApp
+--   BoolRepr -> return $ C.BoolLit False
+--   BVRepr w -> return $ C.BVLit w 0
+--   FloatRepr SingleFloatRepr -> return $ C.FloatLit 0.0
+--   FloatRepr DoubleFloatRepr -> return $ C.DoubleLit 0.0
+--   StringRepr UnicodeRepr -> return $ C.StringLit ""
+--   MaybeRepr repr -> return $ C.NothingValue repr
+--   StructRepr ctx ->
+--     let tps = case tp of
+--           StructType ts -> ts
+--           TupleType ts -> ts in
+--       C.MkStruct ctx <$> traverseWithIndex
+--       (\ix x -> zeroValue (typeOfNameType $ tps !! indexVal ix) x) ctx
+--   VectorRepr repr ->
+--     let (tp', len) = case tp of
+--           ArrayType n t -> (t, n)
+--           SliceType t -> (t, 0) in
+--       C.VectorLit repr . V.replicate len <$> zeroValue tp' repr
+--   _ -> fail $ "zeroValue: unsupported type " ++ show repr
+
+zeroValue :: Type -> TypeRepr a -> Maybe (Gen.Expr Go s a)
+zeroValue tp repr = Gen.App <$> case repr of
+  UnitRepr -> return C.EmptyApp
+  BoolRepr -> return $ C.BoolLit False
+  BVRepr w -> return $ C.BVLit w 0
+  FloatRepr SingleFloatRepr -> return $ C.FloatLit 0.0
+  FloatRepr DoubleFloatRepr -> return $ C.DoubleLit 0.0
+  StringRepr UnicodeRepr -> return $ C.StringLit ""
+  MaybeRepr repr -> return $ C.NothingValue repr
+  StructRepr ctx ->
+    let tps = case tp of
+          StructType ts -> ts
+          TupleType ts -> ts in
+      C.MkStruct ctx <$> traverseWithIndex
+      (\ix x -> zeroValue (typeOfNameType $ tps !! indexVal ix) x) ctx
+  VectorRepr repr ->
+    let (tp', len) = case tp of
+          ArrayType n t -> (t, n)
+          SliceType t -> (t, 0) in
+      C.VectorLit repr . V.replicate len <$> zeroValue tp' repr
+  _ -> Nothing
+
+zeroValue' :: MonadFail m => Type -> TypeRepr a -> m (Gen.Expr Go s a)
+zeroValue' tp repr =
+  maybe (fail $ "zeroValue': no zero value for type " ++ show tp
+         ++ " with repr " ++ show repr) return $ zeroValue tp repr
+
+zeroValue'' :: Type -> TranslateM' AnyGoExpr
+zeroValue'' tp = do
+  Some repr <- translateType tp
+  trace ("tp: " ++ show tp) $
+    trace ("repr: " ++ show repr) $
+    -- trace ("zero: " ++ show (zeroValue' @m @s tp repr)) $
+    return $ AnyGoExpr $ Some $ GoExpr Nothing $ maybe (error "asdf") id $ zeroValue' tp repr
+  -- AnyGoExpr <$> (Some . GoExpr Nothing <$> zeroValue' tp repr)
+
+-- -- | Try to look up a global identifier, returning a TranslatedExpr if
+-- -- successful. Otherwise return a TranslatedUnbound to signal that the
+-- -- lookup failed.
+-- lookupGlobal :: Ident -> Ident -> TranslateM' (Translated Expr)
+-- lookupGlobal qual@(Ident _k pkgName) name@(Ident _k' nm) =
+--   -- trace ("lookupGlobal: " ++ show qual ++ ", " ++ show name) $
+--   do
+--   Some retRepr <- gets retRepr
+--   namespaces <- gets namespaces
+--   -- trace ("namespaces: " ++ show namespaces) $
+--   trace ("looking up: " ++ show qual ++ ", " ++ show name) $
+--     trace ("ns: " ++ show (HM.lookup pkgName namespaces)) $ do
+--     Namespace globals <- return $ fromJust $ HM.lookup pkgName namespaces
+--     -- Try lookup in globals
+--     case HM.lookup nm globals of
+--       Just (AnyGoExpr e) ->
+--         return $ TranslatedExpr $ SomeGoGenerator retRepr $ return e
+--       Nothing ->
+--         return $ TranslatedUnbound qual name
+
+-- | Try to look up a global identifier, returning a TranslatedExpr if
+-- successful. Otherwise return a TranslatedUnbound to signal that the
+-- lookup failed.
+lookupGlobal :: Ident -> Ident -> TranslateM' (Translated Expr)
+lookupGlobal qual@(Ident _k pkgName) name@(Ident _k' nm) =
+  do
+  Some retRepr <- gets retRepr
+  namespaces <- gets namespaces
+  -- trace ("looking up: " ++ show qual ++ ", " ++ show name) $
+  --   trace ("ns: " ++ show (HM.lookup pkgName namespaces)) $ do
+  Namespace globals funcs <- maybe (fail "asdf") return $ HM.lookup pkgName namespaces
+  -- Try lookup in globals
+  case HM.lookup nm globals of
+    Just (GoGlobal glob _zv) ->
+      return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+      e <- Gen.readGlobal glob
+      return $ Some $ GoExpr (Just $ GoLocGlobal glob) $ e
+    Nothing ->
+      -- Try lookup in funcs
+      case HM.lookup nm funcs of
+        Just (SomeHandle h) ->
+          return $ TranslatedExpr $ SomeGoGenerator retRepr $
+          return $ Some $ GoExpr Nothing $ Gen.App $
+          C.JustValue (handleType h) $ Gen.App $ C.HandleLit h
+        Nothing ->
+          return $ TranslatedUnbound qual name
+
+mkPackageNamespace :: Node a Package -> TranslateM' Namespace
+mkPackageNamespace (In (PackageNode _name _path _imports _file_paths files _inits)) = do
+  file_namespaces <- mapM mkFileNamespace files
+  foldM (\x y -> return $ namespace_union x y) def file_namespaces
+
+-- | Fold over the toplevel declarations in the file to produce
+-- constant, variable, and function environments.
+mkFileNamespace :: Node a File -> TranslateM' Namespace
+mkFileNamespace (In (FileNode _path _name decls _imports)) = do
+  Just ha <- gets halloc
+  foldM (\ns decl -> case decl of
+            In (FuncDecl _x recv (Ident _k nm)
+                 params _variadic results _body) -> do
+              Some paramsRepr <- someCtxRepr <$>
+                mapM translateType (fieldType <$> maybeToList recv ++ params)
+              Some retRepr <- translateType $ mkReturnType $ fieldType <$> results
+              h <- liftIO' $
+                mkHandle' ha (functionNameFromText nm) paramsRepr retRepr
+              -- return $ insert_global nm
+              --   (AnyGoExpr $ Some $ GoExpr Nothing $
+              --    Gen.App $ C.JustValue (FunctionHandleRepr paramsRepr retRepr) $
+              --    Gen.App $ C.HandleLit h) ns
+              return $ insert_function nm (SomeHandle h) ns
+            In (GenDecl _x specs) -> specsUpdNamespace specs ns
+            _decl -> return ns)
+    def decls
+
+-- | Declare globals. The initializer will give them their initial
+-- values later on.
+specsUpdNamespace :: [Node a Spec] -> Namespace -> TranslateM' Namespace
+specsUpdNamespace [] ns = return ns
+specsUpdNamespace (spec : specs) ns = upd spec ns >>= specsUpdNamespace specs
+  where
+    upd :: Node a Spec -> Namespace -> TranslateM' Namespace
+    upd (In (ConstSpec _x names tp values)) ns =
+      foldM (f $ typeOf' <$> tp) ns $ zip names $
+      -- The number of RHS values is either 0 or equal to the number
+      -- of LHS names, so here we map Just over the values and append
+      -- an infinite tail of Nothings to account for the case in which
+      -- there are no values.
+      (Just <$> values) ++ repeat Nothing
+    upd (In (VarSpec _x names tp values)) ns =
+      foldM (f $ typeOf' <$> tp) ns $ zip names $
+      (Just <$> values) ++ repeat Nothing
+    upd _spec ns = return ns
+
+    f :: Maybe Type -> Namespace -> (Ident, Maybe (Node a Expr))
+      -> TranslateM' Namespace
+    f tp ns (Ident _k name, value) = do
+      Just ha <- gets halloc
+      tp' <- fromMaybe (case value of
+                          Just v -> return $ typeOf' v
+                          Nothing -> fail "specsUpdNamespace: expected value when type is missing") $ return <$> tp
+      Some repr <- translateType tp'
+      glob <- liftIO' $ Gen.freshGlobalVar ha name repr
+      trace ("creating fresh global " ++ show glob) $
+        trace ("name: " ++ show name) $
+        trace ("tp: " ++ show tp) $
+        trace ("repr: " ++ show repr) $ do
+        let goglob = GoGlobal glob $ maybe (error "asdfg") id $ zeroValue tp' repr
+      -- goglob <- GoGlobal glob <$> maybe (fail "asdf") return $ zeroValue tp' repr
+      -- Record the global in list of all globals.
+        addGlobal goglob
+      -- Insert it into the namespace.
+        return $ insert_global name goglob ns
+
+indexedAssignment :: Assignment f ctx
+                  -> Assignment (Product (Index ctx) f) ctx
+indexedAssignment =
+  runIdentity . traverseWithIndex (\ix x -> return $ Pair ix x)
+
+indexedList :: Assignment f ctx -> [Some (Product (Index ctx) f)]
+indexedList = toListFC Some . indexedAssignment
+
+someIndexVal :: Assignment f ctx -> Int -> Some (Product (Index ctx) f)
+someIndexVal assignment i = indexedList assignment !! i
+
+withIndex :: Assignment f ctx
+          -> Int
+          -> (forall tp. Index ctx tp -> f tp -> a)
+          -> a
+withIndex assignment i k = case someIndexVal assignment i of
+  Some (Pair ix x) -> k ix x
+
+runSpec :: TypeRepr ret -> Translated Spec -> GoGenerator s ret ()
+runSpec retRepr (TranslatedVarSpec names ty values) = do
+  values' <- mapM (runTranslatedExpr retRepr) values
+  forM_ (zip names values) $ \(Ident _k name, TranslatedExpr gen) -> do
+    Some (GoExpr _loc value) <- runSomeGoGenerator retRepr gen
+    case ty of
+      Just (TranslatedType (Some repr)) -> declareVar name $ asType repr value
+      Nothing -> declareVar name value
+runSpec _repr _spec = return ()
+
+translateBuiltin :: Ident -> Ident -> [Translated Expr] -> TranslateM' (Translated Expr)
+translateBuiltin _qual ident@(Ident _k name) args = do
+  Some retRepr <- gets retRepr
+  case name of
+    "panic" ->
+      return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+      args' <- mapM (runTranslatedExpr retRepr) args
+      Gen.reportError $ Gen.App $ C.StringLit $ UnicodeLiteral $
+        T.pack $ "panic: " ++ show args'
+    -- TODO: len, make, new, etc.
+    _nm ->
+      fail $ "translateBuiltin: unknown identifier: " ++ show ident
+
+localNamespace :: TranslateM' Namespace
+localNamespace = gets $ \(TransState { namespaces = ns
+                                     , pkgName = name }) ->
+                          fromJust $ HM.lookup name ns
+
+fieldsType :: [Node a Field] -> Type
+fieldsType = TupleType . fmap (typeToNameType . fieldType)
+
+-- | A slice is represented by a vector reference and three nats:
+-- 1) begin of slice range
+-- 2) end of slice range
+-- 3) capacity
+type SliceCtx tp =
+  EmptyCtx ::> ReferenceType (VectorType tp) ::> NatType ::> NatType ::> NatType
+type SliceType tp = StructType (SliceCtx tp)
+
+sliceCtx :: TypeRepr tp -> CtxRepr (SliceCtx tp)
+sliceCtx repr =
+  Empty :> ReferenceRepr (VectorRepr repr) :> NatRepr :> NatRepr :> NatRepr
+
+sliceType :: TypeRepr tp -> TypeRepr (SliceType tp)
+sliceType repr = StructRepr $ sliceCtx repr
+
+-- | Provide default values for begin, end, or capacity.
+sliceValue :: Gen.Expr Go s (ReferenceType (VectorType tp))
+           -> Maybe (Gen.Expr Go s NatType)
+           -> Maybe (Gen.Expr Go s NatType)
+           -> Maybe (Gen.Expr Go s NatType)
+           -> GoGenerator s ret (Gen.Expr Go s (SliceType tp))
+sliceValue vec begin end cap = do
+  vec' <- Gen.readRef vec
+  let begin' = fromMaybe (Gen.App $ C.NatLit 0) begin
+      end' = fromMaybe (Gen.App $ C.VectorSize vec') end
+      cap' = fromMaybe (Gen.App $ C.NatSub end' begin') cap
+  case exprType vec of
+    ReferenceRepr (VectorRepr repr) ->
+      return $ Gen.App $ C.MkStruct (sliceCtx repr) $
+      Ctx.empty :> vec :> begin' :> end' :> cap'
+
+goExprToNat :: Some (GoExpr s) -> GoGenerator s ret (Gen.Expr Go s NatType)
+goExprToNat (Some (GoExpr _loc e)) = case exprType e of
+  BVRepr w -> return $ Gen.App $ C.BvToNat w e
+  repr -> fail $ "toNat: expected bit vector, got " ++ show repr
+
+-- | Helper for constructing function CFGs, used for both function
+-- declarations and function literals.
+mkFunction :: Maybe (Product (Node a) TranslateM  Field) -- ^ receiver type
+           -> Maybe Ident -- ^ function name
+           -> [Product (Node a) TranslateM Field] -- ^ params
+           -> Maybe (Product (Node a) TranslateM Field) -- ^ variadic
+           -> [Product (Node a) TranslateM Field] -- ^ results
+           -> Maybe (TranslateM Block) -- ^ body
+           -> TranslateM' (C.AnyCFG Go)
+mkFunction recv name params variadic results body =
+  -- trace ("translating function " ++ show name) $
+  do
+  fromMaybe (return ()) $
+    fail "translate_alg FuncDecl: unexpected variadic parameter (should\
+         \ have been desugared away)" <$> variadic
+  params' <- mapM runTranslated $ maybeToList recv ++ params
+  results' <- mapM runTranslated results
+  -- Set return type in translator state.
+  -- repr <- translateType $ mkReturnType $ (fieldType . proj1) <$> results
+  -- modify $ \ts -> ts { retRepr = repr }
+  globals <- ns_globals <$> localNamespace
+  functions <- ns_funcs <$> localNamespace
+  Just sng <- gets sng
+  Just ha <- gets halloc
+  pkgName <- gets pkgName
+  bindFields params' $ \paramsRepr paramsGen ->
+    bindResult results' $ \resultRepr resultGen -> do
+    
+    -- SomeHandle h <- case name of
+    --   Just (Ident _k nm) -> return $ fromJust $ HM.lookup nm fenv
+    --   -- If there is no function name, allocate a new anonymous handle
+    --   Nothing -> SomeHandle <$>
+    --     (liftIO' $ mkHandle' ha (functionNameFromText "@anon") paramsRepr resultRepr)
+
+    SomeHandle h <- case name of
+      Just (Ident _k nm) -> return $ fromJust $ HM.lookup nm functions
+        -- AnyGoExpr (Some (GoExpr _loc (Gen.App (C.JustValue _repr (Gen.App (C.HandleLit h)))))) ->
+          -- return $ SomeHandle h
+      -- If there is no function name, allocate a new anonymous handle
+      Nothing -> SomeHandle <$>
+        (liftIO' $ mkHandle' ha (functionNameFromText "@anon") paramsRepr resultRepr)
+        
+    Refl <- failIfNotEqual paramsRepr (handleArgTypes h) $
+            "translate_alg FuncDecl: checking argument types"
+    Refl <- failIfNotEqual resultRepr (handleReturnType h) $
+            "translate_alg FuncDecl: checking return type"
+    (Gen.SomeCFG g, []) <- case body of
+      Just body' -> do
+        modify $ \ts -> ts { retRepr = Some resultRepr }
+        TranslatedBlock body_gen <- runTranslateM body'
+        liftIO' $ Gen.defineFunction InternalPos sng h
+          (\assignment ->
+             (def, do
+               --  ("resultRepr: " ++ show resultRepr) $ do
+                 paramsGen $ fmapFC Gen.AtomExpr assignment
+                 zeroValue' (fieldsType $ proj1 <$> results) resultRepr >>= resultGen
+                 runSomeGoGenerator resultRepr body_gen
+                 -- Fail if no return.
+                 Gen.reportError $
+                   Gen.App (C.StringLit "missing return statement")))
+      Nothing ->
+        liftIO' $ Gen.defineFunction InternalPos sng h
+        (\assignment -> (def :: GenState s, Gen.reportError $
+                              Gen.App (C.StringLit "missing function body")))
+    let g' = case toSSA g of C.SomeCFG g' -> C.AnyCFG g'
+    addFunction ((\(Ident _k nm) -> (pkgName, functionNameFromText nm)) <$> name) g'
+    if maybe "" identName name == "main" then
+      modify $ \ts -> ts { mainFunction = Just g' }
+      else return ()
+    return g'
+
+mkInitializer :: [Translated Package]
+              -> TranslateM' (C.SomeCFG Go EmptyCtx UnitType)
+mkInitializer pkgs = do
+  Just sng <- gets sng
+  Just ha <- gets halloc
+  pkgName <- gets pkgName
+  h <- liftIO' $ mkHandle' ha (functionNameFromText "@init") Ctx.empty UnitRepr
+  (Gen.SomeCFG g, []) <- liftIO' $ Gen.defineFunction InternalPos sng h
+    (\assignment -> (def, do
+                        forM_ pkgs $ runSomeGoGenerator UnitRepr . packageInit
+                        Gen.returnFromFunction $ Gen.App C.EmptyApp))
+  -- return $ toSSA g
+  case toSSA g of
+    C.SomeCFG g' -> do
+      addFunction Nothing $ C.AnyCFG g'
+      return $ C.SomeCFG g'
+
+
+mkBasicConst :: PosNat -> BasicConst -> Some (Gen.Expr Go s)
+mkBasicConst n@(PosNat w LeqProof) c = case c of
+  BasicConstBool b -> Some $ Gen.App $ C.BoolLit b
+  BasicConstString str -> Some $ Gen.App $ C.StringLit $ UnicodeLiteral str
+  BasicConstInt i -> Some $ Gen.App $ C.BVLit w i
+  BasicConstFloat num denom -> case (mkBasicConst n num, mkBasicConst n denom) of
+    (Some num', Some denom') -> asType' (BVRepr w) num' $ \num'' ->
+      asType' (BVRepr w) denom' $ \denom'' ->
+      Some $ Gen.App $ C.FloatDiv DoubleFloatRepr C.RNE
+      (Gen.App $ C.FloatFromBV DoubleFloatRepr C.RNE num'')
+      (Gen.App $ C.FloatFromBV DoubleFloatRepr C.RNE denom'')
+  BasicConstComplex real imag ->
+    error "mkBasicConst: complex numbers not yet supported"
