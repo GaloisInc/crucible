@@ -222,6 +222,9 @@ declare_overrides =
   , polymorphic1_llvm_override "llvm.umul.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmUmulWithOverflow w))
 
+  , basic_llvm_override LLVM.llvmFabsF32
+  , basic_llvm_override LLVM.llvmFabsF64
+
   -- C standard library functions
   , basic_llvm_override Libc.llvmAbortOverride
   , basic_llvm_override Libc.llvmAssertRtnOverride
