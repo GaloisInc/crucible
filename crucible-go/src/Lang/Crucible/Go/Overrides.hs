@@ -50,7 +50,7 @@ mkSomeOverride pkg nm argsRepr retRepr overrideSim =
 mkFresh :: IsSymInterface sym
         => String
         -> BaseTypeRepr ty
-        -> Crux.OverM sym ext (RegValue sym (BaseToType ty))
+        -> Crux.OverM p sym ext (RegValue sym (BaseToType ty))
 mkFresh nm ty =
   do sym  <- C.getSymInterface
      name <- case W4.userSymbol nm of
@@ -60,7 +60,7 @@ mkFresh nm ty =
 
 fresh_int :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
-             -> Crux.OverM sym ext (RegValue sym (BVType w))
+             -> Crux.OverM p sym ext (RegValue sym (BVType w))
 fresh_int w = mkFresh "X" (BaseBVRepr w)
 
 do_assume :: IsSymInterface sym

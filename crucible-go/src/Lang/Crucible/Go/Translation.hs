@@ -14,6 +14,7 @@ import           Control.Monad.Fail (MonadFail)
 import           Control.Monad.Identity
 import           Control.Monad.State
 
+import           Data.BitVector.Sized
 import           Data.Default.Class
 import           Data.Functor.Product
 import           Data.HashMap.Strict as HM hiding (foldl)
@@ -150,13 +151,13 @@ translate_alg (AssignStmt _ assign_tp op lhs rhs) =
       -- variables for each name on the LHS (shadowing any existing
       -- variables with the same name) and the result would be
       -- correct, but it's more efficient to reuse existing locations.
+      -- TODO: DO THIS, or switch to stack of scopes.
       Define ->
         forM_ (zip3 (proj1 <$> lhs) lhs' rhs') $
         \(In (IdentExpr _x _tp qual name), l, r) ->
           case l of
             -- If bound, write to the existing location.
             TranslatedExpr gen -> do
-              -- trace ("asdf") $ do
               Some (GoExpr (Just loc) l) <- runSomeGoGenerator retRepr gen
               writeToLoc (exprType l) loc r
             -- If unbound, declare new variable
@@ -522,7 +523,7 @@ translate_alg (GenDecl _ specs) =
   TranslateM $ TranslatedGenDecl <$> mapM runTranslated specs
 
 translate_alg (TypeAliasDecl _ binds) =
-  TranslateM $ return $ TranslatedGenDecl [] -- TODO: nothing?
+  TranslateM $ return $ TranslatedGenDecl []
 
 translate_alg (Binding ident expr) =
   TranslateM $ TranslatedBinding ident <$> runTranslated expr
@@ -577,7 +578,7 @@ translate_alg (BlockNode stmts) = TranslateM $ do
 ----------------------------------------------------------------------
 -- Translating types
 
--- TODO: maybe generalize to MonadFail and use implicit parameter for
+-- Maybe generalize to MonadFail and use implicit parameter for
 -- machineWordWidth.
 translateType :: Type -> TranslateM' (Some TypeRepr)
 translateType NoType = return $ Some UnitRepr
@@ -690,9 +691,10 @@ runTranslatedExpr repr (TranslatedExpr gen) = runSomeGoGenerator repr gen
 
 -- | Use this function to assert that an expression has a certain
 -- type. Unit values may be coerced to Nothing values of a Maybe
--- type. Bit vector literals may be resized. Floats may be cast
+-- type. Bit vector literals may be truncated. Floats may be cast
 -- (usually from float literals being double by default but allowed to
--- implicitly cast to single precision).
+-- implicitly cast to single precision. similar story for bit
+-- vectors).
 asTypeMaybe :: TypeRepr b -> Gen.Expr Go s a -> Maybe (Gen.Expr Go s b)
 asTypeMaybe repr e =
   case testEquality (exprType e) repr of
@@ -703,9 +705,11 @@ asTypeMaybe repr e =
         -- Send unit to Nothing.
         (Gen.App C.EmptyApp, _repr, MaybeRepr repr') ->
           Just $ Gen.App $ C.NothingValue repr'
-        -- Resize bitvector literals.
-        (Gen.App (C.BVLit n i), _repr, BVRepr m) ->
-          Just $ Gen.App $ C.BVLit m i
+        -- Truncate bitvector literals.
+        (Gen.App (C.BVLit n bv), _repr, BVRepr m) ->
+          case decideLeq (incNat m) n of
+            Left LeqProof -> Just $ Gen.App $ C.BVTrunc m n e
+            Right _refutation -> Nothing
         -- Coerce floats (usually double to float 
         (_e, FloatRepr _fi, FloatRepr fi) ->
           Just $ Gen.App $ C.FloatCast fi C.RNE e
@@ -940,7 +944,7 @@ zeroValue :: Type -> TypeRepr a -> Maybe (Gen.Expr Go s a)
 zeroValue tp repr = Gen.App <$> case repr of
   UnitRepr -> return C.EmptyApp
   BoolRepr -> return $ C.BoolLit False
-  BVRepr w -> return $ C.BVLit w 0
+  BVRepr w -> return $ C.BVLit w $ mkBV w 0
   FloatRepr SingleFloatRepr -> return $ C.FloatLit 0.0
   FloatRepr DoubleFloatRepr -> return $ C.DoubleLit 0.0
   StringRepr UnicodeRepr -> return $ C.StringLit ""
@@ -1263,7 +1267,7 @@ mkBasicConst :: PosNat -> BasicConst -> Some (Gen.Expr Go s)
 mkBasicConst n@(PosNat w LeqProof) c = case c of
   BasicConstBool b -> Some $ Gen.App $ C.BoolLit b
   BasicConstString str -> Some $ Gen.App $ C.StringLit $ UnicodeLiteral str
-  BasicConstInt i -> Some $ Gen.App $ C.BVLit w i
+  BasicConstInt i -> Some $ Gen.App $ C.BVLit w $ mkBV w i
   BasicConstFloat num denom -> case (mkBasicConst n num, mkBasicConst n denom) of
     (Some num', Some denom') -> asType' (BVRepr w) num' $ \num'' ->
       asType' (BVRepr w) denom' $ \denom'' ->

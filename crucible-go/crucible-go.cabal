@@ -3,9 +3,9 @@ version:             0.1.0.0
 synopsis:            A Go frontend for Crucible
 license:             BSD3
 license-file:        LICENSE
-author:              Andrey Chudnov
-maintainer:          andrey@galois.com
-copyright:           (c) 2017 Galois Inc
+author:              Alex Bagnall
+maintainer:          abagnall@galois.com
+copyright:           (c) 2020 Galois Inc
 category:            Language
 build-type:          Simple
 extra-source-files:  ChangeLog.md
@@ -70,6 +70,7 @@ library
                      , ansi-wl-pprint
                      , crux
                      , vector
+                     , bv-sized
   hs-source-dirs:      src
   default-language:    Haskell2010
 
