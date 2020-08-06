@@ -47,13 +47,6 @@ import           Language.Go.Types
 
 import           Lang.Crucible.Go.Types
 
--- TODO: float constants may appear as int literals, and they are
--- presented as rationals when they are actually float
--- literals. Allowing coercion from bitvector to float solved the
--- first part, and I guess we can just parse the floats as rationals
--- and then convert to float... who knows if that will be actually
--- correct.
-
 -- | Entry point.
 translate :: Show a
           => PosNat -- ^ machine word width
@@ -72,7 +65,6 @@ translate_alg :: Show a
               -> TranslateM tp
 
 translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
-  -- trace ("number of imports: " ++ show (length imports)) $
   TranslateM $ do
   sng <- liftIO' newIONonceGenerator
   halloc <- liftIO' newHandleAllocator
@@ -82,13 +74,10 @@ translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
   imports' <- forM imports $ \(Pair import_node (TranslateM importM)) -> do
     -- Build namespace for the package and add it to the state.
     let name = packageName import_node
-    -- modify $ \ts -> ts { retRepr = Some UnitRepr }
     ns <- mkPackageNamespace import_node
     modify $ \ts -> ts { pkgName = name
                        , namespaces = HM.insert name ns (namespaces ts) }
     -- Translate the package.
-    -- trace ("translating package " ++ show name) $
-      -- trace ("ns: " ++ show ns) $
     importM
 
   -- Build local namespace for the file.
@@ -111,7 +100,6 @@ translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
   return $ TranslatedMain main' imports' ini mainFun globs funs halloc
 
 translate_alg (PackageNode name path import_paths file_paths files inits) =
-  -- trace ("translating package " ++ show name) $
   TranslateM $ do
   files' <- mapM runTranslated files
   modify $ \ts -> ts { retRepr = Some UnitRepr }
@@ -125,15 +113,13 @@ translate_alg (FileNode path name decls imports) =
   TranslateM $ TranslatedFile path name <$>
   mapM runTranslated decls <*> mapM runTranslated imports
 
--- TODO: maybe a bug here when there's a single ident on the LHS of a
--- short declaration. It should introduce a new variable shadowing the
--- old one (possibly with a different type).  Actually it may be a
--- more general problem related to nested scopes.. It's not that
--- locals always shadow globals, but that the current scope takes
--- priority over all outer scopes. So we could change gamma to be a
--- stack of scopes and have some notion of "inner-most lookup" vs
--- recursive lookup, or maybe we should just introduce new variables
--- always and live with the occasional inefficiency.
+-- NOTE: the current treatment of the lexical environment is too
+-- coarse-grained to know when we can safely reuse variables (which
+-- may happen in short-declarations with multiple idents in the
+-- LHS). We need a stack of nested local scopes so at any given point
+-- in the program there is an innermost local scope. Only when lookup
+-- succeeds in the innermost scope is it safe to reuse the existing
+-- variable location. For now we just always introduce new variables.
 translate_alg (AssignStmt _ assign_tp op lhs rhs) =
   TranslateM $ do
   lhs' <- mapM runTranslated lhs
@@ -147,19 +133,17 @@ translate_alg (AssignStmt _ assign_tp op lhs rhs) =
         lhs'' <- mapM (runTranslatedExpr retRepr) lhs'
         forM_ (zip lhs'' rhs') $ \(Some (GoExpr (Just loc) l), r) ->
                                   writeToLoc (exprType l) loc r
-      -- Here I think we could indiscriminately introduce new
-      -- variables for each name on the LHS (shadowing any existing
-      -- variables with the same name) and the result would be
-      -- correct, but it's more efficient to reuse existing locations.
-      -- TODO: DO THIS, or switch to stack of scopes.
       Define ->
         forM_ (zip3 (proj1 <$> lhs) lhs' rhs') $
         \(In (IdentExpr _x _tp qual name), l, r) ->
           case l of
             -- If bound, write to the existing location.
             TranslatedExpr gen -> do
-              Some (GoExpr (Just loc) l) <- runSomeGoGenerator retRepr gen
-              writeToLoc (exprType l) loc r
+              Some (GoExpr (Just _loc) l) <- runSomeGoGenerator retRepr gen
+              -- writeToLoc (exprType l) loc r
+              -- Always declare a new variable for now.
+              Some (GoExpr _loc r') <- return r
+              declareVar (identName name) r'
             -- If unbound, declare new variable
             TranslatedUnbound _qual (Ident _k nm) -> do
               Some (GoExpr _loc r') <- return r
@@ -384,7 +368,6 @@ translate_alg (EllipsisExpr _ tp ty) =
 translate_alg (FuncLitExpr _ tp params results body) =  
   TranslateM $ do
   Some retRepr <- gets retRepr
-  -- body' <- runTranslated body
   C.AnyCFG g <- mkFunction Nothing Nothing params Nothing results (Just $ proj2 body)
   return $ TranslatedExpr $ SomeGoGenerator retRepr $
     return $ Some $ GoExpr Nothing $ Gen.App $ C.HandleLit $ C.cfgHandle g
@@ -438,7 +421,6 @@ translate_alg (UnaryExpr _ tp op e) = TranslateM $ do
   return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
     Some (GoExpr loc e') <- runSomeGoGenerator retRepr e_gen
     case op of
-      -- Not sure about this.
       UPlus -> case exprType e' of
         BVRepr w -> do
           zero <- zeroValue' e_tp $ BVRepr w
@@ -507,16 +489,9 @@ translate_alg (ProjExpr _ tp tuple i) = TranslateM $ do
       repr ->
         fail $ "translate_alg ProjExpr: expected struct type, got" ++ show repr
 
--- -- | Generate the CFG for a function.
--- translate_alg (FuncDecl _ recv name params variadic results body) =
---   TranslateM $ TranslatedFuncDecl name <$>
---   mkFunction recv (Just name) params variadic results body
-
 -- | Generate the CFG for a function.
 translate_alg (FuncDecl _ recv name params variadic results body) =
-  trace (show $ proj1 <$> body) $
-  TranslateM $
-  TranslatedFuncDecl name <$>
+  TranslateM $ TranslatedFuncDecl name <$>
   mkFunction recv (Just name) params variadic results (proj2 <$> body)
 
 translate_alg (GenDecl _ specs) =
@@ -551,29 +526,6 @@ translate_alg (BlockNode stmts) = TranslateM $ do
     -- seq_stmts retRepr translated_stmts
     forM_ translated_stmts $ runTranslatedStmt retRepr
     modify $ \s -> s { gamma = gamma }
-
-
--- -- | Chain a list of translated statements (each containing a
--- -- generator action polymorphic in 's') into a single generator
--- -- action. Checks that the return types match.
--- seq_stmts :: forall s ret.
---              TypeRepr ret
---           -> [Translated Stmt]
---           -> GoGenerator s ret ()
--- seq_stmts _ [] = return ()
--- seq_stmts retRepr (TranslatedStmt somegen : stmts) =
---   -- case somegen @s of
---   --   SomeGoGenerator retRepr' gen ->
---   --     case testEquality retRepr retRepr' of
---   --       Just Refl -> gen >> seq_stmts retRepr stmts
---   --       _ -> error ""
---   runSomeGo
---     case somegen of
---     SomeGoGenerator retRepr' gen ->
---       runSomeGoGenerator 
---         Just Refl -> gen >> seq_stmts retRepr stmts
---         _ -> error ""
-
 
 ----------------------------------------------------------------------
 -- Translating types
@@ -642,7 +594,6 @@ translateType (SliceType tp) = do
 translateType (StructType fields) = do
   Some ctxRepr <- someCtxRepr <$> mapM (translateType . typeOfNameType) fields
   return $ Some $ StructRepr ctxRepr
--- translateType (TupleType []) = return $ Some UnitRepr
 translateType (TupleType elts) = translateType (StructType elts)
 
 someCtxRepr :: [Some TypeRepr] -> Some CtxRepr
@@ -918,28 +869,6 @@ bindResult fields k = bindFields fields $ \ctxRepr f ->
       Gen.App (C.MkStruct _repr assignment) -> f assignment
       _ -> fail "bindReturn: expected MkStruct constructor"
 
--- zeroValue :: MonadFail m => Type -> TypeRepr a -> m (Gen.Expr Go s a)
--- zeroValue tp repr = Gen.App <$> case repr of
---   UnitRepr -> return C.EmptyApp
---   BoolRepr -> return $ C.BoolLit False
---   BVRepr w -> return $ C.BVLit w 0
---   FloatRepr SingleFloatRepr -> return $ C.FloatLit 0.0
---   FloatRepr DoubleFloatRepr -> return $ C.DoubleLit 0.0
---   StringRepr UnicodeRepr -> return $ C.StringLit ""
---   MaybeRepr repr -> return $ C.NothingValue repr
---   StructRepr ctx ->
---     let tps = case tp of
---           StructType ts -> ts
---           TupleType ts -> ts in
---       C.MkStruct ctx <$> traverseWithIndex
---       (\ix x -> zeroValue (typeOfNameType $ tps !! indexVal ix) x) ctx
---   VectorRepr repr ->
---     let (tp', len) = case tp of
---           ArrayType n t -> (t, n)
---           SliceType t -> (t, 0) in
---       C.VectorLit repr . V.replicate len <$> zeroValue tp' repr
---   _ -> fail $ "zeroValue: unsupported type " ++ show repr
-
 zeroValue :: Type -> TypeRepr a -> Maybe (Gen.Expr Go s a)
 zeroValue tp repr = Gen.App <$> case repr of
   UnitRepr -> return C.EmptyApp
@@ -970,31 +899,8 @@ zeroValue' tp repr =
 zeroValue'' :: Type -> TranslateM' AnyGoExpr
 zeroValue'' tp = do
   Some repr <- translateType tp
-  trace ("tp: " ++ show tp) $
-    trace ("repr: " ++ show repr) $
-    -- trace ("zero: " ++ show (zeroValue' @m @s tp repr)) $
-    return $ AnyGoExpr $ Some $ GoExpr Nothing $ maybe (error "asdf") id $ zeroValue' tp repr
-  -- AnyGoExpr <$> (Some . GoExpr Nothing <$> zeroValue' tp repr)
-
--- -- | Try to look up a global identifier, returning a TranslatedExpr if
--- -- successful. Otherwise return a TranslatedUnbound to signal that the
--- -- lookup failed.
--- lookupGlobal :: Ident -> Ident -> TranslateM' (Translated Expr)
--- lookupGlobal qual@(Ident _k pkgName) name@(Ident _k' nm) =
---   -- trace ("lookupGlobal: " ++ show qual ++ ", " ++ show name) $
---   do
---   Some retRepr <- gets retRepr
---   namespaces <- gets namespaces
---   -- trace ("namespaces: " ++ show namespaces) $
---   trace ("looking up: " ++ show qual ++ ", " ++ show name) $
---     trace ("ns: " ++ show (HM.lookup pkgName namespaces)) $ do
---     Namespace globals <- return $ fromJust $ HM.lookup pkgName namespaces
---     -- Try lookup in globals
---     case HM.lookup nm globals of
---       Just (AnyGoExpr e) ->
---         return $ TranslatedExpr $ SomeGoGenerator retRepr $ return e
---       Nothing ->
---         return $ TranslatedUnbound qual name
+  return $ AnyGoExpr $ Some $ GoExpr Nothing $
+    maybe (error "zeroValue'': no zero value") id $ zeroValue' tp repr
 
 -- | Try to look up a global identifier, returning a TranslatedExpr if
 -- successful. Otherwise return a TranslatedUnbound to signal that the
@@ -1004,9 +910,9 @@ lookupGlobal qual@(Ident _k pkgName) name@(Ident _k' nm) =
   do
   Some retRepr <- gets retRepr
   namespaces <- gets namespaces
-  -- trace ("looking up: " ++ show qual ++ ", " ++ show name) $
-  --   trace ("ns: " ++ show (HM.lookup pkgName namespaces)) $ do
-  Namespace globals funcs <- maybe (fail "asdf") return $ HM.lookup pkgName namespaces
+  Namespace globals funcs <- maybe (fail $ "lookupGlobal: unknown package" ++
+                                    show pkgName)
+                             return $ HM.lookup pkgName namespaces
   -- Try lookup in globals
   case HM.lookup nm globals of
     Just (GoGlobal glob _zv) ->
@@ -1041,10 +947,6 @@ mkFileNamespace (In (FileNode _path _name decls _imports)) = do
               Some retRepr <- translateType $ mkReturnType $ fieldType <$> results
               h <- liftIO' $
                 mkHandle' ha (functionNameFromText nm) paramsRepr retRepr
-              -- return $ insert_global nm
-              --   (AnyGoExpr $ Some $ GoExpr Nothing $
-              --    Gen.App $ C.JustValue (FunctionHandleRepr paramsRepr retRepr) $
-              --    Gen.App $ C.HandleLit h) ns
               return $ insert_function nm (SomeHandle h) ns
             In (GenDecl _x specs) -> specsUpdNamespace specs ns
             _decl -> return ns)
@@ -1075,19 +977,17 @@ specsUpdNamespace (spec : specs) ns = upd spec ns >>= specsUpdNamespace specs
       Just ha <- gets halloc
       tp' <- fromMaybe (case value of
                           Just v -> return $ typeOf' v
-                          Nothing -> fail "specsUpdNamespace: expected value when type is missing") $ return <$> tp
+                          Nothing -> fail "specsUpdNamespace: expected value when\
+                                          \type is missing") $ return <$> tp
       Some repr <- translateType tp'
       glob <- liftIO' $ Gen.freshGlobalVar ha name repr
-      trace ("creating fresh global " ++ show glob) $
-        trace ("name: " ++ show name) $
-        trace ("tp: " ++ show tp) $
-        trace ("repr: " ++ show repr) $ do
-        let goglob = GoGlobal glob $ maybe (error "asdfg") id $ zeroValue tp' repr
-      -- goglob <- GoGlobal glob <$> maybe (fail "asdf") return $ zeroValue tp' repr
+      let goglob = GoGlobal glob $
+            maybe (error "specsUpdNamespace: no zero value") id $
+            zeroValue tp' repr
       -- Record the global in list of all globals.
-        addGlobal goglob
+      addGlobal goglob
       -- Insert it into the namespace.
-        return $ insert_global name goglob ns
+      return $ insert_global name goglob ns
 
 indexedAssignment :: Assignment f ctx
                   -> Assignment (Product (Index ctx) f) ctx
@@ -1184,16 +1084,12 @@ mkFunction :: Maybe (Product (Node a) TranslateM  Field) -- ^ receiver type
            -> Maybe (TranslateM Block) -- ^ body
            -> TranslateM' (C.AnyCFG Go)
 mkFunction recv name params variadic results body =
-  -- trace ("translating function " ++ show name) $
   do
   fromMaybe (return ()) $
     fail "translate_alg FuncDecl: unexpected variadic parameter (should\
          \ have been desugared away)" <$> variadic
   params' <- mapM runTranslated $ maybeToList recv ++ params
   results' <- mapM runTranslated results
-  -- Set return type in translator state.
-  -- repr <- translateType $ mkReturnType $ (fieldType . proj1) <$> results
-  -- modify $ \ts -> ts { retRepr = repr }
   globals <- ns_globals <$> localNamespace
   functions <- ns_funcs <$> localNamespace
   Just sng <- gets sng
@@ -1201,21 +1097,12 @@ mkFunction recv name params variadic results body =
   pkgName <- gets pkgName
   bindFields params' $ \paramsRepr paramsGen ->
     bindResult results' $ \resultRepr resultGen -> do
-    
-    -- SomeHandle h <- case name of
-    --   Just (Ident _k nm) -> return $ fromJust $ HM.lookup nm fenv
-    --   -- If there is no function name, allocate a new anonymous handle
-    --   Nothing -> SomeHandle <$>
-    --     (liftIO' $ mkHandle' ha (functionNameFromText "@anon") paramsRepr resultRepr)
-
     SomeHandle h <- case name of
       Just (Ident _k nm) -> return $ fromJust $ HM.lookup nm functions
-        -- AnyGoExpr (Some (GoExpr _loc (Gen.App (C.JustValue _repr (Gen.App (C.HandleLit h)))))) ->
-          -- return $ SomeHandle h
       -- If there is no function name, allocate a new anonymous handle
       Nothing -> SomeHandle <$>
-        (liftIO' $ mkHandle' ha (functionNameFromText "@anon") paramsRepr resultRepr)
-        
+        (liftIO' $ mkHandle' ha (functionNameFromText "@anon")
+          paramsRepr resultRepr)
     Refl <- failIfNotEqual paramsRepr (handleArgTypes h) $
             "translate_alg FuncDecl: checking argument types"
     Refl <- failIfNotEqual resultRepr (handleReturnType h) $
@@ -1227,9 +1114,9 @@ mkFunction recv name params variadic results body =
         liftIO' $ Gen.defineFunction InternalPos sng h
           (\assignment ->
              (def, do
-               --  ("resultRepr: " ++ show resultRepr) $ do
                  paramsGen $ fmapFC Gen.AtomExpr assignment
-                 zeroValue' (fieldsType $ proj1 <$> results) resultRepr >>= resultGen
+                 zeroValue' (fieldsType $ proj1 <$> results)
+                   resultRepr >>= resultGen
                  runSomeGoGenerator resultRepr body_gen
                  -- Fail if no return.
                  Gen.reportError $

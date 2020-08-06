@@ -8,9 +8,10 @@ module Lang.Crucible.Go.Overrides where
 
 import           Control.Monad.State
 
+import           Data.Maybe (fromJust)
 import           Data.Text (Text, pack, unpack)
 
-import           Debug.Trace (trace)
+import           GHC.TypeNats as TypeNats
 
 import           System.IO
 
@@ -25,6 +26,8 @@ import qualified Lang.Crucible.Simulator as C
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Types
+
+import           Lang.Crucible.Go.Types
 
 import qualified Crux.Types   as Crux
 
@@ -63,6 +66,17 @@ fresh_int :: (IsSymInterface sym, 1 <= w)
              -> Crux.OverM p sym ext (RegValue sym (BVType w))
 fresh_int w = mkFresh "X" (BaseBVRepr w)
 
+fresh_int' :: (IsSymInterface sym, KnownNat w, 1 <= w)
+           => Crux.OverM p sym ext (RegValue sym (BVType w))
+fresh_int' = fresh_int knownNat
+
+fresh_float :: IsSymInterface sym
+            => FloatPrecisionRepr fp
+            -> Crux.OverM p sym ext (RegValue sym (BaseToType (BaseFloatType fp)))
+fresh_float fp = mkFresh "X" (BaseFloatRepr fp)
+
+-- TODO: float, float32, float64
+
 do_assume :: IsSymInterface sym
           => C.OverrideSim p sym ext gret
           (EmptyCtx ::> StringType Unicode ::> StringType Unicode ::> BoolType)
@@ -71,7 +85,8 @@ do_assume = do
   sym <- C.getSymInterface
   RegMap (Empty :> mgs :> file :> b) <- C.getOverrideArgs
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addAssumption sym (LabeledPred (regValue b) (AssumptionReason loc "assume"))
+  liftIO $ addAssumption sym (LabeledPred (regValue b) $
+                              AssumptionReason loc "assume")
   return Ctx.empty
 
 do_assert :: IsSymInterface sym
@@ -92,6 +107,23 @@ go_overrides :: (IsSymInterface sym, 1 <= w)
              -> [(SomeOverride (Crux.Model sym) sym ext)]
 go_overrides w =
   [ mkSomeOverride "crucible" "FreshInt" Ctx.empty (BVRepr w) (fresh_int w)
+  , mkSomeOverride "crucible" "FreshInt8" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 8)) fresh_int'
+  , mkSomeOverride "crucible" "FreshInt16" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 16)) fresh_int'
+  , mkSomeOverride "crucible" "FreshInt32" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 32)) fresh_int'
+  , mkSomeOverride "crucible" "FreshInt64" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 64)) fresh_int'
+  , mkSomeOverride "crucible" "FreshUint" Ctx.empty (BVRepr w) (fresh_int w)
+  , mkSomeOverride "crucible" "FreshUint8" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 8)) fresh_int'
+  , mkSomeOverride "crucible" "FreshUint16" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 16)) fresh_int'
+  , mkSomeOverride "crucible" "FreshUint32" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 32)) fresh_int'
+  , mkSomeOverride "crucible" "FreshUint64" Ctx.empty
+    (BVRepr (knownNat :: NatRepr 64)) fresh_int'
   , mkSomeOverride "crucible" "Assume"
     (Ctx.Empty :> StringRepr UnicodeRepr :> StringRepr UnicodeRepr :> BoolRepr)
     (StructRepr Ctx.empty) do_assume
