@@ -8,8 +8,8 @@ Assuming:
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
     eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6)
 Prove:
+  test-data/simulator-tests/loop-err.cbl:27:5: error: in main
   oopsie!
-  in main at test-data/simulator-tests/loop-err.cbl:27:5
   false
 COUNTEREXAMPLE
 Assuming:
@@ -20,8 +20,8 @@ Assuming:
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
     eq 0 (natMod (natSum (natMul 4 cx@0:n)) 6)
 Prove:
+  test-data/simulator-tests/loop-err.cbl:27:5: error: in main
   oopsie!
-  in main at test-data/simulator-tests/loop-err.cbl:27:5
   false
 PROVED
 Assuming:
@@ -34,8 +34,8 @@ Assuming:
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
     eq 0 (natMod (natSum (natMul 8 cx@0:n)) 6)
 Prove:
+  test-data/simulator-tests/loop-err.cbl:27:5: error: in main
   oopsie!
-  in main at test-data/simulator-tests/loop-err.cbl:27:5
   false
 PROVED
 Assuming:
@@ -48,7 +48,7 @@ Assuming:
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
     not (eq 0 (natMod (natSum (natMul 8 cx@0:n)) 6))
 Prove:
+  test-data/simulator-tests/loop-err.cbl:23:5: error: in main
   nonzero
-  in main at test-data/simulator-tests/loop-err.cbl:23:5
   not (natLe (natSum (natMul 8 cx@0:n)) 0)
 PROVED

@@ -70,7 +70,7 @@ runClang :: Logs => LLVMOptions -> [String] -> IO ()
 runClang llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     say "CLANG" $ unwords (clang : map show params)
+     say "CLANG" $ unwords (clang : map show allParams)
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
@@ -111,10 +111,10 @@ genBitCode cruxOpts llvmOpts =
               ["-c", "-emit-llvm", "-O0", "-o", srcBC, src]
 
            | otherwise =
-              [ "-c", "-g", "-emit-llvm", "-O1" ] ++
+              [ "-c", "-g", "-emit-llvm" ] ++
               concat [ [ "-I", dir ] | dir <- incs src ] ++
               concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
-              [ "-o", srcBC, src ]
+              [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
 
      finalBCExists <- doesFileExist finalBCFile
      unless (finalBCExists && lazyCompile llvmOpts) $
@@ -147,7 +147,7 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
                        _ -> False
 
       in case (r, skipGoal) of
-           (NotProved (Just m), False) ->
+           (NotProved _ (Just m), False) ->
              do sayFail "Crux" ("Counter example for " ++ msg)
                 (_prt,dbg) <- buildModelExes cruxOpts llvmOpts suff (ppModelC m)
                 say "Crux" ("*** debug executable: " ++ dbg)

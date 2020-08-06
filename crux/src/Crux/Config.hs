@@ -15,10 +15,12 @@ module Crux.Config
     -- ** Command line options
   , OptDescr(..), ArgDescr(..), OptSetter
   , mapOptDescr, mapArgDescr
+  , parsePosNum
   ) where
 
 import Data.Text (Text)
 import Data.Maybe (fromMaybe)
+import Text.Read(readMaybe)
 
 import SimpleGetOpt
 import Config.Schema
@@ -109,3 +111,11 @@ mapOptDescr :: (OptSetter a -> OptSetter b) -> OptDescr a -> OptDescr b
 mapOptDescr f o = o { optArgument = mapArgDescr f (optArgument o) }
 
 
+
+
+parsePosNum :: (Read a, Num a, Ord a) =>
+  String -> (a -> opts -> opts) -> String -> OptSetter opts
+parsePosNum thing mk = \txt opts ->
+  case readMaybe txt of
+    Just a | a >= 0 -> Right (mk a opts)
+    _ -> Left ("Invalid " ++ thing)

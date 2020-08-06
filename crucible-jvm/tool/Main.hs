@@ -157,7 +157,7 @@ simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.emptyModel
      cname mname regmap
 
-   return $ Crux.RunnableState $ initSt
+   return (Crux.RunnableState initSt, \_ _ -> return mempty) -- TODO add failure explanations
 
 
 -- | Entry point, parse command line opions

@@ -1,5 +1,7 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -22,6 +24,9 @@ import Data.Parameterized.Context (pattern Empty)
 import Text.LLVM.AST (Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (</>))
+
+-- what4
 
 -- crucible
 import Lang.Crucible.Backend
@@ -34,6 +39,7 @@ import Lang.Crucible.Simulator
   , initSimContext, profilingMetrics
   , ExecState( InitialState )
   , SimState, defaultAbortHandler, printHandle
+  , ppSimError
   )
 import Lang.Crucible.Simulator.ExecutionTree ( stateGlobals )
 import Lang.Crucible.Simulator.GlobalState ( lookupGlobal )
@@ -47,6 +53,7 @@ import Lang.Crucible.LLVM.Globals
 import Lang.Crucible.LLVM.MemModel
         ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
+        , explainCex, CexExplanation(..)
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
@@ -57,7 +64,8 @@ import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, register_llvm_overrides)
 
-import Lang.Crucible.LLVM.Extension(LLVM)
+import Lang.Crucible.LLVM.Errors( ppBB )
+import Lang.Crucible.LLVM.Extension( LLVM )
 
 -- crux
 import qualified Crux
@@ -114,32 +122,45 @@ registerFunctions llvm_module mtrans =
 
 simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.SimulatorCallback
 simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
- do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
-    halloc     <- newHandleAllocator
-    let ?laxArith = laxArithmetic llvmOpts
-    Some trans <- translateModule halloc llvm_mod
-    let llvmCtxt = trans ^. transContext
+  do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
+     halloc     <- newHandleAllocator
+     let ?laxArith = laxArithmetic llvmOpts
+     Some trans <- translateModule halloc llvm_mod
+     let llvmCtxt = trans ^. transContext
 
-    llvmPtrWidth llvmCtxt $ \ptrW ->
-      withPtrWidth ptrW $
-        do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
-           let ?lc = llvmCtxt^.llvmTypeCtx
-           -- shrug... some weird interaction between do notation and implicit parameters here...
-           -- not sure why I have to let/in this expression...
-           let ?badBehaviorMap = bbMapRef in
-             do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
-                               { printHandle = view outputHandle ?outputConfig }
-                mem <- populateAllGlobals sym (globalInitMap trans)
-                          =<< initializeAllMemory sym llvmCtxt llvm_mod
+     llvmPtrWidth llvmCtxt $ \ptrW ->
+       withPtrWidth ptrW $
+         do liftIO $ say "Crux" $ unwords ["Using pointer width:", show ptrW]
+            bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+            let ?lc = llvmCtxt^.llvmTypeCtx
+            -- shrug... some weird interaction between do notation and implicit parameters here...
+            -- not sure why I have to let/in this expression...
+            let ?badBehaviorMap = bbMapRef in
+              do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
+                                { printHandle = view outputHandle ?outputConfig }
+                 mem <- populateAllGlobals sym (globalInitMap trans)
+                           =<< initializeAllMemory sym llvmCtxt llvm_mod
 
-                let globSt = llvmGlobals llvmCtxt mem
+                 let globSt = llvmGlobals llvmCtxt mem
 
-                let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                         runOverrideSim UnitRepr $
-                           do registerFunctions llvm_mod trans
-                              checkFun (entryPoint llvmOpts) (cfgMap trans)
+                 let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
+                          runOverrideSim UnitRepr $
+                            do registerFunctions llvm_mod trans
+                               checkFun (entryPoint llvmOpts) (cfgMap trans)
 
-                return $ Crux.RunnableState initSt
+                 let explainFailure evalFn gl =
+                       do ex <- explainCex sym evalFn >>= \f -> f (gl ^. labeledPred)
+                          let details = case ex of
+                                NoExplanation -> mempty
+                                DisjOfFailures xs ->
+                                  case map ppBB xs of
+                                    []  -> mempty
+                                    [x] -> indent 2 x
+                                    xs' -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
+
+                          return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
+
+                 return (Crux.RunnableState initSt, explainFailure)
 
 
 checkFun ::
@@ -176,4 +197,3 @@ llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
       case lookupGlobal (llvmMemVar llvmCtxt) globals of
         Just mem -> return $ toInteger (f mem)
         Nothing -> fail "Memory missing from global vars"
-

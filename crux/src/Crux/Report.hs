@@ -126,12 +126,13 @@ jsSideCond cwd path asmps (conc,_) triv status =
   where
   proved = case (status, simErrorReason conc) of
              (Proved{}, _) -> jsStr "ok"
-             (NotProved _, ResourceExhausted _) -> jsStr "unknown"
-             (NotProved Nothing, _) -> jsStr "unknown"
-             (NotProved (Just _), _) -> jsStr "fail"
+             (NotProved _ (Just _), _) -> jsStr "fail"
+             (NotProved _ _, ResourceExhausted _) -> jsStr "unknown"
+             (NotProved _ Nothing, _) -> jsStr "unknown"
 
   example = case status of
-             NotProved (Just m) -> JS (ppModelJS cwd m)
+             NotProved _ex (Just m) -> -- TODO! do something with this explanation
+               JS (ppModelJS cwd m)
              _                  -> jsNull
 
   mkAsmp (asmp,_) =

@@ -55,6 +55,8 @@ module Lang.Crucible.LLVM.Translation.Constant
 import           Control.Lens( to, (^.) )
 import           Control.Monad
 import           Control.Monad.Except
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import           Data.Bits
 import           Data.Kind
 import           Data.List (intercalate, isPrefixOf)
@@ -295,6 +297,8 @@ data LLVMConst where
   DoubleConst   :: !Double -> LLVMConst
   -- | A constant long double value (X86_FP80)
   LongDoubleConst :: !L.FP80Value -> LLVMConst
+  -- | A constant sequence of bytes
+  StringConst   :: !ByteString -> LLVMConst
   -- | A constant array value.
   ArrayConst    :: !MemType -> [LLVMConst] -> LLVMConst
   -- | A constant vector value.
@@ -322,6 +326,7 @@ instance Show LLVMConst where
       (StructConst si a)  -> ["StructConst", show si, show a]
       (SymbolConst s x)   -> ["SymbolConst", show s, show x]
       (UndefConst mem)    -> ["UndefConst", show mem]
+      (StringConst bs)    -> ["StringConst", show bs]
 
 -- | The interesting cases here are:
 --  * @IntConst@: GHC can't derive this because @IntConst@ existentially
@@ -426,7 +431,7 @@ transConstant' (StructType si) (L.ValPackedStruct xs)
 
 transConstant' (ArrayType n tp) (L.ValString cs)
   | tp == IntType 8, n == fromIntegral (length cs)
-  = return $ ArrayConst tp (map (IntConst (knownNat @8) . BV.word8) cs)
+  = return . StringConst $! BS.pack cs
 
 transConstant' _ (L.ValConstExpr cexpr) = transConstantExpr cexpr
 

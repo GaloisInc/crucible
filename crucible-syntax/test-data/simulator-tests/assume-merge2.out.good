@@ -8,7 +8,7 @@ Assuming:
 * in main test-data/simulator-tests/assume-merge2.cbl:6:5: even
     not (and (intLe 0 cx@0:i) (not (eq 0 (intMod cx@0:i 2))))
 Prove:
+  test-data/simulator-tests/assume-merge2.cbl:12:5: error: in main
   oopsie!
-  in main at test-data/simulator-tests/assume-merge2.cbl:12:5
   false
 COUNTEREXAMPLE

@@ -68,11 +68,11 @@ import           Lang.Crucible.CFG.Generator
 
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.DataLayout
+import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
@@ -1794,7 +1794,7 @@ callFunction instr _tailCall fnTy@(L.FunTy lretTy _largTys _varargs) fn args ass
       case asScalar fn' of
         Scalar PtrRepr ptr -> do
           memVar <- getMemVar
-          v   <- extensionStmt (LLVM_LoadHandle memVar ptr argTypes retTy)
+          v   <- extensionStmt (LLVM_LoadHandle memVar fnTy ptr argTypes retTy)
           ret <- call v args''
           assign_f (BaseExpr retTy ret)
         _ -> fail $ unwords ["unsupported function value", show fn]

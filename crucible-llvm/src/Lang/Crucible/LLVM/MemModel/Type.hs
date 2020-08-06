@@ -32,6 +32,7 @@ module Lang.Crucible.LLVM.MemModel.Type
   , fieldPad
   , fieldOffset
   , mkField
+  , ppType
   )  where
 
 import Control.Exception (assert)
@@ -41,6 +42,7 @@ import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Numeric.Natural
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Lang.Crucible.LLVM.Bytes
 
@@ -143,3 +145,16 @@ typeEnd a tp = seq a $
 -- | Returns end of field including padding bytes.
 fieldEnd :: Field StorageType -> Bytes
 fieldEnd f = fieldOffset f + storageTypeSize (f^.fieldVal) + fieldPad f
+
+
+-- | Pretty print type.
+ppType :: StorageType -> Doc
+ppType tp =
+  case storageTypeF tp of
+    Bitvector w -> text ('i': show (bytesToBits w))
+    Float -> text "float"
+    Double -> text "double"
+    X86_FP80 -> text "long double"
+    Array n etp -> brackets (text (show n) <+> char 'x' <+> ppType etp)
+    Struct flds -> braces $ hsep $ punctuate (char ',') $ V.toList $ ppFld <$> flds
+      where ppFld f = ppType (f^.fieldVal)

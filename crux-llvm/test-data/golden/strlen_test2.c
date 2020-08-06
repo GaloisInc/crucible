@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+
 #include <crucible.h>
 
 // This test exists to ensure that the for loop in `test`
@@ -17,8 +18,6 @@
 // If path sat checking is on, this loop will terminate even
 // earlier because of the `assuming( str[i] == 0 )` line.  This
 // makes the loop test infeasible when `i = 9`.
-
-void crucible_havoc_memory (void*, size_t);
 
 void test(const char *string, uint32_t length) {
   uint32_t i;

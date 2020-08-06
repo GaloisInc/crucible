@@ -30,10 +30,13 @@ import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle (lookupHandleMap, handleName)
-import           Lang.Crucible.LLVM.Arch (llvmExtensionEval)
+import           Lang.Crucible.LLVM.Eval (llvmExtensionEval)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
+                   ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
+                   , bindLLVMFunPtr
+                   )
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState

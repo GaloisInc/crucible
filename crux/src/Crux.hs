@@ -38,6 +38,7 @@ import Control.Monad(when)
 import System.Exit(exitSuccess, ExitCode(..), exitFailure, exitWith)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (</>))
 
 import Data.Parameterized.Classes
 import Data.Parameterized.Nonce(newIONonceGenerator, NonceGenerator)
@@ -59,6 +60,7 @@ import Lang.Crucible.Types
 import What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, extendConfig)
 import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (IsExprBuilder, getConfiguration)
+import What4.Expr (GroundEvalFn)
 import qualified What4.Expr.Builder as WEB
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
@@ -99,15 +101,20 @@ data RunnableState sym where
 newtype SimulatorCallback
   = SimulatorCallback
     { initSimulatorState ::
-        forall s st fs . (IsSymInterface (WEB.ExprBuilder s st fs), Logs) =>
-          WEB.ExprBuilder s st fs -> Maybe (SomeOnlineSolver (WEB.ExprBuilder s st fs)) -> IO (RunnableState (WEB.ExprBuilder s st fs))
+        forall sym t st fs. (IsSymInterface sym, Logs, sym ~ WEB.ExprBuilder t st fs) =>
+          sym ->
+          Maybe (SomeOnlineSolver sym) ->
+          IO (RunnableState sym, GroundEvalFn t -> LPred sym SimError -> IO Doc)
     }
 
 -- | Given the reuslt of a simulation and proof run, report the overall
 --   status, generate user-consumable reports and compute the exit code.
 postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
 postprocessSimResult opts res =
-  do -- print the overall result
+  do -- print goals that failed
+     printFailedGoals opts res
+
+     -- print the overall result
      reportStatus res
 
      -- Generate report
@@ -476,10 +483,11 @@ runSimulator cruxOpts simCallback = do
 
 
 type ProverCallback sym =
-  forall ext personality .
-    (HasModel personality) =>
+  forall ext personality t st fs.
+    (HasModel personality, sym ~ WEB.ExprBuilder t st fs) =>
     CruxOptions ->
     SimCtxt personality sym ext ->
+    (GroundEvalFn t -> LPred sym SimError -> IO Doc) ->
     Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
     IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
 
@@ -493,7 +501,7 @@ type ProverCallback sym =
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  (Logs, IsSymInterface sym, sym ~ WEB.ExprBuilder s st fs) =>
+  (Logs, IsSymInterface sym, sym ~ WEB.ExprBuilder t st fs) =>
   CruxOptions ->
   SimulatorCallback ->
   IORef ProgramCompleteness ->
@@ -511,15 +519,18 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
+    (RunnableStateWithExtensions initSt exts, explainFailure) <- initSimulatorState simCallback sym monline
 
-    RunnableStateWithExtensions initSt exts <- initSimulatorState simCallback sym monline
     -- execute the simulator
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
         do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
-           void $ resultCont frm (Result res)
+           void $ resultCont frm explainFailure (Result res)
       SplitAndExploreDepthFirst ->
-        do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature execFeatures ++ exts) initSt (resultCont frm . Result)
+        do (i,ws) <- executeCrucibleDFSPaths
+                         (map genericToExecutionFeature execFeatures ++ exts)
+                         initSt
+                         (resultCont frm explainFailure . Result)
            say "Crux" ("Total paths explored: " ++ show i)
            unless (null ws) $
              sayWarn "Crux"
@@ -533,7 +544,7 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
  where
  failfast = proofGoalsFailFast cruxOpts
 
- resultCont frm (Result res) =
+ resultCont frm explainFailure (Result res) =
    do timedOut <-
         case res of
           TimeoutResult {} ->
@@ -547,7 +558,7 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
         todo <- getProofObligations sym
         when (isJust todo) $
           say "Crux" "Attempting to prove verification conditions."
-        (nms, proved) <- goalProver cruxOpts ctx todo
+        (nms, proved) <- goalProver cruxOpts ctx explainFailure todo
         mgt <- provedGoalsTree ctx proved
         case mgt of
           Nothing -> return (not timedOut)
@@ -571,6 +582,31 @@ computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . t
        ExitSuccess
      else
        ExitFailure 1
+
+printFailedGoals ::
+  Logs =>
+  CruxOptions ->
+  CruxSimulationResult ->
+  IO ()
+printFailedGoals opts (CruxSimulationResult _cmpl allGls)
+  | printFailures opts && not (quietMode opts) = mapM_ (printFailed . snd) (toList allGls)
+  | otherwise = return ()
+
+  where
+  printFailed (AtLoc _ _ gls) = printFailed gls
+  printFailed (Branch gls1 gls2) = printFailed gls1 >> printFailed gls2
+  printFailed (Goal _asmps _goal _trivial (Proved _)) = return () 
+  printFailed (Goal _asmps (err,msg) _trivial (NotProved ex mdl))
+    | skipIncompleteReports opts
+    , SimError _ (ResourceExhausted _) <- err
+    = return ()
+
+    | Just _ <- mdl
+    = sayFail "Crux" (show $ vcat [ "Found counterexample for verification goal", ex ])
+
+    | otherwise
+    = sayFail "Crux" (show $ vcat [ "Failed to prove verification goal", ex, ppSimError err, text msg])
+
 
 reportStatus ::
   Logs =>

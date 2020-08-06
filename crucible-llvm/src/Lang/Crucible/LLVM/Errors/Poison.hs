@@ -1,5 +1,5 @@
 -- |
--- Module           : Lang.Crucible.LLVM.Safety.Poison
+-- Module           : Lang.Crucible.LLVM.Errors.Poison
 -- Description      : All about LLVM poison values
 -- Copyright        : (c) Galois, Inc 2018
 -- License          : BSD3
@@ -24,17 +24,20 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 
-module Lang.Crucible.LLVM.Extension.Safety.Poison
+module Lang.Crucible.LLVM.Errors.Poison
   ( Poison(..)
   , cite
   , explain
   , standard
-  , detailsReg
+  , details
   , pp
   , ppReg
+  , concPoison
   ) where
 
 import           Data.Kind (Type)
@@ -49,79 +52,82 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
 
-import           Lang.Crucible.LLVM.Extension.Safety.Standards
+import           Lang.Crucible.LLVM.Errors.Standards
+import           Lang.Crucible.LLVM.MemModel.Pointer (concBV)
+import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.Types
---import qualified What4.Interface as W4I
+import qualified What4.Interface as W4I
+import           What4.Expr (GroundValue)
 
 data Poison (e :: CrucibleType -> Type) where
   -- | Arguments: @op1@, @op2@
-  AddNoUnsignedWrap   :: e (BVType w)
+  AddNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  AddNoSignedWrap     :: e (BVType w)
+  AddNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  SubNoUnsignedWrap   :: e (BVType w)
+  SubNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  SubNoSignedWrap     :: e (BVType w)
+  SubNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  MulNoUnsignedWrap   :: e (BVType w)
+  MulNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  MulNoSignedWrap     :: e (BVType w)
+  MulNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  UDivExact           :: e (BVType w)
+  UDivExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  SDivExact           :: e (BVType w)
+  SDivExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  ShlOp2Big           :: e (BVType w)
+  ShlOp2Big           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  ShlNoUnsignedWrap   :: e (BVType w)
+  ShlNoUnsignedWrap   :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  ShlNoSignedWrap     :: e (BVType w)
+  ShlNoSignedWrap     :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  LshrExact           :: e (BVType w)
+  LshrExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  LshrOp2Big          :: e (BVType w)
+  LshrOp2Big          :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  AshrExact           :: e (BVType w)
+  AshrExact           :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | Arguments: @op1@, @op2@
-  AshrOp2Big          :: e (BVType w)
+  AshrOp2Big          :: (1 <= w) => e (BVType w)
                       -> e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'Vector'
-  ExtractElementIndex :: e (BVType w)
+  ExtractElementIndex :: (1 <= w) => e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'Vector'
-  InsertElementIndex  :: e (BVType w)
+  InsertElementIndex  :: (1 <= w) => e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'LLVMPointerType'
-  GEPOutOfBounds      :: e (BVType w)
+  GEPOutOfBounds      :: (1 <= w) => e (BVType w)
                       -> Poison e
   deriving (Typeable)
 
@@ -189,32 +195,20 @@ explain =
       "Inexact signed division even though the `exact` flag was set"
     UDivExact _ _ ->
       "Inexact unsigned division even though the `exact` flag was set"
-    ShlOp2Big _ _ -> cat $
-      [ "The second operand of `shl` was equal to or greater than the number of"
-      , "bits in the first operand"
-      ]
+    ShlOp2Big _ _ ->
+      "The second operand of `shl` was equal to or greater than the number of bits in the first operand"
     ShlNoUnsignedWrap _ _ ->
       "Left shift shifted out non-zero bits even though the `nuw` flag was set"
-    ShlNoSignedWrap _ _ -> cat $
-      [ "Left shift shifted out some bits that disagreed with the sign bit"
-      , "even though the `nsw` flag was set"
-      ]
-    LshrExact _ _ -> cat $
-      [ "Inexact `lshr` (logical right shift) result even though the `exact`"
-      , "flag was set"
-      ]
-    LshrOp2Big _ _ -> cat $
-      [ "The second operand of `lshr` was equal to or greater than the number of"
-      , "bits in the first operand"
-      ]
-    AshrExact _ _ -> cat $
-      [ "Inexact `ashr` (arithmetic right shift) result even though the `exact`"
-      , "flag was set"
-      ]
-    AshrOp2Big _ _   -> cat $
-      [ "The second operand of `ashr` was equal to or greater than the number of"
-      , "bits in the first operand"
-      ]
+    ShlNoSignedWrap _ _ ->
+      "Left shift shifted out some bits that disagreed with the sign bit even though the `nsw` flag was set"
+    LshrExact _ _ ->
+      "Inexact `lshr` (logical right shift) result even though the `exact` flag was set"
+    LshrOp2Big _ _ ->
+      "The second operand of `lshr` was equal to or greater than the number of bits in the first operand"
+    AshrExact _ _ ->
+      "Inexact `ashr` (arithmetic right shift) result even though the `exact` flag was set"
+    AshrOp2Big _ _   ->
+      "The second operand of `ashr` was equal to or greater than the number of bits in the first operand"
     ExtractElementIndex _   -> cat $
       [ "Attempted to extract an element from a vector at an index that was"
       , "greater than the length of the vector"
@@ -223,38 +217,47 @@ explain =
       [ "Attempted to insert an element into a vector at an index that was"
       , "greater than the length of the vector"
       ]
+
     -- The following explanation is a bit unsatisfactory, because it is specific
     -- to how we treat this instruction in Crucible.
     GEPOutOfBounds _   -> cat $
-      [ "Calling `getelementptr` resulted in an index that was out of bounds for"
-      , "the given allocation (likely due to arithmetic overflow), but Crucible"
-      , "currently treats all GEP instructions as if they had the `inbounds`"
-      , "flag set."
+      [ "Calling `getelementptr` resulted in an index that was out of bounds for the"
+      , "given allocation (likely due to arithmetic overflow), but Crucible currently"
+      , "treats all GEP instructions as if they had the `inbounds` flag set."
       ]
 
-detailsReg ::
-  Poison e -> [Doc]
-detailsReg = const [] -- TODO: details
-  -- \case
-  --   AddNoUnsignedWrap _ _ -> _
-  --   AddNoSignedWrap _ _ -> _
-  --   SubNoUnsignedWrap _ _ -> _
-  --   SubNoSignedWrap _ _  -> _
-  --   MulNoUnsignedWrap _ _ -> _
-  --   MulNoSignedWrap _ _ -> _
-  --   SDivExact _ _ -> _
-  --   UDivExact _ _ -> _
-  --   ShlOp2Big _ _ -> _
-  --   ShlNoUnsignedWrap _ _ -> _
-  --   ShlNoSignedWrap _ _ -> _
-  --   LshrExact _ _ -> _
-  --   LshrOp2Big _ _ -> _
-  --   AshrExact _ _ -> _
-  --   AshrOp2Big _ _   -> _
-  --   ExtractElementIndex _   -> _
-  --   InsertElementIndex _   -> _
-  --   GEPOutOfBounds _   -> _
+details :: forall sym.
+  W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc]
+details =
+  \case
+    AddNoUnsignedWrap v1 v2 -> args [v1, v2]
+    AddNoSignedWrap   v1 v2 -> args [v1, v2]
+    SubNoUnsignedWrap v1 v2 -> args [v1, v2]
+    SubNoSignedWrap   v1 v2 -> args [v1, v2]
+    MulNoUnsignedWrap v1 v2 -> args [v1, v2]
+    MulNoSignedWrap   v1 v2 -> args [v1, v2]
+    SDivExact         v1 v2 -> args [v1, v2]
+    UDivExact         v1 v2 -> args [v1, v2]
+    ShlOp2Big         v1 v2 -> args [v1, v2]
+    ShlNoUnsignedWrap v1 v2 -> args [v1, v2]
+    ShlNoSignedWrap   v1 v2 -> args [v1, v2]
+    LshrExact         v1 v2 -> args [v1, v2]
+    LshrOp2Big        v1 v2 -> args [v1, v2]
+    AshrExact         v1 v2 -> args [v1, v2]
+    AshrOp2Big        v1 v2 -> args [v1, v2]
+    ExtractElementIndex v   -> args [v]
+    InsertElementIndex v    -> args [v]
+    GEPOutOfBounds v        -> args [v]
 
+ where
+ args :: forall w. [RegValue' sym (BVType w)] -> [Doc]
+ args []     = [ text "No arguments" ]
+ args [RV v] = [ text "Argument:" <+> W4I.printSymExpr v ]
+ args vs     = [ hsep (text "Arguments:" : map (W4I.printSymExpr . unRV) vs) ]
+
+
+-- | Pretty print an error message relating to LLVM poison values,
+--   when given a printer to produce a detailed message.
 pp :: (Poison e -> [Doc]) -> Poison e -> Doc
 pp extra poison = vcat $
   [ "Poison value encountered: "
@@ -268,8 +271,57 @@ pp extra poison = vcat $
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
-ppReg :: Poison e -> Doc
-ppReg = pp detailsReg
+-- | Pretty print an error message relating to LLVM poison values
+ppReg ::W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> Doc
+ppReg = pp details
+
+-- | Concretize a poison error message.
+concPoison :: forall sym.
+  W4I.IsExprBuilder sym =>
+  sym ->
+  (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
+  Poison (RegValue' sym) -> IO (Poison (RegValue' sym))
+concPoison sym conc poison =
+  let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))
+      bv (RV x) = RV <$> concBV sym conc x in
+  case poison of
+    AddNoUnsignedWrap v1 v2 ->
+      AddNoUnsignedWrap <$> bv v1 <*> bv v2
+    AddNoSignedWrap v1 v2 ->
+      AddNoSignedWrap <$> bv v1 <*> bv v2
+    SubNoUnsignedWrap v1 v2 ->
+      SubNoUnsignedWrap <$> bv v1 <*> bv v2
+    SubNoSignedWrap v1 v2 ->
+      SubNoSignedWrap <$> bv v1 <*> bv v2
+    MulNoUnsignedWrap v1 v2 ->
+      MulNoUnsignedWrap<$> bv v1 <*> bv v2
+    MulNoSignedWrap v1 v2 ->
+      MulNoSignedWrap <$> bv v1 <*> bv v2
+    UDivExact v1 v2 ->
+      UDivExact <$> bv v1 <*> bv v2
+    SDivExact v1 v2 ->
+      SDivExact <$> bv v1 <*> bv v2
+    ShlOp2Big v1 v2 ->
+      ShlOp2Big <$> bv v1 <*> bv v2
+    ShlNoUnsignedWrap v1 v2 ->
+      ShlNoUnsignedWrap <$> bv v1 <*> bv v2
+    ShlNoSignedWrap v1 v2 ->
+      ShlNoSignedWrap <$> bv v1 <*> bv v2
+    LshrExact v1 v2 ->
+      LshrExact <$> bv v1 <*> bv v2
+    LshrOp2Big v1 v2 ->
+      LshrOp2Big <$> bv v1 <*> bv v2
+    AshrExact v1 v2 ->
+      AshrExact <$> bv v1 <*> bv v2
+    AshrOp2Big v1 v2 ->
+      AshrOp2Big <$> bv v1 <*> bv v2
+    ExtractElementIndex v ->
+      ExtractElementIndex <$> bv v
+    InsertElementIndex v ->
+      InsertElementIndex <$> bv v
+    GEPOutOfBounds v ->
+      GEPOutOfBounds <$> bv v
+
 
 -- -----------------------------------------------------------------------
 -- ** Instances
@@ -279,28 +331,39 @@ ppReg = pp detailsReg
 
 $(return [])
 
+eqcPoison :: forall e.
+  (forall t1 t2. e t1 -> e t2 -> Maybe (t1 :~: t2)) ->
+  Poison e -> Poison e -> Maybe (() :~: ())
+eqcPoison subterms =
+  let subterms' :: forall p q. e p -> e q -> Maybe (() :~: ())
+      subterms' a b =
+         case subterms a b of
+           Just Refl -> Just Refl
+           Nothing   -> Nothing
+   in $(U.structuralTypeEquality [t|Poison|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType, [| subterms' |])
+       ])
+
+ordcPoison :: forall e f.
+  (forall t1 t2. e t1 -> f t2 -> OrderingF t1 t2) ->
+  Poison e -> Poison f -> OrderingF () ()
+ordcPoison subterms =
+  let subterms' :: forall p q. e p -> f q -> OrderingF () ()
+      subterms' a b =
+         case subterms a b of
+           EQF -> (EQF :: OrderingF () ())
+           GTF -> (GTF :: OrderingF () ())
+           LTF -> (LTF :: OrderingF () ())
+
+   in $(U.structuralTypeOrd [t|Poison|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType, [| subterms' |])
+       ])
+
 instance TestEqualityC Poison where
-  testEqualityC subterms x y = isJust $
-    $(U.structuralTypeEquality [t|Poison|]
-       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
-         , [| \z w -> subterms z w >> Just Refl |]
-         )
-       ]
-     ) x y
+  testEqualityC subterms x y = isJust $ eqcPoison subterms x y
 
 instance OrdC Poison where
-  compareC subterms p1 p2 = toOrdering $
-    $(U.structuralTypeOrd [t|Poison|]
-       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
-         , [| \z w -> case subterms z w of
-                        EQF -> (EQF :: OrderingF () ())
-                        GTF -> (GTF :: OrderingF () ())
-                        LTF -> (LTF :: OrderingF () ())
-
-            |]
-         )
-       ]
-     ) p1 p2
+  compareC subterms x y = toOrdering $ ordcPoison subterms x y
 
 instance FunctorF Poison where
   fmapF = TF.fmapFDefault

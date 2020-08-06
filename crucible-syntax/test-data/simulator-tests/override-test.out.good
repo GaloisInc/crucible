@@ -4,7 +4,7 @@
 ==== Proof obligations ====
 
 Prove:
+  test-data/simulator-tests/override-test.cbl:7:5: error: in main
   should be true!
-  in main at test-data/simulator-tests/override-test.cbl:7:5
   eq (ite cp@0:b cx@1:i cy@2:i) (ite cp@0:b cx@1:i cy@2:i)
 PROVED
