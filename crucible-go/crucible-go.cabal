@@ -49,7 +49,8 @@ executable crucible-go
 
 
 library
-  exposed-modules:     Lang.Crucible.Go.Overrides
+  exposed-modules:     Lang.Crucible.Go.Encodings
+                       Lang.Crucible.Go.Overrides
                        Lang.Crucible.Go.Simulate
                        Lang.Crucible.Go.Translation
                        Lang.Crucible.Go.Types

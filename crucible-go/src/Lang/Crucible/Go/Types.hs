@@ -1,12 +1,10 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.Go.Types where
 
@@ -20,7 +18,7 @@ import           Data.HashMap.Strict as HM
 import           Data.Maybe (fromJust)
 import           Data.Text (Text)
 
-import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some (Some(..))
 
@@ -28,6 +26,7 @@ import           What4.FunctionName (FunctionName)
 
 import           Language.Go.AST
 import           Language.Go.Types
+import           Lang.Crucible.Go.Encodings
 
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
@@ -66,7 +65,8 @@ data GoGlobal where
 deriving instance Show GoGlobal
 
 -- | An assignable location. Either a reference expression, a global
--- variable, or an offset into an array. Also map indices eventually.
+-- variable, or an offset into an array. Also map indices
+-- eventually. It may also be a pointer expression (reified location).
 data GoLoc s tp where
   GoLocRef :: Gen.Expr Go s (ReferenceType tp)
            -> GoLoc s tp
@@ -75,6 +75,8 @@ data GoLoc s tp where
   GoLocArray :: Gen.Expr Go s (ReferenceType (VectorType tp))
              -> Gen.Expr Go s NatType
              -> GoLoc s tp
+  GoLocPointer :: Gen.Expr Go s (PointerType tp)
+               -> GoLoc s tp
   deriving Show
 
 -- | Existentially packaged positive natural number.
@@ -164,7 +166,7 @@ data GenState s =
   }
 
 instance Default (GenState s) where
-  def = GenState { gamma = empty }
+  def = GenState { gamma = HM.empty }
 
 -- | The type of Go generator actions.
 type GoGenerator s ret a = Gen.Generator Go s GenState ret IO a
