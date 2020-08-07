@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 module Crux.LLVM.Compile where
 
 import Control.Exception
@@ -6,8 +9,10 @@ import Control.Exception
 import Control.Monad
   ( unless, forM_ )
 import qualified Data.Binary.IEEE754 as IEEE754
+import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Foldable as Fold
+import qualified Numeric as N
 import Data.List
   ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
@@ -189,18 +194,54 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
 
      return (printExe, debugExe)
 
+showBVLiteral :: (1 <= w) => NatRepr w -> BV w -> String
+showBVLiteral w bv =
+    (if x < 0 then "-0x" else "0x") ++ N.showHex i (if natValue w == 64 then "L" else "")
+
+  where
+  x = BV.asSigned w bv
+  i = abs x
+
+showFloatLiteral :: BV 32 -> String
+showFloatLiteral bv
+   | isNaN x          = "NAN"
+   | isInfinite x     = if signum x < 0 then "-INFINITY" else "INFINITY"
+   | isNegativeZero x = "-0.0f"
+   | otherwise        =
+      (if mag < 0 then "-0x" else "0x") ++ N.showHex (abs mag) ("p" ++ show ex ++ "f")
+
+ where
+ x = IEEE754.wordToFloat (fromInteger (BV.asUnsigned bv))
+ (mag,ex) = decodeFloat x
+
+
+showDoubleLiteral :: BV 64 -> String
+showDoubleLiteral bv
+   | isNaN x          = "(double) NAN"
+   | isInfinite x     = if signum x < 0 then "- ((double) INFINITY)" else "(double) INFINITY"
+   | isNegativeZero x = "-0.0"
+   | otherwise        =
+      (if mag < 0 then "-0x" else "0x") ++ N.showHex mag ("p" ++ show ex)
+
+ where
+ x = IEEE754.wordToDouble (fromInteger (BV.asUnsigned bv))
+ (mag,ex) = decodeFloat x
+
 ppValsC :: BaseTypeRepr ty -> Vals ty -> String
 ppValsC ty (Vals xs) =
   let (cty, cnm, ppRawVal) = case ty of
         BaseBVRepr n ->
-          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", show)
+          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", showBVLiteral n)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
-          | natValue eb == 8, natValue sb == 24
-          -> ("float", "float", show . IEEE754.wordToFloat . fromInteger . BV.asUnsigned)
+          | Just Refl <- testEquality eb (knownNat @8)
+          , Just Refl <- testEquality sb (knownNat @24)
+          -> ("float", "float", showFloatLiteral)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
-          | natValue eb == 11, natValue sb == 53
-          -> ("double", "double", show . IEEE754.wordToDouble . fromInteger . BV.asUnsigned)
+          | Just Refl <- testEquality eb (knownNat @11)
+          , Just Refl <- testEquality sb (knownNat @53)
+          -> ("double", "double", showDoubleLiteral)
         BaseRealRepr -> ("double", "real", (show . toDouble))
+
         _ -> error ("Type not implemented: " ++ show ty)
   in unlines
       [ "size_t const crucible_values_number_" ++ cnm ++
@@ -217,6 +258,7 @@ ppModelC :: ModelView -> String
 ppModelC m = unlines
              $ "#include <stdint.h>"
              : "#include <stddef.h>"
+             : "#include <math.h>"
              : ""
              : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
             where vals = modelVals m
