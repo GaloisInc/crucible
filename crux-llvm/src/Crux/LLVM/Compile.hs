@@ -12,7 +12,6 @@ import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Foldable as Fold
-import qualified Numeric as N
 import Data.List
   ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
@@ -31,7 +30,7 @@ import What4.ProgramLoc
 import Lang.Crucible.Simulator.SimError
 
 import Crux
-import Crux.Model( toDouble )
+import Crux.Model( toDouble, showBVLiteral, showFloatLiteral, showDoubleLiteral )
 import Crux.Types
 
 import Crux.LLVM.Config
@@ -194,38 +193,6 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
 
      return (printExe, debugExe)
 
-showBVLiteral :: (1 <= w) => NatRepr w -> BV w -> String
-showBVLiteral w bv =
-    (if x < 0 then "-0x" else "0x") ++ N.showHex i (if natValue w == 64 then "L" else "")
-
-  where
-  x = BV.asSigned w bv
-  i = abs x
-
-showFloatLiteral :: BV 32 -> String
-showFloatLiteral bv
-   | isNaN x          = "NAN"
-   | isInfinite x     = if signum x < 0 then "-INFINITY" else "INFINITY"
-   | isNegativeZero x = "-0.0f"
-   | otherwise        =
-      (if mag < 0 then "-0x" else "0x") ++ N.showHex (abs mag) ("p" ++ show ex ++ "f")
-
- where
- x = IEEE754.wordToFloat (fromInteger (BV.asUnsigned bv))
- (mag,ex) = decodeFloat x
-
-
-showDoubleLiteral :: BV 64 -> String
-showDoubleLiteral bv
-   | isNaN x          = "(double) NAN"
-   | isInfinite x     = if signum x < 0 then "- ((double) INFINITY)" else "(double) INFINITY"
-   | isNegativeZero x = "-0.0"
-   | otherwise        =
-      (if mag < 0 then "-0x" else "0x") ++ N.showHex mag ("p" ++ show ex)
-
- where
- x = IEEE754.wordToDouble (fromInteger (BV.asUnsigned bv))
- (mag,ex) = decodeFloat x
 
 ppValsC :: BaseTypeRepr ty -> Vals ty -> String
 ppValsC ty (Vals xs) =
