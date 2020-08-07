@@ -104,14 +104,6 @@ ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> G.memAlloc
           , Just a == W4.asNat blk =
             fromIntegral <$> BV.asUnsigned <$> W4.asBV sz
           | otherwise = Nothing
--- ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> G.memAllocs mem
---   where
---     inAlloc :: G.MemAlloc sym -> Maybe Int
---     inAlloc memAlloc
---       | G.Alloc _ a (Just sz) _ _ _ <- memAlloc
---       , Just a == W4.asNat blk =
---         fromIntegral <$> W4.asUnsignedBV sz
---       | otherwise = Nothing
 
 ptrArraySize ::
   C.IsSymInterface sym =>
