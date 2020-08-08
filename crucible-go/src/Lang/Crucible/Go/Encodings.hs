@@ -39,14 +39,18 @@ pattern ArrayOffsetRepr :: TypeRepr tp -> TypeRepr (ArrayOffset tp)
 pattern ArrayOffsetRepr repr = StructRepr (ArrayOffsetCtxRepr repr)
 
 -- | A pointer is either:
--- 1) a reference
--- 2) an array offset
+-- 1) nil
+-- 2) a reference
+-- 3) an array offset
+-- As with all nil-able types, wrap the type of non-nil pointers in a
+-- Maybe type.
 -- TODO: globals. There doesn't appear to be an Expr form for
 -- globals. An expression for reading a global is easy but what about
 -- writing? The only way I see for writing to a global is with a
 -- statement which I don't think can be embedded in an expression..
 type PointerCtx tp = EmptyCtx ::> ReferenceType tp ::> ArrayOffset tp
-type PointerType tp = VariantType (PointerCtx tp)
+type NonNilPointerType tp = VariantType (PointerCtx tp)
+type PointerType tp = MaybeType (NonNilPointerType tp)
 
 pointerCtxRepr :: TypeRepr tp -> CtxRepr (PointerCtx tp)
 pointerCtxRepr repr = Ctx.empty :> ReferenceRepr repr :> arrayOffsetRepr repr
@@ -55,17 +59,30 @@ pattern PointerCtxRepr :: TypeRepr tp -> TypeRepr tp -> CtxRepr (PointerCtx tp)
 pattern PointerCtxRepr repr1 repr2 =
   Empty :> ReferenceRepr repr1 :> ArrayOffsetRepr repr2
 
+nonNilPointerRepr :: TypeRepr tp -> TypeRepr (NonNilPointerType tp)
+nonNilPointerRepr repr = VariantRepr $ pointerCtxRepr repr
+
+pattern NonNilPointerRepr :: TypeRepr tp
+                          -> TypeRepr tp
+                          -> TypeRepr (NonNilPointerType tp)
+pattern NonNilPointerRepr repr1 repr2 =
+  VariantRepr (PointerCtxRepr repr1 repr2)
+
 pointerRepr :: TypeRepr tp -> TypeRepr (PointerType tp)
-pointerRepr repr = VariantRepr $ pointerCtxRepr repr
+pointerRepr repr = MaybeRepr $ nonNilPointerRepr repr
 
 pattern PointerRepr :: TypeRepr tp -> TypeRepr tp -> TypeRepr (PointerType tp)
-pattern PointerRepr repr1 repr2 = VariantRepr (PointerCtxRepr repr1 repr2)
+pattern PointerRepr repr1 repr2 = MaybeRepr (NonNilPointerRepr repr1 repr2)
+
+nonNilPointerElementRepr :: TypeRepr (NonNilPointerType tp) -> TypeRepr tp
+nonNilPointerElementRepr repr = case repr of
+  NonNilPointerRepr repr1 _repr2 -> repr1
 
 pointerElementRepr :: TypeRepr (PointerType tp) -> TypeRepr tp
 pointerElementRepr repr = case repr of
-  PointerRepr repr1 _repr2 -> repr1
+  MaybeRepr repr -> nonNilPointerElementRepr repr
 
--- | A slice is represented by an array pointer and three nats:
+-- | A slice is represented by a pointer to an array and three nats:
 -- 1) begin of slice range
 -- 2) end of slice range
 -- 3) capacity

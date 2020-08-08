@@ -47,6 +47,9 @@ import           Language.Go.Types
 import           Lang.Crucible.Go.Encodings
 import           Lang.Crucible.Go.Types
 
+-- TODO: remark on retRepr in the module description. also on apparent
+-- restriction wrt pointers to globals.
+
 -- | Entry point.
 translate :: Show a
           => PosNat -- ^ machine word width
@@ -115,12 +118,11 @@ translate_alg (FileNode path name decls imports) =
   mapM runTranslated decls <*> mapM runTranslated imports
 
 -- NOTE: the current treatment of the lexical environment is too
--- coarse-grained to know when we can safely reuse variables (which
--- may happen in short-declarations with multiple idents in the
--- LHS). We need a stack of nested local scopes so at any given point
--- in the program there is an innermost local scope. Only when lookup
--- succeeds in the innermost scope is it safe to reuse the existing
--- variable location. For now we just always introduce new variables.
+-- coarse-grained to know when we can safely reuse variables (in the
+-- case of short-declarations with multiple idents in the LHS). We
+-- need a stack of nested local scopes. Only when lookup succeeds in
+-- the innermost scope is it safe to reuse the existing variable
+-- location. For now we just always introduce new variables.
 translate_alg (AssignStmt _ assign_tp op lhs rhs) =
   TranslateM $ do
   lhs' <- mapM runTranslated lhs
@@ -320,11 +322,7 @@ translate_alg (CallExpr _ tp fun args) = TranslateM $ do
                 Gen.App (C.NothingValue _repr) ->
                   fail "translate_alg CallExpr: attempt to call nil function"
                 _ -> do
-                  f <- Gen.fromJustExpr fun' $ Gen.App $ C.StringLit $
-                    UnicodeLiteral $ T.pack $
-                    "attempt to call nil function in function "
-                    ++ show fun' ++ " translated from " ++ show (proj1 fun)
-                  Some . GoExpr Nothing <$>
+                  maybeElim fun' $ \f -> Some . GoExpr Nothing <$>
                     Gen.call f (coerceAssignment argsRepr assignment)
             _ -> fail $ "translate_alg CallExpr: expected function type, got "
                  ++ show (exprType fun')
@@ -334,10 +332,32 @@ translate_alg (CallExpr _ tp fun args) = TranslateM $ do
 translate_alg (CastExpr _ tp expr ty) =
   TranslateM $ fail "translate_alg CastExpr: unsupported"
 
--- TODO: at least slice literals. May as well do arrays at that point
--- also.
-translate_alg (CompositeLitExpr _ tp ty elements) =
-  TranslateM $ fail "translate_alg CompositeLitExpr: unsupported"
+-- TODO: for both arrays and slices we must construct a new array, and
+-- in the case of a slice literal also allocate a reference for it and
+-- embed it in a slice. For arrays, generate a zero-value array of the
+-- specified length and then iterate over the elements to overwrite
+-- zeroes. For slices, do the same but use the number of elements as
+-- the size.
+translate_alg (CompositeLitExpr _ tp _ty elements) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  Some repr <- translateType tp
+  undefined
+  
+  -- zero <- zeroValue' tp repr
+  -- tryAsSlice zero
+  --   (\repr slice -> do
+  --       undefined
+  --   ) $
+  --   tryAsArray zero
+  --   (\repr arr -> do
+  --       undefined
+  --   ) $
+  --   fail ""
+
+  -- CompositeLitExpr :: a -> Type
+  --                  -> Maybe (f Expr) -- ^ literal type; or nil
+  --                  -> [f Expr] -- ^ list of composite elements
+  --                  -> NodeF a f Expr
 
 -- | A translated IdentExpr is either:
 -- 1) a GoExpr containing the location of the variable as well as its
@@ -363,9 +383,8 @@ translate_alg (IdentExpr _ tp qual ident@(Ident _kind name)) = TranslateM $ do
           fail $ "translate_alg IdentExpr: unbound local " ++ show name
     Just q -> lookupGlobal q ident
 
--- TODO: should we split this into two forms for types and expressions?
-translate_alg (EllipsisExpr _ tp ty) =
-  TranslateM $ fail "translate_alg EllipsisExpr: unsupported"
+translate_alg (EllipsisExpr _ tp _ty) =
+  TranslateM $ TranslatedType <$> translateType tp
 
 translate_alg (FuncLitExpr _ tp params results body) =  
   TranslateM $ do
@@ -373,11 +392,40 @@ translate_alg (FuncLitExpr _ tp params results body) =
   C.AnyCFG g <- mkFunction Nothing Nothing params Nothing results (Just $ proj2 body)
   return $ TranslatedExpr $ SomeGoGenerator retRepr $
     return $ Some $ GoExpr Nothing $ Gen.App $ C.HandleLit $ C.cfgHandle g
-  
--- TODO: I guess this probably will need to branch on the type. Only
--- support array/slice indexing for now?
-translate_alg (IndexExpr _ tp expr index) =
-  TranslateM $ fail "translate_alg IndexExpr: unsupported"
+
+-- | Only support array/slice indexing for now.
+translate_alg (IndexExpr _ tp expr index) = TranslateM $ do
+  TranslatedExpr expr_gen <- runTranslated expr
+  TranslatedExpr index_gen <- runTranslated index
+  Some retRepr <- gets retRepr
+  return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
+    Some (GoExpr loc e) <- runSomeGoGenerator retRepr expr_gen
+    Some (GoExpr _loc ix) <- runSomeGoGenerator retRepr index_gen
+    tryAsArray e (\repr arr -> do
+                     vec <- Gen.readRef arr
+                     let natIx = case exprType ix of
+                           BVRepr w -> Gen.App $ C.BvToNat w ix
+                     return $ Some $ GoExpr (Just $ GoLocPointer $
+                                             mkArrayOffsetPointer arr natIx) $
+                       Gen.App $ C.VectorGetEntry repr vec natIx) $
+      tryAsSlice e (\repr slice -> undefined) $ -- TODO
+      fail $ "translate_alg IndexExpr: unexpected LHS: " ++ show e
+
+  -- -- Return the unsigned value of the given bitvector as a nat
+  -- BvToNat :: (1 <= w)
+  --         => !(NatRepr w)
+  --         -> !(f (BVType w))
+  --         -> App ext f NatType
+
+  -- IndexExpr :: a -> Type
+  --           -> f Expr -- ^ expression
+  --           -> f Expr -- ^ index
+  --           -> NodeF a f Expr
+
+  -- VectorGetEntry :: !(TypeRepr tp)
+  --                -> !(f (VectorType tp))
+  --                -> !(f NatType)
+  --                -> App ext f tp
 
 translate_alg (KeyValueExpr _ tp key value) =
   TranslateM $ fail "translate_alg KeyValueExpr: unsupported"
@@ -394,27 +442,37 @@ translate_alg (SliceExpr _ tp expr begin end cap is_3) = TranslateM $ do
   cap_gen <- mapM runTranslated cap
   Some retRepr <- gets retRepr
   return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
-    Some (GoExpr arr_loc arr) <- runSomeGoGenerator retRepr arr_gen
+    Some (GoExpr loc e) <- runSomeGoGenerator retRepr arr_gen
     begin' <- mapM (runTranslatedExpr retRepr >=> goExprToNat) begin_gen
     end' <- mapM (runTranslatedExpr retRepr >=> goExprToNat) end_gen
     cap' <- mapM (runTranslatedExpr retRepr >=> goExprToNat) cap_gen
-    -- If the array has a corresponding assignable location, use
-    -- that. Otherwise, allocate a new reference cell for it.
-    arr_ptr <- case arr_loc of
-      Just loc -> mkLocPointer loc
-      Nothing -> mkRefPointer <$> Gen.newRef arr
-    case pointerElementRepr $ exprType arr_ptr of
-      ReferenceRepr (VectorRepr _repr) ->
-        Some . GoExpr Nothing <$> sliceValue arr_ptr begin' end' cap'
+    -- If slice, reslice.
+    tryAsSlice e (\repr slice -> Some . GoExpr Nothing <$>
+                                 reslice slice begin' end' cap') $
+      -- Else it should be an array.
+      case exprType e of
+        ReferenceRepr (VectorRepr repr) -> do
+          -- If the array has a corresponding assignable location, use
+          -- that. Otherwise, allocate a new reference cell for it.
+          ptr <- case loc of
+            Just loc' -> mkLocPointer undefined
+            Nothing -> mkRefPointer <$> Gen.newRef e
+          Some . GoExpr Nothing <$> sliceValue ptr begin' end' cap'
+        _repr -> fail "translate_alg SliceExpr: expected array or slice"
 
 translate_alg (StarExpr _ tp operand) = TranslateM $ do
   TranslatedExpr operand_gen <- runTranslated operand
   Some retRepr <- gets retRepr
   return $ TranslatedExpr $ SomeGoGenerator retRepr $ do
     Some (GoExpr _loc e) <- runSomeGoGenerator retRepr operand_gen
-    asPointer e $ \ e' -> do
-      result <- readPointer e'
-      return $ Some $ GoExpr (Just $ GoLocPointer e') result
+    -- Check for nil constant explicitly here since we don't
+    -- necessarily know what the type should be.
+    case e of
+      Gen.App C.EmptyApp ->
+        fail "translate_alg StarExpr: dereference nil constant"
+      _e -> asPointer e $ \ e' -> do
+        result <- readPointer e'
+        return $ Some $ GoExpr (Just $ GoLocPointer e') result
           
 translate_alg (TypeAssertExpr _ tp expr asserted_ty) =
   TranslateM $ fail "translate_alg TypeAssertExpr: unsupported"
@@ -556,7 +614,7 @@ translateType (BasicType bkind) = case bkind of
       Nothing -> gets machineWordWidth
     return $ Some $ BVRepr w
   -- Not sure how to deal with uintptr. It's intended to be a type
-  -- that can contain any pointer. Maybe an AnyType reference?
+  -- that can contain any pointer. Maybe an AnyType pointer?
   BasicUIntptr -> fail "translateType: uintptr not supported"
   BasicFloat 32 -> return $ Some $ FloatRepr SingleFloatRepr
   BasicFloat 64 -> return $ Some $ FloatRepr DoubleFloatRepr
@@ -645,12 +703,15 @@ runTranslatedExpr :: TypeRepr ret -> Translated Expr
                   -> GoGenerator s ret (SomeGoExpr s)
 runTranslatedExpr repr (TranslatedExpr gen) = runSomeGoGenerator repr gen
 
--- | Use this function to assert that an expression has a certain
+-- | Use this function to assert that an expression has a in
 -- type. Unit values may be coerced to Nothing values of a Maybe
 -- type. Bit vector literals may be truncated. Floats may be cast
 -- (usually from float literals being double by default but allowed to
 -- implicitly cast to single precision. similar story for bit
 -- vectors).
+-- It may be useful in the future to do a type inference pass,
+-- inferring the actual eventual types of "untyped constants", to
+-- obviate the need for this coercion stuff.
 asTypeMaybe :: TypeRepr b -> Gen.Expr Go s a -> Maybe (Gen.Expr Go s b)
 asTypeMaybe repr e =
   case testEquality (exprType e) repr of
@@ -917,9 +978,9 @@ lookupGlobal qual@(Ident _k pkgName) name@(Ident _k' nm) =
   do
   Some retRepr <- gets retRepr
   namespaces <- gets namespaces
-  Namespace globals funcs <- maybe (fail $ "lookupGlobal: unknown package" ++
-                                    show pkgName)
-                             return $ HM.lookup pkgName namespaces
+  Namespace globals funcs <-
+    maybe (fail $ "lookupGlobal: unknown package" ++ show pkgName)
+    return $ HM.lookup pkgName namespaces
   -- Try lookup in globals
   case HM.lookup nm globals of
     Just (GoGlobal glob _zv) ->
@@ -937,7 +998,8 @@ lookupGlobal qual@(Ident _k pkgName) name@(Ident _k' nm) =
           return $ TranslatedUnbound qual name
 
 mkPackageNamespace :: Node a Package -> TranslateM' Namespace
-mkPackageNamespace (In (PackageNode _name _path _imports _file_paths files _inits)) = do
+mkPackageNamespace (In (PackageNode _name _path _imports
+                         _file_paths files _inits)) = do
   file_namespaces <- mapM mkFileNamespace files
   foldM (\x y -> return $ namespace_union x y) def file_namespaces
 
@@ -1033,7 +1095,10 @@ translateBuiltin _qual ident@(Ident _k name) args = do
       args' <- mapM (runTranslatedExpr retRepr) args
       Gen.reportError $ Gen.App $ C.StringLit $ UnicodeLiteral $
         T.pack $ "panic: " ++ show args'
-    -- TODO: len, make, new, etc.
+    "len" -> undefined
+    "make" -> undefined
+    "new" -> undefined
+    -- TODO: more
     _nm ->
       fail $ "translateBuiltin: unknown identifier: " ++ show ident
 
@@ -1059,6 +1124,14 @@ sliceValue arr_ptr begin end cap = do
       cap' = fromMaybe (Gen.App $ C.NatSub end' begin') cap
   return $ Gen.App $ C.MkStruct (sliceCtxRepr $ arrayElementRepr $ exprType arr) $
     Ctx.empty :> arr_ptr :> begin' :> end' :> cap'
+
+reslice :: Gen.Expr Go s (SliceType tp)
+        -> Maybe (Gen.Expr Go s NatType)
+        -> Maybe (Gen.Expr Go s NatType)
+        -> Maybe (Gen.Expr Go s NatType)
+        -> GoGenerator s ret (Gen.Expr Go s (SliceType tp))
+reslice slice begin end cap =
+  fail "reslice not yet implemented" -- TODO
 
 goExprToNat :: Some (GoExpr s) -> GoGenerator s ret (Gen.Expr Go s NatType)
 goExprToNat (Some (GoExpr _loc e)) = case exprType e of
@@ -1153,22 +1226,13 @@ mkBasicConst n@(PosNat w LeqProof) c = case c of
   BasicConstComplex real imag ->
     error "mkBasicConst: complex numbers not yet supported"
 
-asPointer :: MonadFail m
-          => Gen.Expr Go s tp
-          -> (forall a. Gen.Expr Go s (PointerType a) -> m b)
-          -> m b
-asPointer e k = case exprType e of
-  VariantRepr (Ctx.Empty :> ReferenceRepr repr :> StructRepr
-               (Ctx.Empty :> ReferenceRepr (VectorRepr repr') :> NatRepr)) ->
-    case testEquality repr repr' of
-      Just Refl -> k e
-  repr -> fail $ "asPointerType: expected pointer type, got " ++ show repr
-
--- | Pointer elimination principle.
+-- | Elimination principle for non-nil pointers.
 pointerElim :: TypeRepr a
-            -> (Gen.Expr Go s (ReferenceType tp) -> GoGenerator s ret (Gen.Expr Go s a))
-            -> (Gen.Expr Go s (ArrayOffset tp) -> GoGenerator s ret (Gen.Expr Go s a))
-            -> Gen.Expr Go s (PointerType tp)
+            -> (Gen.Expr Go s (ReferenceType tp) ->
+                 GoGenerator s ret (Gen.Expr Go s a))
+            -> (Gen.Expr Go s (ArrayOffset tp) ->
+                 GoGenerator s ret (Gen.Expr Go s a))
+            -> Gen.Expr Go s (NonNilPointerType tp)
             -> GoGenerator s ret (Gen.Expr Go s a)
 pointerElim repr f g ptr = do
   continue_lbl <- Gen.newLambdaLabel' repr
@@ -1181,12 +1245,12 @@ pointerElim repr f g ptr = do
   Gen.continueLambda continue_lbl $
     Gen.branchVariant ptr $ Ctx.empty :> ref_lbl :> arr_lbl
   where
-    ptrRepr = pointerElementRepr $ exprType ptr
+    ptrRepr = nonNilPointerElementRepr $ exprType ptr
 
--- | Pointer elimination principle with no return value.
+-- | Non-nil pointer elimination principle with no return value.
 pointerElim_ :: (Gen.Expr Go s (ReferenceType tp) -> GoGenerator s ret ())
              -> (Gen.Expr Go s (ArrayOffset tp) -> GoGenerator s ret ())
-             -> Gen.Expr Go s (PointerType tp)
+             -> Gen.Expr Go s (NonNilPointerType tp)
              -> GoGenerator s ret ()
 pointerElim_ f g ptr = do
   continue_lbl <- Gen.newLabel
@@ -1199,18 +1263,29 @@ pointerElim_ f g ptr = do
   Gen.continue continue_lbl $
     Gen.branchVariant ptr $ Ctx.empty :> ref_lbl :> arr_lbl
   where
-    ptrRepr = pointerElementRepr $ exprType ptr
+    ptrRepr = nonNilPointerElementRepr $ exprType ptr
+
+maybeElim :: Gen.Expr Go s (MaybeType tp)
+          -> (Gen.Expr Go s tp -> GoGenerator s ret a)
+          -> GoGenerator s ret a
+maybeElim e f =
+  Gen.fromJustExpr e err_msg >>= f
+  where
+    err_msg = Gen.App $ C.StringLit $ UnicodeLiteral $ T.pack $
+              "attempt to use nil value " ++ show e
 
 readPointer :: Gen.Expr Go s (PointerType tp)
             -> GoGenerator s ret (Gen.Expr Go s tp)
-readPointer ptr = pointerElim (pointerElementRepr $ exprType ptr)
-                  Gen.readRef readArrayOffset ptr
+readPointer ptr =
+  maybeElim ptr $ \ptr' ->
+  pointerElim (pointerElementRepr $ exprType ptr)
+  Gen.readRef readArrayOffset ptr'
 
 writePointer :: Gen.Expr Go s (PointerType tp)
              -> Gen.Expr Go s tp
              -> GoGenerator s ret ()
 writePointer ptr value =
-  pointerElim_ (`Gen.writeRef` value) (`writeArrayOffset` value) ptr
+  maybeElim ptr $ pointerElim_ (`Gen.writeRef` value) (`writeArrayOffset` value)
 
 arrayOffsetArray :: Gen.Expr Go s (ArrayOffset tp)
                  -> Gen.Expr Go s (ArrayType tp)
@@ -1218,10 +1293,11 @@ arrayOffsetArray e = case exprType e of
   StructRepr (Empty :> arr_repr :> NatRepr) ->
     Gen.App $ C.GetStruct e (skipIndex baseIndex) arr_repr
 
-arrayOffsetIndex :: Gen.Expr Go s (ArrayOffset tp) -> Gen.Expr Go s NatType
+arrayOffsetIndex :: Gen.Expr Go s (ArrayOffset tp)
+                 -> Gen.Expr Go s NatType
 arrayOffsetIndex e = case exprType e of
   StructRepr (Empty :> _arr_repr :> NatRepr) ->
-    Gen.App $ C.GetStruct e (nextIndex knownSize) NatRepr
+    Gen.App $ C.GetStruct e (lastIndex knownSize) NatRepr
 
 readArrayOffset :: Gen.Expr Go s (ArrayOffset tp)
                 -> GoGenerator s ret (Gen.Expr Go s tp)
@@ -1251,12 +1327,103 @@ mkRefPointer :: Gen.Expr Go s (ReferenceType tp)
              -> Gen.Expr Go s (PointerType tp)
 mkRefPointer ref = case exprType ref of
     ReferenceRepr repr ->
-      Gen.App $ C.InjectVariant (pointerCtxRepr repr) (skipIndex baseIndex) ref
+      Gen.App $ C.JustValue (nonNilPointerRepr repr) $ Gen.App $
+      C.InjectVariant (pointerCtxRepr repr) (skipIndex baseIndex) ref
 
 mkArrayOffsetPointer :: Gen.Expr Go s (ArrayType tp)
                      -> Gen.Expr Go s NatType
                      -> Gen.Expr Go s (PointerType tp)
 mkArrayOffsetPointer arr ix = case exprType arr of
   ReferenceRepr (VectorRepr repr) ->
+    Gen.App $ C.JustValue (nonNilPointerRepr repr) $
     Gen.App $ C.InjectVariant (pointerCtxRepr repr) (nextIndex knownSize) $
     Gen.App $ C.MkStruct (arrayOffsetCtxRepr repr) $ Ctx.empty :> arr :> ix
+
+tryAsPointer :: Gen.Expr Go s tp
+             -> (forall a. TypeRepr a -> Gen.Expr Go s (PointerType a) -> b)
+             -> b
+             -> b
+tryAsPointer e k b = case exprType e of
+
+    
+  MaybeRepr (VariantRepr
+             (Ctx.Empty :> ReferenceRepr repr :> StructRepr
+               (Ctx.Empty :> ReferenceRepr (VectorRepr repr') :> NatRepr))) ->
+    case testEquality repr repr' of
+      Just Refl -> k repr e
+      Nothing -> b
+  _repr -> b
+
+asPointer :: MonadFail m
+          => Gen.Expr Go s tp
+          -> (forall a. Gen.Expr Go s (PointerType a) -> m b)
+          -> m b
+asPointer e k = tryAsPointer e (\_repr ptr -> k ptr) $
+  fail $ "asPointerType: expected pointer, got " ++ show e
+
+tryAsReference :: Gen.Expr Go s tp
+            -> (forall a. TypeRepr a -> Gen.Expr Go s (ReferenceType a) -> b)
+            -> b
+            -> b
+tryAsReference e k b = case exprType e of
+  ReferenceRepr repr -> k repr e
+  _repr -> b
+
+tryAsVector :: Gen.Expr Go s tp
+         -> (forall a. TypeRepr a -> Gen.Expr Go s (VectorType a) -> b)
+         -> b
+         -> b
+tryAsVector e k b = case exprType e of
+  VectorRepr repr -> k repr e
+  _repr -> b
+
+tryAsArray :: Gen.Expr Go s tp
+           -> (forall a. TypeRepr a -> Gen.Expr Go s (ArrayType a) -> b)
+           -> b
+           -> b
+tryAsArray e k b = case exprType e of
+  ReferenceRepr (VectorRepr repr) -> k repr e
+  _repr -> b
+
+tryAsSlice :: Gen.Expr Go s tp
+           -> (forall a. TypeRepr a -> Gen.Expr Go s (SliceType a) -> b)
+           -> b
+           -> b
+tryAsSlice e k b = case exprType e of
+  StructRepr (Empty :> ptrRepr :> NatRepr :> NatRepr :> NatRepr) ->
+    tryAsPointer (Gen.App $ C.GetStruct e index4_0 ptrRepr)
+    (\arrRepr ptr -> case arrRepr of
+        ReferenceRepr (VectorRepr repr) -> undefined
+        ) b
+    -- tryAsArray (Gen.App $ C.GetStruct e index4_0 arrRepr) (\arr -> ) b
+  _repr -> b
+
+index4_0 :: Index (EmptyCtx ::> a ::> b ::> c ::> d) a
+index4_0 = skipIndex $ skipIndex $ skipIndex baseIndex
+
+index4_1 :: Index (EmptyCtx ::> a ::> b ::> c ::> d) b
+index4_1 = skipIndex $ skipIndex $ nextIndex $ incSize zeroSize
+
+index4_2 :: Index (EmptyCtx ::> a ::> b ::> c ::> d) c
+index4_2 = skipIndex $ nextIndex $ incSize $ incSize zeroSize
+
+index4_3 :: Index (EmptyCtx ::> a ::> b ::> c ::> d) d
+index4_3 = lastIndex knownSize
+
+sliceArray :: Gen.Expr Go s (SliceType tp)
+           -> Gen.Expr Go s (PointerType (ArrayType tp))
+sliceArray e = case exprType e of
+  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
+    Gen.App $ C.GetStruct e index4_0 arrPtrRepr
+
+sliceBegin :: Gen.Expr Go s (SliceType tp)
+           -> Gen.Expr Go s NatType
+sliceBegin e = Gen.App $ C.GetStruct e index4_1 NatRepr
+
+sliceEnd :: Gen.Expr Go s (SliceType tp)
+           -> Gen.Expr Go s NatType
+sliceEnd e = Gen.App $ C.GetStruct e index4_2 NatRepr
+
+sliceCap :: Gen.Expr Go s (SliceType tp)
+           -> Gen.Expr Go s NatType
+sliceCap e = Gen.App $ C.GetStruct e index4_3 NatRepr

@@ -61,12 +61,19 @@ data GoReg s tp where
 type SomeGoReg s = Some (GoReg s)
 
 data GoGlobal where
-  GoGlobal :: forall tp. Gen.GlobalVar tp -> (forall s. Gen.Expr Go s tp) -> GoGlobal
+  GoGlobal :: Gen.GlobalVar tp -- ^ the global variable identifier
+           -> (forall s. Gen.Expr Go s tp) -- ^ initial (zero) value
+           -> GoGlobal
 deriving instance Show GoGlobal
 
 -- | An assignable location. Either a reference expression, a global
 -- variable, or an offset into an array. Also map indices
 -- eventually. It may also be a pointer expression (reified location).
+
+-- It should be possible in principle to eliminate the ref and array
+-- constructors here and use pointer expressions for most locations,
+-- but globals must be treated specially for now since they can't be
+-- embedded in expressions (or can they be?).
 data GoLoc s tp where
   GoLocRef :: Gen.Expr Go s (ReferenceType tp)
            -> GoLoc s tp
@@ -92,11 +99,10 @@ data AnyGoExpr where
   AnyGoExpr :: (forall s. SomeGoExpr s) -> AnyGoExpr
 deriving instance Show AnyGoExpr
 
--- | A package environment. Globals and funcs could in principle be
--- combined into a single map containing globals and function handles
--- embedded in expressions, but it's more convenient to keep them
--- separate. Note that Go is a "lisp-1" language so the two maps
--- should be disjoint.
+-- | A package environment. Note that Go is a "lisp-1" language in the
+-- sense that variables and functions share the same namespace, but we
+-- keep them separately 1) for convenience and 2) globals can't be
+-- embedded in expressions.
 data Namespace = Namespace { ns_globals :: HashMap Text GoGlobal
                            , ns_funcs :: HashMap Text SomeHandle
                            }
@@ -118,7 +124,6 @@ namespace_union :: Namespace -> Namespace -> Namespace
 namespace_union (Namespace g1 f1) (Namespace g2 f2) =
   Namespace { ns_globals = HM.union g1 g2
             , ns_funcs = HM.union f1 f2 }
-
 
 -- | Translator state.
 data TransState =
