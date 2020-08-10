@@ -1,0 +1,80 @@
+{
+  "name": "vscode-crux-llvm",
+  "version": "0.0.1",
+  "displayName": "vscode-crux-llvm",
+  "description": "VSCode extension for the Crux LLVM tool",
+  "author": "Valentin Robert",
+  "publisher": "galois",
+  "license": "BSD-3-Clause",
+  "engines": {
+    "vscode": "^1.45.0"
+  },
+  "main": "./client/out/extension",
+  "activationEvents": [
+    "onCommand:vscode-crux-llvm.helloWorld",
+    "onDebug",
+    "onLanguage:c"
+  ],
+  "contributes": {
+    "commands": [],
+    "configuration": {
+      "title": "Crux LLVM configuration",
+      "properties": {
+        "crux-llvm.clang": {
+          "type": "string",
+          "default": "clang",
+          "description": "Absolute path to the clang executable to use"
+        },
+        "crux-llvm.crux-llvm": {
+          "type": "string",
+          "default": "crux-llvm",
+          "description": "Absolute path to the crux-llvm executable to use"
+        },
+        "crux-llvm.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Set to true to get information about the status of the extension (in the VSCode console)"
+        },
+        "crux-llvm.include-dirs": {
+          "type": "string",
+          "default": "",
+          "description": "Include directories passed to crux-llvm as --include-dirs"
+        },
+        "crux-llvm.llvm-link": {
+          "type": "string",
+          "default": "link-llvm",
+          "description": "Absolute path to the llvm-link executable to use"
+        },
+        "crux-llvm.path": {
+          "type": "string",
+          "default": "",
+          "description": "Value for PATH (z3 must be installed either globally or somewhere in PATH)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "npx tsc -b",
+    "watch": "npx tsc -b -w",
+    "vscode:prepublish": "webpack --mode production",
+    "webpack": "webpack --mode production",
+    "webpack-dev": "webpack --mode development --watch",
+    "test-compile": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/mocha": "^7.0.2",
+    "@types/node": "^12.12.53",
+    "@typescript-eslint/eslint-plugin": "^3.8.0",
+    "@typescript-eslint/parser": "^2.3.0",
+    "eslint": "^6.4.0",
+    "mocha": "^8.1.0",
+    "ts-loader": "^8.0.2",
+    "typescript": "^3.9.4",
+    "vsce": "^1.78.0",
+    "webpack": "^4.44.1",
+    "webpack-cli": "^3.3.12"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^6.1.3"
+  }
+}

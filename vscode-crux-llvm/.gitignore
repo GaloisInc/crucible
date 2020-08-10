@@ -1,0 +1,7 @@
+/.envrc
+/client/out/
+/examples/.vscode/
+/examples/output/
+/server/out/
+node_modules
+.vscode-test/

@@ -1,0 +1,16 @@
+{
+    "name": "vscode-crux-llvm-server",
+    "version": "1.0.0",
+    "description": "Server for VSCode Crux LLVM extension",
+    "author": "Valentin Robert",
+    "publisher": "Galois, Inc.",
+    "license": "BSD-3-Clause",
+    "scripts": {},
+    "dependencies": {
+        "debounce": "^1.2.0",
+        "vscode-languageserver": "^6.1.1"
+    },
+    "devDependencies": {
+        "@types/debounce": "^1.2.0"
+    }
+}
