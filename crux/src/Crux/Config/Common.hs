@@ -183,7 +183,10 @@ cruxOptions = Config
 
           solver <-
             section "solver" stringSpec "yices"
-            "Select the solver to use to discharge proof obligations. (default: \"yices\")"
+            ("Select the solver to use to discharge proof obligations." <>
+             "May be a single solver, a comma-separated list of solvers, or the string \"all\"." <>
+             "Specifying multiple solvers requires the --force-offline-goal-solving option" <>
+             "(default: \"yices\")")
 
           pathSatSolver <-
             sectionMaybe "path-sat-solver" stringSpec

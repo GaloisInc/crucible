@@ -13,6 +13,7 @@ module Crux.Config.Solver (
   ) where
 
 import           Control.Applicative ( (<|>), empty, Alternative )
+import           Data.List.Split (wordsBy)
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import qualified Lang.Crucible.Backend.Simple as CBS
@@ -65,6 +66,9 @@ data SolverConfig = SingleOnlineSolver SolverOnline
                   | OnlyOfflineSolver SolverOffline
                   -- ^ Use only an offline solver with no support for path
                   -- satisfiability checking
+                  | OnlyOfflineSolvers [SolverOffline]
+                  -- ^ Try any of a number of offline solvers with no support
+                  -- for path satisfiability checking
 
 -- | A type that contains a validated instance of a value or a list of messages
 -- describing why it was not valid
@@ -107,15 +111,22 @@ asOnlyOfflineSolver s =
 
 -- | Solvers that can be used in offline mode
 asAnyOfflineSolver :: String -> Validated SolverOffline
-asAnyOfflineSolver s =
-  case s of
-    "dreal" -> pure DReal
-    "boolector" -> pure Boolector
-    "z3" -> pure (SolverOnline Z3)
-    "yices" -> pure (SolverOnline Yices)
-    "cvc4" -> pure (SolverOnline CVC4)
-    "stp" -> pure (SolverOnline STP)
-    _ -> invalid (printf "%s is not a valid solver (expected dreal, boolector, z3, yices, cvc4, or stp)" s)
+asAnyOfflineSolver s = case s of
+      "dreal" -> pure DReal
+      "boolector" -> pure Boolector
+      "z3" -> pure (SolverOnline Z3)
+      "yices" -> pure (SolverOnline Yices)
+      "cvc4" -> pure (SolverOnline CVC4)
+      "stp" -> pure (SolverOnline STP)
+      _ -> invalid (printf "%s is not a valid solver (expected dreal, boolector, z3, yices, cvc4, or stp)" s)
+
+asManyOfflineSolvers :: String -> Validated [SolverOffline]
+asManyOfflineSolvers s
+  | s == "all"         = asManyOfflineSolvers "dreal,boolector,z3,yices,cvc4,stp"
+  | length solvers > 1 = traverse asAnyOfflineSolver solvers
+  | otherwise          = invalid (printf "%s is not a valid solver list (expected 'all' or a comma separated list of solvers)" s)
+  where
+    solvers = wordsBy (== ',') s
 
 -- | Attempt to parse the string as one of our solvers that supports online mode
 asOnlineSolver :: String -> Validated SolverOnline
@@ -165,7 +176,7 @@ parseSolverConfig cruxOpts = validatedToEither $
       -- request path satisfiability checking.  They also requested that a
       -- separate solver be used for each goal (offline mode).  We'll use the
       -- specified solver as the only solver purely in offline mode.
-      tryAnyOffline
+      tryManyOffline
     (Nothing, False, False) ->
       -- This is currently the same as the previous case, but the user
       -- explicitly selected no path sat checking
@@ -173,7 +184,7 @@ parseSolverConfig cruxOpts = validatedToEither $
     (Nothing, False, True) ->
       -- This is the same as the `(Just _, False, True)` case since we were just
       -- ignoring the unused path sat solver option.
-      tryAnyOffline
+      tryAnyOffline <|> tryManyOffline
     (Just onSolver, True, False) ->
       -- The user requested path sat checking and specified a solver
       --
@@ -194,3 +205,4 @@ parseSolverConfig cruxOpts = validatedToEither $
     tryAnyOffline = OnlyOfflineSolver <$> asAnyOfflineSolver (CCC.solver cruxOpts)
     tryOnlyOffline = OnlyOfflineSolver <$> asOnlyOfflineSolver (CCC.solver cruxOpts)
     trySingleOnline = SingleOnlineSolver <$> asOnlineSolver (CCC.solver cruxOpts)
+    tryManyOffline = OnlyOfflineSolvers <$> asManyOfflineSolvers (CCC.solver cruxOpts)
