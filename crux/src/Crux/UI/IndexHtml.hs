@@ -13,6 +13,7 @@ indexHtml = [r|
 <!DOCTYPE html>
 <html>
 <head>
+<meta charset="UTF-8">
 
 <script src="jquery.min.js"></script>
 <script src="source.js"></script>
