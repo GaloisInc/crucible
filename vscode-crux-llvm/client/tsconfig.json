@@ -1,0 +1,22 @@
+{
+    "extends": "../tsconfig-common.json",
+    "compilerOptions": {
+        "composite": true,
+        "module": "CommonJS",
+        "outDir": "../dist",
+        "paths": {
+            "@shared/*": [
+                "../shared/src/*",
+            ],
+        },
+        "rootDir": "..",
+    },
+    "files": [
+        "src/extension.ts"
+    ],
+    "references": [
+        {
+            "path": "../shared",
+        },
+    ],
+}

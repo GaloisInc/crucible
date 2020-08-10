@@ -1,0 +1,48 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "compile",
+            "type": "npm",
+            "script": "compile",
+            "group": "build",
+            "presentation": {
+                "panel": "dedicated",
+                "reveal": "never",
+            },
+            "problemMatcher": [
+                "$tsc",
+            ],
+        },
+        {
+            "label": "watch",
+            "type": "npm",
+            "script": "watch",
+            "isBackground": true,
+            "group": {
+                "kind": "build",
+                "isDefault": true,
+            },
+            "presentation": {
+                "panel": "dedicated",
+                "reveal": "never",
+            },
+            "problemMatcher": [
+                "$tsc-watch",
+            ],
+        },
+        {
+            "label": "sleep",
+            "type": "shell",
+            "command": "sleep 5",
+            "windows": {
+                "command": "ping 127.0.0.1 -n 5 > nul",
+            },
+            "group": "none",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "new",
+            },
+        },
+    ],
+}

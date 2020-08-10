@@ -1,0 +1,68 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Client",
+            // one-line options
+            "debugWebviews": true, // experimental, see README.md
+            "preLaunchTask": "compile",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "trace": true,
+            "type": "extensionHost",
+            // array options
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "${workspaceFolder}/examples",
+            ],
+            "outFiles": [
+                "${workspaceFolder}/dist/**/*.js",
+            ],
+            "skipFiles": [
+                "<node_internals>/**",
+            ],
+        },
+        {
+            "name": "Attach to Server",
+            // one-line options
+            "type": "node",
+            "request": "attach",
+            "port": 6005,
+            "preLaunchTask": "sleep", // does not work without this delay...
+            "protocol": "inspector",
+            "restart": true,
+            "sourceMaps": true,
+            "trace": true,
+            // array options
+            "outFiles": [
+                "${workspaceFolder}/dist/server/**/*.js",
+            ],
+        },
+        {
+            "name": "Language Server E2E Test",
+            // one-line options
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "sourceMaps": true,
+            "stopOnEntry": false,
+            // array options
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+            ],
+            "outFiles": [
+                "${workspaceFolder}/dist/client/test/**/*.js",
+            ],
+        },
+    ],
+    "compounds": [
+        {
+            "name": "Client + Server",
+            "configurations": [
+                "Launch Client",
+                "Attach to Server",
+            ],
+            "preLaunchTask": "compile",
+        },
+    ],
+}

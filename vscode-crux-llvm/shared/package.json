@@ -1,0 +1,27 @@
+{
+    "name": "vscode-crux-llvm-client",
+    "version": "1.0.0",
+    "description": "VSCode Crux-LLVM extension (language client)",
+    "author": "Valentin Robert",
+    "publisher": "Galois, Inc.",
+    "license": "BSD-3-Clause",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/GaloisInc/crucible"
+    },
+    "engines": {
+        "vscode": "^1.45.0"
+    },
+    "dependencies": {
+        "vscode-languageserver": "^7.0.0",
+        "vscode-languageserver-textdocument": "^1.0.1",
+        "websocket": "^1.0.34",
+        "ws": "^8.0.0"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.58.1",
+        "@types/websocket": "^1.0.4",
+        "@types/ws": "^7.4.7",
+        "npm-check-updates": "^11.8.3"
+    }
+}

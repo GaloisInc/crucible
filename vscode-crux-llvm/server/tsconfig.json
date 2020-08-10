@@ -1,0 +1,26 @@
+{
+    "extends": "../tsconfig-common.json",
+    "compilerOptions": {
+        "composite": true,
+        "lib": [
+            "ES2019"
+        ],
+        "module": "CommonJS",
+        "outDir": "../dist",
+        "paths": {
+            "@shared/*": [
+                "../shared/src/*",
+            ],
+        },
+        "rootDir": "..",
+        "target": "ES6",
+    },
+    "files": [
+        "src/server.ts",
+    ],
+    "references": [
+        {
+            "path": "../shared",
+        },
+    ],
+}

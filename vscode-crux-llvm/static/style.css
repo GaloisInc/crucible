@@ -1,0 +1,30 @@
+.error {
+    color: red;
+}
+
+.icon {
+    width: 140px;
+    padding: 20px;
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+}
+
+.ok {
+    color: green;
+}
+
+table {
+    border-collapse: collapse;
+    white-space: pre-line;
+    width: 100%;
+}
+
+td {
+    border: 1px solid gray;
+}
+
+.warning {
+    color: yellow;
+}

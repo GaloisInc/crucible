@@ -1,0 +1,116 @@
+{
+    "name": "vscode-crux-llvm",
+    "version": "0.0.2",
+    "displayName": "VSCode Crux-LLVM",
+    "description": "VSCode extension for the Crux-LLVM tool",
+    "author": "Valentin Robert",
+    "publisher": "galois",
+    "license": "BSD-3-Clause",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/GaloisInc/crucible"
+    },
+    "engines": {
+        "vscode": "^1.58.0"
+    },
+    "main": "./dist/client.bundle.js",
+    "activationEvents": [
+        "onView:vscode-crux-llvm-2",
+        "onCommand:vscode-crux-llvm.helloWorld",
+        "onDebug",
+        "onLanguage:c"
+    ],
+    "contributes": {
+        "commands": [],
+        "configuration": {
+            "title": "Crux LLVM configuration",
+            "properties": {
+                "vscode-crux-llvm.clang": {
+                    "type": "string",
+                    "default": "clang",
+                    "description": "Absolute path to the clang executable to use"
+                },
+                "vscode-crux-llvm.crux-llvm": {
+                    "type": "string",
+                    "default": "crux-llvm",
+                    "description": "Absolute path to the crux-llvm executable to use"
+                },
+                "vscode-crux-llvm.debug": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Set to true to get information about the status of the extension (in the VSCode console)"
+                },
+                "vscode-crux-llvm.include-dirs": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Include directories passed to crux-llvm as --include-dirs"
+                },
+                "vscode-crux-llvm.llvm-link": {
+                    "type": "string",
+                    "default": "link-llvm",
+                    "description": "Absolute path to the llvm-link executable to use"
+                },
+                "vscode-crux-llvm.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Value for PATH (z3 must be installed either globally or somewhere in PATH)"
+                }
+            }
+        },
+        "viewsContainers": {
+            "panel": [
+                {
+                    "id": "vscode-crux-llvm-panel",
+                    "title": "Crux-LLVM diagnostics",
+                    "icon": "$(pass)"
+                }
+            ]
+        },
+        "views": {
+            "vscode-crux-llvm-panel": [
+                {
+                    "icon": "$(pass)",
+                    "id": "vscode-crux-llvm-panel-view",
+                    "name": "VSCode Crux-LLVM",
+                    "type": "webview",
+                    "contextualTitle": "Where does this appear?"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "check-updates": "ncu; (cd client && ncu); (cd server && ncu); (cd shared && ncu); (cd webview && ncu)",
+        "upgrade": "ncu -u; (cd client && ncu -u); (cd server && ncu -u); (cd shared && ncu -u); (cd webview && ncu -u)",
+        "compile": "webpack",
+        "lint": "eslint client/ server/ --ext .ts,.tsx || true",
+        "postinstall": "(cd client && npm install); (cd server && npm install); (cd shared && npm install); (cd webview && npm install)",
+        "test-compile": "tsc -p ./",
+        "vscode:prepublish": "webpack --mode production",
+        "watch": "webpack watch"
+    },
+    "dependencies": {
+        "ws": "^8.0.0"
+    },
+    "devDependencies": {
+        "@types/mocha": "^9.0.0",
+        "@types/node": "^16.4.12",
+        "@types/webpack": "^5.28.0",
+        "@types/ws": "^7.4.7",
+        "@typescript-eslint/eslint-plugin": "^4.29.0",
+        "@typescript-eslint/parser": "^4.29.0",
+        "copy-webpack-plugin": "^9.0.1",
+        "eslint": "^7.32.0",
+        "eslint-import-resolver-typescript": "^2.4.0",
+        "eslint-plugin-import": "^2.23.4",
+        "eslint-plugin-tsdoc": "^0.2.14",
+        "mocha": "^9.0.3",
+        "npm-check-updates": "^11.8.3",
+        "ts-loader": "^9.2.5",
+        "ts-node": "^10.1.0",
+        "tsconfig-paths-webpack-plugin": "^3.5.1",
+        "typescript": "^4.3.5",
+        "vsce": "^1.96.1",
+        "webpack": "^5.48.0",
+        "webpack-cli": "^4.7.2"
+    }
+}

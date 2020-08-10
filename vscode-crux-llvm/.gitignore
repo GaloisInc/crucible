@@ -1,0 +1,8 @@
+/.envrc
+/clang
+/examples/.vscode/
+/examples/output/
+/llvm-link
+/z3
+node_modules
+.vscode-test/

@@ -1,0 +1,23 @@
+{
+    "extends": "../tsconfig-common.json",
+    "compilerOptions": {
+        "composite": true,
+        "module": "CommonJS",
+        "outDir": "../dist",
+        "paths": {
+            "@shared/*": [
+                "../shared/src/*",
+            ],
+        },
+        "rootDir": "..",
+        "target": "ES6",
+    },
+    "files": [
+        "src/webview.tsx",
+    ],
+    "references": [
+        {
+            "path": "../shared",
+        },
+    ],
+}
