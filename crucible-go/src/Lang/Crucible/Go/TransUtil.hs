@@ -33,34 +33,41 @@ import           Language.Go.Types
 import           Lang.Crucible.Go.Encodings
 import           Lang.Crucible.Go.Types
 
-
--- | Use this function to assert that an expression has a certain
--- type. Unit values may be coerced to Nothing values of a Maybe
--- type. Bit vector literals may be truncated. Floats may be cast
--- (usually from float literals being double by default but allowed to
--- implicitly cast to single precision. similar story for bit
--- vectors).  It may be useful in the future to do a type inference
--- pass, inferring the actual eventual types of "untyped constants",
--- to obviate the need for this coercion stuff.
-asTypeMaybe :: TypeRepr b -> Gen.Expr Go s a -> Maybe (Gen.Expr Go s b)
-asTypeMaybe repr e =
+-- | Use this function (or one of its derivatives) to assert that an
+-- expression has a certain type. Unit values may be coerced to
+-- Nothing values of a Maybe type. Bit vector literals may be
+-- truncated. Floats may be cast (usually from float literals being
+-- double by default but allowed to implicitly cast to single
+-- precision. similar story for bit vectors).  It may be useful in the
+-- future to do a type inference pass, inferring the actual eventual
+-- types of "untyped constants", to obviate the need for this coercion
+-- stuff.
+asTypeEither :: TypeRepr b
+             -> Gen.Expr Go s a
+             -> Either (Some TypeRepr, Some (Gen.Expr Go s)) (Gen.Expr Go s b)
+asTypeEither repr e =
   case testEquality (exprType e) repr of
-    Just Refl -> Just e
+    Just Refl -> Right e
     Nothing ->
       -- When the types are not equal, try to coerce the value.
       case (e, exprType e, repr) of
         -- Send unit to Nothing.
         (Gen.App C.EmptyApp, _repr, MaybeRepr repr') ->
-          Just $ Gen.App $ C.NothingValue repr'
+          Right $ Gen.App $ C.NothingValue repr'
         -- Truncate bitvector literals.
         (Gen.App (C.BVLit n bv), _repr, BVRepr m) ->
           case decideLeq (incNat m) n of
-            Left LeqProof -> Just $ Gen.App $ C.BVTrunc m n e
-            Right _refutation -> Nothing
+            Left LeqProof -> Right $ Gen.App $ C.BVTrunc m n e
+            Right _refutation -> Left (Some repr, Some e)
         -- Coerce floats (usually double to float 
         (_e, FloatRepr _fi, FloatRepr fi) ->
-          Just $ Gen.App $ C.FloatCast fi C.RNE e
-        _ -> Nothing
+          Right $ Gen.App $ C.FloatCast fi C.RNE e
+        _ -> Left (Some repr, Some e)
+
+asTypeMaybe :: TypeRepr b -> Gen.Expr Go s a -> Maybe (Gen.Expr Go s b)
+asTypeMaybe repr e = case asTypeEither repr e of
+  Left _x -> Nothing
+  Right e' -> Just e'
 
 asType :: TypeRepr b -> Gen.Expr Go s a -> Gen.Expr Go s b
 asType repr e =
@@ -73,6 +80,15 @@ asType repr e =
 asType' :: TypeRepr b -> Gen.Expr Go s a -> (Gen.Expr Go s b -> c) -> c
 asType' repr e k = k $ asType repr e
 
+-- | asTypeEither lifted to assignments.
+asTypesEither :: CtxRepr ctx'
+              -> Assignment (Gen.Expr Go s) ctx
+              -> Either (Some TypeRepr, Some (Gen.Expr Go s))
+              (Assignment (Gen.Expr Go s) ctx')
+asTypesEither Empty Empty = Right Empty
+asTypesEither (reprs :> repr) (es :> e) =
+  pure (:>) <*> asTypesEither reprs es <*> asTypeEither repr e
+
 -- | asTypeMaybe lifted to assignments.
 asTypesMaybe :: CtxRepr ctx' ->
                 Assignment (Gen.Expr Go s) ctx ->
@@ -80,15 +96,14 @@ asTypesMaybe :: CtxRepr ctx' ->
 asTypesMaybe Empty Empty = Just Empty
 asTypesMaybe (reprs :> repr) (es :> e) =
   pure (:>) <*> asTypesMaybe reprs es <*> asTypeMaybe repr e
-asTypesMaybe ctx assignment = Nothing
 
 asTypes :: CtxRepr ctx' ->
            Assignment (Gen.Expr Go s) ctx ->
            Assignment (Gen.Expr Go s) ctx'
-asTypes ctx assignment = case asTypesMaybe ctx assignment of
-  Just assignment' -> assignment'
-  Nothing ->
-    error $ "asTypes: " ++ show assignment ++ " incompatible with " ++ show ctx
+asTypes ctx assignment = case asTypesEither ctx assignment of
+  Right assignment' -> assignment'
+  Left (Some repr, Some e)->
+    error $ "asTypes: " ++ show e ++ " incompatible with " ++ show repr
 
 -- | CPS version of asTypes
 asTypes' :: CtxRepr ctx' ->
@@ -311,10 +326,10 @@ coerceAssignment :: CtxRepr expectedCtx ->
                     Assignment (Gen.Expr Go s) ctx ->
                     Assignment (Gen.Expr Go s) expectedCtx
 coerceAssignment expectedCtx assignment =
-  case asTypesMaybe expectedCtx assignment of
-    Just assignment' -> assignment'
-    Nothing -> error $ "coerceAssignment: assignment " ++ show assignment ++
-               " incompatible with ctx " ++ show expectedCtx
+  case asTypesEither expectedCtx assignment of
+    Right assignment' -> assignment'
+    Left (Some repr, Some e) ->
+      error $ "coerceAssignment: " ++ show e ++ " incompatible with " ++ show repr
 
 withAssignment :: [SomeGoExpr s]
                -> (forall args. CtxRepr args ->

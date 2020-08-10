@@ -305,7 +305,7 @@ translate_alg (BinaryExpr _ tp left op right) = TranslateM $ do
       BShiftL -> fail "translate_alg BinaryExpr: BShiftL not yet supported"
       BShiftR -> fail "translate_alg BinaryExpr: BShiftR not yet supported"
 
-translate_alg (CallExpr _ tp fun args) = TranslateM $ do
+translate_alg (CallExpr _ tp _ellipsis fun args) = TranslateM $ do
   Some retRepr <- gets retRepr
   translated_fun <- runTranslated fun
   translated_args <- mapM runTranslated args
@@ -330,7 +330,6 @@ translate_alg (CallExpr _ tp fun args) = TranslateM $ do
                  ++ show (exprType fun')
     TranslatedUnbound qual ident ->
       translateBuiltin qual ident args
-      -- translateBuiltin qual ident translated_args
 
 translate_alg (CastExpr _ tp expr ty) =
   TranslateM $ fail "translate_alg CastExpr: unsupported"
@@ -410,6 +409,7 @@ translate_alg (FuncLitExpr _ tp params results body) =
     return $ mkSomeGoExpr' $ C.HandleLit $ C.cfgHandle g
 
 -- | Only support array/slice indexing for now.
+-- TODO: bounds checking
 translate_alg (IndexExpr _ tp expr index) = TranslateM $ do
   TranslatedExpr expr_gen <- runTranslated expr
   TranslatedExpr index_gen <- runTranslated index
@@ -421,10 +421,10 @@ translate_alg (IndexExpr _ tp expr index) = TranslateM $ do
           BVRepr w -> Gen.App $ C.BvToNat w ix
     tryAsArray e
       (\repr arr -> do
-        vec <- Gen.readRef arr
-        return $ Some $ GoExpr (Just $ GoLocPointer $
-                                 mkArrayOffsetPointer arr natIx) $
-          Gen.App $ C.VectorGetEntry repr vec natIx
+          vec <- Gen.readRef arr
+          return $ Some $ GoExpr (Just $ GoLocPointer $
+                                   mkArrayOffsetPointer arr natIx) $
+            Gen.App $ C.VectorGetEntry repr vec natIx
       ) $
       tryAsSlice e
       (\repr slice -> do
