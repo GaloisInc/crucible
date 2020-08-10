@@ -183,9 +183,9 @@ cruxOptions = Config
 
           solver <-
             section "solver" stringSpec "yices"
-            ("Select the solver to use to discharge proof obligations." <>
-             "May be a single solver, a comma-separated list of solvers, or the string \"all\"." <>
-             "Specifying multiple solvers requires the --force-offline-goal-solving option" <>
+            (pack $ "Select the solver to use to discharge proof obligations. " ++
+             "May be a single solver, a comma-separated list of solvers, or the string \"all\". " ++
+             "Specifying multiple solvers requires the --force-offline-goal-solving option. " ++
              "(default: \"yices\")")
 
           pathSatSolver <-
@@ -323,7 +323,10 @@ cruxOptions = Config
         $ NoArg $ \opts -> Right opts { unsatCores = False }
 
       , Option "s" ["solver"]
-        "Select the solver to use to discharge proof obligations"
+        ("Select the solver to use to discharge proof obligations. " ++
+         "May be a single solver, a comma-separated list of solvers, or the string \"all\". " ++
+         "Specifying multiple solvers requires the --force-offline-goal-solving option. " ++
+         "(default: \"yices\")")
         $ ReqArg "solver" $ \v opts -> Right opts { solver = map toLower v }
 
       , Option [] ["path-sat-solver"]

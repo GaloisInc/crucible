@@ -176,7 +176,7 @@ parseSolverConfig cruxOpts = validatedToEither $
       -- request path satisfiability checking.  They also requested that a
       -- separate solver be used for each goal (offline mode).  We'll use the
       -- specified solver as the only solver purely in offline mode.
-      tryManyOffline
+      tryAnyOffline <|> tryManyOffline
     (Nothing, False, False) ->
       -- This is currently the same as the previous case, but the user
       -- explicitly selected no path sat checking
