@@ -38,8 +38,12 @@ generateReport opts res
        createDirectoryIfMissing True (outDir opts)
        maybeGenerateSource opts (inputFiles opts)
        cwd <- getCurrentDirectory
-       writeFile (outDir opts </> "report.js")
-          $ "var goals = " ++ renderJS (jsList (renderSideConds opts cwd xs))
+       let contents = renderJS (jsList (renderSideConds opts cwd xs))
+       -- Due to CORS restrictions, the only current way of statically loading local data
+       -- is by including a <script> with the contents we want. 
+       writeFile (outDir opts </> "report.js") $ "var goals = " ++ contents
+       -- However, for some purposes, having a JSON file is more practical.
+       writeFile (outDir opts </> "report.json") contents
        T.writeFile (outDir opts </> "index.html") indexHtml
        T.writeFile (outDir opts </> "jquery.min.js") jquery
 
