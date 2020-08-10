@@ -66,14 +66,8 @@ data GoGlobal where
            -> GoGlobal
 deriving instance Show GoGlobal
 
--- | An assignable location. Either a reference expression, a global
--- variable, or an offset into an array. Also map indices
--- eventually. It may also be a pointer expression (reified location).
-
--- It should be possible in principle to eliminate the ref and array
--- constructors here and use pointer expressions for most locations,
--- but globals must be treated specially for now since they can't be
--- embedded in expressions (or can they be?).
+-- | As assignable location. Either a statically known location
+-- (reference, global, array offset) or a pointer expression.
 data GoLoc s tp where
   GoLocRef :: Gen.Expr Go s (ReferenceType tp)
            -> GoLoc s tp
@@ -191,6 +185,16 @@ instance C.ShowF (GoExpr s) where
   showF = show
 type SomeGoExpr s = Some (GoExpr s)
 
+-- | Create a GoExpr with no location.
+mkGoExpr :: Gen.Expr Go s tp -> GoExpr s tp
+mkGoExpr = GoExpr Nothing
+
+mkSomeGoExpr :: Gen.Expr Go s tp -> SomeGoExpr s
+mkSomeGoExpr = Some . mkGoExpr
+
+mkSomeGoExpr' :: C.App Go (Gen.Expr Go s) tp -> SomeGoExpr s
+mkSomeGoExpr' = mkSomeGoExpr . Gen.App
+
 goExpr :: GoExpr s tp -> Gen.Expr Go s tp
 goExpr (GoExpr _loc e) = e
 
@@ -222,9 +226,10 @@ liftIO' = lift . lift
 
 -- | The type of results produced by translator computations, indexed
 -- by NodeType. The constructors roughly correspond to the AST
--- constructors, but collapsing syntactic classes of constructors into
--- a single one (e.g., all AST nodes indexed by Stmt produce a
--- TranslatedStmt).
+-- constructors, but with some syntactic classes of constructors into
+-- one or a small number of constructors (e.g., all AST nodes indexed
+-- by Stmt result in a TranslatedStmt, all nodes indexed by Expr
+-- result in a TranslatedExpr or TranslatedType).
 data Translated (tp :: NodeType) where
 
   -- | The top-level result of translating a Go program.
@@ -269,9 +274,6 @@ data Translated (tp :: NodeType) where
                      -> C.AnyCFG Go
                      -> Translated Decl
 
-  -- TranslatedConstDecl :: Translated Decl
-  -- TranslatedVarDecl :: Translated Decl
-  -- TranslatedTypeAliasDecl :: Translated Decl
   TranslatedGenDecl :: [Translated Spec]
                     -> Translated Decl
 

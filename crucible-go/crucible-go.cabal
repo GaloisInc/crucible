@@ -49,10 +49,12 @@ executable crucible-go
 
 
 library
-  exposed-modules:     Lang.Crucible.Go.Encodings
+  exposed-modules:     Lang.Crucible.Go.Builtin
+                       Lang.Crucible.Go.Encodings
                        Lang.Crucible.Go.Overrides
                        Lang.Crucible.Go.Simulate
                        Lang.Crucible.Go.Translation
+                       Lang.Crucible.Go.TransUtil
                        Lang.Crucible.Go.Types
   -- other-modules:       
   -- other-extensions:    
