@@ -8,7 +8,7 @@
 
 module Crux.Goal where
 
-import Control.Concurrent.Async (AsyncCancelled(..), async, asyncThreadId, waitAnyCatch)
+import Control.Concurrent.Async (async, asyncThreadId, waitAnyCatch)
 import Control.Exception (throwTo, SomeException, displayException)
 import Control.Lens ((^.), view)
 import qualified Control.Lens as L
@@ -20,6 +20,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
+import           System.Exit (ExitCode(ExitSuccess))
 import qualified System.Timeout as ST
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -299,7 +300,7 @@ dispatchSolversOnGoalAsync adapters withAdapter = do
           await as' es
 
     -- `cancel` from async blocks until the canceled thread has terminated.
-    kill a = throwTo (asyncThreadId a) AsyncCancelled
+    kill a = throwTo (asyncThreadId a) ExitSuccess
 
 
 -- | Prove a collection of goals.  The result is a goal tree, where
