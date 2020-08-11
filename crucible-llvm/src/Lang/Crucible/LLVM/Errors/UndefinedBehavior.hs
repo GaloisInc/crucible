@@ -381,8 +381,8 @@ details =
 
     -------------------------------- Memory management
 
-    FreeBadOffset ptr   -> [ "Pointer:" <+> ppPtr1 ptr ]
-    FreeUnallocated ptr -> [ "Pointer:" <+> ppPtr1 ptr ]
+    FreeBadOffset ptr   -> [ ppPtr1 ptr ]
+    FreeUnallocated ptr -> [ ppPtr1 ptr ]
     MemsetInvalidRegion destPtr fillByte len ->
       [ "Destination pointer:" <+> ppPtr1 destPtr
       , "Fill byte:          " <+> (W4I.printSymExpr $ unRV fillByte)
@@ -405,8 +405,8 @@ details =
       ]
     CompareInvalidPointer comparison invalid other ->
       [ "Comparison:                    " <+> ppPtrComparison comparison
-      , "Invalid pointer:               " <+> ppPtr1 invalid
-      , "Other (possibly valid) pointer:" <+> ppPtr1 other
+      , "Invalid pointer:               " <+> ppPtr (unRV invalid)
+      , "Other (possibly valid) pointer:" <+> ppPtr (unRV other)
       ]
     CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
     PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
