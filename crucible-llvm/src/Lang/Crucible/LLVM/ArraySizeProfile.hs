@@ -121,7 +121,7 @@ ptrIsInitialized ::
   C.LLVMPtr sym w ->
   IO Bool
 ptrIsInitialized sym mem ptr =
-  G.readMem sym C.PtrWidth ptr (C.bitvectorType 1) C.noAlignment mem >>= \case
+  G.readMem sym C.PtrWidth Nothing ptr (C.bitvectorType 1) C.noAlignment mem >>= \case
   C.NoErr{} -> pure True
   _ -> pure False
 
