@@ -8,12 +8,8 @@
 
 module Crux.Goal where
 
-import Control.Monad.Trans (liftIO)
-import Control.Monad.Trans.Writer.Strict (runWriterT, tell)
-import Control.Concurrent (ThreadId, forkIO, killThread,
-                           MVar, newEmptyMVar, tryTakeMVar, putMVar,
-                           QSem, newQSem, waitQSem, signalQSem)
-import Control.Exception (catch, SomeException, displayException)
+import Control.Concurrent.Async (AsyncCancelled(..), async, asyncThreadId, waitAnyCatch)
+import Control.Exception (throwTo, SomeException, displayException)
 import Control.Lens ((^.), view)
 import qualified Control.Lens as L
 import Control.Monad (forM, forM_, unless, when)
@@ -264,7 +260,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
                   Just res -> return res
                   Nothing -> return (NotProved mempty Nothing)
 
-          res <- dispatchSolversOnGoal adapters runOneSolver
+          res <- dispatchSolversOnGoalAsync adapters runOneSolver
           end
           case res of
             Right details -> do
@@ -277,90 +273,33 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
               return (Prove (p, details))
             Left es -> do
               modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing))
-              let allExceptions = unlines (displayException . snd <$> es)
+              let allExceptions = unlines (displayException <$> es)
               fail allExceptions
-
-data SolverThreadSelect s r = ThreadWithResult (WS.SolverAdapter s) r
-                            | ThreadNoResult   (WS.SolverAdapter s)
-                            | ThreadExcept     (WS.SolverAdapter s) SomeException
-                            | NotReady
-
-dispatchSolversOnGoal :: forall a s. [WS.SolverAdapter s]
+                          
+dispatchSolversOnGoalAsync :: forall a s. [WS.SolverAdapter s]
                       -> (WS.SolverAdapter s -> IO (ProofResult a))
-                      -> IO (Either [(WS.SolverAdapter s, SomeException)] (ProofResult a))
-dispatchSolversOnGoal adapters withAdapter = do
-  -- Each thread (adapter) will get an mvar in which to dump its results
-  resultChannels <- mapM (\a -> (,) a <$> newEmptyMVar) adapters
-  -- We'll use one semaphore to signal that there's a newly-filled channel
-  readySem       <- newQSem 0
-  -- Spin up the threads
-  threads        <- forM resultChannels $ \(a,c) -> do
-    tid <- forkIO $ thread readySem (a,c)
-    return (tid, a, c)
-  -- Wait for all threads to terminate
-  waitLoop readySem threads []
-  
+                      -> IO (Either [SomeException] (ProofResult a))
+dispatchSolversOnGoalAsync adapters withAdapter = do
+  asyncs <- forM adapters (async . withAdapter)
+  await asyncs []
   where
-    -- Wait for the first thread to return results (e.g. UNSAT or a SAT + CEX)
-    waitLoop :: QSem
-             -> [(ThreadId, WS.SolverAdapter s, MVar (Either SomeException (ProofResult a)))]
-             -> [(WS.SolverAdapter s, SomeException)]
-             -> IO (Either [(WS.SolverAdapter s, SomeException)] (ProofResult a))
-    waitLoop readySem cs es =
-      case (cs, es) of
-        -- No thread returned anything interesting (including exceptions): e.g. maybe all timed out
-        ([], []) -> return $ Right $ NotProved mempty Nothing
-        -- No thread returned anything interesting but some threads threw exceptions.
-        ([], _)  -> return $ Left  es
-        -- Wait for a signal and then check the list of channels for some result.
-        _        -> do
-          waitQSem readySem
-          (res, rest) <- runWriterT $ select cs
-          case res of
-            ThreadWithResult _ r -> do
-              forM_ rest $ \(tid, _, _) -> killThread tid
-              return (Right r)
-            ThreadNoResult _ -> waitLoop readySem rest es
-            ThreadExcept a e -> waitLoop readySem rest ((a,e):es)
-            NotReady         ->
-              -- This *really* shouldn't happen: `thread` only signals `readySem` AFTER
-              -- calling `putMVar`, and `waitLoop` is the only function calling
-              -- `waitQSem`/`tryTakeMVar` (via `select`)
-              fail "Internal: Thread signaled completion but MVar was empty" -- TODO: github issue?
+    await [] es = return $ Left es
+    await as es = do
+      (a, result) <- waitAnyCatch as
+      let as' = filter (/= a) as
+      case result of
+        Left  exc          -> await as' (exc : es)
+        Right r@(Proved _) -> do
+          mapM_ kill as'
+          return $ Right r
+        Right r@(NotProved _ (Just _)) -> do
+          mapM_ kill as'
+          return $ Right r
+        Right _ ->
+          await as' es
 
-    -- `select channels` is a writer action where the accumulated value is the
-    -- subset of `channels` that either we did not check or did not have a value
-    -- yet, i.e. the corresponding thread has not terminated and we should check
-    -- it again on a future call to `select`.
-    select channels =
-      case channels of
-        []                     -> return NotReady
-        this@(_tid, a, c):rest ->  do
-          mresult <- liftIO $ tryTakeMVar c
-          case mresult of
-            -- This thread is not ready yet
-            Nothing -> do
-              tell [this] -- Remember to try 'this' again later
-              select rest
-            Just someResult -> do
-              tell rest -- We won't look at `rest` now, so they should be looked at later
-              return $ case someResult of
-                -- Proved the goal, we're done
-                Right r@(Proved _)             -> ThreadWithResult a r
-                -- Found a counterexample, we're done
-                Right r@(NotProved _ (Just _)) -> ThreadWithResult a r
-                -- Got an indeterminate result (but a result nonetheless)
-                Right (NotProved  _ Nothing)   -> ThreadNoResult a
-                -- Solver threw an exception (e.g. might not support a theory)
-                -- we'll save the exceptions in case we don't get a definite result
-                Left exception                 -> ThreadExcept a exception
-
-    thread :: QSem -> (WS.SolverAdapter s, MVar (Either SomeException (ProofResult a))) -> IO ()
-    thread readySem (adapter, channel) = do
-      res <- catch (Right <$> withAdapter adapter)
-                   (\(e :: SomeException) -> return $ Left e)
-      putMVar channel res
-      signalQSem readySem
+    -- `cancel` from async blocks until the canceled thread has terminated.
+    kill a = throwTo (asyncThreadId a) AsyncCancelled
 
 
 -- | Prove a collection of goals.  The result is a goal tree, where
