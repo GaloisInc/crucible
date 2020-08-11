@@ -229,7 +229,8 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
-import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..), MemoryOp(..))
+import           Lang.Crucible.LLVM.Errors.MemoryError
+   (MemErrContext, MemoryErrorReason(..), MemoryOp(..), ppMemoryErrorReason)
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemType
 import qualified Lang.Crucible.LLVM.MemModel.MemLog as ML
@@ -303,7 +304,7 @@ assertUndefined ::
   IO ()
 assertUndefined sym p ub =
   do p' <- Partial.annotateUB sym ub p
-     assert sym p' $ AssertFailureSimError "Undefined behavior encountered" ""
+     assert sym p' $ AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
 
 
 assertStoreError ::
@@ -315,7 +316,7 @@ assertStoreError ::
   IO ()
 assertStoreError sym errCtx rsn p =
   do p' <- Partial.annotateME sym errCtx rsn p
-     assert sym p' $ AssertFailureSimError "Memory store failed" ""
+     assert sym p' $ AssertFailureSimError "Memory store failed" (show (ppMemoryErrorReason rsn))
 
 instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -437,7 +438,7 @@ evalStmt sym = eval
            Left doc -> lift $
              do p <- Partial.annotateME sym mop (BadFunctionPointer doc) (falsePred sym)
                 loc <- getCurrentProgramLoc sym
-                let err = SimError loc (AssertFailureSimError "Failed to load function handle" "")
+                let err = SimError loc (AssertFailureSimError "Failed to load function handle" (show doc))
                 addProofObligation sym (LabeledPred p err)
                 abortExecBecause $ AssumedFalse $ AssumingNoError err
 
