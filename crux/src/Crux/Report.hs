@@ -4,7 +4,7 @@
 module Crux.Report where
 
 import System.FilePath
-import System.Directory (createDirectoryIfMissing, getCurrentDirectory, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, getCurrentDirectory, canonicalizePath)
 import System.IO
 import qualified Data.Foldable as Fold
 import Data.List (partition)
@@ -20,7 +20,7 @@ import Lang.Crucible.Backend
 import Crux.Types
 import Crux.Config.Common
 import Crux.Loops
-import Crux.Model ( ppModelJS )
+import Crux.Model ( modelJS )
 
 -- Note these should be data files. However, cabal-new build doesn't make it easy for the installation
 -- to find data files, so they are embedded as Text constants instead.
@@ -38,8 +38,8 @@ generateReport opts res
        createDirectoryIfMissing True (outDir opts)
        maybeGenerateSource opts (inputFiles opts)
        cwd <- getCurrentDirectory
-       writeFile (outDir opts </> "report.js")
-          $ "var goals = " ++ renderJS (jsList (renderSideConds opts cwd xs))
+       scs <- renderSideConds opts cwd xs
+       writeFile (outDir opts </> "report.js") $ "var goals = " ++ renderJS (jsList scs)
        T.writeFile (outDir opts </> "index.html") indexHtml
        T.writeFile (outDir opts </> "jquery.min.js") jquery
 
@@ -56,7 +56,7 @@ maybeGenerateSource opts files =
      h <- openFile (outDir opts </> "source.js") WriteMode
      hPutStrLn h "var sources = ["
      forM_ renderFiles $ \file -> do
-       absFile <- makeAbsolute file
+       absFile <- canonicalizePath file
        txt <- readFile absFile
        hPutStr h $ "{\"label\":" ++ show (takeFileName absFile) ++ ","
        hPutStr h $ "\"name\":" ++ show absFile ++ ","
@@ -67,9 +67,11 @@ maybeGenerateSource opts files =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: CruxOptions -> FilePath -> Seq (ProcessedGoals, ProvedGoals b) -> [ JS ]
-renderSideConds opts cwd = concatMap (go [] . snd) . Fold.toList
+renderSideConds :: CruxOptions -> FilePath -> Seq (ProcessedGoals, ProvedGoals b) -> IO [ JS ]
+renderSideConds opts cwd seqGls = concatMapM (go [] . snd) (Fold.toList seqGls)
   where
+  concatMapM f xs = concat <$> mapM f xs
+
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
   flatBranch (x : more)          = x : flatBranch more
   flatBranch []                  = []
@@ -80,22 +82,26 @@ renderSideConds opts cwd = concatMap (go [] . snd) . Fold.toList
 
   go path gs =
     case gs of
-      AtLoc pl _ gs1  -> go ((jsLoc cwd pl, pl) : path) gs1
+      AtLoc pl _ gs1  ->
+        do pl' <- jsLoc cwd pl
+           go ((pl', pl) : path) gs1
+
       Branch g1 g2 ->
-        let (now,rest) = partition isGoal (flatBranch [g1,g2])
-        in concatMap (go path) now ++ concatMap (go path) rest
+        let (now,rest) = partition isGoal (flatBranch [g1,g2]) in
+          (++) <$> concatMapM (go path) now <*> concatMapM (go path) rest
 
       Goal asmps conc triv proved
         | skipSuccessReports opts
         , Proved _ <- proved
-        -> []
+        -> pure []
 
         | skipIncompleteReports opts
         , (SimError _ (ResourceExhausted _), _) <- conc
-        -> []
+        -> pure []
 
         | otherwise
-        -> [ jsSideCond cwd apath asmps conc triv proved ]
+        -> do s <- jsSideCond cwd apath asmps conc triv proved
+              pure [s]
 
           where
             (ls,ps) = unzip (reverse path)
@@ -112,17 +118,22 @@ jsSideCond ::
   (SimError,String) ->
   Bool ->
   ProofResult b ->
-  JS
+  IO JS
 jsSideCond cwd path asmps (conc,_) triv status =
-  jsObj
-  [ "status"          ~> proved
-  , "counter-example" ~> example
-  , "goal"            ~> jsStr goalReason
-  , "location"        ~> jsLoc cwd (simErrorLoc conc)
-  , "assumptions"     ~> jsList (map mkAsmp asmps)
-  , "trivial"         ~> jsBool triv
-  , "path"            ~> jsList path
-  ]
+  do loc <- jsLoc cwd (simErrorLoc conc)
+     asmps' <- mapM mkAsmp asmps
+     ex <- example
+     pure $ jsObj
+       [ "status"          ~> proved
+       , "counter-example" ~> ex
+       , "goal"            ~> goalReason
+       , "details-short"   ~> goalDetails
+       , "location"        ~> loc
+       , "assumptions"     ~> jsList asmps'
+       , "trivial"         ~> jsBool triv
+       , "path"            ~> jsList path
+       , "details-long"    ~> longDetails
+       ]
   where
   proved = case (status, simErrorReason conc) of
              (Proved{}, _) -> jsStr "ok"
@@ -131,13 +142,23 @@ jsSideCond cwd path asmps (conc,_) triv status =
              (NotProved _ Nothing, _) -> jsStr "unknown"
 
   example = case status of
-             NotProved _ex (Just m) -> -- TODO! do something with this explanation
-               JS (ppModelJS cwd m)
-             _                  -> jsNull
+             NotProved _ex (Just m) -> modelJS cwd m
+             _                      -> pure jsNull
+
+  longDetails =
+     case status of
+       NotProved ex _ -> jsStr (show ex)
+       _ -> jsNull
 
   mkAsmp (asmp,_) =
-    jsObj [ "loc" ~> jsLoc cwd (assumptionLoc asmp)
-          -- , "text" ~> jsStr (show (ppAssumptionReason asmp))
-          ]
+    do l <- jsLoc cwd (assumptionLoc asmp)
+       pure $ jsObj
+         [ "loc" ~> l
+         , "text" ~> jsStr (show (ppAssumptionReason asmp))
+         ]
 
-  goalReason = simErrorReasonMsg (simErrorReason conc)
+  goalReason  = jsStr (simErrorReasonMsg (simErrorReason conc))
+  goalDetails
+     | null msg  = jsNull
+     | otherwise = jsStr msg
+    where msg = simErrorDetailsMsg (simErrorReason conc)

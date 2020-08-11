@@ -112,8 +112,8 @@ showDoubleLiteral bv
  (mag,ex) = decodeFloat x
 
 
-ppValsJS :: FilePath -> BaseTypeRepr ty -> Vals ty -> [String]
-ppValsJS cwd ty (Vals xs) =
+valsJS :: FilePath -> BaseTypeRepr ty -> Vals ty -> IO [JS]
+valsJS cwd ty (Vals xs) =
   let showEnt = case ty of
         BaseBVRepr n -> showEnt' (showBVLiteral n) n
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
@@ -127,27 +127,22 @@ ppValsJS cwd ty (Vals xs) =
         BaseRealRepr -> showEnt' (show . toDouble) (knownNat @64)
         _ -> error ("Type not implemented: " ++ show ty)
 
-  in map showEnt xs
+  in mapM showEnt xs
 
   where
-  showEnt' :: Show b => (a -> String) -> b -> Entry a -> String
+  showEnt' :: Show b => (a -> String) -> b -> Entry a -> IO JS
   showEnt' repr n e =
-    renderJS $ jsObj
-      [ "name" ~> jsStr (entryName e)
-      , "loc"  ~> jsLoc cwd (entryLoc e)
-      , "val"  ~> jsStr (repr (entryValue e))
-      , "bits" ~> jsStr (show n)
-      ]
+    do l <- jsLoc cwd (entryLoc e)
+       pure $ jsObj
+         [ "name" ~> jsStr (entryName e)
+         , "loc"  ~> l
+         , "val"  ~> jsStr (repr (entryValue e))
+         , "bits" ~> jsStr (show n)
+         ]
 
-ppModelJS :: FilePath -> ModelView -> String
-ppModelJS cwd m = case ents of
-                [] -> "[]"
-                _  -> unlines $ zipWith (++) pre ents ++ ["]"]
-  where vals = modelVals m
-        ents = MapF.foldrWithKey (\k v rest -> ppValsJS cwd k v ++ rest) [] vals
-        pre  = "[ " : repeat ", "
-
-
+modelJS :: FilePath -> ModelView -> IO JS
+modelJS cwd m =
+  jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS cwd k v : xs) [] (modelVals m))
 
 instance Semigroup (Model sym) where
   (Model m1) <> m2        = MapF.foldrWithKey f m2 m1 where

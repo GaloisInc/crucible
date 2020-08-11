@@ -8,9 +8,6 @@ import Control.Exception
   ( SomeException(..), try )
 import Control.Monad
   ( unless, forM_ )
-import qualified Data.Binary.IEEE754 as IEEE754
-import           Data.BitVector.Sized (BV)
-import qualified Data.BitVector.Sized as BV
 import qualified Data.Foldable as Fold
 import Data.List
   ( intercalate, isSuffixOf )
