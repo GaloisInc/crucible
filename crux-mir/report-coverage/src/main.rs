@@ -269,6 +269,14 @@ struct Reporter {
     file_map: HashMap<String, usize>,
 }
 
+struct SpanInfo {
+    filename: String,
+    line1: usize,
+    col1: usize,
+    line2: usize,
+    col2: usize,
+}
+
 impl Reporter {
     fn new() -> Reporter {
         Reporter {
@@ -278,7 +286,7 @@ impl Reporter {
     }
 
     fn warn(&mut self, span: &str, msg: impl Display) {
-        let (filename, line1, col1, line2, col2) = match parse_span(span) {
+        let (sp, callsite) = match parse_span(span) {
             Some(x) => x,
             None => {
                 eprintln!("invalid span {:?}", span);
@@ -287,14 +295,26 @@ impl Reporter {
             },
         };
 
-        let file_id = self.load_file(filename);
-        let start = self.pos_to_bytes(file_id, line1, col1);
-        let end = self.pos_to_bytes(file_id, line2, col2);
-
+        let file_id = self.load_file(&sp.filename);
+        let start = self.pos_to_bytes(file_id, sp.line1, sp.col1);
+        let end = self.pos_to_bytes(file_id, sp.line2, sp.col2);
         let label = Label::primary(file_id, start .. end);
+
+        let mut labels = Vec::with_capacity(2);
+        labels.push(label);
+
+        if let Some(callsite) = callsite {
+            let file_id = self.load_file(&callsite.filename);
+            let start = self.pos_to_bytes(file_id, callsite.line1, callsite.col1);
+            let end = self.pos_to_bytes(file_id, callsite.line2, callsite.col2);
+            let label = Label::secondary(file_id, start .. end)
+                .with_message("in this macro invocation");
+            labels.push(label);
+        }
+
         let diag = Diagnostic::warning()
             .with_message(msg.to_string())
-            .with_labels(vec![label]);
+            .with_labels(labels);
 
         codespan_reporting::term::emit(
             &mut termcolor::StandardStream::stdout(termcolor::ColorChoice::Auto),
@@ -333,18 +353,32 @@ impl Reporter {
     }
 }
 
-fn parse_span(s: &str) -> Option<(&str, usize, usize, usize, usize)> {
+fn parse_span(s: &str) -> Option<(SpanInfo, Option<SpanInfo>)> {
     // Remove branch info if present
     let s = match s.rfind('#') {
         Some(idx) => &s[..idx],
         None => s,
     };
 
+    if let Some(idx) = s.find('!') {
+        // This span includes a macro callsite.  We parse the portions before and after the `!` as
+        // separate spans, and return both.
+        let main_span = parse_single_span(&s[..idx])?;
+        // If the callsite span is invalid, then we consider the whole thing invalid.
+        let callsite_span = parse_single_span(&s[idx + 1 ..])?;
+        Some((main_span, Some(callsite_span)))
+    } else {
+        let main_span = parse_single_span(s)?;
+        Some((main_span, None))
+    }
+}
+
+fn parse_single_span(s: &str) -> Option<SpanInfo> {
     // Span format is something like "file.rs:1:2: 3:4", consisting of filename, start line and
     // column, and end line and column.  We also support the truncated form "file.rs:1:2", which
     // uses the start line and column for the end position as well.
     let mut it = s.split(':').map(|s| s.trim());
-    let filename = it.next()?;
+    let filename = it.next()?.to_owned();
     let line1 = it.next()?.parse().ok()?;
     let col1 = it.next()?.parse().ok()?;
     if let Some(x) = it.next() {
@@ -354,10 +388,10 @@ fn parse_span(s: &str) -> Option<(&str, usize, usize, usize, usize)> {
             // Too many pieces - should be exactly 5.
             return None;
         }
-        Some((filename, line1, col1, line2, col2))
+        Some(SpanInfo { filename, line1, col1, line2, col2 })
     } else {
         // Exactly 3 pieces, so there's only one line/column pair.
-        Some((filename, line1, col1, line1, col1))
+        Some(SpanInfo { filename, line1, col1, line2: line1, col2: col1 })
     }
 }
 
