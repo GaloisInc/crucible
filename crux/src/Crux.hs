@@ -104,7 +104,7 @@ newtype SimulatorCallback
         forall sym t st fs. (IsSymInterface sym, Logs, sym ~ WEB.ExprBuilder t st fs) =>
           sym ->
           Maybe (SomeOnlineSolver sym) ->
-          IO (RunnableState sym, GroundEvalFn t -> LPred sym SimError -> IO Doc)
+          IO (RunnableState sym, Maybe (GroundEvalFn t) -> LPred sym SimError -> IO Doc)
     }
 
 -- | Given the reuslt of a simulation and proof run, report the overall
@@ -487,7 +487,7 @@ type ProverCallback sym =
     (HasModel personality, sym ~ WEB.ExprBuilder t st fs) =>
     CruxOptions ->
     SimCtxt personality sym ext ->
-    (GroundEvalFn t -> LPred sym SimError -> IO Doc) ->
+    (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO Doc) ->
     Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
     IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
 
@@ -596,7 +596,7 @@ printFailedGoals opts (CruxSimulationResult _cmpl allGls)
   printFailed (AtLoc _ _ gls) = printFailed gls
   printFailed (Branch gls1 gls2) = printFailed gls1 >> printFailed gls2
   printFailed (Goal _asmps _goal _trivial (Proved _)) = return () 
-  printFailed (Goal _asmps (err,msg) _trivial (NotProved ex mdl))
+  printFailed (Goal _asmps (err, _msg) _trivial (NotProved ex mdl))
     | skipIncompleteReports opts
     , SimError _ (ResourceExhausted _) <- err
     = return ()
@@ -605,8 +605,7 @@ printFailedGoals opts (CruxSimulationResult _cmpl allGls)
     = sayFail "Crux" (show $ vcat [ "Found counterexample for verification goal", ex ])
 
     | otherwise
-    = sayFail "Crux" (show $ vcat [ "Failed to prove verification goal", ex, ppSimError err, text msg])
-
+    = sayFail "Crux" (show $ vcat [ "Failed to prove verification goal", ex ])
 
 reportStatus ::
   Logs =>

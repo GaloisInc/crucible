@@ -13,6 +13,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
@@ -122,10 +123,15 @@ data CexExplanation sym (tp :: BaseType) where
   NoExplanation  :: CexExplanation sym tp
   DisjOfFailures :: [ BadBehavior sym ] -> CexExplanation sym BaseBoolType
 
+instance Semigroup (CexExplanation sym BaseBoolType) where
+  NoExplanation <> y = y
+  x <> NoExplanation = x
+  DisjOfFailures xs <> DisjOfFailures ys = DisjOfFailures (xs ++ ys)
+
 explainCex :: forall t st fs sym.
   (IsSymInterface sym, HasLLVMAnn sym, sym ~ ExprBuilder t st fs) =>
   sym ->
-  GroundEvalFn t ->
+  Maybe (GroundEvalFn t) ->
   IO (Pred sym -> IO (CexExplanation sym BaseBoolType))
 explainCex sym evalFn =
   do posCache <- newIdxCache
@@ -145,15 +151,20 @@ explainCex sym evalFn =
         lookupBBAnnotation sym annId >>= \case
           Nothing -> evalPos posCache negCache e'
           Just bb ->
-            do bb' <- concBadBehavior sym (groundEval evalFn) bb
+            do bb' <- case evalFn of
+                        Just f  -> concBadBehavior sym (groundEval f) bb
+                        Nothing -> pure bb
                pure (DisjOfFailures [ bb' ])
 
-      (asApp -> Just (BaseIte BaseBoolRepr _ c x y)) ->
-         do c' <- groundEval evalFn c
-            if c' then
-              evalPos posCache negCache x
-            else
-              evalPos posCache negCache y
+      (asApp -> Just (BaseIte BaseBoolRepr _ c x y))
+         | Just f <- evalFn ->
+              do c' <- groundEval f c
+                 if c' then
+                   evalPos posCache negCache x
+                 else
+                   evalPos posCache negCache y
+         | otherwise ->
+              (<>) <$> evalPos posCache negCache x <*> evalPos posCache negCache y
 
       (asApp -> Just (NotPred e')) -> evalNeg posCache negCache e'
 
@@ -162,52 +173,63 @@ explainCex sym evalFn =
       (asApp -> Just (ConjPred (viewBoolMap -> BoolMapTerms tms))) -> go (Fold.toList tms)
         where
         go [] = pure NoExplanation
-        go ((x,Positive):xs) =
-          do x' <- groundEval evalFn x
-             if x' then
-               go xs
-             else
-               evalPos posCache negCache x >>= \case
-                 NoExplanation -> go xs
-                 ex -> pure ex
+        go ((x,Positive):xs)
+          | Just f <- evalFn =
+              do x' <- groundEval f x
+                 if x' then
+                   go xs
+                 else
+                   evalPos posCache negCache x >>= \case
+                     NoExplanation -> go xs
+                     ex -> pure ex
+          | otherwise =
+              -- no counterexample in hand, assume this might be the problem
+              evalPos posCache negCache x  >>= \case
+                     NoExplanation -> go xs
+                     ex -> pure ex
 
-        go ((x,Negative):xs) =
-          do x' <- groundEval evalFn x
-             if x' then
-               evalNeg posCache negCache x >>= \case
-                 NoExplanation -> go xs
-                 ex -> pure ex
-             else
-               go xs
+        go ((x,Negative):xs)
+          | Just f <- evalFn =
+              do x' <- groundEval f x
+                 if x' then
+                   evalNeg posCache negCache x >>= \case
+                     NoExplanation -> go xs
+                     ex -> pure ex
+                 else
+                   go xs
+           | otherwise =
+              -- no counterexample in hand, assume this might be the problem
+              evalNeg posCache negCache x >>= \case
+                NoExplanation -> go xs
+                ex -> pure ex
+
       _ -> pure NoExplanation
 
   evalNeg posCache negCache e = idxCacheEval negCache e $
     case e of
-
-      (asApp -> Just (BaseIte BaseBoolRepr _ c x y)) ->
-         do c' <- groundEval evalFn c
-            if c' then
-              evalNeg posCache negCache x
-            else
-              evalNeg posCache negCache y
+      (asApp -> Just (BaseIte BaseBoolRepr _ c x y))
+         | Just f <- evalFn ->
+              do c' <- groundEval f c
+                 if c' then
+                   evalNeg posCache negCache x
+                 else
+                   evalNeg posCache negCache y
+         | otherwise ->
+              (<>) <$> evalNeg posCache negCache x <*> evalNeg posCache negCache y
 
       (asApp -> Just (NotPred e')) -> evalPos posCache negCache e'
 
       -- under negative polarity, we expect all members of the disjunction to be false,
       -- and we must construct an explanation for all of them
-      (asApp -> Just (ConjPred (viewBoolMap -> BoolMapTerms tms))) -> go (Fold.toList tms) []
+      (asApp -> Just (ConjPred (viewBoolMap -> BoolMapTerms tms))) -> go (Fold.toList tms) NoExplanation
         where
-        go [] es = pure (DisjOfFailures es)
+        go [] es = pure es
         go ((x,Positive):xs) es =
           do ex <- evalNeg posCache negCache x
-             case ex of
-               NoExplanation -> go xs es
-               DisjOfFailures es' -> go xs (es' ++ es)
+             go xs (ex <> es)
         go ((x,Negative):xs) es =
           do ex <- evalPos posCache negCache x
-             case ex of
-               NoExplanation -> go xs es
-               DisjOfFailures es' -> go xs (es' ++ es)
+             go xs (ex <> es)
 
       _ -> pure NoExplanation
 

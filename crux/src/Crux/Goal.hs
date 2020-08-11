@@ -185,7 +185,7 @@ proveGoalsOffline :: forall st sym p asmp t fs personality
                   => WS.SolverAdapter st
                   -> CruxOptions
                   -> SimCtxt personality sym p
-                  -> (GroundEvalFn t -> LPred sym SimError -> IO Doc)
+                  -> (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO Doc)
                   -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
                   -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
@@ -249,7 +249,7 @@ proveGoalsOffline adapter opts ctx explainFailure (Just gs0) = do
               Sat (evalFn, _) -> do
                 let model = ctx ^. cruciblePersonality . personalityModel
                 vals <- evalModel evalFn model
-                explain <- explainFailure evalFn p
+                explain <- explainFailure (Just evalFn) p
                 end
                 let gt = NotProved explain (Just (ModelView vals))
                 modifyIORef' goalNum (updateProcessedGoals p gt)
@@ -257,9 +257,11 @@ proveGoalsOffline adapter opts ctx explainFailure (Just gs0) = do
                   sayOK "Crux" "Counterexample found, skipping remaining goals"
                 return (Prove (p, gt))
               Unknown -> do
+                explain <- explainFailure Nothing p
                 end
-                modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing))
-                return (Prove (p, NotProved mempty Nothing))
+                let gt = NotProved explain Nothing
+                modifyIORef' goalNum (updateProcessedGoals p gt)
+                return (Prove (p, gt))
           case mres of
             Just res -> return res
             Nothing -> return (Prove (p, NotProved mempty Nothing))
@@ -285,7 +287,7 @@ proveGoalsOnline ::
   goalSym ->
   CruxOptions ->
   SimCtxt personality sym p ->
-  (GroundEvalFn s -> LPred sym ast -> IO Doc) ->
+  (Maybe (GroundEvalFn s) -> LPred sym ast -> IO Doc) ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
@@ -346,7 +348,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality . personalityModel
                            vals <- evalModel f model
-                           explain <- explainFailure f p
+                           explain <- explainFailure (Just f) p
                            end
                            let gt = NotProved explain (Just (ModelView vals))
                            modifyIORef' gn (updateProcessedGoals p gt)
@@ -354,9 +356,11 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                              (sayOK "Crux" "Counterexample found, skipping remaining goals.")
                            return (Prove (p, gt))
                       Unknown ->
-                        do end
-                           modifyIORef' gn (updateProcessedGoals p (NotProved mempty Nothing))
-                           return (Prove (p, NotProved mempty Nothing))
+                        do explain <- explainFailure Nothing p
+                           end
+                           let gt = NotProved explain Nothing
+                           modifyIORef' gn (updateProcessedGoals p gt)
+                           return (Prove (p, gt))
            return ret
 
       ProveConj g1 g2 ->
