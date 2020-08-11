@@ -1,3 +1,12 @@
+{-|
+Module      : Lang.Crucible.Go.Simulate
+Description : Setup Go Crucible simulator
+Maintainer  : abagnall@galois.com
+Stability   : experimental
+
+This file contains the Crux setup code for Go programs (given a parsed
+program, translate it and construct the initial simulator state).
+-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -155,7 +164,6 @@ setupCrucibleGoCrux fwi verbosity sym p args = do
         Right (TranslatedMain
                 _main _imports (SomeCFG ini) (Just (AnyCFG cfg)) globs funs halloc) -> do
           putStrLn "done translating."
-          -- putStrLn $ show fwi
 
           putStrLn "INITIALIZER:"
           putStrLn $ show ini

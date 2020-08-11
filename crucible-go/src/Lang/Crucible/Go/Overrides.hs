@@ -1,3 +1,12 @@
+{-|
+Module      : Lang.Crucible.Go.Overrides
+Description : Symbolic override functions for Go.
+Maintainer  : abagnall@galois.com
+Stability   : experimental
+
+This file contains overrides for generating fresh symbolic variables
+as well as assuming and asserting boolean predicates.
+-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}

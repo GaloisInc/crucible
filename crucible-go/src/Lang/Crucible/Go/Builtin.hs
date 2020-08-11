@@ -1,3 +1,13 @@
+{-|
+Module      : Lang.Crucible.Go.Builtin
+Description : Translation of Go built-in functions.
+Maintainer  : abagnall@galois.com
+Stability   : experimental
+
+Builtins in Go are similar to lisp special forms. They can only appear
+in call expressions, can't be reified into first-class function
+values, and may take types as arguments.
+-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}

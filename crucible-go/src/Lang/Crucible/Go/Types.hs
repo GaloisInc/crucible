@@ -1,3 +1,13 @@
+{-|
+Module      : Lang.Crucible.Go.Types
+Description : Go translation types
+Maintainer  : abagnall@galois.com
+Stability   : experimental
+
+This file contains various type definitions related to translation of
+Go programs to Crucible.
+-}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}

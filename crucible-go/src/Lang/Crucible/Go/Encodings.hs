@@ -1,3 +1,13 @@
+{-|
+Module      : Lang.Crucible.Go.Encodings
+Description : Crucible encodings of Go types.
+Maintainer  : abagnall@galois.com
+Stability   : experimental
+
+Some Go types are represented by compound crucible data structures
+(e.g., a slice is a struct containing a pointer to an array along with
+three nats). This file defines the crucible encodings for such types.
+-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}

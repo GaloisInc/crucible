@@ -1,4 +1,13 @@
+{-|
+Module      : Lang.Crucible.Go.TransUtil
+Description : Go translation 
+Maintainer  : abagnall@galois.com
+Stability   : experimental
+
+This file contains helper functions used by the translation module.
+-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -112,7 +121,8 @@ asTypes' :: CtxRepr ctx' ->
 asTypes' ctxRepr assignment k = k $ asTypes ctxRepr assignment
 
 tryAsString :: Gen.Expr Go s tp
-            -> (forall si. StringInfoRepr si -> Gen.Expr Go s (StringType si) -> b)
+            -> (forall si. StringInfoRepr si ->
+                 Gen.Expr Go s (StringType si) -> b)
             -> b
             -> b
 tryAsString e k b = case exprType e of
@@ -196,7 +206,6 @@ tryAsPointerRepr repr k b = case repr of
           case testEquality repr1 repr2 of
             Just Refl -> k repr
             Nothing -> b
-        _repr -> b
     ) b
   _repr -> b
 
@@ -206,15 +215,16 @@ tryAsSliceRepr :: TypeRepr tp
                -> b
                -> b
 tryAsSliceRepr repr k b = case repr of
-  MaybeRepr (StructRepr (Ctx.Empty :> ptrRepr :> NatRepr :> NatRepr :> NatRepr)) ->
-             tryAsPointerRepr ptrRepr
-             (\ptrRepr' -> case ptrRepr' of
-                 PointerRepr arrRepr ->
-                   tryAsArrayRepr arrRepr
-                   (\arrRepr' -> case arrRepr of
-                       ArrayRepr _repr' -> k repr
-                   ) b
-             ) b
+  MaybeRepr
+    (StructRepr (Ctx.Empty :> ptrRepr :> NatRepr :> NatRepr :> NatRepr)) ->
+    tryAsPointerRepr ptrRepr
+    (\ptrRepr' -> case ptrRepr' of
+        PointerRepr arrRepr ->
+          tryAsArrayRepr arrRepr
+          (\arrRepr' -> case arrRepr of
+              ArrayRepr _repr' -> k repr
+          ) b
+    ) b
   _repr -> b
 
 tryAsSlice :: Gen.Expr Go s tp
@@ -292,7 +302,8 @@ mkTranslatedStmt retRepr gen = TranslatedStmt $ SomeGoGenerator retRepr gen
 intNat :: Int -> Gen.Expr Go s NatType
 intNat = Gen.App . C.NatLit . fromInteger . toInteger
 
-runTranslated :: forall f s a. Product f TranslateM a -> TranslateM' (Translated a)
+runTranslated :: forall f s a. Product f TranslateM a
+              -> TranslateM' (Translated a)
 runTranslated = runTranslateM . proj2
 
 failIfNotEqual :: forall k f m a (b :: k).
@@ -315,7 +326,8 @@ runTranslatedStmt repr (TranslatedStmt gen) = runSomeGoGenerator repr gen
 runTranslatedBlock :: TypeRepr ret -> Translated Block -> GoGenerator s ret ()
 runTranslatedBlock repr (TranslatedBlock gen) = runSomeGoGenerator repr gen
 
-unTranslatedExpr :: Translated Expr -> (forall s. SomeGoGenerator s (SomeGoExpr s))
+unTranslatedExpr :: Translated Expr
+                 -> (forall s. SomeGoGenerator s (SomeGoExpr s))
 unTranslatedExpr (TranslatedExpr gen) = gen
 
 runTranslatedExpr :: TypeRepr ret -> Translated Expr
@@ -329,7 +341,8 @@ coerceAssignment expectedCtx assignment =
   case asTypesEither expectedCtx assignment of
     Right assignment' -> assignment'
     Left (Some repr, Some e) ->
-      error $ "coerceAssignment: " ++ show e ++ " incompatible with " ++ show repr
+      error $ "coerceAssignment: " ++ show e ++
+      " incompatible with " ++ show repr
 
 withAssignment :: [SomeGoExpr s]
                -> (forall args. CtxRepr args ->
@@ -522,7 +535,8 @@ writeArrayOffset arrOffset value = case exprType arrOffset of
   ArrayOffsetRepr repr -> do
     let arr = arrayOffsetArray arrOffset
     vec <- Gen.readRef arr
-    Gen.writeRef arr $ Gen.App $ C.VectorSetEntry (arrayElementRepr $ exprType arr)
+    Gen.writeRef arr $
+      Gen.App $ C.VectorSetEntry (arrayElementRepr $ exprType arr)
       vec (arrayOffsetIndex arrOffset) value
 
 natToBV :: (1 <= w)
@@ -539,12 +553,13 @@ mkBasicConst n@(PosNat w LeqProof) c = case c of
   BasicConstBool b -> Some $ Gen.App $ C.BoolLit b
   BasicConstString str -> Some $ Gen.App $ C.StringLit $ UnicodeLiteral str
   BasicConstInt i -> Some $ Gen.App $ C.BVLit w $ mkBV w i
-  BasicConstFloat num denom -> case (mkBasicConst n num, mkBasicConst n denom) of
-    (Some num', Some denom') -> asType' (BVRepr w) num' $ \num'' ->
-      asType' (BVRepr w) denom' $ \denom'' ->
-      Some $ Gen.App $ C.FloatDiv DoubleFloatRepr C.RNE
-      (Gen.App $ C.FloatFromBV DoubleFloatRepr C.RNE num'')
-      (Gen.App $ C.FloatFromBV DoubleFloatRepr C.RNE denom'')
+  BasicConstFloat num denom ->
+    case (mkBasicConst n num, mkBasicConst n denom) of
+      (Some num', Some denom') -> asType' (BVRepr w) num' $ \num'' ->
+        asType' (BVRepr w) denom' $ \denom'' ->
+        Some $ Gen.App $ C.FloatDiv DoubleFloatRepr C.RNE
+        (Gen.App $ C.FloatFromBV DoubleFloatRepr C.RNE num'')
+        (Gen.App $ C.FloatFromBV DoubleFloatRepr C.RNE denom'')
   BasicConstComplex real imag ->
     error "mkBasicConst: complex numbers not yet supported"
 
@@ -553,7 +568,8 @@ mkLocPointer :: MonadFail m => GoLoc s tp -> m (Gen.Expr Go s (PointerType tp))
 mkLocPointer loc = case loc of
   GoLocRef ref -> return $ mkRefPointer ref
   GoLocArray arr ix -> return $ mkArrayOffsetPointer arr ix
-  GoLocGlobal _glob -> fail "mkLocPointer: can't make pointer from global address"
+  GoLocGlobal _glob ->
+    fail "mkLocPointer: can't make pointer from global address"
   GoLocPointer ptr -> return ptr
 
 -- | Make a pointer from a reference expression.
@@ -585,3 +601,23 @@ typeWidth (BasicType (BasicInt (Just i))) = intToPosNat i
 typeWidth (BasicType (BasicUInt (Just i))) = intToPosNat i
 typeWidth (BasicType (BasicFloat i)) = intToPosNat i
 typeWidth _tp = Nothing
+
+-- -- | Array element access.
+-- arrayGet :: TypeRepr tp
+--          -> Gen.Expr Go s NatType
+--          -> Gen.Expr Go s (ArrayType tp)
+--          -> GoGenerator s ret (Gen.Expr Go s tp)
+-- arrayGet repr ix arr = do
+--   vec <- Gen.readRef arr
+--   return $ Gen.App $ C.VectorGetEntry repr vec ix
+
+-- | Array element access with bounds checking.
+arrayGetSafe :: TypeRepr tp
+             -> Gen.Expr Go s NatType
+             -> Gen.Expr Go s (ArrayType tp)
+             -> GoGenerator s ret (Gen.Expr Go s tp)
+arrayGetSafe repr ix arr = do
+  vec <- Gen.readRef arr
+  Gen.ifte' repr (Gen.App $ C.NatLt ix $ Gen.App $ C.VectorSize vec)
+    (return $ Gen.App $ C.VectorGetEntry repr vec ix) $
+    Gen.reportError $ Gen.App $ C.StringLit "array index out of bounds"

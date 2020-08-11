@@ -1,3 +1,11 @@
+{-|
+Module      : Lang.Crucible.Go.Translation
+Description : Go translation module
+Maintainer  : abagnall@galois.com
+Stability   : experimental
+
+TODO: long description
+-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
@@ -64,7 +72,9 @@ translate w = evalTranslateM (def { machineWordWidth = w }) . translateM
 translateM :: Show a => Node a tp -> TranslateM tp
 translateM = para translate_alg
 
-evalTranslateM :: TransState -> TranslateM a -> IO (Either String (Translated a))
+evalTranslateM :: TransState
+               -> TranslateM a
+               -> IO (Either String (Translated a))
 evalTranslateM st (TranslateM m) = runExceptT $ evalStateT m st
 
 -- | The translation algebra.
@@ -265,7 +275,8 @@ translate_alg (BasicLitExpr _ tp
   return $ mkTranslatedExpr retRepr $ case lit_ty of
     LiteralBool -> return $ mkSomeGoExpr' $ C.BoolLit $ readBool lit_value
     LiteralInt -> return $ mkSomeGoExpr' $ C.BVLit w $ read $ T.unpack lit_value
-    LiteralFloat -> return $ mkSomeGoExpr' $ C.DoubleLit $ read $ T.unpack lit_value
+    LiteralFloat ->
+      return $ mkSomeGoExpr' $ C.DoubleLit $ read $ T.unpack lit_value
     LiteralComplex -> fail "translate_alg: complex literals not yet supported"
     LiteralImag -> fail "translate_alg: imaginary literals not yet supported"
     LiteralChar -> case fromJust $ intToPosNat 8 of
@@ -404,12 +415,12 @@ translate_alg (EllipsisExpr _ tp _ty) =
 translate_alg (FuncLitExpr _ tp params results body) =  
   TranslateM $ do
   Some retRepr <- gets retRepr
-  C.AnyCFG g <- mkFunction Nothing Nothing params Nothing results (Just $ proj2 body)
+  C.AnyCFG g <- mkFunction Nothing Nothing params Nothing results $
+                Just $ proj2 body
   return $ mkTranslatedExpr retRepr $
     return $ mkSomeGoExpr' $ C.HandleLit $ C.cfgHandle g
 
 -- | Only support array/slice indexing for now.
--- TODO: bounds checking
 translate_alg (IndexExpr _ tp expr index) = TranslateM $ do
   TranslatedExpr expr_gen <- runTranslated expr
   TranslatedExpr index_gen <- runTranslated index
@@ -420,21 +431,17 @@ translate_alg (IndexExpr _ tp expr index) = TranslateM $ do
     let natIx = case exprType ix of
           BVRepr w -> Gen.App $ C.BvToNat w ix
     tryAsArray e
-      (\repr arr -> do
-          vec <- Gen.readRef arr
-          return $ Some $ GoExpr (Just $ GoLocPointer $
-                                   mkArrayOffsetPointer arr natIx) $
-            Gen.App $ C.VectorGetEntry repr vec natIx
+      (\repr arr ->
+          Some . GoExpr (Just $ GoLocPointer $ mkArrayOffsetPointer arr natIx)
+            <$> arrayGetSafe repr natIx arr
       ) $
       tryAsSlice e
       (\repr slice -> do
           arr <- readPointer =<< sliceArray slice
-          vec <- Gen.readRef arr
           begin <- sliceBegin slice
           let ix' = Gen.App $ C.NatAdd begin natIx
-          return $ Some $ GoExpr (Just $ GoLocPointer $
-                                  mkArrayOffsetPointer arr ix') $
-            Gen.App $ C.VectorGetEntry repr vec ix'
+          Some . GoExpr (Just $ GoLocPointer $ mkArrayOffsetPointer arr ix')
+            <$> arrayGetSafe repr ix' arr
       ) $
       fail $ "translate_alg IndexExpr: unexpected LHS: " ++ show (proj1 expr)
 
@@ -484,7 +491,7 @@ translate_alg (StarExpr _ tp operand) = TranslateM $ do
       _e -> asPointer e $ \ e' -> do
         result <- readPointer e'
         return $ Some $ GoExpr (Just $ GoLocPointer e') result
-          
+
 translate_alg (TypeAssertExpr _ tp expr asserted_ty) =
   TranslateM $ fail "translate_alg TypeAssertExpr: unsupported"
 
@@ -582,9 +589,11 @@ translate_alg (ImportSpec _ pkg_name path) =
   TranslateM $ return TranslatedImportSpec
 
 translate_alg (ConstSpec _ names ty values) = TranslateM $
-  TranslatedVarSpec names <$> mapM runTranslated ty <*> mapM runTranslated values
+  TranslatedVarSpec names <$>
+  mapM runTranslated ty <*> mapM runTranslated values
 translate_alg (VarSpec _ names ty values) = TranslateM $
-  TranslatedVarSpec names <$> mapM runTranslated ty <*> mapM runTranslated values
+  TranslatedVarSpec names <$>
+  mapM runTranslated ty <*> mapM runTranslated values
 
 translate_alg (TypeSpec _ name ty) = TranslateM $ return TranslatedTypeSpec
 
@@ -732,10 +741,12 @@ translateHomoBinop tp op left right = case op of
     ty -> fail $ "translateHomoBinop BAndNot: unsupported type " ++ show ty
   -- Short-circuit evaluation for logical AND and OR
   BLAnd -> case exprType left of
-    BoolRepr -> Gen.ifte left (return right) $ return $ Gen.App $ C.BoolLit False
+    BoolRepr ->
+      Gen.ifte left (return right) $ return $ Gen.App $ C.BoolLit False
     ty -> fail $ "translateHomoBinop BLAnd: unsupported type " ++ show ty
   BLOr -> case exprType left of
-    BoolRepr -> Gen.ifte left (return $ Gen.App $ C.BoolLit True) $ return right
+    BoolRepr ->
+      Gen.ifte left (return $ Gen.App $ C.BoolLit True) $ return right
     ty -> fail $ "translateHomoBinop BLOr: unsupported type " ++ show ty
   _ -> fail $ "translateHomoBinop: unexpected binop " ++ show op
 
@@ -875,7 +886,8 @@ mkFileNamespace (In (FileNode _path _name decls _imports)) = do
                  params _variadic results _body) -> do
               Some paramsRepr <- someCtxRepr <$>
                 mapM translateType (fieldType <$> maybeToList recv ++ params)
-              Some retRepr <- translateType $ mkReturnType $ fieldType <$> results
+              Some retRepr <- translateType $ mkReturnType $
+                              fieldType <$> results
               h <- liftIO' $
                 mkHandle' ha (functionNameFromText nm) paramsRepr retRepr
               return $ insert_function nm (SomeHandle h) ns
@@ -907,10 +919,11 @@ specsUpdNamespace (spec : specs) ns = upd spec ns >>= specsUpdNamespace specs
       -> TranslateM' Namespace
     f tp ns (Ident _k name, value) = do
       Just ha <- gets halloc
-      tp' <- fromMaybe (case value of
-                          Just v -> return $ typeOf' v
-                          Nothing -> fail "specsUpdNamespace: expected value when\
-                                          \type is missing") $ return <$> tp
+      tp' <- fromMaybe
+             (case value of
+                 Just v -> return $ typeOf' v
+                 Nothing -> fail "specsUpdNamespace: expected value when\
+                                 \type is missing") $ return <$> tp
       Some repr <- translateType tp'
       glob <- liftIO' $ Gen.freshGlobalVar ha name repr
       let goglob = GoGlobal glob $
@@ -1050,7 +1063,8 @@ mkFunction recv name params variadic results body =
         (\assignment -> (def :: GenState s, Gen.reportError $
                               Gen.App (C.StringLit "missing function body")))
     let g' = case toSSA g of C.SomeCFG g' -> C.AnyCFG g'
-    addFunction ((\(Ident _k nm) -> (pkgName, functionNameFromText nm)) <$> name) g'
+    addFunction ((\(Ident _k nm) ->
+                    (pkgName, functionNameFromText nm)) <$> name) g'
     if maybe "" identName name == "main" then
       modify $ \ts -> ts { mainFunction = Just g' }
       else return ()
