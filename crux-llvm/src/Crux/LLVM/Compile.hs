@@ -1,12 +1,13 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 module Crux.LLVM.Compile where
 
 import Control.Exception
   ( SomeException(..), try )
 import Control.Monad
   ( unless, forM_ )
-import qualified Data.Binary.IEEE754 as IEEE754
-import qualified Data.BitVector.Sized as BV
 import qualified Data.Foldable as Fold
 import Data.List
   ( intercalate, isSuffixOf )
@@ -26,7 +27,7 @@ import What4.ProgramLoc
 import Lang.Crucible.Simulator.SimError
 
 import Crux
-import Crux.Model( toDouble )
+import Crux.Model( toDouble, showBVLiteral, showFloatLiteral, showDoubleLiteral )
 import Crux.Types
 
 import Crux.LLVM.Config
@@ -189,18 +190,22 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
 
      return (printExe, debugExe)
 
+
 ppValsC :: BaseTypeRepr ty -> Vals ty -> String
 ppValsC ty (Vals xs) =
   let (cty, cnm, ppRawVal) = case ty of
         BaseBVRepr n ->
-          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", show)
+          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", showBVLiteral n)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
-          | natValue eb == 8, natValue sb == 24
-          -> ("float", "float", show . IEEE754.wordToFloat . fromInteger . BV.asUnsigned)
+          | Just Refl <- testEquality eb (knownNat @8)
+          , Just Refl <- testEquality sb (knownNat @24)
+          -> ("float", "float", showFloatLiteral)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
-          | natValue eb == 11, natValue sb == 53
-          -> ("double", "double", show . IEEE754.wordToDouble . fromInteger . BV.asUnsigned)
+          | Just Refl <- testEquality eb (knownNat @11)
+          , Just Refl <- testEquality sb (knownNat @53)
+          -> ("double", "double", showDoubleLiteral)
         BaseRealRepr -> ("double", "real", (show . toDouble))
+
         _ -> error ("Type not implemented: " ++ show ty)
   in unlines
       [ "size_t const crucible_values_number_" ++ cnm ++
@@ -217,6 +222,7 @@ ppModelC :: ModelView -> String
 ppModelC m = unlines
              $ "#include <stdint.h>"
              : "#include <stddef.h>"
+             : "#include <math.h>"
              : ""
              : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
             where vals = modelVals m

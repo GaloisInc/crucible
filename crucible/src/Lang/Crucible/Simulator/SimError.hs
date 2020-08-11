@@ -20,6 +20,7 @@ module Lang.Crucible.Simulator.SimError (
     SimErrorReason(..)
   , SimError(..)
   , simErrorReasonMsg
+  , simErrorDetailsMsg
   , ppSimError
   ) where
 

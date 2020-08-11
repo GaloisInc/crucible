@@ -142,10 +142,10 @@ explainBB = \case
 
 detailBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 detailBB = \case
-  BBUndefinedBehavior ub -> UB.ppReg ub
+  BBUndefinedBehavior ub -> UB.ppDetails ub
   BBMemoryError me -> ME.details me
 
 ppBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
 ppBB = \case
-  BBUndefinedBehavior ub -> UB.ppReg ub
+  BBUndefinedBehavior ub -> UB.ppDetails ub
   BBMemoryError me -> ME.ppMemoryError me

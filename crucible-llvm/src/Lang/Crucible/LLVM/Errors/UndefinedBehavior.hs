@@ -44,8 +44,11 @@ module Lang.Crucible.LLVM.Errors.UndefinedBehavior
     PtrComparisonOperator(..)
   , UndefinedBehavior(..)
   , cite
+  , details
   , explain
-  , ppReg
+  , ppDetails
+  , ppCitation
+  , pp
 
   , concUB
   ) where
@@ -370,10 +373,10 @@ explain =
 
 -- | Pretty-print the additional information held by the constructors
 -- (for symbolic expressions)
-detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
-           => UndefinedBehavior (RegValue' sym)
-           -> [Doc]
-detailsReg =
+details :: W4I.IsExpr (W4I.SymExpr sym)
+        => UndefinedBehavior (RegValue' sym)
+        -> [Doc]
+details =
   \case
 
     -------------------------------- Memory management
@@ -463,23 +466,24 @@ detailsReg =
 pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
    -> Doc
-pp extra ub = vcat $
-    explain ub
-  : extra ub
-  ++ cat [ "Reference: "
-         , indent 2 (text (unpack (ppStd (standard ub))))
-         , indent 2 (cite ub)
-         ]
-     : case stdURL (standard ub) of
-         Just url -> [ indent 2 ("Document URL:" <+> text (unpack url)) ]
-         Nothing  -> []
+pp extra ub = vcat (explain ub : extra ub ++ ppCitation ub)
 
 -- | Pretty-printer for symbolic backends
-ppReg ::
+ppDetails ::
   W4I.IsExpr (W4I.SymExpr sym) =>
   UndefinedBehavior (RegValue' sym) ->
   Doc
-ppReg = pp detailsReg
+ppDetails ub = vcat (details ub ++ ppCitation ub)
+
+ppCitation :: UndefinedBehavior e -> [Doc]
+ppCitation ub =
+   (cat [ "Reference: "
+        , indent 2 (text (unpack (ppStd (standard ub))))
+        , indent 2 (cite ub)
+        ]
+    : case stdURL (standard ub) of
+        Just url -> [ indent 2 ("Document URL:" <+> text (unpack url)) ]
+        Nothing  -> [])
 
 -- -----------------------------------------------------------------------
 -- ** Instances

@@ -19,6 +19,7 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
 
 import qualified Lang.Crucible.LLVM.Arch.X86 as X86
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Partial
@@ -30,7 +31,7 @@ assertSideCondition ::
   IO ()
 assertSideCondition sym (LLVMSideCondition (RV p) ub) =
   do p' <- annotateUB sym ub p
-     let err = AssertFailureSimError "Undefined behavior encountered" ""
+     let err = AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
      assert sym p' err
 
 llvmExtensionEval :: forall sym arch.

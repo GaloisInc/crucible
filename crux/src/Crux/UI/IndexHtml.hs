@@ -13,6 +13,7 @@ indexHtml = [r|
 <!DOCTYPE html>
 <html>
 <head>
+<meta charset="UTF-8">
 
 <script src="jquery.min.js"></script>
 <script src="source.js"></script>
@@ -139,9 +140,19 @@ function drawGoals() {
     var li = $('<div/>')
             .addClass('clickable')
             .append( drawStatus(g.status)
-                   , $('<span/>').text(g.goal)
+                   , $('<abbr/>')
+                       .text(g.goal)
+                       .attr('title', g['details-short'])
                    )
     li.click(function() {
+      var errPane = $('#error-pane')
+      errPane.empty()
+      if( g['details-long'] ) {
+        errPane.append( $('<pre/>').text(g['details-long']) )
+      } else {
+        errPane.append( $('<pre/>').text(g['details-short']) )
+      }
+
       $('.highlight-assumed').removeClass('highlight-assumed')
       $('.selected').removeClass('selected')
       li.addClass('selected')
@@ -223,6 +234,13 @@ body { height: 100%; padding: 0; margin: 0; }
   height: 90%;
   overflow: auto;
   font-size: 16px;
+}
+
+#error-pane {
+  font-family: monospace;
+  font-size: 12px;
+  overflow: auto;
+  max-height: 20vh;
 }
 
 .file-btn {
@@ -327,6 +345,7 @@ ol.source-file>li:before {
 <body><div id="nav-bar"></div
 ><div id="right-pane"
   ><div id="file-pane"></div
+  ><div id="error-pane"></div
   ><div id="source-pane"></div
 ></div
 ></body>
