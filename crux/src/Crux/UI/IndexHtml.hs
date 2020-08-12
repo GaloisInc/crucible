@@ -158,10 +158,10 @@ function drawGoals() {
       li.addClass('selected')
       $('.ctr-example').remove()
       $('.asmp-lab').remove()
-      $('.line').removeClass('highlight-ok')
-                .removeClass('highlight-fail')
+      $('.line').removeClass('highlight-line-ok')
+                .removeClass('highlight-line-fail')
+                .removeClass('highlight-line-unknown')
                 .removeClass('highlight-assumed')
-                .removeClass('highlight-unknown')
      jQuery.each(g.assumptions, function(ix,a) {
         var lnName = a.loc
         if (!lnName) return true
@@ -183,7 +183,7 @@ function drawGoals() {
       if (g.location !== null) {
         showFile(g.location.file)
         var it = getLine(g.location)
-        it.addClass('highlight-' + g.status)
+        it.addClass('highlight-line-' + g.status)
         it[0].scrollIntoView({behavior:'smooth', block:'center'})
       }
       drawCounterExample(g['counter-example'])
@@ -233,14 +233,14 @@ body { height: 100%; padding: 0; margin: 0; }
   white-space: pre;
   height: 90%;
   overflow: auto;
-  font-size: 16px;
+  font-size: normal;
 }
 
 #error-pane {
   font-family: monospace;
-  font-size: 12px;
-  overflow: auto;
   max-height: 20vh;
+  font-size: small;
+  overflow: auto;
 }
 
 .file-btn {
@@ -272,7 +272,7 @@ ol.source-file>li:before {
   text-align: right;
   content: counter(item);
   margin-right: 1em;
-  font-size: 10px;
+  font-size: small;
   font-style: italic;
   color: #999;
 }
@@ -283,6 +283,11 @@ ol.source-file>li:before {
 .highlight-fail    { background-color: red !important;  color: white; }
 .highlight-unknown { background-color: yellow !important; color: black; }
 .highlight-assumed { background-color: cyan; color: black; }
+
+.highlight-line-ok      { background-color: green !important; color: lightgrey; }
+.highlight-line-fail    { background-color: red !important;  color: lightgrey; }
+.highlight-line-unknown { background-color: yellow !important; color: black; }
+
 .ctr-example {
   margin: 5px;
   background-color: #ff0000;
@@ -344,8 +349,8 @@ ol.source-file>li:before {
 </head>
 <body><div id="nav-bar"></div
 ><div id="right-pane"
-  ><div id="file-pane"></div
   ><div id="error-pane"></div
+  ><div id="file-pane"></div
   ><div id="source-pane"></div
 ></div
 ></body>
