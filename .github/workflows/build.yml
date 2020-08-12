@@ -72,3 +72,11 @@ jobs:
 
       - shell: bash
         run: cabal v2-build --allow-newer crux-llvm
+
+      - shell: bash
+        run: .github/package-crux-llvm.sh
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: crux-llvm-*.tar.gz
+          name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}
