@@ -1,0 +1,11 @@
+This directory contains a collection of programs that are expected to
+fail in various ways when they are attempted to be verified using
+crux-llvm, and ensure that they report reasonable error messages
+and such.  Some of them require particular settings from crux
+to exhibit the desired errors (e.g., specialfloats.c will only
+exhibit all the intended errors when in IEEE754 floating-point mode).
+
+I'm not 100% what's the best way to arrange these into
+a test suite, but I've done a fair amount of useful work to collect
+them together, so I wanted to go ahead and get them into the
+repository here. -- RWD

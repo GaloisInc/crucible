@@ -1,0 +1,19 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+#include <crucible.h>
+
+int main() {
+  int32_t x = crucible_int32_t( "x" );
+
+  // should fail for MAXINT
+  check( x+1 > x );
+
+  // should fail for MININT
+  check( x-1 < x );
+
+  // should fail for MININT
+  check( (x < 0) == (-x > 0) );
+
+}
