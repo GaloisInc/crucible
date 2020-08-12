@@ -70,4 +70,4 @@ jobs:
         run: cabal v2-update
 
       - shell: bash
-        run: cabal v2-build --allow-newer
+        run: cabal v2-build --allow-newer crux-llvm
