@@ -69,6 +69,7 @@ import           Data.Vector (Vector)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Data.Vector as V
+import qualified GHC.Float as F
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -1367,6 +1368,10 @@ instance ( TestEqualityFC (ExprExtension ext)
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|App|]
         [ (U.DataArg 1                   `U.TypeApp` U.AnyType, [|testSubterm|])
+        , (U.ConType [t|Float|],
+              [| \x y -> if F.castFloatToWord32 x == F.castFloatToWord32 y then Just Refl else Nothing |])
+        , (U.ConType [t|Double|],
+              [| \x y -> if F.castDoubleToWord64 x == F.castDoubleToWord64 y then Just Refl else Nothing |])
         , (U.ConType [t|ExprExtension|] `U.TypeApp`
                 U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
             [|testEqualityFC testSubterm|]
@@ -1403,6 +1408,10 @@ instance ( OrdFC (ExprExtension ext)
   compareFC compareSubterm
         = $(U.structuralTypeOrd [t|App|]
                    [ (U.DataArg 1            `U.TypeApp` U.AnyType, [|compareSubterm|])
+                   , (U.ConType [t|Float|],
+                         [| \x y -> fromOrdering (compare (F.castFloatToWord32 x) (F.castFloatToWord32 y)) |])
+                   , (U.ConType [t|Double|],
+                         [| \x y -> fromOrdering (compare (F.castDoubleToWord64 x) (F.castDoubleToWord64 y)) |])
                    , (U.ConType [t|ExprExtension|] `U.TypeApp`
                            U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
                        [|compareFC compareSubterm|]
