@@ -7,7 +7,6 @@ Stability   : experimental
 This file contains various type definitions related to translation of
 Go programs to Crucible.
 -}
-
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -171,11 +170,15 @@ addFunction nm cfg = modify $ \ts -> ts { functions = (nm, cfg) : functions ts }
 -- INNERMOST SCOPE).
 data GenState s =
   GenState
-  { gamma :: HashMap Text (SomeGoReg s) -- ^ lexical environment
+  { -- | lexical environment
+    gamma :: HashMap Text (SomeGoReg s)
+    -- | stack of loop labels (continue, break)
+  , labels :: [(Gen.Label s, Gen.Label s)]
   }
 
 instance Default (GenState s) where
-  def = GenState { gamma = HM.empty }
+  def = GenState { gamma = HM.empty
+                 , labels = [] }
 
 -- | The type of Go generator actions.
 type GoGenerator s ret a = Gen.Generator Go s GenState ret IO a

@@ -28,6 +28,8 @@ import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC
 
+-- import           Debug.Trace (trace)
+
 import           What4.Utils.StringLiteral
 
 import qualified Lang.Crucible.CFG.Core as C
@@ -42,19 +44,20 @@ import           Language.Go.Types
 import           Lang.Crucible.Go.Encodings
 import           Lang.Crucible.Go.Types
 
--- | Use this function (or one of its derivatives) to assert that an
+-- | Use this function (or one of its variants) to assert that an
 -- expression has a certain type. Unit values may be coerced to
--- Nothing values of a Maybe type. Bit vector literals may be
--- truncated. Floats may be cast (usually from float literals being
--- double by default but allowed to implicitly cast to single
--- precision. similar story for bit vectors).  It may be useful in the
--- future to do a type inference pass, inferring the actual eventual
--- types of "untyped constants", to obviate the need for this coercion
--- stuff.
+-- Nothing values of a Maybe type. Floats may be cast (usually from
+-- float literals being double by default but allowed to implicitly
+-- cast to single precision). It may be useful in the future to do a
+-- type inference pass, inferring the actual eventual types of
+-- "untyped constants", to obviate the need for this coercion
+-- stuff. It seems that the Go typechecker is doing this for us for
+-- integer constants but not floats or nil.
 asTypeEither :: TypeRepr b
              -> Gen.Expr Go s a
              -> Either (Some TypeRepr, Some (Gen.Expr Go s)) (Gen.Expr Go s b)
 asTypeEither repr e =
+  -- trace ("coercing " ++ show (exprType e) ++ " to " ++ show repr) $
   case testEquality (exprType e) repr of
     Just Refl -> Right e
     Nothing ->
@@ -63,12 +66,7 @@ asTypeEither repr e =
         -- Send unit to Nothing.
         (Gen.App C.EmptyApp, _repr, MaybeRepr repr') ->
           Right $ Gen.App $ C.NothingValue repr'
-        -- Truncate bitvector literals.
-        (Gen.App (C.BVLit n bv), _repr, BVRepr m) ->
-          case decideLeq (incNat m) n of
-            Left LeqProof -> Right $ Gen.App $ C.BVTrunc m n e
-            Right _refutation -> Left (Some repr, Some e)
-        -- Coerce floats (usually double to float 
+        -- Coerce floats (usually double to float)
         (_e, FloatRepr _fi, FloatRepr fi) ->
           Right $ Gen.App $ C.FloatCast fi C.RNE e
         _ -> Left (Some repr, Some e)
@@ -119,6 +117,15 @@ asTypes' :: CtxRepr ctx' ->
             Assignment (Gen.Expr Go s) ctx ->
             (Assignment (Gen.Expr Go s) ctx' -> a) -> a
 asTypes' ctxRepr assignment k = k $ asTypes ctxRepr assignment
+
+tryAsStringRepr :: TypeRepr tp
+                -> (forall si. StringInfoRepr si ->
+                     TypeRepr (StringType si) -> b)
+               -> b
+               -> b
+tryAsStringRepr repr k b = case repr of
+  StringRepr si -> k si repr
+  _repr -> b
 
 tryAsString :: Gen.Expr Go s tp
             -> (forall si. StringInfoRepr si ->
@@ -249,30 +256,48 @@ index4_2 = skipIndex $ nextIndex $ incSize $ incSize zeroSize
 index4_3 :: Index (EmptyCtx ::> a ::> b ::> c ::> d) d
 index4_3 = lastIndex knownSize
 
+
 -- | Slice projections
+nonNilSliceArray :: Gen.Expr Go s (NonNilSliceType tp)
+                 -> GoGenerator s ret
+                    (Gen.Expr Go s (PointerType (ArrayType tp)))
+nonNilSliceArray slice = case exprType slice of
+  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
+    return $ Gen.App $ C.GetStruct slice index4_0 arrPtrRepr
+
+nonNilSliceBegin :: Gen.Expr Go s (NonNilSliceType tp)
+                 -> GoGenerator s ret (Gen.Expr Go s NatType)
+nonNilSliceBegin slice = case exprType slice of
+  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
+    return $ Gen.App $ C.GetStruct slice index4_1 NatRepr
+
+nonNilSliceEnd :: Gen.Expr Go s (NonNilSliceType tp)
+               -> GoGenerator s ret (Gen.Expr Go s NatType)
+nonNilSliceEnd slice = case exprType slice of
+  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
+    return $ Gen.App $ C.GetStruct slice index4_2 NatRepr
+
+nonNilSliceCapacity :: Gen.Expr Go s (NonNilSliceType tp)
+                    -> GoGenerator s ret (Gen.Expr Go s NatType)
+nonNilSliceCapacity slice = case exprType slice of
+  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
+    return $ Gen.App $ C.GetStruct slice index4_3 NatRepr
+
 sliceArray :: Gen.Expr Go s (SliceType tp)
            -> GoGenerator s ret (Gen.Expr Go s (PointerType (ArrayType tp)))
-sliceArray slice = maybeElim slice $ \slice' -> return $ case exprType slice' of
-  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
-    Gen.App $ C.GetStruct slice' index4_0 arrPtrRepr
+sliceArray slice = maybeElim' slice nonNilSliceArray
 
 sliceBegin :: Gen.Expr Go s (SliceType tp)
            -> GoGenerator s ret (Gen.Expr Go s NatType)
-sliceBegin slice = maybeElim slice $ \slice' -> return $ case exprType slice' of
-  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
-    Gen.App $ C.GetStruct slice' index4_1 NatRepr
+sliceBegin slice = maybeElim' slice nonNilSliceBegin
 
 sliceEnd :: Gen.Expr Go s (SliceType tp)
          -> GoGenerator s ret (Gen.Expr Go s NatType)
-sliceEnd slice = maybeElim slice $ \slice' -> return $ case exprType slice' of
-  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
-    Gen.App $ C.GetStruct slice' index4_2 NatRepr
+sliceEnd slice = maybeElim' slice nonNilSliceEnd
 
-sliceCap :: Gen.Expr Go s (SliceType tp)
-         -> GoGenerator s ret (Gen.Expr Go s NatType)
-sliceCap slice = maybeElim slice $ \slice' -> return $ case exprType slice' of
-  StructRepr (Empty :> arrPtrRepr :> NatRepr :> NatRepr :> NatRepr) ->
-    Gen.App $ C.GetStruct slice' index4_3 NatRepr
+sliceCapacity :: Gen.Expr Go s (SliceType tp)
+              -> GoGenerator s ret (Gen.Expr Go s NatType)
+sliceCapacity slice = maybeElim' slice nonNilSliceCapacity
 
 
 writeVectorElements :: Gen.Expr Go s (VectorType tp)
@@ -298,6 +323,12 @@ mkTranslatedStmt :: TypeRepr ret
                  -> (forall s. GoGenerator s ret ())
                  -> Translated Stmt
 mkTranslatedStmt retRepr gen = TranslatedStmt $ SomeGoGenerator retRepr gen
+
+-- mkTranslatedStmtM :: (forall s ret. GoGenerator s ret ())
+--                   -> TranslateM' (Translated Stmt)
+-- mkTranslatedStmtM gen = do
+--   Some retRepr <- gets retRepr
+--   return $ mkTranslatedStmt retRepr gen
 
 intNat :: Int -> Gen.Expr Go s NatType
 intNat = Gen.App . C.NatLit . fromInteger . toInteger
@@ -476,7 +507,7 @@ pointerElim :: TypeRepr a
             -> Gen.Expr Go s (PointerType tp)
             -> GoGenerator s ret (Gen.Expr Go s a)
 pointerElim repr f g ptr =
-  maybeElim ptr $ nonNilPointerElim repr f g
+  maybeElim' ptr $ nonNilPointerElim repr f g
 
 pointerElim_ :: (Gen.Expr Go s (ReferenceType tp) ->
                   GoGenerator s ret ())
@@ -485,12 +516,26 @@ pointerElim_ :: (Gen.Expr Go s (ReferenceType tp) ->
              -> Gen.Expr Go s (PointerType tp)
              -> GoGenerator s ret ()
 pointerElim_ f g ptr =
-  maybeElim ptr $ nonNilPointerElim_ f g
+  maybeElim' ptr $ nonNilPointerElim_ f g
 
-maybeElim :: Gen.Expr Go s (MaybeType tp)
-          -> (Gen.Expr Go s tp -> GoGenerator s ret a)
-          -> GoGenerator s ret a
-maybeElim e f =
+maybeElim :: TypeRepr a -- ^ result type repr
+          -> GoGenerator s ret (Gen.Expr Go s a) -- ^ Nothing case
+          -> (Gen.Expr Go s tp ->
+               GoGenerator s ret (Gen.Expr Go s a)) -- ^ Just case
+          -> Gen.Expr Go s (MaybeType tp) -- ^ discriminee
+          -> GoGenerator s ret (Gen.Expr Go s a)
+maybeElim repr x f e = Gen.caseMaybe e repr (Gen.MatchMaybe f x)
+
+-- maybeElim_ :: GoGenerator s ret () -- ^ Nothing case
+--            -> (Gen.Expr Go s tp -> GoGenerator s ret ()) -- ^ Just case
+--            -> Gen.Expr Go s (MaybeType tp) -- ^ discriminee
+--            -> GoGenerator s ret ()
+-- maybeElim_ repr x f e = Gen.caseMaybe_ e (Gen.MatchMaybe f x)
+
+maybeElim' :: Gen.Expr Go s (MaybeType tp)
+           -> (Gen.Expr Go s tp -> GoGenerator s ret a)
+           -> GoGenerator s ret a
+maybeElim' e f =
   Gen.fromJustExpr e err_msg >>= f
   where
     err_msg = Gen.App $ C.StringLit $ UnicodeLiteral $ T.pack $
@@ -545,8 +590,8 @@ natToBV :: (1 <= w)
         -> Gen.Expr ext s (BVType w)
 natToBV w n = Gen.App $ C.IntegerToBV w $ Gen.App $ C.NatToInteger n
 
-natToBV64 :: Gen.Expr ext s NatType -> Gen.Expr ext s (BVType 64)
-natToBV64 = natToBV knownNat
+zeroBV :: (1 <= w) => NatRepr w -> Gen.Expr ext s (BVType w)
+zeroBV w = Gen.App $ C.BVLit w $ mkBV w 0
 
 mkBasicConst :: PosNat -> BasicConst -> Some (Gen.Expr Go s)
 mkBasicConst n@(PosNat w LeqProof) c = case c of
@@ -621,3 +666,16 @@ arrayGetSafe repr ix arr = do
   Gen.ifte' repr (Gen.App $ C.NatLt ix $ Gen.App $ C.VectorSize vec)
     (return $ Gen.App $ C.VectorGetEntry repr vec ix) $
     Gen.reportError $ Gen.App $ C.StringLit "array index out of bounds"
+
+resizeBV :: NatRepr w
+         -> NatRepr w'
+         -> Gen.Expr Go s (BVType w)
+         -> Gen.Expr Go s (BVType w')
+resizeBV = undefined
+
+  -- IntegerToBV :: (1 <= w) => NatRepr w -> !(f IntegerType) -> App ext f (BVType w)
+  
+  -- BvToInteger :: (1 <= w)
+  --             => !(NatRepr w)
+  --             -> !(f (BVType w))
+  --             -> App ext f IntegerType

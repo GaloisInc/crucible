@@ -4,7 +4,54 @@ Description : Go translation module
 Maintainer  : abagnall@galois.com
 Stability   : experimental
 
-TODO: long description
+The translator is a paramorphism on Go abstract syntax with state
+monad carrier. The 'para' allows us to have access to the original AST
+nodes during translation, and the state monad enables top-down data
+flow via the state as well as general statefulness for accumulating
+results.
+
+The translation is entirely compositional: an AST node is translated
+by first translating all of its children nodes and then combining them
+in some way to produce the result. One downside of this is that it
+seems to require more existential quantification of type variables
+than would otherwise be necessary. Most notable is the 'ret' index on
+generator actions. All generator actions within the body of a given
+function have the same 'ret' index, but since they are constructed and
+existentially packaged separately, their 'ret' indices must be
+re-unified when combining them in sequence.
+
+TYPE COERCION:
+Wherever an expression appears in a context that expects a specific
+type (e.g., an argument is expected to have the corresponding
+parameter type declared by the function being called), the
+'asTypeEither' function (or one of its variants) is used to perform
+the check as well as possibly allowing some implicit coercions. This
+is primarily to deal with the lack of precise type information on
+"untyped constants" (which essentially means something like "softly
+typed" or "not totally committed to a type yet"). Consider the
+following example:
+
+  var x float32 = 5.0
+
+The literal '5.0' on the RHS is an "untyped float", which is
+represented as a 64-bit float by default and must be rounded to fit in
+a float32 variable. Similarly, consider the declaration of a slice
+initialized with nil:
+
+  var l []int32 = nil
+
+The RHS is an "untyped nil", which can be assigned to pointers,
+slices, maps, etc. When translating a nil expression in isolation, we
+don't know what type it will eventually inhabit, so we just produce
+the unit value. Since all nil-able types are encoded as Crucible Maybe
+types, we simply allow the unit value to be coerced to the Nothing
+value of any Maybe type. An alternative solution could be to perform
+some pre-pass to infer the eventual types of all untyped constants (it
+seems that Go's typechecker is already doing this for us for integers).
+
+GLOBAL LOOKUP FAILURE IS NOT AN ERROR:
+Built-in function names may be shadowed by user-defined symbols, so we
+allow a lookup attempt before considering them as built-ins.
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -57,11 +104,6 @@ import           Lang.Crucible.Go.Encodings
 import           Lang.Crucible.Go.TransUtil
 import           Lang.Crucible.Go.Types
 
--- TODO: remark on retRepr in the module description. also on apparent
--- restriction wrt pointers to globals. Also coercion vs
--- inference. Two cases when an expression translates to EmptyApp: nil
--- constant and unbound local.
-
 -- | Entry point.
 translate :: Show a
           => PosNat -- ^ machine word width
@@ -82,6 +124,10 @@ translate_alg :: Show a
               => NodeF a (Product (Node a) TranslateM) tp
               -> TranslateM tp
 
+-- | Translate a top-level AST node, containing a "main" package along
+-- with all of the packages it depends on (directly or transitively),
+-- assumed to be ordered topologically so that it's safe to simply
+-- translate them left-to-right.
 translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
   TranslateM $ do
   sng <- liftIO' newIONonceGenerator
@@ -98,7 +144,7 @@ translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
     -- Translate the package.
     importM
 
-  -- Build local namespace for the file.
+  -- Build namespace for the main package.
   ns <- mkPackageNamespace main_node
   modify $ \ts -> ts { pkgName = nm
                      , namespaces = HM.insert nm ns (namespaces ts) }
@@ -117,6 +163,7 @@ translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
   -- Produce the final result.
   return $ TranslatedMain main' imports' ini mainFun globs funs halloc
 
+-- | Translate a single package.
 translate_alg (PackageNode name path import_paths file_paths files inits) =
   TranslateM $ do
   files' <- mapM runTranslated files
@@ -127,19 +174,25 @@ translate_alg (PackageNode name path import_paths file_paths files inits) =
     -- initializer statements.
     SomeGoGenerator UnitRepr $ forM_ inits' $ runTranslatedStmt UnitRepr
 
+-- | Translate a single file.
 translate_alg (FileNode path name decls imports) =
   TranslateM $ TranslatedFile path name <$>
   mapM runTranslated decls <*> mapM runTranslated imports
 
--- NOTE: the current treatment of the lexical environment is too
--- coarse-grained to know when we can safely reuse variables (in the
--- case of short-declarations with multiple idents in the LHS). We
--- need a stack of nested local scopes. Only when lookup succeeds in
--- the innermost scope is it safe to reuse the existing variable
--- location. For now we just always introduce new variables.
+
+------------------------------------------------------------------------
+-- Translating statements
+
+-- | Translate an assign statement. NOTE: the current treatment of the
+-- lexical environment is too coarse-grained to know when we can
+-- safely reuse variables (in the case of short-declarations with
+-- multiple idents in the LHS). We need a stack of nested local
+-- scopes. Only when lookup succeeds in the innermost scope is it safe
+-- to reuse the existing variable location. For now we just always
+-- introduce new variables.
 translate_alg (AssignStmt _ assign_tp op lhs rhs) =
   TranslateM $ do
-  lhs' <- mapM runTranslated lhs
+  lhs_gens <- mapM runTranslated lhs
   rhs_gens <- mapM runTranslated rhs
   Some retRepr <- gets retRepr
   ts <- get
@@ -147,24 +200,15 @@ translate_alg (AssignStmt _ assign_tp op lhs rhs) =
     rhs' <- forM rhs_gens $ runTranslatedExpr retRepr
     case assign_tp of
       Assign -> do
-        lhs'' <- forM lhs' $ runTranslatedExpr retRepr
-        forM_ (zip lhs'' rhs') $ \(Some (GoExpr (Just loc) l), r) ->
+        lhs' <- forM lhs_gens $ runTranslatedExpr retRepr
+        forM_ (zip lhs' rhs') $ \(Some (GoExpr (Just loc) l), r) ->
                                   writeToLoc (exprType l) loc r
       Define ->
-        forM_ (zip3 (proj1 <$> lhs) lhs' rhs') $
-        \(In (IdentExpr _x _tp qual name), l, r) ->
-          case l of
-            -- If bound, write to the existing location.
-            TranslatedExpr gen -> do
-              -- Some (GoExpr (Just _loc) l) <- runSomeGoGenerator retRepr gen
-              -- writeToLoc (exprType l) loc r
-              -- For now, always declare a new variable.
-              Some (GoExpr _loc r') <- return r
-              declareVar (identName name) r'
-            -- If unbound, declare new variable
-            TranslatedUnbound _qual (Ident _k nm) -> do
-              Some (GoExpr _loc r') <- return r
-              declareVar nm r'
+        forM_ (zip (proj1 <$> lhs) rhs') $
+        \(In (IdentExpr _x _tp qual name), r) -> do
+          -- For now, always declare a new variable.
+          Some (GoExpr _loc r') <- return r
+          declareVar (identName name) r'
       AssignOperator ->
         fail "translate_alg AssignStmt: expected AssignOperator to be desugared"
 
@@ -173,8 +217,17 @@ translate_alg (BlockStmt _ block) =
   TranslatedBlock gen <- runTranslated block
   return $ TranslatedStmt gen
 
-translate_alg (BranchStmt _ branch_tp label) =
-  TranslateM $ fail "translate_alg BranchStmt: unsupported"
+translate_alg (BranchStmt _ branch_tp label) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  return $ mkTranslatedStmt retRepr $ do
+    case branch_tp of
+      Break -> peekBreakLabel >>= Gen.jump
+      Continue -> peekContinueLabel >>= Gen.jump
+      Goto -> case label of
+        Just label' -> do
+          lbl <- undefined label' -- TODO: fetch crucible label and jump to it
+          Gen.jump lbl
+      Fallthrough -> fail "BranchStmt: Fallthrough not supported"
 
 -- const, type, or var declaration (similar to assign)
 translate_alg (DeclStmt _ decl) = TranslateM $ do
@@ -195,9 +248,31 @@ translate_alg (ExprStmt _ expr) = TranslateM $ do
   return $ mkTranslatedStmt retRepr $
     runSomeGoGenerator retRepr somegen >> return ()
 
--- TODO
-translate_alg (ForStmt _ ini cond pos body) =
-  TranslateM $ fail "translate_alg ForStmt: unsupported"
+translate_alg (ForStmt _ ini cond post body) = TranslateM $ do
+  ini' <- mapM runTranslated ini
+  cond' <- mapM runTranslated cond
+  post' <- mapM runTranslated post
+  TranslatedBlock body_gen <- runTranslated body
+  Some retRepr <- gets retRepr
+  return $ mkTranslatedStmt retRepr $ do
+    forM_ ini' $ runTranslatedStmt retRepr
+    loop_lbl <- Gen.newLabel
+    post_lbl <- Gen.newLabel
+    exit_lbl <- Gen.newLabel
+    let cond_gen = maybe (return $ mkSomeGoExpr' $ C.BoolLit True)
+                   (runTranslatedExpr retRepr) cond'
+    pushLabels post_lbl exit_lbl
+    Gen.defineBlock loop_lbl $ do
+      b <- runBool cond_gen
+      Gen.whenCond b $ do
+        runSomeGoGenerator retRepr body_gen
+        Gen.defineBlock post_lbl $ do
+          maybe (return ()) (runTranslatedStmt retRepr) post'
+          Gen.jump loop_lbl
+        Gen.jump post_lbl
+      Gen.jump exit_lbl
+    popLabels
+    Gen.continue exit_lbl $ Gen.jump loop_lbl
 
 translate_alg (GoStmt _ call_expr) =
   TranslateM $ fail "translate_alg GoStmt: unsupported"
@@ -219,8 +294,17 @@ translate_alg (IfStmt _ ini cond body els) = TranslateM $ do
 translate_alg (IncDecStmt _ expr is_incr) = TranslateM $
   fail "translate_alg IncDecStmt: should have been desugared to an assignment"
 
-translate_alg (LabeledStmt _ label stmt) =
-  TranslateM $ fail "translate_alg LabeledStmt: unsupported"
+translate_alg (LabeledStmt _ label stmt) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  TranslatedStmt stmt_gen <- runTranslated stmt
+  return $ mkTranslatedStmt retRepr $ do
+    lbl <- undefined -- TODO: fetch from label map
+    exit_lbl <- Gen.newLabel
+    Gen.defineBlock lbl $ do
+      runSomeGoGenerator retRepr stmt_gen
+      Gen.jump exit_lbl
+    Gen.continue exit_lbl $ Gen.jump lbl
+
 translate_alg (RangeStmt _ key value range body is_assign) =
   TranslateM $ fail "translate_alg RangeStmt: unsupported"
 
@@ -231,10 +315,6 @@ translate_alg (ReturnStmt _ exprs) = TranslateM $ do
       TranslatedExpr expr_gen <- runTranslated expr
       return $ mkTranslatedStmt retRepr $ do
         Some (GoExpr _loc e) <- runSomeGoGenerator retRepr expr_gen
-        -- trace ("ReturnStmt") $
-        --   trace ("retRepr: " ++ show retRepr) $
-        --   trace ("expr: " ++ show (proj1 expr)) $
-        --   trace ("e: " ++ show e) $
         asType' retRepr e Gen.returnFromFunction
     _ ->
       fail $ "translate_alg ReturnStmt: expected a single return value, got "
@@ -262,6 +342,10 @@ translate_alg (InitializerStmt vars values) = TranslateM $ do
       Some (GoExpr (Just loc) var') <- runTranslatedExpr UnitRepr var
       value' <- runTranslatedExpr UnitRepr value
       writeToLoc (exprType var') loc value'
+
+
+------------------------------------------------------------------------
+-- Translating value-level expressions
 
 -- | The default type of an untyped constant is bool, rune, int,
 -- float64, complex128 or string respectively, depending on whether it
@@ -335,13 +419,14 @@ translate_alg (CallExpr _ tp _ellipsis fun args) = TranslateM $ do
                 Gen.App (C.NothingValue _repr) ->
                   fail "translate_alg CallExpr: attempt to call nil function"
                 _ -> do
-                  maybeElim fun' $ \f -> Some . GoExpr Nothing <$>
+                  maybeElim' fun' $ \f -> Some . GoExpr Nothing <$>
                     Gen.call f (coerceAssignment argsRepr assignment)
             _ -> fail $ "translate_alg CallExpr: expected function type, got "
                  ++ show (exprType fun')
     TranslatedUnbound qual ident ->
       translateBuiltin qual ident args
 
+-- TODO
 translate_alg (CastExpr _ tp expr ty) =
   TranslateM $ fail "translate_alg CastExpr: unsupported"
 
@@ -383,14 +468,10 @@ translate_alg (CompositeLitExpr _ tp _ty elements) = TranslateM $ do
 -- | A translated IdentExpr is either:
 -- 1) a GoExpr containing the location of the variable as well as its
 -- value.
--- 2) a GoExpr containing an EmptyApp value to indicate local variable
--- lookup failure.
--- 3) a TranslatedUnbound value to indicate global lookup failure.
+-- 2) a TranslatedUnbound value to indicate global lookup failure.
 -- Lookup failure isn't necessarily an error (any well-typed program
--- will not contain erroneous lookups); there are a few places where
--- we expect it to happen:
--- 1) the function appearing in a call expression is the name of a builtin.
--- 2) a variable on the LHS of an assign statement doesn't already exist.
+-- will not contain erroneous lookups); we expected uses of built-in
+-- function identifiers to result in lookup failures.
 translate_alg (IdentExpr _ tp qual ident@(Ident _kind name)) = TranslateM $ do
   Some retRepr <- gets retRepr
   case qual of
@@ -405,12 +486,9 @@ translate_alg (IdentExpr _ tp qual ident@(Ident _kind name)) = TranslateM $ do
           return $ Some $ GoExpr (Just $ GoLocRef ref) e
         Nothing ->
           -- | Local lookup failure.
-          return $ mkSomeGoExpr' C.EmptyApp
-          -- fail $ "translate_alg IdentExpr: unbound local " ++ show name
+          -- return $ mkSomeGoExpr' C.EmptyApp
+          fail $ "translate_alg IdentExpr: unbound local " ++ show name
     Just q -> lookupGlobal q ident
-
-translate_alg (EllipsisExpr _ tp _ty) =
-  TranslateM $ TranslatedType <$> translateType tp
 
 translate_alg (FuncLitExpr _ tp params results body) =  
   TranslateM $ do
@@ -531,25 +609,6 @@ translate_alg (UnaryExpr _ tp op e) = TranslateM $ do
         Nothing -> fail "translate_alg UnaryExpr UAddress: no location"
       UArrow -> fail "translate_alg UnaryExpr UArrow: not yet supported"
 
--- | Type expressions come decorated with their semantic types which
--- we translate to TypeReprs.
-translate_alg (NamedTypeExpr _ tp (Ident _kind _name)) =
-  TranslateM $ TranslatedType <$> translateType tp
-translate_alg (PointerTypeExpr _ tp _e) =
-  TranslateM $ TranslatedType <$> translateType tp
-translate_alg (ArrayTypeExpr _ tp _len _elt) =
-  TranslateM $ TranslatedType <$> translateType tp
-translate_alg (FuncTypeExpr _ tp _params _variadic _results) =
-  TranslateM $ TranslatedType <$> translateType tp
-translate_alg (InterfaceTypeExpr _ tp _methods _is_incomplete) =
-  TranslateM $ TranslatedType <$> translateType tp
-translate_alg (MapTypeExpr _ tp _key _value) =
-  TranslateM $ TranslatedType <$> translateType tp
-translate_alg (StructTypeExpr _ tp _fields) =
-  TranslateM $ TranslatedType <$> translateType tp
-translate_alg (ChanTypeExpr _ tp _dir _ty) =
-  TranslateM $ TranslatedType <$> translateType tp
-
 translate_alg (TupleExpr _ tp es) = TranslateM $ do
   Some retRepr <- gets retRepr
   es_gen <- mapM runTranslated es
@@ -569,6 +628,37 @@ translate_alg (ProjExpr _ tp tuple i) = TranslateM $ do
         return $ mkSomeGoExpr' $ C.GetStruct tuple' ix repr
       repr ->
         fail $ "translate_alg ProjExpr: expected struct type, got" ++ show repr
+
+translate_alg (NilExpr _x _tp) = TranslateM $ do
+  Some retRepr <- gets retRepr
+  return $ mkTranslatedExpr retRepr $ return $ mkSomeGoExpr' C.EmptyApp
+                
+------------------------------------------------------------------------
+-- Translating type expressions
+
+-- | Type expressions come decorated with their semantic types which
+-- we translate to TypeReprs.
+translate_alg (EllipsisExpr _ tp _ty) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (NamedTypeExpr _ tp (Ident _kind _name)) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (PointerTypeExpr _ tp _e) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (ArrayTypeExpr _ tp _len _elt) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (FuncTypeExpr _ tp _params _variadic _results) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (InterfaceTypeExpr _ tp _methods _is_incomplete) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (MapTypeExpr _ tp _key _value) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (StructTypeExpr _ tp _fields) =
+  TranslateM $ TranslatedType <$> translateType tp
+translate_alg (ChanTypeExpr _ tp _dir _ty) =
+  TranslateM $ TranslatedType <$> translateType tp
+
+------------------------------------------------------------------------
+-- Translating declarations, specifications, misc.
 
 -- | Generate the CFG for a function.
 translate_alg (FuncDecl _ recv name params variadic results body) =
@@ -591,6 +681,7 @@ translate_alg (ImportSpec _ pkg_name path) =
 translate_alg (ConstSpec _ names ty values) = TranslateM $
   TranslatedVarSpec names <$>
   mapM runTranslated ty <*> mapM runTranslated values
+
 translate_alg (VarSpec _ names ty values) = TranslateM $
   TranslatedVarSpec names <$>
   mapM runTranslated ty <*> mapM runTranslated values
@@ -607,12 +698,12 @@ translate_alg (BlockNode stmts) = TranslateM $ do
   return $ TranslatedBlock $ SomeGoGenerator retRepr $ do
     -- Save and restore the lexical environment around the block.
     gamma <- gets gamma
-    -- seq_stmts retRepr translated_stmts
     forM_ translated_stmts $ runTranslatedStmt retRepr
     modify $ \s -> s { gamma = gamma }
 
-----------------------------------------------------------------------
--- Translating types
+
+------------------------------------------------------------------------
+-- Translating semantic types
 
 -- Maybe generalize to MonadFail and use implicit parameter for
 -- machineWordWidth.
@@ -693,7 +784,7 @@ typeOfTranslatedExpr (TranslatedExpr _gen) =
   fail "typeOfTranslatedExpr: expected TranslatedType, got TranslatedExpr"
 
 
-----------------------------------------------------------------------
+------------------------------------------------------------------------
 -- Helper functions
 
 -- | Translate binops for which the argument types and return type are
@@ -722,6 +813,12 @@ translateHomoBinop tp op left right = case op of
       BasicType (BasicUInt _w) -> return $ Gen.App $ C.BVUdiv w left right
       _ -> fail $ "translateHomoBinop BDiv: unexpected type " ++ show tp
     FloatRepr fi -> return $ Gen.App $ C.FloatDiv fi C.RNE left right
+    ty -> fail $ "translateHomoBinop BDiv: unsupported type " ++ show ty
+  BMod -> case exprType left of
+    BVRepr w -> case tp of
+      BasicType (BasicInt _w) -> return $ Gen.App $ C.BVSrem w left right
+      BasicType (BasicUInt _w) -> return $ Gen.App $ C.BVUrem w left right
+      _ -> fail $ "translateHomoBinop BDiv: unexpected type " ++ show tp
     ty -> fail $ "translateHomoBinop BDiv: unsupported type " ++ show ty
   BAnd -> case exprType left of
     BVRepr w -> return $ Gen.App $ C.BVAnd w left right
@@ -1070,6 +1167,7 @@ mkFunction recv name params variadic results body =
       else return ()
     return g'
 
+-- | Construct a single CFG for initializing all translated packages.
 mkInitializer :: [Translated Package]
               -> TranslateM' (C.SomeCFG Go EmptyCtx UnitType)
 mkInitializer pkgs = do
@@ -1085,3 +1183,36 @@ mkInitializer pkgs = do
     C.SomeCFG g' -> do
       addFunction Nothing $ C.AnyCFG g'
       return $ C.SomeCFG g'
+
+runBool :: GoGenerator s ret (SomeGoExpr s)
+        -> GoGenerator s ret (Gen.Expr Go s BoolType)
+runBool gen = do
+  Some (GoExpr _loc b) <- gen
+  return $ asType BoolRepr b
+
+pushLabels :: Gen.Label s -> Gen.Label s -> GoGenerator s ret ()
+pushLabels continue_lbl break_lbl =
+  modify $ \gs -> gs { labels = (continue_lbl, break_lbl) : labels gs }
+
+popLabels :: GoGenerator s ret (Gen.Label s, Gen.Label s)
+popLabels = do
+  lbls <- gets labels
+  case lbls of
+    [] -> fail "popLabels: empty label stack"
+    ls : lbls' -> do
+      modify $ \gs -> gs { labels = lbls' }
+      return ls
+
+peekLabels :: GoGenerator s ret (Gen.Label s, Gen.Label s)
+peekLabels = do
+  lbls <- gets labels
+  case lbls of
+    [] -> fail "peekLabels: empty label stack"
+    (continue_lbl, break_lbl) : _lbls ->
+      return (continue_lbl, break_lbl)
+
+peekContinueLabel :: GoGenerator s ret (Gen.Label s)
+peekContinueLabel = fst <$> peekLabels
+
+peekBreakLabel :: GoGenerator s ret (Gen.Label s)
+peekBreakLabel = snd <$> peekLabels

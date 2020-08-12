@@ -47,12 +47,6 @@ pattern ArrayOffsetRepr repr = StructRepr (ArrayOffsetCtxRepr repr)
 -- 1) nil
 -- 2) a reference
 -- 3) an array offset
--- As with all nil-able types, wrap the type of non-nil pointers in a
--- Maybe type.
--- TODO: globals. There doesn't appear to be an Expr form for
--- globals. An expression for reading a global is easy but what about
--- writing? The only way I see for writing to a global is with a
--- statement which I don't think can be embedded in an expression..
 type PointerCtx tp = EmptyCtx ::> ReferenceType tp ::> ArrayOffset tp
 type NonNilPointerType tp = VariantType (PointerCtx tp)
 type PointerType tp = MaybeType (NonNilPointerType tp)

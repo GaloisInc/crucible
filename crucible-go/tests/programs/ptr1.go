@@ -1,6 +1,6 @@
 package ptr1
 
-import "github.com/GaloisInc/crucible-go"
+import "github.com/GaloisInc/go-crucible"
 
 func main() {
 	var x int = crucible.FreshInt()
@@ -15,6 +15,10 @@ func main() {
 	z := *y * 3
 
 	crucible.Assert(z == 6, "", "")
+
+	ptr := new(int)
+	*ptr = 5
+	crucible.Assert(*ptr * z == 30, "", "")
 	
 	print(x, y)
 }
