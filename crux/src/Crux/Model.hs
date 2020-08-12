@@ -105,7 +105,7 @@ showDoubleLiteral bv
    | isInfinite x     = if signum x < 0 then "- ((double) INFINITY)" else "(double) INFINITY"
    | isNegativeZero x = "-0.0"
    | otherwise        =
-      (if mag < 0 then "-0x" else "0x") ++ N.showHex mag ("p" ++ show ex)
+      (if mag < 0 then "-0x" else "0x") ++ N.showHex (abs mag) ("p" ++ show ex)
 
  where
  x = IEEE754.wordToDouble (fromInteger (BV.asUnsigned bv))
