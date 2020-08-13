@@ -25,6 +25,7 @@ import           Data.Parameterized.Some (Some(..))
 
 import qualified Lang.Crucible.CFG.Expr as C
 import qualified Lang.Crucible.CFG.Generator as Gen
+import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
 import           What4.Utils.StringLiteral
@@ -48,8 +49,8 @@ translateBuiltin _qual ident@(Ident _k name) args = do
   return $ mkTranslatedExpr retRepr $ do
     case name of
 
-      -- Compute the length of a value of appropriate type. The length
-      -- of a nil pointer to an array or a nil slice is zero.
+      -- | Compute the length of a value of appropriate type. The
+      -- length of a nil pointer to an array or a nil slice is zero.
       "len" -> do
         args' <- forM translated_args $ runTranslatedExpr retRepr
         case args' of
@@ -59,12 +60,21 @@ translateBuiltin _qual ident@(Ident _k name) args = do
                 vec <- Gen.readRef arr
                 return $ mkSomeGoExpr $ natToBV w $ Gen.App $ C.VectorSize vec
             ) $
-            -- TODO: must be a pointer to an array, in which case the
-            -- length is equal to the length of the array (nil pointer
-            -- has length zero).
+            -- The length of a pointer to an array is the length of
+            -- the array it points to. The length of a nil pointer is
+            -- zero.
             tryAsPointer arg
-            (\ptrRepr ptr -> case ptr of
-                _ -> undefined
+            (\ptrRepr ptr -> case ptrRepr of
+                ReferenceRepr (VectorRepr _repr) -> do
+                  len <- maybeElim (BVRepr w) (return $ zeroBV w)
+                         (\ptr' -> do
+                             arr <- readNonNilPointer ptr'
+                             vec <- Gen.readRef arr
+                             return $ natToBV w $ Gen.App $ C.VectorSize vec
+                         ) ptr
+                  return $ mkSomeGoExpr len
+                _repr ->
+                  fail "translateBuiltin: invalid pointer argument to 'len'"
             ) $
             tryAsSlice arg
             (\sliceRepr slice -> do
@@ -86,12 +96,24 @@ translateBuiltin _qual ident@(Ident _k name) args = do
             fail $ "translateBuiltin: expected exactly one argument to\
                    \ 'len', got " ++ show args'
 
-      -- Create a new slice or map value.
+      -- | Create a new slice or map value.
       "make" -> case zip args translated_args of
-        (Pair arg_node _argM, TranslatedType (Some repr)) : translated_args' ->
+        (Pair arg_node _argM, TranslatedType (Some repr)) : t_args' ->
           tryAsSliceRepr repr
-          (\sliceRepr ->
-             undefined
+          (\sliceRepr -> case t_args' of
+              (_node, TranslatedExpr size_gen) : t_args'' -> do
+                Some (GoExpr _loc size) <- runSomeGoGenerator retRepr size_gen
+                Refl <- failIfNotEqual (exprType size) NatRepr
+                        "checking type of 'make' size argument"
+                Some (GoExpr _loc' cap) <- case t_args'' of
+                  (_node', TranslatedExpr cap_gen) : t_args''' ->
+                    runSomeGoGenerator retRepr cap_gen
+                  [] -> return $ mkSomeGoExpr size
+                Refl <- failIfNotEqual (exprType cap) NatRepr
+                        "checking type of 'make' capacity argument"
+                zero <- zeroValue' (typeOf' arg_node) repr
+                Some . GoExpr Nothing <$> newSlice zero size cap
+              [] -> fail ""
           ) $
           fail $ "translateBuiltin: unsupported argument type for 'make':"
                 ++ show arg_node
@@ -99,7 +121,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
           fail $ "translateBuiltin: expected type argument to 'make', got "
                 ++ show (proj1 <$> args)
 
-      -- Allocate a new value and return a pointer to it.
+      -- | Allocate a new value and return a pointer to it.
       "new" -> case zip args translated_args of
         [(Pair arg_node _argM, TranslatedType (Some repr))] -> do
           zero <- zeroValue' (typeOf' arg_node) repr
@@ -109,7 +131,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
           fail $ "translateBuiltin: expected exactly one type argument to\
                  \ 'new', got " ++ show (proj1 <$> args)
 
-      -- Exit the program with an error message. Technically panics
+      -- | Exit the program with an error message. Technically panics
       -- can be recovered from in Go, similar to catching an
       -- exception, but we don't support such control flow for now.
       "panic" -> do
@@ -117,13 +139,13 @@ translateBuiltin _qual ident@(Ident _k name) args = do
         Gen.reportError $ Gen.App $ C.StringLit $
           UnicodeLiteral $ T.pack $ "panic: " ++ show args'
 
-      -- Print the arguments.
+      -- | Print the arguments.
       "print" -> do
         args' <- forM translated_args $ runTranslatedExpr retRepr
         Gen.addPrintStmt $ Gen.App $ C.StringLit $
           UnicodeLiteral $ T.pack $ show args'
         return $ mkSomeGoExpr' $ C.MkStruct Ctx.empty Ctx.empty
 
-      -- TODO: more
+      -- TODO: more builtins
       _nm ->
         fail $ "translateBuiltin: unknown identifier: " ++ show ident

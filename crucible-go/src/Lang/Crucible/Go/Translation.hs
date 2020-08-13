@@ -71,6 +71,7 @@ import           Control.Monad.State
 
 import           Data.BitVector.Sized
 import           Data.Default.Class
+import           Data.Functor.Const
 import           Data.Functor.Product
 import           Data.HashMap.Strict as HM hiding (foldl)
 import           Data.Maybe (fromJust, fromMaybe, maybeToList)
@@ -170,8 +171,8 @@ translate_alg (PackageNode name path import_paths file_paths files inits) =
   modify $ \ts -> ts { retRepr = Some UnitRepr }
   inits' <- mapM runTranslated inits
   return $ TranslatedPackage name path import_paths file_paths files' $
-    -- Build a single initializer generator action from all of the
-    -- initializer statements.
+    -- Build a single package initializer generator action from all of
+    -- the file initializers.
     SomeGoGenerator UnitRepr $ forM_ inits' $ runTranslatedStmt UnitRepr
 
 -- | Translate a single file.
@@ -212,22 +213,37 @@ translate_alg (AssignStmt _ assign_tp op lhs rhs) =
       AssignOperator ->
         fail "translate_alg AssignStmt: expected AssignOperator to be desugared"
 
-translate_alg (BlockStmt _ block) =
-  TranslateM $ do
+translate_alg (BlockStmt _ block) = TranslateM $ do
   TranslatedBlock gen <- runTranslated block
   return $ TranslatedStmt gen
+
+-- translate_alg (BranchStmt _ branch_tp label) = TranslateM $ do
+--   Some retRepr <- gets retRepr
+--   return $ mkTranslatedStmt retRepr $ do
+--     case branch_tp of
+--       Break -> peekBreakLabel >>= Gen.jump
+--       Continue -> peekContinueLabel >>= Gen.jump
+--       Goto -> getLabel (fromJust label) >>= Gen.jump
+--       Fallthrough -> fail "BranchStmt: Fallthrough not supported"
 
 translate_alg (BranchStmt _ branch_tp label) = TranslateM $ do
   Some retRepr <- gets retRepr
   return $ mkTranslatedStmt retRepr $ do
-    case branch_tp of
-      Break -> peekBreakLabel >>= Gen.jump
-      Continue -> peekContinueLabel >>= Gen.jump
-      Goto -> case label of
-        Just label' -> do
-          lbl <- undefined label' -- TODO: fetch crucible label and jump to it
-          Gen.jump lbl
-      Fallthrough -> fail "BranchStmt: Fallthrough not supported"
+    case label of
+      Just label' -> case branch_tp of
+        Break -> getBreakLabel label' >>= Gen.jump
+        Continue -> getContinueLabel label' >>= Gen.jump
+        Goto -> do
+          lbl <- getLabel label'
+          trace ("jumping to label: " ++ show label' ++ " " ++ show lbl) $
+            Gen.jump lbl
+          -- getLabel label' >>= Gen.jump
+        Fallthrough -> fail "BranchStmt: Fallthrough not supported"
+      Nothing -> case branch_tp of
+        Break -> peekBreakLabel >>= Gen.jump
+        Continue -> peekContinueLabel >>= Gen.jump
+        Goto -> fail "BranchStmt: missing label in 'goto'"
+        Fallthrough -> fail "BranchStmt: Fallthrough not supported"
 
 -- const, type, or var declaration (similar to assign)
 translate_alg (DeclStmt _ decl) = TranslateM $ do
@@ -259,19 +275,23 @@ translate_alg (ForStmt _ ini cond post body) = TranslateM $ do
     loop_lbl <- Gen.newLabel
     post_lbl <- Gen.newLabel
     exit_lbl <- Gen.newLabel
+    pushLoopLabels post_lbl exit_lbl
+    -- Clear the current label since we have used it for this loop. If
+    -- there happens to be an inner loop within the body of this one,
+    -- we wouldn't want it to get the wrong idea and use our label.
+    modify $ \gs -> gs { current_label = Nothing }
     let cond_gen = maybe (return $ mkSomeGoExpr' $ C.BoolLit True)
                    (runTranslatedExpr retRepr) cond'
-    pushLabels post_lbl exit_lbl
     Gen.defineBlock loop_lbl $ do
       b <- runBool cond_gen
       Gen.whenCond b $ do
         runSomeGoGenerator retRepr body_gen
-        Gen.defineBlock post_lbl $ do
-          maybe (return ()) (runTranslatedStmt retRepr) post'
-          Gen.jump loop_lbl
         Gen.jump post_lbl
       Gen.jump exit_lbl
-    popLabels
+    Gen.defineBlock post_lbl $ do
+      maybe (return ()) (runTranslatedStmt retRepr) post'
+      Gen.jump loop_lbl
+    popLoopLabels
     Gen.continue exit_lbl $ Gen.jump loop_lbl
 
 translate_alg (GoStmt _ call_expr) =
@@ -298,15 +318,22 @@ translate_alg (LabeledStmt _ label stmt) = TranslateM $ do
   Some retRepr <- gets retRepr
   TranslatedStmt stmt_gen <- runTranslated stmt
   return $ mkTranslatedStmt retRepr $ do
-    lbl <- undefined -- TODO: fetch from label map
+    -- Set the current label ONLY WHEN the inner statement is a
+    -- loop. It will be used and disposed of (reset to Nothing) when
+    -- translating the loop.
+    when (isLoop $ proj1 stmt) $
+      modify $ \gs -> gs { current_label = Just label }
+    lbl <- getLabel label
     exit_lbl <- Gen.newLabel
     Gen.defineBlock lbl $ do
       runSomeGoGenerator retRepr stmt_gen
       Gen.jump exit_lbl
     Gen.continue exit_lbl $ Gen.jump lbl
 
-translate_alg (RangeStmt _ key value range body is_assign) =
-  TranslateM $ fail "translate_alg RangeStmt: unsupported"
+translate_alg (RangeStmt _ key value range body is_assign) = TranslateM $
+  fail "translate_alg: RangeStmt not supported (should have been desugared\
+       \ for slices and arrays)"
+
 
 translate_alg (ReturnStmt _ exprs) = TranslateM $ do
   Some retRepr <- gets retRepr
@@ -447,7 +474,7 @@ translate_alg (CompositeLitExpr _ tp _ty elements) = TranslateM $ do
                   sliceElementRepr sliceRepr
           elements' <- forM element_gens $ runTranslatedExpr retRepr
           vec <- writeVectorElements zero elements'
-          arr <- newArray vec
+          arr <- Gen.newRef vec
           ptr <- newRefPointer arr
           slice <- sliceValue' ptr 0 (length elements) $ length elements
           return $ mkSomeGoExpr slice) $
@@ -460,7 +487,7 @@ translate_alg (CompositeLitExpr _ tp _ty elements) = TranslateM $ do
           elements' <- forM element_gens $ runTranslatedExpr retRepr
           -- Iterate over elements' to overwrite some or all of the array.
           vec <- writeVectorElements zero elements'
-          arr <- newArray vec
+          arr <- Gen.newRef vec
           return $ mkSomeGoExpr arr) $
     fail $ "translate_alg CompositeLitExpr: expected array or slice type, got "
     ++ show repr
@@ -494,7 +521,7 @@ translate_alg (FuncLitExpr _ tp params results body) =
   TranslateM $ do
   Some retRepr <- gets retRepr
   C.AnyCFG g <- mkFunction Nothing Nothing params Nothing results $
-                Just $ proj2 body
+                Just body
   return $ mkTranslatedExpr retRepr $
     return $ mkSomeGoExpr' $ C.HandleLit $ C.cfgHandle g
 
@@ -664,7 +691,7 @@ translate_alg (ChanTypeExpr _ tp _dir _ty) =
 translate_alg (FuncDecl _ recv name params variadic results body) =
   -- trace ("translating function " ++ show name) $
   TranslateM $ TranslatedFuncDecl name <$>
-  mkFunction recv (Just name) params variadic results (proj2 <$> body)
+  mkFunction recv (Just name) params variadic results body
 
 translate_alg (GenDecl _ specs) =
   TranslateM $ TranslatedGenDecl <$> mapM runTranslated specs
@@ -753,9 +780,7 @@ translateType (ChanType dir tp) = fail "translateType: ChanType not supported"
 translateType (InterfaceType method) =
   fail "translateType: InterfaceType not supported"
 translateType (MapType key value) = fail "translateType: MapType not supported"
-translateType (NamedType tp) =
-  -- trace ("NamedType: " ++ show tp) $
-  translateType tp
+translateType (NamedType tp) = translateType tp
 translateType (PointerType tp) = do
   Some repr <- translateType tp
   return $ Some $ PointerRepr repr
@@ -856,6 +881,7 @@ translateComparison tp op left right = Gen.App <$> case op of
     BoolRepr -> return $ C.BoolEq left right
     BVRepr w -> return $ C.BVEq w left right
     FloatRepr _fi -> return $ C.FloatEq left right
+    StringRepr si -> return $ C.BaseIsEq (BaseStringRepr si) left right
     -- TODO: support other types given by the spec
     ty -> fail $ "translateComparison BEq: unsupported type " ++ show ty
   BLt -> case exprType left of
@@ -913,13 +939,8 @@ declareVar name e = do
 writeToLoc :: TypeRepr tp -> GoLoc s tp -> SomeGoExpr s -> GoGenerator s ret ()
 writeToLoc repr loc (Some (GoExpr _loc e)) =
   asType' repr e $ \e' -> case loc of
-  GoLocRef ref ->
-    -- trace ("writing " ++ show e ++ " to reference " ++ show ref) $
-    Gen.writeRef ref e'
-  GoLocGlobal glob ->
-    -- trace ("writing " ++ show e ++ " to global " ++ show glob) $
-    -- trace ("global type: " ++ show (Gen.globalType glob)) $
-    Gen.writeGlobal glob e'
+  GoLocRef ref -> Gen.writeRef ref e'
+  GoLocGlobal glob -> Gen.writeGlobal glob e'
   GoLocArray arr index -> fail "writeToLoc: arrays not yet supported"
   GoLocPointer ptr -> writePointer ptr e'
 
@@ -1038,8 +1059,6 @@ runSpec retRepr (TranslatedVarSpec names ty values) = do
     Some (GoExpr _loc value) <- runSomeGoGenerator retRepr gen
     case ty of
       Just (TranslatedType (Some repr)) ->
-        -- trace ("repr: " ++ show repr) $
-        -- trace ("value: " ++ show value) $
         declareVar name $ asType repr value
       Nothing -> declareVar name value
 runSpec _repr _spec = return ()
@@ -1051,49 +1070,6 @@ localNamespace = gets $ \(TransState { namespaces = ns
 
 fieldsType :: [Node a Field] -> Type
 fieldsType = TupleType . fmap (typeToNameType . fieldType)
-
--- | Provide default values for begin, end, or capacity.
-sliceValue :: Gen.Expr Go s (PointerType (ArrayType tp))
-           -> Maybe (Gen.Expr Go s NatType) -- ^ begin
-           -> Maybe (Gen.Expr Go s NatType) -- ^ end
-           -> Maybe (Gen.Expr Go s NatType) -- ^ capacity
-           -> GoGenerator s ret (Gen.Expr Go s (SliceType tp))
-sliceValue arr_ptr begin end cap = do
-  arr <- readPointer arr_ptr
-  vec <- Gen.readRef arr
-  let begin' = fromMaybe (Gen.App $ C.NatLit 0) begin
-      end' = fromMaybe (Gen.App $ C.VectorSize vec) end
-      cap' = fromMaybe (Gen.App $ C.NatSub end' begin') cap
-  checkSliceRange begin' end'
-  let repr = arrayElementRepr $ exprType arr
-  return $ Gen.App $ C.JustValue (NonNilSliceRepr repr) $ Gen.App $
-    C.MkStruct (SliceCtxRepr repr) $
-    Ctx.empty :> arr_ptr :> begin' :> end' :> cap'
-
--- TODO: also check that begin and end don't exceed capacity?
-checkSliceRange :: Gen.Expr Go s NatType -- ^ begin
-                -> Gen.Expr Go s NatType -- ^ end
-                -> GoGenerator s ret ()
-checkSliceRange begin end =
-  Gen.ifte_ (Gen.App $ C.NatLt end begin)
-  (Gen.reportError $ Gen.App $ C.StringLit "missing return statement") $
-  return ()
-
--- TODO: also check that begin and end don't exceed capacity?
-sliceValue' :: Gen.Expr Go s (PointerType (ArrayType tp))
-            -> Int -- ^ begin
-            -> Int -- ^ end
-            -> Int -- ^ capacity
-            -> GoGenerator s ret (Gen.Expr Go s (SliceType tp))
-sliceValue' ptr begin end cap =
-  if end < begin then
-    fail $ "sliceValue': invalid begin and end indices. begin=" ++
-    show begin ++ ", end=" ++ show end
-  else do
-    let repr = arrayElementRepr $ pointerElementRepr $ exprType ptr
-    return $ Gen.App $ C.JustValue (NonNilSliceRepr repr) $
-      Gen.App $ C.MkStruct (SliceCtxRepr repr) $
-      Ctx.empty :> ptr :> intNat begin :> intNat end :> intNat cap
 
 reslice :: Gen.Expr Go s (SliceType tp)
         -> Maybe (Gen.Expr Go s NatType)
@@ -1115,7 +1091,7 @@ mkFunction :: Maybe (Product (Node a) TranslateM  Field) -- ^ receiver type
            -> [Product (Node a) TranslateM Field] -- ^ params
            -> Maybe (Product (Node a) TranslateM Field) -- ^ variadic
            -> [Product (Node a) TranslateM Field] -- ^ results
-           -> Maybe (TranslateM Block) -- ^ body
+           -> Maybe (Product (Node a) TranslateM Block) -- ^ body
            -> TranslateM' (C.AnyCFG Go)
 mkFunction recv name params variadic results body =
   do
@@ -1142,7 +1118,7 @@ mkFunction recv name params variadic results body =
     Refl <- failIfNotEqual resultRepr (handleReturnType h) $
             "translate_alg FuncDecl: checking return type"
     (Gen.SomeCFG g, []) <- case body of
-      Just body' -> do
+      Just (Pair body_node body') -> do
         modify $ \ts -> ts { retRepr = Some resultRepr }
         TranslatedBlock body_gen <- runTranslateM body'
         liftIO' $ Gen.defineFunction InternalPos sng h
@@ -1151,6 +1127,7 @@ mkFunction recv name params variadic results body =
                  paramsGen $ fmapFC Gen.AtomExpr assignment
                  zeroValue' (fieldsType $ proj1 <$> results)
                    resultRepr >>= resultGen
+                 buildLabelMap body_node -- build label map
                  runSomeGoGenerator resultRepr body_gen
                  -- Fail if no return.
                  Gen.reportError $
@@ -1190,29 +1167,67 @@ runBool gen = do
   Some (GoExpr _loc b) <- gen
   return $ asType BoolRepr b
 
-pushLabels :: Gen.Label s -> Gen.Label s -> GoGenerator s ret ()
-pushLabels continue_lbl break_lbl =
-  modify $ \gs -> gs { labels = (continue_lbl, break_lbl) : labels gs }
+pushLoopLabels :: Gen.Label s -> Gen.Label s -> GoGenerator s ret ()
+pushLoopLabels continue_lbl break_lbl =
+  modify $ \gs ->
+  let loop_label_map' = case current_label gs of
+        Just (Ident _k label) ->
+          HM.insert label (continue_lbl, break_lbl) $ loop_label_map gs
+        Nothing -> loop_label_map gs in
+    gs { loop_labels = (continue_lbl, break_lbl) : loop_labels gs
+       , loop_label_map = loop_label_map' }
+  
 
-popLabels :: GoGenerator s ret (Gen.Label s, Gen.Label s)
-popLabels = do
-  lbls <- gets labels
+popLoopLabels :: GoGenerator s ret (Gen.Label s, Gen.Label s)
+popLoopLabels = do
+  lbls <- gets loop_labels
   case lbls of
-    [] -> fail "popLabels: empty label stack"
+    [] -> fail "popLoopLabels: empty label stack"
     ls : lbls' -> do
-      modify $ \gs -> gs { labels = lbls' }
+      modify $ \gs -> gs { loop_labels = lbls' }
       return ls
 
-peekLabels :: GoGenerator s ret (Gen.Label s, Gen.Label s)
-peekLabels = do
-  lbls <- gets labels
+peekLoopLabels :: GoGenerator s ret (Gen.Label s, Gen.Label s)
+peekLoopLabels = do
+  lbls <- gets loop_labels
   case lbls of
-    [] -> fail "peekLabels: empty label stack"
+    [] -> fail "peekLoopLabels: empty label stack"
     (continue_lbl, break_lbl) : _lbls ->
       return (continue_lbl, break_lbl)
 
 peekContinueLabel :: GoGenerator s ret (Gen.Label s)
-peekContinueLabel = fst <$> peekLabels
+peekContinueLabel = fst <$> peekLoopLabels
 
 peekBreakLabel :: GoGenerator s ret (Gen.Label s)
-peekBreakLabel = snd <$> peekLabels
+peekBreakLabel = snd <$> peekLoopLabels
+
+buildLabelMap :: Node a Block -> GoGenerator s ret ()
+buildLabelMap = cataM' alg
+  where
+    alg :: NodeF a (Const ()) tp -> GoGenerator s ret ()
+    alg (LabeledStmt _x (Ident _k label) (Const map)) = do
+      lbl <- Gen.newLabel
+      -- trace ("allocating label for " ++ show label ++ ": " ++ show lbl) $
+      modify $ \gs -> gs { label_map = HM.insert label lbl $ label_map gs }
+    alg _node = return ()
+
+getLabel :: Ident -> GoGenerator s ret (Gen.Label s)
+getLabel (Ident _k label) = do
+  lbl_map <- gets label_map
+  case HM.lookup label lbl_map of
+    Just lbl -> return lbl
+    Nothing -> fail $ "getLabel: unbound label " ++ show label
+
+getLoopLabels :: Ident -> GoGenerator s ret (Gen.Label s, Gen.Label s)
+getLoopLabels (Ident _k label) = do
+  lbl_map <- gets loop_label_map
+  case HM.lookup label lbl_map of
+    Just (continue_lbl, break_lbl) -> return (continue_lbl, break_lbl)
+    Nothing -> -- trace (show lbl_map) $
+      fail $ "getLoopLabels: unbound label " ++ show label
+
+getContinueLabel :: Ident -> GoGenerator s ret (Gen.Label s)
+getContinueLabel = (fst <$>) . getLoopLabels
+
+getBreakLabel :: Ident -> GoGenerator s ret (Gen.Label s)
+getBreakLabel = (snd <$>) . getLoopLabels

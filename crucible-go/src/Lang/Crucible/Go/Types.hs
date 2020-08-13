@@ -140,7 +140,8 @@ data TransState =
   , halloc :: Maybe HandleAllocator
   , mainFunction :: Maybe (C.AnyCFG Go)
   , globals :: [GoGlobal] -- ^ all globals
-  , functions :: [(Maybe (Text, FunctionName), C.AnyCFG Go)] -- ^ all generated functions
+  -- | all generated functions
+  , functions :: [(Maybe (Text, FunctionName), C.AnyCFG Go)]
   }
 
 instance Default TransState where
@@ -172,13 +173,22 @@ data GenState s =
   GenState
   { -- | lexical environment
     gamma :: HashMap Text (SomeGoReg s)
+    -- | map from label text to crucible label
+  , label_map :: HashMap Text (Gen.Label s)
     -- | stack of loop labels (continue, break)
-  , labels :: [(Gen.Label s, Gen.Label s)]
+  , loop_labels :: [(Gen.Label s, Gen.Label s)]
+    -- | map from loop label to continue and break crucible labels
+  , loop_label_map :: HashMap Text (Gen.Label s, Gen.Label s)
+    -- | set when translating a labeled statement
+  , current_label :: Maybe Ident
   }
 
 instance Default (GenState s) where
   def = GenState { gamma = HM.empty
-                 , labels = [] }
+                 , label_map = HM.empty
+                 , loop_labels = []
+                 , loop_label_map = HM.empty
+                 , current_label = Nothing }
 
 -- | The type of Go generator actions.
 type GoGenerator s ret a = Gen.Generator Go s GenState ret IO a
@@ -239,10 +249,10 @@ liftIO' = lift . lift
 
 -- | The type of results produced by translator computations, indexed
 -- by NodeType. The constructors roughly correspond to the AST
--- constructors, but with some syntactic classes of constructors into
--- one or a small number of constructors (e.g., all AST nodes indexed
--- by Stmt result in a TranslatedStmt, all nodes indexed by Expr
--- result in a TranslatedExpr or TranslatedType).
+-- constructors, but with some syntactic classes of constructors
+-- collapsed into one or a small number of constructors (e.g., all AST
+-- nodes indexed by Stmt result in a TranslatedStmt, all nodes indexed
+-- by Expr result in a TranslatedExpr or TranslatedType).
 data Translated (tp :: NodeType) where
 
   -- | The top-level result of translating a Go program.
