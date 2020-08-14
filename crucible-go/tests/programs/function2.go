@@ -15,4 +15,5 @@ func main() {
 	crucible.Assert(a == y, "", "")
 	crucible.Assert(b == x, "", "")
 	crucible.Assert(c == z, "", "")
+	print(x, y, z, a, b, c)
 }

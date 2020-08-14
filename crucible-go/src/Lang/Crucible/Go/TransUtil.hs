@@ -22,7 +22,7 @@ import           Control.Monad.State
 import           Data.BitVector.Sized
 import           Data.Functor.Product
 import           Data.Maybe (fromMaybe)
-import           Data.Text as T hiding (foldl, length, zip)
+import           Data.Text as T hiding (foldl, length, reverse, zip)
 import qualified Data.Vector as V
 
 import           Data.Parameterized.Context as Ctx
@@ -118,6 +118,14 @@ asTypes' :: CtxRepr ctx' ->
             Assignment (Gen.Expr Go s) ctx ->
             (Assignment (Gen.Expr Go s) ctx' -> a) -> a
 asTypes' ctxRepr assignment k = k $ asTypes ctxRepr assignment
+
+tryAsBV :: Gen.Expr Go s tp
+        -> (forall w. (1 <= w) => NatRepr w -> Gen.Expr Go s (BVType w) -> b)
+        -> b
+        -> b
+tryAsBV e k b = case exprType e of
+  BVRepr w -> k w e
+  _repr -> b
 
 tryAsStringRepr :: TypeRepr tp
                 -> (forall si. StringInfoRepr si ->
@@ -367,9 +375,21 @@ unTranslatedExpr :: Translated Expr
                  -> (forall s. SomeGoGenerator s (SomeGoExpr s))
 unTranslatedExpr (TranslatedExpr gen) = gen
 
-runTranslatedExpr :: TypeRepr ret -> Translated Expr
+runTranslatedExpr :: TypeRepr ret
+                  -> Translated Expr
                   -> GoGenerator s ret (SomeGoExpr s)
-runTranslatedExpr repr (TranslatedExpr gen) = runSomeGoGenerator repr gen
+runTranslatedExpr repr texpr = case texpr of
+  TranslatedExpr gen -> runSomeGoGenerator repr gen
+  TranslatedUnbound qual name ->
+    fail $ "runTranslatedExpr: unexpected unbound identifier: " ++
+    show qual ++ " " ++ show name
+
+runTranslatedExpr' :: TypeRepr ret
+                   -> Translated Expr
+                   -> GoGenerator s ret (Either (Ident, Ident) (SomeGoExpr s))
+runTranslatedExpr' repr texpr = case texpr of
+  TranslatedExpr gen -> Right <$> runSomeGoGenerator repr gen
+  TranslatedUnbound qual name -> return $ Left (qual, name)
 
 coerceAssignment :: CtxRepr expectedCtx ->
                     Assignment (Gen.Expr Go s) ctx ->
@@ -426,7 +446,7 @@ zeroValue tp repr = Gen.App <$> case repr of
   BVRepr w -> return $ C.BVLit w $ mkBV w 0
   FloatRepr SingleFloatRepr -> return $ C.FloatLit 0.0
   FloatRepr DoubleFloatRepr -> return $ C.DoubleLit 0.0
-  StringRepr UnicodeRepr -> return $ C.StringLit ""
+  StringRepr UnicodeRepr -> return $ C.StringLit $ UnicodeLiteral ""
   MaybeRepr repr -> return $ C.NothingValue repr
   StructRepr ctx ->
     let tps = case tp of
@@ -437,7 +457,6 @@ zeroValue tp repr = Gen.App <$> case repr of
   VectorRepr repr ->
     let (tp', len) = case tp of
           ArrayType n t -> (t, n) in
-          -- SliceType t -> (t, 0) in -- Slice zero value is nil
       C.VectorLit repr . V.replicate len <$> zeroValue tp' repr
   _ -> Nothing
 
@@ -455,7 +474,7 @@ indexedList :: Assignment f ctx -> [Some (Product (Index ctx) f)]
 indexedList = toListFC Some . indexedAssignment
 
 someIndexVal :: Assignment f ctx -> Int -> Some (Product (Index ctx) f)
-someIndexVal assignment i = indexedList assignment !! i
+someIndexVal assignment i = reverse (indexedList assignment) !! i
 
 withIndex :: Assignment f ctx
           -> Int
@@ -608,7 +627,8 @@ zeroBV w = Gen.App $ C.BVLit w $ mkBV w 0
 mkBasicConst :: PosNat -> BasicConst -> Some (Gen.Expr Go s)
 mkBasicConst n@(PosNat w LeqProof) c = case c of
   BasicConstBool b -> Some $ Gen.App $ C.BoolLit b
-  BasicConstString str -> Some $ Gen.App $ C.StringLit $ UnicodeLiteral str
+  BasicConstString str ->
+    Some $ Gen.App $ C.StringLit $ UnicodeLiteral str
   BasicConstInt i -> Some $ Gen.App $ C.BVLit w $ mkBV w i
   -- Cast the numerator and denominator to float and divide.
   BasicConstFloat num denom ->

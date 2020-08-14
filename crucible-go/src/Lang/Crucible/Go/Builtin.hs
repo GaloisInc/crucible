@@ -103,16 +103,23 @@ translateBuiltin _qual ident@(Ident _k name) args = do
           (\sliceRepr -> case t_args' of
               (_node, TranslatedExpr size_gen) : t_args'' -> do
                 Some (GoExpr _loc size) <- runSomeGoGenerator retRepr size_gen
-                Refl <- failIfNotEqual (exprType size) NatRepr
-                        "checking type of 'make' size argument"
-                Some (GoExpr _loc' cap) <- case t_args'' of
-                  (_node', TranslatedExpr cap_gen) : t_args''' ->
-                    runSomeGoGenerator retRepr cap_gen
-                  [] -> return $ mkSomeGoExpr size
-                Refl <- failIfNotEqual (exprType cap) NatRepr
-                        "checking type of 'make' capacity argument"
-                zero <- zeroValue' (typeOf' arg_node) repr
-                Some . GoExpr Nothing <$> newSlice zero size cap
+                tryAsBV size
+                  (\w size' -> do
+                      let sizeNat = Gen.App $ C.BvToNat w size'
+                      cap <- case t_args'' of
+                        (_node', TranslatedExpr cap_gen) : t_args''' -> do
+                          Some (GoExpr _l cap) <- runSomeGoGenerator
+                                                  retRepr cap_gen
+                          tryAsBV cap
+                            (\w' cap' ->
+                              return $ Gen.App $ C.BvToNat w' cap'
+                            ) $
+                             fail "expected bitvector for 'make' capacity arg"
+                        [] -> return $ sizeNat
+                      zero <- zeroValue' (typeOf' arg_node) repr
+                      Some . GoExpr Nothing <$> newSlice zero sizeNat cap
+                  ) $
+                  fail ""
               [] -> fail ""
           ) $
           fail $ "translateBuiltin: unsupported argument type for 'make':"
@@ -142,8 +149,13 @@ translateBuiltin _qual ident@(Ident _k name) args = do
       -- | Print the arguments.
       "print" -> do
         args' <- forM translated_args $ runTranslatedExpr retRepr
-        Gen.addPrintStmt $ Gen.App $ C.StringLit $
-          UnicodeLiteral $ T.pack $ show args'
+        -- Gen.addPrintStmt $ Gen.App $ C.StringLit $
+          -- UnicodeLiteral $ T.pack $ show args'
+        forM_ args' $ \(Some (GoExpr _loc arg')) ->
+          case asBaseType $ exprType arg' of
+            AsBaseType repr ->
+              Gen.addPrintStmt $ Gen.App $ C.ShowValue repr arg'
+            NotBaseType -> return ()
         return $ mkSomeGoExpr' $ C.MkStruct Ctx.empty Ctx.empty
 
       -- TODO: more builtins

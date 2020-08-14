@@ -201,9 +201,13 @@ translate_alg (AssignStmt _ assign_tp op lhs rhs) =
     rhs' <- forM rhs_gens $ runTranslatedExpr retRepr
     case assign_tp of
       Assign -> do
-        lhs' <- forM lhs_gens $ runTranslatedExpr retRepr
-        forM_ (zip lhs' rhs') $ \(Some (GoExpr (Just loc) l), r) ->
-                                  writeToLoc (exprType l) loc r
+        lhs' <- forM lhs_gens $ runTranslatedExpr' retRepr
+        -- forM_ (zip lhs' rhs') $ \(Some (GoExpr (Just loc) l), r) ->
+        forM_ (zip lhs' rhs') $ \(l, r) ->
+          case l of
+            Left _ -> return ()
+            Right (Some (GoExpr (Just loc) l')) ->
+              writeToLoc (exprType l') loc r
       Define ->
         forM_ (zip (proj1 <$> lhs) rhs') $
         \(In (IdentExpr _x _tp qual name), r) -> do
@@ -217,15 +221,6 @@ translate_alg (BlockStmt _ block) = TranslateM $ do
   TranslatedBlock gen <- runTranslated block
   return $ TranslatedStmt gen
 
--- translate_alg (BranchStmt _ branch_tp label) = TranslateM $ do
---   Some retRepr <- gets retRepr
---   return $ mkTranslatedStmt retRepr $ do
---     case branch_tp of
---       Break -> peekBreakLabel >>= Gen.jump
---       Continue -> peekContinueLabel >>= Gen.jump
---       Goto -> getLabel (fromJust label) >>= Gen.jump
---       Fallthrough -> fail "BranchStmt: Fallthrough not supported"
-
 translate_alg (BranchStmt _ branch_tp label) = TranslateM $ do
   Some retRepr <- gets retRepr
   return $ mkTranslatedStmt retRepr $ do
@@ -233,11 +228,10 @@ translate_alg (BranchStmt _ branch_tp label) = TranslateM $ do
       Just label' -> case branch_tp of
         Break -> getBreakLabel label' >>= Gen.jump
         Continue -> getContinueLabel label' >>= Gen.jump
-        Goto -> do
-          lbl <- getLabel label'
-          trace ("jumping to label: " ++ show label' ++ " " ++ show lbl) $
-            Gen.jump lbl
-          -- getLabel label' >>= Gen.jump
+        Goto -> getLabel label' >>= Gen.jump
+          -- lbl <- getLabel label'
+          -- trace ("jumping to label: " ++ show label' ++ " " ++ show lbl) $
+          --   Gen.jump lbl
         Fallthrough -> fail "BranchStmt: Fallthrough not supported"
       Nothing -> case branch_tp of
         Break -> peekBreakLabel >>= Gen.jump
@@ -547,6 +541,10 @@ translate_alg (IndexExpr _ tp expr index) = TranslateM $ do
           let ix' = Gen.App $ C.NatAdd begin natIx
           Some . GoExpr (Just $ GoLocPointer $ mkArrayOffsetPointer arr ix')
             <$> arrayGetSafe repr ix' arr
+      ) $
+      tryAsString e
+      (\si str -> do
+          fail $ "translate_alg IndexExpr: string indexing not yet supported"
       ) $
       fail $ "translate_alg IndexExpr: unexpected LHS: " ++ show (proj1 expr)
 
