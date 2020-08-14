@@ -63,9 +63,6 @@ data SolverConfig = SingleOnlineSolver SolverOnline
                   -- ^ Use one online solver connection for path satisfiability
                   -- checking and a separate online solver connection for goal
                   -- discharge
-                  | OnlyOfflineSolver SolverOffline
-                  -- ^ Use only an offline solver with no support for path
-                  -- satisfiability checking
                   | OnlyOfflineSolvers [SolverOffline]
                   -- ^ Try any of a number of offline solvers with no support
                   -- for path satisfiability checking
@@ -202,7 +199,7 @@ parseSolverConfig cruxOpts = validatedToEither $
       -- discharged with an offline solver.
       OnlineSolverWithOfflineGoals <$> asOnlineSolver onSolver <*> asAnyOfflineSolver (CCC.solver cruxOpts)
   where
-    tryAnyOffline = OnlyOfflineSolver <$> asAnyOfflineSolver (CCC.solver cruxOpts)
-    tryOnlyOffline = OnlyOfflineSolver <$> asOnlyOfflineSolver (CCC.solver cruxOpts)
+    tryAnyOffline = OnlyOfflineSolvers . pure <$> asAnyOfflineSolver (CCC.solver cruxOpts)
+    tryOnlyOffline = OnlyOfflineSolvers . pure <$> asOnlyOfflineSolver (CCC.solver cruxOpts)
     trySingleOnline = SingleOnlineSolver <$> asOnlineSolver (CCC.solver cruxOpts)
     tryManyOffline = OnlyOfflineSolvers <$> asManyOfflineSolvers (CCC.solver cruxOpts)

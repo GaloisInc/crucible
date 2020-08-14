@@ -180,34 +180,20 @@ withFloatRepr ::
   CCS.HasDefaultFloatRepr solver =>
   proxy s ->
   CruxOptions ->
-  solver ->
+  [solver] ->
   (forall fm .
     IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (Flags fm)) =>
     FloatModeRepr fm ->
     IO a) ->
   IO a
-withFloatRepr proxy cruxOpts selectedSolver k =
+withFloatRepr proxy cruxOpts selectedSolvers k =
   case floatMode cruxOpts of
     "real" -> k FloatRealRepr
     "ieee" -> k FloatIEEERepr
     "uninterpreted" -> k FloatUninterpretedRepr
-    "default" -> CCS.withDefaultFloatRepr proxy selectedSolver k
-    fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
-
-withSolverAgnosticFloatRepr ::
-  proxy s ->
-  CruxOptions ->
-  (forall fm .
-    IsInterpretedFloatExprBuilder (WEB.ExprBuilder s CBS.SimpleBackendState (Flags fm)) =>
-    FloatModeRepr fm ->
-    IO a) ->
-  IO a
-withSolverAgnosticFloatRepr _proxy cruxOpts k =
-  case floatMode cruxOpts of
-    "real" -> k FloatRealRepr
-    "ieee" -> k FloatIEEERepr
-    "uninterpreted" -> k FloatUninterpretedRepr
-    "default" -> k FloatUninterpretedRepr
+    "default" -> case selectedSolvers of
+                   [oneSolver] -> CCS.withDefaultFloatRepr proxy oneSolver k
+                   _           -> k FloatUninterpretedRepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
 
 floatReprString :: FloatModeRepr fm -> String
@@ -475,18 +461,19 @@ runSimulator cruxOpts simCallback = do
             -- error if the same option is added more than once.
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
           doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline (proveGoalsOffline [adapter])
-    Right (CCS.OnlyOfflineSolver offSolver) -> do
-      withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
-        withSolverAdapter offSolver $ \adapter -> do
-          sym <- CBS.newSimpleBackend floatRepr nonceGen
-          setupSolver cruxOpts Nothing sym
-          -- Since we have a bare SimpleBackend here, we have to initialize it
-          -- with the options taken from the solver adapter (e.g., solver path)
-          extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo Nothing (proveGoalsOffline [adapter])
+    -- Right (CCS.OnlyOfflineSolvers [offSolver]) -> do
+    --   -- When there's only one solver, we can specialize the float mode to that solver
+    --   withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
+    --     withSolverAdapter offSolver $ \adapter -> do
+    --       sym <- CBS.newSimpleBackend floatRepr nonceGen
+    --       setupSolver cruxOpts Nothing sym
+    --       -- Since we have a bare SimpleBackend here, we have to initialize it
+    --       -- with the options taken from the solver adapter (e.g., solver path)
+    --       extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
+    --       (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
+    --       doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo Nothing (proveGoalsOffline [adapter])
     Right (CCS.OnlyOfflineSolvers offSolvers) -> do
-      withSolverAgnosticFloatRepr (Proxy @s) cruxOpts $ \floatRepr -> do
+      withFloatRepr (Proxy @s) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
           sym <- CBS.newSimpleBackend floatRepr nonceGen
           setupSolver cruxOpts Nothing sym
