@@ -443,9 +443,22 @@ translate_alg (CallExpr _ tp _ellipsis fun args) = TranslateM $ do
     TranslatedUnbound qual ident ->
       translateBuiltin qual ident args
 
--- TODO
-translate_alg (CastExpr _ tp expr ty) =
-  TranslateM $ fail "translate_alg CastExpr: unsupported"
+translate_alg (CastExpr _ tp expr ty) = TranslateM $ do
+  TranslatedExpr expr_gen <- runTranslated expr
+  TranslatedType (Some repr) <- runTranslated ty
+  Some retRepr <- gets retRepr
+  return $ mkTranslatedExpr retRepr $ do
+    Some (GoExpr _loc expr') <- runSomeGoGenerator retRepr expr_gen
+    case (exprType expr', repr) of
+      (BVRepr w, BVRepr w') ->
+        -- TODO: this is just a placeholder conversion and is most
+        -- likely not correct according to the spec.
+        return $ mkSomeGoExpr' $ C.IntegerToBV w' $
+        Gen.App $ C.BvToInteger w expr'
+      -- TODO: more conversions
+      (repr', _repr) ->
+        fail $ "translate_alg CastExpr: can't convert " ++
+        show repr' ++ " to " ++ show repr
 
 -- | For both arrays and slices we must construct a new array, and in
 -- the case of a slice literal also allocate a reference for it and

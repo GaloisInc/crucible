@@ -25,9 +25,7 @@ module Lang.Crucible.Go.Simulate (setupCrucibleGoCrux) where
 import           Control.Monad
 import           Control.Monad.Fail (MonadFail)
 
-import           Data.Text (Text, unpack)
-
-import           Debug.Trace (trace)
+import           Data.Text (Text)
 
 import           System.IO
 
@@ -43,7 +41,6 @@ import qualified Lang.Crucible.CFG.Reg as Reg
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
-import           Lang.Crucible.Simulator.Intrinsics
 
 import           Lang.Crucible.FunctionHandle as C
 import qualified Lang.Crucible.Simulator as C
@@ -58,13 +55,13 @@ import qualified What4.Interface as W4
 
 -- go
 import            Language.Go.AST
-import            Language.Go.Desugar
+import            Language.Go.Desugar (desugar)
 import            Language.Go.Parser as P
-import            Language.Go.Rename
+import            Language.Go.Rename (rename)
 import            Language.Go.Types
 
 import            Lang.Crucible.Go.Overrides
-import            Lang.Crucible.Go.Translation
+import            Lang.Crucible.Go.Translation (translate)
 import            Lang.Crucible.Go.Types
 
 -- | Borrowed from crucible-jvm.
@@ -76,14 +73,16 @@ setSimulatorVerbosity verbosity sym = do
   
 -- | No syntax extensions.
 goExtensionImpl :: C.ExtensionImpl p sym Go
-goExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
+goExtensionImpl =
+  C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
 
 failIfNotEqual :: forall k f m a (b :: k).
                   (MonadFail m, Show (f a), Show (f b), TestEquality f)
                => f a -> f b -> String -> m (a :~: b)
 failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
-  | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
+  | otherwise = fail $ str ++ ": mismatch between "
+                ++ show r1 ++ " and " ++ show r2
 
 mkFunctionBindings :: forall sym p ext.
                       [SomeOverride p sym ext]
@@ -103,9 +102,13 @@ mkFunctionBindings overrides ((ident, AnyCFG cfg) : cfgs) =
         Nothing -> UseCFG cfg $ C.postdomInfo cfg in
     insertHandleMap (cfgHandle cfg) f $ mkFunctionBindings overrides cfgs
 
-asApp :: MonadFail m => Reg.Expr ext s tp -> (App ext (Reg.Expr ext s) tp -> m a) -> m a
+asApp :: MonadFail m
+      => Reg.Expr ext s tp
+      -> (App ext (Reg.Expr ext s) tp -> m a)
+      -> m a
 asApp (Reg.App e) k = k e
-asApp (Reg.AtomExpr a) _k = fail $ "asApp: expected App constructor, got atom " ++ show a
+asApp (Reg.AtomExpr a) _k =
+  fail $ "asApp: expected App constructor, got atom " ++ show a
 
 evalExpr :: IsSymInterface sym
          => sym
@@ -136,14 +139,15 @@ mkGlobals sym globals =
   emptyGlobals globals
 
 setupCrucibleGoCrux :: forall sym args.
-  (IsSymInterface sym, KnownRepr CtxRepr args, ?machineWordWidth :: Int)
-  => Node P.SourcePos Main
-  -> Int               -- ^ Verbosity level
-  -> sym               -- ^ Simulator state
-  -> Crux.Model sym    -- ^ Personality
-  -> C.RegMap sym args -- ^ Arguments
+  (IsSymInterface sym, KnownRepr CtxRepr args)
+  => Int                   -- ^ Machine word width
+  -> Node P.SourcePos Main -- ^ Input program
+  -> Int                   -- ^ Verbosity level
+  -> sym                   -- ^ Simulator state
+  -> Crux.Model sym        -- ^ Personality
+  -> C.RegMap sym args     -- ^ Arguments
   -> IO (C.ExecState (Crux.Model sym) sym Go (C.RegEntry sym UnitType))
-setupCrucibleGoCrux fwi verbosity sym p args = do  
+setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do  
   when (verbosity > 2) $
     putStrLn "starting setupCrucibleGoCrux"
   setSimulatorVerbosity verbosity sym
@@ -155,14 +159,14 @@ setupCrucibleGoCrux fwi verbosity sym p args = do
   -- putStrLn "RENAMED:"
   -- putStrLn $ show $ rename $ desugar fwi
 
-  case intToPosNat ?machineWordWidth of
+  case intToPosNat machineWordWidth of
     Nothing -> error "machineWordWidth should be >= 1"
     Just (PosNat w LeqProof) -> do
       translated <- translate (PosNat w LeqProof) $ rename $ desugar fwi
       case translated of
         Left msg -> fail msg
-        Right (TranslatedMain
-                _main _imports (SomeCFG ini) (Just (AnyCFG cfg)) globs funs halloc) -> do
+        Right (TranslatedMain _main _imports
+                (SomeCFG ini) (Just (AnyCFG cfg)) globs funs halloc) -> do
           putStrLn "done translating."
 
           putStrLn "INITIALIZER:"
