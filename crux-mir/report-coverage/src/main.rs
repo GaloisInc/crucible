@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::Display;
 use std::fs;
+#[allow(deprecated)]
+use std::hash::{Hash, Hasher, SipHasher};
 use std::path::Path;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::{SimpleFiles, Files};
@@ -45,9 +47,7 @@ struct BranchReport {
     dests: [BlockId; 2],
 }
 
-fn parse_report(json: Value) -> Result<Report, String> {
-    let mut r = Report::default();
-
+fn parse_report_into(json: Value, r: &mut Report) -> Result<(), String> {
     let sections = json.as_array()
         .ok_or_else(|| format!("expected array at top level"))?;
     for sec in sections {
@@ -84,8 +84,7 @@ fn parse_report(json: Value) -> Result<Report, String> {
             }
         }
     }
-
-    Ok(r)
+    Ok(())
 }
 
 fn event_callsite(evt: &serde_json::Map<String, Value>) -> Result<String, String> {
@@ -517,26 +516,56 @@ fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnT
     }
 }
 
+#[allow(deprecated)]
+fn hash<H: Hash>(x: &H) -> u64 {
+    let mut hasher = SipHasher::new();
+    x.hash(&mut hasher);
+    hasher.finish()
+}
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
-    assert!(args.len() == 2, "usage: crux-report-coverage REPORT_DATA.JS");
+    assert!(args.len() >= 2, "usage: crux-report-coverage REPORT_DATA.JS...");
 
-    let report_path = Path::new(&args[1]);
-    let trans_path = report_path.with_file_name("translation.json");
+    let mut report = Report::default();
+    let mut trans = None;
+    let mut trans_hash = None;
 
-    let report_bytes = fs::read(report_path).unwrap();
-    let idx0 = report_bytes.iter().position(|&x| x == b'(').unwrap() + 1;
-    let idx1 = report_bytes.iter().rposition(|&x| x == b')').unwrap();
-    let report_json: Value = serde_json::from_slice(&report_bytes[idx0..idx1]).unwrap();
-    drop(report_bytes);
+    for report_path_str in &args[1..] {
+        let report_path = Path::new(report_path_str);
+        let trans_path = report_path.with_file_name("translation.json");
 
-    let trans_bytes = fs::read(trans_path).unwrap();
-    let trans_json: Value = serde_json::from_slice(&trans_bytes).unwrap();
-    drop(trans_bytes);
+        let report_bytes = fs::read(report_path).unwrap();
+        let idx0 = report_bytes.iter().position(|&x| x == b'(').unwrap() + 1;
+        let idx1 = report_bytes.iter().rposition(|&x| x == b')').unwrap();
+        let report_json: Value = serde_json::from_slice(&report_bytes[idx0..idx1]).unwrap();
+        drop(report_bytes);
 
-    let report = parse_report(report_json).unwrap();
-    let trans = parse_trans(trans_json).unwrap();
+        parse_report_into(report_json, &mut report).unwrap();
+
+        let trans_bytes = fs::read(trans_path).unwrap();
+        let cur_trans_hash = hash(&trans_bytes);
+        if let Some(old_trans_hash) = trans_hash {
+            assert!(
+                cur_trans_hash == old_trans_hash,
+                "translation hashes for {:?} and {:?} do not match",
+                report_path_str, &args[1],
+            );
+        } else {
+            let trans_json: Value = serde_json::from_slice(&trans_bytes).unwrap();
+            drop(trans_bytes);
+            let cur_trans = parse_trans(trans_json).unwrap();
+            trans = Some(cur_trans);
+            trans_hash = Some(cur_trans_hash);
+        }
+    }
+
+    let trans = match trans {
+        Some(x) => x,
+        None => {
+            panic!("must provide at least one report file");
+        },
+    };
 
     let default_ft = FnTrans::default();
     let mut reporter = Reporter::new();
