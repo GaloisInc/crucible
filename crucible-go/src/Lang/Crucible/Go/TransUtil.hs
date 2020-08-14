@@ -29,7 +29,7 @@ import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC
 
--- import           Debug.Trace (trace)
+import           Debug.Trace (trace)
 
 import           What4.Utils.StringLiteral
 
@@ -332,7 +332,9 @@ newSlice :: Gen.Expr Go s tp -- ^ default element value
 newSlice value size cap = do
   arr <- newArray value size
   ptr <- newRefPointer arr
-  sliceValue ptr (Just $ Gen.App $ C.NatLit 0) (Just size) (Just cap)
+  sliceValue ptr (Just $ Gen.App $ C.NatLit 0)
+    (Just $ Gen.App $ C.NatSub size $ Gen.App $ C.NatLit 1)
+    (Just cap)
 
 mkTranslatedExpr :: TypeRepr ret
                  -> (forall s. GoGenerator s ret (SomeGoExpr s))
@@ -700,13 +702,7 @@ arrayGetSafe repr ix arr = do
     (return $ Gen.App $ C.VectorGetEntry repr vec ix) $
     Gen.reportError $ Gen.App $ C.StringLit "array index out of bounds"
 
-resizeBV :: NatRepr w
-         -> NatRepr w'
-         -> Gen.Expr Go s (BVType w)
-         -> Gen.Expr Go s (BVType w')
-resizeBV = undefined -- TODO
-
--- | Provide default values for begin, end, or capacity.
+-- | Provide default values for begin, end, and capacity.
 sliceValue :: Gen.Expr Go s (PointerType (ArrayType tp))
            -> Maybe (Gen.Expr Go s NatType) -- ^ begin
            -> Maybe (Gen.Expr Go s NatType) -- ^ end
@@ -718,31 +714,41 @@ sliceValue arr_ptr begin end cap = do
   let begin' = fromMaybe (Gen.App $ C.NatLit 0) begin
       end' = fromMaybe (Gen.App $ C.VectorSize vec) end
       cap' = fromMaybe (Gen.App $ C.NatSub end' begin') cap
-  checkSliceRange begin' end'
+  checkSliceRange begin' end' cap'
   let repr = arrayElementRepr $ exprType arr
   return $ Gen.App $ C.JustValue (NonNilSliceRepr repr) $ Gen.App $
     C.MkStruct (SliceCtxRepr repr) $
     Ctx.empty :> arr_ptr :> begin' :> end' :> cap'
 
--- TODO: also check that begin and end don't exceed capacity?
 checkSliceRange :: Gen.Expr Go s NatType -- ^ begin
                 -> Gen.Expr Go s NatType -- ^ end
+                -> Gen.Expr Go s NatType -- ^ capacity
                 -> GoGenerator s ret ()
-checkSliceRange begin end =
+checkSliceRange begin end cap =
   Gen.ifte_ (Gen.App $ C.NatLt end begin)
-  (Gen.reportError $ Gen.App $ C.StringLit "missing return statement") $
+  (do let msg = Gen.App $ C.StringLit "slice end < begin"
+      Gen.addPrintStmt msg >> Gen.reportError msg) $
+  Gen.ifte_ (Gen.App $ C.NatLe cap end)
+  (do let msg = Gen.App $ C.StringLit "slice cap <= end"
+      Gen.addPrintStmt msg >> Gen.reportError msg) $
   return ()
 
--- TODO: also check that begin and end don't exceed capacity?
 sliceValue' :: Gen.Expr Go s (PointerType (ArrayType tp))
             -> Int -- ^ begin
             -> Int -- ^ end
             -> Int -- ^ capacity
             -> GoGenerator s ret (Gen.Expr Go s (SliceType tp))
 sliceValue' ptr begin end cap =
+  trace "sliceValue'" $
+  trace ("ptr:" ++ show ptr) $
+  trace ("begin: " ++ show begin) $
+  trace ("end: " ++ show end) $
+  trace ("cap: " ++ show cap) $
   if end < begin then
     fail $ "sliceValue': invalid begin and end indices. begin=" ++
     show begin ++ ", end=" ++ show end
+  else if cap <= end then
+    fail $ "sliceValue: end index exceeds capacity"
   else do
     let repr = arrayElementRepr $ pointerElementRepr $ exprType ptr
     return $ Gen.App $ C.JustValue (NonNilSliceRepr repr) $

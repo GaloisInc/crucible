@@ -22,7 +22,7 @@ import           Lang.Crucible.Types
 vectorElementRepr :: TypeRepr (VectorType tp) -> TypeRepr tp
 vectorElementRepr (VectorRepr repr) = repr
 
--- | Arrays are vector references (because they are mutable).
+-- | Arrays are vector references (because they must be mutable).
 type ArrayType tp = ReferenceType (VectorType tp)
 
 arrayElementRepr :: TypeRepr (ArrayType tp) -> TypeRepr tp
@@ -72,7 +72,7 @@ pointerElementRepr :: TypeRepr (PointerType tp) -> TypeRepr tp
 pointerElementRepr repr = case repr of
   MaybeRepr repr -> nonNilPointerElementRepr repr
 
--- | A slice is represented by a pointer to an array and three nats:
+-- | A slice is a pointer to an array and three nats:
 -- 1) begin of slice range
 -- 2) end of slice range
 -- 3) capacity

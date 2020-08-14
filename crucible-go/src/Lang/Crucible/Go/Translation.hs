@@ -191,11 +191,7 @@ translate_alg (FileNode path name decls imports) =
 -- scopes. Only when lookup succeeds in the innermost scope is it safe
 -- to reuse the existing variable location. For now we just always
 -- introduce new variables.
-translate_alg (AssignStmt _ assign_tp op lhs rhs) =
-  trace "\nAssignStmt" $
-  trace ("lhs: " ++ show (proj1 <$> lhs)) $
-  trace ("rhs: " ++ show (proj1 <$> rhs)) $
-  TranslateM $ do
+translate_alg (AssignStmt _ assign_tp op lhs rhs) = TranslateM $ do
   lhs_gens <- mapM runTranslated lhs
   rhs_gens <- mapM runTranslated rhs
   Some retRepr <- gets retRepr
@@ -232,9 +228,6 @@ translate_alg (BranchStmt _ branch_tp label) = TranslateM $ do
         Break -> getBreakLabel label' >>= Gen.jump
         Continue -> getContinueLabel label' >>= Gen.jump
         Goto -> getLabel label' >>= Gen.jump
-          -- lbl <- getLabel label'
-          -- trace ("jumping to label: " ++ show label' ++ " " ++ show lbl) $
-          --   Gen.jump lbl
         Fallthrough -> fail "BranchStmt: Fallthrough not supported"
       Nothing -> case branch_tp of
         Break -> peekBreakLabel >>= Gen.jump
@@ -473,7 +466,7 @@ translate_alg (CompositeLitExpr _ tp _ty elements) = TranslateM $ do
           vec <- writeVectorElements zero elements'
           arr <- Gen.newRef vec
           ptr <- newRefPointer arr
-          slice <- sliceValue' ptr 0 (length elements) $ length elements
+          slice <- sliceValue' ptr 0 (length elements - 1) $ length elements
           return $ mkSomeGoExpr slice) $
     tryAsArrayRepr repr
     (\arrRepr ->
@@ -848,11 +841,9 @@ translateHomoBinop tp op left right = case op of
     ty -> fail $ "translateHomoBinop BDiv: unsupported type " ++ show ty
   BAnd -> case exprType left of
     BVRepr w -> return $ Gen.App $ C.BVAnd w left right
-    BoolRepr -> return $ Gen.App $ C.And left right
     ty -> fail $ "translateHomoBinop BAnd: unsupported type " ++ show ty
   BOr -> case exprType left of
     BVRepr w -> return $ Gen.App $ C.BVOr w left right
-    BoolRepr -> return $ Gen.App $ C.Or left right
     ty -> fail $ "translateHomoBinop BOr: unsupported type " ++ show ty
   BXor -> case exprType left of
     BVRepr w -> return $ Gen.App $ C.BVXor w left right
@@ -860,7 +851,6 @@ translateHomoBinop tp op left right = case op of
     ty -> fail $ "translateHomoBinop BXor: unsupported type " ++ show ty
   BAndNot -> case exprType left of
     BVRepr w -> return $ Gen.App $ C.BVAnd w left (Gen.App $ C.BVNot w right)
-    BoolRepr -> return $ Gen.App $ C.And left (Gen.App $ C.Not right)
     ty -> fail $ "translateHomoBinop BAndNot: unsupported type " ++ show ty
   -- Short-circuit evaluation for logical AND and OR
   BLAnd -> case exprType left of
@@ -900,13 +890,6 @@ translateComparison tp op left right = Gen.App <$> case op of
     BVRepr w -> return $ C.Not $ Gen.App $ C.BVSle w left right
     FloatRepr _fi -> return $ C.FloatGt left right
     ty -> fail $ "translateComparison BGt: unsupported type " ++ show ty
-  -- We could desugar neq before translation to avoid duplication here.
-  BNeq -> case exprType left of
-    BoolRepr -> return $ C.Not $ Gen.App $ C.BoolEq left right
-    BVRepr w -> return $ C.Not $ Gen.App $ C.BVEq w left right
-    FloatRepr _fi -> return $ C.Not $ Gen.App $ C.FloatEq left right
-    -- TODO: support other types given by the spec
-    ty -> fail $ "translateComparison BNeq: unsupported type " ++ show ty
   BLeq -> case exprType left of
     BVRepr w -> return $ C.BVSle w left right
     FloatRepr _fi -> return $ C.FloatLe left right
@@ -915,6 +898,7 @@ translateComparison tp op left right = Gen.App <$> case op of
     BVRepr w -> return $ C.Not $ Gen.App $ C.BVSlt w left right
     FloatRepr _fi -> return $ C.FloatGe left right
     ty -> fail $ "translateComparison BGeq: unsupported type " ++ show ty
+  BNeq -> fail "translateComparison: BNeq should have been desugared"
   _ -> fail $ "translateComparison: unexpected binop " ++ show op
 
 -- | Set up parameter and return variables for function declarations.

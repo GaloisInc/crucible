@@ -12,4 +12,7 @@ func main() {
 
 	z := len(arr) + 1
 	crucible.Assert(z == 6, "", "")
+
+	z = len(&arr) - 1
+	crucible.Assert(z == 4, "", "")
 }

@@ -43,9 +43,9 @@ translateBuiltin :: Show a
                  -> [Product (Node a) TranslateM Expr]
                  -> TranslateM' (Translated Expr)
 translateBuiltin _qual ident@(Ident _k name) args = do
-  Some retRepr <- gets retRepr
   translated_args <- mapM runTranslated args
   PosNat w LeqProof <- gets machineWordWidth
+  Some retRepr <- gets retRepr
   return $ mkTranslatedExpr retRepr $ do
     case name of
 
@@ -60,9 +60,6 @@ translateBuiltin _qual ident@(Ident _k name) args = do
                 vec <- Gen.readRef arr
                 return $ mkSomeGoExpr $ natToBV w $ Gen.App $ C.VectorSize vec
             ) $
-            -- The length of a pointer to an array is the length of
-            -- the array it points to. The length of a nil pointer is
-            -- zero.
             tryAsPointer arg
             (\ptrRepr ptr -> case ptrRepr of
                 ReferenceRepr (VectorRepr _repr) -> do
@@ -78,12 +75,13 @@ translateBuiltin _qual ident@(Ident _k name) args = do
             ) $
             tryAsSlice arg
             (\sliceRepr slice -> do
-                -- The length of a nil slice is zero.
                 len <- maybeElim (BVRepr w) (return $ zeroBV w)
                   (\slice' -> do
                       end <- sliceEnd slice
                       begin <- sliceBegin slice
-                      return $ natToBV w $ Gen.App $ C.NatSub end begin
+                      return $ natToBV w $ Gen.App $
+                        C.NatAdd (Gen.App $ C.NatSub end begin) $
+                        Gen.App $ C.NatLit 1
                   ) slice
                 return $ mkSomeGoExpr len
             ) $
@@ -139,9 +137,9 @@ translateBuiltin _qual ident@(Ident _k name) args = do
           fail $ "translateBuiltin: expected exactly one type argument to\
                  \ 'new', got " ++ show (proj1 <$> args)
 
-      -- | Exit the program with an error message. Technically panics
-      -- can be recovered from in Go, similar to catching an
-      -- exception, but we don't support such control flow for now.
+      -- | Exit the program with an error message. Panics can actually
+      -- be recovered from in Go, sort of like exceptions, but we
+      -- don't support such control flow for now.
       "panic" -> do
         args' <- forM translated_args $ runTranslatedExpr retRepr
         Gen.reportError $ Gen.App $ C.StringLit $
@@ -150,12 +148,13 @@ translateBuiltin _qual ident@(Ident _k name) args = do
       -- | Print the arguments.
       "print" -> do
         args' <- forM translated_args $ runTranslatedExpr retRepr
-        -- Gen.addPrintStmt $ Gen.App $ C.StringLit $
-          -- UnicodeLiteral $ T.pack $ show args'
         forM_ args' $ \(Some (GoExpr _loc arg')) ->
           case asBaseType $ exprType arg' of
+            -- If base type, print.
             AsBaseType repr ->
               Gen.addPrintStmt $ Gen.App $ C.ShowValue repr arg'
+            -- Else do nothing (maybe print a warning about trying to
+            -- print a non base type value?).
             NotBaseType -> return ()
         return $ mkSomeGoExpr' $ C.MkStruct Ctx.empty Ctx.empty
 

@@ -52,7 +52,8 @@ nameOfOverride (Override { overrideName = nm }) =
   pack $ show nm
 
 mkSomeOverride :: Text -> Text -> CtxRepr args -> TypeRepr ret ->
-                  (forall r. C.OverrideSim p sym ext r args ret (RegValue sym ret)) ->
+                  (forall r. C.OverrideSim p sym ext r args ret
+                    (RegValue sym ret)) ->
                   SomeOverride p sym ext
 mkSomeOverride pkg nm argsRepr retRepr overrideSim =
   SomeOverride pkg argsRepr retRepr $
@@ -73,7 +74,7 @@ mkFresh nm ty =
 fresh_int :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
              -> Crux.OverM p sym ext (RegValue sym (BVType w))
-fresh_int w = mkFresh "X" (BaseBVRepr w)
+fresh_int w = mkFresh "X" $ BaseBVRepr w
 
 fresh_int' :: (IsSymInterface sym, KnownNat w, 1 <= w)
            => Crux.OverM p sym ext (RegValue sym (BVType w))
@@ -81,10 +82,17 @@ fresh_int' = fresh_int knownNat
 
 fresh_float :: IsSymInterface sym
             => FloatPrecisionRepr fp
-            -> Crux.OverM p sym ext (RegValue sym (BaseToType (BaseFloatType fp)))
-fresh_float fp = mkFresh "X" (BaseFloatRepr fp)
+            -> Crux.OverM p sym ext
+            (RegValue sym (BaseToType (BaseFloatType fp)))
+fresh_float fp = mkFresh "X" $ BaseFloatRepr fp
 
 -- TODO: float, float32, float64
+
+fresh_string :: IsSymInterface sym
+             => StringInfoRepr si
+             -> Crux.OverM p sym ext
+             (RegValue sym (BaseToType (BaseStringType si)))
+fresh_string si = mkFresh "X" $ BaseStringRepr si
 
 do_assume :: IsSymInterface sym
           => C.OverrideSim p sym ext gret
@@ -133,6 +141,8 @@ go_overrides w =
     (BVRepr (knownNat :: NatRepr 32)) fresh_int'
   , mkSomeOverride "crucible" "FreshUint64" Ctx.empty
     (BVRepr (knownNat :: NatRepr 64)) fresh_int'
+  , mkSomeOverride "crucible" "FreshString" Ctx.empty
+    (StringRepr UnicodeRepr) $ fresh_string UnicodeRepr
   , mkSomeOverride "crucible" "Assume"
     (Ctx.Empty :> StringRepr UnicodeRepr :> StringRepr UnicodeRepr :> BoolRepr)
     (StructRepr Ctx.empty) do_assume
