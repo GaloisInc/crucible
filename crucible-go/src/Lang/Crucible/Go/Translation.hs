@@ -192,6 +192,9 @@ translate_alg (FileNode path name decls imports) =
 -- to reuse the existing variable location. For now we just always
 -- introduce new variables.
 translate_alg (AssignStmt _ assign_tp op lhs rhs) =
+  trace "\nAssignStmt" $
+  trace ("lhs: " ++ show (proj1 <$> lhs)) $
+  trace ("rhs: " ++ show (proj1 <$> rhs)) $
   TranslateM $ do
   lhs_gens <- mapM runTranslated lhs
   rhs_gens <- mapM runTranslated rhs
@@ -411,15 +414,15 @@ translate_alg (BinaryExpr _ tp left op right) = TranslateM $ do
     (l, r) <- pairM (runTranslatedExpr retRepr left')
               (runTranslatedExpr retRepr right')
     case op of
-      x | x `elem` [BPlus, BMinus, BMult, BDiv, BMod,
-                    BAnd, BOr, BXor, BAndNot, BLAnd, BLOr] -> do
+      x | x `elem` [BPlus, BMinus, BMult, BDiv, BMod, BAnd, BOr,
+                    BXor, BAndNot, BLAnd, BLOr, BShiftL, BShiftR] -> do
             (tp', Some (PairIx l' r')) <- unify_exprs left_ty right_ty l r
             Some . GoExpr Nothing <$> translateHomoBinop tp' op l' r'
       x | x `elem` [BEq, BLt, BGt, BNeq, BLeq, BGeq] -> do
             (tp', Some (PairIx l' r')) <- unify_exprs left_ty right_ty l r
             Some . GoExpr Nothing <$> translateComparison tp' op l' r'
-      BShiftL -> fail "translate_alg BinaryExpr: BShiftL not yet supported"
-      BShiftR -> fail "translate_alg BinaryExpr: BShiftR not yet supported"
+      -- BShiftL -> fail "translate_alg BinaryExpr: BShiftL not yet supported"
+      -- BShiftR -> fail "translate_alg BinaryExpr: BShiftR not yet supported"
 
 translate_alg (CallExpr _ tp _ellipsis fun args) = TranslateM $ do
   Some retRepr <- gets retRepr
@@ -464,7 +467,7 @@ translate_alg (CompositeLitExpr _ tp _ty elements) = TranslateM $ do
   tryAsSliceRepr repr
     (\sliceRepr -> do
         return $ mkTranslatedExpr retRepr $ do
-          zero <- zeroVector (length elements) (sliceTypeTy tp) $
+          zero <- zeroVector (length elements) (elementType tp) $
                   sliceElementRepr sliceRepr
           elements' <- forM element_gens $ runTranslatedExpr retRepr
           vec <- writeVectorElements zero elements'
@@ -476,7 +479,7 @@ translate_alg (CompositeLitExpr _ tp _ty elements) = TranslateM $ do
     (\arrRepr ->
         return $ mkTranslatedExpr retRepr $ do
           -- Create initial array with all zero elements.
-          zero <- zeroVector (arrayTypeLen tp) (arrayTypeTy tp) $
+          zero <- zeroVector (arrayTypeLen tp) (elementType tp) $
                   arrayElementRepr arrRepr
           elements' <- forM element_gens $ runTranslatedExpr retRepr
           -- Iterate over elements' to overwrite some or all of the array.
@@ -868,6 +871,13 @@ translateHomoBinop tp op left right = case op of
     BoolRepr ->
       Gen.ifte left (return $ Gen.App $ C.BoolLit True) $ return right
     ty -> fail $ "translateHomoBinop BLOr: unsupported type " ++ show ty
+  BShiftL -> case exprType left of
+    BVRepr w -> return $ Gen.App $ C.BVShl w left right
+    ty -> fail $ "translateHomoBinop BShiftL: unsupported type " ++ show ty
+  BShiftR -> case exprType left of
+    -- TODO: not sure if this is correct
+    BVRepr w -> return $ Gen.App $ C.BVLshr w left right
+    ty -> fail $ "translateHomoBinop BShiftL: unsupported type " ++ show ty
   _ -> fail $ "translateHomoBinop: unexpected binop " ++ show op
 
 -- | Translate comparison binops (argument types are the same and

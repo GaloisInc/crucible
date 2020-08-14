@@ -116,7 +116,8 @@ translateBuiltin _qual ident@(Ident _k name) args = do
                             ) $
                              fail "expected bitvector for 'make' capacity arg"
                         [] -> return $ sizeNat
-                      zero <- zeroValue' (typeOf' arg_node) repr
+                      zero <- zeroValue' (elementType $ typeOf' arg_node) $
+                              sliceElementRepr repr
                       Some . GoExpr Nothing <$> newSlice zero sizeNat cap
                   ) $
                   fail ""
