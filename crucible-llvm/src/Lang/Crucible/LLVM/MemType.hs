@@ -240,8 +240,8 @@ memTypeSize dl mtp =
     DoubleType -> 8
     X86_FP80Type -> 10
     PtrType{} -> dl ^. ptrSize
-    ArrayType n tp -> fromIntegral n * memTypeSize dl tp
-    VecType n tp -> fromIntegral n * memTypeSize dl tp
+    ArrayType n tp -> natBytesMul n (memTypeSize dl tp)
+    VecType n tp -> natBytesMul n (memTypeSize dl tp)
     StructType si -> structSize si
     MetadataType -> 0
 
