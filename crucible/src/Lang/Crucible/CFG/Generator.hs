@@ -110,6 +110,7 @@ module Lang.Crucible.CFG.Generator
 import           Control.Lens hiding (Index)
 import qualified Control.Monad.Fail as F
 import           Control.Monad.State.Strict
+import           Control.Monad.Catch
 import qualified Data.Foldable as Fold
 import           Data.Kind
 import           Data.Parameterized.Context as Ctx
@@ -253,6 +254,8 @@ newtype Generator ext s (t :: Type -> Type) (ret :: CrucibleType) m a
                   }
   deriving ( Functor
            , Applicative
+           , MonadThrow
+           , MonadCatch
            )
 
 instance MonadTrans (Generator ext s t ret) where
