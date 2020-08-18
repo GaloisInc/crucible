@@ -216,12 +216,20 @@ impl Budget {
 #[derive(Clone)]
 struct Scope {
     first_local_id: usize,
-    /// Gives the grammar-level type of each local.  Typically, the grammar will use types that
-    /// mirror those of the target language, though this is not a strict requirement.  Since the
-    /// type is taken from the argument of the `fresh_local` production, we simply store a type
-    /// variable here (in the global `UnifyState` namespace, i.e., already substituted) and rely on
+    locals: Vec<Local>,
+}
+
+#[derive(Clone)]
+struct Local {
+    /// The grammar-level type of this local.  Typically, the grammar will use types that mirror
+    /// those of the target language, though this is not a strict requirement.  Since the type is
+    /// taken from the argument of the `fresh_local` production, we simply store a type variable
+    /// here (in the global `UnifyState` namespace, i.e., already substituted) and rely on
     /// unification to map it to a concrete type.
-    locals: Vec<VarId>,
+    ty: VarId,
+    /// Whether this local has been consumed via the `take_local` production.  Consumed locals
+    /// won't be returned by future `choose_local` or `take_local` productions.
+    taken: bool,
 }
 
 impl Scope {
@@ -234,8 +242,30 @@ impl Scope {
 
     pub fn fresh_local(&mut self, ty: VarId) -> usize {
         let idx = self.locals.len();
-        self.locals.push(ty);
+        self.locals.push(Local { ty, taken: false });
         self.first_local_id + idx
+    }
+
+    pub fn index_ok(&self, idx: usize) -> bool {
+        self.first_local_id <= idx && idx < self.first_local_id + self.locals.len()
+    }
+
+    /// Get the type of the local whose index is `idx`.  Returns `None` if the local has already
+    /// been consumed or if `idx` is not valid for this scope (`!self.index_ok(idx)`).
+    pub fn get_ty(&self, idx: usize) -> Option<VarId> {
+        let rel_idx = idx.checked_sub(self.first_local_id)?;
+        let l = self.locals.get(rel_idx)?;
+        if !l.taken {
+            return Some(l.ty);
+        }
+        None
+
+    }
+
+    /// Mark the local at `idx` as taken.  Afterward, `get_ty` will return `None` for this local.
+    /// This function panics if `idx` is not valid for this scope.
+    pub fn take(&mut self, idx: usize) {
+        self.locals[idx - self.first_local_id].taken = true;
     }
 }
 
@@ -427,11 +457,20 @@ impl ExpState {
 
     fn get_local(&self, idx: usize) -> Option<VarId> {
         for s in self.scopes.iter() {
-            if idx >= s.first_local_id && idx < s.first_local_id + s.locals.len() {
-                return Some(s.locals[idx - s.first_local_id]);
+            if s.index_ok(idx) {
+                return s.get_ty(idx);
             }
         }
         None
+    }
+
+    fn take_local(&mut self, idx: usize) {
+        for s in self.scopes.iter_mut() {
+            if s.index_ok(idx) {
+                s.take(idx);
+                break;
+            }
+        }
     }
 
     fn push_scope(&mut self) {
@@ -741,13 +780,43 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
         special_rhs.clone(),
         move |s| s.count_locals(),
         move |s, partial, index| {
-            let local_ty_var = s.get_local(index).unwrap();
+            let local_ty_var = match s.get_local(index) {
+                Some(x) => x,
+                // Might return `None` if the variable at `index` was consumed by `take_local`.
+                None => return false,
+            };
             let arg_ty_var = partial.subst.subst(v_ty);
             if !s.unify.unify_vars(local_ty_var, arg_ty_var) {
                 return false;
             }
             // Success - the var at `index` has the requested type.  Expand to its name.
             partial.specials.push(Rc::new(move |_| format!("x{}", index)));
+            true
+        },
+    );
+
+    // take_local[T]: expands to the name of a local of type `T`, and removes that local from its
+    // containing scope.
+    let (lhs, vars) = gb.mk_lhs_with_args("take_local", 1);
+    let v_ty = vars[0];
+    gb.add_prod_family(
+        lhs,
+        special_rhs.clone(),
+        move |s| s.count_locals(),
+        move |s, partial, index| {
+            let local_ty_var = match s.get_local(index) {
+                Some(x) => x,
+                None => return false,
+            };
+            let arg_ty_var = partial.subst.subst(v_ty);
+            if !s.unify.unify_vars(local_ty_var, arg_ty_var) {
+                return false;
+            }
+            // Success - the var at `index` has the requested type.  Expand to its name.
+            partial.specials.push(Rc::new(move |_| format!("x{}", index)));
+            // Only consume the variable on success.  Handler callbacks must not have side effects
+            // on failure.
+            s.take_local(index);
             true
         },
     );
