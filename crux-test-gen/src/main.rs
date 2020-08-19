@@ -12,7 +12,7 @@ fn main() {
 
     let cx = crux_test_gen::parse_grammar_from_file(&args[1]).unwrap();
 
-    let mut bcx = BranchingState::new(0);
+    let mut bcx = BranchingState::new(&cx, "start");
     while let Some((exp, mut rcx)) = crux_test_gen::expand_next(&cx, &mut bcx) {
         println!("{}", crux_test_gen::render_expansion(&mut rcx, &exp));
     }

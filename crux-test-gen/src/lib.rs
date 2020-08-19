@@ -85,6 +85,7 @@ struct Nonterminal {
 pub struct Context {
     productions: Vec<Production>,
     nonterminals: Vec<Nonterminal>,
+    nonterminals_by_name: HashMap<String, NonterminalId>,
 }
 
 #[derive(Clone, Debug)]
@@ -486,11 +487,11 @@ impl ExpState {
 }
 
 impl Continuation {
-    fn new(production: ProductionId) -> Continuation {
+    fn new(productions: Vec<ProductionId>) -> Continuation {
         Continuation {
             state: ExpState::new(),
             kind: ContinuationKind::Alts {
-                alternatives: vec![production],
+                alternatives: productions,
                 next: 0,
             },
         }
@@ -534,9 +535,19 @@ impl Continuation {
 }
 
 impl BranchingState {
-    pub fn new(production: ProductionId) -> BranchingState {
+    pub fn new(cx: &Context, nonterminal_name: &str) -> BranchingState {
+        let prods = match cx.nonterminals_by_name.get(nonterminal_name) {
+            Some(&nt_id) => cx.nonterminals[nt_id].productions.clone(),
+            None => Vec::new(),
+        };
+        if prods.len() == 0 {
+            eprintln!(
+                "warning: found no productions for initial nonterminal {:?}",
+                nonterminal_name,
+            );
+        }
         BranchingState {
-            continuations: vec![Continuation::new(production)],
+            continuations: vec![Continuation::new(prods)],
             expansion_counter: 0,
         }
     }
@@ -630,19 +641,6 @@ pub fn render_expansion(rcx: &mut RenderContext, exp: &Expansion) -> String {
     output
 }
 
-
-fn add_start_production(gb: &mut GrammarBuilder) {
-    // Set up the nonterminal __root__, with ID 0, which expands to `<<start>>` via production 0.
-    let root_id = gb.nt_id("__root__");
-    assert_eq!(root_id, 0);
-    let lhs = gb.mk_simple_lhs("__root__");
-    let rhs = ProductionRhs {
-        chunks: vec![Chunk::Nt(0)],
-        nts: vec![gb.mk_simple_nt_ref("start")],
-    };
-    let start_prod_id = gb.add_prod(lhs, rhs);
-    assert_eq!(start_prod_id, 0);
-}
 
 // NB: Currently, builtin production LHSs should only use a sequence of distinct variables as their
 // patterns.  Variables should not repeat, and no pattern should include a concrete type
@@ -853,7 +851,6 @@ pub fn parse_grammar_from_str(src: &str) -> Context {
     let lines = src.lines().map(|l| l.trim_end()).collect::<Vec<_>>();
 
     let mut gb = GrammarBuilder::default();
-    add_start_production(&mut gb);
     add_builtin_ctor_name(&mut gb);
     add_builtin_budget(&mut gb);
     add_builtin_locals(&mut gb);

@@ -138,6 +138,7 @@ impl GrammarBuilder {
         Context {
             productions: self.prods,
             nonterminals: self.nts,
+            nonterminals_by_name: self.nts_by_name,
         }
     }
 }

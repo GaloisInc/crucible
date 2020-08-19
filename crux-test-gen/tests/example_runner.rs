@@ -147,7 +147,7 @@ fn run_one(path: &Path) -> io::Result<bool> {
 
     let cx = crux_test_gen::parse_grammar_from_str(&src);
 
-    let mut bcx = BranchingState::new(0);
+    let mut bcx = BranchingState::new(&cx, "start");
     let mut actual_outputs = Vec::with_capacity(expected_outputs.len());
     while let Some((exp, mut rcx)) = crux_test_gen::expand_next(&cx, &mut bcx) {
         let mut out = crux_test_gen::render_expansion(&mut rcx, &exp);
