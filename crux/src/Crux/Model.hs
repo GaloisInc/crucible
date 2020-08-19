@@ -112,8 +112,8 @@ showDoubleLiteral bv
  (mag,ex) = decodeFloat x
 
 
-valsJS :: FilePath -> BaseTypeRepr ty -> Vals ty -> IO [JS]
-valsJS cwd ty (Vals xs) =
+valsJS :: BaseTypeRepr ty -> Vals ty -> IO [JS]
+valsJS ty (Vals xs) =
   let showEnt = case ty of
         BaseBVRepr n -> showEnt' (showBVLiteral n) n
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
@@ -132,7 +132,7 @@ valsJS cwd ty (Vals xs) =
   where
   showEnt' :: Show b => (a -> String) -> b -> Entry a -> IO JS
   showEnt' repr n e =
-    do l <- jsLoc cwd (entryLoc e)
+    do l <- jsLoc (entryLoc e)
        pure $ jsObj
          [ "name" ~> jsStr (entryName e)
          , "loc"  ~> l
@@ -140,9 +140,9 @@ valsJS cwd ty (Vals xs) =
          , "bits" ~> jsStr (show n)
          ]
 
-modelJS :: FilePath -> ModelView -> IO JS
-modelJS cwd m =
-  jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS cwd k v : xs) [] (modelVals m))
+modelJS :: ModelView -> IO JS
+modelJS m =
+  jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS k v : xs) [] (modelVals m))
 
 instance Semigroup (Model sym) where
   (Model m1) <> m2        = MapF.foldrWithKey f m2 m1 where
