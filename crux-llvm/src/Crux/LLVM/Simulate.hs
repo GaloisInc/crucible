@@ -163,7 +163,7 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                                         -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
                                         | otherwise
                                         -> "All of the following conditions failed (and other conditions have been elided to reduce output): "
-                                               <> line <> indent 2 (vcat xs')
+                                               <> line <> indent 2 (vcat (take detailLimit xs'))
 
                           return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
 
