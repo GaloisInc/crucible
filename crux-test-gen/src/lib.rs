@@ -358,7 +358,7 @@ impl ExpState {
             }
         }
 
-        if pe.is_finished() {
+        if pe.is_finished() && !self.exp.is_empty() {
             self.cur_partial_mut().subexpansions.push(pe.into_expansion());
         } else {
             self.exp.push(pe);
