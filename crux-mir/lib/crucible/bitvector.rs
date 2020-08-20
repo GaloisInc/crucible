@@ -5,6 +5,7 @@ use core::ops::{Neg, Not, Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, S
 
 use crate::symbolic::Symbolic;
 
+/// An unsigned integer (bitvector), whose size is indicated by the type parameter `S`.
 pub struct Bv<S: Size + ?Sized> {
     _dummy: u8,
     _marker: PhantomData<S>,
@@ -30,8 +31,11 @@ impl Size for _512 {
 }
 
 
+/// An unsigned 128-bit integer.
 pub type Bv128 = Bv<_128>;
+/// An unsigned 256-bit integer.
 pub type Bv256 = Bv<_256>;
+/// An unsigned 512-bit integer.
 pub type Bv512 = Bv<_512>;
 
 
@@ -41,7 +45,7 @@ impl<S: Size> Bv<S> {
     // constant.  Here we handle it by setting a different value for `_dummy` in each constant, so
     // that code in mir-verifier can distinguish them.
     //
-    // Note there are no `const fn`s define on this type - those would make things a lot more
+    // Note there are no `const fn`s defined on this type - those would make things a lot more
     // difficult.
     pub const ZERO: Self = Bv { _dummy: 0, _marker: PhantomData };
     pub const ONE: Self = Bv { _dummy: 1, _marker: PhantomData };
@@ -51,7 +55,9 @@ impl<S: Size> Bv<S> {
 
 /// Arbitrary bitvector-to-bitvector conversion.  Either truncates or zero-extends depending on the
 /// relative sizes of `T` and `U`.  Both `T` and `U` must be represented as  bitvectors (`BVType`)
-/// at the Crucible level.
+/// at the Crucible level, which is the case for both `Bv` and primitive integer types.  (Note that
+/// this still zero-extends when used on signed integers: `convert::<i8, i16>(-1)` return `255`,
+/// not `-1`.)
 pub fn convert<T, U>(x: T) -> U {
     unimplemented!()
 }
@@ -246,6 +252,7 @@ impl<S: Size> Symbolic for Bv<S> {
     }
 }
 
+// Override hooks for constructing symbolic bitvectors.
 fn make_symbolic_128(desc: &'static str) -> Bv<_128> { unimplemented!() }
 fn make_symbolic_256(desc: &'static str) -> Bv<_256> { unimplemented!() }
 fn make_symbolic_512(desc: &'static str) -> Bv<_512> { unimplemented!() }

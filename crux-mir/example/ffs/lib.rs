@@ -25,7 +25,7 @@ pub fn ffs_ref(word: u32) -> u32 {
     return 0;
 }
 
-/// Check that ffs_fast and ffs_ref produce the same output on every input.
+/// Check that ffs_fast and ffs_ref produce the same output on a single input.
 #[test]
 fn test_ffs_correct_concrete() {
     let x = 12345;
@@ -34,7 +34,7 @@ fn test_ffs_correct_concrete() {
     assert!(a == b);
 }
 
-/// Check that ffs_fast and ffs_ref produce the same output on every input.
+/// Check that ffs_fast and ffs_ref produce the same output on *every* input.
 #[cfg(crux)]
 #[crux_test]
 fn test_ffs_correct() {

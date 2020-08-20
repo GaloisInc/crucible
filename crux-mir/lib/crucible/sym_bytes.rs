@@ -3,6 +3,9 @@ use crate::crucible_assume;
 use crate::array::Array;
 use crate::symbolic::Symbolic;
 
+/// An array of symbolic bytes, backed by an SMT array.  In some cases, `crux-mir` can analyze
+/// tests using `SymBytes` more efficiently than tests that use `Vec<u8>`.  Otherwise, `SymBytes`
+/// and `Vec<u8>` are mostly equivalent.
 pub struct SymBytes {
     arr: Array<u8>,
     len: usize,

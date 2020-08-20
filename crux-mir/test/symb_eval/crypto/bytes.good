@@ -5,19 +5,19 @@ failures:
 ---- bytes/3a1fbbbh::f[0] counterexamples ----
 Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:40:41
+in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:34:41
 Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:40:41
+in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:34:41
 Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:40:41
+in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:34:41
 Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:40:41
+in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:34:41
 Failure for MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
 	a[i] == b[i]
-in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:40:41
+in bytes/3a1fbbbh::f[0] at ./lib/crucible/lib.rs:34:41
 
 [Crux] Goal status:
 [Crux]   Total: 5
