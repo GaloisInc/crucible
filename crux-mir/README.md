@@ -56,7 +56,8 @@ translated libraries:
 
     $ export CRUX_RUST_LIBRARY_PATH=.../mir-verifier/rlibs
 
-In the directory of a Cargo project, run the project's symbolic tests:
+In the directory of a Cargo project (such as the [find-first-set
+example](example/ffs)), run the project's symbolic tests:
 
     $ cargo crux-test
 

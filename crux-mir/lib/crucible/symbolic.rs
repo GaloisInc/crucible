@@ -138,6 +138,8 @@ tuple_impls! {
 }
 
 
+/// Take a symbolic-length prefix of `xs`.  The length of the returned slice can be anywhere in the
+/// range `0 ..= xs.len()`.
 pub fn prefix<'a, T>(xs: &'a [T]) -> &'a [T] {
     let len = usize::symbolic_where("prefix_len", |&n| n < xs.len());
     &xs[..len]
