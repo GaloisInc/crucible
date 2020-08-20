@@ -28,6 +28,7 @@ import Control.Monad.IO.Class     (MonadIO(..))
 import Control.Monad.Reader.Class (MonadReader(..))
 import Control.Monad.State.Class  (MonadState(..))
 import Control.Monad.Trans (MonadTrans(..))
+import Control.Monad.Catch ( MonadThrow(..), MonadCatch(..) )
 
 #if !MIN_VERSION_base(4,13,0)
 import Control.Monad.Fail( MonadFail )
@@ -95,3 +96,13 @@ instance MonadST s m => MonadST s (StateContT t r m) where
 instance MonadReader v m => MonadReader v (StateContT s r m) where
   ask = lift ask
   local f m = StateContT $ \c s -> local f (runStateContT m c s)
+
+instance MonadThrow m => MonadThrow (StateContT s r m) where
+  throwM e = StateContT (\_k _s -> throwM e)
+
+instance MonadCatch m => MonadCatch (StateContT s r m) where
+  catch m hdl =
+    StateContT $ \k s ->
+      catch
+        (runStateContT m k s)
+        (\e -> runStateContT (hdl e) k s)

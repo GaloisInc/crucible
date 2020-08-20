@@ -148,6 +148,9 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                             do registerFunctions llvm_mod trans
                                checkFun (entryPoint llvmOpts) (cfgMap trans)
 
+                 -- arbitrary, we should probabl make this limit configurable
+                 let detailLimit = 10
+
                  let explainFailure evalFn gl =
                        do ex <- explainCex sym evalFn >>= \f -> f (gl ^. labeledPred)
                           let details = case ex of
@@ -156,7 +159,11 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                                   case map ppBB xs of
                                     []  -> mempty
                                     [x] -> indent 2 x
-                                    xs' -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
+                                    xs' | length xs' <= detailLimit
+                                        -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
+                                        | otherwise
+                                        -> "All of the following conditions failed (and other conditions have been elided to reduce output): "
+                                               <> line <> indent 2 (vcat (take detailLimit xs'))
 
                           return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
 

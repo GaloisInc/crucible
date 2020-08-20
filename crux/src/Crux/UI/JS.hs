@@ -7,12 +7,11 @@ import Data.Text(unpack)
 import Data.List(intercalate)
 import Data.Maybe(fromMaybe)
 import System.Directory( canonicalizePath )
-import System.FilePath( isRelative )
 
 import What4.ProgramLoc
 
-jsLoc :: FilePath -> ProgramLoc -> IO JS
-jsLoc cwd x =
+jsLoc :: ProgramLoc -> IO JS
+jsLoc x =
   case plSourceLoc x of
     SourcePos f l c ->
       do let fstr = unpack f

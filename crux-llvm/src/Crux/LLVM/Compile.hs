@@ -1,11 +1,13 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 module Crux.LLVM.Compile where
 
 import Control.Exception
-  ( SomeException(..), try )
+  ( SomeException(..), try, displayException )
 import Control.Monad
   ( unless, forM_ )
 import qualified Data.Foldable as Fold
@@ -150,11 +152,13 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
       in case (r, skipGoal) of
            (NotProved _ (Just m), False) ->
              do sayFail "Crux" ("Counter example for " ++ msg)
-                (_prt,dbg) <- buildModelExes cruxOpts llvmOpts suff (ppModelC m)
-                say "Crux" ("*** debug executable: " ++ dbg)
-                say "Crux" ("*** break on line: " ++ suff)
+                try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
+                  Left (ex :: SomeException) ->
+                    sayFail "Crux" (unlines ["Failed to build counterexample executable", displayException ex])
+                  Right (_prt,dbg) -> do
+                    say "Crux" ("*** debug executable: " ++ dbg)
+                    say "Crux" ("*** break on line: " ++ suff)
            _ -> return ()
-
 
 buildModelExes :: Logs => CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
 buildModelExes cruxOpts llvmOpts suff counter_src =

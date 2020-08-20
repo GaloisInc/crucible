@@ -4,7 +4,7 @@
 module Crux.Report where
 
 import System.FilePath
-import System.Directory (createDirectoryIfMissing, getCurrentDirectory, canonicalizePath)
+import System.Directory (createDirectoryIfMissing, canonicalizePath)
 import System.IO
 import qualified Data.Foldable as Fold
 import Data.List (partition)
@@ -37,8 +37,7 @@ generateReport opts res
     do let xs = cruxSimResultGoals res
        createDirectoryIfMissing True (outDir opts)
        maybeGenerateSource opts (inputFiles opts)
-       cwd <- getCurrentDirectory
-       scs <- renderSideConds opts cwd xs
+       scs <- renderSideConds opts xs
        let contents = renderJS (jsList scs)
        -- Due to CORS restrictions, the only current way of statically loading local data
        -- is by including a <script> with the contents we want.
@@ -72,8 +71,8 @@ maybeGenerateSource opts files =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: CruxOptions -> FilePath -> Seq (ProcessedGoals, ProvedGoals b) -> IO [ JS ]
-renderSideConds opts cwd seqGls = concatMapM (go [] . snd) (Fold.toList seqGls)
+renderSideConds :: CruxOptions -> Seq (ProcessedGoals, ProvedGoals b) -> IO [ JS ]
+renderSideConds opts seqGls = concatMapM (go [] . snd) (Fold.toList seqGls)
   where
   concatMapM f xs = concat <$> mapM f xs
 
@@ -88,7 +87,7 @@ renderSideConds opts cwd seqGls = concatMapM (go [] . snd) (Fold.toList seqGls)
   go path gs =
     case gs of
       AtLoc pl _ gs1  ->
-        do pl' <- jsLoc cwd pl
+        do pl' <- jsLoc pl
            go ((pl', pl) : path) gs1
 
       Branch g1 g2 ->
@@ -105,7 +104,7 @@ renderSideConds opts cwd seqGls = concatMapM (go [] . snd) (Fold.toList seqGls)
         -> pure []
 
         | otherwise
-        -> do s <- jsSideCond cwd apath asmps conc triv proved
+        -> do s <- jsSideCond apath asmps conc triv proved
               pure [s]
 
           where
@@ -117,15 +116,14 @@ renderSideConds opts cwd seqGls = concatMapM (go [] . snd) (Fold.toList seqGls)
 
 
 jsSideCond ::
-  FilePath ->
   [ JS ] ->
   [(AssumptionReason,String)] ->
   (SimError,String) ->
   Bool ->
   ProofResult b ->
   IO JS
-jsSideCond cwd path asmps (conc,_) triv status =
-  do loc <- jsLoc cwd (simErrorLoc conc)
+jsSideCond path asmps (conc,_) triv status =
+  do loc <- jsLoc (simErrorLoc conc)
      asmps' <- mapM mkAsmp asmps
      ex <- example
      pure $ jsObj
@@ -147,7 +145,7 @@ jsSideCond cwd path asmps (conc,_) triv status =
              (NotProved _ Nothing, _) -> jsStr "unknown"
 
   example = case status of
-             NotProved _ex (Just m) -> modelJS cwd m
+             NotProved _ex (Just m) -> modelJS m
              _                      -> pure jsNull
 
   longDetails =
@@ -156,7 +154,7 @@ jsSideCond cwd path asmps (conc,_) triv status =
        _ -> jsNull
 
   mkAsmp (asmp,_) =
-    do l <- jsLoc cwd (assumptionLoc asmp)
+    do l <- jsLoc (assumptionLoc asmp)
        pure $ jsObj
          [ "loc" ~> l
          , "text" ~> jsStr (show (ppAssumptionReason asmp))
