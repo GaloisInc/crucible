@@ -540,12 +540,6 @@ impl BranchingState {
             Some(&nt_id) => cx.nonterminals[nt_id].productions.clone(),
             None => Vec::new(),
         };
-        if prods.len() == 0 {
-            eprintln!(
-                "warning: found no productions for initial nonterminal {:?}",
-                nonterminal_name,
-            );
-        }
         BranchingState {
             continuations: vec![Continuation::new(prods)],
             expansion_counter: 0,
@@ -639,6 +633,28 @@ pub fn render_expansion(rcx: &mut RenderContext, exp: &Expansion) -> String {
     }
 
     output
+}
+
+
+pub struct IterRendered<'a> {
+    cx: &'a Context,
+    bcx: BranchingState,
+}
+
+impl<'a> Iterator for IterRendered<'a> {
+    type Item = String;
+    fn next(&mut self) -> Option<String> {
+        let (exp, mut rcx) = expand_next(self.cx, &mut self.bcx)?;
+        Some(render_expansion(&mut rcx, &exp))
+    }
+}
+
+/// Return an iterator over all expansions of the named nonterminal.
+pub fn iter_rendered<'a>(cx: &'a Context, nonterminal: &str) -> IterRendered<'a> {
+    IterRendered {
+        cx,
+        bcx: BranchingState::new(cx, nonterminal),
+    }
 }
 
 

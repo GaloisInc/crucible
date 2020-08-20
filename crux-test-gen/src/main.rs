@@ -1,7 +1,7 @@
 use std::env;
 use std::process;
 
-use crux_test_gen::{self, BranchingState};
+use crux_test_gen;
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
@@ -12,8 +12,19 @@ fn main() {
 
     let cx = crux_test_gen::parse_grammar_from_file(&args[1]).unwrap();
 
-    let mut bcx = BranchingState::new(&cx, "start");
-    while let Some((exp, mut rcx)) = crux_test_gen::expand_next(&cx, &mut bcx) {
-        println!("{}", crux_test_gen::render_expansion(&mut rcx, &exp));
+    let mut prologue = None;
+    for s in crux_test_gen::iter_rendered(&cx, "prologue") {
+        assert!(
+            prologue.is_none(),
+            "expected at most one expansion for <<prologue>>",
+        );
+        prologue = Some(s);
+    }
+    if let Some(prologue) = prologue {
+        println!("{}", prologue);
+    }
+
+    for s in crux_test_gen::iter_rendered(&cx, "start") {
+        println!("{}", s);
     }
 }

@@ -5,7 +5,7 @@ use std::io::{self, Read, BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::str::FromStr;
 
-use crux_test_gen::{self, BranchingState};
+use crux_test_gen;
 
 /// Evaluate each grammar in `examples/*.txt`, checking that the actual output matches the expected
 /// output included in the grammar file.
@@ -147,16 +147,37 @@ fn run_one(path: &Path) -> io::Result<bool> {
 
     let cx = crux_test_gen::parse_grammar_from_str(&src);
 
-    let mut bcx = BranchingState::new(&cx, "start");
     let mut actual_outputs = Vec::with_capacity(expected_outputs.len());
-    while let Some((exp, mut rcx)) = crux_test_gen::expand_next(&cx, &mut bcx) {
-        let mut out = crux_test_gen::render_expansion(&mut rcx, &exp);
+    for mut out in crux_test_gen::iter_rendered(&cx, "start") {
         // Always include end-of-line, to match parsing of expected outputs.
         if out.len() > 0 && !out.ends_with("\n") {
             out.push('\n');
         }
         actual_outputs.push(out);
     }
+
+    // Try expanding <<prologue>>.  On success, prepend it to the first output.  This is a bit of a
+    // hack, but it simplifies testing and works well enough for now.
+    let mut prologue = None;
+    for mut out in crux_test_gen::iter_rendered(&cx, "prologue") {
+        if prologue.is_some() {
+            eprintln!("expected at most one expansion for <<prologue>>");
+        }
+        if out.len() > 0 && !out.ends_with("\n") {
+            out.push('\n');
+        }
+        prologue = Some(out);
+    }
+    if let Some(mut s) = prologue {
+        if actual_outputs.len() > 0 {
+            s.push_str(&actual_outputs[0]);
+            actual_outputs[0] = s;
+        } else {
+            // There are no outputs.  Add an additional output containing only the prologue.
+            actual_outputs.push(s);
+        }
+    }
+
 
     // Compare outputs
     let mut ok = true;
