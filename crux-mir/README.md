@@ -5,6 +5,11 @@
 This is a static simulator for Rust programs.  It runs a set of test cases and
 attempts to prove that all assertions pass on all valid inputs.
 
+See our 2-minute [demo video][video] for an example of `crux-mir`'s basic
+functionality.
+
+[video]: https://www.youtube.com/watch?v=dCNQFHjgotU
+
 
 ## Preliminaries
 
@@ -71,6 +76,20 @@ To compile and test a single Rust program:
     $ cabal v2-exec -- crux-mir test/conc_eval/prim/add1.rs
 
 (Should print 2.)
+
+
+## Examples
+
+The [example/ffs/](example/ffs) directory in this repository contains a simple
+library with concrete and symbolic tests.  Use `cargo crux-test` to run the
+symbolic test, which proves that an optimized find-first-set function is
+equivalent to a simple reference implementation.
+
+A fork of the curve25519-dalek library with symbolic tests for the `Scalar52`
+type is available [here][dalek-fork].  This is the code that appears in the
+[`crux-mir` demo video][video].
+
+[dalek-fork]: https://github.com/GaloisInc/curve25519-dalek
 
 
 ## Test suite
