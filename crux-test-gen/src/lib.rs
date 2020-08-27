@@ -37,7 +37,9 @@ struct NonterminalRef {
 /// If the callback returns false, it must also leave the `ExpState` unchanged.  The caller may try
 /// a different production if this one fails, and the callback must leave no visible side effects
 /// in that case.
-struct ProductionHandler(Box<dyn Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool>);
+struct ProductionHandler(
+    Box<dyn Fn(&Context, &mut ExpState, &mut PartialExpansion, usize) -> bool>,
+);
 
 /// Compute the number of instances in this builtin production family.
 ///
@@ -346,7 +348,7 @@ impl ExpState {
         assert!(cx.productions[production].multiplicity.is_some() == index.is_some());
 
         if let Some(ref handler) = cx.productions[production].handler {
-            let ok = (*handler.0)(self, &mut pe, index.unwrap_or(0));
+            let ok = (*handler.0)(cx, self, &mut pe, index.unwrap_or(0));
             if !ok {
                 // FIXME: If the handler fails after unification has already happened, we need to
                 // roll back the unification state.  Otherwise, this production could have visible
@@ -669,7 +671,7 @@ fn add_builtin_ctor_name(gb: &mut GrammarBuilder) {
         chunks: vec![Chunk::Special(0)],
         nts: vec![],
     };
-    gb.add_prod_with_handler(lhs, rhs, move |_, partial, _| {
+    gb.add_prod_with_handler(lhs, rhs, move |_, _, partial, _| {
         let var = partial.subst.subst(var);
         partial.specials.push(Rc::new(move |rcx| {
             if let Some(name) = rcx.unify.resolve_ctor(var) {
@@ -719,7 +721,7 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("set_budget", 2);
     let v_name = vars[0];
     let v_amount = vars[1];
-    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial, _| {
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |_, s, partial, _| {
         let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
             Ok(x) => x,
             Err(e) => {
@@ -735,7 +737,7 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("add_budget", 2);
     let v_name = vars[0];
     let v_amount = vars[1];
-    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial, _| {
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |_, s, partial, _| {
         let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
             Ok(x) => x,
             Err(e) => {
@@ -752,7 +754,7 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("take_budget", 2);
     let v_name = vars[0];
     let v_amount = vars[1];
-    gb.add_prod_with_handler(lhs, rhs.clone(), move |s, partial, _| {
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |_, s, partial, _| {
         let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
             Ok(x) => x,
             Err(e) => {
@@ -774,7 +776,7 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
     // followed by a number.
     let (lhs, vars) = gb.mk_lhs_with_args("fresh_local", 1);
     let v_ty = vars[0];
-    gb.add_prod_with_handler(lhs, special_rhs.clone(), move |s, partial, _| {
+    gb.add_prod_with_handler(lhs, special_rhs.clone(), move |_, s, partial, _| {
         let scope = match s.cur_scope_mut() {
             Some(x) => x,
             None => return false,
@@ -793,7 +795,7 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
         lhs,
         special_rhs.clone(),
         move |s| s.count_locals(),
-        move |s, partial, index| {
+        move |_, s, partial, index| {
             let local_ty_var = match s.get_local(index) {
                 Some(x) => x,
                 // Might return `None` if the variable at `index` was consumed by `take_local`.
@@ -817,7 +819,7 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
         lhs,
         special_rhs.clone(),
         move |s| s.count_locals(),
-        move |s, partial, index| {
+        move |_, s, partial, index| {
             let local_ty_var = match s.get_local(index) {
                 Some(x) => x,
                 None => return false,
@@ -838,7 +840,7 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
     // push_scope: pushes a new scope for tracking locals, and expands to the empty string.  Any
     // locals declared in the new scope will be discarded at the matching `pop_scope`.
     let lhs = gb.mk_simple_lhs("push_scope");
-    gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |s, _, _| {
+    gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |_, s, _, _| {
         s.push_scope();
         true
     });
@@ -846,7 +848,7 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
     // pop_scope: pops the innermost scope, erasing any locals it contains, and expands to the
     // empty string.  If there is no open scope, expansion fails.
     let lhs = gb.mk_simple_lhs("pop_scope");
-    gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |s, _, _| {
+    gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |_, s, _, _| {
         s.pop_scope()
     });
 }
@@ -856,7 +858,7 @@ fn add_builtin_counter(gb: &mut GrammarBuilder) {
 
     // expansion_counter: Expands to an integer indicating the index of the current expansion.
     let lhs = gb.mk_simple_lhs("expansion_counter");
-    gb.add_prod_with_handler(lhs, special_rhs, move |_, partial, _| {
+    gb.add_prod_with_handler(lhs, special_rhs, move |_, _, partial, _| {
         partial.specials.push(Rc::new(move |rcx| format!("{}", rcx.counter)));
         true
     });

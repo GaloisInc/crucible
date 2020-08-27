@@ -50,7 +50,7 @@ impl GrammarBuilder {
         &mut self,
         lhs: ProductionLhs,
         rhs: ProductionRhs,
-        handler: impl Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool + 'static,
+        handler: impl Fn(&Context, &mut ExpState, &mut PartialExpansion, usize) -> bool + 'static,
     ) -> usize {
         self.add_prod_with_opt_callbacks(
             lhs,
@@ -65,7 +65,7 @@ impl GrammarBuilder {
         lhs: ProductionLhs,
         rhs: ProductionRhs,
         multiplicity: impl Fn(&ExpState) -> usize + 'static,
-        handler: impl Fn(&mut ExpState, &mut PartialExpansion, usize) -> bool + 'static,
+        handler: impl Fn(&Context, &mut ExpState, &mut PartialExpansion, usize) -> bool + 'static,
     ) -> usize {
         self.add_prod_with_opt_callbacks(
             lhs,
