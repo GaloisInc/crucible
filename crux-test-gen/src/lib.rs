@@ -25,6 +25,15 @@ struct NonterminalRef {
     args: Box<[Ty]>,
 }
 
+impl NonterminalRef {
+    fn nullary(id: NonterminalId) -> NonterminalRef {
+        NonterminalRef {
+            id,
+            args: Box::new([]),
+        }
+    }
+}
+
 /// The implementation of a "magic" built-in production.  The callback can manipulate the
 /// surrounding expansion state (for example, to adjust the current budget values) and the
 /// expansion of the current production (for example, to provide a callback for use in rendering
@@ -130,6 +139,8 @@ struct PartialExpansion {
 
 #[derive(Clone)]
 struct ExpState {
+    root_nt: Rc<NonterminalRef>,
+    root_subst: Subst,
     exp: Vec<PartialExpansion>,
     unify: ty::UnifyState,
     budget: Budget,
@@ -160,6 +171,8 @@ struct Continuation {
 enum ContinuationKind {
     /// Continue with the next in a sequence of alternative productions.
     Alts {
+        /// The IDs of productions to try.  The continuation is resumed by applying
+        /// `alternatives[next]` to the next unexpanded nonterminal in the `ExpState`.
         alternatives: Vec<ProductionId>,
         next: usize,
     },
@@ -311,8 +324,10 @@ impl PartialExpansion {
 }
 
 impl ExpState {
-    fn new() -> ExpState {
+    fn new(root_nt: NonterminalRef) -> ExpState {
         ExpState {
+            root_nt: Rc::new(root_nt),
+            root_subst: Subst::empty(),
             exp: Vec::new(),
             unify: UnifyState::new(),
             budget: Budget::default(),
@@ -328,19 +343,22 @@ impl ExpState {
     ) -> bool {
         let mut pe = PartialExpansion::new(cx, &mut self.unify, production);
 
-        if !self.exp.is_empty() {
-            let tys1 = self.cur_partial().subst.clone()
-                .and(&self.cur_partial().next_nonterminal(cx).args as &[_]);
-            let tys2 = pe.subst.clone().and(&cx.productions[production].args as &[_]);
-
-            if !self.unify.unify(tys1, tys2) {
-                return false;
-            }
+        // Get the type arguments of the nonterminal being substituted.
+        let tys1 = if !self.exp.is_empty() {
+            // Type variables in the nonterminal are bound by the enclosing production.
+            // `cur_partial.subst` assigns a global unification variable to each local variable in
+            // the current instance of that production.
+            self.cur_partial().subst.clone()
+                .and(&self.cur_partial().next_nonterminal(cx).args as &[_])
         } else {
-            // When resuming the initial continuation, there is no current nonterminal we can unify
-            // with the production's LHS.  However, this is okay as long as the production has no
-            // arguments.
-            assert!(cx.productions[production].args.len() == 0);
+            // The root nonterminal can refer to variables defined in the root subst.
+            self.root_subst.clone().and(&self.root_nt.args as &[_])
+        };
+
+        // Unify nonterminal's type arguments with the type arguments of the production.
+        let tys2 = pe.subst.clone().and(&cx.productions[production].args as &[_]);
+        if !self.unify.unify(tys1, tys2) {
+            return false;
         }
 
         // Sanity check.  This will fail if a nonterminal has multiple productions and at least one
@@ -489,11 +507,12 @@ impl ExpState {
 }
 
 impl Continuation {
-    fn new(productions: Vec<ProductionId>) -> Continuation {
+    fn new(cx: &Context, root_nt: NonterminalRef) -> Continuation {
+        let prods = cx.nonterminals[root_nt.id].productions.clone();
         Continuation {
-            state: ExpState::new(),
+            state: ExpState::new(root_nt),
             kind: ContinuationKind::Alts {
-                alternatives: productions,
+                alternatives: prods,
                 next: 0,
             },
         }
@@ -537,13 +556,16 @@ impl Continuation {
 }
 
 impl BranchingState {
-    pub fn new(cx: &Context, nonterminal_name: &str) -> BranchingState {
-        let prods = match cx.nonterminals_by_name.get(nonterminal_name) {
-            Some(&nt_id) => cx.nonterminals[nt_id].productions.clone(),
-            None => Vec::new(),
-        };
+    fn new(cont: Continuation) -> BranchingState {
         BranchingState {
-            continuations: vec![Continuation::new(prods)],
+            continuations: vec![cont],
+            expansion_counter: 0,
+        }
+    }
+
+    pub fn empty() -> BranchingState {
+        BranchingState {
+            continuations: vec![],
             expansion_counter: 0,
         }
     }
@@ -653,10 +675,14 @@ impl<'a> Iterator for IterRendered<'a> {
 
 /// Return an iterator over all expansions of the named nonterminal.
 pub fn iter_rendered<'a>(cx: &'a Context, nonterminal: &str) -> IterRendered<'a> {
-    IterRendered {
-        cx,
-        bcx: BranchingState::new(cx, nonterminal),
-    }
+    let bcx = match cx.nonterminals_by_name.get(nonterminal) {
+        Some(&nt_id) => {
+            let cont = Continuation::new(cx, NonterminalRef::nullary(nt_id));
+            BranchingState::new(cont)
+        },
+        None => BranchingState::empty(),
+    };
+    IterRendered { cx, bcx }
 }
 
 

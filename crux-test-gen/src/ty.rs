@@ -94,11 +94,15 @@ impl UnifyValue for Term {
 
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Subst(Rc<Box<[VarId]>>);
+pub struct Subst(Option<Rc<Box<[VarId]>>>);
 
 impl Subst {
+    pub fn empty() -> Subst {
+        Subst(None)
+    }
+
     pub fn subst(&self, v: VarId) -> VarId {
-        self.0[v.0 as usize]
+        self.0.as_ref().unwrap()[v.0 as usize]
     }
 
     pub fn and<T>(self, x: T) -> SubstAnd<T> {
@@ -108,13 +112,13 @@ impl Subst {
 
 impl<'a> From<&'a [VarId]> for Subst {
     fn from(x: &[VarId]) -> Subst {
-        Subst(Rc::new(<Box<[_]>>::from(x)))
+        Subst(Some(Rc::new(<Box<[_]>>::from(x))))
     }
 }
 
 impl From<Vec<VarId>> for Subst {
     fn from(x: Vec<VarId>) -> Subst {
-        Subst(Rc::new(<Box<[_]>>::from(x)))
+        Subst(Some(Rc::new(<Box<[_]>>::from(x))))
     }
 }
 
