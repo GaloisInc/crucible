@@ -941,6 +941,13 @@ fn add_builtin_splat(gb: &mut GrammarBuilder) {
 
     // splat[nt]: Expands to all possible expansions of `nt` in the current context, concatenated
     // together.
+    //
+    // Type variable unification propagates "into" `splat`s, but not "out" of them.  The `splat`
+    // expands its argument multiple times, potentially making different unification decisions each
+    // time, so there is no single set of constraints that could be propagated out.  However, all
+    // constraints from the enclosing context apply when expanding the argument of the `splat`.
+    // The expansion of the `splat`'s argument is delayed until after the parent expansion is
+    // complete, so this even includes constraints added after the expansion of the `splat` itself.
     let (lhs, vars) = gb.mk_lhs_with_args("splat", 1);
     let var = vars[0];
     gb.add_prod_with_handler(lhs, special_rhs, move |cx, s, partial, _| {
