@@ -1,7 +1,0 @@
-// `splat` accepts a nonterminal that takes arguments.
-start ::= <<splat[x[A]]>>
-
-x[A] ::= A
-x[B] ::= B
-
-// output: A

@@ -1,9 +1,0 @@
-// The nonterminal passed to `splat` can contain variables.
-start ::= <<with_var[A]>>
-
-for[T] with_var[T] ::= <<splat[x[T]]>>
-
-x[A] ::= A
-x[B] ::= B
-
-// output: A

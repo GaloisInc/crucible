@@ -954,32 +954,33 @@ fn parse_expand_args(
     Some((nt_ref, res.subst))
 }
 
-fn add_builtin_splat(gb: &mut GrammarBuilder) {
+fn add_builtin_expand(gb: &mut GrammarBuilder) {
     let special_rhs = ProductionRhs { chunks: vec![Chunk::Special(0)], nts: vec![] };
 
-    // splat[nt]: Expands to all possible expansions of `nt` in the current context, concatenated
-    // together.
+    // expand_all[nt]: Expands to all possible expansions of `nt` in the current context,
+    // concatenated together.
     //
-    // Type variable unification propagates "into" `splat`s, but not "out" of them.  The `splat`
-    // expands its argument multiple times, potentially making different unification decisions each
-    // time, so there is no single set of constraints that could be propagated out.  However, all
-    // constraints from the enclosing context apply when expanding the argument of the `splat`.
-    // The expansion of the `splat`'s argument is delayed until after the parent expansion is
-    // complete, so this even includes constraints added after the expansion of the `splat` itself.
-    let (lhs, vars) = gb.mk_lhs_with_args("splat", 1);
+    // Type variable unification propagates "into" `expand_all`, but not "out" of it.  The
+    // `expand_all` builtin expands its argument multiple times, potentially making different
+    // unification decisions each time, so there is no single set of constraints that could be
+    // propagated out.  However, all constraints from the enclosing context apply when expanding
+    // the argument of the `expand_all`.  The expansion of the `expand_all`'s argument is delayed
+    // until after the parent expansion is complete, so this even includes constraints added after
+    // the expansion of the `expand_all` itself.
+    let (lhs, vars) = gb.mk_lhs_with_args("expand_all", 1);
     let var = vars[0];
     gb.add_prod_with_handler(lhs, special_rhs, move |cx, s, partial, _| {
         let (nt_ref, subst) = match parse_expand_args(cx, s, partial, var) {
             Some((Some(nt_ref), subst)) => (nt_ref, subst),
             Some((None, _)) => {
-                // `splat[bad_nt]` succeeds even when `bad_nt` doesn't exist in the grammar,
+                // `expand_all[bad_nt]` succeeds even when `bad_nt` doesn't exist in the grammar,
                 // expanding to the empty string, as there are no productions for `bad_nt`.  We
                 // handle this as a special case.
                 partial.specials.push(Rc::new(move |_| String::new()));
                 return true;
             },
             None => {
-                eprintln!("warning: splat: argument is unconstrained");
+                eprintln!("warning: expand_all: argument is unconstrained");
                 return false;
             },
         };
@@ -1011,7 +1012,7 @@ pub fn parse_grammar_from_str(src: &str) -> Context {
     add_builtin_budget(&mut gb);
     add_builtin_locals(&mut gb);
     add_builtin_counter(&mut gb);
-    add_builtin_splat(&mut gb);
+    add_builtin_expand(&mut gb);
     gb.parse_grammar(&lines);
 
     gb.finish()
