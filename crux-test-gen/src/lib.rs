@@ -936,6 +936,24 @@ fn add_builtin_counter(gb: &mut GrammarBuilder) {
     });
 }
 
+fn parse_expand_args(
+    cx: &Context,
+    s: &mut ExpState,
+    partial: &PartialExpansion,
+    v_nt: VarId,
+) -> Option<(Option<NonterminalRef>, Subst)> {
+    let res = s.unify.resolve(partial.subst.subst(v_nt))?;
+    let ctor_ty = res.val;
+    let nt_ref = match cx.nonterminals_by_name.get(&ctor_ty.ctor as &str) {
+        Some(&id) => {
+            let args = (&ctor_ty.args as &[_]).to_owned().into_boxed_slice();
+            Some(NonterminalRef { id, args })
+        },
+        None => None,
+    };
+    Some((nt_ref, res.subst))
+}
+
 fn add_builtin_splat(gb: &mut GrammarBuilder) {
     let special_rhs = ProductionRhs { chunks: vec![Chunk::Special(0)], nts: vec![] };
 
@@ -951,23 +969,21 @@ fn add_builtin_splat(gb: &mut GrammarBuilder) {
     let (lhs, vars) = gb.mk_lhs_with_args("splat", 1);
     let var = vars[0];
     gb.add_prod_with_handler(lhs, special_rhs, move |cx, s, partial, _| {
-        let (subst, ctor_ty) = match s.unify.resolve(partial.subst.subst(var)) {
-            Some(x) => (x.subst, x.val),
-            None => return false,
-        };
-        let nt_ref = match cx.nonterminals_by_name.get(&ctor_ty.ctor as &str) {
-            Some(&id) => {
-                let args = (&ctor_ty.args as &[_]).to_owned().into_boxed_slice();
-                NonterminalRef { id, args }
-            },
-            None => {
+        let (nt_ref, subst) = match parse_expand_args(cx, s, partial, var) {
+            Some((Some(nt_ref), subst)) => (nt_ref, subst),
+            Some((None, _)) => {
                 // `splat[bad_nt]` succeeds even when `bad_nt` doesn't exist in the grammar,
                 // expanding to the empty string, as there are no productions for `bad_nt`.  We
                 // handle this as a special case.
                 partial.specials.push(Rc::new(move |_| String::new()));
                 return true;
             },
+            None => {
+                eprintln!("warning: splat: argument is unconstrained");
+                return false;
+            },
         };
+
         // Snapshot the current state (budgets, scopes, etc) for future use during rendering.
         let snapshot = s.nested_snapshot(nt_ref, subst);
 
