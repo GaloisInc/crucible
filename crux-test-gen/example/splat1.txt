@@ -1,0 +1,7 @@
+// Basic usage of `splat` to combine all expansions of some nonterminal.
+start ::= <<splat[x]>>
+
+x ::= A
+x ::= B
+
+// output: AB

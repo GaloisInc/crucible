@@ -273,6 +273,10 @@ impl UnifyState {
         self.t.unify_var_var(v1, v2)
     }
 
+    pub fn resolve(&mut self, v: VarId) -> Option<SubstAnd<Rc<CtorTy>>> {
+        self.t.probe_value(v).map(|Term(x)| x)
+    }
+
     pub fn resolve_ctor(&mut self, v: VarId) -> Option<Rc<str>> {
         self.t.probe_value(v).map(|Term(x)| x.val.ctor.clone())
     }

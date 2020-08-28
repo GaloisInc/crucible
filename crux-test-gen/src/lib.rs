@@ -147,6 +147,17 @@ struct ExpState {
     scopes: Vec<Scope>,
 }
 
+/// Snapshot of the use site of a nested expansion.  This contains all the fields of `ExpState`
+/// except for `exp` (which starts empty in the nested expansion) and `unify` (which will be filled
+/// in with the final `UnifyState` of the parent expansion).
+#[derive(Clone)]
+struct NestedSnapshot {
+    root_nt: Rc<NonterminalRef>,
+    root_subst: Subst,
+    budget: Budget,
+    scopes: Vec<Scope>,
+}
+
 /// Represents alternatives not taken during expansion of the grammar.  Can be
 /// resumed into a new `ExpState` to generate the next alternative.
 #[derive(Clone)]
@@ -335,6 +346,26 @@ impl ExpState {
         }
     }
 
+    /// Take a snapshot of this state for future nested expansion of `root_nt`.  Type variables in
+    /// `root_nt` will be interpreted according to `root_subst`.
+    ///
+    /// In general, it does not make sense to propagate unification constraints out of a nested
+    /// expansion state, since the state may be forked (cloned) multiple times, with different
+    /// constraints in each fork.  However, we do support propagating constaints inward, including
+    /// constraints that are added to the parent state after the snapshot is taken.  This works
+    /// through a two-step process: first, `nested_snapshot` captures information about the use
+    /// site of the nested expansion; later, `activate` adds the final `UnifyState` of the parent
+    /// expansion (which may contain constraints from after the use site) to produce a complete
+    /// `ExpState` for the nested expansion.
+    fn nested_snapshot(&self, root_nt: NonterminalRef, root_subst: Subst) -> NestedSnapshot {
+        NestedSnapshot {
+            root_nt: Rc::new(root_nt),
+            root_subst,
+            budget: self.budget.clone(),
+            scopes: self.scopes.clone(),
+        }
+    }
+
     fn apply_production(
         &mut self,
         cx: &Context,
@@ -506,11 +537,26 @@ impl ExpState {
     }
 }
 
+impl NestedSnapshot {
+    /// Activate a snapshot for nested expansion by providing the final `UnifyState` of its parent
+    /// expansion.
+    fn activate(self, unify: UnifyState) -> ExpState {
+        let NestedSnapshot { root_nt, root_subst, budget, scopes } = self;
+        let exp = Vec::new();
+        ExpState { root_nt, root_subst, exp, unify, budget, scopes }
+    }
+}
+
 impl Continuation {
     fn new(cx: &Context, root_nt: NonterminalRef) -> Continuation {
-        let prods = cx.nonterminals[root_nt.id].productions.clone();
+        Continuation::from_state(cx, ExpState::new(root_nt))
+    }
+
+    /// Build a `Continuation` that tries every production for the root nonterminal of `state`.
+    fn from_state(cx: &Context, state: ExpState) -> Continuation {
+        let prods = cx.nonterminals[state.root_nt.id].productions.clone();
         Continuation {
-            state: ExpState::new(root_nt),
+            state,
             kind: ContinuationKind::Alts {
                 alternatives: prods,
                 next: 0,
@@ -890,6 +936,49 @@ fn add_builtin_counter(gb: &mut GrammarBuilder) {
     });
 }
 
+fn add_builtin_splat(gb: &mut GrammarBuilder) {
+    let special_rhs = ProductionRhs { chunks: vec![Chunk::Special(0)], nts: vec![] };
+
+    // splat[nt]: Expands to all possible expansions of `nt` in the current context, concatenated
+    // together.
+    let (lhs, vars) = gb.mk_lhs_with_args("splat", 1);
+    let var = vars[0];
+    gb.add_prod_with_handler(lhs, special_rhs, move |cx, s, partial, _| {
+        let (subst, ctor_ty) = match s.unify.resolve(partial.subst.subst(var)) {
+            Some(x) => (x.subst, x.val),
+            None => return false,
+        };
+        let nt_ref = match cx.nonterminals_by_name.get(&ctor_ty.ctor as &str) {
+            Some(&id) => {
+                let args = (&ctor_ty.args as &[_]).to_owned().into_boxed_slice();
+                NonterminalRef { id, args }
+            },
+            None => {
+                // `splat[bad_nt]` succeeds even when `bad_nt` doesn't exist in the grammar,
+                // expanding to the empty string, as there are no productions for `bad_nt`.  We
+                // handle this as a special case.
+                partial.specials.push(Rc::new(move |_| String::new()));
+                return true;
+            },
+        };
+        // Snapshot the current state (budgets, scopes, etc) for future use during rendering.
+        let snapshot = s.nested_snapshot(nt_ref, subst);
+
+        partial.specials.push(Rc::new(move |rcx| {
+            // Now that we have the final `UnifyState` for the parent expansion, we can run the
+            // nested expansions.
+            let state = snapshot.clone().activate(rcx.unify.clone());
+            let bcx = BranchingState::new(Continuation::from_state(rcx.cx, state));
+            let mut s = String::new();
+            for exp in (IterRendered { cx: rcx.cx, bcx }) {
+                s.push_str(&exp);
+            }
+            s
+        }));
+        true
+    });
+}
+
 
 pub fn parse_grammar_from_str(src: &str) -> Context {
     let lines = src.lines().map(|l| l.trim_end()).collect::<Vec<_>>();
@@ -899,6 +988,7 @@ pub fn parse_grammar_from_str(src: &str) -> Context {
     add_builtin_budget(&mut gb);
     add_builtin_locals(&mut gb);
     add_builtin_counter(&mut gb);
+    add_builtin_splat(&mut gb);
     gb.parse_grammar(&lines);
 
     gb.finish()
