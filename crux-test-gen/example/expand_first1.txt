@@ -1,0 +1,7 @@
+// `expand_first` produces only the first legal expansion of its argument.
+start ::= <<expand_first[x]>>
+
+x ::= A
+x ::= B
+
+// output: A

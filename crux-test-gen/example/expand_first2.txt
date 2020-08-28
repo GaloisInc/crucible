@@ -1,0 +1,11 @@
+// Unification constraints are propagated into `expand_first`.
+start ::= <<with_var>>
+
+for[T] with_var ::= <<x[T]>> <<expand_first[y[T]]>>
+
+x[B] ::= xB
+
+y[A] ::= yA
+y[B] ::= yB
+
+// output: xB yB

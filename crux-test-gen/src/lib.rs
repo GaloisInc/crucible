@@ -366,6 +366,12 @@ impl ExpState {
         }
     }
 
+    /// Build a new `ExpState` for immediate nested expansion.
+    fn nested(&self, root_nt: NonterminalRef, root_subst: Subst) -> ExpState {
+        self.nested_snapshot(root_nt, root_subst)
+            .activate(self.unify.clone())
+    }
+
     fn apply_production(
         &mut self,
         cx: &Context,
@@ -969,7 +975,7 @@ fn add_builtin_expand(gb: &mut GrammarBuilder) {
     // the expansion of the `expand_all` itself.
     let (lhs, vars) = gb.mk_lhs_with_args("expand_all", 1);
     let var = vars[0];
-    gb.add_prod_with_handler(lhs, special_rhs, move |cx, s, partial, _| {
+    gb.add_prod_with_handler(lhs, special_rhs.clone(), move |cx, s, partial, _| {
         let (nt_ref, subst) = match parse_expand_args(cx, s, partial, var) {
             Some((Some(nt_ref), subst)) => (nt_ref, subst),
             Some((None, _)) => {
@@ -998,6 +1004,51 @@ fn add_builtin_expand(gb: &mut GrammarBuilder) {
                 s.push_str(&exp);
             }
             s
+        }));
+        true
+    });
+
+    // expand_first[nt]: Expands to the first expansion of `nt` that is legal in the current
+    // context.  Fails to expand if no expansions of `nt` are legal.
+    //
+    // Unlike `expand_all`, `expand_first` propagates type variable unification in both directions.
+    // The nested expansion of `nt` happens immediately, and any new constraints are propagated
+    // back to the parent expansion's `UnifyState`.
+    //
+    // `expand_first` never backtracks into alternate expansions of `nt` beyond the first one that
+    // succeeds.  If the first expansion of `nt` adds constraints that are inconsistent with some
+    // later constraints, then the entire parent expansion will fail, instead of trying a different
+    // expansion of `nt`.
+    let (lhs, vars) = gb.mk_lhs_with_args("expand_first", 1);
+    let var = vars[0];
+    gb.add_prod_with_handler(lhs, special_rhs.clone(), move |cx, s, partial, _| {
+        let (nt_ref, subst) = match parse_expand_args(cx, s, partial, var) {
+            Some((Some(nt_ref), subst)) => (nt_ref, subst),
+            Some((None, _)) => {
+                // `expand_first[bad_nt]` fails, as there are no productions for `bad_nt`.
+                return false;
+            },
+            None => {
+                eprintln!("warning: expand_first: argument is unconstrained");
+                return false;
+            },
+        };
+
+        // Snapshot the current state (budgets, scopes, etc) for future use during rendering.
+        let state = s.nested(nt_ref, subst);
+        let mut bcx = BranchingState::new(Continuation::from_state(cx, state));
+        let exp = match expand_next(cx, &mut bcx) {
+            Some((exp, rcx)) => {
+                // Copy the nested expansion's unification state back into the enclosing state `s`.
+                s.unify = rcx.unify;
+                exp
+            },
+            None => return false,
+        };
+
+        // Wait until we have the final `RenderContext` to actually render `exp`.
+        partial.specials.push(Rc::new(move |rcx| {
+            render_expansion(rcx, &exp)
         }));
         true
     });
