@@ -211,6 +211,10 @@ impl Budget {
         self.0.insert(key.to_owned(), amount);
     }
 
+    pub fn get(&mut self, key: &str) -> usize {
+        self.0.get(key).cloned().unwrap_or(0)
+    }
+
     pub fn add(&mut self, key: &str, amount: usize) {
         *self.0.entry(key.to_owned()).or_insert(0) += amount;
     }
@@ -841,6 +845,23 @@ fn add_builtin_budget(gb: &mut GrammarBuilder) {
             },
         };
         s.budget.take(&name, amount)
+    });
+
+    // check_budget[K,V]: if the current budget for `K` is exactly `V`, expands to the empty
+    // string.  Otherwise, it fails to expand.  `check_budget[foo, 0]` is useful for asserting that
+    // all provided budget for `foo` must be consumed by the end of expansion.
+    let (lhs, vars) = gb.mk_lhs_with_args("check_budget", 2);
+    let v_name = vars[0];
+    let v_amount = vars[1];
+    gb.add_prod_with_handler(lhs, rhs.clone(), move |_, s, partial, _| {
+        let (name, amount) = match parse_budget_args(s, partial, v_name, v_amount) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("warning: check_budget: {}", e);
+                return false;
+            },
+        };
+        s.budget.get(&name) == amount
     });
 }
 
