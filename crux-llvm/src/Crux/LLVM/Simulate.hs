@@ -9,7 +9,7 @@
 module Crux.LLVM.Simulate where
 
 import Data.String (fromString)
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import Data.IORef
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
@@ -135,7 +135,7 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
             let ?lc = llvmCtxt^.llvmTypeCtx
             -- shrug... some weird interaction between do notation and implicit parameters here...
             -- not sure why I have to let/in this expression...
-            let ?badBehaviorMap = bbMapRef in
+            let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb) in
               do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
                                 { printHandle = view outputHandle ?outputConfig }
                  mem <- populateAllGlobals sym (globalInitMap trans)
@@ -152,7 +152,8 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
                  let detailLimit = 10
 
                  let explainFailure evalFn gl =
-                       do ex <- explainCex sym evalFn >>= \f -> f (gl ^. labeledPred)
+                       do bb <- readIORef bbMapRef
+                          ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
                           let details = case ex of
                                 NoExplanation -> mempty
                                 DisjOfFailures xs ->
