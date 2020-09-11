@@ -165,7 +165,6 @@ module Lang.Crucible.LLVM.MemModel
   , mergeWriteOperations
   , Partial.HasLLVMAnn
   , Partial.LLVMAnnMap
-  , Partial.lookupBBAnnotation
   , Partial.CexExplanation(..)
   , Partial.explainCex
 

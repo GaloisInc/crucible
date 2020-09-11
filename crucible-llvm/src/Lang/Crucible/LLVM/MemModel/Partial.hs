@@ -44,7 +44,6 @@ module Lang.Crucible.LLVM.MemModel.Partial
   , HasLLVMAnn
   , LLVMAnnMap
   , BoolAnn(..)
-  , lookupBBAnnotation
   , annotateME
   , annotateUB
   , projectLLVM_bv
@@ -72,7 +71,6 @@ import           Control.Monad.Except
 import           Control.Monad.State.Strict (StateT, get, put, runStateT)
 import qualified Data.ByteString as BS
 import qualified Data.Foldable as Fold
-import           Data.IORef
 import           Data.Maybe (isJust)
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -116,8 +114,7 @@ instance IsSymInterface sym => Ord (BoolAnn sym) where
   compare (BoolAnn x) (BoolAnn y) = toOrdering $ compareF x y
 
 type LLVMAnnMap sym = Map (BoolAnn sym) (BadBehavior sym)
-type HasLLVMAnn sym = (?badBehaviorMap :: IORef (LLVMAnnMap sym))
-
+type HasLLVMAnn sym = (?recordLLVMAnnotation :: BoolAnn sym -> BadBehavior sym -> IO ())
 
 data CexExplanation sym (tp :: BaseType) where
   NoExplanation  :: CexExplanation sym tp
@@ -131,9 +128,10 @@ instance Semigroup (CexExplanation sym BaseBoolType) where
 explainCex :: forall t st fs sym.
   (IsSymInterface sym, HasLLVMAnn sym, sym ~ ExprBuilder t st fs) =>
   sym ->
+  LLVMAnnMap sym ->
   Maybe (GroundEvalFn t) ->
   IO (Pred sym -> IO (CexExplanation sym BaseBoolType))
-explainCex sym evalFn =
+explainCex sym bbMap evalFn =
   do posCache <- newIdxCache
      negCache <- newIdxCache
      pure (evalPos posCache negCache)
@@ -148,7 +146,7 @@ explainCex sym evalFn =
   evalPos posCache negCache e = idxCacheEval posCache e $
     case e of
       (asNonceApp -> Just (Annotation BaseBoolRepr annId e')) ->
-        lookupBBAnnotation sym annId >>= \case
+        case Map.lookup (BoolAnn annId) bbMap of
           Nothing -> evalPos posCache negCache e'
           Just bb ->
             do bb' <- case evalFn of
@@ -233,12 +231,6 @@ explainCex sym evalFn =
 
       _ -> pure NoExplanation
 
-lookupBBAnnotation :: (IsSymInterface sym, HasLLVMAnn sym) =>
-  sym ->
-  SymAnnotation sym BaseBoolType ->
-  IO (Maybe (BadBehavior sym))
-lookupBBAnnotation _sym n = Map.lookup (BoolAnn n) <$> readIORef ?badBehaviorMap
-
 annotateUB :: (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   UB.UndefinedBehavior (RegValue' sym) ->
@@ -246,7 +238,7 @@ annotateUB :: (IsSymInterface sym, HasLLVMAnn sym) =>
   IO (Pred sym)
 annotateUB sym ub p =
   do (n, p') <- annotateTerm sym p
-     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBUndefinedBehavior ub))
+     ?recordLLVMAnnotation (BoolAnn n) (BBUndefinedBehavior ub)
      return p'
 
 annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
@@ -257,7 +249,7 @@ annotateME :: (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   IO (Pred sym)
 annotateME sym mop rsn p =
   do (n, p') <- annotateTerm sym p
-     modifyIORef ?badBehaviorMap (Map.insert (BoolAnn n) (BBMemoryError (MemoryError mop rsn)))
+     ?recordLLVMAnnotation (BoolAnn n) (BBMemoryError (MemoryError mop rsn))
      return p'
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
