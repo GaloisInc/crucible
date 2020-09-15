@@ -33,6 +33,7 @@ cruxGoConfig :: Crux.Config GoOptions
 cruxGoConfig = Crux.Config
   { Crux.cfgFile = pure defaultOptions
   , Crux.cfgEnv = []
+  , Crux.cfgCmdLineFlag = []
   }
 
 simulateGo :: Crux.CruxOptions -> GoOptions -> Crux.SimulatorCallback
@@ -53,7 +54,10 @@ simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    -- Set up initial crucible execution state
    initSt <- setupCrucibleGoCrux 32 fwi verbosity sym Crux.emptyModel regmap
 
-   return $ Crux.RunnableState $ initSt
+   -- TODO: add failure explanations
+   let explainFailure _evalFn _gl = return mempty
+
+   return (Crux.RunnableState initSt, explainFailure)
 
 
 -- | Entry point, parse command line options
