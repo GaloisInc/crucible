@@ -6,8 +6,6 @@ module Main(main) where
 import System.IO(stdout)
 import Control.Exception(throwIO,Exception(..))
 
-import Data.IORef (newIORef)
-import qualified Data.Map as Map
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Context (pattern Empty)
 
@@ -23,7 +21,7 @@ import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
 import Lang.Crucible.Simulator
 import What4.ProblemFeatures ( noFeatures )
 
-import Lang.Crucible.LLVM.MemModel(defaultMemOptions, LLVMAnnMap)
+import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
 import Lang.Crucible.LLVM.Run
 
 import Crux.LLVM.Simulate( registerFunctions )
@@ -49,8 +47,7 @@ main =
     Just (AnyCFG cfg) ->
       case (cfgArgTypes cfg, cfgReturnType cfg) of
         (Empty, UnitRepr) ->
-          do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
-             let ?badBehaviorMap = bbMapRef in
+          let ?recordLLVMAnnotation = \_ _ -> pure () in
                pure Setup
                  { cruxOutput = stdout
                  , cruxBackend = sym
