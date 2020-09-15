@@ -97,6 +97,9 @@ executable crux-llvm-svcomp
   hs-source-dirs: svcomp
   main-is: Main.hs
 
+  if os(windows)
+    buildable: False
+
   build-depends:
     aeson >= 1.4.7,
     attoparsec >= 0.13,
@@ -139,6 +142,7 @@ test-suite crux-llvm-test
   ghc-prof-options: -fprof-auto -O2
 
   main-is: Test.hs
+
 
   build-depends:
                 base             >= 4.7,
