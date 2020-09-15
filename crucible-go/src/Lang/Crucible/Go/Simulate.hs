@@ -70,7 +70,7 @@ setSimulatorVerbosity verbosity sym = do
   verbSetting <- W4.getOptionSetting W4.verbosity (W4.getConfiguration sym)
   _ <- W4.setOpt verbSetting (toInteger verbosity)
   return ()
-  
+
 -- | No syntax extensions.
 goExtensionImpl :: C.ExtensionImpl p sym Go
 goExtensionImpl =
@@ -147,17 +147,8 @@ setupCrucibleGoCrux :: forall sym args.
   -> Crux.Model sym        -- ^ Personality
   -> C.RegMap sym args     -- ^ Arguments
   -> IO (C.ExecState (Crux.Model sym) sym Go (C.RegEntry sym UnitType))
-setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do  
-  when (verbosity > 2) $
-    putStrLn "starting setupCrucibleGoCrux"
+setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do
   setSimulatorVerbosity verbosity sym
-
-  -- putStrLn "ORIGINAL:"
-  -- putStrLn $ show $ fwi
-  -- putStrLn "DESUGARED:"
-  -- putStrLn $ show $ desugar fwi
-  -- putStrLn "RENAMED:"
-  -- putStrLn $ show $ rename $ desugar fwi
 
   case intToPosNat machineWordWidth of
     Nothing -> error "machineWordWidth should be >= 1"
@@ -167,13 +158,6 @@ setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do
         Left msg -> fail msg
         Right (TranslatedMain _main _imports
                 (SomeCFG ini) (Just (AnyCFG cfg)) globs funs halloc) -> do
-          putStrLn "done translating."
-
-          putStrLn "INITIALIZER:"
-          putStrLn $ show ini
-
-          putStrLn "MAIN:"
-          putStrLn $ show cfg
 
           Refl <- failIfNotEqual (cfgArgTypes cfg) (knownRepr :: CtxRepr args) $
                   "Checking argument types for main"
@@ -189,7 +173,7 @@ setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do
 
           -- Set up initial simulator state to call the main.
           let simctx = initSimContext sym goIntrinsicTypes halloc stdout
-                       fnBindings goExtensionImpl p          
+                       fnBindings goExtensionImpl p
           simGlobals <- mkGlobals sym globs
           let abortHandler = C.defaultAbortHandler
           return $ C.InitialState simctx simGlobals abortHandler knownRepr k
