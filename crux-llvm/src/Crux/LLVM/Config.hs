@@ -60,6 +60,7 @@ data LLVMOptions = LLVMOptions
   , laxArithmetic :: Bool
   , entryPoint :: String
   , lazyCompile :: Bool
+  , optLevel :: Int
   }
 
 llvmCruxConfig :: Crux.Config LLVMOptions
@@ -101,7 +102,10 @@ llvmCruxConfig =
                            "Avoid compiling bitcode from source if intermediate files already exist"
 
          ubSanitizers <- Crux.section "ub-sanitizers" (Crux.listSpec Crux.stringSpec) []
-                           "Undefined Behavior sanitizers to enable in Clang"
+                           "Undefined Behavior sanitizers to enable in `clang`"
+
+         optLevel <- Crux.section "opt-level" Crux.numSpec 1
+                           "Optimization level to request from `clang`"
 
          return LLVMOptions { .. }
 
@@ -141,5 +145,12 @@ llvmCruxConfig =
         "Name of the entry point to begin simulation"
         $ Crux.ReqArg "SYMBOL"
         $ \s opts -> Right opts{ entryPoint = s }
+
+      , Crux.Option "O" []
+        "Optimization level for `clang`"
+        $ Crux.ReqArg "NUM"
+        $ Crux.parsePosNum "NUM"
+        $ \v opts -> opts { optLevel = v }
+
       ]
   }

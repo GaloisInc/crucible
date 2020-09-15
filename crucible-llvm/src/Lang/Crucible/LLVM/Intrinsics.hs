@@ -120,7 +120,7 @@ register_llvm_overrides_ llvmctx acts decls =
          runMaybeT (flip runReaderT (decl,declnm,llvmctx) $ asum (map overrideTemplateAction acts'))
 
 register_llvm_define_overrides ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
@@ -222,6 +222,9 @@ declare_overrides =
   , polymorphic1_llvm_override "llvm.umul.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmUmulWithOverflow w))
 
+  , basic_llvm_override LLVM.llvmFabsF32
+  , basic_llvm_override LLVM.llvmFabsF64
+
   -- C standard library functions
   , basic_llvm_override Libc.llvmAbortOverride
   , basic_llvm_override Libc.llvmAssertRtnOverride
@@ -257,7 +260,7 @@ declare_overrides =
 -- | Register those overrides that should apply even when the corresponding
 -- function has a definition
 define_overrides ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   [OverrideTemplate p sym arch rtp l a]
 define_overrides =
   [ Libcxx.register_cpp_override Libcxx.putToOverride12

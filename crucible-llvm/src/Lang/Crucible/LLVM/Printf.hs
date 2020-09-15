@@ -278,7 +278,7 @@ formatRational
 formatRational mr fmt minwidth prec flags =
   case mr of
     Nothing ->
-      let n = min 4 (min minwidth prec)
+      let n = max 4 (min minwidth prec)
        in return (replicate n '?')
     Just r ->
       -- FIXME, we ignore the thousands flag...

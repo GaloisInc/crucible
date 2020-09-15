@@ -1,3 +1,4 @@
+{-# Language MultiWayIf #-}
 {-# Language OverloadedStrings #-}
 -- | Utilites for generating JSON
 module Crux.UI.JS where
@@ -5,23 +6,24 @@ module Crux.UI.JS where
 import Data.Text(unpack)
 import Data.List(intercalate)
 import Data.Maybe(fromMaybe)
-import System.FilePath(isRelative,(</>))
+import System.Directory( canonicalizePath )
 
 import What4.ProgramLoc
 
-
-jsLoc :: FilePath -> ProgramLoc -> JS
-jsLoc cwd x =
+jsLoc :: ProgramLoc -> IO JS
+jsLoc x =
   case plSourceLoc x of
-    SourcePos f l c -> jsObj [ "file" ~> jsStr fabsolute
-                             , "line" ~> jsStr (show l)
-                             , "col" ~> jsStr (show c)
-                             ]
-                       where fstr = unpack f
-                             fabsolute | null fstr = ""
-                                       | isRelative fstr = cwd </> fstr
-                                       | otherwise = fstr
-    _               -> jsNull
+    SourcePos f l c ->
+      do let fstr = unpack f
+         fabsolute <-
+            if | null fstr -> pure ""
+               | otherwise -> canonicalizePath fstr
+         pure $ jsObj
+           [ "file" ~> jsStr fabsolute
+           , "line" ~> jsStr (show l)
+           , "col"  ~> jsStr (show c)
+           ]
+    _ -> pure jsNull
 
 --------------------------------------------------------------------------------
 newtype JS = JS { renderJS :: String }

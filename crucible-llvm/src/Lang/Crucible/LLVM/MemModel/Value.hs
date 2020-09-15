@@ -30,21 +30,25 @@ module Lang.Crucible.LLVM.MemModel.Value
   , Field
   , ptrToPtrVal
   , zeroInt
+  , ppTermExpr
+  , explodeStringValue
 
   , llvmValStorableType
   , isZero
   , testEqual
   ) where
 
-import           Control.Lens (view)
+import           Control.Lens (view, over, _2)
 import           Control.Monad (foldM, join)
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import           Data.Map (Map)
 import           Data.Coerce (coerce)
 import           Data.Foldable (toList)
 import           Data.Functor.Identity (Identity(..))
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.List (intersperse)
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
@@ -91,6 +95,9 @@ data LLVMVal sym where
   LLVMValStruct :: Vector (Field StorageType, LLVMVal sym) -> LLVMVal sym
   LLVMValArray :: StorageType -> Vector (LLVMVal sym) -> LLVMVal sym
 
+  -- | LLVM Value Data given by a constant string of bytes
+  LLVMValString :: ByteString -> LLVMVal sym
+
   -- | The zero value exists at all storage types, and represents the the value
   -- which is obtained by loading the approprite number of all zero bytes.
   -- It is useful for compactly representing large zero-initialized data structures.
@@ -109,8 +116,27 @@ llvmValStorableType v =
     LLVMValFloat X86_FP80Size _ -> x86_fp80Type
     LLVMValStruct fs -> structType (fmap fst fs)
     LLVMValArray tp vs -> arrayType (fromIntegral (V.length vs)) tp
+    LLVMValString bs -> arrayType (fromIntegral (BS.length bs)) (bitvectorType (Bytes 1))
     LLVMValZero tp -> tp
     LLVMValUndef tp -> tp
+
+
+ppTermExpr :: forall sym.
+  IsExpr (SymExpr sym) => LLVMVal sym -> Doc
+ppTermExpr t = -- FIXME, do something with the predicate?
+  case t of
+    LLVMValZero _tp -> text "0"
+    LLVMValUndef tp -> text "<undef : " <> text (show tp) <> text ">"
+    LLVMValString bs -> text (show bs)
+    LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
+    LLVMValFloat _ v -> printSymExpr v
+    LLVMValStruct v -> encloseSep lbrace rbrace comma v''
+      where v'  = fmap (over _2 ppTermExpr) (V.toList v)
+            v'' = map (\(fld,doc) ->
+                        group (text "base+" <> text (show $ fieldOffset fld) <+> equals <+> doc))
+                      v'
+    LLVMValArray _tp v -> encloseSep lbracket rbracket comma v'
+      where v' = ppTermExpr <$> V.toList v
 
 -- | Coerce an 'LLVMPtr' value into a memory-storable 'LLVMVal'.
 ptrToPtrVal :: (1 <= w) => LLVMPtr sym w -> LLVMVal sym
@@ -136,24 +162,25 @@ zeroInt _ _ k = k @1 Nothing
 -- 'ppLLVMValWithGlobals'.
 ppLLVMVal ::
   (Applicative f, IsExpr (SymExpr sym)) =>
-  (forall w. SymNat sym -> SymBV sym w -> f (Maybe PP.Doc))
+  (forall w. SymNat sym -> SymBV sym w -> f (Maybe Doc))
     {- ^ Printing of pointers -} ->
   LLVMVal sym ->
-  f PP.Doc
+  f Doc
 ppLLVMVal ppInt =
-  let typed doc tp = PP.text doc PP.<+> PP.text ":" PP.<+> PP.text (show tp)
+  let typed doc tp = text doc <+> text ":" <+> text (show tp)
       pp = ppLLVMVal ppInt
   in
     \case
-      (LLVMValZero tp) -> pure $ PP.angles (typed "zero" tp)
-      (LLVMValUndef tp) -> pure $ PP.angles (typed "undef" tp)
+      (LLVMValZero tp) -> pure $ angles (typed "zero" tp)
+      (LLVMValUndef tp) -> pure $ angles (typed "undef" tp)
+      (LLVMValString bs) -> pure $ text (show bs)
       (LLVMValInt blk w) -> fromMaybe otherDoc <$> ppInt blk w
         where
           otherDoc =
             case asNat blk of
               Just 0 ->
                 case (asBV w) of
-                  (Just (BV.BV unsigned)) -> PP.text $ unwords $
+                  (Just (BV.BV unsigned)) -> text $ unwords $
                     [ "literal integer:"
                     , "unsigned value = " ++ show unsigned ++ ","
                     , unwords [ "signed value = "
@@ -161,33 +188,33 @@ ppLLVMVal ppInt =
                               ]
                     , "width = " ++ show (bvWidth w)
                     ]
-                  Nothing -> PP.text $ unwords $
+                  Nothing -> text $ unwords $
                     [ "symbolic integer: "
                     , "width = " ++ show (bvWidth w)
                     ]
               Just n ->
                 case asBV w of
-                  Just (BV.BV offset) -> PP.text $ unwords $
+                  Just (BV.BV offset) -> text $ unwords $
                     [ "concrete pointer:"
                     , "allocation = " ++ show n ++ ","
                     , "offset = " ++ show offset
                     ]
-                  Nothing -> PP.text $ unwords $
+                  Nothing -> text $ unwords $
                     [ "pointer with concrete allocation and symbolic offset:"
                     , "allocation = " ++ show n
                     ]
 
               Nothing ->
                 case asBV w of
-                  Just (BV.BV offset) -> PP.text $
+                  Just (BV.BV offset) -> text $
                     "pointer with concrete offset " ++ show offset
-                  Nothing -> PP.text "pointer with symbolic offset"
+                  Nothing -> text "pointer with symbolic offset"
 
-      (LLVMValFloat SingleSize _) -> pure $ PP.text "symbolic float"
-      (LLVMValFloat DoubleSize _) -> pure $ PP.text "symbolic double"
-      (LLVMValFloat X86_FP80Size _) -> pure $ PP.text "symbolic long double"
-      (LLVMValStruct xs) -> PP.semiBraces <$> traverse (pp . snd) (V.toList xs)
-      (LLVMValArray _ xs) -> PP.list <$> traverse pp (V.toList xs)
+      (LLVMValFloat SingleSize _) -> pure $ text "symbolic float"
+      (LLVMValFloat DoubleSize _) -> pure $ text "symbolic double"
+      (LLVMValFloat X86_FP80Size _) -> pure $ text "symbolic long double"
+      (LLVMValStruct xs) -> semiBraces <$> traverse (pp . snd) (V.toList xs)
+      (LLVMValArray _ xs) -> list <$> traverse pp (V.toList xs)
 
 -- | Pretty-print an 'LLVMVal', but replace pointers to globals with the name of
 --   the global when possible. Probably pretty slow on big structures.
@@ -196,19 +223,20 @@ ppLLVMValWithGlobals :: forall sym.
   sym ->
   Map L.Symbol (SomePointer sym) {-^ c.f. 'memImplGlobalMap' -} ->
   LLVMVal sym ->
-  IO PP.Doc
+  IO Doc
 ppLLVMValWithGlobals sym globalMap = ppLLVMVal $ \allocNum offset ->
   isGlobalPointer' sym globalMap (LLVMPointer allocNum offset) <&&>
-    \(L.Symbol symb) -> PP.text ('@':symb)
+    \(L.Symbol symb) -> text ('@':symb)
   where x <&&> f = (fmap . fmap) f x -- map under IO and Maybe
 
 -- | This instance tries to make things as concrete as possible.
-instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
+instance IsExpr (SymExpr sym) => Pretty (LLVMVal sym) where
   pretty = coerce $ ppLLVMVal (\_ _ -> Identity Nothing)
 
 instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValZero _tp) = "0"
   show (LLVMValUndef tp) = "<undef : " ++ show tp ++ ">"
+  show (LLVMValString  _) = "<string>"
   show (LLVMValInt blk w)
     | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
     | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
@@ -293,6 +321,7 @@ isZero sym v =
   case v of
     LLVMValStruct fs  -> areZero' (fmap snd fs)
     LLVMValArray _ vs -> areZero' vs
+    LLVMValString bs  -> pure $ Just $ backendPred sym $ not $ isJust $ BS.find (/= 0) bs
     LLVMValZero _     -> pure (Just $ truePred sym)
     LLVMValUndef _    -> pure Nothing
     _                 ->
@@ -324,18 +353,28 @@ testEqual sym v1 v2 =
         Nothing   -> false
         Just Refl -> Just <$> iFloatEq @_ @fi1 sym flt1 flt2
     (LLVMValArray tp1 vec1, LLVMValArray tp2 vec2) ->
-      andAlso (tp1 == tp2) (allEqual vec1 vec2)
+      andAlso (tp1 == tp2 && V.length vec1 == V.length vec2) (allEqual vec1 vec2)
     (LLVMValStruct vec1, LLVMValStruct vec2) ->
       let (si1, si2) = (fmap fst vec1, fmap fst vec2)
           (fd1, fd2) = (fmap snd vec1, fmap snd vec2)
-      in andAlso (V.and (V.zipWith (==) si1 si2))
+      in andAlso (V.length vec1 == V.length vec2 && V.and (V.zipWith (==) si1 si2))
                  (allEqual fd1 fd2)
+
+    (LLVMValString bs1, LLVMValString bs2) -> if bs1 == bs2 then true else false
+    (LLVMValString bs, v@LLVMValArray{}) ->
+      do bsv <- explodeStringValue sym bs
+         testEqual sym bsv v
+    (v@LLVMValArray{}, LLVMValString bs) ->
+      do bsv <- explodeStringValue sym bs
+         testEqual sym v bsv
+
     (LLVMValZero tp1, LLVMValZero tp2) -> if tp1 == tp2 then true else false
     (LLVMValZero tp, other) -> compareZero tp other
     (other, LLVMValZero tp) -> compareZero tp other
     (LLVMValUndef _, _) -> pure Nothing
     (_, LLVMValUndef _) -> pure Nothing
     (_, _) -> false -- type mismatch
+
   where true = pure (Just $ truePred sym)
         false = pure (Just $ falsePred sym)
 
@@ -348,3 +387,13 @@ testEqual sym v1 v2 =
         -- This is probably inefficient:
         compareZero tp other =
           andAlso (llvmValStorableType other == tp) $ isZero sym other
+
+
+-- | Turns a bytestring into an explicit array of bytes
+explodeStringValue :: forall sym. (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym) =>
+  sym -> ByteString -> IO (LLVMVal sym)
+explodeStringValue sym bs =
+  do blk <- natLit sym 0
+     vs <- V.generateM (BS.length bs)
+              (\i -> LLVMValInt blk <$> bvLit sym (knownNat @8) (BV.word8 (BS.index bs i)))
+     pure (LLVMValArray (bitvectorType (Bytes 1)) vs)

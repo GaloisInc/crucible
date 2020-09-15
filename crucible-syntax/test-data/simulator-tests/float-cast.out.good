@@ -10,13 +10,13 @@ floatToSBV RNE ca@0:f
 ==== Proof obligations ====
 
 Prove:
+  test-data/simulator-tests/float-cast.cbl:20:5: error: in main
   bad unsigned round trip
-  in main at test-data/simulator-tests/float-cast.cbl:20:5
   eq ca@0:f (bvToFloat RNE (floatToBV RNE ca@0:f))
 COUNTEREXAMPLE
 
 Prove:
+  test-data/simulator-tests/float-cast.cbl:24:5: error: in main
   bad signed round trip
-  in main at test-data/simulator-tests/float-cast.cbl:24:5
   eq ca@0:f (sbvToFloat RNE (floatToSBV RNE ca@0:f))
 COUNTEREXAMPLE

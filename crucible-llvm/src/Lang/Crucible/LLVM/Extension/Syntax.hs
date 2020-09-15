@@ -24,6 +24,8 @@ module Lang.Crucible.LLVM.Extension.Syntax where
 import           Data.Kind
 import           Data.List.NonEmpty (NonEmpty)
 import           GHC.TypeLits
+import           Data.Text (Text)
+import qualified Text.LLVM.AST as L
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Functor.Classes (Eq1(..), Ord1(..))
@@ -40,8 +42,8 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.Errors.UndefinedBehavior( UndefinedBehavior )
 import           Lang.Crucible.LLVM.Extension.Arch
-import           Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior( UndefinedBehavior )
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types
@@ -101,6 +103,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
 
   -- | Indicate the beginning of a new stack frame upon entry to a function.
   LLVM_PushFrame ::
+     !Text ->
      !(GlobalVar Mem) {- Memory global variable -} ->
      LLVMStmt wptr f UnitType
 
@@ -161,6 +164,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
   --   the expected type.
   LLVM_LoadHandle ::
      !(GlobalVar Mem)            {- Memory global variable -} ->
+     !L.Type                     {- expected LLVM type of the function -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
      !(CtxRepr args)             {- Expected argument types of the function -} ->
      !(TypeRepr ret)             {- Expected return type of the function -} ->
@@ -296,7 +300,7 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
     LLVM_Load _ _ tp _ _  -> tp
     LLVM_Store{} -> knownRepr
     LLVM_MemClear{} -> knownRepr
-    LLVM_LoadHandle _ _ args ret -> FunctionHandleRepr args ret
+    LLVM_LoadHandle _ _ _ args ret -> FunctionHandleRepr args ret
     LLVM_ResolveGlobal w _ _ -> LLVMPointerRepr w
     LLVM_PtrEq{} -> knownRepr
     LLVM_PtrLe{} -> knownRepr
@@ -305,8 +309,8 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
 
 instance PrettyApp (LLVMStmt wptr) where
   ppApp pp = \case
-    LLVM_PushFrame mvar ->
-       text "pushFrame" <+> text (show mvar)
+    LLVM_PushFrame nm mvar ->
+       text "pushFrame" <+> text (show nm) <+> text (show mvar)
     LLVM_PopFrame mvar  ->
        text "popFrame" <+> text (show mvar)
     LLVM_Alloca _ mvar sz a loc ->
@@ -317,8 +321,8 @@ instance PrettyApp (LLVMStmt wptr) where
        text "store" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a) <+> pp v
     LLVM_MemClear mvar ptr len ->
        text "memClear" <+> text (show mvar) <+> pp ptr <+> text (show len)
-    LLVM_LoadHandle mvar ptr args ret ->
-       text "loadFunctionHandle" <+> text (show mvar) <+> pp ptr <+> text "as" <+> text (show (FunctionHandleRepr args ret))
+    LLVM_LoadHandle ltp mvar ptr _args _ret ->
+       text "loadFunctionHandle" <+> text (show mvar) <+> pp ptr <+> text "as" <+> text (show ltp)
     LLVM_ResolveGlobal _ mvar gs ->
        text "resolveGlobal" <+> text (show mvar) <+> text (show (globalSymbolName gs))
     LLVM_PtrEq mvar x y ->

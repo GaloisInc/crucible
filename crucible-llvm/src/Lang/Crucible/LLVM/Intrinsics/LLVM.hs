@@ -39,6 +39,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
@@ -180,7 +181,7 @@ llvmStackrestore =
   (\_memOps _sym _args -> return ())
 
 llvmMemmoveOverride_8_8_32
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 32 ::> BVType 32 ::> BVType 1)
@@ -190,7 +191,7 @@ llvmMemmoveOverride_8_8_32 =
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemmove sym memOps dst src len v) args)
 
 llvmMemmoveOverride_8_8_32_noalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 32 ::> BVType 1)
@@ -201,7 +202,7 @@ llvmMemmoveOverride_8_8_32_noalign =
 
 
 llvmMemmoveOverride_8_8_64
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
@@ -212,7 +213,7 @@ llvmMemmoveOverride_8_8_64 =
 
 
 llvmMemmoveOverride_8_8_64_noalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)
@@ -222,7 +223,7 @@ llvmMemmoveOverride_8_8_64_noalign =
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemmove sym memOps) args)
 
 llvmMemsetOverride_8_64
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -235,7 +236,7 @@ llvmMemsetOverride_8_64 =
   (\memOps sym args -> Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset sym memOps dst val len v) args)
 
 llvmMemsetOverride_8_64_noalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -248,7 +249,7 @@ llvmMemsetOverride_8_64_noalign =
 
 
 llvmMemsetOverride_8_32
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -261,7 +262,7 @@ llvmMemsetOverride_8_32 =
   (\memOps sym args -> Ctx.uncurryAssignment (\dst val len _align v -> Libc.callMemset sym memOps dst val len v) args)
 
 llvmMemsetOverride_8_32_noalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType  8
@@ -274,7 +275,7 @@ llvmMemsetOverride_8_32_noalign =
 
 
 llvmMemcpyOverride_8_8_32
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                     ::> BVType 32 ::> BVType 32 ::> BVType 1)
@@ -284,7 +285,7 @@ llvmMemcpyOverride_8_8_32 =
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemcpy sym memOps dst src len v) args)
 
 llvmMemcpyOverride_8_8_32_noalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                     ::> BVType 32 ::> BVType 1)
@@ -295,7 +296,7 @@ llvmMemcpyOverride_8_8_32_noalign =
 
 
 llvmMemcpyOverride_8_8_64
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
@@ -306,7 +307,7 @@ llvmMemcpyOverride_8_8_64 =
 
 
 llvmMemcpyOverride_8_8_64_noalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)
@@ -516,6 +517,29 @@ llvmBSwapOverride widthRepr =
                 vec = regValue (args^._1)
             in bvSwap sym widthRepr vec)
     }}}
+
+
+
+llvmFabsF32
+  :: forall sym wptr arch p
+   . ( IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+        (EmptyCtx ::> FloatType SingleFloat)
+        (FloatType SingleFloat)
+llvmFabsF32 =
+  [llvmOvr| float @llvm.fabs.f32( float ) |]
+  (\_memOps sym (Empty :> (regValue -> x)) -> liftIO (iFloatAbs @_ @SingleFloat sym x))
+
+
+llvmFabsF64
+  :: forall sym wptr arch p
+   . ( IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+        (EmptyCtx ::> FloatType DoubleFloat)
+        (FloatType DoubleFloat)
+llvmFabsF64 =
+  [llvmOvr| double @llvm.fabs.f64( double ) |]
+  (\_memOps sym (Empty :> (regValue -> x)) -> liftIO (iFloatAbs @_ @DoubleFloat sym x))
 
 
 llvmX86_pclmulqdq

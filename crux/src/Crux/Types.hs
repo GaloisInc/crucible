@@ -4,9 +4,13 @@ module Crux.Types where
 import qualified Control.Lens as L
 import Data.Sequence (Seq)
 import Data.Parameterized.Map (MapF)
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import What4.Expr
-        (GroundValue)
+import Lang.Crucible.Simulator.RegMap(RegValue)
+import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
+import Lang.Crucible.Simulator.ExecutionTree(SimContext)
+import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
+import What4.Expr (GroundValue)
 import What4.ProgramLoc
 import What4.Interface (Pred)
 
@@ -75,7 +79,7 @@ data ProcessedGoals =
 
 data ProofResult a
    = Proved [a]
-   | NotProved (Maybe ModelView)   -- ^ Counter example, if any
+   | NotProved Doc (Maybe ModelView)   -- ^ An explanation of the failure and counter example, if any
  deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)

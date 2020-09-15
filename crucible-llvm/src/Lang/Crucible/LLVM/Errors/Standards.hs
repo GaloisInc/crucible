@@ -1,5 +1,5 @@
 -- |
--- Module           : Lang.Crucible.LLVM.Safety.Standards
+-- Module           : Lang.Crucible.LLVM.Errors.Standards
 -- Description      : Standards documents
 -- Copyright        : (c) Galois, Inc 2018
 -- License          : BSD3
@@ -15,7 +15,7 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE Safe #-}
 
-module Lang.Crucible.LLVM.Extension.Safety.Standards
+module Lang.Crucible.LLVM.Errors.Standards
   ( Standard(..)
   , CStdVer(..)
   , CXXStdVer(..)
@@ -79,19 +79,19 @@ ppLLVMRefVer LLVM7  = "7"
 ppLLVMRefVer LLVM8  = "8"
 
 stdURL :: Standard -> Maybe Text
-stdURL (CStd   C99)     = Just "http://www.iso-9899.info/n1570.html"
+stdURL (CStd   C11)     = Just "http://www.iso-9899.info/n1570.html"
 stdURL (CXXStd CXX17)   = Just "http://www.open-std.org/jtc1/sc22/wg14/www/abq/c17_updated_proposed_fdis.pdf"
 stdURL (LLVMRef LLVM38) = Just "https://releases.llvm.org/3.8.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM4)  = Just "https://releases.llvm.org/4.0.1/docs/LangRef.html"
 stdURL (LLVMRef LLVM5)  = Just "https://releases.llvm.org/5.0.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM6)  = Just "https://releases.llvm.org/6.0.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM7)  = Just "https://releases.llvm.org/7.0.0/docs/LangRef.html"
-stdURL (LLVMRef LLVM8)  = Just "https://llvm.org/docs/LangRef.html"
+stdURL (LLVMRef LLVM8)  = Just "https://releases.llvm.org/8.0.0/docs/LangRef.html"
 stdURL _                = Nothing
 
 ppStd :: Standard -> Text
 ppStd =
   \case
-    CStd    ver -> "The C language standard, version "    <> pack (show ver)
-    CXXStd  ver -> "The C++ language standard, version "  <> ppCXXStdVer ver
-    LLVMRef ver -> "The LLVM language reference, version" <> ppLLVMRefVer ver
+    CStd    ver -> "The C language standard, version "     <> pack (show ver)
+    CXXStd  ver -> "The C++ language standard, version "   <> ppCXXStdVer ver
+    LLVMRef ver -> "The LLVM language reference, version " <> ppLLVMRefVer ver

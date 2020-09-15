@@ -6,7 +6,7 @@ intSum cx@0:i 42
 ==== Proof obligations ====
 
 Prove:
+  test-data/simulator-tests/calls.cbl:7:5: error: in main
   bogus
-  in main at test-data/simulator-tests/calls.cbl:7:5
   false
 COUNTEREXAMPLE

@@ -10,9 +10,6 @@
 [submodule "dependencies/cryptol"]
 	path = dependencies/cryptol
 	url = https://github.com/GaloisInc/cryptol.git
-[submodule "dependencies/cryptol-verifier"]
-	path = dependencies/cryptol-verifier
-	url = https://github.com/GaloisInc/cryptol-verifier.git
 [submodule "dependencies/golang"]
 	path = dependencies/golang
 	url = https://github.com/GaloisInc/golang.git

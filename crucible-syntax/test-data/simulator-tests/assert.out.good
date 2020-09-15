@@ -4,7 +4,7 @@
 ==== Proof obligations ====
 
 Prove:
+  test-data/simulator-tests/assert.cbl:4:5: error: in main
   x is true
-  in main at test-data/simulator-tests/assert.cbl:4:5
   cx@0:b
 COUNTEREXAMPLE

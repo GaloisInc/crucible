@@ -35,7 +35,6 @@ mainWithOutputConfig outCfg =
        makeCounterExamplesLLVM cruxOpts llvmOpts res
        Crux.postprocessSimResult cruxOpts res
 
-
 processLLVMOptions :: (CruxOptions,LLVMOptions) -> IO (CruxOptions,LLVMOptions)
 processLLVMOptions (cruxOpts,llvmOpts) =
   do -- keep looking for clangBin if it is unset

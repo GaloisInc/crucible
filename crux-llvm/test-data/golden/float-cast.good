@@ -1,5 +1,5 @@
-bvZext 32 (bvSelect 0 8 (floatToBinary cX@1:f))
-bvZext 32 (bvSelect 8 8 (floatToBinary cX@1:f))
-bvZext 32 (bvSelect 16 8 (floatToBinary cX@1:f))
-bvZext 32 (bvSelect 24 8 (floatToBinary cX@1:f))
+bvZext 32 (bvSelect 0 8 (floatToBinary cX@3:f))
+bvZext 32 (bvSelect 8 8 (floatToBinary cX@3:f))
+bvZext 32 (bvSelect 16 8 (floatToBinary cX@3:f))
+bvZext 32 (bvSelect 24 8 (floatToBinary cX@3:f))
 [Crux] Overall status: Valid.

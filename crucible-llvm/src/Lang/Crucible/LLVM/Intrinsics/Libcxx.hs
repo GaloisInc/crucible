@@ -66,7 +66,7 @@ import           Lang.Crucible.LLVM.Translation.Types
 -- | C++ overrides generally have a bit more work to do: their types are more
 -- complex, their names are mangled in the LLVM module, it's a big mess.
 register_cpp_override ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   SomeCPPOverride p sym arch ->
   OverrideTemplate p sym arch rtp l a
 register_cpp_override someCPPOverride =

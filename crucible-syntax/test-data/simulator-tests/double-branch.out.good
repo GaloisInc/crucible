@@ -8,7 +8,7 @@ Assuming:
 * The branch in main from test-data/simulator-tests/double-branch.cbl:7:5 to test-data/simulator-tests/double-branch.cbl:9:14
     intLe 0 cb@1:i
 Prove:
+  test-data/simulator-tests/double-branch.cbl:9:5: error: in main
   assert
-  in main at test-data/simulator-tests/double-branch.cbl:9:5
   eq 5 ca@0:i
 PROVED

@@ -8,8 +8,8 @@ Assuming:
 * in main test-data/simulator-tests/assume-merge.cbl:6:5: even
     eq 0 (intMod cx@0:i 2)
 Prove:
+  test-data/simulator-tests/assume-merge.cbl:12:5: error: in main
   oopsie!
-  in main at test-data/simulator-tests/assume-merge.cbl:12:5
   false
 COUNTEREXAMPLE
 Assuming:
@@ -18,7 +18,7 @@ Assuming:
 * in main test-data/simulator-tests/assume-merge.cbl:9:5: odd
     eq 1 (intMod cx@0:i 2)
 Prove:
+  test-data/simulator-tests/assume-merge.cbl:12:5: error: in main
   oopsie!
-  in main at test-data/simulator-tests/assume-merge.cbl:12:5
   false
 COUNTEREXAMPLE

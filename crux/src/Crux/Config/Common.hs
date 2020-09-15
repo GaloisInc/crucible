@@ -5,7 +5,6 @@ import Data.Functor.Alt
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
-import Text.Read(readMaybe)
 import Data.Word (Word64)
 import Data.Text (pack)
 
@@ -121,6 +120,9 @@ data CruxOptions = CruxOptions
 
   , onlineProblemFeatures    :: ProblemFeatures
     -- ^ Problem Features to force in online solvers
+
+  , printFailures            :: Bool
+    -- ^ Print errors regarding failed verification goals
   }
 
 
@@ -216,6 +218,10 @@ cruxOptions = Config
           hashConsing <-
             section "hash-consing" yesOrNoSpec False
             "Enable hash-consing in the symbolic expression backend"
+
+          printFailures <-
+            section "print-failures" yesOrNoSpec True
+            "Print error messages regarding failed verification goals"
 
           skipReport <-
             section "skip-report" yesOrNoSpec False
@@ -353,6 +359,10 @@ cruxOptions = Config
         "Enable hash-consing in the symbolic expression backend"
         $ NoArg $ \opts -> Right opts{ hashConsing = True }
 
+      , Option [] ["skip-print-failures"]
+        "Skip printing messages related to failed verification goals"
+        $ NoArg $ \opts -> Right opts{ printFailures = False }
+
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
         $ NoArg $ \opts -> Right opts { proofGoalsFailFast = True }
@@ -371,14 +381,6 @@ cruxOptions = Config
 
 dflt :: String -> (String -> OptSetter opts) -> (Maybe String -> OptSetter opts)
 dflt x p mb = p (fromMaybe x mb)
-
-
-parsePosNum :: (Read a, Num a, Ord a) =>
-  String -> (a -> opts -> opts) -> String -> OptSetter opts
-parsePosNum thing mk = \txt opts ->
-  case readMaybe txt of
-    Just a | a >= 0 -> Right (mk a opts)
-    _ -> Left ("Invalid " ++ thing)
 
 parseDiffTime ::
   String -> (DiffTime -> opts -> opts) -> String -> OptSetter opts
