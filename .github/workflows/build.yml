@@ -65,6 +65,10 @@ jobs:
         run: cabal v2-build exe:crux-llvm exe:crux-llvm-svcomp
 
       - shell: bash
+        run: cabal v2-build exe:crux-llvm-svcomp
+        if: 'runner.os != Windows'
+
+      - shell: bash
         run: .github/package-crux-llvm.sh
 
       - uses: actions/upload-artifact@v2
