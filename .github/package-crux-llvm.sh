@@ -1,8 +1,10 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
 DATE=`date "+%Y-%m-%d"`
 PKG=crux-llvm-$DATE
 rm -rf $PKG
-cabal v2-build exe:crux-llvm
-cabal v2-build exe:crux-llvm-svcomp
+cabal v2-build exe:crux-llvm exe:crux-llvm-svcomp
 mkdir $PKG
 mkdir $PKG/bin
 mkdir $PKG/doc
