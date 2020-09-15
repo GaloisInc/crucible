@@ -143,7 +143,6 @@ test-suite crux-llvm-test
 
   main-is: Test.hs
 
-
   build-depends:
                 base             >= 4.7,
                 bytestring,
