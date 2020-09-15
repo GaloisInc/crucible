@@ -135,7 +135,7 @@ instance Pretty Fn where
         rty    = fs^.fsreturn_ty
 
 instance Pretty MirBody where
-    pretty (MirBody mvs mbs) =
+    pretty (MirBody mvs mbs _) =
       vcat (map pretty_temp mvs ++
             map pretty      mbs)
     

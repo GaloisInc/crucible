@@ -149,6 +149,7 @@ struct FnTrans {
 enum BranchTrans {
     Bool([RegBlockId; 2], String),
     Int(Vec<i64>, Vec<RegBlockId>, String),
+    DropFlag,
 }
 
 impl BranchTrans {
@@ -156,6 +157,7 @@ impl BranchTrans {
         match *self {
             BranchTrans::Bool(ref dests, _) => dests,
             BranchTrans::Int(_, ref dests, _) => dests,
+            BranchTrans::DropFlag => &[],
         }
     }
 }
@@ -227,6 +229,7 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
 
             Ok(BranchTrans::Bool([true_dest, false_dest], span))
         },
+
         "IntBranch" => {
             if args.len() != 3 {
                 die!("expected 3 args for {}, but got {}", tag, args.len());
@@ -258,6 +261,14 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
 
             Ok(BranchTrans::Int(vals, dests, span))
         },
+
+        "DropFlagBranch" => {
+            if args.len() != 0 {
+                die!("expected 3 args for {}, but got {}", tag, args.len());
+            }
+            Ok(BranchTrans::DropFlag)
+        },
+
         _ => die!("unknown tag {:?} for branch", tag),
     }
 }
@@ -512,6 +523,9 @@ fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnT
                     }
                 }
             },
+
+            // Ignore drop-flag branches
+            BranchTrans::DropFlag => {},
         }
     }
 }

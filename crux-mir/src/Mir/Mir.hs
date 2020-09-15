@@ -255,7 +255,8 @@ data Fn = Fn {
 
 data MirBody = MirBody {
     _mvars :: [Var],
-    _mblocks :: [BasicBlock]
+    _mblocks :: [BasicBlock],
+    _mblockmap :: Map BasicBlockInfo BasicBlockData
 }
     deriving (Show,Eq, Ord, Generic)
 

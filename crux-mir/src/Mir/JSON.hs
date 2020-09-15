@@ -524,9 +524,11 @@ instance FromJSON Intrinsic where
 
 
 instance FromJSON MirBody where
-    parseJSON = withObject "MirBody" $ \v -> MirBody
-        <$> v .: "vars"
-        <*> v .: "blocks"
+    parseJSON = withObject "MirBody" $ \v -> do
+        vars <- v .: "vars"
+        blocks <- v .: "blocks"
+        let blockMap = Map.fromList [(b ^. bbinfo, b ^. bbdata) | b <- blocks]
+        return $ MirBody vars blocks blockMap
 
 instance FromJSON Static where
   parseJSON = withObject "Static" $ \v -> do

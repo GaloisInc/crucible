@@ -302,6 +302,10 @@ data BranchTransInfo =
     -- argument gives the source location of the switch in the original Rust
     -- code.
     | IntBranch [Integer] [Text] Text
+    -- | A two-way branch on a drop flag.  These branches are uninteresting; we
+    -- include them in the translation info only to mark them as explicitly
+    -- ignored.
+    | DropFlagBranch
   deriving (Show, Generic)
 
 instance Aeson.ToJSON BranchTransInfo where

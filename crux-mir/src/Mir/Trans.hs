@@ -1110,7 +1110,9 @@ transSwitch pos exp vals blks = do
         Just lab -> return lab
         Nothing -> mirFail "bad jump"
 
+    isDropFlag <- switchIsDropFlagCheck vals blks
     let info = case (exp, vals, labels) of
+            (MirExp C.BoolRepr _, [0], [fd, td]) | isDropFlag -> DropFlagBranch
             (MirExp C.BoolRepr _, [0], [fd, td]) ->
                 BoolBranch (labelText td) (labelText fd) pos
             (MirExp C.BoolRepr _, [1], [td, fd]) ->
@@ -1150,6 +1152,37 @@ transSwitch pos exp vals blks = do
     posStr :: Int -> Int -> Text
     posStr branchId idx =
         pos <> " #" <> Text.pack (show branchId) <> "," <> Text.pack (show idx)
+
+-- | Check if a switch appears to be a drop flag check.  Drop flag checks look
+-- like this:
+--
+--          switchInt(_dropflag) -> [false: bb2, otherwise: bb1];
+--
+--      bb1:
+--          _dropflag = const false;
+--          drop(_var) -> bb2;
+--
+--      bb2:
+--          ...
+--
+-- This has the unusual property that the false case jumps directly to the
+-- "after" block - a normal `if` expression generates blocks for both the true
+-- and false cases, even when the false case is empty.
+switchIsDropFlagCheck :: [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret Bool
+switchIsDropFlagCheck [0] [f, t] = do
+    optTrueBb <- use $ currentFn . fbody . mblockmap . at t
+    trueBb <- case optTrueBb of
+        Just x -> return $ x
+        Nothing -> mirFail $ "bad switch target " ++ show t
+    let stmtsOk = case trueBb ^. bbstmts of
+            [Assign (LBase _) (Use (OpConstant (Constant TyBool (ConstBool False)))) _] ->
+                True
+            _ -> False
+    let termOk = case trueBb ^. bbterminator of
+            Drop _ dest _ _ -> dest == f
+            _ -> False
+    return $ stmtsOk && termOk
+switchIsDropFlagCheck _ _ = return False
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
@@ -1578,7 +1611,7 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
 
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
-buildLabelMap (M.MirBody _ blocks) = Map.fromList <$> mapM buildLabel blocks
+buildLabelMap (M.MirBody _ blocks _) = Map.fromList <$> mapM buildLabel blocks
 
 buildLabel :: forall h s ret. M.BasicBlock -> MirGenerator h s ret (M.BasicBlockInfo, R.Label s)
 buildLabel (M.BasicBlock bi _) = do
@@ -1631,7 +1664,7 @@ genFn :: HasCallStack =>
     C.TypeRepr ret ->
     Ctx.Assignment (R.Atom s) args ->
     MirGenerator h s ret (G.Label s)
-genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype inputs = do
+genFn (M.Fn fname argvars sig body@(MirBody localvars blocks _)) rettype inputs = do
 
   lm <- buildLabelMap body
   labelMap .= lm
@@ -1650,7 +1683,7 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype inputs = 
      traceM $ "VarMap is: " ++ fmt (Map.keys vmm)
      traceM $ "Body is:\n" ++ fmt body
      traceM $ "-----------------------------------------------------------------------------"
-  let (M.MirBody _mvars blocks@(enter : _)) = body
+  let (M.MirBody _mvars blocks@(enter : _) _) = body
   -- actually translate all of the blocks of the function
   mapM_ (registerBlock rettype) blocks
   let (M.BasicBlock bbi _) = enter
