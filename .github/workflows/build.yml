@@ -62,7 +62,7 @@ jobs:
         run: cabal v2-update
 
       - shell: bash
-        run: cabal v2-build exe:crux-llvm exe:crux-llvm-svcomp
+        run: cabal v2-build exe:crux-llvm
 
       - shell: bash
         run: cabal v2-build exe:crux-llvm-svcomp
