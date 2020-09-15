@@ -2,7 +2,7 @@ package ops1
 
 // Testing binary and unary operations.
 
-import "github.com/GaloisInc/crucible-go"
+import "github.com/GaloisInc/go-crucible"
 
 func main() {
 	x := (1 + 2.5) * 3.2 / 1.9 - 1.5 + (-1.0)

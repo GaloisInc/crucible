@@ -1,6 +1,6 @@
 package array1
 
-import "github.com/GaloisInc/crucible-go"
+import "github.com/GaloisInc/go-crucible"
 
 func main() {
 	x, y := crucible.FreshInt32(), crucible.FreshInt32()

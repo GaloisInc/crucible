@@ -1,6 +1,6 @@
 package slice2
 
-import "github.com/GaloisInc/crucible-go"
+import "github.com/GaloisInc/go-crucible"
 
 // func f(x int32, xs ...int32) int32 {
 // 	// return x + xs[0]

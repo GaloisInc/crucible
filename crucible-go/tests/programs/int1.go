@@ -1,6 +1,6 @@
 package int1
 
-import "github.com/GaloisInc/crucible-go"
+import "github.com/GaloisInc/go-crucible"
 
 func main() {
 	var x int32 = crucible.FreshInt32()

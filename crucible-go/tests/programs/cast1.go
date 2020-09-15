@@ -2,7 +2,7 @@ package cast1
 
 // Testing of preliminary type conversion (not finished / correct).
 
-import "github.com/GaloisInc/crucible-go"
+import "github.com/GaloisInc/go-crucible"
 
 func main() {
 	var x int32 = 123

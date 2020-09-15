@@ -1,6 +1,6 @@
 package array_bounds
 
-import "github.com/GaloisInc/crucible-go"
+import "github.com/GaloisInc/go-crucible"
 
 func f(xs []int) int {
 	return xs[1]
