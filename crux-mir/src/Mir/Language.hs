@@ -211,7 +211,7 @@ runTests (cruxOpts, mirOpts) = do
             return (Crux.RunnableState $
                     C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
                      C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
-                   , undefined
+                   , \_ _ -> return mempty
                    )
 
     let outputResult (CruxSimulationResult cmpl (fmap snd -> gls))
