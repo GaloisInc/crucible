@@ -131,9 +131,8 @@ translate_alg :: Show a
 -- translate them left-to-right.
 translate_alg (MainNode nm (Pair main_node (TranslateM mainM)) imports) =
   TranslateM $ do
-  sng <- liftIO' newIONonceGenerator
   halloc <- liftIO' newHandleAllocator
-  modify $ \ts -> ts { sng = Just sng, halloc = Just halloc }
+  modify $ \ts -> ts { halloc = Just halloc }
 
   -- First translate the imports in the order in which they appear.
   imports' <- forM imports $ \(Pair import_node (TranslateM importM)) -> do
@@ -936,7 +935,7 @@ bindFields (TranslatedField names _repr : _fields) k =
 -- | Declare variable with initial value.
 declareVar :: Text -> Gen.Expr Go s tp -> GoGenerator s ret ()
 declareVar name e = do
-  ref <- Gen.newReference e
+  ref <- Gen.newRef e
   reg <- Gen.newReg ref
   modify (\ts -> ts { gamma = HM.insert name
                       (Some $ GoReg (exprType e) reg) (gamma ts) })
@@ -1107,7 +1106,6 @@ mkFunction recv name params variadic results body =
   results' <- mapM runTranslated results
   globals <- ns_globals <$> localNamespace
   functions <- ns_funcs <$> localNamespace
-  Just sng <- gets sng
   Just ha <- gets halloc
   pkgName <- gets pkgName
   bindFields params' $ \paramsRepr paramsGen ->
@@ -1126,7 +1124,7 @@ mkFunction recv name params variadic results body =
       Just (Pair body_node body') -> do
         modify $ \ts -> ts { retRepr = Some resultRepr }
         TranslatedBlock body_gen <- runTranslateM body'
-        liftIO' $ Gen.defineFunction InternalPos sng h
+        liftIO' $ Gen.defineFunction InternalPos (Some globalNonceGenerator) h
           (\assignment ->
              (def, do
                  paramsGen $ fmapFC Gen.AtomExpr assignment
@@ -1138,7 +1136,7 @@ mkFunction recv name params variadic results body =
                  Gen.reportError $
                    Gen.App (C.StringLit "missing return statement")))
       Nothing ->
-        liftIO' $ Gen.defineFunction InternalPos sng h
+        liftIO' $ Gen.defineFunction InternalPos (Some globalNonceGenerator) h
         (\assignment -> (def :: GenState s, Gen.reportError $
                               Gen.App (C.StringLit "missing function body")))
     let g' = case toSSA g of C.SomeCFG g' -> C.AnyCFG g'
@@ -1153,11 +1151,10 @@ mkFunction recv name params variadic results body =
 mkInitializer :: [Translated Package]
               -> TranslateM' (C.SomeCFG Go EmptyCtx UnitType)
 mkInitializer pkgs = do
-  Just sng <- gets sng
   Just ha <- gets halloc
   pkgName <- gets pkgName
   h <- liftIO' $ mkHandle' ha (functionNameFromText "@init") Ctx.empty UnitRepr
-  (Gen.SomeCFG g, []) <- liftIO' $ Gen.defineFunction InternalPos sng h
+  (Gen.SomeCFG g, []) <- liftIO' $ Gen.defineFunction InternalPos (Some globalNonceGenerator) h
     (\assignment -> (def, do
                         forM_ pkgs $ runSomeGoGenerator UnitRepr . packageInit
                         Gen.returnFromFunction $ Gen.App C.EmptyApp))

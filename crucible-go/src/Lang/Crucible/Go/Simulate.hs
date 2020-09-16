@@ -38,6 +38,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Expr as C
 import qualified Lang.Crucible.CFG.Reg as Reg
+import           Lang.Crucible.Panic
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
@@ -95,10 +96,11 @@ mkFunctionBindings overrides ((ident, AnyCFG cfg) : cfgs) =
           case (testEquality (cfgArgTypes cfg) argsRepr,
                 testEquality (cfgReturnType cfg) retRepr) of
             (Just Refl, Just Refl) -> UseOverride override
-            _ -> error $ "mkFunctionBindings: override " ++ show ident ++
-                 " type mismatch. expected " ++ show (cfgArgTypes cfg) ++
-                 " -> " ++ show (cfgReturnType cfg) ++ ", got " ++
-                 show argsRepr ++ " -> " ++ show retRepr
+            _ -> panic "[Go simulator] mkFunctionBindings"
+                 [ "Type mismatch for override of " ++ show ident
+                 , "  Expected: " ++ show (cfgArgTypes cfg) ++ " -> " ++ show (cfgReturnType cfg)
+                 , "  Got: " ++ show argsRepr ++ " -> " ++ show retRepr
+                 ]
         Nothing -> UseCFG cfg $ C.postdomInfo cfg in
     insertHandleMap (cfgHandle cfg) f $ mkFunctionBindings overrides cfgs
 

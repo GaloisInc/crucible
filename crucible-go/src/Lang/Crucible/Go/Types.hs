@@ -50,7 +50,7 @@ import           Lang.Crucible.Types
 ----------------------------------------------------------------------
 -- | Go extension tag.
 
-newtype Go = Go ()
+data Go
 
 type instance ExprExtension Go = EmptyExprExtension
 type instance StmtExtension Go = EmptyStmtExtension
@@ -136,7 +136,6 @@ data TransState =
   , retRepr :: Some TypeRepr -- ^ Return type of current function
   , namespaces :: HashMap Text Namespace
   , pkgName :: Text -- ^ Name of package curently being translated
-  , sng :: Maybe (Some (NonceGenerator IO))
   , halloc :: Maybe HandleAllocator
   , mainFunction :: Maybe (C.AnyCFG Go)
   , globals :: [GoGlobal] -- ^ all globals
@@ -149,7 +148,6 @@ instance Default TransState where
                    , retRepr = Some UnitRepr
                    , namespaces = HM.empty
                    , pkgName = ""
-                   , sng = Nothing
                    , halloc = Nothing
                    , mainFunction = Nothing
                    , globals = []

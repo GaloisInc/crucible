@@ -671,7 +671,11 @@ forwardFixpoint' dom interp cfg globals0 assignment0 =
                          }
       emptyFreshAssignment :: PU.Index blocks ctx -> Ignore (Some (PointAbstraction blocks dom)) ctx
       emptyFreshAssignment _i =
-        Ignore (Some (PointAbstraction { _paRegisters = PU.empty, _paGlobals = PM.empty }))
+        Ignore (Some (PointAbstraction { _paRegisters = PU.empty
+                                       , _paGlobals = PM.empty
+                                       , _paRefs = PM.empty
+                                       , _paRegisterRefs = PU.empty
+                                       }))
       s0 = IterationState { _isRetAbstr = domBottom dom
                           , _isFuncAbstr =
                             FunctionAbstraction { _faEntryRegs =

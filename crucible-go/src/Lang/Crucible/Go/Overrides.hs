@@ -66,10 +66,7 @@ mkFresh :: IsSymInterface sym
         -> Crux.OverM p sym ext (RegValue sym (BaseToType ty))
 mkFresh nm ty =
   do sym  <- C.getSymInterface
-     name <- case W4.userSymbol nm of
-               Left err -> fail (show err)
-               Right a  -> return a
-     liftIO $ W4.freshConstant sym name ty
+     liftIO $ W4.freshConstant sym (W4.safeSymbol nm) ty
 
 fresh_int :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
@@ -166,4 +163,5 @@ lookupOverride' :: Maybe (Text, FunctionName)
                 -> [SomeOverride p sym ext]
                 -> Maybe (SomeOverride p sym ext)
 lookupOverride' nm overrides =
+  -- TODO: use a map instead
   nm >>= flip (uncurry lookupOverride) overrides

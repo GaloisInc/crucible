@@ -95,7 +95,7 @@ asTypesEither :: CtxRepr ctx'
               (Assignment (Gen.Expr Go s) ctx')
 asTypesEither Empty Empty = Right Empty
 asTypesEither (reprs :> repr) (es :> e) =
-  pure (:>) <*> asTypesEither reprs es <*> asTypeEither repr e
+  (:>) <$> asTypesEither reprs es <*> asTypeEither repr e
 
 -- | asTypeMaybe lifted to assignments.
 asTypesMaybe :: CtxRepr ctx' ->
@@ -149,7 +149,8 @@ tryAsPointer :: Gen.Expr Go s tp
              -> (forall a. TypeRepr a -> Gen.Expr Go s (PointerType a) -> b)
              -> b
              -> b
-tryAsPointer e k b = case exprType e of    
+tryAsPointer e k b = case exprType e of
+  -- TODO: this could probably be made cleaner
   MaybeRepr (VariantRepr
              (Ctx.Empty :> ReferenceRepr repr :> StructRepr
                (Ctx.Empty :> ReferenceRepr (VectorRepr repr') :> NatRepr))) ->

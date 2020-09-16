@@ -41,10 +41,6 @@ module Lang.Crucible.CFG.Generator
   , getPosition
   , setPosition
   , withPosition
-    -- * References
-  , newReference
-  , readReference
-  , writeReference
     -- * Expressions and statements
   , newReg
   , newUnassignedReg
@@ -54,7 +50,7 @@ module Lang.Crucible.CFG.Generator
   , modifyRegM
   , readGlobal
   , writeGlobal
-
+    -- * References
   , newRef
   , newEmptyRef
   , readRef
@@ -364,20 +360,6 @@ mkFreshFloat fi symb = freshAtom (FreshFloat fi symb)
 mkAtom :: (Monad m, IsSyntaxExtension ext) => Expr ext s tp -> Generator ext s t ret m (Atom s tp)
 mkAtom (AtomExpr a)   = return a
 mkAtom (App a)        = freshAtom . EvalApp =<< traverseFC mkAtom a
-
--- | Create a new reference bound to the value of the expression
-newReference :: (Monad m, IsSyntaxExtension ext) => Expr ext s tp -> Generator ext s t ret m (Expr ext s (ReferenceType tp))
-newReference e = do a <- mkAtom e
-                    AtomExpr <$> freshAtom (NewRef a)
-
-readReference :: (Monad m, IsSyntaxExtension ext) => Expr ext s (ReferenceType tp) -> Generator ext s t ret m (Expr ext s tp)
-readReference ref = do a <- mkAtom ref
-                       AtomExpr <$> freshAtom (ReadRef a)
-
-writeReference :: (Monad m, IsSyntaxExtension ext) => Expr ext s (ReferenceType tp) -> Expr ext s tp -> Generator ext s t ret m ()
-writeReference ref val = do aref <- mkAtom ref
-                            aval <- mkAtom val
-                            undefined -- Generator $ addStmt $ WriteRef aref aval
 
 -- | Read a global variable.
 readGlobal :: (Monad m, IsSyntaxExtension ext) => GlobalVar tp -> Generator ext s t ret m (Expr ext s tp)

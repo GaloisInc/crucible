@@ -67,7 +67,6 @@ library
     Lang.Crucible.Analysis.Fixpoint.Components
     Lang.Crucible.Analysis.Postdom
     Lang.Crucible.Analysis.Reachable
-    Lang.Crucible.Analysis.Taint
     Lang.Crucible.Backend
     Lang.Crucible.Backend.AssumptionStack
     Lang.Crucible.Backend.ProofGoals
