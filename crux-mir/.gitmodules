@@ -1,9 +1,0 @@
-[submodule "deps/crucible"]
-	path = deps/crucible
-	url = https://github.com/GaloisInc/crucible.git
-[submodule "deps/parameterized-utils"]
-	path = deps/parameterized-utils
-	url = https://github.com/GaloisInc/parameterized-utils.git
-[submodule "deps/aig"]
-	path = deps/aig
-	url = https://github.com/GaloisInc/aig
