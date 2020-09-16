@@ -1,0 +1,94 @@
+name:                crucible-go
+version:             0.1.0.0
+synopsis:            A Go frontend for Crucible
+license:             BSD3
+license-file:        LICENSE
+author:              Alex Bagnall
+maintainer:          abagnall@galois.com
+copyright:           (c) 2020 Galois Inc
+category:            Language
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+executable crux-go
+
+  hs-source-dirs: tool
+  main-is: Main.hs
+
+  build-depends:
+    base >= 4 && < 5,
+    aig,
+    ansi-wl-pprint,
+    array,
+    containers,
+    crucible,
+    directory,
+    filepath,
+    haskeline >= 0.7,
+    lens,
+    mtl >= 2.1,
+    parameterized-utils >= 1.0 && < 2.2,
+    pretty >= 1.1,
+    split >= 0.2,
+    text,
+    transformers >= 0.3,
+    transformers-compat,
+    vector >= 0.7,
+    golang,
+    what4 >= 0.4,
+    crucible-go,
+    ansi-terminal,
+    crux,
+    bytestring
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
+library
+  exposed-modules:     Lang.Crucible.Go.Builtin
+                       Lang.Crucible.Go.Encodings
+                       Lang.Crucible.Go.Overrides
+                       Lang.Crucible.Go.Simulate
+                       Lang.Crucible.Go.Translation
+                       Lang.Crucible.Go.TransUtil
+                       Lang.Crucible.Go.Types
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends:       base >=4.8 && < 5
+                     , golang
+                     , text
+                     , crucible
+                     , containers
+                     , unordered-containers
+                     , parameterized-utils
+                     , mtl
+                     , data-default-class
+                     , lens-simple
+                     , what4
+                     , transformers >= 0.3
+                     , ansi-wl-pprint
+                     , crux
+                     , vector
+                     , bv-sized
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+
+test-suite crucible-go-tests
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+  ghc-options: -Wall
+  main-is: Main.hs
+  hs-source-dirs: tests
+  build-depends: base >= 4.8 && < 5,
+                 lens,
+                 tasty >= 0.10 && < 0.12,
+                 tasty-hunit,
+                 filepath >= 1 && < 2,
+                 filemanip >= 0.3.6 && < 0.4,
+                 parameterized-utils,
+                 crucible,
+                 crucible-go

@@ -37,6 +37,8 @@ module Lang.Crucible.Analysis.Fixpoint (
   IterationStrategy(..),
   Interpretation(..),
   PointAbstraction(..),
+  paGlobals,
+  paRegisters,
   lookupAbstractRegValue,
   modifyAbstractRegValue,
   cfgWeakTopologicalOrdering,
@@ -103,82 +105,148 @@ data Domain (dom :: CrucibleType -> Type) =
 -- receive this argument do not -- e.g. @interpCall@ -- because
 -- conathan didn't have a use for that.
 data Interpretation ext (dom :: CrucibleType -> Type) =
-  Interpretation { interpExpr       :: forall ctx tp
+  Interpretation { interpExpr       :: forall blocks ctx tp
                                      . ScopedReg
                                     -> TypeRepr tp
                                     -> Expr ext ctx tp
-                                    -> PointAbstraction dom ctx
-                                    -> (Maybe (PointAbstraction dom ctx), dom tp)
-                 , interpExt        :: forall ctx tp
+                                    -> PointAbstraction blocks dom ctx
+                                    -> (Maybe (PointAbstraction blocks dom ctx), dom tp)
+                 , interpExt        :: forall blocks ctx tp
                                      . ScopedReg
                                     -> StmtExtension ext (Reg ctx) tp
-                                    -> PointAbstraction dom ctx
-                                    -> (Maybe (PointAbstraction dom ctx), dom tp)
-                 , interpCall       :: forall ctx args ret
+                                    -> PointAbstraction blocks dom ctx
+                                    -> (Maybe (PointAbstraction blocks dom ctx), dom tp)
+                 , interpCall       :: forall blocks ctx args ret
                                      . CtxRepr args
                                     -> TypeRepr ret
                                     -> Reg ctx (FunctionHandleType args ret)
                                     -> dom (FunctionHandleType args ret)
                                     -> PU.Assignment dom args
-                                    -> PointAbstraction dom ctx
-                                    -> (Maybe (PointAbstraction dom ctx), dom ret)
-                 , interpReadGlobal :: forall ctx tp
+                                    -> PointAbstraction blocks dom ctx
+                                    -> (Maybe (PointAbstraction blocks dom ctx), dom ret)
+                 , interpReadGlobal :: forall blocks ctx tp
                                      . GlobalVar tp
-                                    -> PointAbstraction dom ctx
-                                    -> (Maybe (PointAbstraction dom ctx), dom tp)
-                 , interpWriteGlobal :: forall ctx tp
+                                    -> PointAbstraction blocks dom ctx
+                                    -> (Maybe (PointAbstraction blocks dom ctx), dom tp)
+                 , interpWriteGlobal :: forall blocks ctx tp
                                       . GlobalVar tp
                                      -> Reg ctx tp
-                                     -> PointAbstraction dom ctx
-                                     -> Maybe (PointAbstraction dom ctx)
+                                     -> PointAbstraction blocks dom ctx
+                                     -> Maybe (PointAbstraction blocks dom ctx)
                  , interpBr         :: forall blocks ctx
                                      . Reg ctx BoolType
                                     -> dom BoolType
                                     -> JumpTarget blocks ctx
                                     -> JumpTarget blocks ctx
-                                    -> PointAbstraction dom ctx
-                                    -> (Maybe (PointAbstraction dom ctx), Maybe (PointAbstraction dom ctx))
-                 , interpMaybe      :: forall ctx tp
+                                    -> PointAbstraction blocks dom ctx
+                                    -> (Maybe (PointAbstraction blocks dom ctx), Maybe (PointAbstraction blocks dom ctx))
+                 , interpMaybe      :: forall blocks ctx tp
                                      . TypeRepr tp
                                     -> Reg ctx (MaybeType tp)
                                     -> dom (MaybeType tp)
-                                    -> PointAbstraction dom ctx
-                                    -> (Maybe (PointAbstraction dom ctx), dom tp, Maybe (PointAbstraction dom ctx))
+                                    -> PointAbstraction blocks dom ctx
+                                    -> (Maybe (PointAbstraction blocks dom ctx), dom tp, Maybe (PointAbstraction blocks dom ctx))
                  }
 
 -- | This abstraction contains the abstract values of each register at
 -- the program point represented by the abstraction.  It also contains
 -- a map of abstractions for all of the global variables currently
 -- known.
-data PointAbstraction dom ctx =
+data PointAbstraction blocks dom ctx =
   PointAbstraction { _paGlobals :: PM.MapF GlobalVar dom
                    , _paRegisters :: PU.Assignment dom ctx
+                   , _paRefs :: PM.MapF (RefStmtId blocks) dom
+                   -- ^ In this map, the keys are really just the 'StmtId's in
+                   -- '_paRegisterRefs', but with a newtype wrapper that unwraps
+                   -- a level of their 'ReferenceType` type rep.
+                   , _paRegisterRefs :: PU.Assignment (RefSet blocks) ctx
+                   -- ^ This mapping records the *set* of references (named by
+                   -- allocation site) that each register could hold.
                    }
 
-instance ShowF dom => Show (PointAbstraction dom ctx) where
+-- | This is a wrapper around 'StmtId' that exposes the underlying type of a
+-- 'ReferenceType', and is needed to define the abstract value we carry around.
+newtype RefStmtId blocks tp = RefStmtId (StmtId blocks (ReferenceType tp))
+
+-- | This type names an allocation site in a program.
+--
+-- Allocation sites are named by their basic block and their index into that
+-- containing basic block.  We have to carry around the type repr for inspection
+-- later (especially in instances).
+data StmtId blocks tp = StmtId (TypeRepr tp) (Some (BlockID blocks)) Int
+  deriving (Show)
+
+instance Eq (StmtId blocks tp) where
+  StmtId tp1 bid1 ix1 == StmtId tp2 bid2 ix2 =
+    case testEquality tp1 tp2 of
+      Nothing -> False
+      Just Refl -> (bid1, ix1) == (bid2, ix2)
+
+instance Ord (StmtId blocks tp) where
+  compare (StmtId tp1 bid1 ix1) (StmtId tp2 bid2 ix2) =
+    case toOrdering (compareF tp1 tp2) of
+      LT -> LT
+      GT -> GT
+      EQ -> compare (bid1, ix1) (bid2, ix2)
+
+instance TestEquality (RefStmtId blocks) where
+  testEquality (RefStmtId (StmtId tp1 (Some bid1) idx1)) (RefStmtId (StmtId tp2 (Some bid2) idx2)) = do
+    Refl <- testEquality tp1 tp2
+    Refl <- testEquality bid1 bid2
+    case idx1 == idx2 of
+      True -> return $! Refl
+      False -> Nothing
+
+instance OrdF (RefStmtId blocks) where
+  compareF (RefStmtId (StmtId tp1 (Some bid1) idx1)) (RefStmtId (StmtId tp2 (Some bid2) idx2)) =
+    case compareF tp1 tp2 of
+      EQF ->
+        case compareF bid1 bid2 of
+          EQF ->
+            case compare idx1 idx2 of
+              LT -> LTF
+              GT -> GTF
+              EQ -> EQF
+          LTF -> LTF
+          GTF -> GTF
+      LTF -> LTF
+      GTF -> GTF
+
+-- | This is a wrapper around a set of 'StmtId's that name allocation sites of
+-- references.  We need the wrapper to correctly position the @tp@ type
+-- parameter so that we can put them in an 'PU.Assignment'.
+newtype RefSet blocks tp = RefSet (S.Set (StmtId blocks tp))
+
+emptyRefSet :: RefSet blocks tp
+emptyRefSet = RefSet S.empty
+
+unionRefSets :: RefSet blocks tp -> RefSet blocks tp -> RefSet blocks tp
+unionRefSets (RefSet s1) (RefSet s2) = RefSet (s1 `S.union` s2)
+
+instance ShowF dom => Show (PointAbstraction blocks dom ctx) where
   show pa = show (_paRegisters pa)
 
-instance ShowF dom => ShowF (PointAbstraction dom)
+instance ShowF dom => ShowF (PointAbstraction blocks dom)
 
 -- | Look up the abstract value of a register at a program point
-lookupAbstractRegValue :: PointAbstraction dom ctx -> Reg ctx tp -> dom tp
+lookupAbstractRegValue :: PointAbstraction blocks dom ctx -> Reg ctx tp -> dom tp
 lookupAbstractRegValue pa (Reg ix) = (pa ^. paRegisters) PU.! ix
 
 -- | Modify the abstract value of a register at a program point
-modifyAbstractRegValue :: PointAbstraction dom ctx
+modifyAbstractRegValue :: PointAbstraction blocks dom ctx
                        -> Reg ctx tp
                        -> (dom tp -> dom tp)
-                       -> PointAbstraction dom ctx
+                       -> PointAbstraction blocks dom ctx
 modifyAbstractRegValue pa (Reg ix) f = pa & paRegisters . ixF ix %~ f
 
 -- | The `FunctionAbstraction` contains the abstractions for the entry
 -- point of each basic block in the function, as well as the final
 -- abstract value for the returned register.
 data FunctionAbstraction (dom :: CrucibleType -> Type) blocks ret =
-  FunctionAbstraction { _faEntryRegs :: PU.Assignment (PointAbstraction dom) blocks
+  FunctionAbstraction { _faEntryRegs :: PU.Assignment (PointAbstraction blocks dom) blocks
                         -- ^ Mapping from blocks to point abstractions
                         -- at entry to blocks.
-                      , _faExitRegs :: PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+                      , _faExitRegs :: PU.Assignment (Ignore (Some (PointAbstraction blocks dom))) blocks
                         -- ^ Mapping from blocks to point abstractions
                         -- at exit from blocks. Blocks are indexed by
                         -- their entry context, but not by there exit
@@ -198,9 +266,30 @@ data IterationState (dom :: CrucibleType -> Type) blocks ret =
 newtype M (dom :: CrucibleType -> Type) blocks ret a = M { runM :: St.State (IterationState dom blocks ret) a }
   deriving (St.MonadState (IterationState dom blocks ret), Monad, Applicative, Functor)
 
-extendRegisters :: dom tp -> PointAbstraction dom ctx -> PointAbstraction dom (ctx ::> tp)
+-- | Extend the abstraction with a domain value for the next register.
+--
+-- The set of references that the register can point to is set to the empty set
+extendRegisters :: dom tp -> PointAbstraction blocks dom ctx -> PointAbstraction blocks dom (ctx ::> tp)
 extendRegisters domVal pa =
-  pa { _paRegisters = PU.extend (_paRegisters pa) domVal }
+  pa { _paRegisters = PU.extend (_paRegisters pa) domVal
+     , _paRegisterRefs = PU.extend (_paRegisterRefs pa) emptyRefSet
+     }
+
+-- | Extend the abstraction with a domain value and a set of register references
+-- simultaneously.
+--
+-- Note that we inject a singleton set of reference identifiers here because
+-- there was no prior value, so we don't need to set union.
+extendRegisterRefs :: dom (ReferenceType tp)
+                   -> StmtId blocks (ReferenceType tp)
+                   -> dom tp
+                   -> PointAbstraction blocks dom ctx
+                   -> PointAbstraction blocks dom (ctx ::> ReferenceType tp)
+extendRegisterRefs domVal refId refDomVal pa =
+  pa { _paRegisters = PU.extend (_paRegisters pa) domVal
+     , _paRegisterRefs = PU.extend (_paRegisterRefs pa) (RefSet (S.singleton refId))
+     , _paRefs = PM.insert (RefStmtId refId) refDomVal (_paRefs pa)
+     }
 
 -- | Join two point abstractions using the join operation of the domain.
 --
@@ -209,22 +298,26 @@ extendRegisters domVal pa =
 -- there is an implicit join with bottom, which always results in the
 -- same element.  Since it is a no-op, we just skip it and keep the
 -- one present element.
-joinPointAbstractions :: forall (dom :: CrucibleType -> Type) ctx
+joinPointAbstractions :: forall blocks (dom :: CrucibleType -> Type) ctx
                        . Domain dom
-                      -> PointAbstraction dom ctx
-                      -> PointAbstraction dom ctx
-                      -> PointAbstraction dom ctx
-joinPointAbstractions dom = zipPAWith (domJoin dom)
+                      -> PointAbstraction blocks dom ctx
+                      -> PointAbstraction blocks dom ctx
+                      -> PointAbstraction blocks dom ctx
+joinPointAbstractions dom = zipPAWith (domJoin dom) unionRefSets
 
-zipPAWith :: forall (dom :: CrucibleType -> Type) ctx
+zipPAWith :: forall blocks (dom :: CrucibleType -> Type) ctx
                        . (forall tp . dom tp -> dom tp -> dom tp)
-                      -> PointAbstraction dom ctx
-                      -> PointAbstraction dom ctx
-                      -> PointAbstraction dom ctx
-zipPAWith op pa1 pa2 =
-  pa1 { _paRegisters = PU.zipWith op (pa1 ^. paRegisters) (pa2 ^. paRegisters)
+                      -> (forall tp . RefSet blocks tp -> RefSet blocks tp -> RefSet blocks tp)
+                      -> PointAbstraction blocks dom ctx
+                      -> PointAbstraction blocks dom ctx
+                      -> PointAbstraction blocks dom ctx
+zipPAWith domOp refSetOp pa1 pa2 =
+  pa1 { _paRegisters = PU.zipWith domOp (pa1 ^. paRegisters) (pa2 ^. paRegisters)
       , _paGlobals = I.runIdentity $ do
-          PM.mergeWithKeyM (\_ a b -> return (Just (op a b))) return return (pa1 ^. paGlobals) (pa2 ^. paGlobals)
+          PM.mergeWithKeyM (\_ a b -> return (Just (domOp a b))) return return (pa1 ^. paGlobals) (pa2 ^. paGlobals)
+      , _paRefs = I.runIdentity $ do
+          PM.mergeWithKeyM (\_ a b -> return (Just (domOp a b))) return return (pa1 ^. paRefs) (pa2 ^. paRefs)
+      , _paRegisterRefs = PU.zipWith refSetOp (pa1 ^. paRegisterRefs) (pa2 ^. paRegisterRefs)
       }
 
 -- | Compare two point abstractions for equality.
@@ -232,10 +325,10 @@ zipPAWith op pa1 pa2 =
 -- Note that the globals maps are converted to a list and the lists
 -- are checked for equality.  This should be safe if order is
 -- preserved properly in the list functions...
-equalPointAbstractions :: forall (dom :: CrucibleType -> Type) ctx
+equalPointAbstractions :: forall blocks (dom :: CrucibleType -> Type) ctx
                         . Domain dom
-                       -> PointAbstraction dom ctx
-                       -> PointAbstraction dom ctx
+                       -> PointAbstraction blocks dom ctx
+                       -> PointAbstraction blocks dom ctx
                        -> Bool
 equalPointAbstractions dom pa1 pa2 =
   PU.foldlFC (\a (Ignore b) -> a && b) True pointwiseEqualRegs && equalGlobals
@@ -283,7 +376,7 @@ regIndexVal = PU.indexVal . regIndex
 
 -- | Lookup the abstract value of scoped reg in an exit assignment.
 lookupAbstractScopedRegValue :: ScopedReg
-  -> PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+  -> PU.Assignment (Ignore (Some (PointAbstraction blocks dom))) blocks
   -> Maybe (Some dom)
 lookupAbstractScopedRegValue sr ass =
   lookupAbstractScopedRegValueByIndex (scopedRegIndexVals sr) ass
@@ -291,7 +384,7 @@ lookupAbstractScopedRegValue sr ass =
 -- | Lookup the abstract value of scoped reg -- specified by 0-based
 -- int indices -- in an exit assignment.
 lookupAbstractScopedRegValueByIndex :: (Int, Int)
-  -> PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+  -> PU.Assignment (Ignore (Some (PointAbstraction blocks dom))) blocks
   -> Maybe (Some dom)
 lookupAbstractScopedRegValueByIndex (b, r) ass = do
   Some (Ignore (Some pa)) <- assignmentLookupByIndex b ass
@@ -317,7 +410,7 @@ transfer :: forall ext dom blocks ret ctx
          -> Interpretation ext dom
          -> TypeRepr ret
          -> Block ext blocks ret ctx
-         -> PointAbstraction dom ctx
+         -> PointAbstraction blocks dom ctx
          -> M dom blocks ret (S.Set (Some (BlockID blocks)))
 transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
   where
@@ -332,7 +425,7 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
     transferSeq :: forall ctx'
                  . PU.Size ctx'
                 -> StmtSeq ext blocks ret ctx'
-                -> PointAbstraction dom ctx'
+                -> PointAbstraction blocks dom ctx'
                 -> M dom blocks ret (S.Set (Some (BlockID blocks)))
     transferSeq sz (ConsStmt _loc stmt ss) =
       transferSeq (nextStmtHeight sz stmt) ss .
@@ -342,8 +435,8 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
     transferStmt :: forall ctx1 ctx2
                   . PU.Size ctx1
                  -> Stmt ext ctx1 ctx2
-                 -> PointAbstraction dom ctx1
-                 -> PointAbstraction dom ctx2
+                 -> PointAbstraction blocks dom ctx1
+                 -> PointAbstraction blocks dom ctx2
     transferStmt sz s assignment =
       case s of
         SetReg (tp :: TypeRepr tp) ex ->
@@ -394,6 +487,31 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
           let assignment' = interpWriteGlobal interp gv reg assignment
           in maybe assignment (joinPointAbstractions dom assignment) assignment'
 
+          {-
+        NewRefCell rep initValReg ->
+          let initValAbst = lookupReg initValReg assignment
+          in extendRegisterRefs (domBottom dom) (mkStmtId (ReferenceRepr rep)) initValAbst assignment
+        ReadRefCell (Reg ix) ->
+          -- Look up the set of refs that could be pointed to by this reg in
+          -- _paRegisterRefs, then look up the domain values for each of those
+          -- refs.  Join all of them and take the result as the domain value for
+          -- this register.
+          let RefSet refSet = (assignment ^. paRegisterRefs) PU.! ix
+              refDomVals = [ domVal
+                           | stmtid <- S.toList refSet
+                           , let Just domVal = PM.lookup (RefStmtId stmtid) (_paRefs assignment)
+                           ]
+              regDomVal = foldr (domJoin dom) (domBottom dom) refDomVals
+          in extendRegisters regDomVal assignment
+        WriteRefCell (Reg ix) exprReg ->
+          -- Look up the set of refs that could be pointed to by the destReg in
+          -- _paRegisterRefs.  Update the values associated with those
+          -- references in _paRefs with the dom value that corresponds to exprReg
+          let exprAbstraction = lookupAbstractRegValue assignment exprReg
+              RefSet refSet = (assignment ^. paRegisterRefs) PU.! ix
+              updateAssignment stmtId = PM.insert (RefStmtId stmtId) exprAbstraction
+          in assignment { _paRefs = foldr updateAssignment (_paRefs assignment) (S.toList refSet) }
+          -}
         FreshConstant{} -> error "transferStmt: FreshConstant not supported"
         FreshFloat{} -> error "transferStmt: FreshFloat not supported"
         NewEmptyRefCell{} -> error "transferStmt: NewEmptyRefCell not supported"
@@ -405,7 +523,7 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
     -- Transfer a block terminator statement.
     transferTerm :: forall ctx'
                   . TermStmt blocks ret ctx'
-                 -> PointAbstraction dom ctx'
+                 -> PointAbstraction blocks dom ctx'
                  -> M dom blocks ret (S.Set (Some (BlockID blocks)))
     transferTerm s assignment = do
       -- Save the current point abstraction as the exit point
@@ -454,21 +572,25 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
 
     transferJump :: forall ctx'
                   . JumpTarget blocks ctx'
-                 -> PointAbstraction dom ctx'
+                 -> PointAbstraction blocks dom ctx'
                  -> M dom blocks ret (S.Set (Some (BlockID blocks)))
     transferJump (JumpTarget target argsTps actuals) assignment = do
-      let argRegAbstractions = PU.zipWith (\_tp act -> lookupReg act assignment) argsTps actuals
-          blockAbstr0 = assignment { _paRegisters = argRegAbstractions }
+      let blockAbstr0 = assignment { _paRegisters = PU.zipWith (\_tp act -> lookupReg act assignment) argsTps actuals
+                                   , _paRegisterRefs = PU.zipWith (\_tp act -> lookupRegRefs act assignment) argsTps actuals
+                                   }
       transferTarget target blockAbstr0
 
     transferSwitch :: forall ctx' tp
                     . SwitchTarget blocks ctx' tp
                    -> dom tp
-                   -> PointAbstraction dom ctx'
+                   -> PointAbstraction blocks dom ctx'
                    -> M dom blocks ret (S.Set (Some (BlockID blocks)))
     transferSwitch (SwitchTarget target argTps actuals) domVal assignment = do
       let argRegAbstractions = PU.zipWith (\_ act -> lookupReg act assignment) argTps actuals
-          blockAbstr0 = assignment { _paRegisters = PU.extend argRegAbstractions domVal }
+          argRegRefAbstractions = PU.zipWith (\_ act -> lookupRegRefs act assignment) argTps actuals
+          blockAbstr0 = assignment { _paRegisters = PU.extend argRegAbstractions domVal
+                                   , _paRegisterRefs = PU.extend argRegRefAbstractions emptyRefSet
+                                   }
       transferTarget target blockAbstr0
 
     -- Return the singleton set containing the target block if we
@@ -477,7 +599,7 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
     -- the current block.
     transferTarget :: forall ctx'
                     . BlockID blocks ctx'
-                   -> PointAbstraction dom ctx'
+                   -> PointAbstraction blocks dom ctx'
                    -> M dom blocks ret (S.Set (Some (BlockID blocks)))
     transferTarget target@(BlockID idx) assignment = do
       old <- lookupAssignment idx
@@ -500,7 +622,7 @@ isVisited bid = do
   return (Some bid `S.member` s)
 
 -- | Compute a fixed point via abstract interpretation over a control
--- flow grap ('CFG') given 1) an interpretation + domain, 2) initial
+-- flow graph ('CFG') given 1) an interpretation + domain, 2) initial
 -- assignments of domain values to global variables, and 3) initial
 -- assignments of domain values to function arguments.
 --
@@ -530,22 +652,30 @@ forwardFixpoint' :: forall ext dom blocks ret init
                 -- ^ Assignments of abstract values to global variables at the function start
                 -> PU.Assignment dom init
                 -- ^ Assignments of abstract values to the function arguments
-                -> ( PU.Assignment (PointAbstraction dom) blocks
-                   , PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+                -> ( PU.Assignment (PointAbstraction blocks dom) blocks
+                   , PU.Assignment (Ignore (Some (PointAbstraction blocks dom))) blocks
                    , dom ret )
 forwardFixpoint' dom interp cfg globals0 assignment0 =
   let BlockID idx = cfgEntryBlockID cfg
       pa0 = PointAbstraction { _paGlobals = globals0
                              , _paRegisters = assignment0
+                             , _paRefs = PM.empty
+                             , _paRegisterRefs = PU.fmapFC (const emptyRefSet) assignment0
                              }
-      freshAssignment :: PU.Index blocks ctx -> PointAbstraction dom ctx
+      freshAssignment :: PU.Index blocks ctx -> PointAbstraction blocks dom ctx
       freshAssignment i =
         PointAbstraction { _paRegisters = PU.fmapFC (const (domBottom dom)) (blockInputs (getBlock (BlockID i) (cfgBlockMap cfg)))
+                         , _paRegisterRefs = PU.fmapFC (const emptyRefSet) (blockInputs (getBlock (BlockID i) (cfgBlockMap cfg)))
                          , _paGlobals = PM.empty
+                         , _paRefs = PM.empty
                          }
-      emptyFreshAssignment :: PU.Index blocks ctx -> Ignore (Some (PointAbstraction dom)) ctx
+      emptyFreshAssignment :: PU.Index blocks ctx -> Ignore (Some (PointAbstraction blocks dom)) ctx
       emptyFreshAssignment _i =
-        Ignore (Some (PointAbstraction { _paRegisters = PU.empty, _paGlobals = PM.empty }))
+        Ignore (Some (PointAbstraction { _paRegisters = PU.empty
+                                       , _paGlobals = PM.empty
+                                       , _paRefs = PM.empty
+                                       , _paRegisterRefs = PU.empty
+                                       }))
       s0 = IterationState { _isRetAbstr = domBottom dom
                           , _isFuncAbstr =
                             FunctionAbstraction { _faEntryRegs =
@@ -570,7 +700,7 @@ forwardFixpoint :: forall ext dom blocks ret init
                 -> CFG ext blocks init ret
                 -> PM.MapF GlobalVar dom
                 -> PU.Assignment dom init
-                -> (PU.Assignment (PointAbstraction dom) blocks, dom ret)
+                -> (PU.Assignment (PointAbstraction blocks dom) blocks, dom ret)
 forwardFixpoint dom interp cfg globals0 assignment0 =
   let (ass, _, ret) = forwardFixpoint' dom interp cfg globals0 assignment0
   in (ass, ret)
@@ -607,7 +737,7 @@ worklistIteration dom interp cfg =
           visit (getBlock target (cfgBlockMap cfg)) assignment worklist'
 
     visit :: Block ext blocks ret ctx
-          -> PointAbstraction dom ctx
+          -> PointAbstraction blocks dom ctx
           -> S.Set (Some (BlockID blocks))
           -> M dom blocks ret ()
     visit blk startingAssignment worklist' = do
@@ -660,17 +790,24 @@ wtoIteration mWiden dom interp cfg = loop (cfgWeakTopologicalOrdering cfg)
             -- here with 'faExitRegs'?
             Just (WideningStrategy strat, WideningOperator widen)
               | strat iterNum -> do
-                  let headInputW = zipPAWith widen headInput0 headInput1
+                  -- TODO: is unionRefSets the right thing below?
+                  let headInputW = zipPAWith widen unionRefSets headInput0 headInput1
                   isFuncAbstr %= (faEntryRegs . ixF idx .~ headInputW)
             _ -> return ()
           processSCC (Some hbid) comps (iterNum + 1)
 
 lookupAssignment :: forall dom blocks ret tp
                   . PU.Index blocks tp
-                 -> M dom blocks ret (PointAbstraction dom tp)
+                 -> M dom blocks ret (PointAbstraction blocks dom tp)
 lookupAssignment idx = do
   abstr <- St.get
   return ((abstr ^. isFuncAbstr . faEntryRegs) PU.! idx)
+
+lookupReg :: Reg ctx tp -> PointAbstraction blocks dom ctx -> dom tp
+lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
+
+lookupRegRefs :: Reg ctx tp -> PointAbstraction blocks dom ctx -> RefSet blocks tp
+lookupRegRefs reg assignment = (assignment ^. paRegisterRefs) PU.! regIndex reg
 
 -- | Turn a non paramaterized type into a parameterized type.
 --
@@ -691,24 +828,36 @@ instance Show a => ShowF (Ignore a)
 
 paGlobals :: (Functor f)
           => (PM.MapF GlobalVar dom -> f (PM.MapF GlobalVar dom))
-          -> PointAbstraction dom ctx
-          -> f (PointAbstraction dom ctx)
+          -> PointAbstraction blocks dom ctx
+          -> f (PointAbstraction blocks dom ctx)
 paGlobals f pa = (\a -> pa { _paGlobals = a }) <$> f (_paGlobals pa)
 
 paRegisters :: (Functor f)
             => (PU.Assignment dom ctx -> f (PU.Assignment dom ctx))
-            -> PointAbstraction dom ctx
-            -> f (PointAbstraction dom ctx)
+            -> PointAbstraction blocks dom ctx
+            -> f (PointAbstraction blocks dom ctx)
 paRegisters f pa = (\a -> pa { _paRegisters = a }) <$> f (_paRegisters pa)
 
+paRegisterRefs :: (Functor f)
+               => (PU.Assignment (RefSet blocks) ctx -> f (PU.Assignment (RefSet blocks) ctx))
+               -> PointAbstraction blocks dom ctx
+               -> f (PointAbstraction blocks dom ctx)
+paRegisterRefs f pa = (\a -> pa { _paRegisterRefs = a }) <$> f (_paRegisterRefs pa)
+
+paRefs :: (Functor f)
+       => (PM.MapF (RefStmtId blocks) dom -> f (PM.MapF (RefStmtId blocks) dom))
+       -> PointAbstraction blocks dom ctx
+       -> f (PointAbstraction blocks dom ctx)
+paRefs f pa = (\a -> pa { _paRefs = a }) <$> f (_paRefs pa)
+
 faEntryRegs :: (Functor f)
-            => (PU.Assignment (PointAbstraction dom) blocks -> f (PU.Assignment (PointAbstraction dom) blocks))
+            => (PU.Assignment (PointAbstraction blocks dom) blocks -> f (PU.Assignment (PointAbstraction blocks dom) blocks))
             -> FunctionAbstraction dom blocks ret
             -> f (FunctionAbstraction dom blocks ret)
 faEntryRegs f fa = (\a -> fa { _faEntryRegs = a }) <$> f (_faEntryRegs fa)
 
 faExitRegs :: (Functor f)
-           => (PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks -> f (PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks))
+           => (PU.Assignment (Ignore (Some (PointAbstraction blocks dom))) blocks -> f (PU.Assignment (Ignore (Some (PointAbstraction blocks dom))) blocks))
            -> FunctionAbstraction dom blocks ret
            -> f (FunctionAbstraction dom blocks ret)
 faExitRegs f fa = (\a -> fa { _faExitRegs = a }) <$> f (_faExitRegs fa)

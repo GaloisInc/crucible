@@ -6,6 +6,7 @@
 
 packages:
   crucible/
+  crucible-go/
   crucible-jvm/
   crucible-llvm/
   crucible-saw/
@@ -14,11 +15,12 @@ packages:
   crux/
   crux-llvm/
   crucible-mc/
-  
+
 optional-packages:
   dependencies/abcBridge/
   dependencies/aig/
   dependencies/blt/
+  dependencies/golang/
   dependencies/jvm-parser/
   dependencies/hpb/
   dependencies/llvm-pretty/

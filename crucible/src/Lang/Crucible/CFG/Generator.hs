@@ -50,7 +50,7 @@ module Lang.Crucible.CFG.Generator
   , modifyRegM
   , readGlobal
   , writeGlobal
-
+    -- * References
   , newRef
   , newEmptyRef
   , readRef
@@ -93,6 +93,7 @@ module Lang.Crucible.CFG.Generator
   , whenCond
   , unlessCond
   , ifte
+  , ifte'
   , ifte_
   , ifteM
   , MatchMaybe(..)
@@ -740,6 +741,18 @@ ifte :: (Monad m, IsSyntaxExtension ext, KnownRepr TypeRepr tp)
      -> Generator ext s t ret m (Expr ext s tp)
 ifte e x y = do
   c_id <- newLambdaLabel
+  x_id <- defineBlockLabel $ x >>= jumpToLambda c_id
+  y_id <- defineBlockLabel $ y >>= jumpToLambda c_id
+  continueLambda c_id (branch e x_id y_id)
+
+ifte' :: (Monad m, IsSyntaxExtension ext)
+      => TypeRepr tp
+      -> Expr ext s BoolType
+      -> Generator ext s t ret m (Expr ext s tp) -- ^ true branch
+      -> Generator ext s t ret m (Expr ext s tp) -- ^ false branch
+      -> Generator ext s t ret m (Expr ext s tp)
+ifte' repr e x y = do
+  c_id <- newLambdaLabel' repr
   x_id <- defineBlockLabel $ x >>= jumpToLambda c_id
   y_id <- defineBlockLabel $ y >>= jumpToLambda c_id
   continueLambda c_id (branch e x_id y_id)

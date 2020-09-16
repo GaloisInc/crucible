@@ -47,7 +47,6 @@ import Lang.Crucible.Analysis.ForwardDataflow
 import Lang.Crucible.Core
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.MatlabValue
 import Lang.Crucible.Simulator.MSSim
 import Lang.Crucible.Solver.PartExpr
 import Lang.Crucible.Solver.Interface
