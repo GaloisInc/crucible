@@ -461,17 +461,6 @@ runSimulator cruxOpts simCallback = do
             -- error if the same option is added more than once.
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
           doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline (proveGoalsOffline [adapter])
-    -- Right (CCS.OnlyOfflineSolvers [offSolver]) -> do
-    --   -- When there's only one solver, we can specialize the float mode to that solver
-    --   withFloatRepr (Proxy @s) cruxOpts offSolver $ \floatRepr -> do
-    --     withSolverAdapter offSolver $ \adapter -> do
-    --       sym <- CBS.newSimpleBackend floatRepr nonceGen
-    --       setupSolver cruxOpts Nothing sym
-    --       -- Since we have a bare SimpleBackend here, we have to initialize it
-    --       -- with the options taken from the solver adapter (e.g., solver path)
-    --       extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-    --       (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-    --       doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo Nothing (proveGoalsOffline [adapter])
     Right (CCS.OnlyOfflineSolvers offSolvers) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
