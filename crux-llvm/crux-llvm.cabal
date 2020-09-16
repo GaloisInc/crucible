@@ -97,6 +97,9 @@ executable crux-llvm-svcomp
   hs-source-dirs: svcomp
   main-is: Main.hs
 
+  if os(windows)
+    buildable: False
+
   build-depends:
     aeson >= 1.4.7,
     attoparsec >= 0.13,
