@@ -1,0 +1,10 @@
+packages:
+	mir-verifier.cabal
+	deps/crucible/what4
+	deps/crucible/crucible
+	deps/crucible/crux
+	deps/parameterized-utils
+	deps/aig
+
+	
+	

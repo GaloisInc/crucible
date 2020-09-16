@@ -1,0 +1,9 @@
+test sym_len/3a1fbbbh::f[0]: ok
+
+[Crux] Goal status:
+[Crux]   Total: 40
+[Crux]   Proved: 40
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.

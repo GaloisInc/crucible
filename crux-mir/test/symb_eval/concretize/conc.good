@@ -1,0 +1,9 @@
+test conc/3a1fbbbh::crux_test[0]: returned (1, 0), ok
+
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 1
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.

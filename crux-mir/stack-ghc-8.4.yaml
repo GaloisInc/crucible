@@ -1,0 +1,15 @@
+flags: {}
+packages:
+  - deps/crucible/what4
+  - deps/crucible/crucible
+  - deps/crucible/crucible-saw
+  - deps/crucible/crux
+  - deps/saw-core
+  - deps/parameterized-utils
+  - deps/saw-core-aig
+  - deps/aig
+  - .
+extra-deps:
+  - panic-0.4.0.0
+resolver: lts-12.26
+allow-newer: true

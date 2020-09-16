@@ -1,0 +1,9 @@
+test array_mut/3a1fbbbh::crux_test[0]: returned Symbolic BV, ok
+
+[Crux] Goal status:
+[Crux]   Total: 3
+[Crux]   Proved: 3
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.

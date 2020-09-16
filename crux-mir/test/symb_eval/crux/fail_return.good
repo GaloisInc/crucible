@@ -1,0 +1,20 @@
+test fail_return/3a1fbbbh::fail1[0]: returned Symbolic BV, FAILED
+test fail_return/3a1fbbbh::fail2[0]: returned 123, FAILED
+
+failures:
+
+---- fail_return/3a1fbbbh::fail1[0] counterexamples ----
+Failure for attempt to add with overflow
+in fail_return/3a1fbbbh::fail1[0] at test/symb_eval/crux/fail_return.rs:8:22
+
+---- fail_return/3a1fbbbh::fail2[0] counterexamples ----
+Failure for attempt to add with overflow
+in fail_return/3a1fbbbh::fail2[0] at test/symb_eval/crux/fail_return.rs:15:22
+
+[Crux] Goal status:
+[Crux]   Total: 4
+[Crux]   Proved: 2
+[Crux]   Disproved: 2
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.

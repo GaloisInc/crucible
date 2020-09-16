@@ -1,0 +1,4 @@
+test mux_init_imm/3a1fbbbh::crux_test[0]: returned Symbolic BV, ok
+
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.

@@ -1,0 +1,21 @@
+test early_fail/3a1fbbbh::fail1[0]: FAILED
+test early_fail/3a1fbbbh::fail2[0]: FAILED
+
+failures:
+
+---- early_fail/3a1fbbbh::fail1[0] counterexamples ----
+Failure for panicking::begin_panic, called from early_fail/3a1fbbbh::fail1[0]
+in early_fail/3a1fbbbh::fail1[0] at internal
+
+---- early_fail/3a1fbbbh::fail2[0] counterexamples ----
+Failure for MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
+	x == 0
+in early_fail/3a1fbbbh::fail2[0] at ./lib/crucible/lib.rs:34:41
+
+[Crux] Goal status:
+[Crux]   Total: 2
+[Crux]   Proved: 0
+[Crux]   Disproved: 2
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
