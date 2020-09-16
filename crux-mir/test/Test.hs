@@ -140,7 +140,7 @@ suite = do
            [ testGroup "crux concrete" <$> sequence [ testDir cruxOracleTest "test/conc_eval/" ]
            , testGroup "crux symbolic" <$> sequence [ symbTest "test/symb_eval" ]
            ]
-  return $ testGroup "mir-verifier" trees
+  return $ testGroup "crux-mir" trees
 
 
 

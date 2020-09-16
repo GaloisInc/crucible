@@ -355,7 +355,7 @@ exp_to_assgn_Maybe =
               go ctx asgn (ty:tys) (Nothing:vs) k =
                 tyToReprCont ty $ \tyr -> 
                    go (ctx Ctx.:> C.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.NothingValue tyr)) tys vs k
-              go _ _ _ _ _ = error "BUG in mir-verifier: exp_to_assgn_Maybe"
+              go _ _ _ _ _ = error "BUG in crux-mir: exp_to_assgn_Maybe"
 
 
 

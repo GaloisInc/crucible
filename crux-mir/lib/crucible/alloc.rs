@@ -4,7 +4,7 @@ pub fn allocate<T>(len: usize) -> *mut T {
 }
 
 /// Allocate an array of `len` elements of type `T`.  The array initially contains all zeros.  This
-/// fails if `mir-verifier` doesn't know how to zero-initialize `T`.
+/// fails if `crux-mir` doesn't know how to zero-initialize `T`.
 pub fn allocate_zeroed<T>(len: usize) -> *mut T {
     unimplemented!("allocate_zeroed")
 }

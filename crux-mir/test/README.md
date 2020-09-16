@@ -1,7 +1,7 @@
 # Test Suite
 
 This directory contains an executable and test files for testing the
-`mir-verifier` library. It requires the
+`crux-mir` library. It requires the
 [`mir-json`](https://github.com/GaloisInc/mir-json) executable in your
 path, so make sure you have it installed.
 

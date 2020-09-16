@@ -123,7 +123,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
   (We're better now at 2k, but still pretty sluggish)
 
 - Better interface to symbolic evaluation.  Need a rust crate
-  for examples to import and need to load the definitions in mir-verifier.
+  for examples to import and need to load the definitions in crux-mir.
   In particular, should make assertions from calls to "panic" etc.
 
 - Implementation of closures is very hacky

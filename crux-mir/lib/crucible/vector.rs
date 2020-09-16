@@ -17,8 +17,9 @@ impl<T: Clone> Clone for Vector<T> {
 
 impl<T> Vector<T> {
     pub const fn new() -> Vector<T> {
-        // This lets `new` be a `const fn`.  Unfortunately it also means mir-verifier will loop
-        // instead of crashing if it's ever run without an override.
+        // This lets `new` be a `const fn`.  Unfortunately it also means
+        // crux-mir will loop instead of crashing if it's ever run without
+        // an override.
         Self::new()
     }
 

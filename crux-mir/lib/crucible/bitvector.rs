@@ -41,9 +41,9 @@ pub type Bv512 = Bv<_512>;
 
 impl<S: Size> Bv<S> {
     // Defining overrides for constants is tricky: rustc will const-evaluate based on the
-    // definition, and mir-verifier will only see the actual struct literal, not the name of the
+    // definition, and crux-mir will only see the actual struct literal, not the name of the
     // constant.  Here we handle it by setting a different value for `_dummy` in each constant, so
-    // that code in mir-verifier can distinguish them.
+    // that code in crux-mir can distinguish them.
     //
     // Note there are no `const fn`s defined on this type - those would make things a lot more
     // difficult.

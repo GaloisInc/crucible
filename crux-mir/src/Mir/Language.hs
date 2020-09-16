@@ -65,7 +65,7 @@ import Crux.Types
 import Crux.Log
 
 
--- mir-verifier
+-- crux-mir
 import           Mir.Mir
 import           Mir.DefId
 import           Mir.PP ()

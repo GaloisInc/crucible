@@ -1,5 +1,3 @@
-[![Build Status](https://travis-ci.org/GaloisInc/mir-verifier.svg?branch=master)](https://travis-ci.org/GaloisInc/mir-verifier)
-
 # crux-mir
 
 This is a static simulator for Rust programs.  It runs a set of test cases and
@@ -17,7 +15,7 @@ You must have the most recent version of the `mir-json` executable in your
 path.  See [the `mir-json` README][mir-json-readme] for installation
 instructions.
 
-`mir-verifier` uses several submodules, so make sure they're initialized:
+`crux-mir` uses several submodules, so make sure they're initialized:
 
     $ git submodule update --init
 
@@ -59,7 +57,7 @@ First, install the `crux-mir` binary to your `~/.cabal/bin` directory:
 Set the `CRUX_RUST_LIBRARY_PATH` environment variable to the path to the
 translated libraries:
 
-    $ export CRUX_RUST_LIBRARY_PATH=.../mir-verifier/rlibs
+    $ export CRUX_RUST_LIBRARY_PATH=.../crux-mir/rlibs
 
 In the directory of a Cargo project (such as the [find-first-set
 example](example/ffs)), run the project's symbolic tests:

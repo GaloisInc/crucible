@@ -1380,7 +1380,7 @@ transTerminator t _tr =
 -- type with a structure that is compatible for further
 -- initialization.
 --
--- With this code, it is possible for mir-verifier to miss
+-- With this code, it is possible for crux-mir to miss
 -- uninitialized values.  So we should revisit this.
 --
 initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
