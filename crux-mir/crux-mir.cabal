@@ -1,24 +1,29 @@
-name:                mir-verifier
+name:                crux-mir
 version:             0.1.0.0
 -- synopsis:
 -- description:
-homepage:            https://github.com/GaloisInc/mir-verifier#readme
+homepage:            https://github.com/GaloisInc/crucible/blob/master/crux-mir/README.md
 license:             BSD3
 license-file:        LICENSE
-author:              Joshua Gancher
-maintainer:          jrg358@cornell.edu
-copyright:           2017 Galois, Inc.
+author:              Joshua Gancher,
+                     Rob Dockins,
+                     Andrey Chudnov,
+                     Stephanie Weirich,
+                     Stuart Pernsteiner
+maintainer:          spernsteiner@galois.com
+copyright:           2017-2020 Galois, Inc.
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  README.md
-                     
+
 library
   default-language: Haskell2010
   build-depends: base >= 4.7 && < 5,
                  aeson,
                  ansi-terminal,
                  ansi-wl-pprint,
+                 bv-sized,
                  bytestring,
                  text,
                  time,
@@ -60,7 +65,7 @@ library
                    Mir.PP
                    Mir.Generate
                    Mir.DefId
-  other-modules: 
+  other-modules:
                  Mir.FancyMuxTree
                  Mir.Intrinsics
                  Mir.Overrides
@@ -75,7 +80,7 @@ executable crux-mir
 
   build-depends:
                 base >= 4.7 && < 5,
-                mir-verifier,
+                crux-mir,
                 aeson,
                 ansi-wl-pprint,
                 bytestring,
@@ -101,12 +106,12 @@ executable crux-mir
                 parsec,
                 aig,
                 crux
-                
+
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
 
-                 
+
 test-suite test
   type: exitcode-stdio-1.0
   hs-source-dirs: test
@@ -124,7 +129,7 @@ test-suite test
                 filepath,
                 parsec,
                 process,
-                mir-verifier,
+                crux-mir,
                 QuickCheck,
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
@@ -139,5 +144,5 @@ test-suite test
                 config-value,
                 bytestring,
                 utf8-string
-                
+
   default-language: Haskell2010

@@ -8,12 +8,14 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
 module Mir.Language (main, mainWithOutputTo, mainWithOutputConfig, runTests,
                      MIROptions(..), defaultMirOptions) where
 
+import qualified Data.BitVector.Sized as BV
 import qualified Data.Char       as Char
 import           Data.Functor.Const (Const(..))
 import           Control.Monad
@@ -59,6 +61,7 @@ import qualified What4.FunctionName                    as W4
 -- crux
 import qualified Crux as Crux
 import qualified Crux.Model as Crux
+import qualified Crux.UI.JS as Crux
 
 import Crux.Goal (countProvedGoals, countDisprovedGoals, countTotalGoals)
 import Crux.Types
@@ -167,7 +170,7 @@ runTests (cruxOpts, mirOpts) = do
     -- for tests that failed.
 
     let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun sym MIR Ctx.EmptyCtx C.UnitType
+            Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun Model sym MIR Ctx.EmptyCtx C.UnitType
         simTest symOnline fnName = do
             when (not $ printResultOnly mirOpts) $
                 liftIO $ output $ "test " ++ show fnName ++ ": "
@@ -205,11 +208,13 @@ runTests (cruxOpts, mirOpts) = do
             setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
             let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
                     C.emptyHandleMap mirExtImpl Crux.emptyModel
-            return $ Crux.RunnableState $
-                C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
-                    C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
+            return (Crux.RunnableState $
+                    C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
+                     C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
+                   , undefined
+                   )
 
-    let outputResult (CruxSimulationResult cmpl gls)
+    let outputResult (CruxSimulationResult cmpl (fmap snd -> gls))
           | disproved > 0 = output "FAILED"
           | cmpl /= ProgramComplete = output "UNKNOWN"
           | proved == tot = output "ok"
@@ -228,7 +233,7 @@ runTests (cruxOpts, mirOpts) = do
         return res
 
     -- Print counterexamples
-    let isResultOK (CruxSimulationResult comp gls) =
+    let isResultOK (CruxSimulationResult comp (fmap snd -> gls)) =
             comp == ProgramComplete &&
             sum (fmap countProvedGoals gls) == sum (fmap countTotalGoals gls)
     let anyFailed = any (not . isResultOK) results
@@ -239,11 +244,12 @@ runTests (cruxOpts, mirOpts) = do
             Goal _ (c, _) _ res ->
                 let msg = show c
                 in case res of
-                    NotProved (Just m) -> do
+                    NotProved _ (Just m) -> do
                         outputLn ("Failure for " ++ msg)
                         when (showModel mirOpts) $ do
                            outputLn "Model:"
-                           outputLn (Crux.ppModelJS "." m)
+                           mjs <- Crux.modelJS m
+                           outputLn (Crux.renderJS mjs)
                     _ -> return ()
     when anyFailed $ do
         outputLn ""
@@ -252,7 +258,7 @@ runTests (cruxOpts, mirOpts) = do
             when (not $ isResultOK res) $ do
                 outputLn ""
                 outputLn $ "---- " ++ show fnName ++ " counterexamples ----"
-                mapM_ printCounterexamples $ cruxSimResultGoals res
+                mapM_ (printCounterexamples . snd) $ cruxSimResultGoals res
 
     -- Print final tally of proved/disproved goals (except if
     -- --print-result-only is set)
@@ -363,8 +369,8 @@ showRegEntry col mty (C.RegEntry tp rv) =
                      Just s -> show s
                      Nothing -> "Symbolic string"
 
-    (TyChar, C.BVRepr _w) -> return $ case W4.asUnsignedBV rv of
-                     Just i  -> show (Char.chr (fromInteger i))
+    (TyChar, C.BVRepr _w) -> return $ case W4.asBV rv of
+                     Just i  -> show (Char.chr (fromInteger (BV.asUnsigned i)))
                      Nothing -> "Symbolic char"
     (TyInt USize, C.NatRepr) -> return $ case W4.asNat rv of
                      Just n -> show n
@@ -372,11 +378,11 @@ showRegEntry col mty (C.RegEntry tp rv) =
     (TyUint USize, C.NatRepr) -> return $ case W4.asNat rv of
                      Just n -> show n
                      Nothing -> "Symbolic nat"
-    (TyInt _sz, C.BVRepr _w) -> return $ case W4.asSignedBV rv of
-                     Just i  -> show i
+    (TyInt _sz, C.BVRepr w) -> return $ case W4.asBV rv of
+                     Just i  -> show (BV.asSigned w i)
                      Nothing -> "Symbolic BV"
-    (TyUint _sz, C.BVRepr _w) -> return $ case W4.asUnsignedBV rv of
-                     Just i  -> show i
+    (TyUint _sz, C.BVRepr _w) -> return $ case W4.asBV rv of
+                     Just i  -> show (BV.asUnsigned i)
                      Nothing -> "Symbolic BV"
     (TyFloat _,  C.RealValRepr) -> return $ case W4.asRational rv of
                      Just f -> show f

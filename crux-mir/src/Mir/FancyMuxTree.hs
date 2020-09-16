@@ -90,7 +90,6 @@ import qualified Data.Parameterized.NatRepr as N
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
-import           Lang.Crucible.CFG.Extension.Safety(AssertionClassifier,NoAssertionClassifier,HasStructuredAssertions(..))
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Panic

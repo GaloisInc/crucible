@@ -63,10 +63,10 @@ library
     Crux.Config.Common,
     Crux.Config.Solver,
     Crux.SVCOMP,
+    Crux.UI.JS,
     Crux.Version
 
   other-modules:
-   Crux.UI.JS,
    Crux.UI.Jquery,
    Crux.UI.IndexHtml
 
