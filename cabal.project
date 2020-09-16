@@ -13,6 +13,7 @@ packages:
   crucible-syntax/
   crux/
   crux-llvm/
+  crux-mir/
   crucible-mc/
   
 optional-packages:
