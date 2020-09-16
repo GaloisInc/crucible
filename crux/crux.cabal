@@ -17,6 +17,7 @@ library
     aig,
     ansi-wl-pprint,
     array,
+    async,
     attoparsec,
     bv-sized >= 1.0.0,
     containers,

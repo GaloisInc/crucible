@@ -8,9 +8,11 @@
 
 module Crux.Goal where
 
+import Control.Concurrent.Async (async, asyncThreadId, waitAnyCatch)
+import Control.Exception (throwTo, SomeException, displayException)
 import Control.Lens ((^.), view)
 import qualified Control.Lens as L
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM, forM_, unless, when)
 import Data.Either (partitionEithers)
 import qualified Data.Foldable as F
 import Data.IORef
@@ -18,13 +20,14 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
+import           System.Exit (ExitCode(ExitSuccess))
 import qualified System.Timeout as ST
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import What4.Interface (notPred, printSymExpr,asConstantPred)
 import qualified What4.Interface as WI
 import What4.SatResult(SatResult(..))
-import What4.Expr (ExprBuilder, GroundEvalFn(..))
+import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
@@ -182,14 +185,14 @@ updateProcessedGoals _ (NotProved _ Nothing) pgs =
 -- symbolic execution phase, which should not be a problem.
 proveGoalsOffline :: forall st sym p asmp t fs personality
                    . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs, HasModel personality)
-                  => WS.SolverAdapter st
+                  => [WS.SolverAdapter st]
                   -> CruxOptions
                   -> SimCtxt personality sym p
                   -> (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO Doc)
                   -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
                   -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
-proveGoalsOffline adapter opts ctx explainFailure (Just gs0) = do
+proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0 0)
   (start,end,finish) <-
      if view quiet ?outputConfig then
@@ -202,10 +205,6 @@ proveGoalsOffline adapter opts ctx explainFailure (Just gs0) = do
   return (nms, Just gs)
 
   where
-    withTimeout action
-      | Just seconds <- goalTimeout opts = ST.timeout (round seconds * 1000000) action
-      | otherwise = Just <$> action
-
     failfast = proofGoalsFailFast opts
 
     go :: (Integer -> IO (), IO ())
@@ -234,38 +233,86 @@ proveGoalsOffline adapter opts ctx explainFailure (Just gs0) = do
           let sym = ctx ^. ctxSymInterface
           assumptions <- WI.andAllOf sym (L.folded . id) (fmap (^. labeledPred) (mconcat assumptionsInScope))
           goal <- notPred sym (p ^. labeledPred)
-          -- NOTE: We don't currently provide a method for capturing the output
-          -- sent to offline solvers.  We would probably want a file per goal.
-          let logData = WS.defaultLogData
-          mres <- withTimeout $ WS.solver_adapter_check_sat adapter sym logData [assumptions, goal] $ \satRes ->
-            case satRes of
-              Unsat _ -> do
-                -- NOTE: We don't have an easy way to get an unsat core here
-                -- because we don't have a solver connection.
-                let core = fmap Left (F.toList (mconcat assumptionsInScope))
-                end
-                modifyIORef' goalNum (updateProcessedGoals p (Proved core))
-                return (Prove (p, Proved core))
-              Sat (evalFn, _) -> do
-                let model = ctx ^. cruciblePersonality . personalityModel
-                vals <- evalModel evalFn model
-                explain <- explainFailure (Just evalFn) p
-                end
-                let gt = NotProved explain (Just (ModelView vals))
-                modifyIORef' goalNum (updateProcessedGoals p gt)
-                when (failfast && not (isResourceExhausted p)) $
-                  sayOK "Crux" "Counterexample found, skipping remaining goals"
-                return (Prove (p, gt))
-              Unknown -> do
-                explain <- explainFailure Nothing p
-                end
-                let gt = NotProved explain Nothing
-                modifyIORef' goalNum (updateProcessedGoals p gt)
-                return (Prove (p, gt))
-          case mres of
-            Just res -> return res
-            Nothing -> return (Prove (p, NotProved mempty Nothing))
 
+          res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters $ runOneSolver p assumptionsInScope assumptions goal
+          end
+          case res of
+            Right details -> do
+              modifyIORef' goalNum (updateProcessedGoals p details)
+              case details of
+                NotProved _ (Just _) ->
+                  when (failfast && not (isResourceExhausted p)) $
+                    sayOK "Crux" "Counterexample found, skipping remaining goals"
+                _                  -> return ()
+              return (Prove (p, details))
+            Left es -> do
+              modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing))
+              let allExceptions = unlines (displayException <$> es)
+              fail allExceptions
+
+    runOneSolver :: LPred sym SimError
+                 -> [Seq.Seq (LPred sym asmp)]
+                 -> BoolExpr t
+                 -> BoolExpr t
+                 -> WS.SolverAdapter st
+                 -> IO (ProofResult (Either (LPred sym asmp) a))
+    runOneSolver p assumptionsInScope assumptions goal adapter = do
+      -- NOTE: We don't currently provide a method for capturing the output
+      -- sent to offline solvers.  We would probably want a file per goal per adapter.
+      let logData = WS.defaultLogData
+      WS.solver_adapter_check_sat adapter (ctx ^. ctxSymInterface) logData [assumptions, goal] $ \satRes ->
+        case satRes of
+          Unsat _ -> do
+            -- NOTE: We don't have an easy way to get an unsat core here
+            -- because we don't have a solver connection.
+            let core = fmap Left (F.toList (mconcat assumptionsInScope))
+            return (Proved core)
+          Sat (evalFn, _) -> do
+            let model = ctx ^. cruciblePersonality . personalityModel
+            vals <- evalModel evalFn model
+            explain <- explainFailure (Just evalFn) p
+            return (NotProved explain (Just (ModelView vals)))
+          Unknown -> do
+            explain <- explainFailure Nothing p
+            return (NotProved explain Nothing)
+
+dispatchSolversOnGoalAsync :: forall a s time.
+                              (RealFrac time)
+                           => Maybe time
+                           -> [WS.SolverAdapter s]
+                           -> (WS.SolverAdapter s -> IO (ProofResult a))
+                           -> IO (Either [SomeException] (ProofResult a))
+dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
+  asyncs <- forM adapters (async . withAdapter)
+  await asyncs []
+  where
+    await [] es = return $ Left es
+    await as es = do
+      mresult <- withTimeout $ waitAnyCatch as
+      case mresult of
+        Just (a, result) -> do
+          let as' = filter (/= a) as
+          case result of
+            Left  exc ->
+              await as' (exc : es)
+            Right r@(Proved _) -> do
+              mapM_ kill as'
+              return $ Right r
+            Right r@(NotProved _ (Just _)) -> do
+              mapM_ kill as'
+              return $ Right r
+            Right _ ->
+              await as' es
+        Nothing -> do
+          mapM_ kill as
+          return $ Right $ NotProved (text "(Timeout)") Nothing
+         
+    withTimeout action
+      | Just seconds <- mtimeoutSeconds = ST.timeout (round seconds * 1000000) action
+      | otherwise = Just <$> action
+
+    -- `cancel` from async blocks until the canceled thread has terminated.
+    kill a = throwTo (asyncThreadId a) ExitSuccess
 
 
 -- | Prove a collection of goals.  The result is a goal tree, where
