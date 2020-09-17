@@ -818,7 +818,6 @@ writeMirVectorWithSymIndex sym _ (MirVector_Array a) i val = do
 data MIR
 type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
---type instance AssertionClassifier MIR = NoAssertionClassifier
 
 -- First `Any` is the data pointer - either an immutable or mutable reference.
 -- Second `Any` is the vtable.
