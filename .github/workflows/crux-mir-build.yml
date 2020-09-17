@@ -43,6 +43,12 @@ jobs:
         with:
           ghc-version: ${{ matrix.ghc }}
 
+      - name: Install latest Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2020-03-22
+          override: true
+
       - uses: actions/cache@v1
         name: Cache cabal store
         with:
@@ -63,6 +69,9 @@ jobs:
           restore-keys: |
             dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('**/cabal.GHC-*') }}-
             dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-
+
+      - shell: bash
+        run: cd dependencies/mir-json && cargo install --force
 
       - shell: bash
         run: cabal v2-update

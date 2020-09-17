@@ -31,3 +31,6 @@
 [submodule "dependencies/what4"]
 	path = dependencies/what4
 	url = https://github.com/GaloisInc/what4.git
+[submodule "dependencies/mir-json"]
+	path = dependencies/mir-json
+	url = https://github.com/GaloisInc/mir-json/
