@@ -1,0 +1,4 @@
+test valid_read/3a1fbbbh::crux_test[0]: returned 45, ok
+
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.

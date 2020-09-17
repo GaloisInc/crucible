@@ -1,0 +1,277 @@
+* TODO
+
+** Failing concrete test cases
+
+-- arith
+test/conc_eval/crypto/add.rs:// FAIL: needs arith trait
+
+-- waiting on mir-json
+test/conc_eval/stdlib/default.rs:// FAIL: Default trait (temporarily) not included in mir-lib
+
+-- iterators
+test/conc_eval/array/iter.rs:// FAIL: invalid slice access
+
+-- vec and string
+test/conc_eval/array/wick1.rs:// FAIL: needs Vec data structure from stdlib
+test/conc_eval/array/wick3.rs:// FAIL: needs Vec data structure from stdlib
+
+-- shift
+test/conc_eval/prim/shift_exceeding.rs:// FAIL: Should panic, but doesn't
+
+-- dynamic traits, or other
+test/conc_eval/traits/dynamic_branch.rs:// FAIL: dynamic trait. Also use of "::convert::From::from"
+test/conc_eval/traits/dynamic_med.rs:// FAIL: dynamic trait object
+test/conc_eval/traits/dynamic_poly.rs:// FAIL: needs dynamic trait object
+test/conc_eval/traits/dynamic_simple.rs:// FAIL: dynamic trait object
+test/conc_eval/traits/dynamic_two.rs:// FAIL: dynamic trait object
+
+test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary with polymorphic member from generic instance
+
+** Failing symbolic test cases
+
+  Passes:
+    symb_eval/crypto/double.rs
+    symb_eval/crypto/ffs.rs
+    symb_eval/crypto/bytes2.rs 
+
+  Fails:
+    symb_eval/crypto/bytes.rs   -- spec is wrong though. 
+
+** Standard library current status
+   Library code found in mir-lib/src/lib.rs
+
+
+*** libcore prelude
+   Based on implementation here, but adapted
+   https://github.com/rust-lang/rust/tree/master/src/libcore
+
+   -- pub use marker::{Copy, Send, Sized, Sync, Unpin};
+   markers ignored as there isn't anything to do
+
+   -- pub use ops::{Drop, Fn, FnMut, FnOnce};
+   Drop: ignored
+   Fn/FnMut/FnOnce hardwired
+
+   -- pub use mem::drop;
+   TODO  (size_of etc)
+
+   -- pub use clone::Clone;
+   DONE 
+
+   -- pub use cmp::{PartialEq, PartialOrd, Eq, Ord};
+   DONE
+
+   -- pub use convert::{AsRef, AsMut, Into, From};
+   DONE
+
+   -- pub use default::Default;
+   DONE 
+
+   -- pub use iter::{Iterator, Extend, IntoIterator};
+   TODO
+
+   -- pub use iter::{DoubleEndedIterator, ExactSizeIterator};
+   TODO 
+
+   -- pub use option::Option::{self, Some, None};
+   DONE (caveat -- iterators)
+
+   -- pub use result::Result::{self, Ok, Err};
+   DONE
+
+*** ops
+       DONE
+    mod arith;
+    mod bit;
+    mod deref;
+    mod function;
+    mod index;
+    mod range;
+    mod try;
+    mod drop;
+    mod unsize;
+       TODO
+    mod generator;
+
+
+*** slice
+    key indexing traits from library available
+    major portions missing due to lack of iterator support
+
+*** other todos
+--fmt & Debug
+--vec
+--num
+--more intrinsics:
+   https://github.com/rust-lang/rust/blob/master/src/libcore/intrinsics.rs
+   (Though look for the functions that wrap them, which are more stable.)
+--...
+
+** Implementation todos
+
+- interpreting usize and isize as natural and integer (respectively)
+  is quite suspect. These are bounded types in the standard library (with a max/min
+  operation). Instead, the translation of these types should be configurable, WRT 
+  any finite size.
+
+- make generateMIR in Mir.Generate check timestamp of mir-json binary as well
+  as timestamp of .mir files to determine whether to call mir-json
+  (also, this timestamp checking doesn't work at all, now that everything is 
+  in a single crate.)
+
+- Divide Trans.hs into multiple files so that typechecking/compilation is snappier
+  (We're better now at 2k, but still pretty sluggish)
+
+- Better interface to symbolic evaluation.  Need a rust crate
+  for examples to import and need to load the definitions in crux-mir.
+  In particular, should make assertions from calls to "panic" etc.
+
+- Implementation of closures is very hacky
+   -- unsafe coerce in "call"
+   -- doesn't take advantage of equality constraints (FnOnce::Output)
+   -- Can't do trait objects because TyDynamic doesn't include substs
+      (so we can't determine the return type of the trait object)
+
+- need more structured error handling
+   don't use "error", use "mirFail" in MirGenerator
+   distinguish "BUG" errors from user-facing limitations of the system
+   pretty print error messages instead of constructing strings?
+
+- just-in time function translation using overrides?
+  or some caching of the standard library?
+   - see crucible-jvm
+
+- generic trait impls has only a partial solution
+  e.g.   
+     impl<U> G for Data<U> where U:G { ... }
+
+  Works in most common case, but fails when there is more than one
+  constraint on U (or multiple constrained types)
+
+- translation of Slice types isn't compositional (requires identifying outer ref)
+      
+  M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
+  M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+
+  This could be problemmatic if we ever need to substitute a slice type into 
+  M.TyRef (M.TyParam 0).
+
+  Maybe this isn't an issue
+  Should explore other designs
+
+- dynamic trait invocation (i.e. trait objects) (test/conc_eval/traits/dynamic*.rs)
+  + trait objects are packages of a value and a trait dictionary(i.e. vtable)
+    for that value
+       "exists T. T * dict<T>"
+  + if the trait objects appear in argument position only, we can uncurry 
+    the function in a pre-pass
+    
+      fn (x : S) -> ...
+
+      fn<T:S> (x : T) -> ...
+ 
+
+- type translation needs access to the collection so can lookup the type of 
+  function pointers
+
+
+* Dictionary Translation notes
+
+The goal is to eliminate trait predicates from methods by passing in
+additional term arguments to the methods and to eliminate associated 
+types by passing in additional type arguments 
+
+NOTE: dictionary passing involves both a type translation and a term
+translation.  We must do the type translation prior to Crucible code
+generation because we need to allocate function handles with the
+correct types.
+It is convenient to do the term translation with code generation as
+the term translation is not purely syntax-directed. We need to lookup
+trait information while we do the pass.
+
+1. Pre-passes related to dictionary translation (before code generation)
+   MUST occur in this order (in transCollection)
+
+     -- update traits, functions headers & impls to remove predicates that 
+          we don't know anything about (like Sized) so that we don't 
+          generate dictionaries for them
+          (passRemoveUnknownPreds)
+     -- update traits & function headers to include "self" predicates
+          (passAddDictionaryPreds)
+          TODO: also update impls?
+     -- update traits with all supertrait items  
+          (passExpandSuperTraits)
+     -- add associated types to Fns & traits, update all substs
+        to include extra arguments when they include ATs
+          (passAbstractAssociated)
+     -- update ADTs to include dictionary types 
+         (traits must have correct types for methods at this point)
+         (passAddTraitAdts)
+
+     -- allocate method handles (MUST eliminate any uses of 
+        associated types by this point)
+
+2. The additional term arguments are "dictionaries", i.e. records of
+   methods for the trait at that type
+     ==> dictionary ADT decls added in prepass (see above)
+     ==> mkHandleMap adds additional term args for preds when 
+         handles are allocated (MirHandles remember preds)
+         Q: should we do this translation in passAbstractAssociated? 
+            why do we do it here?
+     ==> method arguments are added during code generation
+     ==> always need to know what dictionary variables are in scope
+         during code generation.
+         These are in the varMap, and named by trait
+         we look for them in lookupFunction
+         TODO: names are not unique! They should also include type
+	       args for unique resolution.
+
+3. When we create dictionaries, we need to satisfy *almost* all of the
+   predicates for the members of the dictionary. This will involve
+   creating additional dictionaries. And then partially applying the
+   methods to those additional dictionaries. So we need to construct a
+   crucible closure.
+     ==> dictionary creation is done in doCall, in "normal" case
+     ==> currently doesn't reuse dictionaries already in scope,
+         recreates them piece by piece. Maybe that's ok.
+     ==> TODO: partially apply result of lookupFunction
+     ==> TODO: make sure that "recursive" dictionary is always *last*
+         predicate in method impls
+
+4. The exception is the "recursive" predicate for the dictionary
+   itself. We should not partially apply those (to make the
+   translation easier, otherwise we have to tie the knot
+   somehow). Furthermore it is easy to provide that dictionary
+   whenever we extract the method from the dictionary and call it.
+     ==> this is already handled in doCall
+
+5. Do we need to worry about other sorts of recursive dictionaries? 
+   If so, how do we detect & break such loops in the translation?
+   From a simple test, it looks like Rust won't allow such things. 
+   i.e. we can define these impls
+
+   impl<U> G for U where U:H {
+    fn g(&self) -> Self {
+        self.h()
+    }
+   }
+
+   impl<U> H for U where U:G {
+    fn h(&self) -> Self {
+      self.g()
+    }
+   } 
+
+   but these impls can't be used to satisfy any bounds.  So let's PUNT
+   on this issue for now. If we get *really* paranoid we can try to
+   detect it during translation to avoid infinite loops.
+
+6. TODO: generic impl resolution. If we have an impl
+   that depends on another, i.e. 
+
+      impl<U>G for Option<U> where U:G {
+           ...
+      }
+
+   we don't have a way to add this impl to the vtable. The 'TraitImpls'
+   component can only store vtables for impls 

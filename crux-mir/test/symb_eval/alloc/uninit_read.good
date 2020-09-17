@@ -1,0 +1,15 @@
+test uninit_read/3a1fbbbh::crux_test[0]: FAILED
+
+failures:
+
+---- uninit_read/3a1fbbbh::crux_test[0] counterexamples ----
+Failure for Attempted to read uninitialized vector index
+in uninit_read/3a1fbbbh::crux_test[0] at test/symb_eval/alloc/uninit_read.rs:9:9
+
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.

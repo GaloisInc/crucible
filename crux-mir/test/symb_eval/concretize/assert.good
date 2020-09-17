@@ -1,0 +1,16 @@
+test assert/3a1fbbbh::crux_test[0]: returned 1, FAILED
+
+failures:
+
+---- assert/3a1fbbbh::crux_test[0] counterexamples ----
+Failure for MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
+	100 + 157 == 1
+in assert/3a1fbbbh::crux_test[0] at ./lib/crucible/lib.rs:44:17
+
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
