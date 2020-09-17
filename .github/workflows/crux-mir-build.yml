@@ -23,8 +23,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        ghc: ["8.6.5", "8.8.4", "8.10.2"]
+        # We want Windows soon, but it doesn't need to be now
+        os: [ubuntu-latest, macos-latest] #, windows-latest]
+        # We want GHC 8.10 soon, but it doesn't need to be now
+        ghc: ["8.6.5", "8.8.4"] # "8.10.2"]
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
         exclude:
