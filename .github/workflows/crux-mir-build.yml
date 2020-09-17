@@ -48,6 +48,7 @@ jobs:
         with:
           toolchain: nightly-2020-03-22
           override: true
+          components: rustc-dev
 
       - uses: actions/cache@v1
         name: Cache cabal store
