@@ -71,7 +71,7 @@ jobs:
             dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-
 
       - shell: bash
-        run: cd dependencies/mir-json && cargo install --force
+        run: cd dependencies/mir-json && RUSTC_WRAPPER=./rustc-rpath.sh cargo install --locked --force
 
       - shell: bash
         run: cabal v2-update
