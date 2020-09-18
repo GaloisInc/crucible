@@ -23,6 +23,6 @@ fi
 cp crux-llvm/README.md $PKG/doc
 cp -r crux-llvm/c-src $PKG
 
-tar cf $PKG.tar.gz $PKG
+tar czf $PKG.tar.gz $PKG
 
 rm -rf $PKG

@@ -13,14 +13,9 @@ mkdir $PKG/doc
 
 cabal v2-build exe:crux-mir
 cp $EXE $PKG/bin
-cp `which cargo-mir-json` $PKG/bin
-cp `which mir-json` $PKG/bin
-cp `which mir-json-callgraph` $PKG/bin
-cp `which mir-json-dce` $PKG/bin
-cp `which mir-json-rustc-wrapper` $PKG/bin
 cp crux-mir/README.md $PKG/doc
 cp -r crux-mir/rlibs $PKG
 
-tar cf $PKG.tar.gz $PKG
+tar czf $PKG.tar.gz $PKG
 
 rm -rf $PKG
