@@ -1,14 +1,37 @@
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::fmt::Display;
 use std::fs;
 #[allow(deprecated)]
 use std::hash::{Hash, Hasher, SipHasher};
 use std::path::Path;
+use std::process;
+use clap::{App, Arg, ArgMatches};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::{SimpleFiles, Files};
 use serde_json::Value;
 use termcolor;
+
+
+fn parse_args() -> ArgMatches<'static> {
+    App::new("crux-report-coverage")
+        .about("produces coverage reports for crux-mir symbolic tests")
+        .arg(Arg::with_name("input")
+             .takes_value(true)
+             .value_name("REPORT_DATA.JS")
+             .help("coverage data file produced by crux-mir")
+             .required(true)
+             .multiple(true))
+        .arg(Arg::with_name("filter")
+             .short("f")
+             .long("filter")
+             .takes_value(true)
+             .value_name("FILE[:[LINE]-[LINE]]")
+             .help("only report uncovered branches in the indicated source region(s)")
+             .multiple(true)
+             .number_of_values(1))
+        .get_matches()
+}
+
 
 macro_rules! die {
     ($($args:tt)*) => {
@@ -277,6 +300,7 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
 struct Reporter {
     files: SimpleFiles<String, String>,
     file_map: HashMap<String, usize>,
+    filters: Option<Vec<Filter>>,
 }
 
 struct SpanInfo {
@@ -288,10 +312,11 @@ struct SpanInfo {
 }
 
 impl Reporter {
-    fn new() -> Reporter {
+    fn new(filters: Option<Vec<Filter>>) -> Reporter {
         Reporter {
             files: SimpleFiles::new(),
             file_map: HashMap::new(),
+            filters,
         }
     }
 
@@ -304,6 +329,20 @@ impl Reporter {
                 return;
             },
         };
+
+        // If any `--filter` option was passed, then either the span or the callsite must fall
+        // within one of the filter regions.
+        if let Some(ref filters) = self.filters {
+            let span_ok = filters.iter().any(|f| f.contains_span(&sp));
+            let callsite_ok = match callsite {
+                Some(ref callsite) => filters.iter().any(|f| f.contains_span(callsite)),
+                None => false,
+            };
+
+            if !span_ok && !callsite_ok {
+                return;
+            }
+        }
 
         let file_id = self.load_file(&sp.filename);
         let start = self.pos_to_bytes(file_id, sp.line1, sp.col1);
@@ -530,6 +569,50 @@ fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnT
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct Filter {
+    filename: String,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+}
+
+impl Filter {
+    fn from_str(s: &str) -> Result<Filter, String> {
+        let mut f = Filter::default();
+
+        if let Some(colon) = s.rfind(':') {
+            f.filename = s[..colon].to_owned();
+            let lines = &s[colon + 1 ..];
+            let dash = match lines.find('-') {
+                Some(x) => x,
+                None => return Err("expected `[LINE]-[LINE]` after `:`".to_owned()),
+            };
+            fn parse(s: &str) -> Result<Option<usize>, String> {
+                if s.len() == 0 {
+                    Ok(None)
+                } else {
+                    s.parse::<usize>().map(Some).map_err(|e| e.to_string())
+                }
+            }
+            f.start_line = parse(&lines[..dash])?;
+            f.end_line = parse(&lines[dash + 1 ..])?;
+        } else {
+            f.filename = s.to_owned();
+        }
+
+        Ok(f)
+    }
+
+    fn contains_span(&self, sp: &SpanInfo) -> bool {
+        // This behaves a little oddly, accepting spans whose (exclusive) end position is exactly
+        // at the start of a line as covering that line.  But hopefully nobody is quite that picky
+        // about the placement of their filters...
+        self.filename == sp.filename &&
+            self.start_line.map_or(true, |line| sp.line2 >= line) &&
+            self.end_line.map_or(true, |line| sp.line1 <= line)
+    }
+}
+
 #[allow(deprecated)]
 fn hash<H: Hash>(x: &H) -> u64 {
     let mut hasher = SipHasher::new();
@@ -538,14 +621,29 @@ fn hash<H: Hash>(x: &H) -> u64 {
 }
 
 fn main() {
-    let args = env::args().collect::<Vec<_>>();
-    assert!(args.len() >= 2, "usage: crux-report-coverage REPORT_DATA.JS...");
+    let m = parse_args();
+
+    let mut filters = Vec::new();
+    if let Some(filter_strs) = m.values_of("filter") {
+        for filter_str in filter_strs {
+            let f = match Filter::from_str(filter_str) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("bad filter {:?}: {}", filter_str, e);
+                    eprintln!("{}", m.usage());
+                    process::exit(1);
+                },
+            };
+            filters.push(f);
+        }
+    }
+    let filters = if filters.len() > 0 { Some(filters) } else { None };
 
     let mut report = Report::default();
     let mut trans = None;
     let mut trans_hash = None;
 
-    for report_path_str in &args[1..] {
+    for report_path_str in m.values_of_os("input").unwrap() {
         let report_path = Path::new(report_path_str);
         let trans_path = report_path.with_file_name("translation.json");
 
@@ -563,7 +661,7 @@ fn main() {
             assert!(
                 cur_trans_hash == old_trans_hash,
                 "translation hashes for {:?} and {:?} do not match",
-                report_path_str, &args[1],
+                report_path_str, m.value_of_os("input").unwrap(),
             );
         } else {
             let trans_json: Value = serde_json::from_slice(&trans_bytes).unwrap();
@@ -582,7 +680,7 @@ fn main() {
     };
 
     let default_ft = FnTrans::default();
-    let mut reporter = Reporter::new();
+    let mut reporter = Reporter::new(filters);
     let mut fn_ids = report.fns.keys().collect::<Vec<_>>();
     fn_ids.sort();
     for fn_id in fn_ids {

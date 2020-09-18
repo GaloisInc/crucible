@@ -11,3 +11,4 @@ serde_json = "1"
 codespan-reporting = "0.9"
 # `termcolor` version must match the dependency of `codespan-reporting`.
 termcolor = "1"
+clap = "2.33"
