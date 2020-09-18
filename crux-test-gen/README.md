@@ -205,6 +205,12 @@ In more detail, the budget system provides these nonterminals:
    if it were a nonterminal with no matching productions); otherwise, it
    expands to the empty string.
 
+ * `check_budget[name, amount]`: Checks that the budget counter for `name` is
+   exactly `amount`.  If so, it expands to the empty string; otherwise, it
+   fails to expand.  This is useful for requiring that the entire budget is
+   spent during expansion, by adding a `check_budget[name, 0]` at the end of
+   the top-level production.
+
 ### Locals
 
 These builtins allow tracking the types of local variables (called simply
@@ -247,6 +253,9 @@ Locals and scopes are manipulated using these nonterminals:
  * `choose_local[T]`: Expands to the name of a variable of type `T` in any
    enclosing scope.  If there are multiple matching variables, then this
    nonterminal can expand to multiple outputs.
+ * `take_local[T]`: Expands to the name of a variable of type `T` in any
+   enclosing scope (like `choose_local[T]`), and removes the chosen variable
+   from its scope, so it can't be chosen again.
  * `push_scope`: Push a new local scope onto the stack.  Locals defined with
    `fresh_local` are always added to the most recently pushed scope.
  * `pop_scope`: Pop the most recently pushed scope from the stack.  All locals
@@ -275,6 +284,49 @@ This produces only one output: `x0 = 0; f(0)`.
 undetermined; `expr[T]` expands to either `0` (unifying `T = int`) or `"hello"`
 (unifying `T = str`); and finally `choose_local[int]` expands successfully only
 in the case where `T = int`.
+
+### Recursive expansion
+
+These builtins recursively invoke the grammar expander.
+This is an advanced feature that is rarely needed.
+
+ * `expand_all[nt]`: Take every expansion of the nonterminal `nt` that is legal
+   in this context, and concatenate them together.
+
+   For example, this can be used to produce a list of expressions for the
+   generated test to evaluate at run time:
+
+   ```
+   expr[int] ::= 0
+   expr[int] ::= 1
+   for[T] expr[T] ::= <<choose_local[T]>>
+
+   for[T] expr_comma[T] ::= <<expr[T]>>,
+
+   all_ints ::= [<<expand_all[expr_comma[int]]>>]
+   ```
+
+   In a scope with two locals of type `int` named `x1` and `x2`, `all_ints`
+   would expand to `[0,1,x1,x2,]`.
+
+ * `expand_first[nt]`: Take the first expansion of the nonterminal `nt` that is
+   legal in this context.  If `nt` fails to expand here, `expand_first[nt]`
+   also fails to expand.
+
+   For example, given these declarations:
+
+   ```
+   foo ::= A
+   foo ::= B
+   ```
+
+   `foo` can expand to either `A` or `B`, while `expand_first[foo]` expands
+   only to `A`.
+
+The interactions between recursive expansion and type variable unification are
+somewhat complex.
+See the comments in [`lib.rs`](src/lib.rs), `fn add_builtin_expand` for the
+complete details.
 
 ### Miscellaneous
 
