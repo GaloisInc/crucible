@@ -118,9 +118,9 @@ install_system_deps() {
   is_exe "$BIN" z3 && is_exe "$BIN" yices
 }
 
-test_dist() {
-  # TODO
-}
+#test_dist() {
+#  # TODO
+#}
 
 sign() {
   gpg --batch --import <(echo "$SIGNING_KEY")
