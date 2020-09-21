@@ -152,24 +152,24 @@ zip_dist() {
 }
 
 bundle_crux_llvm_files() {
-    setup_dist
-    extract_exe crux-llvm dist/bin
-    if ! $IS_WIN ; then
-        extract_exe crux-llvm-svcomp dist/bin
-    fi
-    cp crux-llvm/README.md dist/doc
-    cp -r crux-llvm/c-src dist
-    VERSION=$DATE
-    zip_dist crux-llvm
+  setup_dist
+  extract_exe crux-llvm dist/bin
+  if ! $IS_WIN ; then
+    extract_exe crux-llvm-svcomp dist/bin
+  fi
+  cp crux-llvm/README.md dist/doc
+  cp -r crux-llvm/c-src dist
+  VERSION=$DATE
+  zip_dist crux-llvm
 }
 
 bundle_crux_mir_files() {
-    setup_dist
-    extract_exe crux-mir dist/bin
-    cp crux-mir/README.md dist/doc
-    cp -r crux-mir/rlibs dist
-    VERSION=$DATE
-    zip_dist crux-mir
+  setup_dist
+  extract_exe crux-mir dist/bin
+  cp crux-mir/README.md dist/doc
+  cp -r crux-mir/rlibs dist
+  VERSION=$DATE
+  zip_dist crux-mir
 }
 
 output() { echo "::set-output name=$1::$2"; }
