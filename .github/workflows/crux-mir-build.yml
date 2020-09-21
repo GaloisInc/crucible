@@ -89,10 +89,10 @@ jobs:
         run: .github/ci.sh build exe:crux-mir
 
       - shell: bash
-        run: .github/ci.sh test crux-mir
+        run: cd crux-mir && bash ./translate_libs.sh
 
       - shell: bash
-        run: cd crux-mir && bash ./translate_libs.sh
+        run: .github/ci.sh test crux-mir
 
       - shell: bash
         run: .github/ci.sh bundle_crux_mir_files
