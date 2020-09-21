@@ -86,7 +86,7 @@ jobs:
         run: cd crux-mir && bash ./translate_libs.sh
 
       - shell: bash
-        run: .github/package-crux-mir.sh
+        run: .github/ci.sh bundle_crux_mir_files
 
       - uses: actions/upload-artifact@v2
         with:

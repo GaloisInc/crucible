@@ -75,7 +75,7 @@ jobs:
         if: runner.os != 'Windows'
 
       - shell: bash
-        run: .github/package-crux-llvm.sh
+        run: .github/ci.sh bundle_crux_llvm_files
 
       - uses: actions/upload-artifact@v2
         with:
