@@ -1,0 +1,94 @@
+name: crux-mir
+on:
+  push:
+    branches: [master, "release-**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  outputs:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.outputs.outputs.changed-files }}
+      name: ${{ steps.outputs.outputs.name }}
+      release: ${{ steps.env.outputs.release }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+  build:
+    runs-on: ${{ matrix.os }}
+    needs: [outputs]
+    strategy:
+      fail-fast: false
+      matrix:
+        # We want Windows soon, but it doesn't need to be now
+        os: [ubuntu-latest, macos-latest] #, windows-latest]
+        # We want GHC 8.10 soon, but it doesn't need to be now
+        ghc: ["8.6.5", "8.8.4"] # "8.10.2"]
+        # Windows only seems to work on 8.6.5. Others result in
+        # segfaults or other internal errors.
+        exclude:
+          - os: windows-latest
+            ghc: 8.10.2
+          - os: windows-latest
+            ghc: 8.8.4
+    name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+
+      - uses: actions/setup-haskell@v1
+        id: setup-haskell
+        with:
+          ghc-version: ${{ matrix.ghc }}
+
+      - name: Install latest Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2020-03-22
+          override: true
+          components: rustc-dev
+
+      - uses: actions/cache@v1
+        name: Cache cabal store
+        with:
+          path: ${{ steps.setup-haskell.outputs.cabal-store }}
+          # https://github.com/actions/cache/issues/109 "Enable always writing cache to support hermetic build systems"
+          # https://github.com/actions/cache/issues/239#issuecomment-606950711 Investigate this workaround if cache starts filling up
+          key: store-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('**/cabal.GHC-*') }}-${{ github.sha }}
+          restore-keys: |
+            store-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('**/cabal.GHC-*') }}-
+            store-${{ runner.os }}-${{ matrix.ghc }}-
+            store-${{ runner.os }}-
+
+      - uses: actions/cache@v1
+        name: Cache dist-newstyle
+        with:
+          path: dist-newstyle
+          key: dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('**/cabal.GHC-*') }}-${{ github.sha }}
+          restore-keys: |
+            dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('**/cabal.GHC-*') }}-
+            dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-
+
+      - shell: bash
+        run: cd dependencies/mir-json && RUSTC_WRAPPER=./rustc-rpath.sh cargo install --locked --force
+
+      - shell: bash
+        run: cabal v2-update
+
+      - shell: bash
+        run: cabal v2-build exe:crux-mir
+
+      - shell: bash
+        run: cd crux-mir && bash ./translate_libs.sh
+
+      - shell: bash
+        run: .github/package-crux-mir.sh
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: crux-mir-*.tar.gz
+          name: crux-mir-${{ runner.os }}-${{ matrix.ghc }}
