@@ -112,18 +112,18 @@ build() {
 }
 
 test() {
+  # System-agnostic path
+  export PATH="$PATH:/usr/local/opt/llvm/bin:/c/Program Files/LLVM/bin"
   cabal v2-test "$@"
 }
 
 install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
-    sudo apt-get update -q && sudo apt-get install -y clang-10 llvm-10
+    sudo apt-get update -q && sudo apt-get install -y clang-10 llvm-10-tools
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
     brew install llvm
-    export PATH=$PATH:/usr/local/opt/llvm/bin
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
     choco install llvm
-    export PATH=$PATH:"C:\\Program Files\\LLVM\\bin"
   else
     echo "Unknown platform!"
     return 1
