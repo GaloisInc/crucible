@@ -66,6 +66,9 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh install_system_deps
+        env:
+          Z3_VERSION: "4.8.8"
+          YICES_VERSION: "2.6.2"
 
       - shell: bash
         run: .github/ci.sh configure
