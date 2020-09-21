@@ -65,13 +65,16 @@ jobs:
             dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-
 
       - shell: bash
-        run: cabal v2-update
+        run: .github/ci.sh configure
 
       - shell: bash
-        run: cabal v2-build exe:crux-llvm
+        run: .github/ci.sh build exe:crux-llvm
 
       - shell: bash
-        run: cabal v2-build exe:crux-llvm-svcomp
+        run: .github/ci.sh test crux-llvm
+
+      - shell: bash
+        run: .github/ci.sh build exe:crux-llvm-svcomp
         if: runner.os != 'Windows'
 
       - shell: bash

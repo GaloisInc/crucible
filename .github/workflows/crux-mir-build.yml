@@ -77,10 +77,13 @@ jobs:
         run: cd dependencies/mir-json && RUSTC_WRAPPER=./rustc-rpath.sh cargo install --locked --force
 
       - shell: bash
-        run: cabal v2-update
+        run: .github/ci.sh configure
 
       - shell: bash
-        run: cabal v2-build exe:crux-mir
+        run: .github/ci.sh build exe:crux-mir
+
+      - shell: bash
+        run: .github/ci.sh test crux-mir
 
       - shell: bash
         run: cd crux-mir && bash ./translate_libs.sh

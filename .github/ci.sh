@@ -95,16 +95,27 @@ install_yices() {
   rm -rf "yices$ext" "yices-$YICES_VERSION"
 }
 
-build() {
+configure() {
   ghc_ver="$(ghc --numeric-version)"
   cp cabal.GHC-"$ghc_ver".config cabal.project.freeze
   cabal v2-update
   cabal v2-configure -j2 --minimize-conflict-set
   tee -a cabal.project > /dev/null < cabal.project.ci
+}
+
+build() {
   if ! retry cabal v2-build "$@" && [[ "$RUNNER_OS" == "macOS" ]]; then
     echo "Working around a dylib issue on macos by removing the cache and trying again"
     cabal v2-clean
     retry cabal v2-build "$@"
+  fi
+}
+
+test() {
+  if ! retry cabal v2-test "$@" && [[ "$RUNNER_OS" == "macOS" ]]; then
+    echo "Working around a dylib issue on macos by removing the cache and trying again"
+    cabal v2-clean
+    retry cabal v2-test "$@"
   fi
 }
 
@@ -117,10 +128,6 @@ install_system_deps() {
   echo "::add-path::$PWD/$BIN"
   is_exe "$BIN" z3 && is_exe "$BIN" yices
 }
-
-#test_dist() {
-#  # TODO
-#}
 
 sign() {
   gpg --batch --import <(echo "$SIGNING_KEY")
