@@ -301,6 +301,7 @@ struct Reporter {
     files: SimpleFiles<String, String>,
     file_map: HashMap<String, usize>,
     filters: Option<Vec<Filter>>,
+    seen: HashSet<String>,
 }
 
 struct SpanInfo {
@@ -317,10 +318,17 @@ impl Reporter {
             files: SimpleFiles::new(),
             file_map: HashMap::new(),
             filters,
+            seen: HashSet::new(),
         }
     }
 
     fn warn(&mut self, span: &str, msg: impl Display) {
+        let key = format!("{}; {}", span, msg);
+        if !self.seen.insert(key) {
+            // Don't display the same warning twice.
+            return;
+        }
+
         let (sp, callsite) = match parse_span(span) {
             Some(x) => x,
             None => {
