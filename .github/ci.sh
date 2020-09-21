@@ -97,7 +97,7 @@ install_yices() {
 
 configure() {
   ghc_ver="$(ghc --numeric-version)"
-  cp cabal.GHC-"$ghc_ver".config cabal.project.freeze
+  #cp cabal.GHC-"$ghc_ver".config cabal.project.freeze
   cabal v2-update
   cabal v2-configure -j2 --minimize-conflict-set
   #tee -a cabal.project > /dev/null < cabal.project.ci
