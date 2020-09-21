@@ -29,6 +29,10 @@ fn parse_args() -> ArgMatches<'static> {
              .help("only report uncovered branches in the indicated source region(s)")
              .multiple(true)
              .number_of_values(1))
+        .arg(Arg::with_name("no-merge-monos")
+             .long("no-merge-monos")
+             .help("don't merge corresponding branches in different monomorphizations of the \
+                    same function"))
         .get_matches()
 }
 
@@ -304,12 +308,222 @@ fn parse_branch(json: &Value) -> Result<BranchTrans, String> {
 }
 
 
-struct Reporter {
-    files: SimpleFiles<String, String>,
-    file_map: HashMap<String, usize>,
-    filters: Option<Vec<Filter>>,
-    seen: HashSet<String>,
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+struct CoverageKey<'a> {
+    fn_id: &'a str,
+    branch_span: &'a str,
 }
+
+struct Coverage<'a> {
+    /// Whether to merge multiple monomorphized instances of a function when computing coverage.
+    /// If set, then an exit is considered covered if it is covered in any monomorphization of the
+    /// source function; otherwise, every exit must be covered in every monomorphization.
+    merge_functions: bool,
+    branches: HashMap<CoverageKey<'a>, BranchCoverage>,
+}
+
+impl<'a> Coverage<'a> {
+    pub fn new(merge_functions: bool) -> Coverage<'a> {
+        Coverage {
+            merge_functions,
+            branches: HashMap::new(),
+        }
+    }
+
+    fn key(&self, fn_id: &'a FnId, span: &'a str) -> CoverageKey<'a> {
+        CoverageKey {
+            fn_id: if self.merge_functions {
+                strip_instance(fn_id)
+            } else {
+                fn_id as &str
+            },
+            branch_span: span,
+        }
+    }
+
+    pub fn branch(&mut self, fn_id: &'a FnId, span: &'a str) -> &mut BranchCoverage {
+        let key = self.key(fn_id, span);
+        self.branches.entry(key).or_insert_with(BranchCoverage::default)
+    }
+
+    pub fn iter_sorted<'b>(&'b self) -> impl Iterator<Item = (&'a str, &'b BranchCoverage)> + 'b {
+        let mut keys = self.branches.keys().collect::<Vec<_>>();
+        keys.sort();
+        keys.into_iter().map(move |k| (k.branch_span, self.branches.get(k).unwrap()))
+    }
+}
+
+/// If `s` ends with something that looks like a monomorphized instance disambiguator
+/// (`::inst0123456789abcdef[0]`), then remove that suffix.  If no such suffix is present, `s` is
+/// returned unchanged.
+fn strip_instance<'a>(s: &'a str) -> &'a str {
+    try_strip_instance(s).unwrap_or(s)
+}
+
+fn try_strip_instance<'a>(s: &'a str) -> Option<&'a str> {
+    if !s.ends_with("[0]") {
+        return None;
+    }
+
+    let colon_colon = s.rfind("::")?;
+    let tail = &s[colon_colon + 2 ..];
+    if !tail.starts_with("_inst") {
+        return None;
+    }
+    if tail.len() != "_inst".len() + 16 + "[0]".len() {
+        return None;
+    }
+    Some(&s[..colon_colon])
+}
+
+/// Coverage information for an abstract branch, which may be formed by merging several concrete
+/// branches with the same source span.  Records the values that were possible and the values that
+/// were seen, unioned across all of the merged branches.  (The set of possible values is usually
+/// the same at every branch, but this is not strictly required, and might vary in cases of
+/// generics instantiated with `!`.)
+#[derive(Clone, Debug, Default)]
+struct BranchCoverage {
+    /// Possible values of the branch condition.  If an exit leads to unreachable code, the value
+    /// for that exit is not recorded here.
+    pub possible: HashSet<i64>,
+    /// Whether there's a default exit for this branch, in addition to exits for the values in
+    /// `possible`.  If the default exit leads to unreachable code, it is not recorded here.
+    pub default_possible: bool,
+    /// Values observed.
+    pub seen: HashSet<i64>,
+    /// Whether a default value (not a member of `possible`) was observed.
+    pub default_seen: bool,
+    /// Whether this is a boolean branch.  If so, warnings will be formatted slightly differently
+    /// (its values are rendered `false` and `true` instead of `0` and `1`).
+    pub is_boolean: bool,
+}
+
+fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, trans: &'a FnTrans) {
+    // Maps (branch ID, dest index) to the Core `BlockId` of the destination.
+    let mut dest_map: HashMap<(u32, usize), BlockId> = HashMap::new();
+    let mut visited_branches = HashSet::new();
+
+    fn insert_dest(
+        fn_id: &FnId,
+        dm: &mut HashMap<(u32, usize), BlockId>,
+        branch_id: u32,
+        index: usize,
+        dest: &BlockId,
+    ) {
+        let old = dm.insert((branch_id, index), dest.clone());
+        if let Some(old) = old {
+            if &old != dest {
+                eprintln!(
+                    "{}: multiple dests reported for branch {}, index {}: {:?} != {:?}",
+                    fn_id, branch_id, index, old, dest,
+                );
+            }
+        }
+    }
+
+    for branch in &report.branches {
+        let BranchReport { branch_id, index, ref dests } = *branch;
+
+        let bt = match trans.branches.get(branch_id as usize) {
+            Some(x) => x,
+            None => {
+                eprintln!("{}: bad branch id {}", fn_id, branch_id);
+                continue;
+            },
+        };
+
+        if bt.is_drop_flag() {
+            continue;
+        }
+
+        if index >= bt.dests().len() {
+            eprintln!(
+                "{}: index {} out of range for branch {} ({} dests)",
+                fn_id, index, branch_id, bt.dests().len(),
+            );
+            continue;
+        }
+
+        visited_branches.insert(branch_id);
+
+        insert_dest(fn_id, &mut dest_map, branch_id, index, &dests[0]);
+
+        if index + 2 == bt.dests().len() {
+            // This is the last branch of the switch, meaning the `false` exit goes to the default
+            // case instead of to another branch.
+            insert_dest(fn_id, &mut dest_map, branch_id, index + 1, &dests[1]);
+        }
+    }
+
+
+    let mut branch_ids = visited_branches.into_iter().collect::<Vec<_>>();
+    branch_ids.sort();
+    for branch_id in branch_ids {
+        let bt = &trans.branches[branch_id as usize];
+
+        let dest_visited = |index| {
+            let block_id = match dest_map.get(&(branch_id, index)) {
+                Some(x) => x,
+                None => return false,
+            };
+            report.visited_blocks.contains(block_id)
+        };
+
+        let dest_unreachable = |index| {
+            trans.unreachable.contains(&bt.dests()[index])
+        };
+
+        match *bt {
+            BranchTrans::Bool(_, ref span) => {
+                let bcov = cov.branch(fn_id, span);
+                bcov.is_boolean = true;
+                if !dest_unreachable(0) {
+                    bcov.possible.insert(0);
+                }
+                if !dest_unreachable(1) {
+                    bcov.possible.insert(1);
+                }
+                if dest_visited(0) {
+                    bcov.seen.insert(0);
+                }
+                if dest_visited(1) {
+                    bcov.seen.insert(1);
+                }
+            },
+
+            BranchTrans::Int(ref vals, ref dests, ref span) => {
+                let bcov = cov.branch(fn_id, span);
+                for i in 0 .. dests.len() {
+                    // If this destination is `Unreachable`, don't complain that the edge wasn't
+                    // taken.  Branches to unreachable blocks are generated in exhaustive `match`
+                    // expressions: the switch covers every legal discriminant, then ends with an
+                    // unreachable "else" case.
+                    if dest_unreachable(i) {
+                        continue;
+                    }
+
+                    if i < vals.len() {
+                        bcov.possible.insert(vals[i]);
+                    } else {
+                        bcov.default_possible = true;
+                    }
+
+                    if dest_visited(i) {
+                        if i < vals.len() {
+                            bcov.seen.insert(vals[i]);
+                        } else {
+                            bcov.default_seen = true;
+                        }
+                    }
+                }
+            },
+
+            // Ignore drop-flag branches
+            BranchTrans::DropFlag => {},
+        }
+    }
+}
+
 
 struct SpanInfo {
     filename: String,
@@ -317,6 +531,56 @@ struct SpanInfo {
     col1: usize,
     line2: usize,
     col2: usize,
+}
+
+fn parse_span(s: &str) -> Option<(SpanInfo, Option<SpanInfo>)> {
+    // Remove branch info if present
+    let s = match s.rfind('#') {
+        Some(idx) => &s[..idx],
+        None => s,
+    };
+
+    if let Some(idx) = s.find('!') {
+        // This span includes a macro callsite.  We parse the portions before and after the `!` as
+        // separate spans, and return both.
+        let main_span = parse_single_span(&s[..idx])?;
+        // If the callsite span is invalid, then we consider the whole thing invalid.
+        let callsite_span = parse_single_span(&s[idx + 1 ..])?;
+        Some((main_span, Some(callsite_span)))
+    } else {
+        let main_span = parse_single_span(s)?;
+        Some((main_span, None))
+    }
+}
+
+fn parse_single_span(s: &str) -> Option<SpanInfo> {
+    // Span format is something like "file.rs:1:2: 3:4", consisting of filename, start line and
+    // column, and end line and column.  We also support the truncated form "file.rs:1:2", which
+    // uses the start line and column for the end position as well.
+    let mut it = s.split(':').map(|s| s.trim());
+    let filename = it.next()?.to_owned();
+    let line1 = it.next()?.parse().ok()?;
+    let col1 = it.next()?.parse().ok()?;
+    if let Some(x) = it.next() {
+        let line2 = x.parse().ok()?;
+        let col2 = it.next()?.parse().ok()?;
+        if it.next().is_some() {
+            // Too many pieces - should be exactly 5.
+            return None;
+        }
+        Some(SpanInfo { filename, line1, col1, line2, col2 })
+    } else {
+        // Exactly 3 pieces, so there's only one line/column pair.
+        Some(SpanInfo { filename, line1, col1, line2: line1, col2: col1 })
+    }
+}
+
+
+struct Reporter {
+    files: SimpleFiles<String, String>,
+    file_map: HashMap<String, usize>,
+    filters: Option<Vec<Filter>>,
+    seen: HashSet<String>,
 }
 
 impl Reporter {
@@ -417,176 +681,6 @@ impl Reporter {
     }
 }
 
-fn parse_span(s: &str) -> Option<(SpanInfo, Option<SpanInfo>)> {
-    // Remove branch info if present
-    let s = match s.rfind('#') {
-        Some(idx) => &s[..idx],
-        None => s,
-    };
-
-    if let Some(idx) = s.find('!') {
-        // This span includes a macro callsite.  We parse the portions before and after the `!` as
-        // separate spans, and return both.
-        let main_span = parse_single_span(&s[..idx])?;
-        // If the callsite span is invalid, then we consider the whole thing invalid.
-        let callsite_span = parse_single_span(&s[idx + 1 ..])?;
-        Some((main_span, Some(callsite_span)))
-    } else {
-        let main_span = parse_single_span(s)?;
-        Some((main_span, None))
-    }
-}
-
-fn parse_single_span(s: &str) -> Option<SpanInfo> {
-    // Span format is something like "file.rs:1:2: 3:4", consisting of filename, start line and
-    // column, and end line and column.  We also support the truncated form "file.rs:1:2", which
-    // uses the start line and column for the end position as well.
-    let mut it = s.split(':').map(|s| s.trim());
-    let filename = it.next()?.to_owned();
-    let line1 = it.next()?.parse().ok()?;
-    let col1 = it.next()?.parse().ok()?;
-    if let Some(x) = it.next() {
-        let line2 = x.parse().ok()?;
-        let col2 = it.next()?.parse().ok()?;
-        if it.next().is_some() {
-            // Too many pieces - should be exactly 5.
-            return None;
-        }
-        Some(SpanInfo { filename, line1, col1, line2, col2 })
-    } else {
-        // Exactly 3 pieces, so there's only one line/column pair.
-        Some(SpanInfo { filename, line1, col1, line2: line1, col2: col1 })
-    }
-}
-
-fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnTrans) {
-    // Maps (branch ID, dest index) to the Core `BlockId` of the destination.
-    let mut dest_map: HashMap<(u32, usize), BlockId> = HashMap::new();
-    let mut visited_branches = HashSet::new();
-
-    fn insert_dest(
-        fn_id: &FnId,
-        dm: &mut HashMap<(u32, usize), BlockId>,
-        branch_id: u32,
-        index: usize,
-        dest: &BlockId,
-    ) {
-        let old = dm.insert((branch_id, index), dest.clone());
-        if let Some(old) = old {
-            if &old != dest {
-                eprintln!(
-                    "{}: multiple dests reported for branch {}, index {}: {:?} != {:?}",
-                    fn_id, branch_id, index, old, dest,
-                );
-            }
-        }
-    }
-
-    for branch in &report.branches {
-        let BranchReport { branch_id, index, ref dests } = *branch;
-
-        let bt = match trans.branches.get(branch_id as usize) {
-            Some(x) => x,
-            None => {
-                eprintln!("{}: bad branch id {}", fn_id, branch_id);
-                continue;
-            },
-        };
-
-        if bt.is_drop_flag() {
-            continue;
-        }
-
-        if index >= bt.dests().len() {
-            eprintln!(
-                "{}: index {} out of range for branch {} ({} dests)",
-                fn_id, index, branch_id, bt.dests().len(),
-            );
-            continue;
-        }
-
-        visited_branches.insert(branch_id);
-
-        insert_dest(fn_id, &mut dest_map, branch_id, index, &dests[0]);
-
-        if index + 2 == bt.dests().len() {
-            // This is the last branch of the switch, meaning the `false` exit goes to the default
-            // case instead of to another branch.
-            insert_dest(fn_id, &mut dest_map, branch_id, index + 1, &dests[1]);
-        }
-    }
-
-
-    let mut branch_ids = visited_branches.into_iter().collect::<Vec<_>>();
-    branch_ids.sort();
-    for branch_id in branch_ids {
-        let bt = &trans.branches[branch_id as usize];
-
-        let dest_visited = |index| {
-            let block_id = match dest_map.get(&(branch_id, index)) {
-                Some(x) => x,
-                None => return false,
-            };
-            report.visited_blocks.contains(block_id)
-        };
-
-        let dest_unreachable = |index| {
-            trans.unreachable.contains(&bt.dests()[index])
-        };
-
-        match *bt {
-            BranchTrans::Bool(_, ref span) => {
-                if !dest_visited(0) && !dest_unreachable(0) {
-                    reporter.warn(span, "branch condition never has value true");
-                }
-                if !dest_visited(1) && !dest_unreachable(1) {
-                    reporter.warn(span, "branch condition never has value false");
-                }
-            },
-
-            BranchTrans::Int(ref vals, ref dests, ref span) => {
-                let mut vals_seen = Vec::new();
-                for i in 0 .. dests.len() {
-                    if dest_visited(i) {
-                        if i < vals.len() {
-                            vals_seen.push(vals[i]);
-                        }
-                        continue;
-                    }
-
-                    // If this destination is `Unreachable`, don't complain that the edge wasn't
-                    // taken.  Branches to unreachable blocks are generated in exhaustive `match`
-                    // expressions: the switch covers every legal discriminant, then ends with an
-                    // unreachable "else" case.
-                    if dest_unreachable(i) {
-                        continue;
-                    }
-
-                    if i < vals.len() {
-                        reporter.warn(
-                            span,
-                            format_args!(
-                                "branch condition never has value {}",
-                                vals[i],
-                            ),
-                        );
-                    } else {
-                        reporter.warn(
-                            span,
-                            format_args!(
-                                "branch condition never has a value other than {:?}",
-                                vals_seen,
-                            ),
-                        );
-                    }
-                }
-            },
-
-            // Ignore drop-flag branches
-            BranchTrans::DropFlag => {},
-        }
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 struct Filter {
@@ -631,6 +725,40 @@ impl Filter {
             self.end_line.map_or(true, |line| sp.line1 <= line)
     }
 }
+
+
+fn report_all(reporter: &mut Reporter, cov: &Coverage) {
+    for (span, bcov) in cov.iter_sorted() {
+        let is_boolean = bcov.is_boolean &&
+            bcov.possible.iter().all(|&x| x == 0 || x == 1) &&
+            !bcov.default_possible;
+        if is_boolean {
+            if !bcov.seen.contains(&0) {
+                reporter.warn(span, "branch condition never has value false");
+            }
+            if !bcov.seen.contains(&1) {
+                reporter.warn(span, "branch condition never has value true");
+            }
+            continue;
+        }
+
+        let mut possible = bcov.possible.iter().cloned().collect::<Vec<_>>();
+        possible.sort();
+        for &val in &possible {
+            if !bcov.seen.contains(&val) {
+                reporter.warn(span, format_args!("branch condition never has value {}", val));
+            }
+        }
+
+        if bcov.default_possible && !bcov.default_seen {
+            reporter.warn(
+                span,
+                format_args!("branch condition never has a value other than {:?}", possible),
+            );
+        }
+    }
+}
+
 
 #[allow(deprecated)]
 fn hash<H: Hash>(x: &H) -> u64 {
@@ -699,13 +827,13 @@ fn main() {
     };
 
     let default_ft = FnTrans::default();
-    let mut reporter = Reporter::new(filters);
-    let mut fn_ids = report.fns.keys().collect::<Vec<_>>();
-    fn_ids.sort();
-    for fn_id in fn_ids {
-        let fr = report.fns.get(fn_id)
-            .expect("fn_id is not a key in report.fns?");
+    let merge_monos = !m.is_present("no-merge-monos");
+    let mut coverage = Coverage::new(merge_monos);
+    for (fn_id, fr) in report.fns.iter() {
         let ft = trans.fns.get(fn_id).unwrap_or(&default_ft);
-        process(&mut reporter, fn_id, fr, ft);
+        process(&mut coverage, fn_id, fr, ft);
     }
+
+    let mut reporter = Reporter::new(filters);
+    report_all(&mut reporter, &coverage);
 }
