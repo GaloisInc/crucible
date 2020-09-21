@@ -112,10 +112,8 @@ build() {
 }
 
 test() {
-  if ! retry cabal v2-test "$@" && [[ "$RUNNER_OS" == "macOS" ]]; then
-    echo "Working around a dylib issue on macos by removing the cache and trying again"
-    cabal v2-clean
-    retry cabal v2-test "$@"
+  cabal v2-test "$@"
+}
   fi
 }
 
