@@ -183,6 +183,13 @@ impl BranchTrans {
             BranchTrans::DropFlag => &[],
         }
     }
+
+    fn is_drop_flag(&self) -> bool {
+        match *self {
+            BranchTrans::DropFlag => true,
+            _ => false,
+        }
+    }
 }
 
 fn parse_trans(json: Value) -> Result<Trans, String> {
@@ -485,6 +492,10 @@ fn process(reporter: &mut Reporter, fn_id: &FnId, report: &FnReport, trans: &FnT
                 continue;
             },
         };
+
+        if bt.is_drop_flag() {
+            continue;
+        }
 
         if index >= bt.dests().len() {
             eprintln!(
