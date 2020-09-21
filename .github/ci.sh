@@ -11,7 +11,7 @@ mkdir -p "$BIN"
 is_exe() { [[ -x "$1/$2$EXT" ]] || command -v "$2" > /dev/null 2>&1; }
 
 extract_exe() {
-  exe="$(cabal v2-exec which "$1$EXT")"
+  exe="$(cabal v2-exec which "$1$EXT" | tail -1)"
   name="$(basename "$exe")"
   echo "Copying $name to $2"
   mkdir -p "$2"
