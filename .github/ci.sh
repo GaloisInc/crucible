@@ -114,6 +114,17 @@ build() {
 test() {
   cabal v2-test "$@"
 }
+
+install_llvm() {
+  if [[ "$RUNNER_OS" = "Linux" ]]; then
+    sudo apt-get update -q && sudo apt-get install -y clang llvm
+  elif [[ "$RUNNER_OS" = "macOS" ]]; then
+    brew install llvm
+  elif [[ "$RUNNER_OS" = "Windows" ]]; then
+    choco install llvm
+  else
+    echo "Unknown platform!"
+    return 1
   fi
 }
 
@@ -121,6 +132,7 @@ install_system_deps() {
   install_z3 &
   # install_cvc4 &
   install_yices &
+  install_llvm &
   wait
   export PATH=$PWD/$BIN:$PATH
   echo "::add-path::$PWD/$BIN"

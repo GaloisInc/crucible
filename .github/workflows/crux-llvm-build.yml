@@ -65,6 +65,9 @@ jobs:
             dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-
 
       - shell: bash
+        run: .github/ci.sh install_system_deps
+
+      - shell: bash
         run: .github/ci.sh configure
 
       - shell: bash

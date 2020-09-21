@@ -77,6 +77,9 @@ jobs:
         run: cd dependencies/mir-json && RUSTC_WRAPPER=./rustc-rpath.sh cargo install --locked --force
 
       - shell: bash
+        run: .github/ci.sh install_system_deps
+
+      - shell: bash
         run: .github/ci.sh configure
 
       - shell: bash
