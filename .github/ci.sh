@@ -117,11 +117,13 @@ test() {
 
 install_llvm() {
   if [[ "$RUNNER_OS" = "Linux" ]]; then
-    sudo apt-get update -q && sudo apt-get install -y clang llvm
+    sudo apt-get update -q && sudo apt-get install -y clang-10 llvm-10
   elif [[ "$RUNNER_OS" = "macOS" ]]; then
     brew install llvm
+    export PATH=$PATH:/usr/local/opt/llvm/bin
   elif [[ "$RUNNER_OS" = "Windows" ]]; then
     choco install llvm
+    export PATH=$PATH:"C:\\Program Files\\LLVM\\bin"
   else
     echo "Unknown platform!"
     return 1
