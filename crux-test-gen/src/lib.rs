@@ -248,6 +248,8 @@ impl Budget {
 struct Scope {
     first_local_id: usize,
     locals: Vec<Local>,
+    /// Whether it's possible to `take` variables from scopes outside this one.
+    take_outside_mode: TakeMode,
 }
 
 #[derive(Clone)]
@@ -263,11 +265,18 @@ struct Local {
     taken: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TakeMode {
+    Block,
+    Allow,
+}
+
 impl Scope {
-    pub fn new(first_local_id: usize) -> Scope {
+    pub fn new(first_local_id: usize, take_outside_mode: TakeMode) -> Scope {
         Scope {
             first_local_id,
             locals: Vec::new(),
+            take_outside_mode,
         }
     }
 
@@ -526,18 +535,25 @@ impl ExpState {
         None
     }
 
-    fn take_local(&mut self, idx: usize) {
-        for s in self.scopes.iter_mut() {
+    /// Try to take / consume local `idx`.  Returns `true` on success, or `false` on failure, which
+    /// happens when `idx` is in an outer scope, but an inner scope forbids taking variables from
+    /// the outer scope.
+    fn take_local(&mut self, idx: usize) -> bool {
+        for s in self.scopes.iter_mut().rev() {
             if s.index_ok(idx) {
                 s.take(idx);
+                return true;
+            }
+            if s.take_outside_mode == TakeMode::Block {
                 break;
             }
         }
+        false
     }
 
-    fn push_scope(&mut self) {
+    fn push_scope(&mut self, take_outside_mode: TakeMode) {
         let next_id = self.count_locals();
-        self.scopes.push(Scope::new(next_id));
+        self.scopes.push(Scope::new(next_id, take_outside_mode));
     }
 
     /// Pop a scope from the stack.  Returns `true` on success, or `false` if there were no scopes
@@ -927,11 +943,13 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
             if !s.unify.unify_vars(local_ty_var, arg_ty_var) {
                 return false;
             }
-            // Success - the var at `index` has the requested type.  Expand to its name.
+            // Consume the local at `index`, if that's allowed.
+            if !s.take_local(index) {
+                return false;
+            }
+            // Success - the local at `index` has the requested type, and is consumable.  Expand to
+            // its name.
             partial.specials.push(Rc::new(move |_| format!("x{}", index)));
-            // Only consume the variable on success.  Handler callbacks must not have side effects
-            // on failure.
-            s.take_local(index);
             true
         },
     );
@@ -940,7 +958,16 @@ fn add_builtin_locals(gb: &mut GrammarBuilder) {
     // locals declared in the new scope will be discarded at the matching `pop_scope`.
     let lhs = gb.mk_simple_lhs("push_scope");
     gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |_, s, _, _| {
-        s.push_scope();
+        s.push_scope(TakeMode::Allow);
+        true
+    });
+
+    // push_borrowed_scope: like `push_scope`, but forbids `take_local` from consuming locals that
+    // were introduced outside the new scope.  This is useful for the bodies of Rust `Fn`/`FnMut`
+    // closures, which can read and write variables from outer scopes, but cannot move them.
+    let lhs = gb.mk_simple_lhs("push_borrowed_scope");
+    gb.add_prod_with_handler(lhs, empty_rhs.clone(), move |_, s, _, _| {
+        s.push_scope(TakeMode::Block);
         true
     });
 
