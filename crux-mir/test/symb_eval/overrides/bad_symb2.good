@@ -3,13 +3,7 @@ test bad_symb2/3a1fbbbh::crux_test[0]: FAILED
 failures:
 
 ---- bad_symb2/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for invalid symbolic variable name "\NUL:., /": Identifier must start with a letter.
-in crucible/3a1fbbbh::symbolic[0]::{{impl}}[1]::symbolic[0] at lib/crucible/symbolic.rs:24:64
+Failure for lib/crucible/symbolic.rs:24:64: error: in crucible/3a1fbbbh::symbolic[0]::{{impl}}[1]::symbolic[0]
+invalid symbolic variable name "\NUL:., /": Identifier must start with a letter.
 
-[Crux] Goal status:
-[Crux]   Total: 1
-[Crux]   Proved: 0
-[Crux]   Disproved: 1
-[Crux]   Incomplete: 0
-[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

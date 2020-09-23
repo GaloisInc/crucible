@@ -67,13 +67,15 @@ runCrux rustFile outHandle concrete = do
     -- goalTimeout is bumped from 60 to 180 because scalar.rs symbolic
     -- verification runs close to the timeout, causing flaky results
     -- (especially in CI).
+    let quiet = True
     let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
                                         Crux.simVerbose = 0,
                                         Crux.globalTimeout = Just 180,
                                         Crux.goalTimeout = Just 180,
-                                        Crux.solver = "z3" } ,
+                                        Crux.solver = "z3",
+                                        Crux.quietMode = quiet } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = concrete })
-    let ?outputConfig = Crux.OutputConfig False outHandle outHandle False
+    let ?outputConfig = Crux.OutputConfig False outHandle outHandle quiet
     _exitCode <- Mir.runTests options
     return ()
 

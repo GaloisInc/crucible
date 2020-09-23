@@ -6,17 +6,17 @@ test mixed_fail/3a1fbbbh::pass2[0]: ok
 failures:
 
 ---- mixed_fail/3a1fbbbh::fail1[0] counterexamples ----
-Failure for attempt to add with overflow
-in mixed_fail/3a1fbbbh::fail1[0] at test/symb_eval/crux/mixed_fail.rs:8:22
+Failure for test/symb_eval/crux/mixed_fail.rs:8:22: error: in mixed_fail/3a1fbbbh::fail1[0]
+attempt to add with overflow
+Failure for ./lib/crucible/lib.rs:34:41: error: in mixed_fail/3a1fbbbh::fail1[0]
+MIR assertion at test/symb_eval/crux/mixed_fail.rs:8:5:
+	x + 1 > x
 
 ---- mixed_fail/3a1fbbbh::fail2[0] counterexamples ----
-Failure for attempt to add with overflow
-in mixed_fail/3a1fbbbh::fail2[0] at test/symb_eval/crux/mixed_fail.rs:14:22
+Failure for test/symb_eval/crux/mixed_fail.rs:14:22: error: in mixed_fail/3a1fbbbh::fail2[0]
+attempt to add with overflow
+Failure for ./lib/crucible/lib.rs:34:41: error: in mixed_fail/3a1fbbbh::fail2[0]
+MIR assertion at test/symb_eval/crux/mixed_fail.rs:14:5:
+	x + 2 > x
 
-[Crux] Goal status:
-[Crux]   Total: 6
-[Crux]   Proved: 4
-[Crux]   Disproved: 2
-[Crux]   Incomplete: 0
-[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.

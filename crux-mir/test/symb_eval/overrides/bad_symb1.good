@@ -3,13 +3,7 @@ test bad_symb1/3a1fbbbh::crux_test[0]: FAILED
 failures:
 
 ---- bad_symb1/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for symbolic variable name must be a concrete string
-in crucible/3a1fbbbh::symbolic[0]::{{impl}}[1]::symbolic[0] at lib/crucible/symbolic.rs:24:64
+Failure for lib/crucible/symbolic.rs:24:64: error: in crucible/3a1fbbbh::symbolic[0]::{{impl}}[1]::symbolic[0]
+symbolic variable name must be a concrete string
 
-[Crux] Goal status:
-[Crux]   Total: 1
-[Crux]   Proved: 0
-[Crux]   Disproved: 1
-[Crux]   Incomplete: 0
-[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
