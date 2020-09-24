@@ -732,6 +732,31 @@ pub fn render_expansion(rcx: &mut RenderContext, exp: &Expansion) -> String {
 }
 
 
+pub struct IterExpansions<'a> {
+    cx: &'a Context,
+    bcx: BranchingState,
+}
+
+impl<'a> Iterator for IterExpansions<'a> {
+    type Item = (Expansion, RenderContext<'a>);
+    fn next(&mut self) -> Option<(Expansion, RenderContext<'a>)> {
+        expand_next(self.cx, &mut self.bcx)
+    }
+}
+
+/// Return an iterator over all expansions of the named nonterminal.
+pub fn iter_expansions<'a>(cx: &'a Context, nonterminal: &str) -> IterExpansions<'a> {
+    let bcx = match cx.nonterminals_by_name.get(nonterminal) {
+        Some(&nt_id) => {
+            let cont = Continuation::new(cx, NonterminalRef::nullary(nt_id));
+            BranchingState::new(cont)
+        },
+        None => BranchingState::empty(),
+    };
+    IterExpansions { cx, bcx }
+}
+
+
 pub struct IterRendered<'a> {
     cx: &'a Context,
     bcx: BranchingState,
@@ -745,7 +770,8 @@ impl<'a> Iterator for IterRendered<'a> {
     }
 }
 
-/// Return an iterator over all expansions of the named nonterminal.
+/// Return an iterator over all expansions of the named nonterminal, with each expansion rendered
+/// to a string.
 pub fn iter_rendered<'a>(cx: &'a Context, nonterminal: &str) -> IterRendered<'a> {
     let bcx = match cx.nonterminals_by_name.get(nonterminal) {
         Some(&nt_id) => {
