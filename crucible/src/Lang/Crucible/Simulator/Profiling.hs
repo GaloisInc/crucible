@@ -23,6 +23,8 @@
 module Lang.Crucible.Simulator.Profiling
   ( profilingFeature
   , ProfilingOptions(..)
+  , EventFilter(..)
+  , profilingEventFilter
   , newProfilingTable
   , recordSolverEvent
   , startRecordingSolverEvents
@@ -240,6 +242,19 @@ data ProfilingTable =
   , solverEvents :: IORef (Seq (UTCTime, SolverEvent))
   }
 
+data EventFilter =
+  EventFilter
+  { recordProfiling :: Bool
+  , recordCoverage :: Bool
+  }
+
+-- | An `EventFilter` that enables only Crucible profiling.
+profilingEventFilter :: EventFilter
+profilingEventFilter = EventFilter
+  { recordProfiling = True
+  , recordCoverage = False
+  }
+
 data CrucibleProfile =
   CrucibleProfile
   { crucibleProfileTime :: UTCTime
@@ -404,63 +419,69 @@ branchEvent tbl nm callLoc blks =
 updateProfilingTable ::
   IsExprBuilder sym =>
   ProfilingTable ->
+  EventFilter ->
   ExecState p sym ext rtp ->
   IO ()
-updateProfilingTable tbl exst = do
-  let sym = execStateContext exst ^. ctxSymInterface
-  stats <- getStatistics sym
-  writeIORef (metricSolverStats (metrics tbl)) stats
+updateProfilingTable tbl filt exst = do
+  when (recordProfiling filt) $ do
+    let sym = execStateContext exst ^. ctxSymInterface
+    stats <- getStatistics sym
+    writeIORef (metricSolverStats (metrics tbl)) stats
 
-  case execStateSimState exst of
-    Just (SomeSimState simst) -> do
-      let extraMetrics = execStateContext exst ^. profilingMetrics
-      extraMetricValues <- traverse (\m -> runMetric m simst) extraMetrics
-      writeIORef (metricExtraMetrics (metrics tbl)) extraMetricValues
-    Nothing ->
-      -- We can't poll custom metrics at the VERY beginning or end of
-      -- execution because 'ResultState' and 'InitialState' have no
-      -- 'SimState' values. This is probably fine---we still get to
-      -- poll them before and after the top-level function being
-      -- simulated, since it gets a 'CallState' and 'ReturnState' like
-      -- any other function.
-      return ()
+    case execStateSimState exst of
+      Just (SomeSimState simst) -> do
+        let extraMetrics = execStateContext exst ^. profilingMetrics
+        extraMetricValues <- traverse (\m -> runMetric m simst) extraMetrics
+        writeIORef (metricExtraMetrics (metrics tbl)) extraMetricValues
+      Nothing ->
+        -- We can't poll custom metrics at the VERY beginning or end of
+        -- execution because 'ResultState' and 'InitialState' have no
+        -- 'SimState' values. This is probably fine---we still get to
+        -- poll them before and after the top-level function being
+        -- simulated, since it gets a 'CallState' and 'ReturnState' like
+        -- any other function.
+        return ()
 
-  case exst of
-    InitialState _ _ _ _ _ ->
-      enterEvent tbl startFunctionName Nothing
-    CallState _rh call st ->
-      enterEvent tbl (resolvedCallName call) (st^.stateLocation)
-    ReturnState nm _ _ _ ->
-      exitEvent tbl nm
-    TailCallState _ call st ->
-      do exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-         enterEvent tbl (resolvedCallName call) (st^.stateLocation)
-    SymbolicBranchState{} ->
-      modifyIORef' (metricSplits (metrics tbl)) succ
-    AbortState{} ->
-      modifyIORef' (metricAborts (metrics tbl)) succ
-    UnwindCallState _ _ st ->
-      exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-    BranchMergeState tgt st ->
-      when (isMergeState tgt st)
-           (modifyIORef' (metricMerges (metrics tbl)) succ)
-    ControlTransferState res st ->
-      let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
-      case res of
-        ContinueResumption (ResolvedJump blk _) ->
-          blockEvent tbl funcName (st^.stateLocation) (Some blk)
-        CheckMergeResumption (ResolvedJump blk _) ->
-          blockEvent tbl funcName (st^.stateLocation) (Some blk)
-        _ -> return ()
-    RunningState (RunBlockEnd _) st ->
-      let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
-      case st^.stateTree.actFrame.gpValue.crucibleSimFrame.frameStmts of
-        TermStmt loc term
-          | Just blocks <- termStmtNextBlocks term,
-            length blocks >= 2 ->
-              branchEvent tbl funcName (Just loc) blocks
-        _ -> return ()
-    _ -> return ()
+    case exst of
+      InitialState _ _ _ _ _ ->
+        enterEvent tbl startFunctionName Nothing
+      CallState _rh call st ->
+        enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+      ReturnState nm _ _ _ ->
+        exitEvent tbl nm
+      TailCallState _ call st ->
+        do exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
+           enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+      SymbolicBranchState{} ->
+        modifyIORef' (metricSplits (metrics tbl)) succ
+      AbortState{} ->
+        modifyIORef' (metricAborts (metrics tbl)) succ
+      UnwindCallState _ _ st ->
+        exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
+      BranchMergeState tgt st ->
+        when (isMergeState tgt st)
+             (modifyIORef' (metricMerges (metrics tbl)) succ)
+      _ -> return ()
+
+  when (recordCoverage filt) $
+    case exst of
+      ControlTransferState res st ->
+        let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
+        case res of
+          ContinueResumption (ResolvedJump blk _) ->
+            blockEvent tbl funcName (st^.stateLocation) (Some blk)
+          CheckMergeResumption (ResolvedJump blk _) ->
+            blockEvent tbl funcName (st^.stateLocation) (Some blk)
+          _ -> return ()
+      RunningState (RunBlockEnd _) st ->
+        let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
+        case st^.stateTree.actFrame.gpValue.crucibleSimFrame.frameStmts of
+          TermStmt loc term
+            | Just blocks <- termStmtNextBlocks term,
+              length blocks >= 2 ->
+                branchEvent tbl funcName (Just loc) blocks
+          _ -> return ()
+      _ -> return ()
 
 isMergeState ::
   CrucibleBranchTarget f args ->
@@ -500,20 +521,21 @@ writeProfileReport fp name source tbl =
 --   intermediate profiling data at regular intervals, if desired.
 profilingFeature ::
   ProfilingTable ->
+  EventFilter ->
   Maybe ProfilingOptions ->
   IO (GenericExecutionFeature sym)
 
-profilingFeature tbl Nothing =
-  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl exst >> return ExecutionFeatureNoChange
+profilingFeature tbl filt Nothing =
+  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl filt exst >> return ExecutionFeatureNoChange
 
-profilingFeature tbl (Just profOpts) =
+profilingFeature tbl filt (Just profOpts) =
   do startTime <- getCurrentTime
      stateRef <- newIORef (computeNextState startTime)
      return (feat stateRef)
 
  where
  feat stateRef = GenericExecutionFeature $ \exst ->
-        do updateProfilingTable tbl exst
+        do updateProfilingTable tbl filt exst
            deadline <- readIORef stateRef
            now <- getCurrentTime
            if deadline >= now then

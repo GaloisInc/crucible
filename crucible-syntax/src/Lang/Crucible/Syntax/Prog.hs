@@ -125,7 +125,7 @@ simulateProgram fn theInput outh profh opts setup =
                            void $ executeCrucible [] simSt
                          Just ph ->
                            do proftab <- newProfilingTable
-                              pf <- profilingFeature proftab Nothing
+                              pf <- profilingFeature proftab profilingEventFilter Nothing
                               void $ executeCrucible [genericToExecutionFeature pf] simSt
                               hPutStrLn ph =<< symProUIString "crucibler-prof" fn proftab
 

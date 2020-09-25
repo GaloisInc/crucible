@@ -308,8 +308,13 @@ setupProfiling sym cruxOpts =
                       , periodicProfileAction = saveProf
                       }
 
-     pfs <- execFeatureIf (profileCrucibleFunctions cruxOpts)
-                          (profilingFeature tbl (Just profOpts))
+         profFilt = EventFilter
+                      { recordProfiling = profileCrucibleFunctions cruxOpts
+                      , recordCoverage = branchCoverage cruxOpts
+                      }
+
+     pfs <- execFeatureIf (profileCrucibleFunctions cruxOpts || branchCoverage cruxOpts)
+                          (profilingFeature tbl profFilt (Just profOpts))
 
      pure ProfData
        { inFrame = \str -> inProfilingFrame tbl str Nothing
@@ -576,7 +581,8 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
                return (not (timedOut || (failfast && disprovedGoals nms > 0)))
 
 isProfiling :: CruxOptions -> Bool
-isProfiling cruxOpts = profileCrucibleFunctions cruxOpts || profileSolver cruxOpts
+isProfiling cruxOpts =
+  profileCrucibleFunctions cruxOpts || profileSolver cruxOpts || branchCoverage cruxOpts
 
 computeExitCode :: CruxSimulationResult -> ExitCode
 computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . toList $ gls

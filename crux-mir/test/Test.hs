@@ -82,7 +82,7 @@ runCrux rustFile outHandle mode = do
                                         Crux.outDir = case mode of
                                             RcmCoverage -> getOutputDir rustFile
                                             _ -> "",
-                                        Crux.profileCrucibleFunctions = (mode == RcmCoverage) } ,
+                                        Crux.branchCoverage = (mode == RcmCoverage) } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
     let ?outputConfig = Crux.OutputConfig False outHandle outHandle quiet
     _exitCode <- Mir.runTests options
