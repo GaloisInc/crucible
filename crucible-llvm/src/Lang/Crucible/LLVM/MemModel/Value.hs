@@ -48,6 +48,7 @@ import           Data.Foldable (toList)
 import           Data.Functor.Identity (Identity(..))
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.List (intersperse)
+import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.BitVector.Sized as BV
@@ -221,11 +222,11 @@ ppLLVMVal ppInt =
 ppLLVMValWithGlobals :: forall sym.
   (IsSymInterface sym) =>
   sym ->
-  Map L.Symbol (SomePointer sym) {-^ c.f. 'memImplGlobalMap' -} ->
+  Map Natural L.Symbol {- ^ c.f. 'memImplSymbolMap' -} ->
   LLVMVal sym ->
   IO Doc
-ppLLVMValWithGlobals sym globalMap = ppLLVMVal $ \allocNum offset ->
-  isGlobalPointer' sym globalMap (LLVMPointer allocNum offset) <&&>
+ppLLVMValWithGlobals _sym symbolMap = ppLLVMVal $ \allocNum offset ->
+  pure (isGlobalPointer' @sym symbolMap (LLVMPointer allocNum offset)) <&&>
     \(L.Symbol symb) -> text ('@':symb)
   where x <&&> f = (fmap . fmap) f x -- map under IO and Maybe
 
