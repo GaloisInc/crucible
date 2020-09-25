@@ -1,0 +1,14 @@
+warning: branch condition never has value true
+  ┌─ test/coverage/coverage_shortcircuit.rs:9:8
+  │
+9 │     if x == 0 || x == 1 {
+  │        ^^^^^^
+
+warning: branch condition never has value true
+  ┌─ test/coverage/coverage_shortcircuit.rs:9:8
+  │
+9 │     if x == 0 || x == 1 {
+  │        ^^^^^^^^^^^^^^^^
+  │        │
+  │        in this macro invocation
+

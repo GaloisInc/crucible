@@ -1,0 +1,8 @@
+warning: branch condition never has value true
+   ┌─ test/coverage/coverage.rs:11:15
+   │
+11 │     } else if x == 1 {
+   │               ^^^^^^
+   │               │
+   │               in this macro invocation
+
