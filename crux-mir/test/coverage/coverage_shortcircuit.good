@@ -1,10 +1,10 @@
-warning: branch condition never has value true
+warning: branch condition never has value false
   ┌─ test/coverage/coverage_shortcircuit.rs:9:8
   │
 9 │     if x == 0 || x == 1 {
   │        ^^^^^^
 
-warning: branch condition never has value true
+warning: branch condition never has value false
   ┌─ test/coverage/coverage_shortcircuit.rs:9:8
   │
 9 │     if x == 0 || x == 1 {

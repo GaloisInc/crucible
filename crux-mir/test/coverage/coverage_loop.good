@@ -1,4 +1,4 @@
-warning: branch condition never has value false
+warning: branch condition never has value true
     ┌─ ./lib/libcore/convert/num.rs:220:20
     │
 220 │                 if u > (Self::max_value() as $source) {
@@ -16,13 +16,13 @@ warning: branch condition never has value 1
 135 │                     Ok(n_as_unsigned) => {
     │                     ^^^^^^^^^^^^^^^^^
 
-warning: branch condition never has value true
+warning: branch condition never has value false
     ┌─ ./lib/libcore/iter/range.rs:140:28
     │
 140 │                         if wrapped >= *self {
     │                            ^^^^^^^^^^^^^^^^
 
-warning: branch condition never has value false
+warning: branch condition never has value true
    ┌─ test/coverage/coverage_loop.rs:12:19
    │
 12 │         } else if i > 99 {

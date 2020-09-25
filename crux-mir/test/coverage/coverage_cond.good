@@ -1,0 +1,16 @@
+warning: branch condition never has value false
+  ┌─ test/coverage/coverage_cond.rs:6:8
+  │
+6 │     if cond { 10 } else { 20 }
+  │        ^^^^
+  │        │
+  │        in this macro invocation
+
+warning: branch condition never has value true
+   ┌─ test/coverage/coverage_cond.rs:10:8
+   │
+10 │     if !cond { 10 } else { 20 }
+   │        ^^^^^
+   │        │
+   │        in this macro invocation
+

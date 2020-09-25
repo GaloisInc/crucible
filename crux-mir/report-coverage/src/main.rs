@@ -480,17 +480,20 @@ fn process<'a>(cov: &mut Coverage<'a>, fn_id: &'a FnId, report: &'a FnReport, tr
             BranchTrans::Bool(_, ref span) => {
                 let bcov = cov.branch(fn_id, span);
                 bcov.is_boolean = true;
+                // The entries in `possible` and `seen` are discriminant values (0/false or
+                // 1/true), not indices.  In a boolean branch, the exit at index 0 is the true/1
+                // case, and the exit at index 1 is the false/0 case.
                 if !dest_unreachable(0) {
-                    bcov.possible.insert(0);
-                }
-                if !dest_unreachable(1) {
                     bcov.possible.insert(1);
                 }
+                if !dest_unreachable(1) {
+                    bcov.possible.insert(0);
+                }
                 if dest_visited(0) {
-                    bcov.seen.insert(0);
+                    bcov.seen.insert(1);
                 }
                 if dest_visited(1) {
-                    bcov.seen.insert(1);
+                    bcov.seen.insert(0);
                 }
             },
 

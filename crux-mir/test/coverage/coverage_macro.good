@@ -1,4 +1,4 @@
-warning: branch condition never has value false
+warning: branch condition never has value true
    ┌─ test/coverage/coverage_macro.rs:7:12
    │
  7 │         if !$cond {
