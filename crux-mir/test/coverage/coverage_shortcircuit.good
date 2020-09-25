@@ -9,6 +9,4 @@ warning: branch condition never has value false
   │
 9 │     if x == 0 || x == 1 {
   │        ^^^^^^^^^^^^^^^^
-  │        │
-  │        in this macro invocation
 

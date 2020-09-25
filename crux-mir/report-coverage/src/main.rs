@@ -549,9 +549,15 @@ fn parse_span(s: &str) -> Option<(SpanInfo, Option<SpanInfo>)> {
     if let Some(idx) = s.find('!') {
         // This span includes a macro callsite.  We parse the portions before and after the `!` as
         // separate spans, and return both.
-        let main_span = parse_single_span(&s[..idx])?;
+        let main_str = &s[..idx].trim();
+        let callsite_str = &s[idx + 1 ..].trim();
+        let main_span = parse_single_span(main_str)?;
+        // mir-json sometimes records the same span both before and after the `!`.
+        if callsite_str == main_str {
+            return Some((main_span, None));
+        }
         // If the callsite span is invalid, then we consider the whole thing invalid.
-        let callsite_span = parse_single_span(&s[idx + 1 ..])?;
+        let callsite_span = parse_single_span(callsite_str)?;
         Some((main_span, Some(callsite_span)))
     } else {
         let main_span = parse_single_span(s)?;

@@ -27,6 +27,4 @@ warning: branch condition never has value true
    │
 12 │         } else if i > 99 {
    │                   ^^^^^^
-   │                   │
-   │                   in this macro invocation
 

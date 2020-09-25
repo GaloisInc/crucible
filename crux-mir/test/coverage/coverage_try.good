@@ -3,6 +3,4 @@ warning: branch condition never has value 1
    │
 10 │     let y: u8 = y_32.try_into().ok()?;
    │                                     ^
-   │                                     │
-   │                                     in this macro invocation
 

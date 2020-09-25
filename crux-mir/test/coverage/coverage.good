@@ -3,6 +3,4 @@ warning: branch condition never has value false
    │
 11 │     } else if x == 1 {
    │               ^^^^^^
-   │               │
-   │               in this macro invocation
 
