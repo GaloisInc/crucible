@@ -33,6 +33,9 @@ fn parse_args() -> ArgMatches<'static> {
              .long("no-merge-monos")
              .help("don't merge corresponding branches in different monomorphizations of the \
                     same function"))
+        .arg(Arg::with_name("no-color")
+             .long("no-color")
+             .help("don't colorize output"))
         .get_matches()
 }
 
@@ -581,15 +584,20 @@ struct Reporter {
     file_map: HashMap<String, usize>,
     filters: Option<Vec<Filter>>,
     seen: HashSet<String>,
+    color_choice: termcolor::ColorChoice,
 }
 
 impl Reporter {
-    fn new(filters: Option<Vec<Filter>>) -> Reporter {
+    fn new(
+        filters: Option<Vec<Filter>>,
+        color_choice: termcolor::ColorChoice,
+    ) -> Reporter {
         Reporter {
             files: SimpleFiles::new(),
             file_map: HashMap::new(),
             filters,
             seen: HashSet::new(),
+            color_choice,
         }
     }
 
@@ -645,7 +653,7 @@ impl Reporter {
             .with_labels(labels);
 
         codespan_reporting::term::emit(
-            &mut termcolor::StandardStream::stdout(termcolor::ColorChoice::Auto),
+            &mut termcolor::StandardStream::stdout(self.color_choice),
             &codespan_reporting::term::Config::default(),
             &self.files,
             &diag,
@@ -834,6 +842,11 @@ fn main() {
         process(&mut coverage, fn_id, fr, ft);
     }
 
-    let mut reporter = Reporter::new(filters);
+    let color_choice = if m.is_present("no-color") {
+        termcolor::ColorChoice::Never
+    } else {
+        termcolor::ColorChoice::Auto
+    };
+    let mut reporter = Reporter::new(filters, color_choice);
     report_all(&mut reporter, &coverage);
 }
