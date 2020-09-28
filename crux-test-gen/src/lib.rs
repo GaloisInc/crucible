@@ -119,13 +119,19 @@ enum Chunk {
     Special(usize),
 }
 
+/// The expansion of a nonterminal, consisting of the production to use and the sub-expansions for
+/// all nonterminals on that production's RHS.
 #[derive(Clone)]
 pub struct Expansion {
     production: ProductionId,
     subexpansions: Box<[Expansion]>,
+    /// Built-in productions can splice in arbitrary text using `Special` chunks, which refer to
+    /// callbacks registered in this list.
     specials: Box<[Rc<dyn Fn(&mut RenderContext) -> String>]>,
 }
 
+/// An incomplete `Expansion`.  Can be converted to an `Expansion` once all `subexpansions` are
+/// filled out.
 #[derive(Clone)]
 struct PartialExpansion {
     production: ProductionId,
@@ -137,19 +143,34 @@ struct PartialExpansion {
     specials: Vec<Rc<dyn Fn(&mut RenderContext) -> String>>,
 }
 
+/// Mutable state of an in-progress expansion.
 #[derive(Clone)]
 struct ExpState {
     root_nt: Rc<NonterminalRef>,
     root_subst: Subst,
+    /// A stack of partial expansions.
+    ///
+    /// To expand a nonterminal (such as `<<start>>`), we choose a production and then recursively
+    /// expand every nonterminal in the production's RHS.  We implement this procedure iteratively,
+    /// using this stack to store the state of the recursion.  This lets us suspend and resume the
+    /// computation at any point, which we use to implement backtracking.
     exp: Vec<PartialExpansion>,
+    /// The current state of type variable unification.  This includes unification of a variable
+    /// with a concrete type, so obtaining concrete types usually requires a looking through this
+    /// table.
     unify: ty::UnifyState,
+    /// The current budget values.
     budget: Budget,
+    /// The current stack of local scopes.
+    ///
+    /// Pushes and pops of this stack are performed explicitly by the `push_scope` and `pop_scope`
+    /// builtins.  They don't necessarily happen in sync with pushes and pops of the `exp` stack.
     scopes: Vec<Scope>,
 }
 
-/// Snapshot of the use site of a nested expansion.  This contains all the fields of `ExpState`
-/// except for `exp` (which starts empty in the nested expansion) and `unify` (which will be filled
-/// in with the final `UnifyState` of the parent expansion).
+/// Snapshot of the use site of a nested expansion, as captured by `expand_all`.  This contains all
+/// the fields of `ExpState` except for `exp` (which starts empty in the nested expansion) and
+/// `unify` (which will be filled in with the final `UnifyState` of the parent expansion).
 #[derive(Clone)]
 struct NestedSnapshot {
     root_nt: Rc<NonterminalRef>,
@@ -162,7 +183,12 @@ struct NestedSnapshot {
 /// resumed into a new `ExpState` to generate the next alternative.
 #[derive(Clone)]
 pub struct BranchingState {
+    /// A list of alternatives to try.  Each time the expansion process makes a choice, such as
+    /// choosing one production over another, it adds a `Continuation` to this list representing
+    /// the alternatives that weren't chosen, so they can be explored later.
     continuations: Vec<Continuation>,
+    /// Counts the total number of expansions performed so far.  This is used to implement the
+    /// `expansion_counter` builtin.
     expansion_counter: usize,
 }
 
@@ -172,6 +198,11 @@ pub struct RenderContext<'a> {
     pub counter: usize,
 }
 
+/// An iterator over alternative choices, continuing from a specific branching point.
+///
+/// Each time the expansion process has to make a choice, it first records a snapshot of the
+/// current state and a representation of the alternatives into a `Continuation`, so that the
+/// alternatives not chosen can be explored later.
 #[derive(Clone)]
 struct Continuation {
     state: ExpState,
@@ -187,7 +218,7 @@ enum ContinuationKind {
         alternatives: Vec<ProductionId>,
         next: usize,
     },
-    /// Continue with the next instance of a single family of productions.
+    /// Continue with the next instance of a single family of built-in productions.
     Family {
         production: ProductionId,
         multiplicity: usize,
@@ -207,18 +238,23 @@ enum ExpResult {
 struct Budget(HashMap<String, usize>);
 
 impl Budget {
+    /// Set the budget counter for `key` to `amount`.
     pub fn set(&mut self, key: &str, amount: usize) {
         self.0.insert(key.to_owned(), amount);
     }
 
+    /// Get the current budget counter for `key`.
     pub fn get(&mut self, key: &str) -> usize {
         self.0.get(key).cloned().unwrap_or(0)
     }
 
+    /// Add `amount` to the budget counter for `key`.
     pub fn add(&mut self, key: &str, amount: usize) {
         *self.0.entry(key.to_owned()).or_insert(0) += amount;
     }
 
+    /// Take `amount` from the budget counter for `key`.  If the counter is less than `amount`,
+    /// this method returns `false` and leaves the counter unchanged.
     pub fn take(&mut self, key: &str, amount: usize) -> bool {
         match self.0.get_mut(key) {
             Some(x) => {
@@ -385,6 +421,11 @@ impl ExpState {
             .activate(self.unify.clone())
     }
 
+    /// Apply `production` (instance `index`, if it's a family of productions) to expand the next
+    /// unexpanded nonterminal, pushing a new `PartialExpansion` onto the expansion stack.  Returns
+    /// `true` on success, or `false` on failure.  Applying a production will fail if its arguments
+    /// don't match the arguments of the nonterminal (e.g., `expr[int]` vs.  `expr[bool]`).
+    /// Built-in productions can also fail for other reasons.
     fn apply_production(
         &mut self,
         cx: &Context,
@@ -418,12 +459,19 @@ impl ExpState {
         if let Some(ref handler) = cx.productions[production].handler {
             let ok = (*handler.0)(cx, self, &mut pe, index.unwrap_or(0));
             if !ok {
-                // FIXME: If the handler fails after unification has already happened, we need to
+                // FIXME: If the handler fails after unification has already happened, we should
                 // roll back the unification state.  Otherwise, this production could have visible
-                // side effects, even if it logically was never applied.  Currently, this doesn't
-                // cause us any problems, because all of the builtin productions use patterns that
-                // are linear and fully general, meaning they never unify a pre-existing variable
-                // with another pre-existing variable or any concrete type.
+                // side effects, even if it logically was never applied.  Currently, we're relying
+                // on builtin productions having two specific properties to make this work:
+                //
+                //  1. All builtins have an LHS like `for[T,U,...] builtin[T,U,...]`.  This means
+                //     the above `unify` call never unifies any pre-existing variable with any
+                //     other pre-existing variable or any concrete type, and thus the `unify` call
+                //     has no observable side effects that might need to be rolled back.
+                //
+                //  2. For builtins that use `unify` internally (such as `choose_local`), the
+                //     `unify` call is the last check, so if the `unify` succeeds, then the entire
+                //     production succeeds.  (A `unify` that fails has no side effects.)
                 return false;
             }
         }
@@ -444,6 +492,10 @@ impl ExpState {
         self.exp.last_mut().unwrap()
     }
 
+    /// Try to finish the expansion process starting from the current state.  This can succeed,
+    /// returning a complete `Expansion`, or fail, if the choices made during expansion lead to
+    /// some kind of contradiction.  In both cases, it also returns a list of `Continuation`s
+    /// describing alternative choices that should be tried later.
     fn expand(self, cx: &Context) -> (ExpResult, Vec<Continuation>) {
         let mut st = self;
         let mut continuations = Vec::new();
@@ -452,7 +504,6 @@ impl ExpState {
             // Pop any finished frames from the expansion stack.
             while st.cur_partial().is_finished() {
                 let prev_partial = st.exp.pop().unwrap();
-                // TODO: post-expansion actions
                 let prev = prev_partial.into_expansion();
                 if let Some(cur) = st.exp.last_mut() {
                     cur.subexpansions.push(prev);
@@ -513,6 +564,9 @@ impl ExpState {
             }
         }
     }
+
+
+    // Helper methods used to implement various builtins
 
     fn cur_scope(&self) -> Option<&Scope> {
         self.scopes.last()
@@ -590,6 +644,8 @@ impl Continuation {
         }
     }
 
+    /// Resume from the saved snapshot, applying the next alternative.  Returns `None` if there are
+    /// no more valid alternatives continuing from this point.
     fn resume(&mut self, cx: &Context) -> Option<ExpState> {
         match self.kind {
             ContinuationKind::Alts { ref mut alternatives, ref mut next } => {
