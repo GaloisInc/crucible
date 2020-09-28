@@ -1,0 +1,13 @@
+// Constraints propagated out of `expand_first` can cause expansion to fail.
+start ::= <<with_var>>
+
+for[T] with_var ::= <<expand_first[x[T]]>> <<y[T]>>
+
+x[A] ::= xA
+x[B] ::= xB
+
+// No y[A].  `expand_first` won't backtrack to try unifying `T = B`, so there
+// will be no output.
+y[B] ::= yB
+
+// no output

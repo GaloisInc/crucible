@@ -1,0 +1,9 @@
+// The variables passed to `expand_all`'s nonterminal can be unconstrained.
+start ::= <<with_var>>
+
+for[T] with_var ::= <<expand_all[x[T]]>>
+
+x[A] ::= A
+x[B] ::= B
+
+// output: AB

@@ -1,0 +1,16 @@
+// check_budget[X, N] should succeed only when the budget for `X` is exactly N.
+// Uninitialized budgets are always 0.
+start ::= <<x>>
+
+// Should succeed
+x ::= <<set_budget[X, 1]>><<check_budget[X, 1]>>ok A
+x ::= <<set_budget[X, 2]>><<take_budget[X, 1]>><<check_budget[X, 1]>>ok B
+x ::= <<check_budget[Y, 0]>>ok C
+
+// Should fail
+x ::= <<check_budget[X, 1]>>fail
+x ::= <<set_budget[X, 2]>><<check_budget[X, 1]>>fail
+
+// output 0: ok A
+// output 1: ok B
+// output 2: ok C

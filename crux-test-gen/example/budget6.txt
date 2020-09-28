@@ -1,0 +1,9 @@
+// Make sure take_budget behaves properly (failing to expand) when the
+// requested budget is uninitialized.
+start ::= <<test>>, <<set_budget[X,1]>><<test>>
+
+test ::= <<take_budget[X,1]>>taken
+test ::= nothing
+
+// output 0: nothing, taken
+// output 1: nothing, nothing

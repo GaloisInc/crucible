@@ -1,0 +1,9 @@
+// `expand_all`'s nested expansion inherits budgets from the parent expansion.
+start ::= <<set_budget[xs, 2]>><<expand_all[xs]>>
+
+xs ::= [<<xs_>>]
+
+xs_ ::=
+xs_ ::= <<take_budget[xs,1]>>x<<xs_>>
+
+// output: [][x][xx]

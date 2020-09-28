@@ -1,0 +1,5 @@
+// `choose_local` selects between multiple matching locals
+start ::= <<push_scope>> <<fresh_local[A]>> <<fresh_local[A]>> -> <<choose_local[A]>>
+
+// output 0:  x0 x1 -> x0
+// output 1:  x0 x1 -> x1

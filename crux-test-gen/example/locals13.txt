@@ -1,0 +1,18 @@
+// `take_local` won't take variables from outside a `push_borrowed_scope`.
+start ::=
+    <<push_scope>>
+    outer <<fresh_local[x]>>
+    <<push_borrowed_scope>>
+    inner <<fresh_local[x]>>
+    choose <<choose_local[x]>>
+    take <<take_local[x]>>
+
+// output 0: outer x0
+// output 0: inner x1
+// output 0: choose x0
+// output 0: take x1
+
+// output 1: outer x0
+// output 1: inner x1
+// output 1: choose x1
+// output 1: take x1
