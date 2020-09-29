@@ -69,10 +69,10 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , ppPtr
   ) where
 
-import           Control.Lens ((<&>))
-import           Data.Maybe (listToMaybe)
+import           Control.Monad (guard)
 import           Data.Map (Map)
-import qualified Data.Map as Map (toList, traverseMaybeWithKey)
+import qualified Data.Map as Map (lookup)
+import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           GHC.TypeLits (TypeError, ErrorMessage(..))
@@ -298,31 +298,22 @@ ppPtr (llvmPointerView -> (blk, bv))
 -- This is best-effort and will only work if the pointer is fully concrete
 -- and matches the address of the global on the nose. It is used in SAWscript
 -- for friendly error messages.
-isGlobalPointer :: forall sym w. (IsSymInterface sym, 1 <= w)
-                => sym
-                -> Map L.Symbol (SomePointer sym) {-^ c.f. 'memImplGlobalMap' -}
-                -> LLVMPtr sym w
-                -> IO (Maybe L.Symbol)
-isGlobalPointer sym globalMap needle =
-  let fun :: L.Symbol -> SomePointer sym -> IO (Maybe L.Symbol)
-      fun symb (SomePointer ptr)
-        | Just Refl <- testEquality (ptrWidth ptr) (ptrWidth needle)
-        = ptrEq sym (ptrWidth ptr) ptr needle <&> \equalityPredicate ->
-            case asConstantPred equalityPredicate of
-              Just True  -> Just symb
-              Just False -> Nothing
-              Nothing    -> Nothing
-      fun _ _ = pure Nothing
-  in listToMaybe . fmap fst . Map.toList <$>
-       Map.traverseMaybeWithKey fun globalMap
+isGlobalPointer ::
+  forall sym w. (IsSymInterface sym, 1 <= w) =>
+  Map Natural L.Symbol {- ^ c.f. 'memImplSymbolMap' -} ->
+  LLVMPtr sym w -> Maybe L.Symbol
+isGlobalPointer symbolMap needle =
+  do n <- asNat (llvmPointerBlock needle)
+     z <- asBV (llvmPointerOffset needle)
+     guard (BV.asUnsigned z == 0)
+     Map.lookup n symbolMap
 
 -- | For when you don't know @1 <= w@
-isGlobalPointer' :: forall sym w. (IsSymInterface sym)
-                 => sym
-                 -> Map L.Symbol (SomePointer sym) {-^ c.f. 'memImplGlobalMap' -}
-                 -> LLVMPtr sym w
-                 -> IO (Maybe L.Symbol)
-isGlobalPointer' sym globalMap needle =
+isGlobalPointer' ::
+  forall sym w. (IsSymInterface sym) =>
+  Map Natural L.Symbol {- ^ c.f. 'memImplSymbolMap' -} ->
+  LLVMPtr sym w -> Maybe L.Symbol
+isGlobalPointer' symbolMap needle =
   case testLeq (knownNat :: NatRepr 1) (ptrWidth needle) of
-    Nothing       -> pure Nothing
-    Just LeqProof -> isGlobalPointer sym globalMap needle
+    Nothing       -> Nothing
+    Just LeqProof -> isGlobalPointer symbolMap needle

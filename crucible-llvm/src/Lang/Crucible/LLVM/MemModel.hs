@@ -195,6 +195,7 @@ import           Data.Dynamic
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Word
 import           GHC.TypeNats
@@ -262,6 +263,7 @@ data MemImpl sym =
   MemImpl
   { memImplBlockSource :: BlockSource
   , memImplGlobalMap   :: GlobalMap sym
+  , memImplSymbolMap   :: Map Natural L.Symbol -- inverse mapping to 'memImplGlobalMap'
   , memImplHandleMap   :: Map Natural Dynamic
   , memImplHeap        :: G.Mem sym
   }
@@ -281,7 +283,7 @@ memWriteCount = G.memWriteCount . memImplHeap
 emptyMem :: EndianForm -> IO (MemImpl sym)
 emptyMem endianness = do
   blkRef <- newIORef 1
-  return $ MemImpl (BlockSource blkRef) Map.empty Map.empty (G.emptyMem endianness)
+  return $ MemImpl (BlockSource blkRef) Map.empty Map.empty Map.empty (G.emptyMem endianness)
 
 -- | Pretty print a memory state to the given handle.
 doDumpMem :: IsExprBuilder sym => Handle -> MemImpl sym -> IO ()
@@ -325,22 +327,22 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
   -- startup, not during program execution.  We could check that the maps match,
   -- but that would be expensive...
   muxIntrinsic _sym _iTypes _nm _ p mem1 mem2 =
-     do let MemImpl blockSource gMap1 hMap1 m1 = mem1
-        let MemImpl _blockSource _gMap2 hMap2 m2 = mem2
+     do let MemImpl blockSource gMap1 sMap1 hMap1 m1 = mem1
+        let MemImpl _blockSource _gMap2 _sMap2 hMap2 m2 = mem2
         --putStrLn "MEM MERGE"
-        return $ MemImpl blockSource gMap1
+        return $ MemImpl blockSource gMap1 sMap1
                    (Map.union hMap1 hMap2)
                    (G.mergeMem p m1 m2)
 
   pushBranchIntrinsic _sym _iTypes _nm _ctx mem =
-     do let MemImpl nxt gMap hMap m = mem
+     do let MemImpl nxt gMap sMap hMap m = mem
         --putStrLn "MEM PUSH BRANCH"
-        return $ MemImpl nxt gMap hMap $ G.branchMem m
+        return $ MemImpl nxt gMap sMap hMap $ G.branchMem m
 
   abortBranchIntrinsic _sym _iTypes _nm _ctx mem =
-     do let MemImpl nxt gMap hMap m = mem
+     do let MemImpl nxt gMap sMap hMap m = mem
         --putStrLn "MEM ABORT BRANCH"
-        return $ MemImpl nxt gMap hMap $ G.branchAbortMem m
+        return $ MemImpl nxt gMap sMap hMap $ G.branchAbortMem m
 
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
@@ -428,7 +430,7 @@ evalStmt sym = eval
 
   eval (LLVM_LoadHandle mvar ltp (regValue -> ptr) args ret) =
      do mem <- getMem mvar
-        gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr)
+        let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
         mhandle <- liftIO $ doLookupHandle sym mem ptr
         let mop = MemLoadHandleOp ltp gsym ptr (memImplHeap mem)
         let expectedTp = FunctionHandleRepr args ret
@@ -809,7 +811,7 @@ doInvalidate sym w mem dest msg len = do
 
   (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
 
-  gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) dest)
+  let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) dest
   let mop = MemInvalidateOp msg gsym dest len (memImplHeap mem)
   p' <- Partial.annotateME sym mop UnwritableRegion p
   assert sym p' $ AssertFailureSimError "Invalidation of unallocated or readonly region" ""
@@ -857,7 +859,7 @@ doArrayStoreSize len sym mem ptr alignment arr = do
   (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
 
-  gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr)
+  let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
   let mop = MemStoreBytesOp gsym ptr len (memImplHeap mem)
 
   assertStoreError sym mop UnwritableRegion p1
@@ -882,7 +884,7 @@ doArrayConstStore sym mem ptr alignment arr len = do
   (heap', p1, p2) <-
     G.writeArrayConstMem sym PtrWidth ptr alignment arr (Just len) (memImplHeap mem)
 
-  gsym <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr)
+  let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
   let mop = MemStoreBytesOp gsym ptr (Just len) (memImplHeap mem)
 
   assertStoreError sym mop UnwritableRegion p1
@@ -909,8 +911,8 @@ doMemcpy sym w mem mustBeDisjoint dest src len = do
 
   (heap', p1, p2) <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
 
-  gsym_dest <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) dest)
-  gsym_src <- liftIO (fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) src)
+  let gsym_dest = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) dest
+  let gsym_src = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) src
 
   let mop = MemCopyOp (gsym_dest, dest) (gsym_src, src) len (memImplHeap mem)
 
@@ -1124,7 +1126,7 @@ loadRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
         -> Alignment
         -> IO (Partial.PartLLVMVal sym)
 loadRaw sym mem ptr valType alignment = do
-  gsym <- fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr
+  let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
   G.readMem sym PtrWidth gsym ptr valType alignment (memImplHeap mem)
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
@@ -1138,7 +1140,7 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType alignment val = do
-    gsym <- fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr
+    let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
     (heap', p1, p2) <- G.writeMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
 
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
@@ -1211,7 +1213,7 @@ condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 condStoreRaw sym mem cond ptr valType alignment val = do
-  gsym <- fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr
+  let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
   -- Get current heap
   let preBranchHeap = memImplHeap mem
   -- Push a branch to the heap
@@ -1244,7 +1246,7 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 storeConstRaw sym mem ptr valType alignment val = do
-    gsym <- fmap unsymbol <$> isGlobalPointer sym (memImplGlobalMap mem) ptr
+    let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
     (heap', p1, p2) <- G.writeConstMem sym PtrWidth gsym ptr valType alignment val (memImplHeap mem)
 
     let mop = MemStoreOp valType gsym ptr (memImplHeap mem)
@@ -1622,10 +1624,20 @@ doResolveGlobal sym mem symbol@(L.Symbol name) =
 -- | Add an entry to the global map of the given 'MemImpl'.
 --
 -- This takes a list of symbols because there may be aliases to a global.
-registerGlobal :: (1 <= wptr) => MemImpl sym -> [L.Symbol] -> LLVMPtr sym wptr -> MemImpl sym
-registerGlobal (MemImpl blockSource gMap hMap mem) symbols ptr =
-  let gMap' = foldr (\s m -> Map.insert s (SomePointer ptr) m) gMap symbols
-  in MemImpl blockSource gMap' hMap mem
+registerGlobal ::
+  (IsExprBuilder sym, 1 <= wptr) =>
+  MemImpl sym -> [L.Symbol] -> LLVMPtr sym wptr -> MemImpl sym
+registerGlobal (MemImpl blockSource gMap sMap hMap mem) symbols ptr =
+  MemImpl blockSource gMap' sMap' hMap mem
+  where
+    gMap' = foldr (\s m -> Map.insert s (SomePointer ptr) m) gMap symbols
+    sMap' =
+      fromMaybe sMap $
+      do symbol <- listToMaybe symbols
+         n <- asNat (llvmPointerBlock ptr)
+         z <- asBV (llvmPointerOffset ptr)
+         guard (BV.asUnsigned z == 0)
+         Just (Map.insert n symbol sMap)
 
 -- | Allocate memory for each global, and register all the resulting
 -- pointers in the global map.
