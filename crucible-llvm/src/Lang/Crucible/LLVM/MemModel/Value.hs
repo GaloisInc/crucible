@@ -224,11 +224,13 @@ ppLLVMValWithGlobals :: forall sym.
   sym ->
   Map Natural L.Symbol {- ^ c.f. 'memImplSymbolMap' -} ->
   LLVMVal sym ->
-  IO Doc
-ppLLVMValWithGlobals _sym symbolMap = ppLLVMVal $ \allocNum offset ->
-  pure (isGlobalPointer' @sym symbolMap (LLVMPointer allocNum offset)) <&&>
-    \(L.Symbol symb) -> text ('@':symb)
-  where x <&&> f = (fmap . fmap) f x -- map under IO and Maybe
+  Doc
+ppLLVMValWithGlobals _sym symbolMap = runIdentity . ppLLVMVal ppInt
+  where
+    ppInt :: forall w. SymNat sym -> SymBV sym w -> Identity (Maybe Doc)
+    ppInt allocNum offset =
+      pure (ppSymbol <$> isGlobalPointer' @sym symbolMap (LLVMPointer allocNum offset))
+    ppSymbol (L.Symbol symb) = text ('@' : symb)
 
 -- | This instance tries to make things as concrete as possible.
 instance IsExpr (SymExpr sym) => Pretty (LLVMVal sym) where
