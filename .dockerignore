@@ -1,0 +1,5 @@
+**/.git
+**/.stack-work
+**/dist
+**/dist-newstyle
+**/target
