@@ -966,6 +966,49 @@ memStateAddChanges (a, w) = \case
 -- Pointer validity
 
 
+-- | Generalized function for checking whether a memory region ID is allocated.
+isAllocatedGeneric ::
+  forall sym.
+  (IsSymInterface sym) =>
+  sym ->
+  (AllocInfo sym -> IO (Pred sym)) ->
+  SymNat sym ->
+  MemAllocs sym ->
+  IO (Pred sym)
+isAllocatedGeneric sym inAlloc blk = go (pure (falsePred sym))
+  where
+    go :: IO (Pred sym) -> MemAllocs sym -> IO (Pred sym)
+    go fallback (MemAllocs []) = fallback
+    go fallback (MemAllocs (alloc : r)) =
+      case alloc of
+        Allocations am ->
+          case asNat blk of
+            Just b -> -- concrete block number, look up entry
+              case Map.lookup b am of
+                Nothing -> go fallback (MemAllocs r)
+                Just ba -> inAlloc ba
+            Nothing -> -- symbolic block number, need to check all entries
+              Map.foldrWithKey checkEntry (go fallback (MemAllocs r)) am
+              where
+                checkEntry a ba k =
+                  do sameBlock <- natEq sym blk =<< natLit sym a
+                     itePredM sym sameBlock (inAlloc ba) k
+        MemFree a _ ->
+          do sameBlock <- natEq sym blk a
+             case asConstantPred sameBlock of
+               Just True  -> return (falsePred sym)
+               Just False -> go fallback (MemAllocs r)
+               Nothing    ->
+                 do notSameBlock <- notPred sym sameBlock
+                    andPred sym notSameBlock =<< go fallback (MemAllocs r)
+        AllocMerge _ (MemAllocs []) (MemAllocs []) ->
+          go fallback (MemAllocs r)
+        AllocMerge c xr yr ->
+          do p <- go fallback (MemAllocs r) -- TODO: wrap this in a delay
+             px <- go (return p) xr
+             py <- go (return p) yr
+             itePred sym c px py
+
 -- | @isAllocatedMut isMut sym w p sz m@ returns the condition required to
 -- prove range @[p..p+sz)@ lies within a single allocation in @m@.
 --
@@ -990,7 +1033,7 @@ isAllocatedMut ::
   Mem sym              ->
   IO (Pred sym)
 isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
-  go (pure (falsePred sym)) (memAllocs m)
+  isAllocatedGeneric sym inAllocation blk (memAllocs m)
   where
     inAllocation :: AllocInfo sym -> IO (Pred sym)
     inAllocation (AllocInfo _ asz mut alignment _)
@@ -1031,31 +1074,6 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
       -- if @sz@ is @Nothing@ (indicating we are accessing the entire
       -- address space) then any bounded allocation is too small.
       | otherwise = return $ falsePred sym
-
-    go :: IO (Pred sym) -> MemAllocs sym -> IO (Pred sym)
-    go fallback (MemAllocs []) = fallback
-    go fallback (MemAllocs (Allocations am : r)) =
-      case asNat blk of
-        Just b -> -- concrete block number, look up entry
-          case Map.lookup b am of
-            Nothing -> go fallback (MemAllocs r)
-            Just ba -> inAllocation ba
-        Nothing -> -- symbolic block number, need to check all entries
-          Map.foldrWithKey checkEntry (go fallback (MemAllocs r)) am
-          where
-            checkEntry a ba k =
-              do sameBlock <- natEq sym blk =<< natLit sym a
-                 itePredM sym sameBlock (inAllocation ba) k
-
-    go fallback (MemAllocs (MemFree a _ : r)) =
-      do notSameBlock <- notPred sym =<< natEq sym blk a
-         andPred sym notSameBlock =<< go fallback (MemAllocs r)
-    go fallback (MemAllocs (AllocMerge _ (MemAllocs []) (MemAllocs []) : r)) = go fallback (MemAllocs r)
-    go fallback (MemAllocs (AllocMerge c xr yr : r)) =
-      do p <- go fallback (MemAllocs r) -- TODO: wrap this in a delay
-         px <- go (return p) xr
-         py <- go (return p) yr
-         itePred sym c px py
 
 -- | @isAllocated sym w p sz m@ returns the condition required to prove
 -- range @[p..p+sz)@ lies within a single allocation in @m@.
@@ -1453,45 +1471,12 @@ freeMem :: forall sym w .
   IO (Mem sym, Pred sym, Pred sym)
 freeMem sym w (LLVMPointer blk off) m loc =
   do p1 <- bvEq sym off =<< bvLit sym w (BV.zero w)
-     p2 <- isHeapAllocated (return (falsePred sym)) (memAllocs m)
+     p2 <- isAllocatedGeneric sym isHeapMutable blk (memAllocs m)
      return (memAddAlloc (MemFree blk loc) m, p1, p2)
   where
     isHeapMutable :: AllocInfo sym -> IO (Pred sym)
     isHeapMutable (AllocInfo HeapAlloc _ Mutable _ _) = pure (truePred sym)
     isHeapMutable _ = pure (falsePred sym)
-
-    isHeapAllocated :: IO (Pred sym) -> MemAllocs sym -> IO (Pred sym)
-    isHeapAllocated fallback (MemAllocs []) = fallback
-    isHeapAllocated fallback (MemAllocs (alloc : r)) =
-      case alloc of
-        Allocations am ->
-          case asNat blk of
-            Just b -> -- concrete block number, look up entry
-              case Map.lookup b am of
-                Nothing -> isHeapAllocated fallback (MemAllocs r)
-                Just ba -> isHeapMutable ba
-            Nothing -> -- symbolic block number, need to check all entries
-              Map.foldrWithKey checkEntry (isHeapAllocated fallback (MemAllocs r)) am
-              where
-                checkEntry a ba k =
-                  do sameBlock <- natEq sym blk =<< natLit sym a
-                     itePredM sym sameBlock (isHeapMutable ba) k
-        MemFree a _ ->
-          do sameBlock <- natEq sym blk a
-             case asConstantPred sameBlock of
-               Just True  -> return (falsePred sym)
-               Just False -> isHeapAllocated fallback (MemAllocs r)
-               Nothing    ->
-                 do notSameBlock <- notPred sym sameBlock
-                    andPred sym notSameBlock =<< isHeapAllocated fallback (MemAllocs r)
-        AllocMerge _ (MemAllocs []) (MemAllocs []) ->
-          isHeapAllocated fallback (MemAllocs r)
-        AllocMerge c xr yr ->
-          do p <- isHeapAllocated fallback (MemAllocs r) -- TODO: wrap this in a delay
-             px <- isHeapAllocated (return p) xr
-             py <- isHeapAllocated (return p) yr
-             itePred sym c px py
-
 
 branchMem :: Mem sym -> Mem sym
 branchMem = memState %~ \s ->
