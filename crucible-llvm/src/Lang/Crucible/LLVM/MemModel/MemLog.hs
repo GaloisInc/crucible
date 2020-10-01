@@ -26,25 +26,33 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.MemLog
-  ( AllocType(..)
+  (
+    -- * Allocation logs
+    AllocType(..)
   , Mutability(..)
+  , AllocInfo(..)
   , MemAlloc(..)
+  , MemAllocs(..)
+  , singleMemAlloc
+    -- * Write logs
   , WriteSource(..)
   , MemWrite(..)
-  , MemState(..)
   , MemWrites(..)
   , MemWritesChunk(..)
+  , memWritesSingleton
+    -- * Memory logs
+  , MemState(..)
   , MemChanges
   , memState
   , Mem(..)
   , emptyChanges
   , emptyMem
   , memEndian
-  , memWritesSingleton
 
     -- * Pretty printing
   , ppType
   , ppPtr
+  , ppAllocInfo
   , ppAlloc
   , ppAllocs
   , ppMem
@@ -61,6 +69,8 @@ import           Data.Foldable
 import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import qualified Data.List.Extra as List
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Text (Text, unpack)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -75,23 +85,55 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
 
+--------------------------------------------------------------------------------
+-- Allocations
+
 data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
   deriving (Eq, Ord, Show)
 
 data Mutability = Mutable | Immutable
   deriving (Eq, Ord, Show)
 
+-- | Details of a single allocation. The @Maybe SymBV@ argument is either a
+-- size or @Nothing@ representing an unbounded allocation. The 'Mutability'
+-- indicates whether the region is read-only. The 'String' contains source
+-- location information for use in error messages.
+data AllocInfo sym =
+  forall w. (1 <= w) => AllocInfo AllocType (Maybe (SymBV sym w)) Mutability Alignment String
+
 -- | Stores writeable memory allocations.
 data MemAlloc sym
-     -- | Allocation with given block ID. The @Maybe SymBV@ argument is either a
-     -- size or @Nothing@ representing an unbounded allocation. The 'Mutability'
-     -- indicates whether the region is read-only. The 'String' contains source
-     -- location information for use in error messages.
-   = forall w. (1 <= w) => Alloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
-     -- | Freeing of the given block ID.
-   | MemFree (SymNat sym) String
-     -- | The merger of two allocations.
-   | AllocMerge (Pred sym) [MemAlloc sym] [MemAlloc sym]
+    -- | A collection of consecutive basic allocations.
+  = Allocations (Map Natural (AllocInfo sym))
+    -- | Freeing of the given block ID.
+  | MemFree (SymNat sym) String
+    -- | The merger of two allocations.
+  | AllocMerge (Pred sym) (MemAllocs sym) (MemAllocs sym)
+
+-- | Memory allocations are represented as a list with the invariant
+-- that any two adjacent 'Allocations' constructors must be merged
+-- together.
+newtype MemAllocs sym = MemAllocs [MemAlloc sym]
+
+instance Semigroup (MemAllocs sym) where
+  (MemAllocs lhs_allocs) <> (MemAllocs rhs_allocs)
+    | Just (lhs_head_allocs, Allocations lhs_m) <- List.unsnoc lhs_allocs
+    , Allocations rhs_m : rhs_tail_allocs <- rhs_allocs
+    = MemAllocs (lhs_head_allocs ++ [Allocations (Map.union lhs_m rhs_m)] ++ rhs_tail_allocs)
+    | otherwise = MemAllocs (lhs_allocs ++ rhs_allocs)
+
+instance Monoid (MemAllocs sym) where
+  mempty = MemAllocs []
+
+-- | Returns true if this consists of a empty collection of memory allocs.
+nullMemAllocs :: MemAllocs sym -> Bool
+nullMemAllocs (MemAllocs xs) = null xs
+
+singleMemAlloc :: Natural -> AllocInfo sym -> MemAlloc sym
+singleMemAlloc blk info = Allocations (Map.singleton blk info)
+
+--------------------------------------------------------------------------------
+-- Writes
 
 data WriteSource sym w
     -- | @MemCopy src len@ copies @len@ bytes from [src..src+len).
@@ -114,6 +156,9 @@ data MemWrite sym
     -- | The merger of two memories.
   | WriteMerge (Pred sym) (MemWrites sym) (MemWrites sym)
 
+
+--------------------------------------------------------------------------------
+-- Memory
 
 -- | A symbolic representation of the LLVM heap.
 --
@@ -156,7 +201,7 @@ data MemState sym =
     -- of the list.
   | BranchFrame !Int !Int (MemChanges sym) (MemState sym)
 
-type MemChanges sym = ([MemAlloc sym], MemWrites sym)
+type MemChanges sym = (MemAllocs sym, MemWrites sym)
 
 -- | Memory writes are represented as a list of chunks of writes.
 --   Chunks alternate between being indexed and being flat.
@@ -221,7 +266,7 @@ memWritesSingleton ptr src
 
 
 emptyChanges :: MemChanges sym
-emptyChanges = ([], mempty)
+emptyChanges = (mempty, mempty)
 
 emptyMem :: EndianForm -> Mem sym
 emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem 0 0 emptyChanges }
@@ -252,21 +297,25 @@ ppAlignment :: Alignment -> Doc
 ppAlignment a =
   text $ show (fromAlignment a) ++ "-byte-aligned"
 
-ppAlloc :: IsExpr (SymExpr sym) => MemAlloc sym -> Doc
-ppAlloc (Alloc atp base sz mut alignment loc) =
+ppAllocInfo :: IsExpr (SymExpr sym) => (Natural, AllocInfo sym) -> Doc
+ppAllocInfo (base, AllocInfo atp sz mut alignment loc) =
   text (show atp)
   <+> text (show base)
   <+> (pretty $ printSymExpr <$> sz)
   <+> text (show mut)
   <+> ppAlignment alignment
   <+> text loc
+
+ppAlloc :: IsExpr (SymExpr sym) => MemAlloc sym -> Doc
+ppAlloc (Allocations xs) =
+  vcat $ map ppAllocInfo (reverse (Map.assocs xs))
 ppAlloc (MemFree base loc) =
   text "Free" <+> printSymExpr base <+> text loc
-ppAlloc (AllocMerge c x y) = do
+ppAlloc (AllocMerge c (MemAllocs x) (MemAllocs y)) = do
   text "Merge" <$$> ppMerge ppAlloc c x y
 
-ppAllocs :: IsExpr (SymExpr sym) => [MemAlloc sym] -> Doc
-ppAllocs xs = vcat $ map ppAlloc xs
+ppAllocs :: IsExpr (SymExpr sym) => MemAllocs sym -> Doc
+ppAllocs (MemAllocs xs) = vcat $ map ppAlloc xs
 
 ppWrite :: IsExpr (SymExpr sym) => MemWrite sym -> Doc
 ppWrite (MemWrite d (MemCopy s l)) = do
@@ -303,9 +352,9 @@ ppMemWrites (MemWrites ws) = vcat $ map ppMemWritesChunk ws
 
 ppMemChanges :: IsExpr (SymExpr sym) => MemChanges sym -> [Doc]
 ppMemChanges (al,wl)
-  | null al && nullMemWrites wl = [text "No writes or allocations"]
+  | nullMemAllocs al && nullMemWrites wl = [text "No writes or allocations"]
   | otherwise =
-      (if null al then [] else [text "Allocations:", indent 2 (ppAllocs al)]) <>
+      (if nullMemAllocs al then [] else [text "Allocations:", indent 2 (ppAllocs al)]) <>
       (if nullMemWrites wl then [] else [text "Writes:", indent 2 (ppMemWrites wl)])
 
 ppMemState :: (MemChanges sym -> [Doc]) -> MemState sym -> Doc
@@ -324,21 +373,38 @@ ppMem m = ppMemState ppMemChanges (m^.memState)
 ------------------------------------------------------------------------------
 -- Concretization
 
+concAllocInfo ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  AllocInfo sym -> IO (AllocInfo sym)
+concAllocInfo sym conc (AllocInfo atp sz m a nm) =
+  do sz' <- traverse (concBV sym conc) sz
+     pure (AllocInfo atp sz' m a nm)
+
 concAlloc ::
   IsExprBuilder sym =>
   sym ->
   (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
-  MemAlloc sym -> IO [MemAlloc sym]
-concAlloc sym conc (Alloc atp blk sz m a nm) =
-  do sz' <- traverse (concBV sym conc) sz
-     pure [Alloc atp blk sz' m a nm]
+  MemAlloc sym -> IO (MemAllocs sym)
+concAlloc sym conc (Allocations m) =
+  do m' <- traverse (concAllocInfo sym conc) m
+     pure (MemAllocs [Allocations m'])
 concAlloc sym conc (MemFree blk loc) =
   do blk' <- natLit sym =<< conc blk
-     pure [MemFree blk' loc]
+     pure (MemAllocs [MemFree blk' loc])
 concAlloc sym conc (AllocMerge p m1 m2) =
   do b <- conc p
-     if b then (concat <$> mapM (concAlloc sym conc) m1)
-          else (concat <$> mapM (concAlloc sym conc) m2)
+     if b then concMemAllocs sym conc m1
+          else concMemAllocs sym conc m2
+
+concMemAllocs ::
+  IsExprBuilder sym =>
+  sym ->
+  (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
+  MemAllocs sym -> IO (MemAllocs sym)
+concMemAllocs sym conc (MemAllocs cs) =
+  fold <$> traverse (concAlloc sym conc) cs
 
 concLLVMVal ::
   IsExprBuilder sym =>
@@ -419,7 +485,7 @@ concMemChanges ::
   (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
   MemChanges sym -> IO (MemChanges sym)
 concMemChanges sym conc (as, ws) =
-  (,) <$> (concat <$> mapM (concAlloc sym conc) as) <*> concMemWrites sym conc ws
+  (,) <$> concMemAllocs sym conc as <*> concMemWrites sym conc ws
 
 
 concMemState ::

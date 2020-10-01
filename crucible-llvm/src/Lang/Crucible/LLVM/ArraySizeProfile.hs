@@ -97,13 +97,16 @@ ptrAllocSize ::
   G.Mem sym ->
   C.LLVMPtr sym w ->
   Maybe Int
-ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> G.memAllocs mem
+ptrAllocSize mem (C.llvmPointerView -> (blk, _)) =
+  case G.memAllocs mem of
+    G.MemAllocs xs -> msum (map inAlloc xs)
   where inAlloc :: G.MemAlloc sym -> Maybe Int
-        inAlloc memAlloc
-          | G.Alloc _ a (Just sz) _ _ _ <- memAlloc
-          , Just a == W4.asNat blk =
-            fromIntegral <$> BV.asUnsigned <$> W4.asBV sz
-          | otherwise = Nothing
+        inAlloc (G.Allocations am) =
+          do a <- W4.asNat blk
+             G.AllocInfo _ msz _ _ _ <- Map.lookup a am
+             sz <- msz
+             fromIntegral <$> BV.asUnsigned <$> W4.asBV sz
+        inAlloc _ = Nothing
 
 ptrArraySize ::
   C.IsSymInterface sym =>
