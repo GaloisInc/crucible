@@ -26,17 +26,28 @@ pathStrategySpec =
 
 postprocessOptions :: Logs => CruxOptions -> IO CruxOptions
 postprocessOptions =
-  checkPathStrategyInteractions
+  checkPathStrategyInteractions >>
+  checkPathSatInteractions
 
 checkPathStrategyInteractions :: Logs => CruxOptions -> IO CruxOptions
 checkPathStrategyInteractions crux =
   case pathStrategy crux of
     AlwaysMergePaths -> return crux
     SplitAndExploreDepthFirst
-     | profileCrucibleFunctions crux ->
+     | profileCrucibleFunctions crux || branchCoverage crux ->
          do sayWarn "Crux" "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
-            return crux{ profileCrucibleFunctions = False }
+            return crux { profileCrucibleFunctions = False, branchCoverage = False }
      | otherwise -> return crux
+
+checkPathSatInteractions :: Logs => CruxOptions -> IO CruxOptions
+checkPathSatInteractions crux =
+  case checkPathSat crux of
+    True -> return crux
+    False
+      | branchCoverage crux ->
+          do sayWarn "Crux" "Branch coverage requires enabling path satisfiability checking.  Coverage measurement is disabled!"
+             return crux { branchCoverage = False }
+      | otherwise -> return crux
 
 
 -- | Common options for Crux-based binaries.
@@ -53,6 +64,8 @@ data CruxOptions = CruxOptions
 
   , profileCrucibleFunctions :: Bool
   , profileSolver            :: Bool
+
+  , branchCoverage           :: Bool
 
   , pathStrategy             :: PathStrategy
 
@@ -148,6 +161,10 @@ cruxOptions = Config
           profileSolver <-
             section "profile-solver" yesOrNoSpec False
             "Profile solver events. (default: no)"
+
+          branchCoverage <-
+            section "branch-coverage" yesOrNoSpec False
+            "Record branch coverage information. (default: no)"
 
           profileOutputInterval <-
             section "profiling-period" fractionalSpec 5
@@ -274,6 +291,10 @@ cruxOptions = Config
       , Option [] ["profile-solver"]
         "Enable profiling of solver events"
         $ NoArg $ \opts -> Right opts { profileSolver = True }
+
+      , Option [] ["branch-coverage"]
+        "Record branch coverage information"
+        $ NoArg $ \opts -> Right opts { branchCoverage = True }
 
       , Option "t" ["timeout"]
         "Stop executing the simulator after this many seconds (default: 60)"
