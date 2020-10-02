@@ -1,0 +1,6 @@
+warning: branch condition never has value 1
+   ┌─ test/coverage/coverage_try.rs:10:37
+   │
+10 │     let y: u8 = y_32.try_into().ok()?;
+   │                                     ^
+

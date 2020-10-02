@@ -23,6 +23,8 @@
 module Lang.Crucible.Simulator.Profiling
   ( profilingFeature
   , ProfilingOptions(..)
+  , EventFilter(..)
+  , profilingEventFilter
   , newProfilingTable
   , recordSolverEvent
   , startRecordingSolverEvents
@@ -48,6 +50,9 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Foldable (toList)
+import           Data.Hashable
+import           Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import           Data.IORef
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -70,6 +75,7 @@ import           What4.ProgramLoc
 import           What4.SatResult
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -115,7 +121,7 @@ metricsToJSON m time = JSObject $ toJSObject $
       solverStats = runIdentity $ metricSolverStats m
 
 
-data CGEventType = ENTER | EXIT
+data CGEventType = ENTER | EXIT | BLOCK | BRANCH
  deriving (Show,Eq,Ord,Generic)
 
 data CGEvent =
@@ -124,6 +130,7 @@ data CGEvent =
   , cgEvent_source   :: Maybe Position
   , cgEvent_callsite :: Maybe Position
   , cgEvent_type     :: CGEventType
+  , cgEvent_blocks   :: [String]
   , cgEvent_metrics  :: Metrics Identity
   , cgEvent_time     :: UTCTime
   , cgEvent_id       :: Integer
@@ -138,6 +145,8 @@ utcTimeToJSON t =
 cgEventTypeToJSON :: CGEventType -> JSValue
 cgEventTypeToJSON ENTER = showJSON "ENTER"
 cgEventTypeToJSON EXIT  = showJSON "EXIT"
+cgEventTypeToJSON BLOCK  = showJSON "BLOCK"
+cgEventTypeToJSON BRANCH  = showJSON "BRANCH"
 
 cgEventToJSON :: CGEvent -> JSValue
 cgEventToJSON ev = JSObject $ toJSObject $
@@ -153,6 +162,10 @@ cgEventToJSON ev = JSObject $ toJSObject $
     (case cgEvent_callsite ev of
       Nothing -> []
       Just p -> [("callsite", positionToJSON p)])
+    ++
+    (case cgEvent_blocks ev of
+      [] -> []
+      xs -> [("blocks", showJSON xs)])
 
 positionToJSON :: Position -> JSValue
 positionToJSON p = showJSON $ show $ p
@@ -223,9 +236,23 @@ symProUIJSON nm source tbl =
 data ProfilingTable =
   ProfilingTable
   { callGraphEvents :: IORef (Seq CGEvent)
+  , eventDedups :: IORef (HashSet EventDedup)
   , metrics :: Metrics IORef
   , eventIDRef :: IORef Integer
   , solverEvents :: IORef (Seq (UTCTime, SolverEvent))
+  }
+
+data EventFilter =
+  EventFilter
+  { recordProfiling :: Bool
+  , recordCoverage :: Bool
+  }
+
+-- | An `EventFilter` that enables only Crucible profiling.
+profilingEventFilter :: EventFilter
+profilingEventFilter = EventFilter
+  { recordProfiling = True
+  , recordCoverage = False
   }
 
 data CrucibleProfile =
@@ -234,6 +261,13 @@ data CrucibleProfile =
   , crucibleProfileCGEvents :: [CGEvent]
   , crucibleProfileSolverEvents :: [SolverEvent]
   } deriving (Show, Generic)
+
+data EventDedup =
+    BlockDedup FunctionName String
+  | BranchDedup FunctionName [String]
+  deriving (Eq, Generic)
+
+instance Hashable EventDedup
 
 readProfilingState :: ProfilingTable -> IO (UTCTime, [CGEvent], [(UTCTime, SolverEvent)])
 readProfilingState tbl =
@@ -252,6 +286,7 @@ openEventFrames = go []
    case cgEvent_type e of
      ENTER -> go (e:xs) es
      EXIT  -> go (tail xs) es
+     _     -> go xs es
 
 openToCloseEvent :: UTCTime -> Metrics Identity -> CGEvent -> CGEvent
 openToCloseEvent now m cge =
@@ -280,9 +315,10 @@ newProfilingTable =
                         -- the JS front end works around this by
                         -- assuming that any missing value is a zero.
      evs <- newIORef mempty
+     dedups <- newIORef mempty
      idref <- newIORef 0
      solverevs <- newIORef mempty
-     let tbl = ProfilingTable evs m idref solverevs
+     let tbl = ProfilingTable evs dedups m idref solverevs
      return tbl
 
 recordSolverEvent :: ProfilingTable -> SolverEvent -> IO ()
@@ -304,6 +340,13 @@ nextEventID tbl =
   do i <- readIORef (eventIDRef tbl)
      writeIORef (eventIDRef tbl) $! (i+1)
      return i
+
+dedupEvent :: ProfilingTable -> EventDedup -> IO () -> IO ()
+dedupEvent tbl evt f =
+  do seen <- readIORef (eventDedups tbl)
+     when (not $ HashSet.member evt seen) $
+       do writeIORef (eventDedups tbl) (HashSet.insert evt seen)
+          f
 
 inProfilingFrame ::
   ProfilingTable ->
@@ -327,7 +370,7 @@ enterEvent tbl nm callLoc =
      m <- readMetrics tbl
      i <- nextEventID tbl
      let p = fmap plSourceLoc callLoc
-     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing p ENTER m now i)
+     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing p ENTER [] m now i)
 
 readMetrics :: ProfilingTable -> IO (Metrics Identity)
 readMetrics tbl = traverseF (pure . Identity <=< readIORef) (metrics tbl)
@@ -340,53 +383,105 @@ exitEvent tbl nm =
   do now <- getCurrentTime
      m <- traverseF (pure . Identity <=< readIORef) (metrics tbl)
      i <- nextEventID tbl
-     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing Nothing EXIT m now i)
+     modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing Nothing EXIT [] m now i)
+
+blockEvent ::
+  ProfilingTable ->
+  FunctionName ->
+  Maybe ProgramLoc ->
+  Some (BlockID blocks) ->
+  IO ()
+blockEvent tbl nm callLoc blk =
+  dedupEvent tbl (BlockDedup nm (show blk)) $
+  do now <- getCurrentTime
+     m <- readMetrics tbl
+     i <- nextEventID tbl
+     let p = fmap plSourceLoc callLoc
+     modifyIORef' (callGraphEvents tbl)
+       (Seq.|> CGEvent nm Nothing p BLOCK [show blk] m now i)
+
+branchEvent ::
+  ProfilingTable ->
+  FunctionName ->
+  Maybe ProgramLoc ->
+  [Some (BlockID blocks)] ->
+  IO ()
+branchEvent tbl nm callLoc blks =
+  dedupEvent tbl (BranchDedup nm (map show blks)) $
+  do now <- getCurrentTime
+     m <- readMetrics tbl
+     i <- nextEventID tbl
+     let p = fmap plSourceLoc callLoc
+     modifyIORef' (callGraphEvents tbl)
+       (Seq.|> CGEvent nm Nothing p BRANCH (map show blks) m now i)
 
 
 updateProfilingTable ::
   IsExprBuilder sym =>
   ProfilingTable ->
+  EventFilter ->
   ExecState p sym ext rtp ->
   IO ()
-updateProfilingTable tbl exst = do
-  let sym = execStateContext exst ^. ctxSymInterface
-  stats <- getStatistics sym
-  writeIORef (metricSolverStats (metrics tbl)) stats
+updateProfilingTable tbl filt exst = do
+  when (recordProfiling filt) $ do
+    let sym = execStateContext exst ^. ctxSymInterface
+    stats <- getStatistics sym
+    writeIORef (metricSolverStats (metrics tbl)) stats
 
-  case execStateSimState exst of
-    Just (SomeSimState simst) -> do
-      let extraMetrics = execStateContext exst ^. profilingMetrics
-      extraMetricValues <- traverse (\m -> runMetric m simst) extraMetrics
-      writeIORef (metricExtraMetrics (metrics tbl)) extraMetricValues
-    Nothing ->
-      -- We can't poll custom metrics at the VERY beginning or end of
-      -- execution because 'ResultState' and 'InitialState' have no
-      -- 'SimState' values. This is probably fine---we still get to
-      -- poll them before and after the top-level function being
-      -- simulated, since it gets a 'CallState' and 'ReturnState' like
-      -- any other function.
-      return ()
+    case execStateSimState exst of
+      Just (SomeSimState simst) -> do
+        let extraMetrics = execStateContext exst ^. profilingMetrics
+        extraMetricValues <- traverse (\m -> runMetric m simst) extraMetrics
+        writeIORef (metricExtraMetrics (metrics tbl)) extraMetricValues
+      Nothing ->
+        -- We can't poll custom metrics at the VERY beginning or end of
+        -- execution because 'ResultState' and 'InitialState' have no
+        -- 'SimState' values. This is probably fine---we still get to
+        -- poll them before and after the top-level function being
+        -- simulated, since it gets a 'CallState' and 'ReturnState' like
+        -- any other function.
+        return ()
 
-  case exst of
-    InitialState _ _ _ _ _ ->
-      enterEvent tbl startFunctionName Nothing
-    CallState _rh call st ->
-      enterEvent tbl (resolvedCallName call) (st^.stateLocation)
-    ReturnState nm _ _ _ ->
-      exitEvent tbl nm
-    TailCallState _ call st ->
-      do exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-         enterEvent tbl (resolvedCallName call) (st^.stateLocation)
-    SymbolicBranchState{} ->
-      modifyIORef' (metricSplits (metrics tbl)) succ
-    AbortState{} ->
-      modifyIORef' (metricAborts (metrics tbl)) succ
-    UnwindCallState _ _ st ->
-      exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-    BranchMergeState tgt st ->
-      when (isMergeState tgt st)
-           (modifyIORef' (metricMerges (metrics tbl)) succ)
-    _ -> return ()
+    case exst of
+      InitialState _ _ _ _ _ ->
+        enterEvent tbl startFunctionName Nothing
+      CallState _rh call st ->
+        enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+      ReturnState nm _ _ _ ->
+        exitEvent tbl nm
+      TailCallState _ call st ->
+        do exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
+           enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+      SymbolicBranchState{} ->
+        modifyIORef' (metricSplits (metrics tbl)) succ
+      AbortState{} ->
+        modifyIORef' (metricAborts (metrics tbl)) succ
+      UnwindCallState _ _ st ->
+        exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
+      BranchMergeState tgt st ->
+        when (isMergeState tgt st)
+             (modifyIORef' (metricMerges (metrics tbl)) succ)
+      _ -> return ()
+
+  when (recordCoverage filt) $
+    case exst of
+      ControlTransferState res st ->
+        let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
+        case res of
+          ContinueResumption (ResolvedJump blk _) ->
+            blockEvent tbl funcName (st^.stateLocation) (Some blk)
+          CheckMergeResumption (ResolvedJump blk _) ->
+            blockEvent tbl funcName (st^.stateLocation) (Some blk)
+          _ -> return ()
+      RunningState (RunBlockEnd _) st ->
+        let funcName = st^.stateTree.actFrame.gpValue.frameFunctionName in
+        case st^.stateTree.actFrame.gpValue.crucibleSimFrame.frameStmts of
+          TermStmt loc term
+            | Just blocks <- termStmtNextBlocks term,
+              length blocks >= 2 ->
+                branchEvent tbl funcName (Just loc) blocks
+          _ -> return ()
+      _ -> return ()
 
 isMergeState ::
   CrucibleBranchTarget f args ->
@@ -426,20 +521,21 @@ writeProfileReport fp name source tbl =
 --   intermediate profiling data at regular intervals, if desired.
 profilingFeature ::
   ProfilingTable ->
+  EventFilter ->
   Maybe ProfilingOptions ->
   IO (GenericExecutionFeature sym)
 
-profilingFeature tbl Nothing =
-  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl exst >> return ExecutionFeatureNoChange
+profilingFeature tbl filt Nothing =
+  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl filt exst >> return ExecutionFeatureNoChange
 
-profilingFeature tbl (Just profOpts) =
+profilingFeature tbl filt (Just profOpts) =
   do startTime <- getCurrentTime
      stateRef <- newIORef (computeNextState startTime)
      return (feat stateRef)
 
  where
  feat stateRef = GenericExecutionFeature $ \exst ->
-        do updateProfilingTable tbl exst
+        do updateProfilingTable tbl filt exst
            deadline <- readIORef stateRef
            now <- getCurrentTime
            if deadline >= now then

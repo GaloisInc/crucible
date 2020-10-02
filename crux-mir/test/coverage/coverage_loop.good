@@ -1,0 +1,30 @@
+warning: branch condition never has value true
+    ┌─ ./lib/libcore/convert/num.rs:220:20
+    │
+220 │                 if u > (Self::max_value() as $source) {
+    │                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: branch condition never has a value other than [1]
+    ┌─ ./lib/libcore/iter/range.rs:217:20
+    │
+217 │             if let Some(mut n) = self.start.add_usize(1) {
+    │                    ^^^^^^^^^^^
+
+warning: branch condition never has value 1
+    ┌─ ./lib/libcore/iter/range.rs:135:21
+    │
+135 │                     Ok(n_as_unsigned) => {
+    │                     ^^^^^^^^^^^^^^^^^
+
+warning: branch condition never has value false
+    ┌─ ./lib/libcore/iter/range.rs:140:28
+    │
+140 │                         if wrapped >= *self {
+    │                            ^^^^^^^^^^^^^^^^
+
+warning: branch condition never has value true
+   ┌─ test/coverage/coverage_loop.rs:12:19
+   │
+12 │         } else if i > 99 {
+   │                   ^^^^^^
+

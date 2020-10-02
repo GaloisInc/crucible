@@ -1,0 +1,12 @@
+warning: branch condition never has value 1
+   ┌─ test/coverage/coverage_match.rs:14:19
+   │
+14 │     let e = match x {
+   │                   ^
+
+warning: branch condition never has value 20
+   ┌─ test/coverage/coverage_match.rs:21:19
+   │
+21 │     let y = match e {
+   │                   ^
+

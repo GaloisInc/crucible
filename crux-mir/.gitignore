@@ -23,3 +23,6 @@ cabal.project.local
 *.out
 *.mir
 report_data.js
+translation.json
+/test/coverage/out/
+/test/coverage/*.crux.log

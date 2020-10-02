@@ -296,7 +296,7 @@ instance FromJSON Terminator where
                                                                lmt <- v .: "values"
                                                                mapM (mapM convertIntegerText) lmt
                                                     in
-                                                    SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets"
+                                                    SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets" <*> v .: "discr_span"
                                                   Just (String "Resume") -> pure Resume
                                                   Just (String "Abort") -> pure Abort
                                                   Just (String "Return") -> pure Return
@@ -524,9 +524,11 @@ instance FromJSON Intrinsic where
 
 
 instance FromJSON MirBody where
-    parseJSON = withObject "MirBody" $ \v -> MirBody
-        <$> v .: "vars"
-        <*> v .: "blocks"
+    parseJSON = withObject "MirBody" $ \v -> do
+        vars <- v .: "vars"
+        blocks <- v .: "blocks"
+        let blockMap = Map.fromList [(b ^. bbinfo, b ^. bbdata) | b <- blocks]
+        return $ MirBody vars blocks blockMap
 
 instance FromJSON Static where
   parseJSON = withObject "Static" $ \v -> do

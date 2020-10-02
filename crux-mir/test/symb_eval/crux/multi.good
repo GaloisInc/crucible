@@ -5,22 +5,19 @@ test multi/3a1fbbbh::fail3[0]: FAILED
 failures:
 
 ---- multi/3a1fbbbh::fail1[0] counterexamples ----
-Failure for attempt to add with overflow
-in multi/3a1fbbbh::fail1[0] at test/symb_eval/crux/multi.rs:8:22
+Failure for test/symb_eval/crux/multi.rs:8:22: 8:27: error: in multi/3a1fbbbh::fail1[0]
+attempt to add with overflow
+Failure for ./lib/crucible/lib.rs:34:41: 34:58 !test/symb_eval/crux/multi.rs:8:5: 8:33: error: in multi/3a1fbbbh::fail1[0]
+MIR assertion at test/symb_eval/crux/multi.rs:8:5:
+	x + 1 > x
 
 ---- multi/3a1fbbbh::fail2[0] counterexamples ----
-Failure for panicking::begin_panic, called from multi/3a1fbbbh::fail2[0]
-in multi/3a1fbbbh::fail2[0] at internal
+Failure for internal: error: in multi/3a1fbbbh::fail2[0]
+panicking::begin_panic, called from multi/3a1fbbbh::fail2[0]
 
 ---- multi/3a1fbbbh::fail3[0] counterexamples ----
-Failure for MIR assertion at test/symb_eval/crux/multi.rs:20:5:
+Failure for ./lib/crucible/lib.rs:34:41: 34:58 !test/symb_eval/crux/multi.rs:20:5: 20:30: error: in multi/3a1fbbbh::assert_zero[0]
+MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 	x == 0
-in multi/3a1fbbbh::assert_zero[0] at ./lib/crucible/lib.rs:34:41
 
-[Crux] Goal status:
-[Crux]   Total: 4
-[Crux]   Proved: 1
-[Crux]   Disproved: 3
-[Crux]   Incomplete: 0
-[Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
