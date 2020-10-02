@@ -112,7 +112,7 @@ data MemAlloc sym
 
 -- | Memory allocations are represented as a list with the invariant
 -- that any two adjacent 'Allocations' constructors must be merged
--- together.
+-- together, and that no 'Allocations' constructor has an empty map.
 newtype MemAllocs sym = MemAllocs [MemAlloc sym]
 
 instance Semigroup (MemAllocs sym) where
