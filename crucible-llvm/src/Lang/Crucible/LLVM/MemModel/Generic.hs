@@ -1423,11 +1423,12 @@ pushStackFrameMem :: Text -> Mem sym -> Mem sym
 pushStackFrameMem nm = memState %~ \s ->
   StackFrame (memStateAllocCount s) (memStateWriteCount s) nm emptyChanges s
 
-popStackFrameMem :: Mem sym -> Mem sym
+popStackFrameMem :: forall sym. Mem sym -> Mem sym
 popStackFrameMem m = m & memState %~ popf
-  where popf (StackFrame _ _ _ (a,w) s) =
+  where popf :: MemState sym -> MemState sym
+        popf (StackFrame _ _ _ (a,w) s) =
           s & memStateAddChanges c
-          where c = (p a, w)
+          where c = (popMemAllocs a, w)
 
         -- WARNING: The following code executes a stack pop underneath a branch
         -- frame.  This is necessary to get merges to work correctly
@@ -1439,19 +1440,22 @@ popStackFrameMem m = m & memState %~ popf
         -- examples, but may be a source of subtle errors.
         popf (BranchFrame _ wc (a,w) s) =
           BranchFrame (sizeMemAllocs (fst c)) wc c $ popf s
-          where c = (p a, w)
+          where c = (popMemAllocs a, w)
 
-        popf _ = error "popStackFrameMem given unexpected memory"
+        popf EmptyMem{} = error "popStackFrameMem given unexpected memory"
 
-        notStackAlloc :: forall sym'. AllocInfo sym' -> Bool
+        notStackAlloc :: AllocInfo sym -> Bool
         notStackAlloc (AllocInfo x _ _ _ _) = x /= StackAlloc
 
-        p (MemAllocs xs) = MemAllocs (mapMaybe pa xs)
-        pa (Allocations am) =
+        popMemAllocs :: MemAllocs sym -> MemAllocs sym
+        popMemAllocs (MemAllocs xs) = MemAllocs (mapMaybe popMemAlloc xs)
+
+        popMemAlloc :: MemAlloc sym -> Maybe (MemAlloc sym)
+        popMemAlloc (Allocations am) =
           if Map.null am' then Nothing else Just (Allocations am')
           where am' = Map.filter notStackAlloc am
-        pa a@(MemFree _ _) = Just a
-        pa (AllocMerge c x y) = Just (AllocMerge c (p x) (p y))
+        popMemAlloc a@(MemFree _ _) = Just a
+        popMemAlloc (AllocMerge c x y) = Just (AllocMerge c (popMemAllocs x) (popMemAllocs y))
 
 -- | Free a heap-allocated block of memory.
 --
