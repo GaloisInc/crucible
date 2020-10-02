@@ -234,7 +234,7 @@ runTests (cruxOpts, mirOpts) = do
 
         -- When profiling Crucible evaluation, also save metadata about the
         -- translation.
-        when (Crux.profileCrucibleFunctions cruxOpts' && not (null $ Crux.outDir cruxOpts')) $ do
+        when (Crux.branchCoverage cruxOpts' && not (null $ Crux.outDir cruxOpts')) $ do
             createDirectoryIfMissing True (Crux.outDir cruxOpts')
             let path = Crux.outDir cruxOpts' </> "translation.json"
             -- It's a bit redundant to emit the entire crate's translation
