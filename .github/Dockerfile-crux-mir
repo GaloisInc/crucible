@@ -44,7 +44,14 @@ FROM haskell:8.8.4 AS build
 RUN apt-get update && apt-get install -y wget libncurses-dev unzip
 
 COPY --from=mir_json /usr/local/cargo /usr/local/cargo
+COPY --from=mir_json /usr/local/rustup /usr/local/rustup
 COPY --from=solvers /solvers/rootfs /
+
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/rustup/lib
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 
 ARG DIR=/crux-mir
 RUN mkdir -p ${DIR}/build
@@ -62,18 +69,10 @@ RUN cabal v2-build --only-dependencies crux-mir
 RUN cabal v2-build crux-mir
 RUN cp `cabal v2-exec which crux-mir` /usr/local/bin
 RUN cp /usr/local/cargo/bin/* /usr/local/bin/
-COPY --from=mir_json /usr/local/rustup /usr/local/rustup
-ENV CARGO_HOME=/usr/local/cargo
-ENV RUSTUP_HOME=/usr/local/rustup
-#RUN rustup toolchain install nightly-2020-03-22 --force
-#RUN rustup component add --toolchain nightly-2020-03-22 rustc-dev
 RUN rustup default nightly-2020-03-22
 WORKDIR ${DIR}/build/crux-mir
-ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/rustup/lib
 RUN ./translate_libs.sh
 WORKDIR ${DIR}/build
-ENV LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
 RUN cabal v2-test crux-mir
 
 FROM debian:buster-slim
