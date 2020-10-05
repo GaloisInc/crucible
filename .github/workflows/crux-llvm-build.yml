@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest] # , windows-latest]
         ghc: ["8.6.5", "8.8.4", "8.10.2"]
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
