@@ -181,8 +181,6 @@ bundle_crux_mir_files() {
   cp crux-mir/README.md dist/doc
   cp -r crux-mir/rlibs dist
   (cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
-  mv dist/mir-json/bin/* dist/bin/
-  rm -rf dist/mir-json
   VERSION=${VERSION:-$DATE}
   zip_dist crux-mir
 }
