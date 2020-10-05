@@ -37,7 +37,7 @@ WORKDIR /mir-json
 RUN rustup toolchain install nightly-2020-03-22 --force
 RUN rustup component add --toolchain nightly-2020-03-22 rustc-dev
 RUN rustup default nightly-2020-03-22
-RUN RUSTC_WRAPPER=./rustc-rpath.sh cargo install --locked
+RUN cargo install --locked
 
 FROM haskell:8.8.4 AS build
 

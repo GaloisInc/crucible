@@ -84,7 +84,7 @@ jobs:
           YICES_VERSION: "2.6.2"
 
       - shell: bash
-        run: cd dependencies/mir-json && RUSTC_WRAPPER=./rustc-rpath.sh cargo install --locked --force
+        run: cd dependencies/mir-json && cargo install --locked --force
 
       - shell: bash
         run: .github/ci.sh configure
