@@ -155,11 +155,11 @@ setup_dist() {
 
 zip_dist() {
   : "${VERSION?VERSION is required as an environment variable}"
-  name="${name:-"$1-$VERSION-$RUNNER_OS-x86_64"}"
-  mv dist "$name"
-  tar -czf "$name".tar.gz "$name"
-  #sign "$name".tar.gz
-  #[[ -f "$name".tar.gz.sig ]] && [[ -f "$name".tar.gz ]]
+  pname="${name:-"$1-$VERSION-$RUNNER_OS-x86_64"}"
+  mv dist "$pname"
+  tar -czf "$pname".tar.gz "$pname"
+  sign "$pname".tar.gz
+  [[ -f "$pname".tar.gz.sig ]] && [[ -f "$pname".tar.gz ]]
   rm -rf dist
 }
 
