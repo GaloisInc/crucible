@@ -11,26 +11,29 @@ functionality.
 
 ## Preliminaries
 
-You must have the most recent version of the `mir-json` executable in your
-path.  See [the `mir-json` README][mir-json-readme] for installation
-instructions.
-
 `crux-mir` uses several submodules, so make sure they're initialized:
 
     $ git submodule update --init
+
+Next, navigate to the `crucible/dependencies/mir-json` directory and install
+`mir-json` according to the instructions in [the `mir-json`
+README][mir-json-readme].
 
 [mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
 
 
 ## Installation
 
-Use ghc-8.4.4 or ghc-8.6.5.
+Use ghc-8.4.4 or ghc-8.6.5.  From the `crux-mir` directory, run:
 
-    $ cabal v2-build
+    $ cabal v2-install exe:crux-mir --project-file=install.project --overwrite-policy=always
 
 Then translate the Rust libraries in `lib/`:
 
     $ ./translate_libs.sh
+
+When upgrading from a previous version, first install the new `mir-json`
+version, then rerun both commands.
 
 
 ## Usage
@@ -49,10 +52,6 @@ Test cases can create and manipulate symbolic values using the functions in the
 and asserting properties about them.
 
 ### Running on a Cargo project
-
-First, install the `crux-mir` binary to your `~/.cabal/bin` directory:
-
-    $ cabal v2-install crux-mir
 
 Set the `CRUX_RUST_LIBRARY_PATH` environment variable to the path to the
 translated libraries:
@@ -92,7 +91,7 @@ type is available [here][dalek-fork].  This is the code that appears in the
 
 ## Test suite
 
-To run the tests:
+To run `crux-mir`'s test suite:
 
     $ cabal v2-test
 
@@ -108,13 +107,12 @@ a brief comment describing the reason for the expected failure.
 
 ## Limitations
 
-`crux-mir` does not support reasoning about unsafe code.  Many functions in
-the standard library rely on unsafe code; we have reimplemented some of these
-in terms of safe code or custom `crux-mir` intrinsics, but many unsupported
-functions still remain.  Test cases that call into unsafe code will produce
-assertion failures with messages like `don't know how to call
-core::intrinsics::transmute` or `expected reference type in dereference
-TyRawPtr`.
+`crux-mir` does not support reasoning about certain types of unsafe code.  Many
+functions in the standard library rely on unsafe code; we have reimplemented
+some of these in terms of safe code or custom `crux-mir` intrinsics, but many
+unsupported functions still remain.  Test cases that call into unsupported code
+will produce assertion failures with messages like `don't know how to call
+core::intrinsics::transmute`.
 
 Currently, `crux-mir` also has trouble supporting references and function
 pointers in constant expressions and static initializers.
