@@ -155,11 +155,11 @@ setup_dist() {
 
 zip_dist() {
   : "${VERSION?VERSION is required as an environment variable}"
-  pname="${name:-"$1-$VERSION-$RUNNER_OS-x86_64"}"
-  mv dist "$pname"
-  tar -czf "$pname".tar.gz "$pname"
-  sign "$pname".tar.gz
-  [[ -f "$pname".tar.gz.sig ]] && [[ -f "$pname".tar.gz ]]
+  pkgname="${pkgname:-"$1-$VERSION-$RUNNER_OS-x86_64"}"
+  mv dist "$pkgname"
+  tar -czf "$pkgname".tar.gz "$pkgname"
+  sign "$pkgname".tar.gz
+  [[ -f "$pkgname".tar.gz.sig ]] && [[ -f "$pkgname".tar.gz ]]
   rm -rf dist
 }
 
@@ -171,7 +171,7 @@ bundle_crux_llvm_files() {
   fi
   cp crux-llvm/README.md dist/doc
   cp -r crux-llvm/c-src dist
-  VERSION=$DATE
+  VERSION=${VERSION:-$DATE}
   zip_dist crux-llvm
 }
 
@@ -180,7 +180,7 @@ bundle_crux_mir_files() {
   extract_exe crux-mir dist/bin
   cp crux-mir/README.md dist/doc
   cp -r crux-mir/rlibs dist
-  VERSION=$DATE
+  VERSION=${VERSION:-$DATE}
   zip_dist crux-mir
 }
 
