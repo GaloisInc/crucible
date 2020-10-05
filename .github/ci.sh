@@ -185,6 +185,13 @@ bundle_crux_mir_files() {
 }
 
 output() { echo "::set-output name=$1::$2"; }
+
+crux_llvm_ver() { grep Version crux-llvm/crux-llvm.cabal | awk '{print $2}'; }
+set_crux_llvm_version() { output crux-llvm-version "$(crux_llvm_ver)"; }
+
+crux_mir_ver() { grep Version crux-mir/crux-mir.cabal | awk '{print $2}'; }
+set_crux_mir_version() { output crux-mir-version "$(crux_mir_ver)"; }
+
 set_files() { output changed-files "$(files_since "$1" "$2")"; }
 files_since() {
   changed_since="$(git log -1 --before="@{$2}")"
