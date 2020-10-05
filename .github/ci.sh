@@ -180,6 +180,9 @@ bundle_crux_mir_files() {
   extract_exe crux-mir dist/bin
   cp crux-mir/README.md dist/doc
   cp -r crux-mir/rlibs dist
+  (cd dependencies/mir-json && RUSTC_WRAPPER=./rustc-rpath.sh cargo install --locked --force --root ../../dist)
+  mv dist/mir-json/bin/* dist/bin/
+  rm -rf dist/mir-json
   VERSION=${VERSION:-$DATE}
   zip_dist crux-mir
 }
