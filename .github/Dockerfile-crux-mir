@@ -1,0 +1,99 @@
+FROM debian:buster AS solvers
+
+# Install needed packages for building
+RUN apt-get update \
+    && apt-get install -y curl cmake gcc g++ git libreadline-dev unzip
+RUN useradd -m user
+RUN install -d -o user -g user /solvers
+USER user
+WORKDIR /solvers
+RUN mkdir -p rootfs/usr/local/bin
+
+# Get Z3 4.8.8 from GitHub
+RUN curl -L https://github.com/Z3Prover/z3/releases/download/z3-4.8.8/z3-4.8.8-x64-ubuntu-16.04.zip --output z3.zip
+RUN unzip z3.zip
+RUN mv z3-*/bin/z3 rootfs/usr/local/bin
+
+# Build Boolector release 3.2.1 from source
+RUN curl -L https://github.com/Boolector/boolector/archive/3.2.1.tar.gz | tar xz
+RUN cd boolector* && ./contrib/setup-lingeling.sh && ./contrib/setup-btor2tools.sh && ./configure.sh && cd build && make -j$(nproc)
+RUN cp boolector*/build/bin/boolector rootfs/usr/local/bin
+
+# Install Yices 2.6.2
+RUN curl -L https://yices.csl.sri.com/releases/2.6.2/yices-2.6.2-x86_64-pc-linux-gnu-static-gmp.tar.gz | tar xz
+RUN cp yices*/bin/yices-smt2 rootfs/usr/local/bin \
+    && cp yices*/bin/yices rootfs/usr/local/bin
+
+# Install CVC4 1.8
+RUN curl -L https://github.com/CVC4/CVC4/releases/download/1.8/cvc4-1.8-x86_64-linux-opt --output rootfs/usr/local/bin/cvc4
+
+# Set executable and run tests
+RUN chmod +x rootfs/usr/local/bin/*
+
+FROM rust:1.46.0 AS mir_json
+
+ADD dependencies/mir-json /mir-json
+WORKDIR /mir-json
+RUN rustup toolchain install nightly-2020-03-22 --force
+RUN rustup component add --toolchain nightly-2020-03-22 rustc-dev
+RUN rustup default nightly-2020-03-22
+RUN cargo install --locked
+
+FROM haskell:8.8.4 AS build
+
+RUN apt-get update && apt-get install -y wget libncurses-dev unzip
+
+COPY --from=mir_json /usr/local/cargo /usr/local/cargo
+COPY --from=mir_json /usr/local/rustup /usr/local/rustup
+COPY --from=solvers /solvers/rootfs /
+
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/rustup/lib
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+ARG DIR=/crux-mir
+RUN mkdir -p ${DIR}/build
+ADD crucible ${DIR}/build/crucible
+ADD crucible-saw ${DIR}/build/crucible-saw
+ADD crux ${DIR}/build/crux
+ADD crux-mir ${DIR}/build/crux-mir
+ADD dependencies ${DIR}/build/dependencies
+ADD .github/cabal.project.crux-mir ${DIR}/build/cabal.project
+ADD cabal.GHC-8.8.4.config ${DIR}/build/cabal.project.freeze
+
+WORKDIR ${DIR}/build
+RUN cabal v2-update
+RUN cabal v2-build --only-dependencies crux-mir
+RUN cabal v2-build crux-mir
+RUN cp `cabal v2-exec which crux-mir` /usr/local/bin
+RUN cp /usr/local/cargo/bin/* /usr/local/bin/
+RUN rustup default nightly-2020-03-22
+WORKDIR ${DIR}/build/crux-mir
+RUN ./translate_libs.sh
+WORKDIR ${DIR}/build
+RUN cabal v2-test crux-mir
+
+FROM debian:buster-slim
+
+USER root
+RUN apt-get update
+RUN apt-get install -y libgmp10 zlibc zlib1g
+
+ARG DIR=/crux-mir
+COPY --from=mir_json /usr/local/cargo /usr/local/cargo
+COPY --from=mir_json /usr/local/rustup /usr/local/rustup
+COPY --from=solvers /solvers/rootfs /
+COPY --from=build /usr/local/bin/* /usr/local/bin/
+COPY --from=build /crux-mir/build/crux-mir/rlibs /crux-mir/rlibs
+
+WORKDIR ${DIR}
+
+ENV CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    CRUX_RUST_LIBRARY_PATH=/crux-mir/rlibs \
+    LD_LIBRARY_PATH=/usr/local/lib:/usr/local/rustup/lib \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+ENTRYPOINT ["/usr/local/bin/crux-mir"]

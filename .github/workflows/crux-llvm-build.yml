@@ -11,11 +11,15 @@ jobs:
     outputs:
       changed: ${{ steps.outputs.outputs.changed-files }}
       name: ${{ steps.outputs.outputs.name }}
+      crux-llvm-version: ${{ steps.outputs.outputs.crux-llvm-version }}
       release: ${{ steps.env.outputs.release }}
     steps:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
+      - id: outputs
+        run: |
+          .github/ci.sh set_crux_llvm_version
 
   build:
     runs-on: ${{ matrix.os }}
@@ -23,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest] # , windows-latest]
         ghc: ["8.6.5", "8.8.4", "8.10.2"]
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
@@ -65,17 +69,51 @@ jobs:
             dist-newstyle-${{ runner.os }}-${{ matrix.ghc }}-
 
       - shell: bash
-        run: cabal v2-update
+        run: .github/ci.sh install_system_deps
+        env:
+          Z3_VERSION: "4.8.8"
+          YICES_VERSION: "2.6.2"
 
       - shell: bash
-        run: cabal v2-build exe:crux-llvm
+        run: .github/ci.sh configure
 
       - shell: bash
-        run: cabal v2-build exe:crux-llvm-svcomp
+        run: .github/ci.sh build exe:crux-llvm
+
+      - shell: bash
+        name: Test (Linux)
+        run: .github/ci.sh test crux-llvm
+        if: runner.os == 'Linux'
+        env:
+          LLVM_LINK: "llvm-link-10"
+          CLANG: "clang-10"
+
+      - shell: bash
+        name: Test (macOS)
+        run: .github/ci.sh test crux-llvm
+        if: runner.os == 'macOS'
+        env:
+          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
+          CLANG: "/usr/local/opt/llvm/bin/clang"
+
+      - shell: bash
+        name: Test (Windows)
+        run: .github/ci.sh test crux-llvm
+        if: runner.os == 'Windows'
+        env:
+          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
+          CLANG: "/c/Program Files/LLVM/bin/clang"
+
+      - shell: bash
+        run: .github/ci.sh build exe:crux-llvm-svcomp
         if: runner.os != 'Windows'
 
       - shell: bash
-        run: .github/package-crux-llvm.sh
+        run: .github/ci.sh bundle_crux_llvm_files
+        env:
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
         with:
