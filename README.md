@@ -124,3 +124,12 @@ Testing with coverage tracking is currently only available via
 `stack`, as `cabal new-*` [does not yet support coverage](https://github.com/haskell/cabal/issues/5213).
 Use `scripts/stack-test-coverage.sh` to generate a coverage
 report for all test suites.
+
+Acknowledgements
+----------------
+
+Crucible is partly based upon work supported by the Defense Advanced
+Research Projects Agency (DARPA) under Contract No. N66001-18-C-4011.
+Any opinions, findings and conclusions or recommendations expressed in
+this material are those of the author(s) and do not necessarily reflect
+the views of the Defense Advanced Research Projects Agency (DARPA).
