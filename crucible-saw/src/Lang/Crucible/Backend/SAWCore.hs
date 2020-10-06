@@ -837,7 +837,10 @@ evaluateExpr sym sc cache = f []
         B.BVTestBit i bv -> fmap SAWExpr $ do
              w <- SC.scNat sc (natValue (bvWidth bv))
              bit <- SC.scBoolType sc
-             join (SC.scAt sc w bit <$> f env bv <*> SC.scNat sc (fromIntegral i))
+             -- NB, SAWCore's `scAt` is big endian
+             let j = natValue (bvWidth bv) - i - 1
+             join (SC.scAt sc w bit <$> f env bv <*> SC.scNat sc j)
+
         B.BVSlt x y -> fmap SAWExpr $ do
              w <- SC.scNat sc (natValue (bvWidth x))
              join (SC.scBvSLt sc w <$> f env x <*> f env y)
