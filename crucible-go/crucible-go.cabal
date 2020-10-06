@@ -8,7 +8,6 @@ maintainer:          abagnall@galois.com
 copyright:           (c) 2020 Galois Inc
 category:            Language
 build-type:          Simple
-extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 executable crux-go
@@ -76,19 +75,3 @@ library
                      , bv-sized
   hs-source-dirs:      src
   default-language:    Haskell2010
-
-test-suite crucible-go-tests
-  type: exitcode-stdio-1.0
-  default-language: Haskell2010
-  ghc-options: -Wall
-  main-is: Main.hs
-  hs-source-dirs: tests
-  build-depends: base >= 4.8 && < 5,
-                 lens,
-                 tasty >= 0.10 && < 0.12,
-                 tasty-hunit,
-                 filepath >= 1 && < 2,
-                 filemanip >= 0.3.6 && < 0.4,
-                 parameterized-utils,
-                 crucible,
-                 crucible-go

@@ -10,8 +10,8 @@ properties).
 Before running `crux-llvm`, you'll need to install the following
 software:
 
-* The Stack build tool for Haskell:
-  <https://github.com/commercialhaskell/stack/releases>
+* GHC and `cabal`, preferably using `ghcup`:
+  <https://www.haskell.org/ghcup/>
 
 * The Yices SMT solver: <http://yices.csl.sri.com/>
 
@@ -19,9 +19,13 @@ software:
 
 * The Clang compiler: <http://releases.llvm.org/download.html>
 
-We have tested it with Stack 2.1.3, Yices 2.6.1, Z3 4.8.5, and LLVM
-6.0.1. Technically, only one of Yices or Z3 is required, and CVC4 will
-work, as well. However, in practice, having both tends to be convenient.
+We have tested `crux-llvm` most heavily with GHC 8.6.5 and GHC 8.8.4,
+and `cabal` version 3.2.0.0. We recommend Yices 2.6.x, and Z3 4.8.x.
+Technically, only one of Yices or Z3 is required, and CVC4 will work, as
+well. However, in practice, having both tends to be convenient. Finally,
+LLVM versions from 3.6 through 10 are likely to work well, and any
+failures with versions in that range should be considered
+[bugs](https://github.com/GaloisInc/crucible/issues).
 
 # Building
 
@@ -34,16 +38,24 @@ The `crux-llvm` tool can be built by doing the following:
 * Change to the `crux-llvm` directory and run the build script:
 
         cd crucible/crux-llvm
-        ./build-stack.sh
+        cabal v2-build
 
-This will compile `crux-llvm` and supporting libraries and install them
-in the directory `crucible/crux-llvm/bin`.
+This will compile `crux-llvm` and supporting libraries such that they
+can be executed with `cabal v2-run`. To install the binaries in the
+standard Cabal binary path, run the following:
+
+        cabal v2-install exe:crux-llvm --overwrite-policy=always
+
+You can also use the `--installdir` flag to install binaries in a
+different location.
 
 # Invocation
 
-In the `crux-llvm` directory, to analyze `file.c`, run
+In the `crux-llvm` directory (either in the repository or the root of
+the directory extracted from a distribution tarball), to analyze
+`file.c`, run
 
-    ./bin/crux-llvm file.c
+        crux-llvm file.c
 
 You'll see output indicating the progress of analysis, how many proof
 goals are generated, and how many were successfully proved. In addition,
