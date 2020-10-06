@@ -81,11 +81,15 @@ executable crux-llvm
     text,
     what4
 
+  main-is: Main.hs
+
   if os(windows)
-    main-is: WinMain.hs
+    hs-source-dirs: exe/windows
   else
+    hs-source-dirs: exe/unix
     build-depends: unix
-    main-is: Main.hs
+
+  other-modules: RealMain
 
   ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
   ghc-prof-options: -O2 -fprof-auto-top

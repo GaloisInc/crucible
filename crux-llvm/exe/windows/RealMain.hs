@@ -1,4 +1,4 @@
-module Main (main) where
+module RealMain (main) where
 
 import System.Exit
 import CruxLLVMMain (mainWithOutputConfig, defaultOutputConfig)

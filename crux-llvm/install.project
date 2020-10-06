@@ -1,0 +1,11 @@
+packages:
+  ../crucible/
+  ../crucible-llvm/
+  ../crux/
+  ./
+
+optional-packages:
+  ../dependencies/aig/
+  ../dependencies/llvm-pretty/
+  ../dependencies/llvm-pretty-bc-parser/
+  ../dependencies/what4/what4/

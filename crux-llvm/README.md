@@ -10,8 +10,8 @@ properties).
 Before running `crux-llvm`, you'll need to install the following
 software:
 
-* The Stack build tool for Haskell:
-  <https://github.com/commercialhaskell/stack/releases>
+* GHC and `cabal-install`, preferably using `ghcup`:
+  <https://www.haskell.org/ghcup/>
 
 * The Yices SMT solver: <http://yices.csl.sri.com/>
 
@@ -34,16 +34,21 @@ The `crux-llvm` tool can be built by doing the following:
 * Change to the `crux-llvm` directory and run the build script:
 
         cd crucible/crux-llvm
-        ./build-stack.sh
+        cabal v2-build
 
-This will compile `crux-llvm` and supporting libraries and install them
-in the directory `crucible/crux-llvm/bin`.
+This will compile `crux-llvm` and supporting libraries such that they
+can be executed with `cabal v2-run`. To install the binaries in the
+standard Cabal binary path, run the following:
+
+        cabal v2-install exe:crux-llvm --project-file=install.project --overwrite-policy=always
 
 # Invocation
 
-In the `crux-llvm` directory, to analyze `file.c`, run
+In the `crux-llvm` directory (either in the repository or the root of
+the directory extracted from a distribution tarball), to analyze
+`file.c`, run
 
-    ./bin/crux-llvm file.c
+        crux-llvm file.c
 
 You'll see output indicating the progress of analysis, how many proof
 goals are generated, and how many were successfully proved. In addition,
