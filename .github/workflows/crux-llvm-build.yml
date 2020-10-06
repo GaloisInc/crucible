@@ -106,5 +106,5 @@ jobs:
 
       - uses: actions/upload-artifact@v2
         with:
-          path: crux-llvm-*.tar.gz
+          path: crux-llvm-*.tar.gz*
           name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}

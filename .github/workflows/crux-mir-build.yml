@@ -96,5 +96,5 @@ jobs:
 
       - uses: actions/upload-artifact@v2
         with:
-          path: crux-mir-*.tar.gz
+          path: crux-mir-*.tar.gz*
           name: crux-mir-${{ runner.os }}-${{ matrix.ghc }}
