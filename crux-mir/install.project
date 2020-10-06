@@ -1,8 +1,0 @@
-packages:
-  ../crucible/
-  ../crux/
-  ./
-
-optional-packages:
-  ../dependencies/aig/
-  ../dependencies/what4/what4/

@@ -26,7 +26,7 @@ README][mir-json-readme].
 
 Use GHC 8.6.5 or 8.8.4.  From the `crux-mir` directory, run:
 
-    $ cabal v2-install exe:crux-mir --project-file=install.project --overwrite-policy=always
+    $ cabal v2-install exe:crux-mir --overwrite-policy=always
 
 Then translate the Rust libraries in `lib/`:
 
