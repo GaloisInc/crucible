@@ -332,3 +332,11 @@ a valid input file:
 This specifies the name of the command to run for `clang` and
 `llvm-link`, instructs `crux-llvm` not to create counter-example
 demonstration executables, and provides a list of input files.
+
+# Acknowledgements
+
+Crux is partly based upon work supported by the Defense Advanced
+Research Projects Agency (DARPA) under Contract No. N66001-18-C-4011.
+Any opinions, findings and conclusions or recommendations expressed in
+this material are those of the author(s) and do not necessarily reflect
+the views of the Defense Advanced Research Projects Agency (DARPA).
