@@ -40,7 +40,7 @@ This will compile `crux-llvm` and supporting libraries such that they
 can be executed with `cabal v2-run`. To install the binaries in the
 standard Cabal binary path, run the following:
 
-        cabal v2-install exe:crux-llvm --project-file=install.project --overwrite-policy=always
+        cabal v2-install exe:crux-llvm --overwrite-policy=always
 
 # Invocation
 
