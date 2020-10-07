@@ -43,7 +43,6 @@ import           Test.Tasty.QuickCheck
 import           Data.Foldable
 import           Data.Sequence (Seq)
 import           Control.Monad
-import           Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -371,9 +370,8 @@ withMem ::
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
   Crucible.withZ3OnlineBackend What4.FloatIEEERepr nonce_gen Crucible.NoUnsatFeatures noFeatures $ \sym -> do
     let ?ptrWidth = knownNat @64
+    let ?recordLLVMAnnotation = \_ _ -> pure ()
     mem <- emptyMem endianess
-    bbMapRef <- newIORef mempty
-    let ?badBehaviorMap = bbMapRef
     action sym mem
 
 assume :: Crucible.IsSymInterface sym => sym -> What4.Pred sym -> IO ()
