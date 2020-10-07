@@ -80,9 +80,9 @@ data TestCase ext dom =
      , tcGlobals :: PM.MapF C.GlobalVar dom
      , tcCheck :: forall blocks tp
                 . C.CFG ext blocks init ret
-               -> PU.Assignment (PointAbstraction dom) blocks
+               -> PU.Assignment (PointAbstraction blocks dom) blocks
                -> dom tp
-               -> Maybe (PU.Assignment (PointAbstraction dom) blocks, dom tp)
+               -> Maybe (PU.Assignment (PointAbstraction blocks dom) blocks, dom tp)
                -> T.Assertion
      }
 
