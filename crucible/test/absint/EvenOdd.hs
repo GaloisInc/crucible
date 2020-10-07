@@ -50,8 +50,8 @@ evenOddInterp = Interpretation { interpExpr = eoIExpr
 eoIExpr :: ScopedReg
         -> C.TypeRepr tp
         -> C.Expr ext ctx tp
-        -> PointAbstraction EvenOdd' ctx
-        -> (Maybe (PointAbstraction EvenOdd' ctx), EvenOdd' tp)
+        -> PointAbstraction blocks EvenOdd' ctx
+        -> (Maybe (PointAbstraction blocks EvenOdd' ctx), EvenOdd' tp)
 eoIExpr _sr _tr (C.App e) abstr =
   case e of
     C.IntLit i -> (Nothing, if i `mod` 2 == 0 then Pointed Even else Pointed Odd)
@@ -71,27 +71,27 @@ eoICall :: C.CtxRepr args
         -> C.Reg ctx (C.FunctionHandleType args ret)
         -> EvenOdd' (C.FunctionHandleType args ret)
         -> PU.Assignment EvenOdd' args
-        -> PointAbstraction dom ctx
-        -> (Maybe (PointAbstraction EvenOdd' ctx), EvenOdd' ret)
+        -> PointAbstraction blocks dom ctx
+        -> (Maybe (PointAbstraction blocks EvenOdd' ctx), EvenOdd' ret)
 eoICall _ _ _ _ _ _ = (Nothing, Top)
 
 eoIBr :: C.Reg ctx C.BoolType
       -> EvenOdd' C.BoolType
       -> C.JumpTarget blocks ctx
       -> C.JumpTarget blocks ctx
-      -> PointAbstraction EvenOdd' ctx
-      -> (Maybe (PointAbstraction EvenOdd' ctx), Maybe (PointAbstraction EvenOdd' ctx))
+      -> PointAbstraction blocks EvenOdd' ctx
+      -> (Maybe (PointAbstraction blocks EvenOdd' ctx), Maybe (PointAbstraction blocks EvenOdd' ctx))
 eoIBr _ _ _ _ _ = (Nothing, Nothing)
 
 eoIMaybe :: C.TypeRepr tp
          -> C.Reg ctx (C.MaybeType tp)
          -> EvenOdd' (C.MaybeType tp)
-         -> PointAbstraction EvenOdd' ctx
-         -> (Maybe (PointAbstraction EvenOdd' ctx), EvenOdd' tp, Maybe (PointAbstraction EvenOdd' ctx))
+         -> PointAbstraction blocks EvenOdd' ctx
+         -> (Maybe (PointAbstraction blocks EvenOdd' ctx), EvenOdd' tp, Maybe (PointAbstraction blocks EvenOdd' ctx))
 eoIMaybe _ _ _ _ = (Nothing, Top, Nothing)
 
-eoIWrGlobal :: C.GlobalVar tp -> C.Reg ctx tp -> PointAbstraction EvenOdd' ctx -> Maybe (PointAbstraction EvenOdd' ctx)
+eoIWrGlobal :: C.GlobalVar tp -> C.Reg ctx tp -> PointAbstraction blocks EvenOdd' ctx -> Maybe (PointAbstraction blocks EvenOdd' ctx)
 eoIWrGlobal _ _ _ = Nothing
 
-eoIRdGlobal :: C.GlobalVar tp -> PointAbstraction EvenOdd' ctx -> (Maybe (PointAbstraction EvenOdd' ctx), EvenOdd' tp)
+eoIRdGlobal :: C.GlobalVar tp -> PointAbstraction blocks EvenOdd' ctx -> (Maybe (PointAbstraction blocks EvenOdd' ctx), EvenOdd' tp)
 eoIRdGlobal _ _ = (Nothing, Top)

@@ -51,8 +51,8 @@ maxInterp = Interpretation { interpExpr = mExpr
 mExpr :: ScopedReg
         -> C.TypeRepr tp
         -> C.Expr ext ctx tp
-        -> PointAbstraction Max' ctx
-        -> (Maybe (PointAbstraction Max' ctx), Max' tp)
+        -> PointAbstraction blocks Max' ctx
+        -> (Maybe (PointAbstraction blocks Max' ctx), Max' tp)
 mExpr _sr _tr (C.App e) abstr =
   case e of
     C.IntLit i -> (Nothing, Pointed (Max (fromIntegral i)))
@@ -69,27 +69,27 @@ mCall :: C.CtxRepr args
         -> C.Reg ctx (C.FunctionHandleType args ret)
         -> Max' (C.FunctionHandleType args ret)
         -> PU.Assignment Max' args
-        -> PointAbstraction dom ctx
-        -> (Maybe (PointAbstraction Max' ctx), Max' ret)
+        -> PointAbstraction blocks dom ctx
+        -> (Maybe (PointAbstraction blocks Max' ctx), Max' ret)
 mCall _ _ _ _ _ _ = (Nothing, Top)
 
 mBr :: C.Reg ctx C.BoolType
       -> Max' C.BoolType
       -> C.JumpTarget blocks ctx
       -> C.JumpTarget blocks ctx
-      -> PointAbstraction Max' ctx
-      -> (Maybe (PointAbstraction Max' ctx), Maybe (PointAbstraction Max' ctx))
+      -> PointAbstraction blocks Max' ctx
+      -> (Maybe (PointAbstraction blocks Max' ctx), Maybe (PointAbstraction blocks Max' ctx))
 mBr _ _ _ _ _ = (Nothing, Nothing)
 
 mMaybe :: C.TypeRepr tp
          -> C.Reg ctx (C.MaybeType tp)
          -> Max' (C.MaybeType tp)
-         -> PointAbstraction Max' ctx
-         -> (Maybe (PointAbstraction Max' ctx), Max' tp, Maybe (PointAbstraction Max' ctx))
+         -> PointAbstraction blocks Max' ctx
+         -> (Maybe (PointAbstraction blocks Max' ctx), Max' tp, Maybe (PointAbstraction blocks Max' ctx))
 mMaybe _ _ _ _ = (Nothing, Top, Nothing)
 
-mWrGlobal :: C.GlobalVar tp -> C.Reg ctx tp -> PointAbstraction Max' ctx -> Maybe (PointAbstraction Max' ctx)
+mWrGlobal :: C.GlobalVar tp -> C.Reg ctx tp -> PointAbstraction blocks Max' ctx -> Maybe (PointAbstraction blocks Max' ctx)
 mWrGlobal _ _ _ = Nothing
 
-mRdGlobal :: C.GlobalVar tp -> PointAbstraction Max' ctx -> (Maybe (PointAbstraction Max' ctx), Max' tp)
+mRdGlobal :: C.GlobalVar tp -> PointAbstraction blocks Max' ctx -> (Maybe (PointAbstraction blocks Max' ctx), Max' tp)
 mRdGlobal _ _ = (Nothing, Top)
