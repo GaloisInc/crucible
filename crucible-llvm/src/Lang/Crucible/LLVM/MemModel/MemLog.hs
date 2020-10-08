@@ -117,7 +117,9 @@ data MemAlloc sym
     -- | The merger of two allocations.
   | AllocMerge (Pred sym) (MemAllocs sym) (MemAllocs sym)
 
--- | Memory allocations are represented as a list with the invariant
+-- | A record of which memory regions have been allocated or freed.
+
+-- Memory allocations are represented as a list with the invariant
 -- that any two adjacent 'Allocations' constructors must be merged
 -- together, and that no 'Allocations' constructor has an empty map.
 newtype MemAllocs sym = MemAllocs [MemAlloc sym]
