@@ -31,8 +31,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , AllocType(..)
   , Mutability(..)
   , AllocInfo(..)
-  , MemAlloc(..)
-  , MemAllocs(..)
+  , MemAllocs
   , memAllocs
   , memEndian
   , memAllocCount
@@ -60,12 +59,12 @@ module Lang.Crucible.LLVM.MemModel.Generic
 
   , SomeAlloc(..)
   , possibleAllocs
+  , possibleAllocInfo
   , ppSomeAlloc
 
     -- * Pretty printing
   , ppType
   , ppPtr
-  , ppAlloc
   , ppAllocs
   , ppMem
   , ppTermExpr
@@ -809,16 +808,6 @@ newtype ReadMem sym a = ReadMem { runReadMem :: IO a }
 
 --------------------------------------------------------------------------------
 
-sizeMemAlloc :: MemAlloc sym -> Int
-sizeMemAlloc =
-  \case
-    Allocations m -> Map.size m
-    MemFree{} -> 1
-    AllocMerge{} -> 1
-
-sizeMemAllocs :: MemAllocs sym -> Int
-sizeMemAllocs (MemAllocs allocs) = sum (map sizeMemAlloc allocs)
-
 memWritesSize :: MemWrites sym -> Int
 memWritesSize (MemWrites writes) = getSum $ foldMap
   (\case
@@ -829,17 +818,9 @@ memWritesSize (MemWrites writes) = getSum $ foldMap
 
 muxChanges :: IsExpr (SymExpr sym) => Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
 muxChanges c (left_allocs, lhs_writes) (rhs_allocs, rhs_writes) =
-  ( muxAllocs c left_allocs rhs_allocs
+  ( muxMemAllocs c left_allocs rhs_allocs
   , muxWrites c lhs_writes rhs_writes
   )
-
-muxAllocs :: IsExpr (SymExpr sym) => Pred sym -> MemAllocs sym -> MemAllocs sym -> MemAllocs sym
-muxAllocs _ (MemAllocs []) (MemAllocs []) = MemAllocs []
-muxAllocs c xs ys =
-  case asConstantPred c of
-    Just True -> xs
-    Just False -> ys
-    Nothing -> MemAllocs [AllocMerge c xs ys]
 
 muxWrites :: IsExpr (SymExpr sym) => Pred sym -> MemWrites sym -> MemWrites sym -> MemWrites sym
 muxWrites _ (MemWrites []) (MemWrites []) = MemWrites []
@@ -930,11 +911,11 @@ memAllocCount m = memStateAllocCount (m ^. memState)
 memWriteCount :: Mem sym -> Int
 memWriteCount m = memStateWriteCount (m ^. memState)
 
-memAddAlloc :: MemAlloc sym -> Mem sym -> Mem sym
-memAddAlloc x = memState %~ \case
-  EmptyMem ac wc (a, w) -> EmptyMem (ac+1) wc (MemAllocs [x] <> a, w)
-  StackFrame ac wc nm (a, w) s -> StackFrame (ac+1) wc nm (MemAllocs [x] <> a, w) s
-  BranchFrame ac wc (a, w) s -> BranchFrame (ac+1) wc (MemAllocs [x] <> a, w) s
+memAddAlloc :: (MemAllocs sym -> MemAllocs sym) -> Mem sym -> Mem sym
+memAddAlloc f = memState %~ \case
+  EmptyMem ac wc (a, w) -> EmptyMem (ac+1) wc (f a, w)
+  StackFrame ac wc nm (a, w) s -> StackFrame (ac+1) wc nm (f a, w) s
+  BranchFrame ac wc (a, w) s -> BranchFrame (ac+1) wc (f a, w) s
 
 memAddWrite ::
   (IsExprBuilder sym, 1 <= w) =>
@@ -964,50 +945,6 @@ memStateAddChanges (a, w) = \case
 
 --------------------------------------------------------------------------------
 -- Pointer validity
-
-
--- | Generalized function for checking whether a memory region ID is allocated.
-isAllocatedGeneric ::
-  forall sym.
-  (IsSymInterface sym) =>
-  sym ->
-  (AllocInfo sym -> IO (Pred sym)) ->
-  SymNat sym ->
-  MemAllocs sym ->
-  IO (Pred sym)
-isAllocatedGeneric sym inAlloc blk = go (pure (falsePred sym))
-  where
-    go :: IO (Pred sym) -> MemAllocs sym -> IO (Pred sym)
-    go fallback (MemAllocs []) = fallback
-    go fallback (MemAllocs (alloc : r)) =
-      case alloc of
-        Allocations am ->
-          case asNat blk of
-            Just b -> -- concrete block number, look up entry
-              case Map.lookup b am of
-                Nothing -> go fallback (MemAllocs r)
-                Just ba -> inAlloc ba
-            Nothing -> -- symbolic block number, need to check all entries
-              Map.foldrWithKey checkEntry (go fallback (MemAllocs r)) am
-              where
-                checkEntry a ba k =
-                  do sameBlock <- natEq sym blk =<< natLit sym a
-                     itePredM sym sameBlock (inAlloc ba) k
-        MemFree a _ ->
-          do sameBlock <- natEq sym blk a
-             case asConstantPred sameBlock of
-               Just True  -> return (falsePred sym)
-               Just False -> go fallback (MemAllocs r)
-               Nothing    ->
-                 do notSameBlock <- notPred sym sameBlock
-                    andPred sym notSameBlock =<< go fallback (MemAllocs r)
-        AllocMerge _ (MemAllocs []) (MemAllocs []) ->
-          go fallback (MemAllocs r)
-        AllocMerge c xr yr ->
-          do p <- go fallback (MemAllocs r) -- TODO: wrap this in a delay
-             px <- go (return p) xr
-             py <- go (return p) yr
-             itePred sym c px py
 
 -- | @isAllocatedMut isMut sym w p sz m@ returns the condition required to
 -- prove range @[p..p+sz)@ lies within a single allocation in @m@.
@@ -1179,26 +1116,13 @@ notAliasable ::
   IO (Pred sym)
 notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) mem =
   do p0 <- natEq sym blk1 blk2
-     p1 <- isMutable blk1 (memAllocs mem)
-     p2 <- isMutable blk2 (memAllocs mem)
+     p1 <- isAllocatedGeneric sym isMutable blk1 (memAllocs mem)
+     p2 <- isAllocatedGeneric sym isMutable blk2 (memAllocs mem)
      orPred sym p0 =<< orPred sym p1 p2
   where
-    isMutable _blk (MemAllocs []) = return (falsePred sym)
-    isMutable blk (MemAllocs (Allocations m : r)) =
-      Map.foldrWithKey checkEntry (isMutable blk (MemAllocs r)) m
-      where
-        checkEntry _ (AllocInfo _ _ Immutable _ _) k = k
-        checkEntry a (AllocInfo _ _ Mutable _ _) k =
-          do p1 <- natEq sym blk =<< natLit sym a
-             p2 <- k
-             orPred sym p1 p2
-    isMutable blk (MemAllocs (MemFree _ _ : r)) = isMutable blk (MemAllocs r)
-    isMutable blk (MemAllocs (AllocMerge c x y : r)) =
-      do px <- isMutable blk x
-         py <- isMutable blk y
-         p1 <- itePred sym c px py
-         p2 <- isMutable blk (MemAllocs r)
-         orPred sym p1 p2
+    isMutable :: AllocInfo sym -> IO (Pred sym)
+    isMutable (AllocInfo _ _ Mutable _ _) = pure (truePred sym)
+    isMutable (AllocInfo _ _ Immutable _ _) = pure (falsePred sym)
 
 --------------------------------------------------------------------------------
 -- Other memory operations
@@ -1397,7 +1321,8 @@ allocMem :: (1 <= w) =>
          -> String -- ^ Source location
          -> Mem sym
          -> Mem sym
-allocMem a b sz alignment mut loc = memAddAlloc (singleMemAlloc b (AllocInfo a sz mut alignment loc))
+allocMem a b sz alignment mut loc =
+  memAddAlloc (allocMemAllocs b (AllocInfo a sz mut alignment loc))
 
 -- | Allocate and initialize a new memory region.
 allocAndWriteMem ::
@@ -1444,18 +1369,6 @@ popStackFrameMem m = m & memState %~ popf
 
         popf EmptyMem{} = error "popStackFrameMem given unexpected memory"
 
-        notStackAlloc :: AllocInfo sym -> Bool
-        notStackAlloc (AllocInfo x _ _ _ _) = x /= StackAlloc
-
-        popMemAllocs :: MemAllocs sym -> MemAllocs sym
-        popMemAllocs (MemAllocs xs) = MemAllocs (mapMaybe popMemAlloc xs)
-
-        popMemAlloc :: MemAlloc sym -> Maybe (MemAlloc sym)
-        popMemAlloc (Allocations am) =
-          if Map.null am' then Nothing else Just (Allocations am')
-          where am' = Map.filter notStackAlloc am
-        popMemAlloc a@(MemFree _ _) = Just a
-        popMemAlloc (AllocMerge c x y) = Just (AllocMerge c (popMemAllocs x) (popMemAllocs y))
 
 -- | Free a heap-allocated block of memory.
 --
@@ -1476,7 +1389,7 @@ freeMem :: forall sym w .
 freeMem sym w (LLVMPointer blk off) m loc =
   do p1 <- bvEq sym off =<< bvLit sym w (BV.zero w)
      p2 <- isAllocatedGeneric sym isHeapMutable blk (memAllocs m)
-     return (memAddAlloc (MemFree blk loc) m, p1, p2)
+     return (memAddAlloc (freeMemAllocs blk loc) m, p1, p2)
   where
     isHeapMutable :: AllocInfo sym -> IO (Pred sym)
     isHeapMutable (AllocInfo HeapAlloc _ Mutable _ _) = pure (truePred sym)
@@ -1521,36 +1434,17 @@ ppSomeAlloc (SomeAlloc atp base sz mut alignment loc) =
   ppAllocInfo (base, AllocInfo atp sz mut alignment loc :: AllocInfo sym)
 
 -- | Find an overapproximation of the set of allocations with this number.
---
---   Ultimately, only one of these could have happened.
---
---   It may be possible to be more precise than this function currently is.
---   In particular, if we find an 'Alloc' with a matching block number before a
---   'AllocMerge', then we can (maybe?) just return that 'Alloc'. And if one
---   call of @helper@ on a 'MemAlloc' returns anything nonempty, that can just
---   be returned (?).
 possibleAllocs ::
   forall sym .
   (IsSymInterface sym) =>
   Natural              ->
   Mem sym              ->
   [SomeAlloc sym]
-possibleAllocs n = helper . unMemAllocs . memAllocs
-  where helper :: [MemAlloc sym] -> [SomeAlloc sym]
-        helper =
-          foldMap $
-            \case
-              MemFree _ _ -> []
-              Allocations m ->
-                case Map.lookup n m of
-                  Just (AllocInfo atp sz mut alignment loc) ->
-                    [SomeAlloc atp n sz mut alignment loc]
-                  Nothing -> []
-              AllocMerge (asConstantPred -> Just True) (MemAllocs as1) _as2 -> helper as1
-              AllocMerge (asConstantPred -> Just False) _as1 (MemAllocs as2) -> helper as2
-              AllocMerge _ (MemAllocs as1) (MemAllocs as2) -> helper as1 ++ helper as2
-        unMemAllocs :: MemAllocs sym -> [MemAlloc sym]
-        unMemAllocs (MemAllocs xs) = xs
+possibleAllocs n mem =
+  case possibleAllocInfo n (memAllocs mem) of
+    Nothing -> []
+    Just (AllocInfo atp sz mut alignment loc) ->
+      [SomeAlloc atp n sz mut alignment loc]
 
 -- | Check if @LLVMPtr sym w@ points inside an allocation that is backed
 --   by an SMT array store. If true, return a predicate that indicates

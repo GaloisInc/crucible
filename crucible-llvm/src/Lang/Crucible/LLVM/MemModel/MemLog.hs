@@ -31,9 +31,15 @@ module Lang.Crucible.LLVM.MemModel.MemLog
     AllocType(..)
   , Mutability(..)
   , AllocInfo(..)
-  , MemAlloc(..)
-  , MemAllocs(..)
-  , singleMemAlloc
+  , MemAllocs
+  , sizeMemAllocs
+  -- , singleMemAlloc
+  , allocMemAllocs
+  , freeMemAllocs
+  , muxMemAllocs
+  , popMemAllocs
+  , possibleAllocInfo
+  , isAllocatedGeneric
     -- * Write logs
   , WriteSource(..)
   , MemWrite(..)
@@ -53,7 +59,6 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , ppType
   , ppPtr
   , ppAllocInfo
-  , ppAlloc
   , ppAllocs
   , ppMem
   , ppWrite
@@ -64,6 +69,7 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , concMem
   ) where
 
+import           Control.Applicative ((<|>))
 import           Control.Lens
 import           Data.Foldable
 import           Data.IntMap (IntMap)
@@ -71,6 +77,7 @@ import qualified Data.IntMap as IntMap
 import qualified Data.List.Extra as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Maybe (mapMaybe)
 import           Data.Text (Text, unpack)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -125,12 +132,118 @@ instance Semigroup (MemAllocs sym) where
 instance Monoid (MemAllocs sym) where
   mempty = MemAllocs []
 
+
+sizeMemAlloc :: MemAlloc sym -> Int
+sizeMemAlloc =
+  \case
+    Allocations m -> Map.size m
+    MemFree{} -> 1
+    AllocMerge{} -> 1
+
+-- | Compute the size of a 'MemAllocs' log.
+sizeMemAllocs :: MemAllocs sym -> Int
+sizeMemAllocs (MemAllocs allocs) = sum (map sizeMemAlloc allocs)
+
 -- | Returns true if this consists of a empty collection of memory allocs.
 nullMemAllocs :: MemAllocs sym -> Bool
 nullMemAllocs (MemAllocs xs) = null xs
 
-singleMemAlloc :: Natural -> AllocInfo sym -> MemAlloc sym
-singleMemAlloc blk info = Allocations (Map.singleton blk info)
+-- | Allocate a new block with the given allocation ID.
+allocMemAllocs :: Natural -> AllocInfo sym -> MemAllocs sym -> MemAllocs sym
+allocMemAllocs blk info ma = MemAllocs [Allocations (Map.singleton blk info)] <> ma
+
+-- | Free the block with the given allocation ID.
+freeMemAllocs :: SymNat sym -> String {- ^ Location info for debugging -} -> MemAllocs sym -> MemAllocs sym
+freeMemAllocs blk loc (MemAllocs xs) = MemAllocs (MemFree blk loc : xs)
+
+muxMemAllocs :: IsExpr (SymExpr sym) => Pred sym -> MemAllocs sym -> MemAllocs sym -> MemAllocs sym
+muxMemAllocs _ (MemAllocs []) (MemAllocs []) = MemAllocs []
+muxMemAllocs c xs ys =
+  case asConstantPred c of
+    Just True -> xs
+    Just False -> ys
+    Nothing -> MemAllocs [AllocMerge c xs ys]
+
+-- | Purge all stack allocations from the allocation log.
+popMemAllocs :: forall sym. MemAllocs sym -> MemAllocs sym
+popMemAllocs (MemAllocs xs) = MemAllocs (mapMaybe popMemAlloc xs)
+  where
+    popMemAlloc :: MemAlloc sym -> Maybe (MemAlloc sym)
+    popMemAlloc (Allocations am) =
+      if Map.null am' then Nothing else Just (Allocations am')
+      where am' = Map.filter notStackAlloc am
+    popMemAlloc a@(MemFree _ _) = Just a
+    popMemAlloc (AllocMerge c x y) = Just (AllocMerge c (popMemAllocs x) (popMemAllocs y))
+
+    notStackAlloc :: AllocInfo sym -> Bool
+    notStackAlloc (AllocInfo x _ _ _ _) = x /= StackAlloc
+
+-- | Look up the 'AllocInfo' for the given allocation number. A 'Just'
+-- result indicates that the specified memory region may or may not
+-- still be allocated; 'Nothing' indicates that the memory region is
+-- definitely not allocated.
+possibleAllocInfo ::
+  forall sym.
+  IsExpr (SymExpr sym) =>
+  Natural ->
+  MemAllocs sym ->
+  Maybe (AllocInfo sym)
+possibleAllocInfo n (MemAllocs xs) = asum (map helper xs)
+  where
+    helper :: MemAlloc sym -> Maybe (AllocInfo sym)
+    helper =
+      \case
+        MemFree _ _ -> Nothing
+        Allocations m -> Map.lookup n m
+        AllocMerge cond ma1 ma2 ->
+          case asConstantPred cond of
+            Just True -> possibleAllocInfo n ma1
+            Just False -> possibleAllocInfo n ma2
+            Nothing -> possibleAllocInfo n ma1 <|> possibleAllocInfo n ma2
+
+
+-- | Generalized function for checking whether a memory region ID is allocated.
+isAllocatedGeneric ::
+  forall sym.
+  (IsExpr (SymExpr sym), IsExprBuilder sym) =>
+  sym ->
+  (AllocInfo sym -> IO (Pred sym)) ->
+  SymNat sym ->
+  MemAllocs sym ->
+  IO (Pred sym)
+isAllocatedGeneric sym inAlloc blk = go (pure (falsePred sym))
+  where
+    go :: IO (Pred sym) -> MemAllocs sym -> IO (Pred sym)
+    go fallback (MemAllocs []) = fallback
+    go fallback (MemAllocs (alloc : r)) =
+      case alloc of
+        Allocations am ->
+          case asNat blk of
+            Just b -> -- concrete block number, look up entry
+              case Map.lookup b am of
+                Nothing -> go fallback (MemAllocs r)
+                Just ba -> inAlloc ba
+            Nothing -> -- symbolic block number, need to check all entries
+              Map.foldrWithKey checkEntry (go fallback (MemAllocs r)) am
+              where
+                checkEntry a ba k =
+                  do sameBlock <- natEq sym blk =<< natLit sym a
+                     itePredM sym sameBlock (inAlloc ba) k
+        MemFree a _ ->
+          do sameBlock <- natEq sym blk a
+             case asConstantPred sameBlock of
+               Just True  -> return (falsePred sym)
+               Just False -> go fallback (MemAllocs r)
+               Nothing    ->
+                 do notSameBlock <- notPred sym sameBlock
+                    andPred sym notSameBlock =<< go fallback (MemAllocs r)
+        AllocMerge _ (MemAllocs []) (MemAllocs []) ->
+          go fallback (MemAllocs r)
+        AllocMerge c xr yr ->
+          do p <- go fallback (MemAllocs r) -- TODO: wrap this in a delay
+             px <- go (return p) xr
+             py <- go (return p) yr
+             itePred sym c px py
 
 --------------------------------------------------------------------------------
 -- Writes
