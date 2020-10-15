@@ -191,8 +191,7 @@ sawCreateVar :: SAWCoreBackend n solver fs
 sawCreateVar sym nm tp = do
   st <- readIORef (B.sbStateManager sym)
   let sc = saw_ctx st
-  i <- SC.scFreshGlobalVar sc
-  let ec = SC.EC i ("var_"++nm++"_"++show i) tp
+  ec <- SC.scFreshEC sc nm tp
   t <- SC.scFlatTermF sc (SC.ExtCns ec)
   modifyIORef (saw_inputs st) (\xs -> xs Seq.|> ec)
   return t
