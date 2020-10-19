@@ -36,6 +36,8 @@ module Lang.Crucible.Backend.Online
   , withSolverProcess
   , withSolverProcess'
   , resetSolverProcess
+  , resetSolverProcess'
+  , restoreSolverState
   , UnsatFeatures(..)
   , unsatFeaturesToProblemFeatures
     -- ** Configuration options
@@ -318,7 +320,17 @@ resetSolverProcess ::
   IO ()
 resetSolverProcess sym = do
   do st <- readIORef (B.sbStateManager sym)
-     mproc <- readIORef (solverProc st)
+     resetSolverProcess' st
+
+-- | Shutdown any currently-active solver process.
+--   A fresh solver process will be started on the
+--   next call to `getSolverProcess`.
+resetSolverProcess' ::
+  OnlineSolver solver =>
+  OnlineBackendState solver scope ->
+  IO ()
+resetSolverProcess' st = do
+  do mproc <- readIORef (solverProc st)
      case mproc of
        -- Nothing to do
        SolverNotStarted -> return ()
@@ -326,6 +338,31 @@ resetSolverProcess sym = do
          do _ <- shutdownSolverProcess p
             maybe (return ()) hClose auxh
             writeIORef (solverProc st) SolverNotStarted
+
+
+restoreSolverState ::
+  OnlineSolver solver =>
+  AS.LabeledGoalCollector (B.BoolExpr scope) AssumptionReason SimError ->
+  OnlineBackendState solver scope ->
+  IO ()
+restoreSolverState gc st =
+  do mproc <- readIORef (solverProc st)
+     case mproc of
+       -- Nothing to do, state will be restored next time we start the process
+       SolverNotStarted -> return ()
+
+       SolverStarted proc auxh ->
+         (do -- reset the solver state
+             reset proc
+             -- restore the assumption structure
+             restoreAssumptionFrames proc (PG.gcFrames gc))
+           `onException`
+          ((killSolver proc)
+             `finally`
+           (maybe (return ()) hClose auxh)
+             `finally`
+           (writeIORef (solverProc st) SolverNotStarted))
+
 
 -- | Get the solver process.
 --   Starts the solver, if that hasn't happened already.
@@ -542,24 +579,8 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackend scope solver fs) whe
 
   restoreAssumptionState sym gc =
     do st <- readIORef (B.sbStateManager sym)
-       mproc <- readIORef (solverProc st)
-       let stk = assumptionStack st
+       restoreSolverState  gc st
 
        -- restore the previous assumption stack
+       stk <- getAssumptionStack sym
        AS.restoreAssumptionStack gc stk
-
-       case mproc of
-         -- Nothing to do, state will be restored next time we start the process
-         SolverNotStarted -> return ()
-
-         SolverStarted proc auxh ->
-           (do -- reset the solver state
-               reset proc
-               -- restore the assumption structure
-               restoreAssumptionFrames proc (PG.gcFrames gc))
-             `onException`
-            ((killSolver proc)
-               `finally`
-             (maybe (return ()) hClose auxh)
-               `finally`
-             (writeIORef (solverProc st) SolverNotStarted))
