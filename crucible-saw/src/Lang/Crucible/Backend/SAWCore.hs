@@ -224,21 +224,24 @@ newSAWCoreBackend fm sc gen = do
   ch   <- B.newIdxCache
   ch_r <- newIORef Map.empty
   let feats = Yices.yicesDefaultFeatures
-  ob_st  <- initialOnlineBackendState gen feats
-  let st = SAWCoreState
+  ob_st0  <- initialOnlineBackendState gen feats
+  let st0 = SAWCoreState
               { saw_ctx = sc
               , saw_inputs = inpr
               , saw_symMap = Map.empty
               , saw_elt_cache = ch
               , saw_elt_cache_r = ch_r
-              , saw_online_state = ob_st
+              , saw_online_state = ob_st0
               }
-  sym <- B.newExprBuilder fm st gen
-  let options = backendOptions ++ onlineBackendOptions ++ Yices.yicesOptions
+  sym <- B.newExprBuilder fm st0 gen
+  let options = backendOptions ++ onlineBackendOptions ob_st0 ++ Yices.yicesOptions
   extendConfig options (getConfiguration sym)
+
+  enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
+  let st = st0{ saw_online_state = ob_st0{ onlineEnabled = getOpt enableOpt } }
+
   writeIORef (B.sbStateManager sym) st
   return sym
-
 
 -- | Register an interpretation for a symbolic function. This is not
 -- used during simulation, but rather, when we translate Crucible
@@ -656,7 +659,10 @@ considerSatisfiability ::
   B.BoolExpr n ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
-  withSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym $ \proc ->
+  withSolverProcess'
+    (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym
+    (pure IndeterminateBranchResult)
+    $ \proc ->
     do pnot <- notPred sym p
        let locDesc = case mbPloc of
              Just ploc -> show (plSourceLoc ploc)
@@ -1159,6 +1165,7 @@ evaluateExpr sym sc cache = f []
 withSolverProcess ::
   OnlineSolver solver =>
   SAWCoreBackend scope solver fs ->
+  IO a ->
   (SolverProcess scope solver -> IO a) ->
   IO a
 withSolverProcess = withSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym'))
@@ -1166,9 +1173,9 @@ withSolverProcess = withSolverProcess' (\sym' -> saw_online_state <$> readIORef 
 withSolverConn ::
   OnlineSolver solver =>
   SAWCoreBackend scope solver fs ->
-  (WriterConn scope solver -> IO a) ->
-  IO a
-withSolverConn sym k = withSolverProcess sym (k . solverConn)
+  (WriterConn scope solver -> IO ()) ->
+  IO ()
+withSolverConn sym k = withSolverProcess sym (pure ()) (k . solverConn)
 
 
 getAssumptionStack ::
@@ -1191,24 +1198,24 @@ instance OnlineSolver solver => IsBoolSolver (SAWCoreBackend n solver fs) where
          _ -> -- Send assertion to the solver, unless it is trivial.
               -- NB, don't add the assumption to the assumption stack unless
               -- the solver assumptions succeeded
-              withSolverConn sym $ \conn ->
-               do case cond of
-                    Just True -> return ()
-                    _ -> SMT.assume conn (a^.labeledPred)
+              do withSolverConn sym $ \conn ->
+                   case cond of
+                     Just True -> return ()
+                     _ -> SMT.assume conn (a^.labeledPred)
 
-                  -- Record assumption, even if trivial.
-                  -- This allows us to keep track of the full path we are on.
-                  AS.assume a =<< getAssumptionStack sym
+                 -- Record assumption, even if trivial.
+                 -- This allows us to keep track of the full path we are on.
+                 AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym a =
     -- NB, don't add the assumption to the assumption stack unless
     -- the solver assumptions succeeded
-    withSolverConn sym $ \conn ->
-      do -- Tell the solver of assertions
+    do withSolverConn sym $ \conn ->
+         -- Tell the solver of assertions
          mapM_ (SMT.assume conn . view labeledPred) (toList a)
-         -- Add assertions to list
-         stk <- getAssumptionStack sym
-         AS.appendAssumptions a stk
+       -- Add assertions to list
+       stk <- getAssumptionStack sym
+       AS.appendAssumptions a stk
 
   getPathCondition sym =
     do stk <- getAssumptionStack sym
@@ -1219,28 +1226,27 @@ instance OnlineSolver solver => IsBoolSolver (SAWCoreBackend n solver fs) where
     AS.collectAssumptions =<< getAssumptionStack sym
 
   pushAssumptionFrame sym =
-    -- NB, don't push a frame in the assumption stack unless
-    -- pushing to the solver succeeded
-    withSolverProcess sym $ \proc ->
-      do push proc
-         AS.pushFrame =<< getAssumptionStack sym
+    do -- NB, don't push a frame in the assumption stack unless
+       -- pushing to the solver succeeded
+       withSolverProcess sym (pure ()) push
+       AS.pushFrame =<< getAssumptionStack sym
 
   popAssumptionFrame sym ident =
     -- NB, pop the frame whether or not the solver pop succeeds
     do frm <- AS.popFrame ident =<< getAssumptionStack sym
-       withSolverProcess sym pop
+       withSolverProcess sym (pure ()) pop
        return frm
 
   popUntilAssumptionFrame sym ident =
     -- NB, pop the frames whether or not the solver pop succeeds
     do n <- AS.popFramesUntil ident =<< getAssumptionStack sym
-       withSolverProcess sym $ \proc ->
+       withSolverProcess sym (pure ()) $ \proc ->
          forM_ [0..(n-1)] $ \_ -> pop proc
 
   popAssumptionFrameAndObligations sym ident = do
     -- NB, pop the frames whether or not the solver pop succeeds
     do frmAndGls <- AS.popFrameAndGoals ident =<< getAssumptionStack sym
-       withSolverProcess sym pop
+       withSolverProcess sym (pure ()) pop
        return frmAndGls
 
   getProofObligations sym =

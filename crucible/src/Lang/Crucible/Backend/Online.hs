@@ -42,6 +42,7 @@ module Lang.Crucible.Backend.Online
   , unsatFeaturesToProblemFeatures
     -- ** Configuration options
   , solverInteractionFile
+  , enableOnlineBackend
   , onlineBackendOptions
     -- ** Branch satisfiability
   , BranchResult(..)
@@ -89,6 +90,7 @@ import qualified Data.Text as Text
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Config
+import           What4.Concrete
 import qualified What4.Expr.Builder as B
 import           What4.Interface
 import           What4.ProblemFeatures
@@ -126,23 +128,35 @@ unsatFeaturesToProblemFeatures x =
 solverInteractionFile :: ConfigOption (BaseStringType Unicode)
 solverInteractionFile = configOption knownRepr "solverInteractionFile"
 
-onlineBackendOptions :: [ConfigDesc]
-onlineBackendOptions =
+-- | Option for enabling online solver interactions.  Defaults to true.
+--   If disabled, operations requiring solver connections will be skipped.
+enableOnlineBackend :: ConfigOption BaseBoolType
+enableOnlineBackend = configOption knownRepr "enableOnlineBackend"
+
+onlineBackendOptions :: OnlineSolver solver => OnlineBackendState solver scope -> [ConfigDesc]
+onlineBackendOptions st =
   [ mkOpt
       solverInteractionFile
       stringOptSty
       (Just (PP.text "File to echo solver commands and responses for debugging purposes"))
       Nothing
+  , let enableOnset _ (ConcreteBool val) =
+          do when (not val) (resetSolverProcess' st)
+             return optOK
+     in mkOpt
+          enableOnlineBackend
+          boolOptSty{ opt_onset = enableOnset }
+          (Just (PP.text "Enable online solver communications"))
+          (Just (ConcreteBool True))
   ]
-
 
 -- | Get the connection for sending commands to the solver.
 withSolverConn ::
   OnlineSolver solver =>
   OnlineBackend scope solver fs ->
-  (WriterConn scope solver -> IO a) ->
-  IO a
-withSolverConn sym k = withSolverProcess sym (k . solverConn)
+  (WriterConn scope solver -> IO ()) ->
+  IO ()
+withSolverConn sym k = withSolverProcess sym (pure ()) (k . solverConn)
 
 --------------------------------------------------------------------------------
 type OnlineBackend scope solver fs =
@@ -288,6 +302,9 @@ data OnlineBackendState solver scope = OnlineBackendState
   , solverProc :: !(IORef (SolverState scope solver))
     -- ^ The solver process, if any.
   , currentFeatures :: !(IORef ProblemFeatures)
+
+  , onlineEnabled :: IO Bool
+    -- ^ action for checking if online features are currently enabled
   }
 
 -- | Returns an initial execution state.
@@ -303,6 +320,7 @@ initialOnlineBackendState gen feats =
                  { assumptionStack = stk
                  , solverProc = procref
                  , currentFeatures = featref
+                 , onlineEnabled = fail "OnlineBackend: onlineEnabled queried too early"
                  }
 
 getAssumptionStack ::
@@ -364,56 +382,67 @@ restoreSolverState gc st =
            (writeIORef (solverProc st) SolverNotStarted))
 
 
--- | Get the solver process.
---   Starts the solver, if that hasn't happened already.
+-- | Get the solver process. Starts the solver, if that hasn't
+--   happened already and apply the given action.
+--   If the @enableOnlineBackend@ option is False, the action
+--   is skipped instead, and the solver is not started.
 withSolverProcess' ::
   OnlineSolver solver =>
   (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver scope)) ->
   B.ExprBuilder scope s fs ->
+  IO a {- ^ Default value to return if online features are disabled -} ->
   (SolverProcess scope solver -> IO a) ->
   IO a
-withSolverProcess' getSolver sym action = do
+withSolverProcess' getSolver sym def action = do
   st <- getSolver sym
-  let stk = assumptionStack st
-  mproc <- readIORef (solverProc st)
-  auxOutSetting <- getOptionSetting solverInteractionFile (getConfiguration sym)
-  (p, auxh) <-
-       case mproc of
-         SolverStarted p auxh -> return (p, auxh)
-         SolverNotStarted ->
-           do feats <- readIORef (currentFeatures st)
-              auxh <-
-                getMaybeOpt auxOutSetting >>= \case
-                  Nothing -> return Nothing
-                  Just fn
-                    | Text.null fn -> return Nothing
-                    | otherwise    -> Just <$> openFile (Text.unpack fn) WriteMode
-              p <- startSolverProcess feats auxh sym
-              -- set up the solver in the same assumption state as specified
-              -- by the current assumption stack
-              (do frms <- AS.allAssumptionFrames stk
-                  restoreAssumptionFrames p frms
-                ) `onException`
-                (killSolver p `finally` maybe (return ()) hClose auxh)
-              writeIORef (solverProc st) (SolverStarted p auxh)
-              return (p, auxh)
+  onlineEnabled st >>= \case
+    False -> def
+    True ->
+     do let stk = assumptionStack st
+        mproc <- readIORef (solverProc st)
+        auxOutSetting <- getOptionSetting solverInteractionFile (getConfiguration sym)
+        (p, auxh) <-
+             case mproc of
+               SolverStarted p auxh -> return (p, auxh)
+               SolverNotStarted ->
+                 do feats <- readIORef (currentFeatures st)
+                    auxh <-
+                      getMaybeOpt auxOutSetting >>= \case
+                        Nothing -> return Nothing
+                        Just fn
+                          | Text.null fn -> return Nothing
+                          | otherwise    -> Just <$> openFile (Text.unpack fn) WriteMode
+                    p <- startSolverProcess feats auxh sym
+                    -- set up the solver in the same assumption state as specified
+                    -- by the current assumption stack
+                    (do frms <- AS.allAssumptionFrames stk
+                        restoreAssumptionFrames p frms
+                      ) `onException`
+                      (killSolver p `finally` maybe (return ()) hClose auxh)
+                    writeIORef (solverProc st) (SolverStarted p auxh)
+                    return (p, auxh)
 
-  case solverErrorBehavior p of
-    ContinueOnError ->
-      action p
-    ImmediateExit ->
-      onException
-        (action p)
-        ((killSolver p)
-          `finally`
-         (maybe (return ()) hClose auxh)
-          `finally`
-         (writeIORef (solverProc st) SolverNotStarted))
+        case solverErrorBehavior p of
+          ContinueOnError ->
+            action p
+          ImmediateExit ->
+            onException
+              (action p)
+              ((killSolver p)
+                `finally`
+               (maybe (return ()) hClose auxh)
+                `finally`
+               (writeIORef (solverProc st) SolverNotStarted))
 
 -- | Get the solver process, specialized to @OnlineBackend@.
+--   Starts the solver, if that hasn't
+--   happened already and apply the given action.
+--   If the @enableOnlineBackend@ option is False, the action
+--   is skipped instead, and the solver is not started.
 withSolverProcess ::
   OnlineSolver solver =>
   OnlineBackend scope solver fs ->
+  IO a {- ^ Default value to return if online features are disabled -} ->
   (SolverProcess scope solver -> IO a) ->
   IO a
 withSolverProcess = withSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
@@ -456,7 +485,7 @@ considerSatisfiability ::
   B.BoolExpr scope ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
-  withSolverProcess sym $ \proc ->
+  withSolverProcess sym (pure IndeterminateBranchResult) $ \proc ->
    do pnot <- notPred sym p
       let locDesc = case mbPloc of
             Just ploc -> show (plSourceLoc ploc)
@@ -483,11 +512,15 @@ withOnlineBackend ::
   (OnlineBackend scope solver (B.Flags fm) -> m a) ->
   m a
 withOnlineBackend floatMode gen feats action = do
-  st  <- liftIO $ initialOnlineBackendState gen feats
-  sym <- liftIO $ B.newExprBuilder floatMode st gen
+  st0  <- liftIO $ initialOnlineBackendState gen feats
+  sym <- liftIO $ B.newExprBuilder floatMode st0 gen
   liftIO $ extendConfig
-    (backendOptions ++ onlineBackendOptions)
+    (backendOptions ++ onlineBackendOptions st0)
     (getConfiguration sym)
+
+  enableOpt <- liftIO $ getOptionSetting enableOnlineBackend (getConfiguration sym)
+  let st = st0{ onlineEnabled = getOpt enableOpt }
+
   liftIO $ writeIORef (B.sbStateManager sym) st
 
   action sym
@@ -513,24 +546,24 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackend scope solver fs) whe
          _ -> -- Send assertion to the solver, unless it is trivial.
               -- NB, don't add the assumption to the assumption stack unless
               -- the solver assumptions succeeded
-              withSolverConn sym $ \conn ->
-               do case cond of
-                    Just True -> return ()
-                    _ -> SMT.assume conn (a^.labeledPred)
+              do withSolverConn sym $ \conn ->
+                   case cond of
+                     Just True -> return ()
+                     _ -> SMT.assume conn (a^.labeledPred)
 
-                  -- Record assumption, even if trivial.
-                  -- This allows us to keep track of the full path we are on.
-                  AS.assume a =<< getAssumptionStack sym
+                 -- Record assumption, even if trivial.
+                 -- This allows us to keep track of the full path we are on.
+                 AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym a =
     -- NB, don't add the assumption to the assumption stack unless
     -- the solver assumptions succeeded
-    withSolverConn sym $ \conn ->
-      do -- Tell the solver of assertions
-         mapM_ (SMT.assume conn . view labeledPred) (toList a)
-         -- Add assertions to list
-         stk <- getAssumptionStack sym
-         appendAssumptions a stk
+    do withSolverConn sym $ \conn ->
+          -- Tell the solver of assertions
+          mapM_ (SMT.assume conn . view labeledPred) (toList a)
+       -- Add assertions to list
+       stk <- getAssumptionStack sym
+       appendAssumptions a stk
 
   getPathCondition sym =
     do stk <- getAssumptionStack sym
@@ -543,26 +576,25 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackend scope solver fs) whe
   pushAssumptionFrame sym =
     -- NB, don't push a frame in the assumption stack unless
     -- pushing to the solver succeeded
-    withSolverProcess sym $ \proc ->
-      do push proc
-         pushFrame =<< getAssumptionStack sym
+    do withSolverProcess sym (pure ()) push
+       pushFrame =<< getAssumptionStack sym
 
   popAssumptionFrame sym ident =
     -- NB, pop the frame whether or not the solver pop succeeds
     do frm <- popFrame ident =<< getAssumptionStack sym
-       withSolverProcess sym pop
+       withSolverProcess sym (pure ()) pop
        return frm
 
   popUntilAssumptionFrame sym ident =
     -- NB, pop the frames whether or not the solver pop succeeds
     do n <- AS.popFramesUntil ident =<< getAssumptionStack sym
-       withSolverProcess sym $ \proc ->
+       withSolverProcess sym (pure ()) $ \proc ->
          forM_ [0..(n-1)] $ \_ -> pop proc
 
   popAssumptionFrameAndObligations sym ident = do
     -- NB, pop the frames whether or not the solver pop succeeds
     do frmAndGls <- popFrameAndGoals ident =<< getAssumptionStack sym
-       withSolverProcess sym pop
+       withSolverProcess sym (pure ()) pop
        return frmAndGls
 
   getProofObligations sym =
@@ -579,7 +611,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackend scope solver fs) whe
 
   restoreAssumptionState sym gc =
     do st <- readIORef (B.sbStateManager sym)
-       restoreSolverState  gc st
+       restoreSolverState gc st
 
        -- restore the previous assumption stack
        stk <- getAssumptionStack sym
