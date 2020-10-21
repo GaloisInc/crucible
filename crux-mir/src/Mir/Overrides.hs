@@ -144,7 +144,9 @@ concretize ::
 concretize (Just SomeOnlineSolver) = do
     (sym :: sym) <- getSymInterface
 
-    GroundEvalFn evalGround <- liftIO $ withSolverProcess sym $ \sp -> do
+    let onlineDisabled = fail "`concretize` requires online solving to be enabled"
+
+    GroundEvalFn evalGround <- liftIO $ withSolverProcess sym onlineDisabled $ \sp -> do
         cond <- getPathCondition sym
         result <- checkWithAssumptionsAndModel sp "concretize" [cond]
         case result of
