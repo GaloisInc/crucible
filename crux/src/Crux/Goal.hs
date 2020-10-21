@@ -41,6 +41,7 @@ import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
+import Lang.Crucible.Panic (panic)
 
 import Crux.Types
 import Crux.Model
@@ -357,7 +358,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
      _ <- setOpt enableOpt True
 
-     res <- withSolverProcess sym (fail "Online solving not enabled!") $ \sp ->
+     res <- withSolverProcess sym (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
               inNewFrame sp (go (start,end) sp goalNum gs0 nameMap)
      nms <- readIORef goalNum
      finish
