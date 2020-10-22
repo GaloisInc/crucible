@@ -28,6 +28,7 @@ import           Control.Monad
 import qualified Data.BitVector.Sized as BV
 import           Data.IORef
 import           Data.List (elemIndex)
+import           Data.Foldable (toList)
 import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map ( Map )
 import qualified Data.Map as Map
@@ -52,6 +53,7 @@ import qualified What4.Expr.BoolMap as BM
 import qualified What4.Expr.WeightedSum as WSum
 import           What4.ProgramLoc
 import           What4.Protocol.Online
+import           What4.Protocol.SMTWriter as SMT
 import           What4.SatResult
 import qualified What4.SemiRing as B
 import qualified What4.Solver.Yices as Yices
@@ -59,7 +61,7 @@ import           What4.Symbol
 
 import           Lang.Crucible.Panic(panic)
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Backend.Online
+import           Lang.Crucible.Backend.Online hiding (withSolverProcess)
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
 
@@ -145,6 +147,7 @@ getInputs sym =
      readIORef (saw_inputs st)
 
 baseSCType ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   BaseTypeRepr tp ->
@@ -221,21 +224,24 @@ newSAWCoreBackend fm sc gen = do
   ch   <- B.newIdxCache
   ch_r <- newIORef Map.empty
   let feats = Yices.yicesDefaultFeatures
-  ob_st  <- initialOnlineBackendState gen feats
-  let st = SAWCoreState
+  ob_st0  <- initialOnlineBackendState gen feats
+  let st0 = SAWCoreState
               { saw_ctx = sc
               , saw_inputs = inpr
               , saw_symMap = Map.empty
               , saw_elt_cache = ch
               , saw_elt_cache_r = ch_r
-              , saw_online_state = ob_st
+              , saw_online_state = ob_st0
               }
-  sym <- B.newExprBuilder fm st gen
-  let options = backendOptions ++ onlineBackendOptions ++ Yices.yicesOptions
+  sym <- B.newExprBuilder fm st0 gen
+  let options = backendOptions ++ onlineBackendOptions ob_st0 ++ Yices.yicesOptions
   extendConfig options (getConfiguration sym)
+
+  enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
+  let st = st0{ saw_online_state = ob_st0{ onlineEnabled = getOpt enableOpt } }
+
   writeIORef (B.sbStateManager sym) st
   return sym
-
 
 -- | Register an interpretation for a symbolic function. This is not
 -- used during simulation, but rather, when we translate Crucible
@@ -256,7 +262,8 @@ sawBackendSharedContext sym =
   saw_ctx <$> readIORef (B.sbStateManager sym)
 
 
-toSC :: SAWCoreBackend n solver fs -> B.Expr n tp -> IO SC.Term
+toSC :: OnlineSolver solver =>
+  SAWCoreBackend n solver fs -> B.Expr n tp -> IO SC.Term
 toSC sym elt =
   do st <- readIORef $ B.sbStateManager sym
      evaluateExpr sym (saw_ctx st) (saw_elt_cache st) elt
@@ -264,6 +271,7 @@ toSC sym elt =
 
 -- | Return a shared term with type nat from a SAWExpr.
 scAsIntExpr ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
@@ -277,6 +285,7 @@ scAsIntExpr sym _ SAWExpr{} = unsupported sym
 --
 -- This fails on non-integer expressions.
 scRealLit ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   Rational ->
@@ -306,6 +315,7 @@ scBvLit sc w bv = SAWExpr <$> SC.scBvConst sc (natValue w) (BV.asUnsigned bv)
 
 
 scRealCmpop ::
+  OnlineSolver solver =>
   (SC.SharedContext -> SAWExpr BaseIntegerType -> SAWExpr BaseIntegerType -> IO (SAWExpr BaseBoolType)) ->
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
@@ -318,6 +328,7 @@ scRealCmpop _ sym _ _ _ =
   unsupported sym "SAW backend does not support real values"
 
 scRealBinop ::
+  OnlineSolver solver =>
   (SC.SharedContext -> SAWExpr BaseIntegerType -> SAWExpr BaseIntegerType -> IO (SAWExpr BaseIntegerType)) ->
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
@@ -365,6 +376,7 @@ scIntCmpop _natOp intOp sc (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> intOp sc x y
 
 scAddReal ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
@@ -386,6 +398,7 @@ scAddNat sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scAddNat sc x y
 
 
 scMulReal ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
@@ -393,7 +406,7 @@ scMulReal ::
   IO (SAWExpr BaseRealType)
 scMulReal = scRealBinop scMulInt
 
-scMulInt :: SC.SharedContext
+scMulInt ::    SC.SharedContext
             -> SAWExpr BaseIntegerType
             -> SAWExpr BaseIntegerType
             -> IO (SAWExpr BaseIntegerType)
@@ -406,6 +419,7 @@ scMulNat :: SC.SharedContext
 scMulNat sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scMulNat sc x y
 
 scIteReal ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SC.Term ->
@@ -433,6 +447,7 @@ scIteNat sc p (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> (SC.scNatType sc >>= \tp -> SC.scIte sc tp p x y)
 
 scIte ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   BaseTypeRepr tp ->
@@ -453,6 +468,7 @@ scIte sym sc tp (SAWExpr p) x y =
 
 
 scRealEq ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
@@ -480,6 +496,7 @@ scBoolEq ::
 scBoolEq sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scBoolEq sc x y
 
 scEq ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   BaseTypeRepr tp ->
@@ -501,6 +518,7 @@ scEq sym sc tp x y =
 
 
 scAllEq ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   Ctx.Assignment BaseTypeRepr ctx ->
@@ -516,6 +534,7 @@ scAllEq sym sc (ctx Ctx.:> tp) (xs Ctx.:> x) (ys Ctx.:> y)
        SAWExpr <$> SC.scAnd sc p q
 
 scRealLe, scRealLt ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
@@ -594,6 +613,7 @@ scBvXor sc w (SAWExpr x) (SAWExpr y) =
      SAWExpr <$> SC.scBvXor sc n x y
 
 termOfSAWExpr ::
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   SAWExpr tp -> IO SC.Term
@@ -606,6 +626,7 @@ termOfSAWExpr sym sc expr =
 
 applyExprSymFn ::
   forall n solver fs args ret.
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   B.ExprSymFn n (B.Expr n) args ret ->
@@ -638,7 +659,10 @@ considerSatisfiability ::
   B.BoolExpr n ->
   IO BranchResult
 considerSatisfiability sym mbPloc p =
-  withSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym $ \proc ->
+  withSolverProcess'
+    (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym
+    (pure IndeterminateBranchResult)
+    $ \proc ->
     do pnot <- notPred sym p
        let locDesc = case mbPloc of
              Just ploc -> show (plSourceLoc ploc)
@@ -658,10 +682,11 @@ obligation to ensure that we won't get there.
 These proof obligations are all tagged with "Unsupported", so that
 users of the library can choose if they will try to discharge them,
 fail in some other way, or just ignore them. -}
-unsupported :: SAWCoreBackend n solver fs -> String -> IO a
+unsupported :: OnlineSolver solver => SAWCoreBackend n solver fs -> String -> IO a
 unsupported sym x = addFailedAssertion sym (Unsupported x)
 
 evaluateExpr :: forall n solver tp fs.
+  OnlineSolver solver =>
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   B.IdxCache n SAWExpr ->
@@ -1137,6 +1162,21 @@ evaluateExpr sym sc cache = f []
             B.OrderedSemiRingNatRepr     -> join (scNatLt sc <$> eval env ye <*> eval env xe)
         _ -> SAWExpr <$> (SC.scNot sc =<< f env expr)
 
+withSolverProcess ::
+  OnlineSolver solver =>
+  SAWCoreBackend scope solver fs ->
+  IO a ->
+  (SolverProcess scope solver -> IO a) ->
+  IO a
+withSolverProcess = withSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym'))
+
+withSolverConn ::
+  OnlineSolver solver =>
+  SAWCoreBackend scope solver fs ->
+  (WriterConn scope solver -> IO ()) ->
+  IO ()
+withSolverConn sym k = withSolverProcess sym (pure ()) (k . solverConn)
+
 
 getAssumptionStack ::
   SAWCoreBackend s solver fs ->
@@ -1144,56 +1184,87 @@ getAssumptionStack ::
 getAssumptionStack sym =
   (assumptionStack . saw_online_state) <$> readIORef (B.sbStateManager sym)
 
-instance IsBoolSolver (SAWCoreBackend n solver fs) where
+
+-- TODO! we should find a better way to share implementations with `OnlineBackend`
+instance OnlineSolver solver => IsBoolSolver (SAWCoreBackend n solver fs) where
 
   addDurableProofObligation sym a =
      AS.addProofObligation a =<< getAssumptionStack sym
 
-  addAssumption sym a = do
-    case asConstantPred (a^.labeledPred) of
-      Just False -> abortExecBecause (AssumedFalse (a ^. labeledPredMsg))
-      _ -> AS.assume a =<< getAssumptionStack sym
+  addAssumption sym a =
+    let cond = asConstantPred (a^.labeledPred)
+    in case cond of
+         Just False -> abortExecBecause (AssumedFalse (a^.labeledPredMsg))
+         _ -> -- Send assertion to the solver, unless it is trivial.
+              -- NB, don't add the assumption to the assumption stack unless
+              -- the solver assumptions succeeded
+              do withSolverConn sym $ \conn ->
+                   case cond of
+                     Just True -> return ()
+                     _ -> SMT.assume conn (a^.labeledPred)
 
-  addAssumptions sym ps = do
-    stk <- getAssumptionStack sym
-    AS.appendAssumptions ps stk
+                 -- Record assumption, even if trivial.
+                 -- This allows us to keep track of the full path we are on.
+                 AS.assume a =<< getAssumptionStack sym
 
-  getPathCondition sym = do
-    stk <- getAssumptionStack sym
-    ps <- AS.collectAssumptions stk
-    andAllOf sym (folded.labeledPred) ps
+  addAssumptions sym a =
+    -- NB, don't add the assumption to the assumption stack unless
+    -- the solver assumptions succeeded
+    do withSolverConn sym $ \conn ->
+         -- Tell the solver of assertions
+         mapM_ (SMT.assume conn . view labeledPred) (toList a)
+       -- Add assertions to list
+       stk <- getAssumptionStack sym
+       AS.appendAssumptions a stk
+
+  getPathCondition sym =
+    do stk <- getAssumptionStack sym
+       ps <- AS.collectAssumptions stk
+       andAllOf sym (folded.labeledPred) ps
 
   collectAssumptions sym =
     AS.collectAssumptions =<< getAssumptionStack sym
 
-  getProofObligations sym = do
-    stk <- getAssumptionStack sym
-    AS.getProofObligations stk
+  pushAssumptionFrame sym =
+    do -- NB, don't push a frame in the assumption stack unless
+       -- pushing to the solver succeeded
+       withSolverProcess sym (pure ()) push
+       AS.pushFrame =<< getAssumptionStack sym
 
-  clearProofObligations sym = do
-    stk <- getAssumptionStack sym
-    AS.clearProofObligations stk
+  popAssumptionFrame sym ident =
+    -- NB, pop the frame whether or not the solver pop succeeds
+    do frm <- AS.popFrame ident =<< getAssumptionStack sym
+       withSolverProcess sym (pure ()) pop
+       return frm
 
-  pushAssumptionFrame sym = do
-    stk <- getAssumptionStack sym
-    AS.pushFrame stk
-
-  popAssumptionFrame sym ident = do
-    stk <- getAssumptionStack sym
-    AS.popFrame ident stk
+  popUntilAssumptionFrame sym ident =
+    -- NB, pop the frames whether or not the solver pop succeeds
+    do n <- AS.popFramesUntil ident =<< getAssumptionStack sym
+       withSolverProcess sym (pure ()) $ \proc ->
+         forM_ [0..(n-1)] $ \_ -> pop proc
 
   popAssumptionFrameAndObligations sym ident = do
-    stk <- getAssumptionStack sym
-    AS.popFrameAndGoals ident stk
+    -- NB, pop the frames whether or not the solver pop succeeds
+    do frmAndGls <- AS.popFrameAndGoals ident =<< getAssumptionStack sym
+       withSolverProcess sym (pure ()) pop
+       return frmAndGls
 
-  popUntilAssumptionFrame sym ident = do
-    stk <- getAssumptionStack sym
-    void $ AS.popFramesUntil ident stk
+  getProofObligations sym =
+    do stk <- getAssumptionStack sym
+       AS.getProofObligations stk
 
-  saveAssumptionState sym = do
-    stk <- getAssumptionStack sym
-    AS.saveAssumptionStack stk
+  clearProofObligations sym =
+    do stk <- getAssumptionStack sym
+       AS.clearProofObligations stk
 
-  restoreAssumptionState sym newstk = do
-    stk <- getAssumptionStack sym
-    AS.restoreAssumptionStack newstk stk
+  saveAssumptionState sym =
+    do stk <- getAssumptionStack sym
+       AS.saveAssumptionStack stk
+
+  restoreAssumptionState sym gc =
+    do st <- saw_online_state <$> readIORef (B.sbStateManager sym)
+       restoreSolverState gc st
+
+       -- restore the previous assumption stack
+       stk <- getAssumptionStack sym
+       AS.restoreAssumptionStack gc stk

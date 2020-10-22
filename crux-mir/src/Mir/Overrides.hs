@@ -45,6 +45,7 @@ import Data.Parameterized.Some
 import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
 
+import What4.Config( getOpt, setOpt, getOptionSetting )
 import qualified What4.Expr.ArrayUpdateMap as AUM
 import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..), GroundArray(..))
 import What4.FunctionName (FunctionName, functionNameFromText)
@@ -66,6 +67,7 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.FunctionHandle (RefCell, freshRefCell, refType)
+import Lang.Crucible.Panic
 import Lang.Crucible.Simulator (SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState
@@ -75,6 +77,7 @@ import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Types
 import Lang.Crucible.Utils.MuxTree
+
 
 import Crux (SomeOnlineSolver(..))
 import Crux.Model (addVar, evalModel)
@@ -144,7 +147,15 @@ concretize ::
 concretize (Just SomeOnlineSolver) = do
     (sym :: sym) <- getSymInterface
 
-    GroundEvalFn evalGround <- liftIO $ withSolverProcess sym $ \sp -> do
+    -- remember if online solving was enabled
+    enabledOpt <- liftIO $ getOptionSetting enableOnlineBackend (getConfiguration sym)
+    wasEnabled <- liftIO $ getOpt enabledOpt
+
+    -- enable online solving to concretize
+    _ <- liftIO $ setOpt enabledOpt True
+
+    let onlineDisabled = panic "concretize" ["requires online solving to be enabled"]
+    GroundEvalFn evalGround <- liftIO $ withSolverProcess sym onlineDisabled $ \sp -> do
         cond <- getPathCondition sym
         result <- checkWithAssumptionsAndModel sp "concretize" [cond]
         case result of
@@ -155,7 +166,13 @@ concretize (Just SomeOnlineSolver) = do
         evalBase btr v = evalGround v >>= groundExpr sym btr
 
     RegMap (Empty :> RegEntry tpr val) <- getOverrideArgs
-    regEval sym (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
+    x <- regEval sym (\btpr exp -> liftIO $ evalBase btpr exp) tpr val
+
+    -- restore the previous setting of the online backend
+    _ <- liftIO $ setOpt enabledOpt wasEnabled
+
+    return x
+
 concretize Nothing = fail "`concretize` requires an online solver backend"
 
 groundExpr :: (IsExprBuilder sym, IsBoolSolver sym) => sym ->

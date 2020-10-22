@@ -391,7 +391,10 @@ setupExecutionFeatures cruxOpts sym maybeOnline = do
 
   -- Check path satisfiability
   psat_fs <- case maybeOnline of
-    Just SomeOnlineSolver -> execFeatureIf (checkPathSat cruxOpts)
+    Just SomeOnlineSolver ->
+      do enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
+         _ <- setOpt enableOpt (checkPathSat cruxOpts)
+         execFeatureIf (checkPathSat cruxOpts)
            $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
     Nothing -> return []
 

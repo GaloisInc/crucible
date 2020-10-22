@@ -24,7 +24,8 @@ import           System.Exit (ExitCode(ExitSuccess))
 import qualified System.Timeout as ST
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import What4.Interface (notPred, printSymExpr,asConstantPred)
+import What4.Interface (notPred, printSymExpr,asConstantPred,getConfiguration)
+import What4.Config (setOpt, getOptionSetting)
 import qualified What4.Interface as WI
 import What4.SatResult(SatResult(..))
 import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr)
@@ -35,11 +36,12 @@ import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-        ( OnlineBackendState, withSolverProcess )
+        ( OnlineBackendState, withSolverProcess, enableOnlineBackend )
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
+import Lang.Crucible.Panic (panic)
 
 import Crux.Types
 import Crux.Model
@@ -306,7 +308,7 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
         Nothing -> do
           mapM_ kill as
           return $ Right $ NotProved (text "(Timeout)") Nothing
-         
+
     withTimeout action
       | Just seconds <- mtimeoutSeconds = ST.timeout (round seconds * 1000000) action
       | otherwise = Just <$> action
@@ -351,7 +353,12 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
          return (\_ -> return (), return (), return ())
        else
          prepStatus "Checking: " (countGoals gs0)
-     res <- withSolverProcess sym $ \sp ->
+
+     -- make sure online features are enabled
+     enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
+     _ <- setOpt enableOpt True
+
+     res <- withSolverProcess sym (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
               inNewFrame sp (go (start,end) sp goalNum gs0 nameMap)
      nms <- readIORef goalNum
      finish
