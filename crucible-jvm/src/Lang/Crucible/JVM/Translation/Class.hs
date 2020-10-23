@@ -152,7 +152,7 @@ lookupClassGen cName = do
   ctx <- gets jsContext
   case Map.lookup cName (classTable ctx) of
     Just cls -> return cls
-    Nothing  -> error $ "no information about class " ++ J.unClassName cName
+    Nothing  -> jvmFail $ "no information about class " ++ J.unClassName cName
 
 
 
