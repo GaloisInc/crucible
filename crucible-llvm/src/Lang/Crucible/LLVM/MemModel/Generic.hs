@@ -679,7 +679,7 @@ readMem sym w gsym l tp alignment m = do
     -- then decompose this read into reading the individual bytes and
     -- assembling them to obtain the value, without introducing any
     -- ite operations
-    Just (arr, _arr_sz) -> do
+    Just (ok, arr, _arr_sz) | Just True <- asConstantPred ok -> do
       let loadArrayByteFn :: Offset -> IO (PartLLVMVal sym)
           loadArrayByteFn off = do
             blk0 <- natLit sym 0
@@ -689,7 +689,7 @@ readMem sym w gsym l tp alignment m = do
             return $ Partial.totalLLVMVal sym $ LLVMValInt blk0 byte
       genValueCtor sym (memEndianForm m) mop
         =<< loadTypedValueFromBytes 0 tp loadArrayByteFn
-    Nothing -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
+    _ -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
 
   Partial.attachMemoryError sym p1 mop UnreadableRegion =<<
     Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (RV l) alignment) part_val
@@ -1224,7 +1224,7 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
     -- then decompose this write into disassembling the value to individual
     -- bytes, writing them in the SMT array, and writing the updated SMT array
     -- in the memory
-    Just (arr, arr_sz) -> do
+    Just (ok, arr, arr_sz) | Just True <- asConstantPred ok -> do
       let subFn :: ValueLoad Addr -> IO (PartLLVMVal sym)
           subFn = \case
             LastStore val_view -> applyView
@@ -1258,7 +1258,9 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
               _ -> return acc_arr
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
       return $ memAddWrite ptr (MemArrayStore res_arr (Just arr_sz)) mem
-    Nothing -> return $ memAddWrite ptr (MemStore val tp alignment) mem
+
+    _ -> return $ memAddWrite ptr (MemStore val tp alignment) mem
+
   return (mem', p1, p2)
 
 -- | Perform a mem copy (a la @memcpy@ in C).
@@ -1520,8 +1522,9 @@ possibleAllocs n = helper . memAllocs
               AllocMerge _ as1 as2 -> helper as1 ++ helper as2
 
 -- | Check if @LLVMPtr sym w@ points inside an allocation that is backed
---   by an SMT array store. If true, return the SMT array and the size of
---   the allocation.
+--   by an SMT array store. If true, return a predicate that indicates
+--   when the given array backs the given pointer, the SMT array,
+--   and the size of the allocation.
 --
 --   NOTE: this operation is linear in the size of the list of previous
 --   memory writes. This means that memory writes as well as memory reads
@@ -1535,14 +1538,14 @@ asMemAllocationArrayStore ::
   NatRepr w ->
   LLVMPtr sym w {- ^ Pointer -} ->
   Mem sym ->
-  IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8), (SymBV sym w)))
+  IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8), (SymBV sym w)))
 asMemAllocationArrayStore sym w ptr mem
   | Just blk_no <- asNat (llvmPointerBlock ptr)
   , [SomeAlloc _ _ (Just sz) _ _ _] <- List.nub (possibleAllocs blk_no mem)
   , Just Refl <- testEquality w (bvWidth sz) = do
     let findArrayStore ::
           [MemWrite sym] ->
-          IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
+          IO (Maybe (Pred sym, SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
         findArrayStore = \case
           head_mem_write : tail_mem_writes -> case head_mem_write of
             MemWrite write_ptr write_source
@@ -1550,27 +1553,42 @@ asMemAllocationArrayStore sym w ptr mem
               , blk_no == write_blk_no
               , MemArrayStore arr (Just arr_store_sz) <- write_source
               , Just Refl <- testEquality w (ptrWidth write_ptr) -> do
-                sz_eq <- bvEq sym sz arr_store_sz
-                case asConstantPred sz_eq of
-                  Just True -> return $ Just arr
-                  _ -> return Nothing
+                ok <- bvEq sym sz arr_store_sz
+                return (Just (ok, arr))
+
               | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
               , blk_no /= write_blk_no ->
                 findArrayStore tail_mem_writes
+
               | otherwise -> return Nothing
+
             WriteMerge cond lhs_mem_writes rhs_mem_writes -> do
+              -- TODO: this is a potential source of exponential behavior,
+              -- as the tail_mem_writes are traversed twice
               lhs_result <- findArrayStore $
                 (memWritesAtConstant blk_no lhs_mem_writes) ++ tail_mem_writes
               rhs_result <- findArrayStore $
                 (memWritesAtConstant blk_no rhs_mem_writes) ++ tail_mem_writes
               case (lhs_result, rhs_result) of
-                (Just lhs_arr, Just rhs_arr) ->
-                  Just <$> arrayIte sym cond lhs_arr rhs_arr
+                (Just (lhs_ok, lhs_arr), Just (rhs_ok, rhs_arr)) ->
+                  do ok <- itePred sym cond lhs_ok rhs_ok
+                     arr <- arrayIte sym cond lhs_arr rhs_arr
+                     pure (Just (ok,arr))
+
+                (Just (lhs_ok, lhs_arr), Nothing) ->
+                  do ok <- andPred sym cond lhs_ok
+                     pure (Just (ok, lhs_arr))
+
+                (Nothing, Just (rhs_ok, rhs_arr)) ->
+                  do cond' <- notPred sym cond
+                     ok <- andPred sym cond' rhs_ok
+                     pure (Just (ok, rhs_arr))
+
                 _ -> return Nothing
+
           [] -> return Nothing
     result <- findArrayStore $ memWritesAtConstant blk_no $ memWrites mem
     return $ case result of
-      Just arr -> Just (arr, sz)
+      Just (ok, arr) -> Just (ok, arr, sz)
       Nothing -> Nothing
   | otherwise = return Nothing
-
