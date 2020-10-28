@@ -1419,7 +1419,7 @@ freeMem :: forall sym w .
   NatRepr w ->
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
-  String {- ^ Source location -} -> 
+  String {- ^ Source location -} ->
   IO (Mem sym, Pred sym, Pred sym)
 freeMem sym w (LLVMPointer blk off) m loc =
   do p1 <- bvEq sym off =<< bvLit sym w (BV.zero w)
@@ -1563,28 +1563,38 @@ asMemAllocationArrayStore sym w ptr mem
               | otherwise -> return Nothing
 
             WriteMerge cond lhs_mem_writes rhs_mem_writes -> do
-              -- TODO: this is a potential source of exponential behavior,
-              -- as the tail_mem_writes are traversed twice
-              lhs_result <- findArrayStore $
-                (memWritesAtConstant blk_no lhs_mem_writes) ++ tail_mem_writes
-              rhs_result <- findArrayStore $
-                (memWritesAtConstant blk_no rhs_mem_writes) ++ tail_mem_writes
+              lhs_result <- findArrayStore (memWritesAtConstant blk_no lhs_mem_writes)
+              rhs_result <- findArrayStore (memWritesAtConstant blk_no rhs_mem_writes)
+
+              let combineResults lhs rhs = case (lhs,rhs) of
+                    (Just (lhs_ok, lhs_arr), Just (rhs_ok, rhs_arr)) ->
+                      do ok <- itePred sym cond lhs_ok rhs_ok
+                         arr <- arrayIte sym cond lhs_arr rhs_arr
+                         pure (Just (ok,arr))
+
+                    (Just (lhs_ok, lhs_arr), Nothing) ->
+                      do ok <- andPred sym cond lhs_ok
+                         pure (Just (ok, lhs_arr))
+
+                    (Nothing, Just (rhs_ok, rhs_arr)) ->
+                      do cond' <- notPred sym cond
+                         ok <- andPred sym cond' rhs_ok
+                         pure (Just (ok, rhs_arr))
+
+                    (Nothing, Nothing) -> pure Nothing
+
+              -- Only traverse the tail if necessary, and be careful
+              -- only to traverse it once
               case (lhs_result, rhs_result) of
-                (Just (lhs_ok, lhs_arr), Just (rhs_ok, rhs_arr)) ->
-                  do ok <- itePred sym cond lhs_ok rhs_ok
-                     arr <- arrayIte sym cond lhs_arr rhs_arr
-                     pure (Just (ok,arr))
-
-                (Just (lhs_ok, lhs_arr), Nothing) ->
-                  do ok <- andPred sym cond lhs_ok
-                     pure (Just (ok, lhs_arr))
-
-                (Nothing, Just (rhs_ok, rhs_arr)) ->
-                  do cond' <- notPred sym cond
-                     ok <- andPred sym cond' rhs_ok
-                     pure (Just (ok, rhs_arr))
-
-                _ -> return Nothing
+                (Nothing, Nothing) -> findArrayStore tail_mem_writes
+                (_, Nothing) ->
+                  do rhs' <- findArrayStore tail_mem_writes
+                     combineResults lhs_result rhs'
+                (Nothing, _) ->
+                  do lhs' <- findArrayStore tail_mem_writes
+                     combineResults lhs' rhs_result
+                (Just _, Just _) ->
+                  combineResults lhs_result rhs_result
 
           [] -> return Nothing
     result <- findArrayStore $ memWritesAtConstant blk_no $ memWrites mem
