@@ -37,6 +37,8 @@ module Lang.Crucible.Analysis.Fixpoint (
   IterationStrategy(..),
   Interpretation(..),
   PointAbstraction(..),
+  RefSet,
+  emptyRefSet,
   paGlobals,
   paRegisters,
   lookupAbstractRegValue,
