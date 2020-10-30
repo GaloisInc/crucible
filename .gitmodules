@@ -34,3 +34,24 @@
 [submodule "dependencies/mir-json"]
 	path = dependencies/mir-json
 	url = https://github.com/GaloisInc/mir-json/
+[submodule "dependencies/saw-script"]
+	path = dependencies/saw-script
+	url = https://github.com/GaloisInc/saw-script.git
+[submodule "dependencies/saw-core-coq"]
+	path = dependencies/saw-core-coq
+	url = https://github.com/GaloisInc/saw-core-coq.git
+[submodule "dependencies/macaw"]
+	path = dependencies/macaw
+	url = https://github.com/GaloisInc/macaw.git
+[submodule "dependencies/dwarf"]
+	path = dependencies/dwarf
+	url = https://github.com/GaloisInc/dwarf.git
+[submodule "dependencies/elf-edit"]
+	path = dependencies/elf-edit
+	url = https://github.com/GaloisInc/elf-edit.git
+[submodule "dependencies/flexdis86"]
+	path = dependencies/flexdis86
+	url = https://github.com/GaloisInc/flexdis86.git
+[submodule "dependencies/jvm-verifier"]
+	path = dependencies/jvm-verifier
+	url = https://github.com/GaloisInc/jvm-verifier.git
