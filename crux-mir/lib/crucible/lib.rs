@@ -141,3 +141,6 @@ pub fn crucible_u64(name: &'static str) -> u64 { Symbolic::symbolic(name) }
 /// This function is overridden and used in a few test cases that check override functionality.
 #[doc(hidden)]
 pub fn one() -> u8 { unimplemented!() }
+
+
+pub fn extract_precondition<T>(x: T) { unimplemented!() }

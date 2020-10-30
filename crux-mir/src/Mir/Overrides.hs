@@ -33,6 +33,7 @@ import qualified Data.Text.Encoding as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import System.IO (hPutStrLn)
 
@@ -40,13 +41,14 @@ import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Nonce(withIONonceGenerator, NonceGenerator)
+import Data.Parameterized.Nonce(newIONonceGenerator, withIONonceGenerator, NonceGenerator)
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
 
 import What4.Config( getOpt, setOpt, getOptionSetting )
 import qualified What4.Expr.ArrayUpdateMap as AUM
+import qualified What4.Expr.Builder as W4
 import What4.Expr.GroundEval (GroundValue, GroundEvalFn(..), GroundArray(..))
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
@@ -62,8 +64,6 @@ import What4.SatResult (SatResult(..))
 
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
-    ( AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption
-    , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.FunctionHandle (RefCell, freshRefCell, refType)
@@ -84,8 +84,13 @@ import Crux.Model (addVar, evalModel)
 import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 
 import Mir.DefId
+import Mir.ExtractSpec
 import Mir.FancyMuxTree
 import Mir.Intrinsics
+
+import qualified Lang.Crucible.Backend.SAWCore as SAW
+import qualified Verifier.SAW.SharedTerm as SAW
+import qualified Verifier.SAW.Term.Pretty as SAW
 
 
 getString :: forall sym rtp args ret. (IsSymInterface sym) =>
@@ -369,21 +374,30 @@ regEval sym baseEval tpr v = go tpr v
 
 
 bindFn ::
-  forall args ret blocks sym rtp a r .
-  (IsSymInterface sym) =>
+  forall args ret blocks sym t st fs rtp a r .
+  (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
   Maybe (SomeOnlineSolver sym) -> Text -> CFG MIR blocks args ret ->
   OverrideSim (Model sym) sym MIR rtp a r ()
 bindFn symOnline name cfg
+
   | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
   , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "array::symbolic" (UsizeArrayRepr btpr) (array_symbolic btpr)
+
   | (normDefId "crucible::concretize" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> tpr <- cfgArgTypes cfg
   , Just Refl <- testEquality tpr (cfgReturnType cfg)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
+
+  | (normDefId "crucible::extract_precondition" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> tpr <- cfgArgTypes cfg
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "extract_precondition" UnitRepr testExtractPrecondition
+
 bindFn _symOnline fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of

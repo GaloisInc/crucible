@@ -51,7 +51,9 @@ library
                  scientific       >= 0.3,
                  simple-get-opt,
                  config-schema,
-                 template-haskell
+                 template-haskell,
+                 crucible-saw,
+                 saw-core
 
 
   hs-source-dirs: src
@@ -72,6 +74,7 @@ library
                  Mir.TransTy
                  Mir.Trans
                  Mir.TransCustom
+                 Mir.ExtractSpec
 
 
 executable crux-mir
