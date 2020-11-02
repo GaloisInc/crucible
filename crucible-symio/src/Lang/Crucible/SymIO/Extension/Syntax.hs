@@ -47,25 +47,25 @@ data VFSStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type w
   -- | Open a file, returning a fresh file handle pointing to the start of its contents.
   VFS_Open ::
     !(NatRepr wptr)                      {- Pointer width -} ->
-    !(GlobalVar Files)                   {- Filesystem global variable -} ->
+    !(GlobalVar (Files wptr))                   {- Filesystem global variable -} ->
     !(FileIdent)                         {- Identifier of file to open -} ->
     VFSStmt wptr f (VFSFileHandleType wptr)
   -- | Close a file, marking the given handle as stale
   VFS_Close ::
-    !(GlobalVar Files)                   {- Filesystem global variable -} ->
+    !(GlobalVar (Files wptr))                   {- Filesystem global variable -} ->
     !(f (VFSFileHandleType wptr))        {- File handle to close -} ->
     VFSStmt wptr f UnitType
   -- | Read a sequence of bytes from a file. The file handle is internally incremented
   -- to point to the end of the sequence.
   VFS_Read ::
-    !(GlobalVar Files)                   {- Filesystem global variable -} ->
+    !(GlobalVar (Files wptr))                   {- Filesystem global variable -} ->
     !(f (VFSFileHandleType wptr))        {- File handle to read from -} ->
     Bytes                                {- Number of bytes to read -} ->
     VFSStmt wptr f (VectorType (BVType 8))
   -- | Write a sequence of bytes to a file. The file handle is internally incremented
   -- to point to the end of the sequence.
   VFS_Write ::
-    !(GlobalVar Files)                   {- Filesystem global variable -} ->
+    !(GlobalVar (Files wptr))                   {- Filesystem global variable -} ->
     !(f (VFSFileHandleType wptr))        {- File handle to read from -} ->
     !(f (VectorType (BVType 8)))         {- Byte to write out -} ->
     VFSStmt wptr f UnitType

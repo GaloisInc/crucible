@@ -24,6 +24,7 @@ library
                        crucible,
                        crucible-llvm,
                        containers,
+                       IntervalMap,
                        lens,
                        parameterized-utils,
                        transformers,
@@ -35,5 +36,6 @@ library
       Lang.Crucible.SymIO.Extension
       Lang.Crucible.SymIO.Extension.Arch
       Lang.Crucible.SymIO.Extension.Syntax
+      What4.CachedArray
   hs-source-dirs:      src
   default-language:    Haskell2010
