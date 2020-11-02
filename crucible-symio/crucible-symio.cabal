@@ -26,6 +26,7 @@ library
                        containers,
                        IntervalMap,
                        lens,
+                       mtl,
                        parameterized-utils,
                        transformers,
                        vector,
@@ -33,9 +34,6 @@ library
   exposed-modules:
       Lang.Crucible.SymIO
       Lang.Crucible.SymIO.Types
-      Lang.Crucible.SymIO.Extension
-      Lang.Crucible.SymIO.Extension.Arch
-      Lang.Crucible.SymIO.Extension.Syntax
       What4.CachedArray
   hs-source-dirs:      src
   default-language:    Haskell2010
