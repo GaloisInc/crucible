@@ -57,13 +57,24 @@ testExtractPrecondition = do
     liftIO $ putStrLn $ "hello " ++ show tpr
     cache <- W4.newIdxCache
 
+    liftIO $ putStrLn $ "* visiting argument"
     visitRegValueExprs sym tpr val $ \expr ->
         liftIO $ visitExprVars cache expr $
             \v -> print (W4.bvarName v, W4.bvarType v)
 
     assumpts <- liftIO $ collectAssumptions sym
+    liftIO $ putStrLn $ "* got " ++ show (Seq.length assumpts) ++ " assumptions"
     forM_ assumpts $ \assumpt -> do
+        liftIO $ print $ W4.printSymExpr (assumpt ^. W4.labeledPred)
         liftIO $ visitExprVars cache (assumpt ^. W4.labeledPred) $
+            \v -> print (W4.bvarName v, W4.bvarType v)
+
+    goals <- liftIO $ proofGoalsToList <$> getProofObligations sym
+    liftIO $ putStrLn $ "* got " ++ show (length goals) ++ " assertions"
+    forM_ goals $ \goal -> do
+        let pred = proofGoal goal ^. W4.labeledPred
+        liftIO $ print $ W4.printSymExpr pred
+        liftIO $ visitExprVars cache pred $
             \v -> print (W4.bvarName v, W4.bvarType v)
 
 -- | Run `f` on each `SymExpr` in `v`.
