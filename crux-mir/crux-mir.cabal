@@ -53,7 +53,8 @@ library
                  config-schema,
                  template-haskell,
                  crucible-saw,
-                 saw-core
+                 saw-core,
+                 saw-script
 
 
   hs-source-dirs: src
