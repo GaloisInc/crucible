@@ -18,7 +18,7 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 library
-  build-depends:       base >=4.12 && <4.13,
+  build-depends:       base >=4.12 && <4.15,
                        ansi-wl-pprint,
                        bv-sized,
                        crucible,
