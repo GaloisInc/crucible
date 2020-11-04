@@ -385,8 +385,9 @@ checkSat ::
   Crucible.OnlineBackend scope solver fs ->
   What4.BoolExpr scope ->
   IO (What4.SatResult () ())
-checkSat sym p = do
-  Crucible.withSolverProcess sym $ \proc ->
+checkSat sym p =
+  let err = fail "Online solving not enabled!" in
+  Crucible.withSolverProcess sym err $ \proc ->
      What4.checkSatisfiable proc "" p
 
 testArrayStride :: TestTree
