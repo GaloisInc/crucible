@@ -55,10 +55,10 @@ data FileSystem sym w =
   FileSystem
     {
       fsPtrSize :: NatRepr w
-    , fsConcData :: Map Natural (Map (BV.BV w) (BV.BV 8))
-    -- ^ map from file identifiers to concrete file contents
     , fsFileNames :: Map FileIdent Natural
     -- ^ map from concrete file names to identifiers
+    , fsFileSizes :: SymArray sym (EmptyCtx ::> BaseNatType) (BaseBVType w)
+    -- ^ a symbolic map from file identifiers to their size
     , fsSymData :: CA.CachedArray sym (EmptyCtx ::> BaseNatType ::> BaseBVType w) (BaseBVType 8)
     -- ^ array representing symbolic file contents
     , fsConstraints :: forall a. ((IsSymInterface sym, 1 <= w) => a) -> a
@@ -103,7 +103,7 @@ muxFile sym p (File w f1) (File _w f2) = File w <$> natIte sym p f1 f2
 
 -- | A file pointer represents an index into a particular file
 data FilePointer sym w =
-  FilePointer (File sym w) (SymBV sym w)
+  FilePointer (File sym w) (SymBV sym w) 
 
 data ConcreteFile w = ConcreteFile (NatRepr w) Natural
 
@@ -116,11 +116,6 @@ instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filepointer" where
 
   muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxFilePointer sym
   muxIntrinsic _ _ nm ctx = typeError nm ctx
-
--- | Flag indicating whether or not the current state of this address
--- is concrete or symbolic
-data ByteStatus = ConcreteByte | SymbolicByte
-  deriving (Eq, Ord, Show)
 
 -- | Mux function specialized to file pointers values.
 muxFilePointer ::
@@ -136,8 +131,34 @@ muxFilePointer sym p (FilePointer f1 off1) (FilePointer f2 off2) =
      off <- bvIte sym p off1 off2
      return $ FilePointer b off
 
+-- | A 'chunk' of data resulting from a read or write, with
+-- a symbolic size
+data DataChunk sym w =
+  DataChunk
+    (SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8))
+    (SymBV sym w)
+
+type DataChunkType w = IntrinsicType "VFS_datachunk" (EmptyCtx ::> BVType w)
+
+muxDataChunk ::
+  (1 <= w) =>
+  IsSymInterface sym =>
+  sym ->
+  Pred sym ->
+  DataChunk sym w ->
+  DataChunk sym w ->
+  IO (DataChunk sym w)
+muxDataChunk sym p (DataChunk d1 sz1) (DataChunk d2 sz2) = do
+  d <- baseTypeIte sym p d1 d2
+  sz <- baseTypeIte sym p sz1 sz2
+  return $ DataChunk d sz
 
 
+instance (IsSymInterface sym) => IntrinsicClass sym "VFS_datachunk" where
+  type Intrinsic sym "VFS_datachunk" (EmptyCtx ::> BVType w) = DataChunk sym w
+
+  muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxDataChunk sym
+  muxIntrinsic _ _ nm ctx = typeError nm ctx
 
 pattern FileHandleRepr :: () => (1 <= w, ty ~ FileHandleType w) => NatRepr w -> TypeRepr ty
 pattern FileHandleRepr w = ReferenceRepr (MaybeRepr (FilePointerRepr w))
@@ -147,3 +168,6 @@ pattern FilePointerRepr w <- IntrinsicRepr (testEquality (knownSymbol :: SymbolR
                                            (Empty :> BVRepr w)
   where
     FilePointerRepr w = IntrinsicRepr knownSymbol (Empty :> BVRepr w)
+
+
+

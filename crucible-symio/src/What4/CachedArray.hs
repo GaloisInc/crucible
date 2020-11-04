@@ -31,8 +31,10 @@
 module What4.CachedArray
   (
     CachedArray
-  , writeArray
-  , readArray
+  , writeRange
+  , writeSingle
+  , readSingle
+  , readRange
   , muxArrays
   , initArrayConcrete
   , initArray
@@ -66,47 +68,80 @@ import qualified What4.Utils.BVDomain as BVD
 -- TODO: add coalescing function for merging adjacent entries
 -- into symbolic arrays
 
-writeArray ::
+writeRange ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
   sym ->
   Ctx.Assignment (W4.SymExpr sym) ctx ->
-  W4.SymExpr sym tp ->
+  -- ^ base address
+  Ctx.Assignment (W4.SymExpr sym) ctx ->
+  -- ^ end of write range
+  W4.SymArray sym ctx tp ->
   CachedArray sym ctx tp ->
   IO (CachedArray sym ctx tp)
-writeArray sym symIdxExpr val arr = arrConstraints arr $ do  
-  arr' <- invalidateEntries sym symIdx arr
-  let entry = ArrayEntryVal symIdx (W4.truePred sym) val
-  arr'' <- insertWithM k entry (\_ old_v -> addNewEntry sym symIdx val old_v) (arrMap arr')
+writeRange sym loExpr hiExpr val arr = arrConstraints arr $ do  
+  arr' <- invalidateEntries sym rng arr
+  -- FIXME: this is wrong, we need to offset the contents of the array
+  -- by the given address, since we assume the write contents
+  -- start at a zero index
+  let entry = ArrayEntryArr (isInRange sym rng) val
+  arr'' <- insertWithM absIdx entry (mergeEntries sym) (arrMap arr')
   return $ arr { arrMap = arr'' }
   where
-    k = symIdxToAbs @sym symIdx
-    symIdx = SymIndex symIdxExpr
+    absIdx = symRangeToAbs rng
+    rng = mkSymRange loExpr hiExpr
 
-readArray ::
+
+writeSingle ::
+  forall sym ctx tp.
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  Ctx.Assignment (W4.SymExpr sym) ctx ->
+  W4.SymExpr sym  tp ->
+  CachedArray sym ctx tp ->
+  IO (CachedArray sym ctx tp)
+writeSingle sym symIdxExpr val arr = arrConstraints arr $ do  
+  arr' <- invalidateEntries sym (SymRangeSingle symIdx) arr
+  let entry = ArrayEntryVal symIdx (W4.truePred sym) val
+  arr'' <- insertWithM absIdx entry (mergeEntries sym) (arrMap arr')
+  return $ arr { arrMap = arr'' }
+  where
+    absIdx = symIdxToAbs symIdx
+    symIdx = mkSymIndex symIdxExpr
+
+
+readSingle ::
   forall sym idx tp.
   W4.IsSymExprBuilder sym =>
   sym ->
   Ctx.Assignment (W4.SymExpr sym) idx ->
   CachedArray sym idx tp ->
   IO (W4.SymExpr sym tp)
-readArray sym symIdxExpr arr = case FC.allFC W4.baseIsConcrete symIdxExpr of
-  True | Just e@(ArrayEntryVal _ _ v) <- IM.lookup k (arrMap arr) -> do
-    constEntryCond sym e symIdx >>= \case
-      Just True -> return v
-      _ -> symbolic
-  _ -> symbolic      
+readSingle sym symIdxExpr arr = readArrayBase sym symIdx arr
   where
-    k = symIdxToAbs @sym symIdx
-    symIdx = SymIndex symIdxExpr
-    
-    symbolic :: IO (W4.SymExpr sym tp)
-    symbolic = do
-      let intersecting = IM.toAscList $ IM.intersecting (arrMap arr) k
-      arrConstraints arr $ 
-        mapM (\(_, entry) -> readEntry sym symIdx entry) intersecting >>= \case  
-          [] -> fail "readArray: unexpected empty result"
-          ((r, _) : rest) -> foldM (\else_ (result, p) -> W4.baseTypeIte sym p result else_) r rest
+    symIdx = SymIndex symIdxExpr Nothing
+
+
+readRange ::
+  forall sym idx tp.
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  Ctx.Assignment (W4.SymExpr sym) idx ->
+  -- ^ base address
+  Ctx.Assignment (W4.SymExpr sym) idx ->
+  -- ^ end of read range
+  CachedArray sym idx tp ->
+  IO (W4.SymArray sym idx tp)
+readRange sym loExpr hiExpr arr = arrConstraints arr $ do
+  (symIdx, vars) <- freshIndex sym (Just absIdx) (FC.fmapFC W4.exprType loExpr)
+  body <- readArrayBase sym symIdx arr
+  NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @idx
+  fn <- W4.definedFn sym (W4.safeSymbol "readRange") vars body W4.AlwaysUnfold
+  W4.arrayFromFn sym fn
+  where
+    symRange = SymRangeMulti (mkSymIndex @sym loExpr) (mkSymIndex @sym hiExpr)
+    absIdx = symRangeToAbs symRange
+
 
 -- TODO: use nonces to determine when this is unecessary
 muxArrays ::
@@ -160,7 +195,7 @@ initArray sym m = do
       IO (AbsIndex idx, ArrayEntry sym idx tp)
     go (symIdxExpr, v) = do
       let
-        symIdx = SymIndex symIdxExpr
+        symIdx = SymIndex symIdxExpr Nothing
         aidx = symIdxToAbs @sym symIdx
         entry = ArrayEntryVal symIdx (W4.truePred sym) v
       return $ (aidx, entry)
@@ -203,7 +238,39 @@ data ArrayEntry sym ctx tp where
 
 -- | A symbolic index into the array. It represents the index for a single array element,
 -- although its value may be symbolic
-newtype SymIndex sym ctx = SymIndex (Ctx.Assignment (W4.SymExpr sym) ctx)
+data SymIndex sym ctx =
+  SymIndex (Ctx.Assignment (W4.SymExpr sym) ctx) (Maybe (AbsIndex ctx))
+
+mkSymIndex ::
+  forall sym ctx.
+  Ctx.Assignment (W4.SymExpr sym) ctx ->
+  SymIndex sym ctx
+mkSymIndex e = SymIndex e Nothing
+
+data SymRange sym ctx =
+    SymRangeSingle (SymIndex sym ctx)
+  | SymRangeMulti (SymIndex sym ctx) (SymIndex sym ctx)
+
+symRangeToAbs ::
+  W4.IsSymExprBuilder sym =>
+  SymRange sym ctx ->
+  AbsIndex ctx
+symRangeToAbs (SymRangeSingle symIdx) = symIdxToAbs symIdx
+symRangeToAbs (SymRangeMulti loIdx hiIdx) =
+  joinAbsIndex (symIdxToAbs loIdx) (symIdxToAbs hiIdx)
+
+mkSymRange ::
+  forall sym ctx.
+  W4.IsSymExprBuilder sym =>
+  Ctx.Assignment (W4.SymExpr sym) ctx ->
+  Ctx.Assignment (W4.SymExpr sym) ctx ->
+  SymRange sym ctx
+mkSymRange loExpr hiExpr = case testEquality loExpr hiExpr of
+  Just Refl -> SymRangeSingle $ mkSymIndex loExpr
+  Nothing -> SymRangeMulti (mkSymIndex @sym loExpr) (mkSymIndex @sym hiExpr)
+
+isConcreteIndex :: W4.IsSymExprBuilder sym => SymIndex sym ctx -> Bool
+isConcreteIndex (SymIndex symIdxExpr _) = FC.allFC W4.baseIsConcrete symIdxExpr
 
 data NonEmptyCtxRepr ctx where
   NonEmptyCtxRepr :: NonEmptyCtxRepr (ctx Ctx.::> x)
@@ -337,6 +404,37 @@ absToInterval repr v = case repr of
   _ -> error "Unsupported type"
     
 
+readArrayBase ::
+  forall sym idx tp.
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  SymIndex sym idx ->
+  CachedArray sym idx tp ->
+  IO (W4.SymExpr sym tp)
+readArrayBase sym symIdx arr = case isConcreteIndex symIdx of
+  True | Just e@(ArrayEntryVal _ _ v) <- IM.lookup k (arrMap arr) -> do
+    constEntryCond sym e symIdx >>= \case
+      Just True -> return v
+      _ -> symbolic
+  _ -> symbolic      
+  where
+    k = symIdxToAbs @sym symIdx
+    
+    symbolic :: IO (W4.SymExpr sym tp)
+    symbolic = do
+      let intersecting = IM.toAscList $ IM.intersecting (arrMap arr) k
+      arrConstraints arr $ 
+        mapM (\(_, entry) -> readEntry sym symIdx entry) intersecting >>= \case  
+          [] -> fail "readArray: unexpected empty result"
+          ((r, _) : rest) -> collapse r rest
+
+    collapse ::
+      W4.SymExpr sym tp ->
+      [(W4.SymExpr sym tp, W4.Pred sym)] ->
+      IO (W4.SymExpr sym tp)
+    collapse default_ ((r, cond) : rest) = W4.iteM W4.baseTypeIte sym cond (return r) (collapse default_ rest)
+    collapse default_ [] = return default_
+
 readEntry ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
@@ -345,7 +443,7 @@ readEntry ::
   SymIndex sym ctx ->
   ArrayEntry sym ctx tp ->
   IO (W4.SymExpr sym tp, W4.Pred sym)
-readEntry sym symIdx@(SymIndex symIdxExpr) entry = do
+readEntry sym symIdx@(SymIndex symIdxExpr _) entry = do
   cond <- entryCond sym entry symIdx
   case entry of
     ArrayEntryArr _ arr -> do
@@ -407,7 +505,8 @@ symIdxToAbs ::
   forall sym ctx.
   W4.IsSymExprBuilder sym =>
   SymIndex sym ctx -> AbsIndex ctx
-symIdxToAbs (SymIndex symIdxExpr) = AbsIndex $ FC.fmapFC (exprToAbsInterval @sym) symIdxExpr
+symIdxToAbs (SymIndex symIdxExpr Nothing) = AbsIndex $ FC.fmapFC (exprToAbsInterval @sym) symIdxExpr
+symIdxToAbs (SymIndex _ (Just absIdx)) = absIdx
 
 concreteIdxToSym ::
   forall sym ctx.
@@ -415,35 +514,61 @@ concreteIdxToSym ::
   sym ->
   Ctx.Assignment W4.ConcreteVal ctx ->
   IO (SymIndex sym ctx)
-concreteIdxToSym sym conc = SymIndex <$> FC.traverseFC (W4.concreteToSym sym) conc
+concreteIdxToSym sym conc = do
+ symIdxExpr <- FC.traverseFC (W4.concreteToSym sym) conc
+ return $ SymIndex symIdxExpr Nothing
 
--- | Invalidate a specific entry at a specific index, which may
--- remove it entirely
-invalidateEntry ::
+-- | Invalidate all entries within the given range
+invalidateRange ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
   sym ->
-  SymIndex sym ctx ->
+  SymRange sym ctx ->
   ArrayEntry sym ctx tp ->
   IO (Maybe (ArrayEntry sym ctx tp))
-invalidateEntry sym symIdx e = do
-  constEntryCond sym e symIdx >>= \case
-    Just False -> return $ Just e
-    Just True -> return Nothing
-    Nothing -> case e of
-      ArrayEntryArr condF v -> do        
-        let
-          condF' symIdx' = do
-            notThis <- W4.notPred sym =<< isEqIndex sym symIdx symIdx'
-            cond <- condF symIdx'
-            W4.andPred sym notThis cond
-        return $ Just $ ArrayEntryArr condF' v
-      ArrayEntryVal symIdx' cond v -> do
-        notThis <- W4.notPred sym =<< isEqIndex sym symIdx symIdx'
-        cond' <- W4.andPred sym notThis cond
-        case W4.asConstantPred cond' of
-          Just False -> return Nothing
-          _ -> return $ Just $ ArrayEntryVal symIdx' cond' v
+invalidateRange sym rng e = case e of
+  ArrayEntryArr condF v -> do        
+    let
+      condF' symIdx' = do
+        notThis <- W4.notPred sym =<< isInRange sym rng symIdx'
+        cond <- condF symIdx'
+        W4.andPred sym notThis cond
+      entry = ArrayEntryArr condF' v
+
+    freshIdx <- mkSymIndex <$> FC.traverseFC (W4.freshConstant sym W4.emptySymbol) (rangeRepr rng)
+    constEntryCond sym entry freshIdx >>= \case
+      Just False -> return $ Nothing
+      _ -> return $ Just entry
+  ArrayEntryVal symIdx' cond v -> do
+    notThis <- W4.notPred sym =<< isInRange sym rng symIdx'
+    cond' <- W4.andPred sym notThis cond
+    case W4.asConstantPred cond' of
+      Just False -> return Nothing
+      _ -> return $ Just $ ArrayEntryVal symIdx' cond' v
+
+isInRange ::
+  forall sym ctx.
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  SymRange sym ctx ->
+  SymIndex sym ctx ->
+  IO (W4.Pred sym)  
+isInRange sym rng symIdx2@(SymIndex symIdxExpr _) = case rng of
+  SymRangeSingle symIdx1 -> isEqIndex sym symIdx1 symIdx2
+  SymRangeMulti (SymIndex loIdxExpr _) (SymIndex hiIdxExpr _) -> do
+    lo <- FC.toListFC getConst <$> Ctx.zipWithM doLe loIdxExpr symIdxExpr
+    hi <- FC.toListFC getConst <$> Ctx.zipWithM doLe symIdxExpr hiIdxExpr
+    foldM (W4.andPred sym) (W4.truePred sym) $ lo ++ hi
+  where
+    doLe ::
+      forall tp.
+      W4.SymExpr sym tp ->
+      W4.SymExpr sym tp ->
+      IO (Const (W4.Pred sym) tp)
+    doLe e1 e2 = Const <$> case W4.exprType e1 of
+      W4.BaseBVRepr _ -> W4.bvUle sym e1 e2
+      W4.BaseNatRepr -> W4.natLe sym e1 e2
+      _ -> fail "isInRange: unsupported type"
 
 isEqIndex ::
   forall sym ctx.
@@ -452,7 +577,7 @@ isEqIndex ::
   SymIndex sym ctx ->
   SymIndex sym ctx ->
   IO (W4.Pred sym)
-isEqIndex sym (SymIndex symIdxExpr1) (SymIndex symIdxExpr2) = do
+isEqIndex sym (SymIndex symIdxExpr1 _) (SymIndex symIdxExpr2 _) = do
   preds <- FC.toListFC getConst <$> Ctx.zipWithM (\e1 e2 -> Const <$> W4.isEq sym e1 e2) symIdxExpr1 symIdxExpr2  
   foldM (W4.andPred sym) (W4.truePred sym) preds
 
@@ -529,14 +654,14 @@ invalidateEntries ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
   sym ->
-  SymIndex sym ctx ->
+  SymRange sym ctx ->
   CachedArray sym ctx tp ->
   IO (CachedArray sym ctx tp)
-invalidateEntries sym symIdx arr = do
-  let k = symIdxToAbs @sym symIdx
-  cmap <- mapMIntersecting k (\_ -> invalidateEntry sym symIdx) (arrMap arr)
+invalidateEntries sym symRange arr = do
+  cmap <- mapMIntersecting absIdx (\_ -> invalidateRange sym symRange) (arrMap arr)
   return $ arr { arrMap = cmap }
-
+  where
+    absIdx = symRangeToAbs symRange
 
 muxConditions ::
   forall sym ctx.
@@ -552,6 +677,20 @@ muxConditions sym p fcondT fcondF symIdx = do
  condF <- fcondF symIdx
  W4.baseTypeIte sym p condT condF
 
+joinAbsIndex ::
+  AbsIndex ctx ->
+  AbsIndex ctx ->
+  AbsIndex ctx
+joinAbsIndex (AbsIndex idx1) (AbsIndex idx2) =
+  AbsIndex $ Ctx.zipWith joinAbsInterval idx1 idx2
+
+joinAbsInterval ::
+  AbsInterval tp ->
+  AbsInterval tp ->
+  AbsInterval tp
+joinAbsInterval a1 a2 = case (a1, a2) of
+  (AbsIntervalNat rng1, AbsIntervalNat rng2) -> AbsIntervalNat $ W4.avJoin W4.BaseNatRepr rng1 rng2
+  (AbsIntervalBV w rng1, AbsIntervalBV _ rng2) -> AbsIntervalBV w $ W4.avJoin W4.BaseIntegerRepr rng1 rng2
 
 muxSymIndex ::
   forall sym ctx.
@@ -561,8 +700,15 @@ muxSymIndex ::
   SymIndex sym ctx ->
   SymIndex sym ctx ->
   IO (SymIndex sym ctx)
-muxSymIndex sym p (SymIndex symIdxExprT) (SymIndex symIdxExprF) =
- SymIndex <$> Ctx.zipWithM (W4.baseTypeIte sym p) symIdxExprT symIdxExprF
+muxSymIndex sym p (SymIndex symIdxExprT mabsT) (SymIndex symIdxExprF mabsF) = do
+ symIdxExpr <- Ctx.zipWithM (W4.baseTypeIte sym p) symIdxExprT symIdxExprF
+ return $ SymIndex symIdxExpr mabs
+ where
+   mabs :: Maybe (AbsIndex ctx)
+   mabs = do
+     absT <- mabsT
+     absF <- mabsF
+     return $ joinAbsIndex absT absF
 
 muxEntries ::
   forall sym ctx tp.
@@ -594,19 +740,80 @@ muxEntries sym p eT eF = case (eT, eF) of
     aT <- W4.constantArray sym repr vT
     a <- W4.baseTypeIte sym p aT aF
     return $ ArrayEntryArr (muxConditions sym p (entryCond sym eT) fcondF) a    
-    
-addNewEntry ::
+
+freshIndex ::
+  forall sym idx.
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  Maybe (AbsIndex idx) ->
+  Ctx.Assignment W4.BaseTypeRepr idx ->
+  IO (SymIndex sym idx, Ctx.Assignment (W4.BoundVar sym) idx)
+freshIndex sym mabsIdx reprs = do
+  vars <- FC.traverseFC (W4.freshBoundVar sym W4.emptySymbol) reprs
+  let symIdx = SymIndex (FC.fmapFC (W4.varExpr sym) vars) mabsIdx
+  return $ (symIdx, vars)
+
+
+idxRepr ::
+  W4.IsSymExprBuilder sym =>
+  SymIndex sym ctx -> Ctx.Assignment W4.BaseTypeRepr ctx
+idxRepr (SymIndex e _) = FC.fmapFC W4.exprType e
+
+rangeRepr ::
+  W4.IsSymExprBuilder sym =>
+  SymRange sym ctx -> Ctx.Assignment W4.BaseTypeRepr ctx
+rangeRepr (SymRangeSingle idx) = idxRepr idx
+rangeRepr (SymRangeMulti idx _) = idxRepr idx
+
+entryRepr ::
+  W4.IsSymExprBuilder sym =>
+  ArrayEntry sym ctx tp -> Ctx.Assignment W4.BaseTypeRepr ctx
+entryRepr entry = case entry of
+  ArrayEntryVal idx _ _ -> idxRepr idx
+  ArrayEntryArr _ arr
+    | W4.BaseArrayRepr repr _ <- W4.exprType arr -> repr
+  _ -> error "impossible"
+
+mergeEntries ::
+  forall sym ctx tp.
+  W4.IsSymExprBuilder sym =>
+  NonEmptyCtx ctx =>
+  sym ->
+  ArrayEntry sym ctx tp ->
+  ArrayEntry sym ctx tp ->
+  IO (ArrayEntry sym ctx tp)
+mergeEntries sym e1 e2 = case (e1, e2) of
+  (ArrayEntryVal symIdx cond v, _) -> mergeEntryVal sym symIdx cond v e1
+  (_, ArrayEntryVal symIdx cond v) -> mergeEntryVal sym symIdx cond v e2
+  (ArrayEntryArr fcond1 _, ArrayEntryArr fcond2 _) -> do
+    (symIdx, vars) <- freshIndex sym Nothing (entryRepr e1)    
+    NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @ctx
+    let
+      fcond symIdx' = do
+        cond1 <- fcond1 symIdx'
+        cond2 <- fcond2 symIdx'
+        W4.orPred sym cond1 cond2
+
+    (v1, cond1) <- readEntry sym symIdx e1
+    (v2, _) <- readEntry sym symIdx e2
+    body <- W4.baseTypeIte sym cond1 v1 v2
+    fn <- W4.definedFn sym (W4.safeSymbol "mergeEntries") vars body W4.AlwaysUnfold
+    a <- W4.arrayFromFn sym fn
+    return $ ArrayEntryArr fcond a
+
+
+mergeEntryVal ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
   NonEmptyCtx ctx =>
   sym ->
   SymIndex sym ctx ->
+  W4.Pred sym ->
   W4.SymExpr sym tp ->
-  -- ^ new entry
   ArrayEntry sym ctx tp ->
-  -- ^ old entry
   IO (ArrayEntry sym ctx tp)
-addNewEntry sym symIdx new_v old_e = do
-  (old_v, isOldEntry) <- readEntry sym symIdx old_e
-  e <- W4.baseTypeIte sym isOldEntry old_v new_v
-  return $ ArrayEntryVal symIdx (W4.truePred sym) e
+mergeEntryVal sym symIdx cond1 v1 e2 = do
+  (v2, cond2) <- readEntry sym symIdx e2
+  cond <- W4.orPred sym cond1 cond2
+  e <- W4.baseTypeIte sym cond1 v1 v2
+  return $ ArrayEntryVal symIdx cond e
