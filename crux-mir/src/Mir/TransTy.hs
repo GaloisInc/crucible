@@ -65,6 +65,7 @@ import           Mir.Intrinsics
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
+    , pattern MethodSpecRepr, pattern MethodSpecBuilderRepr
     , DynRefType)
 
 
@@ -123,6 +124,12 @@ pattern CTyBv512 = CTyBv CTyBvSize512
 pattern CTyAny <- M.TyAdt _ $(M.normDefIdPat "core::crucible::any::Any") (M.Substs [])
   where CTyAny = M.TyAdt (M.textId "type::adt") (M.textId "core::crucible::any::Any") (M.Substs [])
 
+pattern CTyMethodSpec <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpec") (M.Substs [])
+  where CTyMethodSpec = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpec") (M.Substs [])
+
+pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
+  where CTyMethodSpecBuilder = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
+
 
 -- These don't have custom representation, but are referenced in various
 -- places.
@@ -150,6 +157,8 @@ tyToRepr t0 = case t0 of
       Some (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> C.BaseBVRepr (knownNat @SizeBits)) btr)
     | otherwise -> error $ "unsupported: crucible arrays of non-base type"
   CTyAny -> Some C.AnyRepr
+  CTyMethodSpec -> Some MethodSpecRepr
+  CTyMethodSpecBuilder -> Some MethodSpecBuilderRepr
 
   -- Defined as `union MaybeUninit<T> { uninit: (), value: ManuallyDrop<T> }`.
   -- We skip the outer union, leaving only `ManuallyDrop<T>`, which is a

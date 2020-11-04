@@ -109,6 +109,9 @@ import           Mir.PP
 
 import           Mir.FancyMuxTree
 
+import Data.IORef
+import qualified SAWScript.Crucible.Common.MethodSpec as MS
+
 import           Debug.Trace
 
 import           Unsafe.Coerce
@@ -1709,3 +1712,54 @@ getSlicePtr e = getStruct i1of2 e
 
 getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
 getSliceLen e = getStruct i2of2 e
+
+
+
+--------------------------------------------------------------------------------
+-- ** MethodSpec
+
+data MethodSpecBuilder sym = forall tp. MethodSpecBuilder
+    { _msbSpec :: MS.CrucibleMethodSpecIR MIR
+    , _msbResultType :: TypeRepr tp
+    , _msbResult :: Maybe (RegValue sym tp)
+    }
+
+newtype MethodSpecBuilderHandle sym =
+    MethodSpecBuilderHandle (IORef (MethodSpecBuilder sym))
+
+type MethodSpecBuilderSymbol = "MethodSpecBuilder"
+type MethodSpecBuilderType = IntrinsicType MethodSpecBuilderSymbol EmptyCtx
+
+pattern MethodSpecBuilderRepr :: () => tp' ~ MethodSpecBuilderType => TypeRepr tp'
+pattern MethodSpecBuilderRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MethodSpecBuilderSymbol) -> Just Refl) Empty
+ where MethodSpecBuilderRepr = IntrinsicRepr (knownSymbol @MethodSpecBuilderSymbol) Empty
+
+type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilderHandle sym
+  MethodSpecBuilderFam sym ctx = TypeError
+    ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
+  type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
+
+  muxIntrinsic _sym _iTypes _nm Empty = \_ _ _ -> fail "can't mux MethodSpecBuilders"
+  muxIntrinsic _sym _tys nm ctx = typeError nm ctx
+
+
+type MethodSpecSymbol = "MethodSpec"
+type MethodSpecType = IntrinsicType MethodSpecSymbol EmptyCtx
+
+pattern MethodSpecRepr :: () => tp' ~ MethodSpecType => TypeRepr tp'
+pattern MethodSpecRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MethodSpecSymbol) -> Just Refl) Empty
+ where MethodSpecRepr = IntrinsicRepr (knownSymbol @MethodSpecSymbol) Empty
+
+type family MethodSpecFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MethodSpecFam sym EmptyCtx = MS.CrucibleMethodSpecIR MIR
+  MethodSpecFam sym ctx = TypeError
+    ('Text "MethodSpecType expects no arguments, but was given" ':<>: 'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
+  type Intrinsic sym MethodSpecSymbol ctx = MethodSpecFam sym ctx
+
+  muxIntrinsic _sym _iTypes _nm Empty = \_ _ _ -> fail "can't mux MethodSpecs"
+  muxIntrinsic _sym _tys nm ctx = typeError nm ctx

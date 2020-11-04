@@ -3,6 +3,8 @@
 {-# Language ScopedTypeVariables #-}
 {-# Language RankNTypes #-}
 {-# Language PatternSynonyms #-}
+{-# Language TypeFamilies #-}
+{-# Language DataKinds #-}
 
 module Mir.ExtractSpec where
 
@@ -19,13 +21,18 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Text (Text)
+import qualified Data.Text as Text
+import Data.Void
 
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import qualified What4.Expr.Builder as W4
+import What4.FunctionName
 import qualified What4.Interface as W4
 import qualified What4.LabeledPred as W4
 import qualified What4.Partial as W4
+import What4.ProgramLoc
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Simulator.OverrideSim
@@ -37,9 +44,36 @@ import qualified Lang.Crucible.Backend.SAWCore as SAW
 import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Term.Pretty as SAW
 
+import qualified SAWScript.Crucible.Common.MethodSpec as MS
+
 import Crux.Types (Model)
 
+import Mir.DefId
+import Mir.Generator
 import Mir.Intrinsics
+import qualified Mir.Mir as M
+
+
+type instance MS.HasSetupNull MIR = 'False
+type instance MS.HasSetupGlobal MIR = 'False
+type instance MS.HasSetupStruct MIR = 'True
+type instance MS.HasSetupArray MIR = 'True
+type instance MS.HasSetupElem MIR = 'True
+type instance MS.HasSetupField MIR = 'True
+type instance MS.HasSetupGlobalInitializer MIR = 'False
+
+type instance MS.HasGhostState MIR = 'False
+
+type instance MS.TypeName MIR = Text
+type instance MS.ExtType MIR = M.Ty
+
+type instance MS.MethodId MIR = DefId
+type instance MS.AllocSpec MIR = Void
+type instance MS.PointsTo MIR = Void
+
+type instance MS.Codebase MIR = CollectionState
+
+type instance MS.CrucibleContext MIR = ()
 
 
 -- TODO:
