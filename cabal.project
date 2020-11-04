@@ -26,6 +26,7 @@ optional-packages:
   dependencies/hpb/
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/
+  dependencies/saw-core/rme/
   dependencies/saw-core/saw-core/
   dependencies/saw-core/saw-core-aig/
   dependencies/saw-core/saw-core-sbv/

@@ -129,7 +129,7 @@ initCryptolEnv sc = do
   -- Load Cryptol prelude
   (_, modEnv) <-
     liftModuleM modEnv1 $
-      MB.loadModuleFrom (MM.FromModule preludeName)
+      MB.loadModuleFrom False (MM.FromModule preludeName)
 
   -- Generate SAWCore translations for all values in scope
   termEnv <- genTermEnv sc modEnv
@@ -297,7 +297,7 @@ importModule sc env imp = do
     liftModuleM modEnv $
     case iModule imp of
       Left path -> MB.loadModuleByPath path
-      Right mn -> snd <$> MB.loadModuleFrom (MM.FromModule mn)
+      Right mn -> snd <$> MB.loadModuleFrom True (MM.FromModule mn)
 
   -- Regenerate SharedTerm environment. TODO: preserve old
   -- values, only translate decls from new module.
@@ -408,7 +408,7 @@ checkTerm env re expectedType = do
 
     --out <- MM.io (T.tcExpr re tcEnv')
     out <- MM.io $ TM.runInferM tcEnv'
-                (do e <- TI.checkE re expectedType
+                (do e <- TI.checkE re (T.WithSource expectedType T.TypeWildCard) -- type source is kinda bogus...
                     TS.simplifyAllConstraints
                     return e)
     MM.interactive (runInferOutput out)
