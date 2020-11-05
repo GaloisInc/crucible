@@ -8,7 +8,7 @@
 
 module Mir.ExtractSpec where
 
-import Control.Lens ((^.), (%=), (.=), use)
+import Control.Lens ((^.), (^?), (%=), (.=), use, at, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
@@ -52,6 +52,7 @@ import Mir.DefId
 import Mir.Generator
 import Mir.Intrinsics
 import qualified Mir.Mir as M
+import Mir.TransTy
 
 
 type instance MS.HasSetupNull MIR = 'False
@@ -75,6 +76,40 @@ type instance MS.Codebase MIR = CollectionState
 
 type instance MS.CrucibleContext MIR = ()
 
+
+
+builderNew ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    CollectionState ->
+    -- | `DefId` of the `builder_new` monomorphization.  Its `Instance` should
+    -- have one type argument, which is the `TyFnDef` of the function that the
+    -- spec applies to.
+    DefId ->
+    OverrideSim (Model sym) sym MIR rtp
+        EmptyCtx MethodSpecBuilderType (MethodSpecBuilderHandle sym)
+builderNew cs defId = do
+    let tyArg = cs ^? collection . M.intrinsics . ix defId .
+            M.intrInst . M.inSubsts . _Wrapped . ix 0
+    fnDefId <- case tyArg of
+        Just (M.TyFnDef did) -> return did
+        _ -> error $ "expected TyFnDef argument, but got " ++ show tyArg
+    let sig = case cs ^? collection . M.functions . ix fnDefId . M.fsig of
+            Just x -> x
+            _ -> error $ "failed to look up sig of " ++ show fnDefId
+
+    let loc = mkProgramLoc (functionNameFromText $ idText defId) InternalPos
+    let ms :: MS.CrucibleMethodSpecIR MIR = MS.makeCrucibleMethodSpecIR defId
+            (sig ^. M.fsarg_tys) (Just $ sig ^. M.fsreturn_ty) loc cs
+
+    Some retTpr <- return $ tyToRepr $ sig ^. M.fsreturn_ty
+
+    let msb = MethodSpecBuilder
+            { _msbSpec = ms
+            , _msbResultType = retTpr
+            , _msbResult = Nothing
+            }
+
+    liftIO $ MethodSpecBuilderHandle <$> newIORef msb
 
 -- TODO:
 -- - find new assumptions between 2 states

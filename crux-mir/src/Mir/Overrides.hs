@@ -84,8 +84,9 @@ import Crux.Model (addVar, evalModel)
 import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 
 import Mir.DefId
-import Mir.ExtractSpec
+import qualified Mir.ExtractSpec as MS
 import Mir.FancyMuxTree
+import Mir.Generator (CollectionState)
 import Mir.Intrinsics
 
 import qualified Lang.Crucible.Backend.SAWCore as SAW
@@ -376,9 +377,12 @@ regEval sym baseEval tpr v = go tpr v
 bindFn ::
   forall args ret blocks sym t st fs rtp a r .
   (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-  Maybe (SomeOnlineSolver sym) -> Text -> CFG MIR blocks args ret ->
+  Maybe (SomeOnlineSolver sym) ->
+  CollectionState ->
+  Text ->
+  CFG MIR blocks args ret ->
   OverrideSim (Model sym) sym MIR rtp a r ()
-bindFn symOnline name cfg
+bindFn symOnline cs name cfg
 
   | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
@@ -396,9 +400,15 @@ bindFn symOnline name cfg
   , Empty :> tpr <- cfgArgTypes cfg
   , UnitRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "extract_precondition" UnitRepr testExtractPrecondition
+    mkOverride' "extract_precondition" UnitRepr MS.testExtractPrecondition
 
-bindFn _symOnline fn cfg =
+  | (normDefId "crucible::method_spec::raw::builder_new" <> "::_inst") `Text.isPrefixOf` name
+  , Empty <- cfgArgTypes cfg
+  , MethodSpecBuilderRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_builder_new" MethodSpecBuilderRepr $ MS.builderNew cs (textId name)
+
+bindFn _symOnline _cs fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
     Nothing ->

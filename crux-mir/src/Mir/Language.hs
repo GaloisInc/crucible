@@ -153,7 +153,8 @@ runTests (cruxOpts, mirOpts) = do
     let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (Model sym) sym MIR rtp a r ()
         linkOverrides symOnline =
-            forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> bindFn symOnline fn cfg
+            forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) ->
+                bindFn symOnline (mir ^. rmCS) fn cfg
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")

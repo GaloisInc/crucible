@@ -18,7 +18,7 @@ pub fn spec_pretty_print(ms: MethodSpec) -> &'static str {
 #[derive(Clone, Copy)]
 pub struct MethodSpecBuilder(u8);
 
-pub fn builder_new<Args, Ret>() -> MethodSpecBuilder {
+pub fn builder_new<F>() -> MethodSpecBuilder {
     // This accesses the dummy field, but that's okay because this whole function will be
     // overridden when running under `crux-mir`.
     MethodSpecBuilder(0)
