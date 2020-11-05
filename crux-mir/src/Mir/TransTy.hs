@@ -243,6 +243,10 @@ dynRefRepr = C.StructRepr dynRefCtx
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
 canInitialize :: M.Ty -> Bool
 canInitialize ty = case ty of
+    -- Custom types
+    CTyMethodSpec -> False
+    CTyMethodSpecBuilder -> False
+
     -- Primitives
     M.TyBool -> True
     M.TyChar -> True
