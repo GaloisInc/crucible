@@ -285,6 +285,10 @@ regEval sym baseEval tpr v = go tpr v
             MirVector_Array <$> go (UsizeArrayRepr btpr') a
           | otherwise -> error "unreachable: MirVector_Array elem type is always a base type"
     -- TODO: StringMapRepr
+    go MethodSpecRepr x = return x
+    -- We don't bother with MethodSpecBuilderRepr, since the user shouldn't be
+    -- trying to print one, and it would be nontrivial to concretize (unlike
+    -- MethodSpecRepr) since it contains `RegValue`s.
     go tpr v = liftIO $ addFailedAssertion sym $ GenericSimError $
         "evaluation of " ++ show tpr ++ " is not yet implemented"
 
@@ -413,6 +417,14 @@ bindFn symOnline cs name cfg
   , MethodSpecRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "method_spec_builder_finish" MethodSpecRepr $ MS.builderFinish
+
+  | normDefId "crucible::method_spec::raw::spec_pretty_print" == name
+  , Empty :> MethodSpecRepr <- cfgArgTypes cfg
+  , MirSliceRepr (BVRepr w) <- cfgReturnType cfg
+  , Just Refl <- testEquality w (knownNat @8)
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_spec_pretty_print" (MirSliceRepr $ BVRepr $ knownNat @8) $
+        MS.specPrettyPrint
 
 bindFn _symOnline _cs fn cfg =
   getSymInterface >>= \s ->

@@ -5,6 +5,7 @@
 {-# Language PatternSynonyms #-}
 {-# Language TypeFamilies #-}
 {-# Language DataKinds #-}
+{-# Language TypeApplications #-}
 
 module Mir.ExtractSpec where
 
@@ -12,6 +13,8 @@ import Control.Lens ((^.), (^?), (%=), (.=), use, at, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
+import qualified Data.BitVector.Sized as BV
+import qualified Data.ByteString as BS
 import Data.Functor.Const
 import Data.IORef
 import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>))
@@ -23,6 +26,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
+import qualified Data.Vector as V
 import Data.Void
 
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -117,9 +122,31 @@ builderFinish ::
     OverrideSim (Model sym) sym MIR rtp
         (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpec
 builderFinish = do
-    RegMap (Empty :> RegEntry tpr (MethodSpecBuilderHandle handle)) <- getOverrideArgs
+    RegMap (Empty :> RegEntry _tpr (MethodSpecBuilderHandle handle)) <- getOverrideArgs
     builder <- liftIO $ readIORef handle
     return $ builder ^. msbSpec
+
+
+specPrettyPrint ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecType) (MirSlice (BVType 8)) (RegValue sym (MirSlice (BVType 8)))
+specPrettyPrint = do
+    RegMap (Empty :> RegEntry _tpr ms) <- getOverrideArgs
+    let str = show $ MS.ppMethodSpec ms
+    let bytes = Text.encodeUtf8 $ Text.pack str
+
+    sym <- getSymInterface
+    len <- liftIO $ W4.bvLit sym knownRepr (BV.mkBV knownRepr $ fromIntegral $ BS.length bytes)
+
+    byteVals <- forM (BS.unpack bytes) $ \b -> do
+        liftIO $ W4.bvLit sym (knownNat @8) (BV.mkBV knownRepr $ fromIntegral b)
+
+    let vec = MirVector_Vector $ V.fromList byteVals
+    let vecRef = newConstMirRef sym knownRepr vec
+    ptr <- subindexMirRefSim knownRepr vecRef =<<
+        liftIO (W4.bvLit sym knownRepr (BV.zero knownRepr))
+    return $ Empty :> RV ptr :> RV len
 
 
 -- TODO:
