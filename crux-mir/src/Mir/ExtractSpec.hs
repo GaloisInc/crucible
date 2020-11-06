@@ -98,7 +98,7 @@ builderNew cs defId = do
             _ -> error $ "failed to look up sig of " ++ show fnDefId
 
     let loc = mkProgramLoc (functionNameFromText $ idText defId) InternalPos
-    let ms :: MS.CrucibleMethodSpecIR MIR = MS.makeCrucibleMethodSpecIR defId
+    let ms :: MIRMethodSpec = MS.makeCrucibleMethodSpecIR defId
             (sig ^. M.fsarg_tys) (Just $ sig ^. M.fsreturn_ty) loc cs
 
     Some retTpr <- return $ tyToRepr $ sig ^. M.fsreturn_ty
@@ -110,6 +110,17 @@ builderNew cs defId = do
             }
 
     liftIO $ MethodSpecBuilderHandle <$> newIORef msb
+
+
+builderFinish ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpec
+builderFinish = do
+    RegMap (Empty :> RegEntry tpr (MethodSpecBuilderHandle handle)) <- getOverrideArgs
+    builder <- liftIO $ readIORef handle
+    return $ builder ^. msbSpec
+
 
 -- TODO:
 -- - find new assumptions between 2 states

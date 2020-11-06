@@ -408,6 +408,12 @@ bindFn symOnline cs name cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "method_spec_builder_new" MethodSpecBuilderRepr $ MS.builderNew cs (textId name)
 
+  | normDefId "crucible::method_spec::raw::builder_finish" == name
+  , Empty :> MethodSpecBuilderRepr <- cfgArgTypes cfg
+  , MethodSpecRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_builder_finish" MethodSpecRepr $ MS.builderFinish
+
 bindFn _symOnline _cs fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of

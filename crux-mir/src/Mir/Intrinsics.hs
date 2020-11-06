@@ -1718,11 +1718,15 @@ getSliceLen e = getStruct i2of2 e
 --------------------------------------------------------------------------------
 -- ** MethodSpec
 
+type MIRMethodSpec = MS.CrucibleMethodSpecIR MIR
+
 data MethodSpecBuilder sym = forall tp. MethodSpecBuilder
-    { _msbSpec :: MS.CrucibleMethodSpecIR MIR
+    { _msbSpec :: MIRMethodSpec
     , _msbResultType :: TypeRepr tp
     , _msbResult :: Maybe (RegValue sym tp)
     }
+
+makeLenses ''MethodSpecBuilder
 
 newtype MethodSpecBuilderHandle sym =
     MethodSpecBuilderHandle (IORef (MethodSpecBuilder sym))
@@ -1755,7 +1759,7 @@ pattern MethodSpecRepr <-
  where MethodSpecRepr = IntrinsicRepr (knownSymbol @MethodSpecSymbol) Empty
 
 type family MethodSpecFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
-  MethodSpecFam sym EmptyCtx = MS.CrucibleMethodSpecIR MIR
+  MethodSpecFam sym EmptyCtx = MIRMethodSpec
   MethodSpecFam sym ctx = TypeError
     ('Text "MethodSpecType expects no arguments, but was given" ':<>: 'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
