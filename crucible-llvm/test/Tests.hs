@@ -301,6 +301,7 @@ tests int struct uninitialized _ lifetime = do
 
     , [ testArrayStride
       , testMemArray
+      , testMemAllocs
       ]
     ]
 
@@ -513,3 +514,46 @@ testMemWritesIndexed = testCase "indexed memory writes" $ withMem BigEndian $ \s
   val2 <- projectLLVM_bv sym
     =<< doLoad sym mem4 base_ptr2 long_storage_type ptr_long_repr noAlignment
   (Just (BV.mkBV knownNat count)) @=? What4.asBV val2
+
+testMemAllocs :: TestTree
+testMemAllocs =
+  testCase "memory model alloc/free" $
+  withMem BigEndian $
+  \sym mem0 ->
+  do sz1 <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth 128
+     sz2 <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth 72
+     sz3 <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth 32
+     (ptr1, mem1) <- mallocRaw sym mem0 sz1 noAlignment
+     (ptr2, mem2) <- mallocRaw sym mem1 sz2 noAlignment
+     mem3 <- doFree sym mem2 ptr2
+     (ptr3, mem4) <- mallocRaw sym mem3 sz3 noAlignment
+     mem5 <- doFree sym mem4 ptr1
+     mem6 <- doFree sym mem5 ptr3
+
+     let isAllocated = isAllocatedAlignedPointer sym ?ptrWidth noAlignment Mutable
+     assertions <-
+       sequence
+       [ isAllocated ptr1 (Just sz1) mem1
+       , isAllocated ptr1 (Just sz1) mem2
+       , isAllocated ptr1 (Just sz1) mem3
+       , isAllocated ptr1 (Just sz1) mem4
+       , isAllocated ptr1 (Just sz1) mem5 >>= What4.notPred sym
+       , isAllocated ptr1 (Just sz1) mem6 >>= What4.notPred sym
+
+       , isAllocated ptr2 (Just sz2) mem1 >>= What4.notPred sym
+       , isAllocated ptr2 (Just sz2) mem2
+       , isAllocated ptr2 (Just sz2) mem3 >>= What4.notPred sym
+       , isAllocated ptr2 (Just sz2) mem4 >>= What4.notPred sym
+       , isAllocated ptr2 (Just sz2) mem5 >>= What4.notPred sym
+       , isAllocated ptr2 (Just sz2) mem6 >>= What4.notPred sym
+
+       , isAllocated ptr3 (Just sz3) mem1 >>= What4.notPred sym
+       , isAllocated ptr3 (Just sz3) mem2 >>= What4.notPred sym
+       , isAllocated ptr3 (Just sz3) mem3 >>= What4.notPred sym
+       , isAllocated ptr3 (Just sz3) mem4
+       , isAllocated ptr3 (Just sz3) mem5
+       , isAllocated ptr3 (Just sz3) mem6 >>= What4.notPred sym
+       ]
+     assertion <- foldM (What4.andPred sym) (What4.truePred sym) assertions
+     res <- checkSat sym =<< What4.notPred sym assertion
+     True @=? What4.isUnsat res
