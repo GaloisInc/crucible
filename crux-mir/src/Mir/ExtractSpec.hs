@@ -16,7 +16,6 @@ import Control.Monad.State
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 import Data.Functor.Const
-import Data.IORef
 import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some
@@ -91,7 +90,7 @@ builderNew ::
     -- spec applies to.
     DefId ->
     OverrideSim (Model sym) sym MIR rtp
-        EmptyCtx MethodSpecBuilderType (MethodSpecBuilderHandle sym)
+        EmptyCtx MethodSpecBuilderType (MethodSpecBuilder sym)
 builderNew cs defId = do
     let tyArg = cs ^? collection . M.intrinsics . ix defId .
             M.intrInst . M.inSubsts . _Wrapped . ix 0
@@ -108,13 +107,11 @@ builderNew cs defId = do
 
     Some retTpr <- return $ tyToRepr $ sig ^. M.fsreturn_ty
 
-    let msb = MethodSpecBuilder
-            { _msbSpec = ms
-            , _msbResultType = retTpr
-            , _msbResult = Nothing
-            }
-
-    liftIO $ MethodSpecBuilderHandle <$> newIORef msb
+    return MethodSpecBuilder
+        { _msbSpec = ms
+        , _msbResultType = retTpr
+        , _msbResult = Nothing
+        }
 
 
 builderFinish ::
@@ -122,8 +119,7 @@ builderFinish ::
     OverrideSim (Model sym) sym MIR rtp
         (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpec
 builderFinish = do
-    RegMap (Empty :> RegEntry _tpr (MethodSpecBuilderHandle handle)) <- getOverrideArgs
-    builder <- liftIO $ readIORef handle
+    RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
     return $ builder ^. msbSpec
 
 

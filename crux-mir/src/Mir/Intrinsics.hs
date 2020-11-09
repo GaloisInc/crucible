@@ -109,7 +109,6 @@ import           Mir.PP
 
 import           Mir.FancyMuxTree
 
-import Data.IORef
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 
 import           Debug.Trace
@@ -1728,9 +1727,6 @@ data MethodSpecBuilder sym = forall tp. MethodSpecBuilder
 
 makeLenses ''MethodSpecBuilder
 
-newtype MethodSpecBuilderHandle sym =
-    MethodSpecBuilderHandle (IORef (MethodSpecBuilder sym))
-
 type MethodSpecBuilderSymbol = "MethodSpecBuilder"
 type MethodSpecBuilderType = IntrinsicType MethodSpecBuilderSymbol EmptyCtx
 
@@ -1740,7 +1736,7 @@ pattern MethodSpecBuilderRepr <-
  where MethodSpecBuilderRepr = IntrinsicRepr (knownSymbol @MethodSpecBuilderSymbol) Empty
 
 type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
-  MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilderHandle sym
+  MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilder sym
   MethodSpecBuilderFam sym ctx = TypeError
     ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
