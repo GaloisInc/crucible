@@ -51,6 +51,10 @@ impl MethodSpecBuilder {
         self.raw = raw::builder_add_arg(self.raw, x);
     }
 
+    pub fn gather_assumes(&mut self) {
+        self.raw = raw::builder_gather_assumes(self.raw);
+    }
+
     pub fn set_return<T>(&mut self, x: &T) {
         self.raw = raw::builder_set_return(self.raw, x);
     }

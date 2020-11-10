@@ -412,6 +412,18 @@ bindFn symOnline cs name cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "method_spec_builder_new" MethodSpecBuilderRepr $ MS.builderNew cs (textId name)
 
+  | (normDefId "crucible::method_spec::raw::builder_add_arg" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> MethodSpecBuilderRepr :> MirReferenceRepr tpr <- cfgArgTypes cfg
+  , MethodSpecBuilderRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_builder_add_arg" MethodSpecBuilderRepr MS.builderAddArg
+
+  | normDefId "crucible::method_spec::raw::builder_gather_assumes" == name
+  , Empty :> MethodSpecBuilderRepr <- cfgArgTypes cfg
+  , MethodSpecBuilderRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_builder_gather_assumes" MethodSpecBuilderRepr $ MS.builderGatherAssumes
+
   | normDefId "crucible::method_spec::raw::builder_finish" == name
   , Empty :> MethodSpecBuilderRepr <- cfgArgTypes cfg
   , MethodSpecRepr <- cfgReturnType cfg

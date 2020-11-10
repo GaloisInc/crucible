@@ -44,9 +44,9 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 -- string such as "{{impl}}", "{{closure}}", or "{{promoted}}".
 type Segment = (Text, Int)
 
-data DefId = DefId
+data DefId = DefId {
     -- | The name of the enclosing crate.
-    { did_crate :: Text
+      did_crate :: Text
     -- | The disambiguator of the enclosing crate.  These are strings, in a
     -- different format than the integer disambiguators used for normal path
     -- segments.

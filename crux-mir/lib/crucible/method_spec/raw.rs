@@ -29,6 +29,10 @@ pub fn builder_add_arg<T>(msb: MethodSpecBuilder, x: &T) -> MethodSpecBuilder {
     msb
 }
 
+pub fn builder_gather_assumes(msb: MethodSpecBuilder) -> MethodSpecBuilder {
+    msb
+}
+
 pub fn builder_set_return<T>(msb: MethodSpecBuilder, x: &T) -> MethodSpecBuilder {
     let _ = x;
     msb

@@ -66,6 +66,8 @@ import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.String
@@ -1719,10 +1721,24 @@ getSliceLen e = getStruct i2of2 e
 
 type MIRMethodSpec = MS.CrucibleMethodSpecIR MIR
 
-data MethodSpecBuilder sym = forall tp. MethodSpecBuilder
+-- | A `RegValue` and its associated `TypeRepr`.
+data MethodSpecValue sym tp = MethodSpecValue (TypeRepr tp) (RegValue sym tp)
+
+data MethodSpecBuilder sym = MethodSpecBuilder
     { _msbSpec :: MIRMethodSpec
-    , _msbResultType :: TypeRepr tp
-    , _msbResult :: Maybe (RegValue sym tp)
+    , _msbArgs :: Seq (Some (MethodSpecValue sym))
+    , _msbPre :: Seq (Pred sym)
+    , _msbResult :: Maybe (Some (MethodSpecValue sym))
+    , _msbPost :: Seq (Pred sym)
+    }
+
+initMethodSpecBuilder :: MIRMethodSpec -> MethodSpecBuilder sym
+initMethodSpecBuilder spec = MethodSpecBuilder
+    { _msbSpec = spec
+    , _msbArgs = Seq.empty
+    , _msbPre = Seq.empty
+    , _msbResult = Nothing
+    , _msbPost = Seq.empty
     }
 
 makeLenses ''MethodSpecBuilder

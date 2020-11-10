@@ -9,15 +9,18 @@
 
 module Mir.ExtractSpec where
 
-import Control.Lens ((^.), (^?), (%=), (.=), use, at, ix, _Wrapped)
+import Control.Lens ((^.), (^?), (%=), (.=), (&), (.~), (%~), use, at, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
+import Data.Foldable
 import Data.Functor.Const
+import Data.IORef
 import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
+import Data.Parameterized.Nonce
 import Data.Parameterized.Some
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -107,12 +110,70 @@ builderNew cs defId = do
 
     Some retTpr <- return $ tyToRepr $ sig ^. M.fsreturn_ty
 
-    return MethodSpecBuilder
-        { _msbSpec = ms
-        , _msbResultType = retTpr
-        , _msbResult = Nothing
-        }
+    return $ initMethodSpecBuilder ms
 
+builderAddArg ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecBuilderType ::> MirReferenceType tp)
+        MethodSpecBuilderType
+        (MethodSpecBuilder sym)
+builderAddArg = do
+    sym <- getSymInterface
+    RegMap (Empty :> RegEntry _tpr builder :> RegEntry (MirReferenceRepr tpr) argRef) <-
+        getOverrideArgs
+
+    arg <- readMirRefSim tpr argRef
+
+    return $ builder & msbArgs %~ (Seq.|> Some (MethodSpecValue tpr arg))
+
+builderGatherAssumes ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecBuilderType)
+        MethodSpecBuilderType
+        (MethodSpecBuilder sym)
+builderGatherAssumes = do
+    sym <- getSymInterface
+    RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
+
+    -- Find all vars that are mentioned in the arguments.
+    vars <- do
+        varsRef <- liftIO $ newIORef Set.empty
+        cache <- W4.newIdxCache
+        forM_ (builder ^. msbArgs) $ \(Some (MethodSpecValue tpr arg)) ->
+            visitRegValueExprs sym tpr arg $ \expr ->
+                liftIO $ visitExprVars cache expr $ \v ->
+                    modifyIORef' varsRef $ Set.insert (Some v)
+        liftIO $ readIORef varsRef
+
+    liftIO $ putStrLn $ "found " ++ show (Set.size vars) ++ " relevant variables"
+    liftIO $ print vars
+
+    -- Find all assumptions that mention a relevant variable.
+    assumes <- liftIO $ collectAssumptions sym
+    assumes' <- Seq.fromList <$> filterM (\a -> do
+        okRef <- liftIO $ newIORef False
+        cache <- W4.newIdxCache
+        liftIO $ visitExprVars cache (a ^. W4.labeledPred) $ \v ->
+            when (Set.member (Some v) vars) $
+                writeIORef okRef True
+        liftIO $ readIORef okRef) (toList assumes)
+
+    liftIO $ putStrLn $ "found " ++ show (Seq.length assumes') ++ " relevant assumes, " ++
+        show (Seq.length assumes) ++ " total"
+
+    do
+        cache <- W4.newIdxCache
+        forM_ assumes $ \a -> do
+            liftIO $ visitExprVars cache (a ^. W4.labeledPred) $ \v ->
+                when (not $ Set.member (Some v) vars) $
+                    error $ "assumption `" ++ show (a ^. W4.labeledPred) ++ "` (" ++
+                        show (a ^. W4.labeledPredMsg) ++ ") references variable " ++ show v ++
+                        " (" ++ show (W4.bvarName v) ++ " at " ++ show (W4.bvarLoc v) ++
+                        "), which does not appear in the function args"
+
+    return $ builder & msbPre .~ fmap (^. W4.labeledPred) assumes'
 
 builderFinish ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -120,6 +181,20 @@ builderFinish ::
         (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpec
 builderFinish = do
     RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
+
+    sym <- getSymInterface
+
+    sawCtx <- liftIO $ SAW.mkSharedContext
+    let ng = W4.exprCounter sym
+    sawSym <- liftIO $ SAW.newSAWCoreBackend W4.FloatUninterpretedRepr sawCtx ng
+
+    cache <- W4.newIdxCache
+    preTerms <- forM (builder ^. msbPre) $ \pred -> do
+        sawPred <- liftIO $ SAW.evaluateExpr sawSym sawCtx cache pred
+        liftIO $ print (pred, SAW.ppTerm SAW.defaultPPOpts sawPred)
+        return sawPred
+
+    liftIO $ print $ "finish: " ++ show (Seq.length $ builder ^. msbArgs) ++ " args"
     return $ builder ^. msbSpec
 
 
@@ -183,8 +258,8 @@ testExtractPrecondition = do
 -- | Run `f` on each `SymExpr` in `v`.
 visitRegValueExprs ::
     forall sym tp m.
-    sym ->
     Monad m =>
+    sym ->
     TypeRepr tp ->
     RegValue sym tp ->
     (forall btp. W4.SymExpr sym btp -> m ()) ->
@@ -212,7 +287,7 @@ visitRegValueExprs _sym tpr_ v_ f = go tpr_ v_
 
 -- | Run `f` on each free symbolic variable in `e`.
 visitExprVars ::
-    forall t tp.
+    forall t tp m.
     W4.IdxCache t (Const ()) ->
     W4.Expr t tp ->
     (forall tp'. W4.ExprBoundVar t tp' -> IO ()) ->
