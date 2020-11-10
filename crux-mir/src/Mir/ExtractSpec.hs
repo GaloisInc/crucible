@@ -11,6 +11,7 @@ module Mir.ExtractSpec where
 
 import Control.Lens ((^.), (^?), (%=), (.=), (&), (.~), (%~), use, at, ix, _Wrapped)
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.State
 import qualified Data.BitVector.Sized as BV
@@ -138,42 +139,72 @@ builderGatherAssumes = do
     RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
 
     -- Find all vars that are mentioned in the arguments.
-    vars <- do
-        varsRef <- liftIO $ newIORef Set.empty
-        cache <- W4.newIdxCache
-        forM_ (builder ^. msbArgs) $ \(Some (MethodSpecValue tpr arg)) ->
-            visitRegValueExprs sym tpr arg $ \expr ->
-                liftIO $ visitExprVars cache expr $ \v ->
-                    modifyIORef' varsRef $ Set.insert (Some v)
-        liftIO $ readIORef varsRef
+    vars <- liftIO $ gatherVars sym (toList $ builder ^. msbArgs)
 
     liftIO $ putStrLn $ "found " ++ show (Set.size vars) ++ " relevant variables"
     liftIO $ print vars
 
     -- Find all assumptions that mention a relevant variable.
     assumes <- liftIO $ collectAssumptions sym
-    assumes' <- Seq.fromList <$> filterM (\a -> do
-        okRef <- liftIO $ newIORef False
-        cache <- W4.newIdxCache
-        liftIO $ visitExprVars cache (a ^. W4.labeledPred) $ \v ->
-            when (Set.member (Some v) vars) $
-                writeIORef okRef True
-        liftIO $ readIORef okRef) (toList assumes)
+    optAssumes' <- liftIO $ relevantPreds sym vars $
+        map (\a -> (a ^. W4.labeledPred, a ^. W4.labeledPredMsg)) $ toList assumes
+    let assumes' = case optAssumes' of
+            Left (pred, msg, Some v) ->
+                error $ "assumption `" ++ show pred ++ "` (" ++ show msg ++
+                    ") references variable " ++ show v ++ " (" ++ show (W4.bvarName v) ++ " at " ++
+                    show (W4.bvarLoc v) ++ "), which does not appear in the function args"
+            Right x -> Seq.fromList $ map fst x
 
     liftIO $ putStrLn $ "found " ++ show (Seq.length assumes') ++ " relevant assumes, " ++
         show (Seq.length assumes) ++ " total"
 
-    do
-        cache <- W4.newIdxCache
-        forM_ assumes $ \a -> do
-            liftIO $ visitExprVars cache (a ^. W4.labeledPred) $ \v ->
-                when (not $ Set.member (Some v) vars) $
-                    error $ "assumption `" ++ show (a ^. W4.labeledPred) ++ "` (" ++
-                        show (a ^. W4.labeledPredMsg) ++ ") references variable " ++ show v ++
-                        " (" ++ show (W4.bvarName v) ++ " at " ++ show (W4.bvarLoc v) ++
-                        "), which does not appear in the function args"
+    return $ builder & msbPre .~ assumes'
 
-    return $ builder & msbPre .~ fmap (^. W4.labeledPred) assumes'
+-- | Collect all the symbolic variables that appear in `vals`.
+gatherVars ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    sym ->
+    [Some (MethodSpecValue sym)] ->
+    IO (Set (Some (W4.ExprBoundVar t)))
+gatherVars sym vals = do
+    varsRef <- newIORef Set.empty
+    cache <- W4.newIdxCache
+    forM_ vals $ \(Some (MethodSpecValue tpr arg)) ->
+        visitRegValueExprs sym tpr arg $ \expr ->
+            visitExprVars cache expr $ \v ->
+                modifyIORef' varsRef $ Set.insert (Some v)
+    readIORef varsRef
+
+-- | Collect all the predicates from `preds` that mention at least one variable
+-- in `vars`.  Return `Left (pred, info, badVar)` if it finds a predicate
+-- `pred` that mentions at least one variable in `vars` along with some
+-- `badVar` not in `vars`.
+relevantPreds :: forall sym t st fs a.
+    (IsSymInterface sym, IsBoolSolver sym, sym ~ W4.ExprBuilder t st fs) =>
+    sym ->
+    Set (Some (W4.ExprBoundVar t)) ->
+    [(W4.Pred sym, a)] ->
+    IO (Either (W4.Pred sym, a, Some (W4.ExprBoundVar t)) [(W4.Pred sym, a)])
+relevantPreds _sym vars preds = runExceptT $ filterM check preds
+  where
+    check (pred, info) = do
+        sawRel <- lift $ newIORef False
+        sawIrrel <- lift $ newIORef Nothing
+
+        cache <- W4.newIdxCache
+        lift $ visitExprVars cache pred $ \v ->
+            if Set.member (Some v) vars then
+                writeIORef sawRel True
+            else
+                writeIORef sawIrrel (Just $ Some v)
+        sawRel' <- lift $ readIORef sawRel
+        sawIrrel' <- lift $ readIORef sawIrrel
+
+        case (sawRel', sawIrrel') of
+            (True, Just badVar) -> throwError (pred, info, badVar)
+            (True, Nothing) -> return True
+            (False, _) -> return False
+
 
 builderFinish ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
