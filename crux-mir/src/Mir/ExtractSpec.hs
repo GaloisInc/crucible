@@ -128,6 +128,21 @@ builderAddArg = do
 
     return $ builder & msbArgs %~ (Seq.|> Some (MethodSpecValue tpr arg))
 
+builderSetReturn ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecBuilderType ::> MirReferenceType tp)
+        MethodSpecBuilderType
+        (MethodSpecBuilder sym)
+builderSetReturn = do
+    sym <- getSymInterface
+    RegMap (Empty :> RegEntry _tpr builder :> RegEntry (MirReferenceRepr tpr) argRef) <-
+        getOverrideArgs
+
+    arg <- readMirRefSim tpr argRef
+
+    return $ builder & msbResult .~ Just (Some (MethodSpecValue tpr arg))
+
 builderGatherAssumes ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     OverrideSim (Model sym) sym MIR rtp
@@ -159,6 +174,42 @@ builderGatherAssumes = do
         show (Seq.length assumes) ++ " total"
 
     return $ builder & msbPre .~ assumes'
+
+builderGatherAsserts ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecBuilderType)
+        MethodSpecBuilderType
+        (MethodSpecBuilder sym)
+builderGatherAsserts = do
+    sym <- getSymInterface
+    RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
+
+    -- Find all vars that are mentioned in the arguments or return value.
+    let args = toList $ builder ^. msbArgs
+    let trueValue = MethodSpecValue BoolRepr $ W4.truePred sym
+    let result = maybe (Some trueValue) id $ builder ^. msbResult
+    vars <- liftIO $ gatherVars sym (result : args)
+
+    liftIO $ putStrLn $ "found " ++ show (Set.size vars) ++ " relevant variables"
+    liftIO $ print vars
+
+    -- Find all assertions that mention a relevant variable.
+    goals <- liftIO $ proofGoalsToList <$> getProofObligations sym
+    let asserts = map proofGoal goals
+    optAsserts' <- liftIO $ relevantPreds sym vars $
+        map (\a -> (a ^. W4.labeledPred, a ^. W4.labeledPredMsg)) asserts
+    let asserts' = case optAsserts' of
+            Left (pred, msg, Some v) ->
+                error $ "assertion `" ++ show pred ++ "` (" ++ show msg ++
+                    ") references variable " ++ show v ++ " (" ++ show (W4.bvarName v) ++ " at " ++
+                    show (W4.bvarLoc v) ++ "), which does not appear in the function args"
+            Right x -> Seq.fromList $ map fst x
+
+    liftIO $ putStrLn $ "found " ++ show (Seq.length asserts') ++ " relevant asserts, " ++
+        show (length asserts) ++ " total"
+
+    return $ builder & msbPost .~ asserts'
 
 -- | Collect all the symbolic variables that appear in `vals`.
 gatherVars ::
@@ -222,7 +273,11 @@ builderFinish = do
     cache <- W4.newIdxCache
     preTerms <- forM (builder ^. msbPre) $ \pred -> do
         sawPred <- liftIO $ SAW.evaluateExpr sawSym sawCtx cache pred
-        liftIO $ print (pred, SAW.ppTerm SAW.defaultPPOpts sawPred)
+        liftIO $ print ("pre", pred, SAW.ppTerm SAW.defaultPPOpts sawPred)
+        return sawPred
+    postTerms <- forM (builder ^. msbPost) $ \pred -> do
+        sawPred <- liftIO $ SAW.evaluateExpr sawSym sawCtx cache pred
+        liftIO $ print ("post", pred, SAW.ppTerm SAW.defaultPPOpts sawPred)
         return sawPred
 
     liftIO $ print $ "finish: " ++ show (Seq.length $ builder ^. msbArgs) ++ " args"

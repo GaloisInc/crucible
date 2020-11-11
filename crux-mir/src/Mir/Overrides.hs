@@ -418,11 +418,23 @@ bindFn symOnline cs name cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "method_spec_builder_add_arg" MethodSpecBuilderRepr MS.builderAddArg
 
+  | (normDefId "crucible::method_spec::raw::builder_set_return" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> MethodSpecBuilderRepr :> MirReferenceRepr tpr <- cfgArgTypes cfg
+  , MethodSpecBuilderRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_builder_set_return" MethodSpecBuilderRepr MS.builderSetReturn
+
   | normDefId "crucible::method_spec::raw::builder_gather_assumes" == name
   , Empty :> MethodSpecBuilderRepr <- cfgArgTypes cfg
   , MethodSpecBuilderRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "method_spec_builder_gather_assumes" MethodSpecBuilderRepr $ MS.builderGatherAssumes
+
+  | normDefId "crucible::method_spec::raw::builder_gather_asserts" == name
+  , Empty :> MethodSpecBuilderRepr <- cfgArgTypes cfg
+  , MethodSpecBuilderRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_builder_gather_asserts" MethodSpecBuilderRepr $ MS.builderGatherAsserts
 
   | normDefId "crucible::method_spec::raw::builder_finish" == name
   , Empty :> MethodSpecBuilderRepr <- cfgArgTypes cfg
