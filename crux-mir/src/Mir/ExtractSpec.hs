@@ -49,8 +49,11 @@ import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Types
 
 import qualified Lang.Crucible.Backend.SAWCore as SAW
+import qualified Verifier.SAW.Prelude as SAW
 import qualified Verifier.SAW.SharedTerm as SAW
+import qualified Verifier.SAW.Term.Functor as SAW
 import qualified Verifier.SAW.Term.Pretty as SAW
+import qualified Verifier.SAW.TypedTerm as SAW
 
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 
@@ -226,6 +229,20 @@ gatherVars sym vals = do
                 modifyIORef' varsRef $ Set.insert (Some v)
     readIORef varsRef
 
+-- | Collect all the symbolic variables that appear in `preds`.
+gatherPredVars ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    sym ->
+    [W4.Pred sym] ->
+    IO (Set (Some (W4.ExprBoundVar t)))
+gatherPredVars sym preds = do
+    varsRef <- newIORef Set.empty
+    cache <- W4.newIdxCache
+    forM_ preds $ \pred ->
+        visitExprVars cache pred $ \v ->
+            modifyIORef' varsRef $ Set.insert (Some v)
+    readIORef varsRef
+
 -- | Collect all the predicates from `preds` that mention at least one variable
 -- in `vars`.  Return `Left (pred, info, badVar)` if it finds a predicate
 -- `pred` that mentions at least one variable in `vars` along with some
@@ -257,7 +274,7 @@ relevantPreds _sym vars preds = runExceptT $ filterM check preds
             (False, _) -> return False
 
 
-builderFinish ::
+builderFinish :: forall sym t st fs rtp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     OverrideSim (Model sym) sym MIR rtp
         (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpec
@@ -266,22 +283,47 @@ builderFinish = do
 
     sym <- getSymInterface
 
-    sawCtx <- liftIO $ SAW.mkSharedContext
+    sc <- liftIO $ SAW.mkSharedContext
+    liftIO $ SAW.scLoadPreludeModule sc
     let ng = W4.exprCounter sym
-    sawSym <- liftIO $ SAW.newSAWCoreBackend W4.FloatUninterpretedRepr sawCtx ng
+    sawSym <- liftIO $ SAW.newSAWCoreBackend W4.FloatUninterpretedRepr sc ng
 
     cache <- W4.newIdxCache
-    preTerms <- forM (builder ^. msbPre) $ \pred -> do
-        sawPred <- liftIO $ SAW.evaluateExpr sawSym sawCtx cache pred
-        liftIO $ print ("pre", pred, SAW.ppTerm SAW.defaultPPOpts sawPred)
-        return sawPred
-    postTerms <- forM (builder ^. msbPost) $ \pred -> do
-        sawPred <- liftIO $ SAW.evaluateExpr sawSym sawCtx cache pred
-        liftIO $ print ("post", pred, SAW.ppTerm SAW.defaultPPOpts sawPred)
-        return sawPred
+    let eval :: forall tp. W4.Expr t tp -> IO SAW.Term
+        eval x = SAW.evaluateExpr sawSym sc cache x
+
+    preVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPre)
+    postVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPost)
+    let postOnlyVars = postVars `Set.difference` preVars
+
+    preVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList preVars
+    postVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList postOnlyVars
+
+    prePreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPre)
+    postPreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPost)
 
     liftIO $ print $ "finish: " ++ show (Seq.length $ builder ^. msbArgs) ++ " args"
+    let loc = builder ^. msbSpec . MS.csLoc
     return $ builder ^. msbSpec
+        & MS.csPreState . MS.csFreshVars .~ preVars'
+        & MS.csPreState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList prePreds')
+        & MS.csPostState . MS.csFreshVars .~ postVars'
+        & MS.csPostState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList postPreds')
+
+  where
+    evalTyped :: forall tp.
+        (W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
+        BaseTypeRepr tp -> W4.Expr t tp -> IO SAW.TypedTerm
+    evalTyped eval sc _tpr expr = SAW.mkTypedTerm sc =<< eval expr
+
+    evalVar :: forall tp.
+        (W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
+        W4.ExprBoundVar t tp -> IO SAW.TypedExtCns
+    evalVar eval sc var = do
+        tt <- evalTyped eval sc (W4.bvarType var) (W4.BoundVarExpr var)
+        case SAW.asTypedExtCns tt of
+            Just x -> return x
+            Nothing -> error $ "BoundVarExpr translated to non-ExtCns term? " ++ show tt
 
 
 specPrettyPrint ::

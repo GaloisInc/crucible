@@ -54,6 +54,7 @@ library
                  template-haskell,
                  crucible-saw,
                  saw-core,
+                 cryptol-saw-core,
                  saw-script
 
 
