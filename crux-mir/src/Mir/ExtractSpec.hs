@@ -112,7 +112,7 @@ builderNew cs defId = do
             _ -> error $ "failed to look up sig of " ++ show fnDefId
 
     let loc = mkProgramLoc (functionNameFromText $ idText defId) InternalPos
-    let ms :: MIRMethodSpec = MS.makeCrucibleMethodSpecIR defId
+    let ms :: MIRMethodSpec = MS.makeCrucibleMethodSpecIR fnDefId
             (sig ^. M.fsarg_tys) (Just $ sig ^. M.fsreturn_ty) loc cs
 
     Some retTpr <- return $ tyToRepr $ sig ^. M.fsreturn_ty
