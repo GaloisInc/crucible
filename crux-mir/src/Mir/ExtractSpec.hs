@@ -43,6 +43,8 @@ import qualified What4.Partial as W4
 import What4.ProgramLoc
 
 import Lang.Crucible.Backend
+import Lang.Crucible.FunctionHandle
+import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.RegMap
 import Lang.Crucible.Simulator.RegValue
@@ -352,6 +354,31 @@ specPrettyPrint = do
     ptr <- subindexMirRefSim knownRepr vecRef =<<
         liftIO (W4.bvLit sym knownRepr (BV.zero knownRepr))
     return $ Empty :> RV ptr :> RV len
+
+specEnable ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    CollectionState ->
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecType) UnitType ()
+specEnable cs = do
+    RegMap (Empty :> RegEntry _tpr ms) <- getOverrideArgs
+    let funcName = ms ^. MS.csMethod
+    MirHandle _name sig mh <- case cs ^? handleMap . ix funcName of
+        Just x -> return x
+        Nothing -> error $ "MethodSpec has bad method name " ++ show (ms ^. MS.csMethod) ++ "?"
+    liftIO $ print ("enable spec for", mh)
+
+    bindFnHandle mh $ UseOverride $ mkOverride' (handleName mh) (handleReturnType mh) $
+        runSpec funcName (handleArgTypes mh) (handleReturnType mh)
+
+runSpec :: forall sym t st fs args ret rtp.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    DefId -> CtxRepr args -> TypeRepr ret ->
+    OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym ret)
+runSpec name argsCtx retTpr = do
+    liftIO $ print ("in runSpec", name, argsCtx, retTpr)
+    undefined
+
 
 
 -- TODO:

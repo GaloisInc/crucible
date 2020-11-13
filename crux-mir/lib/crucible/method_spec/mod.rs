@@ -13,6 +13,12 @@ pub struct MethodSpec {
     raw: raw::MethodSpec,
 }
 
+impl MethodSpec {
+    pub fn enable(&self) {
+        raw::spec_enable(self.raw);
+    }
+}
+
 impl fmt::Debug for MethodSpec {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let s = raw::spec_pretty_print(self.raw);

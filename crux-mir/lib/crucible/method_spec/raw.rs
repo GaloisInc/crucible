@@ -13,6 +13,12 @@ pub fn spec_pretty_print(ms: MethodSpec) -> &'static str {
     "(unknown MethodSpec)"
 }
 
+/// Enable using `ms` in place of calls to the actual function.  The function to override is
+/// determined by the `F` type parameter of `builder_new` during the construction of the
+/// `MethodSpec`.
+pub fn spec_enable(ms: MethodSpec) {
+}
+
 
 /// Crucible `MethodSpecBuilderType`, exposed to Rust.
 #[derive(Clone, Copy)]

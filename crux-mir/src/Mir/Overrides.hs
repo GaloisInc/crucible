@@ -450,6 +450,12 @@ bindFn symOnline cs name cfg
     mkOverride' "method_spec_spec_pretty_print" (MirSliceRepr $ BVRepr $ knownNat @8) $
         MS.specPrettyPrint
 
+  | normDefId "crucible::method_spec::raw::spec_enable" == name
+  , Empty :> MethodSpecRepr <- cfgArgTypes cfg
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "method_spec_spec_enable" UnitRepr $ MS.specEnable cs
+
 bindFn _symOnline _cs fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
