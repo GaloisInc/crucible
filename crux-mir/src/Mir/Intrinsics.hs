@@ -85,6 +85,7 @@ import qualified Data.Parameterized.Map as MapF
 import qualified Data.Parameterized.NatRepr as N
 
 import           Lang.Crucible.Backend
+import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.FunctionHandle
@@ -1730,15 +1731,17 @@ data MethodSpecBuilder sym = MethodSpecBuilder
     , _msbPre :: Seq (Pred sym)
     , _msbResult :: Maybe (Some (MethodSpecValue sym))
     , _msbPost :: Seq (Pred sym)
+    , _msbSnapshotFrame :: AS.FrameIdentifier
     }
 
-initMethodSpecBuilder :: MIRMethodSpec -> MethodSpecBuilder sym
-initMethodSpecBuilder spec = MethodSpecBuilder
+initMethodSpecBuilder :: MIRMethodSpec -> AS.FrameIdentifier -> MethodSpecBuilder sym
+initMethodSpecBuilder spec snap = MethodSpecBuilder
     { _msbSpec = spec
     , _msbArgs = Seq.empty
     , _msbPre = Seq.empty
     , _msbResult = Nothing
     , _msbPost = Seq.empty
+    , _msbSnapshotFrame = snap
     }
 
 makeLenses ''MethodSpecBuilder

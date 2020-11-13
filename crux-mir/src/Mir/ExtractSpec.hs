@@ -99,6 +99,9 @@ builderNew ::
     OverrideSim (Model sym) sym MIR rtp
         EmptyCtx MethodSpecBuilderType (MethodSpecBuilder sym)
 builderNew cs defId = do
+    sym <- getSymInterface
+    snapFrame <- liftIO $ pushAssumptionFrame sym
+
     let tyArg = cs ^? collection . M.intrinsics . ix defId .
             M.intrInst . M.inSubsts . _Wrapped . ix 0
     fnDefId <- case tyArg of
@@ -114,7 +117,7 @@ builderNew cs defId = do
 
     Some retTpr <- return $ tyToRepr $ sig ^. M.fsreturn_ty
 
-    return $ initMethodSpecBuilder ms
+    return $ initMethodSpecBuilder ms snapFrame
 
 builderAddArg ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -282,6 +285,9 @@ builderFinish = do
     RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
 
     sym <- getSymInterface
+
+    -- TODO: also undo any changes to Crucible global variables / refcells
+    liftIO $ popAssumptionFrameAndObligations sym (builder ^. msbSnapshotFrame)
 
     sc <- liftIO $ SAW.mkSharedContext
     liftIO $ SAW.scLoadPreludeModule sc
