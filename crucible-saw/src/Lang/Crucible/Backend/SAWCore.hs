@@ -29,6 +29,8 @@ import qualified Data.BitVector.Sized as BV
 import           Data.IORef
 import           Data.List (elemIndex)
 import           Data.Foldable (toList)
+import           Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map ( Map )
 import qualified Data.Map as Map
@@ -86,8 +88,8 @@ data SAWCoreState solver fs n
     , saw_elt_cache :: B.IdxCache n SAWExpr
       -- ^ cache mapping a What4 variable nonce to its corresponding SAWCore term.
 
-    , saw_elt_cache_r :: IORef (Map SC.Term (Some (B.SymExpr (SAWCoreBackend n solver fs))))
-      -- ^ reverse cache mapping a SAWCore term to its corresponding What4 variable.
+    , saw_elt_cache_r :: IORef (IntMap (Some (B.SymExpr (SAWCoreBackend n solver fs))))
+      -- ^ reverse cache mapping a SAWCore TermIndex to its corresponding What4 variable.
       -- 'saw_elt_cache' and 'saw_elt_cache_r' implement a bidirectional map between
       -- SAWCore terms and What4 variables.
 
@@ -129,7 +131,7 @@ inFreshNamingContext sym f =
 
  mkNew _gen old =
    do ch <- B.newIdxCache
-      ch_r <- newIORef Map.empty
+      ch_r <- newIORef IntMap.empty
       iref <- newIORef mempty
       let new = SAWCoreState
                 { saw_ctx = saw_ctx old
@@ -203,14 +205,20 @@ bindSAWTerm :: SAWCoreBackend n solver fs
 bindSAWTerm sym bt t = do
   st <- readIORef $ B.sbStateManager sym
   ch_r <- readIORef $ saw_elt_cache_r st
-  case Map.lookup t ch_r of
+  let midx =
+        case t of
+          SC.STApp { SC.stAppIndex = idx } -> Just idx
+          SC.Unshared _ -> Nothing
+  case midx >>= flip IntMap.lookup ch_r of
     Just (Some var) -> do
       Just Refl <- return $ testEquality bt (B.exprType var)
       return var
     Nothing -> do
       sbVar@(B.BoundVarExpr bv) <- freshConstant sym emptySymbol bt
       B.insertIdxValue (saw_elt_cache st) (B.bvarId bv) (SAWExpr t)
-      modifyIORef' (saw_elt_cache_r st) $ Map.insert t (Some sbVar)
+      case midx of
+        Just i -> modifyIORef' (saw_elt_cache_r st) $ IntMap.insert i (Some sbVar)
+        Nothing -> pure ()
       return sbVar
 
 newSAWCoreBackend ::
@@ -221,7 +229,7 @@ newSAWCoreBackend ::
 newSAWCoreBackend fm sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache
-  ch_r <- newIORef Map.empty
+  ch_r <- newIORef IntMap.empty
   let feats = Yices.yicesDefaultFeatures
   ob_st0  <- initialOnlineBackendState gen feats
   let st0 = SAWCoreState
