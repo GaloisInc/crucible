@@ -30,7 +30,7 @@ import           Lang.Crucible.JVM.Types
 -- * JVMContext
 
 
-type StaticFieldTable = Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
+type StaticFieldTable = Map J.FieldId (GlobalVar JVMValueType)
 type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data JVMHandleInfo where
@@ -41,7 +41,7 @@ data JVMHandleInfo where
 data JVMContext = JVMContext
   { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
       -- ^ Map from static and dynamic methods to Crucible function handles.
-  , staticFields :: Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
+  , staticFields :: Map J.FieldId (GlobalVar JVMValueType)
       -- ^ Map from static field names to Crucible global variables.
       -- We know about these fields at translation time so we can allocate
       -- global variables to store them.

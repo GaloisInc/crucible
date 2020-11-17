@@ -345,7 +345,7 @@ declareStaticField halloc c m f = do
   let fieldId = J.FieldId cn fn (J.fieldType f)
   let str = fn ++ show (J.fieldType f)
   gvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr JVMValueType)
-  return $ (Map.insert (cn,fieldId) gvar m)
+  return $ Map.insert fieldId gvar m
 
 
 -- | Create the initial 'JVMContext'.
@@ -471,8 +471,8 @@ mkSimSt sym p halloc ctx verbosity ret k =
   do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
      return $ C.InitialState simctx globals C.defaultAbortHandler ret k
   where
-    -- initField :: (J.ClassName, J.FieldId) -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
-    initField (_, fi) var m =
+    -- initField :: J.FieldId -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
+    initField fi var m =
       do gs <- m
          z <- zeroValue sym (J.fieldIdType fi)
          return (C.insertGlobal var z gs)
