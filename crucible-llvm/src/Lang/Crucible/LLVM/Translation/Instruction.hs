@@ -1824,6 +1824,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.declare"
                  , "llvm.dbg.value"
+                 , "llvm.dbg.label"
                  , "llvm.lifetime.start"
                  , "llvm.lifetime.start.p0i8"
                  , "llvm.lifetime.end"
