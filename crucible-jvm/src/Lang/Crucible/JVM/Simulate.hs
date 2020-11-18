@@ -34,7 +34,6 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.List (isPrefixOf)
-import qualified Data.Text as Text
 import qualified Data.Vector as V
 
 import           System.IO
@@ -807,23 +806,24 @@ doAppJVM sym =
   where
     out _verbosity _msg = return () --putStrLn
 
--- | Write a value to a field of an object reference.
+-- | Write a value to a field of an object reference. The 'FieldId'
+-- must have already been resolved (see §5.4.3.2 of the JVM spec).
 doFieldStore ::
   IsSymInterface sym =>
   sym ->
   C.SymGlobalState sym ->
   C.RegValue sym JVMRefType ->
-  String {- ^ field name -} ->
+  J.FieldId ->
   C.RegValue sym JVMValueType ->
   IO (C.SymGlobalState sym)
-doFieldStore sym globals ref fname val =
+doFieldStore sym globals ref fid val =
   do let msg1 = C.GenericSimError "Field store: null reference"
      ref' <- C.readPartExpr sym ref msg1
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field store: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
      let tab = C.unRV (inst Ctx.! Ctx.i1of2)
-     let tab' = Map.insert (Text.pack fname) (W4.justPartExpr sym val) tab
+     let tab' = Map.insert (fieldIdText fid) (W4.justPartExpr sym val) tab
      let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of2) (C.RV tab') inst
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
@@ -849,22 +849,24 @@ doArrayStore sym globals ref idx val =
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
--- | Read a value from a field of an object reference.
+-- | Read a value from a field of an object reference. The 'FieldId'
+-- must have already been resolved (see §5.4.3.2 of the JVM spec).
 doFieldLoad ::
   IsSymInterface sym =>
   sym ->
   C.SymGlobalState sym ->
-  C.RegValue sym JVMRefType -> String {- ^ field name -} ->
+  C.RegValue sym JVMRefType ->
+  J.FieldId ->
   IO (C.RegValue sym JVMValueType)
-doFieldLoad sym globals ref fname =
+doFieldLoad sym globals ref fid =
   do let msg1 = C.GenericSimError "Field load: null reference"
      ref' <- C.readPartExpr sym ref msg1
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field load: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
      let tab = C.unRV (inst Ctx.! Ctx.i1of2)
-     let msg3 = C.GenericSimError $ "Field load: field not found: " ++ fname
-     let key = Text.pack fname
+     let msg3 = C.GenericSimError $ "Field load: field not found: " ++ J.fieldIdName fid
+     let key = fieldIdText fid
      C.readPartExpr sym (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
 
 -- | Read a value at an index of an array reference.
