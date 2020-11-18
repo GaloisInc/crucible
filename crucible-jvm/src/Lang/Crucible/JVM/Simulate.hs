@@ -828,6 +828,26 @@ doFieldStore sym globals ref fid val =
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
+-- | Write a value to a static field of a class. The 'FieldId' must
+-- have already been resolved (see §5.4.3.2 of the JVM spec).
+doStaticFieldStore ::
+  IsSymInterface sym =>
+  sym ->
+  JVMContext ->
+  C.SymGlobalState sym ->
+  J.FieldId ->
+  C.RegValue sym JVMValueType ->
+  IO (C.SymGlobalState sym)
+doStaticFieldStore sym jc globals fid val =
+  case Map.lookup fid (staticFields jc) of
+    Nothing -> C.addFailedAssertion sym msg
+    Just gvar ->
+      do putStrLn $ "doStaticFieldStore " ++ fname
+         pure (C.insertGlobal gvar val globals)
+  where
+    fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
+    msg = C.GenericSimError $ "Static field store: field not found: " ++ fname
+
 -- | Write a value at an index of an array reference.
 doArrayStore ::
   IsSymInterface sym =>
@@ -868,6 +888,26 @@ doFieldLoad sym globals ref fid =
      let msg3 = C.GenericSimError $ "Field load: field not found: " ++ J.fieldIdName fid
      let key = fieldIdText fid
      C.readPartExpr sym (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
+
+-- | Read a value from a static field of a class. The 'FieldId' must
+-- have already been resolved (see §5.4.3.2 of the JVM spec).
+doStaticFieldLoad ::
+  IsSymInterface sym =>
+  sym ->
+  JVMContext ->
+  C.SymGlobalState sym ->
+  J.FieldId ->
+  IO (C.RegValue sym JVMValueType)
+doStaticFieldLoad sym jc globals fid =
+  case Map.lookup fid (staticFields jc) of
+    Nothing -> C.addFailedAssertion sym msg
+    Just gvar ->
+      case C.lookupGlobal gvar globals of
+        Nothing -> C.addFailedAssertion sym msg
+        Just v -> pure v
+  where
+    fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
+    msg = C.GenericSimError $ "Static field load: field not found: " ++ fname
 
 -- | Read a value at an index of an array reference.
 doArrayLoad ::
