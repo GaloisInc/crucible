@@ -365,7 +365,7 @@ getStaticFieldValue fieldId = do
       case Map.lookup fieldId (staticFields ctx) of
         Just glob -> do
           r <- readGlobal glob
-          fromJVMDynamic (J.fieldIdType fieldId) r
+          fromJVMDynamic ("getstatic " <> fieldIdText fieldId) (J.fieldIdType fieldId) r
         Nothing ->
           jvmFail $ "getstatic: field " ++ J.fieldIdName fieldId ++ " not found"
 
@@ -834,12 +834,12 @@ resolveField fieldId =
 getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator s ret (JVMValue s)
 getInstanceFieldValue obj fieldId =
   do let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     inst <- projectVariant Ctx.i1of2 uobj
+     inst <- projectVariant "getfield: expected class instance" Ctx.i1of2 uobj
      let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
      key <- resolveField fieldId
      let mval = App (LookupStringMapEntry knownRepr fields key)
      dyn <- assertedJustExpr mval "Field not present"
-     fromJVMDynamic (J.fieldIdType fieldId) dyn
+     fromJVMDynamic ("getfield " <> fieldIdText fieldId) (J.fieldIdType fieldId) dyn
 
 -- | Update a field of a JVM object (must be a class instance, not an array).
 setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator s ret (JVMObject s)
@@ -847,7 +847,7 @@ setInstanceFieldValue obj fieldId val =
   do let dyn  = valueToExpr val
      let mdyn = App (JustValue knownRepr dyn)
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-     inst <- projectVariant Ctx.i1of2 uobj
+     inst <- projectVariant "setfield: expected class instance" Ctx.i1of2 uobj
      let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
      key <- resolveField fieldId
      let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
@@ -859,7 +859,7 @@ setInstanceFieldValue obj fieldId val =
 getJVMInstanceClass :: JVMObject s -> JVMGenerator s ret (JVMClass s)
 getJVMInstanceClass obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-  inst <- projectVariant Ctx.i1of2 uobj
+  inst <- projectVariant "invokeinterface: expected class instance" Ctx.i1of2 uobj
   return $ App (GetStruct inst Ctx.i2of2 knownRepr)
 
 
