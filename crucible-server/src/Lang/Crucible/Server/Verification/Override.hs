@@ -656,9 +656,8 @@ termAsConcrete ::
 termAsConcrete sc tm =
    do ss <- basic_ss sc
       tm' <- rewriteSharedTerm sc ss tm
-      mmap <- scGetModuleMap sc
       case getAllExts tm' of
-               [] -> do sbv <- SBV.toWord =<< SBV.sbvSolveBasic mmap Map.empty [] tm'
+               [] -> do sbv <- SBV.toWord =<< SBV.sbvSolveBasic sc Map.empty mempty tm'
                         return (SBV.svAsInteger sbv)
                _ -> return Nothing
 
