@@ -200,8 +200,8 @@ import           Data.Text (Text)
 import           Data.Word
 import           GHC.TypeNats
 import           Numeric.Natural
+import           Prettyprinter
 import           System.IO (Handle, hPutStrLn)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
@@ -730,24 +730,28 @@ doLookupHandle
   -> MemImpl sym
   -> LLVMPtr sym wptr
   -> Maybe String
-  -> IO (Either Doc a)
+  -> IO (Either (Doc ann) a)
 doLookupHandle _sym mem ptr gsym = do
   let LLVMPointer blk _ = ptr
   let ptrDoc = hang 2 $
          case gsym of
-           Just s  -> text (show s)
+           Just s  -> pretty (show s)
            Nothing -> ppPtr ptr
   case asNat blk of
-    Nothing -> return (Left (text "Cannot resolve a symbolic pointer to a function handle:" <+> ptrDoc))
+    Nothing -> return (Left ("Cannot resolve a symbolic pointer to a function handle:" <+> ptrDoc))
     Just i
-      | i == 0 -> return (Left (text "Cannot treat raw bitvector as function pointer:" <+> ptrDoc))
+      | i == 0 -> return (Left ("Cannot treat raw bitvector as function pointer:" <+> ptrDoc))
       | otherwise ->
           case Map.lookup i (memImplHandleMap mem) of
-            Nothing -> return (Left (text "No implementation or override found for pointer:" <+> ptrDoc))
+            Nothing -> return (Left ("No implementation or override found for pointer:" <+> ptrDoc))
             Just x ->
               case fromDynamic x of
-                Nothing -> return (Left ("Data associated with the pointer found, but was not a callable function:" <$$>
-                                           hang 2 (text (show (dynTypeRep x))) <$$> ptrDoc ))
+                Nothing ->
+                  return $ Left $ vcat
+                  [ "Data associated with the pointer found, but was not a callable function:"
+                  , hang 2 (pretty (show (dynTypeRep x)))
+                  , ptrDoc
+                  ]
                 Just a  -> return (Right a)
 
 -- | Free the memory region pointed to by the given pointer.

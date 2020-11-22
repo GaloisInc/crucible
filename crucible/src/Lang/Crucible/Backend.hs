@@ -63,7 +63,7 @@ import           Control.Lens ((^.))
 import           Control.Monad
 import           Data.Foldable (toList)
 import           Data.Sequence (Seq)
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified Prettyprinter as PP
 
 import           What4.Concrete
 import           What4.Config
@@ -126,31 +126,33 @@ data AbortExecReason =
 instance Exception AbortExecReason
 
 
-ppAbortExecReason :: AbortExecReason -> PP.Doc
+ppAbortExecReason :: AbortExecReason -> PP.Doc ann
 ppAbortExecReason e =
   case e of
     InfeasibleBranch -> "Abort an infeasible branch."
     AssumedFalse reason ->
-      "Abort due to false assumption:" PP.<$$>
-      PP.indent 2 (ppAssumptionReason reason)
+      PP.vcat
+      [ "Abort due to false assumption:"
+      , PP.indent 2 (ppAssumptionReason reason)
+      ]
     VariantOptionsExhausted l -> ppLocated l "Variant options exhausted."
 
-ppAssumptionReason :: AssumptionReason -> PP.Doc
+ppAssumptionReason :: AssumptionReason -> PP.Doc ann
 ppAssumptionReason e =
   case e of
-    AssumptionReason l msg -> ppLocated l (PP.text msg)
+    AssumptionReason l msg -> ppLocated l (PP.pretty msg)
     ExploringAPath l Nothing -> "The branch in" PP.<+> ppFn l PP.<+> "at" PP.<+> ppLoc l
     ExploringAPath l (Just t) ->
         "The branch in" PP.<+> ppFn l PP.<+> "from" PP.<+> ppLoc l PP.<+> "to" PP.<+> ppLoc t
     AssumingNoError simErr -> ppSimError simErr
 
-ppLocated :: ProgramLoc -> PP.Doc -> PP.Doc
+ppLocated :: ProgramLoc -> PP.Doc ann -> PP.Doc ann
 ppLocated l x = "in" PP.<+> ppFn l PP.<+> ppLoc l PP.<> ":" PP.<+> x
 
-ppFn :: ProgramLoc -> PP.Doc
+ppFn :: ProgramLoc -> PP.Doc ann
 ppFn l = PP.pretty (plFunction l)
 
-ppLoc :: ProgramLoc -> PP.Doc
+ppLoc :: ProgramLoc -> PP.Doc ann
 ppLoc l = PP.pretty (plSourceLoc l)
 
 type IsSymInterface sym =
@@ -256,7 +258,7 @@ assertThenAssumeOption :: ConfigDesc
 assertThenAssumeOption = mkOpt
   assertThenAssumeConfigOption
   boolOptSty
-  (Just (PP.text "Assume a predicate after asserting it."))
+  (Just "Assume a predicate after asserting it.")
   (Just (ConcreteBool False))
 
 backendOptions :: [ConfigDesc]
@@ -360,22 +362,22 @@ readPartExpr sym (PE p v) msg = do
   addAssertion sym (AS.LabeledPred p (SimError loc msg))
   return v
 
-ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc
+ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc ann
 ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
-  (if null as then PP.empty else
-    PP.text "Assuming:" PP.<$$>
-    PP.vcat (concatMap ppAsm (toList as)))
-  PP.<$>
-  PP.text "Prove:" PP.<$>
-  ppGl
+  PP.vsep
+  [ if null as then mempty else
+      PP.vcat ("Assuming:" : concatMap ppAsm (toList as))
+  , "Prove:"
+  , ppGl
+  ]
  where
  ppAsm asm
    | asConstantPred (asm^.AS.labeledPred) /= Just True =
-      [PP.text "* " PP.<> PP.hang 2
-        (ppAssumptionReason (asm^.AS.labeledPredMsg) PP.<$>
-        printSymExpr (asm^.AS.labeledPred))]
+      ["* " PP.<> PP.hang 2
+        (PP.vcat [ppAssumptionReason (asm^.AS.labeledPredMsg),
+                  printSymExpr (asm^.AS.labeledPred)])]
    | otherwise = []
 
- ppGl = PP.indent 2
-   (ppSimError (gl^.AS.labeledPredMsg) PP.<$>
-    printSymExpr (gl^.AS.labeledPred))
+ ppGl =
+   PP.indent 2 $
+   PP.vsep [ppSimError (gl^.AS.labeledPredMsg), printSymExpr (gl^.AS.labeledPred)]

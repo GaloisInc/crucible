@@ -35,10 +35,10 @@ import Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Control.Monad(when)
+import Prettyprinter
 import System.Exit(exitSuccess, ExitCode(..), exitFailure, exitWith)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (</>))
 
 import Data.Parameterized.Classes
 import Data.Parameterized.Nonce(newIONonceGenerator, NonceGenerator)
@@ -104,7 +104,7 @@ newtype SimulatorCallback
         forall sym t st fs. (IsSymInterface sym, Logs, sym ~ WEB.ExprBuilder t st fs) =>
           sym ->
           Maybe (SomeOnlineSolver sym) ->
-          IO (RunnableState sym, Maybe (GroundEvalFn t) -> LPred sym SimError -> IO Doc)
+          IO (RunnableState sym, Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc ()))
     }
 
 -- | Given the reuslt of a simulation and proof run, report the overall
@@ -504,7 +504,7 @@ type ProverCallback sym =
     (HasModel personality, sym ~ WEB.ExprBuilder t st fs) =>
     CruxOptions ->
     SimCtxt personality sym ext ->
-    (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO Doc) ->
+    (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc ())) ->
     Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
     IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
 

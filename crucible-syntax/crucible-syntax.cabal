@@ -16,7 +16,6 @@ extra-source-files:
 
 library
   build-depends:
-    ansi-wl-pprint,
     base >= 4.7,
     bv-sized >= 1.0.0,
     bytestring >= 0.10.2,
@@ -32,6 +31,7 @@ library
     mtl,
     optparse-applicative,
     parameterized-utils >= 0.1.7,
+    prettyprinter >= 1.7.0,
     megaparsec >= 7.0 && < 8.1,
     s-cargot,
     text,
@@ -55,7 +55,6 @@ library
 
 executable crucibler
   build-depends:
-    ansi-wl-pprint,
     base >= 4.7 && < 4.15,
     crucible,
     crucible-syntax,

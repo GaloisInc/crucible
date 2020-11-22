@@ -46,7 +46,7 @@ import           Data.Text (Text)
 
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           What4.Interface
 import           What4.Expr (GroundValue)
@@ -135,17 +135,17 @@ predicate = lens _predicate (\s v -> s { _predicate = v})
 extra :: Simple Lens (LLVMSafetyAssertion sym) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
 
-explainBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
+explainBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc ann
 explainBB = \case
   BBUndefinedBehavior ub -> UB.explain ub
   BBMemoryError me       -> ME.explain me
 
-detailBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
+detailBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc ann
 detailBB = \case
   BBUndefinedBehavior ub -> UB.ppDetails ub
   BBMemoryError me -> ME.details me
 
-ppBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc
+ppBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc ann
 ppBB = \case
   BBUndefinedBehavior ub -> UB.ppDetails ub
   BBMemoryError me -> ME.ppMemoryError me

@@ -87,7 +87,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Vector as V
 import           Data.Type.Equality hiding (sym)
 import           System.IO
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified Prettyprinter as PP
 
 import           What4.Config
 import           What4.Interface
@@ -686,8 +686,8 @@ abortExecAndLog rsn = do
   v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
   when (v >= 3) $ do
     let frames = activeFrames t
-    let msg = ppAbortExecReason rsn PP.<$$>
-              PP.indent 2 (ppExceptionContext frames)
+    let msg = PP.vcat [ ppAbortExecReason rsn
+                      , PP.indent 2 (ppExceptionContext frames) ]
     -- Print error message.
     liftIO (hPrint (printHandle ctx) msg)
 

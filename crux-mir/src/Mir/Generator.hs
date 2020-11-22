@@ -82,7 +82,7 @@ import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
 import           Control.Monad.ST
 
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
@@ -385,7 +385,7 @@ instance Show MirHandle where
 
 instance Pretty MirHandle where
     pretty (MirHandle nm sig _c) =
-      text (show nm) <> colon <> pretty sig 
+      pretty (show nm) <> colon <> pretty sig
 
 
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp

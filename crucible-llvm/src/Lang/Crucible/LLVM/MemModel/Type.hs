@@ -42,7 +42,7 @@ import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Numeric.Natural
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Prettyprinter
 
 import Lang.Crucible.LLVM.Bytes
 
@@ -148,13 +148,13 @@ fieldEnd f = fieldOffset f + storageTypeSize (f^.fieldVal) + fieldPad f
 
 
 -- | Pretty print type.
-ppType :: StorageType -> Doc
+ppType :: StorageType -> Doc ann
 ppType tp =
   case storageTypeF tp of
-    Bitvector w -> text ('i': show (bytesToBits w))
-    Float -> text "float"
-    Double -> text "double"
-    X86_FP80 -> text "long double"
-    Array n etp -> brackets (text (show n) <+> char 'x' <+> ppType etp)
-    Struct flds -> braces $ hsep $ punctuate (char ',') $ V.toList $ ppFld <$> flds
+    Bitvector w -> pretty ('i': show (bytesToBits w))
+    Float -> pretty "float"
+    Double -> pretty "double"
+    X86_FP80 -> pretty "long double"
+    Array n etp -> brackets (pretty (show n) <+> pretty 'x' <+> ppType etp)
+    Struct flds -> braces $ hsep $ punctuate (pretty ',') $ V.toList $ ppFld <$> flds
       where ppFld f = ppType (f^.fieldVal)

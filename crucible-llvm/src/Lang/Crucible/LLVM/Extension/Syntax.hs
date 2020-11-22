@@ -26,7 +26,7 @@ import           Data.List.NonEmpty (NonEmpty)
 import           GHC.TypeLits
 import           Data.Text (Text)
 import qualified Text.LLVM.AST as L
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           Data.Functor.Classes (Eq1(..), Ord1(..))
 import           Data.Parameterized.Classes
@@ -235,15 +235,15 @@ instance PrettyApp (LLVMExtensionExpr arch) where
     case e of
       X86Expr ex -> ppApp pp ex
       LLVM_SideConditions _ _conds ex ->
-        text "sideConditions" <+> pp ex -- TODO? Print the conditions?
+        pretty "sideConditions" <+> pp ex -- TODO? Print the conditions?
       LLVM_PointerExpr _ blk off ->
-        text "pointerExpr" <+> pp blk <+> pp off
+        pretty "pointerExpr" <+> pp blk <+> pp off
       LLVM_PointerBlock _ ptr ->
-        text "pointerBlock" <+> pp ptr
+        pretty "pointerBlock" <+> pp ptr
       LLVM_PointerOffset _ ptr ->
-        text "pointerOffset" <+> pp ptr
+        pretty "pointerOffset" <+> pp ptr
       LLVM_PointerIte _ cond x y ->
-        text "pointerIte" <+> pp cond <+> pp x <+> pp y
+        pretty "pointerIte" <+> pp cond <+> pp x <+> pp y
 
 instance TestEqualityFC (LLVMExtensionExpr arch) where
   testEqualityFC testSubterm =
@@ -310,29 +310,29 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
 instance PrettyApp (LLVMStmt wptr) where
   ppApp pp = \case
     LLVM_PushFrame nm mvar ->
-       text "pushFrame" <+> text (show nm) <+> text (show mvar)
+       pretty "pushFrame" <+> pretty nm <+> pretty (show mvar)
     LLVM_PopFrame mvar  ->
-       text "popFrame" <+> text (show mvar)
+       pretty "popFrame" <+> pretty (show mvar)
     LLVM_Alloca _ mvar sz a loc ->
-       text "alloca" <+> text (show mvar) <+> pp sz <+> text (show a) <+> text loc
+       pretty "alloca" <+> pretty (show mvar) <+> pp sz <+> pretty (show a) <+> pretty loc
     LLVM_Load mvar ptr _tpr tp a ->
-       text "load" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a)
+       pretty "load" <+> pretty (show mvar) <+> pp ptr <+> pretty (show tp) <+> pretty (show a)
     LLVM_Store mvar ptr _tpr tp a v ->
-       text "store" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a) <+> pp v
+       pretty "store" <+> pretty (show mvar) <+> pp ptr <+> pretty (show tp) <+> pretty (show a) <+> pp v
     LLVM_MemClear mvar ptr len ->
-       text "memClear" <+> text (show mvar) <+> pp ptr <+> text (show len)
+       pretty "memClear" <+> pretty (show mvar) <+> pp ptr <+> pretty (show len)
     LLVM_LoadHandle ltp mvar ptr _args _ret ->
-       text "loadFunctionHandle" <+> text (show mvar) <+> pp ptr <+> text "as" <+> text (show ltp)
+       pretty "loadFunctionHandle" <+> pretty (show mvar) <+> pp ptr <+> pretty "as" <+> pretty (show ltp)
     LLVM_ResolveGlobal _ mvar gs ->
-       text "resolveGlobal" <+> text (show mvar) <+> text (show (globalSymbolName gs))
+       pretty "resolveGlobal" <+> pretty (show mvar) <+> pretty (show (globalSymbolName gs))
     LLVM_PtrEq mvar x y ->
-       text "ptrEq" <+> text (show mvar) <+> pp x <+> pp y
+       pretty "ptrEq" <+> pretty (show mvar) <+> pp x <+> pp y
     LLVM_PtrLe mvar x y ->
-       text "ptrEq" <+> text (show mvar) <+> pp x <+> pp y
+       pretty "ptrEq" <+> pretty (show mvar) <+> pp x <+> pp y
     LLVM_PtrAddOffset _ mvar x y ->
-       text "ptrAddOffset" <+> text (show mvar) <+> pp x <+> pp y
+       pretty "ptrAddOffset" <+> pretty (show mvar) <+> pp x <+> pp y
     LLVM_PtrSubtract _ mvar x y ->
-       text "ptrSubtract" <+> text (show mvar) <+> pp x <+> pp y
+       pretty "ptrSubtract" <+> pretty (show mvar) <+> pp x <+> pp y
 
 instance TestEqualityFC (LLVMStmt wptr) where
   testEqualityFC testSubterm =

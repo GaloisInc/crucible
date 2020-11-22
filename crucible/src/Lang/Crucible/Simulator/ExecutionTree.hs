@@ -149,7 +149,7 @@ import           Data.Sequence (Seq)
 import           Data.Text (Text)
 import           System.Exit (ExitCode)
 import           System.IO
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified Prettyprinter as PP
 
 import           What4.Config (Config)
 import           What4.Interface (Pred, getConfiguration)
@@ -262,18 +262,18 @@ arFrames h (AbortedBranch predicate loc r s) =
                               <*> arFrames h s
 
 -- | Print an exception context
-ppExceptionContext :: [SomeFrame (SimFrame sym ext)] -> PP.Doc
-ppExceptionContext [] = PP.empty
+ppExceptionContext :: [SomeFrame (SimFrame sym ext)] -> PP.Doc ann
+ppExceptionContext [] = mempty
 ppExceptionContext frames = PP.vcat (map pp (init frames))
  where
-   pp :: SomeFrame (SimFrame sym ext) -> PP.Doc
+   pp :: SomeFrame (SimFrame sym ext) -> PP.Doc ann
    pp (SomeFrame (OF f)) =
-      PP.text ("When calling " ++ show (f^.override))
+      PP.pretty ("When calling " ++ show (f^.override))
    pp (SomeFrame (MF f)) =
-      PP.text "In" PP.<+> PP.text (show (frameHandle f)) PP.<+>
-      PP.text "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
+      PP.pretty "In" PP.<+> PP.pretty (show (frameHandle f)) PP.<+>
+      PP.pretty "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
    pp (SomeFrame (RF nm _v)) =
-      PP.text "While returning value from" PP.<+> PP.text (show nm)
+      PP.pretty "While returning value from" PP.<+> PP.pretty (show nm)
 
 
 ------------------------------------------------------------------------
@@ -784,33 +784,41 @@ instance PP.Pretty (ValueFromFrame p ext sym ret f) where
   pretty = ppValueFromFrame
 
 instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
-  pretty (VFFActivePath _)   = PP.text "active_path"
-  pretty (VFFCompletePath _ _) = PP.text "complete_path"
+  pretty (VFFActivePath _)   = PP.pretty "active_path"
+  pretty (VFFCompletePath _ _) = PP.pretty "complete_path"
 
-ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc
+ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc ann
 ppValueFromFrame vff =
   case vff of
     VFFBranch ctx _ _ _ other mp ->
-      PP.text "intra_branch" PP.<$$>
-      PP.indent 2 (PP.pretty other) PP.<$$>
-      PP.indent 2 (PP.text (ppBranchTarget mp)) PP.<$$>
-      PP.pretty ctx
+      PP.vcat
+      [ PP.pretty "intra_branch"
+      , PP.indent 2 (PP.pretty other)
+      , PP.indent 2 (PP.pretty (ppBranchTarget mp))
+      , PP.pretty ctx
+      ]
     VFFPartial ctx _ _ _ _ ->
-      PP.text "intra_partial" PP.<$$>
-      PP.pretty ctx
+      PP.vcat
+      [ PP.pretty "intra_partial"
+      , PP.pretty ctx
+      ]
     VFFEnd ctx ->
       PP.pretty ctx
 
-ppValueFromValue :: ValueFromValue p sym ext root tp -> PP.Doc
+ppValueFromValue :: ValueFromValue p sym ext root tp -> PP.Doc ann
 ppValueFromValue vfv =
   case vfv of
     VFVCall ctx _ _ ->
-      PP.text "call" PP.<$$>
-      PP.pretty ctx
+      PP.vcat
+      [ PP.pretty "call"
+      , PP.pretty ctx
+      ]
     VFVPartial ctx _ _ _ ->
-      PP.text "inter_partial" PP.<$$>
-      PP.pretty ctx
-    VFVEnd -> PP.text "root"
+      PP.vcat
+      [ PP.pretty "inter_partial"
+      , PP.pretty ctx
+      ]
+    VFVEnd -> PP.pretty "root"
 
 
 -----------------------------------------------------------------------

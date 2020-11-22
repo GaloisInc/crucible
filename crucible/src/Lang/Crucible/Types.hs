@@ -115,7 +115,7 @@ import           Data.Parameterized.Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.SymbolRepr
 import qualified Data.Parameterized.TH.GADT as U
-import           Text.PrettyPrint.ANSI.Leijen
+import           Prettyprinter
 
 import           What4.BaseTypes
 import           What4.InterpretedFloatingPoint
@@ -437,7 +437,7 @@ instance Hashable (TypeRepr ty) where
   hashWithSalt = $(U.structuralHashWithSalt [t|TypeRepr|] [])
 
 instance Pretty (TypeRepr tp) where
-  pretty = text . show
+  pretty = pretty . show
 
 instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])

@@ -44,7 +44,7 @@ import           Data.Parameterized.TraversableFC
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Prelude hiding (foldr)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 
 import           Lang.Crucible.Types

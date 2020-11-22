@@ -50,7 +50,7 @@ import qualified Data.Vector as V
 import qualified Text.LLVM as L
 import qualified Text.LLVM.DebugUtils as L
 import qualified Text.LLVM.PP as L
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 import           Data.IntMap (IntMap)
 
 import           Lang.Crucible.LLVM.MemType
@@ -72,7 +72,7 @@ data TCState = TCS { tcsDataLayout :: DataLayout
 runTC :: DataLayout
       -> Map Ident IdentStatus
       -> TC a
-      -> ([Doc], a)
+      -> ([Doc ann], a)
 runTC pdl initMap m = over _1 tcsErrors . view swapped $ runState m tcs0
   where tcs0 = TCS { tcsDataLayout = pdl
                    , tcsMap =  initMap
@@ -80,11 +80,12 @@ runTC pdl initMap m = over _1 tcsErrors . view swapped $ runState m tcs0
                    , tcsUnresolvable = Set.empty
                    }
 
-tcsErrors :: TCState -> [Doc]
+tcsErrors :: TCState -> [Doc ann]
 tcsErrors tcs = (ppUnsupported <$> Set.toList (tcsUnsupported tcs))
              ++ (ppUnresolvable <$> Set.toList (tcsUnresolvable tcs))
-  where ppUnsupported tp = text "Unsupported type:" <+> text (show (L.ppType tp))
-        ppUnresolvable i = text "Could not resolve identifier:" <+> text (show (L.ppIdent i))
+  where ppUnsupported tp = pretty "Unsupported type:" <+> pretty (show (L.ppType tp))
+        ppUnresolvable i = pretty "Could not resolve identifier:" <+> pretty (show (L.ppIdent i))
+        -- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | Type lifter contains types that could not be parsed.
 type TC = State TCState
@@ -180,7 +181,7 @@ data TypeContext = TypeContext
 instance Show TypeContext where
   show = show . ppTypeContext
 
-ppTypeContext :: TypeContext -> Doc
+ppTypeContext :: TypeContext -> Doc ann
 ppTypeContext lc =
     vcat (ppAlias <$> Map.toList (llvmAliasMap lc))
   where ppAlias (i,tp) = ppIdent i <+> equals <+> ppSymType tp
@@ -211,7 +212,7 @@ asRetType stp = throwError (unlines $ ["Expected return type", show stp])
 
 -- | Creates an LLVMContext from a parsed data layout and lists of types.
 --  Errors reported in first argument.
-mkTypeContext :: DataLayout -> MetadataMap -> [L.TypeDecl]  -> ([Doc], TypeContext)
+mkTypeContext :: DataLayout -> MetadataMap -> [L.TypeDecl]  -> ([Doc ann], TypeContext)
 mkTypeContext dl mdMap decls =
     let tps = Map.fromList [ (L.typeName d, L.typeValue d) | d <- decls ] in
     runTC dl (Pending <$> tps) $
@@ -219,7 +220,7 @@ mkTypeContext dl mdMap decls =
          pure (TypeContext dl mdMap aliases)
 
 -- | Utility function to creates an LLVMContext directly from a model.
-typeContextFromModule :: L.Module -> ([Doc], TypeContext)
+typeContextFromModule :: L.Module -> ([Doc ann], TypeContext)
 typeContextFromModule mdl = mkTypeContext dl (L.mkMdMap mdl) (L.modTypes mdl)
   where dl = parseDataLayout $ L.modDataLayout mdl
 

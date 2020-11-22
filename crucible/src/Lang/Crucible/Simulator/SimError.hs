@@ -27,7 +27,7 @@ module Lang.Crucible.Simulator.SimError (
 import Control.Exception
 import Data.String
 import Data.Typeable
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Prettyprinter
 
 import What4.ProgramLoc
 
@@ -74,14 +74,14 @@ instance Show SimErrorReason where
 instance Show SimError where
   show = show . ppSimError
 
-ppSimError :: SimError -> Doc
+ppSimError :: SimError -> Doc ann
 ppSimError er =
-  vcat $ [ pretty (plSourceLoc loc) <> text ": error: in" <+> pretty (plFunction loc)
-         , text (simErrorReasonMsg rsn)
+  vcat $ [ pretty (plSourceLoc loc) <> pretty ": error: in" <+> pretty (plFunction loc)
+         , pretty (simErrorReasonMsg rsn)
          ] ++ if null details
               then []
-              else [ text "Details:"
-                   , indent 2 (vcat (text <$> lines details))
+              else [ pretty "Details:"
+                   , indent 2 (vcat (pretty <$> lines details))
                    ]
  where loc = simErrorLoc er
        details = simErrorDetailsMsg rsn

@@ -38,7 +38,7 @@ import           System.Directory (createDirectoryIfMissing)
 import           System.Exit (exitSuccess, exitWith, ExitCode(..))
 import           System.FilePath ((</>))
 
-import           Text.PrettyPrint.ANSI.Leijen (pretty)
+import           Prettyprinter (pretty)
 
 import           Control.Lens (view)
 
