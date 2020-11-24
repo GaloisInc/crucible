@@ -107,7 +107,6 @@ import           Control.Monad.State.Strict
 import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (maybeToList, mapMaybe)
-import           Data.Semigroup
 import qualified Data.Set as Set
 import           Data.Set (Set)
 import           Data.String (fromString)
@@ -152,7 +151,7 @@ lookupClassGen cName = do
   ctx <- gets jsContext
   case Map.lookup cName (classTable ctx) of
     Just cls -> return cls
-    Nothing  -> error $ "no information about class " ++ J.unClassName cName
+    Nothing  -> jvmFail $ "no information about class " ++ J.unClassName cName
 
 
 
@@ -810,56 +809,51 @@ newInstanceInstr cls fieldIds = do
     addField (f,i) fs =
       App (InsertStringMapEntry knownRepr fs f i)
 
--- Field access is tricky
--- Fields are named as "C.f" where C is the static of the object that is being accessed.
--- However, that is not necessarily the name of the field if it was inherited from a
--- superclass. So we need to first look for C.f, but if we don't find it, we need to check
--- for fields named by the superclass of C.
-findField :: (KnownRepr TypeRepr a) => Expr JVM s (StringMapType JVMValueType) -> J.FieldId
-          -> (J.FieldId -> Expr JVM s JVMValueType -> JVMGenerator s ret (Expr JVM s a))
-          -> JVMGenerator s ret (Expr JVM s a)
-findField fields fieldId k = do
-  let currClassName = J.fieldIdClass fieldId
-  let str    = fieldIdText fieldId
-  let key    = App (StringLit (UnicodeLiteral str))
-  let mval   = App (LookupStringMapEntry knownRepr fields key)
-  caseMaybe mval knownRepr
-   MatchMaybe
-   { onJust  = \val -> k fieldId val
-   , onNothing = do
-       cls <- lookupClassGen currClassName
-       case (J.superClass cls) of
-         Nothing    -> reportError $ App $ StringLit (UnicodeLiteral ("getfield: field " <> str <> " not found"))
-         Just super -> findField fields (fieldId { J.fieldIdClass = super }) k
-   }
+-- | Given a 'J.FieldId' from a field get or set instruction, consult
+-- the JVM context to determine the class where the field was actually
+-- declared (which may be a superclass of the one specified in the
+-- input 'J.FieldId'), as specified in section 5.4.3.2 "Field
+-- Resolution" of the Java Virtual Machine Specification. Then return
+-- a key that can be used with an object's field map.
+resolveField :: J.FieldId -> JVMGenerator s ret (Expr JVM s (StringType Unicode))
+resolveField fieldId =
+  do cls <- lookupClassGen (J.fieldIdClass fieldId)
+     case any fieldMatch (J.classFields cls) of
+       True -> pure (App (StringLit (UnicodeLiteral (fieldIdText fieldId))))
+       False ->
+         -- otherwise recursively check the superclass
+         case J.superClass cls of
+           Nothing -> jvmFail $ "resolveField: Field " ++ show fieldId ++ " not found"
+           Just super -> resolveField fieldId{ J.fieldIdClass = super }
+  where
+    fieldMatch :: J.Field -> Bool
+    fieldMatch f =
+      (J.fieldName f, J.fieldType f) == (J.fieldIdName fieldId, J.fieldIdType fieldId)
 
 -- | Access the field component of a JVM object (must be a class instance, not an array).
 getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator s ret (JVMValue s)
-getInstanceFieldValue obj fieldId = do
-  let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-  inst <- projectVariant Ctx.i1of2 uobj
-  let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-  dyn <- findField fields fieldId (\_ x -> return x)
-  fromJVMDynamic (J.fieldIdType fieldId) dyn
-
-
+getInstanceFieldValue obj fieldId =
+  do let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+     inst <- projectVariant Ctx.i1of2 uobj
+     let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+     key <- resolveField fieldId
+     let mval = App (LookupStringMapEntry knownRepr fields key)
+     dyn <- assertedJustExpr mval "Field not present"
+     fromJVMDynamic (J.fieldIdType fieldId) dyn
 
 -- | Update a field of a JVM object (must be a class instance, not an array).
 setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator s ret (JVMObject s)
-setInstanceFieldValue obj fieldId val = do
-  let dyn  = valueToExpr val
-  let mdyn = App (JustValue knownRepr dyn)
-
-  let uobj   = App (UnrollRecursive knownRepr knownRepr obj)
-  inst <- projectVariant Ctx.i1of2 uobj
-  let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-  findField fields fieldId $ \fieldId' _x -> do
-       let str = fieldIdText fieldId'
-       let key = App (StringLit (UnicodeLiteral str))
-       let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
-       let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
-       let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
-       return $ App (RollRecursive knownRepr knownRepr uobj')
+setInstanceFieldValue obj fieldId val =
+  do let dyn  = valueToExpr val
+     let mdyn = App (JustValue knownRepr dyn)
+     let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+     inst <- projectVariant Ctx.i1of2 uobj
+     let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+     key <- resolveField fieldId
+     let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
+     let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
+     let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
+     return $ App (RollRecursive knownRepr knownRepr uobj')
 
 -- | Access the runtime class information for the class that instantiated this instance.
 getJVMInstanceClass :: JVMObject s -> JVMGenerator s ret (JVMClass s)
