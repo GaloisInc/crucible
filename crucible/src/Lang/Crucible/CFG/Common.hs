@@ -50,7 +50,7 @@ instance Show (GlobalVar tp) where
 instance ShowF GlobalVar
 
 instance Pretty (GlobalVar tp) where
-  pretty  = pretty . show
+  pretty = pretty . globalName
 
 
 freshGlobalVar :: HandleAllocator
@@ -69,4 +69,4 @@ newtype BreakpointName = BreakpointName { breakpointNameText :: Text }
   deriving (Eq, Ord, Show)
 
 instance Pretty BreakpointName where
-  pretty = pretty . show
+  pretty = pretty . breakpointNameText

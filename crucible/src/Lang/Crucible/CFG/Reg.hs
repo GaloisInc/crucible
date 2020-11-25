@@ -138,7 +138,7 @@ instance Show (Label s) where
   show (Label i) = '%' : show (indexValue i)
 
 instance Pretty (Label s) where
-  pretty = pretty . show
+  pretty (Label i) = pretty '%' <> pretty (indexValue i)
 
 substLabel :: Functor m
            => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -167,7 +167,7 @@ instance Show (LambdaLabel s tp) where
   show l = '%' : show (indexValue (lambdaId l))
 
 instance Pretty (LambdaLabel s tp) where
-  pretty = pretty . show
+  pretty l = pretty '%' <> pretty (indexValue (lambdaId l))
 
 substLambdaLabel :: Applicative m
                  => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -273,7 +273,7 @@ instance Show (Atom s tp) where
   show a = '$' : show (indexValue (atomId a))
 
 instance Pretty (Atom s tp) where
-  pretty = pretty . show
+  pretty a = pretty '$' <> pretty (indexValue (atomId a))
 
 
 substAtom :: Applicative m
@@ -300,7 +300,7 @@ data Reg s (tp :: CrucibleType)
          }
 
 instance Pretty (Reg s tp) where
-  pretty = pretty . show
+  pretty r = pretty 'r' <> pretty (indexValue (regId r))
 
 instance Show (Reg s tp) where
   show r = 'r' : show (indexValue (regId r))
@@ -351,7 +351,8 @@ instance OrdF (Value s) where
   compareF (AtomValue x) (AtomValue y) = compareF x y
 
 instance Pretty (Value s tp) where
-  pretty = pretty . show
+  pretty (RegValue  r) = pretty r
+  pretty (AtomValue a) = pretty a
 
 instance Show (Value s tp) where
   show (RegValue  r) = show r
@@ -475,8 +476,9 @@ instance PrettyExt ext => Pretty (AtomValue ext s tp) where
       ReadRef r -> "!" <> pretty r
       NewRef a -> "newref" <+> pretty a
       NewEmptyRef tp -> "emptyref" <+> pretty tp
-      FreshConstant bt nm -> "fresh" <+> pretty bt <+> maybe mempty (pretty . show) nm
-      FreshFloat fi nm -> "fresh" <+> pretty fi <+> maybe mempty (pretty . show) nm
+      -- TODO: replace viaShow once we have instance Pretty SolverSymbol
+      FreshConstant bt nm -> "fresh" <+> pretty bt <+> maybe mempty viaShow nm
+      FreshFloat fi nm -> "fresh" <+> pretty fi <+> maybe mempty viaShow nm
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
 typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
@@ -786,7 +788,7 @@ instance PrettyExt ext => Show (Block ext s ret) where
   show = show . pretty
 
 instance PrettyExt ext => Pretty (Block ext s ret) where
-  pretty b = vcat [pretty (show (blockID b)), indent 2 stmts]
+  pretty b = vcat [viaShow (blockID b), indent 2 stmts]
     where stmts = vcat [ vcat (pretty . pos_val <$> Fold.toList (blockStmts b))
                        , pretty (pos_val (blockTerm b)) ]
 
@@ -889,9 +891,9 @@ instance PrettyExt ext => Show (CFG ext s init ret) where
 
 instance PrettyExt ext => Pretty (CFG ext s init ret) where
   pretty g = do
-    let nm = pretty (show (handleName (cfgHandle g)))
+    let nm = viaShow (handleName (cfgHandle g))
     let args =
-          commas $ map (viewSome (pretty . show)) $ Set.toList $
+          commas $ map (viewSome viaShow) $ Set.toList $
           blockExtraInputs (cfgEntryBlock g)
     vcat [ pretty (cfgReturnType g) <+> nm <+> parens args
          , vcat (pretty <$> cfgBlocks g) ]

@@ -388,11 +388,13 @@ details =
       , "Length:             " <+> (W4I.printSymExpr $ unRV len)
       ]
     WriteBadAlignment ptr alignment ->
-      [ "Required alignment:" <+> pretty (show (fromAlignment alignment)) <+> "bytes"
+      -- TODO: replace viaShow when we have instance Pretty Bytes
+      [ "Required alignment:" <+> viaShow (fromAlignment alignment) <+> "bytes"
       , ppPtr1 ptr
       ]
     ReadBadAlignment ptr alignment ->
-      [ "Required alignment:" <+> pretty (show (fromAlignment alignment)) <+> "bytes"
+      -- TODO: replace viaShow when we have instance Pretty Bytes
+      [ "Required alignment:" <+> viaShow (fromAlignment alignment) <+> "bytes"
       , ppPtr1 ptr
       ]
 
@@ -415,11 +417,11 @@ details =
       ]
     PointerFloatCast ptr castType ->
       [ ppPtr1 ptr
-      , "Cast to:" <+> pretty (show castType)
+      , "Cast to:" <+> viaShow castType
       ]
     PointerIntCast ptr castType ->
       [ ppPtr1 ptr
-      , "Cast to:" <+> pretty (show castType)
+      , "Cast to:" <+> viaShow castType
       ]
     PointerUnsupportedOp ptr msg ->
       [ ppPtr1 ptr

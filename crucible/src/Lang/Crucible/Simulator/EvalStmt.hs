@@ -445,7 +445,7 @@ stepBasicBlock verb =
 ppStmtAndLoc :: Handle -> SomeHandle -> ProgramLoc -> Doc ann -> IO ()
 ppStmtAndLoc h sh pl stmt = do
   hPrint h $
-    vcat [ pretty (show sh) <> pretty ':'
+    vcat [ viaShow sh <> pretty ':'
          , indent 2 (stmt <+> pretty "%" <+> ppNoFileName (plSourceLoc pl)) ]
   hFlush h
 

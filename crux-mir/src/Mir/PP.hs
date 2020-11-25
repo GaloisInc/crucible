@@ -96,7 +96,7 @@ instance Pretty Adt where
         <> tupled (map pretty vs)
 
 instance Pretty AdtKind where
-  pretty = pretty . show
+  pretty = viaShow
 
 instance Pretty VariantDiscr where
   pretty (Explicit a) = pretty_fn1 "Explicit" a
@@ -104,7 +104,7 @@ instance Pretty VariantDiscr where
 
 
 instance Pretty CtorKind where
-  pretty = pretty . show
+  pretty = viaShow
 
 instance Pretty Variant where
   pretty (Variant nm dscr flds knd) = pretty_fn4 "Variant" nm dscr flds knd
@@ -243,7 +243,7 @@ instance Pretty NullOp where
     pretty Box    = pretty "box"
 
 instance Pretty BorrowKind where
-    pretty = pretty . show
+    pretty = viaShow
 
 
 
@@ -272,7 +272,7 @@ instance Pretty BinOp where
       Offset -> pretty "Offset"
 
 instance Pretty CastKind where
-    pretty = pretty . show
+    pretty = viaShow
 
 instance Pretty IntLit where
   pretty i = pretty $ case i of
@@ -290,7 +290,7 @@ instance Pretty IntLit where
     Isize i0 -> i0
 
 instance Pretty FloatLit where
-  pretty = pretty . show
+  pretty = viaShow
 
 
 instance Pretty Substs where
@@ -299,8 +299,8 @@ instance Pretty Substs where
 instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
     pretty (ConstInt i)     = pretty i
-    pretty (ConstStr i)     = pretty '\"' <> pretty (show i) <> pretty '\"'
-    pretty (ConstByteStr i) = pretty (show i)
+    pretty (ConstStr i)     = dquotes (viaShow i)
+    pretty (ConstByteStr i) = viaShow i
     pretty (ConstBool i)    = pretty i
     pretty (ConstChar i)    = pretty i
     pretty (ConstVariant i) = pr_id i
@@ -331,7 +331,7 @@ instance Pretty FnSig where
             Just i -> braces (pretty "spread_arg" <+> pretty i)
 
 instance Pretty Abi where
-    pretty a = pretty (show a)
+    pretty = viaShow
 
 instance Pretty TraitItem where
   pretty (TraitMethod name sig)
@@ -354,7 +354,7 @@ instance Pretty Instance where
   pretty (Instance kind defid substs) = pretty kind <+> pretty defid <> pretty "<" <> pretty substs <> pretty ">"
 
 instance Pretty InstanceKind where
-  pretty = pretty . show
+  pretty = viaShow
 
 instance Pretty Collection where
   pretty col =

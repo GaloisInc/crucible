@@ -126,14 +126,14 @@ ppTermExpr :: forall sym ann.
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
     LLVMValZero _tp -> pretty "0"
-    LLVMValUndef tp -> pretty "<undef : " <> pretty (show tp) <> pretty ">"
-    LLVMValString bs -> pretty (show bs)
+    LLVMValUndef tp -> pretty "<undef : " <> viaShow tp <> pretty ">"
+    LLVMValString bs -> viaShow bs
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
     LLVMValFloat _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
       where v'  = fmap (over _2 ppTermExpr) (V.toList v)
             v'' = map (\(fld,doc) ->
-                        group (pretty "base+" <> pretty (show $ fieldOffset fld) <+> equals <+> doc))
+                        group (pretty "base+" <> viaShow (fieldOffset fld) <+> equals <+> doc))
                       v'
     LLVMValArray _tp v -> encloseSep lbracket rbracket comma v'
       where v' = ppTermExpr <$> V.toList v
@@ -167,13 +167,13 @@ ppLLVMVal ::
   LLVMVal sym ->
   f (Doc ann)
 ppLLVMVal ppInt =
-  let typed doc tp = pretty doc <+> pretty ":" <+> pretty (show tp)
+  let typed doc tp = pretty doc <+> pretty ":" <+> viaShow tp
       pp = ppLLVMVal ppInt
   in
     \case
       (LLVMValZero tp) -> pure $ angles (typed "zero" tp)
       (LLVMValUndef tp) -> pure $ angles (typed "undef" tp)
-      (LLVMValString bs) -> pure $ pretty (show bs)
+      (LLVMValString bs) -> pure $ viaShow bs
       (LLVMValInt blk w) -> fromMaybe otherDoc <$> ppInt blk w
         where
           otherDoc =

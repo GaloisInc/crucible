@@ -1062,8 +1062,8 @@ instance PrettyApp MirStmt where
     MirWriteRef x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubanyRef tpr x -> "subanyRef" <+> pretty tpr <+> pp x
-    MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> pretty (show idx)
-    MirSubvariantRef _ x idx -> "subvariantRef" <+> pp x <+> pretty (show idx)
+    MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
+    MirSubvariantRef _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_VectorAsMirVector _ v -> "mirRef_vectorAsMirVector" <+> pp v
@@ -1081,7 +1081,7 @@ instance PrettyApp MirStmt where
     VectorConcat _ v1 v2 -> "vectorConcat" <+> pp v1 <+> pp v2
     VectorTake _ v i -> "vectorTake" <+> pp v <+> pp i
     VectorDrop _ v i -> "vectorDrop" <+> pp v <+> pp i
-    ArrayZeroed idxs w -> "arrayZeroed" <+> pretty (show idxs) <+> pretty (show w)
+    ArrayZeroed idxs w -> "arrayZeroed" <+> viaShow idxs <+> viaShow w
     MirVector_Uninit tp len -> "mirVector_uninit" <+> pretty tp <+> pp len
     MirVector_FromVector tp v -> "mirVector_fromVector" <+> pretty tp <+> pp v
     MirVector_FromArray btp a -> "mirVector_fromArray" <+> pretty btp <+> pp a

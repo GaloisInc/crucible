@@ -437,7 +437,7 @@ instance Hashable (TypeRepr ty) where
   hashWithSalt = $(U.structuralHashWithSalt [t|TypeRepr|] [])
 
 instance Pretty (TypeRepr tp) where
-  pretty = pretty . show
+  pretty = viaShow
 
 instance Show (TypeRepr tp) where
   showsPrec = $(U.structuralShowsPrec [t|TypeRepr|])

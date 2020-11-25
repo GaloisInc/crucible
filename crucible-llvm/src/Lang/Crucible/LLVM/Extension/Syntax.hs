@@ -310,29 +310,37 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
 instance PrettyApp (LLVMStmt wptr) where
   ppApp pp = \case
     LLVM_PushFrame nm mvar ->
-       pretty "pushFrame" <+> pretty nm <+> pretty (show mvar)
+       pretty "pushFrame" <+> pretty nm <+> ppGlobalVar mvar
     LLVM_PopFrame mvar  ->
-       pretty "popFrame" <+> pretty (show mvar)
+       pretty "popFrame" <+> ppGlobalVar mvar
     LLVM_Alloca _ mvar sz a loc ->
-       pretty "alloca" <+> pretty (show mvar) <+> pp sz <+> pretty (show a) <+> pretty loc
+       pretty "alloca" <+> ppGlobalVar mvar <+> pp sz <+> ppAlignment a <+> pretty loc
     LLVM_Load mvar ptr _tpr tp a ->
-       pretty "load" <+> pretty (show mvar) <+> pp ptr <+> pretty (show tp) <+> pretty (show a)
+       pretty "load" <+> ppGlobalVar mvar <+> pp ptr <+> viaShow tp <+> ppAlignment a
     LLVM_Store mvar ptr _tpr tp a v ->
-       pretty "store" <+> pretty (show mvar) <+> pp ptr <+> pretty (show tp) <+> pretty (show a) <+> pp v
+       pretty "store" <+> ppGlobalVar mvar <+> pp ptr <+> viaShow tp <+> ppAlignment a <+> pp v
     LLVM_MemClear mvar ptr len ->
-       pretty "memClear" <+> pretty (show mvar) <+> pp ptr <+> pretty (show len)
-    LLVM_LoadHandle ltp mvar ptr _args _ret ->
-       pretty "loadFunctionHandle" <+> pretty (show mvar) <+> pp ptr <+> pretty "as" <+> pretty (show ltp)
+       pretty "memClear" <+> ppGlobalVar mvar <+> pp ptr <+> viaShow len
+    LLVM_LoadHandle mvar ltp ptr _args _ret ->
+       pretty "loadFunctionHandle" <+> ppGlobalVar mvar <+> pp ptr <+> pretty "as" <+> viaShow ltp
     LLVM_ResolveGlobal _ mvar gs ->
-       pretty "resolveGlobal" <+> pretty (show mvar) <+> pretty (show (globalSymbolName gs))
+       pretty "resolveGlobal" <+> ppGlobalVar mvar <+> viaShow (globalSymbolName gs)
     LLVM_PtrEq mvar x y ->
-       pretty "ptrEq" <+> pretty (show mvar) <+> pp x <+> pp y
+       pretty "ptrEq" <+> ppGlobalVar mvar <+> pp x <+> pp y
     LLVM_PtrLe mvar x y ->
-       pretty "ptrEq" <+> pretty (show mvar) <+> pp x <+> pp y
+       pretty "ptrEq" <+> ppGlobalVar mvar <+> pp x <+> pp y
     LLVM_PtrAddOffset _ mvar x y ->
-       pretty "ptrAddOffset" <+> pretty (show mvar) <+> pp x <+> pp y
+       pretty "ptrAddOffset" <+> ppGlobalVar mvar <+> pp x <+> pp y
     LLVM_PtrSubtract _ mvar x y ->
-       pretty "ptrSubtract" <+> pretty (show mvar) <+> pp x <+> pp y
+       pretty "ptrSubtract" <+> ppGlobalVar mvar <+> pp x <+> pp y
+
+-- TODO: move to a Pretty instance
+ppGlobalVar :: GlobalVar Mem -> Doc ann
+ppGlobalVar = viaShow
+
+-- TODO: move to a Pretty instance
+ppAlignment :: Alignment -> Doc ann
+ppAlignment = viaShow
 
 instance TestEqualityFC (LLVMStmt wptr) where
   testEqualityFC testSubterm =

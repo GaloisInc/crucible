@@ -385,7 +385,7 @@ instance Show MirHandle where
 
 instance Pretty MirHandle where
     pretty (MirHandle nm sig _c) =
-      pretty (show nm) <> colon <> pretty sig
+      viaShow nm <> colon <> pretty sig
 
 
 varInfoRepr :: VarInfo s tp -> C.TypeRepr tp

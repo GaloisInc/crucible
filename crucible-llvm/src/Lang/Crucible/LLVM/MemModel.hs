@@ -735,7 +735,7 @@ doLookupHandle _sym mem ptr gsym = do
   let LLVMPointer blk _ = ptr
   let ptrDoc = hang 2 $
          case gsym of
-           Just s  -> pretty (show s)
+           Just s  -> viaShow s
            Nothing -> ppPtr ptr
   case asNat blk of
     Nothing -> return (Left ("Cannot resolve a symbolic pointer to a function handle:" <+> ptrDoc))
@@ -749,7 +749,7 @@ doLookupHandle _sym mem ptr gsym = do
                 Nothing ->
                   return $ Left $ vcat
                   [ "Data associated with the pointer found, but was not a callable function:"
-                  , hang 2 (pretty (show (dynTypeRep x)))
+                  , hang 2 (viaShow (dynTypeRep x))
                   , ptrDoc
                   ]
                 Just a  -> return (Right a)

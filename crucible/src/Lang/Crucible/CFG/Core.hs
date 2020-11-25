@@ -138,7 +138,7 @@ instance Show (Reg ctx tp) where
 instance ShowF (Reg ctx)
 
 instance Pretty (Reg ctx tp) where
-  pretty = pretty . show
+  pretty (Reg i) = pretty '$' <> pretty (indexVal i)
 
 instance ApplyEmbedding' Reg where
   applyEmbedding' ctxe r = Reg $ applyEmbedding' ctxe (regIndex r)
@@ -599,8 +599,9 @@ ppStmt r s =
     Print msg -> ppFn "print" [ pretty msg ]
     ReadGlobal v -> pretty "read" <+> ppReg r <+> pretty v
     WriteGlobal v e -> pretty "write" <+> pretty v <+> pretty e
-    FreshConstant bt nm -> ppReg r <+> pretty "=" <+> pretty "fresh" <+> pretty bt <+> maybe mempty (pretty . show) nm
-    FreshFloat fi nm -> ppReg r <+> pretty "=" <+> pretty "fresh-float" <+> pretty fi <+> maybe mempty (pretty . show) nm
+    -- TODO: replace viaShow once we have instance Pretty SolverSymbol
+    FreshConstant bt nm -> ppReg r <+> pretty "=" <+> pretty "fresh" <+> pretty bt <+> maybe mempty viaShow nm
+    FreshFloat fi nm -> ppReg r <+> pretty "=" <+> pretty "fresh-float" <+> pretty fi <+> maybe mempty viaShow nm
     NewRefCell _ e -> ppReg r <+> pretty "=" <+> ppFn "newref" [ pretty e ]
     NewEmptyRefCell tp -> ppReg r <+> pretty "=" <+> ppFn "emptyref" [ pretty tp ]
     ReadRefCell e -> ppReg r <+> pretty "= !" <> pretty e

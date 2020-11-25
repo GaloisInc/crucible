@@ -1266,7 +1266,7 @@ callHandle e abi spreadArg cargs
     db    <- use debugLevel
     when (db > 3) $
        traceM $ fmtDoc (PP.fillSep ["At normal function call of",
-           PP.pretty (show e), "with arguments", pretty cargs,
+           PP.viaShow e, "with arguments", pretty cargs,
            "abi:",pretty abi])
 
     exps <- mapM evalOperand cargs

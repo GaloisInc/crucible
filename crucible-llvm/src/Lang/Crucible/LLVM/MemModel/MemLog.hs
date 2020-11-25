@@ -415,10 +415,10 @@ ppAlignment a =
 
 ppAllocInfo :: IsExpr (SymExpr sym) => (Natural, AllocInfo sym) -> Doc ann
 ppAllocInfo (base, AllocInfo atp sz mut alignment loc) =
-  pretty (show atp)
+  viaShow atp
   <+> pretty base
   <+> maybe mempty printSymExpr sz
-  <+> pretty (show mut)
+  <+> viaShow mut
   <+> ppAlignment alignment
   <+> pretty loc
 
@@ -460,7 +460,7 @@ ppMemWritesChunk = \case
         (\(blk, blk_writes) ->
           case blk_writes of
             [] -> mempty
-            _  -> pretty (show blk) <+> "|->" <> softline <>
+            _  -> viaShow blk <+> "|->" <> softline <>
                     indent 2 (vcat $ map ppWrite blk_writes))
         (IntMap.toList indexed_writes))
     ]

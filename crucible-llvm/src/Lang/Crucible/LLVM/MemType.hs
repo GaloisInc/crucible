@@ -80,7 +80,7 @@ binarySearch f = go
           where i = l + (h - l) `div` 2
 
 ppIdent :: L.Ident -> Doc ann
-ppIdent = pretty . show . L.ppIdent
+ppIdent = viaShow . L.ppIdent
 -- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | LLVM types supported by symbolic simulator.
@@ -109,7 +109,7 @@ ppSymType (Alias i) = ppIdent i
 ppSymType (FunType d) = ppFunDecl d
 ppSymType VoidType = pretty "void"
 ppSymType OpaqueType = pretty "opaque"
-ppSymType (UnsupportedType tp) = pretty (show (L.ppType tp))
+ppSymType (UnsupportedType tp) = viaShow (L.ppType tp)
 -- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | LLVM types supported by simulator with a defined size and alignment.

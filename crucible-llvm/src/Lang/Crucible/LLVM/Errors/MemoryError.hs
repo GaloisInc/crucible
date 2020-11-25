@@ -84,7 +84,7 @@ type MemErrContext sym w = MemoryOp sym w
 
 ppGSym :: Maybe String -> [Doc ann]
 ppGSym Nothing = []
-ppGSym (Just nm) = [ "Global symbol", pretty (show nm) ]
+ppGSym (Just nm) = [ "Global symbol", viaShow nm ]
 
 ppMemoryOp :: IsExpr (SymExpr sym) => MemoryOp sym w -> Doc ann
 ppMemoryOp (MemLoadOp tp gsym ptr mem)  =
@@ -124,7 +124,7 @@ ppMemoryOp (MemCopyOp (gsym_dest, dest) (gsym_src, src) len mem) =
        ]
 
 ppMemoryOp (MemLoadHandleOp sig gsym ptr mem) =
-  vsep [ "Attempting to load callable function with type:" <+> pretty (show (L.ppType sig))
+  vsep [ "Attempting to load callable function with type:" <+> viaShow (L.ppType sig)
        , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
        , "In memory state:"
        , indent 2 (ppMem mem)
@@ -153,20 +153,20 @@ ppMemoryErrorReason =
     TypeMismatch ty1 ty2 ->
       vcat
       [ "Type mismatch: "
-      , indent 2 (vcat [ pretty (show ty1)
-                       , pretty (show ty2)
+      , indent 2 (vcat [ ppType ty1
+                       , ppType ty2
                        ])
       ]
     UnexpectedArgumentType txt vals ->
       vcat
       [ "Unexpected argument type:"
       , pretty txt
-      , indent 2 (vcat (map (pretty . show) vals))
+      , indent 2 (vcat (map viaShow vals))
       ]
     ApplyViewFail vw ->
-      "Failure when applying value view" <+> pretty (show vw)
+      "Failure when applying value view" <+> viaShow vw
     Invalid ty ->
-      "Load from invalid memory at type " <+> pretty (show ty)
+      "Load from invalid memory at type" <+> ppType ty
     Invalidated msg ->
       "Load from explicitly invalidated memory:" <+> pretty msg
     NoSatisfyingWrite tp ptr ->

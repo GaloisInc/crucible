@@ -268,12 +268,12 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
  where
    pp :: SomeFrame (SimFrame sym ext) -> PP.Doc ann
    pp (SomeFrame (OF f)) =
-      PP.pretty ("When calling " ++ show (f^.override))
+      PP.pretty "When calling" PP.<+> PP.viaShow (f^.override)
    pp (SomeFrame (MF f)) =
-      PP.pretty "In" PP.<+> PP.pretty (show (frameHandle f)) PP.<+>
+      PP.pretty "In" PP.<+> PP.viaShow (frameHandle f) PP.<+>
       PP.pretty "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
    pp (SomeFrame (RF nm _v)) =
-      PP.pretty "While returning value from" PP.<+> PP.pretty (show nm)
+      PP.pretty "While returning value from" PP.<+> PP.viaShow nm
 
 
 ------------------------------------------------------------------------

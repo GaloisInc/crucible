@@ -106,7 +106,7 @@ instance FromJSON DefId where
 
 -- ignores filename and entry #s
 instance Pretty DefId where
-    pretty = pretty . show
+    pretty = viaShow
 
 
 type ExplodedDefId = [Text]

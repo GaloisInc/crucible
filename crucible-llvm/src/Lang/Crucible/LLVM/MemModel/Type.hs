@@ -151,10 +151,10 @@ fieldEnd f = fieldOffset f + storageTypeSize (f^.fieldVal) + fieldPad f
 ppType :: StorageType -> Doc ann
 ppType tp =
   case storageTypeF tp of
-    Bitvector w -> pretty ('i': show (bytesToBits w))
+    Bitvector w -> pretty 'i' <> pretty (bytesToBits w)
     Float -> pretty "float"
     Double -> pretty "double"
     X86_FP80 -> pretty "long double"
-    Array n etp -> brackets (pretty (show n) <+> pretty 'x' <+> ppType etp)
+    Array n etp -> brackets (pretty n <+> pretty 'x' <+> ppType etp)
     Struct flds -> braces $ hsep $ punctuate (pretty ',') $ V.toList $ ppFld <$> flds
       where ppFld f = ppType (f^.fieldVal)
