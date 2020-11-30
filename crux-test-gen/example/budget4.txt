@@ -1,0 +1,9 @@
+start ::= <<set_budget[A,2]>><<set_budget[B,2]>><<x>><<x>><<x>>
+
+// Fails because the `amount` argument is not a number.
+for[T] x ::= <<choose[T]>><<take_budget[T, XYZZY]>>
+
+choose[A] ::= A
+choose[B] ::= B
+
+// no outputs

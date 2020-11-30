@@ -1,0 +1,10 @@
+// `expand_all`'s nested expansion respects constraints from the outer scope.
+start ::= <<with_var>>
+
+for[T] with_var ::= <<x[T]>> <<expand_all[x[T]]>>
+
+x[A] ::= A
+x[B] ::= B
+
+// output 0: A A
+// output 1: B B

@@ -1,0 +1,7 @@
+start ::= <<x[A]>> <<x[B]>>
+
+x[A] ::= a
+x[B] ::= b
+x[C] ::= c
+
+// output: a b

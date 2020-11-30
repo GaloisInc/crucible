@@ -1,0 +1,6 @@
+start ::= A <<expansion_counter>>
+start ::= B <<expansion_counter>> <<bad>>
+start ::= C <<expansion_counter>>
+
+// output 0: A 0
+// output 1: C 1
