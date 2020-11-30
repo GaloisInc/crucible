@@ -4,6 +4,7 @@ module Crux.Types where
 import qualified Control.Lens as L
 import Data.Sequence (Seq)
 import Data.Parameterized.Map (MapF)
+import Data.Void
 import Prettyprinter
 
 import Lang.Crucible.Simulator.RegMap(RegValue)
@@ -79,7 +80,7 @@ data ProcessedGoals =
 
 data ProofResult a
    = Proved [a]
-   | NotProved (Doc ()) (Maybe ModelView)   -- ^ An explanation of the failure and counter example, if any
+   | NotProved (Doc Void) (Maybe ModelView)   -- ^ An explanation of the failure and counter example, if any
  deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)

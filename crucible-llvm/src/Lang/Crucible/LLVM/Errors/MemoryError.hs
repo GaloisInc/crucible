@@ -34,6 +34,7 @@ module Lang.Crucible.LLVM.Errors.MemoryError
 import           Prelude hiding (pred)
 
 import           Data.Text (Text)
+import           Data.Void
 import qualified Text.LLVM.PP as L
 import qualified Text.LLVM.AST as L
 import           Prettyprinter
@@ -77,7 +78,7 @@ data MemoryErrorReason sym w =
   | NoSatisfyingWrite StorageType (LLVMPtr sym w)
   | UnwritableRegion
   | UnreadableRegion
-  | BadFunctionPointer (Doc ())
+  | BadFunctionPointer (Doc Void)
   | OverlappingRegions
 
 type MemErrContext sym w = MemoryOp sym w
