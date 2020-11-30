@@ -210,10 +210,10 @@ instance Pretty Terminator where
     pretty Resume = pretty "resume;"
     pretty Unreachable = pretty "unreachable;"
     pretty (Drop l target _unwind dropFn) =
-        pretty "drop" <+> pretty l <+> pretty "->" <+> pretty target <+> parens (pretty $ show dropFn) <> semi
+        pretty "drop" <+> pretty l <+> pretty "->" <+> pretty target <+> parens (viaShow dropFn) <> semi
     pretty (DropAndReplace l r target _unwind dropFn) =
         pretty "dropreplace" <+> pretty l <+> equals <+> pretty r <+>
-            pretty "->" <+> pretty target <+> parens (pretty $ show dropFn) <> semi
+            pretty "->" <+> pretty target <+> parens (viaShow dropFn) <> semi
     pretty (Call f args (Just (lv,bb0)) bb1) =
       pretty "call" <> tupled ([pretty lv <+> pretty "="
                                        <+> pretty f <> tupled (map pretty args),
