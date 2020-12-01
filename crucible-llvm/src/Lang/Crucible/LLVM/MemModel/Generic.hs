@@ -84,7 +84,7 @@ import qualified Data.IntMap as IntMap
 import           Data.Monoid
 import           Data.Text (Text)
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 import           Lang.Crucible.Panic (panic)
 
 import qualified Data.BitVector.Sized as BV
@@ -125,11 +125,16 @@ data ExprEnv sym w = ExprEnv { loadOffset  :: SymBV sym w
                              , storeOffset :: SymBV sym w
                              , sizeData    :: Maybe (SymBV sym w) }
 
-ppExprEnv :: IsExprBuilder sym => ExprEnv sym w -> Doc
-ppExprEnv f = text "ExprEnv" <$$> (indent 4 $ vcat
-     [text "loadOffset:"  <+> printSymExpr (loadOffset f)
-     ,text "storeOffset:" <+> printSymExpr (storeOffset f)
-     ,text "sizeData:"    <+> pretty (printSymExpr <$> sizeData f)])
+ppExprEnv :: IsExprBuilder sym => ExprEnv sym w -> Doc ann
+ppExprEnv f =
+  vcat
+  [ "ExprEnv"
+  , indent 4 $ vcat
+    [ "loadOffset:"  <+> printSymExpr (loadOffset f)
+    , "storeOffset:" <+> printSymExpr (storeOffset f)
+    , "sizeData:"    <+> maybe mempty printSymExpr (sizeData f)
+    ]
+  ]
 
 -- | Interpret an 'OffsetExpr' as a 'SymBV'. Although 'OffsetExpr's may contain
 -- 'IntExpr's, which may be undefined if they refer to the size of an unbounded
@@ -1429,7 +1434,7 @@ instance IsSymInterface sym => Eq (SomeAlloc sym) where
           _ -> False
     x_atp == y_atp && x_base == y_base && sz_eq && x_mut == y_mut && x_alignment == y_alignment && x_loc == y_loc
 
-ppSomeAlloc :: forall sym. IsExprBuilder sym => SomeAlloc sym -> Doc
+ppSomeAlloc :: forall sym ann. IsExprBuilder sym => SomeAlloc sym -> Doc ann
 ppSomeAlloc (SomeAlloc atp base sz mut alignment loc) =
   ppAllocInfo (base, AllocInfo atp sz mut alignment loc :: AllocInfo sym)
 

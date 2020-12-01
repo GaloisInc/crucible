@@ -69,6 +69,9 @@ import Data.String (fromString)
 import Numeric
 import Numeric.Natural()
 
+import Prettyprinter (Pretty(..))
+import qualified Prettyprinter as PP
+
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.FunctionHandle as FH
 import qualified What4.ProgramLoc as PL
@@ -98,9 +101,7 @@ import Mir.Generator
 import Mir.GenericOps
 import Mir.TransTy
 
-import Mir.PP(fmt)
-import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import Mir.PP (fmt, fmtDoc)
 import GHC.Stack
 
 import Debug.Trace
@@ -1264,9 +1265,9 @@ callHandle e abi spreadArg cargs
   | MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst <- e = do
     db    <- use debugLevel
     when (db > 3) $
-       traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
-           PP.text (show e), PP.text "with arguments", pretty cargs,
-           PP.text "abi:",pretty abi])
+       traceM $ fmtDoc (PP.fillSep ["At normal function call of",
+           PP.viaShow e, "with arguments", pretty cargs,
+           "abi:",pretty abi])
 
     exps <- mapM evalOperand cargs
     exps' <- case abi of
@@ -1311,8 +1312,8 @@ callExp funid cargs = do
    case () of
      () | Just (CustomOp op) <- isCustom -> do
           when (db > 3) $
-            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                 pretty funid, PP.text "with arguments", pretty cargs])
+            traceM $ fmtDoc (PP.fillSep ["At custom function call of",
+                 pretty funid, "with arguments", pretty cargs])
 
           ops <- mapM evalOperand cargs
           let opTys = map M.typeOf cargs
@@ -1320,16 +1321,16 @@ callExp funid cargs = do
 
         | Just (CustomOpNamed op) <- isCustom -> do
           when (db > 3) $
-            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                 pretty funid, PP.text "with arguments", pretty cargs])
+            traceM $ fmtDoc (PP.fillSep ["At custom function call of",
+                 pretty funid, "with arguments", pretty cargs])
 
           ops <- mapM evalOperand cargs
           op funid ops
 
        | Just (CustomMirOp op) <- isCustom -> do
           when (db > 3) $
-            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-               pretty funid, PP.text "with arguments", pretty cargs])
+            traceM $ fmtDoc (PP.fillSep ["At custom function call of",
+               pretty funid, "with arguments", pretty cargs])
           op cargs
 
        | Just (hand, sig) <- mhand -> do

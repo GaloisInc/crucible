@@ -45,7 +45,7 @@ import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Type.Equality
-import qualified Text.PrettyPrint.ANSI.Leijen as Pretty
+import qualified Prettyprinter as Pretty
 
 import           What4.FunctionName (FunctionName)
 import           What4.ProgramLoc

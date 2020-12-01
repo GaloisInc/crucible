@@ -77,9 +77,9 @@ import qualified Data.List.Extra as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe (mapMaybe)
-import           Data.Text (Text, unpack)
+import           Data.Text (Text)
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           Data.Parameterized.Ctx (SingleCtx)
 
@@ -393,95 +393,97 @@ memEndian = memEndianForm
 -- Pretty printing
 
 ppMerge :: IsExpr e
-        => (v -> Doc)
+        => (v -> Doc ann)
         -> e tp
         -> [v]
         -> [v]
-        -> Doc
+        -> Doc ann
 ppMerge vpp c x y =
   indent 2 $
-    text "Condition:" <$$>
-    indent 2 (printSymExpr c) <$$>
-    ppAllocList x (text "True Branch:") <$$>
-    ppAllocList y (text "False Branch:")
-  where ppAllocList [] = (<+> text "<none>")
-        ppAllocList xs = (<$$> indent 2 (vcat $ map vpp xs))
+  vcat
+  [ "Condition:"
+  , indent 2 (printSymExpr c)
+  , ppAllocList x "True Branch:"
+  , ppAllocList y "False Branch:"
+  ]
+  where ppAllocList [] d = d <+> "<none>"
+        ppAllocList xs d = vcat [d, indent 2 (vcat $ map vpp xs)]
 
-ppAlignment :: Alignment -> Doc
+ppAlignment :: Alignment -> Doc ann
 ppAlignment a =
-  text $ show (fromAlignment a) ++ "-byte-aligned"
+  pretty $ show (fromAlignment a) ++ "-byte-aligned"
 
-ppAllocInfo :: IsExpr (SymExpr sym) => (Natural, AllocInfo sym) -> Doc
+ppAllocInfo :: IsExpr (SymExpr sym) => (Natural, AllocInfo sym) -> Doc ann
 ppAllocInfo (base, AllocInfo atp sz mut alignment loc) =
-  text (show atp)
-  <+> text (show base)
-  <+> (pretty $ printSymExpr <$> sz)
-  <+> text (show mut)
+  viaShow atp
+  <+> pretty base
+  <+> maybe mempty printSymExpr sz
+  <+> viaShow mut
   <+> ppAlignment alignment
-  <+> text loc
+  <+> pretty loc
 
-ppAlloc :: IsExpr (SymExpr sym) => MemAlloc sym -> Doc
+ppAlloc :: IsExpr (SymExpr sym) => MemAlloc sym -> Doc ann
 ppAlloc (Allocations xs) =
   vcat $ map ppAllocInfo (reverse (Map.assocs xs))
 ppAlloc (MemFree base loc) =
-  text "Free" <+> printSymExpr base <+> text loc
-ppAlloc (AllocMerge c (MemAllocs x) (MemAllocs y)) = do
-  text "Merge" <$$> ppMerge ppAlloc c x y
+  "Free" <+> printSymExpr base <+> pretty loc
+ppAlloc (AllocMerge c (MemAllocs x) (MemAllocs y)) =
+  vcat ["Merge", ppMerge ppAlloc c x y]
 
-ppAllocs :: IsExpr (SymExpr sym) => MemAllocs sym -> Doc
+ppAllocs :: IsExpr (SymExpr sym) => MemAllocs sym -> Doc ann
 ppAllocs (MemAllocs xs) = vcat $ map ppAlloc xs
 
-ppWrite :: IsExpr (SymExpr sym) => MemWrite sym -> Doc
+ppWrite :: IsExpr (SymExpr sym) => MemWrite sym -> Doc ann
 ppWrite (MemWrite d (MemCopy s l)) = do
-  text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
+  "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemWrite d (MemSet v l)) = do
-  text "memset" <+> ppPtr d <+> printSymExpr v <+> printSymExpr l
+  "memset" <+> ppPtr d <+> printSymExpr v <+> printSymExpr l
 ppWrite (MemWrite d (MemStore v _ _)) = do
-  char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
+  pretty '*' <> ppPtr d <+> ":=" <+> ppTermExpr v
 ppWrite (MemWrite d (MemArrayStore arr _)) = do
-  char '*' <> ppPtr d <+> text ":=" <+> printSymExpr arr
+  pretty '*' <> ppPtr d <+> ":=" <+> printSymExpr arr
 ppWrite (MemWrite d (MemInvalidate msg l)) = do
-  text "invalidate" <+> parens (text $ unpack msg) <+> ppPtr d <+> printSymExpr l
+  "invalidate" <+> parens (pretty msg) <+> ppPtr d <+> printSymExpr l
 ppWrite (WriteMerge c (MemWrites x) (MemWrites y)) = do
-  text "merge" <$$> ppMerge ppMemWritesChunk c x y
+  vcat ["merge", ppMerge ppMemWritesChunk c x y]
 
-ppMemWritesChunk :: IsExpr (SymExpr sym) => MemWritesChunk sym -> Doc
+ppMemWritesChunk :: IsExpr (SymExpr sym) => MemWritesChunk sym -> Doc ann
 ppMemWritesChunk = \case
   MemWritesChunkFlat [] ->
-    text "No writes"
+    "No writes"
   MemWritesChunkFlat flat_writes ->
     vcat $ map ppWrite flat_writes
   MemWritesChunkIndexed indexed_writes ->
-    text "Indexed chunk:" <$$>
-    indent 2 (vcat $ map
-      (\(blk, blk_writes) ->
-        case blk_writes of
-          [] -> empty
-          _  -> text (show blk) <+> "|->" <> softline <>
-                  indent 2 (vcat $ map ppWrite blk_writes))
-      (IntMap.toList indexed_writes))
+    vcat
+    [ "Indexed chunk:"
+    , indent 2 (vcat $ map
+        (\(blk, blk_writes) ->
+          case blk_writes of
+            [] -> mempty
+            _  -> viaShow blk <+> "|->" <> softline <>
+                    indent 2 (vcat $ map ppWrite blk_writes))
+        (IntMap.toList indexed_writes))
+    ]
 
-ppMemWrites :: IsExpr (SymExpr sym) => MemWrites sym -> Doc
+ppMemWrites :: IsExpr (SymExpr sym) => MemWrites sym -> Doc ann
 ppMemWrites (MemWrites ws) = vcat $ map ppMemWritesChunk ws
 
-ppMemChanges :: IsExpr (SymExpr sym) => MemChanges sym -> [Doc]
+ppMemChanges :: IsExpr (SymExpr sym) => MemChanges sym -> [Doc ann]
 ppMemChanges (al,wl)
-  | nullMemAllocs al && nullMemWrites wl = [text "No writes or allocations"]
+  | nullMemAllocs al && nullMemWrites wl = ["No writes or allocations"]
   | otherwise =
-      (if nullMemAllocs al then [] else [text "Allocations:", indent 2 (ppAllocs al)]) <>
-      (if nullMemWrites wl then [] else [text "Writes:", indent 2 (ppMemWrites wl)])
+      (if nullMemAllocs al then [] else ["Allocations:", indent 2 (ppAllocs al)]) <>
+      (if nullMemWrites wl then [] else ["Writes:", indent 2 (ppMemWrites wl)])
 
-ppMemState :: (MemChanges sym -> [Doc]) -> MemState sym -> Doc
+ppMemState :: (MemChanges sym -> [Doc ann]) -> MemState sym -> Doc ann
 ppMemState f (EmptyMem _ _ d) =
-  vcat (text "Base memory" : map (indent 2) (f d))
+  vcat ("Base memory" : map (indent 2) (f d))
 ppMemState f (StackFrame _ _ nm d ms) =
-  vcat ((text "Stack frame" <+> text (show nm)) : map (indent 2) (f d)) <$$>
-  ppMemState f ms
+  vcat (("Stack frame" <+> pretty nm) : map (indent 2) (f d) ++ [ppMemState f ms])
 ppMemState f (BranchFrame _ _ d ms) =
-  vcat (text "Branch frame" : map (indent 2) (f d)) <$$>
-  ppMemState f ms
+  vcat ("Branch frame" : map (indent 2) (f d) ++ [ppMemState f ms])
 
-ppMem :: IsExpr (SymExpr sym) => Mem sym -> Doc
+ppMem :: IsExpr (SymExpr sym) => Mem sym -> Doc ann
 ppMem m = ppMemState ppMemChanges (m^.memState)
 
 ------------------------------------------------------------------------------

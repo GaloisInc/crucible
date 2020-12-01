@@ -43,13 +43,12 @@ import           Control.Monad (foldM, join)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Map (Map)
-import           Data.Coerce (coerce)
 import           Data.Foldable (toList)
 import           Data.Functor.Identity (Identity(..))
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.List (intersperse)
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
@@ -122,19 +121,19 @@ llvmValStorableType v =
     LLVMValUndef tp -> tp
 
 
-ppTermExpr :: forall sym.
-  IsExpr (SymExpr sym) => LLVMVal sym -> Doc
+ppTermExpr :: forall sym ann.
+  IsExpr (SymExpr sym) => LLVMVal sym -> Doc ann
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
-    LLVMValZero _tp -> text "0"
-    LLVMValUndef tp -> text "<undef : " <> text (show tp) <> text ">"
-    LLVMValString bs -> text (show bs)
+    LLVMValZero _tp -> pretty "0"
+    LLVMValUndef tp -> pretty "<undef : " <> viaShow tp <> pretty ">"
+    LLVMValString bs -> viaShow bs
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
     LLVMValFloat _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''
       where v'  = fmap (over _2 ppTermExpr) (V.toList v)
             v'' = map (\(fld,doc) ->
-                        group (text "base+" <> text (show $ fieldOffset fld) <+> equals <+> doc))
+                        group (pretty "base+" <> viaShow (fieldOffset fld) <+> equals <+> doc))
                       v'
     LLVMValArray _tp v -> encloseSep lbracket rbracket comma v'
       where v' = ppTermExpr <$> V.toList v
@@ -163,25 +162,25 @@ zeroInt _ _ k = k @1 Nothing
 -- 'ppLLVMValWithGlobals'.
 ppLLVMVal ::
   (Applicative f, IsExpr (SymExpr sym)) =>
-  (forall w. SymNat sym -> SymBV sym w -> f (Maybe Doc))
+  (forall w. SymNat sym -> SymBV sym w -> f (Maybe (Doc ann)))
     {- ^ Printing of pointers -} ->
   LLVMVal sym ->
-  f Doc
+  f (Doc ann)
 ppLLVMVal ppInt =
-  let typed doc tp = text doc <+> text ":" <+> text (show tp)
+  let typed doc tp = pretty doc <+> pretty ":" <+> viaShow tp
       pp = ppLLVMVal ppInt
   in
     \case
       (LLVMValZero tp) -> pure $ angles (typed "zero" tp)
       (LLVMValUndef tp) -> pure $ angles (typed "undef" tp)
-      (LLVMValString bs) -> pure $ text (show bs)
+      (LLVMValString bs) -> pure $ viaShow bs
       (LLVMValInt blk w) -> fromMaybe otherDoc <$> ppInt blk w
         where
           otherDoc =
             case asNat blk of
               Just 0 ->
                 case (asBV w) of
-                  (Just (BV.BV unsigned)) -> text $ unwords $
+                  (Just (BV.BV unsigned)) -> pretty $ unwords $
                     [ "literal integer:"
                     , "unsigned value = " ++ show unsigned ++ ","
                     , unwords [ "signed value = "
@@ -189,52 +188,53 @@ ppLLVMVal ppInt =
                               ]
                     , "width = " ++ show (bvWidth w)
                     ]
-                  Nothing -> text $ unwords $
+                  Nothing -> pretty $ unwords $
                     [ "symbolic integer: "
                     , "width = " ++ show (bvWidth w)
                     ]
               Just n ->
                 case asBV w of
-                  Just (BV.BV offset) -> text $ unwords $
+                  Just (BV.BV offset) -> pretty $ unwords $
                     [ "concrete pointer:"
                     , "allocation = " ++ show n ++ ","
                     , "offset = " ++ show offset
                     ]
-                  Nothing -> text $ unwords $
+                  Nothing -> pretty $ unwords $
                     [ "pointer with concrete allocation and symbolic offset:"
                     , "allocation = " ++ show n
                     ]
 
               Nothing ->
                 case asBV w of
-                  Just (BV.BV offset) -> text $
+                  Just (BV.BV offset) -> pretty $
                     "pointer with concrete offset " ++ show offset
-                  Nothing -> text "pointer with symbolic offset"
+                  Nothing -> pretty "pointer with symbolic offset"
 
-      (LLVMValFloat SingleSize _) -> pure $ text "symbolic float"
-      (LLVMValFloat DoubleSize _) -> pure $ text "symbolic double"
-      (LLVMValFloat X86_FP80Size _) -> pure $ text "symbolic long double"
-      (LLVMValStruct xs) -> semiBraces <$> traverse (pp . snd) (V.toList xs)
+      (LLVMValFloat SingleSize _) -> pure $ pretty "symbolic float"
+      (LLVMValFloat DoubleSize _) -> pure $ pretty "symbolic double"
+      (LLVMValFloat X86_FP80Size _) -> pure $ pretty "symbolic long double"
+      (LLVMValStruct xs) -> encloseSep lbrace rbrace semi <$> traverse (pp . snd) (V.toList xs)
       (LLVMValArray _ xs) -> list <$> traverse pp (V.toList xs)
 
 -- | Pretty-print an 'LLVMVal', but replace pointers to globals with the name of
 --   the global when possible. Probably pretty slow on big structures.
-ppLLVMValWithGlobals :: forall sym.
+ppLLVMValWithGlobals ::
+  forall sym ann.
   (IsSymInterface sym) =>
   sym ->
   Map Natural L.Symbol {- ^ c.f. 'memImplSymbolMap' -} ->
   LLVMVal sym ->
-  Doc
+  Doc ann
 ppLLVMValWithGlobals _sym symbolMap = runIdentity . ppLLVMVal ppInt
   where
-    ppInt :: forall w. SymNat sym -> SymBV sym w -> Identity (Maybe Doc)
+    ppInt :: forall w. SymNat sym -> SymBV sym w -> Identity (Maybe (Doc ann))
     ppInt allocNum offset =
       pure (ppSymbol <$> isGlobalPointer' @sym symbolMap (LLVMPointer allocNum offset))
-    ppSymbol (L.Symbol symb) = text ('@' : symb)
+    ppSymbol (L.Symbol symb) = pretty ('@' : symb)
 
 -- | This instance tries to make things as concrete as possible.
 instance IsExpr (SymExpr sym) => Pretty (LLVMVal sym) where
-  pretty = coerce $ ppLLVMVal (\_ _ -> Identity Nothing)
+  pretty x = runIdentity $ ppLLVMVal (\_ _ -> Identity Nothing) x
 
 instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValZero _tp) = "0"

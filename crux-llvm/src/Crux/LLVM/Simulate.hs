@@ -24,7 +24,7 @@ import Data.Parameterized.Context (pattern Empty)
 import Text.LLVM.AST (Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (</>))
+import Prettyprinter
 
 -- what4
 

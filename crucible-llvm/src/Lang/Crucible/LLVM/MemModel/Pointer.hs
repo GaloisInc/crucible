@@ -73,7 +73,7 @@ import           Control.Monad (guard)
 import           Data.Map (Map)
 import qualified Data.Map as Map (lookup)
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           GHC.TypeLits (TypeError, ErrorMessage(..))
 import           GHC.TypeNats
@@ -285,13 +285,13 @@ ptrIsNull sym w (LLVMPointer blk off) =
      poff <- bvEq sym off =<< bvLit sym (bvWidth off) (BV.zero w)
      andPred sym pblk poff
 
-ppPtr  :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc
+ppPtr :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc ann
 ppPtr (llvmPointerView -> (blk, bv))
   | Just 0 <- asNat blk = printSymExpr bv
   | otherwise =
      let blk_doc = printSymExpr blk
          off_doc = printSymExpr bv
-      in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
+      in pretty "(" <> blk_doc <> pretty "," <+> off_doc <> pretty ")"
 
 -- | Look up a pointer in the 'memImplGlobalMap' to see if it's a global.
 --

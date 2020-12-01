@@ -1,8 +1,9 @@
 module Lang.Crucible.LLVM.MalformedLLVMModule where
 
 import qualified Control.Exception as X
+import           Data.Void
 
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 ------------------------------------------------------------------------
 -- MalformedLLVMModule
@@ -13,7 +14,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 --   of the error, and the remaining arguments are any additional details
 --   describing the error.
 data MalformedLLVMModule
-  = MalformedLLVMModule Doc [Doc]
+  = MalformedLLVMModule (Doc Void) [Doc Void]
 
 instance X.Exception MalformedLLVMModule
 
@@ -21,10 +22,10 @@ instance Show MalformedLLVMModule where
   show = show . renderMalformedLLVMModule
 
 -- Throw a @MalformedLLVMModule@ exception
-malformedLLVMModule :: Doc -> [Doc] -> a
+malformedLLVMModule :: Doc Void -> [Doc Void] -> a
 malformedLLVMModule short details = X.throw (MalformedLLVMModule short details)
 
 -- Render a @MalformedLLVMModule@ exception as a pretty printer document
-renderMalformedLLVMModule :: MalformedLLVMModule -> Doc
+renderMalformedLLVMModule :: MalformedLLVMModule -> Doc Void
 renderMalformedLLVMModule (MalformedLLVMModule short details) =
-   short <$$> indent 2 (vcat details)
+  vcat [short, indent 2 (vcat details)]

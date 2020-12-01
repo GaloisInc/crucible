@@ -100,7 +100,7 @@ import Data.Parameterized.Map (Pair(..))
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
 import Data.String
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Prettyprinter
 
 import What4.ProgramLoc
 import What4.Symbol
@@ -138,7 +138,7 @@ instance Show (Reg ctx tp) where
 instance ShowF (Reg ctx)
 
 instance Pretty (Reg ctx tp) where
-  pretty = text.show
+  pretty (Reg i) = pretty '$' <> pretty (indexVal i)
 
 instance ApplyEmbedding' Reg where
   applyEmbedding' ctxe r = Reg $ applyEmbedding' ctxe (regIndex r)
@@ -168,7 +168,7 @@ instance IsString (Expr ext ctx (StringType Unicode)) where
 instance PrettyApp (ExprExtension ext) => Pretty (Expr ext ctx tp) where
   pretty (App a) = ppApp pretty a
 
-ppAssignment :: Assignment (Reg ctx) args -> [Doc]
+ppAssignment :: Assignment (Reg ctx) args -> [Doc ann]
 ppAssignment = toListFC pretty
 
 instance ( TraversableFC (ExprExtension ext)
@@ -196,7 +196,7 @@ instance OrdF (BlockID blocks) where
   compareF (BlockID x) (BlockID y) = compareF x y
 
 instance Pretty (BlockID blocks tp) where
-  pretty (BlockID i) = char '%' <> int (indexVal i)
+  pretty (BlockID i) = pretty '%' <> pretty (indexVal i)
 
 instance Show (BlockID blocks ctx) where
   show (BlockID i) = '%' : show (indexVal i)
@@ -249,9 +249,9 @@ data SwitchTarget blocks ctx tp where
 switchTargetID :: SwitchTarget blocks ctx tp -> Some (BlockID blocks)
 switchTargetID (SwitchTarget tgt _ _) = Some tgt
 
-ppCase :: String -> SwitchTarget blocks ctx tp -> Doc
+ppCase :: String -> SwitchTarget blocks ctx tp -> Doc ann
 ppCase nm (SwitchTarget tgt _ a) =
-  text nm <+> text "->" <+> pretty tgt <> parens (commas (ppAssignment a))
+  pretty nm <+> pretty "->" <+> pretty tgt <> parens (commas (ppAssignment a))
 
 extendSwitchTarget :: Diff blocks' blocks
                    -> SwitchTarget blocks' ctx tp
@@ -412,33 +412,37 @@ termStmtNextBlocks s0 =
 instance Pretty (TermStmt blocks ret ctx) where
  pretty s =
   case s of
-    Jump b   -> text "jump" <+> pretty b
-    Br e x y -> text "br"  <+> pretty e <+> pretty x <+> pretty y
+    Jump b   -> pretty "jump" <+> pretty b
+    Br e x y -> pretty "br"  <+> pretty e <+> pretty x <+> pretty y
     MaybeBranch _ e j n ->
-      text "maybeBranch" <+> pretty e <+> lbrace <$$>
-        indent 2 (
+      vcat
+      [ pretty "maybeBranch" <+> pretty e <+> lbrace
+      , indent 2 $
           vcat [ ppCase "Just" j
-               , text "Nothing ->" <+> pretty n
-               ] <$$>
-          rbrace)
+               , pretty "Nothing ->" <+> pretty n
+               , rbrace
+               ]
+      ]
     VariantElim _ e asgn ->
       let branches =
               [ f (show i) <> semi
               | i <- [(0::Int) .. ]
               | f <- toListFC (\tgt nm -> ppCase nm tgt) asgn
               ] in
-      text "vswitch" <+> pretty e <+> lbrace <$$>
-       indent 2 (vcat branches) <$$>
-       rbrace
+      vcat
+      [ pretty "vswitch" <+> pretty e <+> lbrace
+      , indent 2 (vcat branches)
+      , rbrace
+      ]
     Return e ->
-      text "return"
+      pretty "return"
        <+> pretty e
     TailCall h _ args ->
-      text "tailCall"
+      pretty "tailCall"
        <+> pretty h
        <+> parens (commas (ppAssignment args))
     ErrorStmt msg ->
-      text "error" <+> pretty msg
+      pretty "error" <+> pretty msg
 
 
 applyEmbeddingStmt :: forall ext ctx ctx' sctx.
@@ -561,8 +565,8 @@ stmtSeqTermStmt :: Functor f
 stmtSeqTermStmt f (ConsStmt l s t) = ConsStmt l s <$> stmtSeqTermStmt f t
 stmtSeqTermStmt f (TermStmt p t) = f (p, t)
 
-ppReg :: Size ctx -> Doc
-ppReg h = text "$" <> int (sizeInt h)
+ppReg :: Size ctx -> Doc ann
+ppReg h = pretty "$" <> pretty (sizeInt h)
 
 nextStmtHeight :: Size ctx -> Stmt ext ctx ctx' -> Size ctx'
 nextStmtHeight h s =
@@ -583,36 +587,39 @@ nextStmtHeight h s =
     Assert{} -> h
     Assume{} -> h
 
-ppStmt :: PrettyExt ext => Size ctx -> Stmt ext ctx ctx' -> Doc
+ppStmt :: PrettyExt ext => Size ctx -> Stmt ext ctx ctx' -> Doc ann
 ppStmt r s =
   case s of
-    SetReg _ e -> ppReg r <+> text "=" <+> pretty e
-    ExtendAssign s' -> ppReg r <+> text "=" <+> ppApp pretty s'
+    SetReg _ e -> ppReg r <+> pretty "=" <+> pretty e
+    ExtendAssign s' -> ppReg r <+> pretty "=" <+> ppApp pretty s'
     CallHandle _ h _ args ->
-      ppReg r <+> text "= call"
+      ppReg r <+> pretty "= call"
               <+> pretty h <> parens (commas (ppAssignment args))
-               <> text ";"
+               <> pretty ";"
     Print msg -> ppFn "print" [ pretty msg ]
-    ReadGlobal v -> text "read" <+> ppReg r <+> pretty v
-    WriteGlobal v e -> text "write" <+> pretty v <+> pretty e
-    FreshConstant bt nm -> ppReg r <+> text "=" <+> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
-    FreshFloat fi nm -> ppReg r <+> text "=" <+> text "fresh-float" <+> pretty fi <+> maybe mempty (text . show) nm
-    NewRefCell _ e -> ppReg r <+> text "=" <+> ppFn "newref" [ pretty e ]
-    NewEmptyRefCell tp -> ppReg r <+> text "=" <+> ppFn "emptyref" [ pretty tp ]
-    ReadRefCell e -> ppReg r <+> text "= !" <> pretty e
-    WriteRefCell r1 r2 -> pretty r1 <+> text ":=" <+> pretty r2
-    DropRefCell r1 -> text "drop" <+> pretty r1
+    ReadGlobal v -> pretty "read" <+> ppReg r <+> pretty v
+    WriteGlobal v e -> pretty "write" <+> pretty v <+> pretty e
+    -- TODO: replace viaShow once we have instance Pretty SolverSymbol
+    FreshConstant bt nm -> ppReg r <+> pretty "=" <+> pretty "fresh" <+> pretty bt <+> maybe mempty viaShow nm
+    FreshFloat fi nm -> ppReg r <+> pretty "=" <+> pretty "fresh-float" <+> pretty fi <+> maybe mempty viaShow nm
+    NewRefCell _ e -> ppReg r <+> pretty "=" <+> ppFn "newref" [ pretty e ]
+    NewEmptyRefCell tp -> ppReg r <+> pretty "=" <+> ppFn "emptyref" [ pretty tp ]
+    ReadRefCell e -> ppReg r <+> pretty "= !" <> pretty e
+    WriteRefCell r1 r2 -> pretty r1 <+> pretty ":=" <+> pretty r2
+    DropRefCell r1 -> pretty "drop" <+> pretty r1
     Assert c e -> ppFn "assert" [ pretty c, pretty e ]
     Assume c e -> ppFn "assume" [ pretty c, pretty e ]
 
-prefixLineNum :: Bool -> ProgramLoc -> Doc -> Doc
-prefixLineNum True pl d = text "%" <+> ppNoFileName (plSourceLoc pl) <$$> d
+prefixLineNum :: Bool -> ProgramLoc -> Doc ann -> Doc ann
+prefixLineNum True pl d = vcat [pretty "%" <+> ppNoFileName (plSourceLoc pl), d]
 prefixLineNum False _ d = d
 
-ppStmtSeq :: PrettyExt ext => Bool -> Size ctx -> StmtSeq ext blocks ret ctx -> Doc
+ppStmtSeq :: PrettyExt ext => Bool -> Size ctx -> StmtSeq ext blocks ret ctx -> Doc ann
 ppStmtSeq ppLineNum h (ConsStmt pl s r) =
-  prefixLineNum ppLineNum pl (ppStmt h s) <$$>
-  ppStmtSeq ppLineNum (nextStmtHeight h s) r
+  vcat
+  [ prefixLineNum ppLineNum pl (ppStmt h s)
+  , ppStmtSeq ppLineNum (nextStmtHeight h s) r
+  ]
 ppStmtSeq ppLineNum _ (TermStmt pl s) =
   prefixLineNum ppLineNum pl (pretty s)
 
@@ -692,23 +699,23 @@ ppBlock :: PrettyExt ext
            -- ^ Optionally print postdom info.
         -> Block ext blocks ret ctx
            -- ^ Block to print.
-        -> Doc
+        -> Doc ann
 ppBlock ppLineNumbers ppBlockArgs mPda b = do
   let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
   let mPostdom = flip fmap mPda $ \ pda ->
         let Const pd = pda ! blockIDIndex (blockID b)
         in if Prelude.null pd
-           then text "% no postdom"
-           else text "% postdom" <+> hsep (viewSome pretty <$> pd)
+           then pretty "% no postdom"
+           else pretty "% postdom" <+> hsep (viewSome pretty <$> pd)
   let numArgs = lengthFC (blockInputs b)
-  let argList = [ char '$' <> pretty n | n <- [0 .. numArgs-1] ]
+  let argList = [ pretty '$' <> pretty n | n <- [0 .. numArgs-1] ]
   let args = encloseSep lparen rparen comma argList
   let block = pretty (blockID b) <>
-              if ppBlockArgs then args else Text.PrettyPrint.ANSI.Leijen.empty
+              if ppBlockArgs then args else mempty
   let body = case mPostdom of
         Nothing -> stmts
-        Just postdom -> stmts <$$> postdom
-  block <$$> indent 2 body
+        Just postdom -> vcat [stmts, postdom]
+  vcat [block, indent 2 body]
 
 instance PrettyExt ext => Show (Block ext blocks ret args) where
   show blk = show $ ppBlock False False Nothing blk
@@ -786,7 +793,7 @@ instance PrettyExt ext => Show (CFG ext blocks init ret) where
 ppCFG :: PrettyExt ext
       => Bool -- ^ Flag indicates if we should print line numbers
       -> CFG ext blocks init ret
-      -> Doc
+      -> Doc ann
 ppCFG lineNumbers g = ppCFG' lineNumbers (emptyCFGPostdomInfo sz) g
   where sz = size (cfgBlockMap g)
 
@@ -795,7 +802,7 @@ ppCFG' :: PrettyExt ext
        => Bool -- ^ Flag indicates if we should print line numbers
        -> CFGPostdom blocks
        -> CFG ext blocks init ret
-       -> Doc
+       -> Doc ann
 ppCFG' lineNumbers pdInfo g = vcat (toListFC (ppBlock lineNumbers blockArgs (Just pdInfo)) (cfgBlockMap g))
   where blockArgs = False
 

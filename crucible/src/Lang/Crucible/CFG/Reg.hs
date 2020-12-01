@@ -104,7 +104,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String
 import           Data.Word (Word64)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           What4.ProgramLoc
 import           What4.Symbol
@@ -116,8 +116,8 @@ import           Lang.Crucible.Syntax (IsExpr(..))
 import           Lang.Crucible.Types
 
 -- | Print list of documents separated by commas and spaces.
-commas :: [Doc] -> Doc
-commas l = hcat (punctuate (comma <> char ' ') l)
+commas :: [Doc ann] -> Doc ann
+commas l = hcat (punctuate (comma <> pretty ' ') l)
 
 ------------------------------------------------------------------------
 -- Label
@@ -138,7 +138,7 @@ instance Show (Label s) where
   show (Label i) = '%' : show (indexValue i)
 
 instance Pretty (Label s) where
-  pretty = text . show
+  pretty (Label i) = pretty '%' <> pretty (indexValue i)
 
 substLabel :: Functor m
            => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -167,7 +167,7 @@ instance Show (LambdaLabel s tp) where
   show l = '%' : show (indexValue (lambdaId l))
 
 instance Pretty (LambdaLabel s tp) where
-  pretty = text . show
+  pretty l = pretty '%' <> pretty (indexValue (lambdaId l))
 
 substLambdaLabel :: Applicative m
                  => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -273,7 +273,7 @@ instance Show (Atom s tp) where
   show a = '$' : show (indexValue (atomId a))
 
 instance Pretty (Atom s tp) where
-  pretty a = text (show a)
+  pretty a = pretty '$' <> pretty (indexValue (atomId a))
 
 
 substAtom :: Applicative m
@@ -300,7 +300,7 @@ data Reg s (tp :: CrucibleType)
          }
 
 instance Pretty (Reg s tp) where
-  pretty = text . show
+  pretty r = pretty 'r' <> pretty (indexValue (regId r))
 
 instance Show (Reg s tp) where
   show r = 'r' : show (indexValue (regId r))
@@ -351,7 +351,8 @@ instance OrdF (Value s) where
   compareF (AtomValue x) (AtomValue y) = compareF x y
 
 instance Pretty (Value s tp) where
-  pretty = text . show
+  pretty (RegValue  r) = pretty r
+  pretty (AtomValue a) = pretty a
 
 instance Show (Value s tp) where
   show (RegValue  r) = show r
@@ -471,12 +472,13 @@ instance PrettyExt ext => Pretty (AtomValue ext s tp) where
       EvalApp ap -> ppApp pretty ap
       EvalExt st -> ppApp pretty st
       ReadReg r -> pretty r
-      ReadGlobal g -> text "global" <+> pretty g
-      ReadRef r -> text "!" <> pretty r
-      NewRef a -> text "newref" <+> pretty a
-      NewEmptyRef tp -> text "emptyref" <+> pretty tp
-      FreshConstant bt nm -> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
-      FreshFloat fi nm -> text "fresh" <+> pretty fi <+> maybe mempty (text . show) nm
+      ReadGlobal g -> "global" <+> pretty g
+      ReadRef r -> "!" <> pretty r
+      NewRef a -> "newref" <+> pretty a
+      NewEmptyRef tp -> "emptyref" <+> pretty tp
+      -- TODO: replace viaShow once we have instance Pretty SolverSymbol
+      FreshConstant bt nm -> "fresh" <+> pretty bt <+> maybe mempty viaShow nm
+      FreshFloat fi nm -> "fresh" <+> pretty fi <+> maybe mempty viaShow nm
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
 typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
@@ -527,8 +529,8 @@ substAtomValue f (Call g as ret) = Call <$> substAtom f g
                                         <*> traverseFC (substAtom f) as
                                         <*> pure ret
 
-ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc
-ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v
+ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc ann
+ppAtomBinding a v = pretty a <+> ":=" <+> pretty v
 
 ------------------------------------------------------------------------
 -- Stmt
@@ -553,15 +555,15 @@ instance PrettyExt ext => Show (Stmt ext s) where
 instance PrettyExt ext => Pretty (Stmt ext s) where
   pretty s =
     case s of
-      SetReg r e     -> pretty r <+> text ":=" <+> pretty e
-      WriteGlobal g r  -> text "global" <+> pretty g <+> text ":=" <+> pretty r
-      WriteRef r v -> text "ref" <+> pretty r <+> text ":=" <+> pretty v
-      DropRef r    -> text "drop" <+> pretty r
+      SetReg r e     -> pretty r <+> ":=" <+> pretty e
+      WriteGlobal g r  -> "global" <+> pretty g <+> ":=" <+> pretty r
+      WriteRef r v -> "ref" <+> pretty r <+> ":=" <+> pretty v
+      DropRef r    -> "drop" <+> pretty r
       DefineAtom a v -> ppAtomBinding a v
-      Print  v   -> text "print"  <+> pretty v
-      Assert c m -> text "assert" <+> pretty c <+> pretty m
-      Assume c m -> text "assume" <+> pretty c <+> pretty m
-      Breakpoint nm args -> text "breakpoint" <+> pretty nm <+> parens (commas (toListFC pretty args))
+      Print  v   -> "print"  <+> pretty v
+      Assert c m -> "assert" <+> pretty c <+> pretty m
+      Assume c m -> "assume" <+> pretty c <+> pretty m
+      Breakpoint nm args -> "breakpoint" <+> pretty nm <+> parens (commas (toListFC pretty args))
 
 -- | Return local value assigned by this statement or @Nothing@ if this
 -- does not modify a register.
@@ -666,24 +668,26 @@ instance Show (TermStmt s ret) where
 instance Pretty (TermStmt s ret) where
   pretty t0 =
     case t0 of
-      Jump l -> text "jump" <+> pretty l
-      Br c x y -> text "branch" <+> pretty c <+> pretty x <+> pretty y
-      MaybeBranch _ c j n -> text "switchMaybe" <+> pretty c <+> pretty j <+> pretty n
+      Jump l -> "jump" <+> pretty l
+      Br c x y -> "branch" <+> pretty c <+> pretty x <+> pretty y
+      MaybeBranch _ c j n -> "switchMaybe" <+> pretty c <+> pretty j <+> pretty n
       VariantElim _ e l ->
-         text "switch" <+> pretty e <+> text "{" <$$>
-           indent 2 (vcat (ppSwitch pp l)) <$$>
-           indent 2 (text "}")
-        where pp nm v = text nm <> text ":" <+> pretty v
-      Return e -> text "return" <+> pretty e
-      TailCall f _ a -> text "tail_call" <+> pretty f <> parens args
+        vcat
+        [ "switch" <+> pretty e <+> "{"
+        , indent 2 (vcat (ppSwitch pp l))
+        , indent 2 "}"
+        ]
+        where pp nm v = pretty nm <> ":" <+> pretty v
+      Return e -> "return" <+> pretty e
+      TailCall f _ a -> "tail_call" <+> pretty f <> parens args
         where args = commas (toListFC pretty a)
-      ErrorStmt e -> text "error" <+> pretty e
-      Output l e -> text "output" <+> pretty l <+> pretty e
+      ErrorStmt e -> "error" <+> pretty e
+      Output l e -> "output" <+> pretty l <+> pretty e
 
 
-ppSwitch :: forall tgt ctx. (forall (tp :: CrucibleType). String -> tgt tp -> Doc) -> Ctx.Assignment tgt ctx -> [Doc]
+ppSwitch :: forall tgt ctx ann. (forall (tp :: CrucibleType). String -> tgt tp -> Doc ann) -> Ctx.Assignment tgt ctx -> [Doc ann]
 ppSwitch pp asgn = forIndex (Ctx.size asgn) f mempty
-  where f :: [Doc] -> Ctx.Index ctx (tp :: CrucibleType) -> [Doc]
+  where f :: [Doc ann] -> Ctx.Index ctx (tp :: CrucibleType) -> [Doc ann]
         f rs idx = rs Prelude.++ [ pp (show (Ctx.indexVal idx)) (asgn Ctx.! idx)]
 
 -- | Provide all registers in term stmt to fold function.
@@ -784,9 +788,9 @@ instance PrettyExt ext => Show (Block ext s ret) where
   show = show . pretty
 
 instance PrettyExt ext => Pretty (Block ext s ret) where
-  pretty b = text (show (blockID b)) <$$> indent 2 stmts
-    where stmts = vcat (pretty . pos_val <$> Fold.toList (blockStmts b)) <$$>
-                  pretty (pos_val (blockTerm b))
+  pretty b = vcat [viaShow (blockID b), indent 2 stmts]
+    where stmts = vcat [ vcat (pretty . pos_val <$> Fold.toList (blockStmts b))
+                       , pretty (pos_val (blockTerm b)) ]
 
 mkBlock :: forall ext s ret
          . TraverseExt ext
@@ -887,12 +891,12 @@ instance PrettyExt ext => Show (CFG ext s init ret) where
 
 instance PrettyExt ext => Pretty (CFG ext s init ret) where
   pretty g = do
-    let nm = text (show (handleName (cfgHandle g)))
+    let nm = viaShow (handleName (cfgHandle g))
     let args =
-          commas $ map (viewSome (pretty . show)) $ Set.toList $
+          commas $ map (viewSome viaShow) $ Set.toList $
           blockExtraInputs (cfgEntryBlock g)
-    pretty (cfgReturnType g) <+> nm <+> parens args <$$>
-      vcat (pretty <$> cfgBlocks g)
+    vcat [ pretty (cfgReturnType g) <+> nm <+> parens args
+         , vcat (pretty <$> cfgBlocks g) ]
 
 ------------------------------------------------------------------------
 -- SomeCFG

@@ -15,7 +15,6 @@ library
   build-depends:
     base >= 4 && < 5,
     aig,
-    ansi-wl-pprint,
     array,
     async,
     attoparsec,
@@ -29,6 +28,7 @@ library
     mtl >= 2.1,
     parameterized-utils >= 1.0 && < 2.2,
     pretty >= 1.1,
+    prettyprinter >= 1.7.0,
     split >= 0.2,
     text,
     time >= 1.8 && < 2.0,

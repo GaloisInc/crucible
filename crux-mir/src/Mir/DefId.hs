@@ -36,7 +36,7 @@ import GHC.Generics
 
 import qualified Debug.Trace as Debug
 
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Prettyprinter
 
 
 -- | Normal path segments consist of a name and a disambiguator index.
@@ -106,7 +106,7 @@ instance FromJSON DefId where
 
 -- ignores filename and entry #s
 instance Pretty DefId where
-    pretty = text . show
+    pretty = viaShow
 
 
 type ExplodedDefId = [Text]

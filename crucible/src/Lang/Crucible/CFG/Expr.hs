@@ -67,7 +67,7 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Kind (Type)
 import           Data.Vector (Vector)
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 import qualified Data.Vector as V
 import qualified GHC.Float as F
 
@@ -1304,13 +1304,13 @@ $(return [])
 ------------------------------------------------------------------------
 -- Pretty printing
 
-ppBaseTermAssignment :: (forall u . f u -> Doc)
+ppBaseTermAssignment :: (forall u . f u -> Doc ann)
                      -> Ctx.Assignment (BaseTerm f) ctx
-                     -> Doc
+                     -> Doc ann
 ppBaseTermAssignment pp v = brackets (commas (toListFC (pp . baseTermVal) v))
 
 instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
-  --ppApp :: (forall a . f a -> Doc) -> App ext f b -> Doc
+  --ppApp :: (forall a . f a -> Doc ann) -> App ext f b -> Doc ann
   ppApp = $(U.structuralPretty [t|App|]
           [ ( U.ConType [t|Ctx.Assignment|]
               `U.TypeApp` (U.ConType [t|BaseTerm|] `U.TypeApp` U.DataArg 1)

@@ -18,7 +18,7 @@ module Lang.Crucible.Utils.Structural
 import Data.Char (toLower)
 import Language.Haskell.TH
 import Language.Haskell.TH.Datatype
-import Text.PrettyPrint.ANSI.Leijen (brackets, text)
+import Prettyprinter (brackets)
 
 import Data.Parameterized.TH.GADT
 import Data.Parameterized.TraversableFC
@@ -29,7 +29,7 @@ import Lang.Crucible.Utils.PrettyPrint (ppFn, commas)
 -- Contructor cases
 
 -- | @structuralPretty tp@ generates a function with the type
---   @forall f. (forall x . f x -> Doc) -> (forall x. tp f x -> Doc)@
+--   @forall f ann. (forall x. f x -> Doc ann) -> (forall x. tp f x -> Doc ann)@
 --   suitable for instantiating the @PrettyApp@ class.
 structuralPretty :: TypeQ -> [(TypePat, ExpQ)] -> ExpQ
 structuralPretty tpq pats0 = do
@@ -58,7 +58,7 @@ matchPretty matchPat pp con = do
         case me of
           Nothing -> mkPP v tp
           Just f -> [| $(f) $(pp) $(v)|]
-      mkPP v ConT{} = [| text (show $(v)) |]
+      mkPP v ConT{} = [| viaShow $(v) |]
       mkPP v (AppT VarT{} _) = appE pp v
       mkPP v (AppT (ConT cnm) _)
        | nameBase cnm `elem` [ "Vector" ]
@@ -66,7 +66,7 @@ matchPretty matchPat pp con = do
       mkPP v (AppT (AppT (ConT cnm) _) _)
        | nameBase cnm `elem` [ "Assignment" ]
        = [| brackets (commas (toListFC $(pp) $(v))) |]
-      mkPP v _ = [| text (show $(v)) |]
+      mkPP v _ = [| viaShow $(v) |]
       --mkPP _ tp = error $ "Unsupported type " ++ show tp ++ " with " ++ nameBase nm
   let rhs = [| ppFn $(litE (stringL nm')) $(listE (zipWith mkPP0 vars tps)) |]
   match (pure pat) (normalB rhs) []

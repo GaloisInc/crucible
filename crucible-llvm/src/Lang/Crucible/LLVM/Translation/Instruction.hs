@@ -52,7 +52,7 @@ import           Data.String
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen (pretty)
+import           Prettyprinter (pretty)
 
 import qualified Text.LLVM.AST as L
 

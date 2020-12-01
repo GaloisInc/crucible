@@ -44,13 +44,10 @@ import           Data.Typeable
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified Data.Parameterized.Context as Ctx
+import           Prettyprinter (layoutPretty, LayoutOptions(..), PageWidth(..))
+import           Prettyprinter.Render.Text (renderIO)
 import           System.Exit
 import           System.IO
-import           Text.PrettyPrint.ANSI.Leijen
-  ( displayIO
-  , renderPretty
-  , plain
-  )
 
 import           Data.HPB
 
@@ -134,7 +131,8 @@ fulfillPrintCFGRequest sim pg =
   -- FIXME, implement pretty printer for register-CFGs
   case toSSA g of
     C.SomeCFG g' -> do
-      displayIO h $ renderPretty 1.0 maxBound $ C.ppCFG False g'
+      let opts = LayoutOptions (AvailablePerLine maxBound 1.0)
+      renderIO h $ layoutPretty opts $ C.ppCFG False g'
       hFlush h
       sendAckResponse sim
 
@@ -454,7 +452,8 @@ printTermOverride tpr =
     let p = regValue $ args^._1
     let doc = printSymExpr p
     h <- printHandle <$> getContext
-    liftIO $ displayIO h (renderPretty 1.0 maxBound $ plain doc)
+    let opts = LayoutOptions (AvailablePerLine maxBound 1.0)
+    liftIO $ renderIO h $ layoutPretty opts doc
     liftIO $ hPutStrLn h ""
     liftIO $ hFlush h
 

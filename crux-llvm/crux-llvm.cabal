@@ -26,7 +26,6 @@ library
 
   build-depends:
     ansi-terminal,
-    ansi-wl-pprint,
     bytestring,
     base >= 4.8 && < 4.15,
     bv-sized,
@@ -43,6 +42,7 @@ library
     llvm-pretty-bc-parser,
     mtl,
     parameterized-utils,
+    prettyprinter >= 1.7.0,
     process,
     template-haskell,
     text,
@@ -60,7 +60,6 @@ executable crux-llvm
 
   build-depends:
     ansi-terminal,
-    ansi-wl-pprint,
     base >= 4.8 && < 4.15,
     bytestring,
     containers,
@@ -109,7 +108,6 @@ executable crux-llvm-svcomp
     attoparsec >= 0.13,
     async >= 2.2,
     ansi-terminal,
-    ansi-wl-pprint,
     base >= 4.8 && < 4.15,
     bytestring,
     containers,

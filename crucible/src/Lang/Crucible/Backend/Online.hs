@@ -87,7 +87,7 @@ import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           System.IO
 import qualified Data.Text as Text
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified Prettyprinter as PP
 
 import           What4.Config
 import           What4.Concrete
@@ -138,7 +138,7 @@ onlineBackendOptions st =
   [ mkOpt
       solverInteractionFile
       stringOptSty
-      (Just (PP.text "File to echo solver commands and responses for debugging purposes"))
+      (Just (PP.pretty "File to echo solver commands and responses for debugging purposes"))
       Nothing
   , let enableOnset _ (ConcreteBool val) =
           do when (not val) (resetSolverProcess' st)
@@ -146,7 +146,7 @@ onlineBackendOptions st =
      in mkOpt
           enableOnlineBackend
           boolOptSty{ opt_onset = enableOnset }
-          (Just (PP.text "Enable online solver communications"))
+          (Just (PP.pretty "Enable online solver communications"))
           (Just (ConcreteBool True))
   ]
 

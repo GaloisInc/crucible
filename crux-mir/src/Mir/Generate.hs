@@ -40,7 +40,7 @@ import           Data.Time.Clock (UTCTime)
 
 import GHC.Stack
 
-import Text.PrettyPrint.ANSI.Leijen (Pretty(..))
+import Prettyprinter (Pretty(..))
 
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.FunctionHandle as C
