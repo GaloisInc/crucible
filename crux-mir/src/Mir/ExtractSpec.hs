@@ -6,10 +6,16 @@
 {-# Language TypeFamilies #-}
 {-# Language DataKinds #-}
 {-# Language TypeApplications #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Mir.ExtractSpec where
 
-import Control.Lens ((^.), (^?), (%=), (.=), (&), (.~), (%~), use, at, ix, _Wrapped)
+import Control.Lens (makeLenses, (^.), (^?), (%=), (.=), (&), (.~), (%~), use, at, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
@@ -19,6 +25,8 @@ import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.Functor.Const
 import Data.IORef
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Nonce
@@ -52,12 +60,14 @@ import Lang.Crucible.Types
 
 import qualified Lang.Crucible.Backend.SAWCore as SAW
 import qualified Verifier.SAW.Prelude as SAW
+import qualified Verifier.SAW.Recognizer as SAW
 import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Term.Functor as SAW
 import qualified Verifier.SAW.Term.Pretty as SAW
 import qualified Verifier.SAW.TypedTerm as SAW
 
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
+import qualified SAWScript.Crucible.Common.Override as MS
 
 import Crux.Types (Model)
 
@@ -67,6 +77,20 @@ import Mir.Intrinsics
 import qualified Mir.Mir as M
 import Mir.TransTy
 
+
+-- Declared early for TH
+
+data ArgMatchResult sym = ArgMatchResult
+    { _amrEqualities :: [(Some (W4.SymExpr sym), SAW.Term)]
+    }
+
+makeLenses ''ArgMatchResult
+
+
+data Void2
+
+instance PP.Pretty Void2 where
+    pretty _ = undefined
 
 type instance MS.HasSetupNull MIR = 'False
 type instance MS.HasSetupGlobal MIR = 'False
@@ -82,8 +106,8 @@ type instance MS.TypeName MIR = Text
 type instance MS.ExtType MIR = M.Ty
 
 type instance MS.MethodId MIR = DefId
-type instance MS.AllocSpec MIR = Void
-type instance MS.PointsTo MIR = Void
+type instance MS.AllocSpec MIR = Void2
+type instance MS.PointsTo MIR = Void2
 
 type instance MS.Codebase MIR = CollectionState
 
@@ -310,6 +334,10 @@ builderFinish = do
     prePreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPre)
     postPreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPost)
 
+    argTts <- liftIO $ mapM (evalSomeRegToSetup sym eval sc) (toList $ builder ^. msbArgs)
+    retTt <- liftIO $ mapM (evalSomeRegToSetup sym eval sc) (builder ^. msbResult)
+    let argBindings = Map.fromList $ zip [0..] $ zip (builder ^. msbSpec ^. MS.csArgs) argTts
+
     liftIO $ print $ "finish: " ++ show (Seq.length $ builder ^. msbArgs) ++ " args"
     let loc = builder ^. msbSpec . MS.csLoc
     return $ builder ^. msbSpec
@@ -317,6 +345,8 @@ builderFinish = do
         & MS.csPreState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList prePreds')
         & MS.csPostState . MS.csFreshVars .~ postVars'
         & MS.csPostState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList postPreds')
+        & MS.csArgBindings .~ argBindings
+        & MS.csRetValue .~ retTt
 
   where
     evalTyped :: forall tp.
@@ -332,6 +362,13 @@ builderFinish = do
         case SAW.asTypedExtCns tt of
             Just x -> return x
             Nothing -> error $ "BoundVarExpr translated to non-ExtCns term? " ++ show tt
+
+    evalSomeRegToSetup ::
+        sym ->
+        (forall tp. W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
+        Some (MethodSpecValue sym) -> IO (MS.SetupValue MIR)
+    evalSomeRegToSetup sym eval sc (Some (MethodSpecValue tpr rv)) =
+        regToSetup sym (evalTyped eval sc) tpr rv
 
 
 specPrettyPrint ::
@@ -369,15 +406,144 @@ specEnable cs = do
     liftIO $ print ("enable spec for", mh)
 
     bindFnHandle mh $ UseOverride $ mkOverride' (handleName mh) (handleReturnType mh) $
-        runSpec funcName (handleArgTypes mh) (handleReturnType mh)
+        runSpec mh ms
 
 runSpec :: forall sym t st fs args ret rtp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    DefId -> CtxRepr args -> TypeRepr ret ->
+    FnHandle args ret -> MIRMethodSpec ->
     OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym ret)
-runSpec name argsCtx retTpr = do
-    liftIO $ print ("in runSpec", name, argsCtx, retTpr)
+runSpec mh ms = do
+    liftIO $ print ("in runSpec", ms ^. MS.csMethod)
+    sym <- getSymInterface
+    RegMap argVals <- getOverrideArgs
+    let argVals' = Map.fromList $ zip [0..] $ MS.assignmentToList argVals
+
+    -- (1) Build a list of "pattern equalities".  If these equalities hold,
+    -- then the provided `argVals` match the `SetupValue` patterns in the
+    -- `MethodSpec`.  The "pattern" side (RHS) of each equality may refer to
+    -- the fresh variables listed in `csFreshVars`; a successful match will
+    -- constrain the values of those fresh variables to match the `argVals`.
+    patEqs <- forM (Map.toList $ ms ^. MS.csArgBindings) $ \(i, (_, sv)) -> do
+        AnyValue tpr rv <- case argVals' ^? ix i of
+            Nothing -> error $ show ("wrong number of args", ms ^. MS.csMethod, i)
+            Just x -> return x
+        amr <- liftIO $ runArgMatch sym (matchArg tpr rv sv) >>= \x -> case x of
+            Left e -> error $ show e
+            Right ((), x) -> return x
+        liftIO $ print (i, "amr count", length $ amr ^. amrEqualities)
+        return $ amr ^. amrEqualities
+
+    -- Split the pattern equalities into two kinds.  "Substs" are simple `expr
+    -- = var` equalities, which we handle by substitution.  All other
+    -- equalities are "preds", opaque predicates that can only be handled by
+    -- passing them to the solver.
+    (patPreds, patSubstsList) <- liftIO $ splitEqualities sym $ concat patEqs
+    liftIO $ print ("split pattern equalities into parts", length patPreds, length patSubstsList)
+
+    -- Compute a map of substs.  The same `VarIndex` might appear multiple
+    -- times in `patSubstsList`; if it does, the two expressions must be equal.
+    let addSubst ::
+            (Map SAW.VarIndex (Some (W4.SymExpr sym)), [W4.Pred sym]) ->
+            (SAW.VarIndex, (Some (W4.SymExpr sym))) ->
+            IO (Map SAW.VarIndex (Some (W4.SymExpr sym)), [W4.Pred sym])
+        addSubst (substs, extraPreds) (var, Some expr)
+          | Just (Some oldExpr) <- Map.lookup var substs = do
+            Just Refl <- return $ testEquality (W4.exprType expr) (W4.exprType oldExpr)
+            extraPred <- W4.isEq sym expr oldExpr
+            case W4.asConstantPred extraPred of
+                Just True -> return (substs, extraPreds)
+                _ -> return (substs, extraPred : extraPreds)
+          | otherwise = return (Map.insert var (Some expr) substs, extraPreds)
+    (patSubsts, patExtraPreds) <- liftIO $ foldM addSubst mempty patSubstsList
+
     undefined
+
+
+-- TODO:
+-- - zip RegValue with SetupValue (arg matching)
+--   - output a list of RegValue <-> Term equalities
+--     - some can be solved by substitution (RegValue = ExtCns)
+--     - if these are SAT, then the pattern match can succeed
+--   - output MirReference <-> AllocIndex mapping?
+--
+-- - compute ExtCns substitution (VarIndex -> Term)
+--   - needs RegValue -> Term conversion
+--
+-- - optional: build + check pattern match condition
+--   - figure out which variables are still free/symbolic after substitution
+--     - add a fresh symbolic var for each one
+--   - if the condition SAT, we can assume it to fill in the remaining vars
+--
+-- - gather specs matching the above & generate branches
+--   - if (precond) { fresh <post vars>; assume postcond; return value }
+--   - future: also touch all memory modified by the spec
+
+
+newtype ArgMatch sym a =
+    ArgMatch (StateT (ArgMatchResult sym) (ExceptT (MS.OverrideFailureReason MIR) IO) a)
+    deriving (Applicative, Functor, Monad, MonadIO)
+
+deriving instance MonadState (ArgMatchResult sym) (ArgMatch sym)
+deriving instance MonadError (MS.OverrideFailureReason MIR) (ArgMatch sym)
+
+runArgMatch :: sym -> ArgMatch sym a ->
+    IO (Either (MS.OverrideFailureReason MIR) (a, ArgMatchResult sym))
+runArgMatch _sym (ArgMatch f) = runExceptT $ runStateT f initState
+  where
+    initState = ArgMatchResult
+        { _amrEqualities = []
+        }
+
+matchArg :: TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR -> ArgMatch sym ()
+matchArg (BVRepr w) expr (MS.SetupTerm tt) =
+    amrEqualities %= ((Some expr, SAW.ttTerm tt) :)
+matchArg tpr rv sv = error $ show ("bad matchArg", tpr)
+
+
+regToSetup :: forall sym t st fs tp.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    sym ->
+    (forall tp'. BaseTypeRepr tp' -> W4.Expr t tp' -> IO SAW.TypedTerm) ->
+    TypeRepr tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
+regToSetup _sym eval tpr rv = go tpr rv
+  where
+    go :: forall tp'. TypeRepr tp' -> RegValue sym tp' -> IO (MS.SetupValue MIR)
+    go (asBaseType -> AsBaseType btpr) expr = MS.SetupTerm <$> eval btpr expr
+    go AnyRepr (AnyValue tpr rv) = go tpr rv
+    -- TODO: UnitRepr
+    -- TODO: MaybeRepr
+    -- TODO: VectorRepr
+    -- TODO: StructRepr
+    -- TODO: VariantRepr
+    -- TODO: MirReferenceRepr
+    go tpr _ = error $ "regToSetup: can't handle " ++ show tpr
+
+
+splitEqualities :: forall sym.
+    IsSymInterface sym =>
+    sym ->
+    [(Some (W4.SymExpr sym), SAW.Term)] ->
+    IO ([W4.Pred sym], [(SAW.VarIndex, Some (W4.SymExpr sym))])
+splitEqualities sym eqs = go ([], []) eqs
+  where
+    go acc [] = return acc
+    go (preds, substs) ((Some expr, term) : rest)
+      | Just ec <- SAW.asExtCns term =
+        go (preds, (SAW.ecVarIndex ec, Some expr) : substs) rest
+      | otherwise = do
+        pred <- makeEquality expr term
+        go (pred : preds, substs) rest
+
+    makeEquality :: forall tp.
+        W4.SymExpr sym tp -> SAW.Term -> IO (W4.Pred sym)
+    makeEquality expr term = do
+        Some termExpr <- termToExpr sym term
+        Just Refl <- return $ testEquality (W4.exprType expr) (W4.exprType termExpr)
+        W4.isEq sym expr termExpr
+
+termToExpr :: sym -> SAW.Term -> IO (Some (W4.SymExpr sym))
+termToExpr = undefined
+
 
 
 
