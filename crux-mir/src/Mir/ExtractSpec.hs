@@ -15,7 +15,9 @@
 
 module Mir.ExtractSpec where
 
-import Control.Lens (makeLenses, (^.), (^?), (%=), (.=), (&), (.~), (%~), use, at, ix, _Wrapped)
+import Control.Lens
+    (makeLenses, (^.), (^..), (^?), (%=), (.=), (&), (.~), (%~), use, at, ix,
+        each, to, folded, _Wrapped)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
@@ -31,6 +33,7 @@ import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Nonce
 import Data.Parameterized.Some
+import Data.Reflection
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
@@ -52,6 +55,7 @@ import What4.ProgramLoc
 
 import Lang.Crucible.Backend
 import Lang.Crucible.FunctionHandle
+import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.RegMap
@@ -62,6 +66,8 @@ import qualified Lang.Crucible.Backend.SAWCore as SAW
 import qualified Verifier.SAW.Prelude as SAW
 import qualified Verifier.SAW.Recognizer as SAW
 import qualified Verifier.SAW.SharedTerm as SAW
+import qualified Verifier.SAW.Simulator.Value as SAW
+import qualified Verifier.SAW.Simulator.What4 as SAW
 import qualified Verifier.SAW.Term.Functor as SAW
 import qualified Verifier.SAW.Term.Pretty as SAW
 import qualified Verifier.SAW.TypedTerm as SAW
@@ -69,6 +75,7 @@ import qualified Verifier.SAW.TypedTerm as SAW
 import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import qualified SAWScript.Crucible.Common.Override as MS
 
+import qualified Crux.Model as Crux
 import Crux.Types (Model)
 
 import Mir.DefId
@@ -306,7 +313,7 @@ relevantPreds _sym vars preds = runExceptT $ filterM check preds
 builderFinish :: forall sym t st fs rtp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     OverrideSim (Model sym) sym MIR rtp
-        (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpec
+        (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpecWithNonce
 builderFinish = do
     RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
 
@@ -340,13 +347,15 @@ builderFinish = do
 
     liftIO $ print $ "finish: " ++ show (Seq.length $ builder ^. msbArgs) ++ " args"
     let loc = builder ^. msbSpec . MS.csLoc
-    return $ builder ^. msbSpec
-        & MS.csPreState . MS.csFreshVars .~ preVars'
-        & MS.csPreState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList prePreds')
-        & MS.csPostState . MS.csFreshVars .~ postVars'
-        & MS.csPostState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList postPreds')
-        & MS.csArgBindings .~ argBindings
-        & MS.csRetValue .~ retTt
+    let ms = builder ^. msbSpec
+            & MS.csPreState . MS.csFreshVars .~ preVars'
+            & MS.csPreState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList prePreds')
+            & MS.csPostState . MS.csFreshVars .~ postVars'
+            & MS.csPostState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList postPreds')
+            & MS.csArgBindings .~ argBindings
+            & MS.csRetValue .~ retTt
+    nonce <- liftIO $ freshNonce ng
+    return $ MSN ms (indexValue nonce)
 
   where
     evalTyped :: forall tp.
@@ -376,7 +385,7 @@ specPrettyPrint ::
     OverrideSim (Model sym) sym MIR rtp
         (EmptyCtx ::> MethodSpecType) (MirSlice (BVType 8)) (RegValue sym (MirSlice (BVType 8)))
 specPrettyPrint = do
-    RegMap (Empty :> RegEntry _tpr ms) <- getOverrideArgs
+    RegMap (Empty :> RegEntry _tpr (MSN ms _)) <- getOverrideArgs
     let str = show $ MS.ppMethodSpec ms
     let bytes = Text.encodeUtf8 $ Text.pack str
 
@@ -398,7 +407,7 @@ specEnable ::
     OverrideSim (Model sym) sym MIR rtp
         (EmptyCtx ::> MethodSpecType) UnitType ()
 specEnable cs = do
-    RegMap (Empty :> RegEntry _tpr ms) <- getOverrideArgs
+    RegMap (Empty :> RegEntry _tpr (MSN ms _)) <- getOverrideArgs
     let funcName = ms ^. MS.csMethod
     MirHandle _name sig mh <- case cs ^? handleMap . ix funcName of
         Just x -> return x
@@ -418,45 +427,92 @@ runSpec mh ms = do
     RegMap argVals <- getOverrideArgs
     let argVals' = Map.fromList $ zip [0..] $ MS.assignmentToList argVals
 
-    -- (1) Build a list of "pattern equalities".  If these equalities hold,
-    -- then the provided `argVals` match the `SetupValue` patterns in the
-    -- `MethodSpec`.  The "pattern" side (RHS) of each equality may refer to
-    -- the fresh variables listed in `csFreshVars`; a successful match will
-    -- constrain the values of those fresh variables to match the `argVals`.
-    patEqs <- forM (Map.toList $ ms ^. MS.csArgBindings) $ \(i, (_, sv)) -> do
-        AnyValue tpr rv <- case argVals' ^? ix i of
-            Nothing -> error $ show ("wrong number of args", ms ^. MS.csMethod, i)
-            Just x -> return x
-        amr <- liftIO $ runArgMatch sym (matchArg tpr rv sv) >>= \x -> case x of
-            Left e -> error $ show e
-            Right ((), x) -> return x
-        liftIO $ print (i, "amr count", length $ amr ^. amrEqualities)
-        return $ amr ^. amrEqualities
+    sgs <- readGlobals
+    loc <- liftIO $ W4.getCurrentProgramLoc sym
+    let freeVars = Set.fromList $
+            ms ^.. MS.csPreState . MS.csFreshVars . each . to SAW.tecExt . to SAW.ecVarIndex
 
-    -- Split the pattern equalities into two kinds.  "Substs" are simple `expr
-    -- = var` equalities, which we handle by substitution.  All other
-    -- equalities are "preds", opaque predicates that can only be handled by
-    -- passing them to the solver.
-    (patPreds, patSubstsList) <- liftIO $ splitEqualities sym $ concat patEqs
-    liftIO $ print ("split pattern equalities into parts", length patPreds, length patSubstsList)
+    sc <- liftIO $ SAW.mkSharedContext
+    liftIO $ SAW.scLoadPreludeModule sc
+    let ng = W4.exprCounter sym
+    sawSym <- liftIO $ SAW.newSAWCoreBackend W4.FloatUninterpretedRepr sc ng
 
-    -- Compute a map of substs.  The same `VarIndex` might appear multiple
-    -- times in `patSubstsList`; if it does, the two expressions must be equal.
-    let addSubst ::
-            (Map SAW.VarIndex (Some (W4.SymExpr sym)), [W4.Pred sym]) ->
-            (SAW.VarIndex, (Some (W4.SymExpr sym))) ->
-            IO (Map SAW.VarIndex (Some (W4.SymExpr sym)), [W4.Pred sym])
-        addSubst (substs, extraPreds) (var, Some expr)
-          | Just (Some oldExpr) <- Map.lookup var substs = do
-            Just Refl <- return $ testEquality (W4.exprType expr) (W4.exprType oldExpr)
-            extraPred <- W4.isEq sym expr oldExpr
-            case W4.asConstantPred extraPred of
-                Just True -> return (substs, extraPreds)
-                _ -> return (substs, extraPred : extraPreds)
-          | otherwise = return (Map.insert var (Some expr) substs, extraPreds)
-    (patSubsts, patExtraPreds) <- liftIO $ foldM addSubst mempty patSubstsList
+    cache <- W4.newIdxCache
+    let eval :: forall tp. W4.Expr t tp -> IO SAW.Term
+        eval x = SAW.evaluateExpr sawSym sc cache x
 
-    undefined
+    -- `eval` makes up an arbitrary mapping from `W4.ExprBoundVar` to
+    -- `SAW.ExtCns` for all the vars that appear in the arguments.  We need the
+    -- reverse mapping to convert back from `SAW.Term` to `W4.Expr`.
+    let f :: AnyValue sym -> Some (MethodSpecValue sym)
+        f (AnyValue tpr rv) = Some (MethodSpecValue tpr rv)
+    w4Vars <- liftIO $ liftM Set.toList $ gatherVars sym $
+        map f $ MS.assignmentToList argVals
+    w4VarMap <- liftIO $ liftM Map.fromList $ forM w4Vars $ \(Some var) -> do
+        let expr = W4.BoundVarExpr var
+        term <- eval expr
+        ec <- case SAW.asExtCns term of
+            Just ec -> return ec
+            Nothing -> error "eval on BoundVarExpr produced non-ExtCns?"
+        return (SAW.ecVarIndex ec, Some expr)
+
+    -- Generate fresh variables for use in postconditions and result
+    let postFresh = ms ^. MS.csPostState . MS.csFreshVars
+    w4PostVarMap <- liftM Map.fromList $ forM postFresh $ \tec -> do
+        let ec = SAW.tecExt tec
+        nameSymbol <- case W4.userSymbol $ SAW.ecName ec of
+            Left err -> error $ "w4PostVarMap: failed to convert ExtCns name " ++
+                SAW.ecName ec ++ ": " ++ show err
+            Right x -> return x
+        Some btpr <- liftIO $ termToType sym sc (SAW.ecType ec)
+        expr <- liftIO $ W4.freshConstant sym nameSymbol btpr
+        stateContext . cruciblePersonality %= Crux.addVar loc (SAW.ecName ec) btpr expr
+        return (SAW.ecVarIndex ec, Some expr)
+
+    let retTpr = handleReturnType mh
+    retVal <- case ms ^. MS.csRetValue of
+        Just sv -> liftIO $ setupToReg sym sc (w4VarMap <> w4PostVarMap) retTpr sv
+        Nothing -> case testEquality retTpr UnitRepr of
+            Just Refl -> return ()
+            Nothing -> error $ "no return value, but return type is " ++ show retTpr
+
+    result <- liftIO $ MS.runOverrideMatcher sym sgs mempty mempty freeVars loc $ do
+        -- Match argument SetupValues against argVals
+        forM_ (Map.toList $ ms ^. MS.csArgBindings) $ \(i, (_, sv)) -> do
+            AnyValue tpr rv <- case argVals' ^? ix i of
+                Nothing -> error $ show ("wrong number of args", ms ^. MS.csMethod, i)
+                Just x -> return x
+            matchArg eval tpr rv sv
+
+        -- Convert preconditions to `osAsserts`
+        liftIO $ print ("look at preconditions", length $ ms ^. MS.csPreState . MS.csConditions)
+        forM_ (ms ^. MS.csPreState . MS.csConditions) $ \cond -> do
+            term <- condTerm sc cond
+            pred <- liftIO $ termToPred sym sc w4VarMap term
+            MS.addAssert pred $
+                SimError loc (AssertFailureSimError (show $ W4.printSymExpr pred) "")
+
+        -- Convert postconditions to `osAssumes`
+        liftIO $ print ("look at postconditions", length $ ms ^. MS.csPostState . MS.csConditions)
+        forM_ (ms ^. MS.csPostState . MS.csConditions) $ \cond -> do
+            term <- condTerm sc cond
+            pred <- liftIO $ termToPred sym sc (w4VarMap <> w4PostVarMap) term
+            MS.addAssume pred
+
+    ((), os) <- case result of
+        Left err -> error $ show err
+        Right x -> return x
+
+    liftIO $ print ("termSub", os ^. MS.termSub)
+
+    forM_ (os ^. MS.osAsserts) $ \lp ->
+        liftIO $ addAssertion sym lp
+
+    forM_ (os ^. MS.osAssumes) $ \p ->
+        liftIO $ addAssumption sym $ W4.LabeledPred p $
+            AssumptionReason loc "methodspec postcondition"
+
+    return retVal
 
 
 -- TODO:
@@ -479,25 +535,36 @@ runSpec mh ms = do
 --   - future: also touch all memory modified by the spec
 
 
-newtype ArgMatch sym a =
-    ArgMatch (StateT (ArgMatchResult sym) (ExceptT (MS.OverrideFailureReason MIR) IO) a)
-    deriving (Applicative, Functor, Monad, MonadIO)
+matchArg ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
+    TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
+    MS.OverrideMatcher' sym MIR rorw ()
+matchArg eval (BVRepr w) expr (MS.SetupTerm tt) = do
+    loc <- use MS.osLocation
+    exprTerm <- liftIO $ eval expr
+    var <- case SAW.asExtCns $ SAW.ttTerm tt of
+        Just ec -> return $ SAW.ecVarIndex ec
+        Nothing -> do
+            MS.failure loc $ MS.BadTermMatch (SAW.ttTerm tt) exprTerm
+    sub <- use MS.termSub
+    when (Map.member var sub) $
+        MS.failure loc MS.NonlinearPatternNotSupported
+    MS.termSub %= Map.insert var exprTerm
+matchArg _eval tpr rv sv = error $ show ("bad matchArg", tpr)
 
-deriving instance MonadState (ArgMatchResult sym) (ArgMatch sym)
-deriving instance MonadError (MS.OverrideFailureReason MIR) (ArgMatch sym)
-
-runArgMatch :: sym -> ArgMatch sym a ->
-    IO (Either (MS.OverrideFailureReason MIR) (a, ArgMatchResult sym))
-runArgMatch _sym (ArgMatch f) = runExceptT $ runStateT f initState
-  where
-    initState = ArgMatchResult
-        { _amrEqualities = []
-        }
-
-matchArg :: TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR -> ArgMatch sym ()
-matchArg (BVRepr w) expr (MS.SetupTerm tt) =
-    amrEqualities %= ((Some expr, SAW.ttTerm tt) :)
-matchArg tpr rv sv = error $ show ("bad matchArg", tpr)
+-- | Convert a `SetupCondition` to a boolean `SAW.Term`.
+condTerm ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    SAW.SharedContext ->
+    MS.SetupCondition MIR ->
+    MS.OverrideMatcher' sym MIR rorw SAW.Term
+condTerm sc (MS.SetupCond_Equal loc sv1 sv2) = do
+    error $ "learnCond SetupCond_Equal NYI" -- TODO
+condTerm sc (MS.SetupCond_Pred loc tt) = do
+    sub <- use MS.termSub
+    t' <- liftIO $ SAW.scInstantiateExt sc sub $ SAW.ttTerm tt
+    return t'
 
 
 regToSetup :: forall sym t st fs tp.
@@ -518,32 +585,80 @@ regToSetup _sym eval tpr rv = go tpr rv
     -- TODO: MirReferenceRepr
     go tpr _ = error $ "regToSetup: can't handle " ++ show tpr
 
-
-splitEqualities :: forall sym.
-    IsSymInterface sym =>
+setupToReg :: forall sym t st fs tp.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     sym ->
-    [(Some (W4.SymExpr sym), SAW.Term)] ->
-    IO ([W4.Pred sym], [(SAW.VarIndex, Some (W4.SymExpr sym))])
-splitEqualities sym eqs = go ([], []) eqs
+    SAW.SharedContext ->
+    Map SAW.VarIndex (Some (W4.Expr t)) ->
+    TypeRepr tp ->
+    MS.SetupValue MIR ->
+    IO (RegValue sym tp)
+setupToReg sym sc regMap tpr sv = go tpr sv
   where
-    go acc [] = return acc
-    go (preds, substs) ((Some expr, term) : rest)
-      | Just ec <- SAW.asExtCns term =
-        go (preds, (SAW.ecVarIndex ec, Some expr) : substs) rest
-      | otherwise = do
-        pred <- makeEquality expr term
-        go (pred : preds, substs) rest
+    go (asBaseType -> AsBaseType btpr) (MS.SetupTerm term) = do
+        Some expr <- termToExpr sym sc regMap (SAW.ttTerm term)
+        Refl <- case testEquality (W4.exprType expr) btpr of
+            Just x -> return x
+            Nothing -> error $ "setupToReg: expected " ++ show btpr ++ ", but got " ++
+                show (W4.exprType expr)
+        return expr
+    go tpr _ = error $ "setupToReg: don't can't handle " ++ show tpr
 
-    makeEquality :: forall tp.
-        W4.SymExpr sym tp -> SAW.Term -> IO (W4.Pred sym)
-    makeEquality expr term = do
-        Some termExpr <- termToExpr sym term
-        Just Refl <- return $ testEquality (W4.exprType expr) (W4.exprType termExpr)
-        W4.isEq sym expr termExpr
 
-termToExpr :: sym -> SAW.Term -> IO (Some (W4.SymExpr sym))
-termToExpr = undefined
+termToPred :: forall sym t st fs.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    sym ->
+    SAW.SharedContext ->
+    Map SAW.VarIndex (Some (W4.Expr t)) ->
+    SAW.Term ->
+    IO (W4.Pred sym)
+termToPred sym sc varMap term = do
+    Some expr <- termToExpr sym sc varMap term
+    case W4.exprType expr of
+        BaseBoolRepr -> return expr
+        btpr -> error $ "termToPred: got result of type " ++ show btpr ++ ", not BaseBoolRepr"
 
+termToExpr :: forall sym t st fs.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    sym ->
+    SAW.SharedContext ->
+    Map SAW.VarIndex (Some (W4.Expr t)) ->
+    SAW.Term ->
+    IO (Some (W4.SymExpr sym))
+termToExpr sym sc varMap term = do
+    modmap <- SAW.scGetModuleMap sc
+    let extcns ec = case Map.lookup (SAW.ecVarIndex ec) varMap of
+            Just (Some expr) -> case SAW.symExprToValue (W4.exprType expr) expr of
+                Just x -> return x
+                Nothing -> error $ "termToExpr: failed to convert var " ++
+                    SAW.ecName ec ++ " of what4 type " ++ show (W4.exprType expr)
+            Nothing -> error $ "termToExpr: unknown variable " ++ SAW.ecName ec
+    sv <- give sym $ SAW.w4SolveBasicWithSubst @sym modmap mempty extcns [] term
+    case SAW.valueToSymExpr sv of
+        Just x -> return x
+        Nothing -> error $ "termToExpr: failed to convert SValue"
+
+-- | Convert a `SAW.Term` representing a type to a `W4.BaseTypeRepr`.
+termToType :: forall sym t st fs.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    sym ->
+    SAW.SharedContext ->
+    SAW.Term ->
+    IO (Some W4.BaseTypeRepr)
+termToType sym sc term = do
+    modmap <- SAW.scGetModuleMap sc
+    ref <- newIORef mempty
+    sv <- give sym $ SAW.w4SolveBasic @sym modmap mempty ref [] term
+    case sv of
+        SAW.VBoolType -> return $ Some BaseBoolRepr
+        SAW.VVecType (SAW.VNat w) SAW.VBoolType -> do
+            Some w <- return $ mkNatRepr w
+            LeqProof <- case testLeq (knownNat @1) w of
+                Just x -> return x
+                Nothing -> error "termToPred: zero-width bitvector"
+            return $ Some $ BaseBVRepr w
+        SAW.VVecType _ SAW.VBoolType -> error "termToPred: Vec ?? Bool"
+        _ -> error $ "termToType: bad SValue"
 
 
 

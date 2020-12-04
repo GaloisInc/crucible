@@ -72,6 +72,7 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.String
 import qualified Data.Vector as V
+import           Data.Word (Word64)
 
 import qualified Text.Regex as Regex
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -117,13 +118,6 @@ import qualified SAWScript.Crucible.Common.MethodSpec as MS
 import           Debug.Trace
 
 import           Unsafe.Coerce
-
-
-mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
-mirIntrinsicTypes =
-   MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
-   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
-   MapF.empty
 
 
 
@@ -1768,17 +1762,36 @@ instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
 type MethodSpecSymbol = "MethodSpec"
 type MethodSpecType = IntrinsicType MethodSpecSymbol EmptyCtx
 
+data MIRMethodSpecWithNonce = MSN
+    { _msnMethodSpec :: MIRMethodSpec
+    , _msnNonce :: Word64
+    }
+makeLenses ''MIRMethodSpecWithNonce
+
 pattern MethodSpecRepr :: () => tp' ~ MethodSpecType => TypeRepr tp'
 pattern MethodSpecRepr <-
      IntrinsicRepr (testEquality (knownSymbol @MethodSpecSymbol) -> Just Refl) Empty
  where MethodSpecRepr = IntrinsicRepr (knownSymbol @MethodSpecSymbol) Empty
 
 type family MethodSpecFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
-  MethodSpecFam sym EmptyCtx = MIRMethodSpec
+  MethodSpecFam sym EmptyCtx = MIRMethodSpecWithNonce
   MethodSpecFam sym ctx = TypeError
     ('Text "MethodSpecType expects no arguments, but was given" ':<>: 'ShowType ctx)
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
   type Intrinsic sym MethodSpecSymbol ctx = MethodSpecFam sym ctx
 
-  muxIntrinsic _sym _iTypes _nm Empty = \_ _ _ -> fail "can't mux MethodSpecs"
+  muxIntrinsic _sym _iTypes _nm Empty = \_p ms1@(MSN _ n1) (MSN _ n2) ->
+    if n1 == n2 then return ms1 else fail "can't mux MethodSpecs"
   muxIntrinsic _sym _tys nm ctx = typeError nm ctx
+
+
+-- Table of all MIR-specific intrinsic types.  Must be at the end so it can see
+-- past previous `makeLenses` TH calls.
+
+mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
+mirIntrinsicTypes =
+   MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MethodSpecSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MethodSpecBuilderSymbol) IntrinsicMuxFn $
+   MapF.empty
