@@ -29,10 +29,11 @@ import Data.Functor.Const
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>))
+import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>), Assignment)
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Nonce
 import Data.Parameterized.Some
+import Data.Parameterized.TraversableFC
 import Data.Reflection
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -43,6 +44,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as V
 import Data.Void
+import GHC.Stack (HasCallStack)
 
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -331,8 +333,12 @@ builderFinish = do
     let eval :: forall tp. W4.Expr t tp -> IO SAW.Term
         eval x = SAW.evaluateExpr sawSym sc cache x
 
-    preVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPre)
-    postVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPost)
+    prePredVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPre)
+    preArgVars <- liftIO $ gatherVars sym (toList $ builder ^. msbArgs)
+    postPredVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPost)
+    postRetVars <- liftIO $ gatherVars sym (toList $ builder ^. msbResult)
+    let preVars = prePredVars <> preArgVars
+    let postVars = postPredVars <> postRetVars
     let postOnlyVars = postVars `Set.difference` preVars
 
     preVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList preVars
@@ -341,8 +347,14 @@ builderFinish = do
     prePreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPre)
     postPreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPost)
 
-    argTts <- liftIO $ mapM (evalSomeRegToSetup sym eval sc) (toList $ builder ^. msbArgs)
-    retTt <- liftIO $ mapM (evalSomeRegToSetup sym eval sc) (builder ^. msbResult)
+    argTts <- liftIO $ zipWithM (evalSomeRegToSetup sym eval sc)
+        (builder ^. msbSpec . MS.csArgs)
+        (toList $ builder ^. msbArgs)
+    retTt <- case (builder ^. msbSpec . MS.csRet, builder ^. msbResult) of
+        (Just ty, Just val) -> liftIO $ Just <$> evalSomeRegToSetup sym eval sc ty val
+        (Nothing, Nothing) -> return Nothing
+        _ -> error "csRet does not match msbResult"
+    liftIO $ print ("result:", MS.ppSetupValue <$> retTt)
     let argBindings = Map.fromList $ zip [0..] $ zip (builder ^. msbSpec ^. MS.csArgs) argTts
 
     liftIO $ print $ "finish: " ++ show (Seq.length $ builder ^. msbArgs) ++ " args"
@@ -375,9 +387,9 @@ builderFinish = do
     evalSomeRegToSetup ::
         sym ->
         (forall tp. W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
-        Some (MethodSpecValue sym) -> IO (MS.SetupValue MIR)
-    evalSomeRegToSetup sym eval sc (Some (MethodSpecValue tpr rv)) =
-        regToSetup sym (evalTyped eval sc) tpr rv
+        M.Ty -> Some (MethodSpecValue sym) -> IO (MS.SetupValue MIR)
+    evalSomeRegToSetup sym eval sc ty (Some (MethodSpecValue tpr rv)) =
+        regToSetup sym (evalTyped eval sc) ty tpr rv
 
 
 specPrettyPrint ::
@@ -415,13 +427,13 @@ specEnable cs = do
     liftIO $ print ("enable spec for", mh)
 
     bindFnHandle mh $ UseOverride $ mkOverride' (handleName mh) (handleReturnType mh) $
-        runSpec mh ms
+        runSpec (cs ^. collection) mh ms
 
 runSpec :: forall sym t st fs args ret rtp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    FnHandle args ret -> MIRMethodSpec ->
+    M.Collection -> FnHandle args ret -> MIRMethodSpec ->
     OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym ret)
-runSpec mh ms = do
+runSpec col mh ms = do
     liftIO $ print ("in runSpec", ms ^. MS.csMethod)
     sym <- getSymInterface
     RegMap argVals <- getOverrideArgs
@@ -458,6 +470,7 @@ runSpec mh ms = do
 
     -- Generate fresh variables for use in postconditions and result
     let postFresh = ms ^. MS.csPostState . MS.csFreshVars
+    liftIO $ print ("add fresh vars for result/postcond", map (SAW.ecName . SAW.tecExt) postFresh)
     w4PostVarMap <- liftM Map.fromList $ forM postFresh $ \tec -> do
         let ec = SAW.tecExt tec
         nameSymbol <- case W4.userSymbol $ SAW.ecName ec of
@@ -465,13 +478,15 @@ runSpec mh ms = do
                 SAW.ecName ec ++ ": " ++ show err
             Right x -> return x
         Some btpr <- liftIO $ termToType sym sc (SAW.ecType ec)
+        liftIO $ print ("fresh post var", nameSymbol, btpr)
         expr <- liftIO $ W4.freshConstant sym nameSymbol btpr
         stateContext . cruciblePersonality %= Crux.addVar loc (SAW.ecName ec) btpr expr
         return (SAW.ecVarIndex ec, Some expr)
 
+    let retTy = maybe (M.TyTuple []) id $ ms ^. MS.csRet
     let retTpr = handleReturnType mh
     retVal <- case ms ^. MS.csRetValue of
-        Just sv -> liftIO $ setupToReg sym sc (w4VarMap <> w4PostVarMap) retTpr sv
+        Just sv -> liftIO $ setupToReg sym sc col (w4VarMap <> w4PostVarMap) retTpr retTy sv
         Nothing -> case testEquality retTpr UnitRepr of
             Just Refl -> return ()
             Nothing -> error $ "no return value, but return type is " ++ show retTpr
@@ -479,10 +494,13 @@ runSpec mh ms = do
     result <- liftIO $ MS.runOverrideMatcher sym sgs mempty mempty freeVars loc $ do
         -- Match argument SetupValues against argVals
         forM_ (Map.toList $ ms ^. MS.csArgBindings) $ \(i, (_, sv)) -> do
+            ty <- case ms ^. MS.csArgs ^? ix (fromIntegral i) of
+                Nothing -> error $ show ("wrong number of args", ms ^. MS.csMethod, i)
+                Just x -> return x
             AnyValue tpr rv <- case argVals' ^? ix i of
                 Nothing -> error $ show ("wrong number of args", ms ^. MS.csMethod, i)
                 Just x -> return x
-            matchArg eval tpr rv sv
+            matchArg sym eval ty tpr rv sv
 
         -- Convert preconditions to `osAsserts`
         liftIO $ print ("look at preconditions", length $ ms ^. MS.csPreState . MS.csConditions)
@@ -536,22 +554,64 @@ runSpec mh ms = do
 
 
 matchArg ::
-    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    forall sym t st fs tp rorw.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
+    sym ->
     (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
-    TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
+    M.Ty -> TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
     MS.OverrideMatcher' sym MIR rorw ()
-matchArg eval (BVRepr w) expr (MS.SetupTerm tt) = do
-    loc <- use MS.osLocation
-    exprTerm <- liftIO $ eval expr
-    var <- case SAW.asExtCns $ SAW.ttTerm tt of
-        Just ec -> return $ SAW.ecVarIndex ec
-        Nothing -> do
-            MS.failure loc $ MS.BadTermMatch (SAW.ttTerm tt) exprTerm
-    sub <- use MS.termSub
-    when (Map.member var sub) $
-        MS.failure loc MS.NonlinearPatternNotSupported
-    MS.termSub %= Map.insert var exprTerm
-matchArg _eval tpr rv sv = error $ show ("bad matchArg", tpr)
+matchArg sym eval ty tpr rv sv = go ty tpr rv sv
+  where
+    go :: forall tp. M.Ty -> TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
+        MS.OverrideMatcher' sym MIR rorw ()
+    go ty@M.TyBool tpr rv sv = goPrim tpr rv sv
+    go ty@M.TyChar tpr rv sv = goPrim tpr rv sv
+    go ty@(M.TyInt _) tpr rv sv = goPrim tpr rv sv
+    go ty@(M.TyUint _) tpr rv sv = goPrim tpr rv sv
+    go (M.TyTuple []) UnitRepr () (MS.SetupStruct () False []) = return ()
+    go (M.TyTuple tys) (StructRepr ctx) rvs (MS.SetupStruct () False svs) =
+        goTuple tys ctx rvs svs
+    go (M.TyClosure tys) (StructRepr ctx) rvs (MS.SetupStruct () False svs) =
+        goTuple tys ctx rvs svs
+    go ty _ _ _ = error $ "matchArg: support for " ++ show ty ++ " NYI"
+
+    goPrim :: forall tp. TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
+        MS.OverrideMatcher' sym MIR rorw ()
+    goPrim tpr expr (MS.SetupTerm tt) | AsBaseType btpr <- asBaseType tpr = do
+        loc <- use MS.osLocation
+        exprTerm <- liftIO $ eval expr
+        var <- case SAW.asExtCns $ SAW.ttTerm tt of
+            Just ec -> return $ SAW.ecVarIndex ec
+            Nothing -> do
+                MS.failure loc $ MS.BadTermMatch (SAW.ttTerm tt) exprTerm
+        sub <- use MS.termSub
+        when (Map.member var sub) $
+            MS.failure loc MS.NonlinearPatternNotSupported
+        MS.termSub %= Map.insert var exprTerm
+    goPrim tpr _ _ = error $ "matchArg: non-primitive type " ++ show tpr ++ " in goPrim"
+
+    goTuple :: forall ctx.
+        [M.Ty] -> CtxRepr ctx -> Assignment (RegValue' sym) ctx -> [MS.SetupValue MIR] ->
+        MS.OverrideMatcher' sym MIR rorw ()
+    goTuple tys ctx _ svs
+      | length tys /= Ctx.sizeInt (Ctx.size ctx) || length tys /= length svs = error $
+        "matchArg: type error: wrong number of tuple elements: " ++
+            show (length tys, Ctx.sizeInt (Ctx.size ctx), length svs)
+    goTuple tys ctx rvs svs = loop (reverse tys) ctx rvs (reverse svs)
+      where
+        loop :: forall ctx.
+            [M.Ty] -> CtxRepr ctx -> Assignment (RegValue' sym) ctx -> [MS.SetupValue MIR] ->
+            MS.OverrideMatcher' sym MIR rorw ()
+        loop [] Empty Empty [] = return ()
+        loop (ty:tys) (ctx :> MaybeRepr tpr) (rvs :> RV rv) (sv:svs) = do
+            rv' <- liftIO $ readPartial sym rv >>= \x -> case x of
+                Just x -> return x
+                Nothing -> error $ "matchArg: uninitialized tuple element of type " ++ show ty
+            go ty tpr rv' sv
+            loop tys ctx rvs svs
+        loop (_:_) (_ :> tpr) (_ :> _) (_:_) = error $
+            "impossible: expected MaybeRepr in tuple, but got " ++ show tpr
+        loop _ _ _ _ = error $ "impossible: mismatched lengths in tuple"
 
 -- | Convert a `SetupCondition` to a boolean `SAW.Term`.
 condTerm ::
@@ -568,13 +628,48 @@ condTerm sc (MS.SetupCond_Pred loc tt) = do
 
 
 regToSetup :: forall sym t st fs tp.
-    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     (forall tp'. BaseTypeRepr tp' -> W4.Expr t tp' -> IO SAW.TypedTerm) ->
-    TypeRepr tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
-regToSetup _sym eval tpr rv = go tpr rv
+    M.Ty -> TypeRepr tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
+regToSetup sym eval ty tpr rv = go ty tpr rv
   where
-    go :: forall tp'. TypeRepr tp' -> RegValue sym tp' -> IO (MS.SetupValue MIR)
+    go :: forall tp'. M.Ty -> TypeRepr tp' -> RegValue sym tp' -> IO (MS.SetupValue MIR)
+    go ty@M.TyBool tpr rv = goPrim tpr rv
+    go ty@M.TyChar tpr rv = goPrim tpr rv
+    go ty@(M.TyInt _) tpr rv = goPrim tpr rv
+    go ty@(M.TyUint _) tpr rv = goPrim tpr rv
+    go (M.TyTuple []) UnitRepr () = return $ MS.SetupStruct () False []
+    go (M.TyTuple tys) (StructRepr ctx) flds = goTuple tys ctx flds
+    go (M.TyClosure tys) (StructRepr ctx) flds = goTuple tys ctx flds
+    go ty _ _ = error $ "regToSetup: support for " ++ show ty ++ " NYI"
+
+    goPrim :: forall tp'. TypeRepr tp' -> RegValue sym tp' -> IO (MS.SetupValue MIR)
+    goPrim tpr expr | AsBaseType btpr <- asBaseType tpr = MS.SetupTerm <$> eval btpr expr
+    goPrim tpr _ = error $ "regToSetup: non-primitive type " ++ show tpr ++ " in goPrim"
+
+    goTuple :: forall ctx. [M.Ty] -> CtxRepr ctx -> Assignment (RegValue' sym) ctx ->
+        IO (MS.SetupValue MIR)
+    goTuple tys ctx _ | length tys /= Ctx.sizeInt (Ctx.size ctx) = error $
+        "expected a tuple of " ++ show (length tys) ++ " items (" ++ show tys ++
+            "), but got " ++ show (Ctx.sizeInt (Ctx.size ctx)) ++ " (" ++ show ctx ++ ")"
+    goTuple tys ctx flds = MS.SetupStruct () False <$> loop (reverse tys) ctx flds []
+      where
+        loop :: forall ctx'. [M.Ty] -> CtxRepr ctx' -> Assignment (RegValue' sym) ctx' ->
+            [MS.SetupValue MIR] -> IO [MS.SetupValue MIR]
+        loop [] Empty Empty acc = return acc
+        loop (ty:tys) (ctx :> MaybeRepr tpr) (flds :> RV fld) acc = do
+            fld' <- readPartial sym fld >>= \x -> case x of
+                Just x -> return x
+                Nothing -> error $ "regToSetup: accessed possibly-uninitialized tuple field " ++
+                    "of type " ++ show ty
+            sv <- go ty tpr fld'
+            loop tys ctx flds (sv : acc)
+        loop (_:_) (_ :> tpr) (_ :> _) _ = error $
+            "regToSetup: expected tuple field to be MaybeRepr, but got " ++ show tpr
+        loop _ _ _ _ = error $ "impossible: mismatched input lengths"
+
+{-
     go (asBaseType -> AsBaseType btpr) expr = MS.SetupTerm <$> eval btpr expr
     go AnyRepr (AnyValue tpr rv) = go tpr rv
     -- TODO: UnitRepr
@@ -584,25 +679,92 @@ regToSetup _sym eval tpr rv = go tpr rv
     -- TODO: VariantRepr
     -- TODO: MirReferenceRepr
     go tpr _ = error $ "regToSetup: can't handle " ++ show tpr
+-}
+
+readPartial :: IsSymInterface sym => sym -> W4.PartExpr (W4.Pred sym) a -> IO (Maybe a)
+readPartial sym W4.Unassigned = return Nothing
+readPartial sym (W4.PE p v)
+  | Just True <- W4.asConstantPred p = return $ Just v
+  | otherwise = return Nothing
 
 setupToReg :: forall sym t st fs tp.
-    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     SAW.SharedContext ->
+    M.Collection ->
     Map SAW.VarIndex (Some (W4.Expr t)) ->
     TypeRepr tp ->
+    M.Ty ->
     MS.SetupValue MIR ->
     IO (RegValue sym tp)
-setupToReg sym sc regMap tpr sv = go tpr sv
+setupToReg sym sc col regMap tpr ty sv = go ty sv tpr
   where
-    go (asBaseType -> AsBaseType btpr) (MS.SetupTerm term) = do
-        Some expr <- termToExpr sym sc regMap (SAW.ttTerm term)
-        Refl <- case testEquality (W4.exprType expr) btpr of
+    go' :: M.Ty -> MS.SetupValue MIR -> IO (Some (MethodSpecValue sym))
+    go' (M.TyTuple []) (MS.SetupStruct _ False []) = Some <$> goUnit'
+    go' (M.TyTuple tys) (MS.SetupStruct _ False svs) = goTuple' tys svs
+    go' (M.TyClosure tys) (MS.SetupStruct _ False svs) = goTuple' tys svs
+    go' (M.TyArray ty len) (MS.SetupArray _ svs) = do
+        Some tpr <- return $ tyToRepr ty
+        when (length svs /= len) $ error $
+            "expected an array of " ++ show len ++ " " ++ show ty ++ ", but got " ++
+                show (length svs) ++ " SetupValue elements"
+        rvs <- mapM (\sv -> go ty sv tpr) svs
+        return $ Some $ MethodSpecValue
+            (MirVectorRepr tpr)
+            (MirVector_Vector $ V.fromList rvs)
+    go' (M.TyFnDef _) (MS.SetupStruct _ False []) = Some <$> goUnit'
+    go' ty@M.TyBool sv = goPrim' ty sv
+    go' ty@M.TyChar sv = goPrim' ty sv
+    go' ty@(M.TyInt _) sv = goPrim' ty sv
+    go' ty@(M.TyUint _) sv = goPrim' ty sv
+    go' ty _ = error $ "setupToReg: support for " ++ show ty ++ " NYI"
+
+
+    go :: forall tp. M.Ty -> MS.SetupValue MIR -> TypeRepr tp -> IO (RegValue sym tp)
+    go ty sv tpr = do
+        Some (MethodSpecValue tpr' rv) <- go' ty sv
+        Refl <- case testEquality tpr tpr' of
             Just x -> return x
-            Nothing -> error $ "setupToReg: expected " ++ show btpr ++ ", but got " ++
-                show (W4.exprType expr)
-        return expr
-    go tpr _ = error $ "setupToReg: don't can't handle " ++ show tpr
+            Nothing -> error $ "bad RegValue for " ++ show ty ++ ": expected " ++
+                show tpr ++ ", but got " ++ show tpr'
+        return rv
+
+    goField :: forall tp. M.Ty -> MS.SetupValue MIR -> FieldRepr tp -> IO (RegValue sym tp)
+    goField ty sv (FieldRepr (FkInit tpr)) = go ty sv tpr
+    goField ty sv (FieldRepr (FkMaybe tpr)) = W4.justPartExpr sym <$> go ty sv tpr
+
+    goTuple' :: [M.Ty] -> [MS.SetupValue MIR] -> IO (Some (MethodSpecValue sym))
+    goTuple' tys svs | length tys /= length svs = error $
+        "goTuple': expected " ++ show (length tys) ++ " values of types " ++ show tys ++
+            ", but got " ++ show (length svs) ++ " values"
+    goTuple' tys svs = do
+        Some ctx <- return $ tyListToCtxMaybe tys Some
+        flds <- loop (reverse tys) (reverse svs) ctx
+        return $ Some $ MethodSpecValue (StructRepr ctx) flds
+      where
+        loop :: [M.Ty] -> [MS.SetupValue MIR] -> CtxRepr ctx -> IO (Assignment (RegValue' sym) ctx)
+        loop [] [] Empty = return Empty
+        loop (ty:tys) (sv:svs) (ctx :> MaybeRepr tpr) = do
+            fld <- W4.justPartExpr sym <$> go ty sv tpr
+            flds <- loop tys svs ctx
+            return $ flds :> RV fld
+        loop _ _ (_ :> tpr) = error $
+            "impossible: tyListToCtxMaybe returned non-MaybeRepr? " ++ show tpr
+
+    goUnit' :: IO (MethodSpecValue sym UnitType)
+    goUnit' = return $ MethodSpecValue UnitRepr ()
+
+    goPrim' :: M.Ty -> MS.SetupValue MIR -> IO (Some (MethodSpecValue sym))
+    goPrim' ty sv | Some tpr <- tyToRepr ty, AsBaseType btpr <- asBaseType tpr = case sv of
+        MS.SetupTerm tt -> do
+            Some expr <- termToExpr sym sc regMap (SAW.ttTerm tt)
+            Refl <- case testEquality (W4.exprType expr) btpr of
+                Just x -> return x
+                Nothing -> error $ "setupToReg: expected " ++ show btpr ++ ", but got " ++
+                    show (W4.exprType expr)
+            return $ Some $ MethodSpecValue tpr expr
+        _ -> error $ "setupToReg: expected SetupTerm for " ++ show ty ++ " (" ++ show tpr ++ ")"
+    goPrim' ty _ = error $ "setupToReg: non-primitive type " ++ show ty ++ " in goPrim'"
 
 
 termToPred :: forall sym t st fs.
@@ -619,7 +781,7 @@ termToPred sym sc varMap term = do
         btpr -> error $ "termToPred: got result of type " ++ show btpr ++ ", not BaseBoolRepr"
 
 termToExpr :: forall sym t st fs.
-    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     SAW.SharedContext ->
     Map SAW.VarIndex (Some (W4.Expr t)) ->
