@@ -9,6 +9,7 @@ packages:
   crucible-go/
   crucible-jvm/
   crucible-llvm/
+  crucible-wasm/
   crucible-saw/
   crucible-server/
   crucible-syntax/
@@ -23,6 +24,7 @@ optional-packages:
   dependencies/blt/
   dependencies/golang/
   dependencies/jvm-parser/
+  dependencies/haskell-wasm/
   dependencies/hpb/
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/

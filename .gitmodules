@@ -34,3 +34,6 @@
 [submodule "dependencies/mir-json"]
 	path = dependencies/mir-json
 	url = https://github.com/GaloisInc/mir-json/
+[submodule "dependencies/haskell-wasm"]
+	path = dependencies/haskell-wasm
+	url = https://github.com/SPY/haskell-wasm

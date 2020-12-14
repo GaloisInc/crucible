@@ -1,0 +1,74 @@
+Name:          crucible-wasm
+Version:       0.1
+Author:        Galois Inc.
+Copyright:     (c) Galois, Inc. 2020
+Maintainer:    rdockins@galois.com
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.10
+Category:      Language
+Synopsis:      Support for translating and executing WebAssembly code in Crucible
+
+executable crucible-wasm
+
+  hs-source-dirs: tool
+  main-is: Main.hs
+
+  build-depends:
+    base >= 4 && < 5,
+    bytestring,
+    bv-sized >= 1.0.0,
+    crux,
+    crucible,
+    crucible-llvm,
+    crucible-wasm,
+    parameterized-utils,
+    wasm
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
+library
+
+  build-depends:
+    base >= 4 && < 5,
+    bv-sized >= 1.0.0,
+    bytestring,
+    containers,
+    crucible,
+    crucible-llvm,
+    crux,
+    directory,
+    filepath,
+    haskeline >= 0.7,
+    lens,
+    mtl >= 2.1,
+    panic >= 0.3,
+    parameterized-utils >= 1.0 && < 2.2,
+    prettyprinter >= 1.7.0 && < 1.8,
+    split >= 0.2,
+    text,
+    transformers >= 0.3,
+    transformers-compat,
+    vector >= 0.7,
+    what4 >= 0.4,
+    wasm
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Lang.Crucible.Wasm
+    Lang.Crucible.Wasm.Extension
+    Lang.Crucible.Wasm.Instantiate
+    Lang.Crucible.Wasm.Memory
+    Lang.Crucible.Wasm.Translate
+    Lang.Crucible.Wasm.Utils
+  other-modules:
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
