@@ -704,8 +704,8 @@ setupToReg sym sc regMap shp sv = go shp sv
     go (ArrayShape _ _ shp) (MS.SetupArray _ svs) = do
         rvs <- mapM (go shp) svs
         return $ MirVector_Vector $ V.fromList rvs
-    go (StructShape _ _ flds) (MS.SetupStruct _ False svs) = error $
-        "setupToReg: StructShape NYI"
+    go (StructShape _ _ flds) (MS.SetupStruct _ False svs) =
+        AnyValue (StructRepr $ fmapFC fieldShapeType flds) <$> goFields flds svs
     go shp sv = error $ "setupToReg: type error: bad SetupValue for " ++ show (shapeType shp) ++
         ": " ++ show (MS.ppSetupValue sv)
 
