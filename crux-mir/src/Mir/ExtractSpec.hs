@@ -314,9 +314,10 @@ relevantPreds _sym vars preds = runExceptT $ filterM check preds
 
 builderFinish :: forall sym t st fs rtp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    M.Collection ->
     OverrideSim (Model sym) sym MIR rtp
         (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpecWithNonce
-builderFinish = do
+builderFinish col = do
     RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
 
     sym <- getSymInterface
@@ -388,8 +389,11 @@ builderFinish = do
         sym ->
         (forall tp. W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
         M.Ty -> Some (MethodSpecValue sym) -> IO (MS.SetupValue MIR)
-    evalSomeRegToSetup sym eval sc ty (Some (MethodSpecValue tpr rv)) =
-        regToSetup sym (evalTyped eval sc) ty tpr rv
+    evalSomeRegToSetup sym eval sc ty (Some (MethodSpecValue tpr rv))
+      | Some shp <- tyToShape col ty = case testEquality (shapeType shp) tpr of
+        Just Refl -> regToSetup sym (evalTyped eval sc) shp rv
+        Nothing -> error $ "builderFinish: type error: MIR type " ++ show ty ++
+            " does not match repr " ++ show tpr
 
 
 specPrettyPrint ::
@@ -485,8 +489,9 @@ runSpec col mh ms = do
 
     let retTy = maybe (M.TyTuple []) id $ ms ^. MS.csRet
     let retTpr = handleReturnType mh
+    let retShp = tyToShapeEq col retTy retTpr
     retVal <- case ms ^. MS.csRetValue of
-        Just sv -> liftIO $ setupToReg sym sc col (w4VarMap <> w4PostVarMap) retTpr retTy sv
+        Just sv -> liftIO $ setupToReg sym sc (w4VarMap <> w4PostVarMap) retShp sv
         Nothing -> case testEquality retTpr UnitRepr of
             Just Refl -> return ()
             Nothing -> error $ "no return value, but return type is " ++ show retTpr
@@ -500,7 +505,8 @@ runSpec col mh ms = do
             AnyValue tpr rv <- case argVals' ^? ix i of
                 Nothing -> error $ show ("wrong number of args", ms ^. MS.csMethod, i)
                 Just x -> return x
-            matchArg sym eval ty tpr rv sv
+            let shp = tyToShapeEq col ty tpr
+            matchArg sym eval shp rv sv
 
         -- Convert preconditions to `osAsserts`
         liftIO $ print ("look at preconditions", length $ ms ^. MS.csPreState . MS.csConditions)
@@ -558,26 +564,14 @@ matchArg ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
-    M.Ty -> TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
+    TypeShape tp -> RegValue sym tp -> MS.SetupValue MIR ->
     MS.OverrideMatcher' sym MIR rorw ()
-matchArg sym eval ty tpr rv sv = go ty tpr rv sv
+matchArg sym eval shp rv sv = go shp rv sv
   where
-    go :: forall tp. M.Ty -> TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
+    go :: forall tp. TypeShape tp -> RegValue sym tp -> MS.SetupValue MIR ->
         MS.OverrideMatcher' sym MIR rorw ()
-    go ty@M.TyBool tpr rv sv = goPrim tpr rv sv
-    go ty@M.TyChar tpr rv sv = goPrim tpr rv sv
-    go ty@(M.TyInt _) tpr rv sv = goPrim tpr rv sv
-    go ty@(M.TyUint _) tpr rv sv = goPrim tpr rv sv
-    go (M.TyTuple []) UnitRepr () (MS.SetupStruct () False []) = return ()
-    go (M.TyTuple tys) (StructRepr ctx) rvs (MS.SetupStruct () False svs) =
-        goTuple tys ctx rvs svs
-    go (M.TyClosure tys) (StructRepr ctx) rvs (MS.SetupStruct () False svs) =
-        goTuple tys ctx rvs svs
-    go ty _ _ _ = error $ "matchArg: support for " ++ show ty ++ " NYI"
-
-    goPrim :: forall tp. TypeRepr tp -> RegValue sym tp -> MS.SetupValue MIR ->
-        MS.OverrideMatcher' sym MIR rorw ()
-    goPrim tpr expr (MS.SetupTerm tt) | AsBaseType btpr <- asBaseType tpr = do
+    go (UnitShape _) () (MS.SetupStruct () False []) = return ()
+    go (PrimShape _ btpr) expr (MS.SetupTerm tt) = do
         loc <- use MS.osLocation
         exprTerm <- liftIO $ eval expr
         var <- case SAW.asExtCns $ SAW.ttTerm tt of
@@ -588,30 +582,37 @@ matchArg sym eval ty tpr rv sv = go ty tpr rv sv
         when (Map.member var sub) $
             MS.failure loc MS.NonlinearPatternNotSupported
         MS.termSub %= Map.insert var exprTerm
-    goPrim tpr _ _ = error $ "matchArg: non-primitive type " ++ show tpr ++ " in goPrim"
+    go (TupleShape _ _ flds) rvs (MS.SetupStruct () False svs) = goFields flds rvs svs
+    go (ArrayShape _ _ shp) vec (MS.SetupArray () svs) = case vec of
+        MirVector_Vector v -> zipWithM_ (go shp) (toList v) svs
+        MirVector_PartialVector pv -> forM_ (zip (toList pv) svs) $ \(p, sv) -> do
+            rv <- liftIO $ accessPartial sym "vector element" (shapeType shp) p
+            go shp rv sv
+        MirVector_Array _ -> error $ "matchArg: MirVector_Array NYI"
+    go (StructShape _ _ flds) (AnyValue tpr rvs) (MS.SetupStruct () False svs)
+      | Just Refl <- testEquality tpr shpTpr = goFields flds rvs svs
+      | otherwise = error $ "matchArg: type error: expected " ++ show shpTpr ++
+        ", but got Any wrapping " ++ show tpr
+      where shpTpr = StructRepr $ fmapFC fieldShapeType flds
+    go shp _ _ = error $ "matchArg: type error: bad SetupValue for " ++ show (shapeType shp)
 
-    goTuple :: forall ctx.
-        [M.Ty] -> CtxRepr ctx -> Assignment (RegValue' sym) ctx -> [MS.SetupValue MIR] ->
-        MS.OverrideMatcher' sym MIR rorw ()
-    goTuple tys ctx _ svs
-      | length tys /= Ctx.sizeInt (Ctx.size ctx) || length tys /= length svs = error $
-        "matchArg: type error: wrong number of tuple elements: " ++
-            show (length tys, Ctx.sizeInt (Ctx.size ctx), length svs)
-    goTuple tys ctx rvs svs = loop (reverse tys) ctx rvs (reverse svs)
+    goFields :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
+        [MS.SetupValue MIR] -> MS.OverrideMatcher' sym MIR rorw ()
+    goFields flds rvs svs = loop flds rvs (reverse svs)
       where
-        loop :: forall ctx.
-            [M.Ty] -> CtxRepr ctx -> Assignment (RegValue' sym) ctx -> [MS.SetupValue MIR] ->
-            MS.OverrideMatcher' sym MIR rorw ()
-        loop [] Empty Empty [] = return ()
-        loop (ty:tys) (ctx :> MaybeRepr tpr) (rvs :> RV rv) (sv:svs) = do
-            rv' <- liftIO $ readPartial sym rv >>= \x -> case x of
-                Just x -> return x
-                Nothing -> error $ "matchArg: uninitialized tuple element of type " ++ show ty
-            go ty tpr rv' sv
-            loop tys ctx rvs svs
-        loop (_:_) (_ :> tpr) (_ :> _) (_:_) = error $
-            "impossible: expected MaybeRepr in tuple, but got " ++ show tpr
-        loop _ _ _ _ = error $ "impossible: mismatched lengths in tuple"
+        loop :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
+            [MS.SetupValue MIR] -> MS.OverrideMatcher' sym MIR rorw ()
+        loop Empty Empty [] = return ()
+        loop (flds :> fld) (rvs :> RV rv) (sv : svs) = do
+            case fld of
+                ReqField shp -> go shp rv sv
+                OptField shp -> do
+                    rv' <- liftIO $ accessPartial sym "field" (shapeType shp) rv
+                    go shp rv' sv
+            loop flds rvs svs
+        loop _ rvs svs = error $ "matchArg: type error: got RegValues for " ++
+            show (Ctx.sizeInt $ Ctx.size rvs) ++ " fields, but got " ++
+            show (length svs) ++ " SetupValues"
 
 -- | Convert a `SetupCondition` to a boolean `SAW.Term`.
 condTerm ::
@@ -631,55 +632,40 @@ regToSetup :: forall sym t st fs tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     (forall tp'. BaseTypeRepr tp' -> W4.Expr t tp' -> IO SAW.TypedTerm) ->
-    M.Ty -> TypeRepr tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
-regToSetup sym eval ty tpr rv = go ty tpr rv
+    TypeShape tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
+regToSetup sym eval shp rv = go shp rv
   where
-    go :: forall tp'. M.Ty -> TypeRepr tp' -> RegValue sym tp' -> IO (MS.SetupValue MIR)
-    go ty@M.TyBool tpr rv = goPrim tpr rv
-    go ty@M.TyChar tpr rv = goPrim tpr rv
-    go ty@(M.TyInt _) tpr rv = goPrim tpr rv
-    go ty@(M.TyUint _) tpr rv = goPrim tpr rv
-    go (M.TyTuple []) UnitRepr () = return $ MS.SetupStruct () False []
-    go (M.TyTuple tys) (StructRepr ctx) flds = goTuple tys ctx flds
-    go (M.TyClosure tys) (StructRepr ctx) flds = goTuple tys ctx flds
-    go ty _ _ = error $ "regToSetup: support for " ++ show ty ++ " NYI"
+    go :: forall tp. TypeShape tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
+    go (UnitShape _) () = return $ MS.SetupStruct () False []
+    go (PrimShape _ btpr) expr = MS.SetupTerm <$> eval btpr expr
+    go (TupleShape _ _ flds) rvs = MS.SetupStruct () False <$> goFields flds rvs
+    go (ArrayShape _ _ shp) vec = do
+        svs <- case vec of
+            MirVector_Vector v -> mapM (go shp) (toList v)
+            MirVector_PartialVector v -> forM (toList v) $ \p -> do
+                rv <- accessPartial sym "vector element" (shapeType shp) p
+                go shp rv
+            MirVector_Array _ -> error $ "regToSetup: MirVector_Array NYI"
+        return $ MS.SetupStruct () False svs
+    go (StructShape _ _ flds) (AnyValue tpr rvs)
+      | Just Refl <- testEquality tpr shpTpr =
+        MS.SetupStruct () False <$> goFields flds rvs
+      | otherwise = error $ "regToSetup: type error: expected " ++ show shpTpr ++
+        ", but got Any wrapping " ++ show tpr
+      where shpTpr = StructRepr $ fmapFC fieldShapeType flds
 
-    goPrim :: forall tp'. TypeRepr tp' -> RegValue sym tp' -> IO (MS.SetupValue MIR)
-    goPrim tpr expr | AsBaseType btpr <- asBaseType tpr = MS.SetupTerm <$> eval btpr expr
-    goPrim tpr _ = error $ "regToSetup: non-primitive type " ++ show tpr ++ " in goPrim"
-
-    goTuple :: forall ctx. [M.Ty] -> CtxRepr ctx -> Assignment (RegValue' sym) ctx ->
-        IO (MS.SetupValue MIR)
-    goTuple tys ctx _ | length tys /= Ctx.sizeInt (Ctx.size ctx) = error $
-        "expected a tuple of " ++ show (length tys) ++ " items (" ++ show tys ++
-            "), but got " ++ show (Ctx.sizeInt (Ctx.size ctx)) ++ " (" ++ show ctx ++ ")"
-    goTuple tys ctx flds = MS.SetupStruct () False <$> loop (reverse tys) ctx flds []
+    goFields :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
+        IO [MS.SetupValue MIR]
+    goFields flds rvs = loop flds rvs []
       where
-        loop :: forall ctx'. [M.Ty] -> CtxRepr ctx' -> Assignment (RegValue' sym) ctx' ->
+        loop :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
             [MS.SetupValue MIR] -> IO [MS.SetupValue MIR]
-        loop [] Empty Empty acc = return acc
-        loop (ty:tys) (ctx :> MaybeRepr tpr) (flds :> RV fld) acc = do
-            fld' <- readPartial sym fld >>= \x -> case x of
-                Just x -> return x
-                Nothing -> error $ "regToSetup: accessed possibly-uninitialized tuple field " ++
-                    "of type " ++ show ty
-            sv <- go ty tpr fld'
-            loop tys ctx flds (sv : acc)
-        loop (_:_) (_ :> tpr) (_ :> _) _ = error $
-            "regToSetup: expected tuple field to be MaybeRepr, but got " ++ show tpr
-        loop _ _ _ _ = error $ "impossible: mismatched input lengths"
-
-{-
-    go (asBaseType -> AsBaseType btpr) expr = MS.SetupTerm <$> eval btpr expr
-    go AnyRepr (AnyValue tpr rv) = go tpr rv
-    -- TODO: UnitRepr
-    -- TODO: MaybeRepr
-    -- TODO: VectorRepr
-    -- TODO: StructRepr
-    -- TODO: VariantRepr
-    -- TODO: MirReferenceRepr
-    go tpr _ = error $ "regToSetup: can't handle " ++ show tpr
--}
+        loop Empty Empty svs = return svs
+        loop (flds :> fld) (rvs :> RV rv) svs = do
+            sv <- case fld of
+                ReqField shp -> go shp rv
+                OptField shp -> accessPartial sym "field" (shapeType shp) rv >>= go shp
+            loop flds rvs (sv : svs)
 
 readPartial :: IsSymInterface sym => sym -> W4.PartExpr (W4.Pred sym) a -> IO (Maybe a)
 readPartial sym W4.Unassigned = return Nothing
@@ -687,84 +673,152 @@ readPartial sym (W4.PE p v)
   | Just True <- W4.asConstantPred p = return $ Just v
   | otherwise = return Nothing
 
+accessPartial :: forall tp sym. IsSymInterface sym =>
+    sym -> String -> TypeRepr tp -> RegValue sym (MaybeType tp) ->
+    IO (RegValue sym tp)
+accessPartial sym desc tpr rv = readPartial sym rv >>= \x -> case x of
+    Just x -> return x
+    Nothing -> error $ "regToSetup: accessed possibly-uninitialized " ++ desc ++
+        " of type " ++ show tpr
+
 setupToReg :: forall sym t st fs tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     SAW.SharedContext ->
-    M.Collection ->
     Map SAW.VarIndex (Some (W4.Expr t)) ->
-    TypeRepr tp ->
-    M.Ty ->
+    TypeShape tp ->
     MS.SetupValue MIR ->
     IO (RegValue sym tp)
-setupToReg sym sc col regMap tpr ty sv = go ty sv tpr
+setupToReg sym sc regMap shp sv = go shp sv
   where
-    go' :: M.Ty -> MS.SetupValue MIR -> IO (Some (MethodSpecValue sym))
-    go' (M.TyTuple []) (MS.SetupStruct _ False []) = Some <$> goUnit'
-    go' (M.TyTuple tys) (MS.SetupStruct _ False svs) = goTuple' tys svs
-    go' (M.TyClosure tys) (MS.SetupStruct _ False svs) = goTuple' tys svs
-    go' (M.TyArray ty len) (MS.SetupArray _ svs) = do
-        Some tpr <- return $ tyToRepr ty
-        when (length svs /= len) $ error $
-            "expected an array of " ++ show len ++ " " ++ show ty ++ ", but got " ++
-                show (length svs) ++ " SetupValue elements"
-        rvs <- mapM (\sv -> go ty sv tpr) svs
-        return $ Some $ MethodSpecValue
-            (MirVectorRepr tpr)
-            (MirVector_Vector $ V.fromList rvs)
-    go' (M.TyFnDef _) (MS.SetupStruct _ False []) = Some <$> goUnit'
-    go' ty@M.TyBool sv = goPrim' ty sv
-    go' ty@M.TyChar sv = goPrim' ty sv
-    go' ty@(M.TyInt _) sv = goPrim' ty sv
-    go' ty@(M.TyUint _) sv = goPrim' ty sv
-    go' ty _ = error $ "setupToReg: support for " ++ show ty ++ " NYI"
-
-
-    go :: forall tp. M.Ty -> MS.SetupValue MIR -> TypeRepr tp -> IO (RegValue sym tp)
-    go ty sv tpr = do
-        Some (MethodSpecValue tpr' rv) <- go' ty sv
-        Refl <- case testEquality tpr tpr' of
+    go :: forall tp. TypeShape tp -> MS.SetupValue MIR -> IO (RegValue sym tp)
+    go (UnitShape _) (MS.SetupStruct _ False []) = return ()
+    go (PrimShape _ btpr) (MS.SetupTerm tt) = do
+        Some expr <- termToExpr sym sc regMap (SAW.ttTerm tt)
+        Refl <- case testEquality (W4.exprType expr) btpr of
             Just x -> return x
-            Nothing -> error $ "bad RegValue for " ++ show ty ++ ": expected " ++
-                show tpr ++ ", but got " ++ show tpr'
-        return rv
+            Nothing -> error $ "setupToReg: expected " ++ show btpr ++ ", but got " ++
+                show (W4.exprType expr)
+        return expr
+    go (TupleShape _ _ flds) (MS.SetupStruct _ False svs) = goFields flds svs
+    go (ArrayShape _ _ shp) (MS.SetupArray _ svs) = do
+        rvs <- mapM (go shp) svs
+        return $ MirVector_Vector $ V.fromList rvs
+    go (StructShape _ _ flds) (MS.SetupStruct _ False svs) = error $
+        "setupToReg: StructShape NYI"
+    go shp _ = error $ "setupToReg: type error: bad SetupValue for " ++ show (shapeType shp)
 
-    goField :: forall tp. M.Ty -> MS.SetupValue MIR -> FieldRepr tp -> IO (RegValue sym tp)
-    goField ty sv (FieldRepr (FkInit tpr)) = go ty sv tpr
-    goField ty sv (FieldRepr (FkMaybe tpr)) = W4.justPartExpr sym <$> go ty sv tpr
-
-    goTuple' :: [M.Ty] -> [MS.SetupValue MIR] -> IO (Some (MethodSpecValue sym))
-    goTuple' tys svs | length tys /= length svs = error $
-        "goTuple': expected " ++ show (length tys) ++ " values of types " ++ show tys ++
-            ", but got " ++ show (length svs) ++ " values"
-    goTuple' tys svs = do
-        Some ctx <- return $ tyListToCtxMaybe tys Some
-        flds <- loop (reverse tys) (reverse svs) ctx
-        return $ Some $ MethodSpecValue (StructRepr ctx) flds
+    goFields :: forall ctx. Assignment FieldShape ctx -> [MS.SetupValue MIR] ->
+        IO (Assignment (RegValue' sym) ctx)
+    goFields shps svs = loop shps (reverse svs)
       where
-        loop :: [M.Ty] -> [MS.SetupValue MIR] -> CtxRepr ctx -> IO (Assignment (RegValue' sym) ctx)
-        loop [] [] Empty = return Empty
-        loop (ty:tys) (sv:svs) (ctx :> MaybeRepr tpr) = do
-            fld <- W4.justPartExpr sym <$> go ty sv tpr
-            flds <- loop tys svs ctx
-            return $ flds :> RV fld
-        loop _ _ (_ :> tpr) = error $
-            "impossible: tyListToCtxMaybe returned non-MaybeRepr? " ++ show tpr
+        loop :: forall ctx. Assignment FieldShape ctx -> [MS.SetupValue MIR] ->
+            IO (Assignment (RegValue' sym) ctx)
+        loop Empty [] = return Empty
+        loop (shps :> shp) (sv : svs) = do
+            rv <- case shp of
+                ReqField shp' -> go shp' sv
+                OptField shp' -> W4.justPartExpr sym <$> go shp' sv
+            rvs <- loop shps svs
+            return $ rvs :> RV rv
 
-    goUnit' :: IO (MethodSpecValue sym UnitType)
-    goUnit' = return $ MethodSpecValue UnitRepr ()
 
-    goPrim' :: M.Ty -> MS.SetupValue MIR -> IO (Some (MethodSpecValue sym))
-    goPrim' ty sv | Some tpr <- tyToRepr ty, AsBaseType btpr <- asBaseType tpr = case sv of
-        MS.SetupTerm tt -> do
-            Some expr <- termToExpr sym sc regMap (SAW.ttTerm tt)
-            Refl <- case testEquality (W4.exprType expr) btpr of
-                Just x -> return x
-                Nothing -> error $ "setupToReg: expected " ++ show btpr ++ ", but got " ++
-                    show (W4.exprType expr)
-            return $ Some $ MethodSpecValue tpr expr
-        _ -> error $ "setupToReg: expected SetupTerm for " ++ show ty ++ " (" ++ show tpr ++ ")"
-    goPrim' ty _ = error $ "setupToReg: non-primitive type " ++ show ty ++ " in goPrim'"
+data TypeShape (tp :: CrucibleType) where
+    UnitShape :: M.Ty -> TypeShape UnitType
+    PrimShape :: M.Ty -> BaseTypeRepr btp -> TypeShape (BaseToType btp)
+    TupleShape :: M.Ty -> [M.Ty] -> Assignment FieldShape ctx -> TypeShape (StructType ctx)
+    ArrayShape :: M.Ty -> M.Ty -> TypeShape tp -> TypeShape (MirVectorType tp)
+    StructShape :: M.Ty -> [M.Ty] -> Assignment FieldShape ctx -> TypeShape AnyType
+
+data FieldShape (tp :: CrucibleType) where
+    OptField :: TypeShape tp -> FieldShape (MaybeType tp)
+    ReqField :: TypeShape tp -> FieldShape tp
+
+-- | Return the `TypeShape` of `ty`.
+--
+-- It is guaranteed that the `tp :: CrucibleType` index of the resulting
+-- `TypeShape` matches that returned by `tyToRepr`.
+tyToShape :: M.Collection -> M.Ty -> Some TypeShape
+tyToShape col ty = go ty
+  where
+    go :: M.Ty -> Some TypeShape
+    go ty = case ty of
+        M.TyBool -> goPrim ty
+        M.TyChar -> goPrim ty
+        M.TyInt _ -> goPrim ty
+        M.TyUint _ -> goPrim ty
+        M.TyTuple [] -> goUnit ty
+        M.TyTuple tys -> goTuple ty tys
+        M.TyClosure tys -> goTuple ty tys
+        M.TyFnDef _ -> goUnit ty
+        M.TyArray ty' _ | Some shp <- go ty' -> Some $ ArrayShape ty ty' shp
+        M.TyAdt nm _ _ -> case Map.lookup nm (col ^. M.adts) of
+            Just (M.Adt _ M.Struct [v] _ _) -> goStruct ty (v ^.. M.vfields . each . M.fty)
+            Just (M.Adt _ ak _ _ _) -> error $ "tyToShape: AdtKind " ++ show ak ++ " NYI"
+            Nothing -> error $ "tyToShape: bad adt: " ++ show ty
+        _ -> error $ "tyToShape: " ++ show ty ++ " NYI"
+
+    goPrim :: M.Ty -> Some TypeShape
+    goPrim ty | Some tpr <- tyToRepr ty, AsBaseType btpr <- asBaseType tpr =
+        Some $ PrimShape ty btpr
+
+    goUnit :: M.Ty -> Some TypeShape
+    goUnit ty = Some $ UnitShape ty
+
+    goTuple :: M.Ty -> [M.Ty] -> Some TypeShape
+    goTuple ty tys | Some flds <- loop tys Empty = Some $ TupleShape ty tys flds
+      where
+        loop :: forall ctx. [M.Ty] -> Assignment FieldShape ctx -> Some (Assignment FieldShape)
+        loop [] flds = Some flds
+        loop (ty:tys) flds | Some fld <- go ty = loop tys (flds :> OptField fld)
+
+    goStruct :: M.Ty -> [M.Ty] -> Some TypeShape
+    goStruct ty tys | Some flds <- loop tys Empty = Some $ StructShape ty tys flds
+      where
+        loop :: forall ctx. [M.Ty] -> Assignment FieldShape ctx -> Some (Assignment FieldShape)
+        loop [] flds = Some flds
+        loop (ty:tys) flds | Some fld <- goField ty = loop tys (flds :> fld)
+
+    goField :: M.Ty -> Some FieldShape
+    goField ty | Some shp <- go ty = case canInitialize ty of
+        True -> Some $ ReqField shp
+        False -> Some $ OptField shp
+
+-- | Given a `Ty` and the result of `tyToRepr ty`, produce a `TypeShape` with
+-- the same index `tp`.  Raises an `error` if the `TypeRepr` doesn't match
+-- `tyToRepr ty`.
+tyToShapeEq :: M.Collection -> M.Ty -> TypeRepr tp -> TypeShape tp
+tyToShapeEq col ty tpr | Some shp <- tyToShape col ty =
+    case testEquality (shapeType shp) tpr of
+        Just Refl -> shp
+        Nothing -> error $ "tyToShapeEq: type " ++ show ty ++
+            " does not have representation " ++ show tpr ++
+            " (got " ++ show (shapeType shp) ++ " instead)"
+
+shapeType :: TypeShape tp -> TypeRepr tp
+shapeType shp = go shp
+  where
+    go :: forall tp. TypeShape tp -> TypeRepr tp
+    go (UnitShape _) = UnitRepr
+    go (PrimShape _ btpr) = baseToType btpr
+    go (TupleShape _ _ flds) = StructRepr $ fmapFC fieldShapeType flds
+    go (ArrayShape _ _ shp) = MirVectorRepr $ shapeType shp
+    go (StructShape _ _ flds) = AnyRepr
+
+fieldShapeType :: FieldShape tp -> TypeRepr tp
+fieldShapeType (ReqField shp) = shapeType shp
+fieldShapeType (OptField shp) = MaybeRepr $ shapeType shp
+
+shapeMirTy :: TypeShape tp -> M.Ty
+shapeMirTy (UnitShape ty) = ty
+shapeMirTy (PrimShape ty _) = ty
+shapeMirTy (TupleShape ty _ _) = ty
+shapeMirTy (ArrayShape ty _ _) = ty
+shapeMirTy (StructShape ty _ _) = ty
+
+fieldShapeMirTy :: FieldShape tp -> M.Ty
+fieldShapeMirTy (ReqField shp) = shapeMirTy shp
+fieldShapeMirTy (OptField shp) = shapeMirTy shp
 
 
 termToPred :: forall sym t st fs.

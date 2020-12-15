@@ -86,7 +86,7 @@ import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 import Mir.DefId
 import qualified Mir.ExtractSpec as MS
 import Mir.FancyMuxTree
-import Mir.Generator (CollectionState)
+import Mir.Generator (CollectionState, collection)
 import Mir.Intrinsics
 
 import qualified Lang.Crucible.Backend.SAWCore as SAW
@@ -440,7 +440,7 @@ bindFn symOnline cs name cfg
   , Empty :> MethodSpecBuilderRepr <- cfgArgTypes cfg
   , MethodSpecRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
-    mkOverride' "method_spec_builder_finish" MethodSpecRepr $ MS.builderFinish
+    mkOverride' "method_spec_builder_finish" MethodSpecRepr $ MS.builderFinish (cs ^. collection)
 
   | normDefId "crucible::method_spec::raw::spec_pretty_print" == name
   , Empty :> MethodSpecRepr <- cfgArgTypes cfg
