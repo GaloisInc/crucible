@@ -646,7 +646,7 @@ regToSetup sym eval shp rv = go shp rv
                 rv <- accessPartial sym "vector element" (shapeType shp) p
                 go shp rv
             MirVector_Array _ -> error $ "regToSetup: MirVector_Array NYI"
-        return $ MS.SetupStruct () False svs
+        return $ MS.SetupArray () svs
     go (StructShape _ _ flds) (AnyValue tpr rvs)
       | Just Refl <- testEquality tpr shpTpr =
         MS.SetupStruct () False <$> goFields flds rvs
@@ -706,7 +706,8 @@ setupToReg sym sc regMap shp sv = go shp sv
         return $ MirVector_Vector $ V.fromList rvs
     go (StructShape _ _ flds) (MS.SetupStruct _ False svs) = error $
         "setupToReg: StructShape NYI"
-    go shp _ = error $ "setupToReg: type error: bad SetupValue for " ++ show (shapeType shp)
+    go shp sv = error $ "setupToReg: type error: bad SetupValue for " ++ show (shapeType shp) ++
+        ": " ++ show (MS.ppSetupValue sv)
 
     goFields :: forall ctx. Assignment FieldShape ctx -> [MS.SetupValue MIR] ->
         IO (Assignment (RegValue' sym) ctx)
@@ -935,6 +936,10 @@ visitRegValueExprs _sym tpr_ v_ f = go tpr_ v_
     go (VariantRepr ctxr) variants = forMWithRepr_ ctxr variants $ \tpr' (VB pe) -> case pe of
         W4.Unassigned -> return ()
         W4.PE p v' -> f p >> go tpr' v'
+    go (MirVectorRepr tpr') vec = case vec of
+        MirVector_Vector v -> mapM_ (go tpr') v
+        MirVector_PartialVector pv -> mapM_ (go (MaybeRepr tpr')) pv
+        MirVector_Array _ -> error $ "visitRegValueExprs: unsupported: MirVector_Array"
     go tpr _ = error $ "visitRegValueExprs: unsupported: " ++ show tpr
 
     forMWithRepr_ :: forall ctx m f. Monad m =>
