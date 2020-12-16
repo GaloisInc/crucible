@@ -456,7 +456,7 @@ jvmSimContext sym halloc handle ctx verbosity p =
 -- | Make the initial state for the simulator, binding the function handles so that
 -- they translate method bodies when they are accessed.
 mkSimSt ::
-  -- forall sym .
+  forall sym p ret.
   (IsSymInterface sym) =>
   sym ->
   p ->
@@ -470,7 +470,7 @@ mkSimSt sym p halloc ctx verbosity ret k =
   do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
      return $ C.InitialState simctx globals C.defaultAbortHandler ret k
   where
-    -- initField :: J.FieldId -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
+    initField :: J.FieldId -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
     initField fi var m =
       do gs <- m
          z <- zeroValue sym (J.fieldIdType fi)
