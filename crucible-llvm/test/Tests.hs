@@ -37,10 +37,13 @@ import           Data.LLVM.BitCode
 -- Tasty
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import qualified Test.Tasty.Options as TO
 import           Test.Tasty.QuickCheck
+import qualified Test.Tasty.Runners as TR
 
 -- General
 import           Data.Foldable
+import           Data.Proxy ( Proxy(..) )
 import           Data.Sequence (Seq)
 import           Control.Monad
 import qualified Data.Map.Strict as Map
@@ -61,6 +64,24 @@ import           Lang.Crucible.LLVM.Translation
 import           Lang.Crucible.LLVM.Translation.Aliases
 import           Lang.Crucible.LLVM.TypeContext
 
+data LLVMAssembler = LLVMAssembler String
+  deriving (Eq, Show)
+
+instance TO.IsOption LLVMAssembler where
+  defaultValue = LLVMAssembler "llvm-as"
+  parseValue = Just . LLVMAssembler
+  optionName = pure "llvm-assembler"
+  optionHelp = pure "The LLVM assembler to use on .ll files"
+
+data Clang = Clang String
+  deriving (Eq, Show)
+
+instance TO.IsOption Clang where
+  defaultValue = Clang "clang"
+  parseValue = Just . Clang
+  optionName = pure "clang"
+  optionHelp = pure "The clang binary to use to compile C files"
+
 doProc :: String -> [String] -> IO (Int, String, String)
 doProc !exe !args = do
   (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode exe args ""
@@ -70,13 +91,13 @@ doProc !exe !args = do
 
 
 -- | Compile a C file with clang, returning the exit code
-compile :: FilePath -> IO (Int, String, String)
-compile !file = doProc "clang" ["-emit-llvm", "-g", "-O0", "-c", file]
+compile :: String -> FilePath -> IO (Int, String, String)
+compile clang !file = doProc clang ["-emit-llvm", "-g", "-O0", "-c", file]
 
 -- | Assemble a ll file with llvm-as, returning the exit code
-assemble :: FilePath -> FilePath -> IO (Int, String, String)
-assemble !inputFile !outputFile =
-  doProc "llvm-as" ["-o", outputFile, inputFile]
+assemble :: String -> FilePath -> FilePath -> IO (Int, String, String)
+assemble llvm_as !inputFile !outputFile =
+  doProc llvm_as ["-o", outputFile, inputFile]
 
 -- | Parse an LLVM bit-code file.
 -- Mostly copied from crucible-c.
@@ -88,8 +109,22 @@ parseLLVM !file =
                                 ++ file ++ "\n" ++ show err
       Right m  -> pure $ Right m
 
+llvmTestIngredients :: [TR.Ingredient]
+llvmTestIngredients = includingOptions [ TO.Option (Proxy @LLVMAssembler)
+                                       , TO.Option (Proxy @Clang)
+                                       ] : defaultIngredients
+
 main :: IO ()
 main = do
+  -- Parse the command line options using Tasty's default settings; the normal
+  -- 'askOption' combinators only work inside of the 'TestTree', which doesn't
+  -- help for this setup code. We have to pass in some TestTree, but it doesn't
+  -- really matter for this use case
+  let emptyTestGroup = testGroup "emptyTestGroup" []
+  opts <- TR.parseOptions llvmTestIngredients emptyTestGroup
+  let LLVMAssembler llvm_as = TO.lookupOption @LLVMAssembler opts
+  let Clang clang = TO.lookupOption @Clang opts
+
   wd <- Dir.getCurrentDirectory
   putStrLn $ "Looking for tests in " ++ wd
 
@@ -104,14 +139,14 @@ main = do
           putStrLn stderr
           exitFailure
 
-  putStrLn "Compiling C code to LLVM bitcode with clang"
+  putStrLn ("Compiling C code to LLVM bitcode with " ++ clang)
   forM_ (prepend "test/c/" $ append ".c" cfiles) $ \file -> do
-    assertSuccess "compile" file =<< compile file
+    assertSuccess "compile" file =<< compile clang file
 
-  putStrLn "Assembling LLVM assembly with llvm-as"
+  putStrLn ("Assembling LLVM assembly with " ++ llvm_as)
   forM_ (zip (prepend "test/ll/" $ append ".ll" llfiles)
              (append ".bc" llfiles)) $ \(inputFile, outputFile) -> do
-    assertSuccess "assemble" inputFile =<< assemble inputFile outputFile
+    assertSuccess "assemble" inputFile =<< assemble llvm_as inputFile outputFile
 
   putStrLn "Parsing LLVM bitcode"
   -- parsed :: [Module]
@@ -134,7 +169,7 @@ main = do
   -- Run tests on the results
   case translated of
     [Some g1, Some g2, Some g3, Some g4, Some l1] ->
-      defaultMain (tests g1 g2 g3 g4 l1)
+      defaultMainWithIngredients llvmTestIngredients (tests g1 g2 g3 g4 l1)
     _ -> error "translation failure!"
 
 tests :: ModuleTranslation arch1
