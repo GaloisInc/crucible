@@ -229,7 +229,6 @@ tyToRepr t0 = case t0 of
   M.TyErased -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 
-
 dynRefCtx :: Ctx.Assignment C.TypeRepr (Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType)
 dynRefCtx = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
@@ -260,6 +259,14 @@ canInitialize ty = case ty of
     M.TyArray _ _ -> True
     -- TODO: workaround for a ref init bug - see initialValue for details
     --M.TyRef ty' _ -> canInitialize ty'
+    _ -> False
+
+isUnsized :: M.Ty -> Bool
+isUnsized ty = case ty of
+    M.TyStr -> True
+    M.TySlice _ -> True
+    M.TyDynamic _ -> True
+    -- TODO: struct types whose last field is unsized ("custom DSTs")
     _ -> False
 
 

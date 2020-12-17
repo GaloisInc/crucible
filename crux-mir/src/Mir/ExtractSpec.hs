@@ -32,6 +32,7 @@ import qualified Data.Map as Map
 import Data.Parameterized.Context (Ctx(..), pattern Empty, pattern (:>), Assignment)
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Nonce
+import Data.Parameterized.Pair
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
 import Data.Reflection
@@ -627,7 +628,6 @@ condTerm sc (MS.SetupCond_Pred loc tt) = do
     t' <- liftIO $ SAW.scInstantiateExt sc sub $ SAW.ttTerm tt
     return t'
 
-
 regToSetup :: forall sym t st fs tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
@@ -653,6 +653,7 @@ regToSetup sym eval shp rv = go shp rv
       | otherwise = error $ "regToSetup: type error: expected " ++ show shpTpr ++
         ", but got Any wrapping " ++ show tpr
       where shpTpr = StructRepr $ fmapFC fieldShapeType flds
+    go (RefShape _ tpr) _ = error $ "regToSetup: RefShape NYI"
 
     goFields :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
         IO [MS.SetupValue MIR]
@@ -730,6 +731,7 @@ data TypeShape (tp :: CrucibleType) where
     TupleShape :: M.Ty -> [M.Ty] -> Assignment FieldShape ctx -> TypeShape (StructType ctx)
     ArrayShape :: M.Ty -> M.Ty -> TypeShape tp -> TypeShape (MirVectorType tp)
     StructShape :: M.Ty -> [M.Ty] -> Assignment FieldShape ctx -> TypeShape AnyType
+    RefShape :: M.Ty -> TypeRepr tp -> TypeShape (MirReferenceType tp)
 
 data FieldShape (tp :: CrucibleType) where
     OptField :: TypeShape tp -> FieldShape (MaybeType tp)
@@ -757,6 +759,8 @@ tyToShape col ty = go ty
             Just (M.Adt _ M.Struct [v] _ _) -> goStruct ty (v ^.. M.vfields . each . M.fty)
             Just (M.Adt _ ak _ _ _) -> error $ "tyToShape: AdtKind " ++ show ak ++ " NYI"
             Nothing -> error $ "tyToShape: bad adt: " ++ show ty
+        M.TyRef ty' mutbl -> goRef ty ty' mutbl
+        M.TyRawPtr ty' mutbl -> goRef ty ty' mutbl
         _ -> error $ "tyToShape: " ++ show ty ++ " NYI"
 
     goPrim :: M.Ty -> Some TypeShape
@@ -785,6 +789,11 @@ tyToShape col ty = go ty
         True -> Some $ ReqField shp
         False -> Some $ OptField shp
 
+    goRef :: M.Ty -> M.Ty -> M.Mutability -> Some TypeShape
+    goRef ty ty' _ | isUnsized ty' = error $
+        "tyToShape: fat pointer " ++ show ty ++ " NYI"
+    goRef ty ty' _ | Some tpr <- tyToRepr ty' = Some $ RefShape ty tpr
+
 -- | Given a `Ty` and the result of `tyToRepr ty`, produce a `TypeShape` with
 -- the same index `tp`.  Raises an `error` if the `TypeRepr` doesn't match
 -- `tyToRepr ty`.
@@ -805,6 +814,7 @@ shapeType shp = go shp
     go (TupleShape _ _ flds) = StructRepr $ fmapFC fieldShapeType flds
     go (ArrayShape _ _ shp) = MirVectorRepr $ shapeType shp
     go (StructShape _ _ flds) = AnyRepr
+    go (RefShape _ tpr) = MirReferenceRepr tpr
 
 fieldShapeType :: FieldShape tp -> TypeRepr tp
 fieldShapeType (ReqField shp) = shapeType shp
@@ -816,6 +826,7 @@ shapeMirTy (PrimShape ty _) = ty
 shapeMirTy (TupleShape ty _ _) = ty
 shapeMirTy (ArrayShape ty _ _) = ty
 shapeMirTy (StructShape ty _ _) = ty
+shapeMirTy (RefShape ty _) = ty
 
 fieldShapeMirTy :: FieldShape tp -> M.Ty
 fieldShapeMirTy (ReqField shp) = shapeMirTy shp
@@ -940,6 +951,12 @@ visitRegValueExprs _sym tpr_ v_ f = go tpr_ v_
         MirVector_Vector v -> mapM_ (go tpr') v
         MirVector_PartialVector pv -> mapM_ (go (MaybeRepr tpr')) pv
         MirVector_Array _ -> error $ "visitRegValueExprs: unsupported: MirVector_Array"
+    -- For now, we require that all references within a MethodSpec be
+    -- nonoverlapping, and ignore the `SymExpr`s inside.  If we ever want to
+    -- write a spec for e.g. `f(arr, &arr[i], i)`, where the second reference
+    -- is offset from the first by a symbolic integer value, then we'd need to
+    -- visit exprs from some suffix of each MirReference.
+    go (MirReferenceRepr _) _ = return ()
     go tpr _ = error $ "visitRegValueExprs: unsupported: " ++ show tpr
 
     forMWithRepr_ :: forall ctx m f. Monad m =>
