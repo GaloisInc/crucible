@@ -735,7 +735,7 @@ evalCast' ck ty1 e ty2  =
           let int = bvToUsize w R.App val
           MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr int
 
-      -- *const [T] -> *T (discards the length and returns only the pointer)
+      --  *const [T] -> *T (discards the length and returns only the pointer)
       (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
         -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
@@ -743,12 +743,12 @@ evalCast' ck ty1 e ty2  =
         | m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
         -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
 
-      -- *const [T; N] -> *const T (get first element)
+      --  *const [T; N] -> *const T (get first element)
       (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2, MirExp (MirReferenceRepr (MirVectorRepr tpr)) e' <- e
         -> MirExp (MirReferenceRepr tpr) <$> subindexRef tpr e' (R.App $ usizeLit 0)
 
-      -- *const [u8] <-> *const str (no-ops)
+      --  *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
         | m1 == m2 -> return e
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
@@ -1831,15 +1831,15 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         $ \eqImplArgs@Refl implArg0 implArgs' ->
 
     -- Check equalities over Crucible (translated) types:
-    -- * Non-receiver arg types of impl and shim are equal
+    --  * Non-receiver arg types of impl and shim are equal
     (\k -> case testEquality implArgs' shimArgs' of { Just x -> k x;
         Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs] })
         $ \eqArgs'@Refl ->
-    -- * Return types of impl and shim are equal
+    --  * Return types of impl and shim are equal
     (\k -> case testEquality implRet shimRet of { Just x -> k x;
         Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet] })
         $ \eqRet@Refl ->
-    -- * Shim receiver type is ANY
+    --  * Shim receiver type is ANY
     (\k -> case testEquality shimArg0 C.AnyRepr of { Just x -> k x;
         Nothing -> die ["shim receiver is not ANY:", show shimArg0] }) $ \eqShimArg0Any@Refl ->
 

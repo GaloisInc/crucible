@@ -45,8 +45,9 @@ import Prettyprinter
 type Segment = (Text, Int)
 
 data DefId = DefId
+    {
     -- | The name of the enclosing crate.
-    { did_crate :: Text
+      did_crate :: Text
     -- | The disambiguator of the enclosing crate.  These are strings, in a
     -- different format than the integer disambiguators used for normal path
     -- segments.
