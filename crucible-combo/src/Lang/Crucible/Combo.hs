@@ -12,7 +12,8 @@
 
 module Lang.Crucible.Combo
   (
-    Combo
+    Combo(..)
+  , ComboPointerType(..)
   )
 where
 

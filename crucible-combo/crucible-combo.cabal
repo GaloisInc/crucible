@@ -24,13 +24,24 @@ executable crucible-combo
   default-language:    Haskell2010
 
 library
-   hs-source-dirs:     src
-   default-language:   Haskell2010
-   exposed-modules:    Lang.Crucible.Combo
-   other-modules:
-   build-depends:      base >=4 && <5
-                     , crucible
-                     , parameterized-utils
-                     , prettyprinter >= 1.7.0 && < 1.8
-                     , text
-                       
+  hs-source-dirs:     src
+  default-language:   Haskell2010
+  exposed-modules:    Lang.Crucible.Combo
+  other-modules:
+  build-depends:      base >=4 && <5
+                    , crucible
+                    , crucible-llvm
+                    , crux-mir
+                    , parameterized-utils
+                    , prettyprinter >= 1.7.0 && < 1.8
+                    , text
+
+test-suite comboTests
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  default-language:   Haskell2010
+  main-is:            Test.hs
+  build-depends:      base
+                    , crucible-combo -any
+                    , tasty
+                    , tasty-hspec
