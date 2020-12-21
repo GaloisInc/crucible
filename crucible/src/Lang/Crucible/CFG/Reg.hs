@@ -45,6 +45,7 @@ module Lang.Crucible.CFG.Reg
   , substBlockID
   , Reg(..)
   , substReg
+  , traverseCFG
 
     -- * Atoms
   , Atom(..)
@@ -94,6 +95,7 @@ module Lang.Crucible.CFG.Reg
 
 import qualified Data.Foldable as Fold
 import           Data.Kind (Type)
+import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
@@ -113,6 +115,7 @@ import           What4.Symbol
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Syntax (IsExpr(..))
 import           Lang.Crucible.Types
 
@@ -931,6 +934,58 @@ substCFG f cfg =
   CFG <$> pure (cfgHandle cfg)
       <*> substLabel f (cfgEntryLabel cfg)
       <*> traverse (substBlock f) (cfgBlocks cfg)
+
+-- | Run a computation along all of the paths in a cfg, without taking backedges.
+--
+-- The computation has access to an environment that is specific to the current path
+-- being explored, as well as a global environment that is maintained across the
+-- entire computation.
+traverseCFG :: ( Monad m, TraverseExt ext )
+            => (genv -> penv -> Block ext s ret -> m (genv, penv))
+            -> genv
+            -> penv
+            -> Block ext s ret
+            -> CFG ext s init ret
+            -> m genv
+traverseCFG f genv0 penv0 b0 cfg =
+  traverseStep f bmap0 genv0 penv0 mempty b0
+  where
+    bmap0 = Map.fromList [(blockID b, b) | b <- cfgBlocks cfg ]
+
+-- | Run a computation along all of the paths in a cfg, without taking backedges.
+--
+-- The computation has access to an environment that is specific to the current path
+-- being explored, as well as a global environment that is maintained across the
+-- entire computation.
+--
+-- Each step of the computation inspects the global- and
+-- path-environments as well as the current block, and returns new
+-- environments.
+traverseStep :: forall m genv penv ext s ret.
+                Monad m
+             => (genv -> penv -> Block ext s ret -> m (genv, penv))
+             -> Map.Map (BlockID s) (Block ext s ret)
+             -> genv
+             -> penv
+             -> Set.Set (BlockID s)
+             -> (Block ext s ret)
+             -> m genv
+traverseStep f bmap genv penv seen blk
+  | blockID blk `Set.member` seen =
+    return genv
+  | otherwise =
+    do (genv', penv') <- f genv penv blk
+       Fold.foldlM (go penv' (Set.insert (blockID blk) seen)) genv' next
+  where
+    next = fromMaybe [] (termNextLabels (pos_val (blockTerm blk)))
+
+    go penv' seen' genv' blkId
+      | Just blk' <- Map.lookup blkId bmap
+      = traverseStep f bmap genv' penv' seen' blk'
+      | otherwise
+      = panic "Reg.traverseStep"
+        [ "Block " ++ show blkId ++ " not found in block map" ]
+
 
 instance PrettyExt ext => Show (CFG ext s init ret) where
   show = show . pretty
