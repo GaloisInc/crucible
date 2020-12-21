@@ -111,10 +111,10 @@ genBitCode cruxOpts llvmOpts =
                     incDirs llvmOpts
          params (src, srcBC)
            | ".ll" `isSuffixOf` src =
-              ["-c", "-emit-llvm", "-O0", "-o", srcBC, src]
+              ["-c", "-DCRUCIBLE", "-emit-llvm", "-O0", "-o", srcBC, src]
 
            | otherwise =
-              [ "-c", "-g", "-emit-llvm" ] ++
+              [ "-c", "-DCRUCIBLE", "-g", "-emit-llvm" ] ++
               concat [ [ "-I", dir ] | dir <- incs src ] ++
               concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
               [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
