@@ -8,8 +8,9 @@ TAGS
 unitTest.tix
 hpc_report
 stack.yaml
-/dist-newstyle
+**/dist-newstyle
 .*.swp
 cabal.project.local
 *.tix
 .ghc.environment.*
+*~
