@@ -89,10 +89,12 @@ runCruxLLVM ::
   Module ->
   MemOptions ->
   Bool {- ^ Should we turn on lax arithmetic rules? -}->
+  Bool {- ^ Should we insert post-dominators inside loops to force merging? -}->
   CruxLLVM res ->
   IO res
-runCruxLLVM llvm_mod memOpts laxArith (CruxLLVM setup) =
+runCruxLLVM llvm_mod memOpts laxArith optLoopMerge (CruxLLVM setup) =
   do let ?laxArith = laxArith
+     let ?optLoopMerge = optLoopMerge
      halloc <- newHandleAllocator
      Some trans <- translateModule halloc llvm_mod
      res <- setup trans

@@ -125,6 +125,7 @@ simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
   do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
      halloc     <- newHandleAllocator
      let ?laxArith = laxArithmetic llvmOpts
+     let ?optLoopMerge = loopMerge llvmOpts
      Some trans <- translateModule halloc llvm_mod
      let llvmCtxt = trans ^. transContext
 
