@@ -76,7 +76,7 @@ module Lang.Crucible.CFG.Reg
 
     -- * Statements
   , Stmt(..)
-  , substStmt, substPosdStmt
+  , substStmt, substPosdStmt, mapStmtAtom
   , TermStmt(..)
   , termStmtInputs
   , termNextLabels
@@ -373,6 +373,15 @@ substValue f v =
     RegValue r -> RegValue <$> substReg f r
     AtomValue a -> AtomValue <$> substAtom f a
 
+substValueAtom :: Applicative m
+           => (forall (x :: CrucibleType). Atom s x -> m (Atom s x))
+           -> Value s tp
+           -> m (Value s tp)
+substValueAtom f v =
+  case v of
+    RegValue r -> pure $ RegValue r
+    AtomValue a -> AtomValue <$> f a
+
 -- | A set of values.
 type ValueSet s = Set (Some (Value s))
 
@@ -529,6 +538,23 @@ substAtomValue f (Call g as ret) = Call <$> substAtom f g
                                         <*> traverseFC (substAtom f) as
                                         <*> pure ret
 
+mapAtomValueAtom :: ( Applicative m, TraverseExt ext )
+               => (forall (x :: CrucibleType). Atom s x -> m (Atom s x))
+               -> AtomValue ext s tp
+               -> m (AtomValue ext s tp)
+mapAtomValueAtom _ (ReadReg r) = pure $ ReadReg r
+mapAtomValueAtom f (EvalExt stmt) = EvalExt <$> traverseFC f stmt
+mapAtomValueAtom _ (ReadGlobal g) = pure $ ReadGlobal g
+mapAtomValueAtom f (ReadRef r) = ReadRef <$> f r
+mapAtomValueAtom _ (NewEmptyRef tp) = pure $ NewEmptyRef tp
+mapAtomValueAtom f (NewRef a) = NewRef <$> f a
+mapAtomValueAtom f (EvalApp ap) = EvalApp <$> traverseFC f ap
+mapAtomValueAtom _ (FreshConstant tp sym) = pure $ FreshConstant tp sym
+mapAtomValueAtom _ (FreshFloat fi sym)    = pure $ FreshFloat fi sym
+mapAtomValueAtom f (Call g as ret) = Call <$> f g
+                                        <*> traverseFC f as
+                                        <*> pure ret
+
 ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc ann
 ppAtomBinding a v = pretty a <+> ":=" <+> pretty v
 
@@ -609,6 +635,22 @@ substStmt f s =
     Assert c m -> Assert <$> substAtom f c <*> substAtom f m
     Assume c m -> Assume <$> substAtom f c <*> substAtom f m
     Breakpoint nm args -> Breakpoint nm <$> traverseFC (substValue f) args
+
+mapStmtAtom :: ( Applicative m, TraverseExt ext )
+          => (forall (x :: CrucibleType). Atom s x -> m (Atom s x))
+          -> Stmt ext s
+          -> m (Stmt ext s)
+mapStmtAtom f s =
+  case s of
+    SetReg r e -> SetReg r <$> f e
+    WriteGlobal g a -> WriteGlobal <$> pure g <*> f a
+    WriteRef r a -> WriteRef <$> f r <*> f a
+    DropRef r -> DropRef <$> f r
+    DefineAtom a v -> DefineAtom <$> f a <*> mapAtomValueAtom f v
+    Print e -> Print <$> f e
+    Assert c m -> Assert <$> f c <*> f m
+    Assume c m -> Assume <$> f c <*> f m
+    Breakpoint nm args -> Breakpoint nm <$> traverseFC (substValueAtom f) args
 
 substPosdStmt :: ( Applicative m, TraverseExt ext )
               => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -786,6 +828,9 @@ instance Ord (Block ext s ret) where
 
 instance PrettyExt ext => Show (Block ext s ret) where
   show = show . pretty
+
+instance Pretty (ValueSet s) where
+  pretty vs = commas (map (\(Some v) -> pretty v) (Set.toList vs))
 
 instance PrettyExt ext => Pretty (Block ext s ret) where
   pretty b = vcat [viaShow (blockID b), indent 2 stmts]
