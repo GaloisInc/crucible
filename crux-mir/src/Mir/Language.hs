@@ -358,7 +358,7 @@ mirConfig = Crux.Config
 
 -------------------------------------------------------
 -- maybe add these to crux, as they are not specific to MIR?
-failIfNotEqual :: forall f m a (b :: k).
+failIfNotEqual :: forall k f m a (b :: k).
                   (Monad m, Show (f a), Show (f b), TestEquality f)
                => f a -> f b -> String -> m (a :~: b)
 failIfNotEqual r1 r2 str
