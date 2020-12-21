@@ -32,15 +32,19 @@ import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle (lookupHandleMap, handleName)
 import           Lang.Crucible.LLVM.Eval (llvmExtensionEval)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
-import           Lang.Crucible.LLVM.Intrinsics
+import           Lang.Crucible.LLVM.Intrinsics ( LLVM, register_llvm_overrides )
 import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
                    , bindLLVMFunPtr
                    )
-import           Lang.Crucible.LLVM.Translation.Monad
-import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.GlobalState
-import           Lang.Crucible.Simulator.OverrideSim
+import           Lang.Crucible.LLVM.Translation.Monad ( LLVMContext, llvmMemVar )
+import           Lang.Crucible.Simulator.ExecutionTree ( ExtensionImpl(ExtensionImpl)
+                                                       , extensionEval, extensionExec
+                                                       , functionBindings
+                                                       , stateContext, FnState(UseCFG) )
+import           Lang.Crucible.Simulator.GlobalState ( SymGlobalState, emptyGlobals, insertGlobal )
+import           Lang.Crucible.Simulator.OverrideSim ( OverrideSim, readGlobal, writeGlobal
+                                                     , bindFnHandle, getSymInterface )
 import           Lang.Crucible.Utils.MonadVerbosity (showWarning)
 
 
