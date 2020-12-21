@@ -81,6 +81,7 @@ module Lang.Crucible.CFG.Reg
   , termStmtInputs
   , termNextLabels
   , substTermStmt, substPosdTermStmt
+  , foldStmtInputs
 
     -- * Expressions
   , Expr(..)
