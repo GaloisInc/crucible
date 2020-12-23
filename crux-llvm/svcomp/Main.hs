@@ -1,11 +1,16 @@
+{- | This is the SVCOMP utility for crux-llvm.  It is designed to run
+   the inputs for the "Competition on Software Verification" (SV-COMP)
+   and produce benchmark data for that run.
+-}
+
 {-# Language DeriveGeneric #-}
 {-# Language ImplicitParams #-}
 {-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
 {-# Language RecordWildCards #-}
 {-# Language ScopedTypeVariables #-}
-
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Main (main) where
 
 import Control.Concurrent.Async( async, wait )
