@@ -217,6 +217,9 @@ maybeBVLe sym (Just x) (Just y) = bvSle sym x y
 maybeBVLe sym _        Nothing  = return $ truePred sym
 maybeBVLe sym Nothing  (Just _) = return $ falsePred sym
 
+-- | Given a 'ValueCtor' (of partial LLVM values), recursively traverse the
+-- 'ValueCtor' to reconstruct the partial value as directed (while respecting
+-- endianness)
 genValueCtor :: forall sym w.
   (IsSymInterface sym, HasLLVMAnn sym, 1 <= w) =>
   sym ->
@@ -541,6 +544,10 @@ readMemStore sym w end mop (LLVMPointer blk off) ltp d t stp loadAlign storeAlig
                   (LinearLoadStoreOffsetDiff stride delta)
 
 -- | Read from a memory with an array store to the same block we are reading.
+--
+-- NOTE: This case should only fire if a write is straddling an array store and
+-- another write, as the top-level case of 'readMem' should handle the case
+-- where a read is completely covered by a write to an array.
 readMemArrayStore
   :: forall sym w
    . (1 <= w, IsSymInterface sym, HasLLVMAnn sym)
@@ -550,7 +557,7 @@ readMemArrayStore
   -> MemoryOp sym w
   -> LLVMPtr sym w {- ^ The loaded offset -}
   -> StorageType {- ^ The type we are reading -}
-  -> SymBV sym w {- ^ The destination of the mem array store -}
+  -> SymBV sym w {- ^ The offset of the mem array store from the base pointer -}
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ The stored array -}
   -> Maybe (SymBV sym w) {- ^ The length of the stored array -}
   -> (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym))
@@ -567,7 +574,7 @@ readMemArrayStore sym w end mop (LLVMPointer blk read_off) tp write_off arr size
         genValueCtor sym end mop =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
   let varFn = ExprEnv read_off write_off size
   case (BV.asUnsigned <$> asBV read_off, BV.asUnsigned <$> asBV write_off) of
-    -- known read and write offsets
+    -- In this case, both the read and write offsets are concrete
     (Just lo, Just so) -> do
       let subFn :: RangeLoad Addr Addr -> ReadMem sym (PartLLVMVal sym)
           subFn = \case
@@ -578,13 +585,21 @@ readMemArrayStore sym w end mop (LLVMPointer blk read_off) tp write_off arr size
               o' <- liftIO $ bvLit sym w $ bytesToBV w o
               loadFn o' tp'
       case BV.asUnsigned <$> (asBV =<< size) of
+        -- The size of the backing SMT array is also concrete, so we can generate a mux-free value
         Just concrete_size -> do
           let s = R (fromInteger so) (fromInteger (so + concrete_size))
           let vcr = rangeLoad (fromInteger lo) tp s
           liftIO . genValueCtor sym end mop =<< traverse subFn vcr
+        -- Otherwise, the size of the array is unbounded or symbolic
+        --
+        -- The generated mux covers the possible cases where the read straddles
+        -- the store in various configurations
+        --
+        -- FIXME/Question: Does this properly handle the unbounded array case? Does it
+        -- need special handling of that case at all?
         _ -> evalMuxValueCtor sym w end mop varFn subFn $
           fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
-    -- Symbolic offsets
+    -- Otherwise, at least one of the offsets is symbolic (and we will have to generate additional muxes)
     _ -> do
       let subFn :: RangeLoad OffsetExpr IntExpr -> ReadMem sym (PartLLVMVal sym)
           subFn = \case
@@ -681,7 +696,7 @@ readMem sym w gsym l tp alignment m = do
   let mop = MemLoadOp tp gsym l m
 
   part_val <- case maybe_allocation_array of
-    -- if this read is inside an allocation backed by a SMT array store,
+    -- If this read is inside an allocation backed by a SMT array store,
     -- then decompose this read into reading the individual bytes and
     -- assembling them to obtain the value, without introducing any
     -- ite operations
@@ -695,6 +710,7 @@ readMem sym w gsym l tp alignment m = do
             return $ Partial.totalLLVMVal sym $ LLVMValInt blk0 byte
       genValueCtor sym (memEndianForm m) mop
         =<< loadTypedValueFromBytes 0 tp loadArrayByteFn
+    -- Otherwise, fall back to the less-optimized read case
     _ -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
 
   Partial.attachMemoryError sym p1 mop UnreadableRegion =<<
@@ -718,6 +734,9 @@ toCacheEntry tp (llvmPointerView -> (blk, bv)) = CacheEntry tp blk bv
 
 
 -- | Read a value from memory given a list of writes.
+--
+-- Note that the case where a read is entirely backed by an SMT array store is
+-- handled in 'readMem'.
 readMem' ::
   forall w sym.
   (1 <= w, IsSymInterface sym, HasLLVMAnn sym) => sym ->
@@ -1230,7 +1249,19 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
                   arrayUpdate sym acc_arr (Ctx.singleton idx) byte
               _ -> return acc_arr
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
-      return $ memAddWrite ptr (MemArrayStore res_arr (Just arr_sz)) mem
+
+      -- NOTE: In this case, we have generated an updated SMT array with all of
+      -- the changes needed to reflect this memory write.  Instead of adding
+      -- each individual byte write to the write log, we add a single entry that
+      -- shadows the entire SMT array in memory. This means that the next lookup
+      -- of e.g., a 4 byte read will see the updated array and be able to read 4
+      -- bytes from this array instead of having to traverse the write history
+      -- to find four different `MemStore`s.
+      --
+      -- Note that the pointer we write to is the *base* pointer (i.e., with
+      -- offset zero), since we are shadowing the *entire* array.
+      basePtr <- LLVMPointer (llvmPointerBlock ptr) <$> bvLit sym w (BV.mkBV w 0)
+      return $ memAddWrite basePtr (MemArrayStore res_arr (Just arr_sz)) mem
 
     _ -> return $ memAddWrite ptr (MemStore val tp alignment) mem
 
@@ -1539,3 +1570,91 @@ asMemAllocationArrayStore sym w ptr mem
          pure (Just (ok, rhs_arr))
 
    combineResults _cond Nothing Nothing = pure Nothing
+
+{- Note [Memory Model Design]
+
+At a high level, the memory model is represented as a list of memory writes
+(with embedded muxes).  Reads from the memory model are accomplished by
+1. Traversing backwards in the write log until the most recent write to each byte
+   needed to satisfy the read has been covered by a write
+2. Re-assembling the read value from fragments of those writes
+
+This story is slightly complicated by optimizations and the fact that memory
+regions can be represented in two different ways:
+- "plain" allocations that are represented as symbolic bytes managed explicitly by the memory model, and
+- Symbolic array storage backed by SMT arrays
+
+The former allow for significant optimizations that lead to smaller formulas for
+the underlying SMT solver.  The latter support symbolic reads efficiently.  The
+former also supports symbolic reads, at the cost of extremely expensive and
+large muxes.
+
+* Memory Writes
+
+The entry point for writing values to memory is 'writeMem' (which is just a
+wrapper around 'writeMemWithAllocationCheck').  Writing a value to memory is
+relatively simple, with only two major cases to consider.
+
+The first case is an optimization over the SMT array backed memory model.  In
+this case, the write can be statically determined to be contained entirely
+within the bounds of an SMT array.  For efficiency, the memory model employs an
+optimization that generates an updated SMT array (via applications of the SMT
+`update` operator) and adds a special entry in the write log that shadows the
+entire address range covered by that array in the write history (effectively
+overwriting the entire backing array).  The goal of this optimization is to
+reduce the number of muxes generated in subsequent reads.
+
+In the general case, writing to the memory model adds a write record to the
+write log.
+
+* Memory Reads
+
+The entry point for reading is the 'readMem' function.  Reading is more
+complicated than writing, as reads can span multiple writes (and also multiple
+different allocation types).
+
+The memory reading code has an optimization to match the 'writeMem' case: if a
+read is fully-covered by an SMT array, a fast path is taken that generates small
+concrete array select terms.
+
+In the fallback case, 'readMem' (via 'readMem'') traverses the write log to
+assemble a Part(ial)LLVMVal from multiple writes.  The code is somewhat CPSed
+via the 'readPrev' functions in that code.  If the traversal of the write log
+finds a write that provides some, but not all, of the bytes covering a read, it
+saves those bytes and invokes 'readPrev' to step back through the write log.
+See Note [Value Reconstruction] for a description of how bytes from multiple
+writes are re-assembled.  Note that the write log is a mix of 'MemWrite's and
+'WriteMerge's; the explicit merge markers turn the log into a tree, where the
+join points create muxes in the read value.
+
+Note that the partiality in 'Part(ial)LLVMVal's does not refer to fragments of
+values.  Instead, it refers to the fact that values may be only defined when
+some predicate is true.
+
+* Special Operations
+
+The memory model has special support for memcpy and memset operations, which are
+able to support symbolic lengths.  These operations are represented as
+distinguished operations in the write log and are incorporated into the results
+of reads as appropriate.
+
+-}
+
+
+{- Note [Value Reconstruction]
+
+When a value is read, it may span multiple writes in memory (as C/C++/machine
+code can do all manner of partial writes into the middle of objects).  The
+various reading operations thus produce values of type 'ValueCtor' to represent
+the reconstruction of values from fragments.  The 'ValueCtor' is essentially a
+script in a restricted DSL that reconstructs values.  The "script" is
+interpreted by 'genValueCtor'.
+
+The reconstruction scripts are produced by the 'valueLoad', 'symbolicValueLoad',
+and 'rangeLoad' functions.  Note that 'rangeLoad' is used for allocations backed
+by SMT arrays, and thus always supports symbolic loads. These functions handle
+the complexities of handling padding and data type interpretations.  The fast
+paths in the read functions are able to call these directly (i.e., when offsets
+and sizes are concrete).
+
+-}
