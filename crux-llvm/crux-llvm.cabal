@@ -65,8 +65,8 @@ library
     template-haskell,
     text,
     what4
-  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  ghc-prof-options: -O2 -fprof-auto-top
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2
 
   default-language: Haskell2010
 
@@ -108,8 +108,8 @@ executable crux-llvm
 
   other-modules: RealMain
 
-  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  ghc-prof-options: -O2 -fprof-auto-top
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2
 
   default-language: Haskell2010
 
@@ -148,8 +148,8 @@ executable crux-llvm-svcomp
     unix,
     what4
 
-  ghc-options: -Wall
-  ghc-prof-options: -O2 -fprof-auto-top
+  ghc-options: -Wall -Wcompat
+  ghc-prof-options: -O2
 
   default-language: Haskell2010
 
@@ -158,8 +158,8 @@ test-suite crux-llvm-test
   type: exitcode-stdio-1.0
   hs-source-dirs: test
 
-  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  ghc-prof-options: -fprof-auto -O2
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-prof-options: -O2
 
   main-is: Test.hs
 
