@@ -12,23 +12,22 @@
 
 module Crux.Model where
 
-import Data.Binary.IEEE754 as IEEE754
-import qualified Data.BitVector.Sized as BV
+import           Data.Binary.IEEE754 as IEEE754
 import           Data.BitVector.Sized (BV)
-import Data.Parameterized.NatRepr(knownNat,natValue)
-import Data.Parameterized.TraversableF(traverseF)
-import Data.Parameterized.Map (MapF)
-import Data.Parameterized.Pair(Pair(..))
+import qualified Data.BitVector.Sized as BV
+import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
+import           Data.Parameterized.Pair (Pair(..))
+import           Data.Parameterized.TraversableF (traverseF)
 import qualified Numeric as N
 
-import Lang.Crucible.Types
-import Lang.Crucible.Simulator.RegMap(RegValue)
-import What4.Expr (GroundEvalFn(..), ExprBuilder)
-import What4.ProgramLoc
+import           Lang.Crucible.Types
+import           Lang.Crucible.Simulator.RegMap (RegValue)
+import           What4.Expr (GroundEvalFn(..), ExprBuilder)
+import           What4.ProgramLoc
 
-import Crux.UI.JS
-import Crux.Types
+import           Crux.UI.JS
+import           Crux.Types
 
 
 emptyModel :: Model sym
