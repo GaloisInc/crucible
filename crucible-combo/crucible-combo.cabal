@@ -51,6 +51,7 @@ test-suite comboTests
                     , directory
                     , filepath
                     , lens
+                    , llvm-pretty
                     , parameterized-utils
                     , prettyprinter
                     , tasty
