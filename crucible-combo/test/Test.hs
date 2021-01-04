@@ -135,8 +135,8 @@ setupComboState llvmOpts llvmBCFiles sym mb'Online = do
 
 simulateCombo :: Crux.CruxOptions -> ComboOptions -> IO Crux.SimulatorCallback
 simulateCombo cruxOpts _comboOpts =
-  do let ifiles = [ ("main.bc", "/home/kquick/work/Polyglot/samples/ex3/main.c") -- first file must have main entrypoint
-                  , ("helper.bc", "/home/kquick/work/Polyglot/samples/ex3/helper.c")
+  do let ifiles = [ ("main.bc", "test/samples/ex3/main.c") -- first file must have main entrypoint
+                  , ("helper.bc", "test/samples/ex3/helper.c")
                   ]
      let llvmOptions = CLCfg.LLVMOptions { CLCfg.clangBin = "/nix/store/b04iyp70fff54fv8s44d0q8r1072qmyj-clang-wrapper-7.1.0/bin/clang"
                                          , CLCfg.linkBin = "/nix/store/yqqyb6mrpm8hbb1dqagl4k4zp5d9nysq-llvm-7.1.0/bin/llvm-link"
