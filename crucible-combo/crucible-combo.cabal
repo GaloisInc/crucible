@@ -42,6 +42,17 @@ test-suite comboTests
   default-language:   Haskell2010
   main-is:            Test.hs
   build-depends:      base
+                    , containers
+                    , crucible
+                    , crucible-llvm
                     , crucible-combo -any
+                    , crux
+                    , crux-llvm
+                    , directory
+                    , filepath
+                    , lens
+                    , parameterized-utils
+                    , prettyprinter
                     , tasty
                     , tasty-hspec
+                    , what4

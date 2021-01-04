@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyDataDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,10 +10,12 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.Combo
   (
     Combo(..)
+  , ComboExtensionExpr(..)
   , ComboPointerType(..)
   )
 where
@@ -27,19 +30,26 @@ import           Prettyprinter ( pretty, (<+>), viaShow )
 
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableFC
+import Data.Parameterized.Context
 
 import           Lang.Crucible.CFG.Common ( GlobalVar )
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Types
 
+import Lang.Crucible.LLVM ( LLVM )
+import Mir.Intrinsics ( MIR )
 
-data Combo
-  deriving (Data, Eq, Generic, Ord, Typeable)
+data ComboLang lang where
+  ComboLLVM :: forall arch . ComboLang (LLVM arch)
+  ComboMir  :: ComboLang MIR
+  -- deriving (Data, Eq, Generic, Generic1, Ord, Typeable)
 
-type instance ExprExtension Combo = ComboExtensionExpr
-type instance StmtExtension Combo = ComboStmt
+type Combo arch  = Assignment ComboLang (EmptyCtx ::> LLVM arch ::> MIR)
 
-instance IsSyntaxExtension Combo
+type instance ExprExtension (Combo arch) = ComboExtensionExpr
+type instance StmtExtension (Combo arch) = ComboStmt
+
+instance IsSyntaxExtension (Combo arch)
 
 ----------------------------------------------------------------------
 
