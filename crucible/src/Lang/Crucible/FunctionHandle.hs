@@ -30,7 +30,8 @@ module Lang.Crucible.FunctionHandle
   , mkHandle
   , mkHandle'
     -- * FnHandleMap
-  , FnHandleMap
+  , FnHandleMap(..)
+  , HandleElt(..)
   , emptyHandleMap
   , insertHandleMap
   , lookupHandleMap
@@ -189,7 +190,7 @@ instance Ord (RefCell tp) where
 -- FnHandleMap
 
 data HandleElt (f :: Ctx CrucibleType -> CrucibleType -> Type) ctx where
-  HandleElt :: f args ret -> HandleElt f (args::>ret)
+  HandleElt :: FunctionName -> f args ret -> HandleElt f (args::>ret)
 
 newtype FnHandleMap f = FnHandleMap (MapF (Nonce GlobalNonceGenerator) (HandleElt f))
 
@@ -201,12 +202,12 @@ insertHandleMap :: FnHandle args ret
                 -> FnHandleMap f
                 -> FnHandleMap f
 insertHandleMap hdl x (FnHandleMap m) =
-    FnHandleMap (MapF.insert (handleID hdl) (HandleElt x) m)
+    FnHandleMap (MapF.insert (handleID hdl) (HandleElt (handleName hdl) x) m)
 
 lookupHandleMap :: FnHandle args ret
                 -> FnHandleMap f
                 -> Maybe (f args ret)
 lookupHandleMap hdl (FnHandleMap m) =
   case MapF.lookup (handleID hdl) m of
-     Just (HandleElt x) -> Just x
+     Just (HandleElt _ x) -> Just x
      Nothing -> Nothing

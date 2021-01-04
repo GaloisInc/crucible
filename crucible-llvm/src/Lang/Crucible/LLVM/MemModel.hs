@@ -207,6 +207,8 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
+import qualified Data.Parameterized.Map as MapF
+import Data.Parameterized.Pair ( sndPair )
 import           Data.Parameterized.Some
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
@@ -351,7 +353,8 @@ llvmStatementExec ::
   EvalStmtFunc p sym (LLVM arch)
 llvmStatementExec stmt cst =
   let sym = cst^.stateSymInterface
-   in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
+      fnbnds = cst^.stateContext.functionBindings
+   in stateSolverProof cst (runStateT (evalStmt sym fnbnds stmt) cst)
 
 type EvalM p sym ext rtp blocks ret args a =
   StateT (CrucibleState p sym ext rtp blocks ret args) IO a
@@ -363,9 +366,10 @@ type EvalM p sym ext rtp blocks ret args a =
 evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
   (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
   sym ->
+  FunctionBindings p sym ext ->
   LLVMStmt wptr (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
-evalStmt sym = eval
+evalStmt sym fnBnds = eval
  where
   getMem :: GlobalVar Mem ->
             EvalM p sym ext rtp blocks ret args (MemImpl sym)
@@ -439,7 +443,11 @@ evalStmt sym = eval
            Left doc -> lift $
              do p <- Partial.annotateME sym mop (BadFunctionPointer doc) (falsePred sym)
                 loc <- getCurrentProgramLoc sym
-                let err = SimError loc (AssertFailureSimError "Failed to load function handle" (show doc))
+                let (FnHandleMap fnMap) = fnBnds
+                let fnnames :: [String]
+                    fnnames = (viewSome (\(HandleElt fn _) -> show fn)) . sndPair <$> MapF.toList fnMap
+                -- let fnnames = viewSome show <$> MapF.keys fnMap
+                let err = SimError loc (AssertFailureSimError ("Failed to load function handle (Ackphhht: " <> show fnnames <> ")") (show doc))
                 addProofObligation sym (LabeledPred p err)
                 abortExecBecause $ AssumedFalse $ AssumingNoError err
 
@@ -735,8 +743,8 @@ doLookupHandle _sym mem ptr gsym = do
   let LLVMPointer blk _ = ptr
   let ptrDoc = hang 2 $
          case gsym of
-           Just s  -> viaShow s
-           Nothing -> ppPtr ptr
+           Just s  -> viaShow s <+> "(gsym)"
+           Nothing -> ppPtr ptr <+> "(ptr)"
   case asNat blk of
     Nothing -> return (Left ("Cannot resolve a symbolic pointer to a function handle:" <+> ptrDoc))
     Just i
