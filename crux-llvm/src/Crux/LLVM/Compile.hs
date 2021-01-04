@@ -102,25 +102,28 @@ llvmLinkVersion llvmOpts =
        ExitFailure n -> throwCError (ClangError n sout serr)
 
 genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO ()
-genBitCode cruxOpts llvmOpts =
-  do let files = (Crux.inputFiles cruxOpts)
-         finalBCFile = Crux.outDir cruxOpts </> "combined.bc"
-         srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
-         incs src = takeDirectory src :
-                    (libDir llvmOpts </> "includes") :
-                    incDirs llvmOpts
-         params (src, srcBC)
-           | ".ll" `isSuffixOf` src =
-              ["-c", "-DCRUCIBLE", "-emit-llvm", "-O0", "-o", srcBC, src]
+genBitCode cruxOpts = genBitCodeFiles
+                      (Crux.inputFiles cruxOpts)
+                      (Crux.outDir cruxOpts </> "combined.bc")
 
-           | otherwise =
-              [ "-c", "-DCRUCIBLE", "-g", "-emit-llvm" ] ++
-              concat [ [ "-I", dir ] | dir <- incs src ] ++
-              concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
-              [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+genBitCodeFiles :: Logs => [FilePath] -> FilePath -> LLVMOptions -> IO ()
+genBitCodeFiles files finalBCFile llvmOpts = do
+  let srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
+      incs src = takeDirectory src :
+                 (libDir llvmOpts </> "includes") :
+                 incDirs llvmOpts
+      params (src, srcBC)
+        | ".ll" `isSuffixOf` src =
+            ["-c", "-DCRUCIBLE", "-emit-llvm", "-O0", "-o", srcBC, src]
 
-     finalBCExists <- doesFileExist finalBCFile
-     unless (finalBCExists && lazyCompile llvmOpts) $
+        | otherwise =
+            [ "-c", "-DCRUCIBLE", "-g", "-emit-llvm" ] ++
+            concat [ [ "-I", dir ] | dir <- incs src ] ++
+            concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
+            [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+
+  finalBCExists <- doesFileExist finalBCFile
+  unless (finalBCExists && lazyCompile llvmOpts) $
       do forM_ srcBCNames $ \f@(src,_) ->
            unless (".bc" `isSuffixOf` src) (runClang llvmOpts (params f))
          ver <- llvmLinkVersion llvmOpts
