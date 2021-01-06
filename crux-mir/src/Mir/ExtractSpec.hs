@@ -57,6 +57,7 @@ import qualified What4.Partial as W4
 import What4.ProgramLoc
 
 import Lang.Crucible.Backend
+import Lang.Crucible.Backend.AssumptionStack (FrameIdentifier)
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.ExecutionTree
@@ -95,6 +96,31 @@ data ArgMatchResult sym = ArgMatchResult
     }
 
 makeLenses ''ArgMatchResult
+
+
+-- | A `RegValue` and its associated `TypeRepr`.
+data MethodSpecValue sym tp = MethodSpecValue (TypeRepr tp) (RegValue sym tp)
+
+data BuilderState sym = BuilderState
+    { _msbSpec :: MIRMethodSpec
+    , _msbArgs :: Seq (Some (MethodSpecValue sym))
+    , _msbPre :: Seq (W4.Pred sym)
+    , _msbResult :: Maybe (Some (MethodSpecValue sym))
+    , _msbPost :: Seq (W4.Pred sym)
+    , _msbSnapshotFrame :: FrameIdentifier
+    }
+
+initBuilderState :: MIRMethodSpec -> FrameIdentifier -> BuilderState sym
+initBuilderState spec snap = BuilderState
+    { _msbSpec = spec
+    , _msbArgs = Seq.empty
+    , _msbPre = Seq.empty
+    , _msbResult = Nothing
+    , _msbPost = Seq.empty
+    , _msbSnapshotFrame = snap
+    }
+
+makeLenses ''BuilderState
 
 
 data Void2
@@ -150,10 +176,17 @@ builderNew cs defId = do
     let loc = mkProgramLoc (functionNameFromText $ idText defId) InternalPos
     let ms :: MIRMethodSpec = MS.makeCrucibleMethodSpecIR fnDefId
             (sig ^. M.fsarg_tys) (Just $ sig ^. M.fsreturn_ty) loc cs
+    let state = initBuilderState ms snapFrame
 
-    Some retTpr <- return $ tyToRepr $ sig ^. M.fsreturn_ty
+    let methods = MethodSpecBuilderMethods
+            { _msbmAddArg = builderAddArgImpl
+            , _msbmSetReturn = builderSetReturnImpl
+            , _msbmGatherAssumes = builderGatherAssumesImpl
+            , _msbmGatherAsserts = builderGatherAssertsImpl
+            , _msbmFinish = builderFinishImpl (cs ^. collection)
+            }
 
-    return $ initMethodSpecBuilder ms snapFrame
+    return $ MethodSpecBuilder state methods
 
 builderAddArg ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -163,12 +196,10 @@ builderAddArg ::
         (MethodSpecBuilder sym)
 builderAddArg = do
     sym <- getSymInterface
-    RegMap (Empty :> RegEntry _tpr builder :> RegEntry (MirReferenceRepr tpr) argRef) <-
-        getOverrideArgs
-
-    arg <- readMirRefSim tpr argRef
-
-    return $ builder & msbArgs %~ (Seq.|> Some (MethodSpecValue tpr arg))
+    RegMap (Empty :> RegEntry _tpr (MethodSpecBuilder s ms)
+        :> RegEntry (MirReferenceRepr tpr) argRef) <- getOverrideArgs
+    s' <- (ms ^. msbmAddArg) tpr argRef s
+    return $ MethodSpecBuilder s' ms
 
 builderSetReturn ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -178,12 +209,10 @@ builderSetReturn ::
         (MethodSpecBuilder sym)
 builderSetReturn = do
     sym <- getSymInterface
-    RegMap (Empty :> RegEntry _tpr builder :> RegEntry (MirReferenceRepr tpr) argRef) <-
-        getOverrideArgs
-
-    arg <- readMirRefSim tpr argRef
-
-    return $ builder & msbResult .~ Just (Some (MethodSpecValue tpr arg))
+    RegMap (Empty :> RegEntry _tpr (MethodSpecBuilder s ms)
+        :> RegEntry (MirReferenceRepr tpr) argRef) <- getOverrideArgs
+    s' <- (ms ^. msbmSetReturn) tpr argRef s
+    return $ MethodSpecBuilder s' ms
 
 builderGatherAssumes ::
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -193,7 +222,55 @@ builderGatherAssumes ::
         (MethodSpecBuilder sym)
 builderGatherAssumes = do
     sym <- getSymInterface
-    RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
+    RegMap (Empty :> RegEntry _tpr (MethodSpecBuilder s ms)) <- getOverrideArgs
+    s' <- (ms ^. msbmGatherAssumes) s
+    return $ MethodSpecBuilder s' ms
+
+builderGatherAsserts ::
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecBuilderType)
+        MethodSpecBuilderType
+        (MethodSpecBuilder sym)
+builderGatherAsserts = do
+    sym <- getSymInterface
+    RegMap (Empty :> RegEntry _tpr (MethodSpecBuilder s ms)) <- getOverrideArgs
+    s' <- (ms ^. msbmGatherAsserts) s
+    return $ MethodSpecBuilder s' ms
+
+builderFinish :: forall sym t st fs rtp.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    M.Collection ->
+    OverrideSim (Model sym) sym MIR rtp
+        (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpecWithNonce
+builderFinish col = do
+    RegMap (Empty :> RegEntry _tpr (MethodSpecBuilder s ms)) <- getOverrideArgs
+    msn <- (ms ^. msbmFinish) s
+    return msn
+
+
+builderAddArgImpl :: forall sym t st fs p rtp args ret tp.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym)
+builderAddArgImpl tpr argRef builder = do
+    arg <- readMirRefSim tpr argRef
+    return $ builder & msbArgs %~ (Seq.|> Some (MethodSpecValue tpr arg))
+
+builderSetReturnImpl :: forall sym t st fs p rtp args ret tp.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym)
+builderSetReturnImpl tpr argRef builder = do
+    arg <- readMirRefSim tpr argRef
+    return $ builder & msbResult .~ Just (Some (MethodSpecValue tpr arg))
+
+builderGatherAssumesImpl :: forall sym t st fs p rtp args ret.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    BuilderState sym ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym)
+builderGatherAssumesImpl builder = do
+    sym <- getSymInterface
 
     -- Find all vars that are mentioned in the arguments.
     vars <- liftIO $ gatherVars sym (toList $ builder ^. msbArgs)
@@ -217,15 +294,12 @@ builderGatherAssumes = do
 
     return $ builder & msbPre .~ assumes'
 
-builderGatherAsserts ::
+builderGatherAssertsImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    OverrideSim (Model sym) sym MIR rtp
-        (EmptyCtx ::> MethodSpecBuilderType)
-        MethodSpecBuilderType
-        (MethodSpecBuilder sym)
-builderGatherAsserts = do
+    BuilderState sym ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym)
+builderGatherAssertsImpl builder = do
     sym <- getSymInterface
-    RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
 
     -- Find all vars that are mentioned in the arguments or return value.
     let args = toList $ builder ^. msbArgs
@@ -252,6 +326,7 @@ builderGatherAsserts = do
         show (length asserts) ++ " total"
 
     return $ builder & msbPost .~ asserts'
+
 
 -- | Collect all the symbolic variables that appear in `vals`.
 gatherVars ::
@@ -313,14 +388,12 @@ relevantPreds _sym vars preds = runExceptT $ filterM check preds
             (False, _) -> return False
 
 
-builderFinish :: forall sym t st fs rtp.
+builderFinishImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     M.Collection ->
-    OverrideSim (Model sym) sym MIR rtp
-        (EmptyCtx ::> MethodSpecBuilderType) MethodSpecType MIRMethodSpecWithNonce
-builderFinish col = do
-    RegMap (Empty :> RegEntry _tpr builder) <- getOverrideArgs
-
+    BuilderState sym ->
+    OverrideSim p sym MIR rtp args ret MIRMethodSpecWithNonce
+builderFinishImpl col builder = do
     sym <- getSymInterface
 
     -- TODO: also undo any changes to Crucible global variables / refcells

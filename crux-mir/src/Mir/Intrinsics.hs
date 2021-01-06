@@ -1716,48 +1716,6 @@ getSliceLen e = getStruct i2of2 e
 
 type MIRMethodSpec = MS.CrucibleMethodSpecIR MIR
 
--- | A `RegValue` and its associated `TypeRepr`.
-data MethodSpecValue sym tp = MethodSpecValue (TypeRepr tp) (RegValue sym tp)
-
-data MethodSpecBuilder sym = MethodSpecBuilder
-    { _msbSpec :: MIRMethodSpec
-    , _msbArgs :: Seq (Some (MethodSpecValue sym))
-    , _msbPre :: Seq (Pred sym)
-    , _msbResult :: Maybe (Some (MethodSpecValue sym))
-    , _msbPost :: Seq (Pred sym)
-    , _msbSnapshotFrame :: AS.FrameIdentifier
-    }
-
-initMethodSpecBuilder :: MIRMethodSpec -> AS.FrameIdentifier -> MethodSpecBuilder sym
-initMethodSpecBuilder spec snap = MethodSpecBuilder
-    { _msbSpec = spec
-    , _msbArgs = Seq.empty
-    , _msbPre = Seq.empty
-    , _msbResult = Nothing
-    , _msbPost = Seq.empty
-    , _msbSnapshotFrame = snap
-    }
-
-makeLenses ''MethodSpecBuilder
-
-type MethodSpecBuilderSymbol = "MethodSpecBuilder"
-type MethodSpecBuilderType = IntrinsicType MethodSpecBuilderSymbol EmptyCtx
-
-pattern MethodSpecBuilderRepr :: () => tp' ~ MethodSpecBuilderType => TypeRepr tp'
-pattern MethodSpecBuilderRepr <-
-     IntrinsicRepr (testEquality (knownSymbol @MethodSpecBuilderSymbol) -> Just Refl) Empty
- where MethodSpecBuilderRepr = IntrinsicRepr (knownSymbol @MethodSpecBuilderSymbol) Empty
-
-type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
-  MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilder sym
-  MethodSpecBuilderFam sym ctx = TypeError
-    ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
-instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
-  type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
-
-  muxIntrinsic _sym _iTypes _nm Empty = \_ _ _ -> fail "can't mux MethodSpecBuilders"
-  muxIntrinsic _sym _tys nm ctx = typeError nm ctx
-
 
 type MethodSpecSymbol = "MethodSpec"
 type MethodSpecType = IntrinsicType MethodSpecSymbol EmptyCtx
@@ -1782,6 +1740,51 @@ instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
 
   muxIntrinsic _sym _iTypes _nm Empty = \_p ms1@(MSN _ n1) (MSN _ n2) ->
     if n1 == n2 then return ms1 else fail "can't mux MethodSpecs"
+  muxIntrinsic _sym _tys nm ctx = typeError nm ctx
+
+
+data MethodSpecBuilderMethods sym s = MethodSpecBuilderMethods
+    { _msbmAddArg :: forall p rtp args ret tp.
+        TypeRepr tp -> MirReferenceMux sym tp -> s ->
+        OverrideSim p sym MIR rtp args ret s
+    , _msbmSetReturn :: forall p rtp args ret tp.
+        TypeRepr tp -> MirReferenceMux sym tp -> s ->
+        OverrideSim p sym MIR rtp args ret s
+    , _msbmGatherAssumes :: forall p rtp args ret.
+        s ->
+        OverrideSim p sym MIR rtp args ret s
+    , _msbmGatherAsserts :: forall p rtp args ret.
+        s ->
+        OverrideSim p sym MIR rtp args ret s
+    , _msbmFinish :: forall p rtp args ret.
+        s ->
+        OverrideSim p sym MIR rtp args ret MIRMethodSpecWithNonce
+    }
+makeLenses ''MethodSpecBuilderMethods
+
+-- | An opaque MethodSpecBuilder implementation.  We use an existential state
+-- type `s` here so that the actual state can be defined in `Mir.ExtractSpec`
+-- without creating a circular dependency.  Also, this lets `ExtractSpec`
+-- provide an implementation that relies on `syn ~ W4.ExprBuilder t st fs`
+-- without propagating that constraint through all the intrinsic definitions.
+data MethodSpecBuilder sym = forall s. MethodSpecBuilder s (MethodSpecBuilderMethods sym s)
+
+type MethodSpecBuilderSymbol = "MethodSpecBuilder"
+type MethodSpecBuilderType = IntrinsicType MethodSpecBuilderSymbol EmptyCtx
+
+pattern MethodSpecBuilderRepr :: () => tp' ~ MethodSpecBuilderType => TypeRepr tp'
+pattern MethodSpecBuilderRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MethodSpecBuilderSymbol) -> Just Refl) Empty
+ where MethodSpecBuilderRepr = IntrinsicRepr (knownSymbol @MethodSpecBuilderSymbol) Empty
+
+type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilder sym
+  MethodSpecBuilderFam sym ctx = TypeError
+    ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
+  type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
+
+  muxIntrinsic _sym _iTypes _nm Empty = \_ _ _ -> fail "can't mux MethodSpecBuilders"
   muxIntrinsic _sym _tys nm ctx = typeError nm ctx
 
 
