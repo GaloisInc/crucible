@@ -27,7 +27,6 @@ library
     lens,
     mtl >= 2.1,
     parameterized-utils >= 1.0 && < 2.2,
-    pretty >= 1.1,
     prettyprinter >= 1.7.0,
     split >= 0.2,
     text,
