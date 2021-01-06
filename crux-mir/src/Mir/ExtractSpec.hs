@@ -193,8 +193,8 @@ builderNew cs defId = do
     let methods = MethodSpecBuilderMethods
             { _msbmAddArg = builderAddArgImpl col sc eval
             , _msbmSetReturn = builderSetReturnImpl col sc eval
-            , _msbmGatherAssumes = builderGatherAssumesImpl
-            , _msbmGatherAsserts = builderGatherAssertsImpl
+            , _msbmGatherAssumes = builderGatherAssumesImpl sc eval
+            , _msbmGatherAsserts = builderGatherAssertsImpl sc eval
             , _msbmFinish = builderFinishImpl col sc ng eval
             }
 
@@ -308,9 +308,10 @@ builderSetReturnImpl col sc eval tpr argRef builder = do
 
 builderGatherAssumesImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    SAW.SharedContext -> (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
     BuilderState sym t ->
     OverrideSim p sym MIR rtp args ret (BuilderState sym t)
-builderGatherAssumesImpl builder = do
+builderGatherAssumesImpl sc eval builder = do
     sym <- getSymInterface
 
     -- Find all vars that are mentioned in the arguments.
@@ -328,18 +329,27 @@ builderGatherAssumesImpl builder = do
                 error $ "assumption `" ++ show pred ++ "` (" ++ show msg ++
                     ") references variable " ++ show v ++ " (" ++ show (W4.bvarName v) ++ " at " ++
                     show (W4.bvarLoc v) ++ "), which does not appear in the function args"
-            Right x -> Seq.fromList $ map fst x
+            Right x -> map fst x
 
-    liftIO $ putStrLn $ "found " ++ show (Seq.length assumes') ++ " relevant assumes, " ++
+    let loc = builder ^. msbSpec . MS.csLoc
+    assumeConds <- liftIO $ forM assumes' $ \pred -> do
+        tt <- eval pred >>= SAW.mkTypedTerm sc
+        return $ MS.SetupCond_Pred loc tt
+    newVars <- liftIO $ gatherVars sym [Some (MethodSpecValue BoolRepr pred) | pred <- assumes']
+
+    liftIO $ putStrLn $ "found " ++ show (length assumes') ++ " relevant assumes, " ++
         show (Seq.length assumes) ++ " total"
 
-    return $ builder & msbPre .~ assumes'
+    return $ builder
+        & msbSpec . MS.csPreState . MS.csConditions %~ (++ assumeConds)
+        & msbPreVars %~ Set.union newVars
 
 builderGatherAssertsImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    SAW.SharedContext -> (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
     BuilderState sym t ->
     OverrideSim p sym MIR rtp args ret (BuilderState sym t)
-builderGatherAssertsImpl builder = do
+builderGatherAssertsImpl sc eval builder = do
     sym <- getSymInterface
 
     -- Find all vars that are mentioned in the arguments or return value.
@@ -358,12 +368,20 @@ builderGatherAssertsImpl builder = do
                 error $ "assertion `" ++ show pred ++ "` (" ++ show msg ++
                     ") references variable " ++ show v ++ " (" ++ show (W4.bvarName v) ++ " at " ++
                     show (W4.bvarLoc v) ++ "), which does not appear in the function args"
-            Right x -> Seq.fromList $ map fst x
+            Right x -> map fst x
 
-    liftIO $ putStrLn $ "found " ++ show (Seq.length asserts') ++ " relevant asserts, " ++
+    let loc = builder ^. msbSpec . MS.csLoc
+    assertConds <- liftIO $ forM asserts' $ \pred -> do
+        tt <- eval pred >>= SAW.mkTypedTerm sc
+        return $ MS.SetupCond_Pred loc tt
+    newVars <- liftIO $ gatherVars sym [Some (MethodSpecValue BoolRepr pred) | pred <- asserts']
+
+    liftIO $ putStrLn $ "found " ++ show (length asserts') ++ " relevant asserts, " ++
         show (length asserts) ++ " total"
 
-    return $ builder & msbPost .~ asserts'
+    return $ builder
+        & msbSpec . MS.csPostState . MS.csConditions %~ (++ assertConds)
+        & msbPostVars %~ Set.union newVars
 
 
 -- | Collect all the symbolic variables that appear in `vals`.
@@ -438,26 +456,17 @@ builderFinishImpl col sc ng eval builder = do
     -- TODO: also undo any changes to Crucible global variables / refcells
     liftIO $ popAssumptionFrameAndObligations sym (builder ^. msbSnapshotFrame)
 
-    prePredVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPre)
-    let preArgVars = builder ^. msbPreVars
-    postPredVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPost)
-    let postRetVars = builder ^. msbPostVars
-    let preVars = prePredVars <> preArgVars
-    let postVars = postPredVars <> postRetVars
+    let preVars = builder ^. msbPreVars
+    let postVars = builder ^. msbPostVars
     let postOnlyVars = postVars `Set.difference` preVars
 
     preVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList preVars
     postVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList postOnlyVars
 
-    prePreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPre)
-    postPreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPost)
-
     let loc = builder ^. msbSpec . MS.csLoc
     let ms = builder ^. msbSpec
             & MS.csPreState . MS.csFreshVars .~ preVars'
-            & MS.csPreState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList prePreds')
             & MS.csPostState . MS.csFreshVars .~ postVars'
-            & MS.csPostState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList postPreds')
     nonce <- liftIO $ freshNonce ng
     return $ MSN ms (indexValue nonce)
 
