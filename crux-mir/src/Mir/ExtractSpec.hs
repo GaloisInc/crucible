@@ -101,21 +101,21 @@ makeLenses ''ArgMatchResult
 -- | A `RegValue` and its associated `TypeRepr`.
 data MethodSpecValue sym tp = MethodSpecValue (TypeRepr tp) (RegValue sym tp)
 
-data BuilderState sym = BuilderState
+data BuilderState sym t = BuilderState
     { _msbSpec :: MIRMethodSpec
-    , _msbArgs :: Seq (Some (MethodSpecValue sym))
+    , _msbPreVars :: Set (Some (W4.ExprBoundVar t))
+    , _msbPostVars :: Set (Some (W4.ExprBoundVar t))
     , _msbPre :: Seq (W4.Pred sym)
-    , _msbResult :: Maybe (Some (MethodSpecValue sym))
     , _msbPost :: Seq (W4.Pred sym)
     , _msbSnapshotFrame :: FrameIdentifier
     }
 
-initBuilderState :: MIRMethodSpec -> FrameIdentifier -> BuilderState sym
+initBuilderState :: MIRMethodSpec -> FrameIdentifier -> BuilderState sym t
 initBuilderState spec snap = BuilderState
     { _msbSpec = spec
-    , _msbArgs = Seq.empty
+    , _msbPreVars = Set.empty
+    , _msbPostVars = Set.empty
     , _msbPre = Seq.empty
-    , _msbResult = Nothing
     , _msbPost = Seq.empty
     , _msbSnapshotFrame = snap
     }
@@ -151,7 +151,7 @@ type instance MS.CrucibleContext MIR = ()
 
 
 
-builderNew ::
+builderNew :: forall sym t st fs rtp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     CollectionState ->
     -- | `DefId` of the `builder_new` monomorphization.  Its `Instance` should
@@ -178,12 +178,24 @@ builderNew cs defId = do
             (sig ^. M.fsarg_tys) (Just $ sig ^. M.fsreturn_ty) loc cs
     let state = initBuilderState ms snapFrame
 
+    -- Common utilities shared by several methods.
+    sc <- liftIO $ SAW.mkSharedContext
+    liftIO $ SAW.scLoadPreludeModule sc
+    let ng = W4.exprCounter sym
+    sawSym <- liftIO $ SAW.newSAWCoreBackend W4.FloatUninterpretedRepr sc ng
+
+    cache <- W4.newIdxCache
+    let eval :: forall tp. W4.Expr t tp -> IO SAW.Term
+        eval x = SAW.evaluateExpr sawSym sc cache x
+
+    let col = cs ^. collection
+
     let methods = MethodSpecBuilderMethods
-            { _msbmAddArg = builderAddArgImpl
-            , _msbmSetReturn = builderSetReturnImpl
+            { _msbmAddArg = builderAddArgImpl col sc eval
+            , _msbmSetReturn = builderSetReturnImpl col sc eval
             , _msbmGatherAssumes = builderGatherAssumesImpl
             , _msbmGatherAsserts = builderGatherAssertsImpl
-            , _msbmFinish = builderFinishImpl (cs ^. collection)
+            , _msbmFinish = builderFinishImpl col sc ng eval
             }
 
     return $ MethodSpecBuilder state methods
@@ -251,29 +263,58 @@ builderFinish col = do
 
 builderAddArgImpl :: forall sym t st fs p rtp args ret tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym ->
-    OverrideSim p sym MIR rtp args ret (BuilderState sym)
-builderAddArgImpl tpr argRef builder = do
-    arg <- readMirRefSim tpr argRef
-    return $ builder & msbArgs %~ (Seq.|> Some (MethodSpecValue tpr arg))
+    M.Collection -> SAW.SharedContext ->
+    (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
+    TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym t ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym t)
+builderAddArgImpl col sc eval tpr argRef builder = do
+    sym <- getSymInterface
+
+    let idx = Map.size $ builder ^. msbSpec . MS.csArgBindings
+    let ty = case builder ^? msbSpec . MS.csArgs . ix idx of
+            Just x -> x
+            Nothing -> error $ "arg index out of range: " ++ show idx
+    let shp = tyToShapeEq col ty tpr
+
+    rv <- readMirRefSim tpr argRef
+    vars <- liftIO $ gatherVars sym [Some (MethodSpecValue tpr rv)]
+    sv <- liftIO $ regToSetup sym (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
+
+    return $ builder
+        & msbSpec . MS.csArgBindings . at (fromIntegral idx) .~ Just (ty, sv)
+        & msbPreVars %~ Set.union vars
 
 builderSetReturnImpl :: forall sym t st fs p rtp args ret tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym ->
-    OverrideSim p sym MIR rtp args ret (BuilderState sym)
-builderSetReturnImpl tpr argRef builder = do
-    arg <- readMirRefSim tpr argRef
-    return $ builder & msbResult .~ Just (Some (MethodSpecValue tpr arg))
+    M.Collection -> SAW.SharedContext ->
+    (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
+    TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym t ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym t)
+builderSetReturnImpl col sc eval tpr argRef builder = do
+    sym <- getSymInterface
+
+    let ty = case builder ^. msbSpec . MS.csRet of
+            Just x -> x
+            Nothing -> M.TyTuple []
+    let shp = tyToShapeEq col ty tpr
+
+    rv <- readMirRefSim tpr argRef
+    vars <- liftIO $ gatherVars sym [Some (MethodSpecValue tpr rv)]
+    sv <- liftIO $ regToSetup sym (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
+
+    return $ builder
+        & msbSpec . MS.csRetValue .~ Just sv
+        & msbPostVars %~ Set.union vars
 
 builderGatherAssumesImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    BuilderState sym ->
-    OverrideSim p sym MIR rtp args ret (BuilderState sym)
+    BuilderState sym t ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym t)
 builderGatherAssumesImpl builder = do
     sym <- getSymInterface
 
     -- Find all vars that are mentioned in the arguments.
-    vars <- liftIO $ gatherVars sym (toList $ builder ^. msbArgs)
+    let vars = builder ^. msbPreVars
 
     liftIO $ putStrLn $ "found " ++ show (Set.size vars) ++ " relevant variables"
     liftIO $ print vars
@@ -296,16 +337,13 @@ builderGatherAssumesImpl builder = do
 
 builderGatherAssertsImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    BuilderState sym ->
-    OverrideSim p sym MIR rtp args ret (BuilderState sym)
+    BuilderState sym t ->
+    OverrideSim p sym MIR rtp args ret (BuilderState sym t)
 builderGatherAssertsImpl builder = do
     sym <- getSymInterface
 
     -- Find all vars that are mentioned in the arguments or return value.
-    let args = toList $ builder ^. msbArgs
-    let trueValue = MethodSpecValue BoolRepr $ W4.truePred sym
-    let result = maybe (Some trueValue) id $ builder ^. msbResult
-    vars <- liftIO $ gatherVars sym (result : args)
+    let vars = (builder ^. msbPreVars) `Set.union` (builder ^. msbPostVars)
 
     liftIO $ putStrLn $ "found " ++ show (Set.size vars) ++ " relevant variables"
     liftIO $ print vars
@@ -390,28 +428,20 @@ relevantPreds _sym vars preds = runExceptT $ filterM check preds
 
 builderFinishImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-    M.Collection ->
-    BuilderState sym ->
+    M.Collection -> SAW.SharedContext -> NonceGenerator IO t ->
+    (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
+    BuilderState sym t ->
     OverrideSim p sym MIR rtp args ret MIRMethodSpecWithNonce
-builderFinishImpl col builder = do
+builderFinishImpl col sc ng eval builder = do
     sym <- getSymInterface
 
     -- TODO: also undo any changes to Crucible global variables / refcells
     liftIO $ popAssumptionFrameAndObligations sym (builder ^. msbSnapshotFrame)
 
-    sc <- liftIO $ SAW.mkSharedContext
-    liftIO $ SAW.scLoadPreludeModule sc
-    let ng = W4.exprCounter sym
-    sawSym <- liftIO $ SAW.newSAWCoreBackend W4.FloatUninterpretedRepr sc ng
-
-    cache <- W4.newIdxCache
-    let eval :: forall tp. W4.Expr t tp -> IO SAW.Term
-        eval x = SAW.evaluateExpr sawSym sc cache x
-
     prePredVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPre)
-    preArgVars <- liftIO $ gatherVars sym (toList $ builder ^. msbArgs)
+    let preArgVars = builder ^. msbPreVars
     postPredVars <- liftIO $ gatherPredVars sym (toList $ builder ^. msbPost)
-    postRetVars <- liftIO $ gatherVars sym (toList $ builder ^. msbResult)
+    let postRetVars = builder ^. msbPostVars
     let preVars = prePredVars <> preArgVars
     let postVars = postPredVars <> postRetVars
     let postOnlyVars = postVars `Set.difference` preVars
@@ -422,25 +452,12 @@ builderFinishImpl col builder = do
     prePreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPre)
     postPreds' <- liftIO $ mapM (evalTyped eval sc BaseBoolRepr) (builder ^. msbPost)
 
-    argTts <- liftIO $ zipWithM (evalSomeRegToSetup sym eval sc)
-        (builder ^. msbSpec . MS.csArgs)
-        (toList $ builder ^. msbArgs)
-    retTt <- case (builder ^. msbSpec . MS.csRet, builder ^. msbResult) of
-        (Just ty, Just val) -> liftIO $ Just <$> evalSomeRegToSetup sym eval sc ty val
-        (Nothing, Nothing) -> return Nothing
-        _ -> error "csRet does not match msbResult"
-    liftIO $ print ("result:", MS.ppSetupValue <$> retTt)
-    let argBindings = Map.fromList $ zip [0..] $ zip (builder ^. msbSpec ^. MS.csArgs) argTts
-
-    liftIO $ print $ "finish: " ++ show (Seq.length $ builder ^. msbArgs) ++ " args"
     let loc = builder ^. msbSpec . MS.csLoc
     let ms = builder ^. msbSpec
             & MS.csPreState . MS.csFreshVars .~ preVars'
             & MS.csPreState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList prePreds')
             & MS.csPostState . MS.csFreshVars .~ postVars'
             & MS.csPostState . MS.csConditions .~ map (MS.SetupCond_Pred loc) (toList postPreds')
-            & MS.csArgBindings .~ argBindings
-            & MS.csRetValue .~ retTt
     nonce <- liftIO $ freshNonce ng
     return $ MSN ms (indexValue nonce)
 
