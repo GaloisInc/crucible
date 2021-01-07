@@ -110,7 +110,6 @@ data BuilderState sym t = BuilderState
 
 data StateExtra sym t = StateExtra
     { _seVars :: Set (Some (W4.ExprBoundVar t))
-    , _seConds :: Seq (W4.Pred sym)
     }
 
 initBuilderState :: MIRMethodSpec -> FrameIdentifier -> BuilderState sym t
@@ -124,7 +123,6 @@ initBuilderState spec snap = BuilderState
 initStateExtra :: StateExtra sym t
 initStateExtra = StateExtra
     { _seVars = Set.empty
-    , _seConds = Seq.empty
     }
 
 makeLenses ''BuilderState
