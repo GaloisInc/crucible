@@ -103,24 +103,32 @@ data MethodSpecValue sym tp = MethodSpecValue (TypeRepr tp) (RegValue sym tp)
 
 data BuilderState sym t = BuilderState
     { _msbSpec :: MIRMethodSpec
-    , _msbPreVars :: Set (Some (W4.ExprBoundVar t))
-    , _msbPostVars :: Set (Some (W4.ExprBoundVar t))
-    , _msbPre :: Seq (W4.Pred sym)
-    , _msbPost :: Seq (W4.Pred sym)
+    , _msbPre :: StateExtra sym t
+    , _msbPost :: StateExtra sym t
     , _msbSnapshotFrame :: FrameIdentifier
+    }
+
+data StateExtra sym t = StateExtra
+    { _seVars :: Set (Some (W4.ExprBoundVar t))
+    , _seConds :: Seq (W4.Pred sym)
     }
 
 initBuilderState :: MIRMethodSpec -> FrameIdentifier -> BuilderState sym t
 initBuilderState spec snap = BuilderState
     { _msbSpec = spec
-    , _msbPreVars = Set.empty
-    , _msbPostVars = Set.empty
-    , _msbPre = Seq.empty
-    , _msbPost = Seq.empty
+    , _msbPre = initStateExtra
+    , _msbPost = initStateExtra
     , _msbSnapshotFrame = snap
     }
 
+initStateExtra :: StateExtra sym t
+initStateExtra = StateExtra
+    { _seVars = Set.empty
+    , _seConds = Seq.empty
+    }
+
 makeLenses ''BuilderState
+makeLenses ''StateExtra
 
 
 data Void2
@@ -282,7 +290,7 @@ builderAddArgImpl col sc eval tpr argRef builder = do
 
     return $ builder
         & msbSpec . MS.csArgBindings . at (fromIntegral idx) .~ Just (ty, sv)
-        & msbPreVars %~ Set.union vars
+        & msbPre . seVars %~ Set.union vars
 
 builderSetReturnImpl :: forall sym t st fs p rtp args ret tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -304,7 +312,7 @@ builderSetReturnImpl col sc eval tpr argRef builder = do
 
     return $ builder
         & msbSpec . MS.csRetValue .~ Just sv
-        & msbPostVars %~ Set.union vars
+        & msbPost . seVars %~ Set.union vars
 
 builderGatherAssumesImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -315,7 +323,7 @@ builderGatherAssumesImpl sc eval builder = do
     sym <- getSymInterface
 
     -- Find all vars that are mentioned in the arguments.
-    let vars = builder ^. msbPreVars
+    let vars = builder ^. msbPre . seVars
 
     liftIO $ putStrLn $ "found " ++ show (Set.size vars) ++ " relevant variables"
     liftIO $ print vars
@@ -342,7 +350,7 @@ builderGatherAssumesImpl sc eval builder = do
 
     return $ builder
         & msbSpec . MS.csPreState . MS.csConditions %~ (++ assumeConds)
-        & msbPreVars %~ Set.union newVars
+        & msbPre . seVars %~ Set.union newVars
 
 builderGatherAssertsImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -353,7 +361,7 @@ builderGatherAssertsImpl sc eval builder = do
     sym <- getSymInterface
 
     -- Find all vars that are mentioned in the arguments or return value.
-    let vars = (builder ^. msbPreVars) `Set.union` (builder ^. msbPostVars)
+    let vars = (builder ^. msbPre . seVars) `Set.union` (builder ^. msbPost . seVars)
 
     liftIO $ putStrLn $ "found " ++ show (Set.size vars) ++ " relevant variables"
     liftIO $ print vars
@@ -381,7 +389,7 @@ builderGatherAssertsImpl sc eval builder = do
 
     return $ builder
         & msbSpec . MS.csPostState . MS.csConditions %~ (++ assertConds)
-        & msbPostVars %~ Set.union newVars
+        & msbPost . seVars %~ Set.union newVars
 
 
 -- | Collect all the symbolic variables that appear in `vals`.
@@ -456,8 +464,8 @@ builderFinishImpl col sc ng eval builder = do
     -- TODO: also undo any changes to Crucible global variables / refcells
     liftIO $ popAssumptionFrameAndObligations sym (builder ^. msbSnapshotFrame)
 
-    let preVars = builder ^. msbPreVars
-    let postVars = builder ^. msbPostVars
+    let preVars = builder ^. msbPre . seVars
+    let postVars = builder ^. msbPost . seVars
     let postOnlyVars = postVars `Set.difference` preVars
 
     preVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList preVars
