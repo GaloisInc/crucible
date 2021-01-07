@@ -471,29 +471,14 @@ builderFinishImpl col sc ng eval builder = do
     return $ MSN ms (indexValue nonce)
 
   where
-    evalTyped :: forall tp.
-        (W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
-        BaseTypeRepr tp -> W4.Expr t tp -> IO SAW.TypedTerm
-    evalTyped eval sc _tpr expr = SAW.mkTypedTerm sc =<< eval expr
-
     evalVar :: forall tp.
         (W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
         W4.ExprBoundVar t tp -> IO SAW.TypedExtCns
     evalVar eval sc var = do
-        tt <- evalTyped eval sc (W4.bvarType var) (W4.BoundVarExpr var)
+        tt <- eval (W4.BoundVarExpr var) >>= SAW.mkTypedTerm sc
         case SAW.asTypedExtCns tt of
             Just x -> return x
             Nothing -> error $ "BoundVarExpr translated to non-ExtCns term? " ++ show tt
-
-    evalSomeRegToSetup ::
-        sym ->
-        (forall tp. W4.Expr t tp -> IO SAW.Term) -> SAW.SharedContext ->
-        M.Ty -> Some (MethodSpecValue sym) -> IO (MS.SetupValue MIR)
-    evalSomeRegToSetup sym eval sc ty (Some (MethodSpecValue tpr rv))
-      | Some shp <- tyToShape col ty = case testEquality (shapeType shp) tpr of
-        Just Refl -> regToSetup sym (evalTyped eval sc) shp rv
-        Nothing -> error $ "builderFinish: type error: MIR type " ++ show ty ++
-            " does not match repr " ++ show tpr
 
 
 specPrettyPrint ::
