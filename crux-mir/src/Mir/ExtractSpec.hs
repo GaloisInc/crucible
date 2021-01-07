@@ -743,7 +743,7 @@ regToSetup sym eval shp rv = go shp rv
       | otherwise = error $ "regToSetup: type error: expected " ++ show shpTpr ++
         ", but got Any wrapping " ++ show tpr
       where shpTpr = StructRepr $ fmapFC fieldShapeType flds
-    go (RefShape _ tpr) _ = error $ "regToSetup: RefShape NYI"
+    go (RefShape _ _ tpr) _ = error $ "regToSetup: RefShape NYI"
 
     goFields :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
         IO [MS.SetupValue MIR]
@@ -821,7 +821,7 @@ data TypeShape (tp :: CrucibleType) where
     TupleShape :: M.Ty -> [M.Ty] -> Assignment FieldShape ctx -> TypeShape (StructType ctx)
     ArrayShape :: M.Ty -> M.Ty -> TypeShape tp -> TypeShape (MirVectorType tp)
     StructShape :: M.Ty -> [M.Ty] -> Assignment FieldShape ctx -> TypeShape AnyType
-    RefShape :: M.Ty -> TypeRepr tp -> TypeShape (MirReferenceType tp)
+    RefShape :: M.Ty -> M.Ty -> TypeRepr tp -> TypeShape (MirReferenceType tp)
 
 data FieldShape (tp :: CrucibleType) where
     OptField :: TypeShape tp -> FieldShape (MaybeType tp)
@@ -882,7 +882,7 @@ tyToShape col ty = go ty
     goRef :: M.Ty -> M.Ty -> M.Mutability -> Some TypeShape
     goRef ty ty' _ | isUnsized ty' = error $
         "tyToShape: fat pointer " ++ show ty ++ " NYI"
-    goRef ty ty' _ | Some tpr <- tyToRepr ty' = Some $ RefShape ty tpr
+    goRef ty ty' _ | Some tpr <- tyToRepr ty' = Some $ RefShape ty ty' tpr
 
 -- | Given a `Ty` and the result of `tyToRepr ty`, produce a `TypeShape` with
 -- the same index `tp`.  Raises an `error` if the `TypeRepr` doesn't match
@@ -904,7 +904,7 @@ shapeType shp = go shp
     go (TupleShape _ _ flds) = StructRepr $ fmapFC fieldShapeType flds
     go (ArrayShape _ _ shp) = MirVectorRepr $ shapeType shp
     go (StructShape _ _ flds) = AnyRepr
-    go (RefShape _ tpr) = MirReferenceRepr tpr
+    go (RefShape _ _ tpr) = MirReferenceRepr tpr
 
 fieldShapeType :: FieldShape tp -> TypeRepr tp
 fieldShapeType (ReqField shp) = shapeType shp
@@ -916,7 +916,7 @@ shapeMirTy (PrimShape ty _) = ty
 shapeMirTy (TupleShape ty _ _) = ty
 shapeMirTy (ArrayShape ty _ _) = ty
 shapeMirTy (StructShape ty _ _) = ty
-shapeMirTy (RefShape ty _) = ty
+shapeMirTy (RefShape ty _ _) = ty
 
 fieldShapeMirTy :: FieldShape tp -> M.Ty
 fieldShapeMirTy (ReqField shp) = shapeMirTy shp
