@@ -378,7 +378,11 @@ putStaticFieldValue rawFieldId val =
      initializeClass (J.fieldIdClass fieldId)
      setStaticFieldValue fieldId val
 
--- | Update the value of a static field, without doing any field resolution or class initialization.
+-- | Update the value of a static field, without doing any field
+-- resolution or class initialization. This function must be used
+-- instead of 'putStaticFieldValue' for implementing static class
+-- initializers, to avoid calling the class initializer in an infinite
+-- loop.
 setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator s ret ()
 setStaticFieldValue fieldId val =
   do ctx <- gets jsContext
