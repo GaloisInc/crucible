@@ -284,6 +284,9 @@ instance Monad m => MonadState (t s) (Generator ext s t ret m) where
   get = Generator $ use gsState
   put v = Generator $ gsState .= v
 
+instance MonadIO m => MonadIO (Generator ext s t ret m) where
+  liftIO m = lift (liftIO m)
+
 -- This function only works for 'Generator' actions that terminate
 -- early, i.e. do not call their continuation. This includes actions
 -- that end with block-terminating statements defined with
