@@ -85,6 +85,7 @@ module Lang.Crucible.JVM.Translation.Class
    , findDynamicMethod
    -- ** Static fields and methods
    , getStaticFieldValue
+   , putStaticFieldValue
    , setStaticFieldValue
    , getStaticMethod
    -- * Strings
@@ -358,28 +359,38 @@ setInitStatus c status = do
 
 -- | Read the global variable corresponding to the given static field.
 getStaticFieldValue :: J.FieldId -> JVMGenerator s ret (JVMValue s)
-getStaticFieldValue fieldId = do
-      let cls = J.fieldIdClass fieldId
-      ctx <- gets jsContext
-      initializeClass cls
-      case Map.lookup fieldId (staticFields ctx) of
-        Just glob -> do
-          r <- readGlobal glob
-          fromJVMDynamic ("getstatic " <> fieldIdText fieldId) (J.fieldIdType fieldId) r
-        Nothing ->
-          jvmFail $ "getstatic: field " ++ J.fieldIdName fieldId ++ " not found"
+getStaticFieldValue rawFieldId =
+  do fieldId <- resolveField rawFieldId
+     initializeClass (J.fieldIdClass fieldId)
+     ctx <- gets jsContext
+     case Map.lookup fieldId (staticFields ctx) of
+       Just glob ->
+         do r <- readGlobal glob
+            fromJVMDynamic ("getstatic " <> fieldIdText fieldId) (J.fieldIdType fieldId) r
+       Nothing ->
+         jvmFail $ "getstatic: field " ++ show (fieldIdText fieldId) ++ " not found"
 
--- | Update the value of a static field.
+-- | Resolve a static field, initialize the resulting class, and
+-- update the value.
+putStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator s ret ()
+putStaticFieldValue rawFieldId val =
+  do fieldId <- resolveField rawFieldId
+     initializeClass (J.fieldIdClass fieldId)
+     setStaticFieldValue fieldId val
+
+-- | Update the value of a static field, without doing any field
+-- resolution or class initialization. This function must be used
+-- instead of 'putStaticFieldValue' for implementing static class
+-- initializers, to avoid calling the class initializer in an infinite
+-- loop.
 setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator s ret ()
-setStaticFieldValue  fieldId val = do
-    ctx <- gets jsContext
-    let cName = J.fieldIdClass fieldId
-    case Map.lookup fieldId (staticFields ctx) of
-         Just glob -> do
-           writeGlobal glob (valueToExpr val)
-         Nothing ->
-           jvmFail $ "putstatic: field " ++ J.unClassName cName
-                     ++ "." ++ (J.fieldIdName fieldId) ++ " not found"
+setStaticFieldValue fieldId val =
+  do ctx <- gets jsContext
+     case Map.lookup fieldId (staticFields ctx) of
+       Just glob ->
+         writeGlobal glob (valueToExpr val)
+       Nothing ->
+         jvmFail $ "putstatic: field " ++ show (fieldIdText fieldId) ++ " not found"
 
 -- | Look up a method in the static method table (i.e. 'methodHandles').
 -- (See section 5.4.3.3 "Method Resolution" of the JVM spec.)
@@ -813,13 +824,12 @@ newInstanceInstr cls fieldIds = do
 -- the JVM context to determine the class where the field was actually
 -- declared (which may be a superclass of the one specified in the
 -- input 'J.FieldId'), as specified in section 5.4.3.2 "Field
--- Resolution" of the Java Virtual Machine Specification. Then return
--- a key that can be used with an object's field map.
-resolveField :: J.FieldId -> JVMGenerator s ret (Expr JVM s (StringType Unicode))
+-- Resolution" of the Java Virtual Machine Specification.
+resolveField :: J.FieldId -> JVMGenerator s ret J.FieldId
 resolveField fieldId =
   do cls <- lookupClassGen (J.fieldIdClass fieldId)
      case any fieldMatch (J.classFields cls) of
-       True -> pure (App (StringLit (UnicodeLiteral (fieldIdText fieldId))))
+       True -> pure fieldId
        False ->
          -- otherwise recursively check the superclass
          case J.superClass cls of
@@ -830,13 +840,17 @@ resolveField fieldId =
     fieldMatch f =
       (J.fieldName f, J.fieldType f) == (J.fieldIdName fieldId, J.fieldIdType fieldId)
 
+-- | Convert a 'J.FieldId' into a string key that can be used with an object's field map.
+fieldIdKey :: J.FieldId -> Expr JVM s (StringType Unicode)
+fieldIdKey fieldId = App (StringLit (UnicodeLiteral (fieldIdText fieldId)))
+
 -- | Access the field component of a JVM object (must be a class instance, not an array).
 getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator s ret (JVMValue s)
 getInstanceFieldValue obj fieldId =
   do let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      inst <- projectVariant "getfield: expected class instance" Ctx.i1of2 uobj
      let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-     key <- resolveField fieldId
+     key <- fieldIdKey <$> resolveField fieldId
      let mval = App (LookupStringMapEntry knownRepr fields key)
      dyn <- assertedJustExpr mval "Field not present"
      fromJVMDynamic ("getfield " <> fieldIdText fieldId) (J.fieldIdType fieldId) dyn
@@ -849,7 +863,7 @@ setInstanceFieldValue obj fieldId val =
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      inst <- projectVariant "setfield: expected class instance" Ctx.i1of2 uobj
      let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-     key <- resolveField fieldId
+     key <- fieldIdKey <$> resolveField fieldId
      let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
      let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
      let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
