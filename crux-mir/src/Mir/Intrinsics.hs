@@ -1303,6 +1303,11 @@ mirRef_eqLeaf sym _ _ =
     -- All valid references are disjoint from all integer references.
     return $ falsePred sym
 
+mirRef_eqIO :: IsSymInterface sym => sym ->
+    MirReferenceMux sym tp -> MirReferenceMux sym tp -> IO (RegValue sym BoolType)
+mirRef_eqIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
+    zipFancyMuxTrees' sym (mirRef_eqLeaf sym) (itePred sym) r1 r2
+
 mirRef_offsetLeaf :: IsSymInterface sym => sym ->
     TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType ->
     MuxLeafT sym IO (MirReference sym tp)

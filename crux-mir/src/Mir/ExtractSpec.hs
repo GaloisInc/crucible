@@ -105,28 +105,61 @@ data BuilderState sym t = BuilderState
     { _msbSpec :: MIRMethodSpec
     , _msbPre :: StateExtra sym t
     , _msbPost :: StateExtra sym t
+    , _msbNextAlloc :: MS.AllocIndex
     , _msbSnapshotFrame :: FrameIdentifier
+    , _msbVisitCache :: W4.IdxCache t (Const ())
     }
 
 data StateExtra sym t = StateExtra
     { _seVars :: Set (Some (W4.ExprBoundVar t))
+    , _seRefs :: Seq (Pair TypeRepr (MirReferenceMux sym), M.Ty, MS.AllocIndex)
+    , _seNewRefs :: Seq (Pair TypeRepr (MirReferenceMux sym), M.Ty, MS.AllocIndex)
     }
 
-initBuilderState :: MIRMethodSpec -> FrameIdentifier -> BuilderState sym t
-initBuilderState spec snap = BuilderState
+initBuilderState :: MIRMethodSpec -> FrameIdentifier -> W4.IdxCache t (Const ()) ->
+    BuilderState sym t
+initBuilderState spec snap cache = BuilderState
     { _msbSpec = spec
     , _msbPre = initStateExtra
     , _msbPost = initStateExtra
+    , _msbNextAlloc = MS.AllocIndex 0
     , _msbSnapshotFrame = snap
+    , _msbVisitCache = cache
     }
 
 initStateExtra :: StateExtra sym t
 initStateExtra = StateExtra
     { _seVars = Set.empty
+    , _seRefs = Seq.empty
+    , _seNewRefs = Seq.empty
     }
 
 makeLenses ''BuilderState
 makeLenses ''StateExtra
+
+
+data PrePost = Pre | Post
+    deriving (Show, Eq)
+
+msbPrePost :: Functor f =>
+    PrePost ->
+    (StateExtra sym t -> f (StateExtra sym t)) ->
+    BuilderState sym t -> f (BuilderState sym t)
+msbPrePost Pre = msbPre
+msbPrePost Post = msbPost
+
+csPrePostState :: Functor f =>
+    PrePost ->
+    (MS.StateSpec MIR -> f (MS.StateSpec MIR)) ->
+    MS.CrucibleMethodSpecIR MIR -> f (MS.CrucibleMethodSpecIR MIR)
+csPrePostState Pre = MS.csPreState
+csPrePostState Post = MS.csPostState
+
+
+type BuilderT sym t m a = StateT (BuilderState sym t) m a
+
+execBuilderT :: Monad m => BuilderState sym t -> BuilderT sym t m () -> m (BuilderState sym t)
+execBuilderT s f = execStateT f s
 
 
 data Void2
@@ -148,12 +181,22 @@ type instance MS.TypeName MIR = Text
 type instance MS.ExtType MIR = M.Ty
 
 type instance MS.MethodId MIR = DefId
-type instance MS.AllocSpec MIR = Void2
-type instance MS.PointsTo MIR = Void2
+type instance MS.AllocSpec MIR = (Some TypeRepr, M.Ty)
+type instance MS.PointsTo MIR = MirPointsTo
 
 type instance MS.Codebase MIR = CollectionState
 
 type instance MS.CrucibleContext MIR = ()
+
+type instance MS.Pointer' MIR sym = Pair TypeRepr (MirReferenceMux sym)
+
+
+data MirPointsTo = MirPointsTo MS.AllocIndex (MS.SetupValue MIR)
+    deriving (Show)
+
+instance PP.Pretty MirPointsTo where
+    pretty (MirPointsTo alloc sv) = PP.parens $
+        PP.text (show alloc) PP.<+> PP.text "->" PP.<+> MS.ppSetupValue sv
 
 
 
@@ -182,7 +225,8 @@ builderNew cs defId = do
     let loc = mkProgramLoc (functionNameFromText $ idText defId) InternalPos
     let ms :: MIRMethodSpec = MS.makeCrucibleMethodSpecIR fnDefId
             (sig ^. M.fsarg_tys) (Just $ sig ^. M.fsreturn_ty) loc cs
-    let state = initBuilderState ms snapFrame
+    visitCache <- W4.newIdxCache
+    let state = initBuilderState ms snapFrame visitCache
 
     -- Common utilities shared by several methods.
     sc <- liftIO $ SAW.mkSharedContext
@@ -273,8 +317,8 @@ builderAddArgImpl :: forall sym t st fs p rtp args ret tp.
     (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
     TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym t ->
     OverrideSim p sym MIR rtp args ret (BuilderState sym t)
-builderAddArgImpl col sc eval tpr argRef builder = do
-    sym <- getSymInterface
+builderAddArgImpl col sc eval tpr argRef builder = execBuilderT builder $ do
+    sym <- lift $ getSymInterface
 
     let idx = Map.size $ builder ^. msbSpec . MS.csArgBindings
     let ty = case builder ^? msbSpec . MS.csArgs . ix idx of
@@ -282,13 +326,17 @@ builderAddArgImpl col sc eval tpr argRef builder = do
             Nothing -> error $ "arg index out of range: " ++ show idx
     let shp = tyToShapeEq col ty tpr
 
-    rv <- readMirRefSim tpr argRef
+    rv <- lift $ readMirRefSim tpr argRef
     vars <- liftIO $ gatherVars sym [Some (MethodSpecValue tpr rv)]
-    sv <- liftIO $ regToSetup sym (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
+    sv <- regToSetup sym Pre (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
 
-    return $ builder
-        & msbSpec . MS.csArgBindings . at (fromIntegral idx) .~ Just (ty, sv)
-        & msbPre . seVars %~ Set.union vars
+    void $ forNewRefs Pre $ \tpr ref ty alloc -> do
+        rv <- lift $ readMirRefSim tpr ref
+        let shp = tyToShapeEq col ty tpr
+        sv <- regToSetup sym Pre (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
+        msbSpec . MS.csPreState . MS.csPointsTos %= (MirPointsTo alloc sv :)
+
+    msbSpec . MS.csArgBindings . at (fromIntegral idx) .= Just (ty, sv)
 
 builderSetReturnImpl :: forall sym t st fs p rtp args ret tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -296,21 +344,25 @@ builderSetReturnImpl :: forall sym t st fs p rtp args ret tp.
     (forall tp'. W4.Expr t tp' -> IO SAW.Term) ->
     TypeRepr tp -> MirReferenceMux sym tp -> BuilderState sym t ->
     OverrideSim p sym MIR rtp args ret (BuilderState sym t)
-builderSetReturnImpl col sc eval tpr argRef builder = do
-    sym <- getSymInterface
+builderSetReturnImpl col sc eval tpr argRef builder = execBuilderT builder $ do
+    sym <- lift $ getSymInterface
 
     let ty = case builder ^. msbSpec . MS.csRet of
             Just x -> x
             Nothing -> M.TyTuple []
     let shp = tyToShapeEq col ty tpr
 
-    rv <- readMirRefSim tpr argRef
+    rv <- lift $ readMirRefSim tpr argRef
     vars <- liftIO $ gatherVars sym [Some (MethodSpecValue tpr rv)]
-    sv <- liftIO $ regToSetup sym (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
+    sv <- regToSetup sym Post (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
 
-    return $ builder
-        & msbSpec . MS.csRetValue .~ Just sv
-        & msbPost . seVars %~ Set.union vars
+    void $ forNewRefs Post $ \tpr ref ty alloc -> do
+        rv <- lift $ readMirRefSim tpr ref
+        let shp = tyToShapeEq col ty tpr
+        sv <- regToSetup sym Post (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
+        msbSpec . MS.csPostState . MS.csPointsTos %= (MirPointsTo alloc sv :)
+
+    msbSpec . MS.csRetValue .= Just sv
 
 builderGatherAssumesImpl :: forall sym t st fs p rtp args ret.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -718,22 +770,28 @@ condTerm sc (MS.SetupCond_Pred loc tt) = do
     t' <- liftIO $ SAW.scInstantiateExt sc sub $ SAW.ttTerm tt
     return t'
 
-regToSetup :: forall sym t st fs tp.
-    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
-    sym ->
+
+regToSetup :: forall sym t st fs tp m.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack, MonadIO m) =>
+    sym -> PrePost ->
     (forall tp'. BaseTypeRepr tp' -> W4.Expr t tp' -> IO SAW.TypedTerm) ->
-    TypeShape tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
-regToSetup sym eval shp rv = go shp rv
+    TypeShape tp -> RegValue sym tp -> BuilderT sym t m (MS.SetupValue MIR)
+regToSetup sym p eval shp rv = go shp rv
   where
-    go :: forall tp. TypeShape tp -> RegValue sym tp -> IO (MS.SetupValue MIR)
+    go :: forall tp. TypeShape tp -> RegValue sym tp -> BuilderT sym t m (MS.SetupValue MIR)
     go (UnitShape _) () = return $ MS.SetupStruct () False []
-    go (PrimShape _ btpr) expr = MS.SetupTerm <$> eval btpr expr
+    go (PrimShape _ btpr) expr = do
+        -- Record all vars used in `expr`
+        cache <- use msbVisitCache
+        visitExprVars cache expr $ \var -> do
+            msbPrePost p . seVars %= Set.insert (Some var)
+        liftIO $ MS.SetupTerm <$> eval btpr expr
     go (TupleShape _ _ flds) rvs = MS.SetupStruct () False <$> goFields flds rvs
     go (ArrayShape _ _ shp) vec = do
         svs <- case vec of
             MirVector_Vector v -> mapM (go shp) (toList v)
             MirVector_PartialVector v -> forM (toList v) $ \p -> do
-                rv <- accessPartial sym "vector element" (shapeType shp) p
+                rv <- liftIO $ accessPartial sym "vector element" (shapeType shp) p
                 go shp rv
             MirVector_Array _ -> error $ "regToSetup: MirVector_Array NYI"
         return $ MS.SetupArray () svs
@@ -743,19 +801,21 @@ regToSetup sym eval shp rv = go shp rv
       | otherwise = error $ "regToSetup: type error: expected " ++ show shpTpr ++
         ", but got Any wrapping " ++ show tpr
       where shpTpr = StructRepr $ fmapFC fieldShapeType flds
-    go (RefShape _ _ tpr) _ = error $ "regToSetup: RefShape NYI"
+    go (RefShape _ ty' tpr) ref = do
+        alloc <- refToAlloc sym p ty' tpr ref
+        return $ MS.SetupVar alloc
 
     goFields :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
-        IO [MS.SetupValue MIR]
+        BuilderT sym t m [MS.SetupValue MIR]
     goFields flds rvs = loop flds rvs []
       where
         loop :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
-            [MS.SetupValue MIR] -> IO [MS.SetupValue MIR]
+            [MS.SetupValue MIR] -> BuilderT sym t m [MS.SetupValue MIR]
         loop Empty Empty svs = return svs
         loop (flds :> fld) (rvs :> RV rv) svs = do
             sv <- case fld of
                 ReqField shp -> go shp rv
-                OptField shp -> accessPartial sym "field" (shapeType shp) rv >>= go shp
+                OptField shp -> liftIO (accessPartial sym "field" (shapeType shp) rv) >>= go shp
             loop flds rvs (sv : svs)
 
 readPartial :: IsSymInterface sym => sym -> W4.PartExpr (W4.Pred sym) a -> IO (Maybe a)
@@ -771,6 +831,55 @@ accessPartial sym desc tpr rv = readPartial sym rv >>= \x -> case x of
     Just x -> return x
     Nothing -> error $ "regToSetup: accessed possibly-uninitialized " ++ desc ++
         " of type " ++ show tpr
+
+refToAlloc :: forall sym t st fs tp m.
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, MonadIO m) =>
+    sym -> PrePost -> M.Ty -> TypeRepr tp -> MirReferenceMux sym tp ->
+    BuilderT sym t m MS.AllocIndex
+refToAlloc sym p ty tpr ref = do
+    refs <- use $ msbPrePost p . seRefs
+    mAlloc <- liftIO $ lookupAlloc ref (toList refs)
+    case mAlloc of
+        Nothing -> do
+            alloc <- use msbNextAlloc
+            msbNextAlloc %= MS.nextAllocIndex
+            msbPrePost p . seRefs %= (Seq.|> (Pair tpr ref, ty, alloc))
+            msbPrePost p . seNewRefs %= (Seq.|> (Pair tpr ref, ty, alloc))
+            return alloc
+        Just alloc -> return alloc
+  where
+    lookupAlloc ::
+        MirReferenceMux sym tp ->
+        [(Pair TypeRepr (MirReferenceMux sym), M.Ty, MS.AllocIndex)] ->
+        IO (Maybe MS.AllocIndex)
+    lookupAlloc ref [] = return Nothing
+    lookupAlloc ref ((Pair tpr' ref', _, alloc) : rs) = case testEquality tpr tpr' of
+        Just Refl -> do
+            eq <- mirRef_eqIO sym ref ref'
+            case W4.asConstantPred eq of
+                Just True -> return $ Just alloc
+                Just False -> lookupAlloc ref rs
+                Nothing -> error $ "refToAlloc: ref aliasing depends on symbolic values"
+        Nothing -> lookupAlloc ref rs
+
+forNewRefs ::
+    Monad m =>
+    PrePost ->
+    (forall tp. TypeRepr tp -> MirReferenceMux sym tp -> M.Ty -> MS.AllocIndex ->
+        BuilderT sym t m a) ->
+    BuilderT sym t m (Seq a)
+forNewRefs p f = go
+  where
+    go = do
+        new <- use $ msbPrePost p . seNewRefs
+        msbPrePost p . seNewRefs .= Seq.empty
+        if Seq.null new then
+            return Seq.empty
+          else do
+            a <- mapM (\(Pair tpr ref, ty, alloc) -> f tpr ref ty alloc) new
+            b <- go
+            return $ a <> b
+
 
 setupToReg :: forall sym t st fs tp.
     (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
@@ -1058,16 +1167,17 @@ visitRegValueExprs _sym tpr_ v_ f = go tpr_ v_
 -- | Run `f` on each free symbolic variable in `e`.
 visitExprVars ::
     forall t tp m.
+    MonadIO m =>
     W4.IdxCache t (Const ()) ->
     W4.Expr t tp ->
-    (forall tp'. W4.ExprBoundVar t tp' -> IO ()) ->
-    IO ()
+    (forall tp'. W4.ExprBoundVar t tp' -> m ()) ->
+    m ()
 visitExprVars cache e f = go Set.empty e
   where
-    go :: Set (Some (W4.ExprBoundVar t)) -> W4.Expr t tp' -> IO ()
+    go :: Set (Some (W4.ExprBoundVar t)) -> W4.Expr t tp' -> m ()
     go bound e = void $ W4.idxCacheEval cache e (go' bound e >> return (Const ()))
 
-    go' :: Set (Some (W4.ExprBoundVar t)) -> W4.Expr t tp' -> IO ()
+    go' :: Set (Some (W4.ExprBoundVar t)) -> W4.Expr t tp' -> m ()
     go' bound e = case e of
         W4.BoundVarExpr v
           | not $ Set.member (Some v) bound -> f v
