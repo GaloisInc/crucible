@@ -121,7 +121,6 @@ test-suite crucible-llvm-tests
     process,
     what4,
     tasty,
-    tasty-golden,
     tasty-quickcheck,
     tasty-hunit,
     vector
