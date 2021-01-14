@@ -12,6 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Mir.ExtractSpec where
 
@@ -327,7 +328,6 @@ builderAddArgImpl col sc eval tpr argRef builder = execBuilderT builder $ do
     let shp = tyToShapeEq col ty tpr
 
     rv <- lift $ readMirRefSim tpr argRef
-    vars <- liftIO $ gatherVars sym [Some (MethodSpecValue tpr rv)]
     sv <- regToSetup sym Pre (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
 
     void $ forNewRefs Pre $ \tpr ref ty alloc -> do
@@ -353,7 +353,6 @@ builderSetReturnImpl col sc eval tpr argRef builder = execBuilderT builder $ do
     let shp = tyToShapeEq col ty tpr
 
     rv <- lift $ readMirRefSim tpr argRef
-    vars <- liftIO $ gatherVars sym [Some (MethodSpecValue tpr rv)]
     sv <- regToSetup sym Post (\_tpr expr -> SAW.mkTypedTerm sc =<< eval expr) shp rv
 
     void $ forNewRefs Post $ \tpr ref ty alloc -> do
@@ -521,10 +520,17 @@ builderFinishImpl col sc ng eval builder = do
     preVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList preVars
     postVars' <- liftIO $ mapM (\(Some x) -> evalVar eval sc x) $ toList postOnlyVars
 
+    let preAllocs = Map.fromList [(alloc, (Some tpr, ty))
+            | (Pair tpr _, ty, alloc) <- toList $ builder ^. msbPre . seRefs]
+    let postAllocs = Map.fromList [(alloc, (Some tpr, ty))
+            | (Pair tpr _, ty, alloc) <- toList $ builder ^. msbPost . seRefs]
+
     let loc = builder ^. msbSpec . MS.csLoc
     let ms = builder ^. msbSpec
             & MS.csPreState . MS.csFreshVars .~ preVars'
+            & MS.csPreState . MS.csAllocs .~ preAllocs
             & MS.csPostState . MS.csFreshVars .~ postVars'
+            & MS.csPostState . MS.csAllocs .~ postAllocs
     nonce <- liftIO $ freshNonce ng
     return $ MSN ms (indexValue nonce)
 
@@ -583,6 +589,7 @@ runSpec :: forall sym t st fs args ret rtp.
 runSpec col mh ms = do
     liftIO $ print ("in runSpec", ms ^. MS.csMethod)
     sym <- getSymInterface
+    simState <- get
     RegMap argVals <- getOverrideArgs
     let argVals' = Map.fromList $ zip [0..] $ MS.assignmentToList argVals
 
@@ -597,23 +604,23 @@ runSpec col mh ms = do
     sawSym <- liftIO $ SAW.newSAWCoreBackend W4.FloatUninterpretedRepr sc ng
 
     cache <- W4.newIdxCache
-    let eval :: forall tp. W4.Expr t tp -> IO SAW.Term
-        eval x = SAW.evaluateExpr sawSym sc cache x
-
-    -- `eval` makes up an arbitrary mapping from `W4.ExprBoundVar` to
-    -- `SAW.ExtCns` for all the vars that appear in the arguments.  We need the
-    -- reverse mapping to convert back from `SAW.Term` to `W4.Expr`.
-    let f :: AnyValue sym -> Some (MethodSpecValue sym)
-        f (AnyValue tpr rv) = Some (MethodSpecValue tpr rv)
-    w4Vars <- liftIO $ liftM Set.toList $ gatherVars sym $
-        map f $ MS.assignmentToList argVals
-    w4VarMap <- liftIO $ liftM Map.fromList $ forM w4Vars $ \(Some var) -> do
-        let expr = W4.BoundVarExpr var
-        term <- eval expr
-        ec <- case SAW.asExtCns term of
-            Just ec -> return ec
-            Nothing -> error "eval on BoundVarExpr produced non-ExtCns?"
-        return (SAW.ecVarIndex ec, Some expr)
+    visitCache <- W4.newIdxCache
+    w4VarMapRef <- liftIO $ newIORef Map.empty
+    let eval' :: forall tp. W4.Expr t tp -> IO SAW.Term
+        eval' x = SAW.evaluateExpr sawSym sc cache x
+        eval :: forall tp. W4.Expr t tp -> IO SAW.Term
+        eval x = do
+            -- When translating W4 vars to SAW `ExtCns`s, also record the
+            -- reverse mapping into `w4VarMapRef` so the reverse translation
+            -- can be done later on.
+            visitExprVars visitCache x $ \var -> do
+                let expr = W4.BoundVarExpr var
+                term <- eval' expr
+                ec <- case SAW.asExtCns term of
+                    Just ec -> return ec
+                    Nothing -> error "eval on BoundVarExpr produced non-ExtCns?"
+                liftIO $ modifyIORef w4VarMapRef $ Map.insert (SAW.ecVarIndex ec) (Some expr)
+            eval' x
 
     -- Generate fresh variables for use in postconditions and result
     let postFresh = ms ^. MS.csPostState . MS.csFreshVars
@@ -630,15 +637,6 @@ runSpec col mh ms = do
         stateContext . cruciblePersonality %= Crux.addVar loc (SAW.ecName ec) btpr expr
         return (SAW.ecVarIndex ec, Some expr)
 
-    let retTy = maybe (M.TyTuple []) id $ ms ^. MS.csRet
-    let retTpr = handleReturnType mh
-    let retShp = tyToShapeEq col retTy retTpr
-    retVal <- case ms ^. MS.csRetValue of
-        Just sv -> liftIO $ setupToReg sym sc (w4VarMap <> w4PostVarMap) retShp sv
-        Nothing -> case testEquality retTpr UnitRepr of
-            Just Refl -> return ()
-            Nothing -> error $ "no return value, but return type is " ++ show retTpr
-
     result <- liftIO $ MS.runOverrideMatcher sym sgs mempty mempty freeVars loc $ do
         -- Match argument SetupValues against argVals
         forM_ (Map.toList $ ms ^. MS.csArgBindings) $ \(i, (_, sv)) -> do
@@ -651,10 +649,26 @@ runSpec col mh ms = do
             let shp = tyToShapeEq col ty tpr
             matchArg sym eval shp rv sv
 
+        forM_ (reverse $ ms ^. MS.csPreState . MS.csPointsTos) $ \(MirPointsTo alloc sv) -> do
+            liftIO $ print $ ("handling PointsTo", PP.pretty (MirPointsTo alloc sv))
+            allocSub <- use MS.setupValueSub
+            Pair tpr ref <- case Map.lookup alloc allocSub of
+                Just x -> return x
+                Nothing -> error $ "PointsTos are out of order: no ref for " ++ show alloc
+            ty <- case ms ^? MS.csPreState . MS.csAllocs . ix alloc of
+                Just (_, ty) -> return ty
+                Nothing -> error $
+                    "impossible: alloc mentioned in csPointsTo is absent from csAllocs?"
+            rv <- liftIO $ readMirRefIO sym simState tpr ref
+            let shp = tyToShapeEq col ty tpr
+            matchArg sym eval shp rv sv
+
         -- Convert preconditions to `osAsserts`
         liftIO $ print ("look at preconditions", length $ ms ^. MS.csPreState . MS.csConditions)
         forM_ (ms ^. MS.csPreState . MS.csConditions) $ \cond -> do
             term <- condTerm sc cond
+            liftIO $ print ("precond term", SAW.ppTerm SAW.defaultPPOpts term)
+            w4VarMap <- liftIO $ readIORef w4VarMapRef
             pred <- liftIO $ termToPred sym sc w4VarMap term
             MS.addAssert pred $
                 SimError loc (AssertFailureSimError (show $ W4.printSymExpr pred) "")
@@ -663,6 +677,7 @@ runSpec col mh ms = do
         liftIO $ print ("look at postconditions", length $ ms ^. MS.csPostState . MS.csConditions)
         forM_ (ms ^. MS.csPostState . MS.csConditions) $ \cond -> do
             term <- condTerm sc cond
+            w4VarMap <- liftIO $ readIORef w4VarMapRef
             pred <- liftIO $ termToPred sym sc (w4VarMap <> w4PostVarMap) term
             MS.addAssume pred
 
@@ -679,27 +694,46 @@ runSpec col mh ms = do
         liftIO $ addAssumption sym $ W4.LabeledPred p $
             AssumptionReason loc "methodspec postcondition"
 
+    -- TODO: check that all pre allocs are bound
+
+    let preAllocMap = os ^. MS.setupValueSub
+
+    let postAllocDefs = filter (\(k,v) -> not $ Map.member k preAllocMap) $
+            Map.toList $ ms ^. MS.csPostState . MS.csAllocs
+    postAllocMap <- liftM Map.fromList $ forM postAllocDefs $ \(alloc, (Some tpr, _)) -> do
+        ref <- newMirRefSim tpr
+        return (alloc, Pair tpr ref)
+    let allocMap = preAllocMap <> postAllocMap
+
+    -- Handle return value and post-state PointsTos
+
+    -- TODO: clobber all writable memory that's accessible in the pre state
+
+    let retTy = maybe (M.TyTuple []) id $ ms ^. MS.csRet
+    let retTpr = handleReturnType mh
+    let retShp = tyToShapeEq col retTy retTpr
+    w4VarMap <- liftIO $ readIORef w4VarMapRef
+    retVal <- case ms ^. MS.csRetValue of
+        Just sv -> liftIO $ setupToReg sym sc (w4VarMap <> w4PostVarMap) allocMap retShp sv
+        Nothing -> case testEquality retTpr UnitRepr of
+            Just Refl -> return ()
+            Nothing -> error $ "no return value, but return type is " ++ show retTpr
+
+    -- TODO: check that all post-state PointsTos are nonoverlapping
+    forM_ (ms ^. MS.csPostState . MS.csPointsTos) $ \(MirPointsTo alloc sv) -> do
+        liftIO $ print $ ("[post] handling PointsTo", PP.pretty (MirPointsTo alloc sv))
+        Pair tpr ref <- case Map.lookup alloc allocMap of
+            Just x -> return x
+            Nothing -> error $ "post PointsTos are out of order: no ref for " ++ show alloc
+        ty <- case ms ^? MS.csPostState . MS.csAllocs . ix alloc of
+            Just (_, ty) -> return ty
+            Nothing -> error $
+                "impossible: alloc mentioned in post csPointsTo is absent from csAllocs?"
+        let shp = tyToShapeEq col ty tpr
+        rv <- liftIO $ setupToReg sym sc (w4VarMap <> w4PostVarMap) allocMap shp sv
+        writeMirRefSim tpr ref rv
+
     return retVal
-
-
--- TODO:
--- - zip RegValue with SetupValue (arg matching)
---   - output a list of RegValue <-> Term equalities
---     - some can be solved by substitution (RegValue = ExtCns)
---     - if these are SAT, then the pattern match can succeed
---   - output MirReference <-> AllocIndex mapping?
---
--- - compute ExtCns substitution (VarIndex -> Term)
---   - needs RegValue -> Term conversion
---
--- - optional: build + check pattern match condition
---   - figure out which variables are still free/symbolic after substitution
---     - add a fresh symbolic var for each one
---   - if the condition SAT, we can assume it to fill in the remaining vars
---
--- - gather specs matching the above & generate branches
---   - if (precond) { fresh <post vars>; assume postcond; return value }
---   - future: also touch all memory modified by the spec
 
 
 matchArg ::
@@ -737,6 +771,19 @@ matchArg sym eval shp rv sv = go shp rv sv
       | otherwise = error $ "matchArg: type error: expected " ++ show shpTpr ++
         ", but got Any wrapping " ++ show tpr
       where shpTpr = StructRepr $ fmapFC fieldShapeType flds
+    go (RefShape _ _ tpr) ref (MS.SetupVar alloc) = do
+        m <- use MS.setupValueSub
+        case Map.lookup alloc m of
+            Nothing -> return ()
+            Just (Pair tpr' ref')
+              | Just Refl <- testEquality tpr tpr' -> do
+                eq <- liftIO $ mirRef_eqIO sym ref ref'
+                let loc = mkProgramLoc "matchArg" InternalPos
+                MS.addAssert eq $
+                    SimError loc (AssertFailureSimError ("mismatch on " ++ show alloc) "")
+              | otherwise -> error $ "mismatched types for " ++ show alloc ++ ": " ++
+                    show tpr ++ " does not match " ++ show tpr'
+        MS.setupValueSub %= Map.insert alloc (Pair tpr ref)
     go shp _ _ = error $ "matchArg: type error: bad SetupValue for " ++ show (shapeType shp)
 
     goFields :: forall ctx. Assignment FieldShape ctx -> Assignment (RegValue' sym) ctx ->
@@ -886,10 +933,11 @@ setupToReg :: forall sym t st fs tp.
     sym ->
     SAW.SharedContext ->
     Map SAW.VarIndex (Some (W4.Expr t)) ->
+    Map MS.AllocIndex (MS.Pointer' MIR sym) ->
     TypeShape tp ->
     MS.SetupValue MIR ->
     IO (RegValue sym tp)
-setupToReg sym sc regMap shp sv = go shp sv
+setupToReg sym sc regMap allocMap shp sv = go shp sv
   where
     go :: forall tp. TypeShape tp -> MS.SetupValue MIR -> IO (RegValue sym tp)
     go (UnitShape _) (MS.SetupStruct _ False []) = return ()
@@ -906,6 +954,12 @@ setupToReg sym sc regMap shp sv = go shp sv
         return $ MirVector_Vector $ V.fromList rvs
     go (StructShape _ _ flds) (MS.SetupStruct _ False svs) =
         AnyValue (StructRepr $ fmapFC fieldShapeType flds) <$> goFields flds svs
+    go (RefShape _ _ tpr) (MS.SetupVar alloc) = case Map.lookup alloc allocMap of
+        Just (Pair tpr' ref) -> case testEquality tpr tpr' of
+            Just Refl -> return ref
+            Nothing -> error $ "setupToReg: type error: bad reference type for " ++ show alloc ++
+                ": got " ++ show tpr' ++ " but expected " ++ show tpr
+        Nothing -> error $ "setupToReg: no definition for " ++ show alloc
     go shp sv = error $ "setupToReg: type error: bad SetupValue for " ++ show (shapeType shp) ++
         ": " ++ show (MS.ppSetupValue sv)
 
@@ -1033,7 +1087,7 @@ fieldShapeMirTy (OptField shp) = shapeMirTy shp
 
 
 termToPred :: forall sym t st fs.
-    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     SAW.SharedContext ->
     Map SAW.VarIndex (Some (W4.Expr t)) ->
@@ -1067,7 +1121,7 @@ termToExpr sym sc varMap term = do
 
 -- | Convert a `SAW.Term` representing a type to a `W4.BaseTypeRepr`.
 termToType :: forall sym t st fs.
-    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    (IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasCallStack) =>
     sym ->
     SAW.SharedContext ->
     SAW.Term ->

@@ -1512,6 +1512,17 @@ execMirStmt stmt s =
 -- MirReferenceType manipulation within the OverrideSim monad.  These are
 -- useful for implementing overrides that work with MirReferences.
 
+newMirRefSim :: IsSymInterface sym =>
+    TypeRepr tp ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp)
+newMirRefSim tpr = do
+    sym <- getSymInterface
+    s <- get
+    let halloc = simHandleAllocator $ s ^. stateContext
+    rc <- liftIO $ freshRefCell halloc tpr
+    let ref = MirReference (RefCell_RefRoot rc) Empty_RefPath
+    return $ MirReferenceMux $ toFancyMuxTree sym ref
+
 readRefMuxSim :: IsSymInterface sym =>
     TypeRepr tp' ->
     (MirReference sym tp -> MuxLeafT sym IO (RegValue sym tp')) ->
@@ -1522,6 +1533,17 @@ readRefMuxSim tpr' f (MirReferenceMux ref) = do
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
     liftIO $ readFancyMuxTree' sym f (muxRegForType sym iTypes tpr') ref
+
+readRefMuxIO :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    TypeRepr tp' ->
+    (MirReference sym tp -> MuxLeafT sym IO (RegValue sym tp')) ->
+    MirReferenceMux sym tp ->
+    IO (RegValue sym tp')
+readRefMuxIO sym s tpr' f (MirReferenceMux ref) = do
+    let ctx = s ^. stateContext
+    let iTypes = ctxIntrinsicTypes ctx
+    readFancyMuxTree' sym f (muxRegForType sym iTypes tpr') ref
 
 modifyRefMuxSim :: IsSymInterface sym =>
     (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
@@ -1539,7 +1561,22 @@ readMirRefSim :: IsSymInterface sym =>
 readMirRefSim tpr ref = do
     sym <- getSymInterface
     s <- get
-    readRefMuxSim tpr (readMirRefLeaf s sym) ref
+    liftIO $ readMirRefIO sym s tpr ref
+
+readMirRefIO :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    TypeRepr tp -> MirReferenceMux sym tp ->
+    IO (RegValue sym tp)
+readMirRefIO sym s tpr ref = readRefMuxIO sym s tpr (readMirRefLeaf s sym) ref
+
+writeMirRefSim :: IsSymInterface sym =>
+    TypeRepr tp -> MirReferenceMux sym tp -> RegValue sym tp ->
+    OverrideSim m sym MIR rtp args ret ()
+writeMirRefSim tpr (MirReferenceMux ref) x = do
+    sym <- getSymInterface
+    s <- get
+    s' <- liftIO $ foldFancyMuxTree sym (\s' ref' -> writeMirRefLeaf s' sym ref' x) s ref
+    put s'
 
 subindexMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym (MirVectorType tp) -> RegValue sym UsizeType ->
