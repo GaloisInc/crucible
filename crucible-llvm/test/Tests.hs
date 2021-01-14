@@ -12,15 +12,11 @@
 module Main where
 
 -- Crucible
-import qualified Lang.Crucible.Backend as Crucible
-import qualified Lang.Crucible.Backend.Simple as Crucible
-import           Lang.Crucible.FunctionHandle (newHandleAllocator, withHandleAllocator, HandleAllocator)
+import           Lang.Crucible.FunctionHandle ( newHandleAllocator )
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr
-import           Data.Parameterized.Nonce
-import qualified What4.Expr.Builder as What4
 
 -- LLVM
 import qualified Text.LLVM.AST as L
@@ -44,16 +40,15 @@ import           System.Exit (exitFailure, ExitCode(..))
 import qualified System.Process as Proc
 
 -- Modules being tested
-import           Lang.Crucible.LLVM.Extension
-import           Lang.Crucible.LLVM.Globals
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
 import           Lang.Crucible.LLVM.Translation.Aliases
-import           Lang.Crucible.LLVM.TypeContext
 
-import TestTranslation
-import TestMemory
+import           MemSetup ( withInitializedMemory )
+import           TestFunctions
+import           TestMemory
+import           TestTranslation
 
 
 data LLVMAssembler = LLVMAssembler String
@@ -172,8 +167,10 @@ tests :: ModuleTranslation arch1
       -> TestTree
 tests int struct uninitialized _ lifetime = do
   testGroup "Tests" $ concat $
-    [[ translationTests
+    [[ functionTests
      , memoryTests
+     , translationTests
+
      ]] <>
     [ [ testCase "int" $
           Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42))) @=?
@@ -240,108 +237,5 @@ tests int struct uninitialized _ lifetime = do
                 inMap (L.Symbol "a") (memImplGlobalMap result)
          ]
 
-    , -- The following ensures that Crucible treats aliases to functions properly
-
-      let alias = L.GlobalAlias
-            { L.aliasName = L.Symbol "aliasName"
-            , L.aliasType =
-                L.FunTy
-                  (L.PrimType L.Void)
-                  [ L.PtrTo (L.Alias (L.Ident "class.std::cls")) ]
-                  False
-            , L.aliasTarget =
-                L.ValSymbol (L.Symbol "defName")
-            }
-
-          def = L.Define
-            { L.defLinkage = Just L.WeakODR
-            , L.defRetType = L.PrimType L.Void
-            , L.defName = L.Symbol "defName"
-            , L.defArgs =
-                [ L.Typed
-                    { L.typedType = L.PtrTo (L.Alias (L.Ident "class.std::cls"))
-                    , L.typedValue = L.Ident "0"
-                    }
-                ]
-            , L.defVarArgs = False
-            , L.defAttrs = []
-            , L.defSection = Nothing
-            , L.defGC = Nothing
-            , L.defBody =
-                [ L.BasicBlock
-                  { L.bbLabel = Just (L.Anon 1)
-                  , L.bbStmts =
-                      [ L.Result
-                          (L.Ident "2")
-                          (L.Alloca
-                             (L.PtrTo
-                              (L.Alias (L.Ident "class.std::cls"))) Nothing (Just 8))
-                          []
-                      , L.Effect L.RetVoid []
-                      ]
-                  }
-              ]
-            , L.defMetadata = mempty
-            , L.defComdat = Nothing
-            }
-      in [ testCase "initializeMemory (functions)" $
-           let mod'    = L.emptyModule { L.modDefines = [def]
-                                       , L.modAliases = [alias]
-                                       }
-               inMap k = (Just () @=?) . fmap (const ()) . Map.lookup k
-           in withInitializedMemory mod' $ \memImpl ->
-              inMap
-                (L.Symbol "aliasName")
-                (memImplGlobalMap memImpl)
-        ]
 
     ]
-
-
--- | Create an LLVM context from a module and make some assertions about it.
-withLLVMCtx :: forall a. L.Module
-            -> (forall arch sym. ( ?lc :: TypeContext
-                                 , HasPtrWidth (ArchWidth arch)
-                                 , Crucible.IsSymInterface sym
-                                 )
-                => LLVMContext arch
-                -> sym
-                -> IO a)
-            -> IO a
-withLLVMCtx mod' action =
-  let -- This is a separate function because we need to use the scoped type variable
-      -- @s@ in the binding of @sym@, which is difficult to do inline.
-      with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
-      with nonceGen halloc = do
-        sym <- Crucible.newSimpleBackend What4.FloatRealRepr nonceGen
-        let ?laxArith = False
-        Some (ModuleTranslation _ ctx _ _) <- translateModule halloc mod'
-        case llvmArch ctx                   of { X86Repr width ->
-        case assertLeq (knownNat @1)  width of { LeqProof      ->
-        case assertLeq (knownNat @16) width of { LeqProof      -> do
-          let ?ptrWidth = width
-          let ?lc = _llvmTypeCtx ctx
-          action ctx sym
-        }}}
-  in withIONonceGenerator $ \nonceGen ->
-     withHandleAllocator  $ \halloc   -> with nonceGen halloc
-
--- | Call 'initializeMemory' and get the result
-withInitializedMemory :: forall a. L.Module
-                      -> (forall wptr sym. ( ?lc :: TypeContext
-                                           , HasPtrWidth wptr
-                                           , Crucible.IsSymInterface sym
-                                           )
-                          => MemImpl sym
-                          -> IO a)
-                      -> IO a
-withInitializedMemory mod' action =
-  withLLVMCtx mod' $ \(ctx :: LLVMContext arch) sym ->
-    action @(ArchWidth arch) =<< initializeAllMemory sym ctx mod'
-
-assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n
-assertLeq m n =
-  case testLeq m n of
-    Just LeqProof -> LeqProof
-    Nothing       -> error $ "No LeqProof for " ++ show m ++ " and " ++ show n
-

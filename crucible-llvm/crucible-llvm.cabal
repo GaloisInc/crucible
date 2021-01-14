@@ -105,7 +105,9 @@ test-suite crucible-llvm-tests
   hs-source-dirs: test
   default-language: Haskell2010
   ghc-options: -Wall -Wcompat
-  other-modules: TestMemory
+  other-modules: MemSetup
+               , TestFunctions
+               , TestMemory
                , TestTranslation
   build-depends:
     base,
