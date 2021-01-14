@@ -38,16 +38,13 @@ import           Data.LLVM.BitCode
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import qualified Test.Tasty.Options as TO
-import           Test.Tasty.QuickCheck
 import qualified Test.Tasty.Runners as TR
 
 -- General
 import           Data.Foldable
 import           Data.Proxy ( Proxy(..) )
-import           Data.Sequence (Seq)
 import           Control.Monad
 import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified System.Directory as Dir
@@ -63,6 +60,9 @@ import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
 import           Lang.Crucible.LLVM.Translation.Aliases
 import           Lang.Crucible.LLVM.TypeContext
+
+import TestTranslation
+
 
 data LLVMAssembler = LLVMAssembler String
   deriving (Eq, Show)
@@ -179,7 +179,8 @@ tests :: ModuleTranslation arch1
       -> ModuleTranslation arch5
       -> TestTree
 tests int struct uninitialized _ lifetime = do
-  testGroup "Tests" $ concat
+  testGroup "Tests" $ concat $
+    [[ translationTests ]] <>
     [ [ testCase "int" $
           Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42))) @=?
              Map.map snd (globalInitMap int)
@@ -202,40 +203,6 @@ tests int struct uninitialized _ lifetime = do
       , testCase "lifetime" $
           False @=? Map.null (cfgMap lifetime)
       ]
-
-    , ------------- Tests for reverseAliases
-
-      let evenAlias xs x =
-            let s = Set.fromList (toList xs)
-            in if even x && Set.member x s
-               then Just (x `div` 2)
-               else Nothing
-          addTargets xs = xs <> fmap (`div` 2) (Seq.filter even xs)
-      in
-        [ testCase "reverseAliases: empty" $
-            Map.empty @=?
-              reverseAliases id (const Nothing) (Seq.empty :: Seq Int)
-        , testProperty "reverseAliases: singleton" $ \x ->
-            Map.singleton (x :: Int) Set.empty ==
-              reverseAliases id (const Nothing) (Seq.singleton x)
-        , -- The result should not depend on ordering
-          testProperty "reverseAliases: reverse" $ \xs ->
-            let -- no self-aliasing allowed
-                xs' = addTargets (Seq.filter (/= 0) xs)
-            in reverseAliases id (evenAlias xs) (xs' :: Seq Int) ==
-                 reverseAliases id (evenAlias xs) (Seq.reverse xs')
-        , -- Every item should appear exactly once
-          testProperty "reverseAliases: xor" $ \xs ->
-            let xs'    = addTargets (Seq.filter (/= 0) xs)
-                result = reverseAliases id (evenAlias xs) (xs' :: Seq Int)
-                keys   = Map.keysSet result
-                values = Set.unions (Map.elems result)
-                --
-                xor True a = not a
-                xor False a = a
-                --
-            in all (\x -> Set.member x keys `xor` Set.member x values) xs'
-        ]
 
     , ------------- Handling of global aliases
 
