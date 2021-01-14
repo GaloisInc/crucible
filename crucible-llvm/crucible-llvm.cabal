@@ -107,6 +107,7 @@ test-suite crucible-llvm-tests
   ghc-options: -Wall -Wcompat
   other-modules: MemSetup
                , TestFunctions
+               , TestGlobals
                , TestMemory
                , TestTranslation
   build-depends:
