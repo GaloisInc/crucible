@@ -107,6 +107,7 @@ library
     Lang.Crucible.Utils.CoreRewrite
     Lang.Crucible.Utils.MonadVerbosity
     Lang.Crucible.Utils.MuxTree
+    Lang.Crucible.Utils.PartitioningMuxTree
     Lang.Crucible.Utils.PrettyPrint
     Lang.Crucible.Utils.RegRewrite
     Lang.Crucible.Utils.StateContT

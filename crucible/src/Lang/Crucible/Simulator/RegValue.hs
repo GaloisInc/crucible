@@ -33,6 +33,7 @@ module Lang.Crucible.Simulator.RegValue
   , AnyValue(..)
   , FnVal(..)
   , fnValType
+  , muxFnValSymbolicPart
   , RolledType(..)
 
     -- * Value mux functions
@@ -44,7 +45,6 @@ module Lang.Crucible.Simulator.RegValue
   , muxStruct
   , muxVariant
   , muxVector
-  , muxHandle
   ) where
 
 import           Control.Monad
@@ -59,6 +59,7 @@ import qualified Data.Vector as V
 import           Data.Word
 import           GHC.TypeNats (KnownNat)
 
+import qualified Data.Parameterized.Classes as PC
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.FunctionName
@@ -72,6 +73,7 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
+import qualified Lang.Crucible.Utils.PartitioningMuxTree as PMT
 import           Lang.Crucible.Backend
 
 type MuxFn p v = p -> v -> v -> IO v
@@ -83,7 +85,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym AnyType = AnyValue sym
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
-  RegValue sym (FunctionHandleType a r) = FnVal sym a r
+  RegValue sym (FunctionHandleType a r) = PMT.PartitioningMuxTree sym (FnVal sym a r)
   RegValue sym (MaybeType tp) = PartExpr (Pred sym) (RegValue sym tp)
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
   RegValue sym (StructType ctx) = Ctx.Assignment (RegValue' sym) ctx
@@ -104,8 +106,9 @@ newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
 -- | Represents a function closure.
 data FnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
   ClosureFnVal ::
-    !(FnVal sym (args ::> tp) ret) ->
-    !(TypeRepr tp) ->
+    !(CtxRepr (args ::> tp)) ->
+    !(TypeRepr ret) ->
+    !(RegValue sym (FunctionHandleType (args ::> tp) ret)) ->
     !(RegValue sym tp) ->
     FnVal sym args ret
 
@@ -119,10 +122,10 @@ data FnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
     FnVal sym a r
 
 
-closureFunctionName :: FnVal sym args res -> FunctionName
-closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
-closureFunctionName (HandleFnVal h) = handleName h
-closureFunctionName (VarargsFnVal h _) = handleName h
+closureFunctionName :: FnVal sym args res -> Maybe FunctionName
+closureFunctionName (ClosureFnVal {}) = Nothing
+closureFunctionName (HandleFnVal h) = Just (handleName h)
+closureFunctionName (VarargsFnVal h _) = Just (handleName h)
 
 -- | Extract the runtime representation of the type of the given 'FnVal'
 fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
@@ -130,17 +133,45 @@ fnValType (HandleFnVal h) = FunctionHandleRepr (handleArgTypes h) (handleReturnT
 fnValType (VarargsFnVal h addlArgs) =
   case handleArgTypes h of
     args Ctx.:> _ -> FunctionHandleRepr (args Ctx.<++> addlArgs) (handleReturnType h)
-fnValType (ClosureFnVal fn _ _) =
-  case fnValType fn of
-    FunctionHandleRepr allArgs r ->
-      case allArgs of
-        args Ctx.:> _ -> FunctionHandleRepr args r
+fnValType (ClosureFnVal (args Ctx.:> _closedType) retRepr _fn _closedVal) =
+  FunctionHandleRepr args retRepr
 
 instance Show (FnVal sym a r) where
-  show = show . closureFunctionName
+  show = maybe "<Closure>" show . closureFunctionName
 
 -- | Version of 'MuxFn' specialized to 'RegValue'
 type ValMuxFn sym tp = MuxFn (Pred sym) (RegValue sym tp)
+
+-- | Define the 'PMT.Skeleton' of 'FnVal'; the symbolic values are the
+-- 'RegValue's in 'ClosureFnVal', so everything else is compared concretely.
+-- Note that for 'ClosureFnVal', we can only compare the type repr and both
+-- other components are symbolic.
+instance PMT.OrdSkel (FnVal sym a r) where
+  compareSkel a b =
+    case (a, b) of
+      (HandleFnVal h1, HandleFnVal h2) -> compare h1 h2
+      (HandleFnVal {}, VarargsFnVal {}) -> GT
+      (HandleFnVal {}, ClosureFnVal {}) -> GT
+      (VarargsFnVal h1 rep1, VarargsFnVal h2 rep2) ->
+        case compare (SomeHandle h1) (SomeHandle h2) of
+          LT -> LT
+          GT -> GT
+          EQ -> PC.toOrdering (PC.compareF rep1 rep2)
+      (VarargsFnVal {}, HandleFnVal {}) -> LT
+      (VarargsFnVal {}, ClosureFnVal {}) -> GT
+      (ClosureFnVal argReprs1 retRepr1 _fh1 _closedVal1, ClosureFnVal argReprs2 retRepr2 _fh2 _closedVal2) ->
+        case PC.compareF argReprs1 argReprs2 of
+          PC.LTF -> LT
+          PC.GTF -> GT
+          PC.EQF ->
+            PC.toOrdering (PC.compareF retRepr1 retRepr2)
+      (ClosureFnVal {}, _) -> LT
+
+-- | Mux together the symbolic portions of a 'FnVal' (for use with the 'PMT.PartitionedMuxTree)
+--
+-- The only parts of the 'FnVal' that are symbolic are the contents of the 'ClosureFnVal'
+muxFnValSymbolicPart :: Pred sym -> FnVal sym a r -> FnVal sym a r -> IO (FnVal sym a r)
+muxFnValSymbolicPart = undefined
 
 ------------------------------------------------------------------------
 -- CanMux
@@ -262,21 +293,21 @@ instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
 -- RegValue FunctionHandleType instance
 
 -- TODO: Figure out how to actually compare these.
-{-# INLINE muxHandle #-}
-muxHandle :: IsExpr (SymExpr sym)
-          => sym
-          -> Pred sym
-          -> FnVal sym a r
-          -> FnVal sym a r
-          -> IO (FnVal sym a r)
-muxHandle _ c x y
-  | Just b <- asConstantPred c = pure $! if b then x else y
-  | otherwise = return x
+-- {-# INLINE muxHandle #-}
+-- muxHandle :: IsExpr (SymExpr sym)
+--           => sym
+--           -> Pred sym
+--           -> FnVal sym a r
+--           -> FnVal sym a r
+--           -> IO (FnVal sym a r)
+-- muxHandle _ c x y
+--   | Just b <- asConstantPred c = pure $! if b then x else y
+--   | otherwise = return x
 
-instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where
-  {-# INLINE muxReg #-}
-  muxReg s = \_ c x y -> do
-    muxHandle s c x y
+-- instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where
+--   {-# INLINE muxReg #-}
+--   muxReg s = \_ c x y -> do
+--     muxHandle s c x y
 
 ------------------------------------------------------------------------
 -- RegValue IdentValueMap instance

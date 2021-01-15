@@ -141,6 +141,7 @@ module Lang.Crucible.Simulator.ExecutionTree
 import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Kind
+import qualified Data.List.NonEmpty as DLN
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Parameterized.Ctx
@@ -891,6 +892,20 @@ data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
     (ret ~ r) =>
     ReturnHandler ret p sym ext root (CrucibleLang blocks r) ctx
 
+  {- | The 'CallNext' constructor indicates that the simulator needs to pause and
+       call the next alternative callee for the call site.  To do so, it should
+       use the saved 'SimState', which was the same 'SimState' used by the first
+       potential callee (so that all callees see the same initial state).
+
+  -}
+  CallNext ::
+    ProgramLoc {- ^ The location of the call site -} ->
+    ReturnHandler ret p sym ext root f args {- ^ The original return handler -} ->
+    SimState p sym ext rtp f a {- ^ The sim state to use for each alternative call -} ->
+    [(ResolvedCall p sym ext ret, Pred sym)] {- ^ Remaining targets to call -} ->
+    Pred sym {- ^ The predicate under which the current target is valid -} ->
+    Maybe (PartialResult sym ext (SimFrame sym ext f args), RegEntry sym ret) {- ^ Post-state and return from previous potential callees  -} ->
+    ReturnHandler ret p sym ext root f args
 
 ------------------------------------------------------------------------
 -- ActiveTree

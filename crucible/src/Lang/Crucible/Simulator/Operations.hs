@@ -24,6 +24,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -78,16 +79,19 @@ import Prelude hiding (pred)
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
-import           Data.Maybe (fromMaybe)
+import qualified Data.Foldable as F
 import           Data.List (isPrefixOf)
+import qualified Data.List.NonEmpty as DLN
+import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import qualified Data.Vector as V
+import qualified Data.Traversable as T
 import           Data.Type.Equality hiding (sym)
-import           System.IO
+import qualified Data.Vector as V
 import qualified Prettyprinter as PP
+import           System.IO
 
 import           What4.Config
 import           What4.Interface
@@ -105,6 +109,7 @@ import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import qualified Lang.Crucible.Utils.PartitioningMuxTree as PMT
 
 ---------------------------------------------------------------------
 -- Intermediate state branching/merging
@@ -359,19 +364,47 @@ packVarargs = go mempty
 --   the underlying function handle is not found in the
 --   'FunctionBindings' map.
 resolveCall ::
+  (IsSymInterface sym) =>
+  sym ->
   FunctionBindings p sym ext {- ^ Map from function handles to semantics -} ->
-  FnVal sym args ret {- ^ Function handle and any closure variables -} ->
+  PMT.PartitioningMuxTree sym (FnVal sym args ret) {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ProgramLoc {- ^ Location of the call -} ->
   [SomeFrame (SimFrame sym ext)] {-^ current call stack (for exceptions) -} ->
-  ResolvedCall p sym ext ret
-resolveCall bindings c0 args loc callStack =
+  IO (DLN.NonEmpty (ResolvedCall p sym ext ret, Pred sym))
+resolveCall sym = resolveCallPred sym (truePred sym)
+
+resolveCallPred ::
+  (IsSymInterface sym) =>
+  sym ->
+  Pred sym {-^ A predicate to mux into all of the conditions -} ->
+  FunctionBindings p sym ext {- ^ Map from function handles to semantics -} ->
+  PMT.PartitioningMuxTree sym (FnVal sym args ret) {- ^ Function handle and any closure variables -} ->
+  RegMap sym args {- ^ Arguments to the function -} ->
+  ProgramLoc {- ^ Location of the call -} ->
+  [SomeFrame (SimFrame sym ext)] {-^ current call stack (for exceptions) -} ->
+  IO (DLN.NonEmpty (ResolvedCall p sym ext ret, Pred sym))
+resolveCallPred sym p0 bindings mt0 args loc callStack = do
+  elts <- T.traverse (\(v, cond) -> (v,) <$> andPred sym p0 cond) (PMT.viewPartitioningMuxTree mt0)
+  calls <- T.traverse (resolveCallFnVal sym bindings args loc callStack) elts
+  return (join calls)
+
+resolveCallFnVal
+  :: (IsSymInterface sym)
+  => sym
+  -> FunctionBindings p sym ext
+  -> RegMap sym args
+  -> ProgramLoc
+  -> [SomeFrame (SimFrame sym ext)]
+  -> (FnVal sym args ret, Pred sym)
+  -> IO (DLN.NonEmpty (ResolvedCall p sym ext ret, Pred sym))
+resolveCallFnVal sym bindings args loc callStack (c0, p) =
   case c0 of
-    ClosureFnVal c tp v -> do
-      resolveCall bindings c (assignReg tp v args) loc callStack
+    ClosureFnVal (_argReprs Ctx.:> tp) _retRepr c v -> do
+      resolveCallPred sym p bindings c (assignReg tp v args) loc callStack
 
     VarargsFnVal h addlTypes ->
-      resolveCall bindings (HandleFnVal h) (packVarargs addlTypes args) loc callStack
+      resolveCallFnVal sym bindings (packVarargs addlTypes args) loc callStack (HandleFnVal h, p)
 
     HandleFnVal h -> do
       case lookupHandleMap h bindings of
@@ -381,9 +414,9 @@ resolveCall bindings c0 args loc callStack =
                                 , _overrideHandle = SomeHandle h
                                 , _overrideRegMap = args
                                 }
-           in OverrideCall o f
-        Just (UseCFG g pdInfo) -> do
-          CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args)
+           in return ((OverrideCall o f, p) DLN.:| [])
+        Just (UseCFG g pdInfo) ->
+          return ((CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args), p) DLN.:| [])
 
 
 resolvedCallName :: ResolvedCall p sym ext ret -> FunctionName
@@ -536,8 +569,8 @@ returnValue arg =
 
 
 callFunction ::
-  IsExprBuilder sym =>
-  FnVal sym args ret {- ^ Function handle and any closure variables -} ->
+  IsSymInterface sym =>
+  RegValue sym (FunctionHandleType args ret) {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ReturnHandler ret p sym ext rtp f a {- ^ How to modify the caller's scope with the return value -} ->
   ProgramLoc {-^ location of call -} ->
@@ -545,12 +578,29 @@ callFunction ::
 callFunction fn args retHandler loc =
   do bindings <- view (stateContext.functionBindings)
      callStack <- view (stateTree . to activeFrames)
-     let rcall = resolveCall bindings fn args loc callStack
-     ReaderT $ return . CallState retHandler rcall
+     sym <- view (stateContext . ctxSymInterface)
+     rcalls <- liftIO $ resolveCall sym bindings fn args loc callStack
+
+     ReaderT $ \ctx ->
+       case rcalls of
+         (singleTarget, _) DLN.:| [] ->
+           -- In the degenerate case of a single target, just issue a standard call/return
+           --
+           -- We ignore the predicate for a single target.  NOTE: We could
+           -- assert it (it should just be True)
+           return (CallState retHandler singleTarget ctx)
+         (firstTarget, muxPred) DLN.:| otherTargets -> do
+           -- Otherwise, wrap the return state up in a special return that will
+           -- run each possible call (sequentially) with a captured initial
+           -- state.  When the first target returns, the modified handler calls
+           -- the next possible target.  When callers are exhausted, it merges
+           -- the results together and performs the original type of return.
+           let cpsHandler = CallNext loc retHandler ctx otherTargets muxPred Nothing
+           return (CallState cpsHandler firstTarget ctx)
 
 tailCallFunction ::
-  FrameRetType f ~ ret =>
-  FnVal sym args ret {- ^ Function handle and any closure variables -} ->
+  (FrameRetType f ~ ret, IsSymInterface sym) =>
+  RegValue sym (FunctionHandleType args ret) {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ValueFromValue p sym ext rtp ret ->
   ProgramLoc {-^ location of call -} ->
@@ -558,8 +608,9 @@ tailCallFunction ::
 tailCallFunction fn args vfv loc =
   do bindings <- view (stateContext.functionBindings)
      callStack <- view (stateTree . to activeFrames)
-     let rcall = resolveCall bindings fn args loc callStack
-     ReaderT $ return . TailCallState vfv rcall
+     sym <- view (stateContext . ctxSymInterface)
+     rcalls <- liftIO $ resolveCall sym bindings fn args loc callStack
+     ReaderT $ return . TailCallState vfv (error "rcalls")
 
 
 -- | Immediately transition to the 'BranchMergeState'.
@@ -811,6 +862,11 @@ handleSimReturn fnName vfv return_value =
 
 
 -- | Resolve the return value, and begin executing in the caller's context again.
+--
+-- FIXME: Modify this to handle the CPS-ed call (issuing another call here)
+--
+-- Challenge: We need the simulator state from *before* we issue the call (so
+-- that all possible callees start with the same state)
 performReturn ::
   IsSymInterface sym =>
   FunctionName {- ^ Name of the function we are returning from -} ->
@@ -838,6 +894,62 @@ performReturn fnName ctx0 v = do
            (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ OF f))
            (ReaderT (k v))
 
+    VFVCall ctx frm (CallNext callLoc origHandler callCtx callTargets returnPred prevResults) ->
+      do case callTargets of
+           [] -> do
+             -- FIXME: Can we just use the 'ReturnTarget' as a
+             -- 'CrucibleBranchTarget', allowing us to reuse
+             -- 'mergePartialResult'?  That would be great, since we'll have a
+             -- collection of 'SimState's to merge.
+             --
+             -- We could do that and use 'withReaderT' to do something similar
+             -- to the cases above, setting up a modified stateTree (which is
+             -- just a PartialResult SimFrame -- exactly what we'd get from
+             -- mergePartialResult)
+             --
+             -- We can't mux active trees, but we don't need to.  We are
+             -- returning to the same ValueFromFrame either way.  We just need
+             -- to make a new PartialResult SimFrame. (global SymGlobalState +
+             -- SimFrame)
+             ReaderT $ \nextCtx -> do
+               -- Note that 'mergePartialResult' takes a 'SimState'; it only
+               -- uses that for the SymInterface and intrinsics, so it should be
+               -- safe that the state has been re-used for different paths.
+               let thisResult = (nextCtx ^. stateTree . actResult, v, returnPred)
+               let muxFn = mergePartialResult nextCtx ReturnTarget
+               F.foldlM mergeCallResults
+
+               mergePartialResult simSt ReturnTarget p frame1 frame2
+             -- Update the 'actResult' here.  FIXME: Change the CPSed contents to be
+             --
+             -- PartialResult sym ext (SimFrame sym ext f args)
+               let ctx1 = VFVCall ctx frm origHandler
+               performReturn fnName ctx1 mergedValue
+           (nextTarget, nextPredicate) : rest ->
+             -- We want to run the extra function calls under the original
+             -- context (so that they can't see each others effects).  However,
+             -- we do need to preserve these post-states so that they can be
+             -- muxed (presumably with data from the outer ctx from the VFVCall)
+             --
+             -- The pair (v, nextCtx) is the state produced by one callee.  We
+             -- need to save that and compute the other callee results.
+             ReaderT $ \nextCtx -> do
+               let sym = nextCtx ^. stateSymInterface
+               let intrinsics = nextCtx ^. stateIntrinsicTypes
+               case prevResults of
+                 Nothing -> do
+                   frame <- resultDefinedWhen sym callLoc returnPred (nextCtx ^. stateTree . actResult)
+                   let call = CallNext callLoc origHandler callCtx rest nextPredicate (Just (pres, v))
+                   return (CallState call nextTarget callCtx)
+                 Just (prevFrame, prevRetVal) -> do
+                   thisFrame <- mergePartialResult nextCtx ReturnTarget returnPred prevFrame (nextCtx ^. stateTree . actResult)
+                   mergedVal <- muxRegEntry sym intrinsics returnPred v prevRetVal
+                   let call = CallNext callLoc origHandler callCtx rest nextPredicate (Just (thisFrame, mergedVal))
+                   return (CallState call nextTarget callCtx)
+
+               -- let cpsHandler = CallNext callLoc origHandler callCtx rest nextPredicate accumulatedCallResults
+               -- return (CallState cpsHandler nextTarget callCtx)
+
     VFVPartial ctx loc pred r ->
       do sym <- view stateSymInterface
          ActiveTree oldctx pres <- view stateTree
@@ -851,6 +963,28 @@ performReturn fnName ctx0 v = do
       do simctx <- view stateContext
          ActiveTree _oldctx pres <- view stateTree
          return $! ResultState $ FinishedResult simctx (pres & partialValue . gpValue .~ v)
+
+-- | Mark a value as defined when the given 'Pred' holds
+--
+-- If the value was originally a 'TotalRes', it becomes a 'PartialRes'
+--
+-- Otherwise, the condition is conjoined with the existing 'Pred'
+resultDefinedWhen ::
+  IsSymInterface sym =>
+  sym ->
+  ProgramLoc ->
+  Pred sym ->
+  PartialResult sym ext v ->
+  IO (PartialResult sym ext v)
+resultDefinedWhen sym loc p v =
+  case v of
+    TotalRes gp -> do
+      let aborted = AbortedExec InfeasibleBranch gp
+      return (PartialRes loc p gp aborted)
+    PartialRes _loc0 p0 gp aborted -> do
+      combinedPred <- orPred sym p0 p
+      return (PartialRes loc combinedPred gp aborted)
+
 
 cruciblePausedFrame ::
   ResolvedJump sym b ->
