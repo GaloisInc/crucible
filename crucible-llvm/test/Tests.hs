@@ -23,6 +23,7 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 import qualified Test.Tasty.Options as TO
 import qualified Test.Tasty.Runners as TR
+import qualified Test.Tasty.Sugar as TS
 
 -- General
 import           Data.Either ( fromRight )
@@ -101,48 +102,45 @@ parseLLVM !file =
 llvmTestIngredients :: [TR.Ingredient]
 llvmTestIngredients = includingOptions [ TO.Option (Proxy @LLVMAssembler)
                                        , TO.Option (Proxy @Clang)
-                                       ] : defaultIngredients
+                                       ] :
+                      includingOptions TS.sugarOptions :
+                      TS.sugarIngredients [cCube, lCube] <>
+                      defaultIngredients
+
+cCube, lCube :: TS.CUBE
+cCube = TS.mkCUBE { TS.inputDir = "test/c"
+                  , TS.rootName = "*.c"
+                  , TS.separators = "."
+                  , TS.expectedSuffix = "checks"
+                  }
+
+lCube = cCube { TS.inputDir = "test/ll"
+              , TS.rootName = "*.ll"
+              }
+
 
 main :: IO ()
-main = defaultMainWithIngredients llvmTestIngredients $
-  testGroup "Tests"
-    [ functionTests
-    , globalTests
-    , memoryTests
-    , translationTests
+main = do
+    do testSweets <- concat <$> (mapM TS.findSugar [cCube, lCube])
 
-    , testBuildTranslation "test/c/global-int.c" $ \getTrans ->
-        testCase "valid global integer symbol reference" $ do
-        Some t <- getTrans
-        Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42))) @=?
-          Map.map snd (globalInitMap t)
+       fileTests <- TS.withSugarGroups testSweets testGroup $
+           \sweets _ expectation -> do
+             -- The expected file contains a list of the tests to run
+             -- on the LLVM translation.
+             checklist <- lines <$> readFile (TS.expectedFile expectation)
+             return $
+               testBuildTranslation (TS.rootFile sweets) $
+               (\getTrans -> testGroup "checks" $ map (transCheck getTrans) checklist)
 
-    , testBuildTranslation "test/c/global-struct.c" $ \getTrans ->
-        testCase "valid global struct field symbol reference" $ do
-        Some t <- getTrans
-        IntConst (knownNat @32) (BV.mkBV knownNat 17) @=?
-          case snd <$> Map.lookup (L.Symbol "z") (globalInitMap t) of
-            Just (Right (_, Just (StructConst _ (x : _)))) -> x
-            _ -> IntConst (knownNat @1) (BV.zero knownNat)
+       defaultMainWithIngredients llvmTestIngredients $
+         testGroup "Tests"
+         [ functionTests
+         , globalTests
+         , memoryTests
+         , translationTests
+         , testGroup "Input Files" $ fileTests
+         ]
 
-    , testBuildTranslation "test/c/global-uninitialized.c" $ \getTrans ->
-        testCase "valid global unitialized variable reference" $ do
-        Some t <- getTrans
-        Map.singleton (L.Symbol "x") (Right $ (i32, Just $ ZeroConst i32)) @=?
-          Map.map snd (globalInitMap t)
-
-    , testBuildTranslation "test/c/global-extern.c" $ \getTrans ->
-        testCase "valid global extern variable reference" $ do
-        Some t <- getTrans
-        Map.singleton (L.Symbol "extern_int") (Right (i32, Nothing)) @=?
-          Map.map snd (globalInitMap t)
-
-    , testBuildTranslation "test/ll/lifetime.ll" $ \_getTrans ->
-        -- We're really just checking that the translation succeeds without
-        -- exceptions.
-        testCase "lifetime test" $ return ()
-
-    ]
 
 
 testBuildTranslation :: FilePath -> (IO (Some ModuleTranslation) -> TestTree) -> TestTree
@@ -204,3 +202,39 @@ testBuildTranslation srcPath llvmTransTests =
     , Just $ after AllSucceed parseBCName   translate_bitcode
     , Just $ after AllSucceed translateName (llvmTransTests trans)
     ]
+
+
+transCheck :: IO (Some ModuleTranslation) -> String -> TestTree
+transCheck getTrans = \case
+
+  "extern_int" ->
+    testCase "valid global extern variable reference" $ do
+    Some t <- getTrans
+    Map.singleton (L.Symbol "extern_int") (Right (i32, Nothing)) @=?
+      Map.map snd (globalInitMap t)
+
+  "x=42" ->
+    testCase "valid global integer symbol reference" $ do
+    Some t <- getTrans
+    Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) (BV.mkBV knownNat 42))) @=?
+      Map.map snd (globalInitMap t)
+
+  "z.xx=17" ->
+    testCase "valid global struct field symbol reference" $ do
+    Some t <- getTrans
+    IntConst (knownNat @32) (BV.mkBV knownNat 17) @=?
+      case snd <$> Map.lookup (L.Symbol "z") (globalInitMap t) of
+        Just (Right (_, Just (StructConst _ (x : _)))) -> x
+        _ -> IntConst (knownNat @1) (BV.zero knownNat)
+
+  "x uninitialized" ->
+    testCase "valid global unitialized variable reference" $ do
+    Some t <- getTrans
+    Map.singleton (L.Symbol "x") (Right $ (i32, Just $ ZeroConst i32)) @=?
+      Map.map snd (globalInitMap t)
+
+  -- We're really just checking that the translation succeeds without
+  -- exceptions.
+  "" -> testCase "no additional checks" $ return ()
+
+  other -> testCase other $ assertFailure $ "Unknown check: " <> other
