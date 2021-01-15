@@ -1,7 +1,11 @@
 {-# LANGUAGE BangPatterns     #-}
 {-# LANGUAGE DataKinds        #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams   #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Main where
@@ -26,14 +30,17 @@ import qualified Test.Tasty.Runners as TR
 import qualified Test.Tasty.Sugar as TS
 
 -- General
+import           Control.Monad
 import           Data.Either ( fromRight )
 import           Data.Maybe ( catMaybes )
-import           System.FilePath ( (-<.>), splitExtension, splitFileName )
-import           Data.Proxy ( Proxy(..) )
-import           Control.Monad
+import           GHC.TypeLits
+import           Data.Kind ( Type )
 import qualified Data.Map.Strict as Map
+import           Data.Proxy ( Proxy(..) )
 import qualified System.Directory as Dir
+import           System.Environment ( lookupEnv )
 import           System.Exit ( ExitCode(..) )
+import           System.FilePath ( (-<.>), splitExtension, splitFileName )
 import qualified System.Process as Proc
 
 -- Modules being tested
@@ -46,32 +53,48 @@ import           TestMemory
 import           TestTranslation
 
 
-data LLVMAssembler = LLVMAssembler String
+data LLVMAssembler (source :: Symbol) = LLVMAssembler String
   deriving (Eq, Show)
 
-instance TO.IsOption LLVMAssembler where
-  defaultValue = LLVMAssembler "llvm-as"
-  parseValue = Just . LLVMAssembler
+instance TO.IsOption (SomeSym LLVMAssembler) where
+  defaultValue = SomeS $ LLVMAssembler @"default" "llvm-as"
+  parseValue = Just . SomeS . LLVMAssembler @ "option"
   optionName = pure "llvm-assembler"
-  optionHelp = pure "The LLVM assembler to use on .ll files"
+  optionHelp = pure $ unwords ["The LLVM assembler to use on .ll files"
+                              ,"(overrides the LLVM_AS environment variable,"
+                              ,"default is \"llvm-as\")"]
 
-data Clang = Clang String
+data Clang (source :: Symbol) = Clang String
   deriving (Eq, Show)
 
-instance TO.IsOption Clang where
-  defaultValue = Clang "clang"
-  parseValue = Just . Clang
+instance TO.IsOption (SomeSym Clang) where
+  defaultValue = SomeS $ Clang @"default" "clang"
+  parseValue = Just . SomeS . Clang @"option"
   optionName = pure "clang"
-  optionHelp = pure "The clang binary to use to compile C files"
+  optionHelp = pure $ unwords ["The clang binary to use to compile C files"
+                              ,"(overrides the CLANG environment variable,"
+                              ,"default is \"clang\")"]
 
-doProc :: String -> [String] -> IO (Int, String, String)
+optionSource :: opt (source :: Symbol) -> Proxy source
+optionSource _ = Proxy
+
+-- | The SomeSym hides a Symbol parameter but preserves a KnownSymbol
+-- constraint on the hidden parameter.  n.b. will be provided in the
+-- future by parameterized-utils > 2.1.1.
+
+data SomeSym (c :: Symbol -> Type) =
+  forall (s :: Symbol) . KnownSymbol s => SomeS (c s)
+
+doProc :: String -> [String] -> IO ProcResult
 doProc !exe !args = do
   (exitCode, stdout, stderr) <- Proc.readProcessWithExitCode exe args ""
   pure $ (exitCodeToInt exitCode, stdout, stderr)
   where exitCodeToInt ExitSuccess     = 0
         exitCodeToInt (ExitFailure i) = i
 
-assertProcSuccess :: String -> String -> (Int, String, String) -> Assertion
+type ProcResult = (Int, String, String)
+
+assertProcSuccess :: String -> String -> ProcResult -> Assertion
 assertProcSuccess msg file (exitCode, stdout, stderr) = do
   when (exitCode /= 0) $ do
     putStrLn $ msg ++ " " ++ file ++ " failure"
@@ -81,12 +104,12 @@ assertProcSuccess msg file (exitCode, stdout, stderr) = do
 
 
 -- | Compile a C file with clang, returning the exit code
-compile :: String -> FilePath -> IO (Int, String, String)
-compile clang !file = doProc clang ["-emit-llvm", "-g", "-O0", "-c", file]
+compile :: Clang "executable" -> FilePath -> IO ProcResult
+compile (Clang clang) !file = doProc clang ["-emit-llvm", "-g", "-O0", "-c", file]
 
 -- | Assemble a ll file with llvm-as, returning the exit code
-assemble :: String -> FilePath -> FilePath -> IO (Int, String, String)
-assemble llvm_as !inputFile !outputFile =
+assemble :: LLVMAssembler "executable" -> FilePath -> FilePath -> IO ProcResult
+assemble (LLVMAssembler llvm_as) !inputFile !outputFile =
   doProc llvm_as ["-o", outputFile, inputFile]
 
 -- | Parse an LLVM bit-code file.
@@ -100,8 +123,8 @@ parseLLVM !file =
       Right m  -> pure $ Right m
 
 llvmTestIngredients :: [TR.Ingredient]
-llvmTestIngredients = includingOptions [ TO.Option (Proxy @LLVMAssembler)
-                                       , TO.Option (Proxy @Clang)
+llvmTestIngredients = includingOptions [ TO.Option (Proxy @(SomeSym LLVMAssembler))
+                                       , TO.Option (Proxy @(SomeSym Clang))
                                        ] :
                       includingOptions TS.sugarOptions :
                       TS.sugarIngredients [cCube, lCube] <>
@@ -161,16 +184,33 @@ testBuildTranslation srcPath llvmTransTests =
       c_compile =
         if (ext == ".c")
         then
-          Just $ askOption $ \(Clang clang) ->
-          testCase genBCName $
+          Just $ askOption $ \(SomeS clangOption :: SomeSym Clang) ->
+          testCase genBCName $ do
+          clang <-
+            let src = optionSource clangOption in
+            case sameSymbol src (Proxy :: Proxy "option") of
+              Just Refl -> let Clang c = clangOption in return $ Clang c
+              _ -> case sameSymbol src (Proxy :: Proxy "default") of
+                Just Refl -> maybe (Clang "clang") Clang <$> lookupEnv "CLANG"
+                _ -> error $ "Unknown Clang specification type: " <> symbolVal src
           assertProcSuccess "compile" srcPath =<<
               Dir.withCurrentDirectory dName (compile clang srcName)
         else Nothing
 
       llvm_assemble =
         if (ext == ".ll")
-        then Just $ askOption $ \(LLVMAssembler llvm_as) ->
-          testCase genBCName $
+        then Just $ askOption $ \(SomeS assemblerOption :: SomeSym LLVMAssembler) ->
+          testCase genBCName $ do
+          llvm_as <-
+            let src = optionSource assemblerOption in
+            case sameSymbol src (Proxy :: Proxy "option") of
+              Just Refl -> let LLVMAssembler a = assemblerOption
+                           in return $ LLVMAssembler a
+              _ -> case sameSymbol src (Proxy :: Proxy "default") of
+                Just Refl -> maybe (LLVMAssembler "llvm-as") LLVMAssembler <$>
+                             lookupEnv "LLVM_AS"
+                _ -> error $ "Unknown LLVM Assembler specification type: " <> symbolVal src
+
           assertProcSuccess "assemble" srcPath =<<
             Dir.withCurrentDirectory dName (assemble llvm_as srcName bcName)
         else Nothing
