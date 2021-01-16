@@ -1,31 +1,50 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import           Control.Exception (bracket, SomeException, try)
-
-import           GHC.IO.Handle (hDuplicate, hDuplicateTo)
-
+import           Control.Exception ( SomeException, try )
 import qualified Data.ByteString.Lazy as BSIO
 import           Data.Char ( isLetter )
 import           Data.List ( isInfixOf )
-import           Data.Maybe ( fromMaybe )
-import           System.Directory ( doesFileExist )
+import           Data.Maybe ( catMaybes, fromMaybe )
+import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )
-import           System.FilePath (takeBaseName, replaceExtension)
+import           System.FilePath ( (-<.>) )
 import           System.IO
 import           System.Process ( readProcess )
 
-import           Test.Tasty (defaultMain, testGroup, TestTree)
-import           Test.Tasty.Golden (goldenVsString, findByExtension)
+import qualified Test.Tasty as TT
+import           Test.Tasty.HUnit ( (@=?), testCase )
+import qualified Test.Tasty.Sugar as TS
 
 import qualified Crux.Log as C
 import qualified CruxLLVMMain as C
 
 
+cCube, llCube :: TS.CUBE
+cCube = TS.mkCUBE { TS.inputDir = "test-data/golden"
+                  , TS.rootName = "*.c"
+                  , TS.expectedSuffix = "good"
+                  , TS.associatedNames = [ ("config", "config")
+                                         , ("stdio",  "print")
+                                         ]
+                  }
+
+llCube = cCube { TS.rootName = "*.ll" }
+
 main :: IO ()
-main = defaultMain =<< suite =<< getClangVersion
+main = do sweets <- concat <$> mapM TS.findSugar [cCube, llCube]
+          clangVer <- getClangVersion
+          tests <- TS.withSugarGroups sweets TT.testGroup mkTest
+
+          let ingredients = TT.includingOptions TS.sugarOptions :
+                            TS.sugarIngredients [cCube, llCube] <>
+                            TT.defaultIngredients
+          TT.defaultMainWithIngredients ingredients $
+            TT.testGroup "crux-llvm"
+            [ TT.testGroup ("clang " <> clangVer) $ tests ]
 
 
 getClangVersion :: IO String
@@ -41,39 +60,40 @@ getClangVersion = do
   getVer <$> readProcess clangBin [ "--version" ] ""
 
 
-suite :: String -> IO TestTree
-suite clangVer =
-  testGroup "crux-llvm" . pure . testGroup ("clang " <> clangVer) . pure <$> goldenTests "test-data/golden"
+mkTest :: TS.Sweets -> Natural -> TS.Expectation -> IO TT.TestTree
+mkTest sweet _ expct =
+  let outFile = TS.expectedFile expct -<.> ".out"
+      tname = TS.rootBaseName sweet
+      runCruxName = tname <> " crux run"
+      printFName = outFile -<.> ".print_out"
 
+      runCrux = Just $ testCase runCruxName $ do
+        let cfargs = maybe [] (\c -> ["--config=" <> c]) $
+                     lookup "config" (TS.associated expct)
+            failureMsg = let bss = BSIO.pack . fmap (toEnum . fromEnum) . show in \case
+              Left e -> "*** Crux failed with exception: " <> bss (show (e :: SomeException)) <> "\n"
+              Right (ExitFailure v) -> "*** Crux failed with non-zero result: " <> bss (show v) <> "\n"
+              Right ExitSuccess -> ""
+        r <- withFile outFile WriteMode $ \h ->
+          failureMsg <$> (try $
+                          withArgs (["--solver=z3", TS.rootFile sweet] ++ cfargs) $
+                          -- Quiet mode, don't print colors
+                          C.mainWithOutputConfig (C.OutputConfig False h h True))
+        BSIO.writeFile printFName r
 
-goldenTests :: FilePath -> IO TestTree
-goldenTests dir =
-  do cFiles <- findByExtension [".c",".ll"] dir
-     return $
-       testGroup "Golden testing of crux-llvm"
-         [ goldenVsString (takeBaseName cFile) goodFile $
-           do ex <- doesFileExist configFile
-              let cfgargs = if ex then ["--config="++configFile] else []
+      checkPrint =
+        let runTest s = testCase (tname <> " crux print") $
+                        do r <- BSIO.readFile printFName
+                           BSIO.readFile s >>= (@=? r)
+        in runTest <$> lookup "stdio" (TS.associated expct)
 
-              r <- withArgs (["--solver=z3",cFile] ++ cfgargs) $
-                     withFile outFile WriteMode $ \h ->
-                       let cfg = C.OutputConfig False h h True in -- Quiet mode, don't print colors
-                       (let bss = BSIO.pack . fmap (toEnum . fromEnum) . show in \case
-                         Left e -> "*** Crux failed with exception: " <> bss (show (e :: SomeException)) <> "\n"
-                         Right (ExitFailure v) -> "*** Crux failed with non-zero result: " <> bss (show v) <> "\n"
-                         Right ExitSuccess -> "")
-                       <$>
-                       (try $ C.mainWithOutputConfig cfg)
-              (<> r) <$> BSIO.readFile outFile
+      checkOutput = Just $ testCase (tname <> " crux output") $ do
+        good <- BSIO.readFile (TS.expectedFile expct)
+        (good @=?) =<< BSIO.readFile outFile
 
-         | cFile <- cFiles
-         , notHidden cFile
-         , let goodFile = replaceExtension cFile ".good"
-         , let outFile = replaceExtension cFile ".out"
-         , let configFile = replaceExtension cFile ".config"
-         ]
-  where
-    notHidden "" = True
-    notHidden ('.' : _) = False
-    notHidden _ = True
-
+  in return $ TT.testGroup (TS.rootBaseName sweet) $ catMaybes
+     [
+       runCrux
+     , TT.after TT.AllSucceed runCruxName <$> checkPrint
+     , TT.after TT.AllSucceed runCruxName <$> checkOutput
+     ]

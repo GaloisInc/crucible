@@ -179,7 +179,7 @@ test-suite crux-llvm-test
                 QuickCheck,
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
-                tasty-golden     >= 2.3,
+                tasty-sugar      >= 1.0.0.0,
                 text,
                 what4
 
