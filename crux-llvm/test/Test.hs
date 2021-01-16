@@ -77,22 +77,3 @@ goldenTests dir =
     notHidden ('.' : _) = False
     notHidden _ = True
 
-redir :: Handle -> [Handle] -> IO a -> IO a
-redir _ [] act = act
-redir out (h:hs) act =
-  do hFlush h; hSetBuffering h NoBuffering; hSetBuffering out NoBuffering
-     --buf <- hGetBuffering h
-     let save =
-           do old <- hDuplicate h
-              hPutStrLn h "about to save"
-              hFlush out; hFlush old
-              hDuplicateTo out h
-              hPutStrLn h "saved"
-              return old
-         restore old =
-           do hFlush old; hFlush h
-              hPutStrLn h "about to restore"
-              hDuplicateTo old h
-              hPutStrLn h "restored"
-              --hSetBuffering h buf
-     bracket save restore (const $ redir out hs act)
