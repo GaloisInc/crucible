@@ -9,6 +9,7 @@ import           GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import qualified Data.ByteString.Lazy as BSIO
 import           Data.Char ( isLetter )
 import           Data.List ( isInfixOf )
+import           Data.Maybe ( fromMaybe )
 import           System.Directory ( doesFileExist )
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )
@@ -24,21 +25,21 @@ import qualified CruxLLVMMain as C
 
 
 main :: IO ()
-main = do
+main = defaultMain =<< suite =<< getClangVersion
 
+
+getClangVersion :: IO String
+getClangVersion = do
   -- Determine which version of clang will be used for these tests.
   -- An exception (E.g. in the readProcess if clang is not found) will
   -- result in termination (test failure).  Uses partial 'head' but
   -- this is just tests, and failure is captured.
-  clangBin <- lookupEnv "CLANG" >>= \case
-    Just x -> return x
-    Nothing -> return "clang"
+  clangBin <- fromMaybe "clang" <$> lookupEnv "CLANG"
   let isVerLine = isInfixOf "clang version"
       dropLetter = dropWhile (all isLetter)
       getVer = head . dropLetter . words . head . filter isVerLine . lines
-  ver <- getVer <$> readProcess clangBin [ "--version" ] ""
+  getVer <$> readProcess clangBin [ "--version" ] ""
 
-  defaultMain =<< suite ver
 
 suite :: String -> IO TestTree
 suite clangVer =
