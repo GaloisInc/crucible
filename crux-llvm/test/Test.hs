@@ -2,22 +2,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Exception (bracket, SomeException, try)
+import           Control.Exception (bracket, SomeException, try)
 
-import GHC.IO.Handle (hDuplicate, hDuplicateTo)
+import           GHC.IO.Handle (hDuplicate, hDuplicateTo)
 
 import qualified Data.ByteString.Lazy as BSIO
-import Data.Char ( isLetter )
-import Data.List ( isInfixOf )
-import System.Directory( doesFileExist )
-import System.Environment ( withArgs, lookupEnv )
-import System.Exit ( ExitCode(..) )
-import System.FilePath (takeBaseName, replaceExtension)
-import System.IO --(IOMode(..), hFlush, withFile, stdout, stderr)
-import System.Process ( readProcess )
+import           Data.Char ( isLetter )
+import           Data.List ( isInfixOf )
+import           System.Directory ( doesFileExist )
+import           System.Environment ( withArgs, lookupEnv )
+import           System.Exit ( ExitCode(..) )
+import           System.FilePath (takeBaseName, replaceExtension)
+import           System.IO
+import           System.Process ( readProcess )
 
-import Test.Tasty (defaultMain, testGroup, TestTree)
-import Test.Tasty.Golden (goldenVsString, findByExtension)
+import           Test.Tasty (defaultMain, testGroup, TestTree)
+import           Test.Tasty.Golden (goldenVsString, findByExtension)
 
 import qualified Crux.Log as C
 import qualified CruxLLVMMain as C
