@@ -27,7 +27,7 @@ cCube, llCube :: TS.CUBE
 cCube = TS.mkCUBE { TS.inputDir = "test-data/golden"
                   , TS.rootName = "*.c"
                   , TS.expectedSuffix = "good"
-                  , TS.validParams = [ ("solver", Just ["z3", "yices"]) ]
+                  , TS.validParams = [ ("solver", Just ["z3", "yices", "cvc4" ]) ]
                   , TS.associatedNames = [ ("config", "config")
                                          , ("stdio",  "print")
                                          ]
