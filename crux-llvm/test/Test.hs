@@ -65,7 +65,7 @@ mkTest sweet _ expct =
   let outFile = TS.expectedFile expct -<.> ".out"
       tname = TS.rootBaseName sweet
       runCruxName = tname <> " crux run"
-      printFName = outFile -<.> ".print_out"
+      printFName = outFile -<.> ".print.out"
 
       runCrux = Just $ testCase runCruxName $ do
         let cfargs = maybe [] (\c -> ["--config=" <> c]) $
@@ -78,7 +78,8 @@ mkTest sweet _ expct =
           failureMsg <$> (try $
                           withArgs (["--solver=z3", TS.rootFile sweet] ++ cfargs) $
                           -- Quiet mode, don't print colors
-                          C.mainWithOutputConfig (C.OutputConfig False h h True))
+                          let quietMode = True in
+                          C.mainWithOutputConfig (C.OutputConfig False h h quietMode))
         BSIO.writeFile printFName r
 
       checkPrint =
