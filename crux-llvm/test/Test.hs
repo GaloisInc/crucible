@@ -27,6 +27,7 @@ cCube, llCube :: TS.CUBE
 cCube = TS.mkCUBE { TS.inputDir = "test-data/golden"
                   , TS.rootName = "*.c"
                   , TS.expectedSuffix = "good"
+                  , TS.validParams = [ ("solver", Just ["z3", "yices"]) ]
                   , TS.associatedNames = [ ("config", "config")
                                          , ("stdio",  "print")
                                          ]
@@ -62,21 +63,32 @@ getClangVersion = do
 
 mkTest :: TS.Sweets -> Natural -> TS.Expectation -> IO TT.TestTree
 mkTest sweet _ expct =
-  let outFile = TS.expectedFile expct -<.> ".out"
+  let solver = maybe "z3"
+               (\case
+                 (TS.Explicit s) -> s
+                 (TS.Assumed  s) -> s
+                 TS.NotSpecified -> "z3")
+               $ lookup "solver" (TS.expParamsMatch expct)
+      outFile = TS.expectedFile expct -<.> ".out"
       tname = TS.rootBaseName sweet
       runCruxName = tname <> " crux run"
       printFName = outFile -<.> ".print.out"
 
       runCrux = Just $ testCase runCruxName $ do
-        let cfargs = maybe [] (\c -> ["--config=" <> c]) $
-                     lookup "config" (TS.associated expct)
+        let cfargs = catMaybes
+                     [
+                       ("--config=" <>) <$> lookup "config" (TS.associated expct)
+                     , Just $ "--solver=" <> solver
+                     , Just $ "--timeout=3"  -- fail if crucible cannot find a solution in 3 seconds
+                     , Just $ "--goal-timeout=4"  -- fail if solver cannot find a solution in 4 seconds
+                     ]
             failureMsg = let bss = BSIO.pack . fmap (toEnum . fromEnum) . show in \case
               Left e -> "*** Crux failed with exception: " <> bss (show (e :: SomeException)) <> "\n"
               Right (ExitFailure v) -> "*** Crux failed with non-zero result: " <> bss (show v) <> "\n"
               Right ExitSuccess -> ""
         r <- withFile outFile WriteMode $ \h ->
           failureMsg <$> (try $
-                          withArgs (["--solver=z3", TS.rootFile sweet] ++ cfargs) $
+                          withArgs (cfargs <> [TS.rootFile sweet]) $
                           -- Quiet mode, don't print colors
                           let quietMode = True in
                           C.mainWithOutputConfig (C.OutputConfig False h h quietMode))
