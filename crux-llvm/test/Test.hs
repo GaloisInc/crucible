@@ -6,7 +6,7 @@ module Main where
 import           Control.Exception ( SomeException, try )
 import qualified Data.ByteString.Lazy as BSIO
 import           Data.Char ( isLetter )
-import           Data.List ( isInfixOf )
+import           Data.List ( isInfixOf, isPrefixOf )
 import           Data.Maybe ( catMaybes, fromMaybe )
 import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
@@ -60,6 +60,31 @@ getClangVersion = do
       getVer = head . dropLetter . words . head . filter isVerLine . lines
   getVer <$> readProcess clangBin [ "--version" ] ""
 
+getZ3Version :: IO String
+getZ3Version =
+  let getVer inp = let w = words inp
+                   in if and [ length w > 2, head w == "Z3" ]
+                      then w !! 2 else "?"
+      -- example inp: "Z3 version 4.8.7 - 64 bit"
+  in getVer <$> readProcess "z3" [ "--version" ] ""
+
+getYicesVersion :: IO String
+getYicesVersion =
+  let getVer inp = let w = words inp
+                   in if and [ length w > 1, head w == "Yices" ]
+                      then w !! 1 else "?"
+      -- example inp: "Yices 2.6.1\nCopyright ..."
+  in getVer <$> readProcess "yices" [ "--version" ] ""
+
+getCVC4Version :: IO String
+getCVC4Version =
+  let getVer inp = let w = words inp
+                   in if and [ length w > 4
+                             , "This is CVC4 version" `isPrefixOf` inp
+                             ]
+                      then w !! 4 else "?"
+      -- example inp: "This is CVC4 version 1.8\ncompiled ..."
+  in getVer <$> readProcess "cvc4" [ "--version" ] ""
 
 mkTest :: TS.Sweets -> Natural -> TS.Expectation -> IO TT.TestTree
 mkTest sweet _ expct =
@@ -104,9 +129,19 @@ mkTest sweet _ expct =
         good <- BSIO.readFile (TS.expectedFile expct)
         (good @=?) =<< BSIO.readFile outFile
 
-  in return $ TT.testGroup (TS.rootBaseName sweet) $ catMaybes
-     [
-       runCrux
-     , TT.after TT.AllSucceed runCruxName <$> checkPrint
-     , TT.after TT.AllSucceed runCruxName <$> checkOutput
-     ]
+  in do
+    solverVer <- case solver of
+      "z3" -> ("z3-v" <>) <$> getZ3Version
+      "yices" -> ("yices-v" <>) <$> getYicesVersion
+      "cvc4" -> ("cvc4-v" <>) <$> getCVC4Version
+      _ -> return "unknown-solver-for-version"
+
+    return $
+      TT.testGroup solverVer
+      [ TT.testGroup (TS.rootBaseName sweet) $ catMaybes
+        [
+          runCrux
+        , TT.after TT.AllSucceed runCruxName <$> checkPrint
+        , TT.after TT.AllSucceed runCruxName <$> checkOutput
+        ]
+      ]
