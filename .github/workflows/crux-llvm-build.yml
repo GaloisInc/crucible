@@ -42,6 +42,11 @@ jobs:
         with:
           submodules: true
 
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: "9"
+
       - uses: actions/setup-haskell@v1
         id: setup-haskell
         with:
