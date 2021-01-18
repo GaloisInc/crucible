@@ -60,8 +60,13 @@ jobs:
           Z3_VERSION: "4.8.8"
           YICES_VERSION: "2.6.2"
 
+      - uses: Swatinem/rust-cache@v1
+        with:
+          working-directory: dependencies/mir-json
+
       - shell: bash
-        run: cd dependencies/mir-json && cargo install --locked --force --path .
+        run: cargo install --locked --force --path .
+        working-directory: dependencies/mir-json
 
       - shell: bash
         run: .github/ci.sh configure
@@ -70,7 +75,8 @@ jobs:
         run: .github/ci.sh build exe:crux-mir
 
       - shell: bash
-        run: cd crux-mir && bash ./translate_libs.sh
+        run: ./translate_libs.sh
+        working-directory: crux-mir
 
       - shell: bash
         run: .github/ci.sh test crux-mir
