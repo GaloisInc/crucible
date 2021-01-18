@@ -34,6 +34,7 @@ jobs:
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: "9"
+          directory: ${{ runner.temp }}/llvm
 
       - uses: actions/setup-haskell@v1
         id: setup-haskell
