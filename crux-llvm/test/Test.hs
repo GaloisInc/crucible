@@ -27,7 +27,7 @@ cCube, llCube :: TS.CUBE
 cCube = TS.mkCUBE { TS.inputDir = "test-data/golden"
                   , TS.rootName = "*.c"
                   , TS.expectedSuffix = "good"
-                  , TS.validParams = [ ("solver", Just ["z3", "yices", "cvc4" ]) ]
+                  , TS.validParams = [ ("solver", Just ["z3", "yices", "cvc4", "boolector", "stp" ]) ]
                   , TS.associatedNames = [ ("config", "config")
                                          , ("stdio",  "print")
                                          ]
@@ -76,6 +76,16 @@ getYicesVersion =
       -- example inp: "Yices 2.6.1\nCopyright ..."
   in getVer <$> readProcess "yices" [ "--version" ] ""
 
+getSTPVersion :: IO String
+getSTPVersion =
+  let getVer inp = let w = words inp
+                   in if and [ length w > 2
+                             , head w == "STP"
+                             , w !! 1 == "version" ]
+                         then w !! 2 else "?"
+      -- example inp: "STP version 2.3.3\n..."
+  in getVer <$> readProcess "stp" [ "--version" ] ""
+
 getCVC4Version :: IO String
 getCVC4Version =
   let getVer inp = let w = words inp
@@ -86,6 +96,13 @@ getCVC4Version =
       -- example inp: "This is CVC4 version 1.8\ncompiled ..."
   in getVer <$> readProcess "cvc4" [ "--version" ] ""
 
+getBoolectorVersion :: IO String
+getBoolectorVersion =
+  let getVer inp = let w = words inp
+                   in if not (null w) then head w else "?"
+      -- example inp: "3.2.1"
+  in getVer <$> readProcess "boolector" [ "--version" ] ""
+
 mkTest :: TS.Sweets -> Natural -> TS.Expectation -> IO TT.TestTree
 mkTest sweet _ expct =
   let solver = maybe "z3"
@@ -94,7 +111,7 @@ mkTest sweet _ expct =
                  (TS.Assumed  s) -> s
                  TS.NotSpecified -> "z3")
                $ lookup "solver" (TS.expParamsMatch expct)
-      outFile = TS.expectedFile expct -<.> ".out"
+      outFile = TS.expectedFile expct -<.> "." <> solver <> ".out"
       tname = TS.rootBaseName sweet
       runCruxName = tname <> " crux run"
       printFName = outFile -<.> ".print.out"
@@ -133,7 +150,9 @@ mkTest sweet _ expct =
     solverVer <- case solver of
       "z3" -> ("z3-v" <>) <$> getZ3Version
       "yices" -> ("yices-v" <>) <$> getYicesVersion
+      "stp" -> ("stp-v" <>) <$> getSTPVersion
       "cvc4" -> ("cvc4-v" <>) <$> getCVC4Version
+      "boolector" -> ("boolector-v" <>) <$> getBoolectorVersion
       _ -> return "unknown-solver-for-version"
 
     return $

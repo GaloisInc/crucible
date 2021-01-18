@@ -1,0 +1,4 @@
+[Crux] Goal timeout requested but not supported by STP
+[Crux] SMTLIB backend does not support function types as first class.
+CallStack (from HasCallStack):
+  error, called at src/What4/Protocol/SMTLib2.hs:369:3 in what4-1.0.0.0.99-inplace:What4.Protocol.SMTLib2
