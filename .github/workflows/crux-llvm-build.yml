@@ -6,24 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  outputs:
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.outputs.outputs.changed-files }}
-      name: ${{ steps.outputs.outputs.name }}
-      crux-llvm-version: ${{ steps.outputs.outputs.crux-llvm-version }}
-      release: ${{ steps.env.outputs.release }}
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - id: outputs
-        run: |
-          .github/ci.sh set_crux_llvm_version
-
   build:
     runs-on: ${{ matrix.os }}
-    needs: [outputs]
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +25,10 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
+
+      - name: Set version
+        run: .github/ci.sh set_crux_llvm_version
+        id: version
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
@@ -107,7 +95,7 @@ jobs:
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
+          VERSION: ${{ steps.version.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
         with:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuxo pipefail
 
-DATE=`date "+%Y-%m-%d"`
+DATE=$(date "+%Y-%m-%d")
 [[ "$RUNNER_OS" == 'Windows' ]] && IS_WIN=true || IS_WIN=false
 BIN=bin
 EXT=""
@@ -166,7 +166,7 @@ zip_dist() {
 bundle_crux_llvm_files() {
   setup_dist
   extract_exe crux-llvm dist/bin
-  if ! $IS_WIN ; then
+  if ! $IS_WIN; then
     extract_exe crux-llvm-svcomp dist/bin
   fi
   cp crux-llvm/README.md dist/doc

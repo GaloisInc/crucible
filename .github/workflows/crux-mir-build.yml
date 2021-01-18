@@ -73,7 +73,7 @@ jobs:
           YICES_VERSION: "2.6.2"
 
       - shell: bash
-        run: cd dependencies/mir-json && cargo install --locked --force
+        run: cd dependencies/mir-json && cargo install --locked --force --path .
 
       - shell: bash
         run: .github/ci.sh configure
