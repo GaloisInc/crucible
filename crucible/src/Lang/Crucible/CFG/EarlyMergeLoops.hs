@@ -86,6 +86,7 @@ type CFGEdge s = (BlockID s, BlockID s)
 
 -- | Detect all loops in a cfg.
 -- The assumption is that two backedges in a cfg will have distinct destination blocks.
+-- If this assumption does not hold, then return the empty list.
 cfgLoops :: CFG ext s init ret -> [LoopInfo s]
 cfgLoops cfg
   | distinct  = lis
