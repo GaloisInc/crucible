@@ -65,13 +65,13 @@ library
                    Mir.PP
                    Mir.Generate
                    Mir.DefId
+                   Mir.Trans
+                   Mir.TransCustom
   other-modules:
                  Mir.FancyMuxTree
                  Mir.Intrinsics
                  Mir.Overrides
                  Mir.TransTy
-                 Mir.Trans
-                 Mir.TransCustom
 
 
 executable crux-mir
