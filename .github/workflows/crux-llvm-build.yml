@@ -33,7 +33,7 @@ jobs:
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
-          version: "9"
+          version: "10"
           directory: ${{ runner.temp }}/llvm
 
       - uses: actions/setup-haskell@v1
@@ -64,28 +64,11 @@ jobs:
         run: .github/ci.sh build exe:crux-llvm
 
       - shell: bash
-        name: Test (Linux)
+        name: Test
         run: .github/ci.sh test crux-llvm
-        if: runner.os == 'Linux'
         env:
-          LLVM_LINK: "llvm-link-10"
-          CLANG: "clang-10"
-
-      - shell: bash
-        name: Test (macOS)
-        run: .github/ci.sh test crux-llvm
-        if: runner.os == 'macOS'
-        env:
-          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
-          CLANG: "/usr/local/opt/llvm/bin/clang"
-
-      - shell: bash
-        name: Test (Windows)
-        run: .github/ci.sh test crux-llvm
-        if: runner.os == 'Windows'
-        env:
-          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
-          CLANG: "/c/Program Files/LLVM/bin/clang"
+          LLVM_LINK: llvm-link
+          CLANG: clang
 
       - shell: bash
         run: .github/ci.sh build exe:crux-llvm-svcomp

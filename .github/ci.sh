@@ -112,29 +112,13 @@ build() {
 }
 
 test() {
-  # System-agnostic path
-  export PATH="$PATH:/usr/local/opt/llvm/bin:/c/Program Files/LLVM/bin"
   cabal v2-test "$@"
-}
-
-install_llvm() {
-  if [[ "$RUNNER_OS" = "Linux" ]]; then
-    sudo apt-get update -q && sudo apt-get install -y clang-10 llvm-10-tools
-  elif [[ "$RUNNER_OS" = "macOS" ]]; then
-    brew install llvm@10
-  elif [[ "$RUNNER_OS" = "Windows" ]]; then
-    choco install llvm
-  else
-    echo "Unknown platform!"
-    return 1
-  fi
 }
 
 install_system_deps() {
   install_z3 &
   # install_cvc4 &
   install_yices &
-  install_llvm &
   wait
   export PATH=$PWD/$BIN:$PATH
   echo "$PWD/$BIN" >> $GITHUB_PATH
