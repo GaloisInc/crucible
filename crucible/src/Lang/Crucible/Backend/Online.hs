@@ -441,14 +441,17 @@ withSolverProcess' getSolver sym def action = do
 
         if (getGoalTimeoutInSeconds $ solverGoalTimeout p) == 0
           then doAction
-          else let deadmanTimeoutPeriod = (fromInteger $
-                                           getGoalTimeoutInMilliSeconds
-                                           (solverGoalTimeout p) + 1000) * 1000
+          else let deadmanTimeoutPeriodMicroSeconds =
+                     (fromInteger $
+                       getGoalTimeoutInMilliSeconds (solverGoalTimeout p)
+                       + 1000  -- add 1 second to allow solver to honor timeout first
+                     ) * 1000  -- convert msec to usec
                    -- If the solver cannot voluntarily limit itself to
                    -- the requested timeout period, an async process
                    -- running slightly longer will forcibly terminate
                    -- the solver process.
-                   deadmanTimeout = threadDelay deadmanTimeoutPeriod >> stopTheSolver
+                   deadmanTimeout = threadDelay deadmanTimeoutPeriodMicroSeconds
+                                    >> stopTheSolver
                in race deadmanTimeout doAction >>=
                   either (const $ throwIO RunawaySolverTimeout) return
 
