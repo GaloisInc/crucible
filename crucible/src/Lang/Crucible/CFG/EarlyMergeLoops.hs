@@ -219,7 +219,9 @@ lowerUndefPass ng rootLabel cfg =
      let cfg' = cfg { cfgBlocks = blks' }
      return cfg'
   where
-    root = fromMaybe (error "Unknown root") $ findBlock cfg rootLabel
+    root = fromMaybe err $ findBlock cfg rootLabel
+    err  = panic "EarlyMergeLoops.lowerUndefPass"
+                 [ "Root block not found in cfg" ]
 
 -- | Fixup the reads and writes in a block. This means, for each value in the domain
 -- of the @ValueToPartialMap@ argument,
