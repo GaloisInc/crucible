@@ -764,7 +764,7 @@ evaluateExpr sym sc cache = f []
               SAWExpr <$>
                 (SC.scBvForall sc w
                  =<< SC.scLambda sc nm ty =<< f (Just (B.bvarName bvar):env) body)
-              where nm = Text.unpack $ solverSymbolAsText $ B.bvarName bvar
+              where nm = solverSymbolAsText $ B.bvarName bvar
             _ -> unsupported sym "SAW backend only supports universal quantifiers over bitvectors"
         B.Exists{} ->
           unsupported sym "SAW backend does not support existential quantifiers"
