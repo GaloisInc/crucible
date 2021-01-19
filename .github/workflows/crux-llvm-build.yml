@@ -68,6 +68,7 @@ jobs:
         run: .github/ci.sh test crux-llvm
         env:
           LLVM_LINK: llvm-link
+          LIBCLANG_PATH: ${{ runner.temp }}/llvm/lib
           CLANG: clang
 
       - shell: bash
