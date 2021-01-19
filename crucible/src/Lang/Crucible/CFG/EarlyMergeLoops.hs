@@ -32,7 +32,7 @@ module Lang.Crucible.CFG.EarlyMergeLoops
   ( earlyMergeLoops
   ) where
 
-import           Control.Monad ((>=>))
+import           Control.Monad (when, (>=>))
 import           Control.Applicative ((<**>))
 import qualified Data.Graph.Inductive as G
 import qualified Data.Foldable as Fold
@@ -56,6 +56,7 @@ import           What4.ProgramLoc (Position(..), Posd(..))
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Reg
+import           Lang.Crucible.Panic
 import           Lang.Crucible.Types
 
 --------------------------
@@ -541,22 +542,51 @@ earlyMergeLoops :: ( TraverseExt ext, Monad m, Show (CFG ext s init ret) )
                 -> CFG ext s init ret
                 -> m (CFG ext s init ret)
 earlyMergeLoops ng cfg0 =
-  do cfg' <- earlyMergeLoops' mempty cfg0
+  do cfg' <- earlyMergeLoops' ng mempty (cfgLoops cfg0) cfg0
      lowerUndefPass ng (cfgEntryLabel cfg') cfg'
+      
+-- Merge a loop from loops in cfg.  The loops parameter is passed
+-- to earlyMergeLoops (rather than calculated directly from cfg)
+-- so that we can use see how the set of loops changes from
+-- iteration to iteration: in particular, we want to make sure
+-- that the number of loops does not increases
+earlyMergeLoops' :: ( TraverseExt ext, Monad m, Show (CFG ext s init ret) )
+                 => NonceGenerator m s
+                 -> Set (BlockID s)
+                 -> [LoopInfo s]
+                 -> CFG ext s init ret
+                 -> m (CFG ext s init ret)
+earlyMergeLoops' ng seen ls cfg
+  | Just l <- nextLoop
+  = do cfg' <- earlyMergeLoop ng cfg l
+
+       -- Check if we should proceed: in particular, if the new CFG
+       -- renamed or produced new loops, then we need to bail as we
+       -- might not terminate in that case.
+       let ls'      = cfgLoops cfg'
+       let seen'    = (Set.insert (liHeader l) seen)
+       let nextStep = candidates seen' ls'
+       -- The termination transition invariant is that 
+       when (length thisStep <= length nextStep) $
+         panic "EarlyMergeLoops.earlyMergeLoops'"
+               ["Non-decreasing number of loops in earlyMegeLoops'"]
+       
+       earlyMergeLoops' ng seen' ls' cfg'
+  | otherwise
+  = return cfg
   where
-    earlyMergeLoops' seen cfg
-      | Just l <- nextLoop seen cfg
-      = do cfg' <- earlyMergeLoop ng cfg l
-           earlyMergeLoops' (Set.insert (liHeader l) seen) cfg'
-      | otherwise
-      = return cfg
+    thisStep =
+      candidates seen ls
 
-    nextLoop seen cfg =
-      case filter (unseen seen) (cfgLoops cfg) of
-        [] -> Nothing
-        ls -> Just $ minimumBy isNested ls
+    nextLoop 
+      | null thisStep  = Nothing
+      | otherwise = Just (minimumBy isNested thisStep)
 
-    unseen seen li = liHeader li `Set.notMember` seen
+    candidates seenBlocks lis =
+      filter (unseen seenBlocks) lis
+
+
+    unseen s li = liHeader li `Set.notMember` s
 
 -- | Apply the transformation described in @earlyMergeLoops@ to a single loop.
 earlyMergeLoop :: ( TraverseExt ext, Monad m, Show (CFG ext s init ret) )
