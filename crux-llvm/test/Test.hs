@@ -1,13 +1,15 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
-import           Control.Exception ( SomeException, try )
+import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
 import qualified Data.ByteString.Lazy as BSIO
 import           Data.Char ( isLetter )
 import           Data.List ( isInfixOf, isPrefixOf )
 import           Data.Maybe ( catMaybes, fromMaybe )
+import qualified GHC.IO.Exception as GE
 import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )
@@ -57,51 +59,79 @@ getClangVersion = do
   clangBin <- fromMaybe "clang" <$> lookupEnv "CLANG"
   let isVerLine = isInfixOf "clang version"
       dropLetter = dropWhile (all isLetter)
-      getVer = head . dropLetter . words . head . filter isVerLine . lines
-  getVer <$> readProcess clangBin [ "--version" ] ""
+      getVer (Right inp) =
+        -- example inp: "clang version 10.0.1"
+        head $ dropLetter $ words $ head $ filter isVerLine $ lines inp
+      getVer (Left full) = full
+  getVer <$> readProcessVersion clangBin
 
 getZ3Version :: IO String
 getZ3Version =
-  let getVer inp = let w = words inp
-                   in if and [ length w > 2, head w == "Z3" ]
-                      then w !! 2 else "?"
-      -- example inp: "Z3 version 4.8.7 - 64 bit"
-  in getVer <$> readProcess "z3" [ "--version" ] ""
+  let getVer (Right inp) =
+        -- example inp: "Z3 version 4.8.7 - 64 bit"
+        let w = words inp
+        in if and [ length w > 2, head w == "Z3" ]
+           then w !! 2 else "?"
+      getVer (Left full) = full
+  in getVer <$> readProcessVersion "z3"
 
 getYicesVersion :: IO String
 getYicesVersion =
-  let getVer inp = let w = words inp
-                   in if and [ length w > 1, head w == "Yices" ]
-                      then w !! 1 else "?"
-      -- example inp: "Yices 2.6.1\nCopyright ..."
-  in getVer <$> readProcess "yices" [ "--version" ] ""
+  let getVer (Right inp) =
+        -- example inp: "Yices 2.6.1\nCopyright ..."
+        let w = words inp
+        in if and [ length w > 1, head w == "Yices" ]
+           then w !! 1 else "?"
+      getVer (Left full) = full
+  in getVer <$> readProcessVersion "yices"
 
 getSTPVersion :: IO String
 getSTPVersion =
-  let getVer inp = let w = words inp
-                   in if and [ length w > 2
-                             , head w == "STP"
-                             , w !! 1 == "version" ]
-                         then w !! 2 else "?"
-      -- example inp: "STP version 2.3.3\n..."
-  in getVer <$> readProcess "stp" [ "--version" ] ""
+  let getVer (Right inp) =
+        -- example inp: "STP version 2.3.3\n..."
+        let w = words inp
+        in if and [ length w > 2
+                  , head w == "STP"
+                  , w !! 1 == "version" ]
+           then w !! 2 else "?"
+      getVer (Left full) = full
+  in getVer <$> readProcessVersion "stp"
 
 getCVC4Version :: IO String
 getCVC4Version =
-  let getVer inp = let w = words inp
-                   in if and [ length w > 4
-                             , "This is CVC4 version" `isPrefixOf` inp
-                             ]
-                      then w !! 4 else "?"
-      -- example inp: "This is CVC4 version 1.8\ncompiled ..."
-  in getVer <$> readProcess "cvc4" [ "--version" ] ""
+  let getVer (Right inp) =
+        -- example inp: "This is CVC4 version 1.8\ncompiled ..."
+        let w = words inp
+        in if and [ length w > 4
+                  , "This is CVC4 version" `isPrefixOf` inp
+                  ]
+           then w !! 4 else "?"
+      getVer (Left full) = full
+  in getVer <$> readProcessVersion "cvc4"
 
 getBoolectorVersion :: IO String
 getBoolectorVersion =
-  let getVer inp = let w = words inp
-                   in if not (null w) then head w else "?"
-      -- example inp: "3.2.1"
-  in getVer <$> readProcess "boolector" [ "--version" ] ""
+  let getVer (Right inp) =
+        -- example inp: "3.2.1"
+        let w = words inp
+        in if not (null w) then head w else "?"
+      getVer (Left full) = full
+  in getVer <$> readProcessVersion "boolector"
+
+readProcessVersion :: String -> IO (Either String String)
+readProcessVersion forTool =
+  catches (Right <$> readProcess forTool [ "--version" ] "")
+  [ Handler $ \(e :: IOException) ->
+      if GE.ioe_type e == GE.NoSuchThing
+      then return $ Left "[missing]" -- tool executable not found
+      else do putStrLn $ "Warning: IO error attempting to determine " <> forTool <> " version:"
+              putStrLn $ show e
+              return $ Left "unknown"
+  , Handler $ \(e :: SomeException) -> do
+      putStrLn $ "Warning: error attempting to determine " <> forTool <> " version:"
+      putStrLn $ show e
+      return $ Left "??"
+  ]
 
 mkTest :: TS.Sweets -> Natural -> TS.Expectation -> IO TT.TestTree
 mkTest sweet _ expct =
