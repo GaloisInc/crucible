@@ -109,7 +109,7 @@ llvmCruxConfig =
                            "Optimization level to request from `clang`"
 
          loopMerge <- Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
-                        "Insert merge blocks in loops with early exits"
+                        "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
 
          return LLVMOptions { .. }
 
