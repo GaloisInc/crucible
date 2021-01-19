@@ -541,7 +541,8 @@ earlyMergeLoops :: ( TraverseExt ext, Monad m, Show (CFG ext s init ret) )
                 -> CFG ext s init ret
                 -> m (CFG ext s init ret)
 earlyMergeLoops ng cfg0 =
-  earlyMergeLoops' mempty cfg0
+  do cfg' <- earlyMergeLoops' mempty cfg0
+     lowerUndefPass ng (cfgEntryLabel cfg') cfg'
   where
     earlyMergeLoops' seen cfg
       | Just l <- nextLoop seen cfg
@@ -563,14 +564,12 @@ earlyMergeLoop :: ( TraverseExt ext, Monad m, Show (CFG ext s init ret) )
                -> CFG ext s init ret
                -> LoopInfo s
                -> m (CFG ext s init ret)
-earlyMergeLoop ng cfg li =
-  case liHeader li of
-    LabelID l | not (null exits) -> 
-      do bmap'   <- funnelPaths ng bmap exits
-         let cfg' = cfg { cfgBlocks = Map.elems bmap' }
-         lowerUndefPass ng l cfg'
-    _ -> return cfg
-        
+earlyMergeLoop ng cfg li
+  | not (null exits) =
+      do bmap' <- funnelPaths ng bmap exits
+         return cfg { cfgBlocks = Map.elems bmap' }
+  | otherwise =
+      return cfg
   where
     exits         = filterErrors (liEarlyExits li ++ liFooterIn li)
     filterErrors  = filter (not . errorPath bmap)
