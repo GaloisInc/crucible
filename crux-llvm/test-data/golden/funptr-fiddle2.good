@@ -1,0 +1,11 @@
+[Crux] Counter example for /home/kquick/work/crux-sugar/crux-llvm/test-data/golden/funptr-fiddle2.c:0:0: error: in sel
+Error translating constant
+Illegal operation applied to pointer argument
+
+[Crux] Found counterexample for verification goal
+/home/kquick/work/crux-sugar/crux-llvm/test-data/golden/funptr-fiddle2.c:0:0: error: in sel
+Error translating constant
+Illegal operation applied to pointer argument
+
+
+[Crux] Overall status: Invalid.
