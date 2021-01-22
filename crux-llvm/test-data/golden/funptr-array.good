@@ -1,0 +1,36 @@
+[Crux] Counter example for /home/kquick/work/crux-sugar/crux-llvm/test-data/golden/funptr-array.c:12:12: error: in mytestfunction
+Failed to load function handle
+Details:
+  Cannot resolve a symbolic pointer to a function handle: (ite (eq 0x0:[64] (bvSum (bvMul 0x8:[64] (bvSext 64 cX@9:bv)))) 6 7, 0x0:[64])
+[Crux] Found counterexample for verification goal
+/home/kquick/work/crux-sugar/crux-llvm/test-data/golden/funptr-array.c:12:12: error: in mytestfunction
+Failed to load function handle
+Details:
+  Cannot resolve a symbolic pointer to a function handle: (ite (eq 0x0:[64] (bvSum (bvMul 0x8:[64] (bvSext 64 cX@9:bv)))) 6 7, 0x0:[64])
+  The given pointer could not be resolved to a callable function
+  Cannot resolve a symbolic pointer to a function handle: (ite (eq 0x0:[64] (bvSum (bvMul 0x8:[64] (bvSext 64 cX@9:bv)))) 6 7, 0x0:[64])
+  Attempting to load callable function with type: i32(i32)
+    Via pointer: (6, 0x0:[64])
+  In memory state:
+    Stack frame mytestfunction
+      No writes or allocations
+    Stack frame main
+      No writes or allocations
+    Base memory
+      Allocations:
+        GlobalAlloc 11 0x20:[64] Immutable 1-byte-aligned [global variable  ] .str
+        GlobalAlloc 10 0x10:[64] Immutable 16-byte-aligned [global variable  ] __const.mytestfunction.funs
+        GlobalAlloc 9 0x0:[64] Immutable 1-byte-aligned [defined function ] main
+        GlobalAlloc 8 0x0:[64] Immutable 1-byte-aligned [defined function ] mytestfunction
+        GlobalAlloc 7 0x0:[64] Immutable 1-byte-aligned [defined function ] pred
+        GlobalAlloc 6 0x0:[64] Immutable 1-byte-aligned [defined function ] succ
+        GlobalAlloc 5 0x0:[64] Immutable 1-byte-aligned [external function] crucible_assert
+        GlobalAlloc 4 0x0:[64] Immutable 1-byte-aligned [external function] crucible_assume
+        GlobalAlloc 3 0x0:[64] Immutable 1-byte-aligned [external function] __VERIFIER_nondet_int
+        GlobalAlloc 2 0x0:[64] Immutable 1-byte-aligned [external function] llvm.dbg.declare
+        GlobalAlloc 1 0x0:[64] Immutable 1-byte-aligned [external function] llvm.dbg.value
+      Writes:
+        Indexed chunk:
+          10 |->   *(10, 0x0:[64]) := [(6, 0x0:[64]),(7, 0x0:[64])]
+          11 |->   *(11, 0x0:[64]) := "test-data/golden/funptr-array.c\NUL"
+[Crux] Overall status: Invalid.

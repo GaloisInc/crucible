@@ -1,0 +1,3 @@
+[Crux] user error (Invalid solver configuration:
+boolector is not a valid online solver (expected yices, cvc4, z3, or stp)
+)

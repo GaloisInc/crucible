@@ -1,0 +1,16 @@
+[Crux] Counter example for /home/kquick/work/crux-sugar/crux-llvm/test-data/golden/funptr-fiddle.c:0:0: error: in sel
+Undefined behavior encountered
+Details:
+  Addition of an offset to a pointer resulted in a pointer to an address outside of the allocation
+[Crux] Found counterexample for verification goal
+/home/kquick/work/crux-sugar/crux-llvm/test-data/golden/funptr-fiddle.c:0:0: error: in sel
+Undefined behavior encountered
+Details:
+  Addition of an offset to a pointer resulted in a pointer to an address outside of the allocation
+  Pointer: (3, 0x0:[64])
+  Offset: 0x1:[64]
+  Reference: 
+    The C language standard, version C11
+    §6.5.6 Additive operators, ¶8
+    Document URL: http://www.iso-9899.info/n1570.html
+[Crux] Overall status: Invalid.
