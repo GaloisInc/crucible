@@ -8,6 +8,7 @@ Point-of-contact : jhendrix
 
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 module Lang.JVM.Codebase
@@ -39,16 +40,18 @@ import Language.JVM.Parser
 
 -- | Collection of classes loaded by JVM.
 data CodebaseState = CodebaseState {
-    jarReader   :: JarReader
-  -- ^ Maps class names to lazily loaded classes in JARs
-  , classPaths :: [FilePath]
-  , classMap    :: M.Map ClassName Class
+    classMap    :: M.Map ClassName Class
   , subclassMap :: M.Map ClassName [Class]
   -- ^ Maps class names to the list of classes that are direct subclasses, and
   -- interfaces to list of classes that directly implement them.
   }
 
-newtype Codebase = Codebase (IORef CodebaseState)
+data Codebase = Codebase
+  { jarReader  :: JarReader
+  -- ^ Maps class names to lazily loaded classes in JARs
+  , classPaths :: [FilePath]
+  , stateRef   :: IORef CodebaseState
+  }
 
 instance Show Codebase where
   show _ = "Codebase XXXXXX"
@@ -85,14 +88,13 @@ loadCodebase jarFiles classPaths = do
   -- merge the maps as in the current 'JarReader' type, but I doubt
   -- this would ever matter, performance wise.
   jars       <- newJarReader jarFiles
-  let cb = CodebaseState jars classPaths M.empty M.empty
-  Codebase <$> newIORef cb
+  let cb = CodebaseState M.empty M.empty
+  Codebase jars classPaths <$> newIORef cb
 
 -- | Register a class with the given codebase
 addClass :: Class -> CodebaseState -> CodebaseState
-addClass cl (CodebaseState jr cp cMap scMap) =
-  CodebaseState jr cp
-                (M.insert (className cl) cl cMap)
+addClass cl (CodebaseState cMap scMap) =
+  CodebaseState (M.insert (className cl) cl cMap)
                 (foldr addToSuperclass scMap
                    (maybeToList (superClass cl)++classInterfaces cl))
   where addToSuperclass super m =
@@ -105,19 +107,19 @@ addClass cl (CodebaseState jr cp cMap scMap) =
 -- | Returns class with given name in codebase or returns nothing if no class with
 -- that name can be found.
 tryLookupClass :: Codebase -> ClassName -> IO (Maybe Class)
-tryLookupClass (Codebase cbRef) clNm = do
-  cb <- readIORef cbRef
+tryLookupClass (Codebase{jarReader, classPaths, stateRef}) clNm = do
+  cb <- readIORef stateRef
   case M.lookup clNm (classMap cb) of
     Just cl -> return (Just cl)
     Nothing -> do
       -- Here we bias our search to JARs before classpath directories,
       -- as mentioned above in 'loadCodebase'.
-      let mcls = [loadClassFromJar clNm (jarReader cb)] ++
-                 map (loadClassFromDir clNm) (classPaths cb)
+      let mcls = [loadClassFromJar clNm jarReader] ++
+                 map (loadClassFromDir clNm) classPaths
       mcl <- foldl1 firstSuccess mcls
       case mcl of
         Just cl -> do
-          writeIORef cbRef $! addClass cl cb
+          writeIORef stateRef $! addClass cl cb
           return $ Just cl
         Nothing -> return Nothing
   where
@@ -189,8 +191,8 @@ lookupClass cb clNm = do
         ]
 
 getClasses :: Codebase -> IO [Class]
-getClasses (Codebase cbRef) = do
-  cb <- readIORef cbRef
+getClasses (Codebase{stateRef}) = do
+  cb <- readIORef stateRef
   return . M.elems . classMap $ cb
 
 -- | Adjusts the given field id to specify as its class the class in the
@@ -289,8 +291,8 @@ supers cb cl = do
 -- | Produces the subclass hierarchy of the given class.  Ordered
 -- from base class to subclass, starting with the given class.
 subs :: Codebase -> Class -> IO [Class]
-subs (Codebase ref) cl = do
-  cb <- readIORef ref
+subs (Codebase{stateRef}) cl = do
+  cb <- readIORef stateRef
   return $ starClosure (fromMaybe [] . (`M.lookup` subclassMap cb) . className) cl
 
 
