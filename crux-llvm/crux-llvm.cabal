@@ -96,6 +96,7 @@ executable crux-llvm
     process,
     template-haskell,
     text,
+    versions < 4.0,
     what4
 
   main-is: Main.hs

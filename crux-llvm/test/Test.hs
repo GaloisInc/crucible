@@ -9,10 +9,10 @@ import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import qualified Data.ByteString.Lazy as BSIO
 import Data.Char ( isLetter )
 import Data.List ( isInfixOf )
-import System.Directory( doesFileExist )
+import System.Directory( listDirectory,  doesFileExist, doesDirectoryExist )
 import System.Environment ( withArgs, lookupEnv )
 import System.Exit ( ExitCode(..) )
-import System.FilePath (takeBaseName, replaceExtension)
+import System.FilePath ((</>), takeBaseName, replaceExtension)
 import System.IO --(IOMode(..), hFlush, withFile, stdout, stderr)
 import System.Process ( readProcess )
 
@@ -38,18 +38,33 @@ main = do
       getVer = head . dropLetter . words . head . filter isVerLine . lines
   ver <- getVer <$> readProcess clangBin [ "--version" ] ""
 
-  defaultMain =<< suite ver
+  defaultMain =<< goldenSuites ver "test-data/golden"
 
-suite :: String -> IO TestTree
-suite clangVer =
-  testGroup "crux-llvm" . pure . testGroup ("clang " <> clangVer) . pure <$> goldenTests "test-data/golden"
+goldenSuites :: String -> FilePath -> IO TestTree
+goldenSuites clangVer goldenDir =
+  do allFiles <- listDirectory goldenDir
+     tests <- concat <$> traverse directoryTests allFiles
+     pure $ testGroup "crux-llvm" [testGroup ("clang " <> clangVer) tests]
+  where
+    directoryTests d =
+      do let p = goldenDir </> d
+         testDir <- doesDirectoryExist p
+         if testDir then
+           pure <$> goldenTests ("Golden testing of crux-llvm (" <> d <> ")") p
+          else pure []
+      
+-- suite :: String -> IO TestTree
+-- suite clangVer testDirs =
+--   testGroup ("clang " <> clangVer) <$> allGoldenTests testDirs
 
+allGoldenTests :: [(String, FilePath)] -> IO [TestTree]
+allGoldenTests = traverse (uncurry goldenTests)
 
-goldenTests :: FilePath -> IO TestTree
-goldenTests dir =
+goldenTests :: String -> FilePath -> IO TestTree
+goldenTests nm dir =
   do cFiles <- findByExtension [".c",".ll"] dir
      return $
-       testGroup "Golden testing of crux-llvm"
+       testGroup nm 
          [ goldenVsString (takeBaseName cFile) goodFile $
            do ex <- doesFileExist configFile
               let cfgargs = if ex then ["--config="++configFile] else []

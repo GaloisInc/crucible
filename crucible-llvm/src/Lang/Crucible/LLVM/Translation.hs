@@ -340,7 +340,7 @@ genDefn defn retType =
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: forall arch wptr.
-               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool)
+               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool, ?optLoopMerge :: Bool)
             => HandleAllocator
             -> LLVMContext arch
             -> L.Define
@@ -358,7 +358,8 @@ transDefine halloc ctx d = do
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType
     sng <- newIONonceGenerator
-    (SomeCFG g, []) <- defineFunction InternalPos sng h def
+    (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
+      if ?optLoopMerge then earlyMergeLoops ng cfg else return cfg
     case toSSA g of
       C.SomeCFG g_ssa -> return (symb, (decl, C.AnyCFG g_ssa))
 
@@ -368,7 +369,7 @@ transDefine halloc ctx d = do
 -- | Translate a module into Crucible control-flow graphs.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
-translateModule :: (?laxArith :: Bool)
+translateModule :: (?laxArith :: Bool, ?optLoopMerge :: Bool)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> L.Module        -- ^ Module to translate
                 -> IO (Some ModuleTranslation)
