@@ -121,7 +121,7 @@ test-suite crucible-llvm-tests
     llvm-pretty,
     llvm-pretty-bc-parser,
     mtl,
-    parameterized-utils,
+    parameterized-utils >= 2.1.2.0,
     process,
     what4,
     tasty,

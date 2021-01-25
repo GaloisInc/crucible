@@ -16,6 +16,7 @@ import           Lang.Crucible.FunctionHandle ( newHandleAllocator )
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr
+import           Data.Parameterized.SymbolRepr ( SomeSym(SomeSym) )
 
 -- LLVM
 import qualified Text.LLVM.AST as L
@@ -34,7 +35,6 @@ import           Control.Monad
 import           Data.Either ( fromRight )
 import           Data.Maybe ( catMaybes )
 import           GHC.TypeLits
-import           Data.Kind ( Type )
 import qualified Data.Map.Strict as Map
 import           Data.Proxy ( Proxy(..) )
 import qualified System.Directory as Dir
@@ -57,8 +57,8 @@ data LLVMAssembler (source :: Symbol) = LLVMAssembler String
   deriving (Eq, Show)
 
 instance TO.IsOption (SomeSym LLVMAssembler) where
-  defaultValue = SomeS $ LLVMAssembler @"default" "llvm-as"
-  parseValue = Just . SomeS . LLVMAssembler @ "option"
+  defaultValue = SomeSym $ LLVMAssembler @"default" "llvm-as"
+  parseValue = Just . SomeSym . LLVMAssembler @ "option"
   optionName = pure "llvm-assembler"
   optionHelp = pure $ unwords ["The LLVM assembler to use on .ll files"
                               ,"(overrides the LLVM_AS environment variable,"
@@ -68,8 +68,8 @@ data Clang (source :: Symbol) = Clang String
   deriving (Eq, Show)
 
 instance TO.IsOption (SomeSym Clang) where
-  defaultValue = SomeS $ Clang @"default" "clang"
-  parseValue = Just . SomeS . Clang @"option"
+  defaultValue = SomeSym $ Clang @"default" "clang"
+  parseValue = Just . SomeSym . Clang @"option"
   optionName = pure "clang"
   optionHelp = pure $ unwords ["The clang binary to use to compile C files"
                               ,"(overrides the CLANG environment variable,"
@@ -77,13 +77,6 @@ instance TO.IsOption (SomeSym Clang) where
 
 optionSource :: opt (source :: Symbol) -> Proxy source
 optionSource _ = Proxy
-
--- | The SomeSym hides a Symbol parameter but preserves a KnownSymbol
--- constraint on the hidden parameter.  n.b. will be provided in the
--- future by parameterized-utils > 2.1.1.
-
-data SomeSym (c :: Symbol -> Type) =
-  forall (s :: Symbol) . KnownSymbol s => SomeS (c s)
 
 doProc :: String -> [String] -> IO ProcResult
 doProc !exe !args = do
@@ -184,7 +177,7 @@ testBuildTranslation srcPath llvmTransTests =
       c_compile =
         if (ext == ".c")
         then
-          Just $ askOption $ \(SomeS clangOption :: SomeSym Clang) ->
+          Just $ askOption $ \(SomeSym clangOption :: SomeSym Clang) ->
           testCase genBCName $ do
           clang <-
             let src = optionSource clangOption in
@@ -199,7 +192,7 @@ testBuildTranslation srcPath llvmTransTests =
 
       llvm_assemble =
         if (ext == ".ll")
-        then Just $ askOption $ \(SomeS assemblerOption :: SomeSym LLVMAssembler) ->
+        then Just $ askOption $ \(SomeSym assemblerOption :: SomeSym LLVMAssembler) ->
           testCase genBCName $ do
           llvm_as <-
             let src = optionSource assemblerOption in
