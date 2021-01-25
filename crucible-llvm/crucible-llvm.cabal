@@ -105,7 +105,11 @@ test-suite crucible-llvm-tests
   hs-source-dirs: test
   default-language: Haskell2010
   ghc-options: -Wall -Wcompat
-  -- other-modules:
+  other-modules: MemSetup
+               , TestFunctions
+               , TestGlobals
+               , TestMemory
+               , TestTranslation
   build-depends:
     base,
     bv-sized,
@@ -117,11 +121,11 @@ test-suite crucible-llvm-tests
     llvm-pretty,
     llvm-pretty-bc-parser,
     mtl,
-    parameterized-utils,
+    parameterized-utils >= 2.1.2.0,
     process,
     what4,
     tasty,
-    tasty-golden,
     tasty-quickcheck,
     tasty-hunit,
+    tasty-sugar >= 1.0 && < 1.1,
     vector
