@@ -60,6 +60,7 @@ library
                    Mir.Language
                    Mir.Mir
                    Mir.GenericOps
+                   Mir.Intrinsics
                    Mir.Pass
                    Mir.Pass.AllocateEnum
                    Mir.PP
@@ -69,7 +70,6 @@ library
                    Mir.TransCustom
   other-modules:
                  Mir.FancyMuxTree
-                 Mir.Intrinsics
                  Mir.Overrides
                  Mir.TransTy
 
