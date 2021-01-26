@@ -219,6 +219,7 @@ testBuildTranslation srcPath llvmTransTests =
 
       trans = do halloc <- newHandleAllocator
                  let ?laxArith = False
+                 let ?optLoopMerge = False
                  translateModule halloc =<<
                    (fromRight (error "parsing was already verified") <$> parseLLVM bcPath)
 

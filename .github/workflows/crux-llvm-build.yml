@@ -70,7 +70,24 @@ jobs:
         run: .github/ci.sh build exe:crux-llvm
 
       - shell: bash
-        name: Test (Linux)
+        name: Test crucible (Linux)
+        run: .github/ci.sh test crucible
+        if: runner.os == 'Linux'
+        env:
+          LLVM_LINK: "llvm-link-10"
+          CLANG: "clang-10"
+
+      - shell: bash
+        name: Test crucible-llvm (Linux)
+        run: .github/ci.sh test crucible-llvm
+        if: runner.os == 'Linux'
+        env:
+          LLVM_LINK: "llvm-link-10"
+          LLVM_AS: "llvm-as-10"
+          CLANG: "clang-10"
+
+      - shell: bash
+        name: Test crux-llvm (Linux)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux'
         env:
@@ -78,7 +95,24 @@ jobs:
           CLANG: "clang-10"
 
       - shell: bash
-        name: Test (macOS)
+        name: Test crucible (macOS)
+        run: .github/ci.sh test crucible
+        if: runner.os == 'macOS'
+        env:
+          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
+          CLANG: "/usr/local/opt/llvm/bin/clang"
+
+      - shell: bash
+        name: Test crucible-llvm (macOS)
+        run: .github/ci.sh test crucible-llvm
+        if: runner.os == 'macOS'
+        env:
+          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
+          LLVM_AS: "/usr/local/opt/llvm/bin/llvm-as"
+          CLANG: "/usr/local/opt/llvm/bin/clang"
+
+      - shell: bash
+        name: Test crux-llvm (macOS)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'macOS'
         env:
@@ -86,7 +120,24 @@ jobs:
           CLANG: "/usr/local/opt/llvm/bin/clang"
 
       - shell: bash
-        name: Test (Windows)
+        name: Test crucible (Windows)
+        run: .github/ci.sh test crucible
+        if: runner.os == 'Windows'
+        env:
+          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
+          CLANG: "/c/Program Files/LLVM/bin/clang"
+
+      - shell: bash
+        name: Test crucible-llvm (Windows)
+        run: .github/ci.sh test crucible-llvm
+        if: runner.os == 'Windows'
+        env:
+          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
+          LLVM_AS: "/c/Program Files/LLVM/bin/llvm-as"
+          CLANG: "/c/Program Files/LLVM/bin/clang"
+
+      - shell: bash
+        name: Test crux-llvm (Windows)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Windows'
         env:

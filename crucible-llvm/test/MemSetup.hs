@@ -60,6 +60,7 @@ withLLVMCtx mod' action =
       with nonceGen halloc = do
         sym <- CBS.newSimpleBackend CBS.FloatRealRepr nonceGen
         let ?laxArith = False
+        let ?optLoopMerge = False
         Some (LLVMTr.ModuleTranslation _ ctx _ _) <- LLVMTr.translateModule halloc mod'
         case LLVMTr.llvmArch ctx            of { LLVME.X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
