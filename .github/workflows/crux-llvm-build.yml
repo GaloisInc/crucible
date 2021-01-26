@@ -33,7 +33,7 @@ jobs:
         allow-failure: [false]
         include:
           - os: macos-latest
-            allow-failure: [true]
+            allow-failure: true
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
         exclude:
