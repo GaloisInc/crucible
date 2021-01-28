@@ -36,6 +36,9 @@ jobs:
           version: "10"
           directory: ${{ runner.temp }}/llvm
 
+      - uses: mxschmitt/action-tmate@v3
+        if: runner.os == 'macOS' && matrix.ghc == '8.6.5'
+
       - uses: actions/setup-haskell@v1
         id: setup-haskell
         with:
