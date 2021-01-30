@@ -29,7 +29,9 @@
 module Lang.Crucible.Backend.Online
   ( -- * OnlineBackend
     OnlineBackend
+  , OnlineBackendUserSt
   , withOnlineBackend
+  , newOnlineBackend
   , initialOnlineBackendState
   , checkSatisfiable
   , checkSatisfiableWithModel
@@ -64,6 +66,7 @@ module Lang.Crucible.Backend.Online
   , withSTPOnlineBackend
     -- * OnlineBackendState
   , OnlineBackendState(..)
+  , EmptyUserState(..)
     -- * Re-exports
   , B.FloatMode
   , B.FloatModeRepr(..)
@@ -133,7 +136,7 @@ solverInteractionFile = configOption knownRepr "solverInteractionFile"
 enableOnlineBackend :: ConfigOption BaseBoolType
 enableOnlineBackend = configOption knownRepr "enableOnlineBackend"
 
-onlineBackendOptions :: OnlineSolver solver => OnlineBackendState solver scope -> [ConfigDesc]
+onlineBackendOptions :: OnlineSolver solver => OnlineBackendState solver userSt scope -> [ConfigDesc]
 onlineBackendOptions st =
   [ mkOpt
       solverInteractionFile
@@ -153,14 +156,20 @@ onlineBackendOptions st =
 -- | Get the connection for sending commands to the solver.
 withSolverConn ::
   OnlineSolver solver =>
-  OnlineBackend scope solver fs ->
+  OnlineBackendUserSt scope solver userSt fs ->
   (WriterConn scope solver -> IO ()) ->
   IO ()
 withSolverConn sym k = withSolverProcess sym (pure ()) (k . solverConn)
 
+
+data EmptyUserState scope = EmptyUserState
+
 --------------------------------------------------------------------------------
 type OnlineBackend scope solver fs =
-                        B.ExprBuilder scope (OnlineBackendState solver) fs
+       B.ExprBuilder scope (OnlineBackendState solver EmptyUserState) fs
+
+type OnlineBackendUserSt scope solver userSt fs =
+       B.ExprBuilder scope (OnlineBackendState solver userSt) fs
 
 
 type YicesOnlineBackend scope fs = OnlineBackend scope Yices.Connection fs
@@ -295,7 +304,7 @@ data SolverState scope solver =
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
-data OnlineBackendState solver scope = OnlineBackendState
+data OnlineBackendState solver userState scope = OnlineBackendState
   { assumptionStack ::
       !(AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
       -- ^ Number of times we have pushed
@@ -305,14 +314,17 @@ data OnlineBackendState solver scope = OnlineBackendState
 
   , onlineEnabled :: IO Bool
     -- ^ action for checking if online features are currently enabled
+
+  , onlineUserState :: userState scope
   }
 
 -- | Returns an initial execution state.
 initialOnlineBackendState ::
   NonceGenerator IO scope ->
   ProblemFeatures ->
-  IO (OnlineBackendState solver scope)
-initialOnlineBackendState gen feats =
+  userState scope ->
+  IO (OnlineBackendState solver userState scope)
+initialOnlineBackendState gen feats ust =
   do stk <- initAssumptionStack gen
      procref <- newIORef SolverNotStarted
      featref <- newIORef feats
@@ -321,10 +333,11 @@ initialOnlineBackendState gen feats =
                  , solverProc = procref
                  , currentFeatures = featref
                  , onlineEnabled = fail "OnlineBackend: onlineEnabled queried too early"
+                 , onlineUserState = ust
                  }
 
 getAssumptionStack ::
-  OnlineBackend scope solver fs ->
+  OnlineBackendUserSt scope solver userSt fs ->
   IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
 getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
 
@@ -345,7 +358,7 @@ resetSolverProcess sym = do
 --   next call to `getSolverProcess`.
 resetSolverProcess' ::
   OnlineSolver solver =>
-  OnlineBackendState solver scope ->
+  OnlineBackendState solver userSt scope ->
   IO ()
 resetSolverProcess' st = do
   do mproc <- readIORef (solverProc st)
@@ -361,7 +374,7 @@ resetSolverProcess' st = do
 restoreSolverState ::
   OnlineSolver solver =>
   AS.LabeledGoalCollector (B.BoolExpr scope) AssumptionReason SimError ->
-  OnlineBackendState solver scope ->
+  OnlineBackendState solver userSt scope ->
   IO ()
 restoreSolverState gc st =
   do mproc <- readIORef (solverProc st)
@@ -388,7 +401,7 @@ restoreSolverState gc st =
 --   is skipped instead, and the solver is not started.
 withSolverProcess' ::
   OnlineSolver solver =>
-  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver scope)) ->
+  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver userSt scope)) ->
   B.ExprBuilder scope s fs ->
   IO a {- ^ Default value to return if online features are disabled -} ->
   (SolverProcess scope solver -> IO a) ->
@@ -441,7 +454,7 @@ withSolverProcess' getSolver sym def action = do
 --   is skipped instead, and the solver is not started.
 withSolverProcess ::
   OnlineSolver solver =>
-  OnlineBackend scope solver fs ->
+  OnlineBackendUserSt scope solver userSt fs ->
   IO a {- ^ Default value to return if online features are disabled -} ->
   (SolverProcess scope solver -> IO a) ->
   IO a
@@ -480,7 +493,7 @@ restoreAssumptionFrames proc (AssumptionFrames base frms) =
 
 considerSatisfiability ::
   OnlineSolver solver =>
-  OnlineBackend scope solver fs ->
+  OnlineBackendUserSt scope solver userSt fs ->
   Maybe ProgramLoc ->
   B.BoolExpr scope ->
   IO BranchResult
@@ -499,6 +512,26 @@ considerSatisfiability sym mbPloc p =
         (Unsat{}, _      ) -> return (NoBranch False)
         _                  -> return IndeterminateBranchResult
 
+newOnlineBackend ::
+  OnlineSolver solver =>
+  B.FloatModeRepr fm ->
+  NonceGenerator IO scope ->
+  ProblemFeatures ->
+  userSt scope ->
+  IO (OnlineBackendUserSt scope solver userSt (B.Flags fm))
+newOnlineBackend floatMode gen feats userSt =
+  do st0 <- initialOnlineBackendState gen feats userSt
+     sym <- B.newExprBuilder floatMode st0 gen
+     extendConfig
+       (backendOptions ++ onlineBackendOptions st0)
+       (getConfiguration sym)
+
+     enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
+     let st = st0{ onlineEnabled = getOpt enableOpt }
+
+     writeIORef (B.sbStateManager sym) st
+     return sym
+
 -- | Do something with an online backend.
 --   The backend is only valid in the continuation.
 --
@@ -512,16 +545,8 @@ withOnlineBackend ::
   (OnlineBackend scope solver (B.Flags fm) -> m a) ->
   m a
 withOnlineBackend floatMode gen feats action = do
-  st0  <- liftIO $ initialOnlineBackendState gen feats
-  sym <- liftIO $ B.newExprBuilder floatMode st0 gen
-  liftIO $ extendConfig
-    (backendOptions ++ onlineBackendOptions st0)
-    (getConfiguration sym)
-
-  enableOpt <- liftIO $ getOptionSetting enableOnlineBackend (getConfiguration sym)
-  let st = st0{ onlineEnabled = getOpt enableOpt }
-
-  liftIO $ writeIORef (B.sbStateManager sym) st
+  sym <- liftIO (newOnlineBackend floatMode gen feats EmptyUserState)
+  st <- liftIO (readIORef (B.sbStateManager sym))
 
   action sym
     `finally`
@@ -534,7 +559,7 @@ withOnlineBackend floatMode gen feats action = do
     )
 
 
-instance OnlineSolver solver => IsBoolSolver (OnlineBackend scope solver fs) where
+instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver userSt fs) where
 
   addDurableProofObligation sym a =
      AS.addProofObligation a =<< getAssumptionStack sym

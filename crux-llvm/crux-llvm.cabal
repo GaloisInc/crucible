@@ -176,7 +176,6 @@ test-suite crux-llvm-test
                 filepath,
                 parsec,
                 process,
-                saw-core,
                 QuickCheck,
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
