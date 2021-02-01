@@ -5,4 +5,3 @@ test-data/golden/golden-loop-merging/loop_exit_unsafe.c:18:0: error: in main
 crucible_assert
 
 [Crux] Overall status: Invalid.
-*** Crux failed with non-zero result: "1"

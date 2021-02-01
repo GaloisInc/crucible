@@ -29,4 +29,3 @@ test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
 crucible_assert
 
 [Crux] Overall status: Invalid.
-*** Crux failed with non-zero result: "1"
