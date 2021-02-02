@@ -125,7 +125,11 @@ processJVMOptions opts@JVMOptions{javaBinDirs} = do
     Just javaPath -> do
       javaMajorVersion <- findJavaMajorVersion javaPath
       if javaMajorVersion >= 9
-         then pure opts
+         then do putStrLn $ unlines
+                   [ "WARNING: crucible-jvm's support for JDK 9 or later is experimental."
+                   , "See https://github.com/GaloisInc/crucible/issues/641."
+                   ]
+                 pure opts
          else addRTJar javaPath opts
   where
     -- rt.jar lives in a standard location relative to @java.home@. At least,
@@ -178,7 +182,7 @@ simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
              [file] -> return file
              _ -> fail "crux-jvm requires a single file name as an argument"
 
-   cb <- JCB.loadCodebase (jarList opts) (classPath opts)
+   cb <- JCB.loadCodebase (jarList opts) (classPath opts) (javaBinDirs opts)
 
    let cname = takeBaseName file
    let mname = mainMethod opts
