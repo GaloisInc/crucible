@@ -20,6 +20,11 @@ jobs:
       - id: outputs
         run: |
           .github/ci.sh set_crux_llvm_version
+          echo 'words' > testfile
+          .github/ci.sh sign testfile
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
 
   build:
     runs-on: ${{ matrix.os }}
