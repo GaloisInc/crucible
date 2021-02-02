@@ -53,10 +53,13 @@ library
     base >= 4 && < 5,
     aig,
     array,
+    base16-bytestring >= 0.1 && < 1.1,
     bv-sized >= 1.0.0,
+    bytestring,
     containers,
     crucible,
-    directory,
+    cryptohash-sha1 >= 0.11 && < 0.12,
+    directory >= 1.2.5,
     extra >= 1.6.4,
     filepath,
     haskeline >= 0.7,
@@ -88,6 +91,7 @@ library
     Lang.Crucible.JVM.Overrides
     Lang.JVM.Codebase
     Lang.JVM.JavaTools
+    Lang.JVM.ProcessUtils
   other-modules:
 
   ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
