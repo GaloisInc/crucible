@@ -159,7 +159,7 @@ main = do
 
 
 
-testBuildTranslation :: FilePath -> (IO (Some ModuleTranslation) -> TestTree) -> TestTree
+testBuildTranslation :: FilePath -> (IO (Some ModuleTranslation) -> TestTree) -> [TestTree]
 testBuildTranslation srcPath llvmTransTests =
   -- n.b. srcPath may be a relative path
   let (dName, srcName) = splitFileName srcPath
@@ -229,7 +229,7 @@ testBuildTranslation srcPath llvmTransTests =
           not (Map.null $ cfgMap modTrans) @? "Translation of " ++ bcPath ++ " was empty (failed?)"
 
 
-  in testGroup srcPath $ catMaybes
+  in catMaybes
     [ c_compile
     , llvm_assemble
     , Just $ after AllSucceed genBCName     parse_bitcode
