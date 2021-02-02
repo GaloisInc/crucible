@@ -17,6 +17,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# Language ImplicitParams #-}
+{-# Language NamedFieldPuns #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -40,7 +41,7 @@ import System.Console.GetOpt
 import System.IO
 import System.Environment(getProgName,getArgs)
 import System.Exit (ExitCode(..), exitWith, exitFailure)
-import System.FilePath(takeExtension,takeBaseName)
+import System.FilePath((</>),takeExtension,takeBaseName)
 import System.FilePath(splitSearchPath)
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
@@ -80,6 +81,7 @@ import qualified Crux.Config.Common as Crux
 
 
 import qualified Lang.JVM.Codebase as JCB
+import           Lang.JVM.JavaTools
 
 import           Lang.Crucible.JVM.Simulate (setupCrucibleJVMCrux)
 import           Lang.Crucible.JVM.Types
@@ -99,16 +101,43 @@ data JVMOptions = JVMOptions
     -- this must include rt.jar from the JDK
     -- (The JDK_JAR environment variable can also be used to
     -- to specify this JAR).
+  , javaBinDirs      :: [FilePath]
+    -- ^ where to look to find the @java@ executable
   , mainMethod       :: String
   }
 
 defaultOptions :: JVMOptions
 defaultOptions =
   JVMOptions
-  { classPath  = ["."]
-  , jarList    = []
-  , mainMethod = "main"
+  { classPath   = ["."]
+  , jarList     = []
+  , javaBinDirs = []
+  , mainMethod  = "main"
   }
+
+-- | Perform some additional post-processing on a 'JVMOptions' value based on
+-- whether @--java-bin-dirs@ (or the @PATH@) is set.
+processJVMOptions :: JVMOptions -> IO JVMOptions
+processJVMOptions opts@JVMOptions{javaBinDirs} = do
+  mbJavaPath <- findJavaIn javaBinDirs
+  case mbJavaPath of
+    Nothing       -> pure opts
+    Just javaPath -> do
+      javaMajorVersion <- findJavaMajorVersion javaPath
+      if javaMajorVersion >= 9
+         then pure opts
+         else addRTJar javaPath opts
+  where
+    -- rt.jar lives in a standard location relative to @java.home@. At least,
+    -- this is the case on every operating system I've tested.
+    addRTJar :: FilePath -> JVMOptions -> IO JVMOptions
+    addRTJar javaPath os = do
+      mbJavaHome <- findJavaProperty javaPath "java.home"
+      case mbJavaHome of
+        Nothing -> fail $ "Could not find where rt.jar lives for " ++ javaPath
+        Just javaHome ->
+          let rtJarPath = javaHome </> "lib" </> "rt.jar" in
+          pure $ os{ jarList = rtJarPath : jarList os }
 
 cruxJVMConfig :: Crux.Config JVMOptions
 cruxJVMConfig = Crux.Config
@@ -129,6 +158,11 @@ cruxJVMConfig = Crux.Config
         $ Crux.ReqArg "TODO"
         $ \p opts ->
             Right $ opts { jarList = jarList opts ++ splitSearchPath p }
+      , Crux.Option ['b'] ["java-bin-dirs"]
+        "TODO"
+        $ Crux.ReqArg "TODO"
+        $ \p opts ->
+            Right $ opts { javaBinDirs = javaBinDirs opts ++ splitSearchPath p }
       , Crux.Option ['m'] ["method"]
         "Method to simulate"
         $ Crux.ReqArg "method name"
@@ -164,6 +198,7 @@ simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
 main :: IO ()
 main =
   Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1" cruxJVMConfig $
-    \(cruxOpts, jvmOpts) ->
+    \(cruxOpts, jvmOpts) -> do
+      jvmOpts' <- processJVMOptions jvmOpts
       exitWith =<< Crux.postprocessSimResult cruxOpts =<<
-        Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts)
+        Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts')
