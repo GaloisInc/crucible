@@ -149,18 +149,18 @@ cruxJVMConfig = Crux.Config
       ]
   , Crux.cfgCmdLineFlag =
       [ Crux.Option ['c'] ["classpath"]
-        "TODO"
-        $ Crux.ReqArg "TODO"
+        "A colon-delimited list of paths in which to search for Java .class files"
+        $ Crux.ReqArg "DIRS"
         $ \p opts ->
             Right $ opts { classPath = classPath opts ++ splitSearchPath p }
       , Crux.Option ['j'] ["jars"]
-        "TODO"
-        $ Crux.ReqArg "TODO"
+        "A colon-delimited list of JAR files which contain Java .class files"
+        $ Crux.ReqArg "FILES"
         $ \p opts ->
             Right $ opts { jarList = jarList opts ++ splitSearchPath p }
       , Crux.Option ['b'] ["java-bin-dirs"]
-        "TODO"
-        $ Crux.ReqArg "TODO"
+        "A colon-delimited list of paths in which to search for a Java executable"
+        $ Crux.ReqArg "DIRS"
         $ \p opts ->
             Right $ opts { javaBinDirs = javaBinDirs opts ++ splitSearchPath p }
       , Crux.Option ['m'] ["method"]
