@@ -339,7 +339,7 @@ initialOnlineBackendState gen feats ust =
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
   IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
-getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
+getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
 
 -- | Shutdown any currently-active solver process.
@@ -350,8 +350,7 @@ resetSolverProcess ::
   OnlineBackend scope solver fs ->
   IO ()
 resetSolverProcess sym = do
-  do st <- readIORef (B.sbStateManager sym)
-     resetSolverProcess' st
+  resetSolverProcess' (B.sbUserState sym)
 
 -- | Shutdown any currently-active solver process.
 --   A fresh solver process will be started on the
@@ -458,7 +457,7 @@ withSolverProcess ::
   IO a {- ^ Default value to return if online features are disabled -} ->
   (SolverProcess scope solver -> IO a) ->
   IO a
-withSolverProcess = withSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
+withSolverProcess = withSolverProcess' (\sym -> pure (B.sbUserState sym))
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult
@@ -529,8 +528,7 @@ newOnlineBackend floatMode gen feats userSt =
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
      let st = st0{ onlineEnabled = getOpt enableOpt }
 
-     writeIORef (B.sbStateManager sym) st
-     return sym
+     return sym { B.sbUserState = st }
 
 -- | Do something with an online backend.
 --   The backend is only valid in the continuation.
@@ -546,7 +544,7 @@ withOnlineBackend ::
   m a
 withOnlineBackend floatMode gen feats action = do
   sym <- liftIO (newOnlineBackend floatMode gen feats EmptyUserState)
-  st <- liftIO (readIORef (B.sbStateManager sym))
+  let st = B.sbUserState sym
 
   action sym
     `finally`
@@ -635,7 +633,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
        AS.saveAssumptionStack stk
 
   restoreAssumptionState sym gc =
-    do st <- readIORef (B.sbStateManager sym)
+    do let st = B.sbUserState sym
        restoreSolverState gc st
 
        -- restore the previous assumption stack
