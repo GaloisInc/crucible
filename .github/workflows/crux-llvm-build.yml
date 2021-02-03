@@ -162,12 +162,14 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
+        if: startsWith(github.ref, 'refs/heads/release-')
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
+        if: startsWith(github.ref, 'refs/heads/release-')
         with:
           path: crux-llvm-*.tar.gz*
           name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}
