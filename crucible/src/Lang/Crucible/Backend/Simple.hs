@@ -71,7 +71,7 @@ newSimpleBackend floatMode gen =
      return sym
 
 getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
-getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
+getAssumptionStack sym = pure (sbAssumptionStack (B.sbUserState sym))
 
 instance IsBoolSolver (SimpleBackend t fs) where
 
