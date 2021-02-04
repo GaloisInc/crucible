@@ -42,13 +42,11 @@ module Lang.Crucible.CFG.Expr
   , foldApp
   , traverseApp
   , pattern BoolEq
-  , pattern NatEq
   , pattern IntEq
   , pattern RealEq
   , pattern BVEq
 
   , pattern BoolIte
-  , pattern NatIte
   , pattern IntIte
   , pattern RealIte
   , pattern BVIte
@@ -128,10 +126,6 @@ instance TraversableFC BaseTerm where
 pattern BoolEq :: () => (tp ~ BoolType) => f BoolType -> f BoolType -> App ext f tp
 pattern BoolEq x y = BaseIsEq BaseBoolRepr x y
 
--- | Equality on natural numbers.
-pattern NatEq :: () => (tp ~ BoolType) => f NatType -> f NatType -> App ext f tp
-pattern NatEq x y = BaseIsEq BaseNatRepr x y
-
 -- | Equality on integers
 pattern IntEq :: () => (tp ~ BoolType) => f IntegerType -> f IntegerType -> App ext f tp
 pattern IntEq x y = BaseIsEq BaseIntegerRepr x y
@@ -148,10 +142,6 @@ pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
 -- | Return first or second value depending on condition.
 pattern BoolIte :: () => (tp ~ BoolType) => f BoolType -> f tp -> f tp -> App ext f tp
 pattern BoolIte c x y = BaseIte BaseBoolRepr c x y
-
--- | Return first or second value depending on condition.
-pattern NatIte :: () => (tp ~ NatType) => f BoolType -> f tp -> f tp -> App ext f tp
-pattern NatIte c x y = BaseIte BaseNatRepr c x y
 
 -- | Return first or second value depending on condition.
 pattern IntIte :: () => (tp ~ IntegerType) => f BoolType -> f tp -> f tp -> App ext f tp
@@ -241,6 +231,10 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
 
   -- @NatLit n@ returns the value n.
   NatLit :: !Natural -> App ext f NatType
+  -- Equality for natural numbers
+  NatEq :: !(f NatType) -> !(f NatType) -> App ext f BoolType
+  -- If/Then/Else on natural numbers
+  NatIte :: !(f BoolType) -> !(f NatType) -> !(f NatType) -> App ext f NatType
   -- Less than on natural numbers.
   NatLt :: !(f NatType) -> !(f NatType) -> App ext f BoolType
   -- Less than or equal on natural numbers.
@@ -961,7 +955,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
 
   -- Compute the length of a string
   StringLength :: !(f (StringType si))
-               -> App ext f NatType
+               -> App ext f IntegerType
 
   -- Test if the first string contains the second string as a substring
   StringContains :: !(f (StringType si))
@@ -983,7 +977,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- If no such position exists, return a negative value.
   StringIndexOf :: !(f (StringType si))
                 -> !(f (StringType si))
-                -> !(f NatType)
+                -> !(f IntegerType)
                 -> App ext f IntegerType
 
   -- @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
@@ -991,8 +985,8 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- do not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
   StringSubstring :: !(StringInfoRepr si)
                   -> !(f (StringType si))
-                  -> !(f NatType)
-                  -> !(f NatType)
+                  -> !(f IntegerType)
+                  -> !(f IntegerType)
                   -> App ext f (StringType si)
 
   ShowValue :: !(BaseTypeRepr bt)
@@ -1066,6 +1060,8 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- Nat
     NatLit{} -> knownRepr
+    NatEq{} -> knownRepr
+    NatIte{} -> knownRepr
     NatLt{} -> knownRepr
     NatLe{} -> knownRepr
     NatAdd{} -> knownRepr

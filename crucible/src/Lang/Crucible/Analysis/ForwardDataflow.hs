@@ -182,6 +182,7 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
        transfer_stmt (ReadGlobal gv) (asgn, c) = (Ctx.extend asgn (kfwd_rdglobal analysis gv), c)
        transfer_stmt FreshConstant{} _ = error "forward dataflow: fresh constant!"
        transfer_stmt FreshFloat{} _ = error "forward dataflow: fresh float!"
+       transfer_stmt FreshNat{} _ = error "forward dataflow: fresh nat!"
        transfer_stmt ExtendAssign{} _ = error "extension statement!"
        transfer_stmt NewRefCell{} _ = error "forward dataflow: reference cell!"
        transfer_stmt NewEmptyRefCell{} _ = error "forward dataflow: reference cell!"

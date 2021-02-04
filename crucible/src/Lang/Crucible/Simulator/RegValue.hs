@@ -82,6 +82,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym (FloatType fi) = SymInterpretedFloat sym fi
   RegValue sym AnyType = AnyValue sym
   RegValue sym UnitType = ()
+  RegValue sym NatType = SymNat sym
   RegValue sym CharType = Word16
   RegValue sym (FunctionHandleType a r) = FnVal sym a r
   RegValue sym (MaybeType tp) = PartExpr (Pred sym) (RegValue sym tp)

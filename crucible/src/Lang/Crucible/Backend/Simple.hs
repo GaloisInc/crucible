@@ -32,7 +32,6 @@ module Lang.Crucible.Backend.Simple
 
 import           Control.Lens
 import           Control.Monad (void)
-import           Data.IORef
 import           Data.Parameterized.Nonce
 
 import           What4.Config

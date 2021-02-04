@@ -312,7 +312,6 @@ asSymExpr :: RegEntry sym tp -- ^ RegEntry to examine
           -> a
 asSymExpr (RegEntry tp v) just nothing =
   case tp of
-     NatRepr           -> just v
      IntegerRepr       -> just v
      RealValRepr       -> just v
      ComplexRealRepr   -> just v

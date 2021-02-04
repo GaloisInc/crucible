@@ -516,6 +516,7 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
           -}
         FreshConstant{} -> error "transferStmt: FreshConstant not supported"
         FreshFloat{} -> error "transferStmt: FreshFloat not supported"
+        FreshNat{} -> error "transferStmt: FreshNat not supported"
         NewEmptyRefCell{} -> error "transferStmt: NewEmptyRefCell not supported"
         NewRefCell {} -> error "transferStmt: NewRefCell not supported"
         ReadRefCell {} -> error "transferStmt: ReadRefCell not supported"

@@ -334,6 +334,15 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     -- Nat
 
     NatLit n -> natLit sym n
+    NatIte pe xe ye -> do
+      p <- evalSub pe
+      x <- evalSub xe
+      y <- evalSub ye
+      natIte sym p x y
+    NatEq xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natEq sym x y
     NatLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
