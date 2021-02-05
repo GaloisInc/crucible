@@ -384,7 +384,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   FloatLt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatLe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
-  FloatFpNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatFpApart :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
 
   FloatIte
     :: !(FloatInfoRepr fi)
@@ -1124,7 +1124,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     FloatGt{} -> knownRepr
     FloatGe{} -> knownRepr
     FloatNe{} -> knownRepr
-    FloatFpNe{} -> knownRepr
+    FloatFpApart{} -> knownRepr
     FloatIte fi _ _ _ -> FloatRepr fi
     FloatCast fi _ _ -> FloatRepr fi
     FloatFromBinary fi _ -> FloatRepr fi
