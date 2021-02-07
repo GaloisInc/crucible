@@ -1,0 +1,19 @@
+i = 0
+string[(length - i) - 1] = ????
+i = 1
+string[(length - i) - 1] = ????
+i = 2
+string[(length - i) - 1] = ????
+i = 3
+string[(length - i) - 1] = ????
+i = 4
+string[(length - i) - 1] = ????
+i = 5
+string[(length - i) - 1] = ????
+i = 6
+string[(length - i) - 1] = ????
+i = 7
+string[(length - i) - 1] = ????
+i = 8
+string[(length - i) - 1] = ????
+[Crux] Overall status: Valid.

@@ -9,8 +9,7 @@ packages:
   crucible-go/
   crucible-jvm/
   crucible-llvm/
-  crucible-saw/
-  crucible-server/
+  crucible-wasm/
   crucible-syntax/
   crux/
   crux-llvm/
@@ -23,16 +22,10 @@ optional-packages:
   dependencies/blt/
   dependencies/golang/
   dependencies/jvm-parser/
+  dependencies/haskell-wasm/
   dependencies/hpb/
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/
-  dependencies/saw-core/rme/
-  dependencies/saw-core/saw-core/
-  dependencies/saw-core/saw-core-aig/
-  dependencies/saw-core/saw-core-sbv/
-  dependencies/saw-core/saw-core-what4/
-  dependencies/saw-core/cryptol-saw-core/
-  dependencies/cryptol/
   dependencies/what4/what4/
   dependencies/what4/what4-abc/
   dependencies/what4/what4-blt/

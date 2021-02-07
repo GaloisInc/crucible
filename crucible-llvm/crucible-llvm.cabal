@@ -59,6 +59,9 @@ library
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.MalformedLLVMModule
     Lang.Crucible.LLVM.MemModel
+    Lang.Crucible.LLVM.MemModel.Generic
+    Lang.Crucible.LLVM.MemModel.Partial
+    Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
@@ -78,9 +81,6 @@ library
     Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.MemLog
-    Lang.Crucible.LLVM.MemModel.Generic
-    Lang.Crucible.LLVM.MemModel.Partial
-    Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Options
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.MemModel.Value
@@ -105,7 +105,11 @@ test-suite crucible-llvm-tests
   hs-source-dirs: test
   default-language: Haskell2010
   ghc-options: -Wall -Wcompat
-  -- other-modules:
+  other-modules: MemSetup
+               , TestFunctions
+               , TestGlobals
+               , TestMemory
+               , TestTranslation
   build-depends:
     base,
     bv-sized,
@@ -117,11 +121,11 @@ test-suite crucible-llvm-tests
     llvm-pretty,
     llvm-pretty-bc-parser,
     mtl,
-    parameterized-utils,
+    parameterized-utils >= 2.1.2.0,
     process,
     what4,
     tasty,
-    tasty-golden,
     tasty-quickcheck,
     tasty-hunit,
+    tasty-sugar >= 1.1 && < 1.2,
     vector

@@ -96,6 +96,7 @@ executable crux-llvm
     process,
     template-haskell,
     text,
+    versions < 4.0,
     what4
 
   main-is: Main.hs
@@ -175,11 +176,10 @@ test-suite crux-llvm-test
                 filepath,
                 parsec,
                 process,
-                saw-core,
                 QuickCheck,
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
-                tasty-golden     >= 2.3,
+                tasty-sugar      >= 1.1 && < 1.2,
                 text,
                 what4
 

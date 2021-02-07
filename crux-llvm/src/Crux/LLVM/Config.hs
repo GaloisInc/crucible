@@ -61,6 +61,7 @@ data LLVMOptions = LLVMOptions
   , entryPoint :: String
   , lazyCompile :: Bool
   , optLevel :: Int
+  , loopMerge :: Bool
   }
 
 llvmCruxConfig :: Crux.Config LLVMOptions
@@ -107,6 +108,9 @@ llvmCruxConfig =
          optLevel <- Crux.section "opt-level" Crux.numSpec 1
                            "Optimization level to request from `clang`"
 
+         loopMerge <- Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
+                        "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
+
          return LLVMOptions { .. }
 
   , Crux.cfgEnv  =
@@ -135,6 +139,11 @@ llvmCruxConfig =
         "Turn on lax rules for arithemetic overflow"
         $ Crux.NoArg
         $ \opts -> Right opts { laxArithmetic = True }
+
+      , Crux.Option [] ["opt-loop-merge"]
+        "Insert merge blocks in loops with early exits"
+        $ Crux.NoArg
+        $ \opts -> Right opts { loopMerge = True }
 
       , Crux.Option [] ["lazy-compile"]
         "Avoid compiling bitcode from source if intermediate files already exist (default: off)"

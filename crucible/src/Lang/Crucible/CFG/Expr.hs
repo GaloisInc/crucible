@@ -765,6 +765,42 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
          -> !(f (BVType w)) -- The shift amount as an unsigned integer.
          -> App ext f (BVType w)
 
+  -- Rotate left
+  BVRol :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w)) -- Value to rotate
+        -> !(f (BVType w)) -- The rotate amount as an unsigned integer
+        -> App ext f (BVType w)
+
+  -- Rotate right
+  BVRor :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w)) -- Value to rotate
+        -> !(f (BVType w)) -- The rotate amount as an unsigned integer
+        -> App ext f (BVType w)
+
+  -- Return the number of consecutive 0 bits in the input, starting from
+  -- the most significant bit position.  If the input is zero, all bits are counted
+  -- as leading.
+  BVCountLeadingZeros :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
+  -- Return the number of consecutive 0 bits in the input, starting from
+  -- the least significant bit position.  If the input is zero, all bits are counted
+  -- as trailing.
+  BVCountTrailingZeros :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
+  -- popcount
+  BVPopcount :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
   -- Return the minimum of the two arguments using unsigned comparisons
   BVUMin ::
     (1 <= w) =>
@@ -1202,6 +1238,11 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVShl w _ _ -> BVRepr w
     BVLshr w _ _ -> BVRepr w
     BVAshr w _ _ -> BVRepr w
+    BVRol w _ _ -> BVRepr w
+    BVRor w _ _ -> BVRepr w
+    BVCountTrailingZeros w _ -> BVRepr w
+    BVCountLeadingZeros w _ -> BVRepr w
+    BVPopcount w _ -> BVRepr w
     BVUMax w _ _ -> BVRepr w
     BVUMin w _ _ -> BVRepr w
     BVSMax w _ _ -> BVRepr w
