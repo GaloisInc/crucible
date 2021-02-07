@@ -922,7 +922,7 @@ performReturn fnName ctx0 v = do
           let thisRes = nextCtx ^. stateTree . actResult
           thisFrame <- liftIO $ mergePartialResult nextCtx ReturnTarget returnPred prevPartialRes thisRes
           mergedRetVal <- liftIO $ muxRegEntry sym intrinsics returnPred v prevRetVal
-          performReturn fnName ctx1 mergedRetVal
+          withReaderT (& stateTree . actResult .~ thisFrame) $ performReturn fnName ctx1 mergedRetVal
         SuspendedCallees ((nextCallee, calleeValidWhen) : remainingTargets) prevPartialRes prevRetVal -> do
           nextCtx <- ask
           let sym = nextCtx ^. stateSymInterface
