@@ -64,6 +64,7 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
+import qualified Lang.Crucible.Utils.PartitioningMuxTree as PMT
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Panic
 
@@ -229,7 +230,7 @@ muxRegForType s itefns p =
        case isPosNat w of
          Nothing -> \_ x _ -> return x
          Just LeqProof -> bvIte s
-     FunctionHandleRepr _ _ -> muxReg s p
+     FunctionHandleRepr _ _ -> PMT.mergePartitioningMuxTree s muxFnValSymbolicPart
 
      MaybeRepr r          -> mergePartExpr s (muxRegForType s itefns r)
      VectorRepr r         -> muxVector s (muxRegForType s itefns r)

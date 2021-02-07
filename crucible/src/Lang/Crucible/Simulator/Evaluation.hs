@@ -68,6 +68,7 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
+import qualified Lang.Crucible.Utils.PartitioningMuxTree as PMT
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -476,12 +477,13 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ----------------------------------------------------------------------
     -- Handle
 
-    HandleLit h -> return (HandleFnVal h)
+    HandleLit h -> return (PMT.toPartitioningMuxTree sym (HandleFnVal h))
 
-    Closure _ _ h_expr tp v_expr -> do
+    Closure argReprs retRepr h_expr tp v_expr -> do
       h <- evalSub h_expr
       v <- evalSub v_expr
-      return $! ClosureFnVal h tp v
+      let closure = ClosureFnVal (argReprs Ctx.:> tp) retRepr h v
+      return $! PMT.toPartitioningMuxTree sym closure
 
     ----------------------------------------------------------------------
     -- RealVal

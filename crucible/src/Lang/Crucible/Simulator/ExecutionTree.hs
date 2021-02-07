@@ -86,6 +86,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , FrameRetType
 
     -- ** ReturnHandler
+  , SuspendedCallees(..)
   , ReturnHandler(..)
 
     -- * ActiveTree
@@ -94,6 +95,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , activeFrames
   , actContext
   , actFrame
+  , actResult
 
     -- * Simulator context
     -- ** Function bindings
@@ -141,6 +143,7 @@ module Lang.Crucible.Simulator.ExecutionTree
 import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Kind
+import qualified Data.List.NonEmpty as DLN
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Parameterized.Ctx
@@ -843,6 +846,22 @@ vfvParents c0 =
 ------------------------------------------------------------------------
 -- ReturnHandler
 
+-- | Internal states for the 'CallNext' 'ReturnHandler'
+--
+-- We either have a non-empty list of call targets to execute *or* we have some
+-- call targets and a defined "previous" state from executing alternative call
+-- targets.
+--
+-- By tracking these states together, we rule out an impossible state where we
+-- have an empty call list and no previously collected return states
+data SuspendedCallees p sym ext f args ret where
+  InitialSuspendedCall :: DLN.NonEmpty (ResolvedCall p sym ext ret, Pred sym)
+                       -> SuspendedCallees p sym ext f args ret
+  SuspendedCallees :: [(ResolvedCall p sym ext ret, Pred sym)]
+                   -> PartialResult sym ext (SimFrame sym ext f args)
+                   -> RegEntry sym ret
+                   -> SuspendedCallees p sym ext f args ret
+
 {- | A 'ReturnHandler' indicates what actions to take to resume
 executing in a caller's context once a function call has completed and
 the return value is avaliable.
@@ -890,6 +909,20 @@ data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
   TailReturnToCrucible ::
     (ret ~ r) =>
     ReturnHandler ret p sym ext root (CrucibleLang blocks r) ctx
+
+  {- | The 'CallNext' constructor indicates that the simulator needs to pause and
+       call the next alternative callee for the call site.  To do so, it should
+       use the saved 'SimState', which was the same 'SimState' used by the first
+       potential callee (so that all callees see the same initial state).
+
+  -}
+  CallNext ::
+    ProgramLoc {- ^ The location of the call site -} ->
+    ReturnHandler ret p sym ext root f args {- ^ The original return handler -} ->
+    SimState p sym ext rtp f a {- ^ The sim state to use for each alternative call -} ->
+    SuspendedCallees p sym ext f args ret {- ^ The remaining callees and their muxed results -} ->
+    Pred sym {- ^ The predicate under which the current target is valid -} ->
+    ReturnHandler ret p sym ext root f args
 
 
 ------------------------------------------------------------------------
