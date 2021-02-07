@@ -259,7 +259,7 @@ mkTest clangVer sweet _ expct =
           let specMatchesInstalled v =
                 or [ v == vcTag clangVer
                    , and [ v == "pre-clang11"
-                         , vcMajor clangVer `elem` (show <$> [3..10])
+                         , vcMajor clangVer `elem` (show <$> [3..10 :: Int])
                          ]
                    ]
           in case lookup "clang-range" (TS.expParamsMatch expct) of
