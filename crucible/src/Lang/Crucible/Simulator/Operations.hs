@@ -583,20 +583,23 @@ callFunction fn args retHandler loc =
 
      ReaderT $ \ctx ->
        case rcalls of
-         (singleTarget, _) DLN.:| [] ->
-           -- In the degenerate case of a single target, just issue a standard call/return
-           --
-           -- We ignore the predicate for a single target.  NOTE: We could
-           -- assert it (it should just be True)
-           return (CallState retHandler singleTarget ctx)
-         (firstTarget, muxPred) DLN.:| otherTargets -> do
-           -- Otherwise, wrap the return state up in a special return that will
-           -- run each possible call (sequentially) with a captured initial
-           -- state.  When the first target returns, the modified handler calls
-           -- the next possible target.  When callers are exhausted, it merges
-           -- the results together and performs the original type of return.
-           let cpsHandler = CallNext loc retHandler ctx otherTargets muxPred Nothing
-           return (CallState cpsHandler firstTarget ctx)
+         (firstTarget, muxPred) DLN.:| otherTargets ->
+           case otherTargets of
+             [] ->
+               -- In the degenerate case of a single target, just issue a standard call/return
+               --
+               -- We ignore the predicate for a single target.  NOTE: We could
+               -- assert it (it should just be True)
+               return (CallState retHandler firstTarget ctx)
+             rest1 : restn -> do
+               -- Otherwise, wrap the return state up in a special return that will
+               -- run each possible call (sequentially) with a captured initial
+               -- state.  When the first target returns, the modified handler calls
+               -- the next possible target.  When callers are exhausted, it merges
+               -- the results together and performs the original type of return.
+               let initTargets = InitialSuspendedCall (rest1 DLN.:| restn)
+               let cpsHandler = CallNext loc retHandler ctx initTargets muxPred
+               return (CallState cpsHandler firstTarget ctx)
 
 tailCallFunction ::
   (FrameRetType f ~ ret, IsSymInterface sym) =>
@@ -894,61 +897,48 @@ performReturn fnName ctx0 v = do
            (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ OF f))
            (ReaderT (k v))
 
-    VFVCall ctx frm (CallNext callLoc origHandler callCtx callTargets returnPred prevResults) ->
-      do case callTargets of
-           [] -> do
-             -- FIXME: Can we just use the 'ReturnTarget' as a
-             -- 'CrucibleBranchTarget', allowing us to reuse
-             -- 'mergePartialResult'?  That would be great, since we'll have a
-             -- collection of 'SimState's to merge.
-             --
-             -- We could do that and use 'withReaderT' to do something similar
-             -- to the cases above, setting up a modified stateTree (which is
-             -- just a PartialResult SimFrame -- exactly what we'd get from
-             -- mergePartialResult)
-             --
-             -- We can't mux active trees, but we don't need to.  We are
-             -- returning to the same ValueFromFrame either way.  We just need
-             -- to make a new PartialResult SimFrame. (global SymGlobalState +
-             -- SimFrame)
-             ReaderT $ \nextCtx -> do
-               -- Note that 'mergePartialResult' takes a 'SimState'; it only
-               -- uses that for the SymInterface and intrinsics, so it should be
-               -- safe that the state has been re-used for different paths.
-               let thisResult = (nextCtx ^. stateTree . actResult, v, returnPred)
-               let muxFn = mergePartialResult nextCtx ReturnTarget
-               F.foldlM mergeCallResults
-
-               mergePartialResult simSt ReturnTarget p frame1 frame2
-             -- Update the 'actResult' here.  FIXME: Change the CPSed contents to be
-             --
-             -- PartialResult sym ext (SimFrame sym ext f args)
-               let ctx1 = VFVCall ctx frm origHandler
-               performReturn fnName ctx1 mergedValue
-           (nextTarget, nextPredicate) : rest ->
-             -- We want to run the extra function calls under the original
-             -- context (so that they can't see each others effects).  However,
-             -- we do need to preserve these post-states so that they can be
-             -- muxed (presumably with data from the outer ctx from the VFVCall)
-             --
-             -- The pair (v, nextCtx) is the state produced by one callee.  We
-             -- need to save that and compute the other callee results.
-             ReaderT $ \nextCtx -> do
-               let sym = nextCtx ^. stateSymInterface
-               let intrinsics = nextCtx ^. stateIntrinsicTypes
-               case prevResults of
-                 Nothing -> do
-                   frame <- resultDefinedWhen sym callLoc returnPred (nextCtx ^. stateTree . actResult)
-                   let call = CallNext callLoc origHandler callCtx rest nextPredicate (Just (pres, v))
-                   return (CallState call nextTarget callCtx)
-                 Just (prevFrame, prevRetVal) -> do
-                   thisFrame <- mergePartialResult nextCtx ReturnTarget returnPred prevFrame (nextCtx ^. stateTree . actResult)
-                   mergedVal <- muxRegEntry sym intrinsics returnPred v prevRetVal
-                   let call = CallNext callLoc origHandler callCtx rest nextPredicate (Just (thisFrame, mergedVal))
-                   return (CallState call nextTarget callCtx)
-
-               -- let cpsHandler = CallNext callLoc origHandler callCtx rest nextPredicate accumulatedCallResults
-               -- return (CallState cpsHandler nextTarget callCtx)
+    VFVCall ctx frm (CallNext callLoc origHandler callCtx suspendedCallees returnPred) -> do
+      case suspendedCallees of
+        InitialSuspendedCall ((nextCallee, calleeValidWhen) DLN.:| otherCallees) -> do
+          nextCtx <- ask
+          let sym = nextCtx ^. stateSymInterface
+          let intrinsics = nextCtx ^. stateIntrinsicTypes
+          -- Start the CPS multi-call sequence
+          --
+          -- This is a separate case (from the 'SuspendedCallees' case) because
+          -- we don't have any initial values we need to mux here.
+          let firstResult = nextCtx ^. stateTree . actResult
+          frame <- liftIO $ resultDefinedWhen sym callLoc returnPred firstResult
+          let nextSuspendedCallees = SuspendedCallees otherCallees firstResult v
+          let call = CallNext callLoc origHandler callCtx nextSuspendedCallees calleeValidWhen
+          return (CallState call nextCallee callCtx)
+        SuspendedCallees [] prevPartialRes prevRetVal -> do
+          nextCtx <- ask
+          let sym = nextCtx ^. stateSymInterface
+          let intrinsics = nextCtx ^. stateIntrinsicTypes
+          -- We have called all of the potential callees, so now we just issue a
+          -- normal return (that returns the collection of muxed return values)
+          let ctx1 = VFVCall ctx frm origHandler
+          let thisRes = nextCtx ^. stateTree . actResult
+          thisFrame <- liftIO $ mergePartialResult nextCtx ReturnTarget returnPred prevPartialRes thisRes
+          mergedRetVal <- liftIO $ muxRegEntry sym intrinsics returnPred v prevRetVal
+          performReturn fnName ctx1 mergedRetVal
+        SuspendedCallees ((nextCallee, calleeValidWhen) : remainingTargets) prevPartialRes prevRetVal -> do
+          nextCtx <- ask
+          let sym = nextCtx ^. stateSymInterface
+          let intrinsics = nextCtx ^. stateIntrinsicTypes
+          let thisRes = nextCtx ^. stateTree . actResult
+          -- This is morally appealing, but the 'CrucibleBranchTarget' seems to
+          -- be very difficult to create here.  Do we need to create that when
+          -- we issue the call?
+          thisFrame <- liftIO $ mergePartialResult nextCtx ReturnTarget returnPred prevPartialRes thisRes
+          mergedVal <- liftIO $ muxRegEntry sym intrinsics returnPred v prevRetVal
+          let nextSuspendedCallees = SuspendedCallees remainingTargets thisFrame mergedVal
+          let call = CallNext callLoc origHandler callCtx nextSuspendedCallees calleeValidWhen
+          -- NOTE: We have saved the initial context of the call so that we can
+          -- issue all of the calls with the same initial state (and so that
+          -- they cannot observe each other's effects)
+          return (CallState call nextCallee callCtx)
 
     VFVPartial ctx loc pred r ->
       do sym <- view stateSymInterface
@@ -974,8 +964,8 @@ resultDefinedWhen ::
   sym ->
   ProgramLoc ->
   Pred sym ->
-  PartialResult sym ext v ->
-  IO (PartialResult sym ext v)
+  PartialResult sym ext (SimFrame sym ext l args) ->
+  IO (PartialResult sym ext (SimFrame sym ext l args))
 resultDefinedWhen sym loc p v =
   case v of
     TotalRes gp -> do
