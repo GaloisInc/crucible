@@ -6,12 +6,16 @@ module Main where
 
 import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
 import           Control.Monad ( unless )
+import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
 import           Data.Char ( isLetter )
 import           Data.List ( isInfixOf, isPrefixOf )
-import           Data.Maybe ( catMaybes, fromMaybe )
+import           Data.Maybe ( catMaybes, fromMaybe, isJust )
+import qualified Data.Text as T
+import           Data.Versions ( Versioning, versioning, prettyV, major )
 import qualified GHC.IO.Exception as GE
+import           Lens.Micro ( (^.), to )
 import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )
@@ -30,9 +34,11 @@ import qualified CruxLLVMMain as C
 cube :: TS.CUBE
 cube = TS.mkCUBE { TS.inputDir = "test-data/golden"
                  , TS.rootName = "*.c"
+                 , TS.separators = "."
                  , TS.expectedSuffix = "good"
                  , TS.validParams = [ ("solver", Just ["z3"])
                                     , ("loop-merging", Just ["loopmerge", "loop"])
+                                    , ("clang-range", Just ["pre-clang11", "clang11", "clang12"])
                                     ]
                  , TS.associatedNames = [ ("config",      "config")
                                         , ("test-result", "result")
@@ -50,17 +56,32 @@ main = do let cubes = [ cube { TS.inputDir = dir, TS.rootName = rootName }
                       ]
           sweets <- concat <$> mapM TS.findSugar cubes
           clangVer <- getClangVersion
-          tests <- TS.withSugarGroups sweets TT.testGroup mkTest
+          tests <- TS.withSugarGroups sweets TT.testGroup (mkTest clangVer)
 
           let ingredients = TT.includingOptions TS.sugarOptions :
                             TS.sugarIngredients cubes <>
                             TT.defaultIngredients
           TT.defaultMainWithIngredients ingredients $
             TT.testGroup "crux-llvm"
-            [ TT.testGroup ("clang " <> clangVer) $ tests ]
+            [ TT.testGroup (showVC clangVer) $ tests ]
 
 
-getClangVersion :: IO String
+-- lack of decipherable version is not fatal to running the tests
+data VersionCheck = VC String (Either T.Text Versioning)
+
+showVC :: VersionCheck -> String
+showVC (VC nm v) = nm <> " " <> (T.unpack $ either id prettyV v)
+
+vcTag :: VersionCheck -> String
+vcTag v@(VC nm _) = nm <> vcMajor v
+
+vcMajor :: VersionCheck -> String
+vcMajor (VC _ v) = either T.unpack (^. major . to show) v
+
+mkVC :: String -> String -> VersionCheck
+mkVC nm raw = let r = T.pack raw in VC nm $ first (const r) $ versioning r
+
+getClangVersion :: IO VersionCheck
 getClangVersion = do
   -- Determine which version of clang will be used for these tests.
   -- An exception (E.g. in the readProcess if clang is not found) will
@@ -73,9 +94,9 @@ getClangVersion = do
         -- example inp: "clang version 10.0.1"
         head $ dropLetter $ words $ head $ filter isVerLine $ lines inp
       getVer (Left full) = full
-  getVer <$> readProcessVersion clangBin
+  mkVC "clang" . getVer <$> readProcessVersion clangBin
 
-getZ3Version :: IO String
+getZ3Version :: IO VersionCheck
 getZ3Version =
   let getVer (Right inp) =
         -- example inp: "Z3 version 4.8.7 - 64 bit"
@@ -83,9 +104,9 @@ getZ3Version =
         in if and [ length w > 2, head w == "Z3" ]
            then w !! 2 else "?"
       getVer (Left full) = full
-  in getVer <$> readProcessVersion "z3"
+  in mkVC "z3" . getVer <$> readProcessVersion "z3"
 
-getYicesVersion :: IO String
+getYicesVersion :: IO VersionCheck
 getYicesVersion =
   let getVer (Right inp) =
         -- example inp: "Yices 2.6.1\nCopyright ..."
@@ -93,9 +114,9 @@ getYicesVersion =
         in if and [ length w > 1, head w == "Yices" ]
            then w !! 1 else "?"
       getVer (Left full) = full
-  in getVer <$> readProcessVersion "yices"
+  in mkVC "yices" . getVer <$> readProcessVersion "yices"
 
-getSTPVersion :: IO String
+getSTPVersion :: IO VersionCheck
 getSTPVersion =
   let getVer (Right inp) =
         -- example inp: "STP version 2.3.3\n..."
@@ -105,9 +126,9 @@ getSTPVersion =
                   , w !! 1 == "version" ]
            then w !! 2 else "?"
       getVer (Left full) = full
-  in getVer <$> readProcessVersion "stp"
+  in mkVC "stp" . getVer <$> readProcessVersion "stp"
 
-getCVC4Version :: IO String
+getCVC4Version :: IO VersionCheck
 getCVC4Version =
   let getVer (Right inp) =
         -- example inp: "This is CVC4 version 1.8\ncompiled ..."
@@ -117,16 +138,16 @@ getCVC4Version =
                   ]
            then w !! 4 else "?"
       getVer (Left full) = full
-  in getVer <$> readProcessVersion "cvc4"
+  in mkVC "cvc4" . getVer <$> readProcessVersion "cvc4"
 
-getBoolectorVersion :: IO String
+getBoolectorVersion :: IO VersionCheck
 getBoolectorVersion =
   let getVer (Right inp) =
         -- example inp: "3.2.1"
         let w = words inp
         in if not (null w) then head w else "?"
       getVer (Left full) = full
-  in getVer <$> readProcessVersion "boolector"
+  in mkVC "boolector" . getVer <$> readProcessVersion "boolector"
 
 readProcessVersion :: String -> IO (Either String String)
 readProcessVersion forTool =
@@ -181,8 +202,8 @@ assertBSEq expectedFile actualFile = do
     assertFailure $ BSC.unpack (BSC.unlines details)
 
 
-mkTest :: TS.Sweets -> Natural -> TS.Expectation -> IO [TT.TestTree]
-mkTest sweet _ expct =
+mkTest :: VersionCheck -> TS.Sweets -> Natural -> TS.Expectation -> IO [TT.TestTree]
+mkTest clangVer sweet _ expct =
   let solver = maybe "z3"
                (\case
                  (TS.Explicit s) -> s
@@ -221,17 +242,38 @@ mkTest sweet _ expct =
                     assertBSEq (TS.expectedFile expct) outFile
 
   in do
-    solverVer <- case solver of
-      "z3" -> ("z3-v" <>) <$> getZ3Version
-      "yices" -> ("yices-v" <>) <$> getYicesVersion
-      "stp" -> ("stp-v" <>) <$> getSTPVersion
-      "cvc4" -> ("cvc4-v" <>) <$> getCVC4Version
-      "boolector" -> ("boolector-v" <>) <$> getBoolectorVersion
-      _ -> return "unknown-solver-for-version"
+    solverVer <- showVC <$> case solver of
+      "z3" -> getZ3Version
+      "yices" -> getYicesVersion
+      "stp" -> getSTPVersion
+      "cvc4" -> getCVC4Version
+      "boolector" -> getBoolectorVersion
+      _ -> return $ VC solver $ Left "unknown-solver-for-version"
 
-    case lookup "skip" (TS.associated expct) of
-      Just _ -> return []  -- no tests if a skip file is present
-      Nothing -> do
+    -- Match any clang version range specification in the .good
+    -- expected file against the current version of clang.  If the
+    -- current clang version doesn't match, no test should be
+    -- generated (i.e. only run tests for the version of clang
+    -- available).
+    let clangMatch =
+          let specMatchesInstalled v =
+                or [ v == vcTag clangVer
+                   , and [ v == "pre-clang11"
+                         , vcMajor clangVer `elem` (show <$> [3..10])
+                         ]
+                   ]
+          in case lookup "clang-range" (TS.expParamsMatch expct) of
+               Just (TS.Explicit v) -> specMatchesInstalled v
+               Just (TS.Assumed  v) -> specMatchesInstalled v
+               _ -> error "clang-range unknown"
+
+    -- Presence of a .skip file means this test should be skipped.
+
+    let skipTest = isJust $ lookup "skip" (TS.associated expct)
+
+    if or [ skipTest, not clangMatch ]
+      then return []
+      else do
         let isLoopMerge = TS.paramMatchVal "loopmerge" <$>
                         lookup "loop-merging" (TS.expParamsMatch expct)
             cfg = lookup "config" (TS.associated expct)

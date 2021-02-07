@@ -96,7 +96,6 @@ executable crux-llvm
     process,
     template-haskell,
     text,
-    versions < 4.0,
     what4
 
   main-is: Main.hs
@@ -174,6 +173,7 @@ test-suite crux-llvm-test
                 deepseq,
                 directory,
                 filepath,
+                microlens,
                 parsec,
                 process,
                 QuickCheck,
@@ -181,6 +181,7 @@ test-suite crux-llvm-test
                 tasty-hunit      >= 0.10,
                 tasty-sugar      >= 1.1 && < 1.2,
                 text,
+                versions,
                 what4
 
   default-language: Haskell2010
