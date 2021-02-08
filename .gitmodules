@@ -7,9 +7,6 @@
 [submodule "dependencies/blt"]
 	path = dependencies/blt
 	url =https://github.com/GaloisInc/blt.git
-[submodule "dependencies/cryptol"]
-	path = dependencies/cryptol
-	url = https://github.com/GaloisInc/cryptol.git
 [submodule "dependencies/golang"]
 	path = dependencies/golang
 	url = https://github.com/GaloisInc/golang.git
@@ -22,15 +19,12 @@
 [submodule "dependencies/llvm-pretty-bc-parser"]
 	path = dependencies/llvm-pretty-bc-parser
 	url = https://github.com/GaloisInc/llvm-pretty-bc-parser.git
-[submodule "dependencies/hpb"]
-	path = dependencies/hpb
-	url = https://github.com/GaloisInc/hpb.git
-[submodule "dependencies/saw-core"]
-	path = dependencies/saw-core
-	url = https://github.com/GaloisInc/saw-core.git
 [submodule "dependencies/what4"]
 	path = dependencies/what4
 	url = https://github.com/GaloisInc/what4.git
 [submodule "dependencies/mir-json"]
 	path = dependencies/mir-json
 	url = https://github.com/GaloisInc/mir-json/
+[submodule "dependencies/haskell-wasm"]
+	path = dependencies/haskell-wasm
+	url = https://github.com/SPY/haskell-wasm

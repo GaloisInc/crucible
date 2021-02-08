@@ -24,11 +24,23 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     needs: [outputs]
+    continue-on-error: ${{ matrix.allow-failure }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest] # , windows-latest]
+        os: [ubuntu-latest] # , macos-latest] # , windows-latest]
         ghc: ["8.6.5", "8.8.4", "8.10.2"]
+        allow-failure: [false]
+        include:
+          - os: macos-latest
+            ghc: 8.6.5
+            allow-failure: true
+          - os: macos-latest
+            ghc: 8.8.4
+            allow-failure: true
+          - os: macos-latest
+            ghc: 8.10.2
+            allow-failure: true
         # Windows only seems to work on 8.6.5. Others result in
         # segfaults or other internal errors.
         exclude:
@@ -70,7 +82,24 @@ jobs:
         run: .github/ci.sh build exe:crux-llvm
 
       - shell: bash
-        name: Test (Linux)
+        name: Test crucible (Linux)
+        run: .github/ci.sh test crucible
+        if: runner.os == 'Linux'
+        env:
+          LLVM_LINK: "llvm-link-10"
+          CLANG: "clang-10"
+
+      - shell: bash
+        name: Test crucible-llvm (Linux)
+        run: .github/ci.sh test crucible-llvm
+        if: runner.os == 'Linux'
+        env:
+          LLVM_LINK: "llvm-link-10"
+          LLVM_AS: "llvm-as-10"
+          CLANG: "clang-10"
+
+      - shell: bash
+        name: Test crux-llvm (Linux)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux'
         env:
@@ -78,7 +107,24 @@ jobs:
           CLANG: "clang-10"
 
       - shell: bash
-        name: Test (macOS)
+        name: Test crucible (macOS)
+        run: .github/ci.sh test crucible
+        if: runner.os == 'macOS'
+        env:
+          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
+          CLANG: "/usr/local/opt/llvm/bin/clang"
+
+      - shell: bash
+        name: Test crucible-llvm (macOS)
+        run: .github/ci.sh test crucible-llvm
+        if: runner.os == 'macOS'
+        env:
+          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
+          LLVM_AS: "/usr/local/opt/llvm/bin/llvm-as"
+          CLANG: "/usr/local/opt/llvm/bin/clang"
+
+      - shell: bash
+        name: Test crux-llvm (macOS)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'macOS'
         env:
@@ -86,7 +132,24 @@ jobs:
           CLANG: "/usr/local/opt/llvm/bin/clang"
 
       - shell: bash
-        name: Test (Windows)
+        name: Test crucible (Windows)
+        run: .github/ci.sh test crucible
+        if: runner.os == 'Windows'
+        env:
+          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
+          CLANG: "/c/Program Files/LLVM/bin/clang"
+
+      - shell: bash
+        name: Test crucible-llvm (Windows)
+        run: .github/ci.sh test crucible-llvm
+        if: runner.os == 'Windows'
+        env:
+          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
+          LLVM_AS: "/c/Program Files/LLVM/bin/llvm-as"
+          CLANG: "/c/Program Files/LLVM/bin/clang"
+
+      - shell: bash
+        name: Test crux-llvm (Windows)
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Windows'
         env:
@@ -99,12 +162,14 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
+        if: startsWith(github.ref, 'refs/heads/release-')
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
+        if: startsWith(github.ref, 'refs/heads/release-')
         with:
           path: crux-llvm-*.tar.gz*
           name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}

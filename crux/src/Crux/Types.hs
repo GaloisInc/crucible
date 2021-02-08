@@ -2,23 +2,19 @@
 module Crux.Types where
 
 import qualified Control.Lens as L
-import Data.Sequence (Seq)
-import Data.Parameterized.Map (MapF)
-import Data.Void
-import Prettyprinter
+import           Data.Sequence (Seq)
+import           Data.Parameterized.Map (MapF)
+import           Data.Void
+import           Prettyprinter
 
-import Lang.Crucible.Simulator.RegMap(RegValue)
-import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
-import Lang.Crucible.Simulator.ExecutionTree(SimContext)
-import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
-import What4.Expr (GroundValue)
-import What4.ProgramLoc
-import What4.Interface (Pred)
+import           What4.Expr (GroundValue)
+import           What4.Interface (Pred)
+import           What4.ProgramLoc
 
-import Lang.Crucible.Backend
-import Lang.Crucible.Simulator.SimError
-import Lang.Crucible.Simulator
-import Lang.Crucible.Types
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator
+import           Lang.Crucible.Types
 
 -- | A constraint on crucible personality types that requires them to contain a 'Model'
 --

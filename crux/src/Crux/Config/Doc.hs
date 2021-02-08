@@ -1,34 +1,38 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Crux.Config.Doc (configDocs) where
 
-import Data.Text(Text)
-import Text.PrettyPrint
-import Config.Schema(sectionsSpec,generateDocs)
-import SimpleGetOpt(usageString)
+import Config.Schema (sectionsSpec,generateDocs)
+import Data.Text (Text)
+import Prettyprinter
+import SimpleGetOpt (usageString)
 
 import Crux.Config
-import Crux.Config.Load(commandLineOptions)
+import Crux.Config.Load (commandLineOptions)
 
-configDocs :: Text -> Config opts -> Doc
+configDocs :: Text -> Config opts -> Doc ann
 configDocs nm cfg =
   vcat [ heading "Command line flags:"
-       , nest 2 (text (usageString (commandLineOptions cfg)))
+       , nest 2 (pretty $ usageString (commandLineOptions cfg))
        , envVarDocs cfg
        , heading "Configuration file format:"
-       , nest 2 (generateDocs (sectionsSpec nm (cfgFile cfg)))
+       , nest 2 (viaShow $ generateDocs (sectionsSpec nm (cfgFile cfg)))
        ]
 
-envVarDocs :: Config a -> Doc
+envVarDocs :: Config a -> Doc ann
 envVarDocs cfg
-  | null vs = empty
-  | otherwise = heading "Environment variables:"
-                $$ nest 2 (vcat (map pp vs))
+  | null vs = mempty
+  | otherwise = vcat [ heading "Environment variables:"
+                     , nest 2 (vcat (map pp vs))
+                     ]
     where
     vs = cfgEnv cfg
     m  = maximum (map (length . evName) vs)
-    pp v = text (n ++ replicate (1 + m - length n) ' ') <+> text (evDoc v)
+    pp v = pretty (n ++ replicate (1 + m - length n) ' ') <+> (pretty $ evDoc v)
       where n = evName v
 
-heading :: String -> Doc
-heading x = text " " $$ text x $$ text (replicate (length x) '=') $$ text " "
-
-
+heading :: String -> Doc ann
+heading x = vcat [ mempty
+                 , pretty x
+                 , pretty (replicate (length x) '=')
+                 , mempty ]

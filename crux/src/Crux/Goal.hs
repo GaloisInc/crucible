@@ -37,7 +37,7 @@ import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-        ( OnlineBackendState, withSolverProcess, enableOnlineBackend )
+        ( OnlineBackend, withSolverProcess, enableOnlineBackend )
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
@@ -326,10 +326,10 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
 -- 'SimCtxt'.  We do that so that we can use separate solvers for path
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
+  ( sym ~ OnlineBackend s solver fs
   , ast ~ SimError
   , OnlineSolver solver
-  , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
+  , goalSym ~ OnlineBackend s goalSolver fs
   , OnlineSolver goalSolver
   , HasModel personality
   , ?outputConfig :: OutputConfig

@@ -4,8 +4,10 @@ How to run the ashes test suite.
 
 2. compile crucible-jvm   (`cabal new-build` in `saw-script/deps/crucible/crucible-jvm/`)
 
-3. make sure that `runcrucible.sh` includes correct reference to `rt.jar` for your
-   system (and the correct reference to the crucible-jvm executable)
+3. make sure that either:
+
+   (a) Java is on the `PATH`, or
+   (b) `runcrucible.sh` points to Java's location with the `-b` flag
 
 4. `./runAshes.hs`
 

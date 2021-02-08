@@ -45,6 +45,7 @@ module Lang.Crucible.CFG.Reg
   , substBlockID
   , Reg(..)
   , substReg
+  , traverseCFG
 
     -- * Atoms
   , Atom(..)
@@ -76,11 +77,12 @@ module Lang.Crucible.CFG.Reg
 
     -- * Statements
   , Stmt(..)
-  , substStmt, substPosdStmt
+  , substStmt, substPosdStmt, mapStmtAtom
   , TermStmt(..)
   , termStmtInputs
   , termNextLabels
   , substTermStmt, substPosdTermStmt
+  , foldStmtInputs
 
     -- * Expressions
   , Expr(..)
@@ -93,6 +95,7 @@ module Lang.Crucible.CFG.Reg
 
 import qualified Data.Foldable as Fold
 import           Data.Kind (Type)
+import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
@@ -112,6 +115,7 @@ import           What4.Symbol
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Syntax (IsExpr(..))
 import           Lang.Crucible.Types
 
@@ -373,6 +377,15 @@ substValue f v =
     RegValue r -> RegValue <$> substReg f r
     AtomValue a -> AtomValue <$> substAtom f a
 
+substValueAtom :: Applicative m
+           => (forall (x :: CrucibleType). Atom s x -> m (Atom s x))
+           -> Value s tp
+           -> m (Value s tp)
+substValueAtom f v =
+  case v of
+    RegValue r -> pure $ RegValue r
+    AtomValue a -> AtomValue <$> f a
+
 -- | A set of values.
 type ValueSet s = Set (Some (Value s))
 
@@ -529,6 +542,23 @@ substAtomValue f (Call g as ret) = Call <$> substAtom f g
                                         <*> traverseFC (substAtom f) as
                                         <*> pure ret
 
+mapAtomValueAtom :: ( Applicative m, TraverseExt ext )
+               => (forall (x :: CrucibleType). Atom s x -> m (Atom s x))
+               -> AtomValue ext s tp
+               -> m (AtomValue ext s tp)
+mapAtomValueAtom _ (ReadReg r) = pure $ ReadReg r
+mapAtomValueAtom f (EvalExt stmt) = EvalExt <$> traverseFC f stmt
+mapAtomValueAtom _ (ReadGlobal g) = pure $ ReadGlobal g
+mapAtomValueAtom f (ReadRef r) = ReadRef <$> f r
+mapAtomValueAtom _ (NewEmptyRef tp) = pure $ NewEmptyRef tp
+mapAtomValueAtom f (NewRef a) = NewRef <$> f a
+mapAtomValueAtom f (EvalApp ap) = EvalApp <$> traverseFC f ap
+mapAtomValueAtom _ (FreshConstant tp sym) = pure $ FreshConstant tp sym
+mapAtomValueAtom _ (FreshFloat fi sym)    = pure $ FreshFloat fi sym
+mapAtomValueAtom f (Call g as ret) = Call <$> f g
+                                        <*> traverseFC f as
+                                        <*> pure ret
+
 ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc ann
 ppAtomBinding a v = pretty a <+> ":=" <+> pretty v
 
@@ -609,6 +639,22 @@ substStmt f s =
     Assert c m -> Assert <$> substAtom f c <*> substAtom f m
     Assume c m -> Assume <$> substAtom f c <*> substAtom f m
     Breakpoint nm args -> Breakpoint nm <$> traverseFC (substValue f) args
+
+mapStmtAtom :: ( Applicative m, TraverseExt ext )
+          => (forall (x :: CrucibleType). Atom s x -> m (Atom s x))
+          -> Stmt ext s
+          -> m (Stmt ext s)
+mapStmtAtom f s =
+  case s of
+    SetReg r e -> SetReg r <$> f e
+    WriteGlobal g a -> WriteGlobal <$> pure g <*> f a
+    WriteRef r a -> WriteRef <$> f r <*> f a
+    DropRef r -> DropRef <$> f r
+    DefineAtom a v -> DefineAtom <$> f a <*> mapAtomValueAtom f v
+    Print e -> Print <$> f e
+    Assert c m -> Assert <$> f c <*> f m
+    Assume c m -> Assume <$> f c <*> f m
+    Breakpoint nm args -> Breakpoint nm <$> traverseFC (substValueAtom f) args
 
 substPosdStmt :: ( Applicative m, TraverseExt ext )
               => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -787,6 +833,9 @@ instance Ord (Block ext s ret) where
 instance PrettyExt ext => Show (Block ext s ret) where
   show = show . pretty
 
+instance Pretty (ValueSet s) where
+  pretty vs = commas (map (\(Some v) -> pretty v) (Set.toList vs))
+
 instance PrettyExt ext => Pretty (Block ext s ret) where
   pretty b = vcat [viaShow (blockID b), indent 2 stmts]
     where stmts = vcat [ vcat (pretty . pos_val <$> Fold.toList (blockStmts b))
@@ -885,6 +934,58 @@ substCFG f cfg =
   CFG <$> pure (cfgHandle cfg)
       <*> substLabel f (cfgEntryLabel cfg)
       <*> traverse (substBlock f) (cfgBlocks cfg)
+
+-- | Run a computation along all of the paths in a cfg, without taking backedges.
+--
+-- The computation has access to an environment that is specific to the current path
+-- being explored, as well as a global environment that is maintained across the
+-- entire computation.
+traverseCFG :: ( Monad m, TraverseExt ext )
+            => (genv -> penv -> Block ext s ret -> m (genv, penv))
+            -> genv
+            -> penv
+            -> Block ext s ret
+            -> CFG ext s init ret
+            -> m genv
+traverseCFG f genv0 penv0 b0 cfg =
+  traverseStep f bmap0 genv0 penv0 mempty b0
+  where
+    bmap0 = Map.fromList [(blockID b, b) | b <- cfgBlocks cfg ]
+
+-- | Run a computation along all of the paths in a cfg, without taking backedges.
+--
+-- The computation has access to an environment that is specific to the current path
+-- being explored, as well as a global environment that is maintained across the
+-- entire computation.
+--
+-- Each step of the computation inspects the global- and
+-- path-environments as well as the current block, and returns new
+-- environments.
+traverseStep :: forall m genv penv ext s ret.
+                Monad m
+             => (genv -> penv -> Block ext s ret -> m (genv, penv))
+             -> Map.Map (BlockID s) (Block ext s ret)
+             -> genv
+             -> penv
+             -> Set.Set (BlockID s)
+             -> (Block ext s ret)
+             -> m genv
+traverseStep f bmap genv penv seen blk
+  | blockID blk `Set.member` seen =
+    return genv
+  | otherwise =
+    do (genv', penv') <- f genv penv blk
+       Fold.foldlM (go penv' (Set.insert (blockID blk) seen)) genv' next
+  where
+    next = fromMaybe [] (termNextLabels (pos_val (blockTerm blk)))
+
+    go penv' seen' genv' blkId
+      | Just blk' <- Map.lookup blkId bmap
+      = traverseStep f bmap genv' penv' seen' blk'
+      | otherwise
+      = panic "Reg.traverseStep"
+        [ "Block " ++ show blkId ++ " not found in block map" ]
+
 
 instance PrettyExt ext => Show (CFG ext s init ret) where
   show = show . pretty

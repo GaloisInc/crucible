@@ -776,6 +776,23 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       x <- evalSub xe
       y <- evalSub ye
       bvAshr sym x y
+    BVRol _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      bvRol sym x y
+    BVRor _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      bvRor sym x y
+    BVCountTrailingZeros _ xe -> do
+      x <- evalSub xe
+      bvCountTrailingZeros sym x
+    BVCountLeadingZeros _ xe -> do
+      x <- evalSub xe
+      bvCountLeadingZeros sym x
+    BVPopcount _ xe -> do
+      x <- evalSub xe
+      bvPopcount sym x
     BVCarry _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye

@@ -196,16 +196,21 @@ data CustomOpMap = CustomOpMap
     }
 
 data CustomOp      =
+    -- | Custom operation for [argument types] and [operand values]
     CustomOp (forall h s ret. HasCallStack 
-                 => [Ty]       -- ^ argument types
-                 -> [MirExp s] -- ^ operand values
+                 => [Ty]
+                 -> [MirExp s]
                  -> MirGenerator h s ret (MirExp s))
   -- | Similar to CustomOp, but receives the name of the monomorphic function
   -- it's replacing.  This way, the implementation can look up the original
   -- definition of the function and extract details such as the return type.
+  --
+  -- Arguments:
+  --   * The name of the monomorphized function
+  --   * [operand values]
   | CustomOpNamed (forall h s ret. HasCallStack
-                 => DefId     -- ^ the name of the monomorphized function
-                 -> [MirExp s] -- ^ operand values
+                 => DefId
+                 -> [MirExp s]
                  -> MirGenerator h s ret (MirExp s))
   | CustomMirOp (forall h s ret. HasCallStack
       => [Operand] -> MirGenerator h s ret (MirExp s))
