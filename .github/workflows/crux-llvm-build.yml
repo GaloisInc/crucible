@@ -25,6 +25,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [outputs]
     continue-on-error: ${{ matrix.allow-failure }}
+    env:
+      CI_TEST_LEVEL: "1"
     strategy:
       fail-fast: false
       matrix:
