@@ -99,7 +99,11 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
 
  processVerificationTask _tgt _num task
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = return True
+   = do sayWarn "SVCOMP" $ unlines
+          [ "Skipping:"
+          , "  " ++ verificationSourceFile task
+          ]
+        return True
 
  processVerificationTask tgt num task =
    do let files = verificationInputFiles task
@@ -164,13 +168,6 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
    setResourceLimit res (ResourceLimits (ResourceLimit lim) ResourceLimitUnknown)
 
  root = Crux.outDir cruxOpts
-
- evaluateVerificationTask _ (_num, task, _)
-   | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = sayWarn "SVCOMP" $ unlines
-        [ "Skipping:"
-        , "  " ++ verificationSourceFile task
-        ]
 
  evaluateVerificationTask jsonOutHdl (num, task, compileErr) =
     do ed <- case compileErr of
