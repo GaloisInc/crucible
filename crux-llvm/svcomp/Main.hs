@@ -61,7 +61,8 @@ import CruxLLVMMain( processLLVMOptions )
 
 main :: IO ()
 main = do
-  let opts = Crux.cfgJoin llvmCruxConfig svcompOptions
+  cfg <- llvmCruxConfig
+  let opts = Crux.cfgJoin cfg svcompOptions
   Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" "0.1" opts $ \(co0,(lo0,svOpts)) ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        bss <- loadSVCOMPBenchmarks cruxOpts
