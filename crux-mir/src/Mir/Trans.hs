@@ -379,10 +379,10 @@ evalBinOp bop mat me1 me2 =
                 return (MirExp (C.BVRepr n) (S.app $ E.BVSub n e1 e2), S.app $ borrow n e1 e2)
               -- FIXME: implement overflow checks for Mul, Div, and Rem
               (M.Mul, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), unknownOverflow)
-              (M.Div, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), unknownOverflow)
-              (M.Div, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), unknownOverflow)
-              (M.Rem, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), unknownOverflow)
-              (M.Rem, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2), unknownOverflow)
+              (M.Div, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), errorOverflow)
+              (M.Div, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), errorOverflow)
+              (M.Rem, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), errorOverflow)
+              (M.Rem, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2), errorOverflow)
               -- Bitwise ops never overflow
               (M.BitXor, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVXor n e1 e2), noOverflow)
               (M.BitAnd, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVAnd n e1 e2), noOverflow)
@@ -471,6 +471,10 @@ evalBinOp bop mat me1 me2 =
     -- For now, assume unsupported operations don't overflow.  Eventually all
     -- overflow checks should be implemented, and we can remove this.
     unknownOverflow = noOverflow
+
+    -- Computing overflow is not supported for this operation
+    errorOverflow :: HasCallStack => R.Expr MIR s C.BoolType
+    errorOverflow = error "checking overflow is not supported for this operation"
 
     -- Check that shift amount `e` is less than the input width `w`.
     shiftOverflowNat w e =
