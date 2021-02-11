@@ -337,7 +337,7 @@ transBinOp bop op1 op2 = do
     fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
-evalBinOp :: M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s ->
+evalBinOp :: forall h s ret. M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s ->
     MirGenerator h s ret (MirExp s, R.Expr MIR s C.BoolType)
 evalBinOp bop mat me1 me2 =
     case (me1, me2) of
@@ -377,8 +377,10 @@ evalBinOp bop mat me1 me2 =
                         Nothing -> E.BVUlt
                         Just M.Signed -> E.BVSBorrow
                 return (MirExp (C.BVRepr n) (S.app $ E.BVSub n e1 e2), S.app $ borrow n e1 e2)
-              -- FIXME: implement overflow checks for Mul, Div, and Rem
-              (M.Mul, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), unknownOverflow)
+              (M.Mul, Just M.Unsigned) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), umulOverflow n e1 e2)
+              (M.Mul, Just M.Signed) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), smulOverflow n e1 e2)
               (M.Div, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), errorOverflow)
               (M.Div, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), errorOverflow)
               (M.Rem, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), errorOverflow)
@@ -475,6 +477,34 @@ evalBinOp bop mat me1 me2 =
     -- Computing overflow is not supported for this operation
     errorOverflow :: HasCallStack => R.Expr MIR s C.BoolType
     errorOverflow = error "checking overflow is not supported for this operation"
+
+    -- Check whether unsigned multiplication of `e1 * e2` overflows `w` bits.
+    -- If `zext e1 * zext e2 /= zext (e1 * e2)`, then overflow has occurred.
+    mulOverflow :: forall w. (1 <= w, 1 <= w + w) =>
+        NatRepr w ->
+        (R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType (w + w))) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    mulOverflow w ext e1 e2 = S.app $ E.Not $ S.app $ E.BVEq w'
+        (S.app $ E.BVMul w' (ext e1) (ext e2))
+        (ext $ S.app $ E.BVMul w e1 e2)
+      where w' = addNat w w
+
+    umulOverflow :: forall w. (1 <= w) =>
+        NatRepr w -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    umulOverflow w e1 e2
+      | LeqProof <- leqAdd2 (leqRefl w) (LeqProof @1 @w),
+        LeqProof <- dblPosIsPos (LeqProof @1 @w) =
+        mulOverflow w (S.app . E.BVZext (addNat w w) w) e1 e2
+    smulOverflow :: forall w. (1 <= w) =>
+        NatRepr w -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    smulOverflow w e1 e2
+      | LeqProof <- leqAdd2 (leqRefl w) (LeqProof @1 @w),
+        LeqProof <- dblPosIsPos (LeqProof @1 @w) =
+        mulOverflow w (S.app . E.BVSext (addNat w w) w) e1 e2
 
     -- Check that shift amount `e` is less than the input width `w`.
     shiftOverflowNat w e =
