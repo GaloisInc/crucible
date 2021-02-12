@@ -7,6 +7,7 @@ import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
 import Data.Word (Word64)
 import Data.Text (pack)
+import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config
 import Crux.Log
@@ -27,7 +28,8 @@ pathStrategySpec =
 postprocessOptions :: Logs => CruxOptions -> IO CruxOptions
 postprocessOptions =
   checkPathStrategyInteractions >>
-  checkPathSatInteractions
+  checkPathSatInteractions >>
+  checkBldDir
 
 checkPathStrategyInteractions :: Logs => CruxOptions -> IO CruxOptions
 checkPathStrategyInteractions crux =
@@ -49,6 +51,11 @@ checkPathSatInteractions crux =
              return crux { branchCoverage = False }
       | otherwise -> return crux
 
+checkBldDir :: CruxOptions -> IO CruxOptions
+checkBldDir crux = do
+  createDirectoryIfMissing True $ bldDir crux
+  return crux
+
 
 -- | Common options for Crux-based binaries.
 data CruxOptions = CruxOptions
@@ -58,6 +65,10 @@ data CruxOptions = CruxOptions
   , outDir                  :: FilePath
     -- ^ Write results in this location.
     -- If empty, then do not produce any analysis results.
+
+  , bldDir     :: FilePath
+    -- ^ Directory for writing files generated from the inputFiles set
+    -- (e.g. building C sources into LLVM bitcode files) for analysis.
 
   , checkPathSat             :: Bool
     -- ^ Should we enable path satisfiability checking?
@@ -149,6 +160,10 @@ cruxOptions = Config
           outDir <-
             section "output-directory" dirSpec ""
             "Save results in this directory."
+
+          bldDir <-
+            section "build-dir" dirSpec "crux-build"
+            "Directory in which to create files generated from the inputFiles."
 
           checkPathSat <-
             section "path-sat" yesOrNoSpec False
@@ -268,7 +283,11 @@ cruxOptions = Config
           pure CruxOptions { .. }
 
 
-  , cfgEnv = []
+  , cfgEnv =
+      [
+        EnvVar "BLDDIR" "Directory for writing build files generated from the input files."
+        $ \v opts -> Right opts { bldDir = v }
+      ]
 
   , cfgCmdLineFlag =
 
