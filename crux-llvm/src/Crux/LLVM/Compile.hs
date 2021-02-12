@@ -9,7 +9,7 @@ module Crux.LLVM.Compile where
 import Control.Exception
   ( SomeException(..), try, displayException )
 import Control.Monad
-  ( unless, forM_ )
+  ( unless, void, forM_ )
 import qualified Data.Foldable as Fold
 import Data.List
   ( intercalate, isSuffixOf )
@@ -101,26 +101,41 @@ llvmLinkVersion llvmOpts =
        ExitSuccess   -> return (parseLLVMLinkVersion sout)
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO ()
-genBitCode cruxOpts llvmOpts =
-  do let files = (Crux.inputFiles cruxOpts)
-         finalBCFile = Crux.outDir cruxOpts </> "combined.bc"
-         srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
-         incs src = takeDirectory src :
-                    (libDir llvmOpts </> "includes") :
-                    incDirs llvmOpts
-         params (src, srcBC)
-           | ".ll" `isSuffixOf` src =
-              ["-c", "-DCRUCIBLE", "-emit-llvm", "-O0", "-o", srcBC, src]
+-- | Generates compiled LLVM bitcode for the set of input files
+-- specified in the 'CruxOptions' argument, writing the output to a
+-- pre-determined filename in the build directory specified in
+-- 'CruxOptions'.
+genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO FilePath
+genBitCode cruxOpts =
+  void . genBitCodeToFile "combined.bc" (Crux.inputFiles cruxOpts) cruxOpts
 
-           | otherwise =
-              [ "-c", "-DCRUCIBLE", "-g", "-emit-llvm" ] ++
-              concat [ [ "-I", dir ] | dir <- incs src ] ++
-              concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
-              [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+-- | Given the target filename and a list of input files, along with
+-- the crux and llvm options, bitcode-compile each input .c file and
+-- link the resulting files, along with any input .ll files into the
+-- target bitcode (BC) file.  Returns the filepath of the target
+-- bitcode file.
+genBitCodeToFile :: Logs
+                 => String -> [FilePath] -> CruxOptions -> LLVMOptions
+                 -> IO FilePath
+genBitCodeToFile finalBCFileName files cruxOpts llvmOpts = do
+  let srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
+      finalBCFile = Crux.outDir cruxOpts </> finalBCFileName
+      incs src = takeDirectory src :
+                 (libDir llvmOpts </> "includes") :
+                 incDirs llvmOpts
+      params (src, srcBC)
+        | ".ll" `isSuffixOf` src =
+            ["-c", "-DCRUCIBLE", "-emit-llvm", "-O0", "-o", srcBC, src]
 
-     finalBCExists <- doesFileExist finalBCFile
-     unless (finalBCExists && lazyCompile llvmOpts) $
+        | otherwise =
+            [ "-c", "-DCRUCIBLE", "-g", "-emit-llvm" ] ++
+            concat [ [ "-I", dir ] | dir <- incs src ] ++
+            concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ]
+                   | san <- ubSanitizers llvmOpts ] ++
+            [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+
+  finalBCExists <- doesFileExist finalBCFile
+  unless (finalBCExists && lazyCompile llvmOpts) $
       do forM_ srcBCNames $ \f@(src,_) ->
            unless (".bc" `isSuffixOf` src) (runClang llvmOpts (params f))
          ver <- llvmLinkVersion llvmOpts
@@ -128,6 +143,8 @@ genBitCode cruxOpts llvmOpts =
                            | otherwise = []
          llvmLink llvmOpts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
          mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
+  return finalBCFile
+
 
 makeCounterExamplesLLVM ::
   Logs => CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
