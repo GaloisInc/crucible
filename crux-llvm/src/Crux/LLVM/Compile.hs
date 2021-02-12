@@ -9,13 +9,13 @@ module Crux.LLVM.Compile where
 import Control.Exception
   ( SomeException(..), try, displayException )
 import Control.Monad
-  ( unless, forM_ )
+  ( unless, when, forM_ )
 import qualified Data.Foldable as Fold
 import Data.List
   ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
 import System.Directory
-  ( doesFileExist, removeFile, createDirectoryIfMissing )
+  ( doesFileExist, removeFile, createDirectoryIfMissing, copyFile )
 import System.Exit
   ( ExitCode(..) )
 import System.FilePath
@@ -106,11 +106,11 @@ llvmLinkVersion llvmOpts =
 -- pre-determined filename in the build directory specified in
 -- 'CruxOptions'.
 genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO FilePath
-genBitCode cruxOpts = do
+genBitCode cruxOpts llvmOpts = do
   -- n.b. use of head here is OK because inputFiles should not be
   -- empty (and was previously verified as such in CruxLLVMMain).
   let ofn = "crux~" <> (takeFileName $ head $ Crux.inputFiles cruxOpts) -<.> ".bc"
-  genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts
+  genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts llvmOpts False
 
 -- | Given the target filename and a list of input files, along with
 -- the crux and llvm options, bitcode-compile each input .c file and
@@ -118,9 +118,9 @@ genBitCode cruxOpts = do
 -- target bitcode (BC) file.  Returns the filepath of the target
 -- bitcode file.
 genBitCodeToFile :: Logs
-                 => String -> [FilePath] -> CruxOptions -> LLVMOptions
+                 => String -> [FilePath] -> CruxOptions -> LLVMOptions -> Bool
                  -> IO FilePath
-genBitCodeToFile finalBCFileName files cruxOpts llvmOpts = do
+genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
   let srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
       finalBCFile = Crux.outDir cruxOpts </> finalBCFileName
       incs src = takeDirectory src :
@@ -139,8 +139,13 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts = do
 
   finalBCExists <- doesFileExist finalBCFile
   unless (finalBCExists && lazyCompile llvmOpts) $
-      do forM_ srcBCNames $ \f@(src,_) ->
-           unless (".bc" `isSuffixOf` src) (runClang llvmOpts (params f))
+      do forM_ srcBCNames $ \f@(src,bc) -> do
+           when (copySrc) $ copyFile src (takeDirectory bc </> takeFileName src)
+           bcExists <- doesFileExist bc
+           unless (or [ ".bc" `isSuffixOf` src
+                      , bcExists && lazyCompile llvmOpts
+                      ]) $
+             runClang llvmOpts (params f)
          ver <- llvmLinkVersion llvmOpts
          let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                            | otherwise = []
