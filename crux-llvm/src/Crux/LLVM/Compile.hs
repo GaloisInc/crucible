@@ -19,7 +19,7 @@ import System.Directory
 import System.Exit
   ( ExitCode(..) )
 import System.FilePath
-  ( takeExtension, (</>), takeDirectory, replaceExtension )
+  ( takeExtension, (</>), takeDirectory, takeFileName, (-<.>) )
 import System.Process
   ( readProcess, readProcessWithExitCode )
 
@@ -29,6 +29,7 @@ import What4.ProgramLoc
 import Lang.Crucible.Simulator.SimError
 
 import Crux
+import qualified Crux.Config.Common as CC
 import Crux.Model( toDouble, showBVLiteral, showFloatLiteral, showDoubleLiteral )
 import Crux.Types
 
@@ -121,8 +122,9 @@ genBitCodeToFile :: Logs
                  => String -> [FilePath] -> CruxOptions -> LLVMOptions -> Bool
                  -> IO FilePath
 genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
-  let srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
-      finalBCFile = Crux.outDir cruxOpts </> finalBCFileName
+  let srcBCNames = [ (src, CC.bldDir cruxOpts </> takeFileName src -<.> ".bc")
+                   | src <- files ]
+      finalBCFile = CC.bldDir cruxOpts </> finalBCFileName
       incs src = takeDirectory src :
                  (libDir llvmOpts </> "includes") :
                  incDirs llvmOpts
