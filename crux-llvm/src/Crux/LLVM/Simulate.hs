@@ -121,8 +121,11 @@ registerFunctions llvm_module mtrans =
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
 simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.SimulatorCallback
-simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
-  do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
+simulateLLVM cruxOpts = simulateLLVMFile (Crux.outDir cruxOpts </> "combined.bc")
+
+simulateLLVMFile :: FilePath -> LLVMOptions -> Crux.SimulatorCallback
+simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
+  do llvm_mod   <- parseLLVM llvm_file
      halloc     <- newHandleAllocator
      let ?laxArith = laxArithmetic llvmOpts
      let ?optLoopMerge = loopMerge llvmOpts
