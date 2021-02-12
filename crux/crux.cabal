@@ -29,6 +29,7 @@ library
     parameterized-utils >= 1.0 && < 2.2,
     prettyprinter >= 1.7.0,
     split >= 0.2,
+    terminal-size,
     text,
     time >= 1.8 && < 2.0,
     transformers >= 0.3,

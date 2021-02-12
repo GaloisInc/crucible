@@ -298,14 +298,14 @@ cruxOptions = Config
 
       , Option "t" ["timeout"]
         "Stop executing the simulator after this many seconds (default: 60)"
-        $ OptArg "seconds"
+        $ OptArg "SECS"
         $ dflt "60"
         $ parseNominalDiffTime "seconds"
         $ \v opts -> opts { globalTimeout = Just v }
 
       , Option [] ["goal-timeout"]
         "Stop trying to prove each goal after this many seconds (default: 10)."
-        $ OptArg "seconds"
+        $ OptArg "SECS"
         $ dflt "10"
         $ parseDiffTime "seconds"
         $ \v opts -> opts { goalTimeout = Just v }
@@ -318,20 +318,20 @@ cruxOptions = Config
 
       , Option "p" ["profiling-period"]
         "Time between intermediate profile data reports (default: 5 seconds)"
-        $ OptArg "seconds"
+        $ OptArg "SECS"
         $ dflt "5"
         $ parseNominalDiffTime "seconds"
         $ \v opts -> opts { profileOutputInterval = v }
 
       , Option "i" ["iteration-bound"]
         "Bound all loops to at most this many iterations"
-        $ ReqArg "iterations"
+        $ ReqArg "ITER"
         $ parsePosNum "iterations"
         $ \v opts -> opts { loopBound = Just v }
 
       , Option "r" ["recursion-bound"]
         "Bound all recursive calls to at most this many calls"
-        $ ReqArg "calls"
+        $ ReqArg "CALLS"
         $ parsePosNum "calls"
         $ \v opts -> opts { recursionBound = Just v }
 
@@ -348,11 +348,11 @@ cruxOptions = Config
          "May be a single solver, a comma-separated list of solvers, or the string \"all\". " ++
          "Specifying multiple solvers requires the --force-offline-goal-solving option. " ++
          "(default: \"yices\")")
-        $ ReqArg "solver" $ \v opts -> Right opts { solver = map toLower v }
+        $ ReqArg "SOLVER" $ \v opts -> Right opts { solver = map toLower v }
 
       , Option [] ["path-sat-solver"]
         "Select the solver to use for path satisfiability checking (if different from `solver` and required by the `path-sat` option). (default: use `solver`)"
-        $ OptArg "solver" $ \ms opts -> Right opts { pathSatSolver = ms }
+        $ OptArg "SOLVER" $ \ms opts -> Right opts { pathSatSolver = ms }
 
       , Option [] ["force-offline-goal-solving"]
         "Force goals to be solved using an offline solver, even if the selected solver could have been used in online mode (default: no)"
@@ -402,7 +402,7 @@ cruxOptions = Config
         ("Select floating point representation,"
          ++ " i.e. one of [real|ieee|uninterpreted|default]. "
          ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
-        $ ReqArg "floating-point" $ \v opts -> Right opts { floatMode = map toLower v }
+        $ ReqArg "FPREP" $ \v opts -> Right opts { floatMode = map toLower v }
       ]
   }
 
