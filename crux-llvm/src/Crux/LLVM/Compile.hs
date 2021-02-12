@@ -9,7 +9,7 @@ module Crux.LLVM.Compile where
 import Control.Exception
   ( SomeException(..), try, displayException )
 import Control.Monad
-  ( unless, void, forM_ )
+  ( unless, forM_ )
 import qualified Data.Foldable as Fold
 import Data.List
   ( intercalate, isSuffixOf )
@@ -106,8 +106,11 @@ llvmLinkVersion llvmOpts =
 -- pre-determined filename in the build directory specified in
 -- 'CruxOptions'.
 genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO FilePath
-genBitCode cruxOpts =
-  void . genBitCodeToFile "combined.bc" (Crux.inputFiles cruxOpts) cruxOpts
+genBitCode cruxOpts = do
+  -- n.b. use of head here is OK because inputFiles should not be
+  -- empty (and was previously verified as such in CruxLLVMMain).
+  let ofn = "crux~" <> (takeFileName $ head $ Crux.inputFiles cruxOpts) -<.> ".bc"
+  genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts
 
 -- | Given the target filename and a list of input files, along with
 -- the crux and llvm options, bitcode-compile each input .c file and
