@@ -31,6 +31,16 @@ Description:
     of challenge inputs for the SV-COMP competition and generate
     benchmark results.
 
+
+data-files:
+   c-src/includes/crucible.h
+   c-src/includes/crucible-model.h
+   c-src/concrete-backend.c
+   c-src/print-model.c
+   c-src/libcxx-3.6.2.bc
+   c-src/libcxx-7.1.0.bc
+
+
 library
 
   hs-source-dirs: src
@@ -41,6 +51,10 @@ library
     Crux.LLVM.Config
     Crux.LLVM.Overrides
     Crux.LLVM.Simulate
+    Paths_crux_llvm
+
+  autogen-modules:
+    Paths_crux_llvm
 
   build-depends:
     ansi-terminal,

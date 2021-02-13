@@ -61,7 +61,8 @@ import CruxLLVMMain( processLLVMOptions )
 
 main :: IO ()
 main = do
-  let opts = Crux.cfgJoin llvmCruxConfig svcompOptions
+  cfg <- llvmCruxConfig
+  let opts = Crux.cfgJoin cfg svcompOptions
   Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" "0.1" opts $ \(co0,(lo0,svOpts)) ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        bss <- loadSVCOMPBenchmarks cruxOpts
@@ -70,7 +71,8 @@ main = do
        evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts
 
 
-genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap -> IO [(Int, VerificationTask, Maybe SomeException)]
+genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap
+                 -> IO [(Int, VerificationTask, Either SomeException FilePath)]
 genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::Int ..] (Map.toList tm))
  where
  goTask (n, ((task, tgtWidth), bss)) = action `catch` handler
@@ -79,8 +81,8 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
 
    action =
      do tgt <- getTarget tgtWidth bss
-        skip <- processVerificationTask tgt n task
-        return $! if skip then [] else [(n, task, Nothing)]
+        rslt <- processVerificationTask tgt n task
+        return $! maybe [] (\outFile -> [(n, task, Right outFile)]) rslt
 
    handler e
      | Just (_::AsyncException) <- fromException e = throwIO e
@@ -88,7 +90,8 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
          do sayFail "SVCOMP" $ unlines ["Failed to compile task:", show (verificationSourceFile task), displayException e]
             removeDirectoryRecursive outputPath `catch` \e' ->
                sayFail "SVCOMP" $ unlines ["Double fault! While trying to remove:", outputPath, displayException (e'::SomeException)]
-            return [(n, task, Just e)]
+            return [(n, task, Left e)]
+
 
  getTarget tgtWidth bss =
    case tgtWidth of
@@ -99,7 +102,11 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
 
  processVerificationTask _tgt _num task
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = return True
+   = do sayWarn "SVCOMP" $ unlines
+          [ "Skipping:"
+          , "  " ++ verificationSourceFile task
+          ]
+        return Nothing
 
  processVerificationTask tgt num task =
    do let files = verificationInputFiles task
@@ -127,7 +134,7 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
                  unless (bcExists && lazyCompile llvmOpts) $
                    runClang llvmOpts (params (src, srcBC))
            llvmLink llvmOpts (map snd srcBCNames) finalBCFile
-      return False
+      return $ Just finalBCFile
 
 svTaskDirectory :: FilePath -> Int -> VerificationTask -> FilePath
 svTaskDirectory base num task = base </> path
@@ -150,7 +157,9 @@ hGetContentsStrict hdl =
   do s <- hGetContents hdl
      length s `seq` return s
 
-evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> [(Int, VerificationTask, Maybe SomeException)] -> IO ()
+evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions
+                      -> [(Int, VerificationTask, Either SomeException FilePath)]
+                      -> IO ()
 evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
    bracket (openFile (svcompOutputFile svOpts) WriteMode)
            (\jsonOutHdl -> LBS.hPutStr jsonOutHdl "]\n" >> hClose jsonOutHdl)
@@ -165,19 +174,12 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
 
  root = Crux.outDir cruxOpts
 
- evaluateVerificationTask _ (_num, task, _)
-   | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = sayWarn "SVCOMP" $ unlines
-        [ "Skipping:"
-        , "  " ++ verificationSourceFile task
-        ]
-
- evaluateVerificationTask jsonOutHdl (num, task, compileErr) =
-    do ed <- case compileErr of
-         Just ex ->
+ evaluateVerificationTask jsonOutHdl (num, task, compileErrOrOutFile) =
+    do ed <- case compileErrOrOutFile of
+         Left ex ->
            failTask num task "Failed to compile task" ex
-         Nothing ->
-           try (executeTask num task) >>= \case
+         Right inpBCFile ->
+           try (executeTask num task inpBCFile) >>= \case
              Left ex
                | Just (_::AsyncException) <- fromException ex -> throwIO ex
                | otherwise -> failTask num task "Failed during process coordination" ex
@@ -205,7 +207,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
               , subprocessOutput = ""
               }
 
- executeTask num task =
+ executeTask num task inpBCFile =
     do let taskRoot = svTaskDirectory root num task
        let sourceFile = verificationSourceFile task
 
@@ -227,7 +229,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
                    maybeSetLim ResourceTotalMemory ((megabyte *) <$> svcompMemlimit svOpts)
                    writeHdl <- fdToHandle writeFd
                    jsonHdl <- fdToHandle jsonWriteFd
-                   evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts root num task
+                   evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts root num task inpBCFile
                    exitSuccess
 
        ast  <- async (getProcessStatus True {- Block -} False {- stopped -} pid)
@@ -309,8 +311,10 @@ instance ToJSON EvaluationResult
 instance FromJSON EvaluationResult
 instance ToJSONKey EvaluationResult
 
-evaluateSingleTask :: Handle -> Handle -> CruxOptions -> LLVMOptions -> FilePath -> Int -> VerificationTask -> IO ()
-evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task =
+evaluateSingleTask :: Handle -> Handle -> CruxOptions -> LLVMOptions
+                   -> FilePath
+                   -> Int -> VerificationTask -> FilePath -> IO ()
+evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task inpBCFile =
    do let taskRoot = svTaskDirectory bsRoot num task
       let srcRoot  = takeDirectory (verificationSourceFile task)
       let inputs   = map (srcRoot </>) (verificationInputFiles task)
@@ -319,7 +323,7 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task =
       let ?outputConfig = OutputConfig False writeHdl writeHdl False
 
       mres <- try $
-               do res <- Crux.runSimulator cruxOpts' (simulateLLVM cruxOpts' llvmOpts)
+               do res <- Crux.runSimulator cruxOpts' (simulateLLVMFile inpBCFile llvmOpts)
                   generateReport cruxOpts' res
                   return res
 

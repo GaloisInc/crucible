@@ -5,7 +5,7 @@
 module Main where
 
 import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
-import           Control.Monad ( unless )
+import           Control.Monad ( unless, when )
 import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
@@ -267,12 +267,31 @@ mkTest clangVer sweet _ expct =
                Just (TS.Assumed  v) -> specMatchesInstalled v
                _ -> error "clang-range unknown"
 
+    -- Some tests take longer, so only run one of them in fast-test mode
+
+    testLevel <- fromMaybe "0" <$> lookupEnv "CI_TEST_LEVEL"
+
+    -- Allow issue_478_unsafe/loop-merging to always run, but identify
+    -- all other tests taking 20s or greater as longTests.
+
+    let longTests = or [ and [ TS.rootBaseName sweet == "issue_478_unsafe"
+                             , fromMaybe True
+                               (TS.paramMatchVal "loop" <$>
+                                lookup "loop-merging" (TS.expParamsMatch expct))
+                             ]
+                       , TS.rootBaseName sweet == "nested"
+                       , TS.rootBaseName sweet == "nested_unsafe"
+                       ]
+
     -- Presence of a .skip file means this test should be skipped.
 
     let skipTest = isJust $ lookup "skip" (TS.associated expct)
 
-    if or [ skipTest, not clangMatch ]
-      then return []
+    if or [ skipTest, not clangMatch, testLevel == "0" && longTests ]
+      then do
+        when (testLevel == "0" && longTests) $
+          putStrLn "*** Longer running test skipped; set CI_TEST_MODE=1 env var to enable"
+        return []
       else do
         let isLoopMerge = TS.paramMatchVal "loopmerge" <$>
                         lookup "loop-merging" (TS.expParamsMatch expct)
