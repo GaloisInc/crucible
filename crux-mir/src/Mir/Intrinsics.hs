@@ -70,6 +70,7 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.String
 import qualified Data.Vector as V
+import           Data.Word
 
 import           Prettyprinter
 import qualified Text.Regex as Regex
@@ -97,6 +98,8 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import           Crux.Types (Model)
+
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
 import           What4.Partial
@@ -112,13 +115,6 @@ import           Mir.FancyMuxTree
 import           Debug.Trace
 
 import           Unsafe.Coerce
-
-
-mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
-mirIntrinsicTypes =
-   MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
-   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
-   MapF.empty
 
 
 
@@ -1709,3 +1705,103 @@ getSlicePtr e = getStruct i1of2 e
 
 getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
 getSliceLen e = getStruct i2of2 e
+
+
+--------------------------------------------------------------------------------
+-- ** MethodSpec and MethodSpecBuilder
+--
+-- We define the intrinsics here so they can be used in `TransTy.tyToRepr`, and
+-- also define their interfaces (as typeclasses), but the concrete
+-- implementations of these types are in `saw-script/crux-mir-comp`, since they
+-- depend on some SAW components (notably SAW's `MethodSpec` and `Term` types).
+
+class MethodSpecImpl sym ms where
+    -- | Pretty-print the MethodSpec, returning the result as a Rust string
+    -- (`&str`).
+    msPrettyPrint ::
+        forall rtp args ret.
+        ms ->
+        OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym (MirSlice (BVType 8)))
+
+    -- | Enable the MethodSpec for use as an override for the remainder of the
+    -- current test.
+    msEnable ::
+        forall rtp args ret.
+        ms ->
+        OverrideSim (Model sym) sym MIR rtp args ret ()
+
+data MethodSpec sym = forall ms. MethodSpecImpl sym ms => MethodSpec {
+    msData :: ms,
+    msNonce :: Word64
+}
+
+type MethodSpecSymbol = "MethodSpec"
+type MethodSpecType = IntrinsicType MethodSpecSymbol EmptyCtx
+
+pattern MethodSpecRepr :: () => tp' ~ MethodSpecType => TypeRepr tp'
+pattern MethodSpecRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MethodSpecSymbol) -> Just Refl) Empty
+ where MethodSpecRepr = IntrinsicRepr (knownSymbol @MethodSpecSymbol) Empty
+
+type family MethodSpecFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MethodSpecFam sym EmptyCtx = MethodSpec sym
+  MethodSpecFam sym ctx = TypeError
+    ('Text "MethodSpecType expects no arguments, but was given" ':<>: 'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
+  type Intrinsic sym MethodSpecSymbol ctx = MethodSpecFam sym ctx
+
+  muxIntrinsic _sym _iTypes _nm Empty _p ms1 ms2
+    | msNonce ms1 == msNonce ms2 = return ms1
+    | otherwise = fail "can't mux MethodSpecs"
+  muxIntrinsic _sym _tys nm ctx _ _ _ = typeError nm ctx
+
+
+class MethodSpecBuilderImpl sym msb where
+    msbAddArg :: forall rtp args ret tp.
+        TypeRepr tp -> MirReferenceMux sym tp -> msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbSetReturn :: forall rtp args ret tp.
+        TypeRepr tp -> MirReferenceMux sym tp -> msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbGatherAssumes :: forall rtp args ret.
+        msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbGatherAsserts :: forall rtp args ret.
+        msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbFinish :: forall rtp args ret.
+        msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret (MethodSpec sym)
+
+data MethodSpecBuilder sym = forall msb. MethodSpecBuilderImpl sym msb => MethodSpecBuilder msb
+
+type MethodSpecBuilderSymbol = "MethodSpecBuilder"
+type MethodSpecBuilderType = IntrinsicType MethodSpecBuilderSymbol EmptyCtx
+
+pattern MethodSpecBuilderRepr :: () => tp' ~ MethodSpecBuilderType => TypeRepr tp'
+pattern MethodSpecBuilderRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MethodSpecBuilderSymbol) -> Just Refl) Empty
+ where MethodSpecBuilderRepr = IntrinsicRepr (knownSymbol @MethodSpecBuilderSymbol) Empty
+
+type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilder sym
+  MethodSpecBuilderFam sym ctx = TypeError
+    ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
+  type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
+
+  muxIntrinsic _sym _iTypes _nm Empty _ _ _ =
+    fail "can't mux MethodSpecBuilders"
+  muxIntrinsic _sym _tys nm ctx _ _ _ = typeError nm ctx
+
+
+-- Table of all MIR-specific intrinsic types.  Must be at the end so it can see
+-- past all previous TH calls.
+
+mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
+mirIntrinsicTypes =
+   MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MethodSpecSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MethodSpecBuilderSymbol) IntrinsicMuxFn $
+   MapF.empty
