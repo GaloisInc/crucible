@@ -36,7 +36,6 @@ module Lang.Crucible.Backend.Online
   , checkSatisfiable
   , checkSatisfiableWithModel
   , withSolverProcess
-  , withSolverProcess'
   , resetSolverProcess
   , resetSolverProcess'
   , restoreSolverState
@@ -398,15 +397,14 @@ restoreSolverState gc st =
 --   happened already and apply the given action.
 --   If the @enableOnlineBackend@ option is False, the action
 --   is skipped instead, and the solver is not started.
-withSolverProcess' ::
+withSolverProcess ::
   OnlineSolver solver =>
-  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver userSt scope)) ->
-  B.ExprBuilder scope s fs ->
+  OnlineBackendUserSt scope solver userSt fs ->
   IO a {- ^ Default value to return if online features are disabled -} ->
   (SolverProcess scope solver -> IO a) ->
   IO a
-withSolverProcess' getSolver sym def action = do
-  st <- getSolver sym
+withSolverProcess sym def action = do
+  let st = B.sbUserState sym
   onlineEnabled st >>= \case
     False -> def
     True ->
@@ -445,19 +443,6 @@ withSolverProcess' getSolver sym def action = do
                (maybe (return ()) hClose auxh)
                 `finally`
                (writeIORef (solverProc st) SolverNotStarted))
-
--- | Get the solver process, specialized to @OnlineBackend@.
---   Starts the solver, if that hasn't
---   happened already and apply the given action.
---   If the @enableOnlineBackend@ option is False, the action
---   is skipped instead, and the solver is not started.
-withSolverProcess ::
-  OnlineSolver solver =>
-  OnlineBackendUserSt scope solver userSt fs ->
-  IO a {- ^ Default value to return if online features are disabled -} ->
-  (SolverProcess scope solver -> IO a) ->
-  IO a
-withSolverProcess = withSolverProcess' (\sym -> pure (B.sbUserState sym))
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult
