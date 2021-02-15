@@ -31,8 +31,8 @@ mainWithOutputConfig outCfg = do
   cfg <- llvmCruxConfig
   Crux.loadOptions outCfg "crux-llvm" "0.1" cfg $ \initOpts ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
-       genBitCode cruxOpts llvmOpts
-       res <- Crux.runSimulator cruxOpts (simulateLLVM cruxOpts llvmOpts)
+       bcFile <- genBitCode cruxOpts llvmOpts
+       res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
        makeCounterExamplesLLVM cruxOpts llvmOpts res
        Crux.postprocessSimResult cruxOpts res
 
