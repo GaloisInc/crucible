@@ -58,6 +58,7 @@ data LLVMOptions = LLVMOptions
   , clangOpts  :: [String]
   , libDir     :: FilePath
   , incDirs    :: [FilePath]
+  , targetArch :: Maybe String
   , ubSanitizers :: [String]
   , memOpts    :: MemOptions
   , laxArithmetic :: Bool
@@ -89,6 +90,10 @@ llvmCruxConfig = do
          incDirs <- Crux.section "include-dirs"
                         (Crux.oneOrList Crux.dirSpec) []
                     "Additional include directories."
+
+         targetArch <- Crux.sectionMaybe "target-architecture" Crux.stringSpec
+                       "Target architecture to pass to LLVM build operations.\
+                       \ Default is no specification for current system architecture"
 
          memOpts <- do laxPointerOrdering <-
                          Crux.section "lax-pointer-ordering" Crux.yesOrNoSpec False
@@ -135,6 +140,11 @@ llvmCruxConfig = do
         "Additional include directories."
         $ Crux.ReqArg "DIR"
         $ \d opts -> Right opts { incDirs = d : incDirs opts }
+
+      , Crux.Option [] ["target"]
+        "Target architecture to pass to LLVM build operations"
+        $ Crux.OptArg "ARCH"
+        $ \a opts -> Right opts { targetArch = a }
 
       , Crux.Option [] ["lax-pointers"]
         "Turn on lax rules for pointer comparisons"
