@@ -4,14 +4,17 @@
 
 module Crux.LLVM.Config where
 
-import Control.Exception ( Exception, displayException, throwIO )
-import Control.Monad.State( liftIO, MonadIO )
+import           Control.Exception ( Exception, displayException, throwIO )
+import           Control.Monad.State ( liftIO, MonadIO )
+import           System.FilePath ( (</>) )
 
 import qualified Data.LLVM.BitCode as LLVM
 
-import Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
+import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
 
 import qualified Crux
+import           Paths_crux_llvm ( getDataDir )
+
 
 --
 -- LLVM specific errors
@@ -64,10 +67,12 @@ data LLVMOptions = LLVMOptions
   , loopMerge :: Bool
   }
 
-llvmCruxConfig :: Crux.Config LLVMOptions
-llvmCruxConfig =
-  Crux.Config
-  { Crux.cfgFile =
+llvmCruxConfig :: IO (Crux.Config LLVMOptions)
+llvmCruxConfig = do
+  ddir <- getDataDir
+  let libDirDefault = ddir </> "c-src"
+  return Crux.Config
+   { Crux.cfgFile =
       do clangBin <- Crux.section "clang" Crux.fileSpec "clang"
                      "Binary to use for `clang`."
 
@@ -78,7 +83,7 @@ llvmCruxConfig =
                                     (Crux.oneOrList Crux.stringSpec) []
                       "Additional options for `clang`."
 
-         libDir <- Crux.section "lib-dir" Crux.dirSpec "c-src"
+         libDir <- Crux.section "lib-dir" Crux.dirSpec libDirDefault
                    "Locations of `crux-llvm` support library."
 
          incDirs <- Crux.section "include-dirs"
@@ -113,7 +118,7 @@ llvmCruxConfig =
 
          return LLVMOptions { .. }
 
-  , Crux.cfgEnv  =
+   , Crux.cfgEnv  =
       [ Crux.EnvVar "CLANG"      "Binary to use for `clang`."
         $ \v opts -> Right opts { clangBin = v }
 
@@ -122,9 +127,10 @@ llvmCruxConfig =
 
       , Crux.EnvVar "LLVM_LINK" "Use this binary to link LLVM bitcode (`llvm-link`)."
         $ \v opts -> Right opts { linkBin = v }
+
       ]
 
-  , Crux.cfgCmdLineFlag =
+   , Crux.cfgCmdLineFlag =
       [ Crux.Option ['I'] ["include-dirs"]
         "Additional include directories."
         $ Crux.ReqArg "DIR"
@@ -162,4 +168,4 @@ llvmCruxConfig =
         $ \v opts -> opts { optLevel = v }
 
       ]
-  }
+   }

@@ -61,7 +61,8 @@ import CruxLLVMMain( processLLVMOptions )
 
 main :: IO ()
 main = do
-  let opts = Crux.cfgJoin llvmCruxConfig svcompOptions
+  cfg <- llvmCruxConfig
+  let opts = Crux.cfgJoin cfg svcompOptions
   Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" "0.1" opts $ \(co0,(lo0,svOpts)) ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        bss <- loadSVCOMPBenchmarks cruxOpts
@@ -99,7 +100,11 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
 
  processVerificationTask _tgt _num task
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = return True
+   = do sayWarn "SVCOMP" $ unlines
+          [ "Skipping:"
+          , "  " ++ verificationSourceFile task
+          ]
+        return True
 
  processVerificationTask tgt num task =
    do let files = verificationInputFiles task
@@ -164,13 +169,6 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
    setResourceLimit res (ResourceLimits (ResourceLimit lim) ResourceLimitUnknown)
 
  root = Crux.outDir cruxOpts
-
- evaluateVerificationTask _ (_num, task, _)
-   | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = sayWarn "SVCOMP" $ unlines
-        [ "Skipping:"
-        , "  " ++ verificationSourceFile task
-        ]
 
  evaluateVerificationTask jsonOutHdl (num, task, compileErr) =
     do ed <- case compileErr of

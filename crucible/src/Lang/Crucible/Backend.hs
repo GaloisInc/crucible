@@ -6,6 +6,23 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 This module provides an interface that symbolic backends must provide
 for interacting with the symbolic simulator.
+
+Compared to the solver connections provided by What4, Crucible backends provide
+a facility for managing an /assumption stack/ (see 'AS.AssumptionStack').  Note
+that these backends are layered on top of the 'What4.Expr.Builder.ExprBuilder';
+the solver choice is still up to the user.  The
+'Lang.Crucible.Backend.Simple.SimpleBackend' is designed to be used with an
+offline solver connection, while the
+'Lang.Crucible.Backend.Online.OnlineBackend' is designed to be used with an
+online solver.
+
+The 'AS.AssumptionStack' tracks the assumptions that are in scope for each
+assertion, accounting for the branching and merging structure of programs.  The
+symbolic simulator manages the 'AS.AssumptionStack'. After symbolic simulation
+completes, the caller should traverse the 'AS.AssumptionStack' (or use
+combinators like 'AS.proofGoalsToList') to discharge the resulting proof
+obligations with a solver backend.
+
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}

@@ -27,8 +27,9 @@ mainWithOutputTo :: Handle -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
 
 mainWithOutputConfig :: OutputConfig -> IO ExitCode
-mainWithOutputConfig outCfg =
-  Crux.loadOptions outCfg "crux-llvm" "0.1" llvmCruxConfig $ \initOpts ->
+mainWithOutputConfig outCfg = do
+  cfg <- llvmCruxConfig
+  Crux.loadOptions outCfg "crux-llvm" "0.1" cfg $ \initOpts ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
        genBitCode cruxOpts llvmOpts
        res <- Crux.runSimulator cruxOpts (simulateLLVM cruxOpts llvmOpts)
