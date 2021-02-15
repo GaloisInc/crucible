@@ -151,6 +151,10 @@ data CrucibleType where
 
    -- | A type containing a single value "Unit"
    UnitType :: CrucibleType
+
+   -- | A type for natural numbers.
+   NatType :: CrucibleType
+
    -- | A type index for floating point numbers, whose interpretation
    --   depends on the symbolic backend.
    FloatType :: FloatInfo -> CrucibleType
@@ -205,7 +209,6 @@ type BVType w        = BaseToType (BaseBVType w)  -- ^ @:: 'Nat' -> 'CrucibleTyp
 type ComplexRealType = BaseToType BaseComplexType -- ^ @:: 'CrucibleType'@.
 type IntegerType     = BaseToType BaseIntegerType -- ^ @:: 'CrucibleType'@.
 type StringType si   = BaseToType (BaseStringType si) -- ^ @:: 'StringInfo' -> 'CrucibleType'@.
-type NatType         = BaseToType BaseNatType     -- ^ @:: 'CrucibleType'@.
 type RealValType     = BaseToType BaseRealType    -- ^ @:: 'CrucibleType'@.
 type IEEEFloatType p = BaseToType (BaseFloatType p) -- ^ @:: FloatPrecision -> CrucibleType@
 
@@ -264,6 +267,9 @@ type StructType = 'StructType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
 -- | A type containing a single value "Unit".
 type UnitType      = 'UnitType      -- ^ @:: 'CrucibleType'@.
 
+-- | A type for natural numbers.
+type NatType       = 'NatType       -- ^ @:: 'CrucibleType'@.
+
 -- | A variant is a disjoint union of the types listed in the context.
 type VariantType   = 'VariantType   -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
 
@@ -283,7 +289,6 @@ baseToType bt =
   case bt of
     BaseBoolRepr -> BoolRepr
     BaseIntegerRepr -> IntegerRepr
-    BaseNatRepr -> NatRepr
     BaseRealRepr -> RealValRepr
     BaseStringRepr si -> StringRepr si
     BaseBVRepr w -> BVRepr w
@@ -301,7 +306,6 @@ asBaseType tp =
   case tp of
     BoolRepr -> AsBaseType BaseBoolRepr
     IntegerRepr -> AsBaseType BaseIntegerRepr
-    NatRepr -> AsBaseType BaseNatRepr
     RealValRepr -> AsBaseType BaseRealRepr
     StringRepr si -> AsBaseType (BaseStringRepr si)
     BVRepr w -> AsBaseType (BaseBVRepr w)
@@ -377,6 +381,7 @@ data TypeRepr (tp::CrucibleType) where
 instance KnownRepr TypeRepr AnyType             where knownRepr = AnyRepr
 instance KnownRepr TypeRepr UnitType            where knownRepr = UnitRepr
 instance KnownRepr TypeRepr CharType            where knownRepr = CharRepr
+instance KnownRepr TypeRepr NatType             where knownRepr = NatRepr
 
 instance KnownRepr BaseTypeRepr bt => KnownRepr TypeRepr (BaseToType bt) where
   knownRepr = baseToType knownRepr

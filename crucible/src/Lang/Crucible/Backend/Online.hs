@@ -36,7 +36,6 @@ module Lang.Crucible.Backend.Online
   , checkSatisfiable
   , checkSatisfiableWithModel
   , withSolverProcess
-  , withSolverProcess'
   , resetSolverProcess
   , resetSolverProcess'
   , restoreSolverState
@@ -339,7 +338,7 @@ initialOnlineBackendState gen feats ust =
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
   IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
-getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
+getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
 
 -- | Shutdown any currently-active solver process.
@@ -350,8 +349,7 @@ resetSolverProcess ::
   OnlineBackend scope solver fs ->
   IO ()
 resetSolverProcess sym = do
-  do st <- readIORef (B.sbStateManager sym)
-     resetSolverProcess' st
+  resetSolverProcess' (B.sbUserState sym)
 
 -- | Shutdown any currently-active solver process.
 --   A fresh solver process will be started on the
@@ -399,15 +397,14 @@ restoreSolverState gc st =
 --   happened already and apply the given action.
 --   If the @enableOnlineBackend@ option is False, the action
 --   is skipped instead, and the solver is not started.
-withSolverProcess' ::
+withSolverProcess ::
   OnlineSolver solver =>
-  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver userSt scope)) ->
-  B.ExprBuilder scope s fs ->
+  OnlineBackendUserSt scope solver userSt fs ->
   IO a {- ^ Default value to return if online features are disabled -} ->
   (SolverProcess scope solver -> IO a) ->
   IO a
-withSolverProcess' getSolver sym def action = do
-  st <- getSolver sym
+withSolverProcess sym def action = do
+  let st = B.sbUserState sym
   onlineEnabled st >>= \case
     False -> def
     True ->
@@ -446,19 +443,6 @@ withSolverProcess' getSolver sym def action = do
                (maybe (return ()) hClose auxh)
                 `finally`
                (writeIORef (solverProc st) SolverNotStarted))
-
--- | Get the solver process, specialized to @OnlineBackend@.
---   Starts the solver, if that hasn't
---   happened already and apply the given action.
---   If the @enableOnlineBackend@ option is False, the action
---   is skipped instead, and the solver is not started.
-withSolverProcess ::
-  OnlineSolver solver =>
-  OnlineBackendUserSt scope solver userSt fs ->
-  IO a {- ^ Default value to return if online features are disabled -} ->
-  (SolverProcess scope solver -> IO a) ->
-  IO a
-withSolverProcess = withSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult
@@ -529,8 +513,7 @@ newOnlineBackend floatMode gen feats userSt =
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
      let st = st0{ onlineEnabled = getOpt enableOpt }
 
-     writeIORef (B.sbStateManager sym) st
-     return sym
+     return sym { B.sbUserState = st }
 
 -- | Do something with an online backend.
 --   The backend is only valid in the continuation.
@@ -546,7 +529,7 @@ withOnlineBackend ::
   m a
 withOnlineBackend floatMode gen feats action = do
   sym <- liftIO (newOnlineBackend floatMode gen feats EmptyUserState)
-  st <- liftIO (readIORef (B.sbStateManager sym))
+  let st = B.sbUserState sym
 
   action sym
     `finally`
@@ -635,7 +618,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
        AS.saveAssumptionStack stk
 
   restoreAssumptionState sym gc =
-    do st <- readIORef (B.sbStateManager sym)
+    do let st = B.sbUserState sym
        restoreSolverState gc st
 
        -- restore the previous assumption stack

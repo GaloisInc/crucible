@@ -161,7 +161,9 @@ concPtr ::
   RegValue sym (LLVMPointerType w) ->
   IO (RegValue sym (LLVMPointerType w))
 concPtr sym conc (LLVMPointer blk off) =
-  LLVMPointer <$> (natLit sym =<< conc blk) <*> concBV sym conc off
+  do blk' <- integerToNat sym =<< intLit sym =<< conc =<< natToInteger sym blk
+     off' <- concBV sym conc off
+     pure (LLVMPointer blk' off')
 
 concPtr' ::
   (IsExprBuilder sym, 1 <= w) =>
@@ -289,7 +291,7 @@ ppPtr :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc ann
 ppPtr (llvmPointerView -> (blk, bv))
   | Just 0 <- asNat blk = printSymExpr bv
   | otherwise =
-     let blk_doc = printSymExpr blk
+     let blk_doc = printSymNat blk
          off_doc = printSymExpr bv
       in pretty "(" <> blk_doc <> pretty "," <+> off_doc <> pretty ")"
 

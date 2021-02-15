@@ -869,6 +869,14 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           let stmt = C.FreshFloat fi cnm
           C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
 
+        FreshNat cnm -> do
+          let sz' = incSize sz
+          let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
+          let bindings' = bindings & extendRegExprs NothingF
+          let appMap'   = appMap   & appRegMap_extend
+          let stmt = C.FreshNat cnm
+          C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
+
         Call h args _ -> do
           let return_type = typeOfAtom a
           let h' = resolveAtom reg_map h

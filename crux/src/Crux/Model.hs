@@ -12,7 +12,6 @@
 
 module Crux.Model where
 
-import           Data.Binary.IEEE754 as IEEE754
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Map (MapF)
@@ -20,6 +19,8 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Pair (Pair(..))
 import           Data.Parameterized.TraversableF (traverseF)
 import qualified Numeric as N
+import           LibBF (BigFloat)
+import qualified LibBF as BF
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegMap (RegValue)
@@ -80,36 +81,25 @@ toDouble = fromRational
 showBVLiteral :: (1 <= w) => NatRepr w -> BV w -> String
 showBVLiteral w bv =
     (if x < 0 then "-0x" else "0x") ++ N.showHex i (if natValue w == 64 then "L" else "")
-
   where
   x = BV.asSigned w bv
   i = abs x
 
-showFloatLiteral :: BV 32 -> String
-showFloatLiteral bv
-   | isNaN x          = "NAN"
-   | isInfinite x     = if signum x < 0 then "-INFINITY" else "INFINITY"
-   | isNegativeZero x = "-0.0f"
-   | otherwise        =
-      (if mag < 0 then "-0x" else "0x") ++ N.showHex (abs mag) ("p" ++ show ex ++ "f")
+showFloatLiteral :: BigFloat -> String
+showFloatLiteral x
+   | BF.bfIsNaN x     = "NAN"
+   | BF.bfIsInf x     = if BF.bfIsNeg x then "-INFINITY" else "INFINITY"
+   | BF.bfIsZero x    = if BF.bfIsNeg x then "-0.0f" else "0.0f"
+                                               -- NB, 24 bits of precision for float
+   | otherwise        = BF.bfToString 16 (BF.showFree (Just 24) <> BF.addPrefix) x ++ "f"
 
- where
- x = IEEE754.wordToFloat (fromInteger (BV.asUnsigned bv))
- (mag,ex) = decodeFloat x
-
-
-showDoubleLiteral :: BV 64 -> String
-showDoubleLiteral bv
-   | isNaN x          = "(double) NAN"
-   | isInfinite x     = if signum x < 0 then "- ((double) INFINITY)" else "(double) INFINITY"
-   | isNegativeZero x = "-0.0"
-   | otherwise        =
-      (if mag < 0 then "-0x" else "0x") ++ N.showHex (abs mag) ("p" ++ show ex)
-
- where
- x = IEEE754.wordToDouble (fromInteger (BV.asUnsigned bv))
- (mag,ex) = decodeFloat x
-
+showDoubleLiteral :: BigFloat -> String
+showDoubleLiteral x
+   | BF.bfIsNaN x     = "(double) NAN"
+   | BF.bfIsInf x     = if BF.bfIsNeg x then "- ((double) INFINITY)" else "(double) INFINITY"
+   | BF.bfIsZero x    = if BF.bfIsNeg x then "-0.0" else "0.0"
+                                               -- NB, 53 bits of precision for double
+   | otherwise        = BF.bfToString 16 (BF.showFree (Just 53) <> BF.addPrefix) x
 
 valsJS :: BaseTypeRepr ty -> Vals ty -> IO [JS]
 valsJS ty (Vals xs) =

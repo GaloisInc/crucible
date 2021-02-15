@@ -1442,12 +1442,12 @@ execMirStmt stmt s =
             return (val, s)
        VectorConcat _tp (regValue -> v1) (regValue -> v2) ->
             return (v1 <> v2, s)
-       VectorTake _tp (regValue -> v) (regValue -> idx) -> case asConcrete idx of
-            Just (ConcreteNat idx') -> return (V.take (fromIntegral idx') v, s)
+       VectorTake _tp (regValue -> v) (regValue -> idx) -> case asNat idx of
+            Just idx' -> return (V.take (fromIntegral idx') v, s)
             Nothing -> addFailedAssertion sym $
                 GenericSimError "VectorTake index must be concrete"
-       VectorDrop _tp (regValue -> v) (regValue -> idx) -> case asConcrete idx of
-            Just (ConcreteNat idx') -> return (V.drop (fromIntegral idx') v, s)
+       VectorDrop _tp (regValue -> v) (regValue -> idx) -> case asNat idx of
+            Just idx' -> return (V.drop (fromIntegral idx') v, s)
             Nothing -> addFailedAssertion sym $
                 GenericSimError "VectorDrop index must be concrete"
        ArrayZeroed idxs w -> do

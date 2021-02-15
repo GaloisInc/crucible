@@ -1310,17 +1310,17 @@ unpackZero sym tp tpr =
 
   Float  ->
     case tpr of
-      FloatRepr SingleFloatRepr -> iFloatLit sym SingleFloatRepr 0
+      FloatRepr SingleFloatRepr -> iFloatLitRational sym SingleFloatRepr 0
       _ -> mismatch
 
   Double ->
     case tpr of
-      FloatRepr DoubleFloatRepr -> iFloatLit sym DoubleFloatRepr 0
+      FloatRepr DoubleFloatRepr -> iFloatLitRational sym DoubleFloatRepr 0
       _ -> mismatch
 
   X86_FP80 ->
     case tpr of
-      FloatRepr X86_80FloatRepr -> iFloatLit sym X86_80FloatRepr 0
+      FloatRepr X86_80FloatRepr -> iFloatLitRational sym X86_80FloatRepr 0
       _ -> mismatch
 
   Array n tp' ->

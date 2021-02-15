@@ -223,7 +223,7 @@ wasmLoadFloat sym off mem =
      let ?recordLLVMAnnotation = \_ _ -> return ()
      pval <- G.readMem sym knownNat Nothing p floatType noAlignment (wasmMemHeap mem)
      Partial.assertSafe sym pval >>= \case
-       LLVMValZero _ -> iFloatLit sym SingleFloatRepr 0
+       LLVMValZero _ -> iFloatLitRational sym SingleFloatRepr 0
        LLVMValFloat SingleSize v -> pure v
        _ -> panic "wasmLoadFloat" ["type mismatch"]
 
@@ -240,7 +240,7 @@ wasmLoadDouble sym off mem =
      let ?recordLLVMAnnotation = \_ _ -> return ()
      pval <- G.readMem sym knownNat Nothing p doubleType noAlignment (wasmMemHeap mem)
      Partial.assertSafe sym pval >>= \case
-       LLVMValZero _ -> iFloatLit sym DoubleFloatRepr 0
+       LLVMValZero _ -> iFloatLitRational sym DoubleFloatRepr 0
        LLVMValFloat DoubleSize v -> pure v
        _ -> panic "wasmLoadDouble" ["type mismatch"]
 
