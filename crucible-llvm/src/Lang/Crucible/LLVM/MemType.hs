@@ -43,7 +43,6 @@ module Lang.Crucible.LLVM.MemType
   , siFieldOffset
   , siFields
   , siIndexOfOffset
-  , siDropLastField
     -- ** Common memory types.
   , i1, i8, i16, i32, i64
   , i8p, i16p, i32p, i64p
@@ -94,7 +93,7 @@ data SymType
   | OpaqueType
     -- | A type not supported by the symbolic simulator.
   | UnsupportedType L.Type
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 instance Show SymType where
   show = show . ppSymType
@@ -123,7 +122,7 @@ data MemType
   | VecType Natural MemType
   | StructType StructInfo
   | MetadataType
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 instance Show MemType where
   show = show . ppMemType
@@ -186,7 +185,7 @@ data FunDecl = FunDecl { fdRetType  :: !RetType
                        , fdArgTypes :: ![MemType]
                        , fdVarArgs  :: !Bool
                        }
- deriving( Eq )
+ deriving (Eq, Ord)
 
 -- | Return the number of bits that represent the given memtype, which
 --   must be either integer types, floating point types or vectors of
@@ -269,31 +268,19 @@ memTypeAlign dl mtp =
 
 -- | Information about size, alignment, and fields of a struct.
 data StructInfo = StructInfo
-  { siDataLayout :: !DataLayout
-  , siIsPacked   :: !Bool
+  { siIsPacked   :: !Bool
   , structSize   :: !Bytes -- ^ Size in bytes.
   , structAlign  :: !Alignment
   , siFields     :: !(V.Vector FieldInfo)
   }
-  deriving (Show)
-
-instance Eq StructInfo where
- si1 == si2 =
-   siIsPacked si1 == siIsPacked si2
-   &&
-   structSize si1 == structSize si2
-   &&
-   structAlign si1 == structAlign si2
-   &&
-   siFields si1 == siFields si2
-
+  deriving (Eq, Ord, Show)
 
 data FieldInfo = FieldInfo
   { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
   , fiType      :: !MemType -- ^ Type of field.
   , fiPadding   :: !Bytes   -- ^ Number of bytes of padding at end of field.
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 
 -- | Constructs a function for obtaining target-specific size/alignment
@@ -343,8 +330,7 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
             sz' = padToAlignment e fieldAlign
 
         go flds sz maxAlign [] =
-            StructInfo { siDataLayout = dl
-                       , siIsPacked = packed
+            StructInfo { siIsPacked = packed
                        , structSize = sz
                        , structAlign = maxAlign
                        , siFields = V.fromList (reverse flds)
@@ -388,11 +374,3 @@ structBraces True  b = pretty "<{" <+> b <+> pretty "}>"
 ppStructInfo :: StructInfo -> Doc ann
 ppStructInfo si = structBraces (siIsPacked si) $ commas (V.toList fields)
   where fields = ppMemType <$> siFieldTypes si
-
--- | Removes the last field from a struct if at least one field exists.
-siDropLastField :: StructInfo -> Maybe (StructInfo, FieldInfo)
-siDropLastField si
-  | V.null (siFields si) = Nothing
-  | otherwise = Just (si', V.last (siFields si))
- where si' = mkStructInfo (siDataLayout si) (siIsPacked si) flds'
-       flds' = V.toList $ V.init $ siFieldTypes si
