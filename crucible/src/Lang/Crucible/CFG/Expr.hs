@@ -974,15 +974,15 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
 
   -- Return the first position at which the second string can be found as a substring
   -- in the first string, starting from the given index.
-  -- If no such position exists, return a negative value.
+  -- If no such position exists, or if the index is out of range, return a negative value.
   StringIndexOf :: !(f (StringType si))
                 -> !(f (StringType si))
                 -> !(f IntegerType)
                 -> App ext f IntegerType
 
   -- @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
-  -- having length @len@.  The result of this operation is undefined if @off@ and @len@
-  -- do not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  -- having length no more than @len@.  This operation returns the empty string if
+  -- @len@ is negative or if @off@ is not in range.
   StringSubstring :: !(StringInfoRepr si)
                   -> !(f (StringType si))
                   -> !(f IntegerType)
