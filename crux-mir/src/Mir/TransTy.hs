@@ -258,6 +258,14 @@ canInitialize ty = case ty of
     --M.TyRef ty' _ -> canInitialize ty'
     _ -> False
 
+isUnsized :: M.Ty -> Bool
+isUnsized ty = case ty of
+    M.TyStr -> True
+    M.TySlice _ -> True
+    M.TyDynamic _ -> True
+    -- TODO: struct types whose last field is unsized ("custom DSTs")
+    _ -> False
+
 
 variantFields :: TransTyConstraint => M.Variant -> Some C.CtxRepr
 variantFields (M.Variant _vn _vd vfs _vct) =
