@@ -89,6 +89,7 @@ import Lang.Crucible.CFG.Expr
 import Lang.Crucible.FunctionHandle
 
 import Numeric.Natural ()
+import qualified Data.Set as Set
 
 
 liftSyntaxParse :: (MonadError (ExprErr s) m, MonadIO m)
@@ -1881,12 +1882,23 @@ cfgs defuns =
      forM headers $
        \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
          do let types = argTypes funArgs
+            -- vs <- foldlMFC (\vs ty -> do
+            --              r <- newUnassignedReg ty
+            --              return (vs <> Set.singleton (Some (RegValue r))))
+            --           mempty types
+            -- vs <- traverse newUnassignedReg types
             initParser hdr src
+            args <- toList <$> use stxAtoms
             let ?returnType = ret
             st <- get
             (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
             put st'
-            let entry = case blockID (head theBlocks) of
-                  LabelID lbl -> lbl
-                  LambdaID {} -> error "initial block is lambda"
-            return $ ACFG types ret $ CFG handle entry theBlocks
+            let vs = Set.fromList [ Some (AtomValue a) | Pair _ a <- args ]
+            case theBlocks of
+              [] -> undefined
+              (e:rest) ->
+                do let entry = case blockID e of
+                                 LabelID lbl -> lbl
+                                 LambdaID {} -> error "initial block is lambda"
+                       e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
+                   return $ ACFG types ret $ CFG handle entry (e' : rest)
