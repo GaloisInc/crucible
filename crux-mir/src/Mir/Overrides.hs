@@ -85,6 +85,7 @@ import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 
 import Mir.DefId
 import Mir.FancyMuxTree
+import Mir.Generator (CollectionState)
 import Mir.Intrinsics
 
 
@@ -370,9 +371,12 @@ regEval sym baseEval tpr v = go tpr v
 bindFn ::
   forall args ret blocks sym rtp a r .
   (IsSymInterface sym) =>
-  Maybe (SomeOnlineSolver sym) -> Text -> CFG MIR blocks args ret ->
+  Maybe (SomeOnlineSolver sym) ->
+  CollectionState ->
+  Text ->
+  CFG MIR blocks args ret ->
   OverrideSim (Model sym) sym MIR rtp a r ()
-bindFn symOnline name cfg
+bindFn symOnline _cs name cfg
   | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
@@ -383,7 +387,7 @@ bindFn symOnline name cfg
   , Empty :> tpr <- cfgArgTypes cfg
   , Just Refl <- testEquality tpr (cfgReturnType cfg)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
-bindFn _symOnline fn cfg =
+bindFn _symOnline _cs fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
     Nothing ->

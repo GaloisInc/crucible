@@ -111,12 +111,13 @@ mainWithOutputConfig outCfg bindExtra =
 type BindExtraOverridesFn = forall args ret blocks sym rtp a r.
     C.IsSymInterface sym =>
     Maybe (Crux.SomeOnlineSolver sym) ->
+    CollectionState ->
     Text ->
     C.CFG MIR blocks args ret ->
     Maybe (C.OverrideSim (Model sym) sym MIR rtp a r ())
 
 noExtraOverrides :: BindExtraOverridesFn
-noExtraOverrides _ _ _ = Nothing
+noExtraOverrides _ _ _ _ = Nothing
 
 runTests :: (Crux.Logs) =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
@@ -185,9 +186,9 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (Model sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
-                case bindExtra symOnline fn cfg of
+                case bindExtra symOnline (mir ^. rmCS) fn cfg of
                     Just f -> f
-                    Nothing -> bindFn symOnline fn cfg
+                    Nothing -> bindFn symOnline (mir ^. rmCS) fn cfg
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
