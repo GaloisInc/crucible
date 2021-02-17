@@ -66,6 +66,7 @@ import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
 
 -- what4
+import qualified What4.Expr.Builder                    as W4
 import qualified What4.Interface                       as W4
 import qualified What4.Config                          as W4
 import qualified What4.Partial                         as W4
@@ -108,8 +109,8 @@ mainWithOutputConfig :: OutputConfig -> BindExtraOverridesFn -> IO ExitCode
 mainWithOutputConfig outCfg bindExtra =
     Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTestsWithExtraOverrides bindExtra
 
-type BindExtraOverridesFn = forall args ret blocks sym rtp a r.
-    C.IsSymInterface sym =>
+type BindExtraOverridesFn = forall sym t st fs args ret blocks rtp a r.
+    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     Maybe (Crux.SomeOnlineSolver sym) ->
     CollectionState ->
     Text ->
@@ -182,7 +183,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: C.IsSymInterface sym =>
+    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (Model sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
@@ -207,7 +208,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     -- that calls `simTest`.  Counterexamples are printed separately, and only
     -- for tests that failed.
 
-    let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
+    let simTest :: forall sym t st fs.
+            (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, Crux.Logs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun Model sym MIR Ctx.EmptyCtx C.UnitType
         simTest symOnline fnName = do
             when (not $ printResultOnly mirOpts) $
