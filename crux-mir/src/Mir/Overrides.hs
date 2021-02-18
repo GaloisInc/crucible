@@ -179,7 +179,6 @@ groundExpr :: (IsExprBuilder sym, IsBoolSolver sym) => sym ->
     BaseTypeRepr tp -> GroundValue tp -> IO (SymExpr sym tp)
 groundExpr sym tpr v = case tpr of
     BaseBoolRepr -> return $ if v then truePred sym else falsePred sym
-    BaseNatRepr -> natLit sym v
     BaseIntegerRepr -> intLit sym v
     BaseRealRepr -> realLit sym v
     BaseBVRepr w -> bvLit sym w v
@@ -206,7 +205,7 @@ groundExpr sym tpr v = case tpr of
 indexExpr :: (IsExprBuilder sym, IsBoolSolver sym) =>
     sym -> BaseTypeRepr tp -> IndexLit tp -> IO (SymExpr sym tp)
 indexExpr sym tpr l = case l of
-    NatIndexLit n -> natLit sym n
+    IntIndexLit n  -> intLit sym n
     BVIndexLit w i -> bvLit sym w i
 
 

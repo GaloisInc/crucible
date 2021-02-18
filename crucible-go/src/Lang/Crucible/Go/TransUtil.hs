@@ -624,6 +624,13 @@ natToBV :: (1 <= w)
         -> Gen.Expr ext s (BVType w)
 natToBV w n = Gen.App $ C.IntegerToBV w $ Gen.App $ C.NatToInteger n
 
+intToBV :: (1 <= w)
+        => NatRepr w
+        -> Gen.Expr ext s IntegerType
+        -> Gen.Expr ext s (BVType w)
+intToBV w n = Gen.App $ C.IntegerToBV w n
+
+
 zeroBV :: (1 <= w) => NatRepr w -> Gen.Expr ext s (BVType w)
 zeroBV w = Gen.App $ C.BVLit w $ mkBV w 0
 

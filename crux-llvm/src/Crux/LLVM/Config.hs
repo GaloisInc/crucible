@@ -4,14 +4,17 @@
 
 module Crux.LLVM.Config where
 
-import Control.Exception ( Exception, displayException, throwIO )
-import Control.Monad.State( liftIO, MonadIO )
+import           Control.Exception ( Exception, displayException, throwIO )
+import           Control.Monad.State ( liftIO, MonadIO )
+import           System.FilePath ( (</>) )
 
 import qualified Data.LLVM.BitCode as LLVM
 
-import Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
+import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
 
 import qualified Crux
+import           Paths_crux_llvm ( getDataDir )
+
 
 --
 -- LLVM specific errors
@@ -55,18 +58,22 @@ data LLVMOptions = LLVMOptions
   , clangOpts  :: [String]
   , libDir     :: FilePath
   , incDirs    :: [FilePath]
+  , targetArch :: Maybe String
   , ubSanitizers :: [String]
   , memOpts    :: MemOptions
   , laxArithmetic :: Bool
   , entryPoint :: String
   , lazyCompile :: Bool
   , optLevel :: Int
+  , loopMerge :: Bool
   }
 
-llvmCruxConfig :: Crux.Config LLVMOptions
-llvmCruxConfig =
-  Crux.Config
-  { Crux.cfgFile =
+llvmCruxConfig :: IO (Crux.Config LLVMOptions)
+llvmCruxConfig = do
+  ddir <- getDataDir
+  let libDirDefault = ddir </> "c-src"
+  return Crux.Config
+   { Crux.cfgFile =
       do clangBin <- Crux.section "clang" Crux.fileSpec "clang"
                      "Binary to use for `clang`."
 
@@ -77,12 +84,16 @@ llvmCruxConfig =
                                     (Crux.oneOrList Crux.stringSpec) []
                       "Additional options for `clang`."
 
-         libDir <- Crux.section "lib-dir" Crux.dirSpec "c-src"
+         libDir <- Crux.section "lib-dir" Crux.dirSpec libDirDefault
                    "Locations of `crux-llvm` support library."
 
          incDirs <- Crux.section "include-dirs"
                         (Crux.oneOrList Crux.dirSpec) []
                     "Additional include directories."
+
+         targetArch <- Crux.sectionMaybe "target-architecture" Crux.stringSpec
+                       "Target architecture to pass to LLVM build operations.\
+                       \ Default is no specification for current system architecture"
 
          memOpts <- do laxPointerOrdering <-
                          Crux.section "lax-pointer-ordering" Crux.yesOrNoSpec False
@@ -107,9 +118,12 @@ llvmCruxConfig =
          optLevel <- Crux.section "opt-level" Crux.numSpec 1
                            "Optimization level to request from `clang`"
 
+         loopMerge <- Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
+                        "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
+
          return LLVMOptions { .. }
 
-  , Crux.cfgEnv  =
+   , Crux.cfgEnv  =
       [ Crux.EnvVar "CLANG"      "Binary to use for `clang`."
         $ \v opts -> Right opts { clangBin = v }
 
@@ -118,13 +132,19 @@ llvmCruxConfig =
 
       , Crux.EnvVar "LLVM_LINK" "Use this binary to link LLVM bitcode (`llvm-link`)."
         $ \v opts -> Right opts { linkBin = v }
+
       ]
 
-  , Crux.cfgCmdLineFlag =
+   , Crux.cfgCmdLineFlag =
       [ Crux.Option ['I'] ["include-dirs"]
         "Additional include directories."
         $ Crux.ReqArg "DIR"
         $ \d opts -> Right opts { incDirs = d : incDirs opts }
+
+      , Crux.Option [] ["target"]
+        "Target architecture to pass to LLVM build operations"
+        $ Crux.OptArg "ARCH"
+        $ \a opts -> Right opts { targetArch = a }
 
       , Crux.Option [] ["lax-pointers"]
         "Turn on lax rules for pointer comparisons"
@@ -135,6 +155,11 @@ llvmCruxConfig =
         "Turn on lax rules for arithemetic overflow"
         $ Crux.NoArg
         $ \opts -> Right opts { laxArithmetic = True }
+
+      , Crux.Option [] ["opt-loop-merge"]
+        "Insert merge blocks in loops with early exits"
+        $ Crux.NoArg
+        $ \opts -> Right opts { loopMerge = True }
 
       , Crux.Option [] ["lazy-compile"]
         "Avoid compiling bitcode from source if intermediate files already exist (default: off)"
@@ -153,4 +178,4 @@ llvmCruxConfig =
         $ \v opts -> opts { optLevel = v }
 
       ]
-  }
+   }

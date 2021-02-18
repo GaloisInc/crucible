@@ -18,25 +18,25 @@ module Lang.Crucible.LLVM.PrettyPrint
   ) where
 
 import Numeric.Natural
-import Text.PrettyPrint.ANSI.Leijen
+import Prettyprinter
 
 -- | Print list of documents separated by commas and spaces.
-commaSepList :: [Doc] -> Doc
-commaSepList l = hcat (punctuate (comma <> char ' ') l)
+commaSepList :: [Doc ann] -> Doc ann
+commaSepList l = hcat (punctuate (comma <> pretty ' ') l)
 
 -- | Pretty print int type with width.
-ppIntType :: Integral a => a -> Doc
-ppIntType i = char 'i' <> integer (toInteger i)
+ppIntType :: Integral a => a -> Doc ann
+ppIntType i = pretty 'i' <> pretty (toInteger i)
 
 -- | Pretty print pointer type.
-ppPtrType :: Doc -> Doc
-ppPtrType tp = tp <> char '*'
+ppPtrType :: Doc ann -> Doc ann
+ppPtrType tp = tp <> pretty '*'
 
-ppArrayType :: Natural -> Doc -> Doc
-ppArrayType n e = brackets (integer (toInteger n) <+> char 'x' <+> e)
+ppArrayType :: Natural -> Doc ann -> Doc ann
+ppArrayType n e = brackets (pretty (toInteger n) <+> pretty 'x' <+> e)
 
-ppVectorType :: Natural -> Doc -> Doc
-ppVectorType n e = angles (integer (toInteger n) <+> char 'x' <+> e)
+ppVectorType :: Natural -> Doc ann -> Doc ann
+ppVectorType n e = angles (pretty (toInteger n) <+> pretty 'x' <+> e)
 
-ppIntVector :: Integral a => Natural -> a -> Doc
+ppIntVector :: Integral a => Natural -> a -> Doc ann
 ppIntVector n w = ppVectorType n (ppIntType w)

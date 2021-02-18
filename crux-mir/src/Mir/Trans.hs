@@ -56,8 +56,6 @@ import qualified Data.List as List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
-import Data.Semigroup(Semigroup(..))
-import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -68,6 +66,9 @@ import qualified Data.Vector as V
 import Data.String (fromString)
 import Numeric
 import Numeric.Natural()
+
+import Prettyprinter (Pretty(..))
+import qualified Prettyprinter as PP
 
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.FunctionHandle as FH
@@ -98,9 +99,7 @@ import Mir.Generator
 import Mir.GenericOps
 import Mir.TransTy
 
-import Mir.PP(fmt)
-import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import Mir.PP (fmt, fmtDoc)
 import GHC.Stack
 
 import Debug.Trace
@@ -734,7 +733,7 @@ evalCast' ck ty1 e ty2  =
           let int = bvToUsize w R.App val
           MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr int
 
-      -- *const [T] -> *T (discards the length and returns only the pointer)
+      --  *const [T] -> *T (discards the length and returns only the pointer)
       (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
         -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
@@ -742,12 +741,12 @@ evalCast' ck ty1 e ty2  =
         | m1 == m2, MirExp (MirSliceRepr tpr) e' <- e
         -> return $ MirExp (MirReferenceRepr tpr) (getSlicePtr e')
 
-      -- *const [T; N] -> *const T (get first element)
+      --  *const [T; N] -> *const T (get first element)
       (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2, MirExp (MirReferenceRepr (MirVectorRepr tpr)) e' <- e
         -> MirExp (MirReferenceRepr tpr) <$> subindexRef tpr e' (R.App $ usizeLit 0)
 
-      -- *const [u8] <-> *const str (no-ops)
+      --  *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
         | m1 == m2 -> return e
       (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
@@ -1264,9 +1263,9 @@ callHandle e abi spreadArg cargs
   | MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst <- e = do
     db    <- use debugLevel
     when (db > 3) $
-       traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
-           PP.text (show e), PP.text "with arguments", pretty cargs,
-           PP.text "abi:",pretty abi])
+       traceM $ fmtDoc (PP.fillSep ["At normal function call of",
+           PP.viaShow e, "with arguments", pretty cargs,
+           "abi:",pretty abi])
 
     exps <- mapM evalOperand cargs
     exps' <- case abi of
@@ -1311,8 +1310,8 @@ callExp funid cargs = do
    case () of
      () | Just (CustomOp op) <- isCustom -> do
           when (db > 3) $
-            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                 pretty funid, PP.text "with arguments", pretty cargs])
+            traceM $ fmtDoc (PP.fillSep ["At custom function call of",
+                 pretty funid, "with arguments", pretty cargs])
 
           ops <- mapM evalOperand cargs
           let opTys = map M.typeOf cargs
@@ -1320,16 +1319,16 @@ callExp funid cargs = do
 
         | Just (CustomOpNamed op) <- isCustom -> do
           when (db > 3) $
-            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                 pretty funid, PP.text "with arguments", pretty cargs])
+            traceM $ fmtDoc (PP.fillSep ["At custom function call of",
+                 pretty funid, "with arguments", pretty cargs])
 
           ops <- mapM evalOperand cargs
           op funid ops
 
        | Just (CustomMirOp op) <- isCustom -> do
           when (db > 3) $
-            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-               pretty funid, PP.text "with arguments", pretty cargs])
+            traceM $ fmtDoc (PP.fillSep ["At custom function call of",
+               pretty funid, "with arguments", pretty cargs])
           op cargs
 
        | Just (hand, sig) <- mhand -> do
@@ -1830,15 +1829,15 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         $ \eqImplArgs@Refl implArg0 implArgs' ->
 
     -- Check equalities over Crucible (translated) types:
-    -- * Non-receiver arg types of impl and shim are equal
+    --  * Non-receiver arg types of impl and shim are equal
     (\k -> case testEquality implArgs' shimArgs' of { Just x -> k x;
         Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs] })
         $ \eqArgs'@Refl ->
-    -- * Return types of impl and shim are equal
+    --  * Return types of impl and shim are equal
     (\k -> case testEquality implRet shimRet of { Just x -> k x;
         Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet] })
         $ \eqRet@Refl ->
-    -- * Shim receiver type is ANY
+    --  * Shim receiver type is ANY
     (\k -> case testEquality shimArg0 C.AnyRepr of { Just x -> k x;
         Nothing -> die ["shim receiver is not ANY:", show shimArg0] }) $ \eqShimArg0Any@Refl ->
 

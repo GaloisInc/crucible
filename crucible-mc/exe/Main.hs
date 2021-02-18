@@ -39,7 +39,7 @@ main :: IO ()
 main =
   parseLLVM test_file                       >>= \llvm_mod ->
   withZ3                                    $ \sym ->
-  runCruxLLVM llvm_mod defaultMemOptions False $
+  runCruxLLVM llvm_mod defaultMemOptions False False $
   CruxLLVM                                  $ \mt ->
   withPtrWidthOf mt                         $
   case findCFG mt test_fun of

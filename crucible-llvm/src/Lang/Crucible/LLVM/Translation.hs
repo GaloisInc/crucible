@@ -93,7 +93,6 @@ import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.String
 import qualified Data.Text   as Text
-import           System.FilePath
 
 import qualified Text.LLVM.AST as L
 
@@ -259,9 +258,27 @@ setLocation (x:xs) =
  where
  getFile = Text.pack . maybe "" filenm . findFile
 
- filenm di
-   | isRelative (L.difFilename di) = L.difDirectory di </> L.difFilename di
-   | otherwise = L.difFilename di
+ -- The typical values available here will be something like:
+ --
+ -- > L.difDirectory = "/home/joeuser/work"
+ -- > L.difFilename  = "src/lib/foo.c"
+ --
+ -- At the present time, only the 'difFilename' is used for the
+ -- relative path because combining these to form an absolute path
+ -- would cause superfluous result differences (e.g. golden test
+ -- failures) and potentially leak information.
+ --
+ -- The downside is that relative paths may make it harder for various
+ -- tools (e.g. emacs) to locate the offending source file.  The
+ -- suggested method for handling this is to have the emacs compile
+ -- function emit an initial rooted directory location in the proper
+ -- syntax, but if this is problematic, a future direction would be to
+ -- add a config option to control whether an absolute or a relative
+ -- path is desired (defaulting to the latter).
+ --
+ -- [The previous implementation always generated absolute paths, but
+ -- was careful to check if `difFilename` was already absolute.]
+ filenm = L.difFilename
 
 findFile :: (?lc :: TypeContext) => L.ValMd -> Maybe L.DIFile
 findFile (L.ValMdRef x) = findFile =<< lookupMetadata x
@@ -340,7 +357,7 @@ genDefn defn retType =
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: forall arch wptr.
-               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool)
+               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool, ?optLoopMerge :: Bool)
             => HandleAllocator
             -> LLVMContext arch
             -> L.Define
@@ -358,7 +375,8 @@ transDefine halloc ctx d = do
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType
     sng <- newIONonceGenerator
-    (SomeCFG g, []) <- defineFunction InternalPos sng h def
+    (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
+      if ?optLoopMerge then earlyMergeLoops ng cfg else return cfg
     case toSSA g of
       C.SomeCFG g_ssa -> return (symb, (decl, C.AnyCFG g_ssa))
 
@@ -368,7 +386,7 @@ transDefine halloc ctx d = do
 -- | Translate a module into Crucible control-flow graphs.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
-translateModule :: (?laxArith :: Bool)
+translateModule :: (?laxArith :: Bool, ?optLoopMerge :: Bool)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> L.Module        -- ^ Module to translate
                 -> IO (Some ModuleTranslation)

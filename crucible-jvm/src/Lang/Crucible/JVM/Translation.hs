@@ -733,7 +733,7 @@ generateInstruction (pc, instr) =
 
     J.Putstatic fieldId -> do
       val <- popValue
-      lift $ setStaticFieldValue fieldId val
+      lift $ putStaticFieldValue fieldId val
 
 
     -- array creation

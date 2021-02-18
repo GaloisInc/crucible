@@ -33,7 +33,7 @@ import qualified Data.Vector as V
 import Control.Monad.Writer
 import Data.IORef
 
-import Text.PrettyPrint.ANSI.Leijen ( text, Doc )
+import Prettyprinter
 
 import qualified Lang.MATLAB.MultiDimArray as MDA
 import qualified Text.LLVM.AST as L

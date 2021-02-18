@@ -1,0 +1,7 @@
+// Basic usage of `expand_all` to combine all expansions of some nonterminal.
+start ::= <<expand_all[x]>>
+
+x ::= A
+x ::= B
+
+// output: AB

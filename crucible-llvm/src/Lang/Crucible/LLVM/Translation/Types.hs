@@ -55,7 +55,7 @@ import           Data.String
 
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as L
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some

@@ -1,15 +1,9 @@
 packages:
   crucible/
-  crucible-saw/
   crux/
   crux-mir/
 
 optional-packages:
   dependencies/aig/
   dependencies/abcBridge/
-  dependencies/saw-core/saw-core/
-  dependencies/saw-core/saw-core-aig/
-  dependencies/saw-core/saw-core-sbv/
-  dependencies/saw-core/saw-core-what4/
-  dependencies/saw-core/cryptol-saw-core/
   dependencies/what4/what4/

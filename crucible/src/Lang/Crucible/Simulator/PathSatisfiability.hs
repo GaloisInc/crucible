@@ -27,7 +27,7 @@ module Lang.Crucible.Simulator.PathSatisfiability
 
 import           Control.Lens( (^.) )
 import           Control.Monad.Reader
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified Prettyprinter as PP
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.Online (BranchResult(..))
@@ -50,7 +50,7 @@ pathSatOptions =
   [ mkOpt
       checkPathSatisfiability
       boolOptSty
-      (Just (PP.text "Perform path satisfiability checks at symbolic branches"))
+      (Just (PP.pretty "Perform path satisfiability checks at symbolic branches"))
       (Just (ConcreteBool True))
   ]
 

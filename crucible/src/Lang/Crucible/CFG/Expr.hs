@@ -42,13 +42,11 @@ module Lang.Crucible.CFG.Expr
   , foldApp
   , traverseApp
   , pattern BoolEq
-  , pattern NatEq
   , pattern IntEq
   , pattern RealEq
   , pattern BVEq
 
   , pattern BoolIte
-  , pattern NatIte
   , pattern IntIte
   , pattern RealIte
   , pattern BVIte
@@ -67,7 +65,7 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Kind (Type)
 import           Data.Vector (Vector)
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 import qualified Data.Vector as V
 import qualified GHC.Float as F
 
@@ -128,10 +126,6 @@ instance TraversableFC BaseTerm where
 pattern BoolEq :: () => (tp ~ BoolType) => f BoolType -> f BoolType -> App ext f tp
 pattern BoolEq x y = BaseIsEq BaseBoolRepr x y
 
--- | Equality on natural numbers.
-pattern NatEq :: () => (tp ~ BoolType) => f NatType -> f NatType -> App ext f tp
-pattern NatEq x y = BaseIsEq BaseNatRepr x y
-
 -- | Equality on integers
 pattern IntEq :: () => (tp ~ BoolType) => f IntegerType -> f IntegerType -> App ext f tp
 pattern IntEq x y = BaseIsEq BaseIntegerRepr x y
@@ -148,10 +142,6 @@ pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
 -- | Return first or second value depending on condition.
 pattern BoolIte :: () => (tp ~ BoolType) => f BoolType -> f tp -> f tp -> App ext f tp
 pattern BoolIte c x y = BaseIte BaseBoolRepr c x y
-
--- | Return first or second value depending on condition.
-pattern NatIte :: () => (tp ~ NatType) => f BoolType -> f tp -> f tp -> App ext f tp
-pattern NatIte c x y = BaseIte BaseNatRepr c x y
 
 -- | Return first or second value depending on condition.
 pattern IntIte :: () => (tp ~ IntegerType) => f BoolType -> f tp -> f tp -> App ext f tp
@@ -241,6 +231,10 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
 
   -- @NatLit n@ returns the value n.
   NatLit :: !Natural -> App ext f NatType
+  -- Equality for natural numbers
+  NatEq :: !(f NatType) -> !(f NatType) -> App ext f BoolType
+  -- If/Then/Else on natural numbers
+  NatIte :: !(f BoolType) -> !(f NatType) -> !(f NatType) -> App ext f NatType
   -- Less than on natural numbers.
   NatLt :: !(f NatType) -> !(f NatType) -> App ext f BoolType
   -- Less than or equal on natural numbers.
@@ -390,7 +384,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   FloatLt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatLe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
-  FloatFpNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatFpApart :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
 
   FloatIte
     :: !(FloatInfoRepr fi)
@@ -765,6 +759,42 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
          -> !(f (BVType w)) -- The shift amount as an unsigned integer.
          -> App ext f (BVType w)
 
+  -- Rotate left
+  BVRol :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w)) -- Value to rotate
+        -> !(f (BVType w)) -- The rotate amount as an unsigned integer
+        -> App ext f (BVType w)
+
+  -- Rotate right
+  BVRor :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w)) -- Value to rotate
+        -> !(f (BVType w)) -- The rotate amount as an unsigned integer
+        -> App ext f (BVType w)
+
+  -- Return the number of consecutive 0 bits in the input, starting from
+  -- the most significant bit position.  If the input is zero, all bits are counted
+  -- as leading.
+  BVCountLeadingZeros :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
+  -- Return the number of consecutive 0 bits in the input, starting from
+  -- the least significant bit position.  If the input is zero, all bits are counted
+  -- as trailing.
+  BVCountTrailingZeros :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
+  -- popcount
+  BVPopcount :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
   -- Return the minimum of the two arguments using unsigned comparisons
   BVUMin ::
     (1 <= w) =>
@@ -925,7 +955,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
 
   -- Compute the length of a string
   StringLength :: !(f (StringType si))
-               -> App ext f NatType
+               -> App ext f IntegerType
 
   -- Test if the first string contains the second string as a substring
   StringContains :: !(f (StringType si))
@@ -944,19 +974,19 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
 
   -- Return the first position at which the second string can be found as a substring
   -- in the first string, starting from the given index.
-  -- If no such position exists, return a negative value.
+  -- If no such position exists, or if the index is out of range, return a negative value.
   StringIndexOf :: !(f (StringType si))
                 -> !(f (StringType si))
-                -> !(f NatType)
+                -> !(f IntegerType)
                 -> App ext f IntegerType
 
   -- @stringSubstring s off len@ extracts the substring of @s@ starting at index @off@ and
-  -- having length @len@.  The result of this operation is undefined if @off@ and @len@
-  -- do not specify a valid substring of @s@; in particular, we must have @off+len <= length(s)@.
+  -- having length no more than @len@.  This operation returns the empty string if
+  -- @len@ is negative or if @off@ is not in range.
   StringSubstring :: !(StringInfoRepr si)
                   -> !(f (StringType si))
-                  -> !(f NatType)
-                  -> !(f NatType)
+                  -> !(f IntegerType)
+                  -> !(f IntegerType)
                   -> App ext f (StringType si)
 
   ShowValue :: !(BaseTypeRepr bt)
@@ -1030,6 +1060,8 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- Nat
     NatLit{} -> knownRepr
+    NatEq{} -> knownRepr
+    NatIte{} -> knownRepr
     NatLt{} -> knownRepr
     NatLe{} -> knownRepr
     NatAdd{} -> knownRepr
@@ -1092,7 +1124,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     FloatGt{} -> knownRepr
     FloatGe{} -> knownRepr
     FloatNe{} -> knownRepr
-    FloatFpNe{} -> knownRepr
+    FloatFpApart{} -> knownRepr
     FloatIte fi _ _ _ -> FloatRepr fi
     FloatCast fi _ _ -> FloatRepr fi
     FloatFromBinary fi _ -> FloatRepr fi
@@ -1202,6 +1234,11 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVShl w _ _ -> BVRepr w
     BVLshr w _ _ -> BVRepr w
     BVAshr w _ _ -> BVRepr w
+    BVRol w _ _ -> BVRepr w
+    BVRor w _ _ -> BVRepr w
+    BVCountTrailingZeros w _ -> BVRepr w
+    BVCountLeadingZeros w _ -> BVRepr w
+    BVPopcount w _ -> BVRepr w
     BVUMax w _ _ -> BVRepr w
     BVUMin w _ _ -> BVRepr w
     BVSMax w _ _ -> BVRepr w
@@ -1304,13 +1341,13 @@ $(return [])
 ------------------------------------------------------------------------
 -- Pretty printing
 
-ppBaseTermAssignment :: (forall u . f u -> Doc)
+ppBaseTermAssignment :: (forall u . f u -> Doc ann)
                      -> Ctx.Assignment (BaseTerm f) ctx
-                     -> Doc
+                     -> Doc ann
 ppBaseTermAssignment pp v = brackets (commas (toListFC (pp . baseTermVal) v))
 
 instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
-  --ppApp :: (forall a . f a -> Doc) -> App ext f b -> Doc
+  --ppApp :: (forall a . f a -> Doc ann) -> App ext f b -> Doc ann
   ppApp = $(U.structuralPretty [t|App|]
           [ ( U.ConType [t|Ctx.Assignment|]
               `U.TypeApp` (U.ConType [t|BaseTerm|] `U.TypeApp` U.DataArg 1)

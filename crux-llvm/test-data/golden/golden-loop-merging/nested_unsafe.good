@@ -1,0 +1,31 @@
+[Crux] Counter example for test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+[Crux] Counter example for test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+[Crux] Counter example for test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+[Crux] Counter example for test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+[Crux] Counter example for test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+[Crux] Found counterexample for verification goal
+test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+
+[Crux] Found counterexample for verification goal
+test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+
+[Crux] Found counterexample for verification goal
+test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+
+[Crux] Found counterexample for verification goal
+test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+
+[Crux] Found counterexample for verification goal
+test-data/golden/golden-loop-merging/nested_unsafe.c:19:0: error: in main
+crucible_assert
+
+[Crux] Overall status: Invalid.

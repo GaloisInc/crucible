@@ -55,7 +55,6 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R
 import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.ValueConv

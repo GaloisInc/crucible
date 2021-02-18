@@ -1,0 +1,5 @@
+// Believe it or not, we once had a bug that was triggered by a trivial `start`
+// production with no nonterminals on the RHS.
+start ::= A
+
+// output: A

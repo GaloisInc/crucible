@@ -87,7 +87,7 @@ translateBuiltin _qual ident@(Ident _k name) args = do
             ) $
             tryAsString arg
             (\si str ->
-               return $ mkSomeGoExpr $ natToBV w $ Gen.App $ C.StringLength str
+               return $ mkSomeGoExpr $ intToBV w $ Gen.App $ C.StringLength str
             ) $
             fail $ "translateBuiltin: invalid argument for 'len': " ++ show arg
           _args ->

@@ -38,8 +38,6 @@ where
 
 import Prelude hiding (fail)
 
-import Data.Semigroup (Semigroup(..))
-
 import Control.Lens hiding (cons, backwards)
 import Control.Applicative
 import Control.Monad.Identity hiding (fail)
@@ -576,6 +574,8 @@ synthExpr typeHint =
               return $ SomeE BoolRepr $ EApp $ FloatEq e1' e2'
             ReferenceRepr rtp ->
               return $ SomeE BoolRepr $ EApp $ ReferenceEq rtp e1' e2'
+            NatRepr ->
+              return $ SomeE BoolRepr $ EApp $ NatEq e1' e2'
             (asBaseType -> AsBaseType bt) ->
               return $ SomeE BoolRepr $ EApp $ BaseIsEq bt e1' e2'
             _ ->
@@ -806,6 +806,8 @@ synthExpr typeHint =
           case tp of
             FloatRepr fi ->
                return $ SomeE tp $ EApp $ FloatIte fi c t f
+            NatRepr ->
+               return $ SomeE tp $ EApp $ NatIte c t f
             (asBaseType -> AsBaseType bty) ->
                return $ SomeE tp $ EApp $ BaseIte bty c t f
             _ ->
@@ -826,7 +828,7 @@ synthExpr typeHint =
       do unary StringLength_
            (do (Pair ty e) <- forceSynth =<< synthExpr Nothing
                case ty of
-                 StringRepr _si -> return $ SomeE NatRepr $ EApp (StringLength e)
+                 StringRepr _si -> return $ SomeE IntegerRepr $ EApp (StringLength e)
                  _ -> later $ describe "string expression" empty)
 
     stringEmpty =
@@ -1304,19 +1306,22 @@ atomSetter (AtomName anText) =
          return $ Pair (ReferenceRepr t') anAtom
 
     fresh =
-      do t <- reading (unary Fresh ((Left <$> isBaseType) <|> (Right <$> isFloatingType)))
+      do t <- reading (unary Fresh isType)
          describe "user symbol" $
            case userSymbol (T.unpack anText) of
              Left err -> describe (T.pack (show err)) empty
              Right nm ->
                do loc <- position
                   case t of
-                    Left (Some bt) ->
-                      Pair (baseToType bt) <$>
-                        freshAtom loc (FreshConstant bt (Just nm))
-                    Right (Some fi) ->
+                    Some (FloatRepr fi) ->
                       Pair (FloatRepr fi) <$>
                         freshAtom loc (FreshFloat fi (Just nm))
+                    Some NatRepr ->
+                      Pair NatRepr <$> freshAtom loc (FreshNat (Just nm))
+                    Some tp
+                      | AsBaseType bt <- asBaseType tp ->
+                          Pair tp <$> freshAtom loc (FreshConstant bt (Just nm))
+                      | otherwise -> describe "atomic type" $ empty
 
     evaluated =
        do Pair tp e' <- reading synth

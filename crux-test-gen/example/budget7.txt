@@ -1,0 +1,4 @@
+// Make sure take_budget[X,0] always succeeds
+start ::= <<take_budget[X,0]>>ok
+
+// output: ok

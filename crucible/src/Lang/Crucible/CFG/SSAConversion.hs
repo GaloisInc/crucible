@@ -45,7 +45,7 @@ import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Type.Equality
-import qualified Text.PrettyPrint.ANSI.Leijen as Pretty
+import qualified Prettyprinter as Pretty
 
 import           What4.FunctionName (FunctionName)
 import           What4.ProgramLoc
@@ -867,6 +867,14 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           let bindings' = bindings & extendRegExprs NothingF
           let appMap'   = appMap   & appRegMap_extend
           let stmt = C.FreshFloat fi cnm
+          C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
+
+        FreshNat cnm -> do
+          let sz' = incSize sz
+          let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
+          let bindings' = bindings & extendRegExprs NothingF
+          let appMap'   = appMap   & appRegMap_extend
+          let stmt = C.FreshNat cnm
           C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
 
         Call h args _ -> do

@@ -8,7 +8,9 @@ import System.Directory (createDirectoryIfMissing, canonicalizePath)
 import System.IO
 import qualified Data.Foldable as Fold
 import Data.List (partition)
-import Data.Sequence (Seq)
+import Data.Maybe (mapMaybe)
+import qualified Data.Set as Set
+import qualified Data.Text as Text
 import Control.Exception (catch, SomeException(..))
 import Control.Monad (forM_)
 
@@ -16,6 +18,7 @@ import qualified Data.Text.IO as T
 
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Backend
+import What4.ProgramLoc
 
 import Crux.Types
 import Crux.Config.Common
@@ -35,9 +38,13 @@ generateReport opts res
   | outDir opts == "" || skipReport opts = return ()
   | otherwise =
     do let xs = cruxSimResultGoals res
+           goals = map snd $ Fold.toList xs
+           referencedFiles = inputFiles opts ++
+                             concatMap provedGoalFiles goals
+           dedup = Set.toList . Set.fromList
        createDirectoryIfMissing True (outDir opts)
-       maybeGenerateSource opts (inputFiles opts)
-       scs <- renderSideConds opts xs
+       maybeGenerateSource opts (dedup referencedFiles)
+       scs <- renderSideConds opts goals
        let contents = renderJS (jsList scs)
        -- Due to CORS restrictions, the only current way of statically loading local data
        -- is by including a <script> with the contents we want.
@@ -55,7 +62,7 @@ generateReport opts res
 -- is common to all files).
 maybeGenerateSource :: CruxOptions -> [FilePath] -> IO ()
 maybeGenerateSource opts files =
-  do let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".C", ".ii"]
+  do let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".C", ".ii", ".h", ".hpp", ".hxx", ".hh"]
          renderFiles = filter ((`elem` exts) . takeExtension) files
      h <- openFile (outDir opts </> "source.js") WriteMode
      hPutStrLn h "var sources = ["
@@ -71,8 +78,24 @@ maybeGenerateSource opts files =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: CruxOptions -> Seq (ProcessedGoals, ProvedGoals b) -> IO [ JS ]
-renderSideConds opts seqGls = concatMapM (go [] . snd) (Fold.toList seqGls)
+-- | Return a list of all program locations referenced in a set of
+-- proved goals.
+provedGoalLocs :: ProvedGoals a -> [ProgramLoc]
+provedGoalLocs (AtLoc loc _ goals) = loc : provedGoalLocs goals
+provedGoalLocs (Branch goals1 goals2) = provedGoalLocs goals1 ++
+                                        provedGoalLocs goals2
+provedGoalLocs (Goal _ (err, _) _ _) = [simErrorLoc err]
+
+-- | Return a list of all files referenced in a set of proved goals.
+provedGoalFiles :: ProvedGoals a -> [FilePath]
+provedGoalFiles = mapMaybe posFile . map plSourceLoc . provedGoalLocs
+  where
+    posFile (SourcePos f _ _) = Just $ Text.unpack f
+    posFile (BinaryPos f _) = Just $ Text.unpack f
+    posFile _ = Nothing
+
+renderSideConds :: CruxOptions -> [ProvedGoals b] -> IO [ JS ]
+renderSideConds opts = concatMapM (go [])
   where
   concatMapM f xs = concat <$> mapM f xs
 

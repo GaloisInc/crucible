@@ -1,0 +1,5 @@
+start ::= <<test[X]>>
+
+for[T] test[T] ::= <<ctor_name[T]>>
+
+// output: X

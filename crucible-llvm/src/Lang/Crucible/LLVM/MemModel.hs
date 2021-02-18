@@ -200,8 +200,8 @@ import           Data.Text (Text)
 import           Data.Word
 import           GHC.TypeNats
 import           Numeric.Natural
+import           Prettyprinter
 import           System.IO (Handle, hPutStrLn)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes
@@ -406,7 +406,7 @@ evalStmt sym = eval
         blk <- liftIO $ natLit sym blkNum
         z <- liftIO $ bvLit sym PtrWidth (BV.zero PtrWidth)
 
-        let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable (show loc) (memImplHeap mem)
+        let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable loc (memImplHeap mem)
         let ptr = LLVMPointer blk z
 
         setMem mvar mem{ memImplHeap = heap' }
@@ -431,7 +431,7 @@ evalStmt sym = eval
   eval (LLVM_LoadHandle mvar ltp (regValue -> ptr) args ret) =
      do mem <- getMem mvar
         let gsym = unsymbol <$> isGlobalPointer (memImplSymbolMap mem) ptr
-        mhandle <- liftIO $ doLookupHandle sym mem ptr
+        mhandle <- liftIO $ doLookupHandle sym mem ptr gsym
         let mop = MemLoadHandleOp ltp gsym ptr (memImplHeap mem)
         let expectedTp = FunctionHandleRepr args ret
             handleTp h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
@@ -729,20 +729,29 @@ doLookupHandle
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr
-  -> IO (Either Doc a)
-doLookupHandle _sym mem ptr = do
+  -> Maybe String
+  -> IO (Either (Doc ann) a)
+doLookupHandle _sym mem ptr gsym = do
   let LLVMPointer blk _ = ptr
+  let ptrDoc = hang 2 $
+         case gsym of
+           Just s  -> viaShow s
+           Nothing -> ppPtr ptr
   case asNat blk of
-    Nothing -> return (Left (text "Cannot resolve a symbolic pointer to a function handle:" <$$> indent 2 (ppPtr ptr)))
+    Nothing -> return (Left ("Cannot resolve a symbolic pointer to a function handle:" <+> ptrDoc))
     Just i
-      | i == 0 -> return (Left (text "Cannot treat raw bitvector as function pointer"))
+      | i == 0 -> return (Left ("Cannot treat raw bitvector as function pointer:" <+> ptrDoc))
       | otherwise ->
           case Map.lookup i (memImplHandleMap mem) of
-            Nothing -> return (Left (text "No implementation or override found"))
+            Nothing -> return (Left ("No implementation or override found for pointer:" <+> ptrDoc))
             Just x ->
               case fromDynamic x of
-                Nothing -> return (Left ("Data associated with the pointer found, but was not a callable function:" <$$>
-                                           indent 2 (text (show (dynTypeRep x))) ))
+                Nothing ->
+                  return $ Left $ vcat
+                  [ "Data associated with the pointer found, but was not a callable function:"
+                  , hang 2 (viaShow (dynTypeRep x))
+                  , ptrDoc
+                  ]
                 Just a  -> return (Right a)
 
 -- | Free the memory region pointed to by the given pointer.
@@ -1301,17 +1310,17 @@ unpackZero sym tp tpr =
 
   Float  ->
     case tpr of
-      FloatRepr SingleFloatRepr -> iFloatLit sym SingleFloatRepr 0
+      FloatRepr SingleFloatRepr -> iFloatLitRational sym SingleFloatRepr 0
       _ -> mismatch
 
   Double ->
     case tpr of
-      FloatRepr DoubleFloatRepr -> iFloatLit sym DoubleFloatRepr 0
+      FloatRepr DoubleFloatRepr -> iFloatLitRational sym DoubleFloatRepr 0
       _ -> mismatch
 
   X86_FP80 ->
     case tpr of
-      FloatRepr X86_80FloatRepr -> iFloatLit sym X86_80FloatRepr 0
+      FloatRepr X86_80FloatRepr -> iFloatLitRational sym X86_80FloatRepr 0
       _ -> mismatch
 
   Array n tp' ->

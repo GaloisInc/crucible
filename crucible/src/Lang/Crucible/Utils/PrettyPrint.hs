@@ -4,13 +4,13 @@ module Lang.Crucible.Utils.PrettyPrint
   ) where
 
 import Data.Maybe
-import Text.PrettyPrint.ANSI.Leijen as PP hiding ((<$>))
+import Prettyprinter as PP
 
-ppFn :: String -> [Doc] -> Doc
-ppFn f a = text f <> parens (commas a)
+ppFn :: String -> [Doc ann] -> Doc ann
+ppFn f a = pretty f <> parens (commas a)
 
 -- | Print a comma separated list.
-commas :: Foldable f => f Doc -> Doc
-commas l = fromMaybe PP.empty $ foldl go Nothing l
+commas :: Foldable f => f (Doc ann) -> Doc ann
+commas l = fromMaybe mempty $ foldl go Nothing l
   where go Nothing y = Just y
-        go (Just x) y = Just (x <> char ',' <+> y)
+        go (Just x) y = Just (x <> pretty ',' <+> y)

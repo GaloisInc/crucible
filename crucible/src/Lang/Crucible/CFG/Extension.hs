@@ -41,13 +41,13 @@ module Lang.Crucible.CFG.Extension
 
 import           Data.Kind (Type)
 import           Data.Parameterized.TraversableFC
-import           Text.PrettyPrint.ANSI.Leijen (Doc)
+import           Prettyprinter (Doc)
 
 import           Lang.Crucible.Types
 
 
 class PrettyApp (app :: (k -> Type) -> k -> Type) where
-  ppApp :: (forall x. f x -> Doc) -> (forall x. app f x -> Doc)
+  ppApp :: forall f ann. (forall x. f x -> Doc ann) -> (forall x. app f x -> Doc ann)
 
 class TypeApp (app :: (CrucibleType -> Type) -> CrucibleType -> Type) where
   appType :: app f x -> TypeRepr x

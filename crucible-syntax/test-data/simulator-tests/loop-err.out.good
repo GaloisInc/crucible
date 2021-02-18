@@ -4,9 +4,9 @@
 ==== Proof obligations ====
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    not (eq 0 cx@0:n)
+    not (eq 0 cx@0:i)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
-    eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6)
+    eq 0 (intMod (intSum (intMul 2 cx@0:i)) 6)
 Prove:
   test-data/simulator-tests/loop-err.cbl:27:5: error: in main
   oopsie!
@@ -14,11 +14,11 @@ Prove:
 COUNTEREXAMPLE
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    not (eq 0 cx@0:n)
+    not (eq 0 cx@0:i)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    not (eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6))
+    not (eq 0 (intMod (intSum (intMul 2 cx@0:i)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
-    eq 0 (natMod (natSum (natMul 4 cx@0:n)) 6)
+    eq 0 (intMod (intSum (intMul 4 cx@0:i)) 6)
 Prove:
   test-data/simulator-tests/loop-err.cbl:27:5: error: in main
   oopsie!
@@ -26,13 +26,13 @@ Prove:
 PROVED
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    not (eq 0 cx@0:n)
+    not (eq 0 cx@0:i)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    not (eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6))
+    not (eq 0 (intMod (intSum (intMul 2 cx@0:i)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    not (eq 0 (natMod (natSum (natMul 4 cx@0:n)) 6))
+    not (eq 0 (intMod (intSum (intMul 4 cx@0:i)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
-    eq 0 (natMod (natSum (natMul 8 cx@0:n)) 6)
+    eq 0 (intMod (intSum (intMul 2 cx@0:i)) 6)
 Prove:
   test-data/simulator-tests/loop-err.cbl:27:5: error: in main
   oopsie!
@@ -40,15 +40,15 @@ Prove:
 PROVED
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    not (eq 0 cx@0:n)
+    not (eq 0 cx@0:i)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    not (eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6))
+    not (eq 0 (intMod (intSum (intMul 2 cx@0:i)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    not (eq 0 (natMod (natSum (natMul 4 cx@0:n)) 6))
+    not (eq 0 (intMod (intSum (intMul 4 cx@0:i)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    not (eq 0 (natMod (natSum (natMul 8 cx@0:n)) 6))
+    not (eq 0 (intMod (intSum (intMul 2 cx@0:i)) 6))
 Prove:
   test-data/simulator-tests/loop-err.cbl:23:5: error: in main
   nonzero
-  not (natLe (natSum (natMul 8 cx@0:n)) 0)
+  not (intLe (intSum (intMul 8 cx@0:i)) 0)
 PROVED

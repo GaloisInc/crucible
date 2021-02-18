@@ -78,7 +78,6 @@ import           Data.String
 import qualified Data.Vector as V
 
 import qualified Text.Regex as Regex
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.Classes

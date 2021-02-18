@@ -1,0 +1,10 @@
+// `A`, `B`, `C`, and `D` must be expanded in order, or expansion will fail.
+A ::= A<<set_budget[B, 1]>>
+B ::= B<<take_budget[B, 1]>><<set_budget[C, 1]>>
+C ::= C<<take_budget[C, 1]>><<set_budget[D, 1]>>
+D ::= D<<take_budget[D, 1]>>
+
+// Multiple late nonterminals are expanded in source order.
+start ::= <<$C>><<A>><<$D>><<B>>
+
+// output: CADB

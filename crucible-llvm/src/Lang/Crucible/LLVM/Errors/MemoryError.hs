@@ -34,10 +34,10 @@ module Lang.Crucible.LLVM.Errors.MemoryError
 import           Prelude hiding (pred)
 
 import           Data.Text (Text)
-import qualified Data.Text as Text
+import           Data.Void
 import qualified Text.LLVM.PP as L
 import qualified Text.LLVM.AST as L
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           What4.Interface
 import           What4.Expr (GroundValue)
@@ -78,95 +78,98 @@ data MemoryErrorReason sym w =
   | NoSatisfyingWrite StorageType (LLVMPtr sym w)
   | UnwritableRegion
   | UnreadableRegion
-  | BadFunctionPointer Doc
+  | BadFunctionPointer (Doc Void)
   | OverlappingRegions
 
 type MemErrContext sym w = MemoryOp sym w
 
-ppGSym :: Maybe String -> [Doc]
+ppGSym :: Maybe String -> [Doc ann]
 ppGSym Nothing = []
-ppGSym (Just nm) = [ text "Global symbol", text (show nm) ]
+ppGSym (Just nm) = [ "Global symbol", viaShow nm ]
 
-ppMemoryOp :: IsExpr (SymExpr sym) => MemoryOp sym w -> Doc
+ppMemoryOp :: IsExpr (SymExpr sym) => MemoryOp sym w -> Doc ann
 ppMemoryOp (MemLoadOp tp gsym ptr mem)  =
   vsep [ "Performing overall load at type:" <+> ppType tp
-       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
-       , text "In memory state:"
+       , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , "In memory state:"
        , indent 2 (ppMem mem)
        ]
 
 ppMemoryOp (MemStoreOp tp gsym ptr mem) =
   vsep [ "Performing store at type:" <+> ppType tp
-       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
-       , text "In memory state:"
+       , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , "In memory state:"
        , indent 2 (ppMem mem)
        ]
 
 ppMemoryOp (MemStoreBytesOp gsym ptr Nothing mem) =
   vsep [ "Performing byte array store for entire address space"
-       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
-       , text "In memory state:"
+       , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , "In memory state:"
        , indent 2 (ppMem mem)
        ]
 
 ppMemoryOp (MemStoreBytesOp gsym ptr (Just len) mem) =
   vsep [ "Performing byte array store of length:" <+> printSymExpr len
-       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
-       , text "In memory state:"
+       , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , "In memory state:"
        , indent 2 (ppMem mem)
        ]
 
 ppMemoryOp (MemCopyOp (gsym_dest, dest) (gsym_src, src) len mem) =
   vsep [ "Performing a memory copy of" <+> printSymExpr len <+> "bytes"
-       , indent 2 (hsep ([ text "Destination:" ] ++ ppGSym gsym_dest ++ [ ppPtr dest ]))
-       , indent 2 (hsep ([ text "Source:     " ] ++ ppGSym gsym_src ++ [ ppPtr src ]))
-       , text "In memory state:"
+       , indent 2 (hsep ([ "Destination:" ] ++ ppGSym gsym_dest ++ [ ppPtr dest ]))
+       , indent 2 (hsep ([ "Source:     " ] ++ ppGSym gsym_src ++ [ ppPtr src ]))
+       , "In memory state:"
        , indent 2 (ppMem mem)
        ]
 
 ppMemoryOp (MemLoadHandleOp sig gsym ptr mem) =
-  vsep [ "Attempting to load callable function with type:" <+> text (show (L.ppType sig))
-       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
-       , text "In memory state:"
+  vsep [ "Attempting to load callable function with type:" <+> viaShow (L.ppType sig)
+       , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , "In memory state:"
        , indent 2 (ppMem mem)
        ]
 
 ppMemoryOp (MemInvalidateOp msg gsym ptr len mem) =
   vsep [ "Performing explicit memory invalidation of" <+> printSymExpr len <+> "bytes"
-       , text (Text.unpack msg)
-       , indent 2 (hsep ([ text "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
-       , text "In memory state:"
+       , pretty msg
+       , indent 2 (hsep ([ "Via pointer:" ] ++ ppGSym gsym ++ [ ppPtr ptr ]))
+       , "In memory state:"
        , indent 2 (ppMem mem)
        ]
 
-explain :: IsExpr (SymExpr sym) => MemoryError sym -> Doc
+explain :: IsExpr (SymExpr sym) => MemoryError sym -> Doc ann
 explain (MemoryError _mop rsn) = ppMemoryErrorReason rsn
 
-details :: IsExpr (SymExpr sym) => MemoryError sym -> Doc
+details :: IsExpr (SymExpr sym) => MemoryError sym -> Doc ann
 details (MemoryError mop _rsn) = ppMemoryOp mop
 
-ppMemoryError :: IsExpr (SymExpr sym) => MemoryError sym -> Doc
-ppMemoryError (MemoryError mop rsn) = ppMemoryErrorReason rsn <$$> ppMemoryOp mop
+ppMemoryError :: IsExpr (SymExpr sym) => MemoryError sym -> Doc ann
+ppMemoryError (MemoryError mop rsn) = vcat [ppMemoryErrorReason rsn, ppMemoryOp mop]
 
-ppMemoryErrorReason :: IsExpr (SymExpr sym) => MemoryErrorReason sym w -> Doc
+ppMemoryErrorReason :: IsExpr (SymExpr sym) => MemoryErrorReason sym w -> Doc ann
 ppMemoryErrorReason =
   \case
     TypeMismatch ty1 ty2 ->
-      "Type mismatch: "
-      <$$> indent 2 (vcat [ text (show ty1)
-                          , text (show ty2)
-                          ])
+      vcat
+      [ "Type mismatch: "
+      , indent 2 (vcat [ ppType ty1
+                       , ppType ty2
+                       ])
+      ]
     UnexpectedArgumentType txt vals ->
-      vcat [ "Unexpected argument type:"
-           , text (Text.unpack txt)
-           ]
-      <$$> indent 2 (vcat (map (text . show) vals))
+      vcat
+      [ "Unexpected argument type:"
+      , pretty txt
+      , indent 2 (vcat (map viaShow vals))
+      ]
     ApplyViewFail vw ->
-      "Failure when applying value view" <+> text (show vw)
+      "Failure when applying value view" <+> viaShow vw
     Invalid ty ->
-      "Load from invalid memory at type " <+> text (show ty)
+      "Load from invalid memory at type" <+> ppType ty
     Invalidated msg ->
-      "Load from explicitly invalidated memory:" <+> text (Text.unpack msg)
+      "Load from explicitly invalidated memory:" <+> pretty msg
     NoSatisfyingWrite tp ptr ->
       vcat
        [ "No previous write to this location was found"
@@ -180,7 +183,7 @@ ppMemoryErrorReason =
     BadFunctionPointer msg ->
       vcat
        [ "The given pointer could not be resolved to a callable function"
-       , msg
+       , unAnnotate msg
        ]
     OverlappingRegions ->
       "Memory regions required to be disjoint"

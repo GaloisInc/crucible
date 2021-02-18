@@ -20,9 +20,10 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
+import           Data.Void
+import           Prettyprinter
 import           System.Exit (ExitCode(ExitSuccess))
 import qualified System.Timeout as ST
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import What4.Interface (notPred, printSymExpr,asConstantPred,getConfiguration)
 import What4.Config (setOpt, getOptionSetting)
@@ -36,7 +37,7 @@ import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
 import qualified What4.Solver as WS
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-        ( OnlineBackendState, withSolverProcess, enableOnlineBackend )
+        ( OnlineBackend, withSolverProcess, enableOnlineBackend )
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
@@ -190,7 +191,7 @@ proveGoalsOffline :: forall st sym p asmp t fs personality
                   => [WS.SolverAdapter st]
                   -> CruxOptions
                   -> SimCtxt personality sym p
-                  -> (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO Doc)
+                  -> (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc Void))
                   -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
                   -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
@@ -307,7 +308,7 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
               await as' es
         Nothing -> do
           mapM_ kill as
-          return $ Right $ NotProved (text "(Timeout)") Nothing
+          return $ Right $ NotProved (pretty "(Timeout)") Nothing
 
     withTimeout action
       | Just seconds <- mtimeoutSeconds = ST.timeout (round seconds * 1000000) action
@@ -325,10 +326,10 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
 -- 'SimCtxt'.  We do that so that we can use separate solvers for path
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
+  ( sym ~ OnlineBackend s solver fs
   , ast ~ SimError
   , OnlineSolver solver
-  , goalSym ~ ExprBuilder s (OnlineBackendState goalSolver) fs
+  , goalSym ~ OnlineBackend s goalSolver fs
   , OnlineSolver goalSolver
   , HasModel personality
   , ?outputConfig :: OutputConfig
@@ -336,7 +337,7 @@ proveGoalsOnline ::
   goalSym ->
   CruxOptions ->
   SimCtxt personality sym p ->
-  (Maybe (GroundEvalFn s) -> LPred sym ast -> IO Doc) ->
+  (Maybe (GroundEvalFn s) -> LPred sym ast -> IO (Doc Void)) ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 

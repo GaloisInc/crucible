@@ -1,0 +1,7 @@
+// `expand_all` accepts a nonterminal that takes arguments.
+start ::= <<expand_all[x[A]]>>
+
+x[A] ::= A
+x[B] ::= B
+
+// output: A

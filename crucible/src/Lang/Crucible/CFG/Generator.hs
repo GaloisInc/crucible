@@ -37,6 +37,7 @@ module Lang.Crucible.CFG.Generator
     Generator
   , FunctionDef
   , defineFunction
+  , defineFunctionOpt
     -- * Positions
   , getPosition
   , setPosition
@@ -106,6 +107,7 @@ module Lang.Crucible.CFG.Generator
   , Ctx.Ctx(..)
   , Position
   , module Lang.Crucible.CFG.Reg
+  , module Lang.Crucible.CFG.EarlyMergeLoops
   ) where
 
 import           Control.Lens hiding (Index)
@@ -131,6 +133,7 @@ import           Lang.Crucible.CFG.Core (AnyCFG(..))
 import           Lang.Crucible.CFG.Expr(App(..))
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Reg
+import           Lang.Crucible.CFG.EarlyMergeLoops (earlyMergeLoops)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.StateContT
@@ -283,6 +286,9 @@ instance F.MonadFail m => F.MonadFail (Generator ext s t ret m) where
 instance Monad m => MonadState (t s) (Generator ext s t ret m) where
   get = Generator $ use gsState
   put v = Generator $ gsState .= v
+
+instance MonadIO m => MonadIO (Generator ext s t ret m) where
+  liftIO m = lift (liftIO m)
 
 -- This function only works for 'Generator' actions that terminate
 -- early, i.e. do not call their continuation. This includes actions
@@ -902,19 +908,40 @@ type FunctionDef ext t init ret m =
   Assignment (Atom s) init ->
   (t s, Generator ext s t ret m (Expr ext s ret))
 
--- | The main API for generating CFGs for a Crucible function.
---
---   The given @FunctionDef@ action is run to generate a registerized
+-- | The given @FunctionDef@ action is run to generate a registerized
 --   CFG. The return value of @defineFunction@ is the generated CFG,
 --   and a list of CFGs for any other auxiliary function definitions
 --   generated along the way (e.g., for anonymous or inner functions).
+--
+--   This is the same as @defineFunctionOpt@ with the identity
+--   transformation.
 defineFunction :: (Monad m, IsSyntaxExtension ext)
                => Position                     -- ^ Source position for the function
                -> Some (NonceGenerator m)      -- ^ Nonce generator for internal use
                -> FnHandle init ret            -- ^ Handle for the generated function
                -> FunctionDef ext t init ret m -- ^ Generator action and initial state
                -> m (SomeCFG ext init ret, [AnyCFG ext]) -- ^ Generated CFG and inner function definitions
-defineFunction p sng h f = seq h $ do
+defineFunction p sng h f = defineFunctionOpt p sng h f (\_ cfg -> return cfg)
+
+-- | The main API for generating CFGs for a Crucible function.
+--
+--   The given @FunctionDef@ action is run to generate a registerized
+--   CFG. The return value of @defineFunction@ is the generated CFG,
+--   and a list of CFGs for any other auxiliary function definitions
+--   generated along the way (e.g., for anonymous or inner functions).
+--
+--   The caller can supply a transformation to run over the generated CFG
+--   (i.e. an optimization pass)
+defineFunctionOpt :: (Monad m, IsSyntaxExtension ext)
+                  => Position                     -- ^ Source position for the function
+                  -> Some (NonceGenerator m)      -- ^ Nonce generator for internal use
+                  -> FnHandle init ret            -- ^ Handle for the generated function
+                  -> FunctionDef ext t init ret m -- ^ Generator action and initial state
+                  -> (forall s. NonceGenerator m s
+                             -> CFG ext s init ret
+                             -> m (CFG ext s init ret))     -- ^ Transformation pass
+                  -> m (SomeCFG ext init ret, [AnyCFG ext]) -- ^ Generated CFG and inner function definitions
+defineFunctionOpt p sng h f optPass = seq h $ do
   let argTypes = handleArgTypes h
   Some ng <- return sng
   inputs <- mkInputAtoms ng p argTypes
@@ -931,4 +958,5 @@ defineFunction p sng h f = seq h $ do
               , _seenFunctions = []
               }
   ts' <- runGenerator (action >>= returnFromFunction) $! ts
-  return (SomeCFG (cfgFromGenerator h ts'), ts'^.seenFunctions)
+  g   <- optPass ng (cfgFromGenerator h ts')
+  return (SomeCFG g, ts'^.seenFunctions)

@@ -59,9 +59,8 @@ import           GHC.Generics (Generic)
 import           Data.Data (Data)
 import           Data.Kind (Type)
 import           Data.Maybe (isJust)
-import           Data.Text (unpack)
 import           Data.Typeable (Typeable)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           Data.Parameterized.Classes (toOrdering, fromOrdering)
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
@@ -90,9 +89,9 @@ data PtrComparisonOperator =
   | Leq
   deriving (Data, Eq, Generic, Enum, Ord, Read, Show)
 
-ppPtrComparison :: PtrComparisonOperator -> Doc
-ppPtrComparison Eq  = text "Equality comparison (==)"
-ppPtrComparison Leq = text "Ordering comparison (<=)"
+ppPtrComparison :: PtrComparisonOperator -> Doc ann
+ppPtrComparison Eq  = "Equality comparison (==)"
+ppPtrComparison Leq = "Ordering comparison (<=)"
 
 -- | This type is parameterized on a higher-kinded term constructor so that it
 -- can be instantiated for expressions at translation time (i.e. the 'Expr' in
@@ -265,7 +264,7 @@ standard =
     -}
 
 -- | Which section(s) of the document prohibit this behavior?
-cite :: UndefinedBehavior e -> Doc
+cite :: UndefinedBehavior e -> Doc ann
 cite =
   \case
 
@@ -311,7 +310,7 @@ cite =
 -- | What happened, and why is it a problem?
 --
 -- This is a generic explanation that doesn't use the included data.
-explain :: UndefinedBehavior e -> Doc
+explain :: UndefinedBehavior e -> Doc ann
 explain =
   \case
 
@@ -375,7 +374,7 @@ explain =
 -- (for symbolic expressions)
 details :: W4I.IsExpr (W4I.SymExpr sym)
         => UndefinedBehavior (RegValue' sym)
-        -> [Doc]
+        -> [Doc ann]
 details =
   \case
 
@@ -389,11 +388,13 @@ details =
       , "Length:             " <+> (W4I.printSymExpr $ unRV len)
       ]
     WriteBadAlignment ptr alignment ->
-      [ "Required alignment:" <+> text (show (fromAlignment alignment)) <+> "bytes"
+      -- TODO: replace viaShow when we have instance Pretty Bytes
+      [ "Required alignment:" <+> viaShow (fromAlignment alignment) <+> "bytes"
       , ppPtr1 ptr
       ]
     ReadBadAlignment ptr alignment ->
-      [ "Required alignment:" <+> text (show (fromAlignment alignment)) <+> "bytes"
+      -- TODO: replace viaShow when we have instance Pretty Bytes
+      [ "Required alignment:" <+> viaShow (fromAlignment alignment) <+> "bytes"
       , ppPtr1 ptr
       ]
 
@@ -416,15 +417,15 @@ details =
       ]
     PointerFloatCast ptr castType ->
       [ ppPtr1 ptr
-      , "Cast to:" <+> text (show castType)
+      , "Cast to:" <+> viaShow castType
       ]
     PointerIntCast ptr castType ->
       [ ppPtr1 ptr
-      , "Cast to:" <+> text (show castType)
+      , "Cast to:" <+> viaShow castType
       ]
     PointerUnsupportedOp ptr msg ->
       [ ppPtr1 ptr
-      , text msg
+      , pretty msg
       ]
 
     -------------------------------- Division operators
@@ -452,7 +453,7 @@ details =
 
     PoisonValueCreated p -> Poison.details p
 
-  where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => RegValue' sym (LLVMPointerType w) -> Doc
+  where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => RegValue' sym (LLVMPointerType w) -> Doc ann
         ppPtr1 (RV p) = "Pointer:" <+> ppPtr p
 
         ppPtr2 (RV ptr1) (RV ptr2) =
@@ -460,29 +461,29 @@ details =
                , "Pointer 2:" <+>  ppPtr ptr2
                ]
 
-        ppOffset :: W4I.IsExpr e => e (BaseBVType w) -> Doc
+        ppOffset :: W4I.IsExpr e => e (BaseBVType w) -> Doc ann
         ppOffset = ("Offset:" <+>) . W4I.printSymExpr
 
-pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
+pp :: (UndefinedBehavior e -> [Doc ann]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
-   -> Doc
+   -> Doc ann
 pp extra ub = vcat (explain ub : extra ub ++ ppCitation ub)
 
 -- | Pretty-printer for symbolic backends
 ppDetails ::
   W4I.IsExpr (W4I.SymExpr sym) =>
   UndefinedBehavior (RegValue' sym) ->
-  Doc
+  Doc ann
 ppDetails ub = vcat (details ub ++ ppCitation ub)
 
-ppCitation :: UndefinedBehavior e -> [Doc]
+ppCitation :: UndefinedBehavior e -> [Doc ann]
 ppCitation ub =
    (cat [ "Reference: "
-        , indent 2 (text (unpack (ppStd (standard ub))))
+        , indent 2 (pretty (ppStd (standard ub)))
         , indent 2 (cite ub)
         ]
     : case stdURL (standard ub) of
-        Just url -> [ indent 2 ("Document URL:" <+> text (unpack url)) ]
+        Just url -> [ indent 2 ("Document URL:" <+> pretty url) ]
         Nothing  -> [])
 
 -- -----------------------------------------------------------------------

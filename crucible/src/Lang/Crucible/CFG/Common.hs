@@ -20,7 +20,7 @@ module Lang.Crucible.CFG.Common
 
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Nonce
@@ -50,7 +50,7 @@ instance Show (GlobalVar tp) where
 instance ShowF GlobalVar
 
 instance Pretty (GlobalVar tp) where
-  pretty  = text . show
+  pretty = pretty . globalName
 
 
 freshGlobalVar :: HandleAllocator
@@ -69,4 +69,4 @@ newtype BreakpointName = BreakpointName { breakpointNameText :: Text }
   deriving (Eq, Ord, Show)
 
 instance Pretty BreakpointName where
-  pretty = text . show
+  pretty = pretty . breakpointNameText

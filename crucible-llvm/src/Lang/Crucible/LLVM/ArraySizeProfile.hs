@@ -33,7 +33,6 @@ module Lang.Crucible.LLVM.ArraySizeProfile
 
 import Control.Lens.TH
 
-import Control.Monad
 import Control.Lens
 
 import Data.Type.Equality (testEquality)
@@ -97,13 +96,11 @@ ptrAllocSize ::
   G.Mem sym ->
   C.LLVMPtr sym w ->
   Maybe Int
-ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> G.memAllocs mem
-  where inAlloc :: G.MemAlloc sym -> Maybe Int
-        inAlloc memAlloc
-          | G.Alloc _ a (Just sz) _ _ _ <- memAlloc
-          , Just a == W4.asNat blk =
-            fromIntegral <$> BV.asUnsigned <$> W4.asBV sz
-          | otherwise = Nothing
+ptrAllocSize mem (C.llvmPointerView -> (blk, _)) =
+  do a <- W4.asNat blk
+     G.AllocInfo _ msz _ _ _ <- G.possibleAllocInfo a (G.memAllocs mem)
+     sz <- msz
+     fromIntegral <$> BV.asUnsigned <$> W4.asBV sz
 
 ptrArraySize ::
   C.IsSymInterface sym =>

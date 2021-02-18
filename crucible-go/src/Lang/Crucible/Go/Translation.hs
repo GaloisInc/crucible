@@ -1100,7 +1100,7 @@ mkFunction :: Maybe (Product (Node a) TranslateM  Field) -- ^ receiver type
 mkFunction recv name params variadic results body =
   do
   fromMaybe (return ()) $
-    fail "translate_alg FuncDecl: unexpected variadic parameter (should\
+    error "translate_alg FuncDecl: unexpected variadic parameter (should\
          \ have been desugared away)" <$> variadic
   params' <- mapM runTranslated $ maybeToList recv ++ params
   results' <- mapM runTranslated results

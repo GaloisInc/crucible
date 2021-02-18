@@ -27,7 +27,6 @@ custom-setup
 library
   build-depends:
     abcBridge,
-    ansi-wl-pprint,
     base >= 4.7,
     bv-sized >= 1.0.0,
     bytestring >= 0.10.2,
@@ -49,6 +48,7 @@ library
     lens,
     mtl,
     parameterized-utils >= 0.1.7,
+    prettyprinter >= 1.7.0,
     saw-core,
     saw-core-sbv,
     sbv,
@@ -86,7 +86,6 @@ library
 
 executable crucible-server
   build-depends:
-    ansi-wl-pprint,
     base >= 4.7 && < 4.15,
     abcBridge,
     what4,

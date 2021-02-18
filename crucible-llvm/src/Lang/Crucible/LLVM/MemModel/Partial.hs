@@ -912,15 +912,15 @@ muxLLVMVal sym = merge sym muxval
            off'  <- W4I.bvIte sym cond zoff off
            return $ LLVMValInt base' off'
       LLVMValFloat Value.SingleSize x ->
-        do zerof <- (W4IFP.iFloatLit sym W4IFP.SingleFloatRepr 0)
+        do zerof <- (W4IFP.iFloatLitRational sym W4IFP.SingleFloatRepr 0)
            x'    <- (W4IFP.iFloatIte @_ @W4IFP.SingleFloat sym cond zerof x)
            return $ LLVMValFloat Value.SingleSize x'
       LLVMValFloat Value.DoubleSize x ->
-        do zerof <- (W4IFP.iFloatLit sym W4IFP.DoubleFloatRepr 0)
+        do zerof <- (W4IFP.iFloatLitRational sym W4IFP.DoubleFloatRepr 0)
            x'    <- (W4IFP.iFloatIte @_ @W4IFP.DoubleFloat sym cond zerof x)
            return $ LLVMValFloat Value.DoubleSize x'
       LLVMValFloat Value.X86_FP80Size x ->
-        do zerof <- (W4IFP.iFloatLit sym W4IFP.X86_80FloatRepr 0)
+        do zerof <- (W4IFP.iFloatLitRational sym W4IFP.X86_80FloatRepr 0)
            x'    <- (W4IFP.iFloatIte @_ @W4IFP.X86_80Float sym cond zerof x)
            return $ LLVMValFloat Value.X86_FP80Size x'
 

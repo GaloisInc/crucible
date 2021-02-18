@@ -36,7 +36,7 @@ import GHC.Generics
 
 import qualified Debug.Trace as Debug
 
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Prettyprinter
 
 
 -- | Normal path segments consist of a name and a disambiguator index.
@@ -45,8 +45,9 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 type Segment = (Text, Int)
 
 data DefId = DefId
+    {
     -- | The name of the enclosing crate.
-    { did_crate :: Text
+      did_crate :: Text
     -- | The disambiguator of the enclosing crate.  These are strings, in a
     -- different format than the integer disambiguators used for normal path
     -- segments.
@@ -106,7 +107,7 @@ instance FromJSON DefId where
 
 -- ignores filename and entry #s
 instance Pretty DefId where
-    pretty = text . show
+    pretty = viaShow
 
 
 type ExplodedDefId = [Text]

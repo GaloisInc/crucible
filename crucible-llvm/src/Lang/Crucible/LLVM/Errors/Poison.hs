@@ -41,10 +41,9 @@ module Lang.Crucible.LLVM.Errors.Poison
   ) where
 
 import           Data.Kind (Type)
-import           Data.Text (unpack)
 import           Data.Maybe (isJust)
 import           Data.Typeable (Typeable)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import qualified Data.Parameterized.TraversableF as TF
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
@@ -154,8 +153,8 @@ standard =
     GEPOutOfBounds _        -> LLVMRef LLVM8
 
 -- | Which section(s) of the document state that this is poison?
-cite :: Poison e -> Doc
-cite = text .
+cite :: Poison e -> Doc ann
+cite =
   \case
     AddNoUnsignedWrap _ _   -> "‘add’ Instruction (Semantics)"
     AddNoSignedWrap _ _     -> "‘add’ Instruction (Semantics)"
@@ -176,7 +175,7 @@ cite = text .
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
     GEPOutOfBounds _        -> "‘getelementptr’ Instruction (Semantics)"
 
-explain :: Poison e -> Doc
+explain :: Poison e -> Doc ann
 explain =
   \case
     AddNoUnsignedWrap _ _ ->
@@ -226,8 +225,8 @@ explain =
       , "treats all GEP instructions as if they had the `inbounds` flag set."
       ]
 
-details :: forall sym.
-  W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc]
+details :: forall sym ann.
+  W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> [Doc ann]
 details =
   \case
     AddNoUnsignedWrap v1 v2 -> args [v1, v2]
@@ -250,29 +249,29 @@ details =
     GEPOutOfBounds v        -> args [v]
 
  where
- args :: forall w. [RegValue' sym (BVType w)] -> [Doc]
- args []     = [ text "No arguments" ]
- args [RV v] = [ text "Argument:" <+> W4I.printSymExpr v ]
- args vs     = [ hsep (text "Arguments:" : map (W4I.printSymExpr . unRV) vs) ]
+ args :: forall w. [RegValue' sym (BVType w)] -> [Doc ann]
+ args []     = [ "No arguments" ]
+ args [RV v] = [ "Argument:" <+> W4I.printSymExpr v ]
+ args vs     = [ hsep ("Arguments:" : map (W4I.printSymExpr . unRV) vs) ]
 
 
 -- | Pretty print an error message relating to LLVM poison values,
 --   when given a printer to produce a detailed message.
-pp :: (Poison e -> [Doc]) -> Poison e -> Doc
+pp :: (Poison e -> [Doc ann]) -> Poison e -> Doc ann
 pp extra poison = vcat $
   [ "Poison value encountered: "
   , explain poison
   , vcat (extra poison)
   , cat [ "Reference: "
-        , text (unpack (ppStd (standard poison)))
+        , pretty (ppStd (standard poison))
         , cite poison
         ]
   ] ++ case stdURL (standard poison) of
-         Just url -> ["Document URL:" <+> text (unpack url)]
+         Just url -> ["Document URL:" <+> pretty url]
          Nothing  -> []
 
 -- | Pretty print an error message relating to LLVM poison values
-ppReg ::W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> Doc
+ppReg ::W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> Doc ann
 ppReg = pp details
 
 -- | Concretize a poison error message.

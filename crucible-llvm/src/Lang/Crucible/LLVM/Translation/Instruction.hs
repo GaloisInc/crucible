@@ -52,7 +52,7 @@ import           Data.String
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Numeric.Natural
-import           Text.PrettyPrint.ANSI.Leijen (pretty)
+import           Prettyprinter (pretty)
 
 import qualified Text.LLVM.AST as L
 
@@ -1108,13 +1108,13 @@ floatcmp op a b =
           L.Fole   -> App $ FloatLe a b
           L.Fogt   -> App $ FloatGt a b
           L.Foge   -> App $ FloatGe a b
-          L.Fone   -> App $ FloatFpNe a b
+          L.Fone   -> App $ FloatFpApart a b
           L.Fueq   -> mkUno $ App $ FloatFpEq a b
           L.Fult   -> mkUno $ App $ FloatLt a b
           L.Fule   -> mkUno $ App $ FloatLe a b
           L.Fugt   -> mkUno $ App $ FloatGt a b
           L.Fuge   -> mkUno $ App $ FloatGe a b
-          L.Fune   -> mkUno $ App $ FloatFpNe a b
+          L.Fune   -> mkUno $ App $ FloatFpApart a b
           L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
           L.Funo   -> unoCond
 
@@ -1824,6 +1824,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.declare"
                  , "llvm.dbg.value"
+                 , "llvm.dbg.label"
                  , "llvm.lifetime.start"
                  , "llvm.lifetime.start.p0i8"
                  , "llvm.lifetime.end"

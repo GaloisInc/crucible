@@ -1,0 +1,8 @@
+start ::= <<X>><<X>>
+X ::= a
+X ::= b
+
+// output 0: aa
+// output 1: ab
+// output 2: ba
+// output 3: bb

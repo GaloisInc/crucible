@@ -1,0 +1,12 @@
+// Locals' types are subject to unification.
+start ::= <<push_scope>><<decl>> -> <<use>>
+// Reusing the type variable is fine because we only ever choose one of the
+// three locals in this test.
+for[T] decl ::= <<fresh_local[T]>> <<fresh_local[Vec[T]]>> <<fresh_local[u8]>>
+use ::= vec <<choose_local[Vec[u8]]>>
+use ::= u8 <<choose_local[u8]>>
+
+// output 0: x0 x1 x2 -> vec x0
+// output 1: x0 x1 x2 -> vec x1
+// output 2: x0 x1 x2 -> u8 x0
+// output 3: x0 x1 x2 -> u8 x2

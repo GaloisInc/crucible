@@ -54,7 +54,7 @@ import qualified Data.Text as Text
 import           Data.Time.Clock
 import           System.IO
 import           System.IO.Error as Ex
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Prettyprinter
 
 import           What4.Config
 import           What4.Interface
@@ -275,6 +275,11 @@ stepStmt verb stmt rest =
             v <- liftIO $ freshFloatConstant sym nm fi
             continueWith $ stateCrucibleFrame %~ extendFrame (FloatRepr fi) v rest
 
+       FreshNat mnm ->
+         do let nm = fromMaybe emptySymbol mnm
+            v <- liftIO $ freshNat sym nm
+            continueWith $ stateCrucibleFrame %~ extendFrame NatRepr v rest
+
        SetReg tp e ->
          do v <- evalExpr verb e
             continueWith $ stateCrucibleFrame %~ extendFrame tp v rest
@@ -442,11 +447,11 @@ stepBasicBlock verb =
                  when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (pretty termStmt)
             stepTerm verb termStmt
 
-ppStmtAndLoc :: Handle -> SomeHandle -> ProgramLoc -> Doc -> IO ()
+ppStmtAndLoc :: Handle -> SomeHandle -> ProgramLoc -> Doc ann -> IO ()
 ppStmtAndLoc h sh pl stmt = do
   hPrint h $
-    text (show sh) <> char ':' <$$>
-    indent 2 (stmt <+> text "%" <+> ppNoFileName (plSourceLoc pl))
+    vcat [ viaShow sh <> pretty ':'
+         , indent 2 (stmt <+> pretty "%" <+> ppNoFileName (plSourceLoc pl)) ]
   hFlush h
 
 performStateRun ::

@@ -58,7 +58,7 @@ import qualified Data.Vector as V
 import Numeric.Natural
 import qualified Text.LLVM as L
 import qualified Text.LLVM.PP as L
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Prettyprinter
 
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
@@ -79,8 +79,9 @@ binarySearch f = go
                                GT -> go l i
           where i = l + (h - l) `div` 2
 
-ppIdent :: L.Ident -> Doc
-ppIdent = text . show . L.ppIdent
+ppIdent :: L.Ident -> Doc ann
+ppIdent = viaShow . L.ppIdent
+-- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | LLVM types supported by symbolic simulator.
 data SymType
@@ -102,13 +103,14 @@ instance Pretty SymType where
   pretty = ppSymType
 
 -- | Pretty-print a 'SymType'.
-ppSymType :: SymType -> Doc
+ppSymType :: SymType -> Doc ann
 ppSymType (MemType tp) = ppMemType tp
 ppSymType (Alias i) = ppIdent i
 ppSymType (FunType d) = ppFunDecl d
-ppSymType VoidType = text "void"
-ppSymType OpaqueType = text "opaque"
-ppSymType (UnsupportedType tp) = text (show (L.ppType tp))
+ppSymType VoidType = pretty "void"
+ppSymType OpaqueType = pretty "opaque"
+ppSymType (UnsupportedType tp) = viaShow (L.ppType tp)
+-- TODO: update if llvm-pretty switches to prettyprinter
 
 -- | LLVM types supported by simulator with a defined size and alignment.
 data MemType
@@ -130,18 +132,18 @@ instance Pretty MemType where
   pretty = ppMemType
 
 -- | Pretty-print a 'MemType'.
-ppMemType :: MemType -> Doc
+ppMemType :: MemType -> Doc ann
 ppMemType mtp =
   case mtp of
     IntType w -> ppIntType w
-    FloatType -> text "float"
-    DoubleType -> text "double"
-    X86_FP80Type -> text "long double"
+    FloatType -> pretty "float"
+    DoubleType -> pretty "double"
+    X86_FP80Type -> pretty "long double"
     PtrType tp -> ppPtrType (ppSymType tp)
     ArrayType n tp -> ppArrayType n (ppMemType tp)
     VecType n tp  -> ppVectorType n (ppMemType tp)
     StructType si -> ppStructInfo si
-    MetadataType -> text "metadata"
+    MetadataType -> pretty "metadata"
 
 -- | 1-bit integer type.
 i1 :: MemType
@@ -222,14 +224,14 @@ varArgsFunDecl rtp tps = FunDecl { fdRetType = Just rtp
                                  }
 
 -- | Pretty-print a function type.
-ppFunDecl :: FunDecl -> Doc
+ppFunDecl :: FunDecl -> Doc ann
 ppFunDecl (FunDecl rtp args va) = rdoc <> parens (commas (fmap ppMemType args ++ vad))
-  where rdoc = maybe (text "void") ppMemType rtp
-        vad = if va then [text "..."] else []
+  where rdoc = maybe (pretty "void") ppMemType rtp
+        vad = if va then [pretty "..."] else []
 
 -- | Pretty print a return type.
-ppRetType :: RetType -> Doc
-ppRetType = maybe (text "void") ppMemType
+ppRetType :: RetType -> Doc ann
+ppRetType = maybe (pretty "void") ppMemType
 
 -- | Returns size of a 'MemType' in bytes.
 memTypeSize :: DataLayout -> MemType -> Bytes
@@ -375,15 +377,15 @@ siIndexOfOffset si o = binarySearch f 0 (V.length flds)
                e | i+1 == V.length flds = structSize si
                  | otherwise = fiOffset (flds V.! i)
 
-commas :: [Doc] -> Doc
-commas = hsep . punctuate (char ',')
+commas :: [Doc ann] -> Doc ann
+commas = hsep . punctuate (pretty ',')
 
-structBraces :: Bool -> Doc -> Doc
-structBraces False b = char '{' <+> b <+> char '}'
-structBraces True  b = string "<{" <+> b <+> string "}>"
+structBraces :: Bool -> Doc ann -> Doc ann
+structBraces False b = pretty '{' <+> b <+> pretty '}'
+structBraces True  b = pretty "<{" <+> b <+> pretty "}>"
 
 -- | Pretty print struct info.
-ppStructInfo :: StructInfo -> Doc
+ppStructInfo :: StructInfo -> Doc ann
 ppStructInfo si = structBraces (siIsPacked si) $ commas (V.toList fields)
   where fields = ppMemType <$> siFieldTypes si
 

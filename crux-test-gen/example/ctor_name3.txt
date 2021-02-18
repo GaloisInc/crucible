@@ -1,0 +1,13 @@
+start ::= <<test>>
+
+// `one` prints the name, and `two` decides the value of `T` via unification.
+// The name should still be printed correctly, even though it's unknown at the
+// time of expansion of `ctor_name`.
+for[T] test ::= <<one[T]>>, <<two[T]>>
+
+for[T] one[T] ::= resolved <<ctor_name[T]>>
+two[X] ::= chose X
+two[Y] ::= chose Y
+
+// output 0: resolved X, chose X
+// output 1: resolved Y, chose Y

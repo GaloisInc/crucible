@@ -77,23 +77,31 @@ directory:
 * `print-model-NNN`: an executable file that prints out the values
   associated with the counter-example.
 
-To define properties and assumptions about the code to analyze, you may
-have to annotate the source code with inline properties. The following
+To define properties and assumptions about the code to analyze, you
+may have to annotate the source code with inline properties (CRUCIBLE
+is defined to help specify crucible-specific functionality. The following
 simple example is included in the `crux-llvm` distribution.
 
 ~~~~ .c
 #include <stdint.h>
+#ifdef CRUCIBLE
 #include <crucible.h>
+#endif
 
 int8_t f(int8_t x) {
   return x + 1;
 }
 
+#ifdef CRUCIBLE
 int main() {
   int8_t x = crucible_int8_t("x");
   assuming(x < 100);
   check(f(x) < 100);
   return 0;
+}
+#else
+int main(int argc, char **argv) {
+  return f(argv);
 }
 ~~~~
 

@@ -56,7 +56,6 @@ ENV LANG=C.UTF-8 \
 ARG DIR=/crux-mir
 RUN mkdir -p ${DIR}/build
 ADD crucible ${DIR}/build/crucible
-ADD crucible-saw ${DIR}/build/crucible-saw
 ADD crux ${DIR}/build/crux
 ADD crux-mir ${DIR}/build/crux-mir
 ADD dependencies ${DIR}/build/dependencies

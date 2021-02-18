@@ -32,7 +32,6 @@ module Lang.Crucible.Backend.Simple
 
 import           Control.Lens
 import           Control.Monad (void)
-import           Data.IORef
 import           Data.Parameterized.Nonce
 
 import           What4.Config
@@ -71,7 +70,7 @@ newSimpleBackend floatMode gen =
      return sym
 
 getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
-getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
+getAssumptionStack sym = pure (sbAssumptionStack (B.sbUserState sym))
 
 instance IsBoolSolver (SimpleBackend t fs) where
 

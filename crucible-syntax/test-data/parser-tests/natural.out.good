@@ -30,7 +30,7 @@ test-natural
   % 8:12
   $6 = natMod($0, $1)
   % 10:13
-  $7 = baseIsEq(BaseNatRepr, $0, $3)
+  $7 = natEq($0, $3)
   % 11:13
   $8 = natLt($0, $1)
   % 12:13
@@ -42,7 +42,7 @@ test-natural
   % 13:12
   $12 = and($11, $10)
   % 14:12
-  $13 = baseIte(BaseNatRepr, $12, $4, $6)
+  $13 = natIte($12, $4, $6)
   % 15:5
   return $13
   % no postdom

@@ -1,0 +1,6 @@
+// `expand_all`'s nested expansion inherits locals from the parent expansion.
+start ::= <<push_scope>><<fresh_local[A]>> <<fresh_local[A]>> -> <<expand_all[var[A]]>>
+
+for[T] var[T] ::= [<<choose_local[T]>>]
+
+// output: x0 x1 -> [x0][x1]

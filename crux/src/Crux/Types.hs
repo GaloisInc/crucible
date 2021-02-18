@@ -2,22 +2,19 @@
 module Crux.Types where
 
 import qualified Control.Lens as L
-import Data.Sequence (Seq)
-import Data.Parameterized.Map (MapF)
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Data.Sequence (Seq)
+import           Data.Parameterized.Map (MapF)
+import           Data.Void
+import           Prettyprinter
 
-import Lang.Crucible.Simulator.RegMap(RegValue)
-import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
-import Lang.Crucible.Simulator.ExecutionTree(SimContext)
-import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType)
-import What4.Expr (GroundValue)
-import What4.ProgramLoc
-import What4.Interface (Pred)
+import           What4.Expr (GroundValue)
+import           What4.Interface (Pred)
+import           What4.ProgramLoc
 
-import Lang.Crucible.Backend
-import Lang.Crucible.Simulator.SimError
-import Lang.Crucible.Simulator
-import Lang.Crucible.Types
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator
+import           Lang.Crucible.Types
 
 -- | A constraint on crucible personality types that requires them to contain a 'Model'
 --
@@ -79,7 +76,7 @@ data ProcessedGoals =
 
 data ProofResult a
    = Proved [a]
-   | NotProved Doc (Maybe ModelView)   -- ^ An explanation of the failure and counter example, if any
+   | NotProved (Doc Void) (Maybe ModelView)   -- ^ An explanation of the failure and counter example, if any
  deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)

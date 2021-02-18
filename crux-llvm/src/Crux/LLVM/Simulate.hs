@@ -15,7 +15,6 @@ import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
 
-import System.FilePath( (</>) )
 import System.IO (stdout)
 
 import Data.Parameterized.Some (Some(..))
@@ -24,7 +23,7 @@ import Data.Parameterized.Context (pattern Empty)
 import Text.LLVM.AST (Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (</>))
+import Prettyprinter
 
 -- what4
 
@@ -73,7 +72,6 @@ import qualified Crux
 import Crux.Types
 import Crux.Model
 import Crux.Log
-import Crux.Config.Common
 
 import Crux.LLVM.Config
 import Crux.LLVM.Overrides
@@ -120,11 +118,12 @@ registerFunctions llvm_module mtrans =
      -- register all the functions defined in the LLVM module
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
-simulateLLVM :: CruxOptions -> LLVMOptions -> Crux.SimulatorCallback
-simulateLLVM cruxOpts llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
-  do llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
+simulateLLVMFile :: FilePath -> LLVMOptions -> Crux.SimulatorCallback
+simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
+  do llvm_mod   <- parseLLVM llvm_file
      halloc     <- newHandleAllocator
      let ?laxArith = laxArithmetic llvmOpts
+     let ?optLoopMerge = loopMerge llvmOpts
      Some trans <- translateModule halloc llvm_mod
      let llvmCtxt = trans ^. transContext
 

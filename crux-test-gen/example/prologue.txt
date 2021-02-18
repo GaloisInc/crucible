@@ -1,0 +1,8 @@
+prologue ::= A
+start ::= B
+start ::= C
+
+// In the test runner, the prologue gets prepended to the first output.
+// output 0: A
+// output 0: B
+// output 1: C

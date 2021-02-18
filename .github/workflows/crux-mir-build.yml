@@ -89,12 +89,14 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh bundle_crux_mir_files
+        if: startsWith(github.ref, 'refs/heads/release-')
         env:
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           VERSION: ${{ needs.outputs.outputs.crux-mir-version }}
 
       - uses: actions/upload-artifact@v2
+        if: startsWith(github.ref, 'refs/heads/release-')
         with:
           path: crux-mir-*.tar.gz*
           name: crux-mir-${{ runner.os }}-${{ matrix.ghc }}

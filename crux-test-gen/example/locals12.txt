@@ -1,0 +1,8 @@
+// Variables used by `take_local` won't be produced by `choose_local`
+start ::= <<push_scope>><<decl>> <<decl>> -> <<take>> <<choose>>
+decl ::= <<fresh_local[x]>>
+take ::= <<take_local[x]>>
+choose ::= <<choose_local[x]>>
+
+// output 0: x0 x1 -> x0 x1
+// output 1: x0 x1 -> x1 x0

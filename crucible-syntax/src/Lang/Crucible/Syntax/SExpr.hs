@@ -36,7 +36,8 @@ import What4.ProgramLoc as C
 import Text.Megaparsec as MP
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP (renderStrict)
 
 
 -- | Syntax objects, in which each layer is annotated with a source position.
@@ -158,17 +159,17 @@ instance Monoid (PrintRules a) where
 class IsAtom a where
   showAtom :: a -> Text
 
-pprint :: (Syntactic expr a, IsAtom a) => PrintRules a -> expr -> PP.Doc
+pprint :: (Syntactic expr a, IsAtom a) => PrintRules a -> expr -> PP.Doc ann
 pprint rules expr = pprintDatum rules (syntaxToDatum expr)
 
-pprintDatum :: IsAtom a => PrintRules a -> Datum a -> PP.Doc
+pprintDatum :: IsAtom a => PrintRules a -> Datum a -> PP.Doc ann
 pprintDatum rules@(PrintRules getLayout) stx =
   case unDatum stx of
     Atom at -> ppAtom at
     List lst ->
       PP.parens . PP.group $
       case lst of
-        [] -> PP.empty
+        [] -> mempty
         [x] -> pprintDatum rules x
         ((unDatum -> Atom car) : xs) ->
           case getLayout car of
@@ -180,12 +181,14 @@ pprintDatum rules@(PrintRules getLayout) stx =
                  map (pprintDatum rules) rest
         xs -> PP.vsep $ pprintDatum rules <$> xs
 
-  where ppAtom = PP.text . T.unpack . showAtom
+  where ppAtom = PP.pretty . showAtom
 
 -- | Render a syntactic structure to text, according to rules.
 toText :: (Syntactic expr a, IsAtom a) => PrintRules a -> expr -> Text
-toText rules stx = T.pack (PP.displayS (PP.renderSmart 0.8 80 $ pprint rules stx) "")
+toText rules stx = PP.renderStrict (PP.layoutSmart opts $ pprint rules stx)
+  where opts = PP.LayoutOptions (PP.AvailablePerLine 80 0.8)
 
 -- | Render a datum to text according to rules.
 datumToText :: IsAtom a => PrintRules a -> Datum a -> Text
-datumToText rules dat = T.pack (PP.displayS (PP.renderSmart 0.8 80 $ pprintDatum rules dat) "")
+datumToText rules dat = PP.renderStrict (PP.layoutSmart opts $ pprintDatum rules dat)
+  where opts = PP.LayoutOptions (PP.AvailablePerLine 80 0.8)

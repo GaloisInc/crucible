@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuxo pipefail
 
-DATE=`date "+%Y-%m-%d"`
+DATE=$(date "+%Y-%m-%d")
 [[ "$RUNNER_OS" == 'Windows' ]] && IS_WIN=true || IS_WIN=false
 BIN=bin
 EXT=""
@@ -114,6 +114,8 @@ build() {
 test() {
   # System-agnostic path
   export PATH="$PATH:/usr/local/opt/llvm/bin:/c/Program Files/LLVM/bin"
+  ${CLANG:-:} --version
+  ${LLVM_LINK:-:} --version
   cabal v2-test "$@"
 }
 
@@ -142,10 +144,12 @@ install_system_deps() {
 }
 
 sign() {
-  gpg --batch --import <(echo "$SIGNING_KEY")
+  set +x
+  gpg --yes --quiet --batch --import <(echo "$SIGNING_KEY")
   fingerprint="$(gpg --list-keys | grep galois -a1 | head -n1 | awk '{$1=$1};1')"
   echo "$fingerprint:6" | gpg --import-ownertrust
   gpg --yes --no-tty --batch --pinentry-mode loopback --default-key "$fingerprint" --detach-sign -o "$1".sig --passphrase-file <(echo "$SIGNING_PASSPHRASE") "$1"
+  set -x
 }
 
 setup_dist() {
@@ -166,7 +170,7 @@ zip_dist() {
 bundle_crux_llvm_files() {
   setup_dist
   extract_exe crux-llvm dist/bin
-  if ! $IS_WIN ; then
+  if ! $IS_WIN; then
     extract_exe crux-llvm-svcomp dist/bin
   fi
   cp crux-llvm/README.md dist/doc

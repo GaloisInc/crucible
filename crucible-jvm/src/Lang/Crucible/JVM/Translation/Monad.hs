@@ -18,6 +18,7 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Control.Monad.State.Strict
 import           Control.Lens hiding (op, (:>))
+import qualified Data.Text as Text
 
 -- jvm-parser
 import qualified Language.JVM.Parser as J
@@ -39,6 +40,7 @@ import           Lang.Crucible.Panic
 import           Lang.Crucible.JVM.Types
 import           Lang.Crucible.JVM.Context
 -- what4
+import           What4.Interface (StringLiteral(..))
 import           What4.ProgramLoc (Position(InternalPos))
 
 import Debug.Trace
@@ -187,12 +189,14 @@ valueToExpr (RValue x) = App $ InjectVariant knownRepr tagR x
 
 projectVariant ::
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
+  Text.Text ->
   Ctx.Index ctx tp ->
   Expr JVM s (VariantType ctx) ->
   JVMGenerator s ret (Expr JVM s tp)
-projectVariant tag var =
+projectVariant msg tag var =
   do let mx = App (ProjectVariant knownRepr tag var)
-     assertedJustExpr mx "incorrect variant"
+     let str = App $ StringLit $ UnicodeLiteral ("read failed: " <> msg)
+     assertedJustExpr mx str
 
 injectVariant ::
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
@@ -202,19 +206,20 @@ injectVariant ::
 injectVariant tag val = App (InjectVariant knownRepr tag val)
 
 
-fromJVMDynamic :: J.Type -> Expr JVM s JVMValueType -> JVMGenerator s ret (JVMValue s)
-fromJVMDynamic ty dyn =
+fromJVMDynamic ::
+  Text.Text -> J.Type -> Expr JVM s JVMValueType -> JVMGenerator s ret (JVMValue s)
+fromJVMDynamic msg ty dyn =
   case ty of
-    J.BooleanType -> IValue <$> projectVariant tagI dyn
-    J.ArrayType _ -> RValue <$> projectVariant tagR dyn
-    J.ByteType    -> IValue <$> projectVariant tagI dyn
-    J.CharType    -> IValue <$> projectVariant tagI dyn
-    J.ClassType _ -> RValue <$> projectVariant tagR dyn
-    J.DoubleType  -> DValue <$> projectVariant tagD dyn
-    J.FloatType   -> FValue <$> projectVariant tagF dyn
-    J.IntType     -> IValue <$> projectVariant tagI dyn
-    J.LongType    -> LValue <$> projectVariant tagL dyn
-    J.ShortType   -> IValue <$> projectVariant tagI dyn
+    J.BooleanType -> IValue <$> projectVariant msg tagI dyn
+    J.ArrayType _ -> RValue <$> projectVariant msg tagR dyn
+    J.ByteType    -> IValue <$> projectVariant msg tagI dyn
+    J.CharType    -> IValue <$> projectVariant msg tagI dyn
+    J.ClassType _ -> RValue <$> projectVariant msg tagR dyn
+    J.DoubleType  -> DValue <$> projectVariant msg tagD dyn
+    J.FloatType   -> FValue <$> projectVariant msg tagF dyn
+    J.IntType     -> IValue <$> projectVariant msg tagI dyn
+    J.LongType    -> LValue <$> projectVariant msg tagL dyn
+    J.ShortType   -> IValue <$> projectVariant msg tagI dyn
 
 toJVMDynamic :: J.Type -> JVMValue s -> JVMGenerator s ret (Expr JVM s JVMValueType)
 toJVMDynamic ty val =
