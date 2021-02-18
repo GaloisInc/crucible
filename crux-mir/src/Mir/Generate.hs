@@ -77,10 +77,10 @@ needsRebuild output inputs = do
 mirJsonOutFile :: FilePath -> FilePath
 mirJsonOutFile rustFile = rustFile -<.> "mir"
 
-getRlibsDir :: IO FilePath
-getRlibsDir = maybe "rlibs" id <$> lookupEnv "CRUX_RUST_LIBRARY_PATH"
+getRlibsDir :: (?defaultRlibsDir :: FilePath) => IO FilePath
+getRlibsDir = maybe ?defaultRlibsDir id <$> lookupEnv "CRUX_RUST_LIBRARY_PATH"
 
-compileMirJson :: Bool -> Bool -> FilePath -> IO ()
+compileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> Bool -> FilePath -> IO ()
 compileMirJson keepRlib quiet rustFile = do
     let outFile = rustFile -<.> "bin"
 
@@ -103,7 +103,7 @@ compileMirJson keepRlib quiet rustFile = do
             True  -> removeFile outFile
             False -> return ()
 
-maybeCompileMirJson :: Bool -> Bool -> FilePath -> IO ()
+maybeCompileMirJson :: (?defaultRlibsDir :: FilePath) => Bool -> Bool -> FilePath -> IO ()
 maybeCompileMirJson keepRlib quiet rustFile = do
     build <- needsRebuild (mirJsonOutFile rustFile) [rustFile]
     when build $ compileMirJson keepRlib quiet rustFile
@@ -159,7 +159,7 @@ libJsonFiles =
 -- NOTE: If the rust file has not been modified since the
 -- last .mir file was created, this function does nothing
 -- This function uses 'failIO' if any error occurs
-generateMIR :: (HasCallStack, ?debug::Int) =>
+generateMIR :: (HasCallStack, ?debug::Int, ?defaultRlibsDir :: FilePath) =>
                FilePath          -- ^ location of input file
             -> Bool              -- ^ `True` to keep the generated .rlib
             -> IO Collection

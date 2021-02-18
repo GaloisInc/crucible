@@ -133,6 +133,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     --let ?assertFalseOnError = assertFalse mirOpts
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
+    let ?defaultRlibsDir    = defaultRlibsDir mirOpts
 
     let (filename, nameFilter) = case cargoTestFile mirOpts of
             -- This case is terrible a hack.  The goal is to mimic the behavior
@@ -346,6 +347,11 @@ data MIROptions = MIROptions
     , printResultOnly :: Bool
     , testFilter   :: Maybe Text
     , cargoTestFile :: Maybe FilePath
+    , defaultRlibsDir :: FilePath
+    -- ^ Directory to search for builds of `crux-mir`'s custom standard
+    -- library, if `$CRUX_RUST_LIBRARY_PATH` is unset.  This option exists for
+    -- the purposes of the `crux-mir-comp` test suite; there's no user-facing
+    -- flag to set it.
     }
 
 defaultMirOptions :: MIROptions
@@ -357,6 +363,7 @@ defaultMirOptions = MIROptions
     , printResultOnly = False
     , testFilter = Nothing
     , cargoTestFile = Nothing
+    , defaultRlibsDir = "rlibs"
     }
 
 mirConfig :: Crux.Config MIROptions
