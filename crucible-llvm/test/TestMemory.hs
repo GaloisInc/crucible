@@ -170,9 +170,14 @@ testMemArray = testCase "smt array memory model" $ withMem LLVMD.BigEndian $ \sy
   mem3 <-
     doStore sym mem2 ptr_i long_type_repr long_storage_type noAlignment some_val
 
+  memset_ptr <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 2048)
+  memset_val <- What4.bvLit sym knownNat (BV.mkBV knownNat 0)
+  memset_sz <- What4.bvLit sym (knownNat @64) (BV.mkBV knownNat 10)
+  mem4 <- LLVMMem.doMemset sym (knownNat @64) mem3 memset_ptr memset_val memset_sz
+
   -- Read that same value back and make sure that they are the same
   at_i_val <- projectLLVM_bv sym
-    =<< doLoad sym mem3 ptr_i long_storage_type ptr_long_repr noAlignment
+    =<< doLoad sym mem4 ptr_i long_storage_type ptr_long_repr noAlignment
   res_i <- checkSat sym =<< What4.bvNe sym some_val at_i_val
   True @=? W4Sat.isUnsat res_i
 
@@ -183,7 +188,7 @@ testMemArray = testCase "smt array memory model" $ withMem LLVMD.BigEndian $ \sy
   ptr_j <- ptrAdd sym ?ptrWidth base_ptr j
   assume sym =<< What4.bvEq sym i j
   at_j_val <- projectLLVM_bv sym
-    =<< doLoad sym mem3 ptr_j long_storage_type ptr_long_repr noAlignment
+    =<< doLoad sym mem4 ptr_j long_storage_type ptr_long_repr noAlignment
   res_j <- checkSat sym =<< What4.bvNe sym some_val at_j_val
   True @=? W4Sat.isUnsat res_j
 
