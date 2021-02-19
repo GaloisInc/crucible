@@ -1525,6 +1525,7 @@ asMemAllocationArrayStore sym w ptr mem
          MemWrite write_ptr write_source
             | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
             , blk_no == write_blk_no
+            , Just (BV.BV 0) <- asBV (llvmPointerOffset write_ptr)
             , MemArrayStore arr (Just arr_store_sz) <- write_source
             , Just Refl <- testEquality w (ptrWidth write_ptr) -> do
               ok <- bvEq sym sz arr_store_sz
