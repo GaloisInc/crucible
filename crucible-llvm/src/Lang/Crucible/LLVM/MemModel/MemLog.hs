@@ -426,7 +426,7 @@ ppAlloc :: IsExpr (SymExpr sym) => MemAlloc sym -> Doc ann
 ppAlloc (Allocations xs) =
   vcat $ map ppAllocInfo (reverse (Map.assocs xs))
 ppAlloc (MemFree base loc) =
-  "Free" <+> printSymExpr base <+> pretty loc
+  "Free" <+> printSymNat base <+> pretty loc
 ppAlloc (AllocMerge c (MemAllocs x) (MemAllocs y)) =
   vcat ["Merge", ppMerge ppAlloc c x y]
 
@@ -507,7 +507,7 @@ concAlloc sym conc (Allocations m) =
   do m' <- traverse (concAllocInfo sym conc) m
      pure (MemAllocs [Allocations m'])
 concAlloc sym conc (MemFree blk loc) =
-  do blk' <- natLit sym =<< conc blk
+  do blk' <- integerToNat sym =<< intLit sym =<< conc =<< natToInteger sym blk
      pure (MemAllocs [MemFree blk' loc])
 concAlloc sym conc (AllocMerge p m1 m2) =
   do b <- conc p
@@ -528,7 +528,9 @@ concLLVMVal ::
   (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
   LLVMVal sym -> IO (LLVMVal sym)
 concLLVMVal sym conc (LLVMValInt blk off) =
-  LLVMValInt <$> (natLit sym =<< conc blk) <*> (concBV sym conc off)
+  do blk' <- integerToNat sym =<< intLit sym =<< conc =<< natToInteger sym blk
+     off' <- concBV sym conc off
+     pure (LLVMValInt blk' off')
 concLLVMVal _sym _conc (LLVMValFloat fs fi) =
   pure (LLVMValFloat fs fi) -- TODO concreteize floats
 concLLVMVal sym conc (LLVMValStruct fs) =

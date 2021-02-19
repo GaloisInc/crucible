@@ -87,7 +87,7 @@ alignmentToExponent :: Alignment -> Natural
 alignmentToExponent (Alignment n) = fromIntegral n
 
 newtype AlignInfo = AT (Map Natural Alignment)
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 -- | Make alignment info containing no alignments.
 emptyAlignInfo :: AlignInfo
@@ -158,7 +158,7 @@ instance At AlignInfo where
 
 -- | Flags byte orientation of target machine.
 data EndianForm = BigEndian | LittleEndian
-  deriving (Eq,Show)
+  deriving (Eq, Ord, Show)
 
 -- | Parsed data layout
 data DataLayout
@@ -173,6 +173,7 @@ data DataLayout
         , _stackInfo   :: !AlignInfo
         , _layoutWarnings :: [L.LayoutSpec]
         }
+  deriving (Eq, Ord)
 
 instance Show DataLayout where
    show _ = "<<DataLayout>>"

@@ -53,7 +53,7 @@ registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
   binds <- use (stateContext . functionBindings)
-  when (isJust $ lookupHandleMap h binds) $
+  when (isJust $ lookupHandleMap h $ fnBindings binds) $
     showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
   bindFnHandle h s
   let mvar = llvmMemVar llvm_ctx

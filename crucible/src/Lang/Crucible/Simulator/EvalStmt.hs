@@ -275,6 +275,11 @@ stepStmt verb stmt rest =
             v <- liftIO $ freshFloatConstant sym nm fi
             continueWith $ stateCrucibleFrame %~ extendFrame (FloatRepr fi) v rest
 
+       FreshNat mnm ->
+         do let nm = fromMaybe emptySymbol mnm
+            v <- liftIO $ freshNat sym nm
+            continueWith $ stateCrucibleFrame %~ extendFrame NatRepr v rest
+
        SetReg tp e ->
          do v <- evalExpr verb e
             continueWith $ stateCrucibleFrame %~ extendFrame tp v rest

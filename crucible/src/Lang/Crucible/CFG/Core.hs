@@ -313,6 +313,10 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
              -> !(Maybe SolverSymbol)
              -> Stmt ext ctx (ctx ::> FloatType fi)
 
+  -- Create a fresh natural number constant
+  FreshNat :: !(Maybe SolverSymbol)
+           -> Stmt  ext ctx (ctx ::> NatType)
+
   -- Allocate a new reference cell
   NewRefCell :: !(TypeRepr tp)
              -> !(Reg ctx tp)
@@ -476,6 +480,8 @@ applyEmbeddingStmt ctxe stmt =
     FreshFloat fi nm -> Pair (FreshFloat fi nm)
                              (Ctx.extendEmbeddingBoth ctxe)
 
+    FreshNat nm -> Pair (FreshNat nm) (Ctx.extendEmbeddingBoth ctxe)
+
     NewRefCell tp r -> Pair (NewRefCell tp (reg r))
                             (Ctx.extendEmbeddingBoth ctxe)
     NewEmptyRefCell tp -> Pair (NewEmptyRefCell tp)
@@ -579,6 +585,7 @@ nextStmtHeight h s =
     WriteGlobal{} -> h
     FreshConstant{} -> Ctx.incSize h
     FreshFloat{} -> Ctx.incSize h
+    FreshNat{} -> Ctx.incSize h
     NewRefCell{} -> Ctx.incSize h
     NewEmptyRefCell{} ->Ctx.incSize h
     ReadRefCell{} -> Ctx.incSize h
@@ -602,6 +609,7 @@ ppStmt r s =
     -- TODO: replace viaShow once we have instance Pretty SolverSymbol
     FreshConstant bt nm -> ppReg r <+> pretty "=" <+> pretty "fresh" <+> pretty bt <+> maybe mempty viaShow nm
     FreshFloat fi nm -> ppReg r <+> pretty "=" <+> pretty "fresh-float" <+> pretty fi <+> maybe mempty viaShow nm
+    FreshNat nm -> ppReg r <+> pretty "=" <+> pretty "fresh-nat" <+> maybe mempty viaShow nm
     NewRefCell _ e -> ppReg r <+> pretty "=" <+> ppFn "newref" [ pretty e ]
     NewEmptyRefCell tp -> ppReg r <+> pretty "=" <+> ppFn "emptyref" [ pretty tp ]
     ReadRefCell e -> ppReg r <+> pretty "= !" <> pretty e

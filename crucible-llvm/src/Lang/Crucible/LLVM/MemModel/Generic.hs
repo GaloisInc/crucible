@@ -721,12 +721,12 @@ data CacheEntry sym w =
 
 instance (TestEquality (SymExpr sym)) => Eq (CacheEntry sym w) where
   (CacheEntry tp1 blk1 off1) == (CacheEntry tp2 blk2 off2) =
-    tp1 == tp2 && (isJust $ testEquality blk1 blk2) && (isJust $ testEquality off1 off2)
+    tp1 == tp2 && (blk1 == blk2) && (isJust $ testEquality off1 off2)
 
 instance IsSymInterface sym => Ord (CacheEntry sym w) where
   compare (CacheEntry tp1 blk1 off1) (CacheEntry tp2 blk2 off2) =
     compare tp1 tp2
-      `mappend` toOrdering (compareF blk1 blk2)
+      `mappend` compare blk1 blk2
       `mappend` toOrdering (compareF off1 off2)
 
 toCacheEntry :: StorageType -> LLVMPtr sym w -> CacheEntry sym w

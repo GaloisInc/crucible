@@ -128,12 +128,16 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
       incs src = takeDirectory src :
                  (libDir llvmOpts </> "includes") :
                  incDirs llvmOpts
+      commonFlags = [ "-c", "-DCRUCIBLE", "-emit-llvm" ] <>
+                    case targetArch llvmOpts of
+                      Nothing -> []
+                      Just a -> [ "--target=" <> a ]
       params (src, srcBC)
         | ".ll" `isSuffixOf` src =
-            ["-c", "-DCRUCIBLE", "-emit-llvm", "-O0", "-o", srcBC, src]
+            commonFlags <> ["-O0", "-o", srcBC, src]
 
         | otherwise =
-            [ "-c", "-DCRUCIBLE", "-g", "-emit-llvm" ] ++
+            commonFlags <> [ "-g" ] ++
             concat [ [ "-I", dir ] | dir <- incs src ] ++
             concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ]
                    | san <- ubSanitizers llvmOpts ] ++

@@ -16,7 +16,6 @@ module Main (main) where
 import Control.Concurrent.Async( async, wait )
 import Control.Exception
   (bracket, catch, throwIO, SomeException, fromException, AsyncException, displayException, try )
-import Control.Monad
 
 import Data.Aeson ( encode, ToJSON(..), FromJSON, ToJSONKey, eitherDecode', object )
 import Data.Bits( bit )
@@ -29,14 +28,8 @@ import Data.Time.Clock
   ( getCurrentTime, diffUTCTime, NominalDiffTime )
 import System.Exit
   ( ExitCode(..), exitSuccess, exitFailure )
-import System.FilePath
-  ( takeFileName, takeDirectory, (</>)
-  , replaceExtension
-  )
-import System.Directory
-  ( createDirectoryIfMissing, doesFileExist, copyFile
-  , removeDirectoryRecursive
-  )
+import System.FilePath ( takeFileName, takeDirectory, (</>), (-<.>) )
+import System.Directory ( copyFile, createDirectoryIfMissing, removeDirectoryRecursive )
 import System.IO
   ( Handle, hGetContents, hClose, openFile, IOMode(..), hFlush )
 
@@ -87,9 +80,13 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
    handler e
      | Just (_::AsyncException) <- fromException e = throwIO e
      | otherwise =
-         do sayFail "SVCOMP" $ unlines ["Failed to compile task:", show (verificationSourceFile task), displayException e]
+         do sayFail "SVCOMP" $ unlines [ "Failed to compile task:"
+                                       , show (verificationSourceFile task)
+                                       , displayException e]
             removeDirectoryRecursive outputPath `catch` \e' ->
-               sayFail "SVCOMP" $ unlines ["Double fault! While trying to remove:", outputPath, displayException (e'::SomeException)]
+               sayFail "SVCOMP" $ unlines [ "Double fault! While trying to remove:"
+                                          , outputPath
+                                          , displayException (e'::SomeException)]
             return [(n, task, Left e)]
 
 
@@ -104,37 +101,29 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
    = do sayWarn "SVCOMP" $ unlines
           [ "Skipping:"
-          , "  " ++ verificationSourceFile task
+          , "  " ++ verificationSourceFile task ++ " due to blacklist"
           ]
         return Nothing
 
  processVerificationTask tgt num task =
-   do let files = verificationInputFiles task
-          inputBase = takeDirectory (verificationSourceFile task)
-          outputPath  = svTaskDirectory (Crux.outDir cruxOpts) num task
-          finalBCFile = outputPath </> "combined.bc"
-          srcBCNames = [ (inputBase </> src, outputPath </> replaceExtension src ".bc") | src <- files ]
-          incs src = [ inputBase </> takeDirectory src
-                     , libDir llvmOpts </> "includes"
-                     ] ++ incDirs llvmOpts
-          params (src, srcBC) =
-            [ "-c", "-g", "-emit-llvm", "--target=" ++ tgt ] ++
-            concat [ ["-I", dir] | dir <- incs src ] ++
-            concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ] | san <- ubSanitizers llvmOpts ] ++
-            [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+   let files = verificationInputFiles task in
+     if null files
+     then do sayWarn "SVCOMP" $ unlines
+               [ "Skipping:"
+               , "  " ++ verificationSourceFile task ++ " because no input files are present"
+               ]
+             return Nothing
+     else
+       do let taskFile = verificationSourceFile task
+              inputBase = takeDirectory taskFile
+              outputPath  = svTaskDirectory (Crux.outDir cruxOpts) num task
+              llvmOpts' = llvmOpts { targetArch = Just tgt }
+              cruxOpts' = cruxOpts { bldDir = outputPath }
+              outName = "svcomp~" <> head files -<.> ".bc"
+          createDirectoryIfMissing True outputPath
+          copyFile taskFile (outputPath </> takeFileName taskFile)
+          Just <$> genBitCodeToFile outName ((inputBase </>) <$> files) cruxOpts' llvmOpts' True
 
-      createDirectoryIfMissing True outputPath
-
-      finalBcExists <- doesFileExist finalBCFile
-      unless (finalBcExists && lazyCompile llvmOpts) $
-        do forM_ srcBCNames $ \(src, srcBC) ->
-              do copyFile src (takeDirectory srcBC </> takeFileName src)
-                 copyFile (verificationSourceFile task) (takeDirectory srcBC </> takeFileName (verificationSourceFile task))
-                 bcExists <- doesFileExist srcBC
-                 unless (bcExists && lazyCompile llvmOpts) $
-                   runClang llvmOpts (params (src, srcBC))
-           llvmLink llvmOpts (map snd srcBCNames) finalBCFile
-      return $ Just finalBCFile
 
 svTaskDirectory :: FilePath -> Int -> VerificationTask -> FilePath
 svTaskDirectory base num task = base </> path
