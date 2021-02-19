@@ -58,7 +58,7 @@ simErrorReasonMsg :: SimErrorReason -> String
 simErrorReasonMsg (GenericSimError msg) = msg
 simErrorReasonMsg (Unsupported msg) = "Unsupported feature: " ++ msg
 simErrorReasonMsg (ReadBeforeWriteSimError msg) = msg
-simErrorReasonMsg (AssertFailureSimError msg _) = msg
+simErrorReasonMsg (AssertFailureSimError msg msg') = msg ++ ": " ++ msg'
 simErrorReasonMsg (ResourceExhausted msg) = "Resource exhausted: " ++ msg
 
 simErrorDetailsMsg :: SimErrorReason -> String

@@ -305,7 +305,7 @@ assertUndefined ::
   IO ()
 assertUndefined sym p ub =
   do p' <- Partial.annotateUB sym ub p
-     assert sym p' $ AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
+     assert sym p' $ AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub) ++ "(" ++ show (UB.details ub) ++ ")")
 
 
 assertStoreError ::

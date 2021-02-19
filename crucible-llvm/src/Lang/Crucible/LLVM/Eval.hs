@@ -31,7 +31,7 @@ assertSideCondition ::
   IO ()
 assertSideCondition sym (LLVMSideCondition (RV p) ub) =
   do p' <- annotateUB sym ub p
-     let err = AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
+     let err = AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub) ++ "(" ++ show (UB.details ub) ++ ")")
      assert sym p' err
 
 llvmExtensionEval :: forall sym arch.
