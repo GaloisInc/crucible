@@ -104,6 +104,10 @@ pattern CTyBox t <- M.TyAdt _ $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t
   where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
 pattern CTyMaybeUninit t <- M.TyAdt _ $(M.normDefIdPat "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
   where CTyMaybeUninit t = M.TyAdt (M.textId "type::adt") (M.textId "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
+-- `UnsafeCell` isn't handled specially inside baseline `crux-mir`, but
+-- `crux-mir-comp` looks for it (using this pattern synonym).
+pattern CTyUnsafeCell t <- M.TyAdt _ $(M.normDefIdPat "core::cell::UnsafeCell") (M.Substs [t])
+  where CTyUnsafeCell t = M.TyAdt (M.textId "type::adt") (M.textId "core::cell::UnsafeCell") (M.Substs [t])
 pattern CTyVector t <- M.TyAdt _ $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
   where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
 pattern CTyArray t <- M.TyAdt _ $(M.normDefIdPat "crucible::array::Array") (M.Substs [t])
