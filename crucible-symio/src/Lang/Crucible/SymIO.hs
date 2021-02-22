@@ -34,20 +34,19 @@ module Lang.Crucible.SymIO
   , File
   , openFile
   , resolveFileIdent
-  , readBytes
-  , writeBytes
+  , readByte
+  , writeByte
+  , readChunk
+  , writeChunk
   , closeFileHandle
   ) where
 
 import           Prelude hiding ( fail )
-import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad.Trans.State ( StateT, runStateT, evalStateT )
 import           Control.Monad.State hiding ( fail )
 import           Control.Monad.Fail
-import           Numeric.Natural
 
 import qualified Data.Map as Map
-import qualified Data.Parameterized.Vector as V
 import qualified Data.BitVector.Sized as BV
 
 import           Data.Parameterized.NatRepr
@@ -109,40 +108,65 @@ resolveFileIdent fsVar ident = do
   fs <- C.readGlobal fsVar
   case Map.lookup ident (fsFileNames fs) of
     Just n -> liftIO $ do
-      n' <- W4.natLit sym n
+      n' <- W4.intLit sym n
       return $ File (fsPtrSize fs) n'
     Nothing -> liftIO $ do
       addFailedAssertion sym $ GenericSimError $ "Missing file: " ++ (show ident)
 
-writeBytes ::
+
+writeByte ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->  
   FileHandle sym wptr ->
-  V.Vector n (W4.SymBV sym 8) ->
+  W4.SymBV sym 8 ->
   C.OverrideSim p sym arch r args ret ()
-writeBytes fvar fhdl vs = do
+writeByte fvar fhdl v = do
   runFileM fvar $ do
-    initPtr <- getHandle fhdl
-    let
-      go ptr v = do
-        writeBytePointer ptr v
-        nextPointer ptr
-    lastPtr <- foldM go initPtr vs
-    setHandle fhdl lastPtr
+    ptr <- getHandle fhdl
+    writeBytePointer ptr v
+    nextPtr <- nextPointer ptr
+    setHandle fhdl nextPtr
 
-readBytes ::
+writeChunk ::
+  (IsSymInterface sym, 1 <= wptr) =>
+  GlobalVar (FileSystemType wptr) ->  
+  FileHandle sym wptr ->
+  DataChunk sym wptr ->
+  C.OverrideSim p sym arch r args ret ()
+writeChunk fvar fhdl chunk = do
+  runFileM fvar $ do
+    ptr <- getHandle fhdl
+    writeChunkPointer ptr chunk
+    ptr' <- addToPointer (chunkSize chunk) ptr
+    setHandle fhdl ptr'
+
+readByte ::
+  (IsSymInterface sym, 1 <= wptr) =>
+  GlobalVar (FileSystemType wptr) ->  
+  FileHandle sym wptr ->
+  C.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
+readByte fvar fhdl = do
+  runFileM fvar $ do
+    ptr <- getHandle fhdl
+    v <- readBytePointer ptr
+    nextPtr <- nextPointer ptr
+    setHandle fhdl nextPtr
+    return v
+
+readChunk ::
   (IsSymInterface sym, 1 <= wptr, 1 <= n) =>
   GlobalVar (FileSystemType wptr) ->  
   FileHandle sym wptr ->
-  NatRepr n ->
-  C.OverrideSim p sym arch r args ret (V.Vector n (W4.SymBV sym 8))  
-readBytes fvar fhdl n = do
-  Refl <- return $ W4.minusPlusCancel n (knownNat @1)
+  -- | Number of bytes to read
+  W4.SymBV sym wptr ->
+  C.OverrideSim p sym arch r args ret (DataChunk sym wptr) 
+readChunk fvar fhdl sz = do
   runFileM fvar $ do
-    initPtr <- getHandle fhdl
-    V.generateM (W4.decNat n) $ \n' -> do
-      ptr <- addToPointer (W4.intValue n') initPtr
-      readBytePointer ptr   
+    ptr <- getHandle fhdl
+    chunk <- readChunkPointer ptr sz
+    ptr' <- addToPointer sz ptr
+    setHandle fhdl ptr'
+    return chunk
 
 -----------------------------------------
 -- Internal operations
@@ -228,18 +252,19 @@ setHandle fhandle ptr = do
 nextPointer ::
   FilePointer sym wptr ->
   FileM p arch r args ret sym wptr (FilePointer sym wptr)
-nextPointer = addToPointer 1
-
+nextPointer ptr = do
+  sym <- getSym
+  repr <- getPtrSz
+  one <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 1)
+  addToPointer one ptr
 
 addToPointer ::
-  Integer ->
+  W4.SymBV sym wptr ->
   FilePointer sym wptr ->
   FileM p arch r args ret sym wptr (FilePointer sym wptr)
 addToPointer i (FilePointer n off) = do
   sym <- getSym
-  repr <- getPtrSz   
-  one <- liftIO $ W4.bvLit sym repr (BV.mkBV repr i)
-  off' <- liftIO $ W4.bvAdd sym off one
+  off' <- liftIO $ W4.bvAdd sym off i
   return $ FilePointer n off'
 
 
@@ -251,7 +276,7 @@ writeBytePointer fptr bv = do
   let idx = filePointerIdx fptr
   sym <- getSym
   dataArr <- gets fsSymData
-  dataArr' <- liftIO $ CA.writeArray sym idx bv dataArr  
+  dataArr' <- liftIO $ CA.writeSingle sym idx bv dataArr  
   modify $ \fs -> fs { fsSymData = dataArr' }
 
 readBytePointer ::
@@ -261,7 +286,32 @@ readBytePointer fptr = do
   sym <- getSym
   let idx = filePointerIdx fptr
   dataArr <- gets fsSymData
-  liftIO $ CA.readArray sym idx dataArr
+  liftIO $ CA.readSingle sym idx dataArr
+
+
+writeChunkPointer ::
+  FilePointer sym wptr ->
+  DataChunk sym wptr ->
+  FileM p arch r args ret sym wptr ()
+writeChunkPointer fptr chunk = do
+  let idx = filePointerIdx fptr
+  sym <- getSym
+  dataArr <- gets fsSymData
+  dataArr' <- liftIO $ CA.writeRange sym idx (chunkSize chunk) (chunkArray chunk)  dataArr  
+  modify $ \fs -> fs { fsSymData = dataArr' }
+
+
+readChunkPointer ::
+  FilePointer sym wptr ->
+  -- | Number of bytes to read
+  W4.SymBV sym wptr ->
+  FileM p arch r args ret sym wptr (DataChunk sym wptr)
+readChunkPointer fptr sz = do
+  let idx = filePointerIdx fptr
+  sym <- getSym
+  dataArr <- gets fsSymData
+  rawChunk <- liftIO $ CA.readRange sym idx sz dataArr
+  return $ DataChunk rawChunk sz 
 
 filePointerIdx ::
   IsSymInterface sym =>
@@ -273,7 +323,7 @@ filePointerIdx (FilePointer (File _ n) off) = Ctx.empty :> n :> off
 _asConcreteIdx ::
   IsSymInterface sym =>
   FilePointer sym wptr ->
-  Maybe (Natural, BV.BV wptr)
+  Maybe (Integer, BV.BV wptr)
 _asConcreteIdx fptr = do
   ConcreteFilePointer (ConcreteFile _ cn) coff <- asConcretePointer fptr
   return $ (cn, coff)
@@ -292,5 +342,5 @@ asConcreteFile ::
   File sym w ->
   Maybe (ConcreteFile w)
 asConcreteFile (File w n) = do
-  cn <- W4.asNat n
+  cn <- W4.asInteger n
   return $ ConcreteFile w cn

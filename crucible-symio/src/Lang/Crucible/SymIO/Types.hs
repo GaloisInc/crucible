@@ -26,13 +26,10 @@ module Lang.Crucible.SymIO.Types where
 
 import           Data.Typeable
 import           GHC.TypeNats
-import           Numeric.Natural
 
 import           Data.Map ( Map ) 
-import qualified Data.Map
 import qualified Data.BitVector.Sized as BV
 
-import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.Context
 import           Data.Parameterized.Classes
 
@@ -40,7 +37,6 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.FunctionHandle
 
 import           What4.Interface
 import qualified What4.CachedArray as CA
@@ -55,16 +51,16 @@ data FileSystem sym w =
   FileSystem
     {
       fsPtrSize :: NatRepr w
-    , fsFileNames :: Map FileIdent Natural
+    , fsFileNames :: Map FileIdent Integer
     -- ^ map from concrete file names to identifiers
-    , fsFileSizes :: SymArray sym (EmptyCtx ::> BaseNatType) (BaseBVType w)
+    , fsFileSizes :: SymArray sym (EmptyCtx ::> BaseIntegerType) (BaseBVType w)
     -- ^ a symbolic map from file identifiers to their size
-    , fsSymData :: CA.CachedArray sym (EmptyCtx ::> BaseNatType ::> BaseBVType w) (BaseBVType 8)
+    , fsSymData :: CA.CachedArray sym (EmptyCtx ::> BaseIntegerType ::> BaseBVType w) (BaseBVType 8)
     -- ^ array representing symbolic file contents
     , fsConstraints :: forall a. ((IsSymInterface sym, 1 <= w) => a) -> a
     }
 
-type FileSystemIndex sym w = Assignment (SymExpr sym) (EmptyCtx ::> BaseNatType ::> BaseBVType w)
+type FileSystemIndex sym w = Assignment (SymExpr sym) (EmptyCtx ::> BaseIntegerType ::> BaseBVType w)
 
 instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filesystem" where
   type Intrinsic sym "VFS_filesystem" (EmptyCtx ::> BVType w) = FileSystem sym w
@@ -82,7 +78,7 @@ type FileHandle sym w = RegValue sym (FileHandleType w)
 
 -- | A 'File' represents a file in the filesystem independent
 -- of any open handles to it
-data File sym w = File (NatRepr w) (SymNat sym)
+data File sym w = File (NatRepr w) (SymInteger sym)
 
 type FileType w = IntrinsicType "VFS_file" (EmptyCtx ::> BVType w)
 
@@ -99,13 +95,13 @@ muxFile ::
   File sym w ->
   File sym w ->
   IO (File sym w)
-muxFile sym p (File w f1) (File _w f2) = File w <$> natIte sym p f1 f2
+muxFile sym p (File w f1) (File _w f2) = File w <$> baseTypeIte sym p f1 f2
 
 -- | A file pointer represents an index into a particular file
 data FilePointer sym w =
   FilePointer (File sym w) (SymBV sym w) 
 
-data ConcreteFile w = ConcreteFile (NatRepr w) Natural
+data ConcreteFile w = ConcreteFile (NatRepr w) Integer
 
 data ConcreteFilePointer w = ConcreteFilePointer (ConcreteFile w) (BV.BV w)
 
@@ -135,8 +131,9 @@ muxFilePointer sym p (FilePointer f1 off1) (FilePointer f2 off2) =
 -- a symbolic size
 data DataChunk sym w =
   DataChunk
-    (SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8))
-    (SymBV sym w)
+    { chunkArray :: SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
+    , chunkSize :: SymBV sym w
+    }
 
 type DataChunkType w = IntrinsicType "VFS_datachunk" (EmptyCtx ::> BVType w)
 
