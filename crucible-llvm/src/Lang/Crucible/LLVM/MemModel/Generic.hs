@@ -975,7 +975,8 @@ isAllocatedMut ::
   Mem sym              ->
   IO (Pred sym)
 isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
-  isAllocatedGeneric sym inAllocation blk (memAllocs m)
+  do (wasAllocated, notFreed) <- isAllocatedGeneric sym inAllocation blk (memAllocs m)
+     andPred sym wasAllocated notFreed
   where
     inAllocation :: AllocInfo sym -> IO (Pred sym)
     inAllocation (AllocInfo _ asz mut alignment _)
@@ -1121,9 +1122,11 @@ notAliasable ::
   IO (Pred sym)
 notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) mem =
   do p0 <- natEq sym blk1 blk2
-     p1 <- isAllocatedGeneric sym isMutable blk1 (memAllocs mem)
-     p2 <- isAllocatedGeneric sym isMutable blk2 (memAllocs mem)
-     orPred sym p0 =<< orPred sym p1 p2
+     (wasAllocated1, notFreed1) <- isAllocatedGeneric sym isMutable blk1 (memAllocs mem)
+     (wasAllocated2, notFreed2) <- isAllocatedGeneric sym isMutable blk2 (memAllocs mem)
+     allocated1 <- andPred sym wasAllocated1 notFreed1
+     allocated2 <- andPred sym wasAllocated2 notFreed2
+     orPred sym p0 =<< orPred sym allocated1 allocated2
   where
     isMutable :: AllocInfo sym -> IO (Pred sym)
     isMutable (AllocInfo _ _ Mutable _ _) = pure (truePred sym)
@@ -1379,7 +1382,8 @@ popStackFrameMem m = m & memState %~ popf
 --
 -- The returned predicates assert (in this order):
 --  * the pointer points to the base of a block
---  * said block is valid, heap-allocated, and mutable
+--  * said block was heap-allocated, and mutable
+--  * said block was not previously freed
 --
 -- Because the LLVM memory model allows immutable blocks to alias each other,
 -- freeing an immutable block could lead to unsoundness.
@@ -1390,11 +1394,11 @@ freeMem :: forall sym w .
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
   String {- ^ Source location -} ->
-  IO (Mem sym, Pred sym, Pred sym)
+  IO (Mem sym, Pred sym, Pred sym, Pred sym)
 freeMem sym w (LLVMPointer blk off) m loc =
   do p1 <- bvEq sym off =<< bvLit sym w (BV.zero w)
-     p2 <- isAllocatedGeneric sym isHeapMutable blk (memAllocs m)
-     return (memAddAlloc (freeMemAllocs blk loc) m, p1, p2)
+     (wasAllocated, notFreed) <- isAllocatedGeneric sym isHeapMutable blk (memAllocs m)
+     return (memAddAlloc (freeMemAllocs blk loc) m, p1, wasAllocated, notFreed)
   where
     isHeapMutable :: AllocInfo sym -> IO (Pred sym)
     isHeapMutable (AllocInfo HeapAlloc _ Mutable _ _) = pure (truePred sym)

@@ -115,6 +115,11 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
     e (LLVMPointerType w) ->
     UndefinedBehavior e
 
+  DoubleFree ::
+    (1 <= w) =>
+    e (LLVMPointerType w) ->
+    UndefinedBehavior e
+
   -- | Arguments: Destination pointer, fill byte, length
   MemsetInvalidRegion ::
     (1 <= w, 1 <= v) =>
@@ -215,7 +220,6 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
 
   {-
   MemcpyDisjoint          :: UndefinedBehavior e
-  DoubleFree              :: UndefinedBehavior e
   DereferenceBadAlignment :: UndefinedBehavior e
   ModifiedStringLiteral   :: UndefinedBehavior e
   -}
@@ -228,6 +232,7 @@ standard =
 
     -- -------------------------------- Memory management
 
+    DoubleFree{}              -> CStd C11
     FreeBadOffset{}           -> CStd C11
     FreeUnallocated{}         -> CStd C11
     MemsetInvalidRegion{}     -> CStd C11
@@ -258,7 +263,6 @@ standard =
 
     {-
     MemcpyDisjoint          -> CStd C11
-    DoubleFree              -> CStd C11
     DereferenceBadAlignment -> CStd C11
     ModifiedStringLiteral   -> CStd C11
     -}
@@ -272,6 +276,7 @@ cite =
 
     FreeBadOffset{}           -> "§7.22.3.3 The free function, ¶2"
     FreeUnallocated{}         -> "§7.22.3.3 The free function, ¶2"
+    DoubleFree{}              -> "§7.22.3.3 The free function, ¶2"
     MemsetInvalidRegion{}     -> "§7.24.1 String function conventions, ¶1"
     ReadBadAlignment{}        -> "§6.5.3.2 Address and indirection operators, ¶4"
     WriteBadAlignment{}       -> "§6.5.3.2 Address and indirection operators, ¶4"
@@ -302,7 +307,6 @@ cite =
 
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
-    DoubleFree              -> "§7.22.3.3 The free function"
     DereferenceBadAlignment -> "§6.5.3.2 Address and indirection operators"
     ModifiedStringLiteral   -> "§J.2 Undefined behavior" -- 6.4.5
     -}
@@ -323,6 +327,7 @@ explain =
       ]
     FreeUnallocated _ ->
       "`free` called on pointer that didn't point to a live region of the heap"
+    DoubleFree{} -> "`free` called on a pointer to already-freed memory"
     MemsetInvalidRegion{} ->
       "Pointer passed to `memset` didn't point to a mutable allocation with enough space"
     WriteBadAlignment _ _ ->
@@ -364,7 +369,6 @@ explain =
 
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
-    DoubleFree         -> "`free` called on already-freed memory"
     DereferenceBadAlignment ->
       "Dereferenced a pointer to a type with the wrong alignment"
     ModifiedStringLiteral -> "Modified the underlying array of a string literal"
@@ -382,6 +386,7 @@ details =
 
     FreeBadOffset ptr   -> [ ppPtr1 ptr ]
     FreeUnallocated ptr -> [ ppPtr1 ptr ]
+    DoubleFree ptr -> [ ppPtr1 ptr ]
     MemsetInvalidRegion destPtr fillByte len ->
       [ "Destination pointer:" <+> ppPtr1 destPtr
       , "Fill byte:          " <+> (W4I.printSymExpr $ unRV fillByte)
@@ -547,6 +552,8 @@ concUB sym conc ub =
       FreeBadOffset <$> concPtr' sym conc ptr
     FreeUnallocated ptr ->
       FreeUnallocated <$> concPtr' sym conc ptr
+    DoubleFree ptr ->
+      DoubleFree <$> concPtr' sym conc ptr
     MemsetInvalidRegion ptr val len ->
       MemsetInvalidRegion <$> concPtr' sym conc ptr <*> bv val <*> bv len
     ReadBadAlignment ptr a ->
