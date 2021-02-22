@@ -28,7 +28,7 @@ data EarlyConfig opts = EarlyConfig
   { showHelp    :: Bool -- ^ Describe options & quit
   , showVersion :: Bool -- ^ Show tool version & quit
   , configFile  :: Maybe FilePath
-    -- ^ Load configuratoin from here.
+    -- ^ Load configuration from here.
     -- Other command line options override the settings in the file.
 
   , options     :: OptSetter opts

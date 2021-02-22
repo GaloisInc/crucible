@@ -52,11 +52,12 @@ module Lang.Crucible.Simulator.ExecutionTree
   , AbortedResult(..)
   , SomeFrame(..)
   , filterCrucibleFrames
-  , arFrames
+  -- , arFrames
   , ppExceptionContext
 
     -- * Partial result
   , PartialResult(..)
+  , PartialResultFrame
   , partialValue
 
     -- * Execution states
@@ -69,6 +70,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , execResultContext
   , execStateContext
   , execStateSimState
+  , calledToRetExecState
 
     -- * Simulator context trees
     -- ** Main context data structures
@@ -99,7 +101,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- ** Function bindings
   , Override(..)
   , FnState(..)
-  , FunctionBindings
+  , FunctionBindings(..)
 
     -- ** Extensions
   , ExtensionImpl(..)
@@ -121,6 +123,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , SomeSimState(..)
   , initSimState
   , stateLocation
+  , stateSelectExt
 
   , AbortHandler(..)
   , CrucibleState
@@ -218,55 +221,56 @@ overrideTopFrame = gpValue . overrideSimFrame
 --   path might abort because it became infeasible (inconsistent path
 --   conditions), because the program called an exit primitive, or
 --   because of a true error condition (e.g., a failed assertion).
-data AbortedResult sym ext where
+data AbortedResult sym where
   -- | A single aborted execution with the execution state at time of the abort and the reason.
   AbortedExec ::
     !AbortExecReason ->
-    !(GlobalPair sym (SimFrame sym ext l args)) ->
-    AbortedResult sym ext
+    -- Ctx.Index exts ext ->
+    !(GlobalPair sym (SomeFrame (SimFrame sym))) ->
+    AbortedResult sym
 
   -- | An aborted execution that was ended by a call to 'exit'.
   AbortedExit ::
     !ExitCode ->
-    AbortedResult sym ext
+    AbortedResult sym
 
   -- | Two separate threads of execution aborted after a symbolic branch,
   --   possibly for different reasons.
   AbortedBranch ::
     !ProgramLoc       {- The source location of the branching control flow -} ->
     !(Pred sym)       {- The symbolic condition -} ->
-    !(AbortedResult sym ext) {- The abort that occurred along the 'true' branch -} ->
-    !(AbortedResult sym ext) {- The abort that occurred along the 'false' branch -} ->
-    AbortedResult sym ext
+    !(AbortedResult sym) {- The abort that occurred along the 'true' branch -} ->
+    !(AbortedResult sym) {- The abort that occurred along the 'false' branch -} ->
+    AbortedResult sym
 
 ------------------------------------------------------------------------
 -- SomeFrame
 
--- | This represents an execution frame where its frame type
+-- | This represents an execution frame where its extension, frame type,
 --   and arguments have been hidden.
-data SomeFrame (f :: fk -> argk -> Type) = forall l a . SomeFrame !(f l a)
+data SomeFrame (f :: ext -> fk -> argk -> Type) = forall e l a . SomeFrame !(f e l a)
 
 -- | Return the program locations of all the Crucible frames.
-filterCrucibleFrames :: SomeFrame (SimFrame sym ext) -> Maybe ProgramLoc
+filterCrucibleFrames :: SomeFrame (SimFrame sym) -> Maybe ProgramLoc
 filterCrucibleFrames (SomeFrame (MF f)) = Just (frameProgramLoc f)
 filterCrucibleFrames _ = Nothing
 
--- | Iterate over frames in the result.
-arFrames :: Simple Traversal (AbortedResult sym ext) (SomeFrame (SimFrame sym ext))
-arFrames h (AbortedExec e p) =
-  (\(SomeFrame f') -> AbortedExec e (p & gpValue .~ f'))
-     <$> h (SomeFrame (p^.gpValue))
-arFrames _ (AbortedExit ec) = pure (AbortedExit ec)
-arFrames h (AbortedBranch predicate loc r s) =
-  AbortedBranch predicate loc <$> arFrames h r
-                              <*> arFrames h s
+-- -- | Iterate over frames in the result.
+-- arFrames :: Simple Traversal (AbortedResult sym ext) (SomeFrame (SimFrame sym))
+-- arFrames h (AbortedExec e p) =
+--   (\(SomeFrame f') -> AbortedExec e (p & gpValue .~ f'))
+--      <$> h (SomeFrame (p^.gpValue))
+-- arFrames _ (AbortedExit ec) = pure (AbortedExit ec)
+-- arFrames h (AbortedBranch predicate loc r s) =
+--   AbortedBranch predicate loc <$> arFrames h r
+--                               <*> arFrames h s
 
 -- | Print an exception context
-ppExceptionContext :: [SomeFrame (SimFrame sym ext)] -> PP.Doc ann
+ppExceptionContext :: [SomeFrame (SimFrame sym)] -> PP.Doc ann
 ppExceptionContext [] = mempty
 ppExceptionContext frames = PP.vcat (map pp (init frames))
  where
-   pp :: SomeFrame (SimFrame sym ext) -> PP.Doc ann
+   pp :: SomeFrame (SimFrame sym) -> PP.Doc ann  -- KWQ: show SimFrame's ext??
    pp (SomeFrame (OF f)) =
       PP.pretty "When calling" PP.<+> PP.viaShow (f^.override)
    pp (SomeFrame (MF f)) =
@@ -285,28 +289,28 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 --   'PartialResult', then some of the computation paths that led to
 --   this result aborted for some reason, and the resulting value is
 --   only defined if the associated condition is true.
-data PartialResult sym ext (v :: Type)
+data PartialResult sym (v :: Type)
 
      {- | A 'TotalRes' indicates that the the global pair is always defined. -}
    = TotalRes !(GlobalPair sym v)
 
     {- | 'PartialRes' indicates that the global pair may be undefined
-        under some circusmstances.  The predicate specifies under what
+        under some circumstances.  The predicate specifies under what
         conditions the 'GlobalPair' is defined.
         The 'AbortedResult' describes the circumstances under which
         the result would be partial.
      -}
-   | PartialRes !ProgramLoc               -- location of symbolic branch point
-                !(Pred sym)               -- if true, global pair is defined
-                !(GlobalPair sym v)       -- the value
-                !(AbortedResult sym ext)  -- failure cases (when pred. is false)
+   | PartialRes !ProgramLoc           -- location of symbolic branch point
+                !(Pred sym)           -- if true, global pair is defined
+                !(GlobalPair sym v)   -- the value
+                !(AbortedResult sym)  -- failure cases (when pred. is false)
 
 
 
 -- | Access the value stored in the partial result.
 partialValue ::
-  Lens (PartialResult sym ext u)
-       (PartialResult sym ext v)
+  Lens (PartialResult sym u)
+       (PartialResult sym v)
        (GlobalPair sym u)
        (GlobalPair sym v)
 partialValue f (TotalRes x) = TotalRes <$> f x
@@ -314,20 +318,20 @@ partialValue f (PartialRes loc p x r) = (\y -> PartialRes loc p y r) <$> f x
 {-# INLINE partialValue #-}
 
 -- | The result of resolving a function call.
-data ResolvedCall p sym ext ret where
+data ResolvedCall p sym (exts :: Ctx.Ctx Type) (ext :: Type) ret where
   -- | A resolved function call to an override.
   OverrideCall ::
     !(Override p sym ext args ret) ->
     !(OverrideFrame sym ret args) ->
-    ResolvedCall p sym ext ret
+    ResolvedCall p sym exts ext ret
 
   -- | A resolved function call to a Crucible function.
   CrucibleCall ::
     !(BlockID blocks args) ->
     !(CallFrame sym ext blocks ret args) ->
-    ResolvedCall p sym ext ret
+    ResolvedCall p sym exts ext ret
 
-resolvedCallHandle :: ResolvedCall p sym ext ret -> SomeHandle
+resolvedCallHandle :: ResolvedCall p sym exts ext ret -> SomeHandle
 resolvedCallHandle (OverrideCall _ frm) = frm ^. overrideHandle
 resolvedCallHandle (CrucibleCall _ frm) = frameHandle frm
 
@@ -337,23 +341,23 @@ resolvedCallHandle (CrucibleCall _ frm) = frameHandle frm
 
 -- | Executions that have completed either due to (partial or total)
 --   successful completion or by some abort condition.
-data ExecResult p sym ext (r :: Type)
-   = -- | At least one exeuction path resulted in some return result.
-     FinishedResult !(SimContext p sym ext) !(PartialResult sym ext r)
+data ExecResult p sym (exts :: Ctx.Ctx Type) callerExt (ext :: Type) (r :: Type)
+   = -- | At least one execution path resulted in some return result.
+     FinishedResult !(SimContext p sym exts) !(PartialResult sym r)
      -- | All execution paths resulted in an abort condition, and there is
      --   no result to return.
-   | AbortedResult  !(SimContext p sym ext) !(AbortedResult sym ext)
+   | AbortedResult  !(SimContext p sym exts) !(AbortedResult sym)
      -- | An execution stopped somewhere in the middle of a run because
      --   a timeout condition occured.
-   | TimeoutResult !(ExecState p sym ext r)
+   | TimeoutResult !(ExecState p sym exts callerExt ext r)
 
 
-execResultContext :: ExecResult p sym ext r -> SimContext p sym ext
+execResultContext :: ExecResult p sym exts callerExt ext r -> SimContext p sym exts
 execResultContext (FinishedResult ctx _) = ctx
 execResultContext (AbortedResult ctx _) = ctx
 execResultContext (TimeoutResult exst) = execStateContext exst
 
-execStateContext :: ExecState p sym ext r -> SimContext p sym ext
+execStateContext :: ExecState p sym exts callerExt ext r -> SimContext p sym exts
 execStateContext = \case
   ResultState res        -> execResultContext res
   AbortState _ st        -> st^.stateContext
@@ -368,8 +372,8 @@ execStateContext = \case
   BranchMergeState _ st -> st^.stateContext
   InitialState stctx _ _ _ _ -> stctx
 
-execStateSimState :: ExecState p sym ext r
-                  -> Maybe (SomeSimState p sym ext r)
+execStateSimState :: ExecState p sym exts callerExt ext r
+                  -> Maybe (SomeSimState p sym exts callerExt ext r)
 execStateSimState = \case
   ResultState _                  -> Nothing
   AbortState _ st                -> Just (SomeSimState st)
@@ -387,23 +391,32 @@ execStateSimState = \case
 -----------------------------------------------------------------------
 -- ExecState
 
+calledToRetExecState :: ExecState p sym exts callerExt calledExt rtp
+                     -> ExecState p sym exts newCallerExt newTgtExt rtp
+calledToRetExecState calledState = undefined
+
 -- | An 'ExecState' represents an intermediate state of executing a
 --   Crucible program.  The Crucible simulator executes by transistioning
 --   between these different states until it results in a 'ResultState',
 --   indicating the program has completed.
-data ExecState p sym ext (rtp :: Type)
+--
+--   The exts specifies the set of known extensions, and the ext
+--   specifies the currently active extension.
+--
+data ExecState p sym (exts :: Ctx.Ctx Type) (callerExt :: Type) (ext :: Type) (rtp :: Type)
    {- | The 'ResultState' is used to indicate that the program has completed. -}
    = ResultState
-       !(ExecResult p sym ext rtp)
+       !(ExecResult p sym exts callerExt ext rtp)
 
    {- | An abort state indicates that the included 'SimState' encountered
         an abort event while executing its next step.  The state needs to
         be unwound to its nearest enclosing branch point and resumed. -}
    | forall f a.
        AbortState
+         -- (Ctx.Index exts ext)
          !AbortExecReason
            {- Description of what abort condition occurred -}
-         !(SimState p sym ext rtp f a)
+         !(SimState p sym exts callerExt ext rtp f a)
            {- State of the simulator prior to causing the abort condition -}
 
    {- | An unwind call state occurs when we are about to leave the context of a
@@ -411,21 +424,21 @@ data ExecState p sym ext (rtp :: Type)
         context of the call site we are about to unwind into, and the @AbortedResult@
         indicates the reason we are aborting.
     -}
-   | forall f a r.
+   | forall f a r retExt.
        UnwindCallState
-         !(ValueFromValue p sym ext rtp r) {- Caller's context -}
-         !(AbortedResult sym ext)          {- Abort causing the stack unwind -}
-         !(SimState p sym ext rtp f a)
+         !(ValueFromValue p sym exts retExt ext rtp r) {- Caller's context -}
+         !(AbortedResult sym)            {- Abort causing the stack unwind -}
+         !(SimState p sym exts callerExt ext rtp f a)
 
    {- | A call state is entered when we are about to make a function call to
         the included call frame, which has already resolved the implementation
         and arguments to the function.
     -}
-   | forall f a ret.
+   | forall f a ret tgtExt.
        CallState
-         !(ReturnHandler ret p sym ext rtp f a)
-         !(ResolvedCall p sym ext ret)
-         !(SimState p sym ext rtp f a)
+         !(ReturnHandler ret p sym exts callerExt ext rtp f a)
+         !(ResolvedCall p sym exts tgtExt ret)
+         !(SimState p sym exts callerExt ext rtp f a)
 
    {- | A tail-call state is entered when we are about to make a function call to
         the included call frame, and this is the last action we need to take in the
@@ -434,22 +447,22 @@ data ExecState p sym ext (rtp :: Type)
         that appear to be in tail-call position may nonetheless have to be treated
         as ordinary calls.
     -}
-   | forall f a ret.
+   | forall f a ret tgtExt.
        TailCallState
-         !(ValueFromValue p sym ext rtp ret) {- Calling context to return to -}
-         !(ResolvedCall p sym ext ret)       {- Function to call -}
-         !(SimState p sym ext rtp f a)
+         !(ValueFromValue p sym exts callerExt ext rtp ret) {- Calling context to return to -}
+         !(ResolvedCall p sym exts tgtExt ret)    {- Function to call -}
+         !(SimState p sym exts callerExt ext rtp f a)
 
    {- | A return state is entered after the final return value of a function
         is computed, and just before we resolve injecting the return value
         back into the caller's context.
     -}
-   | forall f a ret.
+   | forall f a ret retExt.
        ReturnState
          !FunctionName {- Name of the function we are returning from -}
-         !(ValueFromValue p sym ext rtp ret) {- Caller's context -}
+         !(ValueFromValue p sym exts retExt ext rtp ret) {- Caller's context -}
          !(RegEntry sym ret) {- Return value -}
-         !(SimState p sym ext rtp f a)
+         !(SimState p sym exts callerExt ext rtp f a)
 
    {- | A running state indicates the included 'SimState' is ready to enter
         and execute a Crucible basic block, or to resume a basic block
@@ -457,7 +470,7 @@ data ExecState p sym ext (rtp :: Type)
    | forall blocks r args.
        RunningState
          !(RunningStateInfo blocks args)
-         !(SimState p sym ext rtp (CrucibleLang blocks r) ('Just args))
+         !(SimState p sym exts callerExt ext rtp (CrucibleLang blocks r) ('Just args))
 
    {- | A symbolic branch state indicates that the execution needs to
         branch on a non-trivial symbolic condition.  The included @Pred@
@@ -468,10 +481,10 @@ data ExecState p sym ext (rtp :: Type)
    | forall f args postdom_args.
        SymbolicBranchState
          !(Pred sym) {- predicate to branch on -}
-         !(PausedFrame p sym ext rtp f) {- true path-}
-         !(PausedFrame p sym ext rtp f)  {- false path -}
+         !(PausedFrame p sym exts callerExt ext rtp f) {- true path-}
+         !(PausedFrame p sym exts callerExt ext rtp f)  {- false path -}
          !(CrucibleBranchTarget f postdom_args) {- merge point -}
-         !(SimState p sym ext rtp f ('Just args))
+         !(SimState p sym exts callerExt ext rtp f ('Just args))
 
    {- | A control transfer state is entered just prior to invoking a
         control resumption.  Control resumptions are responsible
@@ -479,10 +492,10 @@ data ExecState p sym ext (rtp :: Type)
         although there are also some intermediate states related to
         resolving switch statements.
     -}
-   | forall f a.
+   | forall f a tgtExt.
        ControlTransferState
-         !(ControlResumption p sym ext rtp f)
-         !(SimState p sym ext rtp f ('Just a))
+         !(ControlResumption p sym exts callerExt tgtExt rtp f)
+         !(SimState p sym exts callerExt ext rtp f ('Just a))
 
    {- | An override state indicates the included 'SimState' is prepared to
         execute a code override. -}
@@ -490,7 +503,7 @@ data ExecState p sym ext (rtp :: Type)
        OverrideState
          !(Override p sym ext args ret)
            {- The override code to execute -}
-         !(SimState p sym ext rtp (OverrideLang ret) ('Just args))
+         !(SimState p sym exts callerExt ext rtp (OverrideLang ret) ('Just args))
            {- State of the simulator prior to activating the override -}
 
    {- | A branch merge state occurs when the included 'SimState' is
@@ -504,7 +517,7 @@ data ExecState p sym ext (rtp :: Type)
        BranchMergeState
          !(CrucibleBranchTarget f args)
            {- Target of the control-flow transfer -}
-         !(SimState p sym ext rtp f args)
+         !(SimState p sym exts callerExt ext rtp f args)
            {- State of the simulator before merging pending branches -}
 
    {- | An initial state indicates the state of a simulator just before execution begins.
@@ -514,22 +527,23 @@ data ExecState p sym ext (rtp :: Type)
     -}
    | forall ret. rtp ~ RegEntry sym ret =>
        InitialState
-         !(SimContext p sym ext)
+         !(SimContext p sym exts)
             {- initial 'SimContext' state -}
          !(SymGlobalState sym)
             {- state of Crucible global variables -}
-         !(AbortHandler p sym ext (RegEntry sym ret))
+         !(AbortHandler p sym exts ext (RegEntry sym ret))
             {- initial abort handler -}
          !(TypeRepr ret)
             {- return type repr -}
-         !(ExecCont p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
+         -- (Ctx.Index exts ext)  -- initial extension (language)
+         !(ExecCont p sym exts callerExt ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
             {- Entry continuation -}
 
 -- | An action which will construct an 'ExecState' given a current
 --   'SimState'. Such continuations correspond to a single transition
 --   of the simulator transition system.
-type ExecCont p sym ext r f a =
-  ReaderT (SimState p sym ext r f a) IO (ExecState p sym ext r)
+type ExecCont p sym exts callerExt ext r f a =
+  ReaderT (SimState p sym exts callerExt ext r f a) IO (ExecState p sym exts callerExt ext r)
 
 -- | Some additional information attached to a @RunningState@
 --   that indicates how we got to this running state.
@@ -560,19 +574,19 @@ data ResolvedJump sym blocks
 --   (while it first explores other paths), a 'ControlResumption'
 --   indicates what actions must later be taken in order to resume
 --   execution of that path.
-data ControlResumption p sym ext rtp f where
+data ControlResumption p sym (exts :: Ctx.Ctx Type) callerExt ext rtp f where
   {- | When resuming a paused frame with a @ContinueResumption@,
        no special work needs to be done, simply begin executing
        statements of the basic block. -}
   ContinueResumption ::
     !(ResolvedJump sym blocks) ->
-    ControlResumption p sym ext rtp (CrucibleLang blocks r)
+    ControlResumption p sym exts callerExt ext rtp (CrucibleLang blocks r)
 
   {- | When resuming with a @CheckMergeResumption@, we must check
        for the presence of pending merge points before resuming. -}
   CheckMergeResumption ::
     !(ResolvedJump sym blocks) ->
-    ControlResumption p sym ext rtp (CrucibleLang blocks r)
+    ControlResumption p sym exts callerExt ext rtp (CrucibleLang blocks r)
 
   {- | When resuming a paused frame with a @SwitchResumption@, we must
        continue branching to possible alternatives in a variant elmination
@@ -581,16 +595,18 @@ data ControlResumption p sym ext rtp f where
        at a final @VariantElim@ terminal statement). -}
   SwitchResumption ::
     ![(Pred sym, ResolvedJump sym blocks)] {- remaining branches -} ->
-    ControlResumption p sym ext rtp (CrucibleLang blocks r)
+    ControlResumption p sym exts callerExt ext rtp (CrucibleLang blocks r)
 
   {- | When resuming a paused frame with an @OverrideResumption@, we
        simply return control to the included thunk, which represents
        the remaining computation for the override.
    -}
   OverrideResumption ::
-    ExecCont p sym ext rtp (OverrideLang r) ('Just args) ->
+    -- forall exts ext.
+    -- Ctx.Index exts ext =>
+    ExecCont p sym exts callerExt ext rtp (OverrideLang r) ('Just args) ->
     !(RegMap sym args) ->
-    ControlResumption p sym ext rtp (OverrideLang r)
+    ControlResumption p sym exts callerExt ext rtp (OverrideLang r)
 
 ------------------------------------------------------------------------
 -- Paused Frame
@@ -599,11 +615,11 @@ data ControlResumption p sym ext rtp f where
 --   while other paths are explored.  It consists of a (potentially partial)
 --   'SimFrame' togeter with some information about how to resume execution
 --   of that frame.
-data PausedFrame p sym ext rtp f
+data PausedFrame p sym exts callerExt ext rtp f
    = forall old_args.
        PausedFrame
-       { pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext f ('Just old_args)))
-       , resume       :: !(ControlResumption p sym ext rtp f)
+       { pausedFrame  :: !(PartialResultFrame sym ext f ('Just old_args))
+       , resume       :: !(ControlResumption p sym exts callerExt ext rtp f)
        , pausedLoc    :: !(Maybe ProgramLoc)
        }
 
@@ -615,18 +631,18 @@ data PausedFrame p sym ext rtp f
 --   stored in the 'VFFCompletePath' state until the second path also
 --   reaches its merge point.  The two paths will then be merged,
 --   and execution will continue beyond the merge point.
-data VFFOtherPath p sym ext ret f args
+data VFFOtherPath p sym (exts :: Ctx.Ctx Type) callerExt ext ret f args
 
      {- | This corresponds the a path that still needs to be analyzed. -}
    = VFFActivePath
-        !(PausedFrame p sym ext ret f)
+        !(PausedFrame p sym exts callerExt ext ret f)
           {- Other branch we still need to run -}
 
      {- | This is a completed execution path. -}
    | VFFCompletePath
         !(Seq (Assumption sym))
           {- Assumptions that we collected while analyzing the branch -}
-        !(PartialResult sym ext (SimFrame sym ext f args))
+        !(PartialResultFrame sym ext f args)
           {- Result of running the other branch -}
 
 
@@ -641,22 +657,27 @@ The type parameters have the following meanings:
 
   * @sym@ is the simulator backend being used.
 
-  * @ext@ specifies what extensions to the Crucible language are enabled
+  * @exts@ specifies the known extensions to the Crucible language
+
+  * @ext@ specifies the current enabled extension to the Crucible language
 
   * @ret@ is the global return type of the entire execution.
 
   * @f@ is the type of the top frame.
 -}
 
-data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
+data ValueFromFrame p sym (exts :: Ctx.Ctx Type) callerExt ext (ret :: Type) (f :: Type)
 
   {- | We are working on a branch;  this could be the first or the second
        of both branches (see the 'VFFOtherPath' field). -}
   = forall args.
     VFFBranch
 
-      !(ValueFromFrame p sym ext ret f)
-      {- The outer context---what to do once we are done with both branches -}
+      !(ValueFromFrame p sym exts callerExt ext ret f)
+      {- The outer context---what to do once we are done with both branches.
+         Control flow will return to the frame represented by this
+         element, in extension @ext@ (which was entered from extension
+         @callerExt@). -}
 
       !FrameIdentifier
       {- This is the frame identifier in the solver before this branch,
@@ -669,7 +690,7 @@ data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
       !(Pred sym)
       {- Assertion of currently-active branch -}
 
-      !(VFFOtherPath p sym ext ret f args)
+      !(VFFOtherPath p sym exts callerExt ext ret f args)
       {- Info about the state of the other branch.
          If the other branch is "VFFActivePath", then we still
          need to process it;  if it is "VFFCompletePath", then
@@ -685,8 +706,8 @@ data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
      to the merge point.  -}
   | VFFPartial
 
-      !(ValueFromFrame p sym ext ret f)
-      {- The other context--what to do once we are done with this bracnh -}
+      !(ValueFromFrame p sym exts callerExt ext ret f)
+      {- The other context--what to do once we are done with this branch -}
 
       !ProgramLoc
       {- Program location of the branch point -}
@@ -694,7 +715,7 @@ data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
       !(Pred sym)
       {- Assertion of currently-active branch -}
 
-      !(AbortedResult sym ext)
+      !(AbortedResult sym)
       {- What happened on the other branch -}
 
       !PendingPartialMerges
@@ -704,7 +725,7 @@ data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
   {- | When we are finished with this branch we should return from the function. -}
   | VFFEnd
 
-      !(ValueFromValue p sym ext ret (FrameRetType f))
+      !(ValueFromValue p sym exts callerExt ext ret (FrameRetType f))
 
 
 -- | Data about whether the surrounding context is expecting a merge to
@@ -730,13 +751,17 @@ The type parameters have the following meanings:
 
   * @sym@ is the simulator backend being used.
 
-  * @ext@ specifies what extensions to the Crucible language are enabled
+  * @exts@ specifies what extensions to the Crucible language are known
+
+  * @retExt@ specifies the extension of the calling frame of the current frame
+
+  * @ext@ specifies the currently active 'exts' extension
 
   * @ret@ is the global return type of the entire computation
 
   * @top_return@ is the return type of the top-most call on the stack.
 -}
-data ValueFromValue p sym ext (ret :: Type) (top_return :: CrucibleType)
+data ValueFromValue p sym (exts :: Ctx.Ctx Type) (retExt :: Type) (ext :: Type) (ret :: Type) (top_return :: CrucibleType)
 
   {- | 'VFVCall' denotes a call site in the outer context, and represents
        the point to which a function higher on the stack will
@@ -749,45 +774,47 @@ data ValueFromValue p sym ext (ret :: Type) (top_return :: CrucibleType)
          * How to modify the current sim frame and resume execution
            when we obtain the return value
   -}
-  = forall args caller.
+  = forall args caller prevExt.
     VFVCall
 
-    !(ValueFromFrame p sym ext ret caller)
-    -- The context in which the call happened.
+    !(ValueFromFrame p sym exts prevExt retExt ret caller)
+    -- The context in which the call happened (in extension retExt),
+    -- where ext is the extension of the call destination and prevExt
+    -- is the call site for that previous frame.
 
-    !(SimFrame sym ext caller args)
+    !(SimFrame sym retExt caller args)
     -- The frame of the caller.
 
-    !(ReturnHandler top_return p sym ext ret caller args)
-    -- How to modify the current sim frame and resume execution
-    -- when we obtain the return value
+    !(ReturnHandler top_return p sym exts prevExt retExt ret caller args)
+    -- How to modify the current sim frame and resume execution (in
+    -- extension @retExt@) when we obtain the return value
 
   {- | A partial value.
     The predicate indicates what needs to hold to avoid the partiality.
     The "AbortedResult" describes what could go wrong if the predicate
     does not hold. -}
   | VFVPartial
-      !(ValueFromValue p sym ext ret top_return)
+      !(ValueFromValue p sym exts retExt ext ret top_return)
       !ProgramLoc
       !(Pred sym)
-      !(AbortedResult sym ext)
+      !(AbortedResult sym)
 
   {- | The top return value, indicating the program termination point. -}
   | (ret ~ RegEntry sym top_return) => VFVEnd
 
 
 
-instance PP.Pretty (ValueFromValue p ext sym root rp) where
+instance PP.Pretty (ValueFromValue p exts retExt ext sym root rp) where
   pretty = ppValueFromValue
 
-instance PP.Pretty (ValueFromFrame p ext sym ret f) where
+instance PP.Pretty (ValueFromFrame p exts callerExt ext sym ret f) where
   pretty = ppValueFromFrame
 
-instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
+instance PP.Pretty (VFFOtherPath ctx sym exts callerExt ext r f a) where
   pretty (VFFActivePath _)   = PP.pretty "active_path"
   pretty (VFFCompletePath _ _) = PP.pretty "complete_path"
 
-ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc ann
+ppValueFromFrame :: ValueFromFrame p sym exts callerExt ext ret f -> PP.Doc ann
 ppValueFromFrame vff =
   case vff of
     VFFBranch ctx _ _ _ other mp ->
@@ -805,7 +832,7 @@ ppValueFromFrame vff =
     VFFEnd ctx ->
       PP.pretty ctx
 
-ppValueFromValue :: ValueFromValue p sym ext root tp -> PP.Doc ann
+ppValueFromValue :: ValueFromValue p sym exts retExt ext root tp -> PP.Doc ann
 ppValueFromValue vfv =
   case vfv of
     VFVCall ctx _ _ ->
@@ -825,7 +852,7 @@ ppValueFromValue vfv =
 -- parentFrames
 
 -- | Return parents frames in reverse order.
-parentFrames :: ValueFromFrame p sym ext r a -> [SomeFrame (SimFrame sym ext)]
+parentFrames :: ValueFromFrame p sym callerExt exts ext r a -> [SomeFrame (SimFrame sym)]
 parentFrames c0 =
   case c0 of
     VFFBranch c _ _ _ _ _ -> parentFrames c
@@ -833,7 +860,7 @@ parentFrames c0 =
     VFFEnd vfv -> vfvParents vfv
 
 -- | Return parents frames in reverse order.
-vfvParents :: ValueFromValue p sym ext r a -> [SomeFrame (SimFrame sym ext)]
+vfvParents :: ValueFromValue p sym exts retExt ext r a -> [SomeFrame (SimFrame sym)]
 vfvParents c0 =
   case c0 of
     VFVCall c f _ -> SomeFrame f : parentFrames c
@@ -845,7 +872,7 @@ vfvParents c0 =
 
 {- | A 'ReturnHandler' indicates what actions to take to resume
 executing in a caller's context once a function call has completed and
-the return value is avaliable.
+the return value is available.
 
 The type parameters have the following meanings:
 
@@ -855,22 +882,26 @@ The type parameters have the following meanings:
 
   * @sym@ is the simulator backend being used.
 
-  * @ext@ specifies what extensions to the Crucible language are enabled
+  * @exts@ specifies what extensions to the Crucible language are known
 
-  * @roor@ is the global return type of the entire computation
+  * @ext@ specifies the active 'exts' extension to return to
+
+  * @root@ is the global return type of the entire computation
 
   * @f@ is the stack type of the caller
 
   * @args@ is the type of the local variables in scope prior to the call
 -}
-data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
+data ReturnHandler (ret :: CrucibleType) p sym exts callerExt ext root f args where
   {- | The 'ReturnToOverride' constructor indicates that the calling
        context is primitive code written directly in Haskell.
    -}
   ReturnToOverride ::
-    (RegEntry sym ret -> SimState p sym ext root (OverrideLang r) ('Just args) -> IO (ExecState p sym ext root))
+    (RegEntry sym ret ->
+     SimState p sym exts callerExt ext root (OverrideLang r) ('Just args) ->
+     IO (ExecState p sym exts callerExt ext root))
       {- Remaining override code to run when the return value becomse available -} ->
-    ReturnHandler ret p sym ext root (OverrideLang r) ('Just args)
+    ReturnHandler ret p sym exts callerExt ext root (OverrideLang r) ('Just args)
 
   {- | The 'ReturnToCrucible' constructor indicates that the calling context is an
        ordinary function call position from within a Crucible basic block.
@@ -880,7 +911,7 @@ data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
   ReturnToCrucible ::
     TypeRepr ret                       {- Type of the return value -} ->
     StmtSeq ext blocks r (ctx ::> ret) {- Remaining statements to execute -} ->
-    ReturnHandler ret p sym ext root (CrucibleLang blocks r) ('Just ctx)
+    ReturnHandler ret p sym exts callerExt ext root (CrucibleLang blocks r) ('Just ctx)
 
   {- | The 'TailReturnToCrucible' constructor indicates that the calling context is a
        tail call position from the end of a Crucible basic block.  Upon receiving
@@ -889,42 +920,46 @@ data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
   -}
   TailReturnToCrucible ::
     (ret ~ r) =>
-    ReturnHandler ret p sym ext root (CrucibleLang blocks r) ctx
+    ReturnHandler ret p sym exts callerExt ext root (CrucibleLang blocks r) ctx
 
 
 ------------------------------------------------------------------------
 -- ActiveTree
 
+type PartialResultFrame sym ext f args =
+  PartialResult sym (SimFrame sym ext f args)
+
 {- | An active execution tree contains at least one active execution.
      The data structure is organized so that the current execution
      can be accessed rapidly. -}
-data ActiveTree p sym ext root (f :: Type) args
+data ActiveTree p sym (exts :: Ctx.Ctx Type) callingExt ext root (f :: Type) args
    = ActiveTree
-      { _actContext :: !(ValueFromFrame p sym ext root f)
-      , _actResult  :: !(PartialResult sym ext (SimFrame sym ext f args))
+      { _actContext :: !(ValueFromFrame p sym exts callingExt ext root f)
+      , _actResult  :: !(PartialResultFrame sym ext f args)
       }
 
 -- | Create a tree with a single top frame.
 singletonTree ::
   TopFrame sym ext f args ->
-  ActiveTree p sym ext (RegEntry sym (FrameRetType f)) f args
+  ActiveTree p sym exts callerExt ext (RegEntry sym (FrameRetType f)) f args
 singletonTree f = ActiveTree { _actContext = VFFEnd VFVEnd
                              , _actResult = TotalRes f
                              }
 
 -- | Access the calling context of the currently-active frame
 actContext ::
-  Lens (ActiveTree p sym ext root f args)
-       (ActiveTree p sym ext root f args)
-       (ValueFromFrame p sym ext root f)
-       (ValueFromFrame p sym ext root f)
+  Lens (ActiveTree p sym exts callerExt ext root f args)
+       (ActiveTree p sym exts callerExt ext root f args)
+       (ValueFromFrame p sym exts callerExt ext root f)
+       (ValueFromFrame p sym exts callerExt ext root f)
 actContext = lens _actContext (\s v -> s { _actContext = v })
 
 actResult ::
-  Lens (ActiveTree p sym ext root f args0)
-       (ActiveTree p sym ext root f args1)
-       (PartialResult sym ext (SimFrame sym ext f args0))
-       (PartialResult sym ext (SimFrame sym ext f args1))
+  -- Ctx.Index exts ext =>
+  Lens (ActiveTree p sym callerExt exts ext root f args0)
+       (ActiveTree p sym callerExt exts ext root f args1)
+       (PartialResultFrame sym ext f args0)
+       (PartialResultFrame sym ext f args1)
 actResult = lens _actResult setter
   where setter s v = ActiveTree { _actContext = _actContext s
                                 , _actResult = v
@@ -933,8 +968,8 @@ actResult = lens _actResult setter
 
 -- | Access the currently-active frame
 actFrame ::
-  Lens (ActiveTree p sym ext root f args)
-       (ActiveTree p sym ext root f args')
+  Lens (ActiveTree p sym exts callerExt ext root f args)
+       (ActiveTree p sym exts callerExt ext root f args')
        (TopFrame sym ext f args)
        (TopFrame sym ext f args')
 actFrame = actResult . partialValue
@@ -943,8 +978,8 @@ actFrame = actResult . partialValue
 -- | Return the call stack of all active frames, in
 --   reverse activation order (i.e., with callees
 --   appearing before callers).
-activeFrames :: ActiveTree ctx sym ext root a args ->
-                [SomeFrame (SimFrame sym ext)]
+activeFrames :: ActiveTree ctx sym exts callerExt ext root a args ->
+                [SomeFrame (SimFrame sym)]
 activeFrames (ActiveTree ctx ar) =
   SomeFrame (ar^.partialValue^.gpValue) : parentFrames ctx
 
@@ -953,9 +988,11 @@ activeFrames (ActiveTree ctx ar) =
 -- SimContext
 
 -- | A definition of a function's semantics, given as a Haskell action.
-data Override p sym ext (args :: Ctx CrucibleType) ret
+data Override p sym (ext :: Type) (args :: Ctx CrucibleType) ret
    = Override { overrideName    :: FunctionName
-              , overrideHandler :: forall r. ExecCont p sym ext r (OverrideLang ret) ('Just args)
+              , overrideHandler :: forall r exts callerExt.
+                                   -- Ctx.Index exts ext =>
+                                   ExecCont p sym exts callerExt ext r (OverrideLang ret) ('Just args)
               }
 
 -- | State used to indicate what to do when function is called.  A function
@@ -966,16 +1003,17 @@ data FnState p sym ext (args :: Ctx CrucibleType) (ret :: CrucibleType)
    | forall blocks . UseCFG !(CFG ext blocks args ret) !(CFGPostdom blocks)
 
 -- | A map from function handles to their semantics.
-type FunctionBindings p sym ext = FnHandleMap (FnState p sym ext)
+newtype FunctionBindings p sym ext = FnBindings { fnBindings :: FnHandleMap (FnState p sym ext) }
 
 -- | The type of functions that interpret extension statements.  These
 --   have access to the main simulator state, and can make fairly arbitrary
 --   changes to it.
 type EvalStmtFunc p sym ext =
-  forall rtp blocks r ctx tp'.
+  forall rtp blocks r ctx tp' exts callerExt.
+    -- Ctx.Index exts ext =>
     StmtExtension ext (RegEntry sym) tp' ->
-    CrucibleState p sym ext rtp blocks r ctx ->
-    IO (RegValue sym tp', CrucibleState p sym ext rtp blocks r ctx)
+    CrucibleState p sym exts callerExt ext rtp blocks r ctx ->
+    IO (RegValue sym tp', CrucibleState p sym exts ext callerExt rtp blocks r ctx)
 
 -- | In order to start executing a simulator, one must provide an implementation
 --   of the extension syntax.  This includes an evaluator for the added
@@ -1004,14 +1042,16 @@ emptyExtensionImpl =
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
 newtype Metric p sym ext =
   Metric {
-    runMetric :: forall rtp f args. SimState p sym ext rtp f args -> IO Integer
+    runMetric :: forall rtp f args callerExt exts .
+                 -- Ctx.Index exts ext =>
+                 SimState p sym exts callerExt ext rtp f args -> IO Integer
   }
 
 -- | Top-level state record for the simulator.  The state contained in this record
 --   remains persistent across all symbolic simulator actions.  In particular, it
 --   is not rolled back when the simulator returns previous program points to
 --   explore additional paths, etc.
-data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
+data SimContext (personality :: Type) (sym :: Type) (exts :: Ctx.Ctx Type)
    = SimContext { _ctxSymInterface       :: !sym
                   -- | Class dictionary for @'IsSymInterface' sym@
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
@@ -1020,10 +1060,10 @@ data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
                 , simHandleAllocator     :: !(HandleAllocator)
                   -- | Handle to write messages to.
                 , printHandle            :: !Handle
-                , extensionImpl          :: ExtensionImpl personality sym ext
-                , _functionBindings      :: !(FunctionBindings personality sym ext)
+                , extensionImpl          :: Ctx.Assignment (ExtensionImpl personality sym) exts
+                , _functionBindings      :: !(Ctx.Assignment (FunctionBindings personality sym) exts)
                 , _cruciblePersonality   :: !personality
-                , _profilingMetrics      :: !(Map Text (Metric personality sym ext))
+                , _profilingMetrics      :: !(Map Text (Ctx.Assignment (Metric personality sym) exts))
                 }
 
 -- | Create a new 'SimContext' with the given bindings.
@@ -1033,10 +1073,10 @@ initSimContext ::
   IntrinsicTypes sym {- ^ Implementations of intrinsic types -} ->
   HandleAllocator {- ^ Handle allocator for creating new function handles -} ->
   Handle {- ^ Handle to write output to -} ->
-  FunctionBindings personality sym ext {- ^ Initial bindings for function handles -} ->
-  ExtensionImpl personality sym ext {- ^ Semantics for extension syntax -} ->
+  Ctx.Assignment (FunctionBindings personality sym) exts {- ^ Initial bindings for function handles -} ->
+  Ctx.Assignment (ExtensionImpl personality sym) exts {- ^ Semantics for extension syntax -} ->
   personality {- ^ Initial value for custom user state -} ->
-  SimContext personality sym ext
+  SimContext personality sym exts
 initSimContext sym muxFns halloc h bindings extImpl personality =
   SimContext { _ctxSymInterface     = sym
              , ctxSolverProof       = \a -> a
@@ -1054,15 +1094,15 @@ ctxSymInterface :: Simple Lens (SimContext p sym ext) sym
 ctxSymInterface = lens _ctxSymInterface (\s v -> s { _ctxSymInterface = v })
 
 -- | A map from function handles to their semantics.
-functionBindings :: Simple Lens (SimContext p sym ext) (FunctionBindings p sym ext)
+functionBindings :: Simple Lens (SimContext p sym exts) (Ctx.Assignment (FunctionBindings p sym) exts)
 functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 
 -- | Access the custom user-state inside the 'SimContext'.
 cruciblePersonality :: Simple Lens (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
 
-profilingMetrics :: Simple Lens (SimContext p sym ext)
-                                (Map Text (Metric p sym ext))
+profilingMetrics :: Simple Lens (SimContext p sym exts)
+                                (Map Text (Ctx.Assignment (Metric p sym) exts))
 profilingMetrics = lens _profilingMetrics (\s v -> s { _profilingMetrics = v })
 
 ------------------------------------------------------------------------
@@ -1077,35 +1117,35 @@ profilingMetrics = lens _profilingMetrics (\s v -> s { _profilingMetrics = v })
 --   may be desirable to take additional or alternate actions on abort
 --   events; in which case, the libary user may replace the default
 --   abort handler with their own.
-newtype AbortHandler p sym ext rtp
-      = AH { runAH :: forall (l :: Type) args.
+newtype AbortHandler p sym (exts :: Ctx.Ctx Type) (ext :: Type) rtp
+      = AH { runAH :: forall (l :: Type) args callerExt.
                  AbortExecReason ->
-                 ExecCont p sym ext rtp l args
+                 ExecCont p sym exts callerExt ext rtp l args
            }
 
 -- | A SimState contains the execution context, an error handler, and
 --   the current execution tree.  It captures the entire state
 --   of the symbolic simulator.
-data SimState p sym ext rtp f (args :: Maybe (Ctx.Ctx CrucibleType))
-   = SimState { _stateContext      :: !(SimContext p sym ext)
-              , _abortHandler      :: !(AbortHandler p sym ext rtp)
-              , _stateTree         :: !(ActiveTree p sym ext rtp f args)
+data SimState p sym (exts :: Ctx.Ctx Type) callerExt (ext :: Type) rtp f (args :: Maybe (Ctx.Ctx CrucibleType))
+   = SimState { _stateContext      :: !(SimContext p sym exts)
+              , _abortHandler      :: !(AbortHandler p sym exts ext rtp)
+              , _stateTree         :: !(ActiveTree p sym exts callerExt ext rtp f args)
               }
 
-data SomeSimState p sym ext rtp =
-  forall f args. SomeSimState !(SimState p sym ext rtp f args)
+data SomeSimState p sym (exts :: Ctx.Ctx Type) callerExt ext rtp =
+  forall f args. SomeSimState !(SimState p sym exts callerExt ext rtp f args)
 
 -- | A simulator state that is currently executing Crucible instructions.
-type CrucibleState p sym ext rtp blocks ret args
-   = SimState p sym ext rtp (CrucibleLang blocks ret) ('Just args)
+type CrucibleState p sym (exts :: Ctx.Ctx Type) callerExt ext rtp blocks ret args
+   = SimState p sym exts callerExt ext rtp (CrucibleLang blocks ret) ('Just args)
 
 -- | Create an initial 'SimState'
 initSimState ::
-  SimContext p sym ext {- ^ initial 'SimContext' state -} ->
+  SimContext p sym exts {- ^ initial 'SimContext' state -} ->
   SymGlobalState sym  {- ^ state of Crucible global variables -} ->
-  AbortHandler p sym ext (RegEntry sym ret) {- ^ initial abort handler -} ->
+  AbortHandler p sym exts ext (RegEntry sym ret) {- ^ initial abort handler -} ->
   TypeRepr ret ->
-  IO (SimState p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
+  IO (SimState p sym exts callerExt ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
 initSimState ctx globals ah ret =
   do let halloc = simHandleAllocator ctx
      h <- mkHandle' halloc startFunctionName Ctx.Empty ret
@@ -1122,10 +1162,10 @@ initSimState ctx globals ah ret =
        }
 
 
-stateLocation :: Getter (SimState p sym ext r f a) (Maybe ProgramLoc)
+stateLocation :: Getter (SimState p sym exts callerExt ext r f a) (Maybe ProgramLoc)
 stateLocation = to f
  where
- f :: SimState p sym ext r f a -> Maybe ProgramLoc
+ f :: SimState p sym exts callerExt ext r f a -> Maybe ProgramLoc
  f st = case st^.stateTree . actFrame . gpValue of
           MF cf -> Just $! (frameProgramLoc cf)
           OF _ -> Nothing
@@ -1133,27 +1173,27 @@ stateLocation = to f
 
 
 -- | Access the 'SimContext' inside a 'SimState'
-stateContext :: Simple Lens (SimState p sym ext r f a) (SimContext p sym ext)
+stateContext :: Simple Lens (SimState p sym exts callerExt ext r f a) (SimContext p sym exts)
 stateContext = lens _stateContext (\s v -> s { _stateContext = v })
 {-# INLINE stateContext #-}
 
 -- | Access the current abort handler of a state.
-abortHandler :: Simple Lens (SimState p sym ext r f a) (AbortHandler p sym ext r)
+abortHandler :: Simple Lens (SimState p sym exts callerExt ext r f a) (AbortHandler p sym exts ext r)
 abortHandler = lens _abortHandler (\s v -> s { _abortHandler = v })
 
 -- | Access the active tree associated with a state.
 stateTree ::
-  Lens (SimState p sym ext rtp f a)
-       (SimState p sym ext rtp g b)
-       (ActiveTree p sym ext rtp f a)
-       (ActiveTree p sym ext rtp g b)
+  Lens (SimState p sym exts callerExt ext rtp f a)
+       (SimState p sym exts callerExt ext rtp g b)
+       (ActiveTree p sym exts callerExt ext rtp f a)
+       (ActiveTree p sym exts callerExt ext rtp g b)
 stateTree = lens _stateTree (\s v -> s { _stateTree = v })
 {-# INLINE stateTree #-}
 
 -- | Access the Crucible call frame inside a 'SimState'
 stateCrucibleFrame ::
-  Lens (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a))
-       (SimState p sym ext rtp (CrucibleLang blocks r) ('Just a'))
+  Lens (SimState p sym exts callerExt ext rtp (CrucibleLang blocks r) ('Just a))
+       (SimState p sym exts callerExt ext rtp (CrucibleLang blocks r) ('Just a'))
        (CallFrame sym ext blocks r a)
        (CallFrame sym ext blocks r a')
 stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
@@ -1162,28 +1202,40 @@ stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
 -- | Access the override frame inside a 'SimState'
 stateOverrideFrame ::
   Lens
-     (SimState p sym ext q (OverrideLang r) ('Just a))
-     (SimState p sym ext q (OverrideLang r) ('Just a'))
+     (SimState p sym exts callerExt ext q (OverrideLang r) ('Just a))
+     (SimState p sym exts callerExt ext q (OverrideLang r) ('Just a'))
      (OverrideFrame sym r a)
      (OverrideFrame sym r a')
 stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
 
 -- | Access the globals inside a 'SimState'
-stateGlobals :: Simple Lens (SimState p sym ext q f args) (SymGlobalState sym)
+stateGlobals :: Simple Lens (SimState p sym exts callerExt ext q f args) (SymGlobalState sym)
 stateGlobals = stateTree . actFrame . gpGlobals
 
 -- | Get the symbolic interface out of a 'SimState'
-stateSymInterface :: Getter (SimState p sym ext r f a) sym
+stateSymInterface :: Getter (SimState p sym exts callerExt ext r f a) sym
 stateSymInterface = stateContext . ctxSymInterface
 
 -- | Get the intrinsic type map out of a 'SimState'
-stateIntrinsicTypes :: Getter (SimState p sym ext r f args) (IntrinsicTypes sym)
+stateIntrinsicTypes :: Getter (SimState p sym exts callerExt ext r f args) (IntrinsicTypes sym)
 stateIntrinsicTypes = stateContext . to ctxIntrinsicTypes
 
 -- | Get the configuration object out of a 'SimState'
-stateConfiguration :: Getter (SimState p sym ext r f args) Config
+stateConfiguration :: Getter (SimState p sym exts callerExt ext r f args) Config
 stateConfiguration = to (\s -> stateSolverProof s (getConfiguration (s^.stateSymInterface)))
 
 -- | Provide the 'IsSymInterface' typeclass dictionary from a 'SimState'
-stateSolverProof :: SimState p sym ext r f args -> (forall a . IsSymInterfaceProof sym a)
+stateSolverProof :: SimState p sym exts callerExt ext r f args -> (forall a . IsSymInterfaceProof sym a)
 stateSolverProof s = ctxSolverProof (s^.stateContext)
+
+-- | Transform a SimState into one with a different active ext
+stateSelectExt :: (ActiveTree p sym exts oldCallerExt oldExt rtp f argsF
+                   -> ActiveTree p sym exts newCallerExt tgtExt rtp g argsG)
+               -> SimState p sym exts oldCallerExt oldExt rtp f argsF
+               -> SimState p sym exts newCallerExt tgtExt rtp g argsG
+stateSelectExt treeChange inpState =
+  SimState { _stateContext = _stateContext inpState
+           , _abortHandler = undefined -- KWQ
+           , _stateTree = treeChange $ _stateTree inpState
+                     -- :: !(ActiveTree p sym exts ext rtp f args)
+           }

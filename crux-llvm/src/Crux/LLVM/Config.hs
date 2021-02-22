@@ -13,6 +13,7 @@ import qualified Data.LLVM.BitCode as LLVM
 import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
 
 import qualified Crux
+-- import qualified Crux.Config.Load as CCL
 import           Paths_crux_llvm ( getDataDir )
 
 

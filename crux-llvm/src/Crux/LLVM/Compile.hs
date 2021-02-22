@@ -76,14 +76,17 @@ runClang llvmOpts params =
          allParams = clangOpts llvmOpts ++ params
      say "CLANG" $ unwords (clang : map show allParams)
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
+     say "CLANG" $ "compilation completed with " <> show res
      case res of
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-llvmLink :: LLVMOptions -> [FilePath] -> FilePath -> IO ()
+llvmLink :: Logs => LLVMOptions -> [FilePath] -> FilePath -> IO ()
 llvmLink llvmOpts ins out =
   do let params = ins ++ [ "-o", out ]
+     say "llvmLink" $ unwords (linkBin llvmOpts : map show params)
      (res, sout, serr) <- readProcessWithExitCode (linkBin llvmOpts) params ""
+     say "llvmLink" $ "linking completed with " <> show res
      case res of
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)

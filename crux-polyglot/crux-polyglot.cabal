@@ -1,0 +1,152 @@
+Name:          crux-polyglot
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    kquick@galois.com
+Copyright:     (c) Galois, Inc 2021
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.10
+Category:      Language
+Synopsis:      A verification tool for programs.
+Description:
+  .
+  This tool (and corresponding C library) are intended for verifying
+  applications written in multiple languages using verification
+  specifications embedded in the input source files.
+  .
+  This tool provides:
+  .
+  * A Haskell library with the core functionality,
+  .
+  * A crux-poly executable used to run the verification when given the
+    source files (in various supported languages) making up the program
+    to be verified.
+  .
+  * Provides the accumulated funcitonality of crux-llvm, crux-mir, and
+    other single-language configurations.
+
+library
+
+  hs-source-dirs: src
+
+  exposed-modules: Crux.Polyglot
+                 , Crux.Polyglot.Config
+
+  build-depends: base >= 4.8 && < 4.15
+               , crux
+               , crux-llvm
+               , directory
+
+    -- ansi-terminal,
+    -- bytestring,
+    
+    -- bv-sized,
+    -- config-schema,
+    -- containers,
+    -- crucible,
+    -- crucible-llvm,
+    -- crux,
+    -- data-binary-ieee754,
+    -- filepath,
+    -- lens,
+    -- llvm-pretty,
+    -- llvm-pretty-bc-parser,
+    -- mtl,
+    -- parameterized-utils,
+    -- process,
+    -- template-haskell,
+    -- text,
+    -- what4
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+               -fhide-source-paths
+  ghc-prof-options: -O2
+
+  default-language: Haskell2010
+
+
+
+executable crux-polyglot
+
+  hs-source-dirs: tool
+
+  build-depends: base >= 4.8 && < 4.15
+               , bytestring
+               , containers
+               
+    -- crucible,
+    -- crucible-llvm,
+    -- crux,
+    -- crux-llvm,
+    -- data-binary-ieee754,
+    -- directory,
+    -- filepath,
+    -- lens,
+    -- llvm-pretty,
+    -- llvm-pretty-bc-parser,
+    -- mtl,
+    -- parameterized-utils,
+    -- process,
+    -- template-haskell,
+    -- text,
+    -- versions < 4.0,
+    -- what4
+
+  main-is: Main.hs
+
+  -- if os(windows)
+  --   hs-source-dirs: exe/windows
+  -- else
+  --   hs-source-dirs: exe/unix
+  --   build-depends: unix
+
+  -- other-modules: RealMain
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+               -fhide-source-paths
+  ghc-prof-options: -O2
+
+  default-language: Haskell2010
+
+
+test-suite crux-polyglot-test
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+               -fhide-source-paths
+  ghc-prof-options: -O2
+
+  main-is: Test.hs
+
+  build-depends: base            >= 4.7
+               , config-schema
+               , config-value
+               , containers
+               , crucible
+               , crucible-llvm
+               , crux
+               , crux-llvm
+               , crux-polyglot
+               , filepath
+               , lens
+               , prettyprinter   >= 1.7.0
+               , tasty           >= 0.10
+               , tasty-hunit     >= 0.10
+               , tasty-sugar     >= 1.1 && < 1.2
+               , text
+               , what4
+
+                -- bytestring,
+                -- containers,
+                -- crucible,
+                -- crux,
+                -- crux-llvm,
+                -- deepseq,
+                -- directory,
+                -- filepath,
+                -- parsec,
+                -- process,
+                -- QuickCheck,
+                
+  default-language: Haskell2010
