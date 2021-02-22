@@ -767,7 +767,7 @@ doFree
 doFree sym mem ptr = do
   let LLVMPointer blk _off = ptr
   loc <- show . plSourceLoc <$> getCurrentProgramLoc sym
-  (heap', p1, p2) <- G.freeMem sym PtrWidth ptr (memImplHeap mem) loc
+  (heap', p1, p2, notFreed) <- G.freeMem sym PtrWidth ptr (memImplHeap mem) loc
 
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
@@ -776,11 +776,13 @@ doFree sym mem ptr = do
          Nothing -> memImplHandleMap mem
 
   -- NB: free is defined and has no effect if passed a null pointer
-  isNull <- ptrIsNull sym PtrWidth ptr
-  p1'    <- orPred sym p1 isNull
-  p2'    <- orPred sym p2 isNull
+  isNull    <- ptrIsNull sym PtrWidth ptr
+  p1'       <- orPred sym p1 isNull
+  p2'       <- orPred sym p2 isNull
+  notFreed' <- orPred sym notFreed isNull
   assertUndefined sym p1' (UB.FreeBadOffset (RV ptr))
   assertUndefined sym p2' (UB.FreeUnallocated (RV ptr))
+  assertUndefined sym notFreed' (UB.DoubleFree (RV ptr))
 
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
