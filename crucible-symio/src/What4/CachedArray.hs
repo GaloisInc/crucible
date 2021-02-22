@@ -42,6 +42,7 @@ module What4.CachedArray
 
 import           GHC.Natural
 
+import           Control.Lens ( (.=), (.~), (&) )
 import           Control.Monad ( foldM )
 import           Data.Functor.Const
 import           Data.Maybe ( catMaybes )
@@ -70,26 +71,32 @@ import qualified What4.Utils.BVDomain as BVD
 
 writeRange ::
   forall sym ctx tp.
+  NonEmptyCtx ctx =>
   W4.IsSymExprBuilder sym =>
   sym ->
+  -- | base address to write to
   Ctx.Assignment (W4.SymExpr sym) ctx ->
-  -- ^ base address
-  Ctx.Assignment (W4.SymExpr sym) ctx ->
-  -- ^ end of write range
-  W4.SymArray sym ctx tp ->
+  -- | size of write 
+  W4.SymExpr sym (CtxHead ctx) ->
+  -- | symbolic value to write
+  W4.SymArray sym (Ctx.EmptyCtx Ctx.::> (CtxHead ctx)) tp ->
   CachedArray sym ctx tp ->
   IO (CachedArray sym ctx tp)
-writeRange sym loExpr hiExpr val arr = arrConstraints arr $ do  
+writeRange sym loExpr offExpr val arr | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx = do
+  rng <- mkSymRangeOff sym loExpr offExpr
+  let absIdx = symRangeToAbs rng
   arr' <- invalidateEntries sym rng arr
-  -- FIXME: this is wrong, we need to offset the contents of the array
-  -- by the given address, since we assume the write contents
-  -- start at a zero index
-  let entry = ArrayEntryArr (isInRange sym rng) val
+  -- offset the incoming array so that its value at zero becomes the value at
+  -- the base address
+  let off = indexToOffset $ symRangeLo rng
+  (symIdx, vars) <- freshIndex sym Nothing (FC.fmapFC W4.exprType loExpr)
+  (SymOffset idxOffsetExpr) <- indexToOffset <$> subSymOffset sym symIdx off
+  body <- W4.arrayLookup sym val (Ctx.empty Ctx.:> idxOffsetExpr)
+  fn <- W4.definedFn sym (W4.safeSymbol "writeRange") vars body W4.AlwaysUnfold
+  val' <- W4.arrayFromFn sym fn
+  let entry = ArrayEntryArr (isInRange sym rng) val'
   arr'' <- insertWithM absIdx entry (mergeEntries sym) (arrMap arr')
   return $ arr { arrMap = arr'' }
-  where
-    absIdx = symRangeToAbs rng
-    rng = mkSymRange loExpr hiExpr
 
 
 writeSingle ::
@@ -123,24 +130,28 @@ readSingle sym symIdxExpr arr = readArrayBase sym symIdx arr
 
 
 readRange ::
-  forall sym idx tp.
+  forall sym ctx tp.
+  NonEmptyCtx ctx =>
   W4.IsSymExprBuilder sym =>
   sym ->
-  Ctx.Assignment (W4.SymExpr sym) idx ->
-  -- ^ base address
-  Ctx.Assignment (W4.SymExpr sym) idx ->
-  -- ^ end of read range
-  CachedArray sym idx tp ->
-  IO (W4.SymArray sym idx tp)
-readRange sym loExpr hiExpr arr = arrConstraints arr $ do
-  (symIdx, vars) <- freshIndex sym (Just absIdx) (FC.fmapFC W4.exprType loExpr)
-  body <- readArrayBase sym symIdx arr
-  NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @idx
-  fn <- W4.definedFn sym (W4.safeSymbol "readRange") vars body W4.AlwaysUnfold
+  -- | base address to read from
+  Ctx.Assignment (W4.SymExpr sym) ctx ->
+  -- | size of read 
+  W4.SymExpr sym (CtxHead ctx) ->  
+  CachedArray sym ctx tp ->
+  IO (W4.SymArray sym (Ctx.EmptyCtx Ctx.::> (CtxHead ctx)) tp)
+readRange sym loExpr offExpr arr | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx = do
+  rng <- mkSymRangeOff sym loExpr offExpr
+  let absIdx = symRangeToAbs rng
+  -- offset the outgoing array so that its value at zero is the value at
+  -- the base address
+  
+  var <- W4.freshBoundVar sym W4.emptySymbol (W4.exprType offExpr)
+  let off = SymOffset (W4.varExpr sym var)
+  offsetIdx <- addSymOffset sym (symRangeLo rng) off
+  body <- readArrayBase sym (offsetIdx { symIdxAbs = Just absIdx}) arr
+  fn <- W4.definedFn sym (W4.safeSymbol "readRange") (Ctx.empty Ctx.:> var) body W4.AlwaysUnfold
   W4.arrayFromFn sym fn
-  where
-    symRange = SymRangeMulti (mkSymIndex @sym loExpr) (mkSymIndex @sym hiExpr)
-    absIdx = symRangeToAbs symRange
 
 
 -- TODO: use nonces to determine when this is unecessary
@@ -239,7 +250,69 @@ data ArrayEntry sym ctx tp where
 -- | A symbolic index into the array. It represents the index for a single array element,
 -- although its value may be symbolic
 data SymIndex sym ctx =
-  SymIndex (Ctx.Assignment (W4.SymExpr sym) ctx) (Maybe (AbsIndex ctx))
+  SymIndex
+    { -- | the symbolic index
+      _symIdxExpr :: Ctx.Assignment (W4.SymExpr sym) ctx
+      -- | an optional override for the abstract domain of the index
+    , symIdxAbs :: Maybe (AbsIndex ctx)
+    }
+
+-- | An offset is an index into the last element of the array index
+-- A value range is always representable as a base + offset
+data SymOffset sym ctx where
+  SymOffset :: W4.SymExpr sym tp -> SymOffset sym (ctx Ctx.::> tp)
+
+
+indexToOffset ::
+  forall sym ctx.
+  NonEmptyCtx ctx =>
+  W4.IsSymExprBuilder sym =>
+  SymIndex sym ctx ->
+  SymOffset sym ctx
+indexToOffset (SymIndex eCtx _) | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx =
+  let
+    idx = Ctx.lastIndex (Ctx.size eCtx)
+    e = eCtx Ctx.! idx
+  in SymOffset e
+
+addSymOffset ::
+  forall sym ctx.
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  SymIndex sym ctx ->
+  SymOffset sym ctx ->
+  IO (SymIndex sym ctx)
+addSymOffset sym (SymIndex eCtx _) (SymOffset off) = do
+  let
+    idx = Ctx.lastIndex (Ctx.size eCtx)
+    e = eCtx Ctx.! idx
+  e' <- case W4.exprType off of
+    W4.BaseIntegerRepr -> W4.intAdd sym e off
+    W4.BaseBVRepr _ -> W4.bvAdd sym e off
+    _ -> fail $ "Unsupported type"
+  return $ SymIndex (eCtx & (ixF idx) .~ e') Nothing
+
+negateSymOffset ::
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  SymOffset sym ctx ->
+  IO (SymOffset sym ctx)
+negateSymOffset sym (SymOffset off) = do
+  e' <- case W4.exprType off of
+    W4.BaseIntegerRepr -> W4.intNeg sym off
+    W4.BaseBVRepr _ -> W4.bvNeg sym off
+    _ -> fail $ "Unsupported type"  
+  return $ SymOffset e'
+
+subSymOffset ::
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  SymIndex sym ctx ->
+  SymOffset sym ctx ->
+  IO (SymIndex sym ctx)  
+subSymOffset sym idx off = do
+  negoff <- negateSymOffset sym off
+  addSymOffset sym idx negoff 
 
 mkSymIndex ::
   forall sym ctx.
@@ -250,6 +323,10 @@ mkSymIndex e = SymIndex e Nothing
 data SymRange sym ctx =
     SymRangeSingle (SymIndex sym ctx)
   | SymRangeMulti (SymIndex sym ctx) (SymIndex sym ctx)
+
+symRangeLo :: SymRange sym ctx -> SymIndex sym ctx
+symRangeLo (SymRangeSingle symIdx) = symIdx
+symRangeLo (SymRangeMulti loIdx _) = loIdx
 
 symRangeToAbs ::
   W4.IsSymExprBuilder sym =>
@@ -269,16 +346,36 @@ mkSymRange loExpr hiExpr = case testEquality loExpr hiExpr of
   Just Refl -> SymRangeSingle $ mkSymIndex loExpr
   Nothing -> SymRangeMulti (mkSymIndex @sym loExpr) (mkSymIndex @sym hiExpr)
 
+
+mkSymRangeOff ::
+  forall sym ctx ctx' offtp.
+  ctx ~ (ctx' Ctx.::> offtp) =>
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  Ctx.Assignment (W4.SymExpr sym) ctx ->
+  W4.SymExpr sym offtp ->
+  IO (SymRange sym ctx)
+mkSymRangeOff sym loExpr offExpr = do
+  let
+    lo = mkSymIndex @sym loExpr
+    off = SymOffset offExpr
+  hi <- addSymOffset sym lo off
+  return $ (SymRangeMulti lo hi)
+
 isConcreteIndex :: W4.IsSymExprBuilder sym => SymIndex sym ctx -> Bool
 isConcreteIndex (SymIndex symIdxExpr _) = FC.allFC W4.baseIsConcrete symIdxExpr
 
-data NonEmptyCtxRepr ctx where
+data NonEmptyCtxRepr (ctx :: Ctx.Ctx k) where
   NonEmptyCtxRepr :: NonEmptyCtxRepr (ctx Ctx.::> x)
 
-class NonEmptyCtx ctx where
+class NonEmptyCtx (ctx :: Ctx.Ctx k) where
+  type CtxHead ctx :: k
+  type CtxTail ctx :: Ctx.Ctx k
   nonEmptyCtxRepr :: NonEmptyCtxRepr ctx
 
 instance NonEmptyCtx (ctx Ctx.::> tp) where
+  type CtxHead (ctx Ctx.::> tp) = tp
+  type CtxTail (ctx Ctx.::> tp) = ctx
   nonEmptyCtxRepr = NonEmptyCtxRepr
 
 entryCond ::
@@ -301,11 +398,11 @@ constEntryCond ::
 constEntryCond sym entry idx = W4.asConstantPred <$> entryCond sym entry idx
 
 data AbsInterval tp where
-  AbsIntervalNat :: W4.NatValueRange -> AbsInterval W4.BaseNatType
+  AbsIntervalInt :: W4.ValueRange Integer -> AbsInterval W4.BaseIntegerType
   AbsIntervalBV :: (1 <= w) => W4.NatRepr w -> W4.ValueRange Integer -> AbsInterval (W4.BaseBVType w)
 
 data AbsIntervalEnd tp where
-  AbsIntervalEndNat :: W4.ValueBound Natural -> AbsIntervalEnd W4.BaseNatType
+  AbsIntervalEndInt :: W4.ValueBound Integer -> AbsIntervalEnd W4.BaseIntegerType
   AbsIntervalEndBV :: (1 <= w) => W4.NatRepr w -> W4.ValueBound Integer -> AbsIntervalEnd (W4.BaseBVType w)
   
  
@@ -316,20 +413,20 @@ instance TestEquality AbsInterval where
 
 instance OrdF AbsInterval where
   compareF a1 a2 = case (a1, a2) of
-    (AbsIntervalNat (W4.NatSingleRange n1), AbsIntervalNat (W4.NatSingleRange n2)) ->
+    (AbsIntervalInt (W4.SingleRange n1), AbsIntervalInt (W4.SingleRange n2)) ->
       fromOrdering $ compare n1 n2
-    (AbsIntervalNat n1, AbsIntervalNat n2) ->
+    (AbsIntervalInt n1, AbsIntervalInt n2) ->
       fromOrdering $ 
-      compare (W4.natRangeLow n1) (W4.natRangeLow n2)
-      <> compare (W4.natRangeHigh n1) (W4.natRangeHigh n2)
+      compare (W4.rangeLowBound n1) (W4.rangeHiBound n2)
+      <> compare (W4.rangeLowBound n1) (W4.rangeHiBound n2)
     (AbsIntervalBV w1 (W4.SingleRange i1), AbsIntervalBV w2 (W4.SingleRange i2)) ->
       lexCompareF w1 w2 $ fromOrdering $ compare i1 i2
     (AbsIntervalBV w1 i1, AbsIntervalBV w2 i2) ->
       lexCompareF w1 w2 $ fromOrdering $
         compare (W4.rangeLowBound i1) (W4.rangeLowBound i2)
         <> compare (W4.rangeHiBound i1) (W4.rangeHiBound i2)
-    (AbsIntervalNat{}, AbsIntervalBV{}) -> LTF
-    (AbsIntervalBV{}, AbsIntervalNat{}) -> GTF
+    (AbsIntervalInt{}, AbsIntervalBV{}) -> LTF
+    (AbsIntervalBV{}, AbsIntervalInt{}) -> GTF
 
 instance Eq (AbsInterval tp) where
   a1 == a2 = (compare a1 a2) == EQ
@@ -350,18 +447,18 @@ instance TestEquality AbsIntervalEnd where
 
 instance OrdF AbsIntervalEnd where
   compareF a1 a2 = case (a1, a2) of
-    (AbsIntervalEndNat n1, AbsIntervalEndNat n2) -> fromOrdering $ compare n1 n2
+    (AbsIntervalEndInt n1, AbsIntervalEndInt n2) -> fromOrdering $ compare n1 n2
     (AbsIntervalEndBV w1 i1, AbsIntervalEndBV w2 i2) ->
       lexCompareF w1 w2 $ fromOrdering $ compare i1 i2
-    (AbsIntervalEndNat{}, AbsIntervalEndBV{}) -> LTF
-    (AbsIntervalEndBV{}, AbsIntervalEndNat{}) -> GTF
+    (AbsIntervalEndInt{}, AbsIntervalEndBV{}) -> LTF
+    (AbsIntervalEndBV{}, AbsIntervalEndInt{}) -> GTF
 
 instance IM.Interval (AbsInterval tp) (AbsIntervalEnd tp) where
   lowerBound ai = case ai of
-    AbsIntervalNat v -> AbsIntervalEndNat $ W4.Inclusive $ W4.natRangeLow v
+    AbsIntervalInt v -> AbsIntervalEndInt $ W4.rangeLowBound v
     AbsIntervalBV w v -> AbsIntervalEndBV w $ W4.rangeLowBound v
   upperBound ai = case ai of
-    AbsIntervalNat v -> AbsIntervalEndNat $ W4.natRangeHigh v
+    AbsIntervalInt v -> AbsIntervalEndInt $ W4.rangeLowBound v
     AbsIntervalBV w v -> AbsIntervalEndBV w $ W4.rangeHiBound v
 
 newtype AbsIndex (idx :: Ctx.Ctx W4.BaseType) =
@@ -376,7 +473,13 @@ newtype AbsIndexEnd (idx :: Ctx.Ctx W4.BaseType) =
   AbsIndexEnd (Ctx.Assignment AbsIntervalEnd idx)
   deriving (Eq, Ord)
 
-
+addIntervals ::
+  AbsInterval tp ->
+  AbsInterval tp ->
+  AbsInterval tp
+addIntervals i1 i2 = case (i1, i2) of
+  (AbsIntervalInt n1, AbsIntervalInt n2) -> AbsIntervalInt (W4.addRange n1 n2)
+  (AbsIntervalBV w bv1, AbsIntervalBV _ bv2) -> AbsIntervalBV w (W4.addRange bv1 bv2)
 
 bvDomainRange ::
   1 <= w =>
@@ -399,7 +502,7 @@ absToInterval ::
   W4.AbstractValue tp ->
   AbsInterval tp  
 absToInterval repr v = case repr of
-  W4.BaseNatRepr -> AbsIntervalNat v
+  W4.BaseIntegerRepr -> AbsIntervalInt v
   W4.BaseBVRepr w -> bvDomainRange w v
   _ -> error "Unsupported type"
     
@@ -447,7 +550,7 @@ readEntry sym symIdx@(SymIndex symIdxExpr _) entry = do
   cond <- entryCond sym entry symIdx
   case entry of
     ArrayEntryArr _ arr -> do
-      NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @ctx
+      NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @_ @ctx
       v <- W4.arrayLookup sym arr symIdxExpr 
       return (v, cond)
     ArrayEntryVal _ _ v -> do
@@ -471,20 +574,21 @@ isWithinInterval' ::
   AbsInterval tp ->
   IO (W4.Pred sym)
 isWithinInterval' sym e ai = case ai of
-  AbsIntervalNat (W4.NatSingleRange n) -> do
-    n' <- W4.natLit sym n
+  AbsIntervalInt (W4.SingleRange n) -> do
+    n' <- W4.intLit sym n
     W4.isEq sym n' e
-  AbsIntervalNat (W4.NatMultiRange lo hiBound) ->
-    case hiBound of
+  AbsIntervalInt (W4.MultiRange loBound hiBound) -> do
+    isLoBound <- case loBound of
+      W4.Unbounded -> return $ W4.truePred sym
+      W4.Inclusive lo -> do
+        lo' <- W4.intLit sym lo
+        W4.intLe sym lo' e
+    isHiBound <- case hiBound of
+      W4.Unbounded -> return $ W4.truePred sym
       W4.Inclusive hi -> do
-        lo' <- W4.natLit sym lo
-        hi' <- W4.natLit sym hi
-        isLoBound <- W4.natLe sym lo' e
-        isHiBound <- W4.natLe sym e hi'
-        W4.andPred sym isLoBound isHiBound
-      W4.Unbounded -> do
-        lo' <- W4.natLit sym lo
-        W4.natLe sym lo' e
+        hi' <- W4.intLit sym hi
+        W4.intLe sym e hi'
+    W4.andPred sym isLoBound isHiBound
   AbsIntervalBV w (W4.SingleRange i) -> do
     i' <- W4.bvLit sym w (BV.mkBV w i)
     W4.isEq sym i' e
@@ -567,7 +671,7 @@ isInRange sym rng symIdx2@(SymIndex symIdxExpr _) = case rng of
       IO (Const (W4.Pred sym) tp)
     doLe e1 e2 = Const <$> case W4.exprType e1 of
       W4.BaseBVRepr _ -> W4.bvUle sym e1 e2
-      W4.BaseNatRepr -> W4.natLe sym e1 e2
+      W4.BaseIntegerRepr -> W4.intLe sym e1 e2
       _ -> fail "isInRange: unsupported type"
 
 isEqIndex ::
@@ -689,7 +793,7 @@ joinAbsInterval ::
   AbsInterval tp ->
   AbsInterval tp
 joinAbsInterval a1 a2 = case (a1, a2) of
-  (AbsIntervalNat rng1, AbsIntervalNat rng2) -> AbsIntervalNat $ W4.avJoin W4.BaseNatRepr rng1 rng2
+  (AbsIntervalInt rng1, AbsIntervalInt rng2) -> AbsIntervalInt $ W4.avJoin W4.BaseIntegerRepr rng1 rng2
   (AbsIntervalBV w rng1, AbsIntervalBV _ rng2) -> AbsIntervalBV w $ W4.avJoin W4.BaseIntegerRepr rng1 rng2
 
 muxSymIndex ::
@@ -719,7 +823,7 @@ muxEntries ::
   ArrayEntry sym ctx tp ->
   ArrayEntry sym ctx tp ->
   IO (ArrayEntry sym ctx tp)
-muxEntries sym p eT eF = case (eT, eF) of
+muxEntries sym p eT eF  = case (eT, eF) of
   (ArrayEntryArr fcondT aT, ArrayEntryArr fcondF aF) -> do
     a <- W4.baseTypeIte sym p aT aF
     return $ ArrayEntryArr (muxConditions sym p fcondT fcondF) a
@@ -729,13 +833,11 @@ muxEntries sym p eT eF = case (eT, eF) of
     a <- W4.baseTypeIte sym p vT vF
     return $ ArrayEntryVal idx cond a
   (ArrayEntryArr fcondT aT, ArrayEntryVal _ _ vF) -> do
-    NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @ctx
     W4.BaseArrayRepr repr _ <- return $ W4.exprType aT
     aF <- W4.constantArray sym repr vF
     a <- W4.baseTypeIte sym p aT aF
     return $ ArrayEntryArr (muxConditions sym p fcondT (entryCond sym eF)) a
-  (ArrayEntryVal _ _ vT, ArrayEntryArr fcondF aF) -> do
-    NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @ctx
+  (ArrayEntryVal _ _ vT, ArrayEntryArr fcondF aF) -> do    
     W4.BaseArrayRepr repr _ <- return $ W4.exprType aF
     aT <- W4.constantArray sym repr vT
     a <- W4.baseTypeIte sym p aT aF
@@ -782,12 +884,11 @@ mergeEntries ::
   ArrayEntry sym ctx tp ->
   ArrayEntry sym ctx tp ->
   IO (ArrayEntry sym ctx tp)
-mergeEntries sym e1 e2 = case (e1, e2) of
+mergeEntries sym e1 e2 | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx = case (e1, e2) of
   (ArrayEntryVal symIdx cond v, _) -> mergeEntryVal sym symIdx cond v e1
   (_, ArrayEntryVal symIdx cond v) -> mergeEntryVal sym symIdx cond v e2
   (ArrayEntryArr fcond1 _, ArrayEntryArr fcond2 _) -> do
     (symIdx, vars) <- freshIndex sym Nothing (entryRepr e1)    
-    NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @ctx
     let
       fcond symIdx' = do
         cond1 <- fcond1 symIdx'
