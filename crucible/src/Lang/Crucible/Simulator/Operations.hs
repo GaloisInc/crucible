@@ -373,7 +373,7 @@ resolveCall bindings c0 args loc callStack =
       resolveCall bindings (HandleFnVal h) (packVarargs addlTypes args) loc callStack
 
     HandleFnVal h -> do
-      case lookupHandleMap h bindings of
+      case lookupHandleMap h (fnBindings bindings) of
         Nothing -> Ex.throw (UnresolvableFunction loc callStack h)
         Just (UseOverride o) -> do
           let f = OverrideFrame { _override = overrideName o

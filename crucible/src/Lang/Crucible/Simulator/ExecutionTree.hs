@@ -100,7 +100,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- ** Function bindings
   , Override(..)
   , FnState(..)
-  , FunctionBindings
+  , FunctionBindings(..)
 
     -- ** Extensions
   , ExtensionImpl(..)
@@ -970,7 +970,7 @@ data FnState p sym ext (args :: Ctx CrucibleType) (ret :: CrucibleType)
    | forall blocks . UseCFG !(CFG ext blocks args ret) !(CFGPostdom blocks)
 
 -- | A map from function handles to their semantics.
-type FunctionBindings p sym ext = FnHandleMap (FnState p sym ext)
+newtype FunctionBindings p sym ext = FnBindings { fnBindings :: FnHandleMap (FnState p sym ext) }
 
 -- | The type of functions that interpret extension statements.  These
 --   have access to the main simulator state, and can make fairly arbitrary
