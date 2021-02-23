@@ -55,3 +55,10 @@ pub fn builder_finish(msb: MethodSpecBuilder) -> MethodSpec {
     let _ = msb;
     MethodSpec(0)
 }
+
+
+/// Replace all mutable global data with arbitrary values.  This is used at the start of tests to
+/// ensure that the property holds in any context.
+pub fn clobber_globals() {
+    unimplemented!("MethodSpecBuilder is not supported on this version of crux-mir")
+}

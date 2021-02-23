@@ -8,6 +8,8 @@ use core::fmt;
 
 mod raw;
 
+pub use self::raw::clobber_globals;
+
 
 /// The specification of a function.  This can be used when verifying callers of the function to
 /// avoid simulating the entire function itself.
