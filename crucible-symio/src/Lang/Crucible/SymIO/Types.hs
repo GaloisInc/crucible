@@ -20,6 +20,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.SymIO.Types where
@@ -30,6 +31,7 @@ import           GHC.TypeNats
 import           Data.Map ( Map ) 
 import qualified Data.BitVector.Sized as BV
 
+import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Context
 import           Data.Parameterized.Classes
 
@@ -38,12 +40,21 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
 
+import qualified What4.Expr.Builder as W4B
 import           What4.Interface
 import qualified What4.CachedArray as CA
 
-newtype FileIdent = FileIdent String
-  deriving (Typeable, Eq, Ord, Show)
+symIOIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
+symIOIntrinsicTypes = id
+  . MapF.insert (knownSymbol :: SymbolRepr "VFS_filesystem") IntrinsicMuxFn
+  . MapF.insert (knownSymbol :: SymbolRepr "VFS_file") IntrinsicMuxFn
+  . MapF.insert (knownSymbol :: SymbolRepr "VFS_filepointer") IntrinsicMuxFn
+  $ MapF.empty
 
+
+type FileIdent sym = RegValue sym FileIdentType
+
+type FileIdentType = StringType Unicode
 
 type FileSystemType w = IntrinsicType "VFS_filesystem" (EmptyCtx ::> BVType w)
 
@@ -51,7 +62,7 @@ data FileSystem sym w =
   FileSystem
     {
       fsPtrSize :: NatRepr w
-    , fsFileNames :: Map FileIdent Integer
+    , fsFileNames :: RegValue sym (StringMapType (FileType w))
     -- ^ map from concrete file names to identifiers
     , fsFileSizes :: SymArray sym (EmptyCtx ::> BaseIntegerType) (BaseBVType w)
     -- ^ a symbolic map from file identifiers to their size
@@ -69,6 +80,12 @@ instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filesystem" where
     symData <- CA.muxArrays sym p (fsSymData fs1) (fsSymData fs2)
     return $ fs1 { fsSymData  = symData }
   muxIntrinsic _ _ nm ctx _ _ _ = typeError nm ctx
+
+pattern FileSystemRepr :: () => (1 <= w, ty ~ FileSystemType w) => NatRepr w -> TypeRepr ty
+pattern FileSystemRepr w <- IntrinsicRepr (testEquality (knownSymbol :: SymbolRepr "VFS_filesystem") -> Just Refl)
+                                           (Empty :> BVRepr w)
+  where
+    FileSystemRepr w = IntrinsicRepr knownSymbol (Empty :> BVRepr w)
 
 -- | The 'CrucibleType' of file handles. A file handle is a mutable pointer
 -- that increments every time it is read.
