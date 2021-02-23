@@ -209,7 +209,7 @@ runTests (cruxOpts, mirOpts) = do
             let outH = view outputHandle ?outputConfig
             setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
             let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
-                    C.emptyHandleMap mirExtImpl Crux.emptyModel
+                    (C.FnBindings C.emptyHandleMap) mirExtImpl Crux.emptyModel
             return (Crux.RunnableState $
                     C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
                      C.runOverrideSim C.UnitRepr $ simTest symOnline fnName

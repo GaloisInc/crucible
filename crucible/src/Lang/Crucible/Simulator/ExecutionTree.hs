@@ -57,6 +57,7 @@ module Lang.Crucible.Simulator.ExecutionTree
 
     -- * Partial result
   , PartialResult(..)
+  , PartialResultFrame
   , partialValue
 
     -- * Execution states
@@ -99,7 +100,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- ** Function bindings
   , Override(..)
   , FnState(..)
-  , FunctionBindings
+  , FunctionBindings(..)
 
     -- ** Extensions
   , ExtensionImpl(..)
@@ -602,7 +603,7 @@ data ControlResumption p sym ext rtp f where
 data PausedFrame p sym ext rtp f
    = forall old_args.
        PausedFrame
-       { pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext f ('Just old_args)))
+       { pausedFrame  :: !(PartialResultFrame sym ext f ('Just old_args))
        , resume       :: !(ControlResumption p sym ext rtp f)
        , pausedLoc    :: !(Maybe ProgramLoc)
        }
@@ -626,7 +627,7 @@ data VFFOtherPath p sym ext ret f args
    | VFFCompletePath
         !(Seq (Assumption sym))
           {- Assumptions that we collected while analyzing the branch -}
-        !(PartialResult sym ext (SimFrame sym ext f args))
+        !(PartialResultFrame sym ext f args)
           {- Result of running the other branch -}
 
 
@@ -895,13 +896,16 @@ data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
 ------------------------------------------------------------------------
 -- ActiveTree
 
+type PartialResultFrame sym ext f args =
+  PartialResult sym ext (SimFrame sym ext f args)
+
 {- | An active execution tree contains at least one active execution.
      The data structure is organized so that the current execution
      can be accessed rapidly. -}
 data ActiveTree p sym ext root (f :: Type) args
    = ActiveTree
       { _actContext :: !(ValueFromFrame p sym ext root f)
-      , _actResult  :: !(PartialResult sym ext (SimFrame sym ext f args))
+      , _actResult  :: !(PartialResultFrame sym ext f args)
       }
 
 -- | Create a tree with a single top frame.
@@ -966,7 +970,7 @@ data FnState p sym ext (args :: Ctx CrucibleType) (ret :: CrucibleType)
    | forall blocks . UseCFG !(CFG ext blocks args ret) !(CFGPostdom blocks)
 
 -- | A map from function handles to their semantics.
-type FunctionBindings p sym ext = FnHandleMap (FnState p sym ext)
+newtype FunctionBindings p sym ext = FnBindings { fnBindings :: FnHandleMap (FnState p sym ext) }
 
 -- | The type of functions that interpret extension statements.  These
 --   have access to the main simulator state, and can make fairly arbitrary
