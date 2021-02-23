@@ -1252,6 +1252,7 @@ mirRef_arrayAsMirVectorLeaf sym _ (MirReference_Integer _ _) =
     leafAbort sym $ GenericSimError $
         "attempted Array->MirVector conversion on the result of an integer-to-pointer cast"
 
+
 refRootEq :: IsSymInterface sym => sym ->
     MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
@@ -1304,6 +1305,134 @@ mirRef_eqIO :: IsSymInterface sym => sym ->
     MirReferenceMux sym tp -> MirReferenceMux sym tp -> IO (RegValue sym BoolType)
 mirRef_eqIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
     zipFancyMuxTrees' sym (mirRef_eqLeaf sym) (itePred sym) r1 r2
+
+
+-- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
+-- turn `tp` into `tp''`, we first use a subsidiary `MirReferencePath` to turn
+-- `tp` into `tp'`, then perform one last step to turn `tp'` into `tp''`.
+-- `ReversedRefPath` is represented "outside-in", so the first/outermost
+-- element is the first step of the conversion, not the last.
+data ReversedRefPath sym :: CrucibleType -> CrucibleType -> Type where
+  RrpNil :: forall sym tp. ReversedRefPath sym tp tp
+  RrpCons :: forall sym tp tp' tp''.
+    -- | The first step of the path.  For all cases but Empty_RefPath, the
+    -- nested initial MirReferencePath is always Empty_RefPath.
+    MirReferencePath sym tp tp' ->
+    ReversedRefPath sym tp' tp'' ->
+    ReversedRefPath sym tp tp''
+
+reverseRefPath :: forall sym tp tp'.
+    MirReferencePath sym tp tp' ->
+    ReversedRefPath sym tp tp'
+reverseRefPath rp = go RrpNil rp
+  where
+    go :: forall sym tp tp' tp''.
+        ReversedRefPath sym tp' tp'' ->
+        MirReferencePath sym tp tp' ->
+        ReversedRefPath sym tp tp''
+    go acc Empty_RefPath = acc
+    go acc (Field_RefPath ctx rp idx) =
+        go (Field_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
+    go acc (Variant_RefPath ctx rp idx) =
+        go (Variant_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
+    go acc (Index_RefPath tpr rp idx) =
+        go (Index_RefPath tpr Empty_RefPath idx `RrpCons` acc) rp
+    go acc (Just_RefPath tpr rp) =
+        go (Just_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+    go acc (VectorAsMirVector_RefPath tpr rp) =
+        go (VectorAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+    go acc (ArrayAsMirVector_RefPath tpr rp) =
+        go (ArrayAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+
+-- | If the final step of `path` is an `Index_RefPath`, remove it.  Otherwise,
+-- return `path` unchanged.
+popIndex :: MirReferencePath sym tp tp' -> Some (MirReferencePath sym tp)
+popIndex (Index_RefPath _ p _) = Some p
+popIndex p = Some p
+
+
+refRootOverlaps :: IsSymInterface sym => sym ->
+    MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
+    MuxLeafT sym IO (RegValue sym BoolType)
+refRootOverlaps sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
+  | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
+refRootOverlaps sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
+  | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
+refRootOverlaps sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+    leafAbort sym $ Unsupported $ "Cannot compare Const_RefRoots"
+refRootOverlaps sym _ _ = return $ falsePred sym
+
+-- | Check whether two `MirReferencePath`s might reference overlapping memory
+-- regions, when starting from the same `MirReferenceRoot`.
+refPathOverlaps :: forall sym tp_base1 tp1 tp_base2 tp2. IsSymInterface sym =>
+    sym ->
+    MirReferencePath sym tp_base1 tp1 ->
+    MirReferencePath sym tp_base2 tp2 ->
+    MuxLeafT sym IO (RegValue sym BoolType)
+refPathOverlaps sym path1 path2 = do
+    -- We remove the outermost `Index` before comparing, since `offset` allows
+    -- modifying the index value arbitrarily, giving access to all elements of
+    -- the containing vector.
+    Some path1' <- return $ popIndex path1
+    Some path2' <- return $ popIndex path2
+    -- Essentially, this checks whether `rrp1` is a prefix of `rrp2` or vice
+    -- versa.
+    go (reverseRefPath path1') (reverseRefPath path2')
+  where
+    go :: forall tp1 tp1' tp2 tp2'.
+        ReversedRefPath sym tp1 tp1' ->
+        ReversedRefPath sym tp2 tp2' ->
+        MuxLeafT sym IO (RegValue sym BoolType)
+    -- An empty RefPath (`RrpNil`) covers the whole object, so it overlaps with
+    -- all other paths into the same object.
+    go RrpNil _ = return $ truePred sym
+    go _ RrpNil = return $ truePred sym
+    go (Empty_RefPath `RrpCons` rrp1) rrp2 = go rrp1 rrp2
+    go rrp1 (Empty_RefPath `RrpCons` rrp2) = go rrp1 rrp2
+    -- If two `Any_RefPath`s have different `tpr`s, then we assume they don't
+    -- overlap, since applying both to the same root will cause at least one to
+    -- give a type mismatch error.
+    go (Any_RefPath tpr1 _ `RrpCons` rrp1) (Any_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (Field_RefPath ctx1 _ idx1 `RrpCons` rrp1) (Field_RefPath ctx2 _ idx2 `RrpCons` rrp2)
+      | Just Refl <- testEquality ctx1 ctx2
+      , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
+    go (Variant_RefPath ctx1 _ idx1 `RrpCons` rrp1) (Variant_RefPath ctx2 _ idx2 `RrpCons` rrp2)
+      | Just Refl <- testEquality ctx1 ctx2
+      , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
+    go (Index_RefPath tpr1 _ idx1 `RrpCons` rrp1) (Index_RefPath tpr2 _ idx2 `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = do
+        rrpEq <- go rrp1 rrp2
+        idxEq <- liftIO $ bvEq sym idx1 idx2
+        liftIO $ andPred sym rrpEq idxEq
+    go (Just_RefPath tpr1 _ `RrpCons` rrp1) (Just_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (VectorAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
+        (VectorAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (ArrayAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
+        (ArrayAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go _ _ = return $ falsePred sym
+
+-- | Check whether the memory accessible through `ref1` overlaps the memory
+-- accessible through `ref2`.
+mirRef_overlapsLeaf :: IsSymInterface sym => sym ->
+    MirReference sym tp -> MirReference sym tp -> MuxLeafT sym IO (RegValue sym BoolType)
+mirRef_overlapsLeaf sym (MirReference root1 path1) (MirReference root2 path2) = do
+    rootOverlaps <- refRootOverlaps sym root1 root2
+    pathOverlaps <- refPathOverlaps sym path1 path2
+    liftIO $ andPred sym rootOverlaps pathOverlaps
+-- No memory is accessible through an integer reference, so they can't overlap
+-- with anything.
+mirRef_overlapsLeaf sym (MirReference_Integer _ _) _ = return $ falsePred sym
+mirRef_overlapsLeaf sym _ (MirReference_Integer _ _) = return $ falsePred sym
+
+mirRef_overlapsIO :: IsSymInterface sym => sym ->
+    MirReferenceMux sym tp -> MirReferenceMux sym tp -> IO (RegValue sym BoolType)
+mirRef_overlapsIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
+    zipFancyMuxTrees' sym (mirRef_overlapsLeaf sym) (itePred sym) r1 r2
+
 
 mirRef_offsetLeaf :: IsSymInterface sym => sym ->
     TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType ->
