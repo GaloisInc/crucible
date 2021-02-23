@@ -47,6 +47,7 @@ module Lang.Crucible.SymIO
   , closeFileHandle
   , readFromChunk
   , chunkToArray
+  , arrayToChunk
   ) where
 
 import           GHC.TypeNats
@@ -92,9 +93,11 @@ data FileSystemOps wptr =
     , fsReadChunk :: CFH.FnHandle (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> BVType wptr) (DataChunkType wptr)
     , fsResolveFileIdent :: CFH.FnHandle (Ctx.EmptyCtx Ctx.::> FileIdentType) (FileType wptr)
     , fsChunkToArray ::
-          CFH.FnHandle (Ctx.EmptyCtx Ctx.::> DataChunkType wptr)
-            (SymbolicArrayType (Ctx.EmptyCtx Ctx.::> BaseBVType wptr) (BaseBVType 8))
+        CFH.FnHandle (Ctx.EmptyCtx Ctx.::> DataChunkType wptr)
+          (SymbolicArrayType (Ctx.EmptyCtx Ctx.::> BaseBVType wptr) (BaseBVType 8))
     , fsReadFromChunk :: CFH.FnHandle (Ctx.EmptyCtx Ctx.::> DataChunkType wptr Ctx.::> BVType wptr) (BVType 8)
+    , fsArrayToChunk ::
+        CFH.FnHandle (Ctx.EmptyCtx Ctx.::> SymbolicArrayType (Ctx.EmptyCtx Ctx.::> BaseBVType wptr) (BaseBVType 8) Ctx.::> BVType wptr) (DataChunkType wptr)
     }
 
 callFSOp1 ::
@@ -209,6 +212,17 @@ chunkToArray chunk = do
   st <- get
   callFSOp1 (getFileSystemOps st) fsChunkToArray chunk
 
+arrayToChunk ::
+  HasFileSystem wptr (t s) =>
+  Monad m =>
+  CCE.IsSyntaxExtension ext =>
+  CCG.Expr ext s (SymbolicArrayType (Ctx.EmptyCtx Ctx.::> BaseBVType wptr) (BaseBVType 8)) ->
+  CCG.Expr ext s (BVType wptr) ->
+  CCG.Generator ext s t ret m (CCG.Expr ext s (DataChunkType wptr))
+arrayToChunk arr sz = do
+  st <- get
+  callFSOp2 (getFileSystemOps st) fsArrayToChunk arr sz
+
 resolveFileIdent ::
   HasFileSystem wptr (t s) =>
   Monad m =>
@@ -234,6 +248,7 @@ initFileSystemOps halloc =
      <*> CFH.mkHandle halloc "resolveFileIdent"
      <*> CFH.mkHandle halloc "chunkToArray"
      <*> CFH.mkHandle halloc "readFromChunk"
+     <*> CFH.mkHandle halloc "arrayToChunk"
 
 addFileSystemBindings ::
   (KnownNat wptr, 1 <= wptr) =>
@@ -263,6 +278,8 @@ addFileSystemBindings fops fs binds =
     (CET.UseOverride $ C.mkOverride "chunkToArray" chunkToArrayOv)
   $ CFH.insertHandleMap (fsReadFromChunk fops)
     (CET.UseOverride $ C.mkOverride "readFromChunk" readFromChunkOv)
+  $ CFH.insertHandleMap (fsArrayToChunk fops)
+    (CET.UseOverride $ C.mkOverride "arrayToChunk" arrayToChunkOv)
   binds
   
 ---------------------------------------
@@ -393,6 +410,12 @@ chunkToArrayOv ::
 chunkToArrayOv = do
   RegMap (Ctx.Empty Ctx.:> chunk) <- C.getOverrideArgs
   return $ chunkArray $ regValue chunk
+
+arrayToChunkOv ::
+  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> (SymbolicArrayType (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8)) Ctx.::> BVType wptr) ret (DataChunk sym wptr)
+arrayToChunkOv = do
+  RegMap (Ctx.Empty Ctx.:> array Ctx.:> sz) <- C.getOverrideArgs
+  return $ DataChunk (regValue array) (regValue sz)
 
 -----------------------------------------
 -- Internal operations

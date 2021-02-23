@@ -46,6 +46,7 @@ import qualified What4.CachedArray as CA
 
 symIOIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 symIOIntrinsicTypes = id
+  . MapF.insert (knownSymbol :: SymbolRepr "VFS_datachunk") IntrinsicMuxFn
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_filesystem") IntrinsicMuxFn
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_file") IntrinsicMuxFn
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_filepointer") IntrinsicMuxFn
