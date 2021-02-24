@@ -64,6 +64,7 @@ data LLVMOptions = LLVMOptions
   , laxArithmetic :: Bool
   , entryPoint :: String
   , lazyCompile :: Bool
+  , noCompile :: Bool
   , optLevel :: Int
   , loopMerge :: Bool
   }
@@ -111,6 +112,9 @@ llvmCruxConfig = do
 
          lazyCompile <- Crux.section "lazy-compile" Crux.yesOrNoSpec False
                            "Avoid compiling bitcode from source if intermediate files already exist"
+
+         noCompile <- Crux.section "no-compile" Crux.yesOrNoSpec False
+                        "Treat the input file as an LLVM module, do not compile it"
 
          ubSanitizers <- Crux.section "ub-sanitizers" (Crux.listSpec Crux.stringSpec) []
                            "Undefined Behavior sanitizers to enable in `clang`"
@@ -165,6 +169,11 @@ llvmCruxConfig = do
         "Avoid compiling bitcode from source if intermediate files already exist (default: off)"
         $ Crux.NoArg
         $ \opts -> Right opts{ lazyCompile = True }
+
+      , Crux.Option [] ["no-compile"]
+        "Treat the input file as an LLVM module, do not compile it"
+        $ Crux.NoArg
+        $ \opts -> Right opts{ noCompile = True }
 
       , Crux.Option [] ["entry-point"]
         "Name of the entry point to begin simulation"
