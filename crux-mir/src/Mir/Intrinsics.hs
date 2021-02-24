@@ -1418,18 +1418,21 @@ refPathOverlaps sym path1 path2 = do
 -- | Check whether the memory accessible through `ref1` overlaps the memory
 -- accessible through `ref2`.
 mirRef_overlapsLeaf :: IsSymInterface sym => sym ->
-    MirReference sym tp -> MirReference sym tp -> MuxLeafT sym IO (RegValue sym BoolType)
+    MirReference sym tp -> MirReference sym tp' -> MuxLeafT sym IO (RegValue sym BoolType)
 mirRef_overlapsLeaf sym (MirReference root1 path1) (MirReference root2 path2) = do
     rootOverlaps <- refRootOverlaps sym root1 root2
-    pathOverlaps <- refPathOverlaps sym path1 path2
-    liftIO $ andPred sym rootOverlaps pathOverlaps
+    case asConstantPred rootOverlaps of
+        Just False -> return $ falsePred sym
+        _ -> do
+            pathOverlaps <- refPathOverlaps sym path1 path2
+            liftIO $ andPred sym rootOverlaps pathOverlaps
 -- No memory is accessible through an integer reference, so they can't overlap
 -- with anything.
 mirRef_overlapsLeaf sym (MirReference_Integer _ _) _ = return $ falsePred sym
 mirRef_overlapsLeaf sym _ (MirReference_Integer _ _) = return $ falsePred sym
 
 mirRef_overlapsIO :: IsSymInterface sym => sym ->
-    MirReferenceMux sym tp -> MirReferenceMux sym tp -> IO (RegValue sym BoolType)
+    MirReferenceMux sym tp -> MirReferenceMux sym tp' -> IO (RegValue sym BoolType)
 mirRef_overlapsIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
     zipFancyMuxTrees' sym (mirRef_overlapsLeaf sym) (itePred sym) r1 r2
 
