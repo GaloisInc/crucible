@@ -107,11 +107,14 @@ llvmLinkVersion llvmOpts =
 -- pre-determined filename in the build directory specified in
 -- 'CruxOptions'.
 genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO FilePath
-genBitCode cruxOpts llvmOpts = do
+genBitCode cruxOpts llvmOpts =
   -- n.b. use of head here is OK because inputFiles should not be
   -- empty (and was previously verified as such in CruxLLVMMain).
-  let ofn = "crux~" <> (takeFileName $ head $ Crux.inputFiles cruxOpts) -<.> ".bc"
-  genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts llvmOpts False
+  if noCompile llvmOpts
+  then return (head (Crux.inputFiles cruxOpts))
+  else do
+    let ofn = "crux~" <> (takeFileName $ head $ Crux.inputFiles cruxOpts) -<.> ".bc"
+    genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts llvmOpts False
 
 -- | Given the target filename and a list of input files, along with
 -- the crux and llvm options, bitcode-compile each input .c file and
