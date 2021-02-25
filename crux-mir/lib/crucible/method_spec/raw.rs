@@ -1,3 +1,12 @@
+//! Bindings for low-level MethodSpec APIs.
+//!
+//! Like most functions in the `crucible` crate, these functions are left unimplemented in Rust
+//! and are replaced by a real implementation via the Crucible override mechanism.  However, unlike
+//! most other functions, the necessary overrides are not provided by `crux-mir`; instead, they are
+//! provided by the `crux-mir-comp` package in the `saw-script` repository, which extends ordinary
+//! `crux-mir` with additional overrides using `crux-mir`'s new `mainWithExtraOverrides` entry
+//! point.  Trying to use these APIs under ordinary `crux-mir` will produce an error.
+
 /// Crucible `MethodSpecType`, exposed to Rust.
 ///
 /// As usual for Crucible types, this implements `Copy`, since it's backed by a boxed,

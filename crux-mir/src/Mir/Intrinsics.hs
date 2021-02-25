@@ -1885,9 +1885,10 @@ getSliceLen e = getStruct i2of2 e
 -- ** MethodSpec and MethodSpecBuilder
 --
 -- We define the intrinsics here so they can be used in `TransTy.tyToRepr`, and
--- also define their interfaces (as typeclasses), but the concrete
--- implementations of these types are in `saw-script/crux-mir-comp`, since they
--- depend on some SAW components (notably SAW's `MethodSpec` and `Term` types).
+-- also define their interfaces (as typeclasses), but we don't provide any
+-- concrete implementations in `crux-mir`.  Instead, implementations of these
+-- types are in `saw-script/crux-mir-comp`, since they depend on some SAW
+-- components, such as `saw-script`'s `MethodSpec`.
 
 class MethodSpecImpl sym ms where
     -- | Pretty-print the MethodSpec, returning the result as a Rust string
