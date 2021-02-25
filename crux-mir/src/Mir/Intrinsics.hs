@@ -1505,6 +1505,59 @@ mirRef_peelIndexIO sym _ _ = do
     leafAbort sym $ Unsupported $
         "cannot perform peelIndex on invalid pointer"
 
+-- | Compute the index of `ref` within its containing allocation, along with
+-- the length of that allocation.  This is useful for determining the amount of
+-- memory accessible through all valid offsets of `ref`.
+--
+-- Unlike `peelIndex`, this operation is valid on non-`Index_RefPath`
+-- references (on which it returns `(0, 1)`) and also on `MirReference_Integer`
+-- (returning `(0, 0)`).
+mirRef_indexAndLenLeaf :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    MirReference sym tp ->
+    MuxLeafT sym IO (RegValue sym UsizeType, RegValue sym UsizeType)
+mirRef_indexAndLenLeaf sym s (MirReference root (Index_RefPath _tpr' path idx)) = do
+    let parent = MirReference root path
+    parentVec <- readMirRefLeaf s sym parent
+    lenInt <- case parentVec of
+        MirVector_Vector v -> return $ V.length v
+        MirVector_PartialVector pv -> return $ V.length pv
+        MirVector_Array _ -> leafAbort sym $ Unsupported $
+            "can't compute allocation length for MirVector_Array, which is unbounded"
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenInt
+    return (idx, len)
+mirRef_indexAndLenLeaf sym _ (MirReference _ _) = do
+    idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 1
+    return (idx, len)
+mirRef_indexAndLenLeaf sym _ (MirReference_Integer _ _) = do
+    -- No offset of `MirReference_Integer` is dereferenceable, so `len` is
+    -- zero.
+    zero <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
+    return (zero, zero)
+
+mirRef_indexAndLenIO :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    MirReferenceMux sym tp ->
+    IO (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
+mirRef_indexAndLenIO sym s (MirReferenceMux ref) = do
+    readPartialFancyMuxTree sym
+        (mirRef_indexAndLenLeaf sym s)
+        (\c (tIdx, tLen) (eIdx, eLen) -> do
+            idx <- baseTypeIte sym c tIdx eIdx
+            len <- baseTypeIte sym c tLen eLen
+            return (idx, len))
+        ref
+
+mirRef_indexAndLenSim :: IsSymInterface sym =>
+    MirReferenceMux sym tp ->
+    OverrideSim (Model sym) sym MIR rtp args ret
+        (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
+mirRef_indexAndLenSim ref = do
+    sym <- getSymInterface
+    s <- get
+    liftIO $ mirRef_indexAndLenIO sym s ref
+
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
 execMirStmt stmt s =
