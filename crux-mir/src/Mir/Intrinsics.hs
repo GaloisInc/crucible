@@ -1551,7 +1551,7 @@ mirRef_indexAndLenIO sym s (MirReferenceMux ref) = do
 
 mirRef_indexAndLenSim :: IsSymInterface sym =>
     MirReferenceMux sym tp ->
-    OverrideSim (Model sym) sym MIR rtp args ret
+    OverrideSim p sym MIR rtp args ret
         (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
 mirRef_indexAndLenSim ref = do
     sym <- getSymInterface
