@@ -23,6 +23,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- must come after TypeFamilies, see also https://gitlab.haskell.org/ghc/ghc/issues/18006
@@ -43,22 +44,31 @@ module What4.CachedArray
 import           GHC.Natural
 
 import           Control.Lens ( (.=), (.~), (&) )
-import           Control.Monad ( foldM )
+import           Control.Monad ( foldM, join )
+import           Control.Monad.Trans ( lift )
 import           Data.Functor.Const
 import           Data.Maybe ( catMaybes )
 import           Data.Map ( Map )
 import qualified Data.Map as Map
-
+import           Data.List (find)
+import           Data.Maybe (mapMaybe)
+  
+import           Data.Parameterized.Some
+import qualified Data.Parameterized.Nonce as N
 import           Data.IntervalMap.Generic.Strict ( IntervalMap )
 import qualified Data.IntervalMap.Generic.Strict as IM
+import qualified Data.IntervalMap.Generic.Interval as IM
 import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr ( type (<=) )
 import qualified Data.BitVector.Sized as BV
 
+import qualified Lang.Crucible.Utils.MuxTree as MT
 
+import qualified What4.Expr.Builder as W4B
 import qualified What4.Interface as W4
+import qualified What4.Partial as W4
 import qualified What4.Concrete as W4
 import qualified What4.Utils.AbstractDomains as W4
 import qualified What4.Utils.BVDomain as BVD
@@ -82,22 +92,25 @@ writeRange ::
   W4.SymArray sym (Ctx.EmptyCtx Ctx.::> (CtxHead ctx)) tp ->
   CachedArray sym ctx tp ->
   IO (CachedArray sym ctx tp)
-writeRange sym loExpr offExpr val arr | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx = do
+writeRange sym loExpr offExpr val arr | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx =
+  arrConstraints arr $ do
   rng <- mkSymRangeOff sym loExpr offExpr
-  let absIdx = symRangeToAbs rng
-  arr' <- invalidateEntries sym rng arr
+  arr' <- invalidateEntries sym gen rng arr
   -- offset the incoming array so that its value at zero becomes the value at
   -- the base address
-  let off = indexToOffset $ symRangeLo rng
-  (symIdx, vars) <- freshIndex sym Nothing (FC.fmapFC W4.exprType loExpr)
-  (SymOffset idxOffsetExpr) <- indexToOffset <$> subSymOffset sym symIdx off
-  body <- W4.arrayLookup sym val (Ctx.empty Ctx.:> idxOffsetExpr)
-  fn <- W4.definedFn sym (W4.safeSymbol "writeRange") vars body W4.AlwaysUnfold
-  val' <- W4.arrayFromFn sym fn
-  let entry = ArrayEntryArr (isInRange sym rng) val'
-  arr'' <- insertWithM absIdx entry (mergeEntries sym) (arrMap arr')
-  return $ arr { arrMap = arr'' }
-
+  let
+    off = indexToOffset $ symRangeLo rng
+    vals :: SymIndex sym ctx -> IO (W4.PartExpr (W4.Pred sym) (W4.SymExpr sym tp))
+    vals idx' = do
+        p <- isInRange sym rng idx'
+        (SymOffset idxOffsetExpr) <- indexToOffset <$> subSymOffset sym idx' off
+        v <- W4.arrayLookup sym val (Ctx.empty Ctx.:> idxOffsetExpr)
+        return $ W4.mkPE p v
+  entry <- mkMultiEntry sym gen vals
+  arr'' <- insertWithM (symRangeToAbs rng) (toPMuxTree sym entry) (mergeEntriesMux sym gen (isInRange sym rng)) (arrMap arr')
+  incNonce $ arr { arrMap = arr''}
+  where
+    gen = arrNonceGen arr
 
 writeSingle ::
   forall sym ctx tp.
@@ -107,13 +120,14 @@ writeSingle ::
   W4.SymExpr sym  tp ->
   CachedArray sym ctx tp ->
   IO (CachedArray sym ctx tp)
-writeSingle sym symIdxExpr val arr = arrConstraints arr $ do  
-  arr' <- invalidateEntries sym (SymRangeSingle symIdx) arr
-  let entry = ArrayEntryVal symIdx (W4.truePred sym) val
-  arr'' <- insertWithM absIdx entry (mergeEntries sym) (arrMap arr')
-  return $ arr { arrMap = arr'' }
+writeSingle sym symIdxExpr val arr = arrConstraints arr $ do
+  arr' <- invalidateEntries sym gen (SymRangeSingle symIdx) arr
+  entry <- mkValEntry sym gen symIdx val
+  
+  arr'' <- insertWithM (symIdxToAbs symIdx) (toPMuxTree sym entry) (mergeEntriesMux sym gen (isEqIndex sym symIdx)) (arrMap arr')
+  incNonce $ arr { arrMap = arr'' }
   where
-    absIdx = symIdxToAbs symIdx
+    gen = arrNonceGen arr
     symIdx = mkSymIndex symIdxExpr
 
 
@@ -154,7 +168,6 @@ readRange sym loExpr offExpr arr | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx = 
   W4.arrayFromFn sym fn
 
 
--- TODO: use nonces to determine when this is unecessary
 muxArrays ::
   forall sym idx tp.
   W4.IsSymExprBuilder sym =>
@@ -163,89 +176,109 @@ muxArrays ::
   CachedArray sym idx tp ->
   CachedArray sym idx tp ->
   IO (CachedArray sym idx tp)
-muxArrays sym p arr1 arr2 = arrConstraints arr1 $ do
-  arr' <- mapMIntersection (\_ eT eF -> muxEntries sym p eT eF) (arrMap arr1) (arrMap arr2)
-  return $ arr1 { arrMap = arr' }
+muxArrays sym p arr1 arr2 = case arr1 == arr2 of
+  True -> return arr1
+  False -> arrConstraints arr1 $ do
+    arr' <- mapMIntersection (\_ eT eF -> muxEntries sym p eT eF) (arrMap arr1) (arrMap arr2)
+    incNonce $ arr1 { arrMap = arr' }
 
 -- | Initialize an array with symbolic contents at concrete locations
 initArrayConcrete ::
   forall sym idx tp idx' tp'.
   W4.IsSymExprBuilder sym =>
+  ShowF (W4.SymExpr sym) =>
   idx ~ (idx' Ctx.::> tp') =>
   sym ->
+  N.NonceGenerator IO (ScopeOf sym) ->
+  W4.BaseTypeRepr tp ->
   Map (Ctx.Assignment W4.ConcreteVal idx) (W4.SymExpr sym tp) ->
   IO (CachedArray sym idx tp)
-initArrayConcrete sym m = do
+initArrayConcrete sym gen repr m = do
+  nonce <- N.freshNonce gen
   im <- IM.fromList <$> mapM go (Map.assocs m)
-  return $ CachedArray im id
+  return $ CachedArray im id repr gen nonce
   where
     go ::
       (Ctx.Assignment W4.ConcreteVal idx, W4.SymExpr sym tp) ->
-      IO (AbsIndex idx, ArrayEntry sym idx tp)
+      IO (AbsIndex idx, PMuxTree sym (ArrayEntry sym idx tp))
     go (cidx, v) = do
-      sidx <- concreteIdxToSym sym cidx
-      let
-        aidx = symIdxToAbs @sym sidx
-        entry = ArrayEntryVal sidx (W4.truePred sym) v
-      return $ (aidx, entry)
+      symIdx <- concreteIdxToSym sym cidx
+      entry <- mkValEntry sym gen symIdx v
+      return $ (symIdxToAbs symIdx, toPMuxTree sym entry)
 
 -- | Initialize an array with symbolic contents at symbolic locations
 initArray ::
   forall sym idx tp idx' tp'.
   W4.IsSymExprBuilder sym =>
+  ShowF (W4.SymExpr sym) =>
   idx ~ (idx' Ctx.::> tp') =>
   sym ->
+  N.NonceGenerator IO (ScopeOf sym) ->
+  W4.BaseTypeRepr tp ->
   Map (Ctx.Assignment (W4.SymExpr sym) idx) (W4.SymExpr sym tp) ->
   IO (CachedArray sym idx tp)
-initArray sym m = do
+initArray sym gen repr m = do
+  nonce <- N.freshNonce gen
   im <- IM.fromList <$> mapM go (Map.assocs m)
-  return $ CachedArray im id
+  return $ CachedArray im id repr gen nonce
   where
     go ::
       (Ctx.Assignment (W4.SymExpr sym) idx, W4.SymExpr sym tp) ->
-      IO (AbsIndex idx, ArrayEntry sym idx tp)
+      IO (AbsIndex idx, PMuxTree sym (ArrayEntry sym idx tp))
     go (symIdxExpr, v) = do
       let
         symIdx = SymIndex symIdxExpr Nothing
-        aidx = symIdxToAbs @sym symIdx
-        entry = ArrayEntryVal symIdx (W4.truePred sym) v
-      return $ (aidx, entry)
+      entry <- mkValEntry sym gen symIdx v
+      return $ (symIdxToAbs symIdx, toPMuxTree sym entry)
 
 ---------------------------------------------------
 -- Implementation
+type family ScopeOf k :: * where
+  ScopeOf (W4B.ExprBuilder t st fs) = t
 
-
-data CachedArray sym (idx :: Ctx.Ctx W4.BaseType) (tp :: W4.BaseType) where
+data CachedArray sym (ctx :: Ctx.Ctx W4.BaseType) (tp :: W4.BaseType) where
   CachedArray ::
     {
-      arrMap :: IntervalMap (AbsIndex ctx) (ArrayEntry sym ctx tp)
-    , arrConstraints :: forall a. (NonEmptyCtx ctx => a) -> a
+      arrMap :: IntervalMap (AbsIndex ctx) (PMuxTree sym (ArrayEntry sym ctx tp))
+    , arrConstraints :: forall a. ((NonEmptyCtx ctx, ShowF (W4.SymExpr sym)) => a) -> a
+    , arrTypeRepr :: W4.BaseTypeRepr tp
+    , arrNonceGen :: N.NonceGenerator IO (ScopeOf sym)
+    , _arrNonce :: N.Nonce (ScopeOf sym) (ctx Ctx.::> tp)
     } -> CachedArray sym ctx tp
 
+instance Eq (CachedArray sym idx tp) where
+  (CachedArray _ _ _ _ nonce1) == (CachedArray _ _ _ _ nonce2) = case testEquality nonce1 nonce2 of
+    Just Refl -> True
+    _ -> False
+
+incNonce :: CachedArray sym idx tp -> IO (CachedArray sym idx tp)
+incNonce (CachedArray am ac tr gen _) = do
+  nonce <- N.freshNonce gen
+  return $ CachedArray am ac tr gen nonce
 
 -- | An array entry defines a set of possible values for a given
--- abstract domain. Entries may overlap, therefore each is paired
--- with a validity predicate that defines precisely which (symbolic)
--- indexes the entry is valid on.
+-- abstract domain. Entries may overlap, and so as an invariant we
+-- preserve the fact that at each logical index, exactly one entry is valid
 data ArrayEntry sym ctx tp where
-  ArrayEntryArr ::
-    (SymIndex sym ctx -> IO (W4.Pred sym)) ->
-    -- ^ indexes that this array is valid on
-    W4.SymArray sym ctx tp ->
-    ArrayEntry sym ctx tp
-  -- ^ a symbolic array entry defines a collection of values which
-  -- are valid on the abstract domain of the entry, given that the
-  -- validity predicate holds. It represents multiple array writes coalesced
-  -- into a single term.
-  ArrayEntryVal ::
-    SymIndex sym ctx ->
-    -- ^ exact (symbolic) index that for this entry
-    W4.Pred sym ->
-    -- ^ predicate which is true when this value is live
-    W4.SymExpr sym tp ->
-    ArrayEntry sym ctx tp
-  -- ^ a symbolic value entry represents a single write to an abstract
-  -- index.
+  ArrayEntry ::
+    { entryVals :: (SymIndex sym ctx -> IO (W4.PartExpr (W4.Pred sym) (W4.SymExpr sym tp)))
+    , entryNonce :: N.Nonce (ScopeOf sym) tp
+    } -> ArrayEntry sym ctx tp
+
+
+incNonceEntry ::
+  N.NonceGenerator IO (ScopeOf sym) ->
+  ArrayEntry sym ctx tp ->
+  IO (ArrayEntry sym ctx tp)
+incNonceEntry gen (ArrayEntry vals _) = do
+  nonce <- N.freshNonce gen
+  return $ ArrayEntry vals nonce
+
+instance Eq (ArrayEntry sym ctx tp) where
+  e1 == e2 = entryNonce e1 == entryNonce e2
+
+instance Ord (ArrayEntry sym ctx tp) where
+  compare e1 e2 = compare (entryNonce e1) (entryNonce e2)
 
 -- | A symbolic index into the array. It represents the index for a single array element,
 -- although its value may be symbolic
@@ -256,6 +289,9 @@ data SymIndex sym ctx =
       -- | an optional override for the abstract domain of the index
     , symIdxAbs :: Maybe (AbsIndex ctx)
     }
+
+deriving instance (W4.IsSymExprBuilder sym => Eq (SymIndex sym ctx))
+deriving instance (W4.IsSymExprBuilder sym => Ord (SymIndex sym ctx))
 
 -- | An offset is an index into the last element of the array index
 -- A value range is always representable as a base + offset
@@ -304,6 +340,23 @@ negateSymOffset sym (SymOffset off) = do
     _ -> fail $ "Unsupported type"  
   return $ SymOffset e'
 
+-- | Previous offset from the given one, to create an exclusive upper bound
+prevSymOffset ::
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  SymOffset sym ctx ->
+  IO (SymOffset sym ctx)
+prevSymOffset sym (SymOffset off) = do
+  e' <- case W4.exprType off of
+    W4.BaseIntegerRepr -> do
+      one <- W4.intLit sym 1
+      W4.intSub sym off one
+    W4.BaseBVRepr w -> do
+      one <- W4.bvLit sym w (BV.mkBV w 1)
+      W4.bvSub sym off one
+    _ -> fail $ "Unsupported type"  
+  return $ SymOffset e'
+
 subSymOffset ::
   W4.IsSymExprBuilder sym =>
   sym ->
@@ -320,6 +373,8 @@ mkSymIndex ::
   SymIndex sym ctx
 mkSymIndex e = SymIndex e Nothing
 
+-- | Represents a symbolic range, where equality and ordering is defined on the
+-- abstract domain of the underlying expression
 data SymRange sym ctx =
     SymRangeSingle (SymIndex sym ctx)
   | SymRangeMulti (SymIndex sym ctx) (SymIndex sym ctx)
@@ -327,6 +382,10 @@ data SymRange sym ctx =
 symRangeLo :: SymRange sym ctx -> SymIndex sym ctx
 symRangeLo (SymRangeSingle symIdx) = symIdx
 symRangeLo (SymRangeMulti loIdx _) = loIdx
+
+symRangeHi :: SymRange sym ctx -> SymIndex sym ctx
+symRangeHi (SymRangeSingle symIdx) = symIdx
+symRangeHi (SymRangeMulti _ hiIdx) = hiIdx
 
 symRangeToAbs ::
   W4.IsSymExprBuilder sym =>
@@ -336,17 +395,9 @@ symRangeToAbs (SymRangeSingle symIdx) = symIdxToAbs symIdx
 symRangeToAbs (SymRangeMulti loIdx hiIdx) =
   joinAbsIndex (symIdxToAbs loIdx) (symIdxToAbs hiIdx)
 
-mkSymRange ::
-  forall sym ctx.
-  W4.IsSymExprBuilder sym =>
-  Ctx.Assignment (W4.SymExpr sym) ctx ->
-  Ctx.Assignment (W4.SymExpr sym) ctx ->
-  SymRange sym ctx
-mkSymRange loExpr hiExpr = case testEquality loExpr hiExpr of
-  Just Refl -> SymRangeSingle $ mkSymIndex loExpr
-  Nothing -> SymRangeMulti (mkSymIndex @sym loExpr) (mkSymIndex @sym hiExpr)
 
-
+-- | Create a range that is exclusive of the given offset
+-- i.e. 2 + 4 --> (2, 5)
 mkSymRangeOff ::
   forall sym ctx ctx' offtp.
   ctx ~ (ctx' Ctx.::> offtp) =>
@@ -359,11 +410,9 @@ mkSymRangeOff sym loExpr offExpr = do
   let
     lo = mkSymIndex @sym loExpr
     off = SymOffset offExpr
-  hi <- addSymOffset sym lo off
+  offPrev <- prevSymOffset sym off
+  hi <- addSymOffset sym lo offPrev
   return $ (SymRangeMulti lo hi)
-
-isConcreteIndex :: W4.IsSymExprBuilder sym => SymIndex sym ctx -> Bool
-isConcreteIndex (SymIndex symIdxExpr _) = FC.allFC W4.baseIsConcrete symIdxExpr
 
 data NonEmptyCtxRepr (ctx :: Ctx.Ctx k) where
   NonEmptyCtxRepr :: NonEmptyCtxRepr (ctx Ctx.::> x)
@@ -378,24 +427,15 @@ instance NonEmptyCtx (ctx Ctx.::> tp) where
   type CtxTail (ctx Ctx.::> tp) = ctx
   nonEmptyCtxRepr = NonEmptyCtxRepr
 
-entryCond ::
-  W4.IsSymExprBuilder sym =>
-  sym -> 
-  ArrayEntry sym ctx tp ->
-  SymIndex sym ctx ->
-  IO (W4.Pred sym)
-entryCond _sym (ArrayEntryArr condF _) idx = condF idx
-entryCond sym (ArrayEntryVal idx' p _) idx = do
-  p' <- isEqIndex sym idx idx'
-  W4.andPred sym p p'
 
 constEntryCond ::
   W4.IsSymExprBuilder sym =>
-  sym -> 
   ArrayEntry sym ctx tp ->
   SymIndex sym ctx ->
   IO (Maybe Bool)
-constEntryCond sym entry idx = W4.asConstantPred <$> entryCond sym entry idx
+constEntryCond entry idx = entryVals entry idx >>= \case
+  W4.Unassigned -> return $ Just False
+  W4.PE p _ -> return $ W4.asConstantPred p
 
 data AbsInterval tp where
   AbsIntervalInt :: W4.ValueRange Integer -> AbsInterval W4.BaseIntegerType
@@ -453,6 +493,8 @@ instance OrdF AbsIntervalEnd where
     (AbsIntervalEndInt{}, AbsIntervalEndBV{}) -> LTF
     (AbsIntervalEndBV{}, AbsIntervalEndInt{}) -> GTF
 
+
+
 instance IM.Interval (AbsInterval tp) (AbsIntervalEnd tp) where
   lowerBound ai = case ai of
     AbsIntervalInt v -> AbsIntervalEndInt $ W4.rangeLowBound v
@@ -472,14 +514,6 @@ instance IM.Interval (AbsIndex tp) (AbsIndexEnd tp) where
 newtype AbsIndexEnd (idx :: Ctx.Ctx W4.BaseType) =
   AbsIndexEnd (Ctx.Assignment AbsIntervalEnd idx)
   deriving (Eq, Ord)
-
-addIntervals ::
-  AbsInterval tp ->
-  AbsInterval tp ->
-  AbsInterval tp
-addIntervals i1 i2 = case (i1, i2) of
-  (AbsIntervalInt n1, AbsIntervalInt n2) -> AbsIntervalInt (W4.addRange n1 n2)
-  (AbsIntervalBV w bv1, AbsIntervalBV _ bv2) -> AbsIntervalBV w (W4.addRange bv1 bv2)
 
 bvDomainRange ::
   1 <= w =>
@@ -505,7 +539,7 @@ absToInterval repr v = case repr of
   W4.BaseIntegerRepr -> AbsIntervalInt v
   W4.BaseBVRepr w -> bvDomainRange w v
   _ -> error "Unsupported type"
-    
+
 
 readArrayBase ::
   forall sym idx tp.
@@ -514,96 +548,62 @@ readArrayBase ::
   SymIndex sym idx ->
   CachedArray sym idx tp ->
   IO (W4.SymExpr sym tp)
-readArrayBase sym symIdx arr = case isConcreteIndex symIdx of
-  True | Just e@(ArrayEntryVal _ _ v) <- IM.lookup k (arrMap arr) -> do
-    constEntryCond sym e symIdx >>= \case
-      Just True -> return v
-      _ -> symbolic
-  _ -> symbolic      
+readArrayBase sym symIdx arr = do
+  let
+    intersecting = IM.toAscList $ IM.intersecting (arrMap arr) (symIdxToAbs symIdx)
+  entries <- mapM expandEntry $ concat $ map (viewPMuxTree . snd) intersecting
+  case entries of
+    [(W4.PE p (AsOrd e), path_cond)]
+      | Just True <- W4.asConstantPred path_cond
+      , Just True <- W4.asConstantPred p -> return e
+    entryExprs -> arrConstraints arr $ do
+      
+      muxTree <- mkPMuxTreePartial sym entryExprs
+      MT.collapseMuxTree sym ite muxTree >>= \case
+        Just (AsOrd e) -> return e
+        -- garbage result
+        Nothing -> W4.freshConstant sym W4.emptySymbol (arrTypeRepr arr)
+      
   where
-    k = symIdxToAbs @sym symIdx
+    ite ::
+      W4.Pred sym -> 
+      Maybe (AsOrd (W4.SymExpr sym) tp) ->
+      Maybe (AsOrd (W4.SymExpr sym) tp) ->
+      IO (Maybe (AsOrd (W4.SymExpr sym) tp))
+    ite p (Just (AsOrd e1)) (Just (AsOrd e2)) = (Just . AsOrd) <$> W4.baseTypeIte sym p e1 e2
+    ite _ Nothing (Just e2) = return $ Just e2
+    ite _ (Just e1) Nothing = return $ Just e1
+    ite _ Nothing Nothing = return Nothing
     
-    symbolic :: IO (W4.SymExpr sym tp)
-    symbolic = do
-      let intersecting = IM.toAscList $ IM.intersecting (arrMap arr) k
-      arrConstraints arr $ 
-        mapM (\(_, entry) -> readEntry sym symIdx entry) intersecting >>= \case  
-          [] -> fail "readArray: unexpected empty result"
-          ((r, _) : rest) -> collapse r rest
+    expandEntry ::
+      (ArrayEntry sym idx tp, W4.Pred sym) ->
+      IO (W4.PartExpr (W4.Pred sym) (AsOrd (W4.SymExpr sym) tp), W4.Pred sym)
+    expandEntry (entry, path_cond) = do
+      val <- entryVals entry symIdx
+      return $ (fmap AsOrd val, path_cond)
 
-    collapse ::
-      W4.SymExpr sym tp ->
-      [(W4.SymExpr sym tp, W4.Pred sym)] ->
-      IO (W4.SymExpr sym tp)
-    collapse default_ ((r, cond) : rest) = W4.iteM W4.baseTypeIte sym cond (return r) (collapse default_ rest)
-    collapse default_ [] = return default_
-
-readEntry ::
-  forall sym ctx tp.
+mkValEntry ::
   W4.IsSymExprBuilder sym =>
-  NonEmptyCtx ctx =>
   sym ->
+  N.NonceGenerator IO (ScopeOf sym) ->
   SymIndex sym ctx ->
-  ArrayEntry sym ctx tp ->
-  IO (W4.SymExpr sym tp, W4.Pred sym)
-readEntry sym symIdx@(SymIndex symIdxExpr _) entry = do
-  cond <- entryCond sym entry symIdx
-  case entry of
-    ArrayEntryArr _ arr -> do
-      NonEmptyCtxRepr <- return $ nonEmptyCtxRepr @_ @ctx
-      v <- W4.arrayLookup sym arr symIdxExpr 
-      return (v, cond)
-    ArrayEntryVal _ _ v -> do
-      return (v, cond)
-
-_isWithinInterval ::
-  W4.IsSymExprBuilder sym =>
-  sym ->
-  Ctx.Assignment (W4.SymExpr sym) idx ->
-  AbsIndex idx ->
-  IO (W4.Pred sym)
-_isWithinInterval sym idx (AbsIndex absIdx) = do
-  preds <- FC.toListFC getConst <$> Ctx.zipWithM (\e a -> Const <$> isWithinInterval' sym e a) idx absIdx
-  foldM (W4.andPred sym) (W4.truePred sym) preds
-
-
-isWithinInterval' ::
-  W4.IsSymExprBuilder sym =>
-  sym ->
   W4.SymExpr sym tp ->
-  AbsInterval tp ->
-  IO (W4.Pred sym)
-isWithinInterval' sym e ai = case ai of
-  AbsIntervalInt (W4.SingleRange n) -> do
-    n' <- W4.intLit sym n
-    W4.isEq sym n' e
-  AbsIntervalInt (W4.MultiRange loBound hiBound) -> do
-    isLoBound <- case loBound of
-      W4.Unbounded -> return $ W4.truePred sym
-      W4.Inclusive lo -> do
-        lo' <- W4.intLit sym lo
-        W4.intLe sym lo' e
-    isHiBound <- case hiBound of
-      W4.Unbounded -> return $ W4.truePred sym
-      W4.Inclusive hi -> do
-        hi' <- W4.intLit sym hi
-        W4.intLe sym e hi'
-    W4.andPred sym isLoBound isHiBound
-  AbsIntervalBV w (W4.SingleRange i) -> do
-    i' <- W4.bvLit sym w (BV.mkBV w i)
-    W4.isEq sym i' e
-  AbsIntervalBV w (W4.MultiRange loBound hiBound) -> do
-    isLoBound <- case loBound of
-      W4.Unbounded -> return $ W4.truePred sym
-      W4.Inclusive lo -> do
-        lo' <- W4.bvLit sym w (BV.mkBV w lo)
-        W4.bvUle sym lo' e
-    isHiBound <- case hiBound of
-      W4.Unbounded -> return $ W4.truePred sym
-      W4.Inclusive hi -> do
-        hi' <- W4.bvLit sym w (BV.mkBV w hi)
-        W4.bvUle sym e hi'
-    W4.andPred sym isLoBound isHiBound
+  IO (ArrayEntry sym ctx tp)
+mkValEntry sym gen idx v = do
+  let vals idx' = do
+        p <- isEqIndex sym idx idx'
+        return $ W4.mkPE p v
+  mkMultiEntry sym gen vals
+
+mkMultiEntry ::
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  N.NonceGenerator IO (ScopeOf sym) ->
+  (SymIndex sym ctx -> IO (W4.PartExpr (W4.Pred sym) (W4.SymExpr sym tp))) ->
+  IO (ArrayEntry sym ctx tp)
+mkMultiEntry _sym gen vals = do
+  nonce <- N.freshNonce gen
+  return $ ArrayEntry vals nonce
 
 symIdxToAbs ::
   forall sym ctx.
@@ -622,33 +622,29 @@ concreteIdxToSym sym conc = do
  symIdxExpr <- FC.traverseFC (W4.concreteToSym sym) conc
  return $ SymIndex symIdxExpr Nothing
 
+
 -- | Invalidate all entries within the given range
+-- TODO: delete entries which are statically invalid
 invalidateRange ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
+  ShowF (W4.SymExpr sym) =>
   sym ->
+  N.NonceGenerator IO (ScopeOf sym) ->
+  -- | range to invalidate
   SymRange sym ctx ->
+  -- | range of this entry
+  AbsIndex ctx ->
   ArrayEntry sym ctx tp ->
   IO (Maybe (ArrayEntry sym ctx tp))
-invalidateRange sym rng e = case e of
-  ArrayEntryArr condF v -> do        
-    let
-      condF' symIdx' = do
-        notThis <- W4.notPred sym =<< isInRange sym rng symIdx'
-        cond <- condF symIdx'
-        W4.andPred sym notThis cond
-      entry = ArrayEntryArr condF' v
+invalidateRange sym gen invalid_rng _this_rng entry = do
+  let vals symIdx' = do
+        notThis <- W4.notPred sym =<< isInRange sym invalid_rng symIdx'
+        val <- entryVals entry symIdx'
+        W4.runPartialT sym notThis $ W4.returnPartial val
+  entry' <- incNonceEntry gen $ entry { entryVals = vals }
+  return $ Just entry'
 
-    freshIdx <- mkSymIndex <$> FC.traverseFC (W4.freshConstant sym W4.emptySymbol) (rangeRepr rng)
-    constEntryCond sym entry freshIdx >>= \case
-      Just False -> return $ Nothing
-      _ -> return $ Just entry
-  ArrayEntryVal symIdx' cond v -> do
-    notThis <- W4.notPred sym =<< isInRange sym rng symIdx'
-    cond' <- W4.andPred sym notThis cond
-    case W4.asConstantPred cond' of
-      Just False -> return Nothing
-      _ -> return $ Just $ ArrayEntryVal symIdx' cond' v
 
 isInRange ::
   forall sym ctx.
@@ -687,24 +683,6 @@ isEqIndex sym (SymIndex symIdxExpr1 _) (SymIndex symIdxExpr2 _) = do
 
 
 -- FIXME: highly inefficient
-_mapMInterval ::
-  forall k v e m.
-  Monad m =>
-  IM.Interval k e =>
-  Eq k =>
-  (k -> v -> m (Maybe v)) ->
-  IM.IntervalMap k v ->
-  m (IM.IntervalMap k v)
-_mapMInterval f im = do
-  im' <- catMaybes <$> mapM go (IM.toAscList im)
-  return $ IM.fromAscList im'
-  where
-    go :: (k, v) -> m (Maybe (k, v))
-    go (k, v) = f k v >>= \case
-      Just v' -> return $ Just (k, v')
-      Nothing -> return Nothing
-
--- FIXME: highly inefficient
 mapMIntersecting ::
   forall k v e m.
   Monad m =>
@@ -716,8 +694,11 @@ mapMIntersecting ::
   m (IM.IntervalMap k v)
 mapMIntersecting k f im = do
   let (pref, inter, suf) = IM.splitIntersecting im k
-  im' <- catMaybes <$> mapM go (IM.toAscList inter)
-  return $ IM.fromAscList (IM.toAscList pref ++ im' ++ IM.toAscList suf)
+  case IM.size inter of
+    0 -> return im
+    _ -> do
+      im' <- catMaybes <$> mapM go (IM.toAscList inter)
+      return $ IM.fromAscList (IM.toAscList pref ++ im' ++ IM.toAscList suf)
   where
     go :: (k, v) -> m (Maybe (k, v))
     go (k', v) = f k' v >>= \case
@@ -758,28 +739,23 @@ invalidateEntries ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
   sym ->
+  N.NonceGenerator IO (ScopeOf sym) ->
   SymRange sym ctx ->
   CachedArray sym ctx tp ->
   IO (CachedArray sym ctx tp)
-invalidateEntries sym symRange arr = do
-  cmap <- mapMIntersecting absIdx (\_ -> invalidateRange sym symRange) (arrMap arr)
+invalidateEntries sym gen symRange arr = arrConstraints arr $ do
+  cmap <- mapMIntersecting absIndex (\k v -> getMaybe <$> pmuxTreeMaybeOp sym (invalidateRange sym gen symRange k) v) (arrMap arr)
   return $ arr { arrMap = cmap }
   where
-    absIdx = symRangeToAbs symRange
+    absIndex = symRangeToAbs symRange
+    getMaybe :: PMuxTree sym (ArrayEntry sym ctx tp) -> Maybe (PMuxTree sym (ArrayEntry sym ctx tp))
+    getMaybe mt | isEmptyPMuxTree mt = Nothing
+    getMaybe mt = Just mt
+      
+buildMuxTree :: (W4.IsExprBuilder sym, Ord a) => sym -> a -> [(a, W4.Pred sym)] -> IO (MT.MuxTree sym a)
+buildMuxTree sym a as =
+  foldM (\mt (a',p) -> MT.mergeMuxTree sym p (MT.toMuxTree sym a') mt) (MT.toMuxTree sym a) as
 
-muxConditions ::
-  forall sym ctx.
-  W4.IsSymExprBuilder sym =>
-  sym ->
-  W4.Pred sym ->
-  (SymIndex sym ctx -> IO (W4.Pred sym)) ->
-  (SymIndex sym ctx -> IO (W4.Pred sym)) ->
-  SymIndex sym ctx ->
-  IO (W4.Pred sym)
-muxConditions sym p fcondT fcondF symIdx = do
- condT <- fcondT symIdx
- condF <- fcondF symIdx
- W4.baseTypeIte sym p condT condF
 
 joinAbsIndex ::
   AbsIndex ctx ->
@@ -796,125 +772,127 @@ joinAbsInterval a1 a2 = case (a1, a2) of
   (AbsIntervalInt rng1, AbsIntervalInt rng2) -> AbsIntervalInt $ W4.avJoin W4.BaseIntegerRepr rng1 rng2
   (AbsIntervalBV w rng1, AbsIntervalBV _ rng2) -> AbsIntervalBV w $ W4.avJoin W4.BaseIntegerRepr rng1 rng2
 
-muxSymIndex ::
-  forall sym ctx.
-  W4.IsSymExprBuilder sym =>
-  sym ->
-  W4.Pred sym ->
-  SymIndex sym ctx ->
-  SymIndex sym ctx ->
-  IO (SymIndex sym ctx)
-muxSymIndex sym p (SymIndex symIdxExprT mabsT) (SymIndex symIdxExprF mabsF) = do
- symIdxExpr <- Ctx.zipWithM (W4.baseTypeIte sym p) symIdxExprT symIdxExprF
- return $ SymIndex symIdxExpr mabs
- where
-   mabs :: Maybe (AbsIndex ctx)
-   mabs = do
-     absT <- mabsT
-     absF <- mabsF
-     return $ joinAbsIndex absT absF
 
 muxEntries ::
-  forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
-  NonEmptyCtx ctx =>
   sym ->
   W4.Pred sym ->
-  ArrayEntry sym ctx tp ->
-  ArrayEntry sym ctx tp ->
-  IO (ArrayEntry sym ctx tp)
-muxEntries sym p eT eF  = case (eT, eF) of
-  (ArrayEntryArr fcondT aT, ArrayEntryArr fcondF aF) -> do
-    a <- W4.baseTypeIte sym p aT aF
-    return $ ArrayEntryArr (muxConditions sym p fcondT fcondF) a
-  (ArrayEntryVal idxT condT vT, ArrayEntryVal idxF condF vF) -> do
-    idx <- muxSymIndex sym p idxT idxF
-    cond <- W4.baseTypeIte sym p condT condF
-    a <- W4.baseTypeIte sym p vT vF
-    return $ ArrayEntryVal idx cond a
-  (ArrayEntryArr fcondT aT, ArrayEntryVal _ _ vF) -> do
-    W4.BaseArrayRepr repr _ <- return $ W4.exprType aT
-    aF <- W4.constantArray sym repr vF
-    a <- W4.baseTypeIte sym p aT aF
-    return $ ArrayEntryArr (muxConditions sym p fcondT (entryCond sym eF)) a
-  (ArrayEntryVal _ _ vT, ArrayEntryArr fcondF aF) -> do    
-    W4.BaseArrayRepr repr _ <- return $ W4.exprType aF
-    aT <- W4.constantArray sym repr vT
-    a <- W4.baseTypeIte sym p aT aF
-    return $ ArrayEntryArr (muxConditions sym p (entryCond sym eT) fcondF) a    
-
-freshIndex ::
-  forall sym idx.
-  W4.IsSymExprBuilder sym =>
-  sym ->
-  Maybe (AbsIndex idx) ->
-  Ctx.Assignment W4.BaseTypeRepr idx ->
-  IO (SymIndex sym idx, Ctx.Assignment (W4.BoundVar sym) idx)
-freshIndex sym mabsIdx reprs = do
-  vars <- FC.traverseFC (W4.freshBoundVar sym W4.emptySymbol) reprs
-  let symIdx = SymIndex (FC.fmapFC (W4.varExpr sym) vars) mabsIdx
-  return $ (symIdx, vars)
-
-
-idxRepr ::
-  W4.IsSymExprBuilder sym =>
-  SymIndex sym ctx -> Ctx.Assignment W4.BaseTypeRepr ctx
-idxRepr (SymIndex e _) = FC.fmapFC W4.exprType e
-
-rangeRepr ::
-  W4.IsSymExprBuilder sym =>
-  SymRange sym ctx -> Ctx.Assignment W4.BaseTypeRepr ctx
-rangeRepr (SymRangeSingle idx) = idxRepr idx
-rangeRepr (SymRangeMulti idx _) = idxRepr idx
-
-entryRepr ::
-  W4.IsSymExprBuilder sym =>
-  ArrayEntry sym ctx tp -> Ctx.Assignment W4.BaseTypeRepr ctx
-entryRepr entry = case entry of
-  ArrayEntryVal idx _ _ -> idxRepr idx
-  ArrayEntryArr _ arr
-    | W4.BaseArrayRepr repr _ <- W4.exprType arr -> repr
-  _ -> error "impossible"
+  PMuxTree sym (ArrayEntry sym ctx tp) ->
+  PMuxTree sym (ArrayEntry sym ctx tp) ->
+  IO (PMuxTree sym (ArrayEntry sym ctx tp))
+muxEntries sym p mtT mtF = MT.mergeMuxTree sym p mtT mtF
 
 mergeEntries ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
+  ShowF (W4.SymExpr sym) =>
   NonEmptyCtx ctx =>
   sym ->
+  N.NonceGenerator IO (ScopeOf sym) ->
+  (SymIndex sym ctx -> IO (W4.Pred sym)) ->
   ArrayEntry sym ctx tp ->
   ArrayEntry sym ctx tp ->
   IO (ArrayEntry sym ctx tp)
-mergeEntries sym e1 e2 | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ @ctx = case (e1, e2) of
-  (ArrayEntryVal symIdx cond v, _) -> mergeEntryVal sym symIdx cond v e1
-  (_, ArrayEntryVal symIdx cond v) -> mergeEntryVal sym symIdx cond v e2
-  (ArrayEntryArr fcond1 _, ArrayEntryArr fcond2 _) -> do
-    (symIdx, vars) <- freshIndex sym Nothing (entryRepr e1)    
-    let
-      fcond symIdx' = do
-        cond1 <- fcond1 symIdx'
-        cond2 <- fcond2 symIdx'
-        W4.orPred sym cond1 cond2
+mergeEntries sym gen pickLeftFn e1 e2 = do
+  let vals symIdx' = do
+        pickLeft <- pickLeftFn symIdx'
+        val1 <- entryVals e1 symIdx'
+        val2 <- entryVals e2 symIdx'
+        W4.mergePartial sym (\p a b -> lift $ W4.baseTypeIte sym p a b)
+          pickLeft val1 val2
+  incNonceEntry gen $ e1 { entryVals = vals }
 
-    (v1, cond1) <- readEntry sym symIdx e1
-    (v2, _) <- readEntry sym symIdx e2
-    body <- W4.baseTypeIte sym cond1 v1 v2
-    fn <- W4.definedFn sym (W4.safeSymbol "mergeEntries") vars body W4.AlwaysUnfold
-    a <- W4.arrayFromFn sym fn
-    return $ ArrayEntryArr fcond a
-
-
-mergeEntryVal ::
+mergeEntriesMux ::
   forall sym ctx tp.
   W4.IsSymExprBuilder sym =>
+  ShowF (W4.SymExpr sym) =>
   NonEmptyCtx ctx =>
   sym ->
-  SymIndex sym ctx ->
-  W4.Pred sym ->
-  W4.SymExpr sym tp ->
-  ArrayEntry sym ctx tp ->
-  IO (ArrayEntry sym ctx tp)
-mergeEntryVal sym symIdx cond1 v1 e2 = do
-  (v2, cond2) <- readEntry sym symIdx e2
-  cond <- W4.orPred sym cond1 cond2
-  e <- W4.baseTypeIte sym cond1 v1 v2
-  return $ ArrayEntryVal symIdx cond e
+  N.NonceGenerator IO (ScopeOf sym) ->
+  (SymIndex sym ctx -> IO (W4.Pred sym)) ->
+  PMuxTree sym (ArrayEntry sym ctx tp) ->
+  PMuxTree sym (ArrayEntry sym ctx tp) ->
+  IO (PMuxTree sym (ArrayEntry sym ctx tp))
+mergeEntriesMux sym gen pickLeftFn = pmuxTreeBinOp sym (mergeEntries sym gen pickLeftFn)
+
+data AsOrd f tp where
+  AsOrd :: OrdF f => { _unAsOrd :: f tp } -> AsOrd f tp
+
+instance Eq (AsOrd f tp) where
+  (AsOrd a) == (AsOrd b) = case compareF a b of
+    EQF -> True
+    _ -> False
+
+instance Ord (AsOrd f tp) where
+  compare (AsOrd a) (AsOrd b) = toOrdering $ compareF a b
+
+-- | A partial mux tree
+type PMuxTree sym tp = MT.MuxTree sym (Maybe tp)
+
+viewPMuxTree :: forall sym a. PMuxTree sym a -> [(a, W4.Pred sym)]
+viewPMuxTree mt = mapMaybe go $ MT.viewMuxTree mt
+  where
+    go :: (Maybe a, W4.Pred sym) -> Maybe (a, W4.Pred sym)
+    go (Just a, p) = Just (a, p)
+    go _ = Nothing
+
+isEmptyPMuxTree :: PMuxTree sym tp -> Bool
+isEmptyPMuxTree mt = case MT.viewMuxTree mt of
+  [(Nothing, _)] -> True
+  _ -> False
+
+mkPMuxTree ::
+  (W4.IsExprBuilder sym, Ord a) =>
+  sym ->
+  [(a, W4.Pred sym)] ->
+  IO (PMuxTree sym a)
+mkPMuxTree sym ls = buildMuxTree sym Nothing (map (\(a, p) -> (Just a, p)) ls)
+
+mkPMuxTreePartial ::
+  forall sym a.
+  (W4.IsExprBuilder sym, Ord a) =>
+  sym ->
+  [(W4.PartExpr (W4.Pred sym) a, W4.Pred sym)] ->
+  IO (PMuxTree sym a)
+mkPMuxTreePartial sym ls = mkPMuxTree sym =<< (catMaybes <$> mapM go ls)
+  where
+    go :: (W4.PartExpr (W4.Pred sym) a, W4.Pred sym) -> IO (Maybe (a, W4.Pred sym))
+    go (W4.PE p a, cond) = do
+      p' <- W4.andPred sym p cond
+      return $ Just (a, p')
+    go (W4.Unassigned, _) = return Nothing
+
+
+pmuxTreeMaybeOp ::
+  (W4.IsExprBuilder sym, Ord a, Ord b) =>
+  sym ->
+  (a -> IO (Maybe b)) ->
+  PMuxTree sym a ->
+  IO (PMuxTree sym b)
+pmuxTreeMaybeOp sym f mt = MT.muxTreeUnaryOp sym (\a -> join <$> mapM f a) mt
+
+_pmuxTreeUnaryOp ::
+  (W4.IsExprBuilder sym, Ord b) =>
+  sym ->
+  (a -> IO b) ->
+  PMuxTree sym a ->
+  IO (PMuxTree sym b)  
+_pmuxTreeUnaryOp sym f mt = MT.muxTreeUnaryOp sym (\a -> mapM f a) mt
+
+
+pmuxTreeBinOp ::
+  forall sym a b c.
+  (W4.IsExprBuilder sym, Ord c) =>
+  sym ->
+  (a -> b -> IO c) ->
+  PMuxTree sym a ->
+  PMuxTree sym b ->
+  IO (PMuxTree sym c)  
+pmuxTreeBinOp sym f mt1 mt2 = MT.muxTreeBinOp sym g mt1 mt2
+  where
+    g :: Maybe a -> Maybe b -> IO (Maybe c)
+    g (Just a) (Just b) = Just <$> f a b
+    g _ _ = return Nothing
+
+toPMuxTree :: W4.IsExprBuilder sym => sym -> a -> PMuxTree sym a
+toPMuxTree sym a = MT.toMuxTree sym (Just a)
