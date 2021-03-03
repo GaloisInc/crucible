@@ -30,9 +30,15 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.SymIO
   (
+  -- * Filesystem types
+  -- $filetypes
     FileSystemType
   , FileHandle
+  , FileHandleType
   , FilePointer
+  , FilePointerType
+  -- * Filesystem operations
+  -- $fileops
   , openFile
   , openFile'
   , readByte
@@ -70,15 +76,9 @@ import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import qualified Lang.Crucible.Simulator.OverrideSim as C
-import qualified Lang.Crucible.Simulator.ExecutionTree as CET
-import qualified Lang.Crucible.FunctionHandle as CFH
-import qualified Lang.Crucible.CFG.Generator as CCG
-import qualified Lang.Crucible.CFG.Expr as CCE
 
-import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Utils.MuxTree
-import           Lang.Crucible.Types
 import qualified What4.Interface as W4
 import           What4.Partial
 
@@ -88,6 +88,14 @@ import           Lang.Crucible.SymIO.Types
 ---------------------------------------
 -- Interface
 
+-- $fileops
+-- Top-level overrides for filesystem operations. Each operation defines two variants:
+-- a "prime" variant which implements the filesystem operation in any 'C.OverrideSim'
+-- context, and a non-prime variant which wraps these as crucible-level overrides,
+-- represented in the 'args' type parameter.
+
+-- $filetypes
+-- The associated crucible types used to interact with the filesystem.
 
 -- | Close a file by invalidating its file handle
 closeFileHandle ::
@@ -110,6 +118,8 @@ closeFileHandle' fvar fhdl = do
   let repr = fsPtrSize fs
   C.writeMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhdl (maybePartExpr sym Nothing)
 
+-- | Open a file by resolving a 'FileIdent' into a 'File' and then allocating a fresh
+-- 'FileHandle' pointing to the start of its contents.
 openFile ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
@@ -127,7 +137,8 @@ openFile' ::
 openFile' fsVar ident = runFileM fsVar $ do
   file <- resolveFileIdent ident
   openResolvedFile file
-  
+
+-- | Write a single byte to the given 'FileHandle' and increment it
 writeByte ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->  
@@ -149,6 +160,8 @@ writeByte' fsVar fhdl byte = do
     nextPtr <- nextPointer ptr
     setHandle fhdl nextPtr
 
+-- | Write a 'DataChunk' to the given 'FileHandle' and increment it to the end of
+-- the written data.
 writeChunk ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
@@ -169,6 +182,7 @@ writeChunk' fvar fhdl chunk = runFileM fvar $ do
   ptr' <- addToPointer (chunkSize chunk) ptr
   setHandle fhdl ptr'
 
+-- | Read a byte from a given 'FileHandle' and increment it.
 readByte ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->  
@@ -187,6 +201,8 @@ readByte' fvar fhdl = runFileM fvar $ do
   setHandle fhdl nextPtr
   return v
 
+-- | Read a 'DataChunk' from a given 'FileHandle' of the given size, and increment the
+-- handle by the size.
 readChunk ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->  
@@ -206,6 +222,7 @@ readChunk' fvar fhdl sz = runFileM fvar $ do
   setHandle fhdl ptr'
   return chunk
 
+-- | Read from a 'DataChunk'
 readFromChunk ::
   (IsSymInterface sym, 1 <= wptr) =>
   C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> DataChunkType wptr Ctx.::> BVType wptr) ret (W4.SymBV sym 8)
@@ -223,7 +240,7 @@ readFromChunk' chunk idx = do
   liftIO $ assert sym inBounds err
   liftIO $ W4.arrayLookup sym (chunkArray chunk) (Ctx.empty Ctx.:> idx)
 
-
+-- | Convert a 'DataChunk' into an array
 chunkToArray ::
   C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> DataChunkType wptr) ret (W4.SymArray sym (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8)) 
 chunkToArray = liftArgs1 chunkToArray'
@@ -233,6 +250,7 @@ chunkToArray' ::
   C.OverrideSim p sym arch r args ret (W4.SymArray sym (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8))
 chunkToArray' chunk = return $ chunkArray chunk
 
+-- | Convert an array into a 'DataChunk' of the given size.
 arrayToChunk ::
   C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> (SymbolicArrayType (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8)) Ctx.::> BVType wptr) ret (DataChunk sym wptr)
 arrayToChunk = liftArgs2 arrayToChunk'
@@ -434,29 +452,3 @@ filePointerIdx ::
   FilePointer sym wptr ->
   FileSystemIndex sym wptr
 filePointerIdx (FilePointer (File _ n) off) = Ctx.empty :> off :> n
-
-  
-_asConcreteIdx ::
-  IsSymInterface sym =>
-  FilePointer sym wptr ->
-  Maybe (Integer, BV.BV wptr)
-_asConcreteIdx fptr = do
-  ConcreteFilePointer (ConcreteFile _ cn) coff <- asConcretePointer fptr
-  return $ (cn, coff)
-
-asConcretePointer ::
-  IsSymInterface sym =>
-  FilePointer sym wptr ->
-  Maybe (ConcreteFilePointer wptr)
-asConcretePointer (FilePointer file off) = do
-  cfile <- asConcreteFile file
-  coff <- W4.asBV off
-  return $ ConcreteFilePointer cfile coff
-
-asConcreteFile ::
-  IsSymInterface sym =>
-  File sym w ->
-  Maybe (ConcreteFile w)
-asConcreteFile (File w n) = do
-  cn <- W4.asInteger n
-  return $ ConcreteFile w cn

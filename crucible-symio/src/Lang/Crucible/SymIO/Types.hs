@@ -23,13 +23,31 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Lang.Crucible.SymIO.Types where
+module Lang.Crucible.SymIO.Types
+  ( symIOIntrinsicTypes
+  , FilePointer(..)
+  , FilePointerType
+  , pattern FilePointerRepr
+  , FileHandle
+  , FileHandleType
+  , pattern FileHandleRepr
+  , FileIdent
+  , FileIdentType
+  , FileSystem(..)
+  , FileSystemType
+  , FileSystemIndex
+  , pattern FileSystemRepr
+  , File(..)
+  , FileType
+  , muxFile
+  , DataChunk(..)
+  , DataChunkType
+  , muxDataChunk
+  )
+where
 
 import           Data.Typeable
 import           GHC.TypeNats
-
-import           Data.Map ( Map ) 
-import qualified Data.BitVector.Sized as BV
 
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Context
@@ -40,10 +58,10 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
 
-import qualified What4.Expr.Builder as W4B
 import           What4.Interface
 import qualified What4.CachedArray as CA
 
+-- | The intrinsic types used in the symbolic filesystem
 symIOIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 symIOIntrinsicTypes = id
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_datachunk") IntrinsicMuxFn
@@ -52,13 +70,17 @@ symIOIntrinsicTypes = id
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_filepointer") IntrinsicMuxFn
   $ MapF.empty
 
-
+-- | An identifier for a file, which must be resolved into a 'File' to access
+-- the underlying filesystem.
 type FileIdent sym = RegValue sym FileIdentType
 
+-- | The crucible-level type of 'FileIdent'
 type FileIdentType = StringType Unicode
 
+-- | The crucible-level type of 'FileSystem'
 type FileSystemType w = IntrinsicType "VFS_filesystem" (EmptyCtx ::> BVType w)
 
+-- | Defines the current state of a symbolic filesystem.
 data FileSystem sym w =
   FileSystem
     {
@@ -72,6 +94,7 @@ data FileSystem sym w =
     , fsConstraints :: forall a. ((IsSymInterface sym, 1 <= w) => a) -> a
     }
 
+-- | A base index into the filesystem, consistent of a file identifier and an offset into that file.
 type FileSystemIndex sym w = Assignment (SymExpr sym) (EmptyCtx ::> BaseBVType w ::> BaseIntegerType)
 
 instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filesystem" where
@@ -88,16 +111,17 @@ pattern FileSystemRepr w <- IntrinsicRepr (testEquality (knownSymbol :: SymbolRe
   where
     FileSystemRepr w = IntrinsicRepr knownSymbol (Empty :> BVRepr w)
 
--- | The 'CrucibleType' of file handles. A file handle is a mutable pointer
--- that increments every time it is read.
+-- | The crucible type of file handles.
 type FileHandleType w = ReferenceType (MaybeType (FilePointerType w))
 
+-- |  A file handle is a mutable file pointer that increments every time it is read.
 type FileHandle sym w = RegValue sym (FileHandleType w)
 
 -- | A 'File' represents a file in the filesystem independent
 -- of any open handles to it
 data File sym w = File (NatRepr w) (SymInteger sym)
 
+-- | The crucible-level type of 'File'
 type FileType w = IntrinsicType "VFS_file" (EmptyCtx ::> BVType w)
 
 instance (IsSymInterface sym) => IntrinsicClass sym "VFS_file" where
@@ -115,14 +139,11 @@ muxFile ::
   IO (File sym w)
 muxFile sym p (File w f1) (File _w f2) = File w <$> baseTypeIte sym p f1 f2
 
--- | A file pointer represents an index into a particular file
+-- | A file pointer represents an index into a particular file.
 data FilePointer sym w =
   FilePointer (File sym w) (SymBV sym w) 
 
-data ConcreteFile w = ConcreteFile (NatRepr w) Integer
-
-data ConcreteFilePointer w = ConcreteFilePointer (ConcreteFile w) (BV.BV w)
-
+-- | The crucible type of 'FilePointer'
 type FilePointerType w = IntrinsicType "VFS_filepointer" (EmptyCtx ::> BVType w)
 
 instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filepointer" where
@@ -131,7 +152,7 @@ instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filepointer" where
   muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxFilePointer sym
   muxIntrinsic _ _ nm ctx = typeError nm ctx
 
--- | Mux function specialized to file pointers values.
+-- | Mux on 'FilePointer'
 muxFilePointer ::
   (1 <= w) =>
   IsSymInterface sym =>
@@ -153,8 +174,10 @@ data DataChunk sym w =
     , chunkSize :: SymBV sym w
     }
 
+-- | The crucible type of 'DataChunk'
 type DataChunkType w = IntrinsicType "VFS_datachunk" (EmptyCtx ::> BVType w)
 
+-- | Mux on 'DataChunk'
 muxDataChunk ::
   (1 <= w) =>
   IsSymInterface sym =>
