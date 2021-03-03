@@ -82,9 +82,10 @@ directory:
 * `print-model-NNN`: an executable file that prints out the values
   associated with the counter-example.
 
-To define properties and assumptions about the code to analyze, you may
-have to annotate the source code with inline properties (`CRUCIBLE` is
-defined to help specify Crucible-specific functionality). The following
+To define properties and assumptions about the code to analyze, you can
+annotate the source code with inline properties. When `crux-llvm`
+compiles your code, it defines the CPP macro `CRUCIBLE` to help specify
+Crucible-specific functionality such as inline properties. The following
 simple example includes on version of `main` when running with
 `crux-llvm` and different one when compiled normally.
 
