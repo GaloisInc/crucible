@@ -49,6 +49,7 @@ module Data.Parameterized.IntervalsMap
   , IM.Interval(..)
   , mergeIntervalsF
   , mergeWithM
+  , AsOrd(..)
   ) where
 
 

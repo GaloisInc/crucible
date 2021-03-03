@@ -77,6 +77,7 @@ fsTests = T.testGroup "Filesystem Tests"
   , T.testCase "Overlapping Symbolic Writes" (runFSTest testOverlappingWritesSingle)
   , T.testCase "Overlapping Symbolic Write Ranges" (runFSTest testOverlappingWritesRange)
   , T.testCase "Unknown File" (runFSTest testUnknownFile)
+  , T.testCase "End Of File" (runFSTest testEOF)
   ]
 
 runFSTest :: FSTest wptr -> IO ()
@@ -150,7 +151,9 @@ runFSTest' gen sym (FSTest fsTest) = do
       CS.TotalRes _ -> return ()
       CS.PartialRes _ p _ _ -> case W4.asConstantPred p of
         Just True -> return ()
-        _ -> T.assertFailure "Partial Result"
+        _ -> do
+          putStrLn $ showF p
+          T.assertFailure "Partial Result"
   goals <- CB.proofGoalsToList <$> CB.getProofObligations sym
   mapM_ (proveGoal sym W4Y.yicesAdapter) goals
 
@@ -184,16 +187,34 @@ showAbortedResult ar = case ar of
   CS.AbortedBranch _ _ res' res'' -> "BRANCH: " <> showAbortedResult res' <> "\n" <> showAbortedResult res''
 
 data FSTest (wptr :: Nat)   where
-  FSTest :: (KnownNat wptr, 1 <= wptr) => (forall sym. CB.IsSymInterface sym => CS.GlobalVar (SymIO.FileSystemType wptr) -> CS.OverrideSim () sym () (CS.RegEntry sym CT.UnitType) Ctx.EmptyCtx CT.UnitType ()) -> FSTest wptr
+  FSTest :: (KnownNat wptr, 1 <= wptr) => (forall sym. (CB.IsSymInterface sym, ShowF (W4.SymExpr sym)) => CS.GlobalVar (SymIO.FileSystemType wptr) -> CS.OverrideSim () sym () (CS.RegEntry sym CT.UnitType) Ctx.EmptyCtx CT.UnitType ()) -> FSTest wptr
 
+readOne ::
+  (CB.IsSymInterface sym, 1 <= wptr) =>
+  CS.GlobalVar (SymIO.FileSystemType wptr) ->
+  SymIO.FileHandle sym wptr ->
+  CS.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
+readOne fsVar fhdl = do
+  mval <- SymIO.readByte' fsVar fhdl
+  sym <- CS.getSymInterface
+  liftIO $ CB.readPartExpr sym mval (CS.AssertFailureSimError "readOne" "readOne")
+
+readFromChunk ::
+  (CB.IsSymInterface sym, 1 <= wptr) =>
+  SymIO.DataChunk sym wptr ->
+  W4.SymBV sym wptr ->
+  CS.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
+readFromChunk chunk bv = do
+  sym <- CS.getSymInterface
+  liftIO $ W4.arrayLookup sym chunk (Ctx.empty Ctx.:> bv)
 
 testConcReads :: FSTest 32
 testConcReads = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
   test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
   test0FileHandle <- SymIO.openFile' fsVar test0_name
-  byte0_0 <- SymIO.readByte' fsVar test0FileHandle
-  byte0_1 <- SymIO.readByte' fsVar test0FileHandle
+  byte0_0 <- readOne fsVar test0FileHandle
+  byte0_1 <- readOne fsVar test0FileHandle
 
   expect byte0_0 0
   expect byte0_1 1
@@ -205,12 +226,12 @@ testConcReads = FSTest $ \fsVar -> do
   two <- mkbv 2
   three <- mkbv 3
   
-  byte1_0 <- SymIO.readByte' fsVar test1FileHandle
-  chunk_1_1to3 <- SymIO.readChunk' fsVar test1FileHandle three
+  byte1_0 <- readOne fsVar test1FileHandle
+  (chunk_1_1to3, _) <- SymIO.readArray' fsVar test1FileHandle three
 
-  byte1_1 <- SymIO.readFromChunk' chunk_1_1to3 zero
-  byte1_2 <- SymIO.readFromChunk' chunk_1_1to3 one
-  byte1_3 <- SymIO.readFromChunk' chunk_1_1to3 two
+  byte1_1 <- readFromChunk chunk_1_1to3 zero
+  byte1_2 <- readFromChunk chunk_1_1to3 one
+  byte1_3 <- readFromChunk chunk_1_1to3 two
   
   expect byte1_0 3
   expect byte1_1 4
@@ -219,12 +240,25 @@ testConcReads = FSTest $ \fsVar -> do
 
   mkCase fsVar "test1" (3, 4, 5, 6)
 
-expect :: CB.IsSymInterface sym => W4.SymBV sym 8 -> Integer -> CS.OverrideSim p sym arch r args ret ()
+expect ::
+  CB.IsSymInterface sym =>
+  KnownNat w =>
+  1 <= w =>
+  W4.SymBV sym w ->
+  Integer ->
+  CS.OverrideSim p sym arch r args ret ()
 expect bv i = do
   sym <- CS.getSymInterface
   expectIf (return $ W4.truePred sym) bv i
 
-expectIf :: CB.IsSymInterface sym => (IO (W4.Pred sym)) -> W4.SymBV sym 8 -> Integer -> CS.OverrideSim p sym arch r args ret ()
+expectIf ::
+  CB.IsSymInterface sym =>
+  KnownNat w =>
+  1 <= w =>
+  IO (W4.Pred sym) ->
+  W4.SymBV sym w ->
+  Integer ->
+  CS.OverrideSim p sym arch r args ret ()
 expectIf test bv i = do
   test' <- liftIO $ test
   sym <- CS.getSymInterface
@@ -327,18 +361,18 @@ testOverlappingWritesRange = FSTest $ \fsVar -> do
   
   test1FileHandle <- SymIO.openFile' fsVar test1_name
   seek_1 <- maybeSeekOne' fsVar test1FileHandle
-  chunk_8_9 <- mkConcreteChunk [8,9]
+  (chunk_8_9, two) <- mkConcreteChunk [8,9]
   
-  SymIO.writeChunk' fsVar test1FileHandle chunk_8_9
+  SymIO.writeArray' fsVar test1FileHandle chunk_8_9 two
 
   mkCases1 fsVar "test1" seek_1
     (3, 8, 9, 6)
     (8, 9, 5, 6)
 
   test1FileHandle2 <- SymIO.openFile' fsVar test1_name
-  chunk_10_11 <- mkConcreteChunk [10,11]
+  (chunk_10_11, _) <- mkConcreteChunk [10,11]
   seek_2 <- maybeSeekOne' fsVar test1FileHandle2
-  SymIO.writeChunk' fsVar test1FileHandle2 chunk_10_11
+  SymIO.writeArray' fsVar test1FileHandle2 chunk_10_11 two
   
   mkCases2 fsVar "test1" seek_1 seek_2
     (3, 10, 11, 6)
@@ -349,11 +383,71 @@ testOverlappingWritesRange = FSTest $ \fsVar -> do
 
 testUnknownFile :: FSTest 32
 testUnknownFile = FSTest $ \fsVar -> do
-  fhdl <- getSomeFile fsVar
-  byte0 <- SymIO.readByte' fsVar fhdl
-  byte1 <- SymIO.readByte' fsVar fhdl
+  sym <- CS.getSymInterface
+  fhdl <- getSomeFile' fsVar
+  byte0 <- readOne fsVar fhdl
+  byte1 <- readOne fsVar fhdl
   expectOne byte0 [0, 3]
-  expectOne byte1 [1, 4]
+  zero <- mkbv 0
+  three <- mkbv 3
+  expectIf (W4.isEq sym byte0 zero) byte1 1
+  expectIf (W4.isEq sym byte0 three) byte1 4
+
+
+testEOF :: FSTest 32
+testEOF = FSTest $ \fsVar -> do
+  sym <- CS.getSymInterface
+  let err = CS.AssertFailureSimError "expect EOF" "expect EOF"
+  test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
+  fhdl <- SymIO.openFile' fsVar test0_name
+  _ <- readOne fsVar fhdl
+  _ <- readOne fsVar fhdl
+  _ <- readOne fsVar fhdl
+  eof <- SymIO.readByte' fsVar fhdl
+  assertNone eof err
+  isOpen <- SymIO.isHandleOpen' fsVar fhdl
+  assertNot isOpen err
+
+  fhdl2 <- SymIO.openFile' fsVar test0_name
+  _ <- readOne fsVar fhdl2
+  three <- mkbv 3
+  zero <- mkbv 0
+  one <- mkbv 1
+
+  (chunk_2to3, readBytes) <- SymIO.readArray' fsVar fhdl2 three
+  expect readBytes 2
+  byte_2 <- readFromChunk chunk_2to3 zero
+  byte_3 <- readFromChunk chunk_2to3 one
+
+  expect byte_2 1
+  expect byte_3 2
+  isOpen2 <- SymIO.isHandleOpen' fsVar fhdl2
+  assertNot isOpen2 err
+  fhdl3 <- SymIO.openFile' fsVar test0_name
+  SymIO.closeFileHandle' fsVar fhdl3
+  isOpen3 <- SymIO.isHandleOpen' fsVar fhdl3
+  assertNot isOpen3 err
+
+
+assertNot ::
+  CB.IsSymInterface sym =>
+  W4.Pred sym ->
+  CS.SimErrorReason ->
+  CS.OverrideSim p sym arch r args ret ()
+assertNot p er = do
+  sym <- CS.getSymInterface
+  notp <- liftIO $ W4.notPred sym p
+  liftIO $ CB.assert sym notp er
+
+assertNone ::
+  CB.IsSymInterface sym =>
+  W4.PartExpr (W4.Pred sym) v ->
+  CS.SimErrorReason ->
+  CS.OverrideSim p sym arch r args ret ()
+assertNone pe er = case pe of
+  W4.Unassigned -> return ()
+  W4.PE p _ -> assertNot p er
+
 
 getSomeFile ::
   forall sym wptr p arch r args ret.
@@ -390,13 +484,13 @@ mkConcreteChunk ::
   1 <= wptr =>
   CB.IsSymInterface sym =>
   [Integer] ->
-  CS.OverrideSim p sym arch r args ret (SymIO.DataChunk sym wptr)
+  CS.OverrideSim p sym arch r args ret (SymIO.DataChunk sym wptr, W4.SymBV sym wptr)
 mkConcreteChunk bytes = do
   sym <- CS.getSymInterface
   arr <- liftIO $ W4.freshConstant sym W4.emptySymbol W4.knownRepr
   sz <- mkbv (fromIntegral $ length bytes)
   arr' <- foldM go arr (zip [0..] bytes)
-  SymIO.arrayToChunk' arr' sz
+  return (arr', sz)
   where
     go ::
       W4.SymArray sym (Ctx.EmptyCtx Ctx.::> W4.BaseBVType wptr) (W4.BaseBVType 8) ->
@@ -451,10 +545,10 @@ mkCases2 fsVar nm seek_1 seek_2 case1 case2 case3 case4 = do
   sym <- CS.getSymInterface
   name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral nm)
   fhdl <- SymIO.openFile' fsVar name
-  byte1 <- SymIO.readByte' fsVar fhdl
-  byte2 <- SymIO.readByte' fsVar fhdl
-  byte3 <- SymIO.readByte' fsVar fhdl
-  byte4 <- SymIO.readByte' fsVar fhdl
+  byte1 <- readOne fsVar fhdl
+  byte2 <- readOne fsVar fhdl
+  byte3 <- readOne fsVar fhdl
+  byte4 <- readOne fsVar fhdl
   let
     assertCase ::
       (Integer, Integer, Integer, Integer) ->
