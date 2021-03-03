@@ -37,6 +37,7 @@ module Lang.Crucible.SymIO
   , FileHandleType
   , FilePointer
   , FilePointerType
+  , DataChunk
   -- * Filesystem operations
   -- $fileops
   , openFile
@@ -45,18 +46,16 @@ module Lang.Crucible.SymIO
   , readByte'
   , writeByte
   , writeByte'
-  , readChunk
-  , readChunk'
-  , writeChunk
-  , writeChunk'
+  , readArray
+  , readArray'
+  , readToArray
+  , readToArray'
+  , writeArray
+  , writeArray'
   , closeFileHandle
   , closeFileHandle'
-  , readFromChunk
-  , readFromChunk'
-  , chunkToArray
-  , chunkToArray'
-  , arrayToChunk
-  , arrayToChunk'
+  , isHandleOpen
+  , isHandleOpen'
   ) where
 
 import           GHC.TypeNats
@@ -76,6 +75,7 @@ import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import qualified Lang.Crucible.Simulator.OverrideSim as C
+import qualified Lang.Crucible.FunctionHandle as CFH
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Utils.MuxTree
@@ -157,109 +157,126 @@ writeByte' fsVar fhdl byte = do
   runFileM fsVar $ do
     ptr <- getHandle fhdl
     writeBytePointer ptr byte
-    nextPtr <- nextPointer ptr
-    setHandle fhdl nextPtr
+    sym <- getSym
+    repr <- getPtrSz
+    one <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 1)
+    incHandleWrite fhdl one
 
--- | Write a 'DataChunk' to the given 'FileHandle' and increment it to the end of
+
+
+-- | Write an array to the given 'FileHandle' and increment it to the end of
 -- the written data.
-writeChunk ::
+writeArray ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> DataChunkType wptr) ret ()
-writeChunk fvar = do
-  RegMap (Ctx.Empty Ctx.:> fhdl Ctx.:> chunk) <- C.getOverrideArgs
-  writeChunk' fvar (regValue fhdl) (regValue chunk)
+  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> DataChunkType wptr Ctx.::> BVType wptr) ret ()
+writeArray fvar = do
+  RegMap (Ctx.Empty Ctx.:> fhdl Ctx.:> chunk Ctx.:> sz) <- C.getOverrideArgs
+  writeArray' fvar (regValue fhdl) (regValue chunk) (regValue sz)
 
-writeChunk' ::
+writeArray' ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   DataChunk sym wptr ->
+  W4.SymBV sym wptr ->
   C.OverrideSim p sym arch r args ret ()
-writeChunk' fvar fhdl chunk = runFileM fvar $ do
+writeArray' fvar fhdl chunk sz = runFileM fvar $ do
   ptr <- getHandle fhdl
-  writeChunkPointer ptr chunk 
-  ptr' <- addToPointer (chunkSize chunk) ptr
-  setHandle fhdl ptr'
+  writeChunkPointer ptr chunk sz
+  incHandleWrite fhdl sz
 
 -- | Read a byte from a given 'FileHandle' and increment it.
 readByte ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->  
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr) ret (W4.SymBV sym 8)
+  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr) ret (PartExpr (W4.Pred sym) (W4.SymBV sym 8))
 readByte fvar = liftArgs1 (readByte' fvar)
 
 readByte' ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
-  C.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
+  C.OverrideSim p sym arch r args ret (PartExpr (W4.Pred sym) (W4.SymBV sym 8))
 readByte' fvar fhdl = runFileM fvar $ do
   ptr <- getHandle fhdl
   v <- readBytePointer ptr
-  nextPtr <- nextPointer ptr
-  setHandle fhdl nextPtr
-  return v
+  sym <- getSym
+  repr <- getPtrSz
+  one <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 1)
+  readBytes <- incHandleRead fhdl one
+  valid <- liftIO $ W4.isEq sym one readBytes
+  return $ mkPE valid v
 
--- | Read a 'DataChunk' from a given 'FileHandle' of the given size, and increment the
--- handle by the size.
-readChunk ::
+-- | Read an array from a given 'FileHandle' of the given size, and increment the
+-- handle by the size. Returns a struct containing the array contents, and the number
+-- of bytes read.
+readArray ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->  
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> BVType wptr) ret (DataChunk sym wptr) 
-readChunk fvar = liftArgs2 (readChunk' fvar)
+  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> BVType wptr) ret (SizedDataChunk sym wptr)
+readArray fvar = do
+  (chunk, sz) <- liftArgs2 (readArray' fvar)
+  sym <- C.getSymInterface
+  liftIO $ W4.mkStruct sym (Ctx.empty Ctx.:> chunk Ctx.:> sz)
 
-readChunk' ::
+readArray' ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   W4.SymBV sym wptr ->
-  C.OverrideSim p sym arch r args ret (DataChunk sym wptr) 
-readChunk' fvar fhdl sz = runFileM fvar $ do
+  C.OverrideSim p sym arch r args ret (DataChunk sym wptr, W4.SymBV sym wptr)
+readArray' fvar fhdl sz = runFileM fvar $ do
   ptr <- getHandle fhdl
   chunk <- readChunkPointer ptr sz
-  ptr' <- addToPointer sz ptr
-  setHandle fhdl ptr'
-  return chunk
+  readSz <- incHandleRead fhdl sz
+  return (chunk, readSz)
 
--- | Read from a 'DataChunk'
-readFromChunk ::
+
+-- | Read an array from a given 'FileHandle' of the given size, and increment the
+-- handle by the size. Assigns the resulting array to the given reference, and returns
+-- the resulting size.
+readToArray ::
   (IsSymInterface sym, 1 <= wptr) =>
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> DataChunkType wptr Ctx.::> BVType wptr) ret (W4.SymBV sym 8)
-readFromChunk = liftArgs2 readFromChunk'
+  GlobalVar (FileSystemType wptr) ->
+  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> BVType wptr Ctx.::> ReferenceType (DataChunkType wptr)) ret (W4.SymBV sym wptr)
+readToArray fvar = do
+  RegMap (Ctx.Empty Ctx.:> fhdl Ctx.:> sz Ctx.:> cell) <- C.getOverrideArgs
+  (chunk, readSz) <- readArray' fvar (regValue fhdl) (regValue sz)
+  let ReferenceRepr repr = regType cell
+  C.writeMuxTreeRef repr (regValue cell) chunk
+  return readSz
 
-readFromChunk' ::
+readToArray' ::
   (IsSymInterface sym, 1 <= wptr) =>
-  DataChunk sym wptr ->
+  GlobalVar (FileSystemType wptr) ->
+  FileHandle sym wptr ->
   W4.SymBV sym wptr ->
-  C.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
-readFromChunk' chunk idx = do
-  sym <- C.getSymInterface
-  inBounds <- liftIO $ W4.bvUlt sym idx (chunkSize chunk)
-  let err = AssertFailureSimError "Out of bounds read from data chunk" "readFromChunkOv attempted read beyond the size of the chunk."
-  liftIO $ assert sym inBounds err
-  liftIO $ W4.arrayLookup sym (chunkArray chunk) (Ctx.empty Ctx.:> idx)
+  CFH.RefCell (DataChunkType wptr) ->
+  C.OverrideSim p sym arch args r ret (W4.SymBV sym wptr)
+readToArray' fvar fhdl sz cell = do
+  (chunk, readSz) <- readArray' fvar fhdl sz
+  C.writeRef cell chunk
+  return readSz
 
--- | Convert a 'DataChunk' into an array
-chunkToArray ::
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> DataChunkType wptr) ret (W4.SymArray sym (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8)) 
-chunkToArray = liftArgs1 chunkToArray'
+isHandleOpen ::
+  (IsSymInterface sym, 1 <= wptr) =>
+  GlobalVar (FileSystemType wptr) ->
+  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr) ret (W4.Pred sym)
+isHandleOpen fvar = liftArgs1 (isHandleOpen' fvar)
 
-chunkToArray' ::
-  DataChunk sym wptr ->
-  C.OverrideSim p sym arch r args ret (W4.SymArray sym (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8))
-chunkToArray' chunk = return $ chunkArray chunk
 
--- | Convert an array into a 'DataChunk' of the given size.
-arrayToChunk ::
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> (SymbolicArrayType (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8)) Ctx.::> BVType wptr) ret (DataChunk sym wptr)
-arrayToChunk = liftArgs2 arrayToChunk'
-
-arrayToChunk' ::
-  W4.SymArray sym (EmptyCtx ::> BaseBVType wptr) (BaseBVType 8) ->
-  W4.SymBV sym wptr ->
-  C.OverrideSim p sym arch r args ret (DataChunk sym wptr)
-arrayToChunk' array sz = return $ DataChunk array sz
+isHandleOpen' ::
+  (IsSymInterface sym, 1 <= wptr) =>
+  GlobalVar (FileSystemType wptr) ->
+  FileHandle sym wptr ->
+  C.OverrideSim p sym arch args r ret (W4.Pred sym)
+isHandleOpen' fvar fhdl = runFileM fvar $ do
+  sym <- getSym
+  repr <- getPtrSz
+  liftOV (C.readMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhdl) >>= \case
+    PE p _ -> return p
+    Unassigned -> return (W4.falsePred sym)
 
 liftArgs1 ::
   (forall args. RegValue sym tp -> C.OverrideSim p sym arch r args ret a) ->
@@ -333,18 +350,33 @@ getSym = liftOV $ C.getSymInterface
 getPtrSz :: FileM p arch r args ret sym wptr (NatRepr wptr)
 getPtrSz = gets fsPtrSize
 
+getFileSize :: FileHandle sym wptr -> FileM p arch r args ret sym wptr (W4.SymBV sym wptr)
+getFileSize fhdl = do
+  (FilePointer (File _ fileid) _, _) <- readHandle fhdl
+  szArray <- gets fsFileSizes
+  sym <- getSym
+  liftIO $ W4.arrayLookup sym szArray (Ctx.empty Ctx.:> fileid)
+
+readHandle ::
+  FileHandle sym wptr ->
+  FileM p arch r args ret sym wptr (FilePointer sym wptr, W4.Pred sym)
+readHandle fhandle = do
+  sym <- getSym
+  repr <- getPtrSz
+  liftOV (C.readMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhandle) >>= \case
+    PE p v -> return (v, p)
+    Unassigned -> liftIO $ addFailedAssertion sym $ GenericSimError "Read from uninitialized file handle."
+
+
 -- | Retrieve the pointer that the handle is currently at
 getHandle ::
   FileHandle sym wptr ->
   FileM p arch r args ret sym wptr (FilePointer sym wptr)
 getHandle fhandle = do
   sym <- getSym
-  repr <- getPtrSz 
-  liftOV (C.readMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhandle) >>= \case
-    PE p v -> do
-      liftIO $ assert sym p $ GenericSimError $ "Read from closed file handle."
-      return v
-    Unassigned -> fail "Read from closed file handle."
+  (v, p) <- readHandle fhandle
+  liftIO $ assert sym p $ GenericSimError $ "Read from closed file handle."
+  return v
 
 
 -- | Resolve a file identifier to a 'File'
@@ -370,27 +402,57 @@ openResolvedFile file = do
   repr <- getPtrSz
   zero <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 0)
   ref <- toMuxTree sym <$> (liftOV $ C.newEmptyRef (MaybeRepr (FilePointerRepr repr)))
-  setHandle ref (FilePointer file zero)
+  setHandle ref (FilePointer file zero) (W4.truePred sym)
   return ref
 
 setHandle ::
   FileHandle sym wptr ->
   FilePointer sym wptr ->
+  W4.Pred sym ->
   FileM p arch r args ret sym wptr ()
-setHandle fhandle ptr = do
-  sym <- getSym
+setHandle fhandle ptr valid = do
   repr <- getPtrSz 
-  let ptr' = justPartExpr sym ptr
+  let ptr' = mkPE valid ptr
   liftOV $ C.writeMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhandle ptr'
 
-nextPointer ::
+-- | True if the read remains in bounds, if false, the result is the number of
+-- bytes that were overrun
+bytesOverrun ::
+  FileHandle sym wptr ->
   FilePointer sym wptr ->
-  FileM p arch r args ret sym wptr (FilePointer sym wptr)
-nextPointer ptr = do
+  FileM p arch r args ret sym wptr (W4.Pred sym, W4.SymBV sym wptr)
+bytesOverrun fhandle (FilePointer _ ptrOff) = do
+  sz <- getFileSize fhandle
   sym <- getSym
-  repr <- getPtrSz
-  one <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 1)
-  addToPointer one ptr
+  inbounds <- liftIO $ W4.bvUle sym ptrOff sz
+  overrun <- liftIO $ W4.bvSub sym ptrOff sz
+  return $ (inbounds, overrun)
+
+-- | Increment the filehandle by the given amount, returning the
+-- number of bytes that were actually incremented. This is less than
+-- the number requested if the read is over the end of the file.
+incHandleRead ::
+  FileHandle sym wptr ->
+  W4.SymBV sym wptr ->
+  FileM p arch r args ret sym wptr (W4.SymBV sym wptr)
+incHandleRead fhandle sz = do
+  sym <- getSym
+  (basePtr, _) <- readHandle fhandle
+  ptr <- addToPointer sz basePtr
+  (inbounds, overrun) <- bytesOverrun fhandle ptr
+  setHandle fhandle ptr inbounds
+  off <- liftIO $ W4.bvSub sym sz overrun
+  liftIO $ W4.baseTypeIte sym inbounds sz off
+
+incHandleWrite ::
+  FileHandle sym wptr ->
+  W4.SymBV sym wptr ->
+  FileM p arch r args ret sym wptr ()
+incHandleWrite fhandle sz = do
+  (basePtr, p) <- readHandle fhandle
+  ptr <- addToPointer sz basePtr
+  setHandle fhandle ptr p
+
 
 addToPointer ::
   W4.SymBV sym wptr ->
@@ -426,12 +488,13 @@ readBytePointer fptr = do
 writeChunkPointer ::
   FilePointer sym wptr ->
   DataChunk sym wptr ->
+  W4.SymBV sym wptr ->
   FileM p arch r args ret sym wptr ()
-writeChunkPointer fptr chunk = do
+writeChunkPointer fptr chunk sz = do
   let idx = filePointerIdx fptr
   sym <- getSym
   dataArr <- gets fsSymData
-  dataArr' <- liftIO $ CA.writeRange sym idx (chunkSize chunk) (chunkArray chunk)  dataArr  
+  dataArr' <- liftIO $ CA.writeRange sym idx sz chunk dataArr
   modify $ \fs -> fs { fsSymData = dataArr' }
 
 
@@ -444,8 +507,7 @@ readChunkPointer fptr sz = do
   let idx = filePointerIdx fptr
   sym <- getSym
   dataArr <- gets fsSymData
-  rawChunk <- liftIO $ CA.readRange sym idx sz dataArr
-  return $ DataChunk rawChunk sz 
+  liftIO $ CA.readRange sym idx sz dataArr
 
 filePointerIdx ::
   IsSymInterface sym =>

@@ -71,7 +71,9 @@ import qualified What4.Utils.AbstractDomains as W4
 import qualified What4.Utils.BVDomain as BVD
 
 import qualified Data.Parameterized.IntervalsMap as IM
+import           Data.Parameterized.IntervalsMap ( AsOrd(..) )
 import qualified Data.IntervalMap.Interval as IM
+
 
 ------------------------------------------------
 -- Interface
@@ -729,17 +731,6 @@ mergeEntriesMux ::
   PMuxTree sym (ArrayEntry sym ctx tp) ->
   IO (PMuxTree sym (ArrayEntry sym ctx tp))
 mergeEntriesMux sym gen pickLeftFn = pmuxTreeBinOp sym (mergeEntries sym gen pickLeftFn)
-
-data AsOrd f tp where
-  AsOrd :: OrdF f => { _unAsOrd :: f tp } -> AsOrd f tp
-
-instance Eq (AsOrd f tp) where
-  (AsOrd a) == (AsOrd b) = case compareF a b of
-    EQF -> True
-    _ -> False
-
-instance Ord (AsOrd f tp) where
-  compare (AsOrd a) (AsOrd b) = toOrdering $ compareF a b
 
 -- | A partial mux tree
 type PMuxTree sym tp = MT.MuxTree sym (Maybe tp)

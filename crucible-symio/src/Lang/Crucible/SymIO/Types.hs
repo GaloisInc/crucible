@@ -40,9 +40,10 @@ module Lang.Crucible.SymIO.Types
   , File(..)
   , FileType
   , muxFile
-  , DataChunk(..)
+  , DataChunk
   , DataChunkType
-  , muxDataChunk
+  , SizedDataChunk
+  , SizedDataChunkType
   )
 where
 
@@ -64,7 +65,6 @@ import qualified What4.CachedArray as CA
 -- | The intrinsic types used in the symbolic filesystem
 symIOIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 symIOIntrinsicTypes = id
-  . MapF.insert (knownSymbol :: SymbolRepr "VFS_datachunk") IntrinsicMuxFn
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_filesystem") IntrinsicMuxFn
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_file") IntrinsicMuxFn
   . MapF.insert (knownSymbol :: SymbolRepr "VFS_filepointer") IntrinsicMuxFn
@@ -166,37 +166,13 @@ muxFilePointer sym p (FilePointer f1 off1) (FilePointer f2 off2) =
      off <- bvIte sym p off1 off2
      return $ FilePointer b off
 
--- | A 'chunk' of data resulting from a read or write, with
--- a symbolic size
-data DataChunk sym w =
-  DataChunk
-    { chunkArray :: SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
-    , chunkSize :: SymBV sym w
-    }
-
--- | The crucible type of 'DataChunk'
-type DataChunkType w = IntrinsicType "VFS_datachunk" (EmptyCtx ::> BVType w)
-
--- | Mux on 'DataChunk'
-muxDataChunk ::
-  (1 <= w) =>
-  IsSymInterface sym =>
-  sym ->
-  Pred sym ->
-  DataChunk sym w ->
-  DataChunk sym w ->
-  IO (DataChunk sym w)
-muxDataChunk sym p (DataChunk d1 sz1) (DataChunk d2 sz2) = do
-  d <- baseTypeIte sym p d1 d2
-  sz <- baseTypeIte sym p sz1 sz2
-  return $ DataChunk d sz
+type DataChunkType w = SymbolicArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
+type DataChunk sym w = SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
 
 
-instance (IsSymInterface sym) => IntrinsicClass sym "VFS_datachunk" where
-  type Intrinsic sym "VFS_datachunk" (EmptyCtx ::> BVType w) = DataChunk sym w
+type SizedDataChunkType w = SymbolicStructType (EmptyCtx ::> BaseArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8) ::> BaseBVType w)
+type SizedDataChunk sym w = SymStruct sym (EmptyCtx ::> BaseArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8) ::> BaseBVType w)
 
-  muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxDataChunk sym
-  muxIntrinsic _ _ nm ctx = typeError nm ctx
 
 pattern FileHandleRepr :: () => (1 <= w, ty ~ FileHandleType w) => NatRepr w -> TypeRepr ty
 pattern FileHandleRepr w = ReferenceRepr (MaybeRepr (FilePointerRepr w))
