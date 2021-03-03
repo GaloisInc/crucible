@@ -76,6 +76,7 @@ fsTests = T.testGroup "Filesystem Tests"
   [ T.testCase "Concrete Reads" (runFSTest testConcReads)
   , T.testCase "Overlapping Symbolic Writes" (runFSTest testOverlappingWritesSingle)
   , T.testCase "Overlapping Symbolic Write Ranges" (runFSTest testOverlappingWritesRange)
+  , T.testCase "Unknown File" (runFSTest testUnknownFile)
   ]
 
 runFSTest :: FSTest wptr -> IO ()
@@ -102,7 +103,7 @@ runFSTest' gen sym (FSTest fsTest) = do
     bvLit i = W4.bvLit sym nRepr (BVS.mkBV nRepr i)
     concEntry (file, addr, val) = do
       valByte <- W4.bvLit sym (NR.knownNat @8) (BVS.mkBV (NR.knownNat @8) val)
-      return $ (Ctx.empty Ctx.:> W4.ConcreteInteger file Ctx.:> W4.ConcreteBV nRepr (BVS.mkBV nRepr addr), valByte)
+      return $ (Ctx.empty Ctx.:> W4.ConcreteBV nRepr (BVS.mkBV nRepr addr) Ctx.:> W4.ConcreteInteger file, valByte)
   
   sizesArr <- W4.freshConstant sym W4.emptySymbol (W4.BaseArrayRepr (Ctx.empty Ctx.:> W4.BaseIntegerRepr) ptrRepr) 
   zero <- W4.intLit sym 0
@@ -202,16 +203,19 @@ testConcReads = FSTest $ \fsVar -> do
   zero <- mkbv 0
   one <- mkbv 1
   two <- mkbv 2
+  three <- mkbv 3
   
   byte1_0 <- SymIO.readByte' fsVar test1FileHandle
-  chunk_1_1to2 <- SymIO.readChunk' fsVar test1FileHandle two
+  chunk_1_1to3 <- SymIO.readChunk' fsVar test1FileHandle three
 
-  byte1_1 <- SymIO.readFromChunk' chunk_1_1to2 zero
-  byte1_2 <- SymIO.readFromChunk' chunk_1_1to2 one
-
+  byte1_1 <- SymIO.readFromChunk' chunk_1_1to3 zero
+  byte1_2 <- SymIO.readFromChunk' chunk_1_1to3 one
+  byte1_3 <- SymIO.readFromChunk' chunk_1_1to3 two
+  
   expect byte1_0 3
   expect byte1_1 4
   expect byte1_2 5
+  expect byte1_3 6
 
   mkCase fsVar "test1" (3, 4, 5, 6)
 
@@ -229,6 +233,20 @@ expectIf test bv i = do
   check' <- liftIO $ W4.impliesPred sym test' check
   liftIO $ CB.assert sym check' (CS.AssertFailureSimError "expect failure" "expect failure")
   return ()
+
+expectOne ::
+  forall p sym arch r args ret.
+  CB.IsSymInterface sym => W4.SymBV sym 8 -> [Integer] -> CS.OverrideSim p sym arch r args ret ()
+expectOne bv is = do
+  sym <- CS.getSymInterface
+  check <- foldM (\p i -> mkcheck i >>= \p' -> liftIO $ W4.orPred sym p p') (W4.falsePred sym) is
+  liftIO $ CB.assert sym check (CS.AssertFailureSimError "expect failure" "expect failure")
+  where
+    mkcheck :: Integer -> CS.OverrideSim p sym arch r args ret (W4.Pred sym)
+    mkcheck i = do
+      sym <- CS.getSymInterface
+      bv' <- liftIO $ W4.bvLit sym W4.knownRepr (BVS.mkBV W4.knownRepr i)
+      liftIO $ W4.isEq sym bv bv'
 
 mkbv ::
   forall wptr p sym arch r args ret.
@@ -327,6 +345,44 @@ testOverlappingWritesRange = FSTest $ \fsVar -> do
     (10, 11, 9, 6)
     (8, 10, 11, 6)
     (10, 11, 5, 6)
+
+
+testUnknownFile :: FSTest 32
+testUnknownFile = FSTest $ \fsVar -> do
+  fhdl <- getSomeFile fsVar
+  byte0 <- SymIO.readByte' fsVar fhdl
+  byte1 <- SymIO.readByte' fsVar fhdl
+  expectOne byte0 [0, 3]
+  expectOne byte1 [1, 4]
+
+getSomeFile ::
+  forall sym wptr p arch r args ret.
+  1 <= wptr =>
+  CB.IsSymInterface sym =>
+  CS.GlobalVar (SymIO.FileSystemType wptr) ->
+  CS.OverrideSim p sym arch r args ret (SymIO.FileHandle sym wptr)
+getSomeFile fsVar = do
+  sym <- CS.getSymInterface
+  b <- liftIO $ W4.freshConstant sym W4.emptySymbol W4.BaseBoolRepr
+  args <- CS.getOverrideArgs
+  test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
+  test1_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test1")
+  
+  CS.symbolicBranch b args (SymIO.openFile' fsVar test0_name) Nothing args (SymIO.openFile' fsVar test1_name) Nothing
+
+getSomeFile' ::
+  forall sym wptr p arch r args ret.
+  1 <= wptr =>
+  KnownNat wptr =>
+  CB.IsSymInterface sym =>
+  CS.GlobalVar (SymIO.FileSystemType wptr) ->
+  CS.OverrideSim p sym arch r args ret (SymIO.FileHandle sym wptr)
+getSomeFile' fsVar = do
+  halloc <- CS.simHandleAllocator <$> CS.getContext
+  handle <- liftIO $ CFH.mkHandle halloc "getSomeFile"
+  ov <- return $ CS.mkOverride "getSomeFile" (getSomeFile fsVar)
+  (b :: CS.RegEntry sym (SymIO.FileHandleType wptr)) <- CS.callOverride handle ov (CS.RegMap Ctx.empty)
+  return $ CS.regValue b
 
 mkConcreteChunk ::
   forall sym wptr p arch r args ret.

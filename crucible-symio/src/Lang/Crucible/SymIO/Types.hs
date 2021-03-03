@@ -67,12 +67,12 @@ data FileSystem sym w =
     -- ^ map from concrete file names to identifiers
     , fsFileSizes :: SymArray sym (EmptyCtx ::> BaseIntegerType) (BaseBVType w)
     -- ^ a symbolic map from file identifiers to their size
-    , fsSymData :: CA.CachedArray sym (EmptyCtx ::> BaseIntegerType ::> BaseBVType w) (BaseBVType 8)
+    , fsSymData :: CA.CachedArray sym (EmptyCtx ::> BaseBVType w ::> BaseIntegerType) (BaseBVType 8)
     -- ^ array representing symbolic file contents
     , fsConstraints :: forall a. ((IsSymInterface sym, 1 <= w) => a) -> a
     }
 
-type FileSystemIndex sym w = Assignment (SymExpr sym) (EmptyCtx ::> BaseIntegerType ::> BaseBVType w)
+type FileSystemIndex sym w = Assignment (SymExpr sym) (EmptyCtx ::> BaseBVType w ::> BaseIntegerType)
 
 instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filesystem" where
   type Intrinsic sym "VFS_filesystem" (EmptyCtx ::> BVType w) = FileSystem sym w

@@ -433,7 +433,7 @@ filePointerIdx ::
   IsSymInterface sym =>
   FilePointer sym wptr ->
   FileSystemIndex sym wptr
-filePointerIdx (FilePointer (File _ n) off) = Ctx.empty :> n :> off
+filePointerIdx (FilePointer (File _ n) off) = Ctx.empty :> off :> n
 
   
 _asConcreteIdx ::
