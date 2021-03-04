@@ -84,7 +84,6 @@ library
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Aliases
     Lang.Crucible.LLVM.TypeContext
-    Lang.Crucible.LLVM.MemModel.Generic
 
   other-modules:
     Lang.Crucible.LLVM.Errors.Standards
