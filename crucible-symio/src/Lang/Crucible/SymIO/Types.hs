@@ -102,7 +102,9 @@ instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filesystem" where
 
   muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) p fs1 fs2 = do
     symData <- CA.muxArrays sym p (fsSymData fs1) (fsSymData fs2)
-    return $ fs1 { fsSymData  = symData }
+    symFiles <- muxStringMap sym (muxFile sym) p (fsFileNames fs1) (fsFileNames fs2)
+    symFileSizes <- baseTypeIte sym p (fsFileSizes fs1) (fsFileSizes fs2)
+    return $ fs1 { fsSymData  = symData, fsFileNames = symFiles, fsFileSizes = symFileSizes }
   muxIntrinsic _ _ nm ctx _ _ _ = typeError nm ctx
 
 pattern FileSystemRepr :: () => (1 <= w, ty ~ FileSystemType w) => NatRepr w -> TypeRepr ty
@@ -120,6 +122,12 @@ type FileHandle sym w = RegValue sym (FileHandleType w)
 -- | A 'File' represents a file in the filesystem independent
 -- of any open handles to it
 data File sym w = File (NatRepr w) (SymInteger sym)
+
+pattern FileRepr :: () => (1 <= w, ty ~ FileType w) => NatRepr w -> TypeRepr ty
+pattern FileRepr w <- IntrinsicRepr (testEquality (knownSymbol :: SymbolRepr "VFS_file") -> Just Refl)
+                                           (Empty :> BVRepr w)
+  where
+    FileRepr w = IntrinsicRepr knownSymbol (Empty :> BVRepr w)
 
 -- | The crucible-level type of 'File'
 type FileType w = IntrinsicType "VFS_file" (EmptyCtx ::> BVType w)
