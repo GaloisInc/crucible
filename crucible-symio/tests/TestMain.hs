@@ -195,7 +195,7 @@ readOne ::
   SymIO.FileHandle sym wptr ->
   CS.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
 readOne fsVar fhdl = do
-  mval <- SymIO.readByte' fsVar fhdl
+  mval <- SymIO.readByte fsVar fhdl
   sym <- CS.getSymInterface
   liftIO $ CB.readPartExpr sym mval (CS.AssertFailureSimError "readOne" "readOne")
 
@@ -212,7 +212,7 @@ testConcReads :: FSTest 32
 testConcReads = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
   test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
-  test0FileHandle <- SymIO.openFile' fsVar test0_name
+  test0FileHandle <- SymIO.openFile fsVar test0_name
   byte0_0 <- readOne fsVar test0FileHandle
   byte0_1 <- readOne fsVar test0FileHandle
 
@@ -220,14 +220,14 @@ testConcReads = FSTest $ \fsVar -> do
   expect byte0_1 1
 
   test1_name <-  liftIO $  W4.stringLit sym (W4.UnicodeLiteral "test1")
-  test1FileHandle <- SymIO.openFile' fsVar test1_name
+  test1FileHandle <- SymIO.openFile fsVar test1_name
   zero <- mkbv 0
   one <- mkbv 1
   two <- mkbv 2
   three <- mkbv 3
   
   byte1_0 <- readOne fsVar test1FileHandle
-  (chunk_1_1to3, _) <- SymIO.readArray' fsVar test1FileHandle three
+  (chunk_1_1to3, _) <- SymIO.readArray fsVar test1FileHandle three
 
   byte1_1 <- readFromChunk chunk_1_1to3 zero
   byte1_2 <- readFromChunk chunk_1_1to3 one
@@ -303,7 +303,7 @@ maybeSeekOne fsVar fhdl = do
   sym <- CS.getSymInterface
   b <- liftIO $ W4.freshConstant sym W4.emptySymbol W4.BaseBoolRepr
   args <- CS.getOverrideArgs
-  CS.symbolicBranch b args (SymIO.readByte' fsVar fhdl >> return b) Nothing args (return b) Nothing
+  CS.symbolicBranch b args (SymIO.readByte fsVar fhdl >> return b) Nothing args (return b) Nothing
 
 -- Nondeterministically seeking, but with a mux join
 maybeSeekOne' ::
@@ -336,15 +336,15 @@ testOverlappingWritesSingle = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
   test1_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test1")
   
-  test1FileHandle <- SymIO.openFile' fsVar test1_name
+  test1FileHandle <- SymIO.openFile fsVar test1_name
   seek_1 <- maybeSeekOne' fsVar test1FileHandle
   eight <- mkbv 8
-  SymIO.writeByte' fsVar test1FileHandle eight
+  SymIO.writeByte fsVar test1FileHandle eight
 
-  test1FileHandle2 <- SymIO.openFile' fsVar test1_name
+  test1FileHandle2 <- SymIO.openFile fsVar test1_name
   seek_2 <- maybeSeekOne' fsVar test1FileHandle2
   nine <- mkbv 9
-  SymIO.writeByte' fsVar test1FileHandle2 nine
+  SymIO.writeByte fsVar test1FileHandle2 nine
 
   mkCases2 fsVar "test1" seek_1 seek_2
     (3, 9, 5, 6)
@@ -359,20 +359,20 @@ testOverlappingWritesRange = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
   test1_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test1")
   
-  test1FileHandle <- SymIO.openFile' fsVar test1_name
+  test1FileHandle <- SymIO.openFile fsVar test1_name
   seek_1 <- maybeSeekOne' fsVar test1FileHandle
   (chunk_8_9, two) <- mkConcreteChunk [8,9]
   
-  SymIO.writeArray' fsVar test1FileHandle chunk_8_9 two
+  SymIO.writeArray fsVar test1FileHandle chunk_8_9 two
 
   mkCases1 fsVar "test1" seek_1
     (3, 8, 9, 6)
     (8, 9, 5, 6)
 
-  test1FileHandle2 <- SymIO.openFile' fsVar test1_name
+  test1FileHandle2 <- SymIO.openFile fsVar test1_name
   (chunk_10_11, _) <- mkConcreteChunk [10,11]
   seek_2 <- maybeSeekOne' fsVar test1FileHandle2
-  SymIO.writeArray' fsVar test1FileHandle2 chunk_10_11 two
+  SymIO.writeArray fsVar test1FileHandle2 chunk_10_11 two
   
   mkCases2 fsVar "test1" seek_1 seek_2
     (3, 10, 11, 6)
@@ -399,41 +399,41 @@ testEOF = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
   let err = CS.AssertFailureSimError "expect EOF" "expect EOF"
   test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
-  fhdl <- SymIO.openFile' fsVar test0_name
+  fhdl <- SymIO.openFile fsVar test0_name
   _ <- readOne fsVar fhdl
   _ <- readOne fsVar fhdl
   _ <- readOne fsVar fhdl
-  eof <- SymIO.readByte' fsVar fhdl
+  eof <- SymIO.readByte fsVar fhdl
   assertNone eof err
-  isOpen <- SymIO.isHandleOpen' fsVar fhdl
+  isOpen <- SymIO.isHandleOpen fsVar fhdl
   assertNot isOpen err
 
-  fhdl2 <- SymIO.openFile' fsVar test0_name
+  fhdl2 <- SymIO.openFile fsVar test0_name
   _ <- readOne fsVar fhdl2
   three <- mkbv 3
   zero <- mkbv 0
   one <- mkbv 1
 
-  (chunk_2to3, readBytes) <- SymIO.readArray' fsVar fhdl2 three
+  (chunk_2to3, readBytes) <- SymIO.readArray fsVar fhdl2 three
   expect readBytes 2
   byte_2 <- readFromChunk chunk_2to3 zero
   byte_3 <- readFromChunk chunk_2to3 one
 
   expect byte_2 1
   expect byte_3 2
-  isOpen2 <- SymIO.isHandleOpen' fsVar fhdl2
+  isOpen2 <- SymIO.isHandleOpen fsVar fhdl2
   assertNot isOpen2 err
-  fhdl3 <- SymIO.openFile' fsVar test0_name
-  SymIO.closeFileHandle' fsVar fhdl3
-  isOpen3 <- SymIO.isHandleOpen' fsVar fhdl3
+  fhdl3 <- SymIO.openFile fsVar test0_name
+  SymIO.closeFileHandle fsVar fhdl3
+  isOpen3 <- SymIO.isHandleOpen fsVar fhdl3
   assertNot isOpen3 err
 
-  fhdl4 <- SymIO.openFile' fsVar test0_name
-  SymIO.writeByte' fsVar fhdl4 =<< mkbv 8
-  SymIO.writeByte' fsVar fhdl4 =<< mkbv 9
-  SymIO.writeByte' fsVar fhdl4 =<< mkbv 10
-  SymIO.writeByte' fsVar fhdl4 =<< mkbv 11
-  eof' <- SymIO.readByte' fsVar fhdl4
+  fhdl4 <- SymIO.openFile fsVar test0_name
+  SymIO.writeByte fsVar fhdl4 =<< mkbv 8
+  SymIO.writeByte fsVar fhdl4 =<< mkbv 9
+  SymIO.writeByte fsVar fhdl4 =<< mkbv 10
+  SymIO.writeByte fsVar fhdl4 =<< mkbv 11
+  eof' <- SymIO.readByte fsVar fhdl4
   assertNone eof' err
 
   mkCase fsVar "test0" (8, 9, 10, 11)
@@ -473,7 +473,7 @@ getSomeFile fsVar = do
   test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
   test1_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test1")
   
-  CS.symbolicBranch b args (SymIO.openFile' fsVar test0_name) Nothing args (SymIO.openFile' fsVar test1_name) Nothing
+  CS.symbolicBranch b args (SymIO.openFile fsVar test0_name) Nothing args (SymIO.openFile fsVar test1_name) Nothing
 
 getSomeFile' ::
   forall sym wptr p arch r args ret.
@@ -555,7 +555,7 @@ mkCases2 ::
 mkCases2 fsVar nm seek_1 seek_2 case1 case2 case3 case4 = do
   sym <- CS.getSymInterface
   name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral nm)
-  fhdl <- SymIO.openFile' fsVar name
+  fhdl <- SymIO.openFile fsVar name
   byte1 <- readOne fsVar fhdl
   byte2 <- readOne fsVar fhdl
   byte3 <- readOne fsVar fhdl

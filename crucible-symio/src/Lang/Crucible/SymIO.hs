@@ -41,21 +41,12 @@ module Lang.Crucible.SymIO
   -- * Filesystem operations
   -- $fileops
   , openFile
-  , openFile'
   , readByte
-  , readByte'
   , writeByte
-  , writeByte'
   , readArray
-  , readArray'
-  , readToArray
-  , readToArray'
   , writeArray
-  , writeArray'
   , closeFileHandle
-  , closeFileHandle'
   , isHandleOpen
-  , isHandleOpen'
   ) where
 
 import           GHC.TypeNats
@@ -72,10 +63,8 @@ import           Data.Parameterized.Context ( pattern (:>) )
 import qualified Data.Parameterized.Context as Ctx
 
 import           Lang.Crucible.CFG.Core
-import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import qualified Lang.Crucible.Simulator.OverrideSim as C
-import qualified Lang.Crucible.FunctionHandle as CFH
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Utils.MuxTree
@@ -89,30 +78,19 @@ import           Lang.Crucible.SymIO.Types
 -- Interface
 
 -- $fileops
--- Top-level overrides for filesystem operations. Each operation defines two variants:
--- a "prime" variant which implements the filesystem operation in any 'C.OverrideSim'
--- context, and a non-prime variant which wraps these as crucible-level overrides,
--- represented in the 'args' type parameter.
+-- Top-level overrides for filesystem operations.
 
 -- $filetypes
 -- The associated crucible types used to interact with the filesystem.
 
 -- | Close a file by invalidating its file handle
-closeFileHandle ::
-  (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr) ret ()
-closeFileHandle fvar = do
-  rm <- C.getOverrideArgs
-  let fhdl = regVal rm lastReg
-  closeFileHandle' fvar fhdl
 
-closeFileHandle' ::
+closeFileHandle ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   C.OverrideSim p sym arch r args ret ()
-closeFileHandle' fvar fhdl = do
+closeFileHandle fvar fhdl = do
   fs <- C.readGlobal fvar
   sym <- C.getSymInterface
   let repr = fsPtrSize fs
@@ -120,40 +98,24 @@ closeFileHandle' fvar fhdl = do
 
 -- | Open a file by resolving a 'FileIdent' into a 'File' and then allocating a fresh
 -- 'FileHandle' pointing to the start of its contents.
-openFile ::
-  (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileIdentType) ret (FileHandle sym wptr)
-openFile fsVar = do
-  rm <- C.getOverrideArgs
-  let ident = regVal rm lastReg
-  openFile' fsVar ident
 
-openFile' ::
+openFile ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileIdent sym ->
   C.OverrideSim p sym arch r args ret (FileHandle sym wptr)
-openFile' fsVar ident = runFileM fsVar $ do
+openFile fsVar ident = runFileM fsVar $ do
   file <- resolveFileIdent ident
   openResolvedFile file
 
 -- | Write a single byte to the given 'FileHandle' and increment it
 writeByte ::
   (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->  
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> BVType 8) ret ()
-writeByte fsVar = do
-  RegMap (Ctx.Empty Ctx.:> fhdl Ctx.:> byte) <- C.getOverrideArgs
-  writeByte' fsVar (regValue fhdl) (regValue byte)
-
-writeByte' ::
-  (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   W4.SymBV sym 8 ->
   C.OverrideSim p sym arch r args ret ()
-writeByte' fsVar fhdl byte = do
+writeByte fsVar fhdl byte = do
   runFileM fsVar $ do
     ptr <- getHandle fhdl
     writeBytePointer ptr byte
@@ -162,26 +124,16 @@ writeByte' fsVar fhdl byte = do
     one <- liftIO $ W4.bvLit sym repr (BV.mkBV repr 1)
     incHandleWrite fhdl one
 
-
-
 -- | Write an array to the given 'FileHandle' and increment it to the end of
 -- the written data.
 writeArray ::
-  (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> DataChunkType wptr Ctx.::> BVType wptr) ret ()
-writeArray fvar = do
-  RegMap (Ctx.Empty Ctx.:> fhdl Ctx.:> chunk Ctx.:> sz) <- C.getOverrideArgs
-  writeArray' fvar (regValue fhdl) (regValue chunk) (regValue sz)
-
-writeArray' ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   DataChunk sym wptr ->
   W4.SymBV sym wptr ->
   C.OverrideSim p sym arch r args ret ()
-writeArray' fvar fhdl chunk sz = runFileM fvar $ do
+writeArray fvar fhdl chunk sz = runFileM fvar $ do
   ptr <- getHandle fhdl
   writeChunkPointer ptr chunk sz
   incHandleWrite fhdl sz
@@ -189,16 +141,10 @@ writeArray' fvar fhdl chunk sz = runFileM fvar $ do
 -- | Read a byte from a given 'FileHandle' and increment it.
 readByte ::
   (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->  
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr) ret (PartExpr (W4.Pred sym) (W4.SymBV sym 8))
-readByte fvar = liftArgs1 (readByte' fvar)
-
-readByte' ::
-  (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   C.OverrideSim p sym arch r args ret (PartExpr (W4.Pred sym) (W4.SymBV sym 8))
-readByte' fvar fhdl = runFileM fvar $ do
+readByte fvar fhdl = runFileM fvar $ do
   ptr <- getHandle fhdl
   v <- readBytePointer ptr
   sym <- getSym
@@ -213,84 +159,30 @@ readByte' fvar fhdl = runFileM fvar $ do
 -- of bytes read.
 readArray ::
   (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->  
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> BVType wptr) ret (SizedDataChunk sym wptr)
-readArray fvar = do
-  (chunk, sz) <- liftArgs2 (readArray' fvar)
-  sym <- C.getSymInterface
-  liftIO $ W4.mkStruct sym (Ctx.empty Ctx.:> chunk Ctx.:> sz)
-
-readArray' ::
-  (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   W4.SymBV sym wptr ->
   C.OverrideSim p sym arch r args ret (DataChunk sym wptr, W4.SymBV sym wptr)
-readArray' fvar fhdl sz = runFileM fvar $ do
+readArray fvar fhdl sz = runFileM fvar $ do
   ptr <- getHandle fhdl
   chunk <- readChunkPointer ptr sz
   readSz <- incHandleRead fhdl sz
   return (chunk, readSz)
 
 
--- | Read an array from a given 'FileHandle' of the given size, and increment the
--- handle by the size. Assigns the resulting array to the given reference, and returns
--- the resulting size.
-readToArray ::
-  (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr Ctx.::> BVType wptr Ctx.::> ReferenceType (DataChunkType wptr)) ret (W4.SymBV sym wptr)
-readToArray fvar = do
-  RegMap (Ctx.Empty Ctx.:> fhdl Ctx.:> sz Ctx.:> cell) <- C.getOverrideArgs
-  (chunk, readSz) <- readArray' fvar (regValue fhdl) (regValue sz)
-  let ReferenceRepr repr = regType cell
-  C.writeMuxTreeRef repr (regValue cell) chunk
-  return readSz
-
-readToArray' ::
-  (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->
-  FileHandle sym wptr ->
-  W4.SymBV sym wptr ->
-  CFH.RefCell (DataChunkType wptr) ->
-  C.OverrideSim p sym arch args r ret (W4.SymBV sym wptr)
-readToArray' fvar fhdl sz cell = do
-  (chunk, readSz) <- readArray' fvar fhdl sz
-  C.writeRef cell chunk
-  return readSz
-
+-- | Returns a predicate indicating whether or not the file handle
+-- has hit the end-of-file.
 isHandleOpen ::
-  (IsSymInterface sym, 1 <= wptr) =>
-  GlobalVar (FileSystemType wptr) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> FileHandleType wptr) ret (W4.Pred sym)
-isHandleOpen fvar = liftArgs1 (isHandleOpen' fvar)
-
-
-isHandleOpen' ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
   FileHandle sym wptr ->
   C.OverrideSim p sym arch args r ret (W4.Pred sym)
-isHandleOpen' fvar fhdl = runFileM fvar $ do
+isHandleOpen fvar fhdl = runFileM fvar $ do
   sym <- getSym
   repr <- getPtrSz
   liftOV (C.readMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhdl) >>= \case
     PE p _ -> return p
     Unassigned -> return (W4.falsePred sym)
-
-liftArgs1 ::
-  (forall args. RegValue sym tp -> C.OverrideSim p sym arch r args ret a) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> tp) ret a
-liftArgs1 f = do
-  RegMap (Ctx.Empty Ctx.:> a) <- C.getOverrideArgs
-  f (regValue a)
-
-liftArgs2 ::
-  (forall args. RegValue sym tp1 ->  RegValue sym tp2 -> C.OverrideSim p sym arch r args ret a) ->
-  C.OverrideSim p sym arch r (Ctx.EmptyCtx Ctx.::> tp1 Ctx.::> tp2) ret a
-liftArgs2 f = do
-  RegMap (Ctx.Empty Ctx.:> a1 Ctx.:> a2) <- C.getOverrideArgs
-  f (regValue a1) (regValue a2)
 
 -----------------------------------------
 -- Internal operations

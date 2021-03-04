@@ -13,7 +13,6 @@ common shared
                        ansi-wl-pprint,
                        bv-sized,
                        crucible,
-                       crucible-llvm,
                        containers,
                        IntervalMap,
                        lens,
