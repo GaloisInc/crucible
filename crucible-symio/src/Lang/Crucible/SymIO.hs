@@ -365,7 +365,7 @@ readHandle fhandle = do
   repr <- getPtrSz
   liftOV (C.readMuxTreeRef (MaybeRepr (FilePointerRepr repr)) fhandle) >>= \case
     PE p v -> return (v, p)
-    Unassigned -> liftIO $ addFailedAssertion sym $ GenericSimError "Read from uninitialized file handle."
+    Unassigned -> liftIO $ addFailedAssertion sym $ AssertFailureSimError "Read from closed file handle." "readHandle: Unassigned file handle."
 
 
 -- | Retrieve the pointer that the handle is currently at
@@ -375,7 +375,7 @@ getHandle ::
 getHandle fhandle = do
   sym <- getSym
   (v, p) <- readHandle fhandle
-  liftIO $ assert sym p $ GenericSimError $ "Read from closed file handle."
+  liftIO $ assert sym p $ AssertFailureSimError "Read from closed file handle." "getHandle: File handle assertion failed."
   return v
 
 
@@ -452,7 +452,20 @@ incHandleWrite fhandle sz = do
   (basePtr, p) <- readHandle fhandle
   ptr <- addToPointer sz basePtr
   setHandle fhandle ptr p
+  updateFileSize fhandle
 
+updateFileSize ::
+  FileHandle sym wptr ->
+  FileM p arch r args ret sym wptr ()
+updateFileSize fhdl = do
+  (FilePointer (File _ fileid) off, _) <- readHandle fhdl
+  szArray <- gets fsFileSizes
+  sym <- getSym
+  oldsz <- liftIO $ W4.arrayLookup sym szArray (Ctx.empty Ctx.:> fileid)
+  szArray' <- liftIO $ W4.arrayUpdate sym szArray (Ctx.empty Ctx.:> fileid) off
+  outbounds <- liftIO $ W4.bvUlt sym oldsz off
+  szArray'' <- liftIO $ W4.baseTypeIte sym outbounds szArray' szArray
+  modify $ \arr -> arr { fsFileSizes = szArray'' }
 
 addToPointer ::
   W4.SymBV sym wptr ->

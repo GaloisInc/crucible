@@ -428,6 +428,17 @@ testEOF = FSTest $ \fsVar -> do
   isOpen3 <- SymIO.isHandleOpen' fsVar fhdl3
   assertNot isOpen3 err
 
+  fhdl4 <- SymIO.openFile' fsVar test0_name
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 8
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 9
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 10
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 11
+  eof' <- SymIO.readByte' fsVar fhdl4
+  assertNone eof' err
+
+  mkCase fsVar "test0" (8, 9, 10, 11)
+
+
 
 assertNot ::
   CB.IsSymInterface sym =>
