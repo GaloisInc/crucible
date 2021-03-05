@@ -1132,7 +1132,7 @@ isAligned sym _ _ _ =
 -- blocks.
 notAliasable ::
   forall sym w .
-  (1 <= w, IsSymInterface sym) =>
+  (IsSymInterface sym) =>
   sym ->
   LLVMPtr sym w ->
   LLVMPtr sym w ->

@@ -301,7 +301,7 @@ ppPtr (llvmPointerView -> (blk, bv))
 -- and matches the address of the global on the nose. It is used in SAWscript
 -- for friendly error messages.
 isGlobalPointer ::
-  forall sym w. (IsSymInterface sym, 1 <= w) =>
+  forall sym w. (IsSymInterface sym) =>
   Map Natural L.Symbol {- ^ c.f. 'memImplSymbolMap' -} ->
   LLVMPtr sym w -> Maybe L.Symbol
 isGlobalPointer symbolMap needle =

@@ -107,7 +107,6 @@ filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
 
 -- | Helper function for registering overrides
 register_llvm_overrides_ ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   LLVMContext arch ->
   [OverrideTemplate p sym arch rtp l a] ->
   [L.Declare] ->

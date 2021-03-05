@@ -220,7 +220,7 @@ buildIdentMap (ti:ts) _ ctx asgn m = do
      buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
 
 -- | Build the initial LLVM generator state upon entry to to the entry point of a function.
-initialState :: (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+initialState :: (?lc :: TypeContext, HasPtrWidth wptr)
              => L.Define
              -> LLVMContext arch
              -> CtxRepr args

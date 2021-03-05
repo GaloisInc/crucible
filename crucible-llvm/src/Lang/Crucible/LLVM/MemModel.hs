@@ -528,7 +528,7 @@ mkMemVar halloc = freshGlobalVar halloc "llvm_memory" knownRepr
 -- | For now, the core message should be on the first line, with details
 -- on further lines. Later we should make it more structured.
 ptrMessage ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym) =>
   String ->
   LLVMPtr sym wptr {- ^ pointer involved in message -} ->
   StorageType      {- ^ type of value pointed to    -} ->
@@ -687,7 +687,7 @@ bindLLVMFunPtr sym dec h mem
        doInstallHandle sym ptr (SomeFnHandle h) mem
 
 doInstallHandle
-  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
+  :: (Typeable a, IsSymInterface sym)
   => sym
   -> LLVMPtr sym wptr
   -> a {- ^ handle -}
@@ -725,7 +725,7 @@ doMallocHandle sym allocType loc mem x = do
 
 -- | Look up the handle associated with the given pointer, if any.
 doLookupHandle
-  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
+  :: (Typeable a, IsSymInterface sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -1164,7 +1164,7 @@ storeRaw sym mem ptr valType alignment val = do
 --
 -- Asserts that the write operation is valid when cond is true.
 doConditionalWriteOperation
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym)
   => sym
   -> MemImpl sym
   -> Pred sym {- ^ write condition -}
@@ -1180,7 +1180,7 @@ doConditionalWriteOperation sym mem cond write_op =
 -- Asserts that the true branch write operation is valid when cond is true, and
 -- that the false branch write operation is valid when cond is not true.
 mergeWriteOperations
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym)
   => sym
   -> MemImpl sym
   -> Pred sym {- ^ merge condition -}

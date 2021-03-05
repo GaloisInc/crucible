@@ -195,7 +195,7 @@ build_llvm_override sym fnm args ret args' ret' llvmOverride =
                applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
 
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
   (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym) ->
   OverrideTemplate p sym arch rtp l a
@@ -203,7 +203,7 @@ polymorphic1_llvm_override prefix fn =
   OverrideTemplate (PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
 
 register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   String ->
   (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym) ->
   RegOverrideM p sym arch rtp l a ()

@@ -359,7 +359,7 @@ llvmObjectsizeOverride_64_null_dynamic =
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic sym memOps knownNat) args)
 
 llvmFshl ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
   LLVMOverride p sym
     (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
@@ -370,7 +370,7 @@ llvmFshl w =
  (\_memOps sym args -> Ctx.uncurryAssignment (callFshl sym w) args)
 
 llvmFshr ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
   LLVMOverride p sym
     (EmptyCtx ::> BVType w ::> BVType w ::> BVType w)
@@ -381,7 +381,7 @@ llvmFshr w =
  (\_memOps sym args -> Ctx.uncurryAssignment (callFshr sym w) args)
 
 llvmSaddWithOverflow
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
      LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -392,7 +392,7 @@ llvmSaddWithOverflow w =
   (\memOps sym args -> Ctx.uncurryAssignment (callSaddWithOverflow sym memOps) args)
 
 llvmUaddWithOverflow
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
      LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -404,7 +404,7 @@ llvmUaddWithOverflow w =
 
 
 llvmSsubWithOverflow
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
      LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -416,7 +416,7 @@ llvmSsubWithOverflow w =
 
 
 llvmUsubWithOverflow
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
      LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -427,7 +427,7 @@ llvmUsubWithOverflow w =
     (\memOps sym args -> Ctx.uncurryAssignment (callUsubWithOverflow sym memOps) args)
 
 llvmSmulWithOverflow
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
      LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -438,7 +438,7 @@ llvmSmulWithOverflow w =
     (\memOps sym args -> Ctx.uncurryAssignment (callSmulWithOverflow sym memOps) args)
 
 llvmUmulWithOverflow
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
      LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType w)
@@ -449,7 +449,7 @@ llvmUmulWithOverflow w =
   (\memOps sym args -> Ctx.uncurryAssignment (callUmulWithOverflow sym memOps) args)
 
 llvmCtlz
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w ->
      LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType 1)
@@ -460,7 +460,7 @@ llvmCtlz w =
     (\memOps sym args -> Ctx.uncurryAssignment (callCtlz sym memOps) args)
 
 llvmCttz
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w
   -> LLVMOverride p sym
          (EmptyCtx ::> BVType w ::> BVType 1)
@@ -471,7 +471,7 @@ llvmCttz w =
     (\memOps sym args -> Ctx.uncurryAssignment (callCttz sym memOps) args)
 
 llvmCtpop
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w
   -> LLVMOverride p sym
          (EmptyCtx ::> BVType w)
@@ -482,7 +482,7 @@ llvmCtpop w =
     (\memOps sym args -> Ctx.uncurryAssignment (callCtpop sym memOps) args)
 
 llvmBitreverse
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
+  :: (1 <= w, IsSymInterface sym)
   => NatRepr w
   -> LLVMOverride p sym
          (EmptyCtx ::> BVType w)
@@ -494,8 +494,8 @@ llvmBitreverse w =
 
 -- | <https://llvm.org/docs/LangRef.html#llvm-bswap-intrinsics LLVM docs>
 llvmBSwapOverride
-  :: forall width sym wptr p
-   . ( 1 <= width, IsSymInterface sym, HasPtrWidth wptr)
+  :: forall width sym p
+   . ( 1 <= width, IsSymInterface sym)
   => NatRepr width
   -> LLVMOverride p sym
          (EmptyCtx ::> BVType (width * 8))
@@ -520,8 +520,8 @@ llvmBSwapOverride widthRepr =
 
 
 llvmFabsF32
-  :: forall sym wptr p
-   . ( IsSymInterface sym, HasPtrWidth wptr)
+  :: forall sym p
+   . ( IsSymInterface sym)
   => LLVMOverride p sym
         (EmptyCtx ::> FloatType SingleFloat)
         (FloatType SingleFloat)
@@ -531,8 +531,8 @@ llvmFabsF32 =
 
 
 llvmFabsF64
-  :: forall sym wptr p
-   . ( IsSymInterface sym, HasPtrWidth wptr)
+  :: forall sym p
+   . ( IsSymInterface sym)
   => LLVMOverride p sym
         (EmptyCtx ::> FloatType DoubleFloat)
         (FloatType DoubleFloat)

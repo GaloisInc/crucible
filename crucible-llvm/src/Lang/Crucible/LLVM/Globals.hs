@@ -149,7 +149,7 @@ makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases
 -- allocates space for global variables, but does not set their
 -- initial values.
 initializeAllMemory
-   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   :: (IsSymInterface sym, HasPtrWidth wptr)
    => sym
    -> LLVMContext arch
    -> L.Module
@@ -157,7 +157,7 @@ initializeAllMemory
 initializeAllMemory = initializeMemory (const True)
 
 initializeMemoryConstGlobals
-   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   :: (IsSymInterface sym, HasPtrWidth wptr)
    => sym
    -> LLVMContext arch
    -> L.Module
@@ -165,7 +165,7 @@ initializeMemoryConstGlobals
 initializeMemoryConstGlobals = initializeMemory (L.gaConstant . L.globalAttrs)
 
 initializeMemory
-   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   :: (IsSymInterface sym, HasPtrWidth wptr)
    => (L.Global -> Bool)
    -> sym
    -> LLVMContext arch
@@ -219,7 +219,7 @@ initializeMemory predicate sym llvm_ctx m = do
 
 
 allocLLVMFunPtr ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
   LLVMContext arch ->
   MemImpl sym ->

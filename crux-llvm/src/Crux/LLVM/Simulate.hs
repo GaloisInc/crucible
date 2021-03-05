@@ -78,7 +78,7 @@ import Crux.LLVM.Overrides
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   HandleAllocator ->
   sym ->
   MemOptions ->

@@ -434,7 +434,7 @@ callMemset sym mvar
 -- *** Strings and I/O
 
 callPutChar
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (BVType 32)
@@ -661,7 +661,7 @@ llvmAssertFailOverride =
 
 
 llvmAbortOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym)
   => LLVMOverride p sym EmptyCtx UnitType
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
