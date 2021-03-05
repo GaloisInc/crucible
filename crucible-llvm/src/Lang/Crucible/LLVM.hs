@@ -31,7 +31,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle (lookupHandleMap, handleName)
 import           Lang.Crucible.LLVM.Eval (llvmExtensionEval)
-import           Lang.Crucible.LLVM.Extension (ArchWidth)
+import           Lang.Crucible.LLVM.Extension (ArchRepr, ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
@@ -47,8 +47,8 @@ import           Lang.Crucible.Utils.MonadVerbosity (showWarning)
 registerModuleFn
    :: (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
    LLVMContext arch ->
-   (L.Declare, AnyCFG (LLVM arch)) ->
-   OverrideSim p sym (LLVM arch) rtp l a ()
+   (L.Declare, AnyCFG ext) ->
+   OverrideSim p sym ext rtp l a ()
 registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
@@ -71,12 +71,14 @@ llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ ctx
 
 llvmExtensionImpl ::
-  (HasPtrWidth (ArchWidth arch), HasLLVMAnn sym) =>
+  (HasPtrWidth (ArchWidth arch),
+   HasLLVMAnn sym) =>
+  ArchRepr arch ->
   MemOptions ->
-  ExtensionImpl p sym (LLVM arch)
-llvmExtensionImpl mo =
+  ExtensionImpl p sym LLVM
+llvmExtensionImpl arch mo =
   let ?memOpts = mo in
   ExtensionImpl
   { extensionEval = llvmExtensionEval
-  , extensionExec = llvmStatementExec
+  , extensionExec = llvmStatementExec arch
   }

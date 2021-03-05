@@ -64,7 +64,7 @@ import Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.TypeContext( TypeContext )
 import           Lang.Crucible.LLVM.Intrinsics
 
-import Lang.Crucible.LLVM.Extension(ArchWidth)
+import Lang.Crucible.LLVM.Extension ( ArchRepr, ArchWidth )
 
 import Crux.Types
 import Crux.Model
@@ -77,59 +77,60 @@ type TBits n        = BVType n
 
 cruxLLVMOverrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
+  ArchRepr arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
-cruxLLVMOverrides =
+cruxLLVMOverrides arch =
   [ basic_llvm_override $
         [llvmOvr| i8 @crucible_int8_t( i8* ) |]
-        (fresh_bits (knownNat @8))
+        (fresh_bits arch (knownNat @8))
 
   , basic_llvm_override $
         [llvmOvr| i16 @crucible_int16_t( i8* ) |]
-        (fresh_bits (knownNat @16))
+        (fresh_bits arch (knownNat @16))
 
   , basic_llvm_override $
         [llvmOvr| i32 @crucible_int32_t( i8* ) |]
-        (fresh_bits (knownNat @32))
+        (fresh_bits arch (knownNat @32))
 
   , basic_llvm_override $
         [llvmOvr| i64 @crucible_int64_t( i8* ) |]
-        (fresh_bits (knownNat @64))
+        (fresh_bits arch (knownNat @64))
 
   , basic_llvm_override $
         [llvmOvr| i8 @crucible_uint8_t( i8* ) |]
-        (fresh_bits (knownNat @8))
+        (fresh_bits arch (knownNat @8))
 
   , basic_llvm_override $
         [llvmOvr| i16 @crucible_uint16_t( i8* ) |]
-        (fresh_bits (knownNat @16))
+        (fresh_bits arch (knownNat @16))
 
   , basic_llvm_override $
         [llvmOvr| i32 @crucible_uint32_t( i8* ) |]
-        (fresh_bits (knownNat @32))
+        (fresh_bits arch (knownNat @32))
 
   , basic_llvm_override $
         [llvmOvr| i64 @crucible_uint64_t( i8* ) |]
-        (fresh_bits (knownNat @64))
+        (fresh_bits arch (knownNat @64))
 
   , basic_llvm_override $
         [llvmOvr| float @crucible_float( i8* ) |]
-        (fresh_float SingleFloatRepr)
+        (fresh_float arch SingleFloatRepr)
 
   , basic_llvm_override $
         [llvmOvr| double @crucible_double( i8* ) |]
-        (fresh_float DoubleFloatRepr)
+        (fresh_float arch DoubleFloatRepr)
 
   , basic_llvm_override $
         [llvmOvr| i8* @crucible_string( i8*, size_t ) |]
-        fresh_str
+        (fresh_str arch)
 
   , basic_llvm_override $
         [llvmOvr| void @crucible_assume( i8, i8*, i32 ) |]
-        do_assume
+        (do_assume arch)
 
   , basic_llvm_override $
         [llvmOvr| void @crucible_assert( i8, i8*, i32 ) |]
-        do_assert
+        (do_assert arch)
 
   , basic_llvm_override $
         [llvmOvr| void @crucible_print_uint32( i32 ) |]
@@ -137,7 +138,7 @@ cruxLLVMOverrides =
 
   , basic_llvm_override $
         [llvmOvr| void @crucible_havoc_memory( i8*, size_t ) |]
-        do_havoc_memory
+        (do_havoc_memory arch)
 
   , basic_llvm_override $
         [llvmOvr| void @crucible_dump_memory( ) |]
@@ -150,20 +151,21 @@ cruxLLVMOverrides =
 
 cbmcOverrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
+  ArchRepr arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
-cbmcOverrides =
+cbmcOverrides arch =
   [ basic_llvm_override $
       [llvmOvr| void @__CPROVER_assume( i32 ) |]
       cprover_assume
   , basic_llvm_override $
       [llvmOvr| void @__CPROVER_assert( i32, i8* ) |]
-      cprover_assert
+      (cprover_assert arch)
   , basic_llvm_override $
       [llvmOvr| i1 @__CPROVER_r_ok( i8*, size_t ) |]
-      cprover_r_ok
+      (cprover_r_ok arch)
   , basic_llvm_override $
       [llvmOvr| i1 @__CPROVER_w_ok( i8*, size_t ) |]
-      cprover_w_ok
+      (cprover_w_ok arch)
 
   , basic_llvm_override $
       [llvmOvr| i1 @nondet_bool() |]
@@ -307,7 +309,7 @@ mkFresh ::
   (IsSymInterface sym, HasModel personality) =>
   String ->
   BaseTypeRepr ty ->
-  OverM personality sym (LLVM arch) (RegValue sym (BaseToType ty))
+  OverM personality sym ext (RegValue sym (BaseToType ty))
 mkFresh nm ty =
   do sym  <- getSymInterface
      name <- case userSymbol nm of
@@ -322,7 +324,7 @@ mkFreshFloat
   ::(IsSymInterface sym, HasModel personality)
   => String
   -> FloatInfoRepr fi
-  -> OverM personality sym (LLVM arch) (RegValue sym (FloatType fi))
+  -> OverM personality sym ext (RegValue sym (FloatType fi))
 mkFreshFloat nm fi = do
   sym  <- getSymInterface
   name <- case userSymbol nm of
@@ -336,61 +338,65 @@ mkFreshFloat nm fi = do
 
 lookupString ::
   (IsSymInterface sym, HasLLVMAnn sym, ArchOk arch) =>
-  GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM personality sym (LLVM arch) String
-lookupString mvar ptr =
+  ArchRepr arch ->
+  GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM personality sym ext String
+lookupString _ mvar ptr =
   do sym <- getSymInterface
      mem <- readGlobal mvar
      bytes <- liftIO (loadString sym mem (regValue ptr) Nothing)
      return (BS8.unpack (BS.pack bytes))
 
 sv_comp_fresh_bits ::
-  (ArchOk arch, IsSymInterface sym, 1 <= w, HasModel personality) =>
+  (IsSymInterface sym, 1 <= w, HasModel personality) =>
   NatRepr w ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->
-  OverM personality sym (LLVM arch) (RegValue sym (BVType w))
+  OverM personality sym ext (RegValue sym (BVType w))
 sv_comp_fresh_bits w _mvar _sym Empty = mkFresh "X" (BaseBVRepr w)
 
 sv_comp_fresh_float ::
-  (ArchOk arch, IsSymInterface sym, HasModel personality) =>
+  (IsSymInterface sym, HasModel personality) =>
   FloatInfoRepr fi ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->
-  OverM personality sym (LLVM arch) (RegValue sym (FloatType fi))
+  OverM personality sym ext (RegValue sym (FloatType fi))
 sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
   (ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w, HasModel personality) =>
+  ArchRepr arch ->
   NatRepr w ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
-  OverM personality sym (LLVM arch) (RegValue sym (BVType w))
-fresh_bits w mvar _ (Empty :> pName) =
-  do name <- lookupString mvar pName
+  OverM personality sym ext (RegValue sym (BVType w))
+fresh_bits arch w mvar _ (Empty :> pName) =
+  do name <- lookupString arch mvar pName
      mkFresh name (BaseBVRepr w)
 
 fresh_float ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, HasModel personality) =>
+  ArchRepr arch ->
   FloatInfoRepr fi ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
-  OverM personality sym (LLVM arch) (RegValue sym (FloatType fi))
-fresh_float fi mvar _ (Empty :> pName) =
-  do name <- lookupString mvar pName
+  OverM personality sym ext (RegValue sym (FloatType fi))
+fresh_float arch fi mvar _ (Empty :> pName) =
+  do name <- lookupString arch mvar pName
      mkFreshFloat name fi
 
 fresh_str ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ArchRepr arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> BVType (ArchWidth arch)) ->
-  OverM personality sym (LLVM arch) (RegValue sym (TPtr arch))
-fresh_str mvar sym (Empty :> pName :> maxLen) =
-  do name <- lookupString mvar pName
+  OverM personality sym ext (RegValue sym (TPtr arch))
+fresh_str arch mvar sym (Empty :> pName :> maxLen) =
+  do name <- lookupString arch mvar pName
 
      -- Compute the allocation length, which is the requested length plus one
      -- to hold the NUL terminator
@@ -421,13 +427,14 @@ fresh_str mvar sym (Empty :> pName :> maxLen) =
 
 do_assume ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ArchRepr arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
-do_assume mvar sym (Empty :> p :> pFile :> line) =
+  OverM personality sym ext (RegValue sym UnitType)
+do_assume arch mvar sym (Empty :> p :> pFile :> line) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
-     file <- lookupString mvar pFile
+     file <- lookupString arch mvar pFile
      l <- case asBV (regValue line) of
             Just (BV.BV l)  -> return (fromInteger l)
             Nothing -> return 0
@@ -439,13 +446,14 @@ do_assume mvar sym (Empty :> p :> pFile :> line) =
 
 do_assert ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ArchRepr arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
-do_assert mvar sym (Empty :> p :> pFile :> line) =
+  OverM personality sym ext (RegValue sym UnitType)
+do_assert arch mvar sym (Empty :> p :> pFile :> line) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
-     file <- lookupString mvar pFile
+     file <- lookupString arch mvar pFile
      l <- case asBV (regValue line) of
             Just (BV.BV l)  -> return (fromInteger l)
             Nothing -> return 0
@@ -456,22 +464,23 @@ do_assert mvar sym (Empty :> p :> pFile :> line) =
      liftIO $ addDurableAssertion sym (LabeledPred cond (SimError loc' msg))
 
 do_print_uint32 ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (IsSymInterface sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
+  OverM personality sym ext (RegValue sym UnitType)
 do_print_uint32 _mvar _sym (Empty :> x) =
   do h <- printHandle <$> getContext
      liftIO $ hPutStrLn h (show (printSymExpr (regValue x)))
 
 do_havoc_memory ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ArchRepr arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
-do_havoc_memory mvar sym (Empty :> ptr :> len) =
+  OverM personality sym ext (RegValue sym UnitType)
+do_havoc_memory _ mvar sym (Empty :> ptr :> len) =
   do let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
      mem <- readGlobal mvar
      mem' <- liftIO $ do
@@ -480,11 +489,11 @@ do_havoc_memory mvar sym (Empty :> ptr :> len) =
      writeGlobal mvar mem'
 
 cprover_assume ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (IsSymInterface sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
+  OverM personality sym ext (RegValue sym UnitType)
 cprover_assume _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
@@ -493,45 +502,48 @@ cprover_assume _mvar sym (Empty :> p) = liftIO $
 
 cprover_assert ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ArchRepr arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
-cprover_assert mvar sym (Empty :> p :> pMsg) =
+  OverM personality sym ext (RegValue sym UnitType)
+cprover_assert arch mvar sym (Empty :> p :> pMsg) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
-     str <- lookupString mvar pMsg
+     str <- lookupString arch mvar pMsg
      loc <- liftIO $ getCurrentProgramLoc sym
      let msg = AssertFailureSimError "__CPROVER_assert" str
      liftIO $ addDurableAssertion sym (LabeledPred cond (SimError loc msg))
 
 cprover_r_ok ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ArchRepr arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
-  OverM personality sym (LLVM arch) (RegValue sym (BVType 1))
-cprover_r_ok mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
+  OverM personality sym ext (RegValue sym (BVType 1))
+cprover_r_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
   do mem <- readGlobal mvar
      x <- liftIO $ isAllocatedAlignedPointer sym PtrWidth noAlignment Immutable p (Just sz) mem
      liftIO $ predToBV sym x knownNat
 
 cprover_w_ok ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ArchRepr arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
-  OverM personality sym (LLVM arch) (RegValue sym (BVType 1))
-cprover_w_ok mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
+  OverM personality sym ext (RegValue sym (BVType 1))
+cprover_w_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
   do mem <- readGlobal mvar
      x <- liftIO $ isAllocatedAlignedPointer sym PtrWidth noAlignment Mutable p (Just sz) mem
      liftIO $ predToBV sym x knownNat
 
 sv_comp_assume ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (IsSymInterface sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
+  OverM personality sym ext (RegValue sym UnitType)
 sv_comp_assume _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
@@ -539,11 +551,11 @@ sv_comp_assume _mvar sym (Empty :> p) = liftIO $
      addAssumption sym (LabeledPred cond msg)
 
 sv_comp_assert ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (IsSymInterface sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
+  OverM personality sym ext (RegValue sym UnitType)
 sv_comp_assert _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
@@ -551,11 +563,11 @@ sv_comp_assert _mvar sym (Empty :> p) = liftIO $
      addDurableAssertion sym (LabeledPred cond (SimError loc msg))
 
 sv_comp_error ::
-  (ArchOk arch, IsSymInterface sym) =>
+  (IsSymInterface sym) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->
-  OverM personality sym (LLVM arch) (RegValue sym UnitType)
+  OverM personality sym ext (RegValue sym UnitType)
 sv_comp_error _mvar sym Empty = liftIO $
   do let rsn = AssertFailureSimError "__VERIFIER_error" ""
      addFailedAssertion sym rsn

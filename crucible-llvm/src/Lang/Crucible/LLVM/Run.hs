@@ -18,7 +18,7 @@ module Lang.Crucible.LLVM.Run
   , findCFG
   ) where
 
-import Control.Lens((^.))
+import Control.Lens ( (^.), to )
 import System.IO(Handle)
 import Data.String(fromString)
 import qualified Data.Map as Map
@@ -44,11 +44,10 @@ import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, LLVM)
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals)
 import Lang.Crucible.LLVM.Translation
-        (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap,llvmPtrWidth,llvmTypeCtx)
+        (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap,llvmArch,llvmPtrWidth,llvmTypeCtx)
 import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeAllMemory)
 
 import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth,MemOptions,HasLLVMAnn)
-
 import Lang.Crucible.LLVM.Extension(ArchWidth)
 
 import Lang.Crucible.Backend(IsSymInterface)
@@ -56,7 +55,7 @@ import Lang.Crucible.Backend(IsSymInterface)
 
 -- | LLVM specific crucible initialization.
 newtype CruxLLVM res =
-  CruxLLVM (forall arch. ModuleTranslation arch -> IO (Setup (LLVM arch) res))
+  CruxLLVM (forall arch. ModuleTranslation arch -> IO (Setup LLVM res))
 
 
 -- | Generic Crucible initialization.
@@ -114,7 +113,7 @@ runCruxLLVM llvm_mod memOpts laxArith optLoopMerge (CruxLLVM setup) =
                               halloc
                               cruxOutput
                               (fnBindingsFromList [])
-                              (llvmExtensionImpl memOpts)
+                              (llvmExtensionImpl (trans ^. transContext . to llvmArch) memOpts)
                               cruxUserState
 
               cruxGo $ InitialState simctx globSt defaultAbortHandler cruxInitCodeReturns
@@ -131,6 +130,6 @@ withPtrWidthOf trans k =
   llvmPtrWidth (trans^.transContext) (\ptrW -> withPtrWidth ptrW k)
 
 
-findCFG :: ModuleTranslation arch -> String -> Maybe (AnyCFG (LLVM arch))
+findCFG :: ModuleTranslation arch -> String -> Maybe (AnyCFG LLVM)
 findCFG trans fun = snd <$> Map.lookup (fromString fun) (cfgMap trans)
 

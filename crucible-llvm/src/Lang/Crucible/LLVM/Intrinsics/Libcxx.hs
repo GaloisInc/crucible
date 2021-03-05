@@ -89,7 +89,7 @@ register_cpp_override someCPPOverride =
 data SomeCPPOverride p sym arch =
   SomeCPPOverride
   { cppOverrideSubstrings :: [String]
-  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym arch)
+  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym)
   }
 
 ------------------------------------------------------------------------
@@ -126,7 +126,7 @@ panic_ from decl args ret =
 -- function handle in the symbol table and use that to construct an override
 mkOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
            => [String] -- ^ Substrings for name filtering
-           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym arch))
+           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym))
            -> (L.Symbol -> ABI.DecodedName -> Bool)
            -> SomeCPPOverride p sym arch
 mkOverride substrings ov filt =

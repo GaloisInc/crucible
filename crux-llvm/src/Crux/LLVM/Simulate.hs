@@ -11,7 +11,7 @@ module Crux.LLVM.Simulate where
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
-import Control.Lens ((&), (%~), (^.), view)
+import Control.Lens ((&), (%~), (^.), to, view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
 
@@ -56,7 +56,7 @@ import Lang.Crucible.LLVM.MemModel
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, cfgMap
+        , transContext, llvmArch, cfgMap
         , LLVMContext, llvmMemVar, ModuleCFGMap
         , llvmPtrWidth, llvmTypeCtx
         )
@@ -83,14 +83,14 @@ setupSimCtxt ::
   sym ->
   MemOptions ->
   LLVMContext arch ->
-  SimCtxt Model sym (LLVM arch)
+  SimCtxt Model sym LLVM
 setupSimCtxt halloc sym mo llvmCtxt =
   initSimContext sym
                  llvmIntrinsicTypes
                  halloc
                  stdout
                  (fnBindingsFromList [])
-                 (llvmExtensionImpl mo)
+                 (llvmExtensionImpl (llvmArch llvmCtxt) mo)
                  emptyModel
     & profilingMetrics %~ Map.union (llvmMetrics llvmCtxt)
 
@@ -107,13 +107,18 @@ registerFunctions ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   LLVM.Module ->
   ModuleTranslation arch ->
-  OverM Model sym (LLVM arch) ()
+  OverM Model sym LLVM ()
 registerFunctions llvm_module mtrans =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
 
      -- register the callable override functions
-     register_llvm_overrides llvm_module [] (cruxLLVMOverrides++svCompOverrides++cbmcOverrides) llvm_ctx
+     register_llvm_overrides llvm_module []
+       (concat [ cruxLLVMOverrides (mtrans ^. transContext . to llvmArch)
+               , svCompOverrides
+               , cbmcOverrides (mtrans ^. transContext . to llvmArch)
+               ])
+       llvm_ctx
 
      -- register all the functions defined in the LLVM module
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
@@ -171,8 +176,8 @@ simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline
 
 
 checkFun ::
-  (ArchOk arch, Logs) =>
-  String -> ModuleCFGMap arch -> OverM personality sym (LLVM arch) ()
+  (Logs) =>
+  String -> ModuleCFGMap -> OverM personality sym LLVM ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (_, AnyCFG anyCfg) ->

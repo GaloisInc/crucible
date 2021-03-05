@@ -126,11 +126,11 @@ mkLLVMContext halloc m = do
 -- to CFGs.
 type LLVMGenerator s arch ret a =
   (?lc :: TypeContext, HasPtrWidth (ArchWidth arch)) =>
-    Generator (LLVM arch) s (LLVMState arch) ret IO a
+    Generator LLVM s (LLVMState arch) ret IO a
 
 -- | @LLVMGenerator@ without the constraint, can be nested further inside monads.
 type LLVMGenerator' s arch ret =
-  Generator (LLVM arch) s (LLVMState arch) ret IO
+  Generator LLVM s (LLVMState arch) ret IO
 
 
 -- LLVMState

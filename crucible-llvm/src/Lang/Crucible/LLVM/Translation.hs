@@ -126,12 +126,12 @@ import           Lang.Crucible.Types
 ------------------------------------------------------------------------
 -- Translation results
 
-type ModuleCFGMap arch = Map L.Symbol (L.Declare, C.AnyCFG (LLVM arch))
+type ModuleCFGMap = Map L.Symbol (L.Declare, C.AnyCFG LLVM)
 
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation arch
    = ModuleTranslation
-      { cfgMap        :: ModuleCFGMap arch
+      { cfgMap        :: ModuleCFGMap
       , _transContext :: LLVMContext arch
       , globalInitMap :: GlobalInitializerMap
         -- ^ A map from global names to their (constant) values
@@ -329,7 +329,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 genDefn :: (?laxArith :: Bool)
         => L.Define
         -> TypeRepr ret
-        -> LLVMGenerator s arch ret (Expr (LLVM arch) s ret)
+        -> LLVMGenerator s arch ret (Expr ext s ret)
 genDefn defn retType =
   case L.defBody defn of
     [] -> fail "LLVM define with no blocks!"
@@ -361,7 +361,7 @@ transDefine :: forall arch wptr.
             => HandleAllocator
             -> LLVMContext arch
             -> L.Define
-            -> IO (L.Symbol, (L.Declare, C.AnyCFG (LLVM arch)))
+            -> IO (L.Symbol, (L.Declare, C.AnyCFG LLVM))
 transDefine halloc ctx d = do
   let ?lc = ctx^.llvmTypeCtx
   let decl = declareFromDefine d
@@ -370,7 +370,7 @@ transDefine halloc ctx d = do
 
   llvmDeclToFunHandleRepr' decl $ \(argTypes :: CtxRepr args) (retType :: TypeRepr ret) -> do
     h <- mkHandle' halloc fn_name argTypes retType
-    let def :: FunctionDef (LLVM arch) (LLVMState arch) args ret IO
+    let def :: FunctionDef LLVM (LLVMState arch) args ret IO
         def inputs = (s, f)
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType

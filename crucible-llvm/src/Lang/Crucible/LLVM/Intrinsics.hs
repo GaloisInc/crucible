@@ -71,7 +71,7 @@ register_llvm_overrides ::
   [OverrideTemplate p sym arch rtp l a] {- ^ Additional "define" overrides -} ->
   [OverrideTemplate p sym arch rtp l a] {- ^ Additional "declare" overrides -} ->
   LLVMContext arch ->
-  OverrideSim p sym (LLVM arch) rtp l a ()
+  OverrideSim p sym LLVM rtp l a ()
 register_llvm_overrides llvmModule defineOvrs declareOvrs llvmctx =
   do register_llvm_define_overrides llvmModule defineOvrs llvmctx
      register_llvm_declare_overrides llvmModule declareOvrs llvmctx
@@ -111,7 +111,7 @@ register_llvm_overrides_ ::
   LLVMContext arch ->
   [OverrideTemplate p sym arch rtp l a] ->
   [L.Declare] ->
-  OverrideSim p sym (LLVM arch) rtp l a ()
+  OverrideSim p sym LLVM rtp l a ()
 register_llvm_overrides_ llvmctx acts decls =
     forM_ decls $ \decl ->
       do let acts' = filterTemplates acts decl
@@ -124,7 +124,7 @@ register_llvm_define_overrides ::
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
-  OverrideSim p sym (LLVM arch) rtp l a ()
+  OverrideSim p sym LLVM rtp l a ()
 register_llvm_define_overrides llvmModule addlOvrs llvmctx =
   let ?lc = llvmctx^.llvmTypeCtx in
   register_llvm_overrides_ llvmctx (addlOvrs ++ define_overrides) $
@@ -135,7 +135,7 @@ register_llvm_declare_overrides ::
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
-  OverrideSim p sym (LLVM arch) rtp l a ()
+  OverrideSim p sym LLVM rtp l a ()
 register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
   let ?lc = llvmctx^.llvmTypeCtx
   in register_llvm_overrides_ llvmctx (addlOvrs ++ declare_overrides) $

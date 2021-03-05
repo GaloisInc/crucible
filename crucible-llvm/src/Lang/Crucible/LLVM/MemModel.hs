@@ -348,24 +348,26 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec ::
   (HasPtrWidth (ArchWidth arch), Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
-  EvalStmtFunc p sym (LLVM arch)
-llvmStatementExec stmt cst =
+  ArchRepr arch ->
+  EvalStmtFunc p sym LLVM
+llvmStatementExec arch stmt cst =
   let sym = cst^.stateSymInterface
-   in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
+   in stateSolverProof cst (runStateT (evalStmt sym arch stmt) cst)
 
 type EvalM p sym ext rtp blocks ret args a =
   StateT (CrucibleState p sym ext rtp blocks ret args) IO a
 
 -- | Actual workhorse function for evaluating LLVM extension statements.
 --   The semantics are explicitly organized as a state transformer monad
---   that modifes the global state of the simulator; this captures the
+--   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
-evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
+evalStmt :: forall p sym ext arch rtp blocks ret args tp.
+  (IsSymInterface sym, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
   sym ->
-  LLVMStmt wptr (RegEntry sym) tp ->
+  ArchRepr arch ->
+  LLVMStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
-evalStmt sym = eval
+evalStmt sym _arch = eval
  where
   getMem :: GlobalVar Mem ->
             EvalM p sym ext rtp blocks ret args (MemImpl sym)
@@ -388,7 +390,7 @@ evalStmt sym = eval
   failedAssert msg details =
     lift $ addFailedAssertion sym $ AssertFailureSimError msg details
 
-  eval :: LLVMStmt wptr (RegEntry sym) tp ->
+  eval :: LLVMStmt (RegEntry sym) tp ->
           EvalM p sym ext rtp blocks ret args (RegValue sym tp)
   eval (LLVM_PushFrame nm mvar) =
      do mem <- getMem mvar

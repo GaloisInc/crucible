@@ -10,6 +10,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -69,23 +70,23 @@ import           Lang.Crucible.LLVM.Translation.Types
 
 -- | This type represents an implementation of an LLVM intrinsic function in
 -- Crucible.
-data LLVMOverride p sym arch args ret =
+data LLVMOverride p sym args ret =
   LLVMOverride
   { llvmOverride_declare :: L.Declare    -- ^ An LLVM name and signature for this intrinsic
   , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
   , llvmOverride_ret     :: TypeRepr ret -- ^ A representation of the return type
   , llvmOverride_def ::
-       forall rtp args' ret'.
+       forall ext rtp args' ret'.
          GlobalVar Mem ->
          sym ->
          Ctx.Assignment (RegEntry sym) args ->
-         OverrideSim p sym (LLVM arch) rtp args' ret' (RegValue sym ret)
+         OverrideSim p sym ext rtp args' ret' (RegValue sym ret)
     -- ^ The implementation of the intrinsic in the simulator monad
     -- (@OverrideSim@).
   }
 
-data SomeLLVMOverride p sym arch =
-  forall args ret. SomeLLVMOverride (LLVMOverride p sym arch args ret)
+data SomeLLVMOverride p sym =
+  forall args ret. SomeLLVMOverride (LLVMOverride p sym args ret)
 
 -- | Convenient LLVM representation of the @size_t@ type.
 llvmSizeT :: HasPtrWidth wptr => L.Type
@@ -106,20 +107,20 @@ data TemplateMatcher
 
 type RegOverrideM p sym arch rtp l a =
   ReaderT (L.Declare, Maybe ABI.DecodedName, LLVMContext arch)
-    (MaybeT (OverrideSim p sym (LLVM arch) rtp l a))
+    (MaybeT (OverrideSim p sym LLVM rtp l a))
 
 ------------------------------------------------------------------------
 -- ** register_llvm_override
 
 newtype ArgTransformer p sym args args' =
-  ArgTransformer { applyArgTransformer :: (forall arch rtp l a.
+  ArgTransformer { applyArgTransformer :: (forall rtp l a.
     Ctx.Assignment (RegEntry sym) args ->
-    OverrideSim p sym (LLVM arch) rtp l a (Ctx.Assignment (RegEntry sym) args')) }
+    OverrideSim p sym LLVM rtp l a (Ctx.Assignment (RegEntry sym) args')) }
 
 newtype ValTransformer p sym tp tp' =
-  ValTransformer { applyValTransformer :: (forall arch rtp l a.
+  ValTransformer { applyValTransformer :: (forall rtp l a.
     RegValue sym tp ->
-    OverrideSim p sym (LLVM arch) rtp l a (RegValue sym tp')) }
+    OverrideSim p sym LLVM rtp l a (RegValue sym tp')) }
 
 transformLLVMArgs :: forall m p sym args args'.
   (IsSymInterface sym, Monad m, HasLLVMAnn sym) =>
@@ -184,8 +185,8 @@ build_llvm_override ::
   CtxRepr args' ->
   TypeRepr ret' ->
   (forall rtp' l' a'. Ctx.Assignment (RegEntry sym) args ->
-   OverrideSim p sym (LLVM arch) rtp' l' a' (RegValue sym ret)) ->
-  OverrideSim p sym (LLVM arch) rtp l a (Override p sym (LLVM arch) args' ret')
+   OverrideSim p sym LLVM rtp' l' a' (RegValue sym ret)) ->
+  OverrideSim p sym LLVM rtp l a (Override p sym LLVM args' ret')
 build_llvm_override sym fnm args ret args' ret' llvmOverride =
   do fargs <- transformLLVMArgs sym args args'
      fret  <- transformLLVMRet  sym ret  ret'
@@ -196,7 +197,7 @@ build_llvm_override sym fnm args ret args' ret' llvmOverride =
 polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   String ->
-  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym) ->
   OverrideTemplate p sym arch rtp l a
 polymorphic1_llvm_override prefix fn =
   OverrideTemplate (PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
@@ -204,7 +205,7 @@ polymorphic1_llvm_override prefix fn =
 register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   String ->
-  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym) ->
   RegOverrideM p sym arch rtp l a ()
 register_1arg_polymorphic_override prefix overrideFn =
   do (L.Declare{ L.decName = L.Symbol nm },_,_) <- ask
@@ -216,8 +217,8 @@ register_1arg_polymorphic_override prefix overrideFn =
        _ -> empty
 
 basic_llvm_override :: forall p args ret sym arch wptr l a rtp.
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-  LLVMOverride p sym arch args ret ->
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  LLVMOverride p sym args ret ->
   OverrideTemplate p sym arch rtp l a
 basic_llvm_override ovr = OverrideTemplate (ExactMatch nm) (register_llvm_override ovr)
  where L.Symbol nm = L.decName (llvmOverride_declare ovr)
@@ -241,8 +242,8 @@ isMatchingDeclaration requested provided = and
  matchingArgList (x:xs) (y:ys) = x == y && matchingArgList xs ys
 
 register_llvm_override :: forall p args ret sym arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, HasLLVMAnn sym) =>
-  LLVMOverride p sym arch args ret ->
+  (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym) =>
+  LLVMOverride p sym args ret ->
   RegOverrideM p sym arch rtp l a ()
 register_llvm_override llvmOverride = do
   (requestedDecl,_,llvmctx) <- ask
