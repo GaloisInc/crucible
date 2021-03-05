@@ -90,7 +90,7 @@ setupSimCtxt halloc sym mo llvmCtxt =
                  halloc
                  stdout
                  (fnBindingsFromList [])
-                 (llvmExtensionImpl (llvmArch llvmCtxt) mo)
+                 (llvmExtensionImpl mo)
                  emptyModel
     & profilingMetrics %~ Map.union (llvmMetrics llvmCtxt)
 

@@ -347,12 +347,11 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec ::
-  (HasPtrWidth (ArchWidth arch), Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
-  ArchRepr arch ->
+  (Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   EvalStmtFunc p sym LLVM
-llvmStatementExec arch stmt cst =
+llvmStatementExec stmt cst =
   let sym = cst^.stateSymInterface
-   in stateSolverProof cst (runStateT (evalStmt sym arch stmt) cst)
+   in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
 
 type EvalM p sym ext rtp blocks ret args a =
   StateT (CrucibleState p sym ext rtp blocks ret args) IO a
@@ -361,13 +360,12 @@ type EvalM p sym ext rtp blocks ret args a =
 --   The semantics are explicitly organized as a state transformer monad
 --   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
-evalStmt :: forall p sym ext arch rtp blocks ret args tp.
+evalStmt :: forall p sym ext rtp blocks ret args tp.
   (IsSymInterface sym, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
   sym ->
-  ArchRepr arch ->
   LLVMStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
-evalStmt sym _arch = eval
+evalStmt sym = eval
  where
   getMem :: GlobalVar Mem ->
             EvalM p sym ext rtp blocks ret args (MemImpl sym)

@@ -124,7 +124,7 @@ panic_ from decl args ret =
 
 -- | If the requested declaration's symbol matches the filter, look up its
 -- function handle in the symbol table and use that to construct an override
-mkOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+mkOverride :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch))
            => [String] -- ^ Substrings for name filtering
            -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym))
            -> (L.Symbol -> ABI.DecodedName -> Bool)

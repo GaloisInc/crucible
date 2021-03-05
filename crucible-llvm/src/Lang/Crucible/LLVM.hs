@@ -31,7 +31,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle (lookupHandleMap, handleName)
 import           Lang.Crucible.LLVM.Eval (llvmExtensionEval)
-import           Lang.Crucible.LLVM.Extension (ArchRepr, ArchWidth)
+import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
@@ -71,14 +71,12 @@ llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ ctx
 
 llvmExtensionImpl ::
-  (HasPtrWidth (ArchWidth arch),
-   HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  (HasLLVMAnn sym) =>
   MemOptions ->
   ExtensionImpl p sym LLVM
-llvmExtensionImpl arch mo =
+llvmExtensionImpl mo =
   let ?memOpts = mo in
   ExtensionImpl
   { extensionEval = llvmExtensionEval
-  , extensionExec = llvmStatementExec arch
+  , extensionExec = llvmStatementExec
   }

@@ -18,7 +18,7 @@ module Lang.Crucible.LLVM.Run
   , findCFG
   ) where
 
-import Control.Lens ( (^.), to )
+import Control.Lens ( (^.) )
 import System.IO(Handle)
 import Data.String(fromString)
 import qualified Data.Map as Map
@@ -44,7 +44,7 @@ import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, LLVM)
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals)
 import Lang.Crucible.LLVM.Translation
-        (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap,llvmArch,llvmPtrWidth,llvmTypeCtx)
+        (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap,llvmPtrWidth,llvmTypeCtx)
 import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeAllMemory)
 
 import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth,MemOptions,HasLLVMAnn)
@@ -113,7 +113,7 @@ runCruxLLVM llvm_mod memOpts laxArith optLoopMerge (CruxLLVM setup) =
                               halloc
                               cruxOutput
                               (fnBindingsFromList [])
-                              (llvmExtensionImpl (trans ^. transContext . to llvmArch) memOpts)
+                              (llvmExtensionImpl memOpts)
                               cruxUserState
 
               cruxGo $ InitialState simctx globSt defaultAbortHandler cruxInitCodeReturns
