@@ -105,6 +105,15 @@ import           What4.InterpretedFloatingPoint (X86_80Val(..))
 
 -------------------------------------------------------------------------
 -- LLVMExpr
+--
+-- As noted in "Lang.Crucible.LLVM.Translation.Types", this code uses
+-- a polymorphic continuation-passing style to convert to
+-- strongly-typed Crucible types from less-strongly-typed LLVM
+-- types. As part of that, the LLVM architecture (notably the pointer
+-- width) must be unified between the outer context and the
+-- continuation; the 'proxy#' arguments here and below represent a
+-- 'Proxy# arch' type that is used to maintain that architecture
+-- definition and corresponding pointer width for the conversions.
 
 -- | An intermediate form of LLVM expressions that retains some structure
 --   that would otherwise be more difficult to retain if we translated directly
