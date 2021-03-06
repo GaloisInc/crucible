@@ -2,6 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -11,9 +12,10 @@ module Crux.LLVM.Simulate where
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
-import Control.Lens ((&), (%~), (^.), to, view)
+import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
+import GHC.Exts ( proxy# )
 
 import System.IO (stdout)
 
@@ -56,7 +58,7 @@ import Lang.Crucible.LLVM.MemModel
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, llvmArch, cfgMap
+        , transContext, cfgMap
         , LLVMContext, llvmMemVar, ModuleCFGMap
         , llvmPtrWidth, llvmTypeCtx
         )
@@ -114,9 +116,9 @@ registerFunctions llvm_module mtrans =
 
      -- register the callable override functions
      register_llvm_overrides llvm_module []
-       (concat [ cruxLLVMOverrides (mtrans ^. transContext . to llvmArch)
+       (concat [ cruxLLVMOverrides proxy#
                , svCompOverrides
-               , cbmcOverrides (mtrans ^. transContext . to llvmArch)
+               , cbmcOverrides proxy#
                ])
        llvm_ctx
 

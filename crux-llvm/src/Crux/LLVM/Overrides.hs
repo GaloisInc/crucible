@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MagicHash #-}
 {-# Language ConstraintKinds #-}
 {-# Language DataKinds #-}
 {-# Language ImplicitParams #-}
@@ -21,6 +22,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Control.Lens((%=))
 import Control.Monad.IO.Class(liftIO)
+import GHC.Exts ( Proxy# )
 import System.IO (hPutStrLn)
 import qualified Data.Text as T
 
@@ -64,7 +66,7 @@ import Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.TypeContext( TypeContext )
 import           Lang.Crucible.LLVM.Intrinsics
 
-import Lang.Crucible.LLVM.Extension ( ArchRepr, ArchWidth )
+import Lang.Crucible.LLVM.Extension ( ArchWidth )
 
 import Crux.Types
 import Crux.Model
@@ -77,7 +79,7 @@ type TBits n        = BVType n
 
 cruxLLVMOverrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cruxLLVMOverrides arch =
   [ basic_llvm_override $
@@ -151,7 +153,7 @@ cruxLLVMOverrides arch =
 
 cbmcOverrides ::
   (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cbmcOverrides arch =
   [ basic_llvm_override $
@@ -338,7 +340,7 @@ mkFreshFloat nm fi = do
 
 lookupString ::
   (IsSymInterface sym, HasLLVMAnn sym, ArchOk arch) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM personality sym ext String
 lookupString _ mvar ptr =
   do sym <- getSymInterface
@@ -366,7 +368,7 @@ sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
   (ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w, HasModel personality) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   NatRepr w ->
   GlobalVar Mem ->
   sym ->
@@ -378,7 +380,7 @@ fresh_bits arch w mvar _ (Empty :> pName) =
 
 fresh_float ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, HasModel personality) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   FloatInfoRepr fi ->
   GlobalVar Mem ->
   sym ->
@@ -390,7 +392,7 @@ fresh_float arch fi mvar _ (Empty :> pName) =
 
 fresh_str ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> BVType (ArchWidth arch)) ->
@@ -427,7 +429,7 @@ fresh_str arch mvar sym (Empty :> pName :> maxLen) =
 
 do_assume ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
@@ -446,7 +448,7 @@ do_assume arch mvar sym (Empty :> p :> pFile :> line) =
 
 do_assert ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
@@ -475,7 +477,7 @@ do_print_uint32 _mvar _sym (Empty :> x) =
 
 do_havoc_memory ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) ->
@@ -502,7 +504,7 @@ cprover_assume _mvar sym (Empty :> p) = liftIO $
 
 cprover_assert ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
@@ -516,7 +518,7 @@ cprover_assert arch mvar sym (Empty :> p :> pMsg) =
 
 cprover_r_ok ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
@@ -528,7 +530,7 @@ cprover_r_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
 
 cprover_w_ok ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  ArchRepr arch ->
+  Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
