@@ -347,8 +347,8 @@ instance IsSymInterface sym => IntrinsicClass sym "LLVM_memory" where
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec ::
-  (HasPtrWidth (ArchWidth arch), Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
-  EvalStmtFunc p sym (LLVM arch)
+  (Partial.HasLLVMAnn sym, ?memOpts :: MemOptions) =>
+  EvalStmtFunc p sym LLVM
 llvmStatementExec stmt cst =
   let sym = cst^.stateSymInterface
    in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
@@ -358,12 +358,12 @@ type EvalM p sym ext rtp blocks ret args a =
 
 -- | Actual workhorse function for evaluating LLVM extension statements.
 --   The semantics are explicitly organized as a state transformer monad
---   that modifes the global state of the simulator; this captures the
+--   that modifies the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
-evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
+evalStmt :: forall p sym ext rtp blocks ret args tp.
+  (IsSymInterface sym, Partial.HasLLVMAnn sym, HasCallStack, ?memOpts :: MemOptions) =>
   sym ->
-  LLVMStmt wptr (RegEntry sym) tp ->
+  LLVMStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
 evalStmt sym = eval
  where
@@ -388,7 +388,7 @@ evalStmt sym = eval
   failedAssert msg details =
     lift $ addFailedAssertion sym $ AssertFailureSimError msg details
 
-  eval :: LLVMStmt wptr (RegEntry sym) tp ->
+  eval :: LLVMStmt (RegEntry sym) tp ->
           EvalM p sym ext rtp blocks ret args (RegValue sym tp)
   eval (LLVM_PushFrame nm mvar) =
      do mem <- getMem mvar
@@ -528,7 +528,7 @@ mkMemVar halloc = freshGlobalVar halloc "llvm_memory" knownRepr
 -- | For now, the core message should be on the first line, with details
 -- on further lines. Later we should make it more structured.
 ptrMessage ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym) =>
   String ->
   LLVMPtr sym wptr {- ^ pointer involved in message -} ->
   StorageType      {- ^ type of value pointed to    -} ->
@@ -687,7 +687,7 @@ bindLLVMFunPtr sym dec h mem
        doInstallHandle sym ptr (SomeFnHandle h) mem
 
 doInstallHandle
-  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
+  :: (Typeable a, IsSymInterface sym)
   => sym
   -> LLVMPtr sym wptr
   -> a {- ^ handle -}
@@ -725,7 +725,7 @@ doMallocHandle sym allocType loc mem x = do
 
 -- | Look up the handle associated with the given pointer, if any.
 doLookupHandle
-  :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
+  :: (Typeable a, IsSymInterface sym)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr
@@ -1164,7 +1164,7 @@ storeRaw sym mem ptr valType alignment val = do
 --
 -- Asserts that the write operation is valid when cond is true.
 doConditionalWriteOperation
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym)
   => sym
   -> MemImpl sym
   -> Pred sym {- ^ write condition -}
@@ -1180,7 +1180,7 @@ doConditionalWriteOperation sym mem cond write_op =
 -- Asserts that the true branch write operation is valid when cond is true, and
 -- that the false branch write operation is valid when cond is not true.
 mergeWriteOperations
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym)
   => sym
   -> MemImpl sym
   -> Pred sym {- ^ merge condition -}

@@ -2,6 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -14,6 +15,7 @@ import Data.IORef
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
+import GHC.Exts ( proxy# )
 
 import System.IO (stdout)
 
@@ -78,12 +80,12 @@ import Crux.LLVM.Overrides
 
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   HandleAllocator ->
   sym ->
   MemOptions ->
   LLVMContext arch ->
-  SimCtxt Model sym (LLVM arch)
+  SimCtxt Model sym LLVM
 setupSimCtxt halloc sym mo llvmCtxt =
   initSimContext sym
                  llvmIntrinsicTypes
@@ -107,13 +109,18 @@ registerFunctions ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   LLVM.Module ->
   ModuleTranslation arch ->
-  OverM Model sym (LLVM arch) ()
+  OverM Model sym LLVM ()
 registerFunctions llvm_module mtrans =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
 
      -- register the callable override functions
-     register_llvm_overrides llvm_module [] (cruxLLVMOverrides++svCompOverrides++cbmcOverrides) llvm_ctx
+     register_llvm_overrides llvm_module []
+       (concat [ cruxLLVMOverrides proxy#
+               , svCompOverrides
+               , cbmcOverrides proxy#
+               ])
+       llvm_ctx
 
      -- register all the functions defined in the LLVM module
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
@@ -171,8 +178,8 @@ simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline
 
 
 checkFun ::
-  (ArchOk arch, Logs) =>
-  String -> ModuleCFGMap arch -> OverM personality sym (LLVM arch) ()
+  (Logs) =>
+  String -> ModuleCFGMap -> OverM personality sym LLVM ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (_, AnyCFG anyCfg) ->

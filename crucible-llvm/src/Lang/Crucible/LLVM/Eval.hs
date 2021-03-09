@@ -34,12 +34,12 @@ assertSideCondition sym (LLVMSideCondition (RV p) ub) =
      let err = AssertFailureSimError "Undefined behavior encountered" (show (UB.explain ub))
      assert sym p' err
 
-llvmExtensionEval :: forall sym arch.
+llvmExtensionEval :: forall sym.
   (HasLLVMAnn sym, IsSymInterface sym) =>
   sym ->
   IntrinsicTypes sym ->
   (Int -> String -> IO ()) ->
-  EvalAppFunc sym (LLVMExtensionExpr arch)
+  EvalAppFunc sym LLVMExtensionExpr
 
 llvmExtensionEval sym _iTypes _logFn eval e =
   case e of
