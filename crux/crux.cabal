@@ -1,14 +1,21 @@
+Cabal-version: 3.0
 Name:          crux
 Version:       0.4
-Author:        Galois Inc.
 Copyright:     (c) Galois, Inc. 2018-2021
-Maintainer:    sweirich@galois.com
-License:       BSD3
+Author:        sweirich@galois.com
+Maintainer:    rdockins@galois.com
+License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple
-Cabal-version: >= 1.10
 Category:      Language
 Synopsis:      Simple top-level library for Crucible Simulation
+Description:
+  The Crux library provides the common elements for running a Crucible
+  simulation on specific source files, with various options.  This
+  library is used by specific instances of Crux tools that provide a
+  command-line interface to Crucible-based simulation and
+  verification, usually by embedding verification specifications in
+  the source language.
 
 library 
         
