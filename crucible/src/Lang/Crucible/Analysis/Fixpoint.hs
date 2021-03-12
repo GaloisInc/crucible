@@ -277,6 +277,7 @@ extendRegisters domVal pa =
      , _paRegisterRefs = PU.extend (_paRegisterRefs pa) emptyRefSet
      }
 
+{-
 -- | Extend the abstraction with a domain value and a set of register references
 -- simultaneously.
 --
@@ -292,6 +293,7 @@ extendRegisterRefs domVal refId refDomVal pa =
      , _paRegisterRefs = PU.extend (_paRegisterRefs pa) (RefSet (S.singleton refId))
      , _paRefs = PM.insert (RefStmtId refId) refDomVal (_paRefs pa)
      }
+-}
 
 -- | Join two point abstractions using the join operation of the domain.
 --
@@ -806,8 +808,9 @@ lookupAssignment idx = do
   abstr <- St.get
   return ((abstr ^. isFuncAbstr . faEntryRegs) PU.! idx)
 
-lookupReg :: Reg ctx tp -> PointAbstraction blocks dom ctx -> dom tp
-lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
+-- currently unused:
+-- lookupReg :: Reg ctx tp -> PointAbstraction blocks dom ctx -> dom tp
+-- lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
 
 lookupRegRefs :: Reg ctx tp -> PointAbstraction blocks dom ctx -> RefSet blocks tp
 lookupRegRefs reg assignment = (assignment ^. paRegisterRefs) PU.! regIndex reg
