@@ -337,7 +337,7 @@ instance PrettyApp LLVMStmt where
     LLVM_PtrEq mvar x y ->
        pretty "ptrEq" <+> ppGlobalVar mvar <+> pp x <+> pp y
     LLVM_PtrLe mvar x y ->
-       pretty "ptrEq" <+> ppGlobalVar mvar <+> pp x <+> pp y
+       pretty "ptrLe" <+> ppGlobalVar mvar <+> pp x <+> pp y
     LLVM_PtrAddOffset _ mvar x y ->
        pretty "ptrAddOffset" <+> ppGlobalVar mvar <+> pp x <+> pp y
     LLVM_PtrSubtract _ mvar x y ->
