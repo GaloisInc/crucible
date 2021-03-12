@@ -40,7 +40,7 @@ setupWasmState sym s =
 
      let globals = emptyGlobals
      let bindings = emptyHandleMap
-     let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout bindings extImpl Crux.emptyModel
+     let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout (FnBindings bindings) extImpl Crux.emptyModel
      let m = execScript s emptyScriptState >> pure ()
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))
