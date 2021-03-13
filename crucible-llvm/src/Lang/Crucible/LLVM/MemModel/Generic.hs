@@ -56,6 +56,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , branchAbortMem
   , mergeMem
   , asMemAllocationArrayStore
+  , isAligned
 
   , SomeAlloc(..)
   , possibleAllocs
