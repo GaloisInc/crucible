@@ -187,7 +187,7 @@ checkFun nm mp =
         Empty ->
           do liftIO $ say "Crux" ("Simulating function " ++ show nm)
              (callCFG anyCfg emptyRegMap) >> return ()
-        _     -> throwCError BadFun
+        _     -> throwCError BadFun  -- TODO(lb): Suggest uc-crux-llvm?
     Nothing -> throwCError (MissingFun nm)
 
 ---------------------------------------------------------------------
