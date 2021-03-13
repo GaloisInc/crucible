@@ -1,3 +1,7 @@
 module Main (main) where
 
-import RealMain (main)
+-- TODO RGS: Ugh. See https://gitlab.haskell.org/ghc/ghc/-/issues/19397.
+import qualified RealMain (main)
+
+main :: IO ()
+main = RealMain.main

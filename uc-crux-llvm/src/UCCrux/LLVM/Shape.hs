@@ -447,9 +447,10 @@ instance FunctorFC (Shape m) where
 
 instance TraversableFC (Shape m) where
   traverseFC ::
-    forall t f g h ft.
+    forall t f g h.
     Applicative h =>
     (forall x. f x -> h (g x)) ->
+    forall ft.
     Shape t f ft ->
     h (Shape t g ft)
   traverseFC =
@@ -480,9 +481,10 @@ instance FunctorFC (PtrShape m) where
 
 instance TraversableFC (PtrShape m) where
   traverseFC ::
-    forall t f g h ft.
+    forall t f g h.
     Applicative h =>
     (forall x. f x -> h (g x)) ->
+    forall ft.
     PtrShape t f ft ->
     h (PtrShape t g ft)
   traverseFC =

@@ -81,15 +81,11 @@ import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, globalTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
+import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, globalSymbol, getGlobalSymbol, DeclSymbol, declSymbol, getDeclSymbol, ftRetType)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
-
--- See comment in below block of CPP
-#if __GLASGOW_HASKELL__ <= 810
-import           UCCrux.LLVM.Errors.Panic (panic)
-#endif
 {- ORMOLU_ENABLE -}
 
 --------------------------------------------------------------------------------

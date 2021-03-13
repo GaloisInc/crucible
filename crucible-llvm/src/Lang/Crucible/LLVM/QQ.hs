@@ -249,7 +249,7 @@ liftQQDecl (QQDeclare ret nm args varargs) =
   f (Right sym) = dataToExpQ (const Nothing) sym
 
 liftKnownNat :: Integral a => a -> Q Exp
-liftKnownNat n = [| knownNat @ $(litT (numTyLit (toInteger n))) |]
+liftKnownNat n = [| knownNat @($(litT (numTyLit (toInteger n)))) |]
 
 liftTypeRepr :: QQType -> Q Exp
 liftTypeRepr t = case t of

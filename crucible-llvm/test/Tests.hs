@@ -60,7 +60,7 @@ data LLVMAssembler (source :: Symbol) = LLVMAssembler String
 
 instance TO.IsOption (SomeSym LLVMAssembler) where
   defaultValue = SomeSym $ LLVMAssembler @"default" "llvm-as"
-  parseValue = Just . SomeSym . LLVMAssembler @ "option"
+  parseValue = Just . SomeSym . LLVMAssembler @"option"
   optionName = pure "llvm-assembler"
   optionHelp = pure $ unwords ["The LLVM assembler to use on .ll files"
                               ,"(overrides the LLVM_AS environment variable,"

@@ -171,7 +171,7 @@ data LLVMBlockInfo s
     }
 
 buildBlockInfoMap :: L.Define -> LLVMGenerator s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
-buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
+buildBlockInfoMap d = Map.fromList <$> (mapM (\bb -> buildBlockInfo bb) $ L.defBody d)
 
 buildBlockInfo :: L.BasicBlock -> LLVMGenerator s arch ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do

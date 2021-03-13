@@ -354,6 +354,7 @@ sv_comp_fresh_bits ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->
+  forall ext.
   OverM personality sym ext (RegValue sym (BVType w))
 sv_comp_fresh_bits w _mvar _sym Empty = mkFresh "X" (BaseBVRepr w)
 
@@ -363,6 +364,7 @@ sv_comp_fresh_float ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->
+  forall ext.
   OverM personality sym ext (RegValue sym (FloatType fi))
 sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
 
@@ -373,6 +375,7 @@ fresh_bits ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
+  forall ext.
   OverM personality sym ext (RegValue sym (BVType w))
 fresh_bits arch w mvar _ (Empty :> pName) =
   do name <- lookupString arch mvar pName
@@ -385,6 +388,7 @@ fresh_float ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch) ->
+  forall ext.
   OverM personality sym ext (RegValue sym (FloatType fi))
 fresh_float arch fi mvar _ (Empty :> pName) =
   do name <- lookupString arch mvar pName
@@ -396,6 +400,7 @@ fresh_str ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> BVType (ArchWidth arch)) ->
+  forall ext.
   OverM personality sym ext (RegValue sym (TPtr arch))
 fresh_str arch mvar sym (Empty :> pName :> maxLen) =
   do name <- lookupString arch mvar pName
@@ -433,6 +438,7 @@ do_assume ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 do_assume arch mvar sym (Empty :> p :> pFile :> line) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
@@ -452,6 +458,7 @@ do_assert ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 do_assert arch mvar sym (Empty :> p :> pFile :> line) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
@@ -470,6 +477,7 @@ do_print_uint32 ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 do_print_uint32 _mvar _sym (Empty :> x) =
   do h <- printHandle <$> getContext
@@ -481,6 +489,7 @@ do_havoc_memory ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 do_havoc_memory _ mvar sym (Empty :> ptr :> len) =
   do let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
@@ -495,6 +504,7 @@ cprover_assume ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 cprover_assume _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
@@ -508,6 +518,7 @@ cprover_assert ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 cprover_assert arch mvar sym (Empty :> p :> pMsg) =
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
@@ -522,6 +533,7 @@ cprover_r_ok ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
+  forall ext.
   OverM personality sym ext (RegValue sym (BVType 1))
 cprover_r_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
   do mem <- readGlobal mvar
@@ -534,6 +546,7 @@ cprover_w_ok ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TPtr arch ::>  BVType (ArchWidth arch)) ->
+  forall ext.
   OverM personality sym ext (RegValue sym (BVType 1))
 cprover_w_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
   do mem <- readGlobal mvar
@@ -545,6 +558,7 @@ sv_comp_assume ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 sv_comp_assume _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
@@ -557,6 +571,7 @@ sv_comp_assert ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 sv_comp_assert _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
@@ -569,6 +584,7 @@ sv_comp_error ::
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->
+  forall ext.
   OverM personality sym ext (RegValue sym UnitType)
 sv_comp_error _mvar sym Empty = liftIO $
   do let rsn = AssertFailureSimError "__VERIFIER_error" ""

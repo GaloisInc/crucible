@@ -348,13 +348,13 @@ liftConstant c = case c of
     do vs <- mapM (\b -> liftConstant (IntConst knownNat (BV.word8 b))) (BS.unpack bs)
        return (VecExpr i8 $ Seq.fromList vs)
   ArrayConst mt vs ->
-    do vs' <- mapM liftConstant vs
+    do vs' <- mapM (\c' -> liftConstant c') vs
        return (VecExpr mt $ Seq.fromList vs')
   VectorConst mt vs ->
-    do vs' <- mapM liftConstant vs
+    do vs' <- mapM (\c' -> liftConstant c') vs
        return (VecExpr mt $ Seq.fromList vs')
   StructConst si vs ->
-    do vs' <- mapM liftConstant vs
+    do vs' <- mapM (\c' -> liftConstant c') vs
        let ts = map fiType $ V.toList (siFields si)
        unless (length vs' == length ts)
               (fail "Type mismatch in structure constant")
@@ -442,19 +442,19 @@ transValue DoubleType (L.ValDouble d) =
   liftConstant (DoubleConst d)
 
 transValue (StructType _) (L.ValStruct vs) = do
-     vs' <- mapM transTypeAndValue vs
+     vs' <- mapM (\v -> transTypeAndValue v) vs
      return (StructExpr $ Seq.fromList $ vs')
 
 transValue (StructType _) (L.ValPackedStruct vs) =  do
-     vs' <- mapM transTypeAndValue vs
+     vs' <- mapM (\v -> transTypeAndValue v) vs
      return (StructExpr $ Seq.fromList $ vs')
 
 transValue (ArrayType _ tp) (L.ValArray _ vs) = do
-     vs' <- mapM (transValue tp) vs
+     vs' <- mapM (\v -> transValue tp v) vs
      return (VecExpr tp $ Seq.fromList vs')
 
 transValue (VecType _ tp) (L.ValVector _ vs) = do
-     vs' <- mapM (transValue tp) vs
+     vs' <- mapM (\v -> transValue tp v) vs
      return (VecExpr tp $ Seq.fromList vs')
 
 transValue _ (L.ValSymbol symbol) = do

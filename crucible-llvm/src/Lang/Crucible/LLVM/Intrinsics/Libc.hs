@@ -480,7 +480,8 @@ callAssert
                   ::> LLVMPointerType wptr
                   ::> BVType 32
                   ::> LLVMPointerType wptr)
-  -> OverrideSim p sym ext r args reg (RegValue sym UnitType)
+  -> forall ext r args reg.
+     OverrideSim p sym ext r args reg (RegValue sym UnitType)
 callAssert mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
      do mem <- readGlobal mvar
         txt <- liftIO $ loadString sym mem (regValue ptxt) Nothing
