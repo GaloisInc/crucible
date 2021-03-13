@@ -55,7 +55,7 @@ library
 
 executable crucibler
   build-depends:
-    base >= 4.7 && < 4.15,
+    base >= 4.7 && < 4.16,
     crucible,
     crucible-syntax,
     lens,

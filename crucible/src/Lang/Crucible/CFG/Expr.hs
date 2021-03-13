@@ -1556,7 +1556,7 @@ instance ( TraversableFC (ExprExtension ext)
 
 instance ( TraversableFC (ExprExtension ext)
          ) => TraversableFC (App ext) where
-  traverseFC = traverseApp
+  traverseFC f = traverseApp f
 
 -- | Fold over an application.
 foldApp :: ( TraversableFC (ExprExtension ext)

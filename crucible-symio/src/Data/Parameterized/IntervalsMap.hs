@@ -87,15 +87,15 @@ instance TestEquality f => TestEquality (IntervalF f) where
     Just Refl | i1 == i2 -> Just Refl
     _ -> Nothing
 
-deriving instance (TestEquality f => Eq (IntervalF f tp))
+deriving instance TestEquality f => Eq (IntervalF f tp)
 
 deriving instance OrdF f => Ord (IntervalF f tp)
 
 newtype Intervals f ctx = Intervals (Ctx.Assignment (IntervalF f) ctx)
 
-deriving instance (TestEquality f => Eq (Intervals f ctx))
+deriving instance TestEquality f => Eq (Intervals f ctx)
 
-instance (OrdF f => Ord (Intervals f ctx)) where
+instance OrdF f => Ord (Intervals f ctx) where
   compare (Intervals (rest1 Ctx.:> a1)) (Intervals (rest2 Ctx.:> a2)) =
     compare a1 a2 <> compare (Intervals rest1) (Intervals rest2)
   compare (Intervals Ctx.Empty) (Intervals Ctx.Empty) = EQ
@@ -164,7 +164,7 @@ unionWithM ::
   IntervalsMap f ctx a ->
   IntervalsMap f ctx a ->
   m (IntervalsMap f ctx a)
-unionWithM f ims1 ims2 = sequenceA $ unionWith go (fmap return ims1) (fmap return ims2) 
+unionWithM f ims1 ims2 = sequenceA $ unionWith go (fmap return ims1) (fmap return ims2)
   where
     go :: m a -> m a -> m a
     go f1 f2 = do
@@ -186,7 +186,7 @@ mergeWithM ::
   (a -> b -> m c) ->
   IntervalsMap f ctx a ->
   IntervalsMap f ctx b ->
-  m (IntervalsMap f ctx c)  
+  m (IntervalsMap f ctx c)
 mergeWithM inLeft inRight combine ims1 ims2 = do
   traverse eval $ unionWith go (fmap MergeLeft ims1) (fmap MergeRight ims2)
   where
@@ -194,11 +194,11 @@ mergeWithM inLeft inRight combine ims1 ims2 = do
     eval (MergeLeft a) = inLeft a
     eval (MergeRight b) = inRight b
     eval (MergeCombined a b) = combine a b
-    
+
     go :: MergeResult a b -> MergeResult a b -> MergeResult a b
     go (MergeLeft f1) (MergeRight f2) = MergeCombined f1 f2
     go _ _ = error "mergeWithM: unexpected MergeResult"
-  
+
 
 singleton ::
   Intervals f ctx ->
@@ -229,7 +229,7 @@ insertWithM ::
   tp ->
   IntervalsMap f ctx tp ->
   m (IntervalsMap f ctx tp)
-insertWithM f k v ims = sequenceA $ insertWith go k (return v) (fmap return ims) 
+insertWithM f k v ims = sequenceA $ insertWith go k (return v) (fmap return ims)
   where
     go :: m tp -> m tp -> m tp
     go f1 f2 = do

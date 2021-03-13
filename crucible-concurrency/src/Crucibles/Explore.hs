@@ -131,7 +131,7 @@ schedule prims globs = \case
   -- using the mainCont continuation.
   ResultState (AbortedResult ctx (AbortedExec _rsn _gps)) -> return (ExecutionFeatureNewState s0)
     where
-      k  = ctx ^. cruciblePersonality.scheduler.to mainCont
+      k  = ctx ^. cruciblePersonality.scheduler.to (\x -> mainCont x)
       t  = ctx ^. cruciblePersonality.scheduler.retRepr
       s0 = InitialState ctx emptyGlobals defaultAbortHandler t $ runOverrideSim t k
 
@@ -446,7 +446,7 @@ startNewThread globalVars argRepr arg fh =
            do (res, retSt') <- runStateT (yieldThread globalVars (CompletedThread v)) retSt
               case res of
                 Nothing  ->
-                  do let k = retSt' ^. stateExpl.scheduler.to mainCont
+                  do let k = retSt' ^. stateExpl.scheduler.to (\x -> mainCont x)
                      runReaderT (runOverrideSim C.UnitRepr k) retSt'
                 Just st' ->
                   return st'

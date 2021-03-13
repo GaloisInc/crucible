@@ -71,15 +71,12 @@ import           Crux.LLVM.Overrides (ArchOk)
 -- uc-crux-llvm
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTypes)
 import           UCCrux.LLVM.Cursor (Cursor(..))
+import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(SeekOffset))
 import           UCCrux.LLVM.FullType.CrucibleType (SomeIndex(..), toCrucibleType, translateIndex)
 import           UCCrux.LLVM.FullType.StorageType (toStorageType)
 import           UCCrux.LLVM.FullType.Type (ModuleTypes, FullType(FTPtr), FullTypeRepr(..), ToCrucibleType, pointedToType, asFullType)
 
-#if __GLASGOW_HASKELL__ <= 810
--- See other CPP block
-import           UCCrux.LLVM.Errors.Panic (panic)
-#endif
 {- ORMOLU_ENABLE -}
 
 loadRaw ::

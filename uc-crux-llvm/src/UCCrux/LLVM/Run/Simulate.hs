@@ -147,7 +147,7 @@ symCreateOverrideFn ::
   HasLLVMAnn sym =>
   CreateOverrideFn arch ->
   SymCreateOverrideFn sym arch
-symCreateOverrideFn = SymCreateOverrideFn . runCreateOverrideFn
+symCreateOverrideFn ov = SymCreateOverrideFn $ runCreateOverrideFn ov
 
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.6
 -- compatibility.
@@ -416,13 +416,13 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                     registerOverrides appCtx modCtx sCruxLLVM (cruxLLVMOverrides proxy#)
 
                     overrides <- liftIO $ for overrideFns (($ sym) . runSymCreateOverrideFn)
-                    let overrides' = map getPolymorphicLLVMOverride overrides
+                    let overrides' = map (\ov -> getPolymorphicLLVMOverride ov) overrides
                     registerOverrides appCtx modCtx sArg overrides'
 
                     -- Register unsound overrides, e.g., `getenv`
                     uOverrides <-
-                      liftIO $ traverse (($ sym) . runCreateOverrideFn) uOverrideFns
-                    let uOverrides' = map getPolymorphicLLVMOverride uOverrides
+                      liftIO $ traverse (\ov -> runCreateOverrideFn ov sym) uOverrideFns
+                    let uOverrides' = map (\ov -> getPolymorphicLLVMOverride ov) uOverrides
                     registerOverrides appCtx modCtx sUnsound uOverrides'
 
                     -- NB: This should be run after all other overrides have
@@ -442,7 +442,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                         (L.modDeclares (modCtx ^. llvmModule . to getModule))
                     let sOverrides' =
                           map
-                            getPolymorphicLLVMOverride
+                            (\ov -> getPolymorphicLLVMOverride ov)
                             (case sequence sOverrides of
                                Left err ->
                                  panic

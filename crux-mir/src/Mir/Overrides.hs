@@ -485,20 +485,20 @@ bindFn _symOnline _cs fn cfg =
 
     overrides :: sym -> Map Text (FunctionName -> SomeOverride (p sym) sym)
     overrides s =
-      fromList [ override "crucible::one" Empty (BVRepr (knownNat @ 8)) $
+      fromList [ override "crucible::one" Empty (BVRepr (knownNat @8)) $
                  do h <- printHandle <$> getContext
                     liftIO (hPutStrLn h "Hello, I'm an override")
                     v <- liftIO $ bvLit (s :: sym) knownNat (BV.mkBV knownNat 1)
                     return v
-               , symb_bv "crucible::symbolic::symbolic_u8"  (knownNat @ 8)
-               , symb_bv "crucible::symbolic::symbolic_u16" (knownNat @ 16)
-               , symb_bv "crucible::symbolic::symbolic_u32" (knownNat @ 32)
-               , symb_bv "crucible::symbolic::symbolic_u64" (knownNat @ 64)
-               , symb_bv "crucible::symbolic::symbolic_u128" (knownNat @ 128)
-               , symb_bv "int512::symbolic" (knownNat @ 512)
-               , symb_bv "crucible::bitvector::make_symbolic_128" (knownNat @ 128)
-               , symb_bv "crucible::bitvector::make_symbolic_256" (knownNat @ 256)
-               , symb_bv "crucible::bitvector::make_symbolic_512" (knownNat @ 512)
+               , symb_bv "crucible::symbolic::symbolic_u8"  (knownNat @8)
+               , symb_bv "crucible::symbolic::symbolic_u16" (knownNat @16)
+               , symb_bv "crucible::symbolic::symbolic_u32" (knownNat @32)
+               , symb_bv "crucible::symbolic::symbolic_u64" (knownNat @64)
+               , symb_bv "crucible::symbolic::symbolic_u128" (knownNat @128)
+               , symb_bv "int512::symbolic" (knownNat @512)
+               , symb_bv "crucible::bitvector::make_symbolic_128" (knownNat @128)
+               , symb_bv "crucible::bitvector::make_symbolic_256" (knownNat @256)
+               , symb_bv "crucible::bitvector::make_symbolic_512" (knownNat @512)
 
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override "crucible::crucible_assert_impl" argTys UnitRepr $

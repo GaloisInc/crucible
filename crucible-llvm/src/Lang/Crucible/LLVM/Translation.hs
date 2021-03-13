@@ -167,7 +167,7 @@ typeToRegExpr tp = do
 --   The type of the register is inferred from the instruction that assigns to it
 --   and is recorded in the ident map.
 buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator s arch reg (IdentMap s)
-buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
+buildRegMap m d = foldM (\m0 bb -> buildRegTypeMap m0 bb) m $ L.defBody d
 
 buildRegTypeMap :: IdentMap s
                 -> L.BasicBlock
@@ -362,7 +362,7 @@ genDefn defn retType =
         Nothing -> fail $ unwords ["entry label not found in label map:", show entry_lab]
         Just entry_bi -> do
           checkEntryPointUseSet nm entry_bi (L.defArgs defn)
-          mapM_ (defineLLVMBlock retType bim) (L.defBody defn)
+          mapM_ (\bb -> defineLLVMBlock retType bim bb) (L.defBody defn)
           jump (block_label entry_bi)
 
 
