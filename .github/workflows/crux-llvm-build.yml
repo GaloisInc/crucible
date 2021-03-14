@@ -102,7 +102,6 @@ jobs:
           (cd crucible-llvm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux;          with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux-llvm;     with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-          (cd crux-mir;      with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
 
 
       - shell: bash
