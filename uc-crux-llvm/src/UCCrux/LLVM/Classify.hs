@@ -25,6 +25,7 @@ module UCCrux.LLVM.Classify
     MissingPreconditionTag (..),
     ppTruePositive,
     ppTruePositiveTag,
+    Unclassified (..),
     Uncertainty (..),
     partitionUncertainty,
     ppUncertainty,
@@ -73,7 +74,7 @@ import qualified Lang.Crucible.Simulator as Crucible
 import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import           Lang.Crucible.LLVM.Errors (ppBB)
-import qualified Lang.Crucible.LLVM.Errors.MemoryError as LLVMErrors
+import qualified Lang.Crucible.LLVM.Errors.MemoryError as LLVMErrors hiding (explain)
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as LLVMErrors
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
@@ -171,10 +172,21 @@ ppUnfixed =
   \case
     UnfixedArgPtrOffsetArg -> "Addition of an offset from argument to a pointer in argument"
 
+-- | We don't (yet) know what to do about this error
+data Unclassified
+  = UnclassifiedUndefinedBehavior (Some LLVMErrors.UndefinedBehavior)
+  | UnclassifiedMemoryError
+
+-- | Only used in tests, not a valid 'Show' instance.
+instance Show Unclassified where
+  show =
+    \case
+      UnclassifiedUndefinedBehavior {} -> "Undefined behavior"
+      UnclassifiedMemoryError {} -> "Memory error"
+
 -- | Possible sources of uncertainty, these might be true or false positives
 data Uncertainty
-  = -- | We don't (yet) know what to do about this error
-    UUnclassified (Doc Void)
+  = UUnclassified (Doc Void) Unclassified
   | UUnfixable Unfixable
   | UUnfixed Unfixed
   | -- | Simulation, input generation, or classification encountered
@@ -187,7 +199,7 @@ data Uncertainty
   deriving (Show)
 
 partitionUncertainty ::
-  [Uncertainty] -> ([Crucible.SimError], [What4.ProgramLoc], [Panic Unimplemented], [Doc Void], [Unfixed], [Unfixable])
+  [Uncertainty] -> ([Crucible.SimError], [What4.ProgramLoc], [Panic Unimplemented], [Unclassified], [Unfixed], [Unfixable])
 partitionUncertainty = go [] [] [] [] [] []
   where
     go ms fs ns us ufd ufa =
@@ -202,9 +214,9 @@ partitionUncertainty = go [] [] [] [] [] []
         (UUnimplemented n : rest) ->
           let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
            in (ms', fs', n : ns', us', ufd', ufa')
-        (UUnclassified doc : rest) ->
+        (UUnclassified _doc unclass : rest) ->
           let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
-           in (ms', fs', ns', doc : us', ufd', ufa')
+           in (ms', fs', ns', unclass : us', ufd', ufa')
         (UUnfixed uf : rest) ->
           let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
            in (ms', fs', ns', us', uf : ufd', ufa')
@@ -252,7 +264,8 @@ ppTruePositive =
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =
   \case
-    UUnclassified doc -> "Unclassified error:\n" <> Text.pack (show doc)
+    UUnclassified doc _unclass ->
+      "Unclassified error:\n" <> Text.pack (show doc)
     UUnfixable unfix -> "Unfixable/inactionable error:\n" <> ppUnfixable unfix
     UUnfixed unfix ->
       "Fixable, but fix not yet implemented for this error:\n" <> ppUnfixed unfix
@@ -360,7 +373,14 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
              unclass =
                do
                  liftIO $ (appCtx ^. log) Hi ("Couldn't classify error." :: Text)
-                 pure $ ExUncertain (UUnclassified (ppBB badBehavior))
+                 pure $
+                   ExUncertain $
+                     UUnclassified (ppBB badBehavior) $
+                       case badBehavior of
+                         LLVMErrors.BBUndefinedBehavior ub ->
+                           UnclassifiedUndefinedBehavior (Some ub)
+                         LLVMErrors.BBMemoryError {} ->
+                           UnclassifiedMemoryError
 
              unfixed :: Unfixed -> IO (Explanation m arch argTypes)
              unfixed tag =
