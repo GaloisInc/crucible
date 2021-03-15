@@ -474,13 +474,6 @@ evalBinOp bop mat me1 me2 =
   where
     noOverflow :: R.Expr MIR s C.BoolType
     noOverflow = S.app $ E.BoolLit False
-    -- For now, assume unsupported operations don't overflow.  Eventually all
-    -- overflow checks should be implemented, and we can remove this.
-    unknownOverflow = noOverflow
-
-    -- Computing overflow is not supported for this operation
-    errorOverflow :: HasCallStack => R.Expr MIR s C.BoolType
-    errorOverflow = error "checking overflow is not supported for this operation"
 
     -- Check whether unsigned multiplication of `e1 * e2` overflows `w` bits.
     -- If `zext e1 * zext e2 /= zext (e1 * e2)`, then overflow has occurred.
