@@ -19,6 +19,7 @@ where
 import           Control.Applicative ((<|>))
 import           Control.Monad (when)
 import           Data.Functor ((<&>))
+import           Data.Word (Word64)
 
 import qualified Crux.Config as Crux
 import           Crux.Config.Common (CruxOptions, loopBound, recursionBound)
@@ -39,6 +40,14 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     verbosity :: Int
   }
 
+-- | Crucible will infinitely loop when it encounters unbounded program loops,
+-- so we cap the iterations here if the user doesn't provide a bound explicitly.
+suggestedLoopBound :: Word64
+suggestedLoopBound = 8
+
+suggestedRecursionBound :: Word64
+suggestedRecursionBound = 8
+
 processUCCruxLLVMOptions ::
   (CruxOptions, UCCruxLLVMOptions) -> IO (AppContext, CruxOptions, UCCruxLLVMOptions)
 processUCCruxLLVMOptions (initCOpts, initUCOpts) =
@@ -49,8 +58,8 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
     (finalCOpts, finalLLOpts) <-
       processLLVMOptions
         ( initCOpts
-            { loopBound = loopBound initCOpts <|> Just 8,
-              recursionBound = recursionBound initCOpts <|> Just 8
+            { loopBound = loopBound initCOpts <|> Just suggestedLoopBound,
+              recursionBound = recursionBound initCOpts <|> Just suggestedRecursionBound
             },
           ucLLVMOptions initUCOpts
         )

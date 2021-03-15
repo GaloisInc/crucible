@@ -371,6 +371,9 @@ In addition, the following flags can optionally be provided:
 * `--target=ARCH`: Pass `ARCH` as the target architecture to LLVM build
   operations.
 
+* `--no-compile`: Assume the input file is an LLVM bitcode module, rather than a
+  C program.
+
 # Environment Variables
 
 The following environment variables are supported:
