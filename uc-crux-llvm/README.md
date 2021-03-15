@@ -1,12 +1,64 @@
 # UC-Crux-LLVM
 
-UC-Crux-LLVM is a bugfinding tool for C programs that uses using
-under-constrained symbolic execution.
+UC-Crux-LLVM is a tool for under-constrained symbolic execution of C programs.
+It can be used to find undefined behavior and failing assertions, or for simple
+functions, to formally verify the absence of such behaviors.
 
 **UC-Crux-LLVM is still in development.**
 
 ## Demo
 
+<!-- NOTE(lb) These programs are in the test suite as double_free.c and not_double_free.c --->
+
+<!-- TODO(lb) The printouts from the tool leave a lot to be desired here... --->
+
+`uc-crux-llvm` can use symbolic execution to find the potential double-free in this program:
+```c
+#include <stdlib.h>
+void double_free(int* ptr, int x) {
+  if (x % 2 == 0) {
+    free(ptr);
+  }
+  if (x % 3 == 0) {
+    free(ptr);
+  }
+}
+```
+```
+$ uc-crux-llvm --entry-points double_free double_free.c
+[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/home/langston/code/crucible/crux-llvm/./c-src/includes" "-O1" "-o" "crux-build/double_free.bc" "test/programs/double_free.c"
+[Crux] Attempting to prove verification conditions.
+[Crux] Attempting to prove verification conditions.
+[Crux] Results for double_free
+[Crux] Found likely bugs:
+Pointer freed twice
+```
+That's not too impressive, a simple linter might be able to find that bug. However, since `uc-crux-llvm` uses symbolic execution, it can precisely conclude that the following program _does not_ have a potential double-free (or _any_ other undefined behavior), provided that it's passed a non-null pointer:
+```c
+#include <stdlib.h>
+void not_double_free(int *ptr, int x) {
+  if (x % 2 == 0) {
+    printf("even!\n"); // needed to prevent Clang from optimizing away the if/else
+    free(ptr);
+  }
+  if ((x + 1) % 2 == 0) {
+    free(ptr);
+  }
+}
+```
+```
+$ uc-crux-llvm --entry-points not_double_free not_double_free.c
+[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/home/langston/code/crucible/crux-llvm/./c-src/includes" "-O1" "-o" "crux-build/not_double_free.bc" "test/programs/not_double_free.c"
+even!
+[Crux] Attempting to prove verification conditions.
+even!
+[Crux] Results for not_double_free
+[Crux] Function is safe if deduced preconditions are met:
+Arguments:
+  A pointer to uninitialized space for 1 elements: 
+  An integer:
+```
+While the examples here have very simple inputs, `uc-crux-llvm` is capable of synthesizing much richer inputs, including nested and recursive structs, pointers, floats, and more.
 
 ## How It Works
 
@@ -160,8 +212,7 @@ Uncertain results:
   - [x] Missing precondition: Unallocated, uninitialized, or insufficiently aligned pointer inside argument
   - [x] True positive: Concretely failing user assertions
   - [ ] True positive heuristics for out-of-bounds reads/writes
-  - [ ] True positive: double free
-    - [ ] Detect upstream in `crucible-llvm`
+  - [x] True positive: double free
   - [x] Reads from pointer expressions involving input pointers
   - [x] Writes to pointer expressions involving input pointers
 
@@ -169,6 +220,7 @@ Uncertain results:
 
 - [x] Rename package to UC-Crux-LLVM
 - [x] Revise CLI (make a `Crux.Config`)
+- [ ] Print concretized inputs that make errors occur
 - [x] README
   - [x] With "outer loop" flowchart
   - [ ] With CLI docs

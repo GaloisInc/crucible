@@ -93,20 +93,24 @@ import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 
 data TruePositiveTag
   = TagConcretelyFailingAssert
+  | TagDoubleFree
   deriving (Eq, Ord)
 
 data TruePositive
   = ConcretelyFailingAssert !What4.ProgramLoc
+  | DoubleFree
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
   \case
     ConcretelyFailingAssert {} -> TagConcretelyFailingAssert
+    DoubleFree {} -> TagDoubleFree
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
   \case
     TagConcretelyFailingAssert -> "Concretely failing user assertion"
+    TagDoubleFree -> "Double free"
 
 -- | All of the preconditions that we can deduce. We know how to detect and fix
 -- these issues.
@@ -243,6 +247,7 @@ ppTruePositive =
   \case
     ConcretelyFailingAssert loc ->
       "Concretely failing call to assert() at " <> Text.pack (show loc)
+    DoubleFree -> "Pointer freed twice"
 
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =
@@ -472,6 +477,14 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                      ExMissingPreconditions
                                        (tag, oneArgShapeConstraint idx cursor (Allocated 1))
                      _ -> unclass
+               LLVMErrors.BBUndefinedBehavior
+                 (LLVMErrors.DoubleFree _) ->
+                   do
+                     let tag = TagDoubleFree
+                     liftIO $
+                       (appCtx ^. log) Hi $
+                         Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
+                     return $ ExTruePositive DoubleFree
                LLVMErrors.BBUndefinedBehavior
                  (LLVMErrors.PtrAddOffsetOutOfBounds (Crucible.RV ptr) (Crucible.RV offset)) ->
                    case getPtrOffsetAnn ptr of
