@@ -61,6 +61,9 @@ jobs:
         with:
           ghc-version: ${{ matrix.ghc }}
 
+      - uses: cachix/install-nix-action@v12
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
       - uses: actions/cache@v2
         name: Cache cabal store
         with:
@@ -76,6 +79,30 @@ jobs:
         env:
           Z3_VERSION: "4.8.8"
           YICES_VERSION: "2.6.2"
+
+      - name: Setup Environment Vars
+        run: |
+          GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
+          echo GHC=$GHC >> $GITHUB_ENV
+
+      - name: Package's Cabal/GHC compatibility
+        shell: bash
+        # Using setup will use the cabal library installed with GHC
+        # instead of the cabal library of the Cabal-install tool to
+        # verify the cabal file is compatible with the associated
+        # GHC cabal library version.  Cannot run configure or build,
+        # because dependencies aren't present, but a clean is
+        # sufficient to cause parsing/validation of the cabal file.
+        run: |
+          defsetup()  { echo import Distribution.Simple; echo main = defaultMain; }
+          setup_src() { if [ ! -f Setup.hs ] ; then defsetup > DefSetup.hs; fi; ls *Setup.hs; }
+          setup_bin() { echo setup.${{ matrix.ghc }}; }
+          with_ghc()  { nix-shell -p $GHC --run "$(echo ${@})"; }
+          (cd crucible;      with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crucible-llvm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crux;          with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd crux-llvm;     with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+
 
       - shell: bash
         run: .github/ci.sh configure

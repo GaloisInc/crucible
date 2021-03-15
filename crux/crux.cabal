@@ -1,4 +1,4 @@
-Cabal-version: 3.0
+Cabal-version: 2.2
 Name:          crux
 Version:       0.4
 Copyright:     (c) Galois, Inc. 2018-2021
