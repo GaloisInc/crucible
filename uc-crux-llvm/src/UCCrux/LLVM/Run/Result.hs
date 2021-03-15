@@ -16,9 +16,11 @@ module UCCrux.LLVM.Run.Result
     SomeBugfindingResult (..),
     FunctionSummary (..),
     FunctionSummaryTag (..),
+    DidHitBounds (..),
     functionSummaryTag,
     ppFunctionSummaryTag,
     makeFunctionSummary,
+    ppFunctionSummary,
     printFunctionSummary,
   )
 where
@@ -27,6 +29,11 @@ where
 import           Data.List.NonEmpty (NonEmpty((:|)), toList)
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import           Data.Void (Void)
+
+import           Prettyprinter (Doc)
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
 
 import UCCrux.LLVM.Classify (TruePositive, ppTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
 import UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
@@ -61,7 +68,7 @@ ppFunctionSummaryTag =
 data FunctionSummary m argTypes
   = Unclear (NonEmpty Uncertainty)
   | FoundBugs (NonEmpty TruePositive)
-  | SafeWithPreconditions Bool (Constraints m argTypes)
+  | SafeWithPreconditions DidHitBounds (Constraints m argTypes)
   | SafeUpToBounds
   | AlwaysSafe
 
@@ -74,36 +81,52 @@ data BugfindingResult m arch argTypes = BugfindingResult
     summary :: FunctionSummary m argTypes
   }
 
+ppFunctionSummary :: FunctionSummary m argTypes -> Doc Void
+ppFunctionSummary fs =
+  PP.pretty (ppFunctionSummaryTag (functionSummaryTag fs))
+    <> case fs of
+      Unclear uncertainties ->
+        PP.pretty $
+          ":\n" <> Text.intercalate "\n----------\n" (toList (fmap ppUncertainty uncertainties))
+      FoundBugs bugs ->
+        PP.pretty $
+          ":\n" <> Text.intercalate "\n----------\n" (toList (fmap ppTruePositive bugs))
+      SafeWithPreconditions b preconditions ->
+        PP.pretty (ppFunctionSummaryTag (functionSummaryTag fs) <> ":\n")
+          <> if didHit b
+            then PP.pretty ("The loop/recursion bound is not exceeded, and:\n" :: Text)
+            else ppConstraints preconditions
+      AlwaysSafe -> "."
+      SafeUpToBounds -> "."
+
 printFunctionSummary :: FunctionSummary m argTypes -> Text
-printFunctionSummary =
+printFunctionSummary fs =
+  PP.renderStrict (PP.layoutPretty PP.defaultLayoutOptions (ppFunctionSummary fs))
+
+-- | Did symbolic execution run into loop/recursion bounds?
+data DidHitBounds
+  = -- | Yes, it did.
+    DidHitBounds
+  | -- | No, it didn\'t.
+    DidntHitBounds
+  deriving (Bounded, Enum, Eq, Ord, Show)
+
+didHit :: DidHitBounds -> Bool
+didHit =
   \case
-    fs@(Unclear uncertainties) ->
-      ppFunctionSummaryTag (functionSummaryTag fs) <> ":\n"
-        <> Text.intercalate "\n----------\n" (toList (fmap ppUncertainty uncertainties))
-    fs@(FoundBugs bugs) ->
-      ppFunctionSummaryTag (functionSummaryTag fs) <> ":\n"
-        <> Text.intercalate "\n----------\n" (toList (fmap ppTruePositive bugs))
-    fs@(SafeWithPreconditions b preconditions) ->
-      ppFunctionSummaryTag (functionSummaryTag fs) <> ":\n"
-        <> if b
-          then "The loop/recursion bound is not exceeded, and:\n"
-          else
-            ""
-              <> Text.pack (show (ppConstraints preconditions))
-    fs@AlwaysSafe -> ppFunctionSummaryTag (functionSummaryTag fs) <> "."
-    fs@SafeUpToBounds -> ppFunctionSummaryTag (functionSummaryTag fs) <> "."
+    DidHitBounds -> True
+    DidntHitBounds -> False
 
 makeFunctionSummary ::
   Constraints m argTypes ->
   [Uncertainty] ->
   [TruePositive] ->
-  -- | Did we hit the bounds?
-  Bool ->
+  DidHitBounds ->
   FunctionSummary m argTypes
 makeFunctionSummary preconditions uncertainties truePositives bounds =
   case (isEmpty preconditions, uncertainties, truePositives, bounds) of
-    (True, [], [], False) -> AlwaysSafe
-    (True, [], [], True) -> SafeUpToBounds
+    (True, [], [], DidntHitBounds) -> AlwaysSafe
+    (True, [], [], DidHitBounds) -> SafeUpToBounds
     (False, [], [], b) -> SafeWithPreconditions b preconditions
     (_, [], t : ts, _) -> FoundBugs (t :| ts)
     (_, u : us, _, _) -> Unclear (u :| us)

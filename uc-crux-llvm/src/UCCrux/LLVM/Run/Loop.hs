@@ -111,7 +111,10 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
                         allConstraints
                         newUncertain
                         allTruePositives
-                        (not (null newResourceExhausted))
+                        ( if null newResourceExhausted
+                            then Result.DidntHitBounds
+                            else Result.DidHitBounds
+                        )
                     )
             case (null newConstraints, newTruePositives, not (null newUncertain), not (null newResourceExhausted)) of
               (True, [], False, _) -> pure result

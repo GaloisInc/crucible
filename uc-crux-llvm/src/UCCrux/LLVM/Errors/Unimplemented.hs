@@ -74,14 +74,14 @@ unimplemented where_ what =
       "If this feature would be useful to you, please report this error."
     ]
 
-catchUnimplemented :: forall a. IO a -> IO (Either (Panic.Panic Unimplemented) a)
+catchUnimplemented :: IO a -> IO (Either (Panic.Panic Unimplemented) a)
 catchUnimplemented computation =
   either
     (\panic@(Panic (_ :: Unimplemented) _ _ _) -> Left panic)
     pure
     <$> try computation
 
-assertUnimplemented :: forall a. IO a -> IO (Either String String)
+assertUnimplemented :: IO a -> IO (Either String String)
 assertUnimplemented computation =
   either
     (\(exc :: SomeException) -> Left (displayException exc))
