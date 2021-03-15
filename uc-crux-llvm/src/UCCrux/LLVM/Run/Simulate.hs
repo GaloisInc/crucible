@@ -101,7 +101,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
               { Crucible.printHandle = view outputHandle ?outputConfig
               }
 
-      unless (0 == Map.size (constraints ^. globalConstraints)) $
+      unless (Map.null (constraints ^. globalConstraints)) $
         panic "simulateLLVM" ["Unimplemented: global constraints"]
       unless (null (constraints ^. relationalConstraints)) $
         panic "simulateLLVM" ["Unimplemented: relational constraints"]

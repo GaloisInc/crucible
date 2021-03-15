@@ -36,6 +36,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
+import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
 {- ORMOLU_ENABLE -}
 
@@ -145,13 +146,13 @@ isSafeToBounds fn (Result.SomeBugfindingResult result) =
               ]
           )
 
-isSafeWithPreconditions :: Bool -> String -> Result.SomeBugfindingResult -> IO ()
-isSafeWithPreconditions resourceExhausted fn (Result.SomeBugfindingResult result) =
+isSafeWithPreconditions :: DidHitBounds -> String -> Result.SomeBugfindingResult -> IO ()
+isSafeWithPreconditions hitBounds fn (Result.SomeBugfindingResult result) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
       Result.SafeWithPreconditions didExhaust _preconditions ->
-        resourceExhausted TH.@=? didExhaust
+        hitBounds TH.@=? didExhaust
       _ ->
         TH.assertFailure
           ( unwords
@@ -275,19 +276,20 @@ tests =
       inFile "loop_arg_bound.c" [("loop_arg_bound", isSafeToBounds)],
       inFile "loop_constant_big_bound_arg_start.c" [("loop_constant_big_bound_arg_start", isSafeToBounds)],
       inFile "loop_constant_bound_arg_start.c" [("loop_constant_bound_arg_start", isSafeToBounds)], -- TODO: Why not just isSafe?
-      inFile "deref_arg.c" [("deref_arg", isSafeWithPreconditions False)],
-      inFile "deref_struct_field.c" [("deref_struct_field", isSafeWithPreconditions False)],
-      inFile "do_free.c" [("do_free", isSafeWithPreconditions False)],
-      inFile "linked_list_sum.c" [("linked_list_sum", isSafeWithPreconditions True)],
-      inFile "mutually_recursive_linked_list_sum.c" [("mutually_recursive_linked_list_sum", isSafeWithPreconditions True)],
-      inFile "not_double_free.c" [("not_double_free", isSafeWithPreconditions False)],
-      inFile "ptr_as_array.c" [("ptr_as_array", isSafeWithPreconditions False)],
-      inFile "sized_array_arg.c" [("sized_array_arg", isSafeWithPreconditions False)],
-      inFile "writes_to_arg.c" [("writes_to_arg", isSafeWithPreconditions False)],
-      inFile "writes_to_arg_conditional.c" [("writes_to_arg_conditional", isSafeWithPreconditions False)],
-      inFile "writes_to_arg_conditional_ptr.c" [("writes_to_arg_conditional_ptr", isSafeWithPreconditions False)],
-      inFile "writes_to_arg_field.c" [("writes_to_arg_field", isSafeWithPreconditions False)],
-      inFile "writes_to_arg_ptr.c" [("writes_to_arg_ptr", isSafeWithPreconditions False)],
+      inFile "deref_arg.c" [("deref_arg", isSafeWithPreconditions DidntHitBounds)],
+      inFile "deref_arg_const_index.c" [("deref_arg_const_index", isSafeWithPreconditions DidntHitBounds)],
+      inFile "deref_struct_field.c" [("deref_struct_field", isSafeWithPreconditions DidntHitBounds)],
+      inFile "do_free.c" [("do_free", isSafeWithPreconditions DidntHitBounds)],
+      inFile "linked_list_sum.c" [("linked_list_sum", isSafeWithPreconditions DidHitBounds)],
+      inFile "mutually_recursive_linked_list_sum.c" [("mutually_recursive_linked_list_sum", isSafeWithPreconditions DidHitBounds)],
+      inFile "not_double_free.c" [("not_double_free", isSafeWithPreconditions DidntHitBounds)],
+      inFile "ptr_as_array.c" [("ptr_as_array", isSafeWithPreconditions DidntHitBounds)],
+      inFile "sized_array_arg.c" [("sized_array_arg", isSafeWithPreconditions DidntHitBounds)],
+      inFile "writes_to_arg.c" [("writes_to_arg", isSafeWithPreconditions DidntHitBounds)],
+      inFile "writes_to_arg_conditional.c" [("writes_to_arg_conditional", isSafeWithPreconditions DidntHitBounds)],
+      inFile "writes_to_arg_conditional_ptr.c" [("writes_to_arg_conditional_ptr", isSafeWithPreconditions DidntHitBounds)],
+      inFile "writes_to_arg_field.c" [("writes_to_arg_field", isSafeWithPreconditions DidntHitBounds)],
+      inFile "writes_to_arg_ptr.c" [("writes_to_arg_ptr", isSafeWithPreconditions DidntHitBounds)],
       inFile "do_exit.c" [("do_exit", isUnclassified)], -- goal: isSafe
       inFile "do_fork.c" [("do_fork", isUnclassified)],
       inFile "do_getchar.c" [("do_getchar", isUnclassified)], -- goal: isSafe
@@ -296,7 +298,6 @@ tests =
       inFile "oob_read_heap.c" [("oob_read_heap", isUnclassified)], -- goal: notSafe
       inFile "oob_read_stack.c" [("oob_read_stack", isUnclassified)], -- goal: notSafe
       inFile "uninitialized_stack.c" [("uninitialized_stack", isUnclassified)], -- goal: notSafe
-      inFile "deref_arg_const_index.c" [("deref_arg_const_index", isSafeWithPreconditions False)],
       -- TODO: This is missing an annotation and *should be* "unfixed"
       -- isUnimplemented "deref_arg_arg_index.c" "deref_arg_arg_index",
       isUnimplemented

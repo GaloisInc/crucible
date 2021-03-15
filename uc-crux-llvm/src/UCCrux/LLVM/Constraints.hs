@@ -43,6 +43,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (.~), (^.))
+import           Data.Bifunctor (first)
 import           Data.Coerce (coerce)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(..))
@@ -206,7 +207,7 @@ ppConstraints (Constraints args globCs relCs) =
 isEmpty :: Constraints m argTypes -> Bool
 isEmpty (Constraints args globs rels) =
   allFC (Shape.isMinimal (null . getCompose) . getConstrainedShape) args
-    && Map.size globs == 0
+    && Map.null globs
     && null rels
 
 --------------------------------------------------------------------------------
@@ -227,12 +228,6 @@ joinLeft f =
     Left err -> Left (f err)
     Right (Left err) -> Left err
     Right (Right val) -> Right val
-
-mapLeft :: (a -> b) -> Either a c -> Either b c
-mapLeft f =
-  \case
-    Left err -> Left (f err)
-    Right val -> Right val
 
 data RedundantExpansion
   = AllocateAllocated
@@ -344,7 +339,7 @@ addConstraint argTypes mts constraints =
       constraints & argConstraints . ixF' idx
         %%~ ( \(ConstrainedShape shape) ->
                 ConstrainedShape
-                  <$> mapLeft
+                  <$> first
                     ExpShapeSeekError
                     (fst <$> Shape.modifyTag (coerce (constraint :)) shape cursor)
             )
