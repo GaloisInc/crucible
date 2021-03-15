@@ -89,7 +89,7 @@ mkFunctionBindings :: forall sym p ext.
                       [SomeOverride p sym ext]
                    -> [(Maybe (Text, FunctionName), AnyCFG ext)]
                    -> FunctionBindings p sym ext
-mkFunctionBindings _overrides [] = emptyHandleMap
+mkFunctionBindings _overrides [] = FnBindings emptyHandleMap
 mkFunctionBindings overrides ((ident, AnyCFG cfg) : cfgs) =
   let f = case lookupOverride' ident overrides of
         Just (SomeOverride _pkg argsRepr retRepr override) ->
@@ -102,7 +102,9 @@ mkFunctionBindings overrides ((ident, AnyCFG cfg) : cfgs) =
                  , "  Got: " ++ show argsRepr ++ " -> " ++ show retRepr
                  ]
         Nothing -> UseCFG cfg $ C.postdomInfo cfg in
-    insertHandleMap (cfgHandle cfg) f $ mkFunctionBindings overrides cfgs
+    FnBindings $ insertHandleMap (cfgHandle cfg) f
+               $ fnBindings
+               $ mkFunctionBindings overrides cfgs
 
 asApp :: MonadFail m
       => Reg.Expr ext s tp
