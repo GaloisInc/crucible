@@ -48,7 +48,7 @@ import Control.Monad.Trans.Class
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
 
-import Data.Bits (shift)
+import Data.Bits (shift, shiftL)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
@@ -381,10 +381,14 @@ evalBinOp bop mat me1 me2 =
                 return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), umulOverflow n e1 e2)
               (M.Mul, Just M.Signed) ->
                 return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), smulOverflow n e1 e2)
-              (M.Div, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), errorOverflow)
-              (M.Div, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), errorOverflow)
-              (M.Rem, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), errorOverflow)
-              (M.Rem, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2), errorOverflow)
+              (M.Div, Just M.Unsigned) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), udivOverflow n e1 e2)
+              (M.Div, Just M.Signed) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), sdivOverflow n e1 e2)
+              (M.Rem, Just M.Unsigned) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), udivOverflow n e1 e2)
+              (M.Rem, Just M.Signed) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2), sdivOverflow n e1 e2)
               -- Bitwise ops never overflow
               (M.BitXor, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVXor n e1 e2), noOverflow)
               (M.BitAnd, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVAnd n e1 e2), noOverflow)
@@ -517,6 +521,26 @@ evalBinOp bop mat me1 me2 =
     shiftOverflowBV w w' e =
         let wLit = S.app $ eBVLit w' $ intValue w
         in S.app $ E.Not $ S.app $ E.BVUlt w' e wLit
+
+    udivOverflow :: (1 <= w) =>
+        NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    udivOverflow w _x y = S.app $ E.BVEq w y $ S.app $ eBVLit w 0
+
+    sdivOverflow :: (1 <= w) =>
+        NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    sdivOverflow w x y =
+        S.app $ E.Or (udivOverflow w x y) $
+            -- Are we dividing INT_MIN by -1?  E.g. `x == -128 && y == -1`
+            S.app $ E.And
+                (S.app $ E.BVEq w x $ S.app $ eBVLit w (1 `shiftL` (w' - 1)))
+                (S.app $ E.BVEq w y $ S.app $ eBVLit w ((1 `shiftL` w') - 1))
+      where w' = fromIntegral $ intValue w
 
 
 
