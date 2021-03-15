@@ -261,6 +261,7 @@ tests =
     "bugfinding"
     [ inFile "assert_false.c" [("assert_false", hasBugs)],
       inFile "assert_arg_eq.c" [("assert_arg_eq", hasBugs)], -- goal: hasFailedAssert
+      inFile "double_free.c" [("double_free", hasBugs)],
       inFile "add1.c" [("add1", isSafe)],
       inFile "add1_double.c" [("add1_double", isSafe)], -- TODO: correct?
       inFile "add1_float.c" [("add1_float", isSafe)], -- TODO: correct?
@@ -277,6 +278,9 @@ tests =
       inFile "deref_arg.c" [("deref_arg", isSafeWithPreconditions False)],
       inFile "deref_struct_field.c" [("deref_struct_field", isSafeWithPreconditions False)],
       inFile "do_free.c" [("do_free", isSafeWithPreconditions False)],
+      inFile "linked_list_sum.c" [("linked_list_sum", isSafeWithPreconditions True)],
+      inFile "mutually_recursive_linked_list_sum.c" [("mutually_recursive_linked_list_sum", isSafeWithPreconditions True)],
+      inFile "not_double_free.c" [("not_double_free", isSafeWithPreconditions False)],
       inFile "ptr_as_array.c" [("ptr_as_array", isSafeWithPreconditions False)],
       inFile "sized_array_arg.c" [("sized_array_arg", isSafeWithPreconditions False)],
       inFile "writes_to_arg.c" [("writes_to_arg", isSafeWithPreconditions False)],
@@ -288,8 +292,6 @@ tests =
       inFile "do_fork.c" [("do_fork", isUnclassified)],
       inFile "do_getchar.c" [("do_getchar", isUnclassified)], -- goal: isSafe
       inFile "do_recv.c" [("do_recv", isUnclassified)],
-      inFile "linked_list_sum.c" [("linked_list_sum", isUnclassified)], -- goal: isSafeWP(True)
-      inFile "mutually_recursive_linked_list_sum.c" [("mutually_recursive_linked_list_sum", isUnclassified)], -- goal: isSafeWP(True)
       inFile "nested_structs.c" [("nested_structs", isUnclassified)], -- goal: ???
       inFile "oob_read_heap.c" [("oob_read_heap", isUnclassified)], -- goal: notSafe
       inFile "oob_read_stack.c" [("oob_read_stack", isUnclassified)], -- goal: notSafe
@@ -320,12 +322,6 @@ tests =
 
         -- TODO: Not sure if Crux can do C++?
         -- , isSafe "cxxbasic.cpp" "cxxbasic"
-
-        -- TODO: Crucible can't currently distinguish between double frees and frees
-        -- of non-pointers. A solution would be to return *two* predicates from
-        -- isAllocatedGeneric, or to provide a similar function specifically for
-        -- checking whether a pointer points to a freed region.
-        -- , hasBugs "double_free.c" "double_free"
     ]
 
 main :: IO ()
