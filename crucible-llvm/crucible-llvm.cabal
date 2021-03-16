@@ -1,4 +1,4 @@
-Cabal-version: 3.0
+Cabal-version: 2.2
 Name:          crucible-llvm
 Version:       0.3
 Author:        Galois Inc.
