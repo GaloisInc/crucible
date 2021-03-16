@@ -391,8 +391,7 @@ assignmentLookupByIndex i ass =
 --
 -- Return a set of blocks to visit later.
 transfer :: forall ext dom blocks ret ctx
-          . ShowF dom
-         => Domain dom
+          . Domain dom
          -> Interpretation ext dom
          -> TypeRepr ret
          -> Block ext blocks ret ctx
@@ -603,8 +602,7 @@ isVisited bid = do
 --
 -- 3) The final abstract value for the value returned by the function
 forwardFixpoint' :: forall ext dom blocks ret init
-                 . ShowF dom
-                => Domain dom
+                 . Domain dom
                 -- ^ The domain of abstract values
                 -> Interpretation ext dom
                 -- ^ The transfer functions for each statement type
@@ -656,8 +654,7 @@ forwardFixpoint' dom interp cfg globals0 assignment0 =
 
 -- Preserve old interface for now; fix tests later if my generalization is the right one.
 forwardFixpoint :: forall ext dom blocks ret init
-                . ShowF dom
-                => Domain dom
+                . Domain dom
                 -> Interpretation ext dom
                 -> CFG ext blocks init ret
                 -> PM.MapF GlobalVar dom
@@ -669,7 +666,7 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
 
 -- | Inspect the 'Domain' definition to determine which iteration
 -- strategy the caller requested.
-iterationStrategy :: ShowF dom => Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
+iterationStrategy :: Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
 iterationStrategy dom =
   case domIter dom of
     WTOWidening s op -> wtoIteration (Just (WideningStrategy s, WideningOperator op)) dom
@@ -683,8 +680,7 @@ iterationStrategy dom =
 -- The worklist is actually processed by taking the lowest-numbered
 -- block in a set as the next work item.
 worklistIteration :: forall ext dom blocks ret init
-                   . ShowF dom
-                  => Domain dom
+                   . Domain dom
                   -> Interpretation ext dom
                   -> CFG ext blocks init ret
                   -> M dom blocks ret ()
@@ -716,8 +712,7 @@ worklistIteration dom interp cfg =
 -- block heads are suitable locations to apply widening operators
 -- (which can be provided to this iterator).
 wtoIteration :: forall ext dom blocks ret init
-              . ShowF dom
-             => Maybe (WideningStrategy, WideningOperator dom)
+              . Maybe (WideningStrategy, WideningOperator dom)
               -- ^ An optional widening operator
              -> Domain dom
              -> Interpretation ext dom
