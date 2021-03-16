@@ -6,7 +6,7 @@ use crucible::*;
 
 
 fn double_ref(x : u32) -> u32 {
-    return x * 2;
+    return x.wrapping_mul(2);
 }
 
 fn double_imp(x : u32) -> u32 {
