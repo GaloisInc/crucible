@@ -18,6 +18,7 @@ module UCCrux.LLVM.Stats
 where
 
 {- ORMOLU_DISABLE -}
+import           Control.Lens ((^.), to)
 import           Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict (Map)
@@ -29,11 +30,7 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
-import           Data.Parameterized.Some (Some(Some))
-
-import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as LLVMErrors
-
-import           UCCrux.LLVM.Classify (TruePositiveTag, MissingPreconditionTag, Unclassified(..), partitionUncertainty, diagnose, ppTruePositiveTag, truePositiveTag, Unfixable, ppUnfixable, Unfixed, ppUnfixed)
+import           UCCrux.LLVM.Classify (TruePositiveTag, MissingPreconditionTag, partitionUncertainty, diagnose, ppTruePositiveTag, truePositiveTag, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), FunctionSummaryTag)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
@@ -66,16 +63,7 @@ getStats result =
               Result.FoundBugs bugs -> frequencies (map truePositiveTag (toList bugs))
               _ -> Map.empty,
           unclassifiedFreq =
-            let ks =
-                  \case
-                    UnclassifiedUndefinedBehavior (Some ub) ->
-                      PP.renderStrict
-                        ( PP.layoutPretty
-                            PP.defaultLayoutOptions
-                            (LLVMErrors.explain ub)
-                        )
-                    UnclassifiedMemoryError -> "Memory error"
-             in frequencies (map ks unclass),
+            frequencies (map (^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict) unclass),
           missingPreconditionFreq =
             frequencies (deducedPreconditions result),
           unimplementedFreq = frequencies (map panicComponent unimplementeds),

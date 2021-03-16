@@ -26,6 +26,7 @@ module UCCrux.LLVM.Classify
     ppTruePositive,
     ppTruePositiveTag,
     Unclassified (..),
+    doc,
     Uncertainty (..),
     partitionUncertainty,
     ppUncertainty,
@@ -43,7 +44,7 @@ where
 import           Prelude hiding (log)
 
 import           Control.Exception (displayException)
-import           Control.Lens (to, (^.))
+import           Control.Lens (Lens', lens, to, (^.))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.BitVector.Sized (asUnsigned)
 import           Data.Functor.Const (Const(getConst))
@@ -57,6 +58,8 @@ import           Data.Void (Void)
 import           Panic (Panic)
 
 import           Prettyprinter (Doc)
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
 
 import           Data.Parameterized.Classes (IxedF'(ixF'), ShowF)
 import qualified Data.Parameterized.Context as Ctx
@@ -73,9 +76,8 @@ import qualified Lang.Crucible.Simulator as Crucible
 
 import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
-import           Lang.Crucible.LLVM.Errors (ppBB)
-import qualified Lang.Crucible.LLVM.Errors.MemoryError as LLVMErrors hiding (explain)
-import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as LLVMErrors
+import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemError
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
@@ -174,8 +176,23 @@ ppUnfixed =
 
 -- | We don't (yet) know what to do about this error
 data Unclassified
-  = UnclassifiedUndefinedBehavior (Some LLVMErrors.UndefinedBehavior)
-  | UnclassifiedMemoryError
+  = UnclassifiedUndefinedBehavior (Doc Void) (Some UB.UndefinedBehavior)
+  | UnclassifiedMemoryError (Doc Void)
+
+doc :: Lens' Unclassified (Doc Void)
+doc =
+  lens
+    ( \case
+        UnclassifiedUndefinedBehavior doc' _ -> doc'
+        UnclassifiedMemoryError doc' -> doc'
+    )
+    ( \s doc' ->
+        case s of
+          UnclassifiedUndefinedBehavior _ val ->
+            UnclassifiedUndefinedBehavior doc' val
+          UnclassifiedMemoryError _ ->
+            UnclassifiedMemoryError doc'
+    )
 
 -- | Only used in tests, not a valid 'Show' instance.
 instance Show Unclassified where
@@ -186,7 +203,7 @@ instance Show Unclassified where
 
 -- | Possible sources of uncertainty, these might be true or false positives
 data Uncertainty
-  = UUnclassified (Doc Void) Unclassified
+  = UUnclassified Unclassified
   | UUnfixable Unfixable
   | UUnfixed Unfixed
   | -- | Simulation, input generation, or classification encountered
@@ -214,7 +231,7 @@ partitionUncertainty = go [] [] [] [] [] []
         (UUnimplemented n : rest) ->
           let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
            in (ms', fs', n : ns', us', ufd', ufa')
-        (UUnclassified _doc unclass : rest) ->
+        (UUnclassified unclass : rest) ->
           let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
            in (ms', fs', ns', unclass : us', ufd', ufa')
         (UUnfixed uf : rest) ->
@@ -264,8 +281,9 @@ ppTruePositive =
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =
   \case
-    UUnclassified doc _unclass ->
-      "Unclassified error:\n" <> Text.pack (show doc)
+    UUnclassified unclass ->
+      "Unclassified error:\n"
+        <> (unclass ^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict)
     UUnfixable unfix -> "Unfixable/inactionable error:\n" <> ppUnfixable unfix
     UUnfixed unfix ->
       "Fixable, but fix not yet implemented for this error:\n" <> ppUnfixed unfix
@@ -275,15 +293,15 @@ ppUncertainty =
       "Symbolically failing user assertion at " <> Text.pack (show loc)
     UUnimplemented pan -> Text.pack (displayException pan)
 
-summarizeOp :: LLVMErrors.MemoryOp sym w -> (Maybe String, LLVMPtr.LLVMPtr sym w)
+summarizeOp :: MemError.MemoryOp sym w -> (Maybe String, LLVMPtr.LLVMPtr sym w)
 summarizeOp =
   \case
-    LLVMErrors.MemLoadOp _storageType expl ptr _mem -> (expl, ptr)
-    LLVMErrors.MemStoreOp _storageType expl ptr _mem -> (expl, ptr)
-    LLVMErrors.MemStoreBytesOp expl ptr _sz _mem -> (expl, ptr)
-    LLVMErrors.MemCopyOp (destExpl, dest) (_srcExpl, _src) _len _mem -> (destExpl, dest)
-    LLVMErrors.MemLoadHandleOp _llvmType expl ptr _mem -> (expl, ptr)
-    LLVMErrors.MemInvalidateOp _whatIsThisParam expl ptr _size _mem -> (expl, ptr)
+    MemError.MemLoadOp _storageType expl ptr _mem -> (expl, ptr)
+    MemError.MemStoreOp _storageType expl ptr _mem -> (expl, ptr)
+    MemError.MemStoreBytesOp expl ptr _sz _mem -> (expl, ptr)
+    MemError.MemCopyOp (destExpl, dest) (_srcExpl, _src) _len _mem -> (destExpl, dest)
+    MemError.MemLoadHandleOp _llvmType expl ptr _mem -> (expl, ptr)
+    MemError.MemInvalidateOp _whatIsThisParam expl ptr _size _mem -> (expl, ptr)
 
 classifyAssertion ::
   What4.IsExpr (What4.SymExpr sym) =>
@@ -375,12 +393,12 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                  liftIO $ (appCtx ^. log) Hi ("Couldn't classify error." :: Text)
                  pure $
                    ExUncertain $
-                     UUnclassified (ppBB badBehavior) $
+                     UUnclassified $
                        case badBehavior of
                          LLVMErrors.BBUndefinedBehavior ub ->
-                           UnclassifiedUndefinedBehavior (Some ub)
-                         LLVMErrors.BBMemoryError {} ->
-                           UnclassifiedMemoryError
+                           UnclassifiedUndefinedBehavior (UB.explain ub) (Some ub)
+                         LLVMErrors.BBMemoryError memoryError ->
+                           UnclassifiedMemoryError (MemError.explain memoryError)
 
              unfixed :: Unfixed -> IO (Explanation m arch argTypes)
              unfixed tag =
@@ -395,7 +413,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                  pure $ ExUncertain (UUnfixable tag)
           in case badBehavior of
                LLVMErrors.BBUndefinedBehavior
-                 (LLVMErrors.WriteBadAlignment ptr alignment) ->
+                 (UB.WriteBadAlignment ptr alignment) ->
                    case getPtrOffsetAnn (Crucible.unRV ptr) of
                      Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
                        do
@@ -419,7 +437,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                  (tag, oneArgConstraint idx cursor (Aligned alignment))
                      _ -> unclass
                LLVMErrors.BBUndefinedBehavior
-                 (LLVMErrors.ReadBadAlignment ptr alignment) ->
+                 (UB.ReadBadAlignment ptr alignment) ->
                    case getPtrOffsetAnn (Crucible.unRV ptr) of
                      Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
                        do
@@ -443,7 +461,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                  (tag, oneArgConstraint idx cursor (Aligned alignment))
                      _ -> unclass
                LLVMErrors.BBUndefinedBehavior
-                 (LLVMErrors.FreeUnallocated ptr) ->
+                 (UB.FreeUnallocated ptr) ->
                    case getPtrOffsetAnn (Crucible.unRV ptr) of
                      Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
                        do
@@ -467,7 +485,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                  (tag, oneArgShapeConstraint idx cursor (Allocated 1))
                      _ -> unclass
                LLVMErrors.BBUndefinedBehavior
-                 (LLVMErrors.FreeBadOffset (Crucible.RV ptr)) ->
+                 (UB.FreeBadOffset (Crucible.RV ptr)) ->
                    case getPtrOffsetAnn ptr of
                      Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
                        -- At the moment, we only handle the case where the pointer is
@@ -498,7 +516,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                        (tag, oneArgShapeConstraint idx cursor (Allocated 1))
                      _ -> unclass
                LLVMErrors.BBUndefinedBehavior
-                 (LLVMErrors.DoubleFree _) ->
+                 (UB.DoubleFree _) ->
                    do
                      let tag = TagDoubleFree
                      liftIO $
@@ -506,7 +524,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                          Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
                      return $ ExTruePositive DoubleFree
                LLVMErrors.BBUndefinedBehavior
-                 (LLVMErrors.PtrAddOffsetOutOfBounds (Crucible.RV ptr) (Crucible.RV offset)) ->
+                 (UB.PtrAddOffsetOutOfBounds (Crucible.RV ptr) (Crucible.RV offset)) ->
                    case getPtrOffsetAnn ptr of
                      Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
                        case getTermAnn offset of
@@ -567,9 +585,9 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                  unfixable tag
                      _ -> unclass
                LLVMErrors.BBMemoryError
-                 ( LLVMErrors.MemoryError
+                 ( MemError.MemoryError
                      (summarizeOp -> (_expl, ptr))
-                     LLVMErrors.UnwritableRegion
+                     MemError.UnwritableRegion
                    ) ->
                    case getPtrOffsetAnn ptr of
                      Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
@@ -599,9 +617,9 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                      -- TODO(lb): Something about globals, probably?
                      _ -> unclass
                LLVMErrors.BBMemoryError
-                 ( LLVMErrors.MemoryError
+                 ( MemError.MemoryError
                      _op
-                     (LLVMErrors.NoSatisfyingWrite _storageType ptr)
+                     (MemError.NoSatisfyingWrite _storageType ptr)
                    ) ->
                    do
                      blockAnn <- liftIO $ getPtrBlockAnn ptr
