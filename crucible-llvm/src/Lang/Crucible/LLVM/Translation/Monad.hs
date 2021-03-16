@@ -58,6 +58,7 @@ import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
 
 import           Lang.Crucible.CFG.Generator
+import           Lang.Crucible.Panic ( panic )
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -212,7 +213,8 @@ buildIdentMap ts True ctx asgn m =
 buildIdentMap [] _ ctx _ m
   | Ctx.null ctx = m
   | otherwise =
-      error "buildIdentMap: passed arguments do not match LLVM input signature"
+      panic "crucible-llvm:Translation.buildIdentMap"
+      [ "buildIdentMap: passed arguments do not match LLVM input signature" ]
 buildIdentMap (ti:ts) _ ctx asgn m = do
   -- ?? FIXME, irrefutable pattern...
   let Right ty = liftMemType (L.typedType ti)
