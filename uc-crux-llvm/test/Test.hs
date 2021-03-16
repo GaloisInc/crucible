@@ -1,3 +1,39 @@
+{-
+Module           : Main
+Description      : Tests
+Copyright        : (c) Galois, Inc 2021
+License          : BSD3
+Maintainer       : Langston Barrett <langston@galois.com>
+Stability        : provisional
+
+For now, this test suite only has \"acceptance tests\", i.e. tests that describe
+very high-level behavior.
+
+There are two ways to add such tests:
+
+1. add a C file to test/programs and add assertions about it using 'inFile'
+   below, or
+2. construct an LLVM module \"by hand\" and use 'inModule'.
+
+The advantages of the first approach are:
+
+* It's usually very concise, making it easy to add additional tests.
+* The output is guaranteed to be realistic.
+
+The advantages of the second approach are:
+
+* The tests will run faster (no external process, no filesystem access).
+* The tests are more deterministic (same reasons).
+* You can abstract over the AST with Haskell functions (like those used in the
+  various tests of arithmetic).
+
+The big disadvantages of the second approach, as compared with the first, are:
+
+* It's possible to write an ill-formed/ill-typed AST (though this should be
+  caught the first time the test runs).
+* There's no guarantee that Clang would ever produce such an AST.
+* It can be verbose.
+-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
@@ -13,12 +49,14 @@ import           Data.Foldable (for_)
 import           Data.List (intercalate)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isNothing)
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
 
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.HUnit as TH
+
+import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, knownNat)
@@ -28,10 +66,11 @@ import           Lang.Crucible.FunctionHandle (newHandleAllocator)
 
 import qualified Crux
 import           Crux.LLVM.Compile (genBitCode)
+import           Crux.LLVM.Config (clangOpts)
 
 -- Code being tested
 import qualified UCCrux.LLVM.Config as Config
-import           UCCrux.LLVM.Main (loopOnFunctions, translate)
+import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify (partitionUncertainty)
@@ -62,11 +101,16 @@ _exampleStruct =
 testDir :: FilePath
 testDir = "test/programs"
 
-findBugs :: FilePath -> [String] -> IO (Map.Map String Result.SomeBugfindingResult)
-findBugs file fns =
+findBugs ::
+  Maybe L.Module ->
+  FilePath ->
+  [String] ->
+  IO (Map.Map String Result.SomeBugfindingResult)
+findBugs llvmModule file fns =
   do
     withFile (testDir </> file <> ".output") WriteMode $ \h ->
       do
+        let isRealFile = isNothing llvmModule
         let outCfg = Crux.OutputConfig False h h True
         conf <- Config.ucCruxLLVMConfig
         (appCtx, path, cruxOpts, ucOpts) <-
@@ -76,11 +120,25 @@ findBugs file fns =
               let ucOpts' = ucOpts {Config.entryPoints = fns}
               (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
               path <-
-                try (genBitCode cruxOpts'' (Config.ucLLVMOptions ucOpts'))
-                  >>= \case
-                    Left (exc :: SomeException) ->
-                      error ("Trouble when running Clang:" ++ displayException exc)
-                    Right path -> pure path
+                if isRealFile
+                  then
+                    try
+                      ( genBitCode
+                          cruxOpts''
+                          ( (Config.ucLLVMOptions ucOpts')
+                              { -- NB(lb): The -fno-wrapv here ensures that
+                                -- Clang will emit 'nsw' flags even on platforms
+                                -- using nixpkgs, which injects
+                                -- -fno-strict-overflow by default.
+                                clangOpts = ["-fno-wrapv"]
+                              }
+                          )
+                      )
+                      >>= \case
+                        Left (exc :: SomeException) ->
+                          error ("Trouble when running Clang:" ++ displayException exc)
+                        Right path -> pure path
+                  else pure "<fake-path>"
 
               pure (appCtx, path, cruxOpts'', ucOpts'')
         putStrLn
@@ -94,14 +152,26 @@ findBugs file fns =
           )
         let ?outputConfig = outCfg
         halloc <- newHandleAllocator
-        Some modCtx <- translate ucOpts halloc path
+        Some modCtx <-
+          case llvmModule of
+            Just lMod -> translateLLVMModule ucOpts halloc path lMod
+            Nothing -> translateFile ucOpts halloc path
         loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
 
 inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
 inFile file specs =
   TH.testCase file $
     do
-      results <- findBugs file (map fst specs)
+      results <- findBugs Nothing file (map fst specs)
+      for_ specs $
+        \(fn, spec) ->
+          spec fn $ fromMaybe (error ("Couldn't find result for function" ++ fn)) $ Map.lookup fn results
+
+inModule :: FilePath -> L.Module -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
+inModule fakePath llvmModule specs =
+  TH.testCase fakePath $
+    do
+      results <- findBugs (Just llvmModule) fakePath (map fst specs)
       for_ specs $
         \(fn, spec) ->
           spec fn $ fromMaybe (error ("Couldn't find result for function" ++ fn)) $ Map.lookup fn results
@@ -240,7 +310,7 @@ isUnimplemented file fn =
   TH.testCase (fn <> " exercises unimplemented functionality") $
     catchUnimplemented
       ( do
-          results <- findBugs file [fn]
+          results <- findBugs Nothing file [fn]
           Result.SomeBugfindingResult result <- pure $ fromMaybe (error "No result") (Map.lookup fn results)
           let (_unclass, _missingAnn, _failedAssert, unimpl, _unfixed, _unfixable) =
                 partitionUncertainty (Result.uncertainResults result)
@@ -256,74 +326,191 @@ isUnimplemented file fn =
         Left _ -> pure ()
         Right () -> TH.assertFailure (unwords ["Expected", fn, "to be unimplemented"])
 
-tests :: TT.TestTree
-tests =
-  TT.testGroup
-    "bugfinding"
-    [ inFile "assert_false.c" [("assert_false", hasBugs)],
-      inFile "assert_arg_eq.c" [("assert_arg_eq", hasBugs)], -- goal: hasFailedAssert
-      inFile "double_free.c" [("double_free", hasBugs)],
-      inFile "add1.c" [("add1", isSafe)],
-      inFile "add1_double.c" [("add1_double", isSafe)], -- TODO: correct?
-      inFile "add1_float.c" [("add1_float", isSafe)], -- TODO: correct?
-      inFile "branch.c" [("branch", isSafe)],
-      inFile "compare_to_null.c" [("compare_to_null", isSafe)],
-      inFile "opaque_struct.c" [("opaque_struct", isSafe)],
-      inFile "print.c" [("print", isSafe)],
-      inFile "read_global.c" [("read_global", isSafe)],
-      inFile "write_global.c" [("write_global", isSafe)],
-      inFile "factorial.c" [("factorial", isSafeToBounds)],
-      inFile "loop_arg_bound.c" [("loop_arg_bound", isSafeToBounds)],
-      inFile "loop_constant_big_bound_arg_start.c" [("loop_constant_big_bound_arg_start", isSafeToBounds)],
-      inFile "loop_constant_bound_arg_start.c" [("loop_constant_bound_arg_start", isSafeToBounds)], -- TODO: Why not just isSafe?
-      inFile "deref_arg.c" [("deref_arg", isSafeWithPreconditions DidntHitBounds)],
-      inFile "deref_arg_const_index.c" [("deref_arg_const_index", isSafeWithPreconditions DidntHitBounds)],
-      inFile "deref_struct_field.c" [("deref_struct_field", isSafeWithPreconditions DidntHitBounds)],
-      inFile "do_free.c" [("do_free", isSafeWithPreconditions DidntHitBounds)],
-      inFile "linked_list_sum.c" [("linked_list_sum", isSafeWithPreconditions DidHitBounds)],
-      inFile "memset_const_len.c" [("memset_const_len", isSafeWithPreconditions DidntHitBounds)],
-      inFile "memset_const_len_arg_byte.c" [("memset_const_len_arg_byte", isSafeWithPreconditions DidntHitBounds)],
-      inFile "mutually_recursive_linked_list_sum.c" [("mutually_recursive_linked_list_sum", isSafeWithPreconditions DidHitBounds)],
-      inFile "not_double_free.c" [("not_double_free", isSafeWithPreconditions DidntHitBounds)],
-      inFile "ptr_as_array.c" [("ptr_as_array", isSafeWithPreconditions DidntHitBounds)],
-      inFile "sized_array_arg.c" [("sized_array_arg", isSafeWithPreconditions DidntHitBounds)],
-      inFile "writes_to_arg.c" [("writes_to_arg", isSafeWithPreconditions DidntHitBounds)],
-      inFile "writes_to_arg_conditional.c" [("writes_to_arg_conditional", isSafeWithPreconditions DidntHitBounds)],
-      inFile "writes_to_arg_conditional_ptr.c" [("writes_to_arg_conditional_ptr", isSafeWithPreconditions DidntHitBounds)],
-      inFile "writes_to_arg_field.c" [("writes_to_arg_field", isSafeWithPreconditions DidntHitBounds)],
-      inFile "writes_to_arg_ptr.c" [("writes_to_arg_ptr", isSafeWithPreconditions DidntHitBounds)],
-      inFile "do_exit.c" [("do_exit", isUnclassified)], -- goal: isSafe
-      inFile "do_fork.c" [("do_fork", isUnclassified)],
-      inFile "do_getchar.c" [("do_getchar", isUnclassified)], -- goal: isSafe
-      inFile "do_recv.c" [("do_recv", isUnclassified)],
-      -- The following test requires relational preconditions:
-      inFile "memset_arg_len.c" [("memset_arg_len", isUnclassified)], -- goal: isSafeWP
-      inFile "nested_structs.c" [("nested_structs", isUnclassified)], -- goal: ???
-      inFile "oob_read_heap.c" [("oob_read_heap", isUnclassified)], -- goal: notSafe
-      inFile "oob_read_stack.c" [("oob_read_stack", isUnclassified)], -- goal: notSafe
-      inFile "uninitialized_stack.c" [("uninitialized_stack", isUnclassified)], -- goal: notSafe
-      isUnimplemented
-        "call_function_pointer.c"
-        "call_function_pointer", -- goal: ???
+inFileTests :: TT.TestTree
+inFileTests =
+  TT.testGroup "file based tests" $
+    map
+      (uncurry inFile)
+      [ ("assert_false.c", [("assert_false", hasBugs)]),
+        ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
+        ("double_free.c", [("double_free", hasBugs)]),
+        ("branch.c", [("branch", isSafe)]),
+        ("compare_to_null.c", [("compare_to_null", isSafe)]),
+        ("opaque_struct.c", [("opaque_struct", isSafe)]),
+        ("print.c", [("print", isSafe)]),
+        ("read_global.c", [("read_global", isSafe)]),
+        ("write_global.c", [("write_global", isSafe)]),
+        ("factorial.c", [("factorial", isSafeToBounds)]),
+        ("loop_arg_bound.c", [("loop_arg_bound", isSafeToBounds)]),
+        ("loop_constant_big_bound_arg_start.c", [("loop_constant_big_bound_arg_start", isSafeToBounds)]),
+        ("loop_constant_bound_arg_start.c", [("loop_constant_bound_arg_start", isSafeToBounds)]), -- TODO: Why not just isSafe?
+        ("deref_arg.c", [("deref_arg", isSafeWithPreconditions DidntHitBounds)]),
+        ("deref_arg_const_index.c", [("deref_arg_const_index", isSafeWithPreconditions DidntHitBounds)]),
+        ("deref_struct_field.c", [("deref_struct_field", isSafeWithPreconditions DidntHitBounds)]),
+        ("do_free.c", [("do_free", isSafeWithPreconditions DidntHitBounds)]),
+        ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
+        ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions DidntHitBounds)]),
+        ("memset_const_len_arg_byte.c", [("memset_const_len_arg_byte", isSafeWithPreconditions DidntHitBounds)]),
+        ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
+        ("not_double_free.c", [("not_double_free", isSafeWithPreconditions DidntHitBounds)]),
+        ("ptr_as_array.c", [("ptr_as_array", isSafeWithPreconditions DidntHitBounds)]),
+        ("sized_array_arg.c", [("sized_array_arg", isSafeWithPreconditions DidntHitBounds)]),
+        ("writes_to_arg.c", [("writes_to_arg", isSafeWithPreconditions DidntHitBounds)]),
+        ("writes_to_arg_conditional.c", [("writes_to_arg_conditional", isSafeWithPreconditions DidntHitBounds)]),
+        ("writes_to_arg_conditional_ptr.c", [("writes_to_arg_conditional_ptr", isSafeWithPreconditions DidntHitBounds)]),
+        ("writes_to_arg_field.c", [("writes_to_arg_field", isSafeWithPreconditions DidntHitBounds)]),
+        ("writes_to_arg_ptr.c", [("writes_to_arg_ptr", isSafeWithPreconditions DidntHitBounds)]),
+        ("do_exit.c", [("do_exit", isUnclassified)]), -- goal: isSafe
+        ("do_fork.c", [("do_fork", isUnclassified)]),
+        ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
+        ("do_recv.c", [("do_recv", isUnclassified)]),
+        ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
+        ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
+        ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: notSafe
+        ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: notSafe
+        ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: notSafe
         --
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
-      inFile "memcpy_const_len.c" [("memcpy_const_len", hasMissingAnn)],
-      inFile "deref_arg_arg_index.c" [("deref_arg_arg_index", hasMissingAnn)]
-      -- SQLite
-      -- This is slow, and WIP
-      -- inFile
-      --   "sqlite-3.32.1/sqlite3.c"
-      --   [ ("appendText", isSafeWithPreconditions False),
-      --     ("sqlite3_filename_database", isUnclassified)
-      --   ]
+        ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
+        ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)])
+        -- SQLite
+        -- This is slow, and WIP
+        -- inFile
+        --   "sqlite-3.32.1/sqlite3.c"
+        --   [ ("appendText", isSafeWithPreconditions False),
+        --     ("sqlite3_filename_database", isUnclassified)
+        --   ]
 
-      -- TODO: https://github.com/GaloisInc/crucible/issues/651
-      -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
+        -- TODO: https://github.com/GaloisInc/crucible/issues/651
+        -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
 
-      -- TODO: Not sure if Crux can do C++?
-      -- , isSafe "cxxbasic.cpp" "cxxbasic"
+        -- TODO: Not sure if Crux can do C++?
+        -- , isSafe "cxxbasic.cpp" "cxxbasic"
+      ]
+
+i32 :: L.Type
+i32 = L.PrimType (L.Integer 32)
+
+float :: L.Type
+float = L.PrimType (L.FloatType L.Float)
+
+double :: L.Type
+double = L.PrimType (L.FloatType L.Double)
+
+result :: L.Ident -> L.Instr -> L.Stmt
+result ident inst = L.Result ident inst []
+
+effect :: L.Instr -> L.Stmt
+effect inst = L.Effect inst []
+
+emptyDefine :: L.Define
+emptyDefine =
+  L.Define
+    { L.defName = "<empty>",
+      L.defArgs = [],
+      L.defVarArgs = False,
+      L.defAttrs = [],
+      L.defRetType = L.PrimType L.Void,
+      L.defLinkage = Nothing,
+      L.defSection = Nothing,
+      L.defGC = Nothing,
+      L.defBody = [],
+      L.defMetadata = mempty,
+      L.defComdat = Nothing
+    }
+
+oneDefine ::
+  String ->
+  [L.Typed L.Ident] ->
+  L.Type ->
+  [L.BasicBlock] ->
+  L.Module
+oneDefine name args ret blocks =
+  L.emptyModule
+    { L.modSourceName = Just (name ++ ".c"),
+      L.modDefines =
+        [ emptyDefine
+            { L.defName = L.Symbol name,
+              L.defArgs = args,
+              L.defRetType = ret,
+              L.defBody = blocks
+            }
+        ]
+    }
+
+oneArith ::
+  String ->
+  L.Type ->
+  L.Value ->
+  L.ArithOp ->
+  L.Module
+oneArith name ty val op =
+  oneDefine
+    name
+    [L.Typed ty (L.Ident "arg")]
+    ty
+    [ L.BasicBlock
+        (Just "bb")
+        [ result
+            "retVal"
+            (L.Arith op (L.Typed ty (L.ValIdent (L.Ident "arg"))) val),
+          effect (L.Ret (L.Typed ty (L.ValIdent (L.Ident "retVal"))))
+        ]
+    ]
+
+moduleTests :: TT.TestTree
+moduleTests =
+  TT.testGroup
+    "module based tests"
+    [ inModule
+        "add1.c"
+        (oneArith "add1" i32 (L.ValInteger 1) (L.Add False False))
+        [("add1", isSafe)],
+      inModule
+        "add1_nsw.c"
+        (oneArith "add1_nsw" i32 (L.ValInteger 1) (L.Add False True))
+        [("add1_nsw", isSafeWithPreconditions DidntHitBounds)],
+      inModule
+        "add1_nuw.c"
+        (oneArith "add1_nuw" i32 (L.ValInteger 1) (L.Add True False))
+        [("add1_nuw", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+      inModule
+        "add1_float.c"
+        (oneArith "add1_float" float (L.ValFloat 1.0) L.FAdd)
+        [("add1_float", isSafe)],
+      inModule
+        "add1_double.c"
+        (oneArith "add1_double" double (L.ValDouble 1.0) L.FAdd)
+        [("add1_double", isSafe)],
+      inModule
+        "sub1.c"
+        (oneArith "sub1" i32 (L.ValInteger 1) (L.Sub False False))
+        [("sub1", isSafe)],
+      inModule
+        "sub1_nsw.c"
+        (oneArith "sub1_nsw" i32 (L.ValInteger 1) (L.Sub False True))
+        [("sub1_nsw", isSafeWithPreconditions DidntHitBounds)],
+      inModule
+        "sub1_nuw.c"
+        (oneArith "sub1_nuw" i32 (L.ValInteger 1) (L.Sub True False))
+        [("sub1_nuw", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+      inModule
+        "sub1_float.c"
+        (oneArith "sub1_float" float (L.ValFloat 1.0) L.FSub)
+        [("sub1_float", isSafe)],
+      inModule
+        "sub1_double.c"
+        (oneArith "sub1_double" double (L.ValDouble 1.0) L.FSub)
+        [("sub1_double", isSafe)]
     ]
 
 main :: IO ()
-main = TT.defaultMain $ TT.testGroup "uc-crux-llvm" [tests]
+main =
+  TT.defaultMain $
+    TT.testGroup
+      "uc-crux-llvm"
+      [ inFileTests,
+        moduleTests,
+        isUnimplemented "call_function_pointer.c" "call_function_pointer" -- goal: ???
+      ]

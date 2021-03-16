@@ -44,6 +44,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (.~), (^.))
 import           Data.Bifunctor (first)
+import           Data.BitVector.Sized (BV)
 import           Data.Coerce (coerce)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(..))
@@ -101,17 +102,30 @@ instance Eq (ShapeConstraint m atTy) where
 data Constraint (m :: Type) (atTy :: FullType m) where
   -- | This pointer has at least this alignment
   Aligned :: !Alignment -> Constraint m ('FTPtr ft)
+  -- | This comparison holds.
+  BVCmp :: !L.ICmpOp -> !(BV w) -> Constraint m ('FTInt w)
 
 instance Eq (Constraint m atTy) where
   c1 == c2 =
     case (c1, c2) of
       (Aligned n1, Aligned n2) -> n1 == n2
+      (BVCmp op1 bv1, BVCmp op2 bv2) -> op1 == op2 && bv1 == bv2
 
 ppConstraint :: Constraint m ft -> Doc Void
 ppConstraint =
   \case
     Aligned alignment ->
       PP.pretty "is aligned to " <> PP.viaShow (fromAlignment alignment)
+    BVCmp L.Ieq bv -> PP.pretty "is equal to " <> PP.viaShow bv
+    BVCmp L.Ine bv -> PP.pretty "is not equal to " <> PP.viaShow bv
+    BVCmp L.Iult bv -> PP.pretty "is (unsigned) less than " <> PP.viaShow bv
+    BVCmp L.Iule bv -> PP.pretty "is (unsigned) less than or equal to " <> PP.viaShow bv
+    BVCmp L.Iugt bv -> PP.pretty "is (unsigned) greater than " <> PP.viaShow bv
+    BVCmp L.Iuge bv -> PP.pretty "is (unsigned) greater than or equal to " <> PP.viaShow bv
+    BVCmp L.Islt bv -> PP.pretty "is (signed) less than " <> PP.viaShow bv
+    BVCmp L.Isle bv -> PP.pretty "is (signed) less than or equal to " <> PP.viaShow bv
+    BVCmp L.Isgt bv -> PP.pretty "is (signed) greater than " <> PP.viaShow bv
+    BVCmp L.Isge bv -> PP.pretty "is (signed) greater than or equal to " <> PP.viaShow bv
 
 -- | A (possibly) \"relational\" constraint across several values.
 data RelationalConstraint m argTypes

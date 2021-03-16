@@ -23,7 +23,8 @@ module UCCrux.LLVM.Main
     mainWithOutputConfig,
     defaultOutputConfig,
     loopOnFunctions,
-    translate,
+    translateLLVMModule,
+    translateFile,
     Result.SomeBugfindingResult (..),
     Result.FunctionSummary (..),
     Result.printFunctionSummary,
@@ -41,6 +42,8 @@ import           System.Exit (ExitCode(..))
 import           System.IO (Handle)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
+
+import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Some (Some(..))
 
@@ -87,7 +90,7 @@ mainWithOutputConfig outCfg =
         (appCtx, cruxOpts, ucOpts) <- Config.processUCCruxLLVMOptions opts
         path <- genBitCode cruxOpts (Config.ucLLVMOptions ucOpts)
         halloc <- Crucible.newHandleAllocator
-        Some modCtx <- translate ucOpts halloc path
+        Some modCtx <- translateFile ucOpts halloc path
         if Config.doExplore ucOpts
           then do
             llvmPtrWidth
@@ -113,20 +116,28 @@ mainWithOutputConfig outCfg =
                     say "Crux" $ Text.unpack (Result.printFunctionSummary (summary result))
         return ExitSuccess
 
-translate ::
+translateLLVMModule ::
   UCCruxLLVMOptions ->
   Crucible.HandleAllocator ->
   FilePath ->
+  L.Module ->
   IO (Some ModuleContext)
-translate ucOpts halloc moduleFilePath =
+translateLLVMModule ucOpts halloc moduleFilePath llvmMod =
   do
-    llvmMod <- parseLLVM moduleFilePath
     let llvmOpts = Config.ucLLVMOptions ucOpts
     Some trans <-
       let ?laxArith = laxArithmetic llvmOpts
           ?optLoopMerge = loopMerge llvmOpts
        in translateModule halloc llvmMod
     pure $ Some (makeModuleContext moduleFilePath llvmMod trans)
+
+translateFile ::
+  UCCruxLLVMOptions ->
+  Crucible.HandleAllocator ->
+  FilePath ->
+  IO (Some ModuleContext)
+translateFile ucOpts halloc moduleFilePath =
+  translateLLVMModule ucOpts halloc moduleFilePath =<< parseLLVM moduleFilePath
 
 -- | Postcondition: The keys of the returned map are exactly the entryPoints of
 -- the 'UCCruxLLVMOptions'.
