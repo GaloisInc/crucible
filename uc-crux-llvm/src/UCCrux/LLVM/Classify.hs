@@ -126,6 +126,7 @@ data MissingPreconditionTag
   | ArgReadUninitialized
   | ArgReadUninitializedOffset
   | ArgPointerConstOffset
+  | ArgMemsetTooSmall
   deriving (Eq, Ord)
 
 diagnose :: MissingPreconditionTag -> Text
@@ -139,6 +140,7 @@ diagnose =
     ArgReadUninitialized -> "Read from an uninitialized pointer in argument"
     ArgReadUninitializedOffset -> "Read from an uninitialized pointer calculated from a pointer in argument"
     ArgPointerConstOffset -> "Addition of a constant offset to a pointer in argument"
+    ArgMemsetTooSmall -> "`memset` called on pointer to too-small allocation in argument"
 
 prescribe :: MissingPreconditionTag -> Text
 prescribe =
@@ -152,6 +154,7 @@ prescribe =
       ArgReadUninitialized -> "the pointer points to initialized memory."
       ArgReadUninitializedOffset -> "the pointer points to initialized memory."
       ArgPointerConstOffset -> "the allocation is at least that size."
+      ArgMemsetTooSmall -> "the allocation is at least that size."
 
 -- | There was an error and we know roughly what sort it was, but we still can't
 -- do anything about it.
@@ -583,6 +586,44 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                          "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                                        ]
                                  unfixable tag
+                     _ -> unclass
+               LLVMErrors.BBUndefinedBehavior
+                 (UB.MemsetInvalidRegion (Crucible.RV ptr) _fillByte (Crucible.RV len)) ->
+                   case (getPtrOffsetAnn ptr, What4.asConcrete len) of
+                     ( Just
+                         ( Some
+                             ( TypedSelector
+                                 ftRepr
+                                 (SomeInSelector (SelectArgument idx cursor))
+                               )
+                           ),
+                       Just concreteLen
+                       ) ->
+                         do
+                           let tag = ArgMemsetTooSmall
+                           liftIO $
+                             (appCtx ^. log) Hi $
+                               Text.unwords
+                                 [ "Diagnosis:",
+                                   diagnose tag,
+                                   "#" <> Text.pack (show (Ctx.indexVal idx)),
+                                   "at",
+                                   Text.pack (show (ppCursor (argName idx) cursor)),
+                                   "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                                 ]
+                           case ftRepr of
+                             FTPtrRepr partTypeRepr ->
+                               return $
+                                 ExMissingPreconditions
+                                   ( tag,
+                                     oneArgShapeConstraint
+                                       idx
+                                       cursor
+                                       ( Initialized
+                                           (elemsFromOffset concreteLen partTypeRepr)
+                                       )
+                                   )
+                             _ -> panic "classify" ["Expected pointer type"]
                      _ -> unclass
                LLVMErrors.BBMemoryError
                  ( MemError.MemoryError
