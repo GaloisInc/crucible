@@ -1,9 +1,9 @@
 struct list1 {
-  int head;
+  unsigned int head; // avoid signed wrapping by using unsigned int
   struct list2 *tail;
 };
 struct list2 {
-  int head;
+  unsigned int head;
   struct list1 *tail;
 };
 int mutually_recursive_linked_list_sum(struct list1 *l) {

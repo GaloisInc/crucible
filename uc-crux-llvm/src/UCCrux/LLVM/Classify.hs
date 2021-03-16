@@ -12,8 +12,10 @@ Stability    : provisional
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module UCCrux.LLVM.Classify
@@ -46,7 +48,8 @@ import           Prelude hiding (log)
 import           Control.Exception (displayException)
 import           Control.Lens (Lens', lens, to, (^.))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.BitVector.Sized (asUnsigned)
+import           Data.BitVector.Sized (BV)
+import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Const (Const(getConst))
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -57,12 +60,15 @@ import           Data.Type.Equality ((:~:)(Refl))
 import           Data.Void (Void)
 import           Panic (Panic)
 
+import qualified Text.LLVM.AST as L
+
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
 import           Data.Parameterized.Classes (IxedF'(ixF'), ShowF)
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.NatRepr (NatRepr, type (<=))
 import           Data.Parameterized.Some (Some(Some))
 import           Data.Parameterized.TraversableFC (foldMapFC)
 
@@ -77,6 +83,7 @@ import qualified Lang.Crucible.Simulator as Crucible
 import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemError
+import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
@@ -86,7 +93,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames, moduleTypes)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (Cursor, ppCursor, Selector(..), SomeInSelector(SomeInSelector))
-import           UCCrux.LLVM.FullType (MapToCrucibleType, IsPtrRepr(..), isPtrRepr, FullTypeRepr(FTPtrRepr), PartTypeRepr)
+import           UCCrux.LLVM.FullType (FullType(FTInt), MapToCrucibleType, IsPtrRepr(..), isPtrRepr, FullTypeRepr(..), PartTypeRepr)
 import           UCCrux.LLVM.FullType.MemType (toMemType, asFullType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..))
@@ -127,6 +134,8 @@ data MissingPreconditionTag
   | ArgReadUninitializedOffset
   | ArgPointerConstOffset
   | ArgMemsetTooSmall
+  | ArgAddSignedWrap
+  | ArgSubSignedWrap
   deriving (Eq, Ord)
 
 diagnose :: MissingPreconditionTag -> Text
@@ -141,6 +150,8 @@ diagnose =
     ArgReadUninitializedOffset -> "Read from an uninitialized pointer calculated from a pointer in argument"
     ArgPointerConstOffset -> "Addition of a constant offset to a pointer in argument"
     ArgMemsetTooSmall -> "`memset` called on pointer to too-small allocation in argument"
+    ArgAddSignedWrap -> "Addition of a constant caused signed wrap of an int in argument"
+    ArgSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int in argument"
 
 prescribe :: MissingPreconditionTag -> Text
 prescribe =
@@ -155,6 +166,8 @@ prescribe =
       ArgReadUninitializedOffset -> "the pointer points to initialized memory."
       ArgPointerConstOffset -> "the allocation is at least that size."
       ArgMemsetTooSmall -> "the allocation is at least that size."
+      ArgAddSignedWrap -> "the integer is small enough"
+      ArgSubSignedWrap -> "the integer is large enough"
 
 -- | There was an error and we know roughly what sort it was, but we still can't
 -- do anything about it.
@@ -383,7 +396,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                let dl = modCtx ^. dataLayout
                    pointedTo = asFullType (funCtx ^. moduleTypes) partType
                    typeSize = bytesToInteger (memTypeSize dl (toMemType pointedTo))
-                in 1 + fromIntegral (asUnsigned (What4.fromConcreteBV offset) `div` fromIntegral typeSize)
+                in 1 + fromIntegral (BV.asUnsigned (What4.fromConcreteBV offset) `div` fromIntegral typeSize)
 
              oneArgConstraint :: Ctx.Index argTypes inTy -> Cursor m inTy atTy -> Constraint m atTy -> [NewConstraint m argTypes]
              oneArgConstraint idx cursor constraint =
@@ -416,6 +429,86 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                do
                  (appCtx ^. log) Hi "Prognosis: Don't know how to fix this."
                  pure $ ExUncertain (UUnfixable tag)
+
+             handlePoisonArith ::
+               forall g.
+               MonadIO g =>
+               Poison.Poison (Crucible.RegValue' sym) ->
+               g (Explanation m arch argTypes)
+             handlePoisonArith =
+               let annotationAndValue ::
+                     forall w.
+                     What4.SymBV sym w ->
+                     What4.SymBV sym w ->
+                     Maybe (Some (TypedSelector m arch argTypes), BV w)
+                   annotationAndValue op1 op2 =
+                     case (getTermAnn op1, What4.asConcrete op1, getTermAnn op2, What4.asConcrete op2) of
+                       (Just ann, Nothing, Nothing, Just val) ->
+                         Just (ann, What4.fromConcreteBV val)
+                       (Nothing, Just val, Just ann, _) ->
+                         Just (ann, What4.fromConcreteBV val)
+                       _ -> Nothing
+
+                   handleBVOp ::
+                     MissingPreconditionTag ->
+                     What4.SymBV sym w ->
+                     What4.SymBV sym w ->
+                     ( forall w'.
+                       1 <= w' =>
+                       NatRepr w' ->
+                       BV w' ->
+                       Constraint m ('FTInt w')
+                     ) ->
+                     g (Explanation m arch argTypes)
+                   handleBVOp tag op1 op2 constraint =
+                     -- NOTE(lb): The trunc' operation here *should* be a
+                     -- no-op, but since the Poison constructors don't have a
+                     -- NatRepr, we can't check. That's fixable, but not high
+                     -- priority since we'd just panic anyway if the widths
+                     -- didn't match.
+                     case annotationAndValue op1 op2 of
+                       Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor))), concreteSummand) ->
+                         do
+                           liftIO $
+                             (appCtx ^. log) Hi $
+                               Text.unwords
+                                 [ "Diagnosis:",
+                                   diagnose tag,
+                                   "#" <> Text.pack (show (Ctx.indexVal idx)),
+                                   "at",
+                                   Text.pack (show (ppCursor (argName idx) cursor))
+                                 ]
+                           liftIO $ (appCtx ^. log) Hi $ prescribe tag
+                           case ftRepr of
+                             FTIntRepr w ->
+                               return $
+                                 ExMissingPreconditions
+                                   ( tag,
+                                     oneArgConstraint
+                                       idx
+                                       cursor
+                                       (constraint w (BV.trunc' w concreteSummand))
+                                   )
+                             _ -> liftIO $ unclass
+                       _ -> liftIO $ unclass
+                in \case
+                     Poison.AddNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
+                       handleBVOp
+                         ArgAddSignedWrap
+                         op1
+                         op2
+                         ( \w concreteSummand ->
+                             BVCmp L.Islt (BV.sub w (BV.maxSigned w) concreteSummand)
+                         )
+                     Poison.SubNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
+                       handleBVOp
+                         ArgSubSignedWrap
+                         op1
+                         op2
+                         ( \w concreteSummand ->
+                             BVCmp L.Isgt (BV.add w (BV.minSigned w) concreteSummand)
+                         )
+                     _ -> liftIO $ unclass
           in case badBehavior of
                LLVMErrors.BBUndefinedBehavior
                  (UB.WriteBadAlignment ptr alignment) ->
@@ -613,6 +706,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                    Text.pack (show (ppCursor (argName idx) cursor)),
                                    "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                                  ]
+                           liftIO $ (appCtx ^. log) Hi $ prescribe tag
                            case ftRepr of
                              FTPtrRepr partTypeRepr ->
                                return $
@@ -627,6 +721,12 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                    )
                              _ -> panic "classify" ["Expected pointer type"]
                      _ -> unclass
+               LLVMErrors.BBUndefinedBehavior
+                 (UB.PoisonValueCreated poison@(Poison.AddNoSignedWrap {})) ->
+                   liftIO $ handlePoisonArith poison
+               LLVMErrors.BBUndefinedBehavior
+                 (UB.PoisonValueCreated poison@(Poison.SubNoSignedWrap {})) ->
+                   liftIO $ handlePoisonArith poison
                LLVMErrors.BBMemoryError
                  ( MemError.MemoryError
                      (summarizeOp -> (_expl, ptr))
