@@ -170,12 +170,14 @@ ppUnfixable =
 -- | We know how we *could* fix this in theory, but haven't implemented it yet.
 data Unfixed
   = UnfixedArgPtrOffsetArg
+  | UnfixedFunctionPtrInArg
   deriving (Eq, Ord, Show)
 
 ppUnfixed :: Unfixed -> Text
 ppUnfixed =
   \case
     UnfixedArgPtrOffsetArg -> "Addition of an offset from argument to a pointer in argument"
+    UnfixedFunctionPtrInArg -> "Called function pointer in argument"
 
 -- | We don't (yet) know what to do about this error
 data Unclassified
@@ -719,4 +721,25 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                  ExMissingPreconditions
                                    (tag, oneArgShapeConstraint idx cursor (Initialized 1))
                        _ -> unclass
+               LLVMErrors.BBMemoryError
+                 ( MemError.MemoryError
+                     (MemError.MemLoadHandleOp _type _str ptr _)
+                     (MemError.BadFunctionPointer _msg)
+                   ) ->
+                   case getPtrOffsetAnn ptr of
+                     Just (Some (TypedSelector _ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+                       do
+                         let tag = UnfixedFunctionPtrInArg
+                         liftIO $
+                           (appCtx ^. log) Hi $
+                             Text.unwords
+                               [ "Diagnosis: ",
+                                 ppUnfixed tag,
+                                 "#" <> Text.pack (show (Ctx.indexVal idx)),
+                                 "at",
+                                 Text.pack (show (ppCursor (argName idx) cursor)),
+                                 "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                               ]
+                         unfixed tag
+                     _ -> unclass
                _ -> unclass
