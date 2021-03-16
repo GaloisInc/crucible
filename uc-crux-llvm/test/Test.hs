@@ -281,6 +281,8 @@ tests =
       inFile "deref_struct_field.c" [("deref_struct_field", isSafeWithPreconditions DidntHitBounds)],
       inFile "do_free.c" [("do_free", isSafeWithPreconditions DidntHitBounds)],
       inFile "linked_list_sum.c" [("linked_list_sum", isSafeWithPreconditions DidHitBounds)],
+      inFile "memset_const_len.c" [("memset_const_len", isSafeWithPreconditions DidntHitBounds)],
+      inFile "memset_const_len_arg_byte.c" [("memset_const_len_arg_byte", isSafeWithPreconditions DidntHitBounds)],
       inFile "mutually_recursive_linked_list_sum.c" [("mutually_recursive_linked_list_sum", isSafeWithPreconditions DidHitBounds)],
       inFile "not_double_free.c" [("not_double_free", isSafeWithPreconditions DidntHitBounds)],
       inFile "ptr_as_array.c" [("ptr_as_array", isSafeWithPreconditions DidntHitBounds)],
@@ -294,35 +296,33 @@ tests =
       inFile "do_fork.c" [("do_fork", isUnclassified)],
       inFile "do_getchar.c" [("do_getchar", isUnclassified)], -- goal: isSafe
       inFile "do_recv.c" [("do_recv", isUnclassified)],
+      -- The following test requires relational preconditions:
+      inFile "memset_arg_len.c" [("memset_arg_len", isUnclassified)], -- goal: isSafeWP
       inFile "nested_structs.c" [("nested_structs", isUnclassified)], -- goal: ???
       inFile "oob_read_heap.c" [("oob_read_heap", isUnclassified)], -- goal: notSafe
       inFile "oob_read_stack.c" [("oob_read_stack", isUnclassified)], -- goal: notSafe
       inFile "uninitialized_stack.c" [("uninitialized_stack", isUnclassified)], -- goal: notSafe
-      -- TODO: This is missing an annotation and *should be* "unfixed"
-      -- isUnimplemented "deref_arg_arg_index.c" "deref_arg_arg_index",
       isUnimplemented
         "call_function_pointer.c"
-        "call_function_pointer" -- goal: ???
-        -- SQLite
-        -- This is slow, and WIP
-        -- inFile
-        --   "sqlite-3.32.1/sqlite3.c"
-        --   [ ("appendText", isSafeWithPreconditions False),
-        --     ("sqlite3_filename_database", isUnclassified)
-        --   ]
-        -- TODO: Fix upstream?
-        -- "error: in do_memcpy_const_size\nError during memory load"
-        -- isUnannotated "do_memcpy_const_size.c" "do_memcpy_const_size" -- goal: isSafeWP
+        "call_function_pointer", -- goal: ???
+        --
+        --
+        -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
+      inFile "memcpy_const_len.c" [("memcpy_const_len", hasMissingAnn)],
+      inFile "deref_arg_arg_index.c" [("deref_arg_arg_index", hasMissingAnn)]
+      -- SQLite
+      -- This is slow, and WIP
+      -- inFile
+      --   "sqlite-3.32.1/sqlite3.c"
+      --   [ ("appendText", isSafeWithPreconditions False),
+      --     ("sqlite3_filename_database", isUnclassified)
+      --   ]
 
-        -- TODO: https://github.com/GaloisInc/crucible/issues/651
-        -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
+      -- TODO: https://github.com/GaloisInc/crucible/issues/651
+      -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
 
-        -- TODO: Panics on redundant constraints
-        -- , isUnclassified "do_memcpy.c" "do_memcpy"  -- goal: isSafeWP
-        -- , isUnclassified "do_memset.c" "do_memset"  -- goal: isSafeWP
-
-        -- TODO: Not sure if Crux can do C++?
-        -- , isSafe "cxxbasic.cpp" "cxxbasic"
+      -- TODO: Not sure if Crux can do C++?
+      -- , isSafe "cxxbasic.cpp" "cxxbasic"
     ]
 
 main :: IO ()
