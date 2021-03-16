@@ -194,14 +194,14 @@ resetLabel v =
   St.modify' $ \s -> s { wtoLabels = M.insert v unlabeled (wtoLabels s) }
 
 -- | Add a component to the current partition
-addComponent :: (Ord n) => WTOComponent n -> M n ()
+addComponent :: WTOComponent n -> M n ()
 addComponent c =
   St.modify' $ \s -> s { wtoPartition = c : wtoPartition s }
 
-push :: (Ord n) => n -> M n ()
+push :: n -> M n ()
 push n = St.modify' $ \s -> s { wtoStack = n : wtoStack s }
 
-pop :: (Ord n) => M n (Maybe n)
+pop :: M n (Maybe n)
 pop = do
   stk <- St.gets wtoStack
   case stk of
