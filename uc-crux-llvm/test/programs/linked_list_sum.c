@@ -1,5 +1,5 @@
 struct list {
-  int head;
+  unsigned int head; // avoid signed wrapping by using unsigned int
   struct list *tail;
 };
 int linked_list_sum(struct list *l) {

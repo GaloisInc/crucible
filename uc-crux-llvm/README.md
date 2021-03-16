@@ -215,6 +215,12 @@ Uncertain results:
   - [x] True positive: double free
   - [x] Reads from pointer expressions involving input pointers
   - [x] Writes to pointer expressions involving input pointers
+  - [ ] Signed wrap with integers from arguments
+    - [x] Addition
+    - [x] Subtraction
+    - [ ] Multiplication
+  - [ ] Division by zero
+  - [ ] Mod by zero
 
 ### Milestone 2: Publishable
 
@@ -253,6 +259,7 @@ Uncertain results:
 
 - [ ] Optionally skipping missing functions
 - [ ] Way more heuristics
+  - [ ] True positive: Signed wrap when both arguments are concrete
 - [ ] Generate runnable counter-examples in C
 - [ ] Relational preconditions between arguments and globals
   - [ ] `int` field is the length of a pointer field

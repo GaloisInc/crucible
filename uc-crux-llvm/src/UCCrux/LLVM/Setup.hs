@@ -9,6 +9,7 @@ Stability    : provisional
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -36,6 +37,8 @@ import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:) (Refl))
 import qualified Data.Vector as Vec
 
+import qualified Text.LLVM.AST as L
+
 import           Data.Parameterized.Classes (IxedF' (ixF'))
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, type (<=))
@@ -50,6 +53,7 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.Globals as LLVMGlobals
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
+import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPointer
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 
 import           Crux.LLVM.Overrides (ArchOk)
@@ -63,7 +67,7 @@ import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.MemType (asFullType)
 import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType)
+import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenPtr)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
@@ -85,13 +89,33 @@ constrainHere ::
   FullTypeRepr m atTy ->
   Crucible.RegEntry sym (ToCrucibleType arch atTy) ->
   Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
-constrainHere sym _selector constraint _fullTypeRepr regEntry@(Crucible.RegEntry _typeRepr regValue) =
-  case constraint of
-    Aligned alignment ->
-      do
-        assume constraint
-          =<< liftIO (LLVMMem.isAligned sym ?ptrWidth regValue alignment)
-        pure regEntry
+constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry typeRepr regValue) =
+  case (fullTypeRepr, constraint) of
+    (_, Aligned alignment) ->
+      assumeOne =<< liftIO (LLVMMem.isAligned sym ?ptrWidth regValue alignment)
+    (FTIntRepr w, BVCmp op bv) ->
+      assumeOne
+        =<< liftIO
+          ( interpretOp op (LLVMPointer.llvmPointerOffset regValue)
+              =<< W4I.bvLit sym w bv
+          )
+  where
+    assumeOne :: W4I.Pred sym -> Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
+    assumeOne pred = assume constraint pred >> pure regEntry
+    interpretOp ::
+      forall w. 1 <= w => L.ICmpOp -> W4I.SymBV sym w -> W4I.SymBV sym w -> IO (W4I.Pred sym)
+    interpretOp =
+      \case
+        L.Ieq -> W4I.bvEq sym
+        L.Ine -> W4I.bvNe sym
+        L.Iult -> W4I.bvUlt sym
+        L.Iule -> W4I.bvUle sym
+        L.Iugt -> W4I.bvUgt sym
+        L.Iuge -> W4I.bvUge sym
+        L.Islt -> W4I.bvSlt sym
+        L.Isle -> W4I.bvSle sym
+        L.Isgt -> W4I.bvSgt sym
+        L.Isge -> W4I.bvSge sym
 
 annotatedTerm ::
   forall m arch sym inTy atTy argTypes.
