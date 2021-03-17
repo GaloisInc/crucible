@@ -369,8 +369,10 @@ inFileTests =
         ("do_fork.c", [("do_fork", isUnclassified)]),
         ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
         ("do_recv.c", [("do_recv", isUnclassified)]),
+        ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
+        ("null_dereference.c", [("null_dereference", isUnclassified)]), -- goal: hasBugs
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
         ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: hasBugs
@@ -379,6 +381,9 @@ inFileTests =
         --
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
+        ("compare_ptr_to_int.c", [("compare_ptr_to_int", hasMissingAnn)]), -- goal: hasBugs
+        ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
+        ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
         ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)])
         -- SQLite
