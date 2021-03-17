@@ -502,7 +502,87 @@ moduleTests =
       inModule
         "sub1_double.c"
         (oneArith "sub1_double" double (L.ValDouble 1.0) L.FSub)
-        [("sub1_double", isSafe)]
+        [("sub1_double", isSafe)],
+      inModule
+        "mul0.c"
+        (oneArith "mul0" i32 (L.ValInteger 0) (L.Mul True True))
+        [("mul0", isSafe)],
+      inModule
+        "mul1.c"
+        (oneArith "mul1" i32 (L.ValInteger 1) (L.Mul False True))
+        [("mul1", isSafe)],
+      inModule
+        "mul1_nsw.c"
+        (oneArith "mul1_nsw" i32 (L.ValInteger 1) (L.Mul False True))
+        [("mul1_nsw", isSafe)],
+      inModule
+        "mul1_nuw.c"
+        (oneArith "mul1_nuw" i32 (L.ValInteger 1) (L.Mul True False))
+        [("mul1_nuw", isSafe)],
+      inModule
+        "udiv0.c"
+        (oneArith "udiv0" i32 (L.ValInteger 0) (L.UDiv False))
+        [("udiv0", isUnclassified)], -- TODO Goal: hasBugs
+      inModule
+        "udiv1.c"
+        (oneArith "udiv1" i32 (L.ValInteger 1) (L.UDiv False))
+        [("udiv1", isSafe)],
+      inModule
+        "udiv1_exact.c"
+        (oneArith "udiv1_exact" i32 (L.ValInteger 1) (L.UDiv True))
+        [("udiv1_exact", isSafe)],
+      inModule
+        "udiv2.c"
+        (oneArith "udiv2" i32 (L.ValInteger 2) (L.UDiv False))
+        [("udiv2", isSafe)],
+      inModule
+        "udiv2_exact.c"
+        (oneArith "udiv2_exact" i32 (L.ValInteger 2) (L.UDiv True))
+        [("udiv2_exact", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
+      inModule
+        "sdiv0.c"
+        (oneArith "sdiv0" i32 (L.ValInteger 0) (L.SDiv False))
+        [("sdiv0", isUnclassified)], -- TODO Goal: hasBugs
+      inModule
+        "sdiv1.c"
+        (oneArith "sdiv1" i32 (L.ValInteger 1) (L.SDiv False))
+        [("sdiv1", isSafe)],
+      inModule
+        "sdiv1_exact.c"
+        (oneArith "sdiv1_exact" i32 (L.ValInteger 1) (L.SDiv True))
+        [("sdiv1_exact", isSafe)],
+      inModule
+        "sdiv2.c"
+        (oneArith "sdiv2" i32 (L.ValInteger 2) (L.SDiv False))
+        [("sdiv2", isSafe)],
+      inModule
+        "sdiv2_exact.c"
+        (oneArith "sdiv2_exact" i32 (L.ValInteger 2) (L.SDiv True))
+        [("sdiv2_exact", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
+      inModule
+        "urem0.c"
+        (oneArith "urem0" i32 (L.ValInteger 0) L.URem)
+        [("urem0", isUnclassified)], -- TODO Goal: hasBugs
+      inModule
+        "urem1.c"
+        (oneArith "urem1" i32 (L.ValInteger 1) L.URem)
+        [("urem1", isSafe)],
+      inModule
+        "urem2.c"
+        (oneArith "urem2" i32 (L.ValInteger 2) L.URem)
+        [("urem2", isSafe)],
+      inModule
+        "srem0.c"
+        (oneArith "srem0" i32 (L.ValInteger 0) L.SRem)
+        [("srem0", isUnclassified)], -- TODO Goal: hasBugs
+      inModule
+        "srem1.c"
+        (oneArith "srem1" i32 (L.ValInteger 1) L.SRem)
+        [("srem1", isSafe)],
+      inModule
+        "srem2.c"
+        (oneArith "srem2" i32 (L.ValInteger 2) L.SRem)
+        [("srem2", isSafe)]
     ]
 
 main :: IO ()
