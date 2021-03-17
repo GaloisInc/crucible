@@ -36,7 +36,7 @@ import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(Compose))
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:) (Refl))
-import qualified Data.Vector as Vec
+import qualified Data.Sequence as Seq
 
 import qualified Text.LLVM.AST as L
 
@@ -238,7 +238,7 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
           <*> pure (Shape.ShapeAllocated n)
       (Shape.ShapePtr _constraints (Shape.ShapeInitialized vec), FTPtrRepr ptPtdTo) ->
         do
-          let num = Vec.length vec
+          let num = Seq.length vec
           ptr <- malloc sym ftRepr selector num
           let ftPtdTo = asFullType mts ptPtdTo
           size <- sizeBv proxy sym ftPtdTo 1
@@ -249,7 +249,7 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
               do
                 let selector' = selector & selectorCursor %~ deepenPtr mts
                 pointedTo <-
-                  generate sym mts ftPtdTo selector' (ConstrainedShape (vec Vec.! i))
+                  generate sym mts ftPtdTo selector' (ConstrainedShape (vec `Seq.index` i))
                 annotatedPtrAtOffset <-
                   store
                     sym
@@ -265,7 +265,7 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
           pure $
             Shape.ShapePtr
               (SymValue annotatedPtr)
-              (Shape.ShapeInitialized (Vec.fromList (toList (fmap snd pointedTos))))
+              (Shape.ShapeInitialized (Seq.fromList (toList (fmap snd pointedTos))))
       (Shape.ShapeArray (Compose _constraints) _n _rest, FTArrayRepr _ _ftRepr') ->
         unimplemented "generate" Unimplemented.GeneratingArrays
       (Shape.ShapeStruct (Compose _constraints) fields, FTStructRepr _ fieldTypes) ->
