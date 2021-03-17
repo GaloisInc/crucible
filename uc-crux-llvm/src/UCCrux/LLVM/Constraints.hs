@@ -58,7 +58,8 @@ import qualified Data.Map as Map
 import           Data.Maybe (catMaybes)
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Vector as Vec
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Void as Void
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
@@ -311,9 +312,9 @@ expand ::
   Shape m tag ft ->
   (Maybe RedundantExpansion, Shape m tag ft)
 expand mts minimalTag ftRepr shapeConstraint shape =
-  let minimalVec :: forall ft'. Int -> FullTypeRepr m ft' -> Vec.Vector (Shape m tag ft')
-      minimalVec sz ftr =
-        Vec.replicate sz (fmapFC (const minimalTag) $ Shape.minimal ftr)
+  let minimalSeq :: forall ft'. Int -> FullTypeRepr m ft' -> Seq (Shape m tag ft')
+      minimalSeq sz ftr =
+        Seq.replicate sz (fmapFC (const minimalTag) $ Shape.minimal ftr)
    in case (ftRepr, shape, shapeConstraint) of
         (FTPtrRepr {}, Shape.ShapePtr tag Shape.ShapeUnallocated, Allocated n) ->
           -- Create a new allocation
@@ -323,14 +324,14 @@ expand mts minimalTag ftRepr shapeConstraint shape =
           ( Nothing,
             Shape.ShapePtr
               tag
-              (Shape.ShapeInitialized (minimalVec n (asFullType mts ptRepr)))
+              (Shape.ShapeInitialized (minimalSeq n (asFullType mts ptRepr)))
           )
         (FTPtrRepr ptRepr, Shape.ShapePtr tag (Shape.ShapeAllocated m), Initialized n) ->
           ( Nothing,
             Shape.ShapePtr
               tag
               ( Shape.ShapeInitialized
-                  (minimalVec (max m n) (asFullType mts ptRepr))
+                  (minimalSeq (max m n) (asFullType mts ptRepr))
               )
           )
         (FTPtrRepr {}, Shape.ShapePtr tag (Shape.ShapeAllocated m), Allocated n) ->
@@ -339,7 +340,7 @@ expand mts minimalTag ftRepr shapeConstraint shape =
             else -- Grow the allocation
               (Nothing, Shape.ShapePtr tag (Shape.ShapeAllocated n))
         (FTPtrRepr ptRepr, Shape.ShapePtr tag (Shape.ShapeInitialized vec), Allocated n) ->
-          if Vec.length vec >= n
+          if Seq.length vec >= n
             then (Just AllocateInitialized, shape) -- There's enough space already
             else -- Grow the allocation
 
@@ -347,11 +348,11 @@ expand mts minimalTag ftRepr shapeConstraint shape =
                 Shape.ShapePtr
                   tag
                   ( Shape.ShapeInitialized
-                      (vec <> minimalVec (n - Vec.length vec) (asFullType mts ptRepr))
+                      (vec <> minimalSeq (n - Seq.length vec) (asFullType mts ptRepr))
                   )
               )
         (FTPtrRepr ptRepr, Shape.ShapePtr tag (Shape.ShapeInitialized vec), Initialized n) ->
-          if Vec.length vec >= n
+          if Seq.length vec >= n
             then (Just InitializeInitialized, shape) -- There's enough space already
             else -- Grow the allocation
 
@@ -359,7 +360,7 @@ expand mts minimalTag ftRepr shapeConstraint shape =
                 Shape.ShapePtr
                   tag
                   ( Shape.ShapeInitialized
-                      (vec <> minimalVec (n - Vec.length vec) (asFullType mts ptRepr))
+                      (vec <> minimalSeq (n - Seq.length vec) (asFullType mts ptRepr))
                   )
               )
 

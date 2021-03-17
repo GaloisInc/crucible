@@ -54,7 +54,8 @@ import           Data.Functor.Identity (Identity(Identity))
 import           Data.Kind (Type)
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Vector as Vec
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Void (Void)
 import           Data.Type.Equality ((:~:)(Refl))
 import           Prettyprinter (Doc)
@@ -80,7 +81,7 @@ import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..))
 data PtrShape m tag ft
   = ShapeUnallocated
   | ShapeAllocated !Int
-  | ShapeInitialized !(Vec.Vector (Shape m tag ft))
+  | ShapeInitialized !(Seq (Shape m tag ft))
 
 -- | A 'Shape' describes the layout of acyclic, non-aliasing values in memory
 --
@@ -149,7 +150,7 @@ ppShapeA ppTag =
       fmap
         ( PP.hsep
             . ( [ PP.pretty "A pointer to initialized space for",
-                  PP.viaShow (Vec.length v),
+                  PP.viaShow (Seq.length v),
                   PP.pretty "elements:"
                 ]
                   ++
@@ -205,9 +206,9 @@ eqShape eqTag shape1 shape2 =
       n1 == n2
         && eqTag tag1 tag2 -- O(1)
     (ShapePtr tag1 (ShapeInitialized rest1), ShapePtr tag2 (ShapeInitialized rest2)) ->
-      Vec.length rest1 == Vec.length rest2
+      Seq.length rest1 == Seq.length rest2
         && eqTag tag1 tag2 -- O(1)
-        && all (uncurry (eqShape eqTag)) (Vec.zip rest1 rest2)
+        && all (uncurry (eqShape eqTag)) (Seq.zip rest1 rest2)
     (ShapeFuncPtr tag1, ShapeFuncPtr tag2) -> eqTag tag1 tag2
     (ShapeOpaquePtr tag1, ShapeOpaquePtr tag2) -> eqTag tag1 tag2
     (ShapeArray tag1 natRep1 rest1, ShapeArray tag2 natRep2 rest2) ->
@@ -260,10 +261,6 @@ ppShapeSeekError =
       DereferenceUnallocated -> "Dereference of unallocated memory"
       DereferenceUninitialized -> "Dereference of uninitialized memory"
 
--- How is this not a thing?
-vUpdate :: Vec.Vector a -> Int -> a -> Vec.Vector a
-vUpdate vec idx a = Vec.update vec (Vec.singleton (idx, a))
-
 -- | Modify the 'Shape' at a given 'Cursor'
 modifyA ::
   Functor f =>
@@ -277,12 +274,12 @@ modifyA f shape cursor =
     (ShapePtr _tag ShapeUnallocated, Dereference {}) -> Left DereferenceUnallocated
     (ShapePtr _tag ShapeAllocated {}, Dereference {}) -> Left DereferenceUninitialized
     (ShapePtr tag' (ShapeInitialized rest), Dereference i cursor') ->
-      if i < Vec.length rest
+      if i < Seq.length rest
         then
-          modifyA f (rest Vec.! i) cursor'
+          modifyA f (rest `Seq.index` i) cursor'
             <&&> \(new, val) ->
-              (ShapePtr tag' (ShapeInitialized (vUpdate rest i new)), val)
-        else Left (NotEnoughElements i (Vec.length rest))
+              (ShapePtr tag' (ShapeInitialized (Seq.update i new rest)), val)
+        else Left (NotEnoughElements i (Seq.length rest))
     (ShapeArray tag' sizeRepr rest, Index i _ cursor') ->
       modifyA f (PVec.elemAt i rest) cursor'
         <&&> \(new, val) -> (ShapeArray tag' sizeRepr (PVec.insertAt i new rest), val)
@@ -447,7 +444,7 @@ instance TraversableFC (PtrShape m) where
     $( U.structuralTraversal
          [t|PtrShape|]
          ( let appAny con = U.TypeApp con U.AnyType
-            in [ ( appAny (U.ConType [t|Vec.Vector|]),
+            in [ ( appAny (U.ConType [t|Seq|]),
                    [|\(f :: forall x. f x -> h (g x)) -> traverse (traverseFC f)|]
                  )
                ]
