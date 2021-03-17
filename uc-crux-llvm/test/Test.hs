@@ -371,15 +371,16 @@ inFileTests =
         ("do_recv.c", [("do_recv", isUnclassified)]),
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
-        ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: notSafe
-        ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: notSafe
-        ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: notSafe
+        ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
+        ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
+        ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: hasBugs
+        ("write_const_global.c", [("write_const_global", isUnclassified)]), -- goal: hasBugs
         --
         -- TODO(lb): This is a bug! This test causes an infinite loop because
         -- the heuristic related to `free` is too permissive and needs
         -- refinement.
         --
-        -- ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: notSafe
+        -- ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
         --
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
