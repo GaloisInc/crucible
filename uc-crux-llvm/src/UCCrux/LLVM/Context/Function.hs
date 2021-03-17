@@ -46,6 +46,7 @@ import           Data.Type.Equality ((:~:)(Refl))
 
 import qualified Text.LLVM.AST as L
 
+import           Data.Parameterized.Ctx (Ctx)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC (forFC, fmapFC, TraversableFC(traverseFC))
 
@@ -58,7 +59,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, withTypeContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(VarArgsFunction))
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr, MapToCrucibleType)
+import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.CrucibleType (SomeAssign(..), assignmentToFullType)
 import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
 {- ORMOLU_ENABLE -}
@@ -69,7 +70,9 @@ data SomeFunctionContext arch argTypes'
       (FunctionContext m arch argTypes)
       (MapToCrucibleType arch argTypes :~: argTypes')
 
-data FunctionContext m arch argTypes = FunctionContext
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data FunctionContext m arch (argTypes :: Ctx (FullType m)) = FunctionContext
   { _functionName :: Text,
     _moduleTypes :: ModuleTypes m, -- TODO(lb): This belongs in the ModuleContext
     _argumentFullTypes :: Ctx.Assignment (FullTypeRepr m) argTypes,

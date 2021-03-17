@@ -64,6 +64,7 @@ import           Prettyprinter (Doc)
 import qualified Lumberjack as LJ
 
 import           Data.Parameterized.Classes (OrdF)
+import           Data.Parameterized.Ctx (Ctx)
 import           Data.Parameterized.Some (Some(Some))
 
 import qualified What4.Interface as What4
@@ -91,10 +92,14 @@ import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
 import           UCCrux.LLVM.Constraints (Constraint)
 {- ORMOLU_ENABLE -}
 
-data TypedSelector m arch argTypes ft
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data TypedSelector m arch (argTypes :: Ctx (FullType m)) (ft :: FullType m)
   = TypedSelector (FullTypeRepr m ft) (SomeInSelector m argTypes ft)
 
-data SetupError m arch argTypes
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data SetupError m arch (argTypes :: Ctx (FullType m))
   = SetupTypeTranslationError MemType
 
 ppSetupError :: SetupError m arch argTypes -> Doc Void
@@ -108,7 +113,9 @@ data SetupAssumption m sym = SetupAssumption
     assumptionPred :: What4.Pred sym
   }
 
-data SetupState m arch sym argTypes = SetupState
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data SetupState m arch sym (argTypes :: Ctx (FullType m)) = SetupState
   { _setupMem :: LLVMMem.MemImpl sym,
     -- | This map tracks where a given expression originated from
     _setupAnnotations :: Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)),
@@ -128,7 +135,9 @@ setupAnnotations = lens _setupAnnotations (\s v -> s {_setupAnnotations = v})
 symbolCounter :: Simple Lens (SetupState m arch sym argTypes) Int
 symbolCounter = lens _symbolCounter (\s v -> s {_symbolCounter = v})
 
-newtype Setup m arch sym argTypes a
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+newtype Setup m arch sym (argTypes :: Ctx (FullType m)) a
   = Setup
       ( ExceptT
           (SetupError m arch argTypes)
@@ -153,7 +162,9 @@ deriving instance MonadWriter [SetupAssumption m sym] (Setup m arch sym argTypes
 instance LJ.HasLog Text (Setup m arch sym argTypes) where
   getLogAction = pure $ LJ.LogAction (liftIO . TextIO.putStrLn . ("[Crux] " <>))
 
-data SetupResult m arch sym argTypes = SetupResult
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data SetupResult m arch sym (argTypes :: Ctx (FullType m)) = SetupResult
   { resultMem :: LLVMMem.MemImpl sym,
     -- | This map tracks where a given expression originated from, i.e. whether
     -- it was generated as part of an argument of global variable, and if so,
