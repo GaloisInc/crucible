@@ -6,6 +6,7 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -67,6 +68,7 @@ import qualified Prettyprinter as PP
 import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Context (Ctx)
 import           Data.Parameterized.Classes (IxedF'(ixF'))
 import           Data.Parameterized.NatRepr (NatRepr, type (<=))
 import           Data.Parameterized.Some (Some(..))
@@ -82,6 +84,11 @@ import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
 import           UCCrux.LLVM.FullType.MemType (asFullType)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr))
+
+-- See comment in below block of CPP
+#if __GLASGOW_HASKELL__ <= 810
+import           UCCrux.LLVM.Errors.Panic (panic)
+#endif
 {- ORMOLU_ENABLE -}
 
 --------------------------------------------------------------------------------
@@ -149,7 +156,10 @@ ppConstraint =
       PP.viaShow (BV.asUnsigned bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
 
 -- | A \"relational\" constraint across several values.
-data RelationalConstraint m argTypes
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data RelationalConstraint m (argTypes :: Ctx (FullType m))
   = -- | The first argument (a bitvector) is equal to the size of the allocation
     -- pointed to by the second.
     --
@@ -169,7 +179,10 @@ data RelationalConstraint m argTypes
 -- | A collection of constraints on the state of a program. These are used to
 -- hold function preconditions deduced by
 -- "UCCrux.LLVM.Classify.classifyBadBehavior".
-data Constraints m argTypes = Constraints
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
     _globalConstraints :: Map L.Symbol (Some (ConstrainedShape m)),
     _relationalConstraints :: [RelationalConstraint m argTypes]
@@ -266,7 +279,10 @@ isEmpty (Constraints args globs rels) =
 
 -- | A specification of the shape (memory layout) of a value and constraints on
 -- it. See also the comment on 'Constraint'.
-newtype ConstrainedShape m ft = ConstrainedShape
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+newtype ConstrainedShape m (ft :: FullType m) = ConstrainedShape
   {getConstrainedShape :: Shape m (Compose [] (Constraint m)) ft}
 
 instance Eq (ConstrainedShape m ft) where
@@ -364,6 +380,12 @@ expand mts minimalTag ftRepr shapeConstraint shape =
                   )
               )
 
+#if __GLASGOW_HASKELL__ <= 810
+-- The pattern match coverage checker was improved in GHC 8.10 and can tell that
+-- this case is redundant
+        _ -> panic "expand" ["Impossible case"]
+#endif
+
 --------------------------------------------------------------------------------
 
 -- * 'NewConstraint'
@@ -380,7 +402,10 @@ ppExpansionError =
 
 -- | A constraint (precondition) learned by "UCCrux.LLVM.Classify" by simulating
 -- a function.
-data NewConstraint m argTypes
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data NewConstraint m (argTypes :: Ctx (FullType m))
   = forall atTy. NewShapeConstraint (SomeInSelector m argTypes atTy) (ShapeConstraint m atTy)
   | forall atTy. NewConstraint (SomeInSelector m argTypes atTy) (Constraint m atTy)
   | NewRelationalConstraint (RelationalConstraint m argTypes)

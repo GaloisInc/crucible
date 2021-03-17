@@ -6,6 +6,9 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
+{-# LANGUAGE DataKinds #-}
+-- Needed for GHC 8.6
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -35,8 +38,11 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
+import           Data.Parameterized.Ctx (Ctx)
+
 import UCCrux.LLVM.Classify.Types (TruePositive, ppTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
 import UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
+import UCCrux.LLVM.FullType.Type (FullType)
 {- ORMOLU_ENABLE -}
 
 data FunctionSummaryTag
@@ -65,7 +71,9 @@ ppFunctionSummaryTag =
     TagSafeUpToBounds -> "Function is safe up to the specified bounds on loops/recursion"
     TagAlwaysSafe -> "Function is always safe"
 
-data FunctionSummary m argTypes
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data FunctionSummary m (argTypes :: Ctx (FullType m))
   = Unclear (NonEmpty Uncertainty)
   | FoundBugs (NonEmpty TruePositive)
   | SafeWithPreconditions DidHitBounds (Constraints m argTypes)
@@ -75,7 +83,9 @@ data FunctionSummary m argTypes
 data SomeBugfindingResult
   = forall m arch argTypes. SomeBugfindingResult (BugfindingResult m arch argTypes)
 
-data BugfindingResult m arch argTypes = BugfindingResult
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data BugfindingResult m arch (argTypes :: Ctx (FullType m)) = BugfindingResult
   { uncertainResults :: [Uncertainty],
     deducedPreconditions :: [MissingPreconditionTag],
     summary :: FunctionSummary m argTypes

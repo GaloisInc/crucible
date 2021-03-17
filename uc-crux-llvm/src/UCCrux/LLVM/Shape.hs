@@ -78,7 +78,10 @@ import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..))
 -- initialized/written.
 --
 -- For now, this type doesn\'t support partial initialization.
-data PtrShape m tag ft
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data PtrShape m tag (ft :: FullType m)
   = ShapeUnallocated
   | ShapeAllocated !Int
   | ShapeInitialized !(Seq (Shape m tag ft))

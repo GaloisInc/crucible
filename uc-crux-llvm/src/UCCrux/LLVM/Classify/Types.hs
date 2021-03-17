@@ -6,6 +6,7 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -42,6 +43,8 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
+import           Data.Parameterized.Ctx (Ctx)
+
 import qualified What4.ProgramLoc as What4
 
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
@@ -58,6 +61,7 @@ import qualified Lang.Crucible.Simulator as Crucible
 
 import           UCCrux.LLVM.Constraints (NewConstraint)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
+import           UCCrux.LLVM.FullType.Type (FullType)
 {- ORMOLU_ENABLE -}
 
 data TruePositiveTag
@@ -228,7 +232,10 @@ partitionUncertainty = go [] [] [] [] [] []
 
 -- | An error is either a true positive, a false positive due to some missing
 -- preconditions, or unknown.
-data Explanation m arch argTypes
+--
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
+-- compatibility.
+data Explanation m arch (argTypes :: Ctx (FullType m))
   = ExTruePositive TruePositive
   | ExMissingPreconditions (MissingPreconditionTag, [NewConstraint m argTypes])
   | ExUncertain Uncertainty
