@@ -102,13 +102,16 @@ jobs:
           (cd crucible-llvm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux;          with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
           (cd crux-llvm;     with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
+          (cd uc-crux-llvm;  with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
 
 
       - shell: bash
         run: .github/ci.sh configure
 
       - shell: bash
-        run: .github/ci.sh build exe:crux-llvm
+        run: |
+          .github/ci.sh build exe:crux-llvm
+          .github/ci.sh build exe:uc-crux-llvm
 
       - shell: bash
         name: Test crucible (Linux)
@@ -130,6 +133,14 @@ jobs:
       - shell: bash
         name: Test crux-llvm (Linux)
         run: .github/ci.sh test crux-llvm
+        if: runner.os == 'Linux'
+        env:
+          LLVM_LINK: "llvm-link-10"
+          CLANG: "clang-10"
+
+      - shell: bash
+        name: Test uc-crux-llvm (Linux)
+        run: .github/ci.sh test uc-crux-llvm
         if: runner.os == 'Linux'
         env:
           LLVM_LINK: "llvm-link-10"
@@ -161,6 +172,14 @@ jobs:
           CLANG: "/usr/local/opt/llvm/bin/clang"
 
       - shell: bash
+        name: Test uc-crux-llvm (macOS)
+        run: .github/ci.sh test uc-crux-llvm
+        if: runner.os == 'macOS'
+        env:
+          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
+          CLANG: "/usr/local/opt/llvm/bin/clang"
+
+      - shell: bash
         name: Test crucible (Windows)
         run: .github/ci.sh test crucible
         if: runner.os == 'Windows'
@@ -180,6 +199,14 @@ jobs:
       - shell: bash
         name: Test crux-llvm (Windows)
         run: .github/ci.sh test crux-llvm
+        if: runner.os == 'Windows'
+        env:
+          LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
+          CLANG: "/c/Program Files/LLVM/bin/clang"
+
+      - shell: bash
+        name: Test uc-crux-llvm (Windows)
+        run: .github/ci.sh test uc-crux-llvm
         if: runner.os == 'Windows'
         env:
           LLVM_LINK: "/c/Program Files/LLVM/bin/llvm-link"
