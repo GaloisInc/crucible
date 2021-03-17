@@ -67,7 +67,7 @@ import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.MemType (asFullType)
 import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
-import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenPtr)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
