@@ -33,12 +33,14 @@ module UCCrux.LLVM.Shape
     modifyA,
     modifyA',
     modify,
+    findSubShape,
     modify',
     modifyTag,
     getTag,
     setTag,
     minimal,
     isMinimal,
+    isAllocated,
   )
 where
 
@@ -46,6 +48,7 @@ where
 import           Control.Lens (Simple, Lens, lens, (^.), (.~))
 import           Data.Coerce (coerce)
 import           Data.Function ((&))
+import           Data.Functor ((<&>))
 import           Data.Functor.Const (Const(Const, getConst))
 import           Data.Functor.Identity (Identity(Identity))
 import           Data.Kind (Type)
@@ -319,6 +322,13 @@ modify ::
   Either ShapeSeekError (Shape m tag inTy, a)
 modify f shape cursor = coerce $ modifyA (Identity . f) shape cursor
 
+findSubShape ::
+  Shape m tag inTy ->
+  Cursor m inTy atTy ->
+  Either ShapeSeekError (Shape m tag atTy)
+findSubShape shape cursor =
+  snd <$> modify (\s -> (s, s)) shape cursor
+
 -- | Modify the 'Shape' at a given 'Cursor'.
 modify' ::
   (Shape m tag atTy -> Shape m tag atTy) ->
@@ -366,6 +376,30 @@ isMinimal isMinimalTag =
     ShapeOpaquePtr tag' -> isMinimalTag tag'
     ShapeArray tag' _ rest -> isMinimalTag tag' && all (isMinimal isMinimalTag) rest
     ShapeStruct tag' rest -> isMinimalTag tag' && allFC (isMinimal isMinimalTag) rest
+
+hasPtrShape ::
+  Shape m tag inTy ->
+  Cursor m inTy ('FTPtr atTy) ->
+  (PtrShape m tag atTy -> Bool) ->
+  Either ShapeSeekError Bool
+hasPtrShape shape cursor predicate =
+  findSubShape shape cursor
+    <&> \case
+      ShapePtr _ ptrShape -> predicate ptrShape
+
+isAllocated ::
+  Shape m tag inTy ->
+  Cursor m inTy ('FTPtr atTy) ->
+  Either ShapeSeekError Bool
+isAllocated shape cursor =
+  hasPtrShape
+    shape
+    cursor
+    ( \case
+        ShapeAllocated {} -> True
+        ShapeInitialized {} -> True
+        _ -> False
+    )
 
 $(return [])
 

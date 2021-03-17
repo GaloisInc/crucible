@@ -71,7 +71,10 @@ import           UCCrux.LLVM.FullType (MapToCrucibleType, IsPtrRepr(..), isPtrRe
 import           UCCrux.LLVM.FullType.MemType (toMemType, asFullType)
 import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
+import           UCCrux.LLVM.Setup (SymValue)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..))
+import           UCCrux.LLVM.Shape (Shape)
+import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.Errors.Panic (panic)
 {- ORMOLU_ENABLE -}
 
@@ -157,10 +160,12 @@ classifyBadBehavior ::
   Crucible.RegMap sym (MapToCrucibleType arch argTypes) ->
   -- | Term annotations (origins)
   Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | The arguments that were passed to the function
+  Ctx.Assignment (Shape m (SymValue sym arch)) argTypes ->
   -- | Data about the error that occurred
   LLVMErrors.BadBehavior sym ->
   f (Explanation m arch argTypes)
-classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations badBehavior =
+classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations argShapes badBehavior =
   liftIO
     ( (appCtx ^. log) Hi ("Explaining error: " <> Text.pack (show (LLVMErrors.explainBB badBehavior)))
     )
@@ -397,29 +402,35 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                  ) ->
                  case getPtrOffsetAnn ptr of
                    Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-                     -- TODO: Double check that it really was unmapped not read-only
-                     -- or something?
-                     do
-                       int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
-                       let tag = ArgWriteUnmapped
-                       liftIO $
-                         (appCtx ^. log) Hi $
-                           Text.unwords
-                             [ "Diagnosis:",
-                               diagnose tag,
-                               "#" <> Text.pack (show (Ctx.indexVal idx)),
-                               "at",
-                               Text.pack (show (ppCursor (argName idx) cursor)),
-                               "(allocation: " <> Text.pack (show (What4.printSymExpr int)) <> ")",
-                               "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                             ]
-                       liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                       case isPtrRepr ftRepr of
-                         Nothing -> panic "classify" ["Expected pointer type"]
-                         Just (IsPtrRepr Refl) ->
-                           return $
-                             ExMissingPreconditions
-                               (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+                     case isPtrRepr ftRepr of
+                       Nothing -> panic "classify" ["Expected pointer type"]
+                       Just (IsPtrRepr Refl) ->
+                         case argShapes ^. ixF' idx . to (flip Shape.isAllocated cursor) of
+                           Left _ -> panic "classify" ["Bad cursor into argument"]
+                           Right True ->
+                             -- TODO: This should probably be an error, it definitely *can*
+                             -- arise from a use-after-free of an argument see
+                             -- test/programs/use_after_free.c
+                             unclass appCtx badBehavior
+                           Right False ->
+                             do
+                               int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
+                               let tag = ArgWriteUnmapped
+                               liftIO $
+                                 (appCtx ^. log) Hi $
+                                   Text.unwords
+                                     [ "Diagnosis:",
+                                       diagnose tag,
+                                       "#" <> Text.pack (show (Ctx.indexVal idx)),
+                                       "at",
+                                       Text.pack (show (ppCursor (argName idx) cursor)),
+                                       "(allocation: " <> Text.pack (show (What4.printSymExpr int)) <> ")",
+                                       "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                                     ]
+                               liftIO $ (appCtx ^. log) Hi $ prescribe tag
+                               return $
+                                 ExMissingPreconditions
+                                   (tag, oneArgShapeConstraint idx cursor (Allocated 1))
                    -- TODO(lb): Something about globals, probably?
                    _ -> unclass appCtx badBehavior
              LLVMErrors.BBMemoryError

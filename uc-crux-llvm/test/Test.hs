@@ -375,12 +375,7 @@ inFileTests =
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
         ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: hasBugs
         ("write_const_global.c", [("write_const_global", isUnclassified)]), -- goal: hasBugs
-        --
-        -- TODO(lb): This is a bug! This test causes an infinite loop because
-        -- the heuristic related to `free` is too permissive and needs
-        -- refinement.
-        --
-        -- ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
+        ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
         --
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
