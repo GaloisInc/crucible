@@ -35,7 +35,7 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
-import UCCrux.LLVM.Classify (TruePositive, ppTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
+import UCCrux.LLVM.Classify.Types (TruePositive, ppTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
 import UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
 {- ORMOLU_ENABLE -}
 

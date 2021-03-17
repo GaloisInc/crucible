@@ -73,7 +73,7 @@ import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
-import           UCCrux.LLVM.Classify (partitionUncertainty)
+import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result

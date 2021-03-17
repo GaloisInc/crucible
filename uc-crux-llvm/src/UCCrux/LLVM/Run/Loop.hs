@@ -46,7 +46,7 @@ import Crux.Log (Logs, OutputConfig(..))
 import Crux.LLVM.Config (throwCError, CError(MissingFun), memOpts)
 import Crux.LLVM.Overrides
 
-import           UCCrux.LLVM.Classify (partitionExplanations)
+import           UCCrux.LLVM.Classify.Types (partitionExplanations)
 import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
 import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Constraints (ppConstraints, emptyConstraints, addConstraint, ppExpansionError)

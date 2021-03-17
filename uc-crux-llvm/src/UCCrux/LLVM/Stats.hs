@@ -30,7 +30,7 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
-import           UCCrux.LLVM.Classify (TruePositiveTag, MissingPreconditionTag, partitionUncertainty, diagnose, ppTruePositiveTag, truePositiveTag, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc)
+import           UCCrux.LLVM.Classify.Types (TruePositiveTag, MissingPreconditionTag, partitionUncertainty, diagnose, ppTruePositiveTag, truePositiveTag, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), FunctionSummaryTag)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
