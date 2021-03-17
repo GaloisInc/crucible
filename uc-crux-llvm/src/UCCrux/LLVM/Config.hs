@@ -20,6 +20,7 @@ import           Control.Applicative ((<|>))
 import           Control.Monad (when)
 import           Data.Functor ((<&>))
 import           Data.Word (Word64)
+import           System.Exit (die)
 
 import qualified Crux.Config as Crux
 import           Crux.Config.Common (CruxOptions, loopBound, recursionBound)
@@ -54,7 +55,7 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
   do
     let appCtx = makeAppContext (verbosityFromInt (verbosity initUCOpts))
     when (not (doExplore initUCOpts) && null (entryPoints initUCOpts)) $
-      fail "At least one entry point (--entry-points) is required (or try --explore)"
+      die "At least one entry point (--entry-points) is required (or try --explore)"
     (finalCOpts, finalLLOpts) <-
       processLLVMOptions
         ( initCOpts
