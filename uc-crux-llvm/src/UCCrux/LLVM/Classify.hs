@@ -30,7 +30,6 @@ import           Prelude hiding (log)
 
 import           Control.Lens (to, (^.))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Const (Const(getConst))
 import           Data.Map (Map)
@@ -40,11 +39,8 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl))
 
-import qualified Text.LLVM.AST as L
-
 import           Data.Parameterized.Classes (IxedF'(ixF'), ShowF)
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.NatRepr (NatRepr, type (<=))
 import           Data.Parameterized.Some (Some(Some))
 import           Data.Parameterized.TraversableFC (foldMapFC)
 
@@ -59,18 +55,18 @@ import qualified Lang.Crucible.Simulator as Crucible
 import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemError
-import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
+import           UCCrux.LLVM.Classify.Poison
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames, moduleTypes)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (Cursor, ppCursor, Selector(..), SomeInSelector(SomeInSelector))
-import           UCCrux.LLVM.FullType (FullType(FTInt), MapToCrucibleType, IsPtrRepr(..), isPtrRepr, FullTypeRepr(..), PartTypeRepr)
+import           UCCrux.LLVM.FullType (MapToCrucibleType, IsPtrRepr(..), isPtrRepr, FullTypeRepr(..), PartTypeRepr)
 import           UCCrux.LLVM.FullType.MemType (toMemType, asFullType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..))
@@ -195,86 +191,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                do
                  (appCtx ^. log) Hi "Prognosis: Don't know how to fix this."
                  pure $ ExUncertain (UUnfixable tag)
-
-             handlePoisonArith ::
-               forall g.
-               MonadIO g =>
-               Poison.Poison (Crucible.RegValue' sym) ->
-               g (Explanation m arch argTypes)
-             handlePoisonArith =
-               let annotationAndValue ::
-                     forall w.
-                     What4.SymBV sym w ->
-                     What4.SymBV sym w ->
-                     Maybe (Some (TypedSelector m arch argTypes), BV w)
-                   annotationAndValue op1 op2 =
-                     case (getTermAnn op1, What4.asConcrete op1, getTermAnn op2, What4.asConcrete op2) of
-                       (Just ann, Nothing, Nothing, Just val) ->
-                         Just (ann, What4.fromConcreteBV val)
-                       (Nothing, Just val, Just ann, _) ->
-                         Just (ann, What4.fromConcreteBV val)
-                       _ -> Nothing
-
-                   handleBVOp ::
-                     MissingPreconditionTag ->
-                     What4.SymBV sym w ->
-                     What4.SymBV sym w ->
-                     ( forall w'.
-                       1 <= w' =>
-                       NatRepr w' ->
-                       BV w' ->
-                       Constraint m ('FTInt w')
-                     ) ->
-                     g (Explanation m arch argTypes)
-                   handleBVOp tag op1 op2 constraint =
-                     -- NOTE(lb): The trunc' operation here *should* be a
-                     -- no-op, but since the Poison constructors don't have a
-                     -- NatRepr, we can't check. That's fixable, but not high
-                     -- priority since we'd just panic anyway if the widths
-                     -- didn't match.
-                     case annotationAndValue op1 op2 of
-                       Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor))), concreteSummand) ->
-                         do
-                           liftIO $
-                             (appCtx ^. log) Hi $
-                               Text.unwords
-                                 [ "Diagnosis:",
-                                   diagnose tag,
-                                   "#" <> Text.pack (show (Ctx.indexVal idx)),
-                                   "at",
-                                   Text.pack (show (ppCursor (argName idx) cursor))
-                                 ]
-                           liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                           case ftRepr of
-                             FTIntRepr w ->
-                               return $
-                                 ExMissingPreconditions
-                                   ( tag,
-                                     oneArgConstraint
-                                       idx
-                                       cursor
-                                       (constraint w (BV.trunc' w concreteSummand))
-                                   )
-                             _ -> liftIO $ unclass
-                       _ -> liftIO $ unclass
-                in \case
-                     Poison.AddNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
-                       handleBVOp
-                         ArgAddSignedWrap
-                         op1
-                         op2
-                         ( \w concreteSummand ->
-                             BVCmp L.Islt (BV.sub w (BV.maxSigned w) concreteSummand)
-                         )
-                     Poison.SubNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
-                       handleBVOp
-                         ArgSubSignedWrap
-                         op1
-                         op2
-                         ( \w concreteSummand ->
-                             BVCmp L.Isgt (BV.add w (BV.minSigned w) concreteSummand)
-                         )
-                     _ -> liftIO $ unclass
           in case badBehavior of
                LLVMErrors.BBUndefinedBehavior
                  (UB.WriteBadAlignment ptr alignment) ->
@@ -488,11 +404,11 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                              _ -> panic "classify" ["Expected pointer type"]
                      _ -> unclass
                LLVMErrors.BBUndefinedBehavior
-                 (UB.PoisonValueCreated poison@(Poison.AddNoSignedWrap {})) ->
-                   liftIO $ handlePoisonArith poison
-               LLVMErrors.BBUndefinedBehavior
-                 (UB.PoisonValueCreated poison@(Poison.SubNoSignedWrap {})) ->
-                   liftIO $ handlePoisonArith poison
+                 (UB.PoisonValueCreated poison) ->
+                   classifyPoison appCtx funCtx sym annotations poison
+                     >>= \case
+                       Nothing -> unclass
+                       Just expl -> pure expl
                LLVMErrors.BBMemoryError
                  ( MemError.MemoryError
                      (summarizeOp -> (_expl, ptr))
