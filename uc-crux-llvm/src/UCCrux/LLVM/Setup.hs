@@ -20,6 +20,7 @@ module UCCrux.LLVM.Setup
   ( setupExecution,
     SetupAssumption (SetupAssumption),
     SetupResult (SetupResult),
+    SymValue (..),
   )
 where
 
@@ -286,25 +287,48 @@ generateArgs ::
   FunctionContext m arch argTypes ->
   sym ->
   Ctx.Assignment (ConstrainedShape m) argTypes ->
-  Setup m arch sym argTypes (Crucible.RegMap sym (MapToCrucibleType arch argTypes))
-generateArgs _appCtx funCtx sym argSpecs = do
-  let argTypesRepr = funCtx ^. argumentCrucibleTypes
-  Crucible.RegMap
-    <$> FTCT.generateM
-      (Proxy :: Proxy arch)
-      (Ctx.size (funCtx ^. argumentFullTypes))
-      ( \index index' Refl ->
-          let typeRepr = argTypesRepr Ctx.! index'
-              ft = funCtx ^. argumentFullTypes . ixF' index
-           in Crucible.RegEntry typeRepr . (^. Shape.tag . to getSymValue)
-                <$> generate
+  Setup
+    m
+    arch
+    sym
+    argTypes
+    ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
+      Crucible.RegMap sym (MapToCrucibleType arch argTypes)
+    )
+generateArgs _appCtx funCtx sym argSpecs =
+  do
+    let argTypesRepr = funCtx ^. argumentCrucibleTypes
+    shapes <-
+      Ctx.generateM
+        (Ctx.size (funCtx ^. argumentFullTypes))
+        ( \index ->
+            let ft = funCtx ^. argumentFullTypes . ixF' index
+             in generate
                   sym
                   (funCtx ^. moduleTypes)
                   ft
                   (SelectArgument index (Here ft))
                   (argSpecs Ctx.! index)
+        )
+    pure
+      ( shapes,
+        Crucible.RegMap $
+          FTCT.generate
+            (Proxy :: Proxy arch)
+            (Ctx.size (funCtx ^. argumentFullTypes))
+            ( \index index' Refl ->
+                Crucible.RegEntry
+                  (argTypesRepr Ctx.! index')
+                  (shapes ^. ixF' index . Shape.tag . to getSymValue)
+            )
       )
 
+-- | The two returned assignments contain duplicate data, but they are used for
+-- different purposes: The 'Crucible.RegMap' can be (and is) passed directly to
+-- a Crucible CFG, whereas the 'Ctx.Assignment' of 'Shape' is more amenable to
+-- introspection, for instance in the classification process, because it can be
+-- traversed and examined like the inductive datatype it is, rather than dealing
+-- with reading from the Crucible-LLVM memory model.
 setupExecution ::
   ( Crucible.IsSymInterface sym,
     LLVMMem.HasLLVMAnn sym,
@@ -320,7 +344,9 @@ setupExecution ::
     ( Either
         (SetupError m arch argTypes)
         ( SetupResult m arch sym argTypes,
-          Crucible.RegMap sym (MapToCrucibleType arch argTypes)
+          ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
+            Crucible.RegMap sym (MapToCrucibleType arch argTypes)
+          )
         )
     )
 setupExecution appCtx modCtx funCtx sym argSpecs = do

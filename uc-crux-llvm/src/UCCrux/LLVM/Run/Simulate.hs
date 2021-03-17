@@ -109,11 +109,11 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
 
       setupResult <-
         liftIO $ setupExecution appCtx modCtx funCtx sym (constraints ^. argConstraints)
-      (mem, argAnnotations, assumptions, args) <-
+      (mem, argAnnotations, assumptions, argShapes, args) <-
         case setupResult of
           Left err -> panic "setupExecution" [show (ppSetupError err)]
-          Right (SetupResult mem anns assumptions, args) ->
-            pure (mem, anns, assumptions, args)
+          Right (SetupResult mem anns assumptions, (argShapes, args)) ->
+            pure (mem, anns, assumptions, argShapes, args)
 
       -- Assume all predicates necessary to satisfy the deduced preconditions
       for_
@@ -184,7 +184,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
                     -- Helpful for debugging:
                     -- putStrLn "~~~~~~~~~~~"
                     -- putStrLn (show (ppBB badBehavior))
-                    classifyBadBehavior appCtx modCtx funCtx sym args argAnnotations badBehavior
+                    classifyBadBehavior appCtx modCtx funCtx sym args argAnnotations argShapes badBehavior
                       >>= modifyIORef explRef . (:)
               return mempty
 
