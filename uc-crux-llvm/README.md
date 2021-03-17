@@ -26,7 +26,7 @@ void double_free(int* ptr, int x) {
 ```
 ```
 $ uc-crux-llvm --entry-points double_free double_free.c
-[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/home/langston/code/crucible/crux-llvm/./c-src/includes" "-O1" "-o" "crux-build/double_free.bc" "test/programs/double_free.c"
+[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/some/pathc/includes" "-O1" "-o" "crux-build/double_free.bc" "test/programs/double_free.c"
 [Crux] Attempting to prove verification conditions.
 [Crux] Attempting to prove verification conditions.
 [Crux] Results for double_free
@@ -48,7 +48,7 @@ void not_double_free(int *ptr, int x) {
 ```
 ```
 $ uc-crux-llvm --entry-points not_double_free not_double_free.c
-[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/home/langston/code/crucible/crux-llvm/./c-src/includes" "-O1" "-o" "crux-build/not_double_free.bc" "test/programs/not_double_free.c"
+[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/some/path/c-src/includes" "-O1" "-o" "crux-build/not_double_free.bc" "test/programs/not_double_free.c"
 even!
 [Crux] Attempting to prove verification conditions.
 even!
@@ -140,7 +140,7 @@ location.
 To run `uc-crux-llvm` on a few specific functions, use the `--entry-points` flag:
 ```
 $ uc-crux-llvm --entry-points deref_arg_const_index test/programs/deref_arg_const_index.c
-[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/home/langston/code/crucible/crux-llvm/./c-src/includes" "-O1" "-o" "crux-build/deref_arg_const_index.bc" "test/programs/deref_arg_const_index.c"
+[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/some-path/c-src/includes" "-O1" "-o" "crux-build/deref_arg_const_index.bc" "test/programs/deref_arg_const_index.c"
 [Crux] Attempting to prove verification conditions.
 [Crux] Attempting to prove verification conditions.
 [Crux] Results for deref_arg_const_index
