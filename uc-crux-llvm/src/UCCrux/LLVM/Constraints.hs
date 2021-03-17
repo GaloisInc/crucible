@@ -363,17 +363,14 @@ addConstraint argTypes mts constraints =
                 ConstrainedShape
                   <$> joinLeft
                     ExpShapeSeekError
-                    ( Shape.modifyA'
-                        ( \shape' ->
+                    ( let doExpand shape' =
                             case expand mts (Compose []) (seekType mts cursor (argTypes ^. ixF' idx)) shapeConstraint shape' of
                               -- TODO(lb): Maybe warn here, there's a risk of an
                               -- infinite loop if there's a bug in
                               -- classification.
                               (Just _redundant, result) -> Right result
                               (Nothing, result) -> Right result
-                        )
-                        shape
-                        cursor
+                       in Shape.modifyA' doExpand shape cursor
                     )
             )
     NewRelationalConstraint relationalConstraint ->
