@@ -16,6 +16,7 @@ library
 
   exposed-modules:
     UCCrux.LLVM.Classify
+    UCCrux.LLVM.Classify.Types
     UCCrux.LLVM.Config
     UCCrux.LLVM.Constraints
     UCCrux.LLVM.Context.App
@@ -70,7 +71,7 @@ library
     text,
     vector,
     what4
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-imports
   ghc-prof-options: -O2
 
   default-language: Haskell2010

@@ -64,7 +64,8 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
 
  -- local
-import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior, Explanation(..), Uncertainty(..))
+import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
+import           UCCrux.LLVM.Classify.Types (Explanation(..), Uncertainty(..))
 import           UCCrux.LLVM.Constraints (Constraints, argConstraints, globalConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
