@@ -64,6 +64,12 @@ In addition, there are the following library/executable packages:
 
 [pb]: https://developers.google.com/protocol-buffers/ "Protocol Buffers"
 
+ * **`uc-crux-llvm`**, another standalone frontend for executing C and C++
+   programs in the Crucible symbolic simulator, using "under-constrained"
+   symbolic execution. Essentially, this technique can start at any function in
+   a given program with no user intervention and try to find bugs, but may raise
+   false positives and is less useful for full verification than `crux-llvm`.
+   See [the README](./uc-crux-llvm/README.md) for details.
 
 The development of major features and additions to `crucible` is done
 in separate branches of the repository, all of which are based off
