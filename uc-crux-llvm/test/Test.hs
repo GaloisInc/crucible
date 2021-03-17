@@ -33,6 +33,11 @@ The big disadvantages of the second approach, as compared with the first, are:
   caught the first time the test runs).
 * There's no guarantee that Clang would ever produce such an AST.
 * It can be verbose.
+
+Some tests have a \"Goal\" comment attached to them. In cases where the test is
+currently \"unclassified\", the current state of the code isn't wrong per se,
+but may be imprecise. If that's not the current state, such a comment indicates
+a very real bug.
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -369,6 +374,12 @@ inFileTests =
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: notSafe
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: notSafe
         ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: notSafe
+        --
+        -- TODO(lb): This is a bug! This test causes an infinite loop because
+        -- the heuristic related to `free` is too permissive and needs
+        -- refinement.
+        --
+        -- ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: notSafe
         --
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
