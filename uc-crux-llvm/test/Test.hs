@@ -369,6 +369,9 @@ inFileTests =
         ("do_fork.c", [("do_fork", isUnclassified)]),
         ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
         ("do_recv.c", [("do_recv", isUnclassified)]),
+        ("do_strdup.c", [("do_strdup", isUnclassified)]), -- goal: isSafe
+        ("do_strcmp.c", [("do_strcmp", isUnclassified)]), -- goal: isSafe
+        ("do_strncmp.c", [("do_strncmp", isUnclassified)]), -- goal: isSafe
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
