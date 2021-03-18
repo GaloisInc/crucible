@@ -386,14 +386,6 @@ inFileTests =
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
         ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)])
-        -- SQLite
-        -- This is slow, and WIP
-        -- inFile
-        --   "sqlite-3.32.1/sqlite3.c"
-        --   [ ("appendText", isSafeWithPreconditions False),
-        --     ("sqlite3_filename_database", isUnclassified)
-        --   ]
-
         -- TODO: https://github.com/GaloisInc/crucible/issues/651
         -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
 
