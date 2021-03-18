@@ -13,6 +13,7 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Constraints
@@ -96,12 +97,7 @@ data ShapeConstraint (m :: Type) (atTy :: FullType m) where
   -- Invariant: argument should be positive.
   Initialized :: !Int -> ShapeConstraint m ('FTPtr ft)
 
-instance Eq (ShapeConstraint m atTy) where
-  c1 == c2 =
-    case (c1, c2) of
-      (Allocated n1, Allocated n2) -> n1 == n2
-      (Initialized n1, Initialized n2) -> n1 == n2
-      _ -> False
+deriving instance Eq (ShapeConstraint m atTy)
 
 data Constraint (m :: Type) (atTy :: FullType m) where
   -- | This pointer has at least this alignment
