@@ -94,7 +94,7 @@ constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry 
   case (fullTypeRepr, constraint) of
     (_, Aligned alignment) ->
       assumeOne =<< liftIO (LLVMMem.isAligned sym ?ptrWidth regValue alignment)
-    (FTIntRepr w, BVCmp op bv) ->
+    (FTIntRepr w, BVCmp op _ bv) ->
       assumeOne
         =<< liftIO
           ( interpretOp op (LLVMPointer.llvmPointerOffset regValue)
