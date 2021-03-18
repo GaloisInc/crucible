@@ -261,6 +261,13 @@ mkTest clangVer sweet _ expct =
                    , and [ v == "pre-clang11"
                          , vcMajor clangVer `elem` (show <$> [3..10 :: Int])
                          ]
+                     -- as a fallback, if the testing code here is
+                     -- unable to determine the version, run all
+                     -- tests.  This is likely to cause a failure, but
+                     -- is preferable to running no tests, which
+                     -- results in a success report without having
+                     -- done anything.
+                   , vcMajor clangVer == "[missing]"
                    ]
           in case lookup "clang-range" (TS.expParamsMatch expct) of
                Just (TS.Explicit v) -> specMatchesInstalled v
