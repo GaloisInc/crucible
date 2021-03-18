@@ -38,17 +38,20 @@ import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..))
 {- ORMOLU_ENABLE -}
 
+-- | The @m@ parameter represents an LLVM module, see comment on
+-- 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
 data ModuleTypes (m :: Type) = ModuleTypes
   { typeContext :: TypeContext,
     fullTypes :: Map L.Ident (Maybe (Some (FullTypeRepr m)))
   }
 
+-- | The @m@ parameter represents an LLVM module, see comment on
+-- 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
 data TypeLookupResult m
   = forall ft. Found (FullTypeRepr m ft)
   | Processing
   | Missing
 
--- | The existential here makes the @FullType@ API safe.
 makeModuleTypes :: TypeContext -> Some ModuleTypes
 makeModuleTypes tc = Some (ModuleTypes tc Map.empty)
 

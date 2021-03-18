@@ -228,7 +228,8 @@ asFullType' mts =
                 (Right (Some ft), _) ->
                   -- This is safe because of what happens in the Alias case of
                   -- toFullTypeM, namely we check that the alias was properly
-                  -- translated in this module.
+                  -- translated in this module. See comment on
+                  -- 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
                   Right (unsafeCoerce ft)
 
 asFullType ::
@@ -239,6 +240,7 @@ asFullType mts ptRepr =
   case asFullType' mts ptRepr of
     Right ok -> ok
     Left _err ->
+      -- See comment on 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
       panic
         "asFullType"
         [ "Found PartType not made with assignmentToFullType?",

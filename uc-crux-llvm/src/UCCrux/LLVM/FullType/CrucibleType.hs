@@ -81,6 +81,15 @@ toCrucibleType proxy =
       case assignmentToCrucibleType proxy typeReprs of
         SomeAssign' ctReprs Refl _ -> CrucibleTypes.StructRepr ctReprs
 
+-- | The existential quantification over @m@ here makes the @FullType@ API safe.
+-- You can only intermingle 'FullTypeRepr' from the same LLVM module, and by
+-- construction, the 'ModuleTypes' contains a 'FullTypeRepr' for every type
+-- that\'s (transitively) mentioned in any of the types in the 'Ctx.Assignment'.
+-- Thus, you can avoid partiality when looking up type aliases in the
+-- 'ModuleTypes', they're guaranteed to be present and translated.
+--
+-- See 'UCCrux.LLVM.FullType.MemType.asFullType' for where partiality is
+-- avoided. Since this function is ubiquitous, this is a big win.
 data SomeAssign arch crucibleTypes = forall m fullTypes.
   SomeAssign
   { saFullTypes :: Ctx.Assignment (FullTypeRepr m) fullTypes,
