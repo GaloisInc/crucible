@@ -76,6 +76,9 @@ module Lang.Crucible.Backend.Online
   ) where
 
 
+import           Control.Concurrent ( threadDelay )
+import           Control.Concurrent.Async ( race )
+import           Control.Exception ( throwIO )
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Catch
@@ -85,11 +88,11 @@ import           Data.Data (Data)
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
+import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
-import           System.IO
-import qualified Data.Text as Text
 import qualified Prettyprinter as PP
+import           System.IO
 
 import           What4.Config
 import           What4.Concrete
@@ -432,17 +435,43 @@ withSolverProcess sym def action = do
                     writeIORef (solverProc st) (SolverStarted p auxh)
                     return (p, auxh)
 
-        case solverErrorBehavior p of
-          ContinueOnError ->
-            action p
-          ImmediateExit ->
-            onException
-              (action p)
-              ((killSolver p)
-                `finally`
-               (maybe (return ()) hClose auxh)
-                `finally`
-               (writeIORef (solverProc st) SolverNotStarted))
+        let stopTheSolver =
+              (killSolver p)
+              `finally`
+              (maybe (return ()) hClose auxh)
+              `finally`
+              (writeIORef (solverProc st) SolverNotStarted)
+
+        let doAction =
+              case solverErrorBehavior p of
+                ContinueOnError ->
+                  action p
+                ImmediateExit ->
+                  onException (action p) stopTheSolver
+
+        if (getGoalTimeoutInSeconds $ solverGoalTimeout p) == 0
+          then doAction
+          else let deadmanTimeoutPeriodMicroSeconds =
+                     (fromInteger $
+                       getGoalTimeoutInMilliSeconds (solverGoalTimeout p)
+                       + 1000  -- add 1 second to allow solver to honor timeout first
+                     ) * 1000  -- convert msec to usec
+                   -- If the solver cannot voluntarily limit itself to
+                   -- the requested timeout period, an async process
+                   -- running slightly longer will forcibly terminate
+                   -- the solver process.
+                   deadmanTimeout = threadDelay deadmanTimeoutPeriodMicroSeconds
+                                    >> stopTheSolver
+               in race deadmanTimeout doAction >>=
+                  either (const $ throwIO RunawaySolverTimeout) return
+
+
+-- | The RunawaySolverTimeout is thrown when the solver cannot
+-- voluntarily limit itself to the requested solver-timeout period and
+-- has subsequently been forcibly stopped.
+data RunawaySolverTimeout = RunawaySolverTimeout deriving Show
+instance Exception RunawaySolverTimeout
+
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult
