@@ -1,16 +1,27 @@
+Cabal-version: 2.2
 Name:          uc-crux-llvm
 Version:       0.1
 Author:        Galois Inc.
 Maintainer:    Langston Barrett, Scott Moore, Tristan Ravitch
 Copyright:     (c) Galois, Inc 2021
-License:       BSD3
+License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple
-Cabal-version: >= 1.10
 Category:      Language
 Synopsis:      A bugfinding tool for C programs, using under-constrained symbolic execution.
 
+common bldflags
+  ghc-options: -Wall
+               -Werror=incomplete-patterns
+               -Werror=missing-methods
+               -Werror=overlapping-patterns
+               -Werror=unused-imports
+               -Werror=unused-packages
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+
 library
+  import: bldflags
 
   hs-source-dirs: src
 
@@ -66,13 +77,10 @@ library
     text,
     vector,
     what4
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-imports -Werror=unused-packages
-  ghc-prof-options: -O2
-
-  default-language: Haskell2010
 
 
 executable uc-crux-llvm
+  import: bldflags
 
   hs-source-dirs: exe
 
@@ -90,17 +98,10 @@ executable uc-crux-llvm
 
   other-modules: RealMain
 
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-packages
-  ghc-prof-options: -O2
-
-  default-language: Haskell2010
-
 test-suite uc-crux-llvm-test
+  import: bldflags
   type: exitcode-stdio-1.0
   hs-source-dirs: test
-
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-packages
-  ghc-prof-options: -O2
 
   main-is: Test.hs
 
@@ -117,5 +118,3 @@ test-suite uc-crux-llvm-test
                 tasty-hunit      >= 0.10,
                 text,
                 uc-crux-llvm
-
-  default-language: Haskell2010
