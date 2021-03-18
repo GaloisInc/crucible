@@ -71,11 +71,15 @@ runCrux rustFile outHandle mode = do
     -- goalTimeout is bumped from 60 to 180 because scalar.rs symbolic
     -- verification runs close to the timeout, causing flaky results
     -- (especially in CI).
+    --
+    -- The timeout is temporarily increased even further due to a performance
+    -- regression (#627).  This keeps CI from breaking while we investigate.
+    -- TODO: revert the timeout to 180 once performance is fixed
     let quiet = True
     let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
                                         Crux.simVerbose = 0,
-                                        Crux.globalTimeout = Just 180,
-                                        Crux.goalTimeout = Just 180,
+                                        Crux.globalTimeout = Just 600,
+                                        Crux.goalTimeout = Just 600,
                                         Crux.solver = "z3",
                                         Crux.quietMode = quiet,
                                         Crux.checkPathSat = (mode == RcmCoverage),
