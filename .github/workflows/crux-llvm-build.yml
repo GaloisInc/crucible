@@ -1,4 +1,10 @@
 name: crux-llvm
+
+# Note: also tests crucible-wasm builds, which aren't technically
+# crux-llvm, but since crucible-wasm depends on crucible and
+# crucible-llvm, it was easier to add it here than to creati a
+# separate workflow duplicating builds.
+
 on:
   push:
     branches: [master, "release-**"]
@@ -207,6 +213,12 @@ jobs:
       - shell: bash
         run: .github/ci.sh build exe:crux-llvm-svcomp
         if: runner.os != 'Windows'
+
+      - shell: bash
+        name: Build crucible wasm support library
+        run: |
+          (cd dependencies/haskell-wasm; nix-shell -p hpack --run hpack)
+          ./github/ci.sh build crucible-wasm
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
