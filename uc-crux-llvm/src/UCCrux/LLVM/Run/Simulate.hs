@@ -52,12 +52,13 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM( llvmGlobals )
+import           Lang.Crucible.LLVM (llvmGlobals)
+import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import           Lang.Crucible.LLVM.MemModel (MemOptions,  LLVMAnnMap)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmTypeCtx)
 
 import           Lang.Crucible.LLVM.MemModel.Partial (BoolAnn(BoolAnn))
-import           Lang.Crucible.LLVM.Extension( LLVM )
+import           Lang.Crucible.LLVM.Extension (LLVM)
 
 -- crux
 import qualified Crux
@@ -219,6 +220,8 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
                     -- Helpful for debugging:
                     -- putStrLn "~~~~~~~~~~~"
                     -- putStrLn (show (ppBB badBehavior))
+
+                    liftIO $ (appCtx ^. log) Hi ("Explaining error: " <> Text.pack (show (LLVMErrors.explainBB badBehavior)))
                     classifyBadBehavior appCtx modCtx funCtx sym args argAnnotations argShapes badBehavior
                       >>= modifyIORef explRef . (:)
               return mempty
