@@ -31,7 +31,6 @@ import Data.Parameterized.Some
 
 import qualified Language.Wasm as Wasm
 import qualified Language.Wasm.Structure as Wasm
-import qualified Language.Wasm.Validate as Wasm
 
 import Lang.Crucible.Simulator
 import Lang.Crucible.CFG.Common (freshGlobalVar)
