@@ -46,12 +46,12 @@ library
                      , crucible
                      , unordered-containers
                      , parameterized-utils
-                     , mtl
+                     , mtl >= 2.1
                      , data-default-class
-                     , what4
+                     , what4 >= 0.4
                      , transformers >= 0.3
                      , crux
-                     , vector
+                     , vector >= 0.7
                      , bv-sized
   hs-source-dirs:      src
   default-language:    Haskell2010
