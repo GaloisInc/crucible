@@ -159,7 +159,7 @@ classifyPoison appCtx funCtx sym annotations =
         op1
         op2
         ( \w concreteSummand ->
-            BVCmp L.Islt (BV.sub w (BV.maxSigned w) concreteSummand)
+            BVCmp L.Islt w (BV.sub w (BV.maxSigned w) concreteSummand)
         )
     Poison.SubNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
       handleBVOp
@@ -171,6 +171,6 @@ classifyPoison appCtx funCtx sym annotations =
         op1
         op2
         ( \w concreteSummand ->
-            BVCmp L.Isgt (BV.add w (BV.minSigned w) concreteSummand)
+            BVCmp L.Isgt w (BV.add w (BV.minSigned w) concreteSummand)
         )
     _ -> pure Nothing

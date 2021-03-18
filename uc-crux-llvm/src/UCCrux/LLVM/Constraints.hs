@@ -13,11 +13,13 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Constraints
   ( -- * Types of constraints
     ShapeConstraint (..),
     Constraint (..),
+    ppConstraint,
     RelationalConstraint (..),
 
     -- * Collections of constraints
@@ -45,6 +47,7 @@ where
 import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (.~), (^.))
 import           Data.Bifunctor (first)
 import           Data.BitVector.Sized (BV)
+import qualified Data.BitVector.Sized as BV
 import           Data.Coerce (coerce)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(..))
@@ -63,6 +66,7 @@ import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes (IxedF'(ixF'))
+import           Data.Parameterized.NatRepr (NatRepr, type (<=))
 import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC (allFC, fmapFC, toListFC)
 
@@ -103,29 +107,34 @@ data Constraint (m :: Type) (atTy :: FullType m) where
   -- | This pointer has at least this alignment
   Aligned :: !Alignment -> Constraint m ('FTPtr ft)
   -- | This comparison holds.
-  BVCmp :: !L.ICmpOp -> !(BV w) -> Constraint m ('FTInt w)
+  BVCmp :: (1 <= w) => !L.ICmpOp -> !(NatRepr w) -> !(BV w) -> Constraint m ('FTInt w)
 
 instance Eq (Constraint m atTy) where
   c1 == c2 =
     case (c1, c2) of
       (Aligned n1, Aligned n2) -> n1 == n2
-      (BVCmp op1 bv1, BVCmp op2 bv2) -> op1 == op2 && bv1 == bv2
+      (BVCmp op1 _ bv1, BVCmp op2 _ bv2) -> op1 == op2 && bv1 == bv2
 
 ppConstraint :: Constraint m ft -> Doc Void
 ppConstraint =
   \case
     Aligned alignment ->
       PP.pretty "is aligned to " <> PP.viaShow (fromAlignment alignment)
-    BVCmp L.Ieq bv -> PP.pretty "is equal to " <> PP.viaShow bv
-    BVCmp L.Ine bv -> PP.pretty "is not equal to " <> PP.viaShow bv
-    BVCmp L.Iult bv -> PP.pretty "is (unsigned) less than " <> PP.viaShow bv
-    BVCmp L.Iule bv -> PP.pretty "is (unsigned) less than or equal to " <> PP.viaShow bv
-    BVCmp L.Iugt bv -> PP.pretty "is (unsigned) greater than " <> PP.viaShow bv
-    BVCmp L.Iuge bv -> PP.pretty "is (unsigned) greater than or equal to " <> PP.viaShow bv
-    BVCmp L.Islt bv -> PP.pretty "is (signed) less than " <> PP.viaShow bv
-    BVCmp L.Isle bv -> PP.pretty "is (signed) less than or equal to " <> PP.viaShow bv
-    BVCmp L.Isgt bv -> PP.pretty "is (signed) greater than " <> PP.viaShow bv
-    BVCmp L.Isge bv -> PP.pretty "is (signed) greater than or equal to " <> PP.viaShow bv
+    BVCmp L.Ieq w bv -> PP.pretty "is equal to " <> unsigned w bv
+    BVCmp L.Ine w bv -> PP.pretty "is not equal to " <> unsigned w bv
+    BVCmp L.Iult w bv -> PP.pretty "is (unsigned) less than " <> unsigned w bv
+    BVCmp L.Iule w bv -> PP.pretty "is (unsigned) less than or equal to " <> unsigned w bv
+    BVCmp L.Iugt w bv -> PP.pretty "is (unsigned) greater than " <> unsigned w bv
+    BVCmp L.Iuge w bv -> PP.pretty "is (unsigned) greater than or equal to " <> unsigned w bv
+    BVCmp L.Islt w bv -> PP.pretty "is (signed) less than " <> signed w bv
+    BVCmp L.Isle w bv -> PP.pretty "is (signed) less than or equal to " <> signed w bv
+    BVCmp L.Isgt w bv -> PP.pretty "is (signed) greater than " <> signed w bv
+    BVCmp L.Isge w bv -> PP.pretty "is (signed) greater than or equal to " <> signed w bv
+  where
+    signed :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
+    signed w bv = PP.viaShow (BV.asSigned w bv)
+    unsigned :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
+    unsigned _ bv = PP.viaShow (BV.asUnsigned bv)
 
 -- | A (possibly) \"relational\" constraint across several values.
 data RelationalConstraint m argTypes
