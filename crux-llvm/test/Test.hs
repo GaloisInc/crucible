@@ -326,7 +326,7 @@ mkTest clangVer sweet _ expct =
     if or [ skipTest, not clangMatch, testLevel == "0" && longTests ]
       then do
         when (testLevel == "0" && longTests) $
-          putStrLn "*** Longer running test skipped; set CI_TEST_MODE=1 env var to enable"
+          putStrLn "*** Longer running test skipped; set CI_TEST_LEVEL=1 env var to enable"
         return []
       else do
         let isLoopMerge = TS.paramMatchVal "loopmerge" <$>
