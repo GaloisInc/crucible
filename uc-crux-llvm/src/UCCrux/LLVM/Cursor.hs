@@ -5,10 +5,6 @@ Copyright        : (c) Galois, Inc 2021
 License          : BSD3
 Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
-
-A 'Cursor' points to a specific part of a value (i.e. a function argument or
-global variable). It's used for describing function preconditions, such as
-\"@x->y@ must not be null\", or \"x[4] must be nonzero\".
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
@@ -60,6 +56,16 @@ import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
 import           UCCrux.LLVM.FullType.MemType (asFullType)
 {- ORMOLU_ENABLE -}
 
+-- | A 'Cursor' points to a specific part of a value (i.e. a function argument
+-- or global variable). It's used for describing function preconditions, such as
+-- \"@x->y@ must not be null\", or \"x[4] must be nonzero\".
+--
+-- The type variables are:
+--
+-- * @m@: The LLVM module where the 'FullType' being pointed into originates,
+--   see also the comment on 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
+-- * @inTy@: This is the \"outermost\" type, the type being pointed into.
+-- * @atTy@: This is the \"innermost\" type, the type being pointed at.
 data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
   Here :: FullTypeRepr m atTy -> Cursor m atTy atTy
   Dereference ::
@@ -69,12 +75,15 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
     Cursor m ('FTPtr inTy) atTy
   Index ::
     (i + 1 <= n) =>
+    -- | Which array index?
     NatRepr i ->
+    -- | Overall array length.
     NatRepr n ->
     Cursor m inTy atTy ->
     Cursor m ('FTArray n inTy) atTy
   Field ::
     Ctx.Assignment (FullTypeRepr m) fields ->
+    -- | Which field?
     Ctx.Index fields inTy ->
     Cursor m inTy atTy ->
     Cursor m ('FTStruct fields) atTy
@@ -96,6 +105,11 @@ findBottom =
     Index _ _ cursor' -> findBottom cursor'
     Field _ _ cursor' -> findBottom cursor'
 
+-- | If you've got enough type information on hand to determine that this
+-- 'Cursor' points to a pointer type, you can get one that points to the
+-- pointed-to type.
+--
+-- The resulting 'Cursor' points \"deeper\" into the top-level type.
 deepenPtr ::
   ModuleTypes m ->
   Cursor m inTy ('FTPtr atTy) ->
@@ -107,6 +121,9 @@ deepenPtr mts =
     Index i n cursor -> Index i n (deepenPtr mts cursor)
     Field fields idx cursor -> Field fields idx (deepenPtr mts cursor)
 
+-- | Similarly to 'deepenPtr', if you know that a 'Cursor' points to a struct
+-- and you know one of the fields of the struct, you can get a 'Cursor' that
+-- points to that field.
 deepenStruct ::
   Ctx.Index fields atTy ->
   Cursor m inTy ('FTStruct fields) ->
@@ -119,6 +136,8 @@ deepenStruct idx =
     Index i n cursor -> Index i n (deepenStruct idx cursor)
     Field fields idx' cursor -> Field fields idx' (deepenStruct idx cursor)
 
+-- | A 'Cursor' can be \"applied\" to a 'FullTypeRepr' to get a \"smaller\"
+-- 'FullTypeRepr' that appears inside the \"outer\" one.
 seekType ::
   ModuleTypes m ->
   Cursor m inTy atTy ->
@@ -150,16 +169,22 @@ ppCursor top =
     Field _fieldTypes idx cursor ->
       ppCursor top cursor <> PP.pretty ("." ++ show idx)
 
+-- | A 'Selector' points to a spot inside an argument or global variable.
+--
+-- For documentation of the type parameters, see the comment on 'Cursor'.
 data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   = SelectArgument !(Ctx.Index argTypes inTy) (Cursor m inTy atTy)
   | SelectGlobal !L.Symbol (Cursor m inTy atTy)
 
+-- | For documentation of the type parameters, see the comment on 'Cursor'.
 data SomeSelector m argTypes
   = forall inTy atTy. SomeSelector (Selector m argTypes inTy atTy)
 
+-- | For documentation of the type parameters, see the comment on 'Cursor'.
 data SomeInSelector m argTypes atTy
   = forall inTy. SomeInSelector (Selector m argTypes inTy atTy)
 
+-- | Both kinds of 'Selector' (argument and global) contain a 'Cursor'.
 selectorCursor ::
   Lens
     (Selector m argTypes inTy atTy)

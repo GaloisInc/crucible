@@ -87,6 +87,13 @@ import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr
 
 -- * Types of constraints
 
+-- | A 'ShapeConstraint' describes a constraint on a part of a value\'s memory
+-- layout. They're generated in "UCCrux.LLVM.Classify", and applied to a 'Shape'
+-- in 'expand'. Basically, if 'UCCrux.LLVM.Classify.classifyBadBehavior' runs
+-- into an error that would be fixed by allocating more memory or initializing
+-- more memory, it will return one of these to indicate that the appropriate
+-- memory model operation should happen next time in
+-- "UCCrux.LLVM.Classify.generate".
 data ShapeConstraint (m :: Type) (atTy :: FullType m) where
   -- | This pointer is not null, and has space for at least this many elements
   --
@@ -99,6 +106,12 @@ data ShapeConstraint (m :: Type) (atTy :: FullType m) where
 
 deriving instance Eq (ShapeConstraint m atTy)
 
+-- | A 'Constraint' is in general, something that can be \"applied\" to a
+-- symbolic value to produce a predicate. In practice, these represent
+-- \"missing\" function preconditions that are deduced by
+-- 'UCCrux.LLVM.Classify.classifyBadBehavior', and are then turned into
+-- predicates when generating those arguments in
+-- "UCCrux.LLVM.Classify.generate", and assumed in "UCCrux.LLVM.Run.Simulate".
 data Constraint (m :: Type) (atTy :: FullType m) where
   -- | This pointer has at least this alignment
   Aligned :: !Alignment -> Constraint m ('FTPtr ft)
@@ -134,10 +147,15 @@ ppConstraint =
     unsigned w bv =
       PP.viaShow (BV.asUnsigned bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
 
--- | A (possibly) \"relational\" constraint across several values.
+-- | A \"relational\" constraint across several values.
 data RelationalConstraint m argTypes
   = -- | The first argument (a bitvector) is equal to the size of the allocation
-    -- pointed to by the second
+    -- pointed to by the second.
+    --
+    -- @inTy@ and @inTy'@ are the overall types of the global variables or
+    -- arguments to which this constraint applies. It's enforced that this
+    -- constraint only applies to a value of integer type and a value of pointer
+    -- type.
     forall inTy inTy' ft ft'.
     SizeOfAllocation
       (Selector m argTypes inTy ('FTInt ft))
@@ -147,6 +165,9 @@ data RelationalConstraint m argTypes
 
 -- * Collections of constraints
 
+-- | A collection of constraints on the state of a program. These are used to
+-- hold function preconditions deduced by
+-- "UCCrux.LLVM.Classify.classifyBadBehavior".
 data Constraints m argTypes = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
     _globalConstraints :: Map L.Symbol (Some (ConstrainedShape m)),
@@ -162,6 +183,10 @@ globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
 relationalConstraints :: Simple Lens (Constraints m argTypes) [RelationalConstraint m argTypes]
 relationalConstraints = lens _relationalConstraints (\s v -> s {_relationalConstraints = v})
 
+-- | The minimal set of constraints on this 'Ctx.Assignment' of types. For each
+-- input type, the generated 'ConstrainedShape' has the minimal memory footprint
+-- (all pointers are not assumed to point to allocated memory) and an empty list
+-- of 'Constraint'.
 emptyArgConstraints ::
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   Ctx.Assignment (ConstrainedShape m) argTypes
@@ -173,6 +198,9 @@ emptyArgConstraints argTypes =
     )
     argTypes
 
+-- | The minimal set of constraints on a program state: no constraints
+-- whatsoever on globals, and only the minimal constraints (see
+-- 'emptyArgConstraints') on the function arguments.
 emptyConstraints ::
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   Constraints m argTypes
@@ -235,7 +263,8 @@ isEmpty (Constraints args globs rels) =
 
 -- * 'ConstrainedShape'
 
--- | A specification of the shape of a value and constraints on it.
+-- | A specification of the shape (memory layout) of a value and constraints on
+-- it. See also the comment on 'Constraint'.
 newtype ConstrainedShape m ft = ConstrainedShape
   {getConstrainedShape :: Shape m (Compose [] (Constraint m)) ft}
 
@@ -263,6 +292,16 @@ ppRedundantExpansion =
       AllocateInitialized -> "Tried to allocate an already-initialized chunk"
       InitializeInitialized -> "Tried to initialize an already-initialized chunk"
 
+-- | Given a 'ShapeConstraint' and a 'Shape', \"expand\" the shape by
+-- transforming one of its embedded 'PtrShape' in one of three ways:
+--
+-- * Turn a 'ShapeUnallocated' into a 'ShapeAllocated'
+-- * Turn a @'ShapeAllocated' n@ into a @'ShapeAllocated' m@ where @m > n@
+-- * Turn a @'ShapeAllocated' n@ into a @'ShapeInitialized' m@ where @m >= n@
+-- * Turn a @'ShapeInitialized' n@ into a @'ShapeInitialized' m@ where @m > n@
+--
+-- See the comment on 'ShapeConstraint' for where those are generated and how
+-- this function is used.
 expand ::
   forall m tag ft.
   ModuleTypes m ->
@@ -338,12 +377,14 @@ ppExpansionError =
     ExpRedundant redundant -> ppRedundantExpansion redundant
     ExpShapeSeekError ssErr -> Shape.ppShapeSeekError ssErr
 
--- | A constraint learned by simulating the code
+-- | A constraint (precondition) learned by "UCCrux.LLVM.Classify" by simulating
+-- a function.
 data NewConstraint m argTypes
   = forall atTy. NewShapeConstraint (SomeInSelector m argTypes atTy) (ShapeConstraint m atTy)
   | forall atTy. NewConstraint (SomeInSelector m argTypes atTy) (Constraint m atTy)
   | NewRelationalConstraint (RelationalConstraint m argTypes)
 
+-- | Add a newly-deduced constraint to an existing set of constraints.
 addConstraint ::
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   ModuleTypes m ->

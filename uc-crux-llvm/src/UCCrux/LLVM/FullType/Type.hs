@@ -75,7 +75,10 @@ import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVMArch)
 import qualified Lang.Crucible.LLVM.MemType as MemType
 {- ORMOLU_ENABLE -}
 
--- | Type level only
+-- | Type level only.
+--
+-- The @m@ parameter represents an LLVM module, see comment on
+-- 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
 data FullType (m :: Type) where
   FTInt :: Nat -> FullType m
   FTPtr :: FullType m -> FullType m

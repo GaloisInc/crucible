@@ -78,6 +78,9 @@ import           UCCrux.LLVM.Constraints (ConstrainedShape(..), Constraint(..))
 
 newtype SymValue sym arch ft = SymValue {getSymValue :: Crucible.RegValue sym (ToCrucibleType arch ft)}
 
+-- | Take a symbolic value (a 'Crucible.RegEntry') and a 'Constraint' that
+-- applies to it, and generate a 'W4I.Pred' that gets stored in the 'Setup'
+-- monad, and assumed in "UCCrux.LLVM.Run.Simulate".
 constrainHere ::
   forall m arch sym argTypes inTy atTy.
   ( Crucible.IsSymInterface sym,
@@ -86,8 +89,10 @@ constrainHere ::
   sym ->
   -- | Top-level selector
   Selector m argTypes inTy atTy ->
+  -- | The constraint that should be assumed to be true of this value
   Constraint m atTy ->
   FullTypeRepr m atTy ->
+  -- | The value to be constrained
   Crucible.RegEntry sym (ToCrucibleType arch atTy) ->
   Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
 constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry typeRepr regValue) =
@@ -118,6 +123,10 @@ constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry 
         L.Isgt -> W4I.bvSgt sym
         L.Isge -> W4I.bvSge sym
 
+-- | Generate a fresh symbolic value, recording its \"origin\", i.e. what part
+-- of which global variable or argument it is. That annotation will later be
+-- looked up in "UCCrux.LLVM.Classify.classify" and used to generate additional
+-- preconditions.
 annotatedTerm ::
   forall m arch sym inTy atTy argTypes.
   (Crucible.IsSymInterface sym) =>
@@ -135,7 +144,8 @@ annotatedTerm sym fullTypeRepr baseTypeRepr selector =
         =<< liftIO (W4I.freshConstant sym symbol baseTypeRepr)
     pure expr
 
--- | A fresh pointer with an annotated block and offset
+-- | Like 'annotatedTerm'. Generates a fresh pointer with an annotated block and
+-- offset.
 annotatedLLVMPtr ::
   forall m arch sym inTy atTy argTypes w.
   (1 <= w, Crucible.IsSymInterface sym) =>
@@ -177,7 +187,13 @@ pointerRange _proxy sym ptr offset size =
       (ptr :| [])
       (replicate (size - 1) ())
 
--- | Generate and constrain all the symbolic values
+-- | Generate and constrain all the symbolic values. This is currently only used
+-- for arguments, but once global constraints are collected/supported, it can be
+-- used for those as well.
+--
+-- Traverses the input 'ConstrainedShape' and replaces the lists of constraints
+-- with a 'SymValue' that conforms to those constraints. Allocates memory along
+-- the way as required by the form of the 'ConstrainedShape'.
 generate ::
   forall arch sym m atTy inTy argTypes.
   ( ArchOk arch,
@@ -187,7 +203,9 @@ generate ::
   sym ->
   ModuleTypes m ->
   FullTypeRepr m atTy ->
+  -- | The argument or global variable to be generated
   Selector m argTypes inTy atTy ->
+  -- | The set of constraints and memory layout of the value to be generated
   ConstrainedShape m atTy ->
   Setup m arch sym argTypes (Shape m (SymValue sym arch) atTy)
 generate sym mts ftRepr selector (ConstrainedShape shape) =
@@ -323,7 +341,10 @@ generateArgs _appCtx funCtx sym argSpecs =
             )
       )
 
--- | The two returned assignments contain duplicate data, but they are used for
+-- | Generate arguments (and someday, global variables) that conform to the
+-- preconditions specified in the 'Ctx.Assignment' of 'ConstrainedShape'.
+--
+-- The two returned assignments contain duplicate data, but they are used for
 -- different purposes: The 'Crucible.RegMap' can be (and is) passed directly to
 -- a Crucible CFG, whereas the 'Ctx.Assignment' of 'Shape' is more amenable to
 -- introspection, for instance in the classification process, because it can be
@@ -339,6 +360,7 @@ setupExecution ::
   ModuleContext arch ->
   FunctionContext m arch argTypes ->
   sym ->
+  -- | Constraints and memory layouts of each argument
   Ctx.Assignment (ConstrainedShape m) argTypes ->
   f
     ( Either

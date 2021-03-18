@@ -54,6 +54,10 @@ import           UCCrux.LLVM.Run.Loop (loopOnFunction)
 import           UCCrux.LLVM.Stats (Stats(unimplementedFreq), getStats, ppStats)
 {- ORMOLU_ENABLE -}
 
+-- | Explore arbitrary functions in this module, trying to find some bugs.
+--
+-- The strategy/order is exceedingly naive right now, it literally just applies
+-- @take@ to the list of 'L.Define' in the module and explores those functions.
 explore ::
   ( ?outputConfig :: OutputConfig,
     ArchOk arch

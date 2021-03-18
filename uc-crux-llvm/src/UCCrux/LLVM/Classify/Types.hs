@@ -129,9 +129,16 @@ prescribe =
       ArgSubSignedWrap -> "the integer is large enough"
 
 -- | There was an error and we know roughly what sort it was, but we still can't
--- do anything about it.
+-- do anything about it, i.e., it\'s not clear what kind of precondition could
+-- avoid the error.
 data Unfixable
-  = AddSymbolicOffsetToArgPointer
+  = -- | The addition of an offset of a pointer such that the result points
+    -- beyond (one past) the end of the allocation is undefined behavior -
+    -- see the @PtrAddOffsetOutOfBounds@ constructor of @UndefinedBehavior@.
+    -- If the offset that was added is symbolic and not part of an argument or
+    -- global variable, it\'s not clear what kind of precondition could
+    -- mitigate/avoid the error.
+    AddSymbolicOffsetToArgPointer
   deriving (Eq, Ord, Show)
 
 ppUnfixable :: Unfixable -> Text
@@ -151,7 +158,8 @@ ppUnfixed =
     UnfixedArgPtrOffsetArg -> "Addition of an offset from argument to a pointer in argument"
     UnfixedFunctionPtrInArg -> "Called function pointer in argument"
 
--- | We don't (yet) know what to do about this error
+-- | We don't (yet) know what to do about this error, so we can't continue
+-- executing this function.
 data Unclassified
   = UnclassifiedUndefinedBehavior (Doc Void) (Some UB.UndefinedBehavior)
   | UnclassifiedMemoryError (Doc Void)
