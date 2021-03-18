@@ -43,19 +43,18 @@ import           UCCrux.LLVM.FullType.Type (MapToCrucibleType)
 
 ppRegValue ::
   ( Crucible.IsSymInterface sym,
-    ArchOk arch
+    ArchOk arch,
+    MonadIO f
   ) =>
   proxy arch ->
   sym ->
   LLVMMem.MemImpl sym ->
   LLVMMem.StorageType ->
   Crucible.RegEntry sym tp ->
-  IO (Doc ann)
+  f (Doc ann)
 ppRegValue _proxy sym mem storageType (Crucible.RegEntry typeRepr regValue) =
   do
-    val <-
-      liftIO $
-        LLVMMem.packMemValue sym storageType typeRepr regValue
+    val <- liftIO $ LLVMMem.packMemValue sym storageType typeRepr regValue
     pure $
       LLVMMem.ppLLVMValWithGlobals
         sym
