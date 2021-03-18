@@ -44,8 +44,6 @@ library
     UCCrux.LLVM.Stats
 
   build-depends:
-    ansi-terminal,
-    bytestring,
     base >= 4.8 && < 4.15,
     bv-sized,
     config-schema,
@@ -54,25 +52,21 @@ library
     crucible-llvm,
     crux,
     crux-llvm,
-    data-binary-ieee754,
     directory,
     filepath,
     lens,
     llvm-pretty,
-    llvm-pretty-bc-parser,
     lumberjack,
     mtl,
     panic,
     parameterized-utils,
     prettyprinter >= 1.7.0,
-    process,
     semigroupoids,
     simple-get-opt,
-    template-haskell,
     text,
     vector,
     what4
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-imports
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-imports -Werror=unused-packages
   ghc-prof-options: -O2
 
   default-language: Haskell2010
@@ -83,27 +77,8 @@ executable uc-crux-llvm
   hs-source-dirs: exe
 
   build-depends:
-    ansi-terminal,
     base >= 4.8 && < 4.15,
-    bytestring,
-    containers,
-    crucible,
-    crucible-llvm,
-    crux,
-    crux-llvm,
-    data-binary-ieee754,
-    directory,
-    filepath,
-    lens,
-    llvm-pretty,
-    llvm-pretty-bc-parser,
-    mtl,
-    parameterized-utils,
-    process,
-    template-haskell,
-    text,
-    uc-crux-llvm,
-    what4
+    uc-crux-llvm
 
   main-is: Main.hs
 
@@ -115,7 +90,7 @@ executable uc-crux-llvm
 
   other-modules: RealMain
 
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-packages
   ghc-prof-options: -O2
 
   default-language: Haskell2010
@@ -124,34 +99,23 @@ test-suite uc-crux-llvm-test
   type: exitcode-stdio-1.0
   hs-source-dirs: test
 
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns -Werror=unused-packages
   ghc-prof-options: -O2
 
   main-is: Test.hs
 
   build-depends:
                 base             >= 4.7,
-                bytestring,
                 containers,
                 crucible,
                 crux,
                 crux-llvm,
-                deepseq,
-                directory,
                 filepath,
                 llvm-pretty,
-                microlens,
-                panic,
                 parameterized-utils,
-                parsec,
-                process,
-                QuickCheck,
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
-                tasty-sugar      >= 1.1 && < 1.2,
                 text,
-                versions,
-                uc-crux-llvm,
-                what4
+                uc-crux-llvm
 
   default-language: Haskell2010
