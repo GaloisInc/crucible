@@ -148,7 +148,7 @@ findBugs llvmModule file fns =
               pure (appCtx, path, cruxOpts'', ucOpts'')
         putStrLn
           ( unwords
-              [ "Reproduce with:\n",
+              [ "\nReproduce with:\n",
                 "cabal v2-run exe:uc-crux-llvm -- ",
                 "--entry-points",
                 intercalate " --entry-points " (map show fns),
@@ -451,13 +451,17 @@ oneDefine name args ret blocks =
         ]
     }
 
-oneArith ::
+-- | A module with one function of one argument that applies an arithmetic
+-- operation to a constant and its argument and returns the value.
+--
+-- This version has the argument "on the left".
+oneArithLeft ::
   String ->
   L.Type ->
   L.Value ->
   L.ArithOp ->
   L.Module
-oneArith name ty val op =
+oneArithLeft name ty val op =
   oneDefine
     name
     [L.Typed ty (L.Ident "arg")]
@@ -471,130 +475,538 @@ oneArith name ty val op =
         ]
     ]
 
+-- | A module with one function of one argument that applies an arithmetic
+-- operation to a constant and its argument and returns the value.
+--
+-- This version has the argument "on the right".
+oneArithRight ::
+  String ->
+  L.Type ->
+  L.Value ->
+  L.ArithOp ->
+  L.Module
+oneArithRight name ty val op =
+  oneDefine
+    name
+    [L.Typed ty (L.Ident "arg")]
+    ty
+    [ L.BasicBlock
+        (Just "bb")
+        [ result
+            "retVal"
+            (L.Arith op (L.Typed ty val) (L.ValIdent (L.Ident "arg"))),
+          effect (L.Ret (L.Typed ty (L.ValIdent (L.Ident "retVal"))))
+        ]
+    ]
+
 moduleTests :: TT.TestTree
 moduleTests =
   TT.testGroup
     "module based tests"
+    -- A lot of these are tests of various arithmetic operations. The conceptual
+    -- "matrix"/cross-product considered is roughly as follows:
+    --
+    -- For each operation,
+    --
+    -- - Some combinations of "flags" (nsw, nuw, exact, etc.)
+    -- - The four essential common values: -2, -1, 0, 1, 2 (with -2 omitted for
+    --   unsigned operations) (this list covers identity elements and
+    --   non-identity elements for most operations)
+    -- - Having the symbolic and concrete values on the "left" and the "right", e.g.
+    --   "symbolic - concrete" *and* "concrete - symbolic".
+    --
+    -- Several cases aren't considered, it would be nice to auto-generate these...
+    --
+    -- For the cases of srem_neg1, sdiv_neg1, etc. see the following explanation
+    -- from the LLVM Language Reference:
+    --
+    --   Overflow also leads to undefined behavior; this is a rare case, but can
+    --   occur, for example, by taking the remainder of a 32-bit division of
+    --   -2147483648 by -1.
+    --
+    -- Lest this list appear gratuitously long, it first appeared with fewer
+    -- cases and missed a very real bug.
     [ inModule
-        "add1.c"
-        (oneArith "add1" i32 (L.ValInteger 1) (L.Add False False))
-        [("add1", isSafe)],
+        "add1_left.c"
+        (oneArithLeft "add1_left" i32 (L.ValInteger 1) (L.Add False False))
+        [("add1_left", isSafe)],
       inModule
-        "add1_nsw.c"
-        (oneArith "add1_nsw" i32 (L.ValInteger 1) (L.Add False True))
-        [("add1_nsw", isSafeWithPreconditions DidntHitBounds)],
+        "add1_nsw_left.c"
+        (oneArithLeft "add1_nsw_left" i32 (L.ValInteger 1) (L.Add False True))
+        [("add1_nsw_left", isSafeWithPreconditions DidntHitBounds)],
       inModule
-        "add1_nuw.c"
-        (oneArith "add1_nuw" i32 (L.ValInteger 1) (L.Add True False))
-        [("add1_nuw", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+        "add1_nuw_left.c"
+        (oneArithLeft "add1_nuw_left" i32 (L.ValInteger 1) (L.Add True False))
+        [("add1_nuw_left", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
-        "add1_float.c"
-        (oneArith "add1_float" float (L.ValFloat 1.0) L.FAdd)
-        [("add1_float", isSafe)],
+        "add_neg1_left.c"
+        (oneArithLeft "add_neg1_left" i32 (L.ValInteger (-1)) (L.Add False False))
+        [("add_neg1_left", isSafe)],
+      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
+      -- inModule
+      --   "add_neg1_nsw_left.c"
+      --   (oneArithLeft "add_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Add False True))
+      --   [("add_neg1_nsw_left",isSafeWithPreconditions DidntHitBounds)],
+      -- inModule
+      --   "add_neg1_nuw_left.c"
+      --   (oneArithLeft "add_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Add True False))
+      --   [("add_neg1_nuw_left",isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
-        "add1_double.c"
-        (oneArith "add1_double" double (L.ValDouble 1.0) L.FAdd)
-        [("add1_double", isSafe)],
+        "add1_float_left.c"
+        (oneArithLeft "add1_float_left" float (L.ValFloat 1.0) L.FAdd)
+        [("add1_float_left", isSafe)],
       inModule
-        "sub1.c"
-        (oneArith "sub1" i32 (L.ValInteger 1) (L.Sub False False))
-        [("sub1", isSafe)],
+        "add_neg1_float_left.c"
+        (oneArithLeft "add_neg1_float_left" float (L.ValFloat (-1.0)) L.FAdd)
+        [("add_neg1_float_left", isSafe)],
       inModule
-        "sub1_nsw.c"
-        (oneArith "sub1_nsw" i32 (L.ValInteger 1) (L.Sub False True))
-        [("sub1_nsw", isSafeWithPreconditions DidntHitBounds)],
+        "add1_double_left.c"
+        (oneArithLeft "add1_double_left" double (L.ValDouble 1.0) L.FAdd)
+        [("add1_double_left", isSafe)],
       inModule
-        "sub1_nuw.c"
-        (oneArith "sub1_nuw" i32 (L.ValInteger 1) (L.Sub True False))
-        [("sub1_nuw", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+        "add_neg1_double_left.c"
+        (oneArithLeft "add_neg1_double_left" double (L.ValDouble (-1.0)) L.FAdd)
+        [("add_neg1_double_left", isSafe)],
       inModule
-        "sub1_float.c"
-        (oneArith "sub1_float" float (L.ValFloat 1.0) L.FSub)
-        [("sub1_float", isSafe)],
+        "sub1_left.c"
+        (oneArithLeft "sub1_left" i32 (L.ValInteger 1) (L.Sub False False))
+        [("sub1_left", isSafe)],
       inModule
-        "sub1_double.c"
-        (oneArith "sub1_double" double (L.ValDouble 1.0) L.FSub)
-        [("sub1_double", isSafe)],
+        "sub1_nsw_left.c"
+        (oneArithLeft "sub1_nsw_left" i32 (L.ValInteger 1) (L.Sub False True))
+        [("sub1_nsw_left", isSafeWithPreconditions DidntHitBounds)],
+      -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
+      -- argument isn't near the min/max value.
       inModule
-        "mul0.c"
-        (oneArith "mul0" i32 (L.ValInteger 0) (L.Mul True True))
-        [("mul0", isSafe)],
+        "sub1_nuw_left.c"
+        (oneArithLeft "sub1_nuw_left" i32 (L.ValInteger 1) (L.Sub True False))
+        [("sub1_nuw_left", isUnclassified)],
       inModule
-        "mul1.c"
-        (oneArith "mul1" i32 (L.ValInteger 1) (L.Mul False True))
-        [("mul1", isSafe)],
+        "sub_neg1_left.c"
+        (oneArithLeft "sub_neg1_left" i32 (L.ValInteger (-1)) (L.Sub False False))
+        [("sub_neg1_left", isSafe)],
+      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
+      -- inModule
+      --   "sub_neg1_nsw_left.c"
+      --   (oneArithLeft "sub_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Sub False True))
+      --   [("sub_neg1_nsw_left",isSafeWithPreconditions DidntHitBounds)],
+      -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
+      -- argument isn't near the min/max value.
       inModule
-        "mul1_nsw.c"
-        (oneArith "mul1_nsw" i32 (L.ValInteger 1) (L.Mul False True))
-        [("mul1_nsw", isSafe)],
+        "sub_neg1_nuw_left.c"
+        (oneArithLeft "sub_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Sub True False))
+        [("sub_neg1_nuw_left", isUnclassified)],
       inModule
-        "mul1_nuw.c"
-        (oneArith "mul1_nuw" i32 (L.ValInteger 1) (L.Mul True False))
-        [("mul1_nuw", isSafe)],
+        "sub1_float_left.c"
+        (oneArithLeft "sub1_float_left" float (L.ValFloat 1.0) L.FSub)
+        [("sub1_float_left", isSafe)],
       inModule
-        "udiv0.c"
-        (oneArith "udiv0" i32 (L.ValInteger 0) (L.UDiv False))
-        [("udiv0", isUnclassified)], -- TODO Goal: hasBugs
+        "sub_neg1_float_left.c"
+        (oneArithLeft "sub_neg1_float_left" float (L.ValFloat (-1.0)) L.FSub)
+        [("sub_neg1_float_left", isSafe)],
       inModule
-        "udiv1.c"
-        (oneArith "udiv1" i32 (L.ValInteger 1) (L.UDiv False))
-        [("udiv1", isSafe)],
+        "sub1_double_left.c"
+        (oneArithLeft "sub1_double_left" double (L.ValDouble 1.0) L.FSub)
+        [("sub1_double_left", isSafe)],
       inModule
-        "udiv1_exact.c"
-        (oneArith "udiv1_exact" i32 (L.ValInteger 1) (L.UDiv True))
-        [("udiv1_exact", isSafe)],
+        "sub_neg1_double_left.c"
+        (oneArithLeft "sub_neg1_double_left" double (L.ValDouble (-1.0)) L.FSub)
+        [("sub_neg1_double_left", isSafe)],
       inModule
-        "udiv2.c"
-        (oneArith "udiv2" i32 (L.ValInteger 2) (L.UDiv False))
-        [("udiv2", isSafe)],
+        "mul0_left.c"
+        (oneArithLeft "mul0_left" i32 (L.ValInteger 0) (L.Mul True True))
+        [("mul0_left", isSafe)],
       inModule
-        "udiv2_exact.c"
-        (oneArith "udiv2_exact" i32 (L.ValInteger 2) (L.UDiv True))
-        [("udiv2_exact", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
+        "mul1_left.c"
+        (oneArithLeft "mul1_left" i32 (L.ValInteger 1) (L.Mul False False))
+        [("mul1_left", isSafe)],
       inModule
-        "sdiv0.c"
-        (oneArith "sdiv0" i32 (L.ValInteger 0) (L.SDiv False))
-        [("sdiv0", isUnclassified)], -- TODO Goal: hasBugs
+        "mul1_nsw_left.c"
+        (oneArithLeft "mul1_nsw_left" i32 (L.ValInteger 1) (L.Mul False True))
+        [("mul1_nsw_left", isSafe)],
       inModule
-        "sdiv1.c"
-        (oneArith "sdiv1" i32 (L.ValInteger 1) (L.SDiv False))
-        [("sdiv1", isSafe)],
+        "mul1_nuw_left.c"
+        (oneArithLeft "mul1_nuw_left" i32 (L.ValInteger 1) (L.Mul True False))
+        [("mul1_nuw_left", isSafe)],
       inModule
-        "sdiv1_exact.c"
-        (oneArith "sdiv1_exact" i32 (L.ValInteger 1) (L.SDiv True))
-        [("sdiv1_exact", isSafe)],
+        "mul_neg1_left.c"
+        (oneArithLeft "mul_neg1_left" i32 (L.ValInteger (-1)) (L.Mul False False))
+        [("mul_neg1_left", isSafe)],
       inModule
-        "sdiv2.c"
-        (oneArith "sdiv2" i32 (L.ValInteger 2) (L.SDiv False))
-        [("sdiv2", isSafe)],
+        "mul_neg1_nsw_left.c"
+        (oneArithLeft "mul_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Mul False True))
+        [("mul_neg1_nsw_left", isUnclassified)], -- TODO Goal: ???
       inModule
-        "sdiv2_exact.c"
-        (oneArith "sdiv2_exact" i32 (L.ValInteger 2) (L.SDiv True))
-        [("sdiv2_exact", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
+        "mul_neg1_nuw_left.c"
+        (oneArithLeft "mul_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Mul True False))
+        [("mul_neg1_nuw_left", isUnclassified)], -- TODO Goal: ???
+        -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
       inModule
-        "urem0.c"
-        (oneArith "urem0" i32 (L.ValInteger 0) L.URem)
-        [("urem0", isUnclassified)], -- TODO Goal: hasBugs
+        "udiv0_left.c"
+        (oneArithLeft "udiv0_left" i32 (L.ValInteger 0) (L.UDiv False))
+        [("udiv0_left", isUnclassified)],
       inModule
-        "urem1.c"
-        (oneArith "urem1" i32 (L.ValInteger 1) L.URem)
-        [("urem1", isSafe)],
+        "udiv1_left.c"
+        (oneArithLeft "udiv1_left" i32 (L.ValInteger 1) (L.UDiv False))
+        [("udiv1_left", isSafe)],
       inModule
-        "urem2.c"
-        (oneArith "urem2" i32 (L.ValInteger 2) L.URem)
-        [("urem2", isSafe)],
+        "udiv1_exact_left.c"
+        (oneArithLeft "udiv1_exact_left" i32 (L.ValInteger 1) (L.UDiv True))
+        [("udiv1_exact_left", isSafe)],
       inModule
-        "srem0.c"
-        (oneArith "srem0" i32 (L.ValInteger 0) L.SRem)
-        [("srem0", isUnclassified)], -- TODO Goal: hasBugs
+        "udiv2_left.c"
+        (oneArithLeft "udiv2_left" i32 (L.ValInteger 2) (L.UDiv False))
+        [("udiv2_left", isSafe)],
       inModule
-        "srem1.c"
-        (oneArith "srem1" i32 (L.ValInteger 1) L.SRem)
-        [("srem1", isSafe)],
+        "udiv2_exact_left.c"
+        (oneArithLeft "udiv2_exact_left" i32 (L.ValInteger 2) (L.UDiv True))
+        [("udiv2_exact_left", isUnclassified)], -- TODO Goal: ???
       inModule
-        "srem2.c"
-        (oneArith "srem2" i32 (L.ValInteger 2) L.SRem)
-        [("srem2", isSafe)]
+        "udiv_neg1_left.c"
+        (oneArithLeft "udiv_neg1_left" i32 (L.ValInteger (-1)) (L.UDiv False))
+        [("udiv_neg1_left", isSafe)],
+      inModule
+        "udiv_neg1_exact_left.c"
+        (oneArithLeft "udiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.UDiv True))
+        [("udiv_neg1_exact_left", isUnclassified)], -- TODO Goal: ???
+        -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
+      inModule
+        "sdiv0_left.c"
+        (oneArithLeft "sdiv0_left" i32 (L.ValInteger 0) (L.SDiv False))
+        [("sdiv0_left", isUnclassified)],
+      inModule
+        "sdiv1_left.c"
+        (oneArithLeft "sdiv1_left" i32 (L.ValInteger 1) (L.SDiv False))
+        [("sdiv1_left", isSafe)],
+      inModule
+        "sdiv1_exact_left.c"
+        (oneArithLeft "sdiv1_exact_left" i32 (L.ValInteger 1) (L.SDiv True))
+        [("sdiv1_exact_left", isSafe)],
+      inModule
+        "sdiv_neg1_left.c"
+        (oneArithLeft "sdiv_neg1_left" i32 (L.ValInteger (-1)) (L.SDiv False))
+        [("sdiv_neg1_left", isUnclassified)], -- TODO Goal: ???
+      inModule
+        "sdiv_neg1_exact_left.c"
+        (oneArithLeft "sdiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.SDiv True))
+        [("sdiv_neg1_exact_left", isUnclassified)], -- TODO Goal: ???
+      inModule
+        "sdiv2_left.c"
+        (oneArithLeft "sdiv2_left" i32 (L.ValInteger 2) (L.SDiv False))
+        [("sdiv2_left", isSafe)],
+      inModule
+        "sdiv2_exact_left.c"
+        (oneArithLeft "sdiv2_exact_left" i32 (L.ValInteger 2) (L.SDiv True))
+        [("sdiv2_exact_left", isUnclassified)], -- TODO Goal: ???
+      inModule
+        "sdiv_neg2_left.c"
+        (oneArithLeft "sdiv_neg2_left" i32 (L.ValInteger (-2)) (L.SDiv False))
+        [("sdiv_neg2_left", isSafe)],
+      inModule
+        "sdiv_neg2_exact_left.c"
+        (oneArithLeft "sdiv_neg2_exact_left" i32 (L.ValInteger (-2)) (L.SDiv True))
+        [("sdiv_neg2_exact_left", isUnclassified)], -- TODO Goal: ???
+        -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
+      inModule
+        "urem0_left.c"
+        (oneArithLeft "urem0_left" i32 (L.ValInteger 0) L.URem)
+        [("urem0_left", isUnclassified)],
+      inModule
+        "urem1_left.c"
+        (oneArithLeft "urem1_left" i32 (L.ValInteger 1) L.URem)
+        [("urem1_left", isSafe)],
+      inModule
+        "urem_neg1_left.c"
+        (oneArithLeft "urem_neg1_left" i32 (L.ValInteger (-1)) L.URem)
+        [("urem_neg1_left", isSafe)],
+      inModule
+        "urem2_left.c"
+        (oneArithLeft "urem2_left" i32 (L.ValInteger 2) L.URem)
+        [("urem2_left", isSafe)],
+      -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
+      inModule
+        "srem0_left.c"
+        (oneArithLeft "srem0_left" i32 (L.ValInteger 0) L.SRem)
+        [("srem0_left", isUnclassified)],
+      inModule
+        "srem1_left.c"
+        (oneArithLeft "srem1_left" i32 (L.ValInteger 1) L.SRem)
+        [("srem1_left", isSafe)],
+      inModule
+        "srem_neg1_left.c"
+        (oneArithLeft "srem_neg1_left" i32 (L.ValInteger (-1)) L.SRem)
+        [("srem_neg1_left", isUnclassified)], -- TODO Goal: ???
+      inModule
+        "srem2_left.c"
+        (oneArithLeft "srem2_left" i32 (L.ValInteger 2) L.SRem)
+        [("srem2_left", isSafe)],
+      inModule
+        "srem_neg2_left.c"
+        (oneArithLeft "srem_neg2_left" i32 (L.ValInteger (-2)) L.SRem)
+        [("srem_neg2_left", isSafe)],
+      -- --------------------------------------------------- On the right
+      inModule
+        "add1_right.c"
+        (oneArithRight "add1_right" i32 (L.ValInteger 1) (L.Add False False))
+        [("add1_right", isSafe)],
+      inModule
+        "add1_nsw_right.c"
+        (oneArithRight "add1_nsw_right" i32 (L.ValInteger 1) (L.Add False True))
+        [("add1_nsw_right", isSafeWithPreconditions DidntHitBounds)],
+      -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
+      -- argument isn't near the min/max value.
+      inModule
+        "add1_nuw_right.c"
+        (oneArithRight "add1_nuw_right" i32 (L.ValInteger 1) (L.Add True False))
+        [("add1_nuw_right", isUnclassified)],
+      inModule
+        "add_neg1_right.c"
+        (oneArithRight "add_neg1_right" i32 (L.ValInteger (-1)) (L.Add False False))
+        [("add_neg1_right", isSafe)],
+      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
+      -- inModule
+      --   "add_neg1_nsw_right.c"
+      --   (oneArithRight "add_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Add False True))
+      --   [("add_neg1_nsw_right",isSafeWithPreconditions DidntHitBounds)],
+      -- inModule
+      --   "add_neg1_nuw_right.c"
+      --   (oneArithRight "add_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Add True False))
+      --   [("add_neg1_nuw_right",isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+      inModule
+        "add1_float_right.c"
+        (oneArithRight "add1_float_right" float (L.ValFloat 1.0) L.FAdd)
+        [("add1_float_right", isSafe)],
+      inModule
+        "add_neg1_float_right.c"
+        (oneArithRight "add_neg1_float_right" float (L.ValFloat (-1.0)) L.FAdd)
+        [("add_neg1_float_right", isSafe)],
+      inModule
+        "add1_double_right.c"
+        (oneArithRight "add1_double_right" double (L.ValDouble 1.0) L.FAdd)
+        [("add1_double_right", isSafe)],
+      inModule
+        "add_neg1_double_right.c"
+        (oneArithRight "add_neg1_double_right" double (L.ValDouble (-1.0)) L.FAdd)
+        [("add_neg1_double_right", isSafe)],
+      inModule
+        "sub1_right.c"
+        (oneArithRight "sub1_right" i32 (L.ValInteger 1) (L.Sub False False))
+        [("sub1_right", isSafe)],
+      inModule
+        "sub1_nsw_right.c"
+        (oneArithRight "sub1_nsw_right" i32 (L.ValInteger 1) (L.Sub False True))
+        [("sub1_nsw_right", isSafeWithPreconditions DidntHitBounds)],
+      inModule
+        "sub1_nuw_right.c"
+        (oneArithRight "sub1_nuw_right" i32 (L.ValInteger 1) (L.Sub True False))
+        [("sub1_nuw_right", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+      inModule
+        "sub_neg1_right.c"
+        (oneArithRight "sub_neg1_right" i32 (L.ValInteger (-1)) (L.Sub False False))
+        [("sub_neg1_right", isSafe)],
+      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
+      -- inModule
+      --   "sub_neg1_nsw_right.c"
+      --   (oneArithRight "sub_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Sub False True))
+      --   [("sub_neg1_nsw_right",isSafeWithPreconditions DidntHitBounds)],
+      inModule
+        "sub_neg1_nuw_right.c"
+        (oneArithRight "sub_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Sub True False))
+        [("sub_neg1_nuw_right", isSafe)],
+      inModule
+        "sub1_float_right.c"
+        (oneArithRight "sub1_float_right" float (L.ValFloat 1.0) L.FSub)
+        [("sub1_float_right", isSafe)],
+      inModule
+        "sub_neg1_float_right.c"
+        (oneArithRight "sub_neg1_float_right" float (L.ValFloat (-1.0)) L.FSub)
+        [("sub_neg1_float_right", isSafe)],
+      inModule
+        "sub1_double_right.c"
+        (oneArithRight "sub1_double_right" double (L.ValDouble 1.0) L.FSub)
+        [("sub1_double_right", isSafe)],
+      inModule
+        "sub_neg1_double_right.c"
+        (oneArithRight "sub_neg1_double_right" double (L.ValDouble (-1.0)) L.FSub)
+        [("sub_neg1_double_right", isSafe)],
+      inModule
+        "mul0_right.c"
+        (oneArithRight "mul0_right" i32 (L.ValInteger 0) (L.Mul True True))
+        [("mul0_right", isSafe)],
+      inModule
+        "mul1_right.c"
+        (oneArithRight "mul1_right" i32 (L.ValInteger 1) (L.Mul False False))
+        [("mul1_right", isSafe)],
+      inModule
+        "mul1_nsw_right.c"
+        (oneArithRight "mul1_nsw_right" i32 (L.ValInteger 1) (L.Mul False True))
+        [("mul1_nsw_right", isSafe)],
+      inModule
+        "mul1_nuw_right.c"
+        (oneArithRight "mul1_nuw_right" i32 (L.ValInteger 1) (L.Mul True False))
+        [("mul1_nuw_right", isSafe)],
+      inModule
+        "mul_neg1_right.c"
+        (oneArithRight "mul_neg1_right" i32 (L.ValInteger (-1)) (L.Mul False False))
+        [("mul_neg1_right", isSafe)],
+      inModule
+        "mul_neg1_nsw_right.c"
+        (oneArithRight "mul_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Mul False True))
+        [("mul_neg1_nsw_right", isUnclassified)], -- TODO Goal: ???
+      inModule
+        "mul_neg1_nuw_right.c"
+        (oneArithRight "mul_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Mul True False))
+        [("mul_neg1_nuw_right", isUnclassified)], -- TODO Goal: ???
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "udiv0_right.c"
+        (oneArithRight "udiv0_right" i32 (L.ValInteger 0) (L.UDiv False))
+        [("udiv0_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "udiv1_right.c"
+        (oneArithRight "udiv1_right" i32 (L.ValInteger 1) (L.UDiv False))
+        [("udiv1_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "udiv1_exact_right.c"
+        (oneArithRight "udiv1_exact_right" i32 (L.ValInteger 1) (L.UDiv True))
+        [("udiv1_exact_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "udiv2_right.c"
+        (oneArithRight "udiv2_right" i32 (L.ValInteger 2) (L.UDiv False))
+        [("udiv2_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "udiv2_exact_right.c"
+        (oneArithRight "udiv2_exact_right" i32 (L.ValInteger 2) (L.UDiv True))
+        [("udiv2_exact_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "udiv_neg1_right.c"
+        (oneArithRight "udiv_neg1_right" i32 (L.ValInteger (-1)) (L.UDiv False))
+        [("udiv_neg1_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "udiv_neg1_exact_right.c"
+        (oneArithRight "udiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.UDiv True))
+        [("udiv_neg1_exact_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "sdiv0_right.c"
+        (oneArithRight "sdiv0_right" i32 (L.ValInteger 0) (L.SDiv False))
+        [("sdiv0_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "sdiv1_right.c"
+        (oneArithRight "sdiv1_right" i32 (L.ValInteger 1) (L.SDiv False))
+        [("sdiv1_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "sdiv1_exact_right.c"
+        (oneArithRight "sdiv1_exact_right" i32 (L.ValInteger 1) (L.SDiv True))
+        [("sdiv1_exact_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "sdiv_neg1_right.c"
+        (oneArithRight "sdiv_neg1_right" i32 (L.ValInteger (-1)) (L.SDiv False))
+        [("sdiv_neg1_right", isUnclassified)], -- TODO Goal: hasBugs
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "sdiv_neg1_exact_right.c"
+        (oneArithRight "sdiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.SDiv True))
+        [("sdiv_neg1_exact_right", isUnclassified)], -- TODO Goal: ???
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "sdiv2_right.c"
+        (oneArithRight "sdiv2_right" i32 (L.ValInteger 2) (L.SDiv False))
+        [("sdiv2_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "sdiv2_exact_right.c"
+        (oneArithRight "sdiv2_exact_right" i32 (L.ValInteger 2) (L.SDiv True))
+        [("sdiv2_exact_right", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "sdiv_neg2_right.c"
+        (oneArithRight "sdiv_neg2_right" i32 (L.ValInteger (-2)) (L.SDiv False))
+        [("sdiv_neg2_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "sdiv_neg2_exact_right.c"
+        (oneArithRight "sdiv_neg2_exact_right" i32 (L.ValInteger (-2)) (L.SDiv True))
+        [("sdiv_neg2_exact_right", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "urem0_right.c"
+        (oneArithRight "urem0_right" i32 (L.ValInteger 0) L.URem)
+        [("urem0_right", isUnclassified)], -- TODO Goal: hasBugs
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "urem1_right.c"
+        (oneArithRight "urem1_right" i32 (L.ValInteger 1) L.URem)
+        [("urem1_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "urem_neg1_right.c"
+        (oneArithRight "urem_neg1_right" i32 (L.ValInteger (-1)) L.URem)
+        [("urem_neg1_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "urem2_right.c"
+        (oneArithRight "urem2_right" i32 (L.ValInteger 2) L.URem)
+        [("urem2_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "srem0_right.c"
+        (oneArithRight "srem0_right" i32 (L.ValInteger 0) L.SRem)
+        [("srem0_right", isUnclassified)], -- TODO Goal: hasBugs
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "srem1_right.c"
+        (oneArithRight "srem1_right" i32 (L.ValInteger 1) L.SRem)
+        [("srem1_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "srem_neg1_right.c"
+        (oneArithRight "srem_neg1_right" i32 (L.ValInteger (-1)) L.SRem)
+        [("srem_neg1_right", isUnclassified)], -- TODO Goal: hasBugs
+        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+        -- argument is nonzero.
+      inModule
+        "srem2_right.c"
+        (oneArithRight "srem2_right" i32 (L.ValInteger 2) L.SRem)
+        [("srem2_right", isUnclassified)],
+      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
+      -- argument is nonzero.
+      inModule
+        "srem_neg2_right.c"
+        (oneArithRight "srem_neg2_right" i32 (L.ValInteger (-2)) L.SRem)
+        [("srem_neg2_right", isUnclassified)]
     ]
 
 main :: IO ()
