@@ -204,7 +204,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             case getPtrOffsetAnn (Crucible.unRV ptr) of
               Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
                 do
-                  let tag = ArgWriteBadAlignment
+                  let tag = ArgReadBadAlignment
                   liftIO $
                     (appCtx ^. log) Hi $
                       Text.unwords
