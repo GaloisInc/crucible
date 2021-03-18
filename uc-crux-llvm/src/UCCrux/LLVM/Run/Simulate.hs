@@ -25,6 +25,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
 
+import           Control.Exception (displayException, try)
 import           Control.Lens ((^.), view, to)
 import           Control.Monad (void, unless)
 import           Control.Monad.IO.Class (liftIO)
@@ -33,6 +34,11 @@ import           Data.IORef
 import           Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
+
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
+
+import           Data.Parameterized.Some (Some(Some))
 
 import qualified What4.Interface as What4
 import qualified What4.ProgramLoc as What4
@@ -66,7 +72,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
 import           UCCrux.LLVM.Classify.Types (Explanation(..), Uncertainty(..))
-import           UCCrux.LLVM.Constraints (Constraints, argConstraints, globalConstraints, relationalConstraints)
+import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, argConstraints, globalConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
@@ -118,20 +124,49 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
       -- Assume all predicates necessary to satisfy the deduced preconditions
       for_
         assumptions
-        ( \(SetupAssumption _constraint predicate) ->
-            liftIO $
-              Crucible.addAssumption
-                sym
-                ( Crucible.LabeledPred
-                    predicate
-                    ( Crucible.AssumptionReason
-                        ( What4.mkProgramLoc
-                            (What4.functionNameFromText (funCtx ^. functionName))
-                            What4.InternalPos
-                        )
-                        "constraint"
-                    )
-                )
+        ( \(SetupAssumption (Some constraint) predicate) ->
+            do
+              maybeException <-
+                liftIO $
+                  try $
+                    Crucible.addAssumption
+                      sym
+                      ( Crucible.LabeledPred
+                          predicate
+                          ( Crucible.AssumptionReason
+                              ( What4.mkProgramLoc
+                                  (What4.functionNameFromText (funCtx ^. functionName))
+                                  What4.InternalPos
+                              )
+                              "constraint"
+                          )
+                      )
+              case maybeException of
+                Left e@(Crucible.AssumedFalse _) ->
+                  panic
+                    "classify"
+                    [ "Concretely false assumption",
+                      Text.unpack $
+                        PP.renderStrict
+                          ( PP.layoutPretty
+                              PP.defaultLayoutOptions
+                              (ppConstraint constraint)
+                          ),
+                      displayException e
+                    ]
+                Left e ->
+                  panic
+                    "classify"
+                    [ "Unknown issue while adding assumptions",
+                      Text.unpack $
+                        PP.renderStrict
+                          ( PP.layoutPretty
+                              PP.defaultLayoutOptions
+                              (ppConstraint constraint)
+                          ),
+                      displayException e
+                    ]
+                Right value -> pure value
         )
 
       let globSt = llvmGlobals llvmCtxt mem
