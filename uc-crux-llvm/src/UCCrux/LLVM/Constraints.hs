@@ -132,9 +132,11 @@ ppConstraint =
     BVCmp L.Isge w bv -> PP.pretty "is (signed) greater than or equal to " <> signed w bv
   where
     signed :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
-    signed w bv = PP.viaShow (BV.asSigned w bv)
+    signed w bv =
+      PP.viaShow (BV.asSigned w bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
     unsigned :: forall w. (1 <= w) => NatRepr w -> BV w -> PP.Doc Void
-    unsigned _ bv = PP.viaShow (BV.asUnsigned bv)
+    unsigned w bv =
+      PP.viaShow (BV.asUnsigned bv) PP.<+> PP.parens (PP.pretty (BV.ppHex w bv))
 
 -- | A (possibly) \"relational\" constraint across several values.
 data RelationalConstraint m argTypes
