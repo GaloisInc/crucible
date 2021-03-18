@@ -16,7 +16,6 @@ common bldflags
                -Werror=missing-methods
                -Werror=overlapping-patterns
                -Werror=unused-imports
-               -Werror=unused-packages
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
 
