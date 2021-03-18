@@ -70,11 +70,11 @@ getClang = attempt (map inPath clangs)
                        Left (SomeException {}) -> attempt more
                        Right a -> return a
 
-runClang :: Logs => LLVMOptions -> [String] -> IO ()
-runClang llvmOpts params =
+runClang :: Logs => CruxOptions -> LLVMOptions -> [String] -> IO ()
+runClang cruxOpts llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     say "CLANG" $ unwords (clang : map show allParams)
+     when (simVerbose cruxOpts > 1) $ say "CLANG" $ unwords (clang : map show allParams)
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
@@ -151,7 +151,7 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
            unless (or [ ".bc" `isSuffixOf` src
                       , bcExists && lazyCompile llvmOpts
                       ]) $
-             runClang llvmOpts (params f)
+             runClang cruxOpts llvmOpts (params f)
          ver <- llvmLinkVersion llvmOpts
          let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                            | otherwise = []
@@ -208,14 +208,14 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
          libcxx | anyCPPFiles files = ["-lstdc++"]
                 | otherwise = []
 
-     runClang llvmOpts
+     runClang cruxOpts llvmOpts
                    [ "-I", libs </> "includes"
                    , counterFile
                    , libs </> "print-model.c"
                    , "-o", printExe
                    ]
 
-     runClang llvmOpts $
+     runClang cruxOpts llvmOpts $
               concat [ [ "-I", idir ] | idir <- incs ] ++
                      [ counterFile
                      , libs </> "concrete-backend.c"
