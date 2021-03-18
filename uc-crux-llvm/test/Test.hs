@@ -534,15 +534,14 @@ moduleTests =
         "add_neg1_left.c"
         (oneArithLeft "add_neg1_left" i32 (L.ValInteger (-1)) (L.Add False False))
         [("add_neg1_left", isSafe)],
-      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
-      -- inModule
-      --   "add_neg1_nsw_left.c"
-      --   (oneArithLeft "add_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Add False True))
-      --   [("add_neg1_nsw_left",isSafeWithPreconditions DidntHitBounds)],
-      -- inModule
-      --   "add_neg1_nuw_left.c"
-      --   (oneArithLeft "add_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Add True False))
-      --   [("add_neg1_nuw_left",isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+      inModule
+        "add_neg1_nsw_left.c"
+        (oneArithLeft "add_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Add False True))
+        [("add_neg1_nsw_left", isSafeWithPreconditions DidntHitBounds)],
+      inModule
+        "add_neg1_nuw_left.c"
+        (oneArithLeft "add_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Add True False))
+        [("add_neg1_nuw_left", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
         "add1_float_left.c"
         (oneArithLeft "add1_float_left" float (L.ValFloat 1.0) L.FAdd)
@@ -563,10 +562,12 @@ moduleTests =
         "sub1_left.c"
         (oneArithLeft "sub1_left" i32 (L.ValInteger 1) (L.Sub False False))
         [("sub1_left", isSafe)],
+      -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
+      -- argument isn't near the min/max value.
       inModule
         "sub1_nsw_left.c"
         (oneArithLeft "sub1_nsw_left" i32 (L.ValInteger 1) (L.Sub False True))
-        [("sub1_nsw_left", isSafeWithPreconditions DidntHitBounds)],
+        [("sub1_nsw_left", isUnclassified)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
@@ -577,11 +578,12 @@ moduleTests =
         "sub_neg1_left.c"
         (oneArithLeft "sub_neg1_left" i32 (L.ValInteger (-1)) (L.Sub False False))
         [("sub_neg1_left", isSafe)],
-      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
-      -- inModule
-      --   "sub_neg1_nsw_left.c"
-      --   (oneArithLeft "sub_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Sub False True))
-      --   [("sub_neg1_nsw_left",isSafeWithPreconditions DidntHitBounds)],
+      -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
+      -- argument isn't near the min/max value.
+      inModule
+        "sub_neg1_nsw_left.c"
+        (oneArithLeft "sub_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Sub False True))
+        [("sub_neg1_nsw_left", isUnclassified)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
