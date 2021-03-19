@@ -642,11 +642,10 @@ moduleTests =
         "mul_neg1_nuw_left.c"
         (oneArithLeft "mul_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Mul True False))
         [("mul_neg1_nuw_left", isUnclassified)], -- TODO Goal: ???
-        -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
       inModule
         "udiv0_left.c"
         (oneArithLeft "udiv0_left" i32 (L.ValInteger 0) (L.UDiv False))
-        [("udiv0_left", isUnclassified)],
+        [("udiv0_left", hasBugs)],
       inModule
         "udiv1_left.c"
         (oneArithLeft "udiv1_left" i32 (L.ValInteger 1) (L.UDiv False))
@@ -671,11 +670,10 @@ moduleTests =
         "udiv_neg1_exact_left.c"
         (oneArithLeft "udiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.UDiv True))
         [("udiv_neg1_exact_left", isUnclassified)], -- TODO Goal: ???
-        -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
       inModule
         "sdiv0_left.c"
         (oneArithLeft "sdiv0_left" i32 (L.ValInteger 0) (L.SDiv False))
-        [("sdiv0_left", isUnclassified)],
+        [("sdiv0_left", hasBugs)],
       inModule
         "sdiv1_left.c"
         (oneArithLeft "sdiv1_left" i32 (L.ValInteger 1) (L.SDiv False))
@@ -708,11 +706,10 @@ moduleTests =
         "sdiv_neg2_exact_left.c"
         (oneArithLeft "sdiv_neg2_exact_left" i32 (L.ValInteger (-2)) (L.SDiv True))
         [("sdiv_neg2_exact_left", isUnclassified)], -- TODO Goal: ???
-        -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
       inModule
         "urem0_left.c"
         (oneArithLeft "urem0_left" i32 (L.ValInteger 0) L.URem)
-        [("urem0_left", isUnclassified)],
+        [("urem0_left", hasBugs)],
       inModule
         "urem1_left.c"
         (oneArithLeft "urem1_left" i32 (L.ValInteger 1) L.URem)
@@ -725,11 +722,10 @@ moduleTests =
         "urem2_left.c"
         (oneArithLeft "urem2_left" i32 (L.ValInteger 2) L.URem)
         [("urem2_left", isSafe)],
-      -- TODO(lb) Goal: hasBugs, division by concrete zero seems problematic
       inModule
         "srem0_left.c"
         (oneArithLeft "srem0_left" i32 (L.ValInteger 0) L.SRem)
-        [("srem0_left", isUnclassified)],
+        [("srem0_left", hasBugs)],
       inModule
         "srem1_left.c"
         (oneArithLeft "srem1_left" i32 (L.ValInteger 1) L.SRem)
