@@ -122,6 +122,7 @@ data MissingPreconditionTag
   | ArgMemsetTooSmall
   | ArgAddSignedWrap
   | ArgSubSignedWrap
+  | ArgNonZero
   deriving (Eq, Ord)
 
 diagnose :: MissingPreconditionTag -> Text
@@ -138,6 +139,7 @@ diagnose =
     ArgMemsetTooSmall -> "`memset` called on pointer to too-small allocation in argument"
     ArgAddSignedWrap -> "Addition of a constant caused signed wrap of an int in argument"
     ArgSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int in argument"
+    ArgNonZero -> "Division or remainder by zero in argument"
 
 prescribe :: MissingPreconditionTag -> Text
 prescribe =
@@ -154,6 +156,7 @@ prescribe =
       ArgMemsetTooSmall -> "the allocation is at least that size."
       ArgAddSignedWrap -> "the integer is small enough"
       ArgSubSignedWrap -> "the integer is large enough"
+      ArgNonZero -> "the argument is not zero"
 
 -- | There was an error and we know roughly what sort it was, but we still can't
 -- do anything about it, i.e., it\'s not clear what kind of precondition could
