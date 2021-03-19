@@ -55,7 +55,7 @@ even!
 [Crux] Results for not_double_free
 [Crux] Function is safe if deduced preconditions are met:
 Arguments:
-  A pointer to uninitialized space for 1 elements: 
+  A pointer to uninitialized space for 1 elements:
   An integer:
 ```
 While the examples here have very simple inputs, `uc-crux-llvm` is capable of synthesizing much richer inputs, including nested and recursive structs, pointers, floats, and more.
@@ -208,29 +208,32 @@ Uncertain results:
   - [x] Floats
   - [ ] Arrays
 - [x] Increase argument "depth" until saturation or a bound is reached
-- [ ] Develop heuristics for more types of errors
-  - [x] Missing precondition: Unallocated, uninitialized, or insufficiently aligned pointer inside argument
-  - [x] True positive: Concretely failing user assertions
-  - [ ] True positive heuristics for out-of-bounds reads/writes
-  - [x] True positive: double free
-  - [x] Reads from pointer expressions involving input pointers
-  - [x] Writes to pointer expressions involving input pointers
-  - [ ] Signed wrap with integers from arguments
-    - [x] Addition
-    - [x] Subtraction
-    - [ ] Multiplication
-  - [ ] Division by zero
-  - [ ] Mod by zero
+- [x] Develop heuristics for more types of errors
+  - [x] True positives:
+    - [x] Concretely failing user assertions
+    - [x] Double free
+  - [x] Missing preconditions:
+    - [x] Unallocated, uninitialized, or insufficiently aligned pointer inside
+          argument
+    - [x] `free` called on unallocated input pointer
+    - [x] `memset` called on too-small allocation in argument
+    - [x] Signed wrap with integers from arguments
+      - [x] Addition
+      - [x] Subtraction
+- [x] Test suite
+  - [x] With compiled C programs
+  - [x] With hand-written LLVM ASTs
 
 ### Milestone 2: Publishable
 
 - [x] Rename package to UC-Crux-LLVM
 - [x] Revise CLI (make a `Crux.Config`)
 - [ ] Print concretized inputs that make errors occur
+- [ ] Improve printing of constraints
 - [x] README
   - [x] With "outer loop" flowchart
   - [ ] With CLI docs
-  - [ ] With demo at the top: double free
+  - [x] With demo at the top: double free
 
 ### Milestone 3: Finding Bugs in Large Codebases
 
@@ -252,14 +255,39 @@ Uncertain results:
 - Goal: Handle even more kinds of behaviors
   - [ ] Support generating allocations for reads/writes through pointers appearing in globals
   - [x] Support generating pointer arguments that are treated as arrays
+  - [ ] Develop heuristics for more types of errors
+    - [ ] True positives:
+      - [ ] Out-of-bounds reads/writes at concrete offsets
+      - [ ] Division by zero
+      - [ ] Mod by zero
+      - [ ] Use before initialization of non-argument allocation
+      - [ ] `free` called on non-argument pointer with non-zero offset
+      - [ ] Write of `const` memory
+      - [ ] Illegal (un)signed wrap when both operands are concrete
+      - [ ] Concretely null pointer dereference
+    - [ ] Missing preconditions:
+      - [ ] Signed wrap with integers from arguments
+        - [ ] Multiplication
+      - [ ] Unsigned wrap with integers from arguments
+        - [ ] Addition
+        - [ ] Subtraction
+        - [ ] Multiplication
 - Goal: Robustness to unforeseen conditions
   - [ ] Setting to ignore or raise errors that have no applicable heuristics
+  - [ ] Test suite
+    - [ ] With compiled C++ programs
+    - [ ] Parameterizing compiled programs over a set of compiler flags
+          (probably optimization levels)
 
 ### Milestone 4: The Dream Achieved
 
+- [ ] Even more heuristics
 - [ ] Optionally skipping missing functions
-- [ ] Way more heuristics
-  - [ ] True positive: Signed wrap when both arguments are concrete
+- [ ] When a suspected true positive is found, verify it is feasible by reaching
+      it from further up the call tree
+- [ ] After deducing preconditions for a function, generate overrides that
+      check those preconditions, enabling bi-directional propagation between
+      callsites and function definitions.
 - [ ] Generate runnable counter-examples in C
 - [ ] Relational preconditions between arguments and globals
   - [ ] `int` field is the length of a pointer field
