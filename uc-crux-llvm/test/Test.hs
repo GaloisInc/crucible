@@ -341,6 +341,7 @@ inFileTests =
         ("double_free.c", [("double_free", hasBugs)]),
         ("branch.c", [("branch", isSafe)]),
         ("compare_to_null.c", [("compare_to_null", isSafe)]),
+        ("id_function_pointer.c", [("id_function_pointer", isSafe)]),
         ("opaque_struct.c", [("opaque_struct", isSafe)]),
         ("print.c", [("print", isSafe)]),
         ("read_global.c", [("read_global", isSafe)]),
@@ -378,6 +379,7 @@ inFileTests =
         ("null_dereference.c", [("null_dereference", isUnclassified)]), -- goal: hasBugs
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
+        ("read_errno.c", [("read_errno", isUnclassified)]), -- goal: isSafe
         ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: hasBugs
         ("write_const_global.c", [("write_const_global", isUnclassified)]), -- goal: hasBugs
         ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
@@ -1013,5 +1015,10 @@ main =
       "uc-crux-llvm"
       [ inFileTests,
         moduleTests,
-        isUnimplemented "call_function_pointer.c" "call_function_pointer" -- goal: ???
+        isUnimplemented "call_function_pointer.c" "call_function_pointer", -- goal: ???
+        isUnimplemented "call_varargs_function_pointer.c" "call_varargs_function_pointer", -- goal: ???
+        isUnimplemented "id_varargs_function_pointer.c" "id_varargs_function_pointer", -- goal: isSafe
+        -- Strangely, this compiles to a function that takes a variable-arity
+        -- function as an argument?
+        isUnimplemented "set_errno.c" "set_errno" -- goal: ???
       ]
