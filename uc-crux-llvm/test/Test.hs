@@ -855,156 +855,106 @@ moduleTests =
         "mul_neg1_nuw_right.c"
         (oneArithRight "mul_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Mul True False))
         [("mul_neg1_nuw_right", isUnclassified)], -- TODO Goal: ???
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
       inModule
         "udiv0_right.c"
         (oneArithRight "udiv0_right" i32 (L.ValInteger 0) (L.UDiv False))
-        [("udiv0_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("udiv0_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "udiv1_right.c"
         (oneArithRight "udiv1_right" i32 (L.ValInteger 1) (L.UDiv False))
-        [("udiv1_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("udiv1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "udiv1_exact_right.c"
         (oneArithRight "udiv1_exact_right" i32 (L.ValInteger 1) (L.UDiv True))
-        [("udiv1_exact_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("udiv1_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "udiv2_right.c"
         (oneArithRight "udiv2_right" i32 (L.ValInteger 2) (L.UDiv False))
-        [("udiv2_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("udiv2_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "udiv2_exact_right.c"
         (oneArithRight "udiv2_exact_right" i32 (L.ValInteger 2) (L.UDiv True))
-        [("udiv2_exact_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("udiv2_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "udiv_neg1_right.c"
         (oneArithRight "udiv_neg1_right" i32 (L.ValInteger (-1)) (L.UDiv False))
-        [("udiv_neg1_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("udiv_neg1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "udiv_neg1_exact_right.c"
         (oneArithRight "udiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.UDiv True))
-        [("udiv_neg1_exact_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("udiv_neg1_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv0_right.c"
         (oneArithRight "sdiv0_right" i32 (L.ValInteger 0) (L.SDiv False))
-        [("sdiv0_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("sdiv0_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "sdiv1_right.c"
         (oneArithRight "sdiv1_right" i32 (L.ValInteger 1) (L.SDiv False))
-        [("sdiv1_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("sdiv1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "sdiv1_exact_right.c"
         (oneArithRight "sdiv1_exact_right" i32 (L.ValInteger 1) (L.SDiv True))
-        [("sdiv1_exact_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("sdiv1_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv_neg1_right.c"
         (oneArithRight "sdiv_neg1_right" i32 (L.ValInteger (-1)) (L.SDiv False))
-        [("sdiv_neg1_right", isUnclassified)], -- TODO Goal: hasBugs
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
+        [("sdiv_neg1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "sdiv_neg1_exact_right.c"
         (oneArithRight "sdiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.SDiv True))
         [("sdiv_neg1_exact_right", isUnclassified)], -- TODO Goal: ???
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
       inModule
         "sdiv2_right.c"
         (oneArithRight "sdiv2_right" i32 (L.ValInteger 2) (L.SDiv False))
-        [("sdiv2_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("sdiv2_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "sdiv2_exact_right.c"
         (oneArithRight "sdiv2_exact_right" i32 (L.ValInteger 2) (L.SDiv True))
-        [("sdiv2_exact_right", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
+        [("sdiv2_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv_neg2_right.c"
         (oneArithRight "sdiv_neg2_right" i32 (L.ValInteger (-2)) (L.SDiv False))
-        [("sdiv_neg2_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("sdiv_neg2_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "sdiv_neg2_exact_right.c"
         (oneArithRight "sdiv_neg2_exact_right" i32 (L.ValInteger (-2)) (L.SDiv True))
-        [("sdiv_neg2_exact_right", isUnclassified)], -- TODO Goal: isSafeWithPreconditions
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
+        [("sdiv_neg2_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "urem0_right.c"
         (oneArithRight "urem0_right" i32 (L.ValInteger 0) L.URem)
-        [("urem0_right", isUnclassified)], -- TODO Goal: hasBugs
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
+        [("urem0_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "urem1_right.c"
         (oneArithRight "urem1_right" i32 (L.ValInteger 1) L.URem)
-        [("urem1_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("urem1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "urem_neg1_right.c"
         (oneArithRight "urem_neg1_right" i32 (L.ValInteger (-1)) L.URem)
-        [("urem_neg1_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("urem_neg1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "urem2_right.c"
         (oneArithRight "urem2_right" i32 (L.ValInteger 2) L.URem)
-        [("urem2_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("urem2_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "srem0_right.c"
         (oneArithRight "srem0_right" i32 (L.ValInteger 0) L.SRem)
-        [("srem0_right", isUnclassified)], -- TODO Goal: hasBugs
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
+        [("srem0_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "srem1_right.c"
         (oneArithRight "srem1_right" i32 (L.ValInteger 1) L.SRem)
-        [("srem1_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("srem1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "srem_neg1_right.c"
         (oneArithRight "srem_neg1_right" i32 (L.ValInteger (-1)) L.SRem)
-        [("srem_neg1_right", isUnclassified)], -- TODO Goal: hasBugs
-        -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-        -- argument is nonzero.
+        [("srem_neg1_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "srem2_right.c"
         (oneArithRight "srem2_right" i32 (L.ValInteger 2) L.SRem)
-        [("srem2_right", isUnclassified)],
-      -- TODO Goal: isSafeWithPreconditions, where the precondition is that the
-      -- argument is nonzero.
+        [("srem2_right", isSafeWithPreconditions DidntHitBounds)],
       inModule
         "srem_neg2_right.c"
         (oneArithRight "srem_neg2_right" i32 (L.ValInteger (-2)) L.SRem)
-        [("srem_neg2_right", isUnclassified)]
+        [("srem_neg2_right", isSafeWithPreconditions DidntHitBounds)]
     ]
 
 main :: IO ()

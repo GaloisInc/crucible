@@ -39,6 +39,8 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Type.Equality ((:~:)(Refl))
 
+import qualified Text.LLVM.AST as L
+
 import           Data.Parameterized.Classes (IxedF'(ixF'), ShowF)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
@@ -587,11 +589,36 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             _ -> return Nothing
           else return Nothing
 
+    -- If the divisor is concretely zero, it's a bug. If the divisor is from an
+    -- argument, add a precondition that that value isn't zero.
     handleDivRemByZero ::
       TruePositiveTag -> TruePositive -> What4.SymBV sym w -> f (Explanation m arch argTypes)
     handleDivRemByZero tag truePositive divisor =
       case What4.asConcrete divisor of
-        Nothing -> unclass appCtx badBehavior
+        Nothing ->
+          case getTermAnn divisor of
+            Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+              do
+                let tag' = ArgNonZero
+                liftIO $
+                  (appCtx ^. log) Hi $
+                    Text.unwords
+                      [ "Diagnosis:",
+                        diagnose tag',
+                        "#" <> Text.pack (show (Ctx.indexVal idx)),
+                        "at",
+                        Text.pack (show (ppCursor (argName idx) cursor))
+                      ]
+                liftIO $ (appCtx ^. log) Hi $ prescribe tag'
+                case ftRepr of
+                  FTIntRepr w ->
+                    return $
+                      ExMissingPreconditions
+                        ( tag',
+                          oneArgConstraint idx cursor (BVCmp L.Ine w (BV.mkBV w 0))
+                        )
+                  _ -> panic "classify" ["Expected integer type"]
+            _ -> unclass appCtx badBehavior
         Just _ ->
           do
             liftIO $
