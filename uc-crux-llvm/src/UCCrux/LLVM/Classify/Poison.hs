@@ -84,7 +84,8 @@ getTermAnn sym annotations expr =
 annotationAndValue ::
   What4.IsExprBuilder sym =>
   sym ->
-  -- | Term annotations (origins)
+  -- | Term annotations (origins), see comment on
+  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
   Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
   What4.SymBV sym w ->
   What4.SymBV sym w ->
@@ -107,7 +108,8 @@ handleBVOp ::
   AppContext ->
   FunctionContext m arch argTypes ->
   sym ->
-  -- | Term annotations (origins)
+  -- | Term annotations (origins), see comment on
+  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
   Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
   MissingPreconditionTag ->
   What4.SymBV sym w ->
@@ -163,7 +165,8 @@ classifyPoison ::
   AppContext ->
   FunctionContext m arch argTypes ->
   sym ->
-  -- | Term annotations (origins)
+  -- | Term annotations (origins), see comment on
+  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
   Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
   Poison.Poison (Crucible.RegValue' sym) ->
   f (Maybe (Explanation m arch argTypes))

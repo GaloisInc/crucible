@@ -155,8 +155,21 @@ instance LJ.HasLog Text (Setup m arch sym argTypes) where
 
 data SetupResult m arch sym argTypes = SetupResult
   { resultMem :: LLVMMem.MemImpl sym,
-    resultAnnotations :: Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)),
-    resultAssumptions :: [SetupAssumption m sym]
+    -- | This map tracks where a given expression originated from, i.e. whether
+    -- it was generated as part of an argument of global variable, and if so,
+    -- where in said value it resides (via a 'Selector'). This is used by
+    -- 'UCCrux.LLVM.Classify.classifyBadBehavior' to deduce new preconditions
+    -- and attach constraints in the right place.
+    --
+    -- For example, if the error is an OOB write and classification looks up the
+    -- pointer in this map and it appears in an argument, it will attach a
+    -- precondition that that part of the argument gets allocated with more
+    -- space. If it looks up the pointer and it's not in this map, it's not clear
+    -- how this error could be prevented, and the error will be unclassified.
+    resultAnnotations ::
+      Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)),
+    resultAssumptions ::
+      [SetupAssumption m sym]
   }
 
 runSetup ::

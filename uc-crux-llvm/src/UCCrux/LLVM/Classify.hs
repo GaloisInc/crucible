@@ -158,7 +158,8 @@ classifyBadBehavior ::
   sym ->
   -- | Function arguments
   Crucible.RegMap sym (MapToCrucibleType arch argTypes) ->
-  -- | Term annotations (origins)
+  -- | Term annotations (origins), see comment on
+  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
   Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
   -- | The arguments that were passed to the function
   Ctx.Assignment (Shape m (SymValue sym arch)) argTypes ->
