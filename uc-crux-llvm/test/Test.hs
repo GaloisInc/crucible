@@ -764,15 +764,14 @@ moduleTests =
         "add_neg1_right.c"
         (oneArithRight "add_neg1_right" i32 (L.ValInteger (-1)) (L.Add False False))
         [("add_neg1_right", isSafe)],
-      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
-      -- inModule
-      --   "add_neg1_nsw_right.c"
-      --   (oneArithRight "add_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Add False True))
-      --   [("add_neg1_nsw_right",isSafeWithPreconditions DidntHitBounds)],
-      -- inModule
-      --   "add_neg1_nuw_right.c"
-      --   (oneArithRight "add_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Add True False))
-      --   [("add_neg1_nuw_right",isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
+      inModule
+        "add_neg1_nsw_right.c"
+        (oneArithRight "add_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Add False True))
+        [("add_neg1_nsw_right", isSafeWithPreconditions DidntHitBounds)],
+      inModule
+        "add_neg1_nuw_right.c"
+        (oneArithRight "add_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Add True False))
+        [("add_neg1_nuw_right", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
         "add1_float_right.c"
         (oneArithRight "add1_float_right" float (L.ValFloat 1.0) L.FAdd)
@@ -805,11 +804,10 @@ moduleTests =
         "sub_neg1_right.c"
         (oneArithRight "sub_neg1_right" i32 (L.ValInteger (-1)) (L.Sub False False))
         [("sub_neg1_right", isSafe)],
-      -- TODO: https://github.com/GaloisInc/crucible/pull/673#discussion_r596467766
-      -- inModule
-      --   "sub_neg1_nsw_right.c"
-      --   (oneArithRight "sub_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Sub False True))
-      --   [("sub_neg1_nsw_right",isSafeWithPreconditions DidntHitBounds)],
+      inModule
+        "sub_neg1_nsw_right.c"
+        (oneArithRight "sub_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Sub False True))
+        [("sub_neg1_nsw_right", isSafe)], -- TODO Is this right?
       inModule
         "sub_neg1_nuw_right.c"
         (oneArithRight "sub_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Sub True False))
