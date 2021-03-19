@@ -1020,16 +1020,18 @@ isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
 --
 --   The pointer to read from must be concrete and nonnull.  The contents
 --   of the string may be symbolic; HOWEVER, this function will not terminate
---   until it eventually reaches a concete null-terminator or a load error.
+--   until it eventually reaches a concete null-terminator or a load error,
+--   unless a maximum bound is provided via the @gas@ parameter.
 strLen :: forall sym wptr.
   (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
   sym ->
+  Maybe Word {-^ bound on loop/string length -} ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
   IO (SymBV sym wptr)
-strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
+strLen sym gas mem = go (BV.zero PtrWidth) gas (truePred sym)
   where
-  go !n cond p =
+  go !n !g cond p =
     loadRaw sym mem p (bitvectorType 1) noAlignment >>= \case
       Partial.Err pe ->
         do ast <- impliesPred sym cond pe
@@ -1045,7 +1047,19 @@ strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
              (do cond' <- andPred sym cond test
                  p'    <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth (BV.one PtrWidth)
                  case BV.succUnsigned PtrWidth n of
-                   Just n_1 -> go n_1 cond' p'
+                   Just n_1 ->
+                     case g of
+                       Just 0 ->
+                         addFailedAssertion sym $
+                           ResourceExhausted
+                             (unwords
+                               [ "strlen ran out of gas: can't handle strings"
+                               , "without a concrete null terminator in the"
+                               , "first"
+                               , show (fromJust gas)
+                               , "bytes"
+                               ])
+                       _ -> go n_1 (pred <$> g) cond' p'
                    Nothing -> panic "Lang.Crucible.LLVM.MemModel.strLen" ["string length exceeds pointer width"])
              (bvLit sym PtrWidth n)
 

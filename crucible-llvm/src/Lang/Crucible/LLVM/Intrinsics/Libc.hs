@@ -469,7 +469,7 @@ callStrlen
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType wptr))
 callStrlen sym mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
-  liftIO $ strLen sym mem strPtr
+  liftIO $ strLen sym Nothing mem strPtr
 
 callAssert
   :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
