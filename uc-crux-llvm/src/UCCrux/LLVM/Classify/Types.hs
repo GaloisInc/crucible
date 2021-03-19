@@ -67,23 +67,46 @@ import           UCCrux.LLVM.FullType.Type (FullType)
 data TruePositiveTag
   = TagConcretelyFailingAssert
   | TagDoubleFree
+  | TagUDivByConcreteZero
+  | TagSDivByConcreteZero
+  | TagURemByConcreteZero
+  | TagSRemByConcreteZero
   deriving (Eq, Ord)
 
 data TruePositive
   = ConcretelyFailingAssert !What4.ProgramLoc
   | DoubleFree
+  | UDivByConcreteZero
+  | SDivByConcreteZero
+  | URemByConcreteZero
+  | SRemByConcreteZero
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
   \case
     ConcretelyFailingAssert {} -> TagConcretelyFailingAssert
     DoubleFree {} -> TagDoubleFree
+    UDivByConcreteZero {} -> TagUDivByConcreteZero
+    SDivByConcreteZero {} -> TagSDivByConcreteZero
+    URemByConcreteZero {} -> TagURemByConcreteZero
+    SRemByConcreteZero {} -> TagSRemByConcreteZero
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
   \case
     TagConcretelyFailingAssert -> "Concretely failing user assertion"
     TagDoubleFree -> "Double free"
+    TagUDivByConcreteZero -> "Unsigned division with a concretely zero divisor"
+    TagSDivByConcreteZero -> "Signed division with a concretely zero divisor"
+    TagURemByConcreteZero -> "Unsigned remainder with a concretely zero divisor"
+    TagSRemByConcreteZero -> "Signed remainder with a concretely zero divisor"
+
+ppTruePositive :: TruePositive -> Text
+ppTruePositive =
+  \case
+    ConcretelyFailingAssert loc ->
+      "Concretely failing call to assert() at " <> Text.pack (show loc)
+    tp -> ppTruePositiveTag (truePositiveTag tp)
 
 -- | All of the preconditions that we can deduce. We know how to detect and fix
 -- these issues.
@@ -262,13 +285,6 @@ partitionExplanations = go [] [] [] []
         (ExExhaustedBounds e : xs) ->
           let (ts', cs', ds', es') = go ts cs ds es xs
            in (ts', cs', ds', e : es')
-
-ppTruePositive :: TruePositive -> Text
-ppTruePositive =
-  \case
-    ConcretelyFailingAssert loc ->
-      "Concretely failing call to assert() at " <> Text.pack (show loc)
-    DoubleFree -> "Pointer freed twice"
 
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =

@@ -168,30 +168,37 @@ classifyBadBehavior ::
   f (Explanation m arch argTypes)
 classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations argShapes badBehavior =
   case badBehavior of
-    LLVMErrors.BBUndefinedBehavior
-      (UB.WriteBadAlignment ptr alignment) ->
-        case getPtrOffsetAnn (Crucible.unRV ptr) of
-          Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-            do
-              let tag = ArgWriteBadAlignment
-              liftIO $
-                (appCtx ^. log) Hi $
-                  Text.unwords
-                    [ "Diagnosis: ",
-                      diagnose tag,
-                      "#" <> Text.pack (show (Ctx.indexVal idx)),
-                      "at",
-                      Text.pack (show (ppCursor (argName idx) cursor)),
-                      "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
-                    ]
-              liftIO $ (appCtx ^. log) Hi $ prescribe tag
-              case isPtrRepr ftRepr of
-                Nothing -> panic "classify" ["Expected pointer type"]
-                Just (IsPtrRepr Refl) ->
-                  return $
-                    ExMissingPreconditions $
-                      (tag, oneArgConstraint idx cursor (Aligned alignment))
-          _ -> unclass appCtx badBehavior
+    LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
+      handleDivRemByZero TagUDivByConcreteZero UDivByConcreteZero divisor
+    LLVMErrors.BBUndefinedBehavior (UB.SDivByZero _dividend (Crucible.RV divisor)) ->
+      handleDivRemByZero TagSDivByConcreteZero SDivByConcreteZero divisor
+    LLVMErrors.BBUndefinedBehavior (UB.URemByZero _dividend (Crucible.RV divisor)) ->
+      handleDivRemByZero TagURemByConcreteZero URemByConcreteZero divisor
+    LLVMErrors.BBUndefinedBehavior (UB.SRemByZero _dividend (Crucible.RV divisor)) ->
+      handleDivRemByZero TagSRemByConcreteZero SRemByConcreteZero divisor
+    LLVMErrors.BBUndefinedBehavior (UB.WriteBadAlignment ptr alignment) ->
+      case getPtrOffsetAnn (Crucible.unRV ptr) of
+        Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+          do
+            let tag = ArgWriteBadAlignment
+            liftIO $
+              (appCtx ^. log) Hi $
+                Text.unwords
+                  [ "Diagnosis: ",
+                    diagnose tag,
+                    "#" <> Text.pack (show (Ctx.indexVal idx)),
+                    "at",
+                    Text.pack (show (ppCursor (argName idx) cursor)),
+                    "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
+                  ]
+            liftIO $ (appCtx ^. log) Hi $ prescribe tag
+            case isPtrRepr ftRepr of
+              Nothing -> panic "classify" ["Expected pointer type"]
+              Just (IsPtrRepr Refl) ->
+                return $
+                  ExMissingPreconditions $
+                    (tag, oneArgConstraint idx cursor (Aligned alignment))
+        _ -> unclass appCtx badBehavior
     LLVMErrors.BBUndefinedBehavior
       (UB.ReadBadAlignment ptr alignment) ->
         case getPtrOffsetAnn (Crucible.unRV ptr) of
@@ -579,6 +586,18 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                           (tag, oneArgShapeConstraint idx cursor (Allocated 1))
             _ -> return Nothing
           else return Nothing
+
+    handleDivRemByZero ::
+      TruePositiveTag -> TruePositive -> What4.SymBV sym w -> f (Explanation m arch argTypes)
+    handleDivRemByZero tag truePositive divisor =
+      case What4.asConcrete divisor of
+        Nothing -> unclass appCtx badBehavior
+        Just _ ->
+          do
+            liftIO $
+              (appCtx ^. log) Hi $
+                Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
+            return $ ExTruePositive truePositive
 
     argName :: Ctx.Index argTypes tp -> String
     argName idx = funCtx ^. argumentNames . ixF' idx . to getConst . to (maybe "<top>" Text.unpack)
