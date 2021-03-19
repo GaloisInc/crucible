@@ -354,6 +354,8 @@ inFileTests =
         ("deref_arg_const_index.c", [("deref_arg_const_index", isSafeWithPreconditions DidntHitBounds)]),
         ("deref_struct_field.c", [("deref_struct_field", isSafeWithPreconditions DidntHitBounds)]),
         ("do_free.c", [("do_free", isSafeWithPreconditions DidntHitBounds)]),
+        ("free_dict.c", [("free_dict", isSafeWithPreconditions DidHitBounds)]),
+        ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions DidHitBounds)]),
         ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
         ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions DidntHitBounds)]),
         ("memset_const_len_arg_byte.c", [("memset_const_len_arg_byte", isSafeWithPreconditions DidntHitBounds)]),
