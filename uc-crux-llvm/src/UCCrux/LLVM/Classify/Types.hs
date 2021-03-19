@@ -71,6 +71,8 @@ data TruePositiveTag
   | TagSDivByConcreteZero
   | TagURemByConcreteZero
   | TagSRemByConcreteZero
+  | TagReadNonPointer
+  | TagWriteNonPointer
   deriving (Eq, Ord)
 
 data TruePositive
@@ -80,6 +82,8 @@ data TruePositive
   | SDivByConcreteZero
   | URemByConcreteZero
   | SRemByConcreteZero
+  | ReadNonPointer
+  | WriteNonPointer
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -90,6 +94,8 @@ truePositiveTag =
     SDivByConcreteZero {} -> TagSDivByConcreteZero
     URemByConcreteZero {} -> TagURemByConcreteZero
     SRemByConcreteZero {} -> TagSRemByConcreteZero
+    ReadNonPointer {} -> TagReadNonPointer
+    WriteNonPointer {} -> TagWriteNonPointer
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
@@ -100,6 +106,8 @@ ppTruePositiveTag =
     TagSDivByConcreteZero -> "Signed division with a concretely zero divisor"
     TagURemByConcreteZero -> "Unsigned remainder with a concretely zero divisor"
     TagSRemByConcreteZero -> "Signed remainder with a concretely zero divisor"
+    TagReadNonPointer -> "Read from an integer that concretely wasn't a pointer"
+    TagWriteNonPointer -> "Write from an integer that concretely wasn't a pointer"
 
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =
