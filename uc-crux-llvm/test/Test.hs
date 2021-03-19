@@ -339,6 +339,7 @@ inFileTests =
       [ ("assert_false.c", [("assert_false", hasBugs)]),
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
         ("double_free.c", [("double_free", hasBugs)]),
+        ("write_to_null.c", [("write_to_null", hasBugs)]),
         ("branch.c", [("branch", isSafe)]),
         ("compare_to_null.c", [("compare_to_null", isSafe)]),
         ("id_function_pointer.c", [("id_function_pointer", isSafe)]),
@@ -379,7 +380,6 @@ inFileTests =
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
-        ("null_dereference.c", [("null_dereference", isUnclassified)]), -- goal: hasBugs
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
         ("read_errno.c", [("read_errno", isUnclassified)]), -- goal: isSafe

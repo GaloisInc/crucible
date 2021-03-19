@@ -144,6 +144,15 @@ unfixable appCtx tag =
     liftIO $ (appCtx ^. log) Hi "Prognosis: Don't know how to fix this."
     pure $ ExUncertain (UUnfixable tag)
 
+notAPointer ::
+  Crucible.IsSymInterface sym =>
+  sym ->
+  LLVMPtr.LLVMPtr sym w ->
+  IO (Maybe Bool)
+notAPointer sym ptr =
+  What4.asConstantPred
+    <$> (What4.natEq sym (LLVMPtr.llvmPointerBlock ptr) =<< What4.natLit sym 0)
+
 -- | Take an error that occurred during symbolic execution, classify it as a
 -- true or false positive. If it is a false positive, deduce further
 -- preconditions.
@@ -398,8 +407,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
           (summarizeOp -> (_expl, ptr))
           MemError.UnwritableRegion
         ) ->
-        case getPtrOffsetAnn ptr of
-          Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+        case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
+          (Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))), _) ->
             case isPtrRepr ftRepr of
               Nothing -> panic "classify" ["Expected pointer type"]
               Just (IsPtrRepr Refl) ->
@@ -429,7 +438,43 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       return $
                         ExMissingPreconditions
                           (tag, oneArgShapeConstraint idx cursor (Allocated 1))
-          -- TODO(lb): Something about globals, probably?
+          -- If the pointer expression doesn't involve the function's
+          -- arguments/global variables at all, then it's just a standard null
+          -- dereference or similar.
+          (Nothing, []) ->
+            do
+              notPtr <- liftIO $ notAPointer sym ptr
+              case notPtr of
+                Just True ->
+                  do
+                    let tag = TagWriteNonPointer
+                    liftIO $
+                      (appCtx ^. log) Hi $
+                        Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
+                    return $ ExTruePositive WriteNonPointer
+                _ -> unclass appCtx badBehavior
+          _ -> unclass appCtx badBehavior
+    LLVMErrors.BBMemoryError
+      ( MemError.MemoryError
+          (summarizeOp -> (_expl, ptr))
+          MemError.UnreadableRegion
+        ) ->
+        case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
+          -- If the pointer expression doesn't involve the function's
+          -- arguments/global variables at all, then it's just a standard null
+          -- dereference or similar.
+          (Nothing, []) ->
+            do
+              notPtr <- liftIO $ notAPointer sym ptr
+              case notPtr of
+                Just True ->
+                  do
+                    let tag = TagReadNonPointer
+                    liftIO $
+                      (appCtx ^. log) Hi $
+                        Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
+                    return $ ExTruePositive ReadNonPointer
+                _ -> unclass appCtx badBehavior
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
@@ -557,10 +602,9 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
     handleFreeUnallocated :: LLVMPtr.LLVMPtr sym w -> f (Maybe (Explanation m arch argTypes))
     handleFreeUnallocated ptr =
       do
-        unallocated <-
-          liftIO $ What4.natEq sym (LLVMPtr.llvmPointerBlock ptr) =<< What4.natLit sym 0
+        notPtr <- liftIO $ notAPointer sym ptr
         let isUnallocated =
-              case What4.asConstantPred unallocated of
+              case notPtr of
                 Just False -> False
                 _ -> True
         if isUnallocated
