@@ -383,6 +383,9 @@ inFileTests =
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
         ("read_errno.c", [("read_errno", isUnclassified)]), -- goal: isSafe
+        ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
+        ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
+        ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: hasBugs
         ("write_const_global.c", [("write_const_global", isUnclassified)]), -- goal: hasBugs
         ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
