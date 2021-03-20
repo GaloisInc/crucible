@@ -53,6 +53,7 @@ library
     UCCrux.LLVM.Stats
 
   build-depends:
+    async,
     base >= 4.8 && < 4.15,
     bv-sized,
     config-schema,
