@@ -223,7 +223,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
                   do
                     -- Helpful for debugging:
                     -- putStrLn "~~~~~~~~~~~"
-                    -- putStrLn (show (ppBB badBehavior))
+                    -- putStrLn (show (LLVMErrors.ppBB badBehavior))
 
                     liftIO $ (appCtx ^. log) Hi ("Explaining error: " <> Text.pack (show (LLVMErrors.explainBB badBehavior)))
                     classifyBadBehavior appCtx modCtx funCtx sym args argAnnotations argShapes badBehavior
