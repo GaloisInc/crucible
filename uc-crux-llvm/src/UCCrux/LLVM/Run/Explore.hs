@@ -18,12 +18,16 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log, writeFile)
 
+import           Control.Lens ((.~))
+import           Control.Concurrent (threadDelay )
+import           Control.Concurrent.Async (race, mapConcurrently)
 import           Control.Exception (displayException)
 import           Control.Lens ((^.))
+import           Data.Function ((&))
 import qualified Data.Map.Strict as Map
-import           Data.Traversable (for)
 import           Data.Text.IO (writeFile)
 import qualified Data.Text as Text
+import           Data.Traversable (for)
 import           Panic (panicComponent)
 import           System.Directory (doesPathExist, createDirectoryIfMissing)
 import           System.FilePath ((</>), (-<.>), takeFileName)
@@ -54,6 +58,56 @@ import           UCCrux.LLVM.Run.Loop (loopOnFunction)
 import           UCCrux.LLVM.Stats (Stats(unimplementedFreq), getStats, ppStats)
 {- ORMOLU_ENABLE -}
 
+withTimeout :: Int -> IO a -> IO (Either () a)
+withTimeout timeout action = race (threadDelay timeout) action
+
+exploreOne ::
+  ( ?outputConfig :: OutputConfig,
+    ArchOk arch
+  ) =>
+  AppContext ->
+  ModuleContext arch ->
+  CruxOptions ->
+  UCCruxLLVMOptions ->
+  Crucible.HandleAllocator ->
+  FilePath ->
+  String ->
+  IO Stats
+exploreOne appCtx modCtx cruxOpts ucOpts halloc dir func =
+  do
+    let logFilePath = dir </> func -<.> ".summary.log"
+    logExists <- doesPathExist logFilePath
+    if not logExists || Config.reExplore ucOpts
+      then do
+        (appCtx ^. log) Hi $ "Exploring " <> Text.pack func
+        maybeResult <-
+          withTimeout
+            -- Seconds to microseconds
+            (Config.exploreTimeout ucOpts * 1000000)
+            (loopOnFunction appCtx modCtx halloc cruxOpts ucOpts func)
+        case maybeResult of
+          Right (Right (SomeBugfindingResult result)) ->
+            do
+              writeFile logFilePath (Result.printFunctionSummary (Result.summary result))
+              pure (getStats result)
+          Right (Left unin) ->
+            do
+              (appCtx ^. log) Hi $ "Hit unimplemented feature in " <> Text.pack func
+              writeFile logFilePath (Text.pack (displayException unin))
+              pure
+                ( mempty
+                    { unimplementedFreq = Map.singleton (panicComponent unin) 1
+                    }
+                )
+          Left () ->
+            do
+              (appCtx ^. log) Hi $ "Hit timeout in " <> Text.pack func
+              writeFile logFilePath (Text.pack "Timeout - likely solver or Crucible bug")
+              pure mempty -- TODO Record timeout
+      else do
+        (appCtx ^. log) Med $ "Skipping already-explored function " <> Text.pack func
+        pure mempty
+
 -- | Explore arbitrary functions in this module, trying to find some bugs.
 --
 -- The strategy/order is exceedingly naive right now, it literally just applies
@@ -79,30 +133,13 @@ explore appCtx modCtx cruxOpts ucOpts halloc =
             (take (Config.exploreBudget ucOpts) (L.modDefines (modCtx ^. llvmModule)))
     let dir = bldDir cruxOpts </> takeFileName (modCtx ^. moduleFilePath) -<.> ""
     createDirectoryIfMissing True dir
+    let funcsToExplore = filter (`notElem` Config.skipFunctions ucOpts) functions
+    let doExplore ac = exploreOne ac modCtx cruxOpts ucOpts halloc dir
     stats <-
-      for (filter (`notElem` Config.skipFunctions ucOpts) functions) $
-        \func ->
-          do
-            let logFilePath = dir </> func -<.> ".summary.log"
-            logExists <- doesPathExist logFilePath
-            if not logExists || Config.reExplore ucOpts
-              then do
-                (appCtx ^. log) Hi $ "Exploring " <> Text.pack func
-                maybeResult <- loopOnFunction appCtx modCtx halloc cruxOpts ucOpts func
-                case maybeResult of
-                  Right (SomeBugfindingResult result) ->
-                    do
-                      writeFile logFilePath (Result.printFunctionSummary (Result.summary result))
-                      pure (getStats result)
-                  Left unin ->
-                    do
-                      writeFile logFilePath (Text.pack (displayException unin))
-                      pure
-                        ( mempty
-                            { unimplementedFreq = Map.singleton (panicComponent unin) 1
-                            }
-                        )
-              else do
-                (appCtx ^. log) Med $ "Skipping already-explored function " <> Text.pack func
-                pure mempty
+      if Config.exploreParallel ucOpts
+        then
+          mapConcurrently
+            (doExplore (appCtx & log .~ (\_ _ -> pure ())))
+            funcsToExplore
+        else for funcsToExplore (doExplore appCtx)
     (appCtx ^. log) Low $ ppShow (ppStats (mconcat stats))
