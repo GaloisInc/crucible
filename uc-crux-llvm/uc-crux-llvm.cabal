@@ -42,6 +42,7 @@ library
     UCCrux.LLVM.FullType.Type
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
+    UCCrux.LLVM.Overrides
     UCCrux.LLVM.PP
     UCCrux.LLVM.Run.Explore
     UCCrux.LLVM.Run.Loop
@@ -56,6 +57,7 @@ library
     async,
     base >= 4.8 && < 4.15,
     bv-sized,
+    bytestring,
     config-schema,
     containers,
     crucible,

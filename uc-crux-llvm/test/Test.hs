@@ -349,6 +349,7 @@ inFileTests =
         ("write_to_null.c", [("write_to_null", hasBugs)]),
         ("branch.c", [("branch", isSafe)]),
         ("compare_to_null.c", [("compare_to_null", isSafe)]),
+        ("gethostname_const_len.c", [("gethostname_const_len", isSafe)]),
         ("id_function_pointer.c", [("id_function_pointer", isSafe)]),
         ("opaque_struct.c", [("opaque_struct", isSafe)]),
         ("print.c", [("print", isSafe)]),
@@ -365,6 +366,7 @@ inFileTests =
         ("free_dict.c", [("free_dict", isSafeWithPreconditions DidHitBounds)]),
         ("free_dict_kv.c", [("free_dict_kv", isSafeWithPreconditions DidHitBounds)]),
         ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions DidHitBounds)]),
+        ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions DidntHitBounds)]),
         ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
         ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions DidHitBounds)]),
         ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions DidntHitBounds)]),
@@ -979,5 +981,14 @@ main =
         isUnimplemented "id_varargs_function_pointer.c" "id_varargs_function_pointer", -- goal: isSafe
         -- Strangely, this compiles to a function that takes a variable-arity
         -- function as an argument?
-        isUnimplemented "set_errno.c" "set_errno" -- goal: ???
+        isUnimplemented "set_errno.c" "set_errno", -- goal: ???
+        isUnimplemented
+          "gethostname_neg_len.c"
+          "gethostname_neg_len", -- goal: ???
+        isUnimplemented
+          "gethostname_arg_ptr_len.c"
+          "gethostname_arg_ptr_len", -- goal: ???
+        isUnimplemented
+          "gethostname_arg_len.c"
+          "gethostname_arg_len" -- goal: ???
       ]

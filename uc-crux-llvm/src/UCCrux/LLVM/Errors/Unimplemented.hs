@@ -36,6 +36,8 @@ data Unimplemented
   | GeneratingArrays
   | IndexCursor
   | ConstrainGlobal
+  | GetHostNameNegativeSize
+  | GetHostNameSmallSize
   deriving (Bounded, Enum, Eq, Ord)
 
 ppUnimplemented :: Unimplemented -> String
@@ -50,6 +52,8 @@ ppUnimplemented =
     GeneratingArrays -> "Arrays in globals or arguments"
     IndexCursor -> "Deduced preconditions on array elements"
     ConstrainGlobal -> "Constraints on a global variable"
+    GetHostNameNegativeSize -> "`gethostname` called with a negative length"
+    GetHostNameSmallSize -> "`gethostname` called with a small length"
 
 instance PanicComponent Unimplemented where
   panicComponentName _ = "uc-crux-llvm"
