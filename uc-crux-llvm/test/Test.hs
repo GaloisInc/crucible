@@ -349,6 +349,10 @@ inFileTests =
         ("write_to_null.c", [("write_to_null", hasBugs)]),
         ("branch.c", [("branch", isSafe)]),
         ("compare_to_null.c", [("compare_to_null", isSafe)]),
+        -- This override needs refinement; the following should be safe with the
+        -- precondition that the argument pointer is valid.
+        ("getenv_arg.c", [("getenv_arg", isSafe)]),
+        ("getenv_const.c", [("getenv_const", isSafe)]),
         ("gethostname_const_len.c", [("gethostname_const_len", isSafe)]),
         ("id_function_pointer.c", [("id_function_pointer", isSafe)]),
         ("opaque_struct.c", [("opaque_struct", isSafe)]),

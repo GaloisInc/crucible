@@ -48,6 +48,7 @@ import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
 import           Lang.Crucible.LLVM.QQ (llvmOvr)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, LLVMPointerType)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
+import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), register_llvm_overrides, basic_llvm_override)
@@ -77,6 +78,10 @@ registerUnsoundOverrides proxy llvmModule mtrans =
     let ?lc = llvmCtx ^. llvmTypeCtx
     register_llvm_overrides llvmModule [] (unsoundOverrides proxy) llvmCtx
 
+------------------------------------------------------------------------
+
+-- ** Declarations
+
 unsoundOverrides ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
@@ -89,8 +94,15 @@ unsoundOverrides ::
 unsoundOverrides arch =
   [ basic_llvm_override $
       [llvmOvr| i32 @gethostname( i8* , size_t ) |]
-        (\memOps sym args -> Ctx.uncurryAssignment (callGetHostName arch sym memOps) args)
+        (\memOps sym args -> Ctx.uncurryAssignment (callGetHostName arch sym memOps) args),
+    basic_llvm_override $
+      [llvmOvr| i8* @getenv( i8* ) |]
+        (\memOps sym args -> Ctx.uncurryAssignment (callGetEnv arch sym memOps) args)
   ]
+
+------------------------------------------------------------------------
+
+-- ** Implementations
 
 callGetHostName ::
   ( IsSymInterface sym,
@@ -138,3 +150,34 @@ callGetHostName _proxy sym mvar (regValue -> ptr) (regValue -> len) =
           Nothing
         )
       ]
+
+-- | Super unsound. Returns the same string value every time, but in a fresh
+-- allocation for each call. A more sound approximation would be to require
+-- that the variable name be concrete and then have a map from names to
+-- allocations holding values.
+callGetEnv ::
+  ( IsSymInterface sym,
+    HasLLVMAnn sym,
+    wptr ~ ArchWidth arch,
+    ArchOk arch,
+    ?lc :: TypeContext
+  ) =>
+  proxy arch ->
+  sym ->
+  GlobalVar Mem ->
+  RegEntry sym (LLVMPointerType wptr) ->
+  OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
+callGetEnv _proxy sym mvar _ptr =
+  do
+    let value = "<fake environment variable value>"
+    Override.modifyGlobal mvar $ \mem ->
+      liftIO $
+        do
+          let val = LLVMMem.LLVMValString value
+          let ty = LLVMMem.llvmValStorableType val
+          let lenBv = BV.mkBV ?ptrWidth (fromIntegral $ BS.length value)
+          sz <- What4.bvLit sym ?ptrWidth lenBv
+          (ptr', mem1) <-
+            LLVMMem.doMalloc sym G.GlobalAlloc G.Mutable "getenv" mem sz noAlignment
+          mem2 <- LLVMMem.storeRaw sym mem1 ptr' ty noAlignment val
+          return (ptr', mem2)
