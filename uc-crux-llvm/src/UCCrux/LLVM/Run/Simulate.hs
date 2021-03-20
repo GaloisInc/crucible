@@ -80,6 +80,7 @@ import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
+import           UCCrux.LLVM.Overrides (registerUnsoundOverrides)
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap)
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SetupAssumption(SetupAssumption))
@@ -186,6 +187,8 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
                   -- called from any particular function. Needs some
                   -- benchmarking.
                   registerFunctions (modCtx ^. llvmModule) trans
+                  -- TODO(lb): This should be configurable
+                  registerUnsoundOverrides modCtx (modCtx ^. llvmModule) trans
                   liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                   printed <- ppRegMap modCtx funCtx sym mem args
                   mapM_ (liftIO . (appCtx ^. log) Hi . Text.pack . show) printed
