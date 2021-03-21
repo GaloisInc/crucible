@@ -25,6 +25,7 @@ module UCCrux.LLVM.Cursor
     findBottom,
     deepenPtr,
     deepenStruct,
+    deepenArray,
     seekType,
 
     -- * 'Selector'
@@ -135,6 +136,23 @@ deepenStruct idx =
     Dereference i cursor -> Dereference i (deepenStruct idx cursor)
     Index i n cursor -> Index i n (deepenStruct idx cursor)
     Field fields idx' cursor -> Field fields idx' (deepenStruct idx cursor)
+
+-- | Similarly to 'deepenPtr', if you know that a 'Cursor' points to an array
+-- and you know the type contained in the array, you can get a 'Cursor' that
+-- points to an element.
+deepenArray ::
+  (i + 1 <= n) =>
+  NatRepr i ->
+  NatRepr n ->
+  Cursor m inTy ('FTArray n atTy) ->
+  Cursor m inTy atTy
+deepenArray idx len =
+  \case
+    Here (FTArrayRepr _n elems) ->
+      Index idx len (Here elems)
+    Dereference i cursor -> Dereference i (deepenArray idx len cursor)
+    Index i n cursor -> Index i n (deepenArray idx len cursor)
+    Field fields idx' cursor -> Field fields idx' (deepenArray idx len cursor)
 
 -- | A 'Cursor' can be \"applied\" to a 'FullTypeRepr' to get a \"smaller\"
 -- 'FullTypeRepr' that appears inside the \"outer\" one.
