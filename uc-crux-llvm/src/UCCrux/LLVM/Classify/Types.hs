@@ -236,33 +236,38 @@ data Uncertainty
     UMissingAnnotation Crucible.SimError
   | -- | A user assertion failed, but symbolically
     UFailedAssert !What4.ProgramLoc
+  | -- | Simulation timed out
+    UTimeout !Text
   deriving (Show)
 
 partitionUncertainty ::
-  [Uncertainty] -> ([Crucible.SimError], [What4.ProgramLoc], [Panic Unimplemented], [Unclassified], [Unfixed], [Unfixable])
-partitionUncertainty = go [] [] [] [] [] []
+  [Uncertainty] -> ([Crucible.SimError], [What4.ProgramLoc], [Panic Unimplemented], [Unclassified], [Unfixed], [Unfixable], [Text])
+partitionUncertainty = go [] [] [] [] [] [] []
   where
-    go ms fs ns us ufd ufa =
+    go ms fs ns us ufd ufa ts =
       \case
-        [] -> (ms, fs, ns, us, ufd, ufa)
+        [] -> (ms, fs, ns, us, ufd, ufa, ts)
         (UMissingAnnotation err : rest) ->
-          let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
-           in (err : ms', fs', ns', us', ufd', ufa')
+          let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
+           in (err : ms', fs', ns', us', ufd', ufa', ts')
         (UFailedAssert loc : rest) ->
-          let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
-           in (ms', loc : fs', ns', us', ufd', ufa')
-        (UUnimplemented n : rest) ->
-          let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
-           in (ms', fs', n : ns', us', ufd', ufa')
+          let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
+           in (ms', loc : fs', ns', us', ufd', ufa', ts')
+        (UUnimplemented unin : rest) ->
+          let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
+           in (ms', fs', unin : ns', us', ufd', ufa', ts')
         (UUnclassified unclass : rest) ->
-          let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
-           in (ms', fs', ns', unclass : us', ufd', ufa')
+          let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
+           in (ms', fs', ns', unclass : us', ufd', ufa', ts')
         (UUnfixed uf : rest) ->
-          let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
-           in (ms', fs', ns', us', uf : ufd', ufa')
+          let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
+           in (ms', fs', ns', us', uf : ufd', ufa', ts')
         (UUnfixable uf : rest) ->
-          let (ms', fs', ns', us', ufd', ufa') = go ms fs ns us ufd ufa rest
-           in (ms', fs', ns', us', ufd', uf : ufa')
+          let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
+           in (ms', fs', ns', us', ufd', uf : ufa', ts')
+        (UTimeout fun : rest) ->
+          let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
+           in (ms', fs', ns', us', ufd', ufa', fun : ts')
 
 -- | An error is either a true positive, a false positive due to some missing
 -- preconditions, or unknown.
@@ -311,3 +316,4 @@ ppUncertainty =
     UFailedAssert loc ->
       "Symbolically failing user assertion at " <> Text.pack (show loc)
     UUnimplemented pan -> Text.pack (displayException pan)
+    UTimeout fun -> Text.pack "Simulation timed out while executing " <> fun

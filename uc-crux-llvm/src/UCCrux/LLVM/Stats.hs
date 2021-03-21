@@ -39,6 +39,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemente
 data Stats = Stats
   { missingAnnotation :: !Word,
     symbolicallyFailedAssert :: !Word,
+    timeouts :: !Word,
     truePositiveFreq :: Map TruePositiveTag Word,
     unclassifiedFreq :: Map Text Word,
     missingPreconditionFreq :: Map MissingPreconditionTag Word,
@@ -54,10 +55,11 @@ frequencies = foldr (\tag mp -> Map.insertWith (+) tag 1 mp) Map.empty
 
 getStats :: BugfindingResult m arch argTypes -> Stats
 getStats result =
-  let (missingAnns, failedAsserts, unimplementeds, unclass, unfixed, unfixable) = partitionUncertainty (uncertainResults result)
+  let (missingAnns, failedAsserts, unimplementeds, unclass, unfixed, unfixable, timeouts') = partitionUncertainty (uncertainResults result)
    in Stats
         { missingAnnotation = fromIntegral $ length missingAnns,
           symbolicallyFailedAssert = fromIntegral $ length failedAsserts,
+          timeouts = fromIntegral $ length timeouts',
           truePositiveFreq =
             case Result.summary result of
               Result.FoundBugs bugs -> frequencies (map truePositiveTag (toList bugs))
@@ -92,13 +94,13 @@ ppStats stats =
         2
         $ PP.vsep
           [ PP.pretty ("Uncertain results:" :: Text),
-            PP.nest
-              2
-              $ PP.vsep
-                [ ppFreq "Unfixable errors:" (PP.pretty . ppUnfixable) (unfixableFreq stats),
-                  ppFreq "Unfixed errors:" (PP.pretty . ppUnfixed) (unfixedFreq stats),
-                  ppFreq "Unclassified errors:" PP.pretty (unclassifiedFreq stats)
-                ],
+            PP.pretty ("Timeouts:" :: Text) PP.<+> PP.viaShow (timeouts stats),
+            ppFreq "Unfixable errors:" (PP.pretty . ppUnfixable) (unfixableFreq stats),
+            ppFreq "Unfixed errors:" (PP.pretty . ppUnfixed) (unfixedFreq stats),
+            ppFreq
+              "Unclassified errors:"
+              PP.pretty
+              (unclassifiedFreq stats),
             PP.pretty
               ("Missing annotations: " :: Text)
               <> PP.viaShow (missingAnnotation stats),
@@ -123,6 +125,7 @@ instance Semigroup Stats where
           { unclassifiedFreq = unionWithPlus unclassifiedFreq,
             missingAnnotation = missingAnnotation stats1 + missingAnnotation stats2,
             symbolicallyFailedAssert = symbolicallyFailedAssert stats1 + symbolicallyFailedAssert stats2,
+            timeouts = timeouts stats1 + timeouts stats2,
             truePositiveFreq = unionWithPlus truePositiveFreq,
             missingPreconditionFreq = unionWithPlus missingPreconditionFreq,
             unimplementedFreq = unionWithPlus unimplementedFreq,
@@ -137,6 +140,7 @@ instance Monoid Stats where
       { unclassifiedFreq = Map.empty,
         missingAnnotation = 0,
         symbolicallyFailedAssert = 0,
+        timeouts = 0,
         truePositiveFreq = Map.empty,
         missingPreconditionFreq = Map.empty,
         unimplementedFreq = Map.empty,
