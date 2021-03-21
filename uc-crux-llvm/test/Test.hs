@@ -181,6 +181,7 @@ inModule fakePath llvmModule specs =
         \(fn, spec) ->
           spec fn $ fromMaybe (error ("Couldn't find result for function" ++ fn)) $ Map.lookup fn results
 
+-- | TODO: Take a list of TruePositiveTag, verify that those are the bugs.
 hasBugs :: String -> Result.SomeBugfindingResult -> IO ()
 hasBugs fn (Result.SomeBugfindingResult result) =
   do
@@ -221,6 +222,7 @@ isSafeToBounds fn (Result.SomeBugfindingResult result) =
               ]
           )
 
+-- | TODO: Take a list of MissingPreconditionTag, check that they match.
 isSafeWithPreconditions :: DidHitBounds -> String -> Result.SomeBugfindingResult -> IO ()
 isSafeWithPreconditions hitBounds fn (Result.SomeBugfindingResult result) =
   do
@@ -310,6 +312,7 @@ hasMissingAnn fn (Result.SomeBugfindingResult result) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
+-- | TODO: Take an unimplemented feature tag, check that it matches
 isUnimplemented :: FilePath -> String -> TT.TestTree
 isUnimplemented file fn =
   TH.testCase (fn <> " exercises unimplemented functionality") $
@@ -359,6 +362,7 @@ inFileTests =
         ("free_dict_kv.c", [("free_dict_kv", isSafeWithPreconditions DidHitBounds)]),
         ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions DidHitBounds)]),
         ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
+        ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions DidHitBounds)]),
         ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions DidntHitBounds)]),
         ("memset_const_len_arg_byte.c", [("memset_const_len_arg_byte", isSafeWithPreconditions DidntHitBounds)]),
         ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
