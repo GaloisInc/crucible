@@ -12,6 +12,7 @@ Stability    : provisional
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -37,12 +38,15 @@ import           Data.Functor.Compose (Compose(Compose))
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:) (Refl))
 import qualified Data.Sequence as Seq
+import qualified Data.Vector as Vec
 
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Classes (IxedF' (ixF'))
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.NatRepr (NatRepr, type (<=))
+import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+), LeqProof(LeqProof))
+import qualified Data.Parameterized.NatRepr as NatRepr
+import qualified Data.Parameterized.Vector as PVec
 
 import qualified What4.Interface as W4I
 import qualified What4.InterpretedFloatingPoint as W4IFP
@@ -62,14 +66,12 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes, moduleTypes)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule)
-import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
-import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.MemType (asFullType)
 import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType)
-import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenPtr)
+import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
@@ -187,6 +189,23 @@ pointerRange _proxy sym ptr offset size =
       (ptr :| [])
       (replicate (size - 1) ())
 
+generateM' ::
+  forall m h a.
+  Monad m =>
+  NatRepr (h + 1) ->
+  (forall n. n + 1 <= h + 1 => NatRepr n -> m a) ->
+  m (PVec.Vector (h + 1) a)
+generateM' h1 gen =
+  PVec.generateM
+    (NatRepr.predNat h1)
+    ( \(n :: NatRepr n) ->
+        case NatRepr.leqAdd2
+               (LeqProof :: LeqProof n h)
+               (NatRepr.leqRefl (Proxy :: Proxy 1) :: LeqProof 1 1) ::
+               LeqProof (n + 1) (h + 1) of
+          LeqProof -> gen n
+    )
+
 -- | Generate and constrain all the symbolic values. This is currently only used
 -- for arguments, but once global constraints are collected/supported, it can be
 -- used for those as well.
@@ -266,8 +285,31 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
             Shape.ShapePtr
               (SymValue annotatedPtr)
               (Shape.ShapeInitialized (Seq.fromList (toList (fmap snd pointedTos))))
-      (Shape.ShapeArray (Compose _constraints) _n _rest, FTArrayRepr _ _ftRepr') ->
-        unimplemented "generate" Unimplemented.GeneratingArrays
+      (Shape.ShapeArray (Compose _constraints) n elems, FTArrayRepr _len ftRepr') ->
+        case NatRepr.isZeroNat n of
+          NatRepr.NonZeroNat ->
+            do
+              elems' <-
+                generateM' n $ \idx ->
+                  generate
+                    sym
+                    mts
+                    ftRepr'
+                    (selector & selectorCursor %~ deepenArray idx n)
+                    (ConstrainedShape (PVec.elemAt idx elems))
+              pure $
+                Shape.ShapeArray
+                  -- TODO: Upstream a toVector function
+                  ( SymValue
+                      ( Vec.fromList
+                          ( map
+                              (^. Shape.tag . to getSymValue)
+                              (PVec.toList elems')
+                          )
+                      )
+                  )
+                  n
+                  elems'
       (Shape.ShapeStruct (Compose _constraints) fields, FTStructRepr _ fieldTypes) ->
         do
           fields' <-

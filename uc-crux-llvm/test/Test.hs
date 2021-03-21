@@ -373,6 +373,7 @@ inFileTests =
         ("not_double_free.c", [("not_double_free", isSafeWithPreconditions DidntHitBounds)]),
         ("ptr_as_array.c", [("ptr_as_array", isSafeWithPreconditions DidntHitBounds)]),
         ("sized_array_arg.c", [("sized_array_arg", isSafeWithPreconditions DidntHitBounds)]),
+        ("struct_with_array.c", [("struct_with_array", isSafeWithPreconditions DidntHitBounds)]),
         ("writes_to_arg.c", [("writes_to_arg", isSafeWithPreconditions DidntHitBounds)]),
         ("writes_to_arg_conditional.c", [("writes_to_arg_conditional", isSafeWithPreconditions DidntHitBounds)]),
         ("writes_to_arg_conditional_ptr.c", [("writes_to_arg_conditional_ptr", isSafeWithPreconditions DidntHitBounds)]),
