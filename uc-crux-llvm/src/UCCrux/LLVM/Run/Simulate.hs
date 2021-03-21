@@ -62,6 +62,7 @@ import           Lang.Crucible.LLVM.Extension (LLVM)
 
 -- crux
 import qualified Crux
+import qualified Crux.Types as Crux
 
 import           Crux.Config.Common (CruxOptions)
 import           Crux.Log (outputHandle, OutputConfig(..))
@@ -244,7 +245,7 @@ runSimulator ::
 runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
   do
     explRef <- newIORef []
-    void $
+    cruxResult <-
       Crux.runSimulator
         cruxOpts
         ( simulateLLVM
@@ -257,4 +258,7 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
             cfg
             memOptions
         )
-    readIORef explRef
+    case cruxResult of
+      Crux.CruxSimulationResult Crux.ProgramIncomplete _ ->
+        pure [ExUncertain (UTimeout (funCtx ^. functionName))]
+      _ -> readIORef explRef

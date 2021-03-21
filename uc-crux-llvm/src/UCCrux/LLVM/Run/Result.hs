@@ -65,7 +65,8 @@ functionSummaryTag =
 ppFunctionSummaryTag :: FunctionSummaryTag -> Text
 ppFunctionSummaryTag =
   \case
-    TagUnclear -> "Unclear result, errors are either false or true positives"
+    TagUnclear ->
+      "Unclear result, errors are either false or true positives (or timeouts were hit)"
     TagFoundBugs -> "Found likely bugs"
     TagSafeWithPreconditions -> "Function is safe if deduced preconditions are met"
     TagSafeUpToBounds -> "Function is safe up to the specified bounds on loops/recursion"

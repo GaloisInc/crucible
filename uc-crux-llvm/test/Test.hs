@@ -243,13 +243,14 @@ isSafeWithPreconditions hitBounds fn (Result.SomeBugfindingResult result) =
 isUnannotated :: String -> Result.SomeBugfindingResult -> IO ()
 isUnannotated fn (Result.SomeBugfindingResult result) =
   do
-    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable) =
+    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
     [] TH.@=? map show unclass
     [] TH.@=? map show failedAssert
     [] TH.@=? map show unimpl
     [] TH.@=? map show unfixed
     [] TH.@=? map show unfixable
+    [] TH.@=? map show timeouts
     0 < length missingAnn
       TH.@? unwords
         [ "Expected",
@@ -261,13 +262,14 @@ isUnannotated fn (Result.SomeBugfindingResult result) =
 hasFailedAssert :: String -> Result.SomeBugfindingResult -> IO ()
 hasFailedAssert fn (Result.SomeBugfindingResult result) =
   do
-    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable) =
+    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
     [] TH.@=? map show unclass
     [] TH.@=? map show missingAnn
     [] TH.@=? map show unimpl
     [] TH.@=? map show unfixed
     [] TH.@=? map show unfixable
+    [] TH.@=? map show timeouts
     0 < length failedAssert
       TH.@? unwords
         [ "Expected",
@@ -279,13 +281,14 @@ hasFailedAssert fn (Result.SomeBugfindingResult result) =
 isUnclassified :: String -> Result.SomeBugfindingResult -> IO ()
 isUnclassified fn (Result.SomeBugfindingResult result) =
   do
-    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable) =
+    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
     [] TH.@=? map show missingAnn
     [] TH.@=? map show failedAssert
     [] TH.@=? map show unimpl
     [] TH.@=? map show unfixed
     [] TH.@=? map show unfixable
+    [] TH.@=? map show timeouts
     0 < length unclass
       TH.@? unwords
         [ "Expected",
@@ -297,13 +300,14 @@ isUnclassified fn (Result.SomeBugfindingResult result) =
 hasMissingAnn :: String -> Result.SomeBugfindingResult -> IO ()
 hasMissingAnn fn (Result.SomeBugfindingResult result) =
   do
-    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable) =
+    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
     [] TH.@=? map show failedAssert
     [] TH.@=? map show unclass
     [] TH.@=? map show unimpl
     [] TH.@=? map show unfixed
     [] TH.@=? map show unfixable
+    [] TH.@=? map show timeouts
     0 < length missingAnn
       TH.@? unwords
         [ "Expected",
@@ -320,7 +324,7 @@ isUnimplemented file fn =
       ( do
           results <- findBugs Nothing file [fn]
           Result.SomeBugfindingResult result <- pure $ fromMaybe (error "No result") (Map.lookup fn results)
-          let (_unclass, _missingAnn, _failedAssert, unimpl, _unfixed, _unfixable) =
+          let (_unclass, _missingAnn, _failedAssert, unimpl, _unfixed, _unfixable, _timeouts) =
                 partitionUncertainty (Result.uncertainResults result)
           0 < length unimpl
             TH.@? unwords
