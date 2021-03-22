@@ -15,13 +15,21 @@ functions, to formally verify the absence of such behaviors.
 `uc-crux-llvm` can use symbolic execution to find the potential double-free in this program:
 ```c
 #include <stdlib.h>
-void double_free(int* ptr, int x) {
+void free_if_even(int *ptr, x) {
   if (x % 2 == 0) {
     free(ptr);
   }
+}
+
+void free_if_multiple_of_three(int *ptr, x) {
   if (x % 3 == 0) {
     free(ptr);
   }
+}
+
+void double_free(int* ptr, int x) {
+  free_if_even(ptr, x);
+  free_if_multiple_of_three(ptr, x);  // bug: double free if x % 6 == 0
 }
 ```
 ```
@@ -36,14 +44,21 @@ Pointer freed twice
 That's not too impressive, a simple linter might be able to find that bug. However, since `uc-crux-llvm` uses symbolic execution, it can precisely conclude that the following program _does not_ have a potential double-free (or _any_ other undefined behavior), provided that it's passed a non-null pointer:
 ```c
 #include <stdlib.h>
-void not_double_free(int *ptr, int x) {
+void free_if_even(int *ptr, int x) {
   if (x % 2 == 0) {
-    printf("even!\n"); // needed to prevent Clang from optimizing away the if/else
     free(ptr);
   }
+}
+
+void free_if_odd(int *ptr, int x) {
   if ((x + 1) % 2 == 0) {
     free(ptr);
   }
+}
+
+void not_double_free(int *ptr, int x) {
+  free_if_even(ptr, x);
+  free_if_odd(ptr, x); // safe: x can't be both even and odd
 }
 ```
 ```
