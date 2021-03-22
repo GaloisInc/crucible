@@ -34,6 +34,7 @@ module Lang.Crucible.FunctionHandle
   , emptyHandleMap
   , insertHandleMap
   , lookupHandleMap
+  , searchHandleMap
     -- * Reference cells
   , RefCell
   , freshRefCell
@@ -42,13 +43,15 @@ module Lang.Crucible.FunctionHandle
 
 import           Data.Hashable
 import           Data.Kind
+import qualified Data.List as List
 import           Data.Ord (comparing)
 
-import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Nonce
+import           Data.Parameterized.Some ( Some(Some) )
 
 import           What4.FunctionName
 
@@ -189,7 +192,7 @@ instance Ord (RefCell tp) where
 -- FnHandleMap
 
 data HandleElt (f :: Ctx CrucibleType -> CrucibleType -> Type) ctx where
-  HandleElt :: f args ret -> HandleElt f (args::>ret)
+  HandleElt :: FnHandle args ret -> f args ret -> HandleElt f (args::>ret)
 
 newtype FnHandleMap f = FnHandleMap (MapF (Nonce GlobalNonceGenerator) (HandleElt f))
 
@@ -201,12 +204,30 @@ insertHandleMap :: FnHandle args ret
                 -> FnHandleMap f
                 -> FnHandleMap f
 insertHandleMap hdl x (FnHandleMap m) =
-    FnHandleMap (MapF.insert (handleID hdl) (HandleElt x) m)
+    FnHandleMap (MapF.insert (handleID hdl) (HandleElt hdl x) m)
 
+-- | Lookup the function specification in the map via the Nonce index
+-- in the FnHandle argument.
 lookupHandleMap :: FnHandle args ret
                 -> FnHandleMap f
                 -> Maybe (f args ret)
 lookupHandleMap hdl (FnHandleMap m) =
   case MapF.lookup (handleID hdl) m of
-     Just (HandleElt x) -> Just x
+     Just (HandleElt _ x) -> Just x
      Nothing -> Nothing
+
+-- | Lookup the function name in the map by a linear scan of all
+-- entries.  This will be much slower than using 'lookupHandleMap' to
+-- find the function by ID, so the latter should be used if possible.
+searchHandleMap :: FunctionName
+                -> (TypeRepr (FunctionHandleType args ret))
+                -> FnHandleMap f
+                -> Maybe (FnHandle args ret, f args ret)
+searchHandleMap nm fnTyRepr (FnHandleMap m) =
+  let nameMatch (Some (HandleElt h _)) = handleName h == nm
+  in case List.find nameMatch (MapF.elems m) of
+    Nothing -> Nothing
+    (Just (Some (HandleElt h x))) ->
+      case testEquality (handleType h) fnTyRepr of
+        Just Refl -> Just (h,x)
+        Nothing -> Nothing
