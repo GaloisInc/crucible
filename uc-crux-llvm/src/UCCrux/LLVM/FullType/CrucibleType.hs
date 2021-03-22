@@ -57,8 +57,6 @@ import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Type
-import           UCCrux.LLVM.FullType.MemType (toFullTypeM)
-import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes, makeModuleTypes)
 {- ORMOLU_ENABLE -}
 
 -- | c.f. @llvmTypeToRepr@

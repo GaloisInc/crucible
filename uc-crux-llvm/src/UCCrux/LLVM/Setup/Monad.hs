@@ -86,9 +86,8 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
-import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(FTPtrRepr), ToCrucibleType, ToBaseType)
-import           UCCrux.LLVM.FullType.MemType (toMemType, asFullType)
-import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
+import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(FTPtrRepr), ToCrucibleType, ToBaseType, ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.Constraints (Constraint)
 {- ORMOLU_ENABLE -}
 
