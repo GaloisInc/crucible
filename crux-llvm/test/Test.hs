@@ -5,6 +5,7 @@
 module Main where
 
 import           Control.Exception ( SomeException, catches, try, Handler(..), IOException )
+import           Control.Lens ( (^.), to )
 import           Control.Monad ( unless, when )
 import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
@@ -15,7 +16,6 @@ import           Data.Maybe ( catMaybes, fromMaybe, isJust )
 import qualified Data.Text as T
 import           Data.Versions ( Versioning, versioning, prettyV, major )
 import qualified GHC.IO.Exception as GE
-import           Lens.Micro ( (^.), to )
 import           Numeric.Natural
 import           System.Environment ( withArgs, lookupEnv )
 import           System.Exit ( ExitCode(..) )

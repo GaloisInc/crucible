@@ -1,12 +1,12 @@
+Cabal-version: 2.2
 Name:          crux-llvm
 Version:       0.4
 Author:        Galois Inc.
 Maintainer:    iavor.diatchki@gmail.com
 Copyright:     (c) Galois, Inc 2014-2021
-License:       BSD3
+License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple
-Cabal-version: >= 1.10
 Category:      Language
 Synopsis:      A verification tool for C programs.
 Description:
@@ -40,9 +40,37 @@ data-files:
    c-src/libcxx-3.6.2.bc
    c-src/libcxx-7.1.0.bc
 
+common bldflags
+  ghc-options: -Wall
+               -Werror=incomplete-patterns
+               -Werror=missing-methods
+               -Werror=overlapping-patterns
+               -Wpartial-fields
+               -Wincomplete-uni-patterns
+  ghc-prof-options: -O2
+  default-language: Haskell2010
+  build-depends:    base >= 4.8 && < 4.15
+                  , bytestring
+                  , containers
+                  , crucible
+                  , crucible-llvm
+                  , crux
+                  , directory
+                  , filepath
+                  , lens
+                  , process
+                  , text
+                  , what4
+
+common testdefs
+  build-depends: tasty            >= 0.10
+               , tasty-hunit      >= 0.10
+               , tasty-sugar      >= 1.1 && < 1.2
+               , QuickCheck
+
 
 library
-
+  import: bldflags
   hs-source-dirs: src
 
   exposed-modules:
@@ -57,59 +85,25 @@ library
     Paths_crux_llvm
 
   build-depends:
-    ansi-terminal,
-    bytestring,
-    base >= 4.8 && < 4.15,
     bv-sized,
     config-schema,
-    containers,
-    crucible,
-    crucible-llvm,
-    crux,
     data-binary-ieee754,
-    directory,
-    filepath,
-    lens,
     llvm-pretty,
     llvm-pretty-bc-parser,
     mtl,
     parameterized-utils,
     prettyprinter >= 1.7.0,
-    process,
-    template-haskell,
-    text,
-    what4
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  ghc-prof-options: -O2
-
-  default-language: Haskell2010
-
+    template-haskell
 
 
 executable crux-llvm
+  import: bldflags
 
   hs-source-dirs: exe
 
   build-depends:
     ansi-terminal,
-    base >= 4.8 && < 4.15,
-    bytestring,
-    containers,
-    crucible,
-    crucible-llvm,
-    crux,
-    crux-llvm,
-    directory,
-    filepath,
-    lens,
-    llvm-pretty,
-    llvm-pretty-bc-parser,
-    mtl,
-    parameterized-utils,
-    process,
-    template-haskell,
-    text,
-    what4
+    crux-llvm
 
   main-is: Main.hs
 
@@ -121,13 +115,9 @@ executable crux-llvm
 
   other-modules: RealMain
 
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  ghc-prof-options: -O2
-
-  default-language: Haskell2010
-
 
 executable crux-llvm-svcomp
+  import: bldflags
   hs-source-dirs: svcomp
   main-is: Main.hs
 
@@ -139,61 +129,20 @@ executable crux-llvm-svcomp
     attoparsec >= 0.13,
     async >= 2.2,
     ansi-terminal,
-    base >= 4.8 && < 4.15,
-    bytestring,
-    containers,
-    crucible,
-    crucible-llvm,
-    crux,
     crux-llvm,
-    directory,
-    filepath,
-    lens,
-    llvm-pretty,
-    llvm-pretty-bc-parser,
-    mtl,
-    parameterized-utils,
-    process,
-    template-haskell,
     time,
-    text,
-    unix,
-    what4
-
-  ghc-options: -Wall -Wcompat
-  ghc-prof-options: -O2
-
-  default-language: Haskell2010
+    unix
 
 
 test-suite crux-llvm-test
+  import: bldflags, testdefs
   type: exitcode-stdio-1.0
   hs-source-dirs: test
-
-  ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  ghc-prof-options: -O2
 
   main-is: Test.hs
 
   build-depends:
-                base             >= 4.7,
-                bytestring,
-                containers,
-                crucible,
-                crux,
                 crux-llvm,
                 deepseq,
-                directory,
-                filepath,
-                microlens,
                 parsec,
-                process,
-                QuickCheck,
-                tasty            >= 0.10,
-                tasty-hunit      >= 0.10,
-                tasty-sugar      >= 1.1 && < 1.2,
-                text,
-                versions,
-                what4
-
-  default-language: Haskell2010
+                versions

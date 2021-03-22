@@ -1,16 +1,29 @@
+Cabal-version: 2.2
 Name:          crucible-llvm
 Version:       0.3
 Author:        Galois Inc.
-Copyright:     (c) Galois, Inc 2014-2018
+Copyright:     (c) Galois, Inc 2014-2021
 Maintainer:    rdockins@galois.com
-License:       BSD3
+License:       BSD-3-Clause
 License-file:  LICENSE
 Build-type:    Simple
-Cabal-version: >= 1.10
 Category:      Language
 Synopsis:      Support for translating and executing LLVM code in Crucible
+Description:
+   Library providing LLVM-specific extensions to the crucible core library
+   for Crucible-based simulation and verification of LLVM-compiled applications.
+
+common bldflags
+  ghc-options: -Wall
+               -Werror=incomplete-patterns
+               -Werror=missing-methods
+               -Werror=overlapping-patterns
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+
 
 library
+  import: bldflags
   build-depends:
     base >= 4.7 && < 4.15,
     attoparsec,
@@ -90,20 +103,15 @@ library
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
 
-  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  ghc-prof-options: -O2 -fprof-auto-top
-  default-language: Haskell2010
-
   if impl(ghc >= 8.6)
     default-extensions: NoStarIsType
 
 
 test-suite crucible-llvm-tests
+  import: bldflags
   type: exitcode-stdio-1.0
   main-is: Tests.hs
   hs-source-dirs: test
-  default-language: Haskell2010
-  ghc-options: -Wall -Wcompat
   other-modules: MemSetup
                , TestFunctions
                , TestGlobals
@@ -120,7 +128,7 @@ test-suite crucible-llvm-tests
     llvm-pretty,
     llvm-pretty-bc-parser,
     mtl,
-    parameterized-utils >= 2.1.2.0,
+    parameterized-utils,
     process,
     what4,
     tasty,
