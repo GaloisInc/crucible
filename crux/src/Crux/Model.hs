@@ -134,11 +134,10 @@ modelJS m =
   jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS k v : xs) [] (modelVals m))
 
 instance Semigroup (Model sym) where
-  (Model m1) <> m2        = MapF.foldrWithKey f m2 m1 where
+  (Model m1) <> m2 = MapF.foldrWithKey f m2 m1 where
     f :: forall s. BaseTypeRepr s -> Vars sym s -> Model sym -> Model sym
     f k vs (Model m) = Model (MapF.insertWith jn k vs m)
     jn (Vars new) (Vars old) = Vars (new ++ old)
 
 instance Monoid (Model sym) where
-  mempty               = emptyModel
-  mappend m1 m2        = m1 <> m2
+  mempty = emptyModel
