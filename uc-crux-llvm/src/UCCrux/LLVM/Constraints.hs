@@ -81,9 +81,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
-import           UCCrux.LLVM.FullType.MemType (asFullType)
-import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr))
+import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 
 -- See comment in below block of CPP
 #if __GLASGOW_HASKELL__ <= 810

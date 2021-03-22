@@ -52,9 +52,7 @@ import           Data.Parameterized.Classes (OrdF(compareF), ixF')
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+))
 import qualified Data.Parameterized.TH.GADT as U
 
-import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
-import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
-import           UCCrux.LLVM.FullType.MemType (asFullType)
+import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..), ModuleTypes, asFullType)
 {- ORMOLU_ENABLE -}
 
 -- | A 'Cursor' points to a specific part of a value (i.e. a function argument

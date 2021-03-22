@@ -39,7 +39,6 @@ library
     UCCrux.LLVM.FullType
     UCCrux.LLVM.FullType.CrucibleType
     UCCrux.LLVM.FullType.MemType
-    UCCrux.LLVM.FullType.ModuleTypes
     UCCrux.LLVM.FullType.Type
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main

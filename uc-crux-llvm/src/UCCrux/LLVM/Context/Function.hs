@@ -59,9 +59,8 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, withTypeContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(VarArgsFunction))
-import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType)
+import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType, ModuleTypes)
 import           UCCrux.LLVM.FullType.CrucibleType (SomeAssign(..), assignmentToFullType)
-import           UCCrux.LLVM.FullType.ModuleTypes (ModuleTypes)
 {- ORMOLU_ENABLE -}
 
 data SomeFunctionContext arch argTypes'
