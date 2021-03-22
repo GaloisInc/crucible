@@ -172,14 +172,6 @@ jobs:
           CLANG: "/usr/local/opt/llvm/bin/clang"
 
       - shell: bash
-        name: Test uc-crux-llvm (macOS)
-        run: .github/ci.sh test uc-crux-llvm
-        if: runner.os == 'macOS'
-        env:
-          LLVM_LINK: "/usr/local/opt/llvm/bin/llvm-link"
-          CLANG: "/usr/local/opt/llvm/bin/clang"
-
-      - shell: bash
         name: Test crucible (Windows)
         run: .github/ci.sh test crucible
         if: runner.os == 'Windows'
