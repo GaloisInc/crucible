@@ -67,7 +67,6 @@ module UCCrux.LLVM.FullType.Type
     -- * Lookup
     asFullType',
     asFullType,
-
   )
 where
 

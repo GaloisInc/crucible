@@ -179,17 +179,17 @@ pointerRange ::
   IO (NonEmpty (LLVMMem.LLVMPtr sym (ArchWidth arch)))
 pointerRange _proxy sym ptr offset size =
   if size == 0
-  then panic "pointerRange" ["Zero size"]
-  else
-    reverse
-      <$> foldM
-        ( \(p :| ps) () ->
-            do
-              p' <- LLVMMem.ptrAdd sym ?ptrWidth p offset
-              pure (p' :| (p : ps))
-        )
-        (ptr :| [])
-        (replicate (size - 1) ())
+    then panic "pointerRange" ["Zero size"]
+    else
+      reverse
+        <$> foldM
+          ( \(p :| ps) () ->
+              do
+                p' <- LLVMMem.ptrAdd sym ?ptrWidth p offset
+                pure (p' :| (p : ps))
+          )
+          (ptr :| [])
+          (replicate (size - 1) ())
 
 generateM' ::
   forall m h a.
