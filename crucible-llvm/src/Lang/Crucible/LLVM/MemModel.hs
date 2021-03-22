@@ -434,7 +434,6 @@ evalStmt sym = eval
         mhandle <- liftIO $ doLookupHandle sym mem ptr gsym
         let mop = MemLoadHandleOp ltp gsym ptr (memImplHeap mem)
         let expectedTp = FunctionHandleRepr args ret
-            handleTp h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
         case mhandle of
            Left doc -> lift $
              do p <- Partial.annotateME sym mop (BadFunctionPointer doc) (falsePred sym)
@@ -448,7 +447,7 @@ evalStmt sym = eval
                   (unlines
                    ["Expected function handle of type " <> show expectedTp
                    ,"for call to function " <> show (handleName h)
-                   ,"but found varargs handle of non-matching type " ++ show (handleTp h)
+                   ,"but found varargs handle of non-matching type " ++ show (handleType h)
                    ]) in
              case handleArgTypes h of
                prefix Ctx.:> VectorRepr AnyRepr
@@ -458,12 +457,12 @@ evalStmt sym = eval
                _ -> err
 
            Right (SomeFnHandle h)
-             | Just Refl <- testEquality (handleTp h) expectedTp -> return (HandleFnVal h)
+             | Just Refl <- testEquality (handleType h) expectedTp -> return (HandleFnVal h)
              | otherwise -> failedAssert
                  "Failed to load function handle"
                  (unlines ["Expected function handle of type " <> show expectedTp
                           , "for call to function " <> show (handleName h)
-                          , "but found calling handle of type " ++ show (handleTp h)])
+                          , "but found calling handle of type " ++ show (handleType h)])
 
   eval (LLVM_ResolveGlobal _w mvar (GlobalSymbol symbol)) =
      do mem <- getMem mvar
