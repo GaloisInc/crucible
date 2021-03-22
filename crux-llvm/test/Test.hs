@@ -9,7 +9,7 @@ import           Control.Monad ( unless, when )
 import           Data.Bifunctor ( first )
 import qualified Data.ByteString.Lazy as BSIO
 import qualified Data.ByteString.Lazy.Char8 as BSC
-import           Data.Char ( isLetter )
+import           Data.Char ( isLetter, isSpace )
 import           Data.List ( isInfixOf, isPrefixOf )
 import           Data.Maybe ( catMaybes, fromMaybe, isJust )
 import qualified Data.Text as T
@@ -164,13 +164,9 @@ readProcessVersion forTool =
       return $ Left "??"
   ]
 
-assertBSEq :: FilePath -> FilePath -> IO ()
-assertBSEq expectedFile actualFile = do
-  expected <- BSIO.readFile expectedFile
-  actual <- BSIO.readFile actualFile
-  let el = removeHashedLoc <$> BSC.lines expected
-      al = removeHashedLoc <$> BSC.lines actual
-      -- when a Callstack is reported in the result output, it contains like like:
+sanitize :: [BSC.ByteString] -> [BSC.ByteString]
+sanitize blines =
+  let -- when a Callstack is reported in the result output, it contains lines like:
       --
       -- >  error, called at src/foo.hs:369:3 in pkgname-1.0.3.5-{cabal-hash-loc}:Foo
       --
@@ -182,6 +178,39 @@ assertBSEq expectedFile actualFile = do
         in if take 3 w == ["error,", "called", "at"]
            then BSC.unwords $ take 4 w
            else l
+      -- If crux tries to generate and compile counter-examples, but
+      -- the original source is incomplete (e.g. contains references
+      -- to unresolved externals) then the crux attempt to link will
+      -- fail.  The linking output generates lines like:
+      --
+      --   /absolute/path/of/ld: /absolute/path/for/ex3-undef-XXXXXX.o: in function `generate_value':
+      --   /absolute/path/to/ex3-undef.c:11: undefined reference to `update_value'
+      --
+      -- Both of these outputs are problematic:
+      --   1 - they contain absolute paths, which can change in different environments
+      --       (the first one contains two absolute paths).
+      --   2 - The XXXXXX portion is a mktemp file substitution value that will change
+      --       each time the test is run.
+      --
+      -- The fix here is to remove the first word on the line
+      -- (recursively) if it starts with a / character and ends with a
+      -- : character.
+      cleanLinkerOutput l =
+        if BSC.null l then l
+        else let (w1,rest) = BSC.break isSpace $ BSC.dropWhile isSpace l
+             in if and [ "/" == BSC.take 1 w1
+                       , ":" == (BSC.take 1 $ BSC.reverse w1)
+                       ]
+                then cleanLinkerOutput rest
+                else l
+  in cleanLinkerOutput . removeHashedLoc <$> blines
+
+assertBSEq :: FilePath -> FilePath -> IO ()
+assertBSEq expectedFile actualFile = do
+  expected <- BSIO.readFile expectedFile
+  actual <- BSIO.readFile actualFile
+  let el = sanitize $ BSC.lines expected
+      al = sanitize $ BSC.lines actual
   unless (el == al) $ do
     let dl (e,a) = if e == a then db e else de e <> da a
         db b = ["    F        |" <> b]
@@ -261,6 +290,13 @@ mkTest clangVer sweet _ expct =
                    , and [ v == "pre-clang11"
                          , vcMajor clangVer `elem` (show <$> [3..10 :: Int])
                          ]
+                     -- as a fallback, if the testing code here is
+                     -- unable to determine the version, run all
+                     -- tests.  This is likely to cause a failure, but
+                     -- is preferable to running no tests, which
+                     -- results in a success report without having
+                     -- done anything.
+                   , vcMajor clangVer == "[missing]"
                    ]
           in case lookup "clang-range" (TS.expParamsMatch expct) of
                Just (TS.Explicit v) -> specMatchesInstalled v
@@ -290,7 +326,7 @@ mkTest clangVer sweet _ expct =
     if or [ skipTest, not clangMatch, testLevel == "0" && longTests ]
       then do
         when (testLevel == "0" && longTests) $
-          putStrLn "*** Longer running test skipped; set CI_TEST_MODE=1 env var to enable"
+          putStrLn "*** Longer running test skipped; set CI_TEST_LEVEL=1 env var to enable"
         return []
       else do
         let isLoopMerge = TS.paramMatchVal "loopmerge" <$>
