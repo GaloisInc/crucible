@@ -66,6 +66,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes, moduleTypes)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule)
+import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
@@ -177,15 +178,18 @@ pointerRange ::
   Int ->
   IO (NonEmpty (LLVMMem.LLVMPtr sym (ArchWidth arch)))
 pointerRange _proxy sym ptr offset size =
-  reverse
-    <$> foldM
-      ( \(p :| ps) () ->
-          do
-            p' <- LLVMMem.ptrAdd sym ?ptrWidth p offset
-            pure (p' :| (p : ps))
-      )
-      (ptr :| [])
-      (replicate (size - 1) ())
+  if size == 0
+  then panic "pointerRange" ["Zero size"]
+  else
+    reverse
+      <$> foldM
+        ( \(p :| ps) () ->
+            do
+              p' <- LLVMMem.ptrAdd sym ?ptrWidth p offset
+              pure (p' :| (p : ps))
+        )
+        (ptr :| [])
+        (replicate (size - 1) ())
 
 generateM' ::
   forall m h a.
