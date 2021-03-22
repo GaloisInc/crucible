@@ -22,7 +22,6 @@ import System.IO (stdout)
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
 
-import Text.LLVM.AST (Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
 import Prettyprinter
@@ -98,7 +97,7 @@ setupSimCtxt halloc sym mo llvmCtxt =
 
 
 -- | Parse an LLVM bit-code file.
-parseLLVM :: FilePath -> IO Module
+parseLLVM :: FilePath -> IO LLVM.Module
 parseLLVM file =
   do ok <- parseBitCodeFromFile file
      case ok of

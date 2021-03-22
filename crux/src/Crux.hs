@@ -111,7 +111,7 @@ newtype SimulatorCallback
           IO (RunnableState sym, Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc Void))
     }
 
--- | Given the reuslt of a simulation and proof run, report the overall
+-- | Given the result of a simulation and proof run, report the overall
 --   status, generate user-consumable reports and compute the exit code.
 postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
 postprocessSimResult opts res =
