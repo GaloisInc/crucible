@@ -51,7 +51,6 @@ module Main (main) where
 {- ORMOLU_DISABLE -}
 import           Control.Exception (SomeException, try, displayException)
 import           Data.Foldable (for_)
-import           Data.List (intercalate)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
@@ -146,15 +145,16 @@ findBugs llvmModule file fns =
                   else pure "<fake-path>"
 
               pure (appCtx, path, cruxOpts'', ucOpts'')
-        putStrLn
-          ( unwords
-              [ "\nReproduce with:\n",
-                "cabal v2-run exe:uc-crux-llvm -- ",
-                "--entry-points",
-                intercalate " --entry-points " (map show fns),
-                testDir </> file
-              ]
-          )
+        -- TODO(lb): It would be nice to print this only when the test fails
+        -- putStrLn
+        --   ( unwords
+        --       [ "\nReproduce with:\n",
+        --         "cabal v2-run exe:uc-crux-llvm -- ",
+        --         "--entry-points",
+        --         intercalate " --entry-points " (map show fns),
+        --         testDir </> file
+        --       ]
+        --   )
         let ?outputConfig = outCfg
         halloc <- newHandleAllocator
         Some modCtx <-
