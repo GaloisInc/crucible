@@ -245,6 +245,7 @@ ppConstraints (Constraints args globCs relCs) =
                       (Shape.ppShape ppConstraints' . getConstrainedShape)
                       args
                   ),
+          -- These aren't yet generated anywhere
           if Map.size globCs == 0
             then Nothing
             else
@@ -252,6 +253,7 @@ ppConstraints (Constraints args globCs relCs) =
                 nestSep
                   [ PP.pretty "Globals: TODO"
                   ],
+          -- These aren't yet generated anywhere
           if null relCs
             then Nothing
             else
