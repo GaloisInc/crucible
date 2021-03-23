@@ -79,7 +79,7 @@ makeTransitionSystem sym cfg namespacer globInfos blockInfos =
           )
             -- `Ctx.extend` asBaseTypeRepr retTp
             `Ctx.extend` BaseBoolRepr
-            `Ctx.extend` BaseNatRepr
+            `Ctx.extend` BaseIntegerRepr
     let stateSymbols =
           ( asBaseTypeNames (flattenCtx blocksInputsNames)
               Ctx.<++> ( asBaseTypeNames (globalSymbolsAsSolverSymbols globInfos)
@@ -89,7 +89,7 @@ makeTransitionSystem sym cfg namespacer globInfos blockInfos =
             -- `Ctx.extend` Const returnValueVariable
             `Ctx.extend` Const hasReturnedVariable
             `Ctx.extend` Const currentBlockVariable
-    currentBlock <- What4.freshConstant sym currentBlockVariable BaseNatRepr
+    currentBlock <- What4.freshConstant sym currentBlockVariable BaseIntegerRepr
     hasReturned <- What4.freshConstant sym hasReturnedVariable BaseBoolRepr
     let actualNamespacer = namespacer stateSymbols stateReprs
     return $

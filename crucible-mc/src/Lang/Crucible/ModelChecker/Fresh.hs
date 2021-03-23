@@ -22,34 +22,39 @@ module Lang.Crucible.ModelChecker.Fresh
 where
 
 import Control.Monad (foldM)
-import Control.Monad.IO.Class
-import Data.Functor.Const
-import Data.Functor.Product
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Data.Functor.Const (Const (Const))
+import Data.Functor.Product (Product (Pair))
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.TraversableFC
+  ( TraversableFC (traverseFC),
+  )
 import qualified Lang.Crucible.Backend as Backend
 import qualified Lang.Crucible.CFG.Core as Core
-import Lang.Crucible.CFG.Core
 import Lang.Crucible.LLVM.DataLayout (noAlignment)
-import Lang.Crucible.LLVM.Globals
-import Lang.Crucible.LLVM.MemModel
-import Lang.Crucible.LLVM.MemType
-import Lang.Crucible.LLVM.TypeContext
-import Lang.Crucible.ModelChecker.SallyWhat4
+import Lang.Crucible.LLVM.Globals (GlobalInitializerMap)
+import qualified Lang.Crucible.LLVM.MemModel as MemModel
+import Lang.Crucible.LLVM.MemType (MemType (IntType))
+import Lang.Crucible.LLVM.TypeContext (TypeContext)
+import Lang.Crucible.ModelChecker.SallyWhat4 (userSymbol')
 import Lang.Crucible.Simulator
+  ( RegEntry (RegEntry),
+    RegMap (RegMap),
+    RegValue,
+  )
 import qualified Text.LLVM as TL
 import qualified What4.Interface as What4
 
 freshGlobals ::
   (?lc :: TypeContext) =>
-  HasPtrWidth wptr =>
-  HasLLVMAnn sym =>
+  MemModel.HasPtrWidth wptr =>
+  MemModel.HasLLVMAnn sym =>
   Backend.IsSymInterface sym =>
   sym ->
   GlobalInitializerMap ->
-  MemImpl sym ->
-  IO (MemImpl sym)
+  MemModel.MemImpl sym ->
+  IO (MemModel.MemImpl sym)
 freshGlobals sym gimap mem0 = foldM f mem0 (Map.elems gimap)
   where
     f _ (_, Left msg) = fail msg
@@ -59,50 +64,50 @@ freshGlobals sym gimap mem0 = foldM f mem0 (Map.elems gimap)
 -- TODO: consider moving this in Crux?
 freshGlobal ::
   (?lc :: TypeContext) =>
-  HasPtrWidth wptr =>
-  HasLLVMAnn sym =>
+  MemModel.HasPtrWidth wptr =>
+  MemModel.HasLLVMAnn sym =>
   Backend.IsSymInterface sym =>
   sym ->
   TL.Global ->
   MemType ->
-  MemImpl sym ->
-  IO (MemImpl sym)
+  MemModel.MemImpl sym ->
+  IO (MemModel.MemImpl sym)
 freshGlobal sym gl mty mem =
   do
-    ty <- toStorableType mty
-    ptr <- doResolveGlobal sym mem (TL.globalSym gl)
+    ty <- MemModel.toStorableType mty
+    ptr <- MemModel.doResolveGlobal sym mem (TL.globalSym gl)
     llvmVal <- case mty of
       IntType w ->
         do
-          case someNat w of
+          case Core.someNat w of
             Just (Core.Some wN) -> do
-              case isPosNat wN of
-                Just LeqProof -> do
+              case Core.isPosNat wN of
+                Just Core.LeqProof -> do
                   -- bitvectors are represented as pointers within "block 0"
                   blk <- What4.natLit sym 0
                   let TL.Symbol s = TL.globalSym gl
-                  bv <- What4.freshConstant sym (userSymbol' s) (BaseBVRepr wN)
-                  return (LLVMValInt blk bv)
+                  bv <- What4.freshConstant sym (userSymbol' s) (Core.BaseBVRepr wN)
+                  return (MemModel.LLVMValInt blk bv)
                 Nothing -> error "Global bitvector width is zero"
             Nothing -> error "Negative natural, this should not happen"
       _ -> error $ "Unhandled type in freshGlobal: " ++ show mty
-    storeRaw sym mem ptr ty noAlignment llvmVal
+    MemModel.storeRaw sym mem ptr ty noAlignment llvmVal
 
 -- | Create a fresh register value of the wanted type
 freshRegValue ::
   Backend.IsSymInterface sym =>
   sym ->
   String ->
-  TypeRepr tp ->
+  Core.TypeRepr tp ->
   IO (RegValue sym tp)
 freshRegValue sym argName argTypeRepr =
   case argTypeRepr of
-    (asBaseType -> AsBaseType bt) ->
+    (Core.asBaseType -> Core.AsBaseType bt) ->
       liftIO $ What4.freshConstant sym (userSymbol' argName) bt
-    (LLVMPointerRepr w) ->
+    (MemModel.LLVMPointerRepr w) ->
       do
-        freshBV <- What4.freshConstant sym (userSymbol' argName) (BaseBVRepr w)
-        llvmPointer_bv sym freshBV
+        freshBV <- What4.freshConstant sym (userSymbol' argName) (Core.BaseBVRepr w)
+        MemModel.llvmPointer_bv sym freshBV
     _ -> error $ "freshRegValue: unhandled repr " ++ show argTypeRepr
 
 -- | Create a fresh register entry of the wanted type
@@ -110,7 +115,7 @@ freshRegEntry ::
   Backend.IsSymInterface sym =>
   sym ->
   String ->
-  TypeRepr tp ->
+  Core.TypeRepr tp ->
   IO (RegEntry sym tp)
 freshRegEntry sym argName argTypeRepr =
   RegEntry argTypeRepr <$> freshRegValue sym argName argTypeRepr
@@ -121,7 +126,7 @@ freshRegMap ::
   Backend.IsSymInterface sym =>
   sym ->
   Ctx.Assignment (Const What4.SolverSymbol) ctx ->
-  CtxRepr ctx ->
+  Core.CtxRepr ctx ->
   IO (RegMap sym ctx)
 freshRegMap sym nameCtx typeCtx =
   RegMap

@@ -43,7 +43,6 @@ import Lang.Crucible.CFG.Extension
 import Lang.Crucible.LLVM
 import Lang.Crucible.LLVM.DataLayout (noAlignment)
 import Lang.Crucible.LLVM.MemModel
-import Lang.Crucible.LLVM.Run
 import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.ModelChecker.Fresh
 import Lang.Crucible.ModelChecker.GlobalInfo
@@ -54,6 +53,7 @@ import Lang.Crucible.ModelChecker.SymbolicExecution.PrettyPrinting
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState (lookupGlobal)
+import qualified Text.LLVM as LLVM
 
 -- TODO: turn these flags into command-line options
 
@@ -164,7 +164,7 @@ endBlock ::
 endBlock execState blockEnd =
   do
     sym <- asks runBlockSym
-    blockID <- asks (natOfBlockID . Core.blockID . runBlockBlock)
+    blockID <- asks (integerOfBlockID . Core.blockID . runBlockBlock)
     globalInfos <- asks runBlockGlobalContext
     llvmCtx <- asks runBlockLLVMContext
     globals <- liftIO $ gatherGlobals sym llvmCtx execState globalInfos
@@ -226,16 +226,15 @@ analyzeBlock ::
   ArchOk arch =>
   Backend.IsSymInterface sym =>
   HasLLVMAnn sym =>
-  IsSyntaxExtension (LLVM arch) =>
   MonadIO m =>
-  Module ->
+  LLVM.Module ->
   ModuleTranslation arch ->
-  Core.CFG (LLVM arch) blocks init ret ->
+  Core.CFG LLVM blocks init ret ->
   LLVMContext arch ->
-  SimContext (Model sym) sym (LLVM arch) ->
+  SimContext (Model sym) sym LLVM ->
   SymGlobalState sym ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
-  Core.Block (LLVM arch) blocks ret block ->
+  Core.Block LLVM blocks ret block ->
   m (BlockInfo sym globCtx block)
 analyzeBlock llvmModule moduleTranslation cfg llvmCtx simCtx globSt globCtx block =
   do
@@ -270,13 +269,12 @@ analyzeBlocks ::
   ArchOk arch =>
   Backend.IsSymInterface sym =>
   HasLLVMAnn sym =>
-  IsSyntaxExtension (LLVM arch) =>
   MonadIO m =>
-  Module ->
+  LLVM.Module ->
   ModuleTranslation arch ->
-  Core.CFG (LLVM arch) blocks init ret ->
+  Core.CFG LLVM blocks init ret ->
   LLVMContext arch ->
-  SimContext (Model sym) sym (LLVM arch) ->
+  SimContext (Model sym) sym LLVM ->
   SymGlobalState sym ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
   m (Ctx.Assignment (BlockInfo sym globCtx) blocks)

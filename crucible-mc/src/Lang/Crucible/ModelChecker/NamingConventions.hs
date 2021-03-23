@@ -16,6 +16,7 @@ module Lang.Crucible.ModelChecker.NamingConventions
     functionArgumentName,
     hasReturnedVariable,
     natOfBlockID,
+    integerOfBlockID,
     namesForContext,
   )
 where
@@ -44,6 +45,9 @@ currentBlockVariable = userSymbol' "block__CRUCIBLEMC__"
 -- equation is meant to hold
 hasReturnedVariable :: What4.SolverSymbol
 hasReturnedVariable = userSymbol' "hasReturned__CRUCIBLEMC__"
+
+integerOfBlockID :: Core.BlockID ctx tp -> Integer
+integerOfBlockID = fromIntegral . Ctx.indexVal . Core.blockIDIndex
 
 natOfBlockID :: Core.BlockID ctx tp -> Natural
 natOfBlockID = intToNatural . Ctx.indexVal . Core.blockIDIndex

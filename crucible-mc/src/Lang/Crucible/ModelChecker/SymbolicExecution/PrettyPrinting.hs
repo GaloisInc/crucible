@@ -24,14 +24,14 @@ import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.Simulator.CallFrame
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.RegMap
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Prettyprinter
 import What4.Interface
 import Prelude hiding ((<>))
 
 ppRegEntry ::
   IsSymExprBuilder sym =>
   RegEntry sym tp ->
-  Doc
+  Doc ()
 ppRegEntry RegEntry {..} =
   case regType of
     LLVMPointerRepr _ -> ppPtr regValue <+> ":" <+> pretty regType
@@ -41,7 +41,7 @@ ppRegEntry RegEntry {..} =
 ppExecState ::
   IsSymExprBuilder sym =>
   ExecState p sym ext (RegEntry sym ret) ->
-  Doc
+  Doc ()
 ppExecState (ResultState (FinishedResult _ (TotalRes gp))) =
   vcat
     [ "---[ResultState, FinishedResult, TotalRes]",
@@ -59,16 +59,16 @@ ppExecState (CallState _ (CrucibleCall bID f) _) =
   vcat
     [ "---[CallState]",
       "The simulator is about to call within the Crucible function"
-        <+> text (show $ frameHandle f)
+        <+> pretty (show $ frameHandle f)
         <+> "at block"
         <+> pretty bID,
-      "The arguments are: " <+> vcat (map pretty $ toListFC ppRegEntry (regMap (view frameRegs f)))
+      "The arguments are: " <+> vcat (toListFC ppRegEntry (regMap (view frameRegs f)))
     ]
 ppExecState (CallState _ (OverrideCall _ f) _) =
   vcat
     [ "---[CallState]",
       "The simulator is about to call the override function"
-        <+> text (show $ view overrideHandle f)
+        <+> pretty (show $ view overrideHandle f)
     ]
 ppExecState (TailCallState {}) = "TailCallState"
 ppExecState (ReturnState _ _ ret _) =
@@ -100,25 +100,25 @@ ppExecState (SymbolicBranchState cond _true _false merge _) =
   vcat
     [ "---[SymbolicBranchState]",
       "The simulator is now branching based on condition" <+> printSymExpr cond,
-      "The merge point for this branching is" <+> text (ppBranchTarget merge)
+      "The merge point for this branching is" <+> pretty (ppBranchTarget merge)
     ]
 ppExecState (ControlTransferState (ContinueResumption (ResolvedJump bID args)) _st) =
   vcat
     [ "---[ControlTransferState]",
       "The simulator is about to resume execution at block" <+> pretty bID,
-      "The arguments are: " <+> vcat (map pretty $ toListFC ppRegEntry (regMap args))
+      "The arguments are: " <+> vcat (toListFC ppRegEntry (regMap args))
     ]
 ppExecState (ControlTransferState (CheckMergeResumption (ResolvedJump bID args)) _st) =
   vcat
     [ "---[ControlTransferState]",
       "The simulator is about to merge execution into block" <+> pretty bID,
-      "The arguments are: " <+> vcat (map pretty $ toListFC ppRegEntry (regMap args))
+      "The arguments are: " <+> vcat (toListFC ppRegEntry (regMap args))
     ]
 ppExecState (ControlTransferState (SwitchResumption bs) _st) =
   let f (p, ResolvedJump _bID args) =
         hsep
           [ printSymExpr p,
-            vcat (map pretty $ toListFC ppRegEntry (regMap args))
+            vcat (toListFC ppRegEntry (regMap args))
           ]
    in vcat
         [ "The simulator is about to switch execution, where the pending branches are:",
@@ -127,21 +127,21 @@ ppExecState (ControlTransferState (SwitchResumption bs) _st) =
 ppExecState (ControlTransferState (OverrideResumption _k args) _st) =
   vcat
     [ "The simulator is about to resume from an override execution, with arguments:",
-      vcat . map pretty . toListFC ppRegEntry $ regMap args
+      vcat . toListFC ppRegEntry $ regMap args
     ]
 ppExecState (OverrideState {}) = "---[OverrideState]"
 ppExecState (BranchMergeState t _) =
   vcat
     [ "---[BranchMergeState]",
       "The simulator is now checking for pending branches as it transfers control to"
-        <+> text (ppBranchTarget t)
+        <+> pretty (ppBranchTarget t)
     ]
 ppExecState (InitialState {}) = "---[InitialState]"
 
--- ppResolvedCall :: ResolvedCall p sym ext ret -> Doc
+-- ppResolvedCall :: ResolvedCall p sym ext ret -> Doc ()
 -- ppResolvedCall (OverrideCall _o f) =
 --   let fnHandle = view overrideHandle f
---    in "Override" <+> text (show fnHandle)
+--    in "Override" <+> pretty (show fnHandle)
 -- ppResolvedCall (CrucibleCall _b f) =
 --   let fnHandle = frameHandle f
---    in "Crucible" <+> text (show fnHandle)
+--    in "Crucible" <+> pretty (show fnHandle)

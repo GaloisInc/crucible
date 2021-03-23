@@ -35,7 +35,7 @@ import qualified What4.Interface as What4
 type family AsBaseType' (c :: CrucibleType) :: BaseType where
   AsBaseType' BoolType = BaseBoolType
   AsBaseType' IntegerType = BaseIntegerType
-  AsBaseType' NatType = BaseNatType
+  AsBaseType' NatType = BaseIntegerType
   AsBaseType' RealValType = BaseRealType
   AsBaseType' (LLVMPointerType w) = BaseBVType w
 
@@ -51,7 +51,7 @@ type family AsBaseTypes (c :: Ctx CrucibleType) :: Ctx BaseType where
 asBaseTypeRepr :: TypeRepr c -> BaseTypeRepr (AsBaseType' c)
 asBaseTypeRepr BoolRepr = BaseBoolRepr
 asBaseTypeRepr IntegerRepr = BaseIntegerRepr
-asBaseTypeRepr NatRepr = BaseNatRepr
+asBaseTypeRepr NatRepr = BaseIntegerRepr
 asBaseTypeRepr RealValRepr = BaseRealRepr
 asBaseTypeRepr (LLVMPointerRepr w) = BaseBVRepr w
 asBaseTypeRepr tp = error $ "baseTypeReprOfTypeRepr: missing " ++ show tp

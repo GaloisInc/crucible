@@ -14,8 +14,7 @@
 -- Stability        : provisional
 -- |
 module Lang.Crucible.ModelChecker.TransitionSystem.StateCtx
-  ( CtxFlatten,
-    StateCtx,
+  ( StateCtx,
     flattenCtx,
     globalIndexToStateIndex,
     makeCurrentBlockIndex,
@@ -27,11 +26,6 @@ import qualified Data.Parameterized.Context as Ctx
 import Lang.Crucible.ModelChecker.AsBaseType
 import Lang.Crucible.Types
 import Prelude hiding (init)
-
-type family CtxFlatten (ctx :: Ctx (Ctx a)) :: Ctx a where
-  CtxFlatten Ctx.EmptyCtx = Ctx.EmptyCtx
--- using prefix form to avoid hlint bug
-  CtxFlatten (ctxs Ctx.::> ctx) = (Ctx.<+>) (CtxFlatten ctxs) ctx
 
 flattenCtx ::
   Ctx.Assignment (Ctx.Assignment f) blocks ->
@@ -50,7 +44,7 @@ type BlocksGlobInitCtx blocks globCtx init =
 type StateCtx blocks globCtx init =
   BlocksGlobInitCtx blocks globCtx init
     Ctx.::> BaseBoolType
-    Ctx.::> BaseNatType
+    Ctx.::> BaseIntegerType
 
 blocksSize ::
   Ctx.Assignment Ctx.Size blocks ->
@@ -80,7 +74,7 @@ makeCurrentBlockIndex ::
   Ctx.Assignment Ctx.Size blocks ->
   Ctx.Size globCtx ->
   Ctx.Size init ->
-  Ctx.Index (StateCtx blocks globCtx init) BaseNatType
+  Ctx.Index (StateCtx blocks globCtx init) BaseIntegerType
 makeCurrentBlockIndex blocks globCtx init =
   Ctx.lastIndex (Ctx.incSize (Ctx.incSize (blocksGlobInitCtxSize blocks globCtx init)))
 

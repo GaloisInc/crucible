@@ -24,6 +24,7 @@ module Lang.Crucible.ModelChecker.TransitionSystem.Transitions
   )
 where
 
+import Control.Arrow ((&&&))
 import qualified Control.Lens as L
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, asks, runReaderT)
@@ -57,7 +58,7 @@ data TransitionSystemReader sym blocks globCtx init = TransitionSystemReader
     -- | @tsInitSize@ retains the size of the initial data, as we don't
     -- retain any other assignment we could retrieve it from
     tsInitSize :: Ctx.Size init,
-    tsCurrentBlock :: What4.SymNat sym,
+    tsCurrentBlock :: What4.SymInteger sym,
     tsCurrentHasReturned :: What4.Pred sym,
     tsCurrentState :: What4.SymStruct sym (StateCtx blocks globCtx init),
     tsGlobalInfos :: Ctx.Assignment (GlobalInfo sym) globCtx,
@@ -69,7 +70,7 @@ data TransitionSystemReader sym blocks globCtx init = TransitionSystemReader
     -- terms of an abstracted @sym@ rather than the verbose concrete
     -- expression type.
     tsNamespacer :: Namespacer sym (StateCtx blocks globCtx init),
-    tsNextBlock :: What4.SymNat sym,
+    tsNextBlock :: What4.SymInteger sym,
     tsNextHasReturned :: What4.Pred sym,
     tsNextState :: What4.SymStruct sym (StateCtx blocks globCtx init),
     tsStateRepr :: Ctx.Assignment BaseTypeRepr (StateCtx blocks globCtx init),
@@ -138,8 +139,8 @@ findBlockAssumptions ::
   Core.BlockID blocks' args ->
   m (What4.Pred sym)
 findBlockAssumptions sym blockID = do
-  allBlockAssumptions <- toListFC (\bi -> (blockInfoID bi, blockInfoAssumptions bi)) <$> asks tsBlocks
-  case lookup (natOfBlockID blockID) allBlockAssumptions of
+  allBlockAssumptions <- toListFC (blockInfoID &&& blockInfoAssumptions) <$> asks tsBlocks
+  case lookup (integerOfBlockID blockID) allBlockAssumptions of
     Nothing -> error $ "findBlockAssumptions: could not find block " ++ show blockID ++ ". Please report."
     Just assumptions -> liftIO $ What4.andAllOf sym L.folded assumptions
 
@@ -197,7 +198,7 @@ makeTargetPred targetBlock args blockCondition = do
   nextBlock <- asks tsNextBlock
   nextHasReturned <- asks tsNextHasReturned
   sym <- asks tsSym
-  let nextBlockIs b = What4.natEq sym nextBlock =<< What4.natLit sym b
+  let nextBlockIs b = What4.intEq sym nextBlock =<< What4.intLit sym b
   nextBlockArgs <- nextArgsPred targetBlock args
   rawBlockAssumptions <- findBlockAssumptions sym targetBlock
   -- NOTE: because we wish for the predicate to hold for entering the next
@@ -205,7 +206,7 @@ makeTargetPred targetBlock args blockCondition = do
   nextBlockAssumptions <- liftIO $ runNamespacer namespacer next rawBlockAssumptions
   liftIO $ do
     doesNotReturn <- What4.notPred sym nextHasReturned
-    nextBlockEq <- nextBlockIs (natOfBlockID targetBlock)
+    nextBlockEq <- nextBlockIs (integerOfBlockID targetBlock)
     blockConclusion <- What4.andAllOf sym L.folded [doesNotReturn, nextBlockEq, nextBlockArgs, nextBlockAssumptions]
     What4.impliesPred sym blockCondition blockConclusion
 
@@ -282,8 +283,8 @@ stateTransitionForBlock (BlockInfo {..}) =
           =<< What4.andAllOf sym L.folded blockInfoAssumptions
     blockGlobalsPred <- makeGlobalsPred blockInfoGlobals
     liftIO $ do
-      thisBlock <- What4.natLit sym blockInfoID
-      isCurrentBlock <- What4.natEq sym thisBlock currentBlock
+      thisBlock <- What4.intLit sym blockInfoID
+      isCurrentBlock <- What4.intEq sym thisBlock currentBlock
       hasNotReturned <- What4.notPred sym currentHasReturned
       transition <-
         What4.andAllOf

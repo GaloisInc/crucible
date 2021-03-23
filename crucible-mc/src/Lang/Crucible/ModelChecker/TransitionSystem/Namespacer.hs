@@ -20,31 +20,35 @@ module Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
   )
 where
 
-import Control.Monad.Identity
-import Data.Functor.Const
+import Control.Monad.Identity (Identity (runIdentity))
+import Data.Functor.Const (Const (Const))
 import Data.Functor.Product (Product (..))
 import qualified Data.Parameterized.Context as Ctx
 import Data.Semigroup (First (..))
 import qualified Lang.Crucible.Backend as Backend
 import Lang.Crucible.Types
-import What4.Expr.Builder
+  ( BaseTypeRepr,
+    TestEquality (testEquality),
+    type (:~:) (Refl),
+  )
+import qualified What4.Expr.Builder as WEB
 import qualified What4.Interface as What4
-import What4.Symbol
+import What4.Symbol (SolverSymbol (solverSymbolAsText))
 
 data Namespacer sym stateFields = Namespacer
   { runNamespacer ::
       forall tp.
       What4.SymStruct sym stateFields ->
-      SymExpr sym tp ->
-      IO (SymExpr sym tp)
+      WEB.SymExpr sym tp ->
+      IO (WEB.SymExpr sym tp)
   }
 
 sallyNamespacer ::
-  Backend.IsBoolSolver (ExprBuilder t st (Flags FloatIEEE)) =>
-  ExprBuilder t st (Flags FloatIEEE) ->
+  Backend.IsBoolSolver (WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE)) =>
+  WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE) ->
   Ctx.Assignment (Const What4.SolverSymbol) stateFields ->
   Ctx.Assignment BaseTypeRepr stateFields ->
-  Namespacer (ExprBuilder t st (Flags FloatIEEE)) stateFields
+  Namespacer (WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE)) stateFields
 sallyNamespacer sym stateSymbols stateReprs =
   Namespacer (addNamespaceToVariables sym stateSymbols stateReprs)
 
@@ -93,36 +97,34 @@ fieldIndex fieldSymbols fieldTypes fieldSymbol fieldType = do
 
 addNamespaceToVariables ::
   forall t st stateFields tp.
-  Backend.IsBoolSolver (ExprBuilder t st (Flags FloatIEEE)) =>
-  ExprBuilder t st (Flags FloatIEEE) ->
+  Backend.IsBoolSolver (WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE)) =>
+  WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE) ->
   Ctx.Assignment (Const What4.SolverSymbol) stateFields ->
   Ctx.Assignment BaseTypeRepr stateFields ->
   What4.SymStruct
-    (ExprBuilder t st (Flags FloatIEEE))
+    (WEB.ExprBuilder t st (WEB.Flags WEB.FloatIEEE))
     stateFields ->
-  Expr t tp ->
-  IO (Expr t tp)
+  WEB.Expr t tp ->
+  IO (WEB.Expr t tp)
 addNamespaceToVariables sym stateSymbols stateReprs state = goExpr
   where
     -- @Expr@
-    goExpr :: forall tp'. Expr t tp' -> IO (Expr t tp')
-    goExpr sr@(SemiRingLiteral {}) = pure sr
-    goExpr sr@(BoolExpr {}) = pure sr
-    goExpr sr@(StringExpr {}) = pure sr
-    goExpr (asApp -> Just a) = sbMakeExpr sym =<< goApp a
-    -- FIXME: check that we don't need to add namespace to NonceAppExpr
-    goExpr (NonceAppExpr e) =
-      error $ "addNamespaceToVariables: encountered NonceAppExpr, please report to maintainers.\n" ++ show (NonceAppExpr e)
-    goExpr (BoundVarExpr e) = do
-      if solverSymbolAsText (bvarName e) == "state"
-        then pure (BoundVarExpr e)
+    goExpr :: forall tp'. WEB.Expr t tp' -> IO (WEB.Expr t tp')
+    goExpr sr@(WEB.SemiRingLiteral {}) = pure sr
+    goExpr sr@(WEB.BoolExpr {}) = pure sr
+    goExpr sr@(WEB.StringExpr {}) = pure sr
+    goExpr (WEB.asApp -> Just a) = WEB.sbMakeExpr sym =<< goApp a
+    goExpr (WEB.NonceAppExpr e) = pure (WEB.NonceAppExpr e) -- FIXME: is this correct?
+    goExpr (WEB.BoundVarExpr e) = do
+      if solverSymbolAsText (WEB.bvarName e) == "state"
+        then pure (WEB.BoundVarExpr e)
         else do
-          let expectedType = bvarType e
+          let expectedType = WEB.bvarType e
           What4.structField
             sym
             state
-            (fieldIndex stateSymbols stateReprs (bvarName e) expectedType)
+            (fieldIndex stateSymbols stateReprs (WEB.bvarName e) expectedType)
     goExpr e = error $ show e
     -- @App@
-    goApp :: forall tp'. App (Expr t) tp' -> IO (App (Expr t) tp')
-    goApp = traverseApp goExpr
+    goApp :: forall tp'. WEB.App (WEB.Expr t) tp' -> IO (WEB.App (WEB.Expr t) tp')
+    goApp = WEB.traverseApp goExpr

@@ -49,17 +49,17 @@ makeInitialState ::
   Core.CFG ext blocks init ret ->
   sym ->
   Ctx.Assignment (GlobalInfo sym) globCtx ->
-  What4.SymNat sym ->
+  What4.SymInteger sym ->
   What4.Pred sym ->
   IO (What4.Pred sym)
 makeInitialState cfg sym globInfos currentBlock hasReturned =
   do
-    let initialBlock = natOfBlockID (Core.cfgEntryBlockID cfg)
+    let initialBlock = integerOfBlockID (Core.cfgEntryBlockID cfg)
     initialStateGlobalsPredicates <- sequenceA $ toListFC (initialStateGlobal sym) globInfos
     initialBlockPredicate <-
       do
-        initialBlockLit <- What4.natLit sym initialBlock
-        What4.natEq sym currentBlock initialBlockLit
+        initialBlockLit <- What4.intLit sym initialBlock
+        What4.intEq sym currentBlock initialBlockLit
     initialStateHasNotReturned <- What4.notPred sym hasReturned
     What4.andAllOf
       sym

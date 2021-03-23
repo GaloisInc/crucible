@@ -16,7 +16,6 @@ module Lang.Crucible.ModelChecker.SymbolicExecution.BlockInfo
 where
 
 import qualified Data.Parameterized.Context as Ctx
-import GHC.Natural
 import qualified Lang.Crucible.CFG.Core as Core
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.ExecutionTree
@@ -39,7 +38,7 @@ data BlockInfo sym (globCtx :: Ctx CrucibleType) (block :: Ctx CrucibleType) = B
     blockInfoEnd :: BlockEnd sym,
     -- | symbolic value for global variables at the end of the block
     blockInfoGlobals :: Ctx.Assignment (RegEntry sym) globCtx,
-    blockInfoID :: Natural,
+    blockInfoID :: Integer,
     -- | assumptions that hold at the **end** of the block
     blockInfoAssumptions :: [What4.Pred sym],
     -- | obligations pending at the **end** of the block

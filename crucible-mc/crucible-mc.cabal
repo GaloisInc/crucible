@@ -1,87 +1,74 @@
-cabal-version: 1.12
+cabal-version: 3.0
+name:          crucible-mc
+version:       0.2.0.0
+author:
+  Iavor Diatchki <iavor.diatchki@gmail.com>,
+  Valentin Robert <val@galois.com>
 
--- This file has been generated from package.yaml by hpack version 0.34.2.
---
--- see: https://github.com/sol/hpack
+maintainer:
+  Iavor Diatchki <iavor.diatchki@gmail.com>,
+  Valentin Robert <val@galois.com>
 
-name:           crucible-mc
-version:        0.1.1.0
-author:         Iavor Diatchki <iavor.diatchki@gmail.com>,
-                Valentin Robert <valentin.robert.42@gmail.com>
-maintainer:     Iavor Diatchki <iavor.diatchki@gmail.com>,
-                Valentin Robert <valentin.robert.42@gmail.com>
-license:        BSD3
-license-file:   LICENSE
-build-type:     Simple
+license:       BSD-3-Clause
+license-file:  LICENSE
+build-type:    Simple
+
+common dependencies
+  build-depends:
+    , ansi-wl-pprint
+    , base                     >=4.13  && <4.15
+    , containers
+    , crucible
+    , crucible-llvm
+    , crux
+    , crux-llvm
+    , extra
+    , language-sally           ^>=0.3
+    , lens
+    , llvm-pretty
+    , llvm-pretty-bc-parser
+    , mtl
+    , parameterized-utils      >=2     && <3
+    , prettyprinter            >=1.7.0
+    , what4
+    , what4-transition-system  >=0.0.3
+
+  default-language: Haskell2010
 
 library
+  import:          dependencies
   exposed-modules:
-      Lang.Crucible.ModelChecker.AsBaseType
-      Lang.Crucible.ModelChecker.CrucibleMC
-      Lang.Crucible.ModelChecker.Fresh
-      Lang.Crucible.ModelChecker.GlobalInfo
-      Lang.Crucible.ModelChecker.NamingConventions
-      Lang.Crucible.ModelChecker.SallyWhat4
-      Lang.Crucible.ModelChecker.SymbolicExecution.BlockInfo
-      Lang.Crucible.ModelChecker.SymbolicExecution.Debugging
-      Lang.Crucible.ModelChecker.SymbolicExecution.Driver
-      Lang.Crucible.ModelChecker.SymbolicExecution.PrettyPrinting
-      Lang.Crucible.ModelChecker.TransitionSystem.Builder
-      Lang.Crucible.ModelChecker.TransitionSystem.InitialState
-      Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
-      Lang.Crucible.ModelChecker.TransitionSystem.Queries
-      Lang.Crucible.ModelChecker.TransitionSystem.StateCtx
-      Lang.Crucible.ModelChecker.TransitionSystem.Transitions
-  other-modules:
-      Paths_crucible_mc
-  hs-source-dirs:
-      src
-  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  build-depends:
-      ansi-wl-pprint
-    , base >=4.13 && <4.14
-    , containers
-    , crucible
-    , crucible-llvm
-    , crux
-    , crux-llvm
-    , extra
-    , language-sally >=0.2 && <0.3
-    , lens
-    , llvm-pretty
-    , llvm-pretty-bc-parser
-    , mtl
-    , parameterized-utils
-    , pretty
-    , what4
-    , what4-transition-system
-  default-language: Haskell2010
+    Lang.Crucible.ModelChecker.AsBaseType
+    Lang.Crucible.ModelChecker.CrucibleMC
+    Lang.Crucible.ModelChecker.Fresh
+    Lang.Crucible.ModelChecker.GlobalInfo
+    Lang.Crucible.ModelChecker.NamingConventions
+    Lang.Crucible.ModelChecker.SallyWhat4
+    Lang.Crucible.ModelChecker.SymbolicExecution.BlockInfo
+    Lang.Crucible.ModelChecker.SymbolicExecution.Debugging
+    Lang.Crucible.ModelChecker.SymbolicExecution.Driver
+    Lang.Crucible.ModelChecker.SymbolicExecution.PrettyPrinting
+    Lang.Crucible.ModelChecker.TransitionSystem.Builder
+    Lang.Crucible.ModelChecker.TransitionSystem.InitialState
+    Lang.Crucible.ModelChecker.TransitionSystem.Namespacer
+    Lang.Crucible.ModelChecker.TransitionSystem.Queries
+    Lang.Crucible.ModelChecker.TransitionSystem.StateCtx
+    Lang.Crucible.ModelChecker.TransitionSystem.Transitions
+
+  other-modules:   Paths_crucible_mc
+  hs-source-dirs:  src
+  ghc-options:
+    -Wall -Werror=incomplete-patterns -Werror=missing-methods
+    -Werror=overlapping-patterns
 
 executable crucible-mc
-  main-is: Main.hs
-  other-modules:
-      Paths_crucible_mc
-  hs-source-dirs:
-      exe
-  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
-  build-depends:
-      ansi-wl-pprint
-    , base >=4.13 && <4.14
-    , containers
-    , crucible
-    , crucible-llvm
-    , crucible-mc
-    , crux
-    , crux-llvm
-    , extra
-    , language-sally >=0.2 && <0.3
-    , lens
-    , llvm-pretty
-    , llvm-pretty-bc-parser
-    , mtl
-    , parameterized-utils
-    , pretty
-    , what4
-    , what4-transition-system
-  default-language: Haskell2010
+  import:           dependencies
+  main-is:          Main.hs
+  other-modules:    Paths_crucible_mc
+  hs-source-dirs:   exe
+  ghc-options:
+    -Wall -Werror=incomplete-patterns -Werror=missing-methods
+    -Werror=overlapping-patterns
 
+  build-depends:    crucible-mc
+  default-language: Haskell2010

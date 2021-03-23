@@ -26,7 +26,6 @@ import Lang.Crucible.Simulator (SimError)
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState (lookupGlobal)
 import System.IO (stdout)
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
 import qualified What4.Interface as What4
 import What4.LabeledPred (labeledPred)
 
@@ -54,7 +53,7 @@ dumpAssumptions execState =
     assumptions <- Backend.collectAssumptions sym
     putStrLn $ "Assumptions : " ++ show (length assumptions)
     forM_ assumptions $ \assumption ->
-      print . PP.pretty . What4.printSymExpr $ L.view labeledPred assumption
+      print . What4.printSymExpr $ L.view labeledPred assumption
 
 dumpObligations ::
   Backend.IsBoolSolver sym =>

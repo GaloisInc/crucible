@@ -36,7 +36,7 @@ import Lang.Crucible.LLVM.TypeContext
 import Lang.Crucible.ModelChecker.SallyWhat4
 import Lang.Crucible.Simulator
 import qualified Text.LLVM as TL
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
+import qualified Prettyprinter as PP
 import qualified What4.Interface as What4
 
 -- | @GlobalInfo sym tp@ captures the information we collect about global
@@ -50,7 +50,7 @@ data GlobalInfo sym tp = GlobalInfo
   }
 
 instance PP.Pretty (GlobalInfo sym tp) where
-  pretty GlobalInfo {..} = PP.text (show globalSymbol) PP.<+> ":" PP.<+> PP.pretty globalTypeRepr PP.<+> ":=" PP.<+> "TODO"
+  pretty GlobalInfo {..} = PP.pretty (show globalSymbol) PP.<+> ":" PP.<+> PP.pretty globalTypeRepr PP.<+> ":=" PP.<+> "TODO"
 
 globalSymbols :: Ctx.Assignment (GlobalInfo sym) ctx -> Ctx.Assignment (Const TL.Symbol) ctx
 globalSymbols = fmapFC (Const . globalSymbol)

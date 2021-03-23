@@ -1,5 +1,10 @@
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module           : Main
@@ -15,16 +20,24 @@ module Main
 where
 
 import Control.Exception (Exception (..), throwIO)
+import Control.Lens ((^.))
+import Crux.LLVM.Overrides (ArchOk)
 import qualified Data.LLVM.BitCode as BC
 import Data.Parameterized.Nonce (withIONonceGenerator)
 import qualified Lang.Crucible.Backend.Online as Online
 import qualified Lang.Crucible.CFG.Core as Core
 import Lang.Crucible.FunctionHandle
-import Lang.Crucible.LLVM.Run
+import Lang.Crucible.LLVM.MemModel (mkMemVar, withPtrWidth)
 import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.ModelChecker.CrucibleMC (runCrucibleMC)
 import System.Console.GetOpt (ArgOrder (..), getOpt)
 import System.Environment (getArgs)
+import qualified Text.LLVM as LLVM
+import What4.ProblemFeatures (noFeatures)
+
+withPtrWidthOf :: ModuleTranslation arch -> (ArchOk arch => b) -> b
+withPtrWidthOf trans k =
+  llvmPtrWidth (trans ^. transContext) (\ptrW -> withPtrWidth ptrW k)
 
 -- | Create a Z3 backend for the simulator.
 withZ3 ::
@@ -32,7 +45,7 @@ withZ3 ::
   IO a
 withZ3 k =
   withIONonceGenerator $ \nonceGen ->
-    Online.withZ3OnlineBackend Online.FloatIEEERepr nonceGen Online.ProduceUnsatCores k
+    Online.withZ3OnlineBackend Online.FloatIEEERepr nonceGen Online.ProduceUnsatCores noFeatures k
 
 -- | This exception is thrown when we fail to parse a bit-code file.
 data Err
@@ -44,7 +57,7 @@ data Err
 instance Exception Err
 
 -- | Parse an LLVM bit-code file.
-parseLLVM :: FilePath -> IO Module
+parseLLVM :: FilePath -> IO LLVM.Module
 parseLLVM file =
   do
     ok <- BC.parseBitCodeFromFile file
@@ -61,9 +74,16 @@ main =
       [bitcodeFile, functionToSimulate] ->
         do
           llvmModule <- parseLLVM bitcodeFile
-          withZ3 $ \sym -> do
-            hAlloc <- newHandleAllocator
-            let ?laxArith = False
-            Core.Some trans <- translateModule hAlloc llvmModule
-            withPtrWidthOf trans (runCrucibleMC sym llvmModule hAlloc trans functionToSimulate)
+          withZ3 $ \sym ->
+            do
+              hAlloc <- newHandleAllocator
+              let ?laxArith = False
+              let ?optLoopMerge = False
+              memVar <- mkMemVar "crucible-mc" hAlloc
+              Core.Some trans <- translateModule hAlloc memVar llvmModule
+              withPtrWidthOf
+                trans
+                do
+                  let ?recordLLVMAnnotation = \_ _ -> pure ()
+                  runCrucibleMC sym llvmModule hAlloc trans functionToSimulate
       _ -> error "Usage: crucible-mc inputBitcodeFile.bc functionToSimulate"
