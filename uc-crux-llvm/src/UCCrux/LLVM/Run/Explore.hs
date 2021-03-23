@@ -20,7 +20,8 @@ import           Prelude hiding (log, writeFile)
 
 import           Control.Lens ((.~))
 import           Control.Concurrent (threadDelay )
-import           Control.Concurrent.Async (race, mapConcurrently)
+import           Control.Concurrent.Async (race)
+import           Control.Scheduler (Comp(Par), traverseConcurrently)
 import           Control.Exception (displayException)
 import           Control.Lens ((^.))
 import           Data.Function ((&))
@@ -138,7 +139,8 @@ explore appCtx modCtx cruxOpts ucOpts halloc =
     stats <-
       if Config.exploreParallel ucOpts
         then
-          mapConcurrently
+          traverseConcurrently
+            Par
             (doExplore (appCtx & log .~ (\_ _ -> pure ())))
             funcsToExplore
         else for funcsToExplore (doExplore appCtx)
