@@ -71,6 +71,7 @@ library
     panic,
     parameterized-utils,
     prettyprinter >= 1.7.0,
+    scheduler,
     semigroupoids,
     simple-get-opt,
     text,
@@ -86,6 +87,10 @@ executable uc-crux-llvm
   build-depends:
     base >= 4.8 && < 4.15,
     uc-crux-llvm
+
+  ghc-options: -threaded
+               -rtsopts
+               "-with-rtsopts=-N"
 
   main-is: Main.hs
 
