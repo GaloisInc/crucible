@@ -42,7 +42,8 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     exploreParallel :: Bool,
     entryPoints :: [String],
     skipFunctions :: [String],
-    verbosity :: Int
+    verbosity :: Int,
+    unsoundOverrides :: Bool
   }
 
 -- | Crucible will infinitely loop when it encounters unbounded program loops,
@@ -94,6 +95,14 @@ skipDoc = "List of functions to skip during exploration"
 verbDoc :: Text
 verbDoc = "Verbosity of logging. (0: minimal, 1: informational, 2: debug)"
 
+unsoundOverridesDoc :: Text
+unsoundOverridesDoc =
+  Text.unwords
+    [ "Apply unsound (underapproximate) overrides for these functions:",
+      "gethostname, and getenv. This can lead to more code coverage, but any",
+      "safety claims about functions that call these ones might not hold."
+    ]
+
 ucCruxLLVMConfig :: IO (Crux.Config UCCruxLLVMOptions)
 ucCruxLLVMConfig = do
   llvmOpts <- llvmCruxConfig
@@ -109,7 +118,8 @@ ucCruxLLVMConfig = do
             <*> Crux.section "explore-parallel" Crux.yesOrNoSpec False exploreParallelDoc
             <*> Crux.section "entry-points" (Crux.listSpec Crux.stringSpec) [] entryPointsDoc
             <*> Crux.section "skip-functions" (Crux.listSpec Crux.stringSpec) [] skipDoc
-            <*> Crux.section "verbosity" Crux.numSpec 0 verbDoc,
+            <*> Crux.section "verbosity" Crux.numSpec 0 verbDoc
+            <*> Crux.section "unsound-overrides" Crux.yesOrNoSpec False unsoundOverridesDoc,
         Crux.cfgEnv =
           map
             ( \envDescr ->
@@ -202,6 +212,13 @@ ucCruxLLVMConfig = do
                      Crux.parsePosNum
                        "LEVEL"
                        $ \v opts ->
-                         opts {verbosity = v}
+                         opts {verbosity = v},
+                 Crux.Option
+                   []
+                   ["unsound-overrides"]
+                   (Text.unpack unsoundOverridesDoc)
+                   $ Crux.NoArg $
+                     \opts ->
+                       Right opts {unsoundOverrides = True}
                ]
       }
