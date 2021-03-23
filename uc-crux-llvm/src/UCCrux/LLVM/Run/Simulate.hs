@@ -19,6 +19,7 @@ Stability    : provisional
 
 module UCCrux.LLVM.Run.Simulate
   ( runSimulator,
+    SimulationOptions (..),
   )
 where
 
@@ -26,6 +27,7 @@ where
 import           Prelude hiding (log)
 
 import           Control.Exception (displayException, try)
+import           Control.Monad (when)
 import           Control.Lens ((^.), view, to)
 import           Control.Monad (void, unless)
 import           Control.Monad.IO.Class (liftIO)
@@ -87,6 +89,11 @@ import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), Se
 import           UCCrux.LLVM.Setup.Monad (ppSetupError)
 {- ORMOLU_ENABLE -}
 
+data SimulationOptions = SimulationOptions
+  { memOptions :: MemOptions,
+    applyUnsoundOverrides :: Bool
+  }
+
 simulateLLVM ::
   ArchOk arch =>
   AppContext ->
@@ -96,9 +103,9 @@ simulateLLVM ::
   IORef [Explanation m arch argTypes] ->
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
-  MemOptions ->
+  SimulationOptions ->
   Crux.SimulatorCallback
-simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
+simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg simOpts =
   Crux.SimulatorCallback $ \sym _maybeOnline ->
     do
       let trans = modCtx ^. moduleTranslation
@@ -107,7 +114,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
       let ?lc = llvmCtxt ^. llvmTypeCtx
       let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
       let simctx =
-            (setupSimCtxt halloc sym memOptions llvmCtxt)
+            (setupSimCtxt halloc sym (memOptions simOpts) llvmCtxt)
               { Crucible.printHandle = view outputHandle ?outputConfig
               }
 
@@ -188,7 +195,8 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
                   -- benchmarking.
                   registerFunctions (modCtx ^. llvmModule) trans
                   -- TODO(lb): This should be configurable
-                  registerUnsoundOverrides modCtx (modCtx ^. llvmModule) trans
+                  when (applyUnsoundOverrides simOpts) $
+                    registerUnsoundOverrides modCtx (modCtx ^. llvmModule) trans
                   liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                   printed <- ppRegMap modCtx funCtx sym mem args
                   mapM_ (liftIO . (appCtx ^. log) Hi . Text.pack . show) printed
@@ -243,9 +251,9 @@ runSimulator ::
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
-  MemOptions ->
+  SimulationOptions ->
   IO [Explanation m arch argTypes]
-runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
+runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts simOpts =
   do
     explRef <- newIORef []
     cruxResult <-
@@ -259,7 +267,7 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
             explRef
             preconditions
             cfg
-            memOptions
+            simOpts
         )
     case cruxResult of
       Crux.CruxSimulationResult Crux.ProgramIncomplete _ ->

@@ -121,7 +121,12 @@ findBugs llvmModule file fns =
           Crux.loadOptions outCfg "uc-crux-llvm" "0.1" conf $ \(cruxOpts, ucOpts) ->
             do
               let cruxOpts' = cruxOpts {Crux.inputFiles = [testDir </> file]}
-              let ucOpts' = ucOpts {Config.entryPoints = fns}
+              let ucOpts' =
+                    ucOpts
+                      { Config.entryPoints = fns,
+                        -- TODO(lb): This should be configurable per-test
+                        Config.unsoundOverrides = True
+                      }
               (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
               path <-
                 if isRealFile
