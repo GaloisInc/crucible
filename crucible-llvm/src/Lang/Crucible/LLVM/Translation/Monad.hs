@@ -216,8 +216,12 @@ buildIdentMap [] _ ctx _ m
       panic "crucible-llvm:Translation.buildIdentMap"
       [ "buildIdentMap: passed arguments do not match LLVM input signature" ]
 buildIdentMap (ti:ts) _ ctx asgn m = do
-  -- ?? FIXME, irrefutable pattern...
-  let Right ty = liftMemType (L.typedType ti)
+  let ty = case liftMemType (L.typedType ti) of
+             Right t -> t
+             Left err -> panic "crucible-llvm:Translation.buildIdentMap"
+                         [ "Error attempting to lift type " <> show ti
+                         , show err
+                         ]
   packType ty ctx asgn $ \x ctx' asgn' ->
      buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
 
