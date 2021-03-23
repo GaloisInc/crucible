@@ -108,7 +108,7 @@ constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry 
           )
   where
     assumeOne :: W4I.Pred sym -> Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
-    assumeOne pred = assume constraint pred >> pure regEntry
+    assumeOne predicate = assume constraint predicate >> pure regEntry
     interpretOp ::
       forall w. 1 <= w => L.ICmpOp -> W4I.SymBV sym w -> W4I.SymBV sym w -> IO (W4I.Pred sym)
     interpretOp =
