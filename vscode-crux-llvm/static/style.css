@@ -1,0 +1,20 @@
+.icon {
+    width: 140px;
+    padding: 20px;
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+}
+
+.error {
+    color: red;
+}
+
+.ok {
+    color: green;
+}
+
+.warning {
+    color: yellow;
+}

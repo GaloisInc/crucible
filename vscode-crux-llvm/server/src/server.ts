@@ -1,191 +1,84 @@
-import * as ChildProcess from 'child_process'
-import { debounce } from 'debounce'
-import * as fs from 'fs'
-import * as LanguageServer from 'vscode-languageserver'
-import * as os from 'os'
 import * as path from 'path'
 
-import * as Report from './report'
+import { debounce } from 'debounce'
+import * as LanguageServer from 'vscode-languageserver'
+// import { WorkDoneProgress, WorkDoneProgressCreateRequest } from 'vscode-languageserver'
+import { TextDocument } from 'vscode-languageserver-textdocument'
+// import { attachWorkDone, createWorkDoneProgress } from 'vscode-languageserver/lib/common/progress'
+import * as LanguageServerNode from 'vscode-languageserver/node'
 
-const prefix: string = '[vscode-crux-llvm]'
-const settingsName: string = 'vscode-crux-llvm'
-
-/** Promisified version of nodejs' filesystem API */
-const fsPromises = fs.promises
+import * as Configuration from '@shared/configuration'
+import * as Constants from '@shared/constants'
+import { checkCommand, checkCommandViaPATH } from '@shared/node/check-command'
+import { CallOrigin, validateTextDocument } from '@shared/node/validate'
 
 /** Connection to the extension front-end */
-const connection: LanguageServer.IConnection =
-    LanguageServer.createConnection(LanguageServer.ProposedFeatures.all)
+
+const connection: LanguageServerNode.Connection = (
+    LanguageServerNode.createConnection(LanguageServerNode.ProposedFeatures.all)
+)
+
+console.log = connection.console.log.bind(connection.console)
+console.error = connection.console.error.bind(connection.console)
 
 /** Documents being watched */
-const documents: LanguageServer.TextDocuments<LanguageServer.TextDocument> =
-    new LanguageServer.TextDocuments<LanguageServer.TextDocument>({
-        create(uri: string, languageId: string, version: number, content: string): LanguageServer.TextDocument {
-            return LanguageServer.TextDocument.create(uri, languageId, version, content)
+const documents: LanguageServerNode.TextDocuments<TextDocument> =
+    new LanguageServerNode.TextDocuments<TextDocument>({
+        create(uri: string, languageId: string, version: number, content: string): TextDocument {
+            return TextDocument.create(uri, languageId, version, content)
         },
-        update(document: LanguageServer.TextDocument): LanguageServer.TextDocument {
+        update(document: TextDocument): TextDocument {
             return document
         },
     })
 
+// We should only tell the client that we initiated a cancellable verification
+// task if it explicitly supports receiving such notifications.
+// cf. https://microsoft.github.io/language-server-protocol/specifications/specification-current/#serverInitiatedProgress
+let clientSupportsWorkDoneProgress = false
+
 connection.onInitialize(
-    () => {
-        return {
+    (params: LanguageServer.InitializeParams) => {
+        if (params.capabilities.window?.workDoneProgress) {
+            clientSupportsWorkDoneProgress = true
+        }
+        return ({
             capabilities: {
                 textDocumentSync: {
+                    change: LanguageServerNode.TextDocumentSyncKind.Full,
                     openClose: true,
-                    change: LanguageServer.TextDocumentSyncKind.Full,
                 },
-            }
-        }
+            },
+        } as LanguageServer.InitializeResult<void>)
     }
 )
 
 connection.onInitialized(checkConfiguration)
-
-/**
- * Runs crux-llvm on a given text document, reporting using the diagnostics API
- * @param textDocument The text document to validate
- */
-async function validateTextDocument(textDocument: LanguageServer.TextDocument): Promise<void> {
-
-    // uri will look like 'file:///path/to/file.c'
-    // but we need it to be '/path/to/file.c'
-    const filePath = textDocument.uri.replace('file://', '')
-    const configuration = await connection.workspace.getConfiguration('crux-llvm')
-    const cruxLLVM = configuration['crux-llvm']
-
-    // we use a temporary directory to produce the report
-    const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'crux-llvm-'))
-    const includeDirs = configuration['include-dirs']
-
-    // ! Do not try to timeout this process from vscode, as it may crash the
-    // ! entire IDE
-    const cruxLLVMProcess = ChildProcess.execFile(
-        cruxLLVM,
-        [
-            filePath,
-            '--fail-fast',
-            '--goal-timeout',
-            '--no-execs',
-            '--skip-incomplete-reports',
-            '--skip-success-reports',
-            '--solver=z3', // yices behaves badly
-            '--timeout',
-            `--output-directory=${tempDir}`,
-            `--include-dirs=${includeDirs}`,
-        ],
-        {
-            env: {
-                CLANG: configuration.clang,
-                LLVM_LINK: configuration['llvm-link'],
-                PATH: configuration.path,
-            },
-        })
-
-    // ! Killing crux-llvm this way may bring down vscode entirely!
-    // setTimeout(() => { cruxLLVMProcess.kill() }, 1000)
-
-    cruxLLVMProcess.on('exit', () => {
-        try {
-            // crux-llvm can generate huge reports, arbitrary cutoff
-            const reportFile = `${tempDir}/report.json`
-            const sizeInMegabytes = fs.statSync(reportFile).size / 1_000_000
-            if (sizeInMegabytes > 1) {
-                connection.window.showWarningMessage(`Skipping ${reportFile} as it appears to be larger than 1MB`)
-                return
-            }
-
-            const contents = fs.readFileSync(reportFile)
-            // ! may need to do some sanity checking here
-            const report: any[] = JSON.parse(contents.toString())
-
-            const diagnostics = report.flatMap(Report.createDiagnostic)
-
-            connection.sendDiagnostics({ uri: textDocument.uri, diagnostics })
-        }
-        catch (e) {
-            connection.window.showErrorMessage(`${prefix} Error processing report:\n${e}`)
-        }
-    })
-
-}
-
 /**
  * Returns the actual command to use for running a given command, based on the
  * configuration.
- * @param command Command to resolve, say `clang` 
- * @param configuration crux-llvm fragment of the user's settings.json 
+ * @param command - Command to resolve, say `clang`
+ * @param configuration - crux-llvm fragment of the user's settings.json
  * @returns Resolved command, say `/path/to/clang`
  */
-function commandFromConfiguration(command: string, configuration: any): string {
-    if (command in configuration) {
-        return configuration[command]
-    }
-    return command
-}
+// function commandFromConfiguration(command: string, configuration: any): string {
+//     if (command in configuration) {
+//         return configuration[command]
+//     }
+//     return command
+// }
 
 /**
- * Outputs a message to the user's console, if debug is set to true
- * @param str Message to output
+ * Outputs a message to the user's console, if debug is set to true in their
+ * configuration.  To find these messages, I have to go in the extension's
+ * Output tab, and select the "Crux-LLVM Language Server" option from the
+ * drop-down on the right.
+ * @param str - Message to output
  */
 async function debugMessage(str: string): Promise<void> {
-    const configuration = await connection.workspace.getConfiguration('crux-llvm')
-    if (configuration.debug) {
-        connection.console.info(`${prefix}\n${str}`)
-    }
-}
-
-/** 
- * @param configuration crux-llvm fragment of the user's settings.json
- * 
- * @param commandStr one of the command names expected as fields (see
- * vscode-crux-llvm/package.json) for an up-to-date list
- * 
- * @returns true when command can be found, false otherwise
- */
-function checkCommand(configuration: any, commandStr: string): boolean {
-    try {
-        const output = ChildProcess.execFileSync(
-            configuration[commandStr],
-            ['--version'],
-        )
-        debugMessage(output.toString())
-        return true
-    }
-    catch (e) { // ! e will be null
-        connection.window.showErrorMessage(
-            `${commandStr} could not be found.  Please set "${settingsName}.${commandStr}" correctly in your settings.json.`
-        )
-        return false
-    }
-}
-
-/** 
- * Checks that we can access a given command using the user's settings PATH
- * @param configuration crux-llvm fragment of the user's settings.json
- * @param commandStr a verbatim command name we expect to found in PATH
- * @returns true when command can be found, false otherwise
- */
-function checkCommandViaPATH(configuration: any, commandStr: string): boolean {
-    try {
-        const output = ChildProcess.execFileSync(
-            commandStr,
-            ['--version'],
-            {
-                env: {
-                    PATH: configuration['path'],
-                },
-            },
-        )
-        debugMessage(output.toString())
-        return true
-    }
-    catch (e) { // ! e will be null
-        connection.window.showErrorMessage(
-            `${commandStr} could not be found.  Please make sure that "${settingsName}.path" is a PATH containing ${commandStr} in your settings.json.`
-        )
-        return false
+    const configuration = await connection.workspace.getConfiguration(Constants.settingsName)
+    if (configuration[Configuration.configDebug]) {
+        connection.console.info(`${Constants.prefix}\n${str}`)
     }
 }
 
@@ -197,28 +90,90 @@ function checkCommandViaPATH(configuration: any, commandStr: string): boolean {
  * @returns true if all commands can be found, false otherwise
  */
 async function checkConfiguration(): Promise<boolean> {
-    const configuration = await connection.workspace.getConfiguration('crux-llvm')
+    const configuration: Configuration.Configuration = await connection.workspace.getConfiguration(Constants.settingsName)
+
+    const check = (field: keyof Configuration.Configuration & string) => {
+        const result = checkCommand(configuration, field)
+        if (result.check) {
+            return true
+        } else {
+            connection.window.showErrorMessage(result.errorMessage)
+            return false
+        }
+    }
+
+    const checkViaPATH = (command: string) => {
+        const result = checkCommandViaPATH(configuration, command)
+        if (result.check) {
+            return true
+        } else {
+            connection.window.showErrorMessage(result.errorMessage)
+            return false
+        }
+    }
+
     return (
-        checkCommand(configuration, 'crux-llvm')
+        check(Configuration.configCruxLLVM)
         &&
-        checkCommand(configuration, 'clang')
+        check(Configuration.configClang)
         &&
-        checkCommand(configuration, 'llvm-link')
+        check(Configuration.configLLVMLink)
         &&
-        checkCommandViaPATH(configuration, 'z3')
+        checkViaPATH('z3')
     )
 }
 
-async function onChangedContent(change: LanguageServer.TextDocumentChangeEvent<LanguageServer.TextDocument>): Promise<void> {
+async function onChangedContent(
+    change: LanguageServer.TextDocumentChangeEvent<TextDocument>,
+): Promise<void> {
+
     const configurationOK = await checkConfiguration()
     if (!configurationOK) {
         return
     }
-    debugMessage('About to validate')
-    validateTextDocument(change.document)
+
+    const progress = await connection.window.createWorkDoneProgress()
+
+    if (clientSupportsWorkDoneProgress) {
+        const filename = path.basename(change.document.uri)
+        progress.begin('Crux-LLVM', 0, `Checking ${filename}`, true)
+        progress.token.onCancellationRequested(() => {
+            debugMessage('Cancellation has been requested, TODO')
+        })
+    }
+
+    const configuration = await connection.workspace.getConfiguration(Constants.settingsName)
+    const document = change.document
+
+    // uri will look like 'file:///path/to/file.c'
+    // but we need it to be '/path/to/file.c'
+    const filePath = document.uri.replace('file://', '')
+
+    validateTextDocument(configuration, filePath, {
+        onDiagnostics: (diagnostics) => {
+            if (clientSupportsWorkDoneProgress) {
+                progress.done()
+            }
+            connection.sendDiagnostics({
+                uri: document.uri,
+                diagnostics,
+            })
+        },
+        onError: (e) => {
+            if (clientSupportsWorkDoneProgress) {
+                progress.done()
+            }
+            connection.window.showErrorMessage(e)
+        },
+        onWarning: (w) => connection.window.showWarningMessage(w),
+    }, CallOrigin.server)
+
     debugMessage('Done validating')
+
 }
 
 documents.onDidChangeContent(debounce(onChangedContent))
+
 documents.listen(connection)
+
 connection.listen()

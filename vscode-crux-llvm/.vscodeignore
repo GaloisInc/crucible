@@ -14,7 +14,9 @@
 **/tsconfig.json
 client/node_modules/**
 client/src/
-nix
+dist/
+nix/
 node_modules/
-server/src/
+server/node_modules/**
+client/src/
 vsce

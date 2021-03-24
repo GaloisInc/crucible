@@ -1,7 +1,8 @@
 /.envrc
-/client/out/
+/clang
 /examples/.vscode/
 /examples/output/
-/server/out/
+/llvm-link
+/z3
 node_modules
 .vscode-test/
