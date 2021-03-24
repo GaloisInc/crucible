@@ -25,7 +25,11 @@ flag unsafe-operations
   Default: True
 
 common bldflags
-  ghc-options: -Wall -Werror=incomplete-patterns -Werror=missing-methods -Werror=overlapping-patterns
+  ghc-options: -Wall
+               -Werror=incomplete-patterns
+               -Werror=missing-methods
+               -Werror=overlapping-patterns
+               -Wpartial-fields
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
 
