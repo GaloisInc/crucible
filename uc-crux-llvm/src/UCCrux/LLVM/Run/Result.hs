@@ -40,9 +40,10 @@ import qualified Prettyprinter.Render.Text as PP
 
 import           Data.Parameterized.Ctx (Ctx)
 
-import UCCrux.LLVM.Classify.Types (TruePositive, ppTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
-import UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
-import UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.Classify.Types (TruePositive, ppTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
+import           UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
+import           UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
 {- ORMOLU_ENABLE -}
 
 data FunctionSummaryTag
@@ -77,9 +78,9 @@ ppFunctionSummaryTag =
 data FunctionSummary m (argTypes :: Ctx (FullType m))
   = Unclear (NonEmpty Uncertainty)
   | FoundBugs (NonEmpty TruePositive)
-  | SafeWithPreconditions DidHitBounds (Constraints m argTypes)
-  | SafeUpToBounds
-  | AlwaysSafe
+  | SafeWithPreconditions DidHitBounds Unsoundness (Constraints m argTypes)
+  | SafeUpToBounds Unsoundness
+  | AlwaysSafe Unsoundness
 
 data SomeBugfindingResult
   = forall m arch argTypes. SomeBugfindingResult (BugfindingResult m arch argTypes)
@@ -102,13 +103,29 @@ ppFunctionSummary fs =
       FoundBugs bugs ->
         PP.pretty $
           ":\n" <> Text.intercalate "\n----------\n" (toList (fmap ppTruePositive bugs))
-      SafeWithPreconditions b preconditions ->
+      SafeWithPreconditions b u preconditions ->
         PP.pretty (ppFunctionSummaryTag (functionSummaryTag fs) <> ":\n")
           <> if didHit b
             then PP.pretty ("The loop/recursion bound is not exceeded, and:\n" :: Text)
-            else ppConstraints preconditions
-      AlwaysSafe -> "."
-      SafeUpToBounds -> "."
+            else
+              ppConstraints preconditions
+                <> ppUnsoundness' u
+      AlwaysSafe u -> "." <> ppUnsoundness' u
+      SafeUpToBounds u -> "." <> ppUnsoundness' u
+  where
+    ppUnsoundness' u =
+      if mempty == u
+        then mempty
+        else
+          ( PP.pretty
+              ( Text.unwords
+                  [ "\nIn addition to any assumptions listed above, the",
+                    "following sources of unsoundness may invalidate this",
+                    "safety claim:\n"
+                  ]
+              )
+          )
+            <> ppUnsoundness u
 
 printFunctionSummary :: FunctionSummary m argTypes -> Text
 printFunctionSummary fs =
@@ -128,16 +145,19 @@ didHit =
     DidHitBounds -> True
     DidntHitBounds -> False
 
+-- NOTE(lb): Unsoundness is not reported to the user when the result is
+-- uncertain, because no claim is being made that unsoundness could make false.
 makeFunctionSummary ::
   Constraints m argTypes ->
   [Uncertainty] ->
   [TruePositive] ->
   DidHitBounds ->
+  Unsoundness ->
   FunctionSummary m argTypes
-makeFunctionSummary preconditions uncertainties truePositives bounds =
+makeFunctionSummary preconditions uncertainties truePositives bounds unsoundness =
   case (isEmpty preconditions, uncertainties, truePositives, bounds) of
-    (True, [], [], DidntHitBounds) -> AlwaysSafe
-    (True, [], [], DidHitBounds) -> SafeUpToBounds
-    (False, [], [], b) -> SafeWithPreconditions b preconditions
+    (True, [], [], DidntHitBounds) -> AlwaysSafe unsoundness
+    (True, [], [], DidHitBounds) -> SafeUpToBounds unsoundness
+    (False, [], [], b) -> SafeWithPreconditions b unsoundness preconditions
     (_, [], t : ts, _) -> FoundBugs (t :| ts)
     (_, u : us, _, _) -> Unclear (u :| us)

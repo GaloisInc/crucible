@@ -54,6 +54,7 @@ import           Data.Foldable (for_)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
+import           Data.Set (singleton)
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
 
@@ -79,8 +80,10 @@ import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
+import           UCCrux.LLVM.Overrides (UnsoundOverrideName(..))
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
+import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 {- ORMOLU_ENABLE -}
 
 -- Just test that a few things typecheck as expected
@@ -190,12 +193,12 @@ hasBugs fn (Result.SomeBugfindingResult result) =
       Result.FoundBugs _bugs -> pure ()
       _ -> TH.assertFailure (unwords ["Expected", fn, "to have bugs"])
 
-isSafe :: String -> Result.SomeBugfindingResult -> IO ()
-isSafe fn (Result.SomeBugfindingResult result) =
+isSafe :: Unsoundness -> String -> Result.SomeBugfindingResult -> IO ()
+isSafe unsoundness fn (Result.SomeBugfindingResult result) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
-      Result.AlwaysSafe -> pure ()
+      Result.AlwaysSafe u -> unsoundness TH.@=? u
       _ ->
         TH.assertFailure
           ( unwords
@@ -206,12 +209,12 @@ isSafe fn (Result.SomeBugfindingResult result) =
               ]
           )
 
-isSafeToBounds :: String -> Result.SomeBugfindingResult -> IO ()
-isSafeToBounds fn (Result.SomeBugfindingResult result) =
+isSafeToBounds :: Unsoundness -> String -> Result.SomeBugfindingResult -> IO ()
+isSafeToBounds unsoundness fn (Result.SomeBugfindingResult result) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
-      Result.SafeUpToBounds -> pure ()
+      Result.SafeUpToBounds u -> unsoundness TH.@=? u
       _ ->
         TH.assertFailure
           ( unwords
@@ -223,13 +226,15 @@ isSafeToBounds fn (Result.SomeBugfindingResult result) =
           )
 
 -- | TODO: Take a list of MissingPreconditionTag, check that they match.
-isSafeWithPreconditions :: DidHitBounds -> String -> Result.SomeBugfindingResult -> IO ()
-isSafeWithPreconditions hitBounds fn (Result.SomeBugfindingResult result) =
+isSafeWithPreconditions :: Unsoundness -> DidHitBounds -> String -> Result.SomeBugfindingResult -> IO ()
+isSafeWithPreconditions unsoundness hitBounds fn (Result.SomeBugfindingResult result) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
-      Result.SafeWithPreconditions didExhaust _preconditions ->
-        hitBounds TH.@=? didExhaust
+      Result.SafeWithPreconditions didExhaust u _preconditions ->
+        do
+          unsoundness TH.@=? u
+          hitBounds TH.@=? didExhaust
       _ ->
         TH.assertFailure
           ( unwords
@@ -338,6 +343,9 @@ isUnimplemented file fn =
         Left _ -> pure ()
         Right () -> TH.assertFailure (unwords ["Expected", fn, "to be unimplemented"])
 
+usesOverride :: String -> Unsoundness
+usesOverride name = Unsoundness (singleton (UnsoundOverrideName (Text.pack name)))
+
 inFileTests :: TT.TestTree
 inFileTests =
   TT.testGroup "file based tests" $
@@ -347,44 +355,44 @@ inFileTests =
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
         ("double_free.c", [("double_free", hasBugs)]),
         ("write_to_null.c", [("write_to_null", hasBugs)]),
-        ("branch.c", [("branch", isSafe)]),
-        ("compare_to_null.c", [("compare_to_null", isSafe)]),
+        ("branch.c", [("branch", isSafe mempty)]),
+        ("compare_to_null.c", [("compare_to_null", isSafe mempty)]),
         -- This override needs refinement; the following should be safe with the
         -- precondition that the argument pointer is valid.
-        ("getenv_arg.c", [("getenv_arg", isSafe)]),
-        ("getenv_const.c", [("getenv_const", isSafe)]),
-        ("gethostname_const_len.c", [("gethostname_const_len", isSafe)]),
-        ("id_function_pointer.c", [("id_function_pointer", isSafe)]),
-        ("opaque_struct.c", [("opaque_struct", isSafe)]),
-        ("print.c", [("print", isSafe)]),
-        ("read_global.c", [("read_global", isSafe)]),
-        ("write_global.c", [("write_global", isSafe)]),
-        ("factorial.c", [("factorial", isSafeToBounds)]),
-        ("loop_arg_bound.c", [("loop_arg_bound", isSafeToBounds)]),
-        ("loop_constant_big_bound_arg_start.c", [("loop_constant_big_bound_arg_start", isSafeToBounds)]),
-        ("loop_constant_bound_arg_start.c", [("loop_constant_bound_arg_start", isSafeToBounds)]), -- TODO: Why not just isSafe?
-        ("deref_arg.c", [("deref_arg", isSafeWithPreconditions DidntHitBounds)]),
-        ("deref_arg_const_index.c", [("deref_arg_const_index", isSafeWithPreconditions DidntHitBounds)]),
-        ("deref_struct_field.c", [("deref_struct_field", isSafeWithPreconditions DidntHitBounds)]),
-        ("do_free.c", [("do_free", isSafeWithPreconditions DidntHitBounds)]),
-        ("free_dict.c", [("free_dict", isSafeWithPreconditions DidHitBounds)]),
-        ("free_dict_kv.c", [("free_dict_kv", isSafeWithPreconditions DidHitBounds)]),
-        ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions DidHitBounds)]),
-        ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions DidntHitBounds)]),
-        ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
-        ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions DidHitBounds)]),
-        ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions DidntHitBounds)]),
-        ("memset_const_len_arg_byte.c", [("memset_const_len_arg_byte", isSafeWithPreconditions DidntHitBounds)]),
-        ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isSafeWithPreconditions DidHitBounds)]),
-        ("not_double_free.c", [("not_double_free", isSafeWithPreconditions DidntHitBounds)]),
-        ("ptr_as_array.c", [("ptr_as_array", isSafeWithPreconditions DidntHitBounds)]),
-        ("sized_array_arg.c", [("sized_array_arg", isSafeWithPreconditions DidntHitBounds)]),
-        ("struct_with_array.c", [("struct_with_array", isSafeWithPreconditions DidntHitBounds)]),
-        ("writes_to_arg.c", [("writes_to_arg", isSafeWithPreconditions DidntHitBounds)]),
-        ("writes_to_arg_conditional.c", [("writes_to_arg_conditional", isSafeWithPreconditions DidntHitBounds)]),
-        ("writes_to_arg_conditional_ptr.c", [("writes_to_arg_conditional_ptr", isSafeWithPreconditions DidntHitBounds)]),
-        ("writes_to_arg_field.c", [("writes_to_arg_field", isSafeWithPreconditions DidntHitBounds)]),
-        ("writes_to_arg_ptr.c", [("writes_to_arg_ptr", isSafeWithPreconditions DidntHitBounds)]),
+        ("getenv_arg.c", [("getenv_arg", isSafe (usesOverride "getenv"))]),
+        ("getenv_const.c", [("getenv_const", isSafe (usesOverride "getenv"))]),
+        ("gethostname_const_len.c", [("gethostname_const_len", isSafe (usesOverride "gethostname"))]),
+        ("id_function_pointer.c", [("id_function_pointer", isSafe mempty)]),
+        ("opaque_struct.c", [("opaque_struct", isSafe mempty)]),
+        ("print.c", [("print", isSafe mempty)]),
+        ("read_global.c", [("read_global", isSafe mempty)]),
+        ("write_global.c", [("write_global", isSafe mempty)]),
+        ("factorial.c", [("factorial", isSafeToBounds mempty)]),
+        ("loop_arg_bound.c", [("loop_arg_bound", isSafeToBounds mempty)]),
+        ("loop_constant_big_bound_arg_start.c", [("loop_constant_big_bound_arg_start", isSafeToBounds mempty)]),
+        ("loop_constant_bound_arg_start.c", [("loop_constant_bound_arg_start", isSafeToBounds mempty)]), -- TODO: Why not just isSafe?
+        ("deref_arg.c", [("deref_arg", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("deref_arg_const_index.c", [("deref_arg_const_index", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("deref_struct_field.c", [("deref_struct_field", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("do_free.c", [("do_free", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("free_dict.c", [("free_dict", isSafeWithPreconditions mempty DidHitBounds)]),
+        ("free_dict_kv.c", [("free_dict_kv", isSafeWithPreconditions mempty DidHitBounds)]),
+        ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions mempty DidHitBounds)]),
+        ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions (usesOverride "gethostname") DidntHitBounds)]),
+        ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
+        ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions mempty DidHitBounds)]),
+        ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("memset_const_len_arg_byte.c", [("memset_const_len_arg_byte", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
+        ("not_double_free.c", [("not_double_free", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("ptr_as_array.c", [("ptr_as_array", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("sized_array_arg.c", [("sized_array_arg", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("struct_with_array.c", [("struct_with_array", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("writes_to_arg.c", [("writes_to_arg", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("writes_to_arg_conditional.c", [("writes_to_arg_conditional", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("writes_to_arg_conditional_ptr.c", [("writes_to_arg_conditional_ptr", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("writes_to_arg_field.c", [("writes_to_arg_field", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("writes_to_arg_ptr.c", [("writes_to_arg_ptr", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("do_exit.c", [("do_exit", isUnclassified)]), -- goal: isSafe
         ("do_fork.c", [("do_fork", isUnclassified)]),
         ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
@@ -547,11 +555,11 @@ moduleTests =
     [ inModule
         "add1_left.c"
         (oneArithLeft "add1_left" i32 (L.ValInteger 1) (L.Add False False))
-        [("add1_left", isSafe)],
+        [("add1_left", isSafe mempty)],
       inModule
         "add1_nsw_left.c"
         (oneArithLeft "add1_nsw_left" i32 (L.ValInteger 1) (L.Add False True))
-        [("add1_nsw_left", isSafeWithPreconditions DidntHitBounds)],
+        [("add1_nsw_left", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "add1_nuw_left.c"
         (oneArithLeft "add1_nuw_left" i32 (L.ValInteger 1) (L.Add True False))
@@ -559,11 +567,11 @@ moduleTests =
       inModule
         "add_neg1_left.c"
         (oneArithLeft "add_neg1_left" i32 (L.ValInteger (-1)) (L.Add False False))
-        [("add_neg1_left", isSafe)],
+        [("add_neg1_left", isSafe mempty)],
       inModule
         "add_neg1_nsw_left.c"
         (oneArithLeft "add_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Add False True))
-        [("add_neg1_nsw_left", isSafeWithPreconditions DidntHitBounds)],
+        [("add_neg1_nsw_left", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "add_neg1_nuw_left.c"
         (oneArithLeft "add_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Add True False))
@@ -571,23 +579,23 @@ moduleTests =
       inModule
         "add1_float_left.c"
         (oneArithLeft "add1_float_left" float (L.ValFloat 1.0) L.FAdd)
-        [("add1_float_left", isSafe)],
+        [("add1_float_left", isSafe mempty)],
       inModule
         "add_neg1_float_left.c"
         (oneArithLeft "add_neg1_float_left" float (L.ValFloat (-1.0)) L.FAdd)
-        [("add_neg1_float_left", isSafe)],
+        [("add_neg1_float_left", isSafe mempty)],
       inModule
         "add1_double_left.c"
         (oneArithLeft "add1_double_left" double (L.ValDouble 1.0) L.FAdd)
-        [("add1_double_left", isSafe)],
+        [("add1_double_left", isSafe mempty)],
       inModule
         "add_neg1_double_left.c"
         (oneArithLeft "add_neg1_double_left" double (L.ValDouble (-1.0)) L.FAdd)
-        [("add_neg1_double_left", isSafe)],
+        [("add_neg1_double_left", isSafe mempty)],
       inModule
         "sub1_left.c"
         (oneArithLeft "sub1_left" i32 (L.ValInteger 1) (L.Sub False False))
-        [("sub1_left", isSafe)],
+        [("sub1_left", isSafe mempty)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
@@ -603,7 +611,7 @@ moduleTests =
       inModule
         "sub_neg1_left.c"
         (oneArithLeft "sub_neg1_left" i32 (L.ValInteger (-1)) (L.Sub False False))
-        [("sub_neg1_left", isSafe)],
+        [("sub_neg1_left", isSafe mempty)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
@@ -619,39 +627,39 @@ moduleTests =
       inModule
         "sub1_float_left.c"
         (oneArithLeft "sub1_float_left" float (L.ValFloat 1.0) L.FSub)
-        [("sub1_float_left", isSafe)],
+        [("sub1_float_left", isSafe mempty)],
       inModule
         "sub_neg1_float_left.c"
         (oneArithLeft "sub_neg1_float_left" float (L.ValFloat (-1.0)) L.FSub)
-        [("sub_neg1_float_left", isSafe)],
+        [("sub_neg1_float_left", isSafe mempty)],
       inModule
         "sub1_double_left.c"
         (oneArithLeft "sub1_double_left" double (L.ValDouble 1.0) L.FSub)
-        [("sub1_double_left", isSafe)],
+        [("sub1_double_left", isSafe mempty)],
       inModule
         "sub_neg1_double_left.c"
         (oneArithLeft "sub_neg1_double_left" double (L.ValDouble (-1.0)) L.FSub)
-        [("sub_neg1_double_left", isSafe)],
+        [("sub_neg1_double_left", isSafe mempty)],
       inModule
         "mul0_left.c"
         (oneArithLeft "mul0_left" i32 (L.ValInteger 0) (L.Mul True True))
-        [("mul0_left", isSafe)],
+        [("mul0_left", isSafe mempty)],
       inModule
         "mul1_left.c"
         (oneArithLeft "mul1_left" i32 (L.ValInteger 1) (L.Mul False False))
-        [("mul1_left", isSafe)],
+        [("mul1_left", isSafe mempty)],
       inModule
         "mul1_nsw_left.c"
         (oneArithLeft "mul1_nsw_left" i32 (L.ValInteger 1) (L.Mul False True))
-        [("mul1_nsw_left", isSafe)],
+        [("mul1_nsw_left", isSafe mempty)],
       inModule
         "mul1_nuw_left.c"
         (oneArithLeft "mul1_nuw_left" i32 (L.ValInteger 1) (L.Mul True False))
-        [("mul1_nuw_left", isSafe)],
+        [("mul1_nuw_left", isSafe mempty)],
       inModule
         "mul_neg1_left.c"
         (oneArithLeft "mul_neg1_left" i32 (L.ValInteger (-1)) (L.Mul False False))
-        [("mul_neg1_left", isSafe)],
+        [("mul_neg1_left", isSafe mempty)],
       inModule
         "mul_neg1_nsw_left.c"
         (oneArithLeft "mul_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Mul False True))
@@ -667,15 +675,15 @@ moduleTests =
       inModule
         "udiv1_left.c"
         (oneArithLeft "udiv1_left" i32 (L.ValInteger 1) (L.UDiv False))
-        [("udiv1_left", isSafe)],
+        [("udiv1_left", isSafe mempty)],
       inModule
         "udiv1_exact_left.c"
         (oneArithLeft "udiv1_exact_left" i32 (L.ValInteger 1) (L.UDiv True))
-        [("udiv1_exact_left", isSafe)],
+        [("udiv1_exact_left", isSafe mempty)],
       inModule
         "udiv2_left.c"
         (oneArithLeft "udiv2_left" i32 (L.ValInteger 2) (L.UDiv False))
-        [("udiv2_left", isSafe)],
+        [("udiv2_left", isSafe mempty)],
       inModule
         "udiv2_exact_left.c"
         (oneArithLeft "udiv2_exact_left" i32 (L.ValInteger 2) (L.UDiv True))
@@ -683,7 +691,7 @@ moduleTests =
       inModule
         "udiv_neg1_left.c"
         (oneArithLeft "udiv_neg1_left" i32 (L.ValInteger (-1)) (L.UDiv False))
-        [("udiv_neg1_left", isSafe)],
+        [("udiv_neg1_left", isSafe mempty)],
       inModule
         "udiv_neg1_exact_left.c"
         (oneArithLeft "udiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.UDiv True))
@@ -695,11 +703,11 @@ moduleTests =
       inModule
         "sdiv1_left.c"
         (oneArithLeft "sdiv1_left" i32 (L.ValInteger 1) (L.SDiv False))
-        [("sdiv1_left", isSafe)],
+        [("sdiv1_left", isSafe mempty)],
       inModule
         "sdiv1_exact_left.c"
         (oneArithLeft "sdiv1_exact_left" i32 (L.ValInteger 1) (L.SDiv True))
-        [("sdiv1_exact_left", isSafe)],
+        [("sdiv1_exact_left", isSafe mempty)],
       inModule
         "sdiv_neg1_left.c"
         (oneArithLeft "sdiv_neg1_left" i32 (L.ValInteger (-1)) (L.SDiv False))
@@ -711,7 +719,7 @@ moduleTests =
       inModule
         "sdiv2_left.c"
         (oneArithLeft "sdiv2_left" i32 (L.ValInteger 2) (L.SDiv False))
-        [("sdiv2_left", isSafe)],
+        [("sdiv2_left", isSafe mempty)],
       inModule
         "sdiv2_exact_left.c"
         (oneArithLeft "sdiv2_exact_left" i32 (L.ValInteger 2) (L.SDiv True))
@@ -719,7 +727,7 @@ moduleTests =
       inModule
         "sdiv_neg2_left.c"
         (oneArithLeft "sdiv_neg2_left" i32 (L.ValInteger (-2)) (L.SDiv False))
-        [("sdiv_neg2_left", isSafe)],
+        [("sdiv_neg2_left", isSafe mempty)],
       inModule
         "sdiv_neg2_exact_left.c"
         (oneArithLeft "sdiv_neg2_exact_left" i32 (L.ValInteger (-2)) (L.SDiv True))
@@ -731,15 +739,15 @@ moduleTests =
       inModule
         "urem1_left.c"
         (oneArithLeft "urem1_left" i32 (L.ValInteger 1) L.URem)
-        [("urem1_left", isSafe)],
+        [("urem1_left", isSafe mempty)],
       inModule
         "urem_neg1_left.c"
         (oneArithLeft "urem_neg1_left" i32 (L.ValInteger (-1)) L.URem)
-        [("urem_neg1_left", isSafe)],
+        [("urem_neg1_left", isSafe mempty)],
       inModule
         "urem2_left.c"
         (oneArithLeft "urem2_left" i32 (L.ValInteger 2) L.URem)
-        [("urem2_left", isSafe)],
+        [("urem2_left", isSafe mempty)],
       inModule
         "srem0_left.c"
         (oneArithLeft "srem0_left" i32 (L.ValInteger 0) L.SRem)
@@ -747,7 +755,7 @@ moduleTests =
       inModule
         "srem1_left.c"
         (oneArithLeft "srem1_left" i32 (L.ValInteger 1) L.SRem)
-        [("srem1_left", isSafe)],
+        [("srem1_left", isSafe mempty)],
       inModule
         "srem_neg1_left.c"
         (oneArithLeft "srem_neg1_left" i32 (L.ValInteger (-1)) L.SRem)
@@ -755,20 +763,20 @@ moduleTests =
       inModule
         "srem2_left.c"
         (oneArithLeft "srem2_left" i32 (L.ValInteger 2) L.SRem)
-        [("srem2_left", isSafe)],
+        [("srem2_left", isSafe mempty)],
       inModule
         "srem_neg2_left.c"
         (oneArithLeft "srem_neg2_left" i32 (L.ValInteger (-2)) L.SRem)
-        [("srem_neg2_left", isSafe)],
+        [("srem_neg2_left", isSafe mempty)],
       -- --------------------------------------------------- On the right
       inModule
         "add1_right.c"
         (oneArithRight "add1_right" i32 (L.ValInteger 1) (L.Add False False))
-        [("add1_right", isSafe)],
+        [("add1_right", isSafe mempty)],
       inModule
         "add1_nsw_right.c"
         (oneArithRight "add1_nsw_right" i32 (L.ValInteger 1) (L.Add False True))
-        [("add1_nsw_right", isSafeWithPreconditions DidntHitBounds)],
+        [("add1_nsw_right", isSafeWithPreconditions mempty DidntHitBounds)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
@@ -778,11 +786,11 @@ moduleTests =
       inModule
         "add_neg1_right.c"
         (oneArithRight "add_neg1_right" i32 (L.ValInteger (-1)) (L.Add False False))
-        [("add_neg1_right", isSafe)],
+        [("add_neg1_right", isSafe mempty)],
       inModule
         "add_neg1_nsw_right.c"
         (oneArithRight "add_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Add False True))
-        [("add_neg1_nsw_right", isSafeWithPreconditions DidntHitBounds)],
+        [("add_neg1_nsw_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "add_neg1_nuw_right.c"
         (oneArithRight "add_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Add True False))
@@ -790,27 +798,27 @@ moduleTests =
       inModule
         "add1_float_right.c"
         (oneArithRight "add1_float_right" float (L.ValFloat 1.0) L.FAdd)
-        [("add1_float_right", isSafe)],
+        [("add1_float_right", isSafe mempty)],
       inModule
         "add_neg1_float_right.c"
         (oneArithRight "add_neg1_float_right" float (L.ValFloat (-1.0)) L.FAdd)
-        [("add_neg1_float_right", isSafe)],
+        [("add_neg1_float_right", isSafe mempty)],
       inModule
         "add1_double_right.c"
         (oneArithRight "add1_double_right" double (L.ValDouble 1.0) L.FAdd)
-        [("add1_double_right", isSafe)],
+        [("add1_double_right", isSafe mempty)],
       inModule
         "add_neg1_double_right.c"
         (oneArithRight "add_neg1_double_right" double (L.ValDouble (-1.0)) L.FAdd)
-        [("add_neg1_double_right", isSafe)],
+        [("add_neg1_double_right", isSafe mempty)],
       inModule
         "sub1_right.c"
         (oneArithRight "sub1_right" i32 (L.ValInteger 1) (L.Sub False False))
-        [("sub1_right", isSafe)],
+        [("sub1_right", isSafe mempty)],
       inModule
         "sub1_nsw_right.c"
         (oneArithRight "sub1_nsw_right" i32 (L.ValInteger 1) (L.Sub False True))
-        [("sub1_nsw_right", isSafeWithPreconditions DidntHitBounds)],
+        [("sub1_nsw_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sub1_nuw_right.c"
         (oneArithRight "sub1_nuw_right" i32 (L.ValInteger 1) (L.Sub True False))
@@ -818,51 +826,51 @@ moduleTests =
       inModule
         "sub_neg1_right.c"
         (oneArithRight "sub_neg1_right" i32 (L.ValInteger (-1)) (L.Sub False False))
-        [("sub_neg1_right", isSafe)],
+        [("sub_neg1_right", isSafe mempty)],
       inModule
         "sub_neg1_nsw_right.c"
         (oneArithRight "sub_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Sub False True))
-        [("sub_neg1_nsw_right", isSafe)], -- TODO Is this right?
+        [("sub_neg1_nsw_right", isSafe mempty)], -- TODO Is this right?
       inModule
         "sub_neg1_nuw_right.c"
         (oneArithRight "sub_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Sub True False))
-        [("sub_neg1_nuw_right", isSafe)],
+        [("sub_neg1_nuw_right", isSafe mempty)],
       inModule
         "sub1_float_right.c"
         (oneArithRight "sub1_float_right" float (L.ValFloat 1.0) L.FSub)
-        [("sub1_float_right", isSafe)],
+        [("sub1_float_right", isSafe mempty)],
       inModule
         "sub_neg1_float_right.c"
         (oneArithRight "sub_neg1_float_right" float (L.ValFloat (-1.0)) L.FSub)
-        [("sub_neg1_float_right", isSafe)],
+        [("sub_neg1_float_right", isSafe mempty)],
       inModule
         "sub1_double_right.c"
         (oneArithRight "sub1_double_right" double (L.ValDouble 1.0) L.FSub)
-        [("sub1_double_right", isSafe)],
+        [("sub1_double_right", isSafe mempty)],
       inModule
         "sub_neg1_double_right.c"
         (oneArithRight "sub_neg1_double_right" double (L.ValDouble (-1.0)) L.FSub)
-        [("sub_neg1_double_right", isSafe)],
+        [("sub_neg1_double_right", isSafe mempty)],
       inModule
         "mul0_right.c"
         (oneArithRight "mul0_right" i32 (L.ValInteger 0) (L.Mul True True))
-        [("mul0_right", isSafe)],
+        [("mul0_right", isSafe mempty)],
       inModule
         "mul1_right.c"
         (oneArithRight "mul1_right" i32 (L.ValInteger 1) (L.Mul False False))
-        [("mul1_right", isSafe)],
+        [("mul1_right", isSafe mempty)],
       inModule
         "mul1_nsw_right.c"
         (oneArithRight "mul1_nsw_right" i32 (L.ValInteger 1) (L.Mul False True))
-        [("mul1_nsw_right", isSafe)],
+        [("mul1_nsw_right", isSafe mempty)],
       inModule
         "mul1_nuw_right.c"
         (oneArithRight "mul1_nuw_right" i32 (L.ValInteger 1) (L.Mul True False))
-        [("mul1_nuw_right", isSafe)],
+        [("mul1_nuw_right", isSafe mempty)],
       inModule
         "mul_neg1_right.c"
         (oneArithRight "mul_neg1_right" i32 (L.ValInteger (-1)) (L.Mul False False))
-        [("mul_neg1_right", isSafe)],
+        [("mul_neg1_right", isSafe mempty)],
       inModule
         "mul_neg1_nsw_right.c"
         (oneArithRight "mul_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Mul False True))
@@ -874,11 +882,11 @@ moduleTests =
       inModule
         "udiv0_right.c"
         (oneArithRight "udiv0_right" i32 (L.ValInteger 0) (L.UDiv False))
-        [("udiv0_right", isSafeWithPreconditions DidntHitBounds)],
+        [("udiv0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv1_right.c"
         (oneArithRight "udiv1_right" i32 (L.ValInteger 1) (L.UDiv False))
-        [("udiv1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("udiv1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv1_exact_right.c"
         (oneArithRight "udiv1_exact_right" i32 (L.ValInteger 1) (L.UDiv True))
@@ -886,7 +894,7 @@ moduleTests =
       inModule
         "udiv2_right.c"
         (oneArithRight "udiv2_right" i32 (L.ValInteger 2) (L.UDiv False))
-        [("udiv2_right", isSafeWithPreconditions DidntHitBounds)],
+        [("udiv2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv2_exact_right.c"
         (oneArithRight "udiv2_exact_right" i32 (L.ValInteger 2) (L.UDiv True))
@@ -894,7 +902,7 @@ moduleTests =
       inModule
         "udiv_neg1_right.c"
         (oneArithRight "udiv_neg1_right" i32 (L.ValInteger (-1)) (L.UDiv False))
-        [("udiv_neg1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("udiv_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv_neg1_exact_right.c"
         (oneArithRight "udiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.UDiv True))
@@ -902,11 +910,11 @@ moduleTests =
       inModule
         "sdiv0_right.c"
         (oneArithRight "sdiv0_right" i32 (L.ValInteger 0) (L.SDiv False))
-        [("sdiv0_right", isSafeWithPreconditions DidntHitBounds)],
+        [("sdiv0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv1_right.c"
         (oneArithRight "sdiv1_right" i32 (L.ValInteger 1) (L.SDiv False))
-        [("sdiv1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("sdiv1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv1_exact_right.c"
         (oneArithRight "sdiv1_exact_right" i32 (L.ValInteger 1) (L.SDiv True))
@@ -914,7 +922,7 @@ moduleTests =
       inModule
         "sdiv_neg1_right.c"
         (oneArithRight "sdiv_neg1_right" i32 (L.ValInteger (-1)) (L.SDiv False))
-        [("sdiv_neg1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("sdiv_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv_neg1_exact_right.c"
         (oneArithRight "sdiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.SDiv True))
@@ -922,7 +930,7 @@ moduleTests =
       inModule
         "sdiv2_right.c"
         (oneArithRight "sdiv2_right" i32 (L.ValInteger 2) (L.SDiv False))
-        [("sdiv2_right", isSafeWithPreconditions DidntHitBounds)],
+        [("sdiv2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv2_exact_right.c"
         (oneArithRight "sdiv2_exact_right" i32 (L.ValInteger 2) (L.SDiv True))
@@ -930,7 +938,7 @@ moduleTests =
       inModule
         "sdiv_neg2_right.c"
         (oneArithRight "sdiv_neg2_right" i32 (L.ValInteger (-2)) (L.SDiv False))
-        [("sdiv_neg2_right", isSafeWithPreconditions DidntHitBounds)],
+        [("sdiv_neg2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv_neg2_exact_right.c"
         (oneArithRight "sdiv_neg2_exact_right" i32 (L.ValInteger (-2)) (L.SDiv True))
@@ -938,39 +946,39 @@ moduleTests =
       inModule
         "urem0_right.c"
         (oneArithRight "urem0_right" i32 (L.ValInteger 0) L.URem)
-        [("urem0_right", isSafeWithPreconditions DidntHitBounds)],
+        [("urem0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "urem1_right.c"
         (oneArithRight "urem1_right" i32 (L.ValInteger 1) L.URem)
-        [("urem1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("urem1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "urem_neg1_right.c"
         (oneArithRight "urem_neg1_right" i32 (L.ValInteger (-1)) L.URem)
-        [("urem_neg1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("urem_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "urem2_right.c"
         (oneArithRight "urem2_right" i32 (L.ValInteger 2) L.URem)
-        [("urem2_right", isSafeWithPreconditions DidntHitBounds)],
+        [("urem2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem0_right.c"
         (oneArithRight "srem0_right" i32 (L.ValInteger 0) L.SRem)
-        [("srem0_right", isSafeWithPreconditions DidntHitBounds)],
+        [("srem0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem1_right.c"
         (oneArithRight "srem1_right" i32 (L.ValInteger 1) L.SRem)
-        [("srem1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("srem1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem_neg1_right.c"
         (oneArithRight "srem_neg1_right" i32 (L.ValInteger (-1)) L.SRem)
-        [("srem_neg1_right", isSafeWithPreconditions DidntHitBounds)],
+        [("srem_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem2_right.c"
         (oneArithRight "srem2_right" i32 (L.ValInteger 2) L.SRem)
-        [("srem2_right", isSafeWithPreconditions DidntHitBounds)],
+        [("srem2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem_neg2_right.c"
         (oneArithRight "srem_neg2_right" i32 (L.ValInteger (-2)) L.SRem)
-        [("srem_neg2_right", isSafeWithPreconditions DidntHitBounds)]
+        [("srem_neg2_right", isSafeWithPreconditions mempty DidntHitBounds)]
     ]
 
 main :: IO ()

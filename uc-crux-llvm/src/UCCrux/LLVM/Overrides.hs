@@ -16,7 +16,8 @@ Stability    : provisional
 {-# LANGUAGE ViewPatterns #-}
 
 module UCCrux.LLVM.Overrides
-  ( registerUnsoundOverrides,
+  ( UnsoundOverrideName (..),
+    registerUnsoundOverrides,
   )
 where
 
@@ -25,6 +26,10 @@ import           Control.Lens ((^.))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
+import           Data.IORef (IORef, modifyIORef)
+import           Data.Set (Set)
+import qualified Data.Set as Set
+import           Data.Text (Text)
 
 import qualified Text.LLVM.AST as L
 
@@ -63,6 +68,9 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 {- ORMOLU_ENABLE -}
 
+newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Text}
+  deriving (Eq, Ord, Show)
+
 -- | Register some additional overrides that are useful for bugfinding, but not
 -- for verification. They unsoundly under-approximate the environment. This
 -- helps symbolic execution reach more code.
@@ -71,12 +79,13 @@ registerUnsoundOverrides ::
   proxy arch ->
   L.Module ->
   ModuleTranslation arch ->
+  IORef (Set UnsoundOverrideName) ->
   OverM Model sym LLVM ()
-registerUnsoundOverrides proxy llvmModule mtrans =
+registerUnsoundOverrides proxy llvmModule mtrans usedRef =
   do
     let llvmCtx = mtrans ^. transContext
     let ?lc = llvmCtx ^. llvmTypeCtx
-    register_llvm_overrides llvmModule [] (unsoundOverrides proxy) llvmCtx
+    register_llvm_overrides llvmModule [] (unsoundOverrides proxy usedRef) llvmCtx
 
 ------------------------------------------------------------------------
 
@@ -90,15 +99,25 @@ unsoundOverrides ::
     HasModel personality
   ) =>
   proxy arch ->
+  IORef (Set UnsoundOverrideName) ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
-unsoundOverrides arch =
+unsoundOverrides arch usedRef =
   [ basic_llvm_override $
       [llvmOvr| i32 @gethostname( i8* , size_t ) |]
-        (\memOps sym args -> Ctx.uncurryAssignment (callGetHostName arch sym memOps) args),
+        ( \memOps sym args ->
+            liftIO (used "gethostname")
+              >> Ctx.uncurryAssignment (callGetHostName arch sym memOps) args
+        ),
     basic_llvm_override $
       [llvmOvr| i8* @getenv( i8* ) |]
-        (\memOps sym args -> Ctx.uncurryAssignment (callGetEnv arch sym memOps) args)
+        ( \memOps sym args ->
+            liftIO (used "getenv")
+              >> Ctx.uncurryAssignment (callGetEnv arch sym memOps) args
+        )
   ]
+  where
+    used :: Text -> IO ()
+    used name = modifyIORef usedRef (Set.insert (UnsoundOverrideName name))
 
 ------------------------------------------------------------------------
 
@@ -122,7 +141,11 @@ callGetHostName _proxy sym mvar (regValue -> ptr) (regValue -> len) =
     let hostname = "hostname"
     let lenLt bv = liftIO (What4.bvSlt sym len =<< What4.bvLit sym ?ptrWidth bv)
     lenNeg <- lenLt (BV.mkBV ?ptrWidth 0)
-    -- TODO(lb): Panic if ?ptrWidth is like 2 or something crazy
+    -- NOTE(lb): It isn't currently necessary to check if ?ptrWidth is wide
+    -- enough to hold the hostname because the hostname is small and fixed, and
+    -- the ArchOk constraint guarantees that the pointer width is at least 16.
+    -- if this override is changed to e.g. use really long hostnames it might
+    -- be necessary to check that mkBV doesn't truncate the length here.
     lenSmall <- lenLt (BV.mkBV ?ptrWidth (fromIntegral (BS.length hostname)))
     Override.symbolicBranches
       emptyRegMap
