@@ -31,6 +31,7 @@ module Lang.Crucible.Syntax.Concrete
   , ACFG(..)
   , top
   , cfgs
+  , prog
   -- * Rules for pretty-printing language syntax
   , printExpr
   )
@@ -1875,18 +1876,15 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
          stxRegisters %= Map.insert x (Pair ty r)
     saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
 
-
 cfgs :: [AST s] -> TopParser s [ACFG]
-cfgs defuns =
+cfgs = fmap snd <$> prog
+
+prog :: [AST s] -> TopParser s (Map GlobalName (Pair TypeRepr GlobalVar), [ACFG])
+prog defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
-     forM headers $
+     cs <- forM headers $
        \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
          do let types = argTypes funArgs
-            -- vs <- foldlMFC (\vs ty -> do
-            --              r <- newUnassignedReg ty
-            --              return (vs <> Set.singleton (Some (RegValue r))))
-            --           mempty types
-            -- vs <- traverse newUnassignedReg types
             initParser hdr src
             args <- toList <$> use stxAtoms
             let ?returnType = ret
@@ -1902,3 +1900,5 @@ cfgs defuns =
                                  LambdaID {} -> error "initial block is lambda"
                        e' = mkBlock (blockID e) vs (blockStmts e) (blockTerm e)
                    return $ ACFG types ret $ CFG handle entry (e' : rest)
+     gs <- use stxGlobals
+     return (gs, cs)
