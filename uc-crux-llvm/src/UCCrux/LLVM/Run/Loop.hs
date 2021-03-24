@@ -59,7 +59,7 @@ import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
-import           UCCrux.LLVM.Run.Simulate (runSimulator)
+import qualified UCCrux.LLVM.Run.Simulate as Sim
 {- ORMOLU_ENABLE -}
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
@@ -78,16 +78,16 @@ bugfindingLoop ::
 bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
   do
     let runSim preconds =
-          runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts memOptions
+          Sim.runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts memOptions
 
     -- Loop, learning preconditions and reporting errors
-    let loop truePositives constraints precondTags =
+    let loop truePositives constraints precondTags unsoundness =
           do
             -- TODO(lb) We basically ignore symbolic assertion failures. Maybe
             -- configurably don't?
-            (newTruePositives, newConstraints, newUncertain, newResourceExhausted) <-
-              partitionExplanations <$> runSim constraints
-
+            simResult <- runSim constraints
+            let (newTruePositives, newConstraints, newUncertain, newResourceExhausted) =
+                  partitionExplanations (Sim.explanations simResult)
             let (newPrecondTags, newConstraints') = unzip newConstraints
             let allConstraints =
                   foldM
@@ -103,18 +103,24 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
 
             let allTruePositives = truePositives <> newTruePositives
             let allPrecondTags = newPrecondTags <> precondTags
+            let allUnsoundness = unsoundness <> Sim.unsoundness simResult
             let result =
                   BugfindingResult
                     newUncertain
                     allPrecondTags
                     ( Result.makeFunctionSummary
                         allConstraints
+                        -- This only needs to look at the latest run because we
+                        -- don't continue if there was any uncertainty
                         newUncertain
                         allTruePositives
+                        -- This only needs to look at the latest run because we
+                        -- don't continue if the bounds were hit
                         ( if null newResourceExhausted
                             then Result.DidntHitBounds
                             else Result.DidHitBounds
                         )
+                        allUnsoundness
                     )
             case (null newConstraints, newTruePositives, not (null newUncertain), not (null newResourceExhausted)) of
               (True, [], False, _) -> pure result
@@ -125,9 +131,9 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
                     else do
                       (appCtx ^. log) Hi "New preconditions:"
                       (appCtx ^. log) Hi $ Text.pack (show (ppConstraints allConstraints))
-                      loop allTruePositives allConstraints allPrecondTags
+                      loop allTruePositives allConstraints allPrecondTags allUnsoundness
 
-    loop [] (emptyConstraints (funCtx ^. argumentFullTypes)) []
+    loop [] (emptyConstraints (funCtx ^. argumentFullTypes)) [] mempty
 
 findFun ::
   Logs =>

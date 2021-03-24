@@ -18,7 +18,8 @@ Stability    : provisional
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module UCCrux.LLVM.Run.Simulate
-  ( runSimulator,
+  ( UCCruxSimulationResult (..),
+    runSimulator,
   )
 where
 
@@ -33,11 +34,14 @@ import           Data.Foldable (for_)
 import           Data.IORef
 import           Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import           Data.Set (Set)
 import qualified Data.Text as Text
 
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
+import           Data.Parameterized.Ctx (Ctx)
 import           Data.Parameterized.Some (Some(Some))
 
 import qualified What4.Interface as What4
@@ -80,9 +84,10 @@ import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
-import           UCCrux.LLVM.Overrides (registerUnsoundOverrides)
-import           UCCrux.LLVM.FullType (MapToCrucibleType)
+import           UCCrux.LLVM.Overrides (UnsoundOverrideName, registerUnsoundOverrides)
+import           UCCrux.LLVM.FullType (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap)
+import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SetupAssumption(SetupAssumption))
 import           UCCrux.LLVM.Setup.Monad (ppSetupError)
 {- ORMOLU_ENABLE -}
@@ -94,11 +99,12 @@ simulateLLVM ::
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
   IORef [Explanation m arch argTypes] ->
+  IORef (Set UnsoundOverrideName) ->
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   MemOptions ->
   Crux.SimulatorCallback
-simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
+simulateLLVM appCtx modCtx funCtx halloc explRef unsoundOverrideRef constraints cfg memOptions =
   Crux.SimulatorCallback $ \sym _maybeOnline ->
     do
       let trans = modCtx ^. moduleTranslation
@@ -187,8 +193,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
                   -- called from any particular function. Needs some
                   -- benchmarking.
                   registerFunctions (modCtx ^. llvmModule) trans
-                  -- TODO(lb): This should be configurable
-                  registerUnsoundOverrides modCtx (modCtx ^. llvmModule) trans
+                  registerUnsoundOverrides modCtx (modCtx ^. llvmModule) trans unsoundOverrideRef
                   liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                   printed <- ppRegMap modCtx funCtx sym mem args
                   mapM_ (liftIO . (appCtx ^. log) Hi . Text.pack . show) printed
@@ -232,6 +237,13 @@ simulateLLVM appCtx modCtx funCtx halloc explRef constraints cfg memOptions =
 
       return (Crux.RunnableState initSt, explainFailure)
 
+-- NOTE(lb): The explicit kind signature here is necessary for GHC 8.6
+-- compatibility.
+data UCCruxSimulationResult m arch (argTypes :: Ctx (FullType m)) = UCCruxSimulationResult
+  { unsoundness :: Unsoundness,
+    explanations :: [Explanation m arch argTypes]
+  }
+
 runSimulator ::
   ( ?outputConfig :: OutputConfig,
     ArchOk arch
@@ -244,10 +256,11 @@ runSimulator ::
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
   MemOptions ->
-  IO [Explanation m arch argTypes]
+  IO (UCCruxSimulationResult m arch argTypes)
 runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
   do
     explRef <- newIORef []
+    unsoundOverrideRef <- newIORef Set.empty
     cruxResult <-
       Crux.runSimulator
         cruxOpts
@@ -257,11 +270,14 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
             funCtx
             halloc
             explRef
+            unsoundOverrideRef
             preconditions
             cfg
             memOptions
         )
-    case cruxResult of
-      Crux.CruxSimulationResult Crux.ProgramIncomplete _ ->
-        pure [ExUncertain (UTimeout (funCtx ^. functionName))]
-      _ -> readIORef explRef
+    unsoundness' <- Unsoundness <$> readIORef unsoundOverrideRef
+    UCCruxSimulationResult unsoundness'
+      <$> case cruxResult of
+        Crux.CruxSimulationResult Crux.ProgramIncomplete _ ->
+          pure [ExUncertain (UTimeout (funCtx ^. functionName))]
+        _ -> readIORef explRef
