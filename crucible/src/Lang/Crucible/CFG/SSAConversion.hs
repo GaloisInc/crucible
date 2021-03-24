@@ -55,6 +55,7 @@ import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic (panic)
 
 #ifdef UNSAFE_OPS
 -- We deliberately import Context.Unsafe as it is the only one that supports
@@ -352,7 +353,10 @@ completeInputs blocks = do
         case Set.maxView s0 of
           Nothing -> input_map
           Just (next_label, rest_labels) -> do
-            let Just inputs = Map.lookup next_label input_map
+            let inputs = case Map.lookup next_label input_map of
+                           Just i -> i
+                           Nothing -> panic "Crucible.CFG.SSAConversion"
+                                      [ "Unable to get label from input map" ]
 
             let resolve_pred :: [Block ext s ret]
                              -> Set (BlockID s)
@@ -362,7 +366,10 @@ completeInputs blocks = do
                 resolve_pred (prev_block:r) s m = do
                   let prev_label = blockID prev_block
                   -- Get list of inputs already computed for block.
-                  let Just prev_inputs = Map.lookup prev_label m
+                  let prev_inputs = case Map.lookup prev_label m of
+                                      Just previ -> previ
+                                      Nothing -> panic "Crucible.CFG.SSAConversion"
+                                                 [ "Unable to get prev_label from input map" ]
                   -- Compute the inputs needed at the start of prev_block
                   let new_inputs = Set.map (mkInput (blockID prev_block))
                                  $ (`Set.difference` blockAssignedValues prev_block)
@@ -406,7 +413,10 @@ inferBlockInfo blocks = seq input_map $ resolveBlocks bi0 blocks
         resolveBlocks bi (b:rest) = do
           let sz = size (biBlocks bi)
           let untyped_id = blockID b
-          let Just inputs = Map.lookup untyped_id input_map
+          let inputs = case Map.lookup untyped_id input_map of
+                         Just i -> i
+                         Nothing -> panic "Crucible.CFG.SSAConversion.inferBlockInfo"
+                                    [ "Unable to get untyped_id from input map" ]
           case inferRegAssignment inputs of
             Some ra -> do
               let crepr = fmapFC typeOfValue ra
