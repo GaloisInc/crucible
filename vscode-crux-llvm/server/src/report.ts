@@ -1,12 +1,7 @@
-import * as ChildProcess from 'child_process'
-import * as fs from 'fs'
 import * as LanguageServer from 'vscode-languageserver'
-import * as os from 'os'
-import * as path from 'path'
-import { Position } from 'vscode-languageserver'
 
-const COUNTER_EXAMPLE: string = 'counter-example'
-const ASSUMPTIONS: string = 'assumptions'
+const COUNTER_EXAMPLE = 'counter-example'
+const ASSUMPTIONS = 'assumptions'
 
 function severityOf(s: string): LanguageServer.DiagnosticSeverity {
     switch (s) {
@@ -20,15 +15,15 @@ function severityOf(s: string): LanguageServer.DiagnosticSeverity {
             return LanguageServer.DiagnosticSeverity.Warning
         }
         default: {
-            throw `Unhandled severity: ${s}. Please report.`
+            throw new Error(`Unhandled severity: ${s}. Please report.`)
         }
     }
 }
 
 // Locations as they appear in the report
 interface Location {
-    col: string,
-    line: string,
+    col: string
+    line: string
 }
 
 function positionFromLocation(location: Location): LanguageServer.Position {
@@ -38,7 +33,7 @@ function positionFromLocation(location: Location): LanguageServer.Position {
     )
 }
 
-function mainDiagnostic(object: any): LanguageServer.Diagnostic {
+function mainDiagnostic(object: MainDiagnostic): LanguageServer.Diagnostic {
     const position = positionFromLocation(object.location)
     const message = (
         ('details-long' in object)
@@ -60,7 +55,16 @@ function mainDiagnostic(object: any): LanguageServer.Diagnostic {
     }
 }
 
-function counterExampleDiagnostic(object: any): LanguageServer.Diagnostic {
+type CounterExampleDiagnostic = {
+    bits: string
+    loc: Location
+    name: string
+    val: string
+}
+
+function counterExampleDiagnostic(
+    object: CounterExampleDiagnostic,
+): LanguageServer.Diagnostic {
     const position = positionFromLocation(object.loc)
     const message = `Counter-example: ${object.name} = ${object.val} (as an ${object.bits}-bit value)`
     return {
@@ -74,7 +78,12 @@ function counterExampleDiagnostic(object: any): LanguageServer.Diagnostic {
     }
 }
 
-function assumptionDiagnostic(object: any): LanguageServer.Diagnostic {
+type AssumptionDiagnostic = {
+    loc: Location
+    text: string
+}
+
+function assumptionDiagnostic(object: AssumptionDiagnostic): LanguageServer.Diagnostic {
     const position = positionFromLocation(object.loc)
     const message = `Assumption: ${object.text})`
     return {
@@ -88,27 +97,24 @@ function assumptionDiagnostic(object: any): LanguageServer.Diagnostic {
     }
 }
 
+export type MainDiagnostic = {
+    location: Location
+    status: string
+    [ASSUMPTIONS]?: AssumptionDiagnostic[]
+    [COUNTER_EXAMPLE]?: CounterExampleDiagnostic[]
+}
+
 /**
  * Turns a report into some array of diagnostics.
  * Assumptions will be listed next to code snippets.
- * @param object one entry from report.json
+ * @param object - one entry from report.json
  */
-export function createDiagnostic(object: any): LanguageServer.Diagnostic[] {
+export function createDiagnostic(object: MainDiagnostic): LanguageServer.Diagnostic[] {
     return (
         [mainDiagnostic(object)]
             .concat(
-                (
-                    (COUNTER_EXAMPLE in object && object[COUNTER_EXAMPLE] !== null)
-                        ? object[COUNTER_EXAMPLE].map(counterExampleDiagnostic)
-                        : []
-                ),
-                (
-                    (ASSUMPTIONS in object && object[ASSUMPTIONS] !== null)
-                        ? object[ASSUMPTIONS].map(assumptionDiagnostic)
-                        : []
-
-                )
+                (object[COUNTER_EXAMPLE] || []).map(counterExampleDiagnostic),
+                (object[ASSUMPTIONS] || []).map(assumptionDiagnostic),
             )
     )
-
 }

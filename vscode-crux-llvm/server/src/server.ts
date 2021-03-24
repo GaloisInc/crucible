@@ -1,29 +1,47 @@
 import * as ChildProcess from 'child_process'
-import { debounce } from 'debounce'
 import * as fs from 'fs'
-import * as LanguageServer from 'vscode-languageserver'
 import * as os from 'os'
 import * as path from 'path'
 
+import { debounce } from 'debounce'
+import { TextDocumentChangeEvent } from 'vscode-languageserver'
+import { TextDocument } from 'vscode-languageserver-textdocument'
+import {
+    Connection,
+    createConnection,
+    ProposedFeatures,
+    TextDocuments,
+    TextDocumentSyncKind,
+} from 'vscode-languageserver/node'
+
 import * as Report from './report'
 
-const prefix: string = '[vscode-crux-llvm]'
-const settingsName: string = 'vscode-crux-llvm'
+// Make sure to keep this updated with the declarations in package.json
+
+type Configuration = {
+    'crux-llvm': string
+    clang: string
+    'llvm-link': string
+    path: string
+    z3: string
+}
+
+const prefix = '[vscode-crux-llvm]'
+const settingsName = 'vscode-crux-llvm'
 
 /** Promisified version of nodejs' filesystem API */
 const fsPromises = fs.promises
 
 /** Connection to the extension front-end */
-const connection: LanguageServer.IConnection =
-    LanguageServer.createConnection(LanguageServer.ProposedFeatures.all)
+const connection: Connection = createConnection(ProposedFeatures.all)
 
 /** Documents being watched */
-const documents: LanguageServer.TextDocuments<LanguageServer.TextDocument> =
-    new LanguageServer.TextDocuments<LanguageServer.TextDocument>({
-        create(uri: string, languageId: string, version: number, content: string): LanguageServer.TextDocument {
-            return LanguageServer.TextDocument.create(uri, languageId, version, content)
+const documents: TextDocuments<TextDocument> =
+    new TextDocuments<TextDocument>({
+        create(uri: string, languageId: string, version: number, content: string): TextDocument {
+            return TextDocument.create(uri, languageId, version, content)
         },
-        update(document: LanguageServer.TextDocument): LanguageServer.TextDocument {
+        update(document: TextDocument): TextDocument {
             return document
         },
     })
@@ -34,9 +52,9 @@ connection.onInitialize(
             capabilities: {
                 textDocumentSync: {
                     openClose: true,
-                    change: LanguageServer.TextDocumentSyncKind.Full,
+                    change: TextDocumentSyncKind.Full,
                 },
-            }
+            },
         }
     }
 )
@@ -45,19 +63,21 @@ connection.onInitialized(checkConfiguration)
 
 /**
  * Runs crux-llvm on a given text document, reporting using the diagnostics API
- * @param textDocument The text document to validate
+ * @param textDocument - The text document to validate
  */
-async function validateTextDocument(textDocument: LanguageServer.TextDocument): Promise<void> {
+async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
     // uri will look like 'file:///path/to/file.c'
     // but we need it to be '/path/to/file.c'
     const filePath = textDocument.uri.replace('file://', '')
-    const configuration = await connection.workspace.getConfiguration('crux-llvm')
+    const configuration = await connection.workspace.getConfiguration(settingsName)
     const cruxLLVM = configuration['crux-llvm']
 
     // we use a temporary directory to produce the report
     const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'crux-llvm-'))
     const includeDirs = configuration['include-dirs']
+
+    console.log('Starting crux-llvm child process')
 
     // ! Do not try to timeout this process from vscode, as it may crash the
     // ! entire IDE
@@ -86,6 +106,10 @@ async function validateTextDocument(textDocument: LanguageServer.TextDocument): 
     // ! Killing crux-llvm this way may bring down vscode entirely!
     // setTimeout(() => { cruxLLVMProcess.kill() }, 1000)
 
+    cruxLLVMProcess.stdout?.on('data', m => {
+        console.log(m)
+    })
+
     cruxLLVMProcess.on('exit', () => {
         try {
             // crux-llvm can generate huge reports, arbitrary cutoff
@@ -98,13 +122,12 @@ async function validateTextDocument(textDocument: LanguageServer.TextDocument): 
 
             const contents = fs.readFileSync(reportFile)
             // ! may need to do some sanity checking here
-            const report: any[] = JSON.parse(contents.toString())
+            const report: Report.MainDiagnostic[] = JSON.parse(contents.toString())
 
             const diagnostics = report.flatMap(Report.createDiagnostic)
 
             connection.sendDiagnostics({ uri: textDocument.uri, diagnostics })
-        }
-        catch (e) {
+        } catch (e) {
             connection.window.showErrorMessage(`${prefix} Error processing report:\n${e}`)
         }
     })
@@ -114,37 +137,37 @@ async function validateTextDocument(textDocument: LanguageServer.TextDocument): 
 /**
  * Returns the actual command to use for running a given command, based on the
  * configuration.
- * @param command Command to resolve, say `clang` 
- * @param configuration crux-llvm fragment of the user's settings.json 
+ * @param command - Command to resolve, say `clang`
+ * @param configuration - crux-llvm fragment of the user's settings.json
  * @returns Resolved command, say `/path/to/clang`
  */
-function commandFromConfiguration(command: string, configuration: any): string {
-    if (command in configuration) {
-        return configuration[command]
-    }
-    return command
-}
+// function commandFromConfiguration(command: string, configuration: any): string {
+//     if (command in configuration) {
+//         return configuration[command]
+//     }
+//     return command
+// }
 
 /**
  * Outputs a message to the user's console, if debug is set to true
- * @param str Message to output
+ * @param str - Message to output
  */
 async function debugMessage(str: string): Promise<void> {
-    const configuration = await connection.workspace.getConfiguration('crux-llvm')
+    const configuration = await connection.workspace.getConfiguration(settingsName)
     if (configuration.debug) {
         connection.console.info(`${prefix}\n${str}`)
     }
 }
 
-/** 
- * @param configuration crux-llvm fragment of the user's settings.json
- * 
- * @param commandStr one of the command names expected as fields (see
+/**
+ * @param configuration - crux-llvm fragment of the user's settings.json
+ *
+ * @param commandStr - one of the command names expected as fields (see
  * vscode-crux-llvm/package.json) for an up-to-date list
- * 
+ *
  * @returns true when command can be found, false otherwise
  */
-function checkCommand(configuration: any, commandStr: string): boolean {
+function checkCommand(configuration: Configuration, commandStr: keyof Configuration): boolean {
     try {
         const output = ChildProcess.execFileSync(
             configuration[commandStr],
@@ -152,22 +175,24 @@ function checkCommand(configuration: any, commandStr: string): boolean {
         )
         debugMessage(output.toString())
         return true
-    }
-    catch (e) { // ! e will be null
+    } catch (e) { // ! e will be null
         connection.window.showErrorMessage(
-            `${commandStr} could not be found.  Please set "${settingsName}.${commandStr}" correctly in your settings.json.`
+            `${commandStr} could not be found.  Please set or update "${settingsName}.${commandStr}" correctly in your settings.json.  Error: ${e}`
         )
         return false
     }
 }
 
-/** 
+/**
  * Checks that we can access a given command using the user's settings PATH
- * @param configuration crux-llvm fragment of the user's settings.json
- * @param commandStr a verbatim command name we expect to found in PATH
+ * @param configuration - crux-llvm fragment of the user's settings.json
+ * @param commandStr - a verbatim command name we expect to found in PATH
  * @returns true when command can be found, false otherwise
  */
-function checkCommandViaPATH(configuration: any, commandStr: string): boolean {
+function checkCommandViaPATH(
+    configuration: Configuration,
+    commandStr: string,
+): boolean {
     try {
         const output = ChildProcess.execFileSync(
             commandStr,
@@ -180,8 +205,7 @@ function checkCommandViaPATH(configuration: any, commandStr: string): boolean {
         )
         debugMessage(output.toString())
         return true
-    }
-    catch (e) { // ! e will be null
+    } catch (e) { // ! e will be null
         connection.window.showErrorMessage(
             `${commandStr} could not be found.  Please make sure that "${settingsName}.path" is a PATH containing ${commandStr} in your settings.json.`
         )
@@ -197,7 +221,7 @@ function checkCommandViaPATH(configuration: any, commandStr: string): boolean {
  * @returns true if all commands can be found, false otherwise
  */
 async function checkConfiguration(): Promise<boolean> {
-    const configuration = await connection.workspace.getConfiguration('crux-llvm')
+    const configuration: Configuration = await connection.workspace.getConfiguration(settingsName)
     return (
         checkCommand(configuration, 'crux-llvm')
         &&
@@ -209,7 +233,7 @@ async function checkConfiguration(): Promise<boolean> {
     )
 }
 
-async function onChangedContent(change: LanguageServer.TextDocumentChangeEvent<LanguageServer.TextDocument>): Promise<void> {
+async function onChangedContent(change: TextDocumentChangeEvent<TextDocument>): Promise<void> {
     const configurationOK = await checkConfiguration()
     if (!configurationOK) {
         return

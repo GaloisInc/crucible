@@ -19,19 +19,20 @@ find those.
 
 This extension contributes the following settings:
 
-* `crux-llvm.clang` (string): Path to the `clang` executable (e.g. `/path/to/clang`)
+* `vscode-crux-llvm.clang` (string): Path to the `clang` executable (e.g.
+  `/path/to/clang`)
 
-* `crux-llvm.crux-llvm` (string): Path to the `crux-llvm` executable (e.g.
-  `/path/to/crux-llvm`)
+* `vscode-crux-llvm.crux-llvm` (string): Path to the `crux-llvm` executable
+  (e.g. `/path/to/crux-llvm`)
 
-* `crux-llvm.debug` (boolean): Set to true to make the extension output status
-  information in the Visual Studio Code console
+* `vscode-crux-llvm.debug` (boolean): Set to true to make the extension output
+  status information in the Visual Studio Code console
 
-* `crux-llvm.llvm-link` (string): Path to the `llvm-link` executable (e.g.
-  `/path/to/llvm-link`)
+* `vscode-crux-llvm.llvm-link` (string): Path to the `llvm-link` executable
+  (e.g. `/path/to/llvm-link`)
 
-* `crux-llvm.path` (string): Unix `PATH` to use for finding solvers such as z3 (e.g.
-  `/path/to/z3/bin/folder:/some/other/paths`)
+* `vscode-crux-llvm.path` (string): Unix `PATH` to use for finding solvers such
+  as z3 (e.g. `/path/to/z3/bin/folder:/some/other/paths`)
 
 ## Known Issues
 
@@ -40,6 +41,11 @@ properly, and ironing out how error messages are located, phrased, and
 displayed.
 
 ## Release Notes
+
+## 0.0.2
+
+Updated and improved design, now relying on VSCode contribution points for
+providing a custom panel.
 
 ### 0.0.1
 

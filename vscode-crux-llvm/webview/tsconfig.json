@@ -3,10 +3,11 @@
     "compilerOptions": {
         "composite": true,
         "module": "CommonJS",
-        "outDir": "../dist/client",
+        "outDir": "../dist/webview",
         "rootDir": "..",
+        "target": "ES6"
     },
     "files": [
-        "src/extension.ts"
+        "src/webview.tsx"
     ],
 }

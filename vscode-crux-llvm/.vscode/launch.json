@@ -2,20 +2,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "extensionHost",
-            "request": "launch",
             "name": "Launch Client",
+            "type": "extensionHost",
+            "preLaunchTask": "compile",
+            "request": "launch",
             "runtimeExecutable": "${execPath}",
             "args": [
                 "--extensionDevelopmentPath=${workspaceRoot}"
             ],
             "outFiles": [
-                "${workspaceRoot}/client/out/**/*.js"
+                "${workspaceRoot}/dist/**/*.js"
             ],
-            "preLaunchTask": {
-                "type": "npm",
-                "script": "watch"
-            }
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
         },
         {
             "type": "node",
@@ -24,7 +24,7 @@
             "port": 6009,
             "restart": true,
             "outFiles": [
-                "${workspaceRoot}/server/out/**/*.js"
+                "${workspaceRoot}/dist/server/**/*.js"
             ]
         },
         {
@@ -34,11 +34,10 @@
             "runtimeExecutable": "${execPath}",
             "args": [
                 "--extensionDevelopmentPath=${workspaceRoot}",
-                "--extensionTestsPath=${workspaceRoot}/client/out/test/index",
-                "${workspaceRoot}/client/testFixture"
+                "--extensionTestsPath=${workspaceRoot}/dist/client/test/index"
             ],
             "outFiles": [
-                "${workspaceRoot}/client/out/test/**/*.js"
+                "${workspaceRoot}/dist/client/test/**/*.js"
             ]
         }
     ],

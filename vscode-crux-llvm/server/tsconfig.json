@@ -1,21 +1,14 @@
 {
-	"compilerOptions": {
-		"lib": [
-			"ES2019"
-		],
-		"module": "commonjs",
-		"moduleResolution": "node",
-		"target": "es6",
-		"outDir": "out",
-		"rootDir": "src",
-		"sourceMap": true,
-		"strict": true
-	},
-	"include": [
-		"src"
-	],
-	"exclude": [
-		"node_modules",
-		".vscode-test"
-	]
+    "extends": "../tsconfig-common.json",
+    "compilerOptions": {
+        "composite": true,
+        "module": "CommonJS",
+        "outDir": "../dist",
+        "rootDir": "..",
+        "target": "ES6",
+    },
+    "files": [
+        "src/report.ts",
+        "src/server.ts",
+    ],
 }

@@ -1,34 +1,39 @@
+// see https://www.typescriptlang.org/docs/handbook/project-references.html
 {
-	"compilerOptions": {
-		"module": "commonjs",
-		"target": "es6",
-		"outDir": "out",
-		"lib": [
-			"es6"
-		],
-		"sourceMap": true,
-		"rootDir": "src",
-		"strict": true,
-		"noImplicitReturns": true,
-		"noFallthroughCasesInSwitch": true,
-		"noUnusedParameters": true
-	},
-	"include": [
-		"src"
-	],
-	"exclude": [
-		"node_modules",
-		".vscode-test"
-	],
-	"references": [
-		{
-			"path": "./client"
-		},
-		{
-			"path": "./server"
-		}
-	],
-	"rules": {
-		"semi": "never"
-	},
+    "compilerOptions": {
+        "allowJs": true,
+        "baseUrl": ".",
+        "module": "CommonJS",
+        "paths": {
+            "@client/*": [
+                "client/src/*"
+            ],
+            "@server/*": [
+                "server/src/*"
+            ],
+            "@webview/*": [
+                "webview/src/*"
+            ]
+        },
+        "rootDirs": [
+            "client/src",
+            "server/src",
+            "webview/src"
+        ]
+    },
+    "files": [
+        "webpack.config.ts"
+    ],
+    "include": [],
+    "references": [
+        {
+            "path": "./client"
+        },
+        {
+            "path": "./server"
+        },
+        {
+            "path": "./webview"
+        }
+    ]
 }

@@ -17,5 +17,3 @@ int main() {
   check(f(x) < 100);
   return 0;
 }
-
-

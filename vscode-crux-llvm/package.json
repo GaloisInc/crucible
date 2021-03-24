@@ -1,80 +1,93 @@
 {
-  "name": "vscode-crux-llvm",
-  "version": "0.0.1",
-  "displayName": "vscode-crux-llvm",
-  "description": "VSCode extension for the Crux LLVM tool",
-  "author": "Valentin Robert",
-  "publisher": "galois",
-  "license": "BSD-3-Clause",
-  "engines": {
-    "vscode": "^1.45.0"
-  },
-  "main": "./client/out/extension",
-  "activationEvents": [
-    "onCommand:vscode-crux-llvm.helloWorld",
-    "onDebug",
-    "onLanguage:c"
-  ],
-  "contributes": {
-    "commands": [],
-    "configuration": {
-      "title": "Crux LLVM configuration",
-      "properties": {
-        "crux-llvm.clang": {
-          "type": "string",
-          "default": "clang",
-          "description": "Absolute path to the clang executable to use"
-        },
-        "crux-llvm.crux-llvm": {
-          "type": "string",
-          "default": "crux-llvm",
-          "description": "Absolute path to the crux-llvm executable to use"
-        },
-        "crux-llvm.debug": {
-          "type": "boolean",
-          "default": false,
-          "description": "Set to true to get information about the status of the extension (in the VSCode console)"
-        },
-        "crux-llvm.include-dirs": {
-          "type": "string",
-          "default": "",
-          "description": "Include directories passed to crux-llvm as --include-dirs"
-        },
-        "crux-llvm.llvm-link": {
-          "type": "string",
-          "default": "link-llvm",
-          "description": "Absolute path to the llvm-link executable to use"
-        },
-        "crux-llvm.path": {
-          "type": "string",
-          "default": "",
-          "description": "Value for PATH (z3 must be installed either globally or somewhere in PATH)"
+    "name": "vscode-crux-llvm",
+    "version": "0.0.2",
+    "displayName": "VSCode Crux-LLVM",
+    "description": "VSCode extension for the Crux-LLVM tool",
+    "author": "Valentin Robert",
+    "publisher": "galois",
+    "license": "BSD-3-Clause",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/GaloisInc/crucible"
+    },
+    "engines": {
+        "vscode": "^1.45.0"
+    },
+    "main": "./dist/client.bundle.js",
+    "activationEvents": [
+        "onCommand:vscode-crux-llvm.helloWorld",
+        "onDebug",
+        "onLanguage:c"
+    ],
+    "contributes": {
+        "commands": [],
+        "configuration": {
+            "title": "Crux LLVM configuration",
+            "properties": {
+                "vscode-crux-llvm.clang": {
+                    "type": "string",
+                    "default": "clang",
+                    "description": "Absolute path to the clang executable to use"
+                },
+                "vscode-crux-llvm.crux-llvm": {
+                    "type": "string",
+                    "default": "crux-llvm",
+                    "description": "Absolute path to the crux-llvm executable to use"
+                },
+                "vscode-crux-llvm.debug": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Set to true to get information about the status of the extension (in the VSCode console)"
+                },
+                "vscode-crux-llvm.include-dirs": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Include directories passed to crux-llvm as --include-dirs"
+                },
+                "vscode-crux-llvm.llvm-link": {
+                    "type": "string",
+                    "default": "link-llvm",
+                    "description": "Absolute path to the llvm-link executable to use"
+                },
+                "vscode-crux-llvm.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Value for PATH (z3 must be installed either globally or somewhere in PATH)"
+                }
+            }
         }
-      }
+    },
+    "scripts": {
+        "check-updates": "ncu; (cd client && ncu); (cd server && ncu); (cd webview && ncu)",
+        "upgrade": "ncu -u; (cd client && ncu -u); (cd server && ncu -u); (cd webview && ncu -u)",
+        "compile": "webpack",
+        "lint": "eslint client/ server/ --ext .ts,.tsx || true",
+        "postinstall": "(cd client && npm install); (cd server && npm install); (cd webview && npm install)",
+        "test-compile": "tsc -p ./",
+        "vscode:prepublish": "webpack --mode production",
+        "watch": "npx tsc -b -w"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@types/copy-webpack-plugin": "^6.4.1",
+        "@types/mocha": "^8.2.2",
+        "@types/node": "^14.14.37",
+        "@types/webpack": "^5.28.0",
+        "@typescript-eslint/eslint-plugin": "^4.20.0",
+        "@typescript-eslint/parser": "^4.20.0",
+        "copy-webpack-plugin": "^8.1.0",
+        "eslint": "^7.23.0",
+        "eslint-import-resolver-typescript": "^2.4.0",
+        "eslint-plugin-import": "^2.22.1",
+        "eslint-plugin-tsdoc": "^0.2.11",
+        "mocha": "^8.3.2",
+        "npm-check-updates": "^11.3.0",
+        "ts-loader": "^8.1.0",
+        "ts-node": "^9.1.1",
+        "tsconfig-paths-webpack-plugin": "^3.5.1",
+        "typescript": "^4.2.3",
+        "vsce": "^1.87.0",
+        "webpack": "^5.28.0",
+        "webpack-cli": "^4.6.0"
     }
-  },
-  "scripts": {
-    "compile": "npx tsc -b",
-    "watch": "npx tsc -b -w",
-    "vscode:prepublish": "webpack --mode production",
-    "webpack": "webpack --mode production",
-    "webpack-dev": "webpack --mode development --watch",
-    "test-compile": "tsc -p ./"
-  },
-  "devDependencies": {
-    "@types/mocha": "^7.0.2",
-    "@types/node": "^12.12.53",
-    "@typescript-eslint/eslint-plugin": "^3.8.0",
-    "@typescript-eslint/parser": "^2.3.0",
-    "eslint": "^6.4.0",
-    "mocha": "^8.1.0",
-    "ts-loader": "^8.0.2",
-    "typescript": "^3.9.4",
-    "vsce": "^1.78.0",
-    "webpack": "^4.44.1",
-    "webpack-cli": "^3.3.12"
-  },
-  "dependencies": {
-    "vscode-languageclient": "^6.1.3"
-  }
 }

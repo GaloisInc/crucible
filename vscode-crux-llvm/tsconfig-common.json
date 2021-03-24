@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "declaration": true,
+        "declarationMap": true,
+        "jsx": "react",
+        "lib": [
+            "DOM",
+            "ES2019"
+        ],
+        "module": "CommonJS",
+        "moduleResolution": "Node",
+        "noFallthroughCasesInSwitch": true,
+        "noImplicitReturns": true,
+        "noUnusedParameters": true,
+        "sourceMap": true,
+        "strict": true,
+        "target": "ES2019",
+    },
+    "exclude": [
+        "node_modules",
+        ".vscode-test"
+    ],
+}
