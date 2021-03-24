@@ -58,6 +58,7 @@ import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
 
 import           Lang.Crucible.CFG.Generator
+import           Lang.Crucible.Panic ( panic )
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -176,7 +177,10 @@ buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 buildBlockInfo :: L.BasicBlock -> LLVMGenerator s arch ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
-  let Just blk_lbl = L.bbLabel bb
+  let blk_lbl = case L.bbLabel bb of
+                  Just l -> l
+                  Nothing -> panic "crucible-llvm:Translation.buildBlockInfo"
+                             [ "unable to obtain label from BasicBlock" ]
   lab <- newLabel
   return (blk_lbl, LLVMBlockInfo{ block_phi_map = phi_map
                                 , block_label = lab
@@ -214,8 +218,12 @@ buildIdentMap [] _ ctx _ m
   | otherwise =
       error "buildIdentMap: passed arguments do not match LLVM input signature"
 buildIdentMap (ti:ts) _ ctx asgn m = do
-  -- ?? FIXME, irrefutable pattern...
-  let Right ty = liftMemType (L.typedType ti)
+  let ty = case liftMemType (L.typedType ti) of
+             Right t -> t
+             Left err -> panic "crucible-llvm:Translation.buildIdentMap"
+                         [ "Error attempting to lift type " <> show ti
+                         , show err
+                         ]
   packType ty ctx asgn $ \x ctx' asgn' ->
      buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
 
