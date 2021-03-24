@@ -34,7 +34,7 @@ import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.FunctionHandle as Crucible
 
 -- crucible-llvm
-import Lang.Crucible.LLVM.MemModel (withPtrWidth)
+import Lang.Crucible.LLVM.MemModel (MemOptions, withPtrWidth)
 import Lang.Crucible.LLVM.Extension( LLVM )
 import Lang.Crucible.LLVM.Translation (llvmPtrWidth, transContext, ModuleCFGMap, cfgMap)
 
@@ -59,7 +59,7 @@ import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
-import           UCCrux.LLVM.Run.Simulate (SimulationOptions(..), runSimulator)
+import           UCCrux.LLVM.Run.Simulate (runSimulator)
 {- ORMOLU_ENABLE -}
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
@@ -72,13 +72,13 @@ bugfindingLoop ::
   FunctionContext m arch argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
-  SimulationOptions ->
+  MemOptions ->
   Crucible.HandleAllocator ->
   IO (BugfindingResult m arch argTypes)
-bugfindingLoop appCtx modCtx funCtx cfg cruxOpts simOpts halloc =
+bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
   do
     let runSim preconds =
-          runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts simOpts
+          runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts memOptions
 
     -- Loop, learning preconditions and reporting errors
     let loop truePositives constraints precondTags =
@@ -169,11 +169,7 @@ loopOnFunction appCtx modCtx halloc cruxOpts ucOpts fn =
                           funCtx
                           cfg
                           cruxOpts
-                          ( SimulationOptions
-                              { memOptions = memOpts (Config.ucLLVMOptions ucOpts),
-                                applyUnsoundOverrides = Config.unsoundOverrides ucOpts
-                              }
-                          )
+                          (memOpts (Config.ucLLVMOptions ucOpts))
                           halloc
             )
       )

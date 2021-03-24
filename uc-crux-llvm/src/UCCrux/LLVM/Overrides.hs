@@ -92,7 +92,6 @@ unsoundOverrides ::
   proxy arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 unsoundOverrides arch =
-  -- NOTE(lb): The list here should match that in the "Config" module.
   [ basic_llvm_override $
       [llvmOvr| i32 @gethostname( i8* , size_t ) |]
         (\memOps sym args -> Ctx.uncurryAssignment (callGetHostName arch sym memOps) args),
