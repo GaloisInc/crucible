@@ -1,4 +1,4 @@
-name: crucible-wasm
+name: crucible-wasm builds
 on:
   push:
     branches: [master, "release-**"]
