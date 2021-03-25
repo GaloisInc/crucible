@@ -91,11 +91,6 @@ jobs:
           setup_bin() { echo setup.${{ matrix.ghc }}; }
           with_ghc()  { nix-shell -p $GHC --run "$(echo ${@})"; }
           (cd crucible-wasm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
-
-      - shell: bash
-        run: |
-          cabal update
-          cabal configure crucible-wasm --enable-tests
-
-      - shell: bash
-        run: cabal build exe:crucible-wasm
+      - run: cabal update
+      - run: cabal configure crucible-wasm --enable-tests
+      - run: cabal build exe:crucible-wasm
