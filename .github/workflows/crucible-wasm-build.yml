@@ -69,6 +69,14 @@ jobs:
           GHC=haskell.compiler.ghc$(echo ${{ matrix.ghc }} | sed -e s,\\.,,g)
           echo GHC=$GHC >> $GITHUB_ENV
 
+      - name: cabal files from hpack
+        # haskell-wasm uses a package.yaml that is converted to a
+        # .cabal file via hpack.  This needs to be done before cabal
+        # configuration so that the cabal.project reference sees the
+        # local haskell-wasm and not the hackage version.
+        shell: bash
+        run: (cd dependencies/haskell-wasm; nix-shell -p haskellPackages.hpack --run hpack)
+
       - name: Package's Cabal/GHC compatibility
         shell: bash
         # Using setup will use the cabal library installed with GHC
