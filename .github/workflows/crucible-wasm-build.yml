@@ -93,4 +93,12 @@ jobs:
           (cd crucible-wasm; with_ghc ghc -o $(setup_bin) $(setup_src) && ./$(setup_bin) clean)
       - run: cabal update
       - run: cabal configure crucible-wasm --enable-tests
-      - run: cabal build exe:crucible-wasm
+      - name: Linux build
+        if: runner.os == 'Linux'
+        run: cabal build exe:crucible-wasm
+      - name: MacOS build
+        if: runner.os == 'macOS'
+        # has a clean and retry in case the linking cache is bad (seems to happen frequently with macos).
+        shell: bash
+        run: |
+          cabal build exe:crucible-wasm || { cabal clean; cabal build exe:crucible-wasm; }
