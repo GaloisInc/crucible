@@ -6,7 +6,6 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 

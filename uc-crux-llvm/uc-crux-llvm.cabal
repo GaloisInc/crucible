@@ -12,9 +12,15 @@ Synopsis:      A bugfinding tool for C programs, using under-constrained symboli
 
 common bldflags
   ghc-options: -Wall
+               -Werror=identities
                -Werror=incomplete-patterns
+               -Werror=incomplete-record-updates
+               -Werror=incomplete-uni-patterns
+               -Werror=missing-exported-signatures
+               -Werror=missing-home-modules
                -Werror=missing-methods
                -Werror=overlapping-patterns
+               -Werror=partial-fields
                -Werror=unused-imports
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010

@@ -117,14 +117,13 @@ ppFunctionSummary fs =
       if mempty == u
         then mempty
         else
-          ( PP.pretty
-              ( Text.unwords
-                  [ "\nIn addition to any assumptions listed above, the",
-                    "following sources of unsoundness may invalidate this",
-                    "safety claim:\n"
-                  ]
-              )
-          )
+          PP.pretty
+            ( Text.unwords
+                [ "\nIn addition to any assumptions listed above, the",
+                  "following sources of unsoundness may invalidate this",
+                  "safety claim:\n"
+                ]
+            )
             <> ppUnsoundness u
 
 printFunctionSummary :: FunctionSummary m argTypes -> Text
