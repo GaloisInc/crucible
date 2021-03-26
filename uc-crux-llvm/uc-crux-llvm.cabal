@@ -48,7 +48,8 @@ library
     UCCrux.LLVM.FullType.Type
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
-    UCCrux.LLVM.Overrides
+    UCCrux.LLVM.Overrides.Skip
+    UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
     UCCrux.LLVM.Run.Explore
     UCCrux.LLVM.Run.Loop

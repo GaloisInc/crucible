@@ -1,5 +1,5 @@
 {-
-Module       : UCCrux.LLVM.Overrides
+Module       : UCCrux.LLVM.Overrides.Unsound
 Description  : Additional overrides
 Copyright    : (c) Galois, Inc 2021
 License      : BSD3
@@ -15,14 +15,13 @@ Stability    : provisional
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module UCCrux.LLVM.Overrides
+module UCCrux.LLVM.Overrides.Unsound
   ( UnsoundOverrideName (..),
-    registerUnsoundOverrides,
+    unsoundOverrides,
   )
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens ((^.))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
@@ -30,8 +29,6 @@ import           Data.IORef (IORef, modifyIORef)
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Text (Text)
-
-import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (knownNat)
@@ -49,16 +46,15 @@ import           Lang.Crucible.Types (BVType)
 
 -- crucible-llvm
 import           Lang.Crucible.LLVM.DataLayout (noAlignment)
-import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
+import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.QQ (llvmOvr)
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, Mem, LLVMPointerType)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
-import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
-import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), register_llvm_overrides, basic_llvm_override)
+import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), basic_llvm_override)
 
-import           Crux.Types (OverM, Model, HasModel)
+import           Crux.Types (HasModel)
 
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
@@ -71,26 +67,13 @@ import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 newtype UnsoundOverrideName = UnsoundOverrideName {getUnsoundOverrideName :: Text}
   deriving (Eq, Ord, Show)
 
--- | Register some additional overrides that are useful for bugfinding, but not
--- for verification. They unsoundly under-approximate the environment. This
--- helps symbolic execution reach more code.
-registerUnsoundOverrides ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
-  proxy arch ->
-  L.Module ->
-  ModuleTranslation arch ->
-  IORef (Set UnsoundOverrideName) ->
-  OverM Model sym LLVM ()
-registerUnsoundOverrides proxy llvmModule mtrans usedRef =
-  do
-    let llvmCtx = mtrans ^. transContext
-    let ?lc = llvmCtx ^. llvmTypeCtx
-    register_llvm_overrides llvmModule [] (unsoundOverrides proxy usedRef) llvmCtx
-
 ------------------------------------------------------------------------
 
 -- ** Declarations
 
+-- | Some additional overrides that are useful for bugfinding, but not for
+-- verification. They unsoundly under-approximate the environment. This helps
+-- symbolic execution reach more code.
 unsoundOverrides ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
