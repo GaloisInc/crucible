@@ -20,6 +20,7 @@
 module Lang.Crucible.Analysis.Fixpoint.Components (
   weakTopologicalOrdering,
   WTOComponent(..),
+  SCC(..),
   -- * Special cases
   cfgWeakTopologicalOrdering,
   cfgSuccessors,
@@ -54,11 +55,14 @@ weakTopologicalOrdering successors start =
                   , wtoLabels = M.empty
                   }
 
-data WTOComponent n = SCC { wtoHead :: n
-                          , wtoComps :: [WTOComponent n]
-                          }
+data WTOComponent n = SCC (SCC n)
                     | Vertex n
                     deriving (Functor, F.Foldable, T.Traversable, Show)
+
+data SCC n = SCCData  { wtoHead :: n
+                      , wtoComps :: [WTOComponent n]
+                      }
+             deriving (Functor, F.Foldable, T.Traversable, Show)
 
 -- | Useful for creating a first argument to 'weakTopologicalOrdering'. See
 -- also 'cfgWeakTopologicalOrdering'.
@@ -133,9 +137,9 @@ makeComponent v = do
   let ctx' = St.execState (runM (go (wtoSuccessors ctx))) (ctx { wtoPartition = [] })
   -- Restore the old partition but with the updated context
   St.put (ctx' { wtoPartition = wtoPartition ctx })
-  let cmp = SCC { wtoHead = v
-                , wtoComps = wtoPartition ctx'
-                }
+  let cmp = SCC $ SCCData { wtoHead = v
+                          , wtoComps = wtoPartition ctx'
+                          }
   addComponent cmp
   where
     go successors = F.forM_ (successors v) $ \s -> do

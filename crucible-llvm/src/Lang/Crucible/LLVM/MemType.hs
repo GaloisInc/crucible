@@ -62,6 +62,7 @@ import Prettyprinter
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.PrettyPrint
+import Lang.Crucible.Panic ( panic )
 
 -- | Performs a binary search on a range of ints.
 binarySearch :: (Int -> Ordering)
@@ -254,12 +255,18 @@ memTypeAlign :: DataLayout -> MemType -> Alignment
 memTypeAlign dl mtp =
   case mtp of
     IntType w -> integerAlignment dl (fromIntegral w)
-    FloatType -> a
-      where Just a = floatAlignment dl 32
-    DoubleType -> a
-      where Just a = floatAlignment dl 64
-    X86_FP80Type -> a
-      where Just a = floatAlignment dl 80
+    FloatType -> case floatAlignment dl 32 of
+                   Just a -> a
+                   Nothing -> panic "crucible-llvm:memTypeAlign.float32"
+                              [ "Invalid 32-bit float alignment from datalayout" ]
+    DoubleType -> case floatAlignment dl 64 of
+                    Just a -> a
+                    Nothing -> panic "crucible-llvm:memTypeAlign.float64"
+                               [ "Invalid 64-bit float alignment from datalayout" ]
+    X86_FP80Type -> case floatAlignment dl 80 of
+                      Just a -> a
+                      Nothing -> panic "crucible-llvm:memTypeAlign.float80"
+                                 [ "Invalid 80-bit float alignment from datalayout" ]
     PtrType{} -> dl ^. ptrAlign
     ArrayType _ tp -> memTypeAlign dl tp
     VecType _n _tp -> vectorAlignment dl (memTypeSizeInBits dl mtp)

@@ -70,9 +70,9 @@ indexContainingComponentHeads cs = St.execState (mapM_ (go []) cs) M.empty
     go heads c =
       case c of
         Vertex v -> St.modify' $ M.insert v (S.fromList heads)
-        SCC { wtoHead = h
-            , wtoComps = cs'
-            } -> do
+        SCC (SCCData { wtoHead = h
+                     , wtoComps = cs'
+                     }) -> do
           let heads' = h : heads
           St.modify' $ M.insert h (S.fromList heads')
           mapM_ (go heads') cs'

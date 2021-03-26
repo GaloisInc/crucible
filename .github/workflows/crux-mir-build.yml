@@ -83,6 +83,7 @@ jobs:
 
       - name: Package's Cabal/GHC compatibility
         shell: bash
+        if: runner.os == 'Linux'
         # Using setup will use the cabal library installed with GHC
         # instead of the cabal library of the Cabal-install tool to
         # verify the cabal file is compatible with the associated

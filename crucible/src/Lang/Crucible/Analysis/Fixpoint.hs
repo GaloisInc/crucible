@@ -726,7 +726,7 @@ wtoIteration mWiden dom interp cfg = loop (cfgWeakTopologicalOrdering cfg)
       let blk = getBlock bid (cfgBlockMap cfg)
       _ <- transfer dom interp (cfgReturnType cfg) blk assignment
       loop rest
-    loop (SCC { wtoHead = hbid, wtoComps = comps } : rest) = do
+    loop (SCC (SCCData { wtoHead = hbid, wtoComps = comps }) : rest) = do
       processSCC hbid comps 0
       loop rest
 

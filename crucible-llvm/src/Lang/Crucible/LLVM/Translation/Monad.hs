@@ -177,7 +177,10 @@ buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 buildBlockInfo :: L.BasicBlock -> LLVMGenerator s arch ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
-  let Just blk_lbl = L.bbLabel bb
+  let blk_lbl = case L.bbLabel bb of
+                  Just l -> l
+                  Nothing -> panic "crucible-llvm:Translation.buildBlockInfo"
+                             [ "unable to obtain label from BasicBlock" ]
   lab <- newLabel
   return (blk_lbl, LLVMBlockInfo{ block_phi_map = phi_map
                                 , block_label = lab

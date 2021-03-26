@@ -58,7 +58,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Numeric.Natural
 
-import Lang.Crucible.Panic
+import Lang.Crucible.Panic ( panic )
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 
@@ -566,7 +566,10 @@ symbolicValueLoad pref tp bnd v (LinearLoadStoreOffsetDiff stride delta) =
   MuxTable Store Load suffixTable loadFail
   where
     lsz = typeEnd 0 tp
-    Just stp = viewType v
+    stp = case viewType v of
+            Just x -> x
+            Nothing -> panic "crucible-llvm:symbolicValueLoad"
+                       [ "Unable obtain type of stored value ValueView" ]
 
     -- The prefix table represents cases where the load pointer occurs strictly before the
     -- write pointer, so that the end of the load may be partially satisfied by this write.
