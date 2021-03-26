@@ -32,7 +32,7 @@ retry() {
         echo "Command failed. Attempt $n/3:"
       else
         echo "The command has failed after $n attempts."
-        return 1
+        exit 1
       fi
     fi
   done

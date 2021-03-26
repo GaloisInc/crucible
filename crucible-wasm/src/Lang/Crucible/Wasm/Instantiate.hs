@@ -1,10 +1,12 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -12,9 +14,12 @@ module Lang.Crucible.Wasm.Instantiate where
 
 import Control.Exception
 import Control.Monad
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail (MonadFail)
+#endif
 import Control.Monad.Trans
-import Control.Monad.Trans.State
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.State
 import Numeric.Natural
 
 import qualified Data.ByteString.Lazy as LBS
