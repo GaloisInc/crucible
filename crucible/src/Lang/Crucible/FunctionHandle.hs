@@ -35,6 +35,7 @@ module Lang.Crucible.FunctionHandle
   , insertHandleMap
   , lookupHandleMap
   , searchHandleMap
+  , handleMapToHandles
     -- * Reference cells
   , RefCell
   , freshRefCell
@@ -231,3 +232,7 @@ searchHandleMap nm fnTyRepr (FnHandleMap m) =
       case testEquality (handleType h) fnTyRepr of
         Just Refl -> Just (h,x)
         Nothing -> Nothing
+
+handleMapToHandles :: FnHandleMap f -> [SomeHandle]
+handleMapToHandles (FnHandleMap m) =
+  map (\(Some (HandleElt handle _)) -> SomeHandle handle) (MapF.elems m)

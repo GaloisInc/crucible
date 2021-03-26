@@ -54,7 +54,7 @@ import           Data.Foldable (for_)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
-import           Data.Set (singleton)
+import qualified Data.Set as Set
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
 
@@ -80,7 +80,8 @@ import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
-import           UCCrux.LLVM.Overrides (UnsoundOverrideName(..))
+import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
+import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
@@ -343,8 +344,13 @@ isUnimplemented file fn =
         Left _ -> pure ()
         Right () -> TH.assertFailure (unwords ["Expected", fn, "to be unimplemented"])
 
-usesOverride :: String -> Unsoundness
-usesOverride name = Unsoundness (singleton (UnsoundOverrideName (Text.pack name)))
+skipOverride :: String -> Unsoundness
+skipOverride name =
+  Unsoundness Set.empty (Set.singleton (SkipOverrideName (Text.pack name)))
+
+unsoundOverride :: String -> Unsoundness
+unsoundOverride name =
+  Unsoundness (Set.singleton (UnsoundOverrideName (Text.pack name))) Set.empty
 
 inFileTests :: TT.TestTree
 inFileTests =
@@ -359,11 +365,12 @@ inFileTests =
         ("write_to_null.c", [("write_to_null", hasBugs)]),
         ("branch.c", [("branch", isSafe mempty)]),
         ("compare_to_null.c", [("compare_to_null", isSafe mempty)]),
+        ("extern_void_function.c", [("extern_void_function", isSafe (skipOverride "do_stuff"))]),
         -- This override needs refinement; the following should be safe with the
         -- precondition that the argument pointer is valid.
-        ("getenv_arg.c", [("getenv_arg", isSafe (usesOverride "getenv"))]),
-        ("getenv_const.c", [("getenv_const", isSafe (usesOverride "getenv"))]),
-        ("gethostname_const_len.c", [("gethostname_const_len", isSafe (usesOverride "gethostname"))]),
+        ("getenv_arg.c", [("getenv_arg", isSafe (unsoundOverride "getenv"))]),
+        ("getenv_const.c", [("getenv_const", isSafe (unsoundOverride "getenv"))]),
+        ("gethostname_const_len.c", [("gethostname_const_len", isSafe (unsoundOverride "gethostname"))]),
         ("id_function_pointer.c", [("id_function_pointer", isSafe mempty)]),
         ("opaque_struct.c", [("opaque_struct", isSafe mempty)]),
         ("print.c", [("print", isSafe mempty)]),
@@ -380,7 +387,7 @@ inFileTests =
         ("free_dict.c", [("free_dict", isSafeWithPreconditions mempty DidHitBounds)]),
         ("free_dict_kv.c", [("free_dict_kv", isSafeWithPreconditions mempty DidHitBounds)]),
         ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions mempty DidHitBounds)]),
-        ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions (usesOverride "gethostname") DidntHitBounds)]),
+        ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions (unsoundOverride "gethostname") DidntHitBounds)]),
         ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
         ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions mempty DidHitBounds)]),
         ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions mempty DidntHitBounds)]),
@@ -400,19 +407,12 @@ inFileTests =
         -- nonzero size, but it actually requires the input pointer to point to
         -- an *array of structs*.
         ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
-        ("do_exit.c", [("do_exit", isUnclassified)]), -- goal: isSafe
-        ("do_fork.c", [("do_fork", isUnclassified)]),
         ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
-        ("do_recv.c", [("do_recv", isUnclassified)]),
-        ("do_strdup.c", [("do_strdup", isUnclassified)]), -- goal: isSafe
-        ("do_strcmp.c", [("do_strcmp", isUnclassified)]), -- goal: isSafe
-        ("do_strncmp.c", [("do_strncmp", isUnclassified)]), -- goal: isSafe
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
-        ("read_errno.c", [("read_errno", isUnclassified)]), -- goal: isSafe
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
@@ -425,7 +425,10 @@ inFileTests =
         ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
-        ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)])
+        ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)]),
+        -- This one could use an override. Currently fails because it's
+        -- skipped, and so unreachable code gets reached.
+        ("do_exit.c", [("do_exit", hasMissingAnn)]) -- goal: isSafe
         -- TODO: https://github.com/GaloisInc/crucible/issues/651
         -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
 
@@ -997,10 +1000,19 @@ main =
         isUnimplemented "call_function_pointer.c" "call_function_pointer", -- goal: ???
         isUnimplemented "call_varargs_function_pointer.c" "call_varargs_function_pointer", -- goal: ???
         isUnimplemented "id_varargs_function_pointer.c" "id_varargs_function_pointer", -- goal: isSafe
+        isUnimplemented "do_fork.c" "do_fork", -- goal: ???
+        isUnimplemented "do_recv.c" "do_recv",
+        isUnimplemented "do_strdup.c" "do_strdup", -- goal: isSafe
+        isUnimplemented "do_strcmp.c" "do_strcmp", -- goal: isSafe
+        isUnimplemented "do_strncmp.c" "do_strncmp", -- goal: isSafe
+        isUnimplemented "extern_non_void_function.c" "extern_non_void_function", -- goal: isSafeWithPreconditions
+        isUnimplemented "read_errno.c" "read_errno", -- goal: isSafe
 
         -- Strangely, this compiles to a function that takes a variable-arity
         -- function as an argument?
-        isUnimplemented "set_errno.c" "set_errno", -- goal: ???
+        isUnimplemented
+          "set_errno.c"
+          "set_errno", -- goal: ???
         isUnimplemented
           "gethostname_neg_len.c"
           "gethostname_neg_len", -- goal: ???

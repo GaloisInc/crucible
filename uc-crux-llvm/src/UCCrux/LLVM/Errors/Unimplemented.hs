@@ -22,6 +22,8 @@ where
 
 {- ORMOLU_DISABLE -}
 import Control.Exception (SomeException, try, displayException)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Panic hiding (panic)
 import qualified Panic
 {- ORMOLU_ENABLE -}
@@ -39,7 +41,8 @@ data Unimplemented
   | GetHostNameNegativeSize
   | GetHostNameSmallSize
   | NonEmptyUnboundedSizeArrays
-  deriving (Bounded, Enum, Eq, Ord)
+  | NonVoidUndefinedFunc Text
+  deriving (Eq, Ord)
 
 ppUnimplemented :: Unimplemented -> String
 ppUnimplemented =
@@ -56,6 +59,8 @@ ppUnimplemented =
     GetHostNameNegativeSize -> "`gethostname` called with a negative length"
     GetHostNameSmallSize -> "`gethostname` called with a small length"
     NonEmptyUnboundedSizeArrays -> "Generating arrays with unbounded size"
+    NonVoidUndefinedFunc func ->
+      "Non-void function without a definition: " ++ Text.unpack func
 
 instance PanicComponent Unimplemented where
   panicComponentName _ = "uc-crux-llvm"
