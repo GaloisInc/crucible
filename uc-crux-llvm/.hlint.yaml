@@ -1,0 +1,50 @@
+# HLint configuration file
+# https://github.com/ndmitchell/hlint
+
+# Imports
+# -------
+
+- modules:
+  # If you import Data.List qualified, it must be as 'List'
+  - {name: [Data.List], as: List}
+  - {name: [Data.Map], as: Map}
+  - {name: [Data.Sequence], as: Seq}
+  - {name: [Data.Set, Data.HashSet], as: Set}
+
+# Custom hints
+# ------------
+
+# We should use "panic", not "error".
+- error:
+    name: Use panic
+    lhs: "error x"
+    rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
+- error:
+    name: Use panic
+    lhs: "undefined"
+    rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
+
+# Ignored
+# -------
+
+- ignore: {name: "Avoid lambda"}  # Can be more clear with explicit binding
+- ignore: {name: "Avoid lambda using `infix`"}  # Can be more clear with explicit binding
+- ignore: {name: "Eta reduce"}  # Can be more clear with explicit binding
+- ignore: {name: "Parse error"}  # we trust the compiler over HLint
+- ignore: {name: "Reduce duplication"}  # Too heuristic
+- ignore: {name: "Use section"}  # Too opinionated
+- ignore:  # "AppContext" should be extensible with more fields
+    name: "Use newtype instead of data"
+    within: ["UCCrux.LLVM.Context.App.AppContext"]
+- ignore:  # "SetupError" should be extensible with more fields
+    name: "Use newtype instead of data"
+    within: ["UCCrux.LLVM.Setup.Monad.SetupError"]
+- ignore:  # This shows how to extend the config with more fields
+    name: "Evaluate"
+    within: ["UCCrux.LLVM.Config"]
+- ignore:  # No need for this in the test suite
+    name: "Use panic"
+    within: ["Main"]
+- ignore:  # Guide to further implementation
+    name: "Redundant if"
+    within: ["UCCrux.LLVM.Classify.Poison"]

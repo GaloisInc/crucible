@@ -110,7 +110,7 @@ elemsFromOffset ::
 elemsFromOffset dl mts offset partType =
   let pointedTo = asFullType mts partType
       typeSize = bytesToInteger (memTypeSize dl (toMemType pointedTo))
-   in 1 + fromIntegral (BV.asUnsigned (What4.fromConcreteBV offset) `div` fromIntegral typeSize)
+   in 1 + fromIntegral (BV.asUnsigned (What4.fromConcreteBV offset) `div` typeSize)
 
 unclass ::
   (MonadIO f, What4.IsExpr (What4.SymExpr sym)) =>
@@ -206,7 +206,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
               Nothing -> panic "classify" ["Expected pointer type"]
               Just (IsPtrRepr Refl) ->
                 return $
-                  ExMissingPreconditions $
+                  ExMissingPreconditions
                     (tag, oneArgConstraint idx cursor (Aligned alignment))
         _ -> unclass appCtx badBehavior
     LLVMErrors.BBUndefinedBehavior
@@ -338,7 +338,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                 oneArgShapeConstraint
                                   idx
                                   cursor
-                                  (Allocated (fromIntegral (elemsFromOffset' bv partType)))
+                                  (Allocated (elemsFromOffset' bv partType))
                               )
                         _ -> panic "classify" ["Expected pointer type"]
                   Nothing ->

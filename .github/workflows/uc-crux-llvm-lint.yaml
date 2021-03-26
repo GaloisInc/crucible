@@ -1,0 +1,30 @@
+name: uc-crux-llvm-lint
+on:
+  push:
+    branches: [master, "release-**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: crux-llvm - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: false
+
+      - shell: bash
+        run: |
+          cd uc-crux-llvm/
+          curl --location -o hlint.tar.gz \
+            https://github.com/ndmitchell/hlint/releases/download/v3.3/hlint-3.3-x86_64-linux.tar.gz
+          tar xvf hlint.tar.gz
+          ./hlint-3.3/hlint .
+
+      - uses: mrkkrp/ormolu-action@v1
+        with:
+          pattern: |
+            uc-crux-llvm/exe/**/*.hs
+            uc-crux-llvm/src/**/*.hs
+            uc-crux-llvm/test/**/*.hs

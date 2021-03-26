@@ -18,12 +18,11 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log, writeFile)
 
-import           Control.Lens ((.~))
-import           Control.Concurrent (threadDelay )
+import           Control.Lens ((.~), (^.))
+import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race)
 import           Control.Scheduler (Comp(Par), traverseConcurrently)
 import           Control.Exception (displayException)
-import           Control.Lens ((^.))
 import           Data.Function ((&))
 import qualified Data.Map.Strict as Map
 import           Data.Text.IO (writeFile)

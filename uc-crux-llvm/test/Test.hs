@@ -240,8 +240,8 @@ isSafeWithPreconditions hitBounds fn (Result.SomeBugfindingResult result) =
               ]
           )
 
-isUnannotated :: String -> Result.SomeBugfindingResult -> IO ()
-isUnannotated fn (Result.SomeBugfindingResult result) =
+_isUnannotated :: String -> Result.SomeBugfindingResult -> IO ()
+_isUnannotated fn (Result.SomeBugfindingResult result) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -259,8 +259,8 @@ isUnannotated fn (Result.SomeBugfindingResult result) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
-hasFailedAssert :: String -> Result.SomeBugfindingResult -> IO ()
-hasFailedAssert fn (Result.SomeBugfindingResult result) =
+_hasFailedAssert :: String -> Result.SomeBugfindingResult -> IO ()
+_hasFailedAssert fn (Result.SomeBugfindingResult result) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -422,8 +422,8 @@ float = L.PrimType (L.FloatType L.Float)
 double :: L.Type
 double = L.PrimType (L.FloatType L.Double)
 
-result :: L.Ident -> L.Instr -> L.Stmt
-result ident inst = L.Result ident inst []
+result' :: L.Ident -> L.Instr -> L.Stmt
+result' ident inst = L.Result ident inst []
 
 effect :: L.Instr -> L.Stmt
 effect inst = L.Effect inst []
@@ -480,7 +480,7 @@ oneArithLeft name ty val op =
     ty
     [ L.BasicBlock
         (Just "bb")
-        [ result
+        [ result'
             "retVal"
             (L.Arith op (L.Typed ty (L.ValIdent (L.Ident "arg"))) val),
           effect (L.Ret (L.Typed ty (L.ValIdent (L.Ident "retVal"))))
@@ -504,7 +504,7 @@ oneArithRight name ty val op =
     ty
     [ L.BasicBlock
         (Just "bb")
-        [ result
+        [ result'
             "retVal"
             (L.Arith op (L.Typed ty val) (L.ValIdent (L.Ident "arg"))),
           effect (L.Ret (L.Typed ty (L.ValIdent (L.Ident "retVal"))))

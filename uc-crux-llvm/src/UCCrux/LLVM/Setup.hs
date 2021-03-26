@@ -96,7 +96,7 @@ constrainHere ::
   -- | The value to be constrained
   Crucible.RegEntry sym (ToCrucibleType arch atTy) ->
   Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
-constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry typeRepr regValue) =
+constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry _typeRepr regValue) =
   case (fullTypeRepr, constraint) of
     (_, Aligned alignment) ->
       assumeOne =<< liftIO (LLVMMem.isAligned sym ?ptrWidth regValue alignment)
