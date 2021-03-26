@@ -1,0 +1,72 @@
+# HLint configuration file
+# https://github.com/ndmitchell/hlint
+
+# Imports
+# -------
+
+- modules:
+  # base/containers
+  # If you import Data.List qualified, it must be as 'List'
+  - {name: [Data.List], as: List}
+  - {name: [Data.Map, Data.Map.Strict], as: Map}
+  - {name: [Data.Sequence], as: Seq}
+  - {name: [Data.Set, Data.HashSet], as: Set}
+  - {name: [Data.Text], as: Text}
+
+  # libraries
+  - {name: [Prettyprinter, Prettyprinter.Render.Text], as: PP}
+  - {name: [Text.LLVM.AST], as: L}
+
+  # local
+  - {name: [Crux], as: Crux}
+  - {name: [UCCrux.LLVM.Config], as: Config}
+  - {name: [UCCrux.LLVM.Run.Result], as: Result}
+  - {name: [UCCrux.LLVM.Shape], as: Shape}
+
+
+# Custom hints
+# ------------
+
+# We should use "panic", not "error".
+- error:
+    name: Use panic
+    lhs: "error x"
+    rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
+- error:
+    name: Use panic
+    lhs: "undefined"
+    rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
+
+# Ignored
+# -------
+
+- ignore: {name: "Avoid lambda"}  # Can be more clear with explicit binding
+- ignore: {name: "Avoid lambda using `infix`"}  # Can be more clear with explicit binding
+- ignore: {name: "Eta reduce"}  # Can be more clear with explicit binding
+- ignore: {name: "Parse error"}  # we trust the compiler over HLint
+- ignore: {name: "Reduce duplication"}  # Too heuristic
+- ignore: {name: "Use section"}  # Too opinionated
+- ignore:  # "AppContext" should be extensible with more fields
+    name: "Use newtype instead of data"
+    within: ["UCCrux.LLVM.Context.App.AppContext"]
+- ignore:  # "SetupError" should be extensible with more fields
+    name: "Use newtype instead of data"
+    within: ["UCCrux.LLVM.Setup.Monad.SetupError"]
+- ignore:  # "Unsoundness" should be extensible with more fields
+    name: "Use newtype instead of data"
+    within: ["UCCrux.LLVM.Run.Unsoundness"]
+- ignore:  # This shows how to extend the config with more fields
+    name: "Evaluate"
+    within: ["UCCrux.LLVM.Config"]
+- ignore:  # No need for this in the test suite
+    name: "Use panic"
+    within: ["Main"]
+- ignore:  # Guide to further implementation
+    name: "Redundant if"
+    within: ["UCCrux.LLVM.Classify.Poison"]
+- ignore:  # False positive - Template Haskell
+    name: "Redundant bracket"
+    within:
+      - "UCCrux.LLVM.Cursor"
+      - "UCCrux.LLVM.FullType.Type"
+      - "UCCrux.LLVM.Shape"

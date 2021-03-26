@@ -153,9 +153,7 @@ handleBVOp appCtx funCtx sym annotations tag op1 op2 constraint =
                 -- NatRepr, we can't check. That's fixable, but not high
                 -- priority since we'd just panic anyway if the widths
                 -- didn't match.
-                ( constraint w $
-                    bimap (BV.trunc' w) (BV.trunc' w) concreteSummand
-                )
+                constraint w (bimap (BV.trunc' w) (BV.trunc' w) concreteSummand)
           _ -> pure Nothing
     _ -> pure Nothing
 
