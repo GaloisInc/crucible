@@ -27,6 +27,7 @@ import qualified Text.LLVM as LLVM
 import Prettyprinter
 
 -- what4
+import qualified What4.Expr.Builder as WEB
 
 -- crucible
 import Lang.Crucible.Backend
@@ -123,9 +124,44 @@ registerFunctions llvm_module mtrans =
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
 simulateLLVMFile :: FilePath -> LLVMOptions -> Crux.SimulatorCallback
-simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
+simulateLLVMFile llvm_file llvmOpts = do
+  Crux.SimulatorCallback $ \sym _maybeOnline -> do
+    halloc <- newHandleAllocator
+    bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+    let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
+    runnableState <- setupFileSim halloc llvm_file llvmOpts sym maybeOnline
+
+    -- arbitrary, we should probabl make this limit configurable
+    let detailLimit = 10
+
+    let explainFailure evalFn gl =
+          do bb <- readIORef bbMapRef
+             ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
+             let details = case ex of
+                             NoExplanation -> mempty
+                             DisjOfFailures xs ->
+                               case map ppBB xs of
+                                 []  -> mempty
+                                 [x] -> indent 2 x
+                                 xs' | length xs' <= detailLimit
+                                       -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
+                                     | otherwise
+                                       -> "All of the following conditions failed (and other conditions have been elided to reduce output): "
+                                          <> line <> indent 2 (vcat (take detailLimit xs'))
+
+             return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
+
+setupFileSim :: Logs
+             => IsSymInterface sym
+             => sym ~ WEB.ExprBuilder t st fs
+             => HasLLVMAnn sym
+             => HandleAllocator
+             -> FilePath
+             -> LLVMOptions
+             -> sym -> Maybe (Crux.SomeOnlineSolver sym)
+             -> IO (Crux.RunnableState sym)
+setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
   do llvm_mod   <- parseLLVM llvm_file
-     halloc     <- newHandleAllocator
      let ?laxArith = laxArithmetic llvmOpts
      let ?optLoopMerge = loopMerge llvmOpts
      memVar <- mkMemVar "crux:llvm_memory" halloc
@@ -135,44 +171,21 @@ simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
          do liftIO $ say "Crux" $ unwords ["Using pointer width:", show ptrW]
-            bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
             let ?lc = llvmCtxt^.llvmTypeCtx
-            -- shrug... some weird interaction between do notation and implicit parameters here...
-            -- not sure why I have to let/in this expression...
-            let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb) in
-              do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) memVar)
-                                { printHandle = view outputHandle ?outputConfig }
-                 mem <- populateAllGlobals sym (globalInitMap trans)
-                           =<< initializeAllMemory sym llvmCtxt llvm_mod
+            do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) memVar)
+                            { printHandle = view outputHandle ?outputConfig }
+               mem <- populateAllGlobals sym (globalInitMap trans)
+                      =<< initializeAllMemory sym llvmCtxt llvm_mod
 
-                 let globSt = llvmGlobals llvmCtxt mem
+               let globSt = llvmGlobals llvmCtxt mem
 
-                 let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                          runOverrideSim UnitRepr $
+               let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
+                            runOverrideSim UnitRepr $
                             do registerFunctions llvm_mod trans
                                checkFun (entryPoint llvmOpts) (cfgMap trans)
 
-                 -- arbitrary, we should probabl make this limit configurable
-                 let detailLimit = 10
 
-                 let explainFailure evalFn gl =
-                       do bb <- readIORef bbMapRef
-                          ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
-                          let details = case ex of
-                                NoExplanation -> mempty
-                                DisjOfFailures xs ->
-                                  case map ppBB xs of
-                                    []  -> mempty
-                                    [x] -> indent 2 x
-                                    xs' | length xs' <= detailLimit
-                                        -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
-                                        | otherwise
-                                        -> "All of the following conditions failed (and other conditions have been elided to reduce output): "
-                                               <> line <> indent 2 (vcat (take detailLimit xs'))
-
-                          return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
-
-                 return (Crux.RunnableState initSt, explainFailure)
+               return (Crux.RunnableState initSt, explainFailure)
 
 
 checkFun ::
