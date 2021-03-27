@@ -93,10 +93,10 @@ data LLVMContext arch
 llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
 llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
 
-mkLLVMContext :: HandleAllocator
+mkLLVMContext :: GlobalVar Mem
               -> L.Module
               -> IO (Some LLVMContext)
-mkLLVMContext halloc m = do
+mkLLVMContext mvar m = do
   let (errs, typeCtx) = typeContextFromModule m
   unless (null errs) $
     malformedLLVMModule "Failed to construct LLVM type context" errs
@@ -105,8 +105,7 @@ mkLLVMContext halloc m = do
   case mkNatRepr (ptrBitwidth dl) of
     Some (wptr :: NatRepr wptr) | Just LeqProof <- testLeq (knownNat @16) wptr ->
       withPtrWidth wptr $
-        do mvar <- mkMemVar halloc
-           let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
+        do let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
                                        -- the target triple, but llvm-pretty doesn't capture this
                                        -- currently.
            let ctx :: LLVMContext (X86 wptr)

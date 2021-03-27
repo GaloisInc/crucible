@@ -51,7 +51,7 @@ import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
-        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
+        ( MemImpl, mkMemVar, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
         , explainCex, CexExplanation(..)
         )
@@ -130,7 +130,8 @@ simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline
      halloc     <- newHandleAllocator
      let ?laxArith = laxArithmetic llvmOpts
      let ?optLoopMerge = loopMerge llvmOpts
-     Some trans <- translateModule halloc llvm_mod
+     memVar <- mkMemVar "crux:llvm_memory" halloc
+     Some trans <- translateModule halloc memVar llvm_mod
      let llvmCtxt = trans ^. transContext
 
      llvmPtrWidth llvmCtxt $ \ptrW ->

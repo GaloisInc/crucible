@@ -520,9 +520,10 @@ evalStmt sym = eval
        liftIO $ doPtrSubtract sym mem x y
 
 
-mkMemVar :: HandleAllocator
+mkMemVar :: Text
+         -> HandleAllocator
          -> IO (GlobalVar Mem)
-mkMemVar halloc = freshGlobalVar halloc "llvm_memory" knownRepr
+mkMemVar memName halloc = freshGlobalVar halloc memName knownRepr
 
 
 -- | For now, the core message should be on the first line, with details

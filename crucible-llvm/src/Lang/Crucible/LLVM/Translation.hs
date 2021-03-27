@@ -388,10 +388,11 @@ transDefine halloc ctx d = do
 -- if we want to support dynamic loading.
 translateModule :: (?laxArith :: Bool, ?optLoopMerge :: Bool)
                 => HandleAllocator -- ^ Generator for nonces.
+                -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
                 -> IO (Some ModuleTranslation)
-translateModule halloc m = do
-  Some ctx <- mkLLVMContext halloc m
+translateModule halloc mvar m = do
+  Some ctx <- mkLLVMContext mvar m
   let nonceGen = haCounter halloc
   llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
     do pairs <- mapM (transDefine halloc ctx) (L.modDefines m)
