@@ -126,7 +126,7 @@ registerFunctions llvm_module mtrans =
 
 simulateLLVMFile :: FilePath -> LLVMOptions -> Crux.SimulatorCallback
 simulateLLVMFile llvm_file llvmOpts = do
-  Crux.SimulatorCallback $ \sym _maybeOnline -> do
+  Crux.SimulatorCallback $ \sym maybeOnline -> do
     halloc <- newHandleAllocator
     bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
     let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
@@ -143,31 +143,60 @@ setupFileSim :: Logs
              -> sym -> Maybe (Crux.SomeOnlineSolver sym)
              -> IO (Crux.RunnableState sym)
 setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
-  do llvm_mod   <- parseLLVM llvm_file
-     let ?laxArith = laxArithmetic llvmOpts
-     let ?optLoopMerge = loopMerge llvmOpts
-     memVar <- mkMemVar "crux:llvm_memory" halloc
-     Some trans <- translateModule halloc memVar llvm_mod
-     let llvmCtxt = trans ^. transContext
+  do memVar <- mkMemVar "crux:llvm_memory" halloc
 
-     llvmPtrWidth llvmCtxt $ \ptrW ->
-       withPtrWidth ptrW $
-         do liftIO $ say "Crux" $ unwords ["Using pointer width:", show ptrW]
-            let ?lc = llvmCtxt^.llvmTypeCtx
-            do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) memVar)
-                            { printHandle = view outputHandle ?outputConfig }
-               mem <- populateAllGlobals sym (globalInitMap trans)
-                      =<< initializeAllMemory sym llvmCtxt llvm_mod
+     let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) memVar)
+                  { printHandle = view outputHandle ?outputConfig }
 
-               let globSt = llvmGlobals llvmCtxt mem
+     prepped <- prepLLVMModule llvmOpts halloc sym llvm_file memVar
 
-               let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                            runOverrideSim UnitRepr $
-                            do registerFunctions llvm_mod trans
-                               checkFun (entryPoint llvmOpts) (cfgMap trans)
+     let globSt = llvmGlobals memVar (p_mem prepped)
+
+     return $ Crux.RunnableState $
+       InitialState simctx globSt defaultAbortHandler UnitRepr $
+       runOverrideSim UnitRepr $
+       do Some trans <- return $ p_someTrans prepped
+          llvmPtrWidth (trans ^. transContext) $ \ptrW ->
+            withPtrWidth ptrW $
+            do registerFunctions (p_llvmMod prepped) trans
+               checkFun (entryPoint llvmOpts) (cfgMap trans)
 
 
-               return (Crux.RunnableState initSt, explainFailure)
+
+
+data PreppedLLVM sym = PreppedLLVM { p_llvmMod :: LLVM.Module
+                                   , p_someTrans :: Some ModuleTranslation
+                                   , p_memVar :: GlobalVar Mem
+                                   , p_mem :: MemImpl sym
+                                   }
+
+-- | Given an LLVM Bitcode file, and a GlobalVar memory, translate the
+-- file into the Crucible representation and add the globals and
+-- definitions from the file to the GlobalVar memory.
+
+prepLLVMModule :: IsSymInterface sym
+               => HasLLVMAnn sym
+               => Logs
+               => LLVMOptions
+               -> HandleAllocator
+               -> sym
+               -> FilePath  -- for the LLVM bitcode file
+               -> GlobalVar Mem
+               -> IO (PreppedLLVM sym)
+prepLLVMModule llvmOpts halloc sym bcFile memVar = do
+    llvmMod <- parseLLVM bcFile
+    Some trans <- let ?laxArith = laxArithmetic llvmOpts
+                      ?optLoopMerge = loopMerge llvmOpts
+                  in translateModule halloc memVar llvmMod
+    mem <- let llvmCtxt = trans ^. transContext in
+             let ?lc = llvmCtxt ^. llvmTypeCtx
+             in llvmPtrWidth llvmCtxt $ \ptrW ->
+               withPtrWidth ptrW $ do
+               liftIO $ say "Crux" $ unwords [ "Using pointer width:", show ptrW
+                                             , "for file", bcFile]
+               populateAllGlobals sym (globalInitMap trans)
+                 =<< initializeAllMemory sym llvmCtxt llvmMod
+    return $ PreppedLLVM llvmMod (Some trans) memVar mem
 
 
 checkFun ::
