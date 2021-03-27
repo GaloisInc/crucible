@@ -48,10 +48,11 @@ import qualified Text.LLVM.AST as L
 import           Data.Parameterized.Some (Some(..))
 
 -- crucible
+import           Lang.Crucible.Simulator (GlobalVar)
 import qualified Lang.Crucible.FunctionHandle as Crucible
 
 -- crucible-llvm
-import Lang.Crucible.LLVM.MemModel (withPtrWidth)
+import Lang.Crucible.LLVM.MemModel (Mem, mkMemVar, withPtrWidth)
 import Lang.Crucible.LLVM.Translation
         ( translateModule
         , transContext
@@ -90,7 +91,8 @@ mainWithOutputConfig outCfg =
         (appCtx, cruxOpts, ucOpts) <- Config.processUCCruxLLVMOptions opts
         path <- genBitCode cruxOpts (Config.ucLLVMOptions ucOpts)
         halloc <- Crucible.newHandleAllocator
-        Some modCtx <- translateFile ucOpts halloc path
+        memVar <- mkMemVar "uc-crux-llvm:llvm_memory" halloc
+        Some modCtx <- translateFile ucOpts halloc memVar path
         if Config.doExplore ucOpts
           then do
             llvmPtrWidth
@@ -119,25 +121,27 @@ mainWithOutputConfig outCfg =
 translateLLVMModule ::
   UCCruxLLVMOptions ->
   Crucible.HandleAllocator ->
+  GlobalVar Mem ->
   FilePath ->
   L.Module ->
   IO (Some ModuleContext)
-translateLLVMModule ucOpts halloc moduleFilePath llvmMod =
+translateLLVMModule ucOpts halloc memVar moduleFilePath llvmMod =
   do
     let llvmOpts = Config.ucLLVMOptions ucOpts
     Some trans <-
       let ?laxArith = laxArithmetic llvmOpts
           ?optLoopMerge = loopMerge llvmOpts
-       in translateModule halloc llvmMod
+       in translateModule halloc memVar llvmMod
     pure $ Some (makeModuleContext moduleFilePath llvmMod trans)
 
 translateFile ::
   UCCruxLLVMOptions ->
   Crucible.HandleAllocator ->
+  GlobalVar Mem ->
   FilePath ->
   IO (Some ModuleContext)
-translateFile ucOpts halloc moduleFilePath =
-  translateLLVMModule ucOpts halloc moduleFilePath =<< parseLLVM moduleFilePath
+translateFile ucOpts halloc memVar moduleFilePath =
+  translateLLVMModule ucOpts halloc memVar moduleFilePath =<< parseLLVM moduleFilePath
 
 -- | Postcondition: The keys of the returned map are exactly the entryPoints of
 -- the 'UCCruxLLVMOptions'.

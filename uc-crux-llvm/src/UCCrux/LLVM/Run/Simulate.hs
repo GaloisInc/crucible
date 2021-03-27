@@ -56,10 +56,10 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM (llvmGlobals)
+import           Lang.Crucible.LLVM (llvmGlobalsToCtx)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import           Lang.Crucible.LLVM.MemModel (MemOptions,  LLVMAnnMap)
-import           Lang.Crucible.LLVM.Translation (transContext, llvmTypeCtx)
+import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx)
 
 import           Lang.Crucible.LLVM.MemModel.Partial (BoolAnn(BoolAnn))
 import           Lang.Crucible.LLVM.Extension (LLVM)
@@ -113,7 +113,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef unsoundOverrideRef constraints 
       let ?lc = llvmCtxt ^. llvmTypeCtx
       let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
       let simctx =
-            (setupSimCtxt halloc sym memOptions llvmCtxt)
+            (setupSimCtxt halloc sym memOptions (llvmMemVar llvmCtxt))
               { Crucible.printHandle = view outputHandle ?outputConfig
               }
 
@@ -178,7 +178,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef unsoundOverrideRef constraints 
                 Right value -> pure value
         )
 
-      let globSt = llvmGlobals llvmCtxt mem
+      let globSt = llvmGlobalsToCtx llvmCtxt mem
       let initSt =
             Crucible.InitialState simctx globSt Crucible.defaultAbortHandler CrucibleTypes.UnitRepr $
               Crucible.runOverrideSim CrucibleTypes.UnitRepr $
