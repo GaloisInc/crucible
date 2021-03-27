@@ -12,6 +12,7 @@ module Crux.LLVM.Simulate where
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
+import qualified Data.List as List
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
@@ -130,26 +131,7 @@ simulateLLVMFile llvm_file llvmOpts = do
     bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
     let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
     runnableState <- setupFileSim halloc llvm_file llvmOpts sym maybeOnline
-
-    -- arbitrary, we should probabl make this limit configurable
-    let detailLimit = 10
-
-    let explainFailure evalFn gl =
-          do bb <- readIORef bbMapRef
-             ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
-             let details = case ex of
-                             NoExplanation -> mempty
-                             DisjOfFailures xs ->
-                               case map ppBB xs of
-                                 []  -> mempty
-                                 [x] -> indent 2 x
-                                 xs' | length xs' <= detailLimit
-                                       -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
-                                     | otherwise
-                                       -> "All of the following conditions failed (and other conditions have been elided to reduce output): "
-                                          <> line <> indent 2 (vcat (take detailLimit xs'))
-
-             return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
+    return (runnableState, explainFailure sym bbMapRef)
 
 setupFileSim :: Logs
              => IsSymInterface sym
@@ -222,3 +204,37 @@ memMetrics memVar = Map.fromList [ ("LLVM.Mem.allocs", allocs)
       case lookupGlobal memVar globals of
         Just mem -> return $ toInteger (f mem)
         Nothing -> fail "Memory missing from global vars"
+
+----------------------------------------------------------------------
+
+-- arbitrary, we should probably make this limit configurable
+detailLimit :: Int
+detailLimit = 10
+
+explainFailure :: IsSymInterface sym
+               => sym ~ WEB.ExprBuilder t st fs
+               => sym
+               -> IORef (LLVMAnnMap sym)
+               -> Crux.Explainer sym t ann
+explainFailure sym bbMapRef evalFn gl =
+  do bb <- readIORef bbMapRef
+     ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
+     let details =
+           case ex of
+             NoExplanation -> mempty
+             DisjOfFailures xs ->
+               case ppBB <$> xs of
+                 []  -> mempty
+                 [x] -> indent 2 x
+                 xs' ->
+                   let xs'' = List.take detailLimit xs'
+                       xs'l = length xs'
+                       msg1 = "Failing conditions::"
+                       msg2 = if xs'l > detailLimit
+                              then "[only displaying the first"
+                                   <+> pretty detailLimit
+                                   <+> "of" <+> pretty xs'l
+                                   <+> "failed conditions]"
+                              else "Total failed conditions:" <+> pretty xs'l
+                   in nest 2 $ vcat $ msg1 : xs'' <> [msg2]
+     return $ vcat [ ppSimError (gl^. labeledPredMsg), details ]
