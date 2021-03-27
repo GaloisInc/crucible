@@ -37,7 +37,7 @@ import Lang.Crucible.Simulator
   ( emptyRegMap
   , fnBindingsFromList, runOverrideSim, callCFG
   , initSimContext, profilingMetrics
-  , ExecState( InitialState )
+  , ExecState( InitialState ), GlobalVar
   , SimState, defaultAbortHandler, printHandle
   , ppSimError
   )
@@ -51,14 +51,13 @@ import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
-        ( MemImpl, mkMemVar, withPtrWidth, memAllocCount, memWriteCount
+        ( Mem, MemImpl, mkMemVar, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
         , explainCex, CexExplanation(..)
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, cfgMap
-        , LLVMContext, llvmMemVar, ModuleCFGMap
+        , transContext, cfgMap, ModuleCFGMap
         , llvmPtrWidth, llvmTypeCtx
         )
 import Lang.Crucible.LLVM.Intrinsics
@@ -83,9 +82,9 @@ setupSimCtxt ::
   HandleAllocator ->
   sym ->
   MemOptions ->
-  LLVMContext arch ->
+  GlobalVar Mem ->
   SimCtxt Model sym LLVM
-setupSimCtxt halloc sym mo llvmCtxt =
+setupSimCtxt halloc sym mo memVar =
   initSimContext sym
                  llvmIntrinsicTypes
                  halloc
@@ -93,8 +92,7 @@ setupSimCtxt halloc sym mo llvmCtxt =
                  (fnBindingsFromList [])
                  (llvmExtensionImpl mo)
                  emptyModel
-    & profilingMetrics %~ Map.union (llvmMetrics llvmCtxt)
-
+    & profilingMetrics %~ Map.union (memMetrics memVar)
 
 -- | Parse an LLVM bit-code file.
 parseLLVM :: FilePath -> IO LLVM.Module
@@ -142,7 +140,7 @@ simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline
             -- shrug... some weird interaction between do notation and implicit parameters here...
             -- not sure why I have to let/in this expression...
             let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb) in
-              do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
+              do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) memVar)
                                 { printHandle = view outputHandle ?outputConfig }
                  mem <- populateAllGlobals sym (globalInitMap trans)
                            =<< initializeAllMemory sym llvmCtxt llvm_mod
@@ -193,12 +191,12 @@ checkFun nm mp =
 ---------------------------------------------------------------------
 -- Profiling
 
-llvmMetrics :: forall arch p sym ext
-             . LLVMContext arch
+memMetrics :: forall p sym ext
+             . GlobalVar Mem
             -> Map.Map Text (Metric p sym ext)
-llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
-                                    , ("LLVM.writes", writes)
-                                    ]
+memMetrics memVar = Map.fromList [ ("LLVM.Mem.allocs", allocs)
+                                 , ("LLVM.Mem.writes", writes)
+                                 ]
   where
     allocs = Metric $ measureMemBy memAllocCount
     writes = Metric $ measureMemBy memWriteCount
@@ -208,6 +206,6 @@ llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
                  -> IO Integer
     measureMemBy f st = do
       let globals = st ^. stateGlobals
-      case lookupGlobal (llvmMemVar llvmCtxt) globals of
+      case lookupGlobal memVar globals of
         Just mem -> return $ toInteger (f mem)
         Nothing -> fail "Memory missing from global vars"
