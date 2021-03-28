@@ -12,7 +12,7 @@ on:
 # (e.g. cabal complains it can't find a valid version of the "happy"
 # tool).
 env:
-  CACHE_VERSION: 1
+  CACHE_VERSION: 2
 
 jobs:
   outputs:
