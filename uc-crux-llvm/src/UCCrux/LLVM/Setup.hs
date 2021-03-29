@@ -67,6 +67,8 @@ import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes, moduleTypes)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule)
 import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
+import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
@@ -312,6 +314,11 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
                   )
                   n
                   elems'
+      (Shape.ShapeUnboundedArray (Compose _constraints) elems, _) ->
+        if Seq.null elems
+          then pure $ Shape.ShapeUnboundedArray (SymValue Vec.empty) Seq.empty
+          else -- TODO(lb): This needs a new constructor for Cursor.
+            unimplemented "generate" Unimplemented.NonEmptyUnboundedSizeArrays
       (Shape.ShapeStruct (Compose _constraints) fields, FTStructRepr _ fieldTypes) ->
         do
           fields' <-

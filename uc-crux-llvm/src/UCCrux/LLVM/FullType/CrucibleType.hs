@@ -75,6 +75,8 @@ toCrucibleType proxy =
     FTFloatRepr floatInfo -> CrucibleTypes.FloatRepr floatInfo
     FTArrayRepr _natRepr fullTypeRepr ->
       CrucibleTypes.VectorRepr (toCrucibleType proxy fullTypeRepr)
+    FTUnboundedArrayRepr fullTypeRepr ->
+      CrucibleTypes.VectorRepr (toCrucibleType proxy fullTypeRepr)
     FTStructRepr _ typeReprs ->
       case assignmentToCrucibleType proxy typeReprs of
         SomeAssign' ctReprs Refl _ -> CrucibleTypes.StructRepr ctReprs
