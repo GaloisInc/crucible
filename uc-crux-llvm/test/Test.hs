@@ -91,7 +91,7 @@ import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 exampleHere :: Cursor m ('FTInt 64) ('FTInt 64)
 exampleHere = Here (FTIntRepr knownNat)
 
-_exampleArray :: Cursor m ('FTArray 8 ('FTInt 64)) ('FTInt 64)
+_exampleArray :: Cursor m ('FTArray ('Just 8) ('FTInt 64)) ('FTInt 64)
 _exampleArray = Index (knownNat :: NatRepr 7) knownNat exampleHere
 
 _exampleStruct ::
@@ -393,6 +393,11 @@ inFileTests =
         ("writes_to_arg_conditional_ptr.c", [("writes_to_arg_conditional_ptr", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("writes_to_arg_field.c", [("writes_to_arg_field", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("writes_to_arg_ptr.c", [("writes_to_arg_ptr", isSafeWithPreconditions mempty DidntHitBounds)]),
+        -- This one is interesting... The deduced precondition is a little off,
+        -- in that it "should" require the array *in* the struct to have a
+        -- nonzero size, but it actually requires the input pointer to point to
+        -- an *array of structs*.
+        ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("do_exit.c", [("do_exit", isUnclassified)]), -- goal: isSafe
         ("do_fork.c", [("do_fork", isUnclassified)]),
         ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
@@ -991,6 +996,7 @@ main =
         isUnimplemented "call_function_pointer.c" "call_function_pointer", -- goal: ???
         isUnimplemented "call_varargs_function_pointer.c" "call_varargs_function_pointer", -- goal: ???
         isUnimplemented "id_varargs_function_pointer.c" "id_varargs_function_pointer", -- goal: isSafe
+
         -- Strangely, this compiles to a function that takes a variable-arity
         -- function as an argument?
         isUnimplemented "set_errno.c" "set_errno", -- goal: ???

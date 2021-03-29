@@ -79,7 +79,7 @@ data Cursor m (inTy :: FullType m) (atTy :: FullType m) where
     -- | Overall array length.
     NatRepr n ->
     Cursor m inTy atTy ->
-    Cursor m ('FTArray n inTy) atTy
+    Cursor m ('FTArray ('Just n) inTy) atTy
   Field ::
     Ctx.Assignment (FullTypeRepr m) fields ->
     -- | Which field?
@@ -142,7 +142,7 @@ deepenArray ::
   (i + 1 <= n) =>
   NatRepr i ->
   NatRepr n ->
-  Cursor m inTy ('FTArray n atTy) ->
+  Cursor m inTy ('FTArray ('Just n) atTy) ->
   Cursor m inTy atTy
 deepenArray idx len =
   \case

@@ -46,6 +46,7 @@ toMemType =
     FTNonVoidFuncPtrRepr retRepr argsRepr -> funType (Just retRepr) argsRepr
     FTOpaquePtrRepr _ident -> PtrType OpaqueType
     FTArrayRepr natRepr fullTypeRepr -> ArrayType (natValue natRepr) (toMemType fullTypeRepr)
+    FTUnboundedArrayRepr fullTypeRepr -> ArrayType 0 (toMemType fullTypeRepr)
     FTStructRepr structInfo _ -> StructType structInfo
   where
     funType :: Maybe (FullTypeRepr m ft) -> Ctx.Assignment (FullTypeRepr m) argTypes -> MemType

@@ -115,7 +115,9 @@ data FullType (m :: Type) where
   FTInt :: Nat -> FullType m
   FTPtr :: FullType m -> FullType m
   FTFloat :: CrucibleTypes.FloatInfo -> FullType m
-  FTArray :: Nat -> FullType m -> FullType m
+  -- | The 'Maybe' here captures the C pattern of an dynamically-sized array
+  -- within a struct. See test/programs/unsized_array.c.
+  FTArray :: Maybe Nat -> FullType m -> FullType m
   FTStruct :: Ctx.Ctx (FullType m) -> FullType m
   -- | Function pointers are very different from data pointers - they don't
   -- contain any data and can't be dereferenced. By treating function pointers
@@ -182,7 +184,10 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
     (1 <= n) =>
     !(NatRepr n) ->
     FullTypeRepr m ft ->
-    FullTypeRepr m ('FTArray n ft)
+    FullTypeRepr m ('FTArray ('Just n) ft)
+  FTUnboundedArrayRepr ::
+    FullTypeRepr m ft ->
+    FullTypeRepr m ('FTArray 'Nothing ft)
   FTStructRepr ::
     MemType.StructInfo ->
     Ctx.Assignment (FullTypeRepr m) fields ->
@@ -336,7 +341,7 @@ toFullTypeM memType =
         Some contentRepr <- toFullTypeM content
         case isPosNat sizeRepr of
           Just LeqProof -> pure (Some (FTArrayRepr sizeRepr contentRepr))
-          Nothing -> panic "toPartType" ["Zero array type size"]
+          Nothing -> pure (Some (FTUnboundedArrayRepr contentRepr))
     PtrType FunType {} ->
       unimplemented "toFullType" Unimplemented.VarArgsFunctionType
     PtrType OpaqueType {} ->
