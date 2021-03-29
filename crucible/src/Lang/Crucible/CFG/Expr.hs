@@ -303,6 +303,10 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- Float
 
+  -- | Generate an "undefined" float value. The semantics of this construct are
+  -- still under discussion, see crucible#366.
+  FloatUndef :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
+
   -- Floating point constants
   FloatLit :: !Float -> App ext f (FloatType SingleFloat)
   DoubleLit :: !Double -> App ext f (FloatType DoubleFloat)
@@ -574,7 +578,8 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- BV
 
-  -- generate an "undefined" bitvector value
+  -- | Generate an "undefined" bitvector value. The semantics of this construct
+  -- are still under discussion, see crucible#366.
   BVUndef :: (1 <= w) => NatRepr w -> App ext f (BVType w)
 
   BVLit :: (1 <= w) => NatRepr w -> BV.BV w -> App ext f (BVType w)
@@ -1098,6 +1103,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
 
     ----------------------------------------------------------------------
     -- Float
+    FloatUndef fi -> FloatRepr fi
     FloatLit{} -> knownRepr
     DoubleLit{} -> knownRepr
     X86_80Lit{} -> knownRepr

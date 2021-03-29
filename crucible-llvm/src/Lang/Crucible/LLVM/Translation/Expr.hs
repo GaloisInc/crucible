@@ -302,9 +302,13 @@ undefExpand archProxy (ArrayType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (UndefExpr tp)) $ k proxy# (VectorRepr tpr)
 undefExpand archProxy (VecType n tp) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec archProxy tpr (replicate (fromIntegral n) (UndefExpr tp)) $ k proxy# (VectorRepr tpr)
+undefExpand _archProxy FloatType k =
+  k proxy# (FloatRepr SingleFloatRepr) (App (FloatUndef SingleFloatRepr))
+undefExpand _archProxy DoubleType k =
+  k proxy# (FloatRepr DoubleFloatRepr) (App (FloatUndef DoubleFloatRepr))
+undefExpand _archProxy X86_FP80Type k =
+  k proxy# (FloatRepr X86_80FloatRepr) (App (FloatUndef X86_80FloatRepr))
 undefExpand _archPrxy tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
-
---undefExpand (L.PrimType (L.FloatType _ft)) _k = error "FIXME undefExpand: float types"
 
 
 explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
