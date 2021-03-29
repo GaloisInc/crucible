@@ -46,6 +46,8 @@ library
     UCCrux.LLVM.FullType.CrucibleType
     UCCrux.LLVM.FullType.MemType
     UCCrux.LLVM.FullType.Type
+    UCCrux.LLVM.FullType.ReturnType
+    UCCrux.LLVM.FullType.VarArgs
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
     UCCrux.LLVM.Overrides.Skip

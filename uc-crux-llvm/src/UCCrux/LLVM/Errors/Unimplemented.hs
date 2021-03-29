@@ -30,7 +30,6 @@ import qualified Panic
 
 data Unimplemented
   = VarArgsFunction
-  | VarArgsFunctionType
   | VoidType
   | OpaqueType
   | UnsupportedType
@@ -49,7 +48,6 @@ ppUnimplemented :: Unimplemented -> String
 ppUnimplemented =
   \case
     VarArgsFunction -> "Exploring variable-arity functions"
-    VarArgsFunctionType -> "Variable-arity function (pointer) types in globals or arguments"
     VoidType -> "Void types in globals or arguments"
     OpaqueType -> "Opaque (undefined) types in globals or arguments"
     UnsupportedType -> "Unsupported types in globals or arguments"

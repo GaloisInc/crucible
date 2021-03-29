@@ -106,8 +106,8 @@ data Shape (m :: Type) (tag :: FullType m -> Type) (ft :: FullType m) where
   -- | Function pointers don't have any sub-shapes because they aren't data
   -- pointers and can't be dereferenced.
   ShapeFuncPtr ::
-    tag ('FTFuncPtr ret args) ->
-    Shape m tag ('FTFuncPtr ret args)
+    tag ('FTFuncPtr varArgs ret args) ->
+    Shape m tag ('FTFuncPtr varArgs ret args)
   -- | Opaque pointers don't have any sub-shapes because they can't be
   -- dereferenced.
   ShapeOpaquePtr ::

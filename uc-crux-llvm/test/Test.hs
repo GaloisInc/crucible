@@ -65,7 +65,6 @@ import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, knownNat)
-import           Data.Parameterized.Some (Some(..))
 
 import           Lang.Crucible.FunctionHandle (newHandleAllocator)
 
@@ -75,7 +74,7 @@ import           Crux.LLVM.Config (clangOpts)
 
 -- Code being tested
 import qualified UCCrux.LLVM.Config as Config
-import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
+import           UCCrux.LLVM.Main (SomeModuleContext'(..), loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
@@ -166,7 +165,7 @@ findBugs llvmModule file fns =
         --   )
         let ?outputConfig = outCfg
         halloc <- newHandleAllocator
-        Some modCtx <-
+        SomeModuleContext' modCtx <-
           case llvmModule of
             Just lMod -> translateLLVMModule ucOpts halloc path lMod
             Nothing -> translateFile ucOpts halloc path
@@ -308,6 +307,25 @@ isUnclassified fn (Result.SomeBugfindingResult result) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
+isUnfixed :: String -> Result.SomeBugfindingResult -> IO ()
+isUnfixed fn (Result.SomeBugfindingResult result) =
+  do
+    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
+          partitionUncertainty (Result.uncertainResults result)
+    [] TH.@=? map show missingAnn
+    [] TH.@=? map show failedAssert
+    [] TH.@=? map show unimpl
+    [] TH.@=? map show unclass
+    [] TH.@=? map show unfixable
+    [] TH.@=? map show timeouts
+    0 < length unfixed
+      TH.@? unwords
+        [ "Expected",
+          fn,
+          "to be unfixed but the result was:\n",
+          Text.unpack (Result.printFunctionSummary (Result.summary result))
+        ]
+
 hasMissingAnn :: String -> Result.SomeBugfindingResult -> IO ()
 hasMissingAnn fn (Result.SomeBugfindingResult result) =
   do
@@ -385,6 +403,7 @@ inFileTests =
         ("getenv_const.c", [("getenv_const", isSafe (unsoundOverride "getenv"))]),
         ("gethostname_const_len.c", [("gethostname_const_len", isSafe (unsoundOverride "gethostname"))]),
         ("id_function_pointer.c", [("id_function_pointer", isSafe mempty)]),
+        ("id_varargs_function_pointer.c", [("id_varargs_function_pointer", isSafe mempty)]),
         ("opaque_struct.c", [("opaque_struct", isSafe mempty)]),
         ("print.c", [("print", isSafe mempty)]),
         ("read_global.c", [("read_global", isSafe mempty)]),
@@ -445,9 +464,14 @@ inFileTests =
         ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)]),
         -- This one could use an override. Currently fails because it's
         -- skipped, and so unreachable code gets reached.
-        ("do_exit.c", [("do_exit", hasMissingAnn)]) -- goal: isSafe
+        ("do_exit.c", [("do_exit", hasMissingAnn)]), -- goal: isSafe
         -- TODO: https://github.com/GaloisInc/crucible/issues/651
         -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
+        ("call_function_pointer.c", [("call_function_pointer", isUnfixed)]), -- goal: ???
+        ("call_varargs_function_pointer.c", [("call_varargs_function_pointer", isUnfixed)]), -- goal: ???
+        -- Strangely, this compiles to a function that takes a variable-arity
+        -- function as an argument?
+        ("set_errno.c", [("set_errno", isUnfixed)]) -- goal: ???
 
         -- TODO: Not sure if Crux can do C++?
         -- , isSafe "cxxbasic.cpp" "cxxbasic"
@@ -1014,9 +1038,6 @@ main =
       "uc-crux-llvm"
       [ inFileTests,
         moduleTests,
-        isUnimplemented "call_function_pointer.c" "call_function_pointer", -- goal: ???
-        isUnimplemented "call_varargs_function_pointer.c" "call_varargs_function_pointer", -- goal: ???
-        isUnimplemented "id_varargs_function_pointer.c" "id_varargs_function_pointer", -- goal: isSafe
         isUnimplemented "do_fork.c" "do_fork", -- goal: ???
         isUnimplemented "do_recv.c" "do_recv",
         isUnimplemented "do_strdup.c" "do_strdup", -- goal: isSafe
@@ -1024,12 +1045,6 @@ main =
         isUnimplemented "do_strncmp.c" "do_strncmp", -- goal: isSafe
         isUnimplemented "extern_non_void_function.c" "extern_non_void_function", -- goal: isSafeWithPreconditions
         isUnimplemented "read_errno.c" "read_errno", -- goal: isSafe
-
-        -- Strangely, this compiles to a function that takes a variable-arity
-        -- function as an argument?
-        isUnimplemented
-          "set_errno.c"
-          "set_errno", -- goal: ???
         isUnimplemented
           "gethostname_neg_len.c"
           "gethostname_neg_len", -- goal: ???

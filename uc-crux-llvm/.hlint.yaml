@@ -69,4 +69,5 @@
     within:
       - "UCCrux.LLVM.Cursor"
       - "UCCrux.LLVM.FullType.Type"
+      - "UCCrux.LLVM.FullType.VarArgs"
       - "UCCrux.LLVM.Shape"

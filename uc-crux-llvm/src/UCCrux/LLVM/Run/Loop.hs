@@ -22,12 +22,8 @@ import           Prelude hiding (log)
 
 import           Control.Lens ((^.))
 import           Control.Monad (foldM)
-import           Control.Monad.IO.Class (liftIO)
 import           Data.Function ((&))
-import qualified Data.Map.Strict as Map
-import           Data.String (fromString)
 import qualified Data.Text as Text
-import           Data.Type.Equality ((:~:)(Refl))
 import           Panic (Panic)
 
 import qualified Lang.Crucible.CFG.Core as Crucible
@@ -36,11 +32,11 @@ import qualified Lang.Crucible.FunctionHandle as Crucible
 -- crucible-llvm
 import Lang.Crucible.LLVM.MemModel (MemOptions, withPtrWidth)
 import Lang.Crucible.LLVM.Extension( LLVM )
-import Lang.Crucible.LLVM.Translation (llvmPtrWidth, transContext, ModuleCFGMap, cfgMap)
+import Lang.Crucible.LLVM.Translation (llvmPtrWidth, transContext)
 
 -- crux
 import Crux.Config.Common
-import Crux.Log (Logs, OutputConfig(..))
+import Crux.Log (OutputConfig(..))
 
  -- local
 import Crux.LLVM.Config (throwCError, CError(MissingFun), memOpts)
@@ -51,8 +47,8 @@ import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
 import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Constraints (ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Function (FunctionContext, SomeFunctionContext(..), argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError, moduleTypes)
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
+import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, moduleTypes, CFGWithTypes(..), findFun)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
@@ -68,7 +64,7 @@ bugfindingLoop ::
     ArchOk arch
   ) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
@@ -91,7 +87,7 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
             let (newPrecondTags, newConstraints') = unzip newConstraints
             let allConstraints =
                   foldM
-                    (addConstraint (funCtx ^. argumentFullTypes) (funCtx ^. moduleTypes))
+                    (addConstraint (funCtx ^. argumentFullTypes) (modCtx ^. moduleTypes))
                     constraints
                     (concat newConstraints')
                     & \case
@@ -135,20 +131,10 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
 
     loop [] (emptyConstraints (funCtx ^. argumentFullTypes)) [] mempty
 
-findFun ::
-  Logs =>
-  String ->
-  ModuleCFGMap ->
-  IO (Crucible.AnyCFG LLVM)
-findFun nm mp =
-  case Map.lookup (fromString nm) mp of
-    Just (_, anyCfg) -> pure anyCfg
-    Nothing -> throwCError (MissingFun nm)
-
 loopOnFunction ::
   (?outputConfig :: OutputConfig) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   Crucible.HandleAllocator ->
   CruxOptions ->
   UCCruxLLVMOptions ->
@@ -162,10 +148,13 @@ loopOnFunction appCtx modCtx halloc cruxOpts ucOpts fn =
           withPtrWidth
             ptrW
             ( do
-                Crucible.AnyCFG cfg <- liftIO $ findFun fn (cfgMap (modCtx ^. moduleTranslation))
-                case makeFunctionContext modCtx (Text.pack fn) (Crucible.cfgArgTypes cfg) of
+                CFGWithTypes cfg argFTys _retTy _varArgs <-
+                  case findFun modCtx fn of
+                    Nothing -> throwCError (MissingFun fn)
+                    Just cfg -> pure cfg
+                case makeFunctionContext modCtx (Text.pack fn) argFTys (Crucible.cfgArgTypes cfg) of
                   Left err -> panic "loopOnFunction" [Text.unpack (ppFunctionContextError err)]
-                  Right (SomeFunctionContext funCtx Refl) ->
+                  Right funCtx ->
                     do
                       (appCtx ^. log) Hi $ "Checking function " <> (funCtx ^. functionName)
                       SomeBugfindingResult

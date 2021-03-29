@@ -99,7 +99,7 @@ import           UCCrux.LLVM.Setup.Monad (ppSetupError)
 simulateLLVM ::
   ArchOk arch =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
   IORef [Explanation m arch argTypes] ->
@@ -265,7 +265,7 @@ runSimulator ::
     ArchOk arch
   ) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
   Constraints m argTypes ->

@@ -67,8 +67,8 @@ import           Lang.Crucible.LLVM.MemType (memTypeSize)
 import           UCCrux.LLVM.Classify.Poison
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout)
-import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes)
+import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector))
 import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
@@ -167,7 +167,7 @@ classifyBadBehavior ::
     ShowF (What4.SymAnnotation sym)
   ) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   sym ->
   -- | Function arguments
@@ -599,7 +599,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
       PartTypeRepr m ft ->
       Int
     elemsFromOffset' =
-      elemsFromOffset (modCtx ^. dataLayout) (funCtx ^. moduleTypes)
+      elemsFromOffset (modCtx ^. dataLayout) (modCtx ^. moduleTypes)
 
     handleFreeUnallocated :: LLVMPtr.LLVMPtr sym w -> f (Maybe (Explanation m arch argTypes))
     handleFreeUnallocated ptr =

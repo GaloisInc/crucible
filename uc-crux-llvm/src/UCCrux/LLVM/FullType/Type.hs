@@ -105,12 +105,13 @@ import qualified Lang.Crucible.LLVM.MemType as MemType
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
+import           UCCrux.LLVM.FullType.VarArgs
 {- ORMOLU_ENABLE -}
 
 -- | Type level only.
 --
 -- The @m@ parameter represents an LLVM module, see comment on
--- 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
+-- 'UCCrux.LLVM.FullType.CrucibleType.TranslatedTypes'.
 data FullType (m :: Type) where
   FTInt :: Nat -> FullType m
   FTPtr :: FullType m -> FullType m
@@ -124,7 +125,7 @@ data FullType (m :: Type) where
   -- \"as a whole\" (rather than having function types themselves by a
   -- constructor of 'FullType'), we can retain more totality/definedness in
   -- functions like @toFullType@.
-  FTFuncPtr :: Maybe (FullType m) -> Ctx.Ctx (FullType m) -> FullType m
+  FTFuncPtr :: IsVarArgs -> Maybe (FullType m) -> Ctx.Ctx (FullType m) -> FullType m
   -- | Similarly to function pointers, pointers to opaque struct types can't be
   -- dereferenced.
   FTOpaquePtr :: FullType m
@@ -147,7 +148,7 @@ type family ToCrucibleType arch (ft :: FullType m) :: CrucibleTypes.CrucibleType
     CrucibleTypes.VectorType (ToCrucibleType arch ft)
   ToCrucibleType arch ('FTStruct ctx) =
     CrucibleTypes.StructType (MapToCrucibleType arch ctx)
-  ToCrucibleType arch ('FTFuncPtr ret args) =
+  ToCrucibleType arch ('FTFuncPtr _varArgs _ret _args) =
     CrucibleTypes.IntrinsicType
       "LLVM_pointer"
       (Ctx.EmptyCtx Ctx.::> CrucibleTypes.BVType (ArchWidth arch))
@@ -193,12 +194,14 @@ data FullTypeRepr (m :: Type) (ft :: FullType m) where
     Ctx.Assignment (FullTypeRepr m) fields ->
     FullTypeRepr m ('FTStruct fields)
   FTVoidFuncPtrRepr ::
+    VarArgsRepr varArgs ->
     Ctx.Assignment (FullTypeRepr m) args ->
-    FullTypeRepr m ('FTFuncPtr 'Nothing args)
+    FullTypeRepr m ('FTFuncPtr varArgs 'Nothing args)
   FTNonVoidFuncPtrRepr ::
+    VarArgsRepr varArgs ->
     FullTypeRepr m ret ->
     Ctx.Assignment (FullTypeRepr m) args ->
-    FullTypeRepr m ('FTFuncPtr ('Just ret) args)
+    FullTypeRepr m ('FTFuncPtr varArgs ('Just ret) args)
   -- TODO(lb): This could have a symbol repr for the name
   FTOpaquePtrRepr :: L.Ident -> FullTypeRepr m 'FTOpaquePtr
 
@@ -320,18 +323,19 @@ toFullTypeM memType =
             ( \idx -> toFullTypeM (MemType.fiType (structInfoFields Vec.! idx))
             )
         pure (Some (FTStructRepr structInfo fields))
-    PtrType (FunType (FunDecl retType argTypes False)) ->
+    PtrType (FunType (FunDecl retType argTypes isVarArgs)) ->
       do
         Some argTypeReprs <-
           Ctx.generateSomeM
             (length argTypes)
             (\idx -> toFullTypeM (argTypes !! idx))
+        Some varArgsRepr <- pure $ boolToVarArgsRepr isVarArgs
         case retType of
           Just retType' ->
             do
               Some retTypeRepr <- toFullTypeM retType'
-              pure (Some (FTNonVoidFuncPtrRepr retTypeRepr argTypeReprs))
-          Nothing -> pure (Some (FTVoidFuncPtrRepr argTypeReprs))
+              pure (Some (FTNonVoidFuncPtrRepr varArgsRepr retTypeRepr argTypeReprs))
+          Nothing -> pure (Some (FTVoidFuncPtrRepr varArgsRepr argTypeReprs))
     FloatType -> pure (Some (FTFloatRepr W4IFP.SingleFloatRepr))
     DoubleType -> pure (Some (FTFloatRepr W4IFP.DoubleFloatRepr))
     X86_FP80Type -> pure (Some (FTFloatRepr W4IFP.X86_80FloatRepr))
@@ -342,8 +346,6 @@ toFullTypeM memType =
         case isPosNat sizeRepr of
           Just LeqProof -> pure (Some (FTArrayRepr sizeRepr contentRepr))
           Nothing -> pure (Some (FTUnboundedArrayRepr contentRepr))
-    PtrType FunType {} ->
-      unimplemented "toFullType" Unimplemented.VarArgsFunctionType
     PtrType OpaqueType {} ->
       panic "toFullType" ["Pointer to opaque type without type alias?"]
     PtrType UnsupportedType {} -> unimplemented "toFullType" Unimplemented.UnsupportedType
@@ -363,14 +365,14 @@ toFullType moduleTypes memType =
 -- ModuleTypes
 
 -- | The @m@ parameter represents an LLVM module, see comment on
--- 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
+-- 'UCCrux.LLVM.FullType.CrucibleType.TranslatedTypes'.
 data ModuleTypes (m :: Type) = ModuleTypes
   { typeContext :: TypeContext,
     fullTypes :: Map L.Ident (Maybe (Some (FullTypeRepr m)))
   }
 
 -- | The @m@ parameter represents an LLVM module, see comment on
--- 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
+-- 'UCCrux.LLVM.FullType.CrucibleType.TranslatedTypes'.
 data TypeLookupResult m
   = forall ft. Found (FullTypeRepr m ft)
   | Processing
@@ -477,6 +479,9 @@ instance TestEquality (FullTypeRepr m) where
                  ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
                    [|testEquality|]
                  ),
+                 ( appAny (U.ConType [t|VarArgsRepr|]),
+                   [|testEquality|]
+                 ),
                  ( appAny (appAny (U.ConType [t|PartTypeRepr|])),
                    [|testEquality|]
                  ),
@@ -524,6 +529,9 @@ instance OrdF (FullTypeRepr m) where
                    [|compareF|]
                  ),
                  ( appAny (appAny (U.ConType [t|FullTypeRepr|])),
+                   [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|VarArgsRepr|]),
                    [|compareF|]
                  ),
                  ( appAny (appAny (U.ConType [t|Ctx.Assignment|])),
