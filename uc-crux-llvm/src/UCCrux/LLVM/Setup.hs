@@ -64,8 +64,8 @@ import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes, moduleTypes)
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule)
+import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule, moduleTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
@@ -353,6 +353,7 @@ generateArgs ::
     ArchOk arch
   ) =>
   AppContext ->
+  ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   sym ->
   Ctx.Assignment (ConstrainedShape m) argTypes ->
@@ -364,7 +365,7 @@ generateArgs ::
     ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
       Crucible.RegMap sym (MapToCrucibleType arch argTypes)
     )
-generateArgs _appCtx funCtx sym argSpecs =
+generateArgs _appCtx modCtx funCtx sym argSpecs =
   do
     let argTypesRepr = funCtx ^. argumentCrucibleTypes
     shapes <-
@@ -374,7 +375,7 @@ generateArgs _appCtx funCtx sym argSpecs =
             let ft = funCtx ^. argumentFullTypes . ixF' index
              in generate
                   sym
-                  (funCtx ^. moduleTypes)
+                  (modCtx ^. moduleTypes)
                   ft
                   (SelectArgument index (Here ft))
                   (argSpecs Ctx.! index)
@@ -408,7 +409,7 @@ setupExecution ::
     MonadIO f
   ) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   sym ->
   -- | Constraints and memory layouts of each argument
@@ -435,4 +436,4 @@ setupExecution appCtx modCtx funCtx sym argSpecs = do
       liftIO $
         LLVMGlobals.populateAllGlobals sym (LLVMTrans.globalInitMap moduleTrans)
           =<< LLVMGlobals.initializeAllMemory sym llvmCtxt (modCtx ^. llvmModule)
-  runSetup modCtx mem (generateArgs appCtx funCtx sym argSpecs)
+  runSetup modCtx mem (generateArgs appCtx modCtx funCtx sym argSpecs)

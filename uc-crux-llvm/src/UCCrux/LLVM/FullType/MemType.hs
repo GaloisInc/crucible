@@ -28,6 +28,7 @@ import           Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), FunDecl(.
 
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), aliasOrFullType)
+import           UCCrux.LLVM.FullType.VarArgs (varArgsReprToBool)
 {- ORMOLU_ENABLE -}
 
 toMemType :: FullTypeRepr m ft -> MemType
@@ -42,20 +43,22 @@ toMemType =
     FTFloatRepr W4IFP.DoubleFloatRepr -> DoubleType
     FTFloatRepr W4IFP.X86_80FloatRepr -> X86_FP80Type
     FTFloatRepr floatInfo -> panic "toMemType" ["Illegal float type: ", show floatInfo]
-    FTVoidFuncPtrRepr argsRepr -> funType Nothing argsRepr
-    FTNonVoidFuncPtrRepr retRepr argsRepr -> funType (Just retRepr) argsRepr
+    FTVoidFuncPtrRepr varArgs argsRepr ->
+      funType Nothing argsRepr (varArgsReprToBool varArgs)
+    FTNonVoidFuncPtrRepr varArgs retRepr argsRepr ->
+      funType (Just retRepr) argsRepr (varArgsReprToBool varArgs)
     FTOpaquePtrRepr _ident -> PtrType OpaqueType
     FTArrayRepr natRepr fullTypeRepr -> ArrayType (natValue natRepr) (toMemType fullTypeRepr)
     FTUnboundedArrayRepr fullTypeRepr -> ArrayType 0 (toMemType fullTypeRepr)
     FTStructRepr structInfo _ -> StructType structInfo
   where
-    funType :: Maybe (FullTypeRepr m ft) -> Ctx.Assignment (FullTypeRepr m) argTypes -> MemType
-    funType maybeRetRepr argsRepr =
+    funType :: Maybe (FullTypeRepr m ft) -> Ctx.Assignment (FullTypeRepr m) argTypes -> Bool -> MemType
+    funType maybeRetRepr argsRepr isVarArgs =
       PtrType
         ( FunType
             ( FunDecl
                 (toMemType <$> maybeRetRepr)
                 (toListFC toMemType argsRepr)
-                False
+                isVarArgs
             )
         )

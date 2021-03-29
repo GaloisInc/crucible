@@ -142,7 +142,7 @@ newtype Setup m arch sym (argTypes :: Ctx (FullType m)) a
       ( ExceptT
           (SetupError m arch argTypes)
           ( RWST
-              (ModuleContext arch)
+              (ModuleContext m arch)
               [SetupAssumption m sym]
               (SetupState m arch sym argTypes)
               IO
@@ -155,7 +155,7 @@ deriving instance MonadError (SetupError m arch argTypes) (Setup m arch sym argT
 
 deriving instance MonadState (SetupState m arch sym argTypes) (Setup m arch sym argTypes)
 
-deriving instance MonadReader (ModuleContext arch) (Setup m arch sym argTypes)
+deriving instance MonadReader (ModuleContext m arch) (Setup m arch sym argTypes)
 
 deriving instance MonadWriter [SetupAssumption m sym] (Setup m arch sym argTypes)
 
@@ -185,7 +185,7 @@ data SetupResult m arch sym (argTypes :: Ctx (FullType m)) = SetupResult
 
 runSetup ::
   MonadIO f =>
-  ModuleContext arch ->
+  ModuleContext m arch ->
   LLVMMem.MemImpl sym ->
   Setup m arch sym argTypes a ->
   f (Either (SetupError m arch argTypes) (SetupResult m arch sym argTypes, a))

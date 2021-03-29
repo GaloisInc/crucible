@@ -66,7 +66,7 @@ exploreOne ::
     ArchOk arch
   ) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   CruxOptions ->
   UCCruxLLVMOptions ->
   Crucible.HandleAllocator ->
@@ -117,7 +117,7 @@ explore ::
     ArchOk arch
   ) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   CruxOptions ->
   UCCruxLLVMOptions ->
   Crucible.HandleAllocator ->
