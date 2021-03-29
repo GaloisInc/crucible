@@ -150,24 +150,24 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
 
      prepped <- prepLLVMModule llvmOpts halloc sym llvm_file memVar
 
-     let globSt = llvmGlobals memVar (p_mem prepped)
+     let globSt = llvmGlobals memVar (prepMem prepped)
 
      return $ Crux.RunnableState $
        InitialState simctx globSt defaultAbortHandler UnitRepr $
        runOverrideSim UnitRepr $
-       do Some trans <- return $ p_someTrans prepped
+       do Some trans <- return $ prepSomeTrans prepped
           llvmPtrWidth (trans ^. transContext) $ \ptrW ->
             withPtrWidth ptrW $
-            do registerFunctions (p_llvmMod prepped) trans
+            do registerFunctions (prepLLVMMod prepped) trans
                checkFun (entryPoint llvmOpts) (cfgMap trans)
 
 
 
 
-data PreppedLLVM sym = PreppedLLVM { p_llvmMod :: LLVM.Module
-                                   , p_someTrans :: Some ModuleTranslation
-                                   , p_memVar :: GlobalVar Mem
-                                   , p_mem :: MemImpl sym
+data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
+                                   , prepSomeTrans :: Some ModuleTranslation
+                                   , prepMemVar :: GlobalVar Mem
+                                   , prepMem :: MemImpl sym
                                    }
 
 -- | Given an LLVM Bitcode file, and a GlobalVar memory, translate the
