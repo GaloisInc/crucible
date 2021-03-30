@@ -354,6 +354,7 @@ inFileTests =
       [ ("assert_false.c", [("assert_false", hasBugs)]),
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
         ("double_free.c", [("double_free", hasBugs)]),
+        ("uninitialized_stack.c", [("uninitialized_stack", hasBugs)]),
         ("write_to_null.c", [("write_to_null", hasBugs)]),
         ("branch.c", [("branch", isSafe mempty)]),
         ("compare_to_null.c", [("compare_to_null", isSafe mempty)]),
@@ -409,7 +410,6 @@ inFileTests =
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
-        ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: hasBugs
         ("write_const_global.c", [("write_const_global", isUnclassified)]), -- goal: hasBugs
         ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
         --
