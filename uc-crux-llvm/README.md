@@ -279,6 +279,7 @@ Uncertain results:
       - [ ] `free` called on non-argument pointer with non-zero offset
       - [ ] Write of `const` memory
       - [ ] Illegal (un)signed wrap when both operands are concrete
+      - [x] Uninitialized stack reads
       - [x] Concretely null pointer dereference
     - [ ] Missing preconditions:
       - [ ] Signed wrap with integers from arguments
