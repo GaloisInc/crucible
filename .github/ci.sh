@@ -133,11 +133,11 @@ install_llvm() {
 }
 
 install_system_deps() {
-  install_z3 &
+  install_z3
   # install_cvc4 &
-  install_yices &
-  install_llvm &
-  wait
+  install_yices
+  install_llvm
+  # wait
   export PATH=$PWD/$BIN:$PATH
   echo "$PWD/$BIN" >> $GITHUB_PATH
   is_exe "$BIN" z3 && is_exe "$BIN" yices
