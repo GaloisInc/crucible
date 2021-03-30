@@ -42,6 +42,7 @@ data Unimplemented
   | GetHostNameSmallSize
   | NonEmptyUnboundedSizeArrays
   | NonVoidUndefinedFunc Text
+  | CastIntegerToPointer
   deriving (Eq, Ord)
 
 ppUnimplemented :: Unimplemented -> String
@@ -61,6 +62,7 @@ ppUnimplemented =
     NonEmptyUnboundedSizeArrays -> "Generating arrays with unbounded size"
     NonVoidUndefinedFunc func ->
       "Non-void function without a definition: " ++ Text.unpack func
+    CastIntegerToPointer -> "Value of integer type treated as/cast to a pointer"
 
 instance PanicComponent Unimplemented where
   panicComponentName _ = "uc-crux-llvm"

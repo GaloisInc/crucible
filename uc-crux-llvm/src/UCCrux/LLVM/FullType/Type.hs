@@ -427,10 +427,13 @@ asFullType mts ptRepr =
   case asFullType' mts ptRepr of
     Right ok -> ok
     Left _err ->
-      -- See comment on 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
-      panic
-        "asFullType"
-        ["Impossible: couldn't find definition for type alias"]
+      case ptRepr of
+        PTAliasRepr (Const (L.Ident name)) ->
+          -- See comment on 'UCCrux.LLVM.FullType.CrucibleType.SomeAssign'.
+          panic
+            "asFullType"
+            ["Impossible: couldn't find definition for type alias: " <> name]
+        _ -> panic "asFullType" ["Impossible case"]
 
 -- ------------------------------------------------------------------------------
 -- Instances

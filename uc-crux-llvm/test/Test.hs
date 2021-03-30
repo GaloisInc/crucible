@@ -407,9 +407,11 @@ inFileTests =
         -- nonzero size, but it actually requires the input pointer to point to
         -- an *array of structs*.
         ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("deref_func_ptr.c", [("deref_func_ptr", isUnclassified)]), -- goal: hasBugs
         ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
+        ("memset_func_ptr.c", [("memset_func_ptr", isUnclassified)]), -- goal: hasBugs
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
@@ -421,6 +423,7 @@ inFileTests =
         --
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
+        ("cast_void_pointer.c", [("cast_void_pointer", hasMissingAnn)]),
         ("compare_ptr_to_int.c", [("compare_ptr_to_int", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
@@ -1019,6 +1022,12 @@ main =
         isUnimplemented
           "gethostname_arg_ptr_len.c"
           "gethostname_arg_ptr_len", -- goal: ???
+        isUnimplemented
+          "cast_int_to_pointer_dereference.c"
+          "cast_int_to_pointer_dereference", -- goal: isSafeWithPreconditions
+        isUnimplemented
+          "cast_int_to_pointer_memset.c"
+          "cast_int_to_pointer_memset", -- goal: isSafeWithPreconditions
         isUnimplemented
           "gethostname_arg_len.c"
           "gethostname_arg_len" -- goal: ???

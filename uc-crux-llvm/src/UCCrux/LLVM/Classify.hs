@@ -38,7 +38,6 @@ import qualified Data.Map as Map
 import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Data.Type.Equality ((:~:)(Refl))
 
 import qualified Text.LLVM.AST as L
 
@@ -72,7 +71,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames, moduleTypes)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector))
-import           UCCrux.LLVM.FullType (MapToCrucibleType, IsPtrRepr(..), isPtrRepr, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Setup (SymValue)
@@ -80,6 +79,8 @@ import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
+import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 {- ORMOLU_ENABLE -}
 
 summarizeOp :: MemError.MemoryOp sym w -> (Maybe String, LLVMPtr.LLVMPtr sym w, Mem sym)
@@ -205,9 +206,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                     "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
                   ]
             liftIO $ (appCtx ^. log) Hi $ prescribe tag
-            case isPtrRepr ftRepr of
-              Nothing -> panic "classify" ["Expected pointer type"]
-              Just (IsPtrRepr Refl) ->
+            expectPointerType ftRepr $
+              const $
                 return $
                   ExMissingPreconditions
                     (tag, oneArgConstraint idx cursor (Aligned alignment))
@@ -229,9 +229,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
                     ]
               liftIO $ (appCtx ^. log) Hi $ prescribe tag
-              case isPtrRepr ftRepr of
-                Nothing -> panic "classify" ["Expected pointer type"]
-                Just (IsPtrRepr Refl) ->
+              expectPointerType ftRepr $
+                const $
                   return $
                     ExMissingPreconditions
                       (tag, oneArgConstraint idx cursor (Aligned alignment))
@@ -263,9 +262,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                             "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                           ]
                     liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                    case isPtrRepr ftRepr of
-                      Nothing -> panic "classify" ["Expected pointer type"]
-                      Just (IsPtrRepr Refl) ->
+                    expectPointerType ftRepr $
+                      const $
                         return $
                           ExMissingPreconditions
                             (tag, oneArgShapeConstraint idx cursor (Allocated 1))
@@ -333,17 +331,16 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                               "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                             ]
                       liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                      case ftRepr of
-                        FTPtrRepr partType ->
+                      expectPointerType ftRepr $
+                        \partTypeRepr ->
                           return $
                             ExMissingPreconditions
                               ( tag,
                                 oneArgShapeConstraint
                                   idx
                                   cursor
-                                  (Allocated (elemsFromOffset' bv partType))
+                                  (Allocated (elemsFromOffset' bv partTypeRepr))
                               )
-                        _ -> panic "classify" ["Expected pointer type"]
                   Nothing ->
                     do
                       let tag = AddSymbolicOffsetToArgPointer
@@ -384,8 +381,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                       ]
                 liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                case ftRepr of
-                  FTPtrRepr partTypeRepr ->
+                expectPointerType ftRepr $
+                  \partTypeRepr ->
                     return $
                       ExMissingPreconditions
                         ( tag,
@@ -396,7 +393,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                 (elemsFromOffset' concreteLen partTypeRepr)
                             )
                         )
-                  _ -> panic "classify" ["Expected pointer type"]
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBUndefinedBehavior
       (UB.PoisonValueCreated poison) ->
@@ -411,9 +407,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
         ) ->
         case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
           (Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))), _) ->
-            case isPtrRepr ftRepr of
-              Nothing -> panic "classify" ["Expected pointer type"]
-              Just (IsPtrRepr Refl) ->
+            expectPointerType ftRepr $
+              const $
                 case argShapes ^. ixF' idx . to (flip Shape.isAllocated cursor) of
                   Left _ -> panic "classify" ["Bad cursor into argument"]
                   Right True ->
@@ -503,8 +498,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                           "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                         ]
                   liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                  case ftRepr of
-                    FTPtrRepr partTypeRepr ->
+                  expectPointerType ftRepr $
+                    \partTypeRepr ->
                       return $
                         ExMissingPreconditions
                           ( tag,
@@ -518,7 +513,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                   )
                               )
                           )
-                    _ -> panic "classify" ["Expected pointer type"]
             (Nothing, _, [Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))]) ->
               do
                 let tag = ArgReadUninitializedOffset
@@ -533,9 +527,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                       ]
                 liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                case isPtrRepr ftRepr of
-                  Nothing -> panic "classify" ["Expected pointer type"]
-                  Just (IsPtrRepr Refl) ->
+                expectPointerType ftRepr $
+                  const $
                     return $
                       ExMissingPreconditions
                         (tag, oneArgShapeConstraint idx cursor (Initialized 1))
@@ -594,6 +587,15 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
           _ -> unclass appCtx badBehavior
     _ -> unclass appCtx badBehavior
   where
+    expectPointerType ::
+      FullTypeRepr m ft -> (forall ft'. ft ~ 'FTPtr ft' => PartTypeRepr m ft' -> a) -> a
+    expectPointerType ftRepr k =
+      case ftRepr of
+        FTPtrRepr partTypeRepr -> k partTypeRepr
+        FTIntRepr {} ->
+          unimplemented "classify" Unimplemented.CastIntegerToPointer
+        _ -> panic "classify" ["Expected pointer type"]
+
     getTermAnn ::
       What4.SymExpr sym tp ->
       Maybe (Some (TypedSelector m arch argTypes))
@@ -656,9 +658,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                       ]
                 liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                case isPtrRepr ftRepr of
-                  Nothing -> panic "classify" ["Expected pointer type"]
-                  Just (IsPtrRepr Refl) ->
+                expectPointerType ftRepr $
+                  const $
                     return $
                       Just $
                         ExMissingPreconditions
