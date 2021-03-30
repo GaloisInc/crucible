@@ -59,6 +59,8 @@ import           Lang.Crucible.LLVM.DataLayout (DataLayout)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemError
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.MemModel.Generic (Mem, AllocInfo)
+import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
@@ -79,15 +81,15 @@ import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.Errors.Panic (panic)
 {- ORMOLU_ENABLE -}
 
-summarizeOp :: MemError.MemoryOp sym w -> (Maybe String, LLVMPtr.LLVMPtr sym w)
+summarizeOp :: MemError.MemoryOp sym w -> (Maybe String, LLVMPtr.LLVMPtr sym w, Mem sym)
 summarizeOp =
   \case
-    MemError.MemLoadOp _storageType expl ptr _mem -> (expl, ptr)
-    MemError.MemStoreOp _storageType expl ptr _mem -> (expl, ptr)
-    MemError.MemStoreBytesOp expl ptr _sz _mem -> (expl, ptr)
-    MemError.MemCopyOp (destExpl, dest) (_srcExpl, _src) _len _mem -> (destExpl, dest)
-    MemError.MemLoadHandleOp _llvmType expl ptr _mem -> (expl, ptr)
-    MemError.MemInvalidateOp _whatIsThisParam expl ptr _size _mem -> (expl, ptr)
+    MemError.MemLoadOp _storageType expl ptr mem -> (expl, ptr, mem)
+    MemError.MemStoreOp _storageType expl ptr mem -> (expl, ptr, mem)
+    MemError.MemStoreBytesOp expl ptr _sz mem -> (expl, ptr, mem)
+    MemError.MemCopyOp (destExpl, dest) (_srcExpl, _src) _len mem -> (destExpl, dest, mem)
+    MemError.MemLoadHandleOp _llvmType expl ptr mem -> (expl, ptr, mem)
+    MemError.MemInvalidateOp _whatIsThisParam expl ptr _size mem -> (expl, ptr, mem)
 
 classifyAssertion ::
   What4.IsExpr (What4.SymExpr sym) =>
@@ -403,7 +405,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             Just expl -> pure expl
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          (summarizeOp -> (_expl, ptr))
+          (summarizeOp -> (_expl, ptr, _mem))
           MemError.UnwritableRegion
         ) ->
         case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
@@ -455,7 +457,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          (summarizeOp -> (_expl, ptr))
+          (summarizeOp -> (_expl, ptr, _mem))
           MemError.UnreadableRegion
         ) ->
         case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
@@ -477,7 +479,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          _op
+          (summarizeOp -> (_expl, _ptr, mem))
           (MemError.NoSatisfyingWrite _storageType ptr)
         ) ->
         do
@@ -536,7 +538,22 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                     return $
                       ExMissingPreconditions
                         (tag, oneArgShapeConstraint idx cursor (Initialized 1))
-            _ -> unclass appCtx badBehavior
+            _ ->
+              liftIO (allocInfoFromPtr mem ptr)
+                >>= \case
+                  Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
+                    do
+                      let tag = TagReadUninitializedStack
+                      liftIO $
+                        (appCtx ^. log) Hi $
+                          Text.unwords
+                            [ "Diagnosis:",
+                              ppTruePositiveTag tag,
+                              "at",
+                              Text.pack loc
+                            ]
+                      return $ ExTruePositive (ReadUninitializedStack loc)
+                  _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
           (MemError.MemLoadHandleOp _type _str ptr _)
@@ -677,3 +694,14 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
 
     oneArgShapeConstraint idx cursor shapeConstraint =
       [NewShapeConstraint (SomeInSelector (SelectArgument idx cursor)) shapeConstraint]
+
+    allocInfoFromPtr :: Mem sym -> LLVMPtr.LLVMPtr sym w -> IO (Maybe (AllocInfo sym))
+    allocInfoFromPtr mem ptr =
+      do
+        int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
+        pure $
+          do
+            concreteInt <- What4.asConcrete int
+            G.possibleAllocInfo
+              (fromIntegral (What4.fromConcreteInteger concreteInt))
+              (G.memAllocs mem)

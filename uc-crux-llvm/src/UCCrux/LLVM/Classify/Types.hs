@@ -73,6 +73,7 @@ data TruePositiveTag
   | TagSRemByConcreteZero
   | TagReadNonPointer
   | TagWriteNonPointer
+  | TagReadUninitializedStack
   deriving (Eq, Ord)
 
 data TruePositive
@@ -84,6 +85,7 @@ data TruePositive
   | SRemByConcreteZero
   | ReadNonPointer
   | WriteNonPointer
+  | ReadUninitializedStack !String -- program location
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -96,6 +98,7 @@ truePositiveTag =
     SRemByConcreteZero {} -> TagSRemByConcreteZero
     ReadNonPointer {} -> TagReadNonPointer
     WriteNonPointer {} -> TagWriteNonPointer
+    ReadUninitializedStack {} -> TagReadUninitializedStack
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
@@ -108,6 +111,7 @@ ppTruePositiveTag =
     TagSRemByConcreteZero -> "Signed remainder with a concretely zero divisor"
     TagReadNonPointer -> "Read from an integer that concretely wasn't a pointer"
     TagWriteNonPointer -> "Write from an integer that concretely wasn't a pointer"
+    TagReadUninitializedStack -> "Read from uninitialized stack allocation"
 
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =
