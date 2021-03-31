@@ -29,6 +29,7 @@ where
 import           Prelude hiding (log)
 
 import           Control.Lens (to, (^.))
+import           Control.Monad (when)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Const (Const(getConst))
@@ -75,7 +76,7 @@ import           UCCrux.LLVM.FullType (MapToCrucibleType, IsPtrRepr(..), isPtrRe
 import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Setup (SymValue)
-import           UCCrux.LLVM.Setup.Monad (TypedSelector(..))
+import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -543,6 +544,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                 >>= \case
                   Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
                     do
+                      when (loc == mallocLocation) $
+                        panic "classify" ["Setup allocated something on the stack?"]
                       let tag = TagReadUninitializedStack
                       liftIO $
                         (appCtx ^. log) Hi $
@@ -553,6 +556,20 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                               Text.pack loc
                             ]
                       return $ ExTruePositive (ReadUninitializedStack loc)
+                  Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
+                    if loc == mallocLocation
+                      then unclass appCtx badBehavior
+                      else do
+                        let tag = TagReadUninitializedHeap
+                        liftIO $
+                          (appCtx ^. log) Hi $
+                            Text.unwords
+                              [ "Diagnosis:",
+                                ppTruePositiveTag tag,
+                                "at",
+                                Text.pack loc
+                              ]
+                        return $ ExTruePositive (ReadUninitializedHeap loc)
                   _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
