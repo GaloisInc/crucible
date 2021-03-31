@@ -75,6 +75,7 @@ data TruePositiveTag
   | TagWriteNonPointer
   | TagReadUninitializedStack
   | TagReadUninitializedHeap
+  | TagCallNonFunctionPointer
   deriving (Eq, Ord)
 
 data TruePositive
@@ -88,6 +89,7 @@ data TruePositive
   | WriteNonPointer
   | ReadUninitializedStack !String -- program location
   | ReadUninitializedHeap !String -- program location
+  | CallNonFunctionPointer !String -- program location of allocation
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -102,6 +104,7 @@ truePositiveTag =
     WriteNonPointer {} -> TagWriteNonPointer
     ReadUninitializedStack {} -> TagReadUninitializedStack
     ReadUninitializedHeap {} -> TagReadUninitializedHeap
+    CallNonFunctionPointer {} -> TagCallNonFunctionPointer
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
@@ -116,6 +119,7 @@ ppTruePositiveTag =
     TagWriteNonPointer -> "Write from an integer that concretely wasn't a pointer"
     TagReadUninitializedStack -> "Read from uninitialized stack allocation"
     TagReadUninitializedHeap -> "Read from uninitialized heap allocation"
+    TagCallNonFunctionPointer -> "Called a pointer that wasn't a function pointer"
 
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =
