@@ -566,7 +566,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                   _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          (MemError.MemLoadHandleOp _type _str ptr _)
+          (MemError.MemLoadHandleOp _type _str ptr mem)
           (MemError.BadFunctionPointer _msg)
         ) ->
         case getPtrOffsetAnn ptr of
@@ -584,7 +584,38 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                     ]
               unfixed appCtx tag
-          _ -> unclass appCtx badBehavior
+          _ ->
+            liftIO (allocInfoFromPtr mem ptr)
+              >>= \case
+                Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
+                  do
+                    when (loc == mallocLocation) $
+                      panic "classify" ["Setup allocated something on the stack?"]
+                    let tag = TagCallNonFunctionPointer
+                    liftIO $
+                      (appCtx ^. log) Hi $
+                        Text.unwords
+                          [ "Diagnosis:",
+                            ppTruePositiveTag tag,
+                            "at",
+                            Text.pack loc
+                          ]
+                    return $ ExTruePositive (CallNonFunctionPointer loc)
+                Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
+                  if loc == mallocLocation
+                    then unclass appCtx badBehavior
+                    else do
+                      let tag = TagCallNonFunctionPointer
+                      liftIO $
+                        (appCtx ^. log) Hi $
+                          Text.unwords
+                            [ "Diagnosis:",
+                              ppTruePositiveTag tag,
+                              "at",
+                              Text.pack loc
+                            ]
+                      return $ ExTruePositive (CallNonFunctionPointer loc)
+                _ -> unclass appCtx badBehavior
     _ -> unclass appCtx badBehavior
   where
     expectPointerType ::

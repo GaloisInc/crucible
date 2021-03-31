@@ -359,6 +359,7 @@ inFileTests =
       (uncurry inFile)
       [ ("assert_false.c", [("assert_false", hasBugs)]),
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
+        ("call_non_function_pointer.c", [("call_non_function_pointer", hasBugs)]),
         ("double_free.c", [("double_free", hasBugs)]),
         ("uninitialized_heap.c", [("uninitialized_heap", hasBugs)]),
         ("uninitialized_stack.c", [("uninitialized_stack", hasBugs)]),
