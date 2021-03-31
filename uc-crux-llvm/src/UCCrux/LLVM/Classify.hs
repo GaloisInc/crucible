@@ -182,13 +182,13 @@ classifyBadBehavior ::
 classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations argShapes badBehavior =
   case badBehavior of
     LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagUDivByConcreteZero UDivByConcreteZero divisor
+      handleDivRemByZero UDivByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.SDivByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagSDivByConcreteZero SDivByConcreteZero divisor
+      handleDivRemByZero SDivByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.URemByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagURemByConcreteZero URemByConcreteZero divisor
+      handleDivRemByZero URemByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.SRemByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagSRemByConcreteZero SRemByConcreteZero divisor
+      handleDivRemByZero SRemByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.WriteBadAlignment ptr alignment) ->
       case getPtrOffsetAnn (Crucible.unRV ptr) of
         Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
@@ -281,10 +281,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             pure ex
           Nothing ->
             do
-              let tag = TagDoubleFree
-              liftIO $
-                (appCtx ^. log) Hi $
-                  Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
               case getPtrOffsetAnn ptr of
                 Just (Some (TypedSelector _ (SomeInSelector (SelectArgument idx cursor)))) ->
                   liftIO $
@@ -297,7 +293,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                           Text.pack (show (ppCursor (argName idx) cursor))
                         ]
                 _ -> pure ()
-              return $ ExTruePositive DoubleFree
+              truePositive DoubleFree
     LLVMErrors.BBUndefinedBehavior
       (UB.PtrAddOffsetOutOfBounds (Crucible.RV ptr) (Crucible.RV offset)) ->
         case getPtrOffsetAnn ptr of
@@ -447,13 +443,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             do
               notPtr <- liftIO $ notAPointer sym ptr
               case notPtr of
-                Just True ->
-                  do
-                    let tag = TagWriteNonPointer
-                    liftIO $
-                      (appCtx ^. log) Hi $
-                        Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
-                    return $ ExTruePositive WriteNonPointer
+                Just True -> truePositive WriteNonPointer
                 _ -> unclass appCtx badBehavior
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
@@ -469,13 +459,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             do
               notPtr <- liftIO $ notAPointer sym ptr
               case notPtr of
-                Just True ->
-                  do
-                    let tag = TagReadNonPointer
-                    liftIO $
-                      (appCtx ^. log) Hi $
-                        Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
-                    return $ ExTruePositive ReadNonPointer
+                Just True -> truePositive ReadNonPointer
                 _ -> unclass appCtx badBehavior
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
@@ -546,30 +530,11 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                     do
                       when (loc == mallocLocation) $
                         panic "classify" ["Setup allocated something on the stack?"]
-                      let tag = TagReadUninitializedStack
-                      liftIO $
-                        (appCtx ^. log) Hi $
-                          Text.unwords
-                            [ "Diagnosis:",
-                              ppTruePositiveTag tag,
-                              "at",
-                              Text.pack loc
-                            ]
-                      return $ ExTruePositive (ReadUninitializedStack loc)
+                      truePositive (ReadUninitializedStack loc)
                   Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
                     if loc == mallocLocation
                       then unclass appCtx badBehavior
-                      else do
-                        let tag = TagReadUninitializedHeap
-                        liftIO $
-                          (appCtx ^. log) Hi $
-                            Text.unwords
-                              [ "Diagnosis:",
-                                ppTruePositiveTag tag,
-                                "at",
-                                Text.pack loc
-                              ]
-                        return $ ExTruePositive (ReadUninitializedHeap loc)
+                      else truePositive (ReadUninitializedHeap loc)
                   _ -> unclass appCtx badBehavior
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
@@ -598,30 +563,11 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                   do
                     when (loc == mallocLocation) $
                       panic "classify" ["Setup allocated something on the stack?"]
-                    let tag = TagCallNonFunctionPointer
-                    liftIO $
-                      (appCtx ^. log) Hi $
-                        Text.unwords
-                          [ "Diagnosis:",
-                            ppTruePositiveTag tag,
-                            "at",
-                            Text.pack loc
-                          ]
-                    return $ ExTruePositive (CallNonFunctionPointer loc)
+                    truePositive (CallNonFunctionPointer loc)
                 Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
                   if loc == mallocLocation
                     then unclass appCtx badBehavior
-                    else do
-                      let tag = TagCallNonFunctionPointer
-                      liftIO $
-                        (appCtx ^. log) Hi $
-                          Text.unwords
-                            [ "Diagnosis:",
-                              ppTruePositiveTag tag,
-                              "at",
-                              Text.pack loc
-                            ]
-                      return $ ExTruePositive (CallNonFunctionPointer loc)
+                    else truePositive (CallNonFunctionPointer loc)
                 _ -> unclass appCtx badBehavior
     _ -> unclass appCtx badBehavior
   where
@@ -700,8 +646,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
     -- If the divisor is concretely zero, it's a bug. If the divisor is from an
     -- argument, add a precondition that that value isn't zero.
     handleDivRemByZero ::
-      TruePositiveTag -> TruePositive -> What4.SymBV sym w -> f (Explanation m arch argTypes)
-    handleDivRemByZero tag truePositive divisor =
+      TruePositive -> What4.SymBV sym w -> f (Explanation m arch argTypes)
+    handleDivRemByZero truePos divisor =
       case What4.asConcrete divisor of
         Nothing ->
           case getTermAnn divisor of
@@ -727,12 +673,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         )
                   _ -> panic "classify" ["Expected integer type"]
             _ -> unclass appCtx badBehavior
-        Just _ ->
-          do
-            liftIO $
-              (appCtx ^. log) Hi $
-                Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
-            return $ ExTruePositive truePositive
+        Just _ -> truePositive truePos
 
     argName :: Ctx.Index argTypes tp -> String
     argName idx = funCtx ^. argumentNames . ixF' idx . to getConst . to (maybe "<top>" Text.unpack)
@@ -753,3 +694,11 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             G.possibleAllocInfo
               (fromIntegral (What4.fromConcreteInteger concreteInt))
               (G.memAllocs mem)
+
+    truePositive :: TruePositive -> f (Explanation m arch argTypes)
+    truePositive pos =
+      do
+        liftIO $
+          (appCtx ^. log) Hi $
+            Text.unwords ["Diagnosis:", ppTruePositive pos]
+        return $ ExTruePositive pos
