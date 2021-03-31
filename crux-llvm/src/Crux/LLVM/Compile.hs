@@ -6,34 +6,30 @@
 {-# LANGUAGE TypeOperators #-}
 module Crux.LLVM.Compile where
 
-import Control.Exception
-  ( SomeException(..), try, displayException )
-import Control.Monad
-  ( unless, when, forM_ )
+import           Control.Exception ( SomeException(..), try, displayException )
+import           Control.Monad ( unless, when, forM_ )
 import qualified Data.Foldable as Fold
-import Data.List
-  ( intercalate, isSuffixOf )
+import           Data.List ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
-import System.Directory
-  ( doesFileExist, removeFile, createDirectoryIfMissing, copyFile )
-import System.Exit
-  ( ExitCode(..) )
-import System.FilePath
-  ( takeExtension, (</>), takeDirectory, takeFileName, (-<.>) )
-import System.Process
-  ( readProcess, readProcessWithExitCode )
+import           System.Directory ( doesFileExist, removeFile
+                                  , createDirectoryIfMissing, copyFile )
+import           System.Exit ( ExitCode(..) )
+import           System.FilePath ( takeExtension, (</>), (-<.>)
+                                 , takeDirectory, takeFileName )
+import           System.Process ( readProcess, readProcessWithExitCode )
 
-import What4.Interface
-import What4.ProgramLoc
+import           What4.Interface
+import           What4.ProgramLoc
 
-import Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.SimError
 
-import Crux
+import           Crux
 import qualified Crux.Config.Common as CC
-import Crux.Model( toDouble, showBVLiteral, showFloatLiteral, showDoubleLiteral )
-import Crux.Types
+import           Crux.Model ( toDouble, showBVLiteral, showFloatLiteral
+                            , showDoubleLiteral )
+import           Crux.Types
 
-import Crux.LLVM.Config
+import           Crux.LLVM.Config
 
 
 isCPlusPlus :: FilePath -> Bool
