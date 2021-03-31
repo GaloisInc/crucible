@@ -76,6 +76,7 @@ data TruePositiveTag
   | TagReadUninitializedStack
   | TagReadUninitializedHeap
   | TagCallNonFunctionPointer
+  | TagFloatToPointer
   deriving (Eq, Ord)
 
 data TruePositive
@@ -90,6 +91,7 @@ data TruePositive
   | ReadUninitializedStack !String -- program location
   | ReadUninitializedHeap !String -- program location
   | CallNonFunctionPointer !String -- program location of allocation
+  | FloatToPointer
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -105,6 +107,7 @@ truePositiveTag =
     ReadUninitializedStack {} -> TagReadUninitializedStack
     ReadUninitializedHeap {} -> TagReadUninitializedHeap
     CallNonFunctionPointer {} -> TagCallNonFunctionPointer
+    FloatToPointer {} -> TagFloatToPointer
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
@@ -115,11 +118,12 @@ ppTruePositiveTag =
     TagSDivByConcreteZero -> "Signed division with a concretely zero divisor"
     TagURemByConcreteZero -> "Unsigned remainder with a concretely zero divisor"
     TagSRemByConcreteZero -> "Signed remainder with a concretely zero divisor"
-    TagReadNonPointer -> "Read from an integer that concretely wasn't a pointer"
-    TagWriteNonPointer -> "Write from an integer that concretely wasn't a pointer"
+    TagReadNonPointer -> "Read from data that concretely wasn't a pointer"
+    TagWriteNonPointer -> "Write to data that concretely wasn't a pointer"
     TagReadUninitializedStack -> "Read from uninitialized stack allocation"
     TagReadUninitializedHeap -> "Read from uninitialized heap allocation"
     TagCallNonFunctionPointer -> "Called a pointer that wasn't a function pointer"
+    TagFloatToPointer -> "Treated float as pointer"
 
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =

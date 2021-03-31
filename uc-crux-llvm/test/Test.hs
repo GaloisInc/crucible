@@ -124,7 +124,12 @@ findBugs llvmModule file fns =
         (appCtx, path, cruxOpts, ucOpts) <-
           Crux.loadOptions outCfg "uc-crux-llvm" "0.1" conf $ \(cruxOpts, ucOpts) ->
             do
-              let cruxOpts' = cruxOpts {Crux.inputFiles = [testDir </> file]}
+              -- With Yices, cast_float_to_pointer_write.c hangs
+              let cruxOpts' =
+                    cruxOpts
+                      { Crux.inputFiles = [testDir </> file],
+                        Crux.solver = "z3"
+                      }
               let ucOpts' = ucOpts {Config.entryPoints = fns}
               (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
               path <-
@@ -360,11 +365,17 @@ inFileTests =
       [ ("assert_false.c", [("assert_false", hasBugs)]),
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
         ("call_non_function_pointer.c", [("call_non_function_pointer", hasBugs)]),
+        ("cast_float_to_pointer_deref.c", [("cast_float_to_pointer_deref", hasBugs)]),
+        ("cast_float_to_pointer_write.c", [("cast_float_to_pointer_write", hasBugs)]),
         ("double_free.c", [("double_free", hasBugs)]),
         ("uninitialized_heap.c", [("uninitialized_heap", hasBugs)]),
         ("uninitialized_stack.c", [("uninitialized_stack", hasBugs)]),
         ("write_to_null.c", [("write_to_null", hasBugs)]),
         ("branch.c", [("branch", isSafe mempty)]),
+        -- Unclear whether this is undefined behavior. C11 section 6.5.4 says
+        -- floats can't be cast to pointers, but this one goes through an
+        -- integer first which may be OK.
+        ("cast_float_to_pointer.c", [("cast_float_to_pointer", isSafe mempty)]),
         ("compare_to_null.c", [("compare_to_null", isSafe mempty)]),
         ("extern_void_function.c", [("extern_void_function", isSafe (skipOverride "do_stuff"))]),
         -- This override needs refinement; the following should be safe with the
@@ -425,6 +436,7 @@ inFileTests =
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
         ("cast_void_pointer.c", [("cast_void_pointer", hasMissingAnn)]),
+        ("cast_pointer_to_float.c", [("cast_pointer_to_float", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptr_to_int.c", [("compare_ptr_to_int", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
