@@ -38,6 +38,7 @@ module UCCrux.LLVM.Setup.Monad
     storableType,
     sizeInBytes,
     sizeBv,
+    mallocLocation,
     malloc,
     store,
   )
@@ -332,6 +333,13 @@ sizeBv ::
 sizeBv _proxy sym ftRepr size =
   liftIO . What4.bvLit sym ?ptrWidth . mkBV ?ptrWidth =<< sizeInBytes ftRepr size
 
+-- | This is exposed so that classification can check if a given allocation was
+-- generated during setup or during execution. A slightly heavier-weight
+-- alternative would be to keep track of the set of allocations made in the
+-- state.
+mallocLocation :: String
+mallocLocation = "uc-crux-llvm bugfinding auto-setup"
+
 malloc ::
   forall m sym arch argTypes inTy atTy.
   ( Crucible.IsSymInterface sym,
@@ -365,7 +373,7 @@ malloc sym fullTypeRepr selector size =
                     sym
                     LLVMMem.HeapAlloc -- TODO(lb): Change based on arg/global
                     LLVMMem.Mutable -- TODO(lb): Change based on arg/global
-                    "crux-llvm bugfinding auto-setup"
+                    mallocLocation
                     mem
                     sz
                     (maxAlignment dl) -- TODO is this OK?
