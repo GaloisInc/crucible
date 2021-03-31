@@ -1,9 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+
 module Crux.LLVM.Compile where
 
 import           Control.Exception ( SomeException(..), try, displayException )
@@ -11,6 +13,8 @@ import           Control.Monad ( unless, when, forM_ )
 import qualified Data.Foldable as Fold
 import           Data.List ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import           System.Directory ( doesFileExist, removeFile
                                   , createDirectoryIfMissing, copyFile )
 import           System.Exit ( ExitCode(..) )
@@ -133,14 +137,19 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
                       Just a -> [ "--target=" <> a ]
       params (src, srcBC)
         | ".ll" `isSuffixOf` src =
-            commonFlags <> ["-O0", "-o", srcBC, src]
+            return $ commonFlags <> ["-O0", "-o", srcBC, src]
 
         | otherwise =
-            commonFlags <> [ "-g" ] ++
-            concat [ [ "-I", dir ] | dir <- incs src ] ++
-            concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ]
-                   | san <- ubSanitizers llvmOpts ] ++
-            [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+            -- Specify commonFlags after flags embedded in the src
+            -- under the /assumption/ that the latter takes
+            -- precedence.
+            let flgs =
+                  commonFlags <> [ "-g" ] ++
+                  concat [ [ "-I", dir ] | dir <- incs src ] ++
+                  concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ]
+                         | san <- ubSanitizers llvmOpts ] ++
+                  [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+            in (<> flgs) <$> crucibleFlagsFromSrc src
 
   finalBCExists <- doesFileExist finalBCFile
   unless (finalBCExists && lazyCompile llvmOpts) $
@@ -150,13 +159,45 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
            unless (or [ ".bc" `isSuffixOf` src
                       , bcExists && lazyCompile llvmOpts
                       ]) $
-             runClang cruxOpts llvmOpts (params f)
+             runClang cruxOpts llvmOpts =<< params f
          ver <- llvmLinkVersion llvmOpts
          let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                            | otherwise = []
          llvmLink llvmOpts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
          mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
   return finalBCFile
+
+
+-- | A C source file being compiled and evaluated by crux can contain
+-- zero or more lines matching the following:
+--
+-- >   /* CRUCIBLE clang_flags: {FLAGS} */
+-- >   // CRUCIBLE clang_flags: {FLAGS}
+--
+-- All {FLAGS} will be collected as a set of space-separated words.
+-- Flags from multiple lines will be concatenated together (without
+-- any attempt to eliminate duplicates or conflicts) and the result
+-- will be passed as additional flags to the `clang` compilation of
+-- the source by Crux.
+--
+-- The above line matching is whitespace-sensitive and case-sensitive.
+-- When C-style comment syntax is used, the comment must be closed on
+-- the same line as it was opened (although there is no line length
+-- restriction).
+
+crucibleFlagsFromSrc :: FilePath -> IO [String]
+crucibleFlagsFromSrc srcFile = do
+  let marker = "CRUCIBLE clang_flags: "
+      flagLineFilter l = or [ ("// " <> marker) `T.isPrefixOf` l
+                            , and [ ("/* " <> marker) `T.isPrefixOf` l
+                                  , " */" `T.isSuffixOf` l
+                                  ]
+                            ]
+    in fmap T.unpack .
+       concatMap (filter (/= "*/") . drop 3 . T.words) .
+       filter flagLineFilter .
+       T.lines <$>
+       TIO.readFile srcFile
 
 
 makeCounterExamplesLLVM ::
