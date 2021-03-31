@@ -73,6 +73,7 @@ data TruePositiveTag
   | TagSRemByConcreteZero
   | TagReadNonPointer
   | TagWriteNonPointer
+  | TagFreeNonPointer
   | TagReadUninitializedStack
   | TagReadUninitializedHeap
   | TagCallNonFunctionPointer
@@ -88,6 +89,7 @@ data TruePositive
   | SRemByConcreteZero
   | ReadNonPointer
   | WriteNonPointer
+  | FreeNonPointer
   | ReadUninitializedStack !String -- program location
   | ReadUninitializedHeap !String -- program location
   | CallNonFunctionPointer !String -- program location of allocation
@@ -104,6 +106,7 @@ truePositiveTag =
     SRemByConcreteZero {} -> TagSRemByConcreteZero
     ReadNonPointer {} -> TagReadNonPointer
     WriteNonPointer {} -> TagWriteNonPointer
+    FreeNonPointer {} -> TagFreeNonPointer
     ReadUninitializedStack {} -> TagReadUninitializedStack
     ReadUninitializedHeap {} -> TagReadUninitializedHeap
     CallNonFunctionPointer {} -> TagCallNonFunctionPointer
@@ -120,6 +123,7 @@ ppTruePositiveTag =
     TagSRemByConcreteZero -> "Signed remainder with a concretely zero divisor"
     TagReadNonPointer -> "Read from data that concretely wasn't a pointer"
     TagWriteNonPointer -> "Write to data that concretely wasn't a pointer"
+    TagFreeNonPointer -> "`free` called on data that concretely wasn't a pointer"
     TagReadUninitializedStack -> "Read from uninitialized stack allocation"
     TagReadUninitializedHeap -> "Read from uninitialized heap allocation"
     TagCallNonFunctionPointer -> "Called a pointer that wasn't a function pointer"
