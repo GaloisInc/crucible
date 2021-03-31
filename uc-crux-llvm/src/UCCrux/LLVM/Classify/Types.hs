@@ -124,9 +124,15 @@ ppTruePositiveTag =
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =
   \case
-    ConcretelyFailingAssert loc ->
-      "Concretely failing call to assert() at " <> Text.pack (show loc)
+    pos@(ConcretelyFailingAssert loc) -> withProgLoc pos loc
+    pos@(ReadUninitializedStack loc) -> withLoc pos loc
+    pos@(ReadUninitializedHeap loc) -> withLoc pos loc
+    pos@(CallNonFunctionPointer loc) -> withLoc pos loc
     tp -> ppTruePositiveTag (truePositiveTag tp)
+  where
+    withLoc pos loc =
+      ppTruePositiveTag (truePositiveTag pos) <> " at " <> Text.pack loc
+    withProgLoc pos loc = withLoc pos (show loc)
 
 -- | All of the preconditions that we can deduce. We know how to detect and fix
 -- these issues.
