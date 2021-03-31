@@ -190,8 +190,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
       handleDivRemByZero URemByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.SRemByZero _dividend (Crucible.RV divisor)) ->
       handleDivRemByZero SRemByConcreteZero divisor
-    LLVMErrors.BBUndefinedBehavior (UB.WriteBadAlignment ptr alignment) ->
-      case getPtrOffsetAnn (Crucible.unRV ptr) of
+    LLVMErrors.BBUndefinedBehavior (UB.WriteBadAlignment (Crucible.RV ptr) alignment) ->
+      case getPtrOffsetAnn ptr of
         Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
           do
             let tag = ArgWriteBadAlignment
@@ -203,7 +203,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                     "#" <> Text.pack (show (Ctx.indexVal idx)),
                     "at",
                     Text.pack (show (ppCursor (argName idx) cursor)),
-                    "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
+                    "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                   ]
             liftIO $ (appCtx ^. log) Hi $ prescribe tag
             expectPointerType ftRepr $
@@ -211,10 +211,10 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                 return $
                   ExMissingPreconditions
                     (tag, oneArgConstraint idx cursor (Aligned alignment))
-        _ -> unclass appCtx badBehavior
+        _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
-      (UB.ReadBadAlignment ptr alignment) ->
-        case getPtrOffsetAnn (Crucible.unRV ptr) of
+      (UB.ReadBadAlignment (Crucible.RV ptr) alignment) ->
+        case getPtrOffsetAnn ptr of
           Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
             do
               let tag = ArgReadBadAlignment
@@ -226,7 +226,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       "#" <> Text.pack (show (Ctx.indexVal idx)),
                       "at",
                       Text.pack (show (ppCursor (argName idx) cursor)),
-                      "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
+                      "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                     ]
               liftIO $ (appCtx ^. log) Hi $ prescribe tag
               expectPointerType ftRepr $
@@ -234,7 +234,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                   return $
                     ExMissingPreconditions
                       (tag, oneArgConstraint idx cursor (Aligned alignment))
-          _ -> unclass appCtx badBehavior
+          _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeUnallocated (Crucible.RV ptr)) ->
         maybe (unclass appCtx badBehavior) pure =<< handleFreeUnallocated ptr
@@ -431,32 +431,15 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       return $
                         ExMissingPreconditions
                           (tag, oneArgShapeConstraint idx cursor (Allocated 1))
-          -- If the pointer expression doesn't involve the function's
-          -- arguments/global variables at all, then it's just a standard null
-          -- dereference or similar.
-          (Nothing, []) ->
-            do
-              notPtr <- liftIO $ notAPointer sym ptr
-              case notPtr of
-                Just True -> truePositive WriteNonPointer
-                _ -> unclass appCtx badBehavior
-          _ -> unclass appCtx badBehavior
+          -- If the "pointer" concretely wasn't a pointer, it's a bug.
+          _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
           (summarizeOp -> (_expl, ptr, _mem))
           MemError.UnreadableRegion
         ) ->
-        case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
-          -- If the pointer expression doesn't involve the function's
-          -- arguments/global variables at all, then it's just a standard null
-          -- dereference or similar.
-          (Nothing, []) ->
-            do
-              notPtr <- liftIO $ notAPointer sym ptr
-              case notPtr of
-                Just True -> truePositive ReadNonPointer
-                _ -> unclass appCtx badBehavior
-          _ -> unclass appCtx badBehavior
+        -- If the "pointer" concretely wasn't a pointer, it's a bug.
+        requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
           (summarizeOp -> (_expl, _ptr, mem))
@@ -517,18 +500,20 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       ExMissingPreconditions
                         (tag, oneArgShapeConstraint idx cursor (Initialized 1))
             _ ->
-              liftIO (allocInfoFromPtr mem ptr)
-                >>= \case
-                  Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
-                    do
-                      when (loc == mallocLocation) $
-                        panic "classify" ["Setup allocated something on the stack?"]
-                      truePositive (ReadUninitializedStack loc)
-                  Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
-                    if loc == mallocLocation
-                      then unclass appCtx badBehavior
-                      else truePositive (ReadUninitializedHeap loc)
-                  _ -> unclass appCtx badBehavior
+              do
+                liftIO (allocInfoFromPtr mem ptr)
+                  >>= \case
+                    Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
+                      do
+                        when (loc == mallocLocation) $
+                          panic "classify" ["Setup allocated something on the stack?"]
+                        truePositive (ReadUninitializedStack loc)
+                    Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
+                      if loc == mallocLocation
+                        then unclass appCtx badBehavior
+                        else truePositive (ReadUninitializedHeap loc)
+                    -- If the "pointer" concretely wasn't a pointer, it's a bug.
+                    _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
           (MemError.MemLoadHandleOp _type _str ptr mem)
@@ -565,12 +550,19 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
     _ -> unclass appCtx badBehavior
   where
     expectPointerType ::
-      FullTypeRepr m ft -> (forall ft'. ft ~ 'FTPtr ft' => PartTypeRepr m ft' -> a) -> a
+      FullTypeRepr m ft ->
+      ( forall ft'.
+        ft ~ 'FTPtr ft' =>
+        PartTypeRepr m ft' ->
+        f (Explanation m arch argTypes)
+      ) ->
+      f (Explanation m arch argTypes)
     expectPointerType ftRepr k =
       case ftRepr of
         FTPtrRepr partTypeRepr -> k partTypeRepr
         FTIntRepr {} ->
           unimplemented "classify" Unimplemented.CastIntegerToPointer
+        FTFloatRepr {} -> truePositive FloatToPointer
         _ -> panic "classify" ["Expected pointer type"]
 
     getTermAnn ::
@@ -635,12 +627,14 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                       ]
                 liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                expectPointerType ftRepr $
-                  const $
-                    return $
-                      Just $
-                        ExMissingPreconditions
-                          (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+                Just
+                  <$> expectPointerType
+                    ftRepr
+                    ( const $
+                        return $
+                          ExMissingPreconditions
+                            (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+                    )
             _ -> return Nothing
           else return Nothing
 
@@ -703,3 +697,14 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
           (appCtx ^. log) Hi $
             Text.unwords ["Diagnosis:", ppTruePositive pos]
         return $ ExTruePositive pos
+
+    requirePossiblePointer ::
+      TruePositive ->
+      LLVMPtr.LLVMPtr sym w ->
+      f (Explanation m arch argTypes)
+    requirePossiblePointer pos ptr =
+      do
+        notPtr <- liftIO $ notAPointer sym ptr
+        case notPtr of
+          Just True -> truePositive pos
+          _ -> unclass appCtx badBehavior
