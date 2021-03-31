@@ -41,6 +41,7 @@ module UCCrux.LLVM.Shape
     minimal,
     isMinimal,
     isAllocated,
+    isAnyUnallocated,
   )
 where
 
@@ -66,7 +67,7 @@ import           Data.Parameterized.NatRepr (NatRepr, decNat, minusPlusCancel, k
 import           Data.Parameterized.Vector (Vector)
 import qualified Data.Parameterized.Vector as PVec
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.TraversableFC (FunctorFC(fmapFC), fmapFCDefault, TraversableFC(traverseFC), FoldableFC(foldMapFC), foldMapFCDefault, allFC)
+import           Data.Parameterized.TraversableFC (FunctorFC(fmapFC), fmapFCDefault, TraversableFC(traverseFC), FoldableFC(foldMapFC), foldMapFCDefault, allFC, anyFC)
 import qualified Data.Parameterized.TH.GADT as U
 
 import           UCCrux.LLVM.Cursor (Cursor(..))
@@ -412,6 +413,21 @@ isAllocated shape cursor =
         ShapeInitialized {} -> True
         _ -> False
     )
+
+-- | Is any sub-shape of this pointer shape unallocated?
+isAnyUnallocated :: Shape m tag inTy -> Bool
+isAnyUnallocated =
+  \case
+    ShapeInt {} -> False
+    ShapeFloat {} -> False
+    ShapePtr _ ShapeUnallocated -> True
+    ShapePtr _ (ShapeAllocated {}) -> False
+    ShapePtr _ (ShapeInitialized rest) -> any isAnyUnallocated rest
+    ShapeFuncPtr {} -> False
+    ShapeOpaquePtr {} -> False
+    ShapeArray _ _ rest -> any isAnyUnallocated rest
+    ShapeUnboundedArray _ rest -> any isAnyUnallocated rest
+    ShapeStruct _ rest -> anyFC isAnyUnallocated rest
 
 $(return [])
 

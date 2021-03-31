@@ -366,6 +366,7 @@ inFileTests =
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
         ("call_non_function_pointer.c", [("call_non_function_pointer", hasBugs)]),
         ("cast_float_to_pointer_deref.c", [("cast_float_to_pointer_deref", hasBugs)]),
+        ("cast_float_to_pointer_free.c", [("cast_float_to_pointer_free", hasBugs)]),
         ("cast_float_to_pointer_write.c", [("cast_float_to_pointer_write", hasBugs)]),
         ("double_free.c", [("double_free", hasBugs)]),
         ("uninitialized_heap.c", [("uninitialized_heap", hasBugs)]),

@@ -44,7 +44,7 @@ import qualified Text.LLVM.AST as L
 import           Data.Parameterized.Classes (IxedF'(ixF'), ShowF)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
-import           Data.Parameterized.TraversableFC (foldMapFC)
+import           Data.Parameterized.TraversableFC (foldMapFC, allFC)
 
 import qualified What4.Concrete as What4
 import qualified What4.Interface as What4
@@ -237,13 +237,12 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
           _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeUnallocated (Crucible.RV ptr)) ->
-        maybe (unclass appCtx badBehavior) pure =<< handleFreeUnallocated ptr
+        maybe (requirePossiblePointer FreeNonPointer ptr) pure
+          =<< handleFreeUnallocated ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeBadOffset (Crucible.RV ptr)) ->
         case getPtrOffsetAnn ptr of
           Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-            -- At the moment, we only handle the case where the pointer is
-            -- unallocated.
             do
               int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
               case What4.asConcrete int of
@@ -267,7 +266,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         return $
                           ExMissingPreconditions
                             (tag, oneArgShapeConstraint idx cursor (Allocated 1))
-          _ -> unclass appCtx badBehavior
+          _ -> requirePossiblePointer FreeNonPointer ptr
     LLVMErrors.BBUndefinedBehavior (UB.DoubleFree (Crucible.RV ptr)) ->
       do
         maybeEx <- handleFreeUnallocated ptr
@@ -500,20 +499,19 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       ExMissingPreconditions
                         (tag, oneArgShapeConstraint idx cursor (Initialized 1))
             _ ->
-              do
-                liftIO (allocInfoFromPtr mem ptr)
-                  >>= \case
-                    Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
-                      do
-                        when (loc == mallocLocation) $
-                          panic "classify" ["Setup allocated something on the stack?"]
-                        truePositive (ReadUninitializedStack loc)
-                    Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
-                      if loc == mallocLocation
-                        then unclass appCtx badBehavior
-                        else truePositive (ReadUninitializedHeap loc)
-                    -- If the "pointer" concretely wasn't a pointer, it's a bug.
-                    _ -> requirePossiblePointer ReadNonPointer ptr
+              liftIO (allocInfoFromPtr mem ptr)
+                >>= \case
+                  Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
+                    do
+                      when (loc == mallocLocation) $
+                        panic "classify" ["Setup allocated something on the stack?"]
+                      truePositive (ReadUninitializedStack loc)
+                  Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
+                    if loc == mallocLocation
+                      then unclass appCtx badBehavior
+                      else truePositive (ReadUninitializedHeap loc)
+                  -- If the "pointer" concretely wasn't a pointer, it's a bug.
+                  _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
           (MemError.MemLoadHandleOp _type _str ptr mem)
@@ -698,6 +696,25 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             Text.unwords ["Diagnosis:", ppTruePositive pos]
         return $ ExTruePositive pos
 
+    -- Unfortunately, this check is pretty coarse. We can conclude that the
+    -- given pointer concretely isn't a pointer only if *both* of the following
+    -- are true:
+    --
+    -- (1) It has a concrete, zero block number
+    -- (2) There are no remaining unallocated pointers in the function's
+    --     arguments
+    --
+    -- The second condition is necessary because unallocated pointers in the
+    -- function arguments have a concretely zero block number, but they can be
+    -- combined with other program data in arbitrarily complex ways that cause
+    -- them to lose their annotations.
+    --
+    -- A possible fix would be to mux input pointers with a fresh, allocated
+    -- pointer (so that their block number is not concretely zero), but this
+    -- causes all kinds of other breakage.
+    --
+    -- To see the problem in action, replace the predicate with "const True"
+    -- below and you should see the test free_with_offset.c start to fail.
     requirePossiblePointer ::
       TruePositive ->
       LLVMPtr.LLVMPtr sym w ->
@@ -705,6 +722,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
     requirePossiblePointer pos ptr =
       do
         notPtr <- liftIO $ notAPointer sym ptr
-        case notPtr of
-          Just True -> truePositive pos
+        case (notPtr, allFC (not . Shape.isAnyUnallocated) argShapes) of
+          (Just True, True) -> truePositive pos
           _ -> unclass appCtx badBehavior
