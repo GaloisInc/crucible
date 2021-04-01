@@ -537,7 +537,12 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                     do
                       when (loc == mallocLocation) $
                         panic "classify" ["Setup allocated something on the stack?"]
-                      truePositive (ReadUninitializedStack loc)
+                      -- Skipping execution of functions tends to lead to false
+                      -- positives here, often such functions initialize a stack
+                      -- variable.
+                      if Set.null skipped
+                        then truePositive (ReadUninitializedStack loc)
+                        else unclass appCtx badBehavior
                   Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
                     if loc == mallocLocation
                       then unclass appCtx badBehavior
