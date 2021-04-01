@@ -8,8 +8,10 @@
 
 module Crux.LLVM.Compile where
 
+import           Control.Applicative
 import           Control.Exception ( SomeException(..), try, displayException )
-import           Control.Monad ( unless, when, forM_ )
+import           Control.Monad ( guard, unless, when, forM_ )
+import           Control.Monad.Logic ( observeAll )
 import qualified Data.Foldable as Fold
 import           Data.List ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
@@ -173,6 +175,12 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
 --
 -- >   /* CRUCIBLE clang_flags: {FLAGS} */
 -- >   // CRUCIBLE clang_flags: {FLAGS}
+-- >   /* CRUX clang_flags: {FLAGS} */
+-- >   // CRUX clang_flags: {FLAGS}
+--
+-- Note that the "clang_flags" portion is case-insensitive, although
+-- the "CRUCIBLE" or "CRUX" prefix is case sensitive and must be
+-- capitalized.
 --
 -- All {FLAGS} will be collected as a set of space-separated words.
 -- Flags from multiple lines will be concatenated together (without
@@ -187,15 +195,26 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
 
 crucibleFlagsFromSrc :: FilePath -> IO [String]
 crucibleFlagsFromSrc srcFile = do
-  let marker = "CRUCIBLE clang_flags: "
-      flagLineFilter l = or [ ("// " <> marker) `T.isPrefixOf` l
-                            , and [ ("/* " <> marker) `T.isPrefixOf` l
-                                  , " */" `T.isSuffixOf` l
-                                  ]
-                            ]
+  let marker1 = [ "CRUCIBLE ", "CRUX "]
+      marker2 = [ "clang_flags: " ]
+      flagLines fileLines =
+        do let eachFrom = foldr ((<|>) . pure) empty
+           l <- eachFrom fileLines
+           (pfx, sfx) <- eachFrom [ ("/* ", " */"), ("// ", "") ]
+           guard $ pfx `T.isPrefixOf` l
+           let l1 = T.drop (T.length pfx) l
+           guard $ sfx `T.isSuffixOf` l1
+           let l2 = T.take (T.length l1 - T.length sfx) l1
+           m1 <- eachFrom marker1
+           guard $ m1 `T.isPrefixOf` l2
+           let l3 = T.drop (T.length m1) l2
+           m2 <- eachFrom marker2
+           let (l3pfx, l4) = T.splitAt (T.length m2) l3
+           guard $ T.toLower l3pfx == m2
+           pure l4
     in fmap T.unpack .
-       concatMap (filter (/= "*/") . drop 3 . T.words) .
-       filter flagLineFilter .
+       concatMap T.words .
+       observeAll . flagLines .
        T.lines <$>
        TIO.readFile srcFile
 
