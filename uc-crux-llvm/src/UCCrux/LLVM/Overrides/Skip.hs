@@ -28,6 +28,8 @@ import           Data.Functor.Compose (Compose(Compose))
 import           Data.IORef (IORef, modifyIORef)
 import           Data.Maybe (mapMaybe)
 import           Data.Proxy (Proxy(Proxy))
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Text (Text)
@@ -40,6 +42,7 @@ import           Data.Parameterized.Some (Some(Some))
 import           Data.Parameterized.TraversableFC (fmapFC)
 
 -- what4
+import qualified What4.Interface as What4
 import           What4.FunctionName (functionName)
 
 -- crucible
@@ -69,7 +72,7 @@ import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (FunctionTypes, toCrucibleType, lookupDeclTypes, ftRetType, isDebug)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
-import           UCCrux.LLVM.Setup.Monad (runSetup, resultAssumptions, resultMem, ppSetupError)
+import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, ppSetupError, resultAnnotations)
 import qualified UCCrux.LLVM.Shape as Shape
 {- ORMOLU_ENABLE -}
 
@@ -99,10 +102,13 @@ unsoundSkipOverrides ::
   ModuleContext m arch ->
   sym ->
   ModuleTranslation arch ->
+  -- | Set of skip overrides encountered during execution
   IORef (Set SkipOverrideName) ->
+  -- | Annotations of created values
+  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
   [L.Declare] ->
   OverM Model sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
-unsoundSkipOverrides modCtx sym mtrans usedRef decls =
+unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef decls =
   do
     let llvmCtx = mtrans ^. transContext
     let ?lc = llvmCtx ^. llvmTypeCtx
@@ -114,7 +120,7 @@ unsoundSkipOverrides modCtx sym mtrans usedRef decls =
               (handleMapToHandles (fnBindings binds))
     pure $
       mapMaybe
-        (createSkipOverride modCtx sym usedRef)
+        (createSkipOverride modCtx sym usedRef annotationRef)
         ( filter
             ((`Set.notMember` alreadyDefined) . declName)
             (filter (not . isDebug) decls)
@@ -125,7 +131,7 @@ unsoundSkipOverrides modCtx sym mtrans usedRef decls =
 -- function would probably need to take an IORef in which to insert annotations
 -- for values it creates.
 createSkipOverride ::
-  forall m arch sym personality rtp l a.
+  forall m arch sym argTypes personality rtp l a.
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
@@ -135,9 +141,11 @@ createSkipOverride ::
   ModuleContext m arch ->
   sym ->
   IORef (Set SkipOverrideName) ->
+  -- | Annotations of created values
+  IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
   L.Declare ->
   Maybe (OverrideTemplate (personality sym) sym arch rtp l a)
-createSkipOverride modCtx sym usedRef decl =
+createSkipOverride modCtx sym usedRef annotationRef decl =
   case modCtx ^. declTypes . to (lookupDeclTypes symbolName) of
     Nothing ->
       -- Impossible due to documented invariant on 'DeclTypes'
@@ -214,4 +222,8 @@ createSkipOverride modCtx sym usedRef decl =
                         panic
                           "createSkipOverride"
                           ["Didn't expect any constraints on minimal shape"]
-                      else pure (value ^. Shape.tag . to getSymValue, resultMem result)
+                      else do
+                        -- The keys are nonces, so they'll never clash, so the
+                        -- bias of the union is unimportant.
+                        modifyIORef annotationRef (Map.union (resultAnnotations result))
+                        pure (value ^. Shape.tag . to getSymValue, resultMem result)
