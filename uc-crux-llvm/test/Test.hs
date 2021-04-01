@@ -402,6 +402,7 @@ inFileTests =
         -- integer first which may be OK.
         ("cast_float_to_pointer.c", [("cast_float_to_pointer", isSafe mempty)]),
         ("compare_to_null.c", [("compare_to_null", isSafe mempty)]),
+        ("do_getchar.c", [("do_getchar", isSafe (skipOverride "getc"))]),
         ("do_fork.c", [("do_fork", isSafe (skipOverride "fork"))]),
         -- TODO(lb): This test skips an additional function (bcmp) in CI. Not
         -- sure what the cause for the discrepancy is.
@@ -454,7 +455,6 @@ inFileTests =
         -- an *array of structs*.
         ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("deref_func_ptr.c", [("deref_func_ptr", isUnclassified)]), -- goal: hasBugs
-        ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("memset_func_ptr.c", [("memset_func_ptr", isUnclassified)]), -- goal: hasBugs

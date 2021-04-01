@@ -41,6 +41,7 @@ module UCCrux.LLVM.Setup.Monad
     mallocLocation,
     malloc,
     store,
+    storeGlobal,
   )
 where
 
@@ -61,6 +62,8 @@ import qualified Data.Text.IO as TextIO
 import           Data.Void (Void)
 import qualified Prettyprinter as PP
 import           Prettyprinter (Doc)
+
+import qualified Text.LLVM.AST as L
 
 import qualified Lumberjack as LJ
 
@@ -406,3 +409,28 @@ store sym mts ptrRepr@(FTPtrRepr ptPtdTo) selector ptr regValue =
           ptr' <- annotatePointer sym selector ptrRepr ptr
           mem' <- liftIO $ LLVMMem.doStore sym mem ptr' (toCrucibleType (Proxy :: Proxy arch) ftPtdTo) storageType noAlignment regValue
           pure (ptr', mem')
+
+storeGlobal ::
+  forall m arch sym argTypes inTy ft.
+  ( Crucible.IsSymInterface sym,
+    LLVMMem.HasLLVMAnn sym,
+    ArchOk arch
+  ) =>
+  sym ->
+  FullTypeRepr m ft ->
+  -- | Path to this pointer
+  Selector m argTypes inTy ft ->
+  L.Symbol ->
+  Crucible.RegValue sym (ToCrucibleType arch ft) ->
+  Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
+storeGlobal sym ftRepr selector symb regValue =
+  do
+    storageType <- storableType (toMemType ftRepr)
+    mem <- gets (view setupMem)
+    ptr <- liftIO $ LLVMMem.doResolveGlobal sym mem symb
+    ptr' <- annotatePointer sym selector ftRepr ptr
+    modifyMem $
+      \mem' ->
+        do
+          mem'' <- liftIO $ LLVMMem.doStore sym mem' ptr' (toCrucibleType (Proxy :: Proxy arch) ftRepr) storageType noAlignment regValue
+          pure (ptr', mem'')

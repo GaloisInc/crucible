@@ -47,6 +47,8 @@ import           Data.Parameterized.Classes (IxedF' (ixF'))
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+), LeqProof(LeqProof))
 import qualified Data.Parameterized.NatRepr as NatRepr
+import           Data.Parameterized.Some (Some(Some))
+import           Data.Parameterized.TraversableFC (fmapFC)
 import qualified Data.Parameterized.Vector as PVec
 
 import qualified What4.Interface as W4I
@@ -66,7 +68,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes)
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule, moduleTypes, globalTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
@@ -394,6 +396,46 @@ generateArgs _appCtx modCtx funCtx sym argSpecs =
             )
       )
 
+populateNonConstGlobals ::
+  ( Crucible.IsSymInterface sym,
+    LLVMMem.HasLLVMAnn sym,
+    ArchOk arch
+  ) =>
+  ModuleContext m arch ->
+  sym ->
+  Setup m arch sym argTypes ()
+populateNonConstGlobals modCtx sym =
+  for_
+    (modCtx ^. llvmModule . to L.modGlobals . to (filter (not . isConstGlobal)))
+    populateNonConstGlobal
+  where
+    isConstGlobal = L.gaConstant . L.globalAttrs
+    populateNonConstGlobal glob =
+      do
+        let symb = L.globalSym glob
+        Some fullTy <-
+          pure $
+            case modCtx ^. globalTypes . to (FTCT.lookupGlobalType symb) of
+              Nothing ->
+                panic
+                  "populateNonConstGlobal"
+                  ["Missing type for global " ++ show symb]
+              Just ft -> ft
+        let selector = SelectGlobal symb (Here fullTy)
+        val <-
+          generate
+            sym
+            (modCtx ^. moduleTypes)
+            fullTy
+            selector
+            (ConstrainedShape (fmapFC (\_ -> Compose []) (Shape.minimal fullTy)))
+        storeGlobal
+          sym
+          fullTy
+          selector
+          symb
+          (val ^. Shape.tag . to getSymValue)
+
 -- | Generate arguments (and someday, global variables) that conform to the
 -- preconditions specified in the 'Ctx.Assignment' of 'ConstrainedShape'.
 --
@@ -435,6 +477,9 @@ setupExecution appCtx modCtx funCtx sym argSpecs = do
   mem <-
     withTypeContext modCtx $
       liftIO $
-        LLVMGlobals.populateAllGlobals sym (LLVMTrans.globalInitMap moduleTrans)
+        LLVMGlobals.populateConstGlobals sym (LLVMTrans.globalInitMap moduleTrans)
           =<< LLVMGlobals.initializeAllMemory sym llvmCtxt (modCtx ^. llvmModule)
-  runSetup modCtx mem (generateArgs appCtx modCtx funCtx sym argSpecs)
+  runSetup modCtx mem $
+    do
+      populateNonConstGlobals modCtx sym
+      generateArgs appCtx modCtx funCtx sym argSpecs

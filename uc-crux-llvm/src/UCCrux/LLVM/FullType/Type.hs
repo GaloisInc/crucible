@@ -51,6 +51,7 @@ module UCCrux.LLVM.FullType.Type
     isPtrRepr,
     IsPtrRepr (..),
     aliasOrFullType,
+    toPartType,
 
     -- * Translation
     toFullType,
@@ -219,6 +220,9 @@ aliasOrFullType =
     PTAliasRepr (Const ident) -> Left ident
 
 data IsPtrRepr m ft = forall ft'. IsPtrRepr (ft :~: 'FTPtr ft')
+
+toPartType :: FullTypeRepr m ft -> PartTypeRepr m ft
+toPartType = PTFullRepr
 
 isPtrRepr :: forall m ft. FullTypeRepr m ft -> Maybe (IsPtrRepr m ft)
 isPtrRepr =
