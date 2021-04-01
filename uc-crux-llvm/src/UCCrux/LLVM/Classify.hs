@@ -46,7 +46,7 @@ import qualified Text.LLVM.AST as L
 import           Data.Parameterized.Classes (IxedF'(ixF'), ShowF)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
-import           Data.Parameterized.TraversableFC (foldMapFC, allFC)
+import           Data.Parameterized.TraversableFC (foldMapFC)
 
 import qualified What4.Concrete as What4
 import qualified What4.Interface as What4
@@ -218,6 +218,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                 return $
                   ExMissingPreconditions
                     (tag, oneArgConstraint idx cursor (Aligned alignment))
+        Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+          unfixed appCtx UnfixedGlobalWriteBadAlignment
         Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
           unfixed appCtx UnfixedRetWriteBadAlignment
         _ -> requirePossiblePointer WriteNonPointer ptr
@@ -243,6 +245,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                   return $
                     ExMissingPreconditions
                       (tag, oneArgConstraint idx cursor (Aligned alignment))
+          Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+            unfixed appCtx UnfixedGlobalReadBadAlignment
           Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
             unfixed appCtx UnfixedRetReadBadAlignment
           _ -> requirePossiblePointer ReadNonPointer ptr
@@ -277,6 +281,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                         return $
                           ExMissingPreconditions
                             (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+          Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+            unfixed appCtx UnfixedGlobalFreeBadOffset
           Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
             unfixed appCtx UnfixedRetPtrFree
           _ -> requirePossiblePointer FreeNonPointer ptr
@@ -363,6 +369,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                               "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                             ]
                       unfixable appCtx tag
+          Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+            unfixed appCtx UnfixedGlobalPointerAddOffset
           Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
             unfixed appCtx UnfixedRetPtrAddOffset
           _ -> unclass appCtx badBehavior
@@ -403,6 +411,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                                 (elemsFromOffset' concreteLen partTypeRepr)
                             )
                         )
+          (Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))), _) ->
+            unfixed appCtx UnfixedGlobalMemsetTooSmall
           (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
             unfixed appCtx UnfixedRetMemset
           _ -> unclass appCtx badBehavior
@@ -447,6 +457,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                       return $
                         ExMissingPreconditions
                           (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+          (Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))), _) ->
+            unfixed appCtx UnfixedGlobalWriteUnmapped
           (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
             unfixed appCtx UnfixedRetWriteUnmapped
           -- If the pointer expression doesn't involve the function's
@@ -507,6 +519,14 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                                   )
                               )
                           )
+            ( Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))),
+              _,
+              _
+              ) -> unfixed appCtx UnfixedGlobalReadUninitialized
+            ( _,
+              Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))),
+              _
+              ) -> unfixed appCtx UnfixedGlobalReadUninitialized
             ( Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))),
               _,
               _
@@ -572,6 +592,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                       "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                     ]
               unfixed appCtx tag
+          Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+            unfixed appCtx UnfixedGlobalCall
           Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
             unfixed appCtx UnfixedRetCall
           _ ->
@@ -675,6 +697,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                           ExMissingPreconditions
                             (tag, oneArgShapeConstraint idx cursor (Allocated 1))
                     )
+            Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+              Just <$> unfixed appCtx UnfixedGlobalFreeUnallocated
             Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
               Just <$> unfixed appCtx UnfixedRetPtrFree
             _ -> return Nothing
@@ -709,6 +733,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                           oneArgConstraint idx cursor (BVCmp L.Ine w (BV.mkBV w 0))
                         )
                   _ -> panic "classify" ["Expected integer type"]
+            Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+              unfixed appCtx UnfixedGlobalDivRemByZero
             Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
               unfixed appCtx UnfixedRetDivRemByZero
             _ -> unclass appCtx badBehavior
@@ -752,14 +778,12 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
     -- are true:
     --
     -- (1) It has a concrete, zero block number
-    -- (2) There are no remaining unallocated pointers in the function's
-    --     arguments
-    -- (3) No functions were unsoundly skipped during execution
+    -- (2) Its offset expression didn't involve any arguments, globals, or
+    -- return values of skipped functions
     --
-    -- The second and third conditions are necessary because unallocated
-    -- pointers in the function arguments/return values have a concretely zero block number,
-    -- but they can be combined with other program data in arbitrarily complex
-    -- ways that cause them to lose their annotations.
+    -- The second condition is necessary because unallocated pointers in the
+    -- function arguments/return values have a concretely zero block number, but
+    -- might just represent "currently unallocated" pointers.
     --
     -- A possible fix would be to mux input pointers with a fresh, allocated
     -- pointer (so that their block number is not concretely zero), but this
@@ -774,6 +798,6 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
     requirePossiblePointer pos ptr =
       do
         notPtr <- liftIO $ notAPointer sym ptr
-        case (notPtr, allFC (not . Shape.isAnyUnallocated) argShapes, Set.null skipped) of
-          (Just True, True, True) -> truePositive pos
+        case (notPtr, null (getAnyPtrOffsetAnn ptr)) of
+          (Just True, True) -> truePositive pos
           _ -> unclass appCtx badBehavior

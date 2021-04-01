@@ -390,12 +390,12 @@ inFileTests =
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
         ("call_non_function_pointer.c", [("call_non_function_pointer", hasBugs)]),
         ("cast_float_to_pointer_deref.c", [("cast_float_to_pointer_deref", hasBugs)]),
-        ("cast_float_to_pointer_free.c", [("cast_float_to_pointer_free", hasBugs)]),
-        ("cast_float_to_pointer_write.c", [("cast_float_to_pointer_write", hasBugs)]),
         ("double_free.c", [("double_free", hasBugs)]),
         ("uninitialized_heap.c", [("uninitialized_heap", hasBugs)]),
         ("uninitialized_stack.c", [("uninitialized_stack", hasBugs)]),
         ("write_to_null.c", [("write_to_null", hasBugs)]),
+        ("read_extern_global.c", [("read_extern_global", isSafe mempty)]),
+        ("read_extern_global_sized_array.c", [("read_extern_global_sized_array", isSafe mempty)]),
         ("branch.c", [("branch", isSafe mempty)]),
         -- Unclear whether this is undefined behavior. C11 section 6.5.4 says
         -- floats can't be cast to pointers, but this one goes through an
@@ -455,6 +455,8 @@ inFileTests =
         -- an *array of structs*.
         ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("deref_func_ptr.c", [("deref_func_ptr", isUnclassified)]), -- goal: hasBugs
+        ("cast_float_to_pointer_free.c", [("cast_float_to_pointer_free", isUnclassified)]),
+        ("cast_float_to_pointer_write.c", [("cast_float_to_pointer_write", isUnclassified)]),
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
         ("memset_func_ptr.c", [("memset_func_ptr", isUnclassified)]), -- goal: hasBugs
@@ -462,6 +464,7 @@ inFileTests =
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
         ("read_errno.c", [("read_errno", isUnclassified)]), -- goal: isSafe
+        ("read_extern_global_unsized_array.c", [("read_extern_global_unsized_array", isUnclassified)]), -- goal: isSafeWithPreconditions
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
@@ -484,6 +487,8 @@ inFileTests =
         -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
         ("call_function_pointer.c", [("call_function_pointer", isUnfixed)]), -- goal: ???
         ("call_varargs_function_pointer.c", [("call_varargs_function_pointer", isUnfixed)]), -- goal: ???
+        ("read_pointer_from_global_struct.c", [("read_pointer_from_global_struct", isUnfixed)]),
+        ("read_null_global_pointer.c", [("read_null_global_pointer", isUnfixed)]),
         -- Strangely, this compiles to a function that takes a variable-arity
         -- function as an argument?
         ("set_errno.c", [("set_errno", isUnfixed)]) -- goal: ???
