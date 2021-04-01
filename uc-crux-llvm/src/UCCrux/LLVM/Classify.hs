@@ -67,7 +67,7 @@ import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
 import           UCCrux.LLVM.Classify.Poison
-import           UCCrux.LLVM.Classify.Types
+import           UCCrux.LLVM.Classify.Types hiding (truePositive)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
@@ -105,7 +105,7 @@ classifyAssertion ::
 classifyAssertion _sym predicate loc =
   case What4.asConstantPred predicate of
     Just True -> panic "classifyAssertionFailure" ["Concretely true assertion failure??"]
-    Just False -> ExTruePositive (ConcretelyFailingAssert loc)
+    Just False -> ExTruePositive (LocatedTruePositive ConcretelyFailingAssert loc)
     Nothing -> ExUncertain (UFailedAssert loc)
 
 elemsFromOffset ::
@@ -175,6 +175,8 @@ classifyBadBehavior ::
   sym ->
   -- | Functions skipped during execution
   Set SkipOverrideName ->
+  -- | Simulation error (including source position)
+  Crucible.SimError ->
   -- | Function arguments
   Crucible.RegMap sym (MapToCrucibleType arch argTypes) ->
   -- | Term annotations (origins), see comment on
@@ -185,7 +187,7 @@ classifyBadBehavior ::
   -- | Data about the error that occurred
   LLVMErrors.BadBehavior sym ->
   f (Explanation m arch argTypes)
-classifyBadBehavior appCtx modCtx funCtx sym skipped (Crucible.RegMap _args) annotations argShapes badBehavior =
+classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _args) annotations argShapes badBehavior =
   case badBehavior of
     LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
       handleDivRemByZero UDivByConcreteZero divisor
@@ -730,7 +732,12 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped (Crucible.RegMap _args) ann
         liftIO $
           (appCtx ^. log) Hi $
             Text.unwords ["Diagnosis:", ppTruePositive pos]
-        return $ ExTruePositive pos
+        return $
+          ExTruePositive
+            ( LocatedTruePositive
+                pos
+                (Crucible.simErrorLoc simError)
+            )
 
     -- Unfortunately, this check is pretty coarse. We can conclude that the
     -- given pointer concretely isn't a pointer only if *all* of the following
@@ -742,9 +749,9 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped (Crucible.RegMap _args) ann
     -- (3) No functions were unsoundly skipped during execution
     --
     -- The second and third conditions are necessary because unallocated
-    -- pointers in the function arguments/return values have a concretely zero
-    -- block number, but they can be combined with other program data in
-    -- arbitrarily complex ways that cause them to lose their annotations.
+    -- pointers in the function arguments/return values have a concretely zero block number,
+    -- but they can be combined with other program data in arbitrarily complex
+    -- ways that cause them to lose their annotations.
     --
     -- A possible fix would be to mux input pointers with a fresh, allocated
     -- pointer (so that their block number is not concretely zero), but this

@@ -30,7 +30,7 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
-import           UCCrux.LLVM.Classify.Types (TruePositiveTag, MissingPreconditionTag, partitionUncertainty, diagnose, ppTruePositiveTag, truePositiveTag, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc)
+import           UCCrux.LLVM.Classify.Types (MissingPreconditionTag, partitionUncertainty, diagnose, LocatedTruePositive, ppLocatedTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), FunctionSummaryTag)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
@@ -40,7 +40,7 @@ data Stats = Stats
   { missingAnnotation :: !Word,
     symbolicallyFailedAssert :: !Word,
     timeouts :: !Word,
-    truePositiveFreq :: Map TruePositiveTag Word,
+    truePositiveFreq :: Map LocatedTruePositive Word,
     unclassifiedFreq :: Map Text Word,
     missingPreconditionFreq :: Map MissingPreconditionTag Word,
     unimplementedFreq :: Map Unimplemented Word,
@@ -62,10 +62,10 @@ getStats result =
           timeouts = fromIntegral $ length timeouts',
           truePositiveFreq =
             case Result.summary result of
-              Result.FoundBugs bugs -> frequencies (map truePositiveTag (toList bugs))
+              Result.FoundBugs bugs -> frequencies (toList bugs)
               _ -> Map.empty,
           unclassifiedFreq =
-            frequencies (map (^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict . to trunc) unclass),
+            frequencies (map (^. doc . to render . to trunc) unclass),
           missingPreconditionFreq =
             frequencies (deducedPreconditions result),
           unimplementedFreq = frequencies (map panicComponent unimplementeds),
@@ -74,6 +74,7 @@ getStats result =
           summaries = Map.singleton (Result.functionSummaryTag (Result.summary result)) 1
         }
   where
+    render = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
     -- Truncation is necessary because some error messages include full symbolic
     -- terms in them.
     truncLen = 80 -- Arbitrary
@@ -89,7 +90,7 @@ ppStats stats =
     [ ppFreq "Overall results:" (PP.pretty . Result.ppFunctionSummaryTag) (summaries stats),
       ppFreq
         "True positives:"
-        (PP.pretty . ppTruePositiveTag)
+        (PP.pretty . ppLocatedTruePositive)
         (truePositiveFreq stats),
       ppFreq
         "Missing preconditions:"
