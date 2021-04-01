@@ -229,6 +229,7 @@ ppUnfixable =
 data Unfixed
   = UnfixedArgPtrOffsetArg
   | UnfixedFunctionPtrInArg
+  | UnfixedUninitializedGlobal
   | -- The following would be addressed by applying "missing precondition"
     -- heuristics to return values from skipped functions
     UnfixedRetReadUninitialized
@@ -247,6 +248,7 @@ ppUnfixed =
   \case
     UnfixedArgPtrOffsetArg -> "Addition of an offset from argument to a pointer in argument"
     UnfixedFunctionPtrInArg -> "Called function pointer in argument"
+    UnfixedUninitializedGlobal -> "Read from uninitialized global variable"
     UnfixedRetReadUninitialized -> "Read from pointer return value of skipped function"
     UnfixedRetWriteUnmapped -> "Write to pointer return value of skipped function"
     UnfixedRetCall -> "Function call via pointer return value of skipped function"

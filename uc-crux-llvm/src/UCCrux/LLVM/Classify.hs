@@ -547,6 +547,9 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                     if loc == mallocLocation
                       then unclass appCtx badBehavior
                       else truePositive (ReadUninitializedHeap loc)
+                  -- TODO(lb): Result in false negatives
+                  -- Just (G.AllocInfo G.GlobalAlloc _sz _mut _align _loc) ->
+                  --   unfixed appCtx UnfixedUninitializedGlobal
                   -- If the "pointer" concretely wasn't a pointer, it's a bug.
                   _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
