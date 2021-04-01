@@ -40,7 +40,7 @@ import qualified Prettyprinter.Render.Text as PP
 
 import           Data.Parameterized.Ctx (Ctx)
 
-import           UCCrux.LLVM.Classify.Types (TruePositive, ppTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
+import           UCCrux.LLVM.Classify.Types (LocatedTruePositive(..), ppLocatedTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
 import           UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
 import           UCCrux.LLVM.FullType.Type (FullType)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
@@ -77,7 +77,7 @@ ppFunctionSummaryTag =
 -- compatibility.
 data FunctionSummary m (argTypes :: Ctx (FullType m))
   = Unclear (NonEmpty Uncertainty)
-  | FoundBugs (NonEmpty TruePositive)
+  | FoundBugs (NonEmpty LocatedTruePositive)
   | SafeWithPreconditions DidHitBounds Unsoundness (Constraints m argTypes)
   | SafeUpToBounds Unsoundness
   | AlwaysSafe Unsoundness
@@ -102,7 +102,8 @@ ppFunctionSummary fs =
           ":\n" <> Text.intercalate "\n----------\n" (toList (fmap ppUncertainty uncertainties))
       FoundBugs bugs ->
         PP.pretty $
-          ":\n" <> Text.intercalate "\n----------\n" (toList (fmap ppTruePositive bugs))
+          ":\n"
+            <> Text.intercalate "\n----------\n" (toList (fmap ppLocatedTruePositive bugs))
       SafeWithPreconditions b u preconditions ->
         PP.pretty (ppFunctionSummaryTag (functionSummaryTag fs) <> ":\n")
           <> if didHit b
@@ -149,7 +150,7 @@ didHit =
 makeFunctionSummary ::
   Constraints m argTypes ->
   [Uncertainty] ->
-  [TruePositive] ->
+  [LocatedTruePositive] ->
   DidHitBounds ->
   Unsoundness ->
   FunctionSummary m argTypes

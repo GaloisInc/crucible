@@ -15,12 +15,14 @@ module UCCrux.LLVM.Classify.Types
   ( Explanation (..),
     partitionExplanations,
     TruePositive (..),
+    LocatedTruePositive (..),
     TruePositiveTag (..),
     truePositiveTag,
     MissingPreconditionTag (..),
     diagnose,
     prescribe,
     ppTruePositive,
+    ppLocatedTruePositive,
     ppTruePositiveTag,
     Unclassified (..),
     doc,
@@ -81,7 +83,7 @@ data TruePositiveTag
   deriving (Eq, Ord)
 
 data TruePositive
-  = ConcretelyFailingAssert !What4.ProgramLoc
+  = ConcretelyFailingAssert
   | DoubleFree
   | UDivByConcreteZero
   | SDivByConcreteZero
@@ -90,10 +92,25 @@ data TruePositive
   | ReadNonPointer
   | WriteNonPointer
   | FreeNonPointer
-  | ReadUninitializedStack !String -- program location
-  | ReadUninitializedHeap !String -- program location
+  | ReadUninitializedStack !String -- program location of allocation
+  | ReadUninitializedHeap !String -- program location of allocation
   | CallNonFunctionPointer !String -- program location of allocation
   | FloatToPointer
+  deriving (Eq, Ord)
+
+data LocatedTruePositive = LocatedTruePositive
+  { truePositive :: !TruePositive,
+    truePositiveLoc :: !What4.ProgramLoc
+  }
+  deriving (Eq, Ord)
+
+ppLocatedTruePositive :: LocatedTruePositive -> Text
+ppLocatedTruePositive (LocatedTruePositive pos loc) =
+  Text.unwords
+    [ ppTruePositive pos,
+      Text.pack "at",
+      Text.pack (show (What4.plSourceLoc loc))
+    ]
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -132,15 +149,13 @@ ppTruePositiveTag =
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =
   \case
-    pos@(ConcretelyFailingAssert loc) -> withProgLoc pos loc
     pos@(ReadUninitializedStack loc) -> withLoc pos loc
     pos@(ReadUninitializedHeap loc) -> withLoc pos loc
     pos@(CallNonFunctionPointer loc) -> withLoc pos loc
     tp -> ppTruePositiveTag (truePositiveTag tp)
   where
     withLoc pos loc =
-      ppTruePositiveTag (truePositiveTag pos) <> " at " <> Text.pack loc
-    withProgLoc pos loc = withLoc pos (show loc)
+      ppTruePositiveTag (truePositiveTag pos) <> " allocated at " <> Text.pack loc
 
 -- | All of the preconditions that we can deduce. We know how to detect and fix
 -- these issues.
@@ -324,7 +339,7 @@ partitionUncertainty = go [] [] [] [] [] [] []
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
 -- compatibility.
 data Explanation m arch (argTypes :: Ctx (FullType m))
-  = ExTruePositive TruePositive
+  = ExTruePositive LocatedTruePositive
   | ExMissingPreconditions (MissingPreconditionTag, [NewConstraint m argTypes])
   | ExUncertain Uncertainty
   | -- | Hit recursion/loop bounds
@@ -332,7 +347,7 @@ data Explanation m arch (argTypes :: Ctx (FullType m))
 
 partitionExplanations ::
   [Explanation m arch types] ->
-  ([TruePositive], [(MissingPreconditionTag, [NewConstraint m types])], [Uncertainty], [String])
+  ([LocatedTruePositive], [(MissingPreconditionTag, [NewConstraint m types])], [Uncertainty], [String])
 partitionExplanations = go [] [] [] []
   where
     go ts cs ds es =

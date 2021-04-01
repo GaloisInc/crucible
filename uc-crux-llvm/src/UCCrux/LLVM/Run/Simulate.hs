@@ -249,7 +249,17 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
 
                     liftIO $ (appCtx ^. log) Hi ("Explaining error: " <> Text.pack (show (LLVMErrors.explainBB badBehavior)))
                     skipped <- readIORef skipOverrideRef
-                    classifyBadBehavior appCtx modCtx funCtx sym skipped args argAnnotations argShapes badBehavior
+                    classifyBadBehavior
+                      appCtx
+                      modCtx
+                      funCtx
+                      sym
+                      skipped
+                      (gl ^. Crucible.labeledPredMsg)
+                      args
+                      argAnnotations
+                      argShapes
+                      badBehavior
                       >>= modifyIORef explRef . (:)
               return mempty
 
