@@ -22,6 +22,7 @@ import           Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict (Map)
 import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Data.Void (Void)
 import           Panic (panicComponent)
 
@@ -64,7 +65,7 @@ getStats result =
               Result.FoundBugs bugs -> frequencies (map truePositiveTag (toList bugs))
               _ -> Map.empty,
           unclassifiedFreq =
-            frequencies (map (^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict) unclass),
+            frequencies (map (^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict . to trunc) unclass),
           missingPreconditionFreq =
             frequencies (deducedPreconditions result),
           unimplementedFreq = frequencies (map panicComponent unimplementeds),
@@ -72,6 +73,15 @@ getStats result =
           unfixableFreq = frequencies unfixable,
           summaries = Map.singleton (Result.functionSummaryTag (Result.summary result)) 1
         }
+  where
+    -- Truncation is necessary because some error messages include full symbolic
+    -- terms in them.
+    truncLen = 80 -- Arbitrary
+    trunc txt =
+      Text.replace "\n" "; " $
+        if Text.length txt > truncLen
+          then Text.take truncLen txt <> "..."
+          else txt
 
 ppStats :: Stats -> Doc Void
 ppStats stats =
@@ -104,7 +114,7 @@ ppStats stats =
               ("Missing annotations: " :: Text)
               <> PP.viaShow (missingAnnotation stats),
             PP.pretty ("Symbolically failing assertions: " :: Text)
-              <> PP.viaShow (missingAnnotation stats)
+              <> PP.viaShow (symbolicallyFailedAssert stats)
           ]
     ]
   where
