@@ -183,6 +183,8 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                 Right value -> pure value
         )
 
+      skipReturnValueAnnotations <- newIORef Map.empty
+
       let globSt = llvmGlobalsToCtx llvmCtxt mem
       let initSt =
             Crucible.InitialState simctx globSt Crucible.defaultAbortHandler CrucibleTypes.UnitRepr $
@@ -205,6 +207,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       sym
                       trans
                       skipOverrideRef
+                      skipReturnValueAnnotations
                       (L.modDeclares (modCtx ^. llvmModule))
                   register_llvm_overrides
                     (modCtx ^. llvmModule)
@@ -249,6 +252,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
 
                     liftIO $ (appCtx ^. log) Hi ("Explaining error: " <> Text.pack (show (LLVMErrors.explainBB badBehavior)))
                     skipped <- readIORef skipOverrideRef
+                    retAnns <- readIORef skipReturnValueAnnotations
                     classifyBadBehavior
                       appCtx
                       modCtx
@@ -257,7 +261,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       skipped
                       (gl ^. Crucible.labeledPredMsg)
                       args
-                      argAnnotations
+                      (Map.union argAnnotations retAnns)
                       argShapes
                       badBehavior
                       >>= modifyIORef explRef . (:)
