@@ -25,6 +25,7 @@ module UCCrux.LLVM.FullType.CrucibleType
     DeclTypes,
     TranslatedTypes (..),
     TypeTranslationError (..),
+    isDebug,
     translateModuleDefines,
     ppTypeTranslationError,
     lookupDeclTypes,
@@ -53,6 +54,7 @@ import           Data.Functor ((<&>))
 import           Data.Functor.Const (Const(Const))
 import           Data.Functor.Identity (Identity(Identity, runIdentity))
 import           Data.Functor.Product (Product(Pair))
+import qualified Data.List as List
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -155,6 +157,17 @@ ppTypeTranslationError =
     FullTypeTranslation (L.Ident ident) ->
       "Couldn't find or couldn't translate type: " <> ident
 
+-- | Debug intrinsics don't have their types translated because
+--
+-- * It's not necessary - overrides for these are installed as part of
+--   crucible-llvm's default set for LLVM intrinsics.
+-- * 'FullType' doesn\'t have a notion of metadatatype, and it\'s nice to keep
+--   it that way to avoid a bunch of spurrious/impossible cases elsewhere.
+isDebug :: L.Declare -> Bool
+isDebug = ("llvm.dbg" `List.isPrefixOf`) . getNm . L.decName
+  where
+    getNm (L.Symbol nm) = nm
+
 translateModuleDefines ::
   forall arch.
   ( ?lc :: TypeContext,
@@ -169,22 +182,28 @@ translateModuleDefines llvmModule trans =
       let (maybeResult, modTypes) =
             runState
               ( runExceptT
-                  ( mapM
-                      (translateDecl . LLVMTrans.declareFromDefine)
-                      (L.modDefines llvmModule)
+                  ( (++)
+                      <$> mapM translateDefine (L.modDefines llvmModule)
+                      <*> mapM
+                        translateDeclare
+                        ( filter
+                            (not . isDebug)
+                            (L.modDeclares llvmModule)
+                        )
                   )
               )
               initialModuleTypes
        in TranslatedTypes modTypes . DeclTypes . Map.fromList <$> maybeResult
   where
-    translateDecl ::
-      L.Declare ->
+    translateDefine ::
+      L.Define ->
       ExceptT
         TypeTranslationError
         (State (ModuleTypes m))
         (L.Symbol, FunctionTypes m arch)
-    translateDecl decl =
+    translateDefine defn =
       do
+        let decl = LLVMTrans.declareFromDefine defn
         liftedDecl <-
           case LLVMTrans.liftDeclare decl of
             Left err -> throwError (BadLift err)
@@ -246,6 +265,47 @@ translateModuleDefines llvmModule trans =
             panic
               "Impossible"
               ["(toCrucibleType . toFullTypeM) should be the identity function"]
+
+    -- In this case, we don't have any Crucible types on hand to test
+    -- compatibility with, they're just manufactured from the FullTypeReprs
+    translateDeclare ::
+      L.Declare ->
+      ExceptT
+        TypeTranslationError
+        (State (ModuleTypes m))
+        (L.Symbol, FunctionTypes m arch)
+    translateDeclare decl =
+      do
+        liftedDecl <-
+          case LLVMTrans.liftDeclare decl of
+            Left err -> throwError (BadLift err)
+            Right d -> pure d
+        let memTypes = fdArgTypes liftedDecl
+        let isVarArgs = fdVarArgs liftedDecl
+        Some fullTypes <-
+          Ctx.generateSomeM
+            (length memTypes)
+            ( \idx ->
+                do
+                  Some fullTypeRepr <-
+                    withExceptT FullTypeTranslation $
+                      toFullTypeM (memTypes !! idx)
+                  pure $ Some fullTypeRepr
+            )
+        retType <-
+          traverse
+            (withExceptT FullTypeTranslation . toFullTypeM)
+            (fdRetType liftedDecl)
+        SomeAssign' crucibleTypes Refl _ <-
+          pure $ assignmentToCrucibleType (Proxy :: Proxy arch) fullTypes
+        pure
+          ( L.decName decl,
+            FunctionTypes
+              { ftArgTypes = MatchingAssign fullTypes crucibleTypes,
+                ftRetType = retType,
+                ftIsVarArgs = boolToVarArgsRepr isVarArgs
+              }
+          )
 
     removeVarArgsRepr ::
       Ctx.Assignment CrucibleTypes.TypeRepr ctx ->

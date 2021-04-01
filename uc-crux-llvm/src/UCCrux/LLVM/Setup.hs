@@ -18,7 +18,8 @@ Stability    : provisional
 {-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.Setup
-  ( setupExecution,
+  ( generate,
+    setupExecution,
     SetupAssumption (SetupAssumption),
     SetupResult (SetupResult),
     SymValue (..),

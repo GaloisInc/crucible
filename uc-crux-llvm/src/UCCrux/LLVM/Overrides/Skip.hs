@@ -9,9 +9,11 @@ Stability    : provisional
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module UCCrux.LLVM.Overrides.Skip
   ( SkipOverrideName (..),
@@ -20,16 +22,22 @@ module UCCrux.LLVM.Overrides.Skip
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens ((^.), use)
+import           Control.Lens ((^.), use, to)
 import           Control.Monad.IO.Class (liftIO)
+import           Data.Functor.Compose (Compose(Compose))
 import           Data.IORef (IORef, modifyIORef)
 import           Data.Maybe (mapMaybe)
+import           Data.Proxy (Proxy(Proxy))
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
 import qualified Text.LLVM.AST as L
+
+import           Data.Parameterized.Some (Some(Some))
+import           Data.Parameterized.TraversableFC (fmapFC)
 
 -- what4
 import           What4.FunctionName (functionName)
@@ -38,11 +46,13 @@ import           What4.FunctionName (functionName)
 import           Lang.Crucible.Backend (IsSymInterface)
 import           Lang.Crucible.FunctionHandle (SomeHandle(..), handleMapToHandles, handleName)
 import           Lang.Crucible.Simulator.ExecutionTree (functionBindings, stateContext, fnBindings)
+import qualified Lang.Crucible.Simulator as Crucible
+import qualified Lang.Crucible.Simulator.OverrideSim as Override
 import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
 import           Lang.Crucible.LLVM.Extension (LLVM)
-import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemImpl)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext, llvmTypeCtx, llvmDeclToFunHandleRepr')
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), LLVMOverride(..), basic_llvm_override)
@@ -53,8 +63,14 @@ import           Crux.Types (OverM, Model, HasModel)
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
-import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
+import           UCCrux.LLVM.Constraints (ConstrainedShape(ConstrainedShape))
+import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, moduleTypes)
+import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
+import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.FullType.CrucibleType (FunctionTypes, toCrucibleType, lookupDeclTypes, ftRetType, isDebug)
+import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
+import           UCCrux.LLVM.Setup.Monad (runSetup, resultAssumptions, resultMem, ppSetupError)
+import qualified UCCrux.LLVM.Shape as Shape
 {- ORMOLU_ENABLE -}
 
 newtype SkipOverrideName = SkipOverrideName {getSkipOverrideName :: Text}
@@ -80,12 +96,13 @@ unsoundSkipOverrides ::
     ?lc :: TypeContext,
     HasModel personality
   ) =>
-  proxy arch ->
+  ModuleContext m arch ->
+  sym ->
   ModuleTranslation arch ->
   IORef (Set SkipOverrideName) ->
   [L.Declare] ->
   OverM Model sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
-unsoundSkipOverrides proxy mtrans usedRef decls =
+unsoundSkipOverrides modCtx sym mtrans usedRef decls =
   do
     let llvmCtx = mtrans ^. transContext
     let ?lc = llvmCtx ^. llvmTypeCtx
@@ -97,40 +114,104 @@ unsoundSkipOverrides proxy mtrans usedRef decls =
               (handleMapToHandles (fnBindings binds))
     pure $
       mapMaybe
-        (createSkipOverride proxy usedRef)
-        (filter ((`Set.notMember` alreadyDefined) . declName) decls)
+        (createSkipOverride modCtx sym usedRef)
+        ( filter
+            ((`Set.notMember` alreadyDefined) . declName)
+            (filter (not . isDebug) decls)
+        )
 
--- TODO(lb): Currently only works for void functions, should be extended to
--- handle non-void functions.
+-- TODO(lb): At some point, it'd be nice to apply heuristics to the manufactured
+-- return values, similar to those for function arguments. To do this, this
+-- function would probably need to take an IORef in which to insert annotations
+-- for values it creates.
 createSkipOverride ::
+  forall m arch sym personality rtp l a.
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
     ?lc :: TypeContext,
     HasModel personality
   ) =>
-  proxy arch ->
+  ModuleContext m arch ->
+  sym ->
   IORef (Set SkipOverrideName) ->
   L.Declare ->
   Maybe (OverrideTemplate (personality sym) sym arch rtp l a)
-createSkipOverride _proxy usedRef decl =
-  llvmDeclToFunHandleRepr' decl $ \args ret ->
-    Just $
-      basic_llvm_override $
-        LLVMOverride
-          { llvmOverride_declare = decl,
-            llvmOverride_args = args,
-            llvmOverride_ret = ret,
-            llvmOverride_def =
-              \_memOps _sym _args ->
-                do
-                  let name = declName decl
-                  liftIO $
-                    modifyIORef usedRef (Set.insert (SkipOverrideName name))
-                  case ret of
-                    CrucibleTypes.UnitRepr -> pure ()
-                    _ ->
-                      unimplemented
-                        "createSkipOverride"
-                        (Unimplemented.NonVoidUndefinedFunc name)
-          }
+createSkipOverride modCtx sym usedRef decl =
+  case modCtx ^. declTypes . to (lookupDeclTypes symbolName) of
+    Nothing ->
+      -- Impossible due to documented invariant on 'DeclTypes'
+      panic
+        "createSkipOverride"
+        ["Types not translated for declaration: " <> Text.unpack name]
+    Just funcTypes ->
+      llvmDeclToFunHandleRepr' decl $
+        \args ret ->
+          Just $
+            basic_llvm_override $
+              LLVMOverride
+                { llvmOverride_declare = decl,
+                  llvmOverride_args = args,
+                  llvmOverride_ret = ret,
+                  llvmOverride_def =
+                    \mvar _sym _args ->
+                      do
+                        liftIO $
+                          modifyIORef usedRef (Set.insert (SkipOverrideName name))
+                        Override.modifyGlobal mvar $ \mem ->
+                          liftIO (returnValue mem ret funcTypes)
+                }
+  where
+    name = declName decl
+    symbolName = L.Symbol (Text.unpack name)
+
+    returnValue ::
+      MemImpl sym ->
+      CrucibleTypes.TypeRepr ty ->
+      FunctionTypes m arch ->
+      IO (Crucible.RegValue sym ty, MemImpl sym)
+    returnValue mem ret funcTypes =
+      case (ret, ftRetType funcTypes) of
+        (CrucibleTypes.UnitRepr, Nothing) -> pure ((), mem)
+        (CrucibleTypes.UnitRepr, _) ->
+          panic
+            "createSkipOverride"
+            ["Mismatched return types - CFG was void"]
+        (_, Nothing) ->
+          panic
+            "createSkipOverride"
+            ["Mismatched return types - CFG was non-void"]
+        (_, Just (Some retFullType)) ->
+          case testEquality (toCrucibleType (Proxy :: Proxy arch) retFullType) ret of
+            Nothing ->
+              panic
+                "createSkipOverride"
+                ["Mismatched return types"]
+            Just Refl ->
+              runSetup
+                modCtx
+                mem
+                ( generate
+                    sym
+                    (modCtx ^. moduleTypes)
+                    retFullType
+                    (SelectReturn symbolName (Here retFullType))
+                    ( ConstrainedShape
+                        (fmapFC (\_ -> Compose []) $ Shape.minimal retFullType)
+                    )
+                )
+                >>= \case
+                  Left err ->
+                    panic
+                      "createSkipOverride"
+                      [ "Couldn't create return value for override"
+                          <> Text.unpack name,
+                        show (ppSetupError err)
+                      ]
+                  Right (result, value) ->
+                    if not (null (resultAssumptions result))
+                      then
+                        panic
+                          "createSkipOverride"
+                          ["Didn't expect any constraints on minimal shape"]
+                      else pure (value ^. Shape.tag . to getSymValue, resultMem result)

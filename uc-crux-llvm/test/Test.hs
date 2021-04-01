@@ -370,9 +370,12 @@ isUnimplemented file fn =
         Left _ -> pure ()
         Right () -> TH.assertFailure (unwords ["Expected", fn, "to be unimplemented"])
 
+skipOverrides :: [String] -> Unsoundness
+skipOverrides names =
+  Unsoundness Set.empty (Set.fromList (map (SkipOverrideName . Text.pack) names))
+
 skipOverride :: String -> Unsoundness
-skipOverride name =
-  Unsoundness Set.empty (Set.singleton (SkipOverrideName (Text.pack name)))
+skipOverride = skipOverrides . (: [])
 
 unsoundOverride :: String -> Unsoundness
 unsoundOverride name =
@@ -399,6 +402,12 @@ inFileTests =
         -- integer first which may be OK.
         ("cast_float_to_pointer.c", [("cast_float_to_pointer", isSafe mempty)]),
         ("compare_to_null.c", [("compare_to_null", isSafe mempty)]),
+        ("do_fork.c", [("do_fork", isSafe (skipOverride "fork"))]),
+        ("do_recv.c", [("do_recv", isSafe (skipOverrides ["accept", "bind", "close", "listen", "memcmp", "recv", "shutdown", "socket"]))]),
+        ("do_strdup.c", [("do_strdup", isSafe (skipOverride "strdup"))]),
+        ("do_strcmp.c", [("do_strcmp", isSafe (skipOverride "strcmp"))]),
+        ("do_strncmp.c", [("do_strncmp", isSafe (skipOverride "strncmp"))]),
+        ("extern_non_void_function.c", [("extern_non_void_function", isSafe (skipOverride "do_stuff"))]),
         ("extern_void_function.c", [("extern_void_function", isSafe (skipOverride "do_stuff"))]),
         -- This override needs refinement; the following should be safe with the
         -- precondition that the argument pointer is valid.
@@ -450,6 +459,7 @@ inFileTests =
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
+        ("read_errno.c", [("read_errno", isUnclassified)]), -- goal: isSafe
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
@@ -1041,13 +1051,6 @@ main =
       "uc-crux-llvm"
       [ inFileTests,
         moduleTests,
-        isUnimplemented "do_fork.c" "do_fork", -- goal: ???
-        isUnimplemented "do_recv.c" "do_recv",
-        isUnimplemented "do_strdup.c" "do_strdup", -- goal: isSafe
-        isUnimplemented "do_strcmp.c" "do_strcmp", -- goal: isSafe
-        isUnimplemented "do_strncmp.c" "do_strncmp", -- goal: isSafe
-        isUnimplemented "extern_non_void_function.c" "extern_non_void_function", -- goal: isSafeWithPreconditions
-        isUnimplemented "read_errno.c" "read_errno", -- goal: isSafe
         isUnimplemented
           "gethostname_neg_len.c"
           "gethostname_neg_len", -- goal: ???

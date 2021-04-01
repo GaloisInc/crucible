@@ -214,6 +214,17 @@ ppUnfixable =
 data Unfixed
   = UnfixedArgPtrOffsetArg
   | UnfixedFunctionPtrInArg
+  | -- The following would be addressed by applying "missing precondition"
+    -- heuristics to return values from skipped functions
+    UnfixedRetReadUninitialized
+  | UnfixedRetWriteUnmapped
+  | UnfixedRetCall
+  | UnfixedRetMemset
+  | UnfixedRetPtrFree
+  | UnfixedRetPtrAddOffset
+  | UnfixedRetReadBadAlignment
+  | UnfixedRetWriteBadAlignment
+  | UnfixedRetDivRemByZero
   deriving (Eq, Ord, Show)
 
 ppUnfixed :: Unfixed -> Text
@@ -221,6 +232,18 @@ ppUnfixed =
   \case
     UnfixedArgPtrOffsetArg -> "Addition of an offset from argument to a pointer in argument"
     UnfixedFunctionPtrInArg -> "Called function pointer in argument"
+    UnfixedRetReadUninitialized -> "Read from pointer return value of skipped function"
+    UnfixedRetWriteUnmapped -> "Write to pointer return value of skipped function"
+    UnfixedRetCall -> "Function call via pointer return value of skipped function"
+    UnfixedRetMemset -> "`memset` of pointer return value of skipped function"
+    UnfixedRetPtrFree -> "`free` of pointer return value of skipped function"
+    UnfixedRetPtrAddOffset ->
+      "Addition of an offset to pointer return value of skipped function"
+    UnfixedRetReadBadAlignment ->
+      "Write to a pointer with insufficient alignment in return value of skipped function"
+    UnfixedRetWriteBadAlignment ->
+      "Read from a pointer with insufficient alignment in return value of skipped function"
+    UnfixedRetDivRemByZero -> "Divided by possibly-zero return value of skipped function"
 
 -- | We don't (yet) know what to do about this error, so we can't continue
 -- executing this function.

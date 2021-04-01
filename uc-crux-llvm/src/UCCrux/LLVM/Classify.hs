@@ -35,6 +35,8 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Const (Const(getConst))
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -74,6 +76,7 @@ import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(Some
 import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
+import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName)
 import           UCCrux.LLVM.Setup (SymValue)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
 import           UCCrux.LLVM.Shape (Shape)
@@ -170,6 +173,8 @@ classifyBadBehavior ::
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   sym ->
+  -- | Functions skipped during execution
+  Set SkipOverrideName ->
   -- | Function arguments
   Crucible.RegMap sym (MapToCrucibleType arch argTypes) ->
   -- | Term annotations (origins), see comment on
@@ -180,7 +185,7 @@ classifyBadBehavior ::
   -- | Data about the error that occurred
   LLVMErrors.BadBehavior sym ->
   f (Explanation m arch argTypes)
-classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations argShapes badBehavior =
+classifyBadBehavior appCtx modCtx funCtx sym skipped (Crucible.RegMap _args) annotations argShapes badBehavior =
   case badBehavior of
     LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
       handleDivRemByZero UDivByConcreteZero divisor
@@ -211,6 +216,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                 return $
                   ExMissingPreconditions
                     (tag, oneArgConstraint idx cursor (Aligned alignment))
+        Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+          unfixed appCtx UnfixedRetWriteBadAlignment
         _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.ReadBadAlignment (Crucible.RV ptr) alignment) ->
@@ -234,6 +241,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                   return $
                     ExMissingPreconditions
                       (tag, oneArgConstraint idx cursor (Aligned alignment))
+          Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+            unfixed appCtx UnfixedRetReadBadAlignment
           _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeUnallocated (Crucible.RV ptr)) ->
@@ -266,6 +275,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         return $
                           ExMissingPreconditions
                             (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+          Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+            unfixed appCtx UnfixedRetPtrFree
           _ -> requirePossiblePointer FreeNonPointer ptr
     LLVMErrors.BBUndefinedBehavior (UB.DoubleFree (Crucible.RV ptr)) ->
       do
@@ -350,6 +361,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                               "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                             ]
                       unfixable appCtx tag
+          Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+            unfixed appCtx UnfixedRetPtrAddOffset
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBUndefinedBehavior
       (UB.MemsetInvalidRegion (Crucible.RV ptr) _fillByte (Crucible.RV len)) ->
@@ -388,6 +401,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                 (elemsFromOffset' concreteLen partTypeRepr)
                             )
                         )
+          (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
+            unfixed appCtx UnfixedRetMemset
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBUndefinedBehavior
       (UB.PoisonValueCreated poison) ->
@@ -430,6 +445,17 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       return $
                         ExMissingPreconditions
                           (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+          (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
+            unfixed appCtx UnfixedRetWriteUnmapped
+          -- If the pointer expression doesn't involve the function's
+          -- arguments/global variables at all, then it's just a standard null
+          -- dereference or similar.
+          (Nothing, []) ->
+            do
+              notPtr <- liftIO $ notAPointer sym ptr
+              case notPtr of
+                Just True -> truePositive WriteNonPointer
+                _ -> unclass appCtx badBehavior
           -- If the "pointer" concretely wasn't a pointer, it's a bug.
           _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBMemoryError
@@ -479,6 +505,10 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                   )
                               )
                           )
+            ( Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))),
+              _,
+              _
+              ) -> unfixed appCtx UnfixedRetReadUninitialized
             (Nothing, _, [Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))]) ->
               do
                 let tag = ArgReadUninitializedOffset
@@ -532,6 +562,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                     ]
               unfixed appCtx tag
+          Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+            unfixed appCtx UnfixedRetCall
           _ ->
             liftIO (allocInfoFromPtr mem ptr)
               >>= \case
@@ -633,6 +665,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                           ExMissingPreconditions
                             (tag, oneArgShapeConstraint idx cursor (Allocated 1))
                     )
+            Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+              Just <$> unfixed appCtx UnfixedRetPtrFree
             _ -> return Nothing
           else return Nothing
 
@@ -665,6 +699,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                           oneArgConstraint idx cursor (BVCmp L.Ine w (BV.mkBV w 0))
                         )
                   _ -> panic "classify" ["Expected integer type"]
+            Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+              unfixed appCtx UnfixedRetDivRemByZero
             _ -> unclass appCtx badBehavior
         Just _ -> truePositive truePos
 
@@ -697,17 +733,18 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
         return $ ExTruePositive pos
 
     -- Unfortunately, this check is pretty coarse. We can conclude that the
-    -- given pointer concretely isn't a pointer only if *both* of the following
+    -- given pointer concretely isn't a pointer only if *all* of the following
     -- are true:
     --
     -- (1) It has a concrete, zero block number
     -- (2) There are no remaining unallocated pointers in the function's
     --     arguments
+    -- (3) No functions were unsoundly skipped during execution
     --
-    -- The second condition is necessary because unallocated pointers in the
-    -- function arguments have a concretely zero block number, but they can be
-    -- combined with other program data in arbitrarily complex ways that cause
-    -- them to lose their annotations.
+    -- The second and third conditions are necessary because unallocated
+    -- pointers in the function arguments/return values have a concretely zero
+    -- block number, but they can be combined with other program data in
+    -- arbitrarily complex ways that cause them to lose their annotations.
     --
     -- A possible fix would be to mux input pointers with a fresh, allocated
     -- pointer (so that their block number is not concretely zero), but this
@@ -722,6 +759,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
     requirePossiblePointer pos ptr =
       do
         notPtr <- liftIO $ notAPointer sym ptr
-        case (notPtr, allFC (not . Shape.isAnyUnallocated) argShapes) of
-          (Just True, True) -> truePositive pos
+        case (notPtr, allFC (not . Shape.isAnyUnallocated) argShapes, Set.null skipped) of
+          (Just True, True, True) -> truePositive pos
           _ -> unclass appCtx badBehavior
