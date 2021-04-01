@@ -19,6 +19,7 @@ module UCCrux.LLVM.Context.Module
     makeModuleContext,
     llvmModule,
     moduleTypes,
+    declTypes,
     moduleTranslation,
     dataLayout,
     withTypeContext,

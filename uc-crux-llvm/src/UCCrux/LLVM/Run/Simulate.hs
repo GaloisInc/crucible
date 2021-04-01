@@ -202,6 +202,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   sOverrides <-
                     unsoundSkipOverrides
                       modCtx
+                      sym
                       trans
                       skipOverrideRef
                       (L.modDeclares (modCtx ^. llvmModule))
@@ -247,7 +248,8 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                     -- putStrLn (show (LLVMErrors.ppBB badBehavior))
 
                     liftIO $ (appCtx ^. log) Hi ("Explaining error: " <> Text.pack (show (LLVMErrors.explainBB badBehavior)))
-                    classifyBadBehavior appCtx modCtx funCtx sym args argAnnotations argShapes badBehavior
+                    skipped <- readIORef skipOverrideRef
+                    classifyBadBehavior appCtx modCtx funCtx sym skipped args argAnnotations argShapes badBehavior
                       >>= modifyIORef explRef . (:)
               return mempty
 

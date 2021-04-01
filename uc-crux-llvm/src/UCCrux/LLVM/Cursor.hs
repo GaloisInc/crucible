@@ -185,12 +185,17 @@ ppCursor top =
     Field _fieldTypes idx cursor ->
       ppCursor top cursor <> PP.pretty ("." ++ show idx)
 
--- | A 'Selector' points to a spot inside an argument or global variable.
+-- | A 'Selector' points to a spot inside
+--
+-- * an argument,
+-- * a global variable, or
+-- * the manufactured return value from a \"skipped\" function
 --
 -- For documentation of the type parameters, see the comment on 'Cursor'.
 data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   = SelectArgument !(Ctx.Index argTypes inTy) (Cursor m inTy atTy)
   | SelectGlobal !L.Symbol (Cursor m inTy atTy)
+  | SelectReturn !L.Symbol (Cursor m inTy atTy)
 
 -- | For documentation of the type parameters, see the comment on 'Cursor'.
 --
@@ -218,11 +223,13 @@ selectorCursor =
     ( \case
         SelectArgument _ cursor -> cursor
         SelectGlobal _ cursor -> cursor
+        SelectReturn _ cursor -> cursor
     )
     ( \s v ->
         case s of
           SelectArgument arg _ -> SelectArgument arg v
           SelectGlobal glob _ -> SelectGlobal glob v
+          SelectReturn func _ -> SelectReturn func v
     )
 
 $(return [])

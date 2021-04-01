@@ -423,6 +423,10 @@ addConstraint argTypes mts constraints =
       unimplemented "addConstraint" Unimplemented.ConstrainGlobal
     NewShapeConstraint (SomeInSelector (SelectGlobal _symbol _cursor)) _shapeConstraint ->
       unimplemented "addConstraint" Unimplemented.ConstrainGlobal
+    NewConstraint (SomeInSelector SelectReturn {}) _constraint ->
+      unimplemented "addConstraint" Unimplemented.ConstrainReturnValue
+    NewShapeConstraint (SomeInSelector SelectReturn {}) _constraint ->
+      unimplemented "addConstraint" Unimplemented.ConstrainReturnValue
     NewConstraint (SomeInSelector (SelectArgument idx cursor)) constraint ->
       constraints & argConstraints . ixF' idx
         %%~ ( \(ConstrainedShape shape) ->
