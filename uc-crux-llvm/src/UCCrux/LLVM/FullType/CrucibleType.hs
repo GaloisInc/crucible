@@ -23,12 +23,14 @@ module UCCrux.LLVM.FullType.CrucibleType
     FunctionTypes (..),
     MatchingAssign (..),
     DeclTypes,
+    GlobalTypes,
     TranslatedTypes (..),
     TypeTranslationError (..),
     isDebug,
     translateModuleDefines,
     ppTypeTranslationError,
     lookupDeclTypes,
+    lookupGlobalType,
 
     -- * Assignments
     SomeIndex (..),
@@ -123,6 +125,15 @@ newtype DeclTypes m arch = DeclTypes {_getDeclTypes :: Map L.Symbol (FunctionTyp
 lookupDeclTypes :: L.Symbol -> DeclTypes m arch -> Maybe (FunctionTypes m arch)
 lookupDeclTypes symb (DeclTypes mp) = Map.lookup symb mp
 
+-- | Constructor not exported to enforce the invariant that a 'GlobalTypes'
+-- holds 'FullTypeRepr' for every LLVM global in the corresponding module
+-- indicated by the @m@ parameter.
+newtype GlobalTypes m = GlobalTypes
+  {_getGlobalTypes :: Map L.Symbol (Some (FullTypeRepr m))}
+
+lookupGlobalType :: L.Symbol -> GlobalTypes m -> Maybe (Some (FullTypeRepr m))
+lookupGlobalType symb (GlobalTypes mp) = Map.lookup symb mp
+
 -- | The existential quantification over @m@ here makes the @FullType@ API safe.
 -- You can only intermingle 'FullTypeRepr' from the same LLVM module, and by
 -- construction, the 'ModuleTypes' contains a 'FullTypeRepr' for every type
@@ -135,6 +146,7 @@ lookupDeclTypes symb (DeclTypes mp) = Map.lookup symb mp
 data TranslatedTypes arch = forall m.
   TranslatedTypes
   { translatedModuleTypes :: ModuleTypes m,
+    translatedGlobalTypes :: GlobalTypes m,
     translatedDeclTypes :: DeclTypes m arch
   }
 
@@ -181,20 +193,39 @@ translateModuleDefines llvmModule trans =
     Some initialModuleTypes ->
       let (maybeResult, modTypes) =
             runState
-              ( runExceptT
-                  ( (++)
-                      <$> mapM translateDefine (L.modDefines llvmModule)
-                      <*> mapM
-                        translateDeclare
-                        ( filter
-                            (not . isDebug)
-                            (L.modDeclares llvmModule)
+              ( runExceptT $
+                  (,)
+                    <$> ( (++)
+                            <$> mapM translateDefine (L.modDefines llvmModule)
+                            <*> mapM
+                              translateDeclare
+                              ( filter
+                                  (not . isDebug)
+                                  (L.modDeclares llvmModule)
+                              )
                         )
-                  )
+                    <*> mapM translateGlobal (L.modGlobals llvmModule)
               )
               initialModuleTypes
-       in TranslatedTypes modTypes . DeclTypes . Map.fromList <$> maybeResult
+       in maybeResult
+            <&> \(declTypes, globalTypes) ->
+              TranslatedTypes
+                modTypes
+                (GlobalTypes (Map.fromList globalTypes))
+                (DeclTypes (Map.fromList declTypes))
   where
+    translateGlobal ::
+      L.Global ->
+      ExceptT
+        TypeTranslationError
+        (State (ModuleTypes m))
+        (L.Symbol, Some (FullTypeRepr m))
+    translateGlobal glob =
+      do
+        memTy <- withExceptT BadLift (LLVMTrans.liftMemType (L.globalType glob))
+        ty <- withExceptT FullTypeTranslation (toFullTypeM memTy)
+        pure (L.globalSym glob, ty)
+
     translateDefine ::
       L.Define ->
       ExceptT

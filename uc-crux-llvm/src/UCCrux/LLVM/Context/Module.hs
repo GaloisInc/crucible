@@ -19,6 +19,7 @@ module UCCrux.LLVM.Context.Module
     makeModuleContext,
     llvmModule,
     moduleTypes,
+    globalTypes,
     declTypes,
     moduleTranslation,
     dataLayout,
@@ -55,7 +56,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
-import           UCCrux.LLVM.FullType.CrucibleType (DeclTypes, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, testCompatibility, lookupDeclTypes)
+import           UCCrux.LLVM.FullType.CrucibleType (GlobalTypes, DeclTypes, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, testCompatibility, lookupDeclTypes)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
@@ -66,6 +67,7 @@ data ModuleContext m arch = ModuleContext
   { _moduleFilePath :: FilePath,
     _llvmModule :: Module,
     _moduleTypes :: ModuleTypes m,
+    _globalTypes :: GlobalTypes m,
     _declTypes :: DeclTypes m arch,
     _moduleTranslation :: ModuleTranslation arch
   }
@@ -78,6 +80,9 @@ llvmModule = lens _llvmModule (\s v -> s {_llvmModule = v})
 
 moduleTypes :: Simple Lens (ModuleContext m arch) (ModuleTypes m)
 moduleTypes = lens _moduleTypes (\s v -> s {_moduleTypes = v})
+
+globalTypes :: Simple Lens (ModuleContext m arch) (GlobalTypes m)
+globalTypes = lens _globalTypes (\s v -> s {_globalTypes = v})
 
 declTypes :: Simple Lens (ModuleContext m arch) (DeclTypes m arch)
 declTypes = lens _declTypes (\s v -> s {_declTypes = v})
@@ -103,10 +108,10 @@ makeModuleContext path llvmMod trans =
   let ?lc = trans ^. LLVMTrans.transContext . LLVMTrans.llvmTypeCtx
    in case translateModuleDefines llvmMod trans of
         Left err -> Left err
-        Right (TranslatedTypes modTypes decTypes) ->
+        Right (TranslatedTypes modTypes globTypes decTypes) ->
           Right $
             SomeModuleContext $
-              ModuleContext path llvmMod modTypes decTypes trans
+              ModuleContext path llvmMod modTypes globTypes decTypes trans
 
 -- ------------------------------------------------------------------------------
 -- Looking up CFGs
