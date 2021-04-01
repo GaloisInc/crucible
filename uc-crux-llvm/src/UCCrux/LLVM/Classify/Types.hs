@@ -241,6 +241,20 @@ data Unfixed
   | UnfixedRetReadBadAlignment
   | UnfixedRetWriteBadAlignment
   | UnfixedRetDivRemByZero
+  | -- Globals
+    UnfixedGlobalCall
+  | UnfixedGlobalWriteBadAlignment
+  | UnfixedGlobalReadBadAlignment
+  | UnfixedGlobalFreeUnallocated
+  | UnfixedGlobalFreeBadOffset
+  | UnfixedGlobalWriteUnmapped
+  | UnfixedGlobalReadUninitialized
+  | UnfixedGlobalReadUninitializedOffset
+  | UnfixedGlobalPointerAddOffset
+  | UnfixedGlobalMemsetTooSmall
+  | UnfixedGlobalAddSignedWrap
+  | UnfixedGlobalSubSignedWrap
+  | UnfixedGlobalDivRemByZero
   deriving (Eq, Ord, Show)
 
 ppUnfixed :: Unfixed -> Text
@@ -261,6 +275,20 @@ ppUnfixed =
     UnfixedRetWriteBadAlignment ->
       "Read from a pointer with insufficient alignment in return value of skipped function"
     UnfixedRetDivRemByZero -> "Divided by possibly-zero return value of skipped function"
+    -- Globals
+    UnfixedGlobalCall -> "Function call via pointer in global"
+    UnfixedGlobalWriteBadAlignment -> "Write to a pointer with insufficient alignment in global"
+    UnfixedGlobalReadBadAlignment -> "Read from a pointer with insufficient alignment in global"
+    UnfixedGlobalFreeUnallocated -> "`free` called on an unallocated pointer in global"
+    UnfixedGlobalFreeBadOffset -> "`free` called on pointer with nonzero offset in global"
+    UnfixedGlobalWriteUnmapped -> "Write to an unmapped pointer in global"
+    UnfixedGlobalReadUninitialized -> "Read from an uninitialized pointer in global"
+    UnfixedGlobalReadUninitializedOffset -> "Read from an uninitialized pointer calculated from a pointer in global"
+    UnfixedGlobalPointerAddOffset -> "Addition of an offset to a pointer in global"
+    UnfixedGlobalMemsetTooSmall -> "`memset` called on pointer to too-small allocation in global"
+    UnfixedGlobalAddSignedWrap -> "Addition of a constant caused signed wrap of an int in global"
+    UnfixedGlobalSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int in global"
+    UnfixedGlobalDivRemByZero -> "Division or remainder by zero in global"
 
 -- | We don't (yet) know what to do about this error, so we can't continue
 -- executing this function.
