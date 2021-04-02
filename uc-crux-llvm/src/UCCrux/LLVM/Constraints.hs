@@ -46,7 +46,7 @@ module UCCrux.LLVM.Constraints
 where
 
 {- ORMOLU_DISABLE -}
-import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (.~), (^.))
+import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (^.))
 import           Data.Bifunctor (first)
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
@@ -54,8 +54,6 @@ import           Data.Coerce (coerce)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(..))
 import           Data.Kind (Type)
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import           Data.Maybe (catMaybes)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -81,6 +79,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
+import           UCCrux.LLVM.FullType.Translation (GlobalMap)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 
 -- See comment in below block of CPP
@@ -182,14 +181,14 @@ data RelationalConstraint m (argTypes :: Ctx (FullType m))
 -- compatibility.
 data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
-    _globalConstraints :: Map L.Symbol (Some (ConstrainedShape m)),
+    _globalConstraints :: GlobalMap m (Some (ConstrainedShape m)),
     _relationalConstraints :: [RelationalConstraint m argTypes]
   }
 
 argConstraints :: Simple Lens (Constraints m argTypes) (Ctx.Assignment (ConstrainedShape m) argTypes)
 argConstraints = lens _argConstraints (\s v -> s {_argConstraints = v})
 
-globalConstraints :: Simple Lens (Constraints m globalTypes) (Map L.Symbol (Some (ConstrainedShape m)))
+globalConstraints :: Simple Lens (Constraints m globalTypes) (GlobalMap m (Some (ConstrainedShape m)))
 globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
 
 relationalConstraints :: Simple Lens (Constraints m argTypes) [RelationalConstraint m argTypes]
@@ -214,25 +213,23 @@ emptyArgConstraints argTypes =
 -- whatsoever on globals, and only the minimal constraints (see
 -- 'emptyArgConstraints') on the function arguments.
 emptyConstraints ::
+  GlobalMap m (Some (FullTypeRepr m)) ->
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   Constraints m argTypes
-emptyConstraints argTypes =
+emptyConstraints globalTypes argTypes =
   Constraints
     { _argConstraints = emptyArgConstraints argTypes,
-      _globalConstraints = Map.empty,
+      _globalConstraints =
+        fmap
+          ( \(Some ft) ->
+              Some (ConstrainedShape (fmapFC (\_ -> Compose []) (Shape.minimal ft)))
+          )
+          globalTypes,
       _relationalConstraints = []
     }
 
-_oneArgumentConstraint ::
-  Ctx.Assignment (FullTypeRepr m) argTypes ->
-  Ctx.Index argTypes inTy ->
-  ConstrainedShape m inTy ->
-  Constraints m argTypes
-_oneArgumentConstraint argTypes idx shape =
-  emptyConstraints argTypes & argConstraints . ixF' idx .~ shape
-
 ppConstraints :: Constraints m argTypes -> Doc Void
-ppConstraints (Constraints args globCs relCs) =
+ppConstraints (Constraints args _ relCs) =
   PP.vsep
     ( catMaybes
         [ if Ctx.sizeInt (Ctx.size args) == 0
@@ -246,13 +243,10 @@ ppConstraints (Constraints args globCs relCs) =
                       args
                   ),
           -- These aren't yet generated anywhere
-          if Map.size globCs == 0
-            then Nothing
-            else
-              Just $
-                nestSep
-                  [ PP.pretty "Globals: TODO"
-                  ],
+          Just $
+            nestSep
+              [ PP.pretty "Globals: TODO"
+              ],
           -- These aren't yet generated anywhere
           if null relCs
             then Nothing
@@ -269,9 +263,11 @@ ppConstraints (Constraints args globCs relCs) =
 
 isEmpty :: Constraints m argTypes -> Bool
 isEmpty (Constraints args globs rels) =
-  allFC (Shape.isMinimal (null . getCompose) . getConstrainedShape) args
-    && Map.null globs
+  allFC isMin args
+    && all (\(Some s) -> isMin s) globs
     && null rels
+  where
+    isMin = Shape.isMinimal (null . getCompose) . getConstrainedShape
 
 --------------------------------------------------------------------------------
 

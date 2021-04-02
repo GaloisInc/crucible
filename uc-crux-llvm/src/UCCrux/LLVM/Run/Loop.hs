@@ -48,7 +48,7 @@ import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Constraints (ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, moduleTypes, CFGWithTypes(..), findFun)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, moduleTypes, CFGWithTypes(..), findFun, globalTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
@@ -129,7 +129,9 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
                       (appCtx ^. log) Hi $ Text.pack (show (ppConstraints allConstraints))
                       loop allTruePositives allConstraints allPrecondTags allUnsoundness
 
-    loop [] (emptyConstraints (funCtx ^. argumentFullTypes)) [] mempty
+    let emptyConstraints' =
+          emptyConstraints (modCtx ^. globalTypes) (funCtx ^. argumentFullTypes)
+    loop [] emptyConstraints' [] mempty
 
 loopOnFunction ::
   (?outputConfig :: OutputConfig) =>
