@@ -40,7 +40,7 @@ import qualified Prettyprinter.Render.Text as PP
 
 import           Data.Parameterized.Ctx (Ctx)
 
-import           UCCrux.LLVM.Classify.Types (LocatedTruePositive(..), ppLocatedTruePositive, Uncertainty, ppUncertainty, MissingPreconditionTag)
+import           UCCrux.LLVM.Classify.Types (LocatedTruePositive(..), ppLocatedTruePositive, Uncertainty, ppUncertainty, Diagnosis)
 import           UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
 import           UCCrux.LLVM.FullType.Type (FullType)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
@@ -89,7 +89,7 @@ data SomeBugfindingResult
 -- compatibility.
 data BugfindingResult m arch (argTypes :: Ctx (FullType m)) = BugfindingResult
   { uncertainResults :: [Uncertainty],
-    deducedPreconditions :: [MissingPreconditionTag],
+    deducedPreconditions :: [Diagnosis],
     summary :: FunctionSummary m argTypes
   }
 

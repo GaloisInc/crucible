@@ -486,9 +486,6 @@ inFileTests =
         -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
         ("call_function_pointer.c", [("call_function_pointer", isUnfixed)]), -- goal: ???
         ("call_varargs_function_pointer.c", [("call_varargs_function_pointer", isUnfixed)]), -- goal: ???
-        ("read_errno.c", [("read_errno", isUnfixed)]), -- goal: isSafe
-        ("read_pointer_from_global_struct.c", [("read_pointer_from_global_struct", isUnfixed)]),
-        ("read_null_global_pointer.c", [("read_null_global_pointer", isUnfixed)]),
         -- Strangely, this compiles to a function that takes a variable-arity
         -- function as an argument?
         ("set_errno.c", [("set_errno", isUnfixed)]) -- goal: ???
@@ -1072,5 +1069,15 @@ main =
           "cast_int_to_pointer_memset", -- goal: isSafeWithPreconditions
         isUnimplemented
           "gethostname_arg_len.c"
-          "gethostname_arg_len" -- goal: ???
+          "gethostname_arg_len", -- goal: ???
+        isUnimplemented
+          "read_errno.c"
+          "read_errno", -- goal: isSafeWithPreconditions
+        isUnimplemented
+          "read_pointer_from_global_struct.c"
+          "read_pointer_from_global_struct",
+        -- goal: isSafeWithPreconditions
+        isUnimplemented
+          "read_null_global_pointer.c"
+          "read_null_global_pointer" -- goal: isSafeWithPreconditions
       ]

@@ -30,7 +30,7 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
-import           UCCrux.LLVM.Classify.Types (MissingPreconditionTag, partitionUncertainty, diagnose, LocatedTruePositive, ppLocatedTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc)
+import           UCCrux.LLVM.Classify.Types (DiagnosisTag, partitionUncertainty, diagnoseTag, LocatedTruePositive, ppLocatedTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc, diagnosisTag)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), FunctionSummaryTag)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
@@ -42,7 +42,7 @@ data Stats = Stats
     timeouts :: !Word,
     truePositiveFreq :: Map LocatedTruePositive Word,
     unclassifiedFreq :: Map Text Word,
-    missingPreconditionFreq :: Map MissingPreconditionTag Word,
+    diagnosisFreq :: Map DiagnosisTag Word,
     unimplementedFreq :: Map Unimplemented Word,
     unfixableFreq :: Map Unfixable Word,
     unfixedFreq :: Map Unfixed Word,
@@ -66,8 +66,8 @@ getStats result =
               _ -> Map.empty,
           unclassifiedFreq =
             frequencies (map (^. doc . to render . to trunc) unclass),
-          missingPreconditionFreq =
-            frequencies (deducedPreconditions result),
+          diagnosisFreq =
+            frequencies (map diagnosisTag (deducedPreconditions result)),
           unimplementedFreq = frequencies (map panicComponent unimplementeds),
           unfixedFreq = frequencies unfixed,
           unfixableFreq = frequencies unfixable,
@@ -94,8 +94,8 @@ ppStats stats =
         (truePositiveFreq stats),
       ppFreq
         "Missing preconditions:"
-        (PP.pretty . diagnose)
-        (missingPreconditionFreq stats),
+        (PP.pretty . diagnoseTag)
+        (diagnosisFreq stats),
       ppFreq
         "Unimplemented features:"
         (PP.pretty . ppUnimplemented)
@@ -137,7 +137,7 @@ instance Semigroup Stats where
             symbolicallyFailedAssert = symbolicallyFailedAssert stats1 + symbolicallyFailedAssert stats2,
             timeouts = timeouts stats1 + timeouts stats2,
             truePositiveFreq = unionWithPlus truePositiveFreq,
-            missingPreconditionFreq = unionWithPlus missingPreconditionFreq,
+            diagnosisFreq = unionWithPlus diagnosisFreq,
             unimplementedFreq = unionWithPlus unimplementedFreq,
             unfixedFreq = unionWithPlus unfixedFreq,
             unfixableFreq = unionWithPlus unfixableFreq,
@@ -152,7 +152,7 @@ instance Monoid Stats where
         symbolicallyFailedAssert = 0,
         timeouts = 0,
         truePositiveFreq = Map.empty,
-        missingPreconditionFreq = Map.empty,
+        diagnosisFreq = Map.empty,
         unimplementedFreq = Map.empty,
         unfixedFreq = Map.empty,
         unfixableFreq = Map.empty,
