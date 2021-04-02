@@ -218,9 +218,13 @@ checkFun nm mp =
 memMetrics :: forall p sym ext
              . GlobalVar Mem
             -> Map.Map Text (Metric p sym ext)
-memMetrics memVar = Map.fromList [ ("LLVM.Mem.allocs", allocs)
-                                 , ("LLVM.Mem.writes", writes)
-                                 ]
+memMetrics memVar = Map.fromList
+                    -- Note: These map keys are used by profile.js in
+                    -- https://github.com/GaloisInc/sympro-ui and must
+                    -- match the names there.
+                    [ ("LLVM.allocs", allocs)
+                    , ("LLVM.writes", writes)
+                    ]
   where
     allocs = Metric $ measureMemBy memAllocCount
     writes = Metric $ measureMemBy memWriteCount
