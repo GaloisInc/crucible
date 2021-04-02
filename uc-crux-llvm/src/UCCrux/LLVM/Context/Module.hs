@@ -57,7 +57,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (GlobalTypes, DeclTypes, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, lookupDeclTypes)
+import           UCCrux.LLVM.FullType.Translation (GlobalMap, DeclTypes, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, lookupDeclTypes)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
@@ -68,7 +68,7 @@ data ModuleContext m arch = ModuleContext
   { _moduleFilePath :: FilePath,
     _llvmModule :: Module,
     _moduleTypes :: ModuleTypes m,
-    _globalTypes :: GlobalTypes m,
+    _globalTypes :: GlobalMap m (Some (FullTypeRepr m)),
     _declTypes :: DeclTypes m arch,
     _moduleTranslation :: ModuleTranslation arch
   }
@@ -82,7 +82,7 @@ llvmModule = lens _llvmModule (\s v -> s {_llvmModule = v})
 moduleTypes :: Simple Lens (ModuleContext m arch) (ModuleTypes m)
 moduleTypes = lens _moduleTypes (\s v -> s {_moduleTypes = v})
 
-globalTypes :: Simple Lens (ModuleContext m arch) (GlobalTypes m)
+globalTypes :: Simple Lens (ModuleContext m arch) (GlobalMap m (Some (FullTypeRepr m)))
 globalTypes = lens _globalTypes (\s v -> s {_globalTypes = v})
 
 declTypes :: Simple Lens (ModuleContext m arch) (DeclTypes m arch)

@@ -74,7 +74,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
-import           UCCrux.LLVM.FullType.Translation (lookupGlobalType)
+import           UCCrux.LLVM.FullType.Translation (lookupGlobalSymbol, makeGlobalSymbol)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Setup.Monad
@@ -414,15 +414,16 @@ populateNonConstGlobals modCtx sym =
     populateNonConstGlobal glob =
       do
         let symb = L.globalSym glob
+        let gSymb =
+              case makeGlobalSymbol (modCtx ^. globalTypes) symb of
+                Nothing ->
+                  panic
+                    "populateNonConstGlobal"
+                    ["Missing type for global " ++ show symb]
+                Just gs -> gs
         Some fullTy <-
-          pure $
-            case modCtx ^. globalTypes . to (lookupGlobalType symb) of
-              Nothing ->
-                panic
-                  "populateNonConstGlobal"
-                  ["Missing type for global " ++ show symb]
-              Just ft -> ft
-        let selector = SelectGlobal symb (Here fullTy)
+          pure $ modCtx ^. globalTypes . to (lookupGlobalSymbol gSymb)
+        let selector = SelectGlobal gSymb (Here fullTy)
         val <-
           generate
             sym
