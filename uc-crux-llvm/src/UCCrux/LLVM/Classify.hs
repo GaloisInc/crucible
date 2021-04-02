@@ -31,6 +31,7 @@ import           Prelude hiding (log)
 import           Control.Lens (to, (^.))
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Control.Applicative ((<|>))
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Const (Const(getConst))
 import           Data.Map (Map)
@@ -198,41 +199,16 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
     LLVMErrors.BBUndefinedBehavior (UB.SRemByZero _dividend (Crucible.RV divisor)) ->
       handleDivRemByZero SRemByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.WriteBadAlignment (Crucible.RV ptr) alignment) ->
-      case getPtrOffsetAnn ptr of
-        Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-          do
-            let tag = ArgWriteBadAlignment
-            liftIO $
-              (appCtx ^. log) Hi $
-                Text.unwords
-                  [ "Diagnosis: ",
-                    diagnose tag,
-                    "#" <> Text.pack (show (Ctx.indexVal idx)),
-                    "at",
-                    Text.pack (show (ppCursor (argName idx) cursor)),
-                    "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                  ]
-            liftIO $ (appCtx ^. log) Hi $ prescribe tag
-            expectPointerType ftRepr $
-              const $
-                return $
-                  ExMissingPreconditions
-                    (tag, oneArgConstraint idx cursor (Aligned alignment))
-        Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
-          unfixed appCtx UnfixedGlobalWriteBadAlignment
-        Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
-          unfixed appCtx UnfixedRetWriteBadAlignment
-        _ -> requirePossiblePointer WriteNonPointer ptr
-    LLVMErrors.BBUndefinedBehavior
-      (UB.ReadBadAlignment (Crucible.RV ptr) alignment) ->
-        case getPtrOffsetAnn ptr of
+      do
+        ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+        case ann of
           Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
             do
-              let tag = ArgReadBadAlignment
+              let tag = ArgWriteBadAlignment
               liftIO $
                 (appCtx ^. log) Hi $
                   Text.unwords
-                    [ "Diagnosis:",
+                    [ "Diagnosis: ",
                       diagnose tag,
                       "#" <> Text.pack (show (Ctx.indexVal idx)),
                       "at",
@@ -246,46 +222,77 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                     ExMissingPreconditions
                       (tag, oneArgConstraint idx cursor (Aligned alignment))
           Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
-            unfixed appCtx UnfixedGlobalReadBadAlignment
+            unfixed appCtx UnfixedGlobalWriteBadAlignment
           Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
-            unfixed appCtx UnfixedRetReadBadAlignment
-          _ -> requirePossiblePointer ReadNonPointer ptr
+            unfixed appCtx UnfixedRetWriteBadAlignment
+          _ -> requirePossiblePointer WriteNonPointer ptr
+    LLVMErrors.BBUndefinedBehavior
+      (UB.ReadBadAlignment (Crucible.RV ptr) alignment) ->
+        do
+          ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          case ann of
+            Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+              do
+                let tag = ArgReadBadAlignment
+                liftIO $
+                  (appCtx ^. log) Hi $
+                    Text.unwords
+                      [ "Diagnosis:",
+                        diagnose tag,
+                        "#" <> Text.pack (show (Ctx.indexVal idx)),
+                        "at",
+                        Text.pack (show (ppCursor (argName idx) cursor)),
+                        "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                      ]
+                liftIO $ (appCtx ^. log) Hi $ prescribe tag
+                expectPointerType ftRepr $
+                  const $
+                    return $
+                      ExMissingPreconditions
+                        (tag, oneArgConstraint idx cursor (Aligned alignment))
+            Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+              unfixed appCtx UnfixedGlobalReadBadAlignment
+            Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+              unfixed appCtx UnfixedRetReadBadAlignment
+            _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeUnallocated (Crucible.RV ptr)) ->
         maybe (requirePossiblePointer FreeNonPointer ptr) pure
           =<< handleFreeUnallocated ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeBadOffset (Crucible.RV ptr)) ->
-        case getPtrOffsetAnn ptr of
-          Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-            do
-              int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
-              case What4.asConcrete int of
-                Nothing -> unclass appCtx badBehavior
-                Just _ ->
-                  do
-                    let tag = ArgFreeBadOffset
-                    liftIO $
-                      (appCtx ^. log) Hi $
-                        Text.unwords
-                          [ "Diagnosis: ",
-                            diagnose tag,
-                            "#" <> Text.pack (show (Ctx.indexVal idx)),
-                            "at",
-                            Text.pack (show (ppCursor (argName idx) cursor)),
-                            "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                          ]
-                    liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                    expectPointerType ftRepr $
-                      const $
-                        return $
-                          ExMissingPreconditions
-                            (tag, oneArgShapeConstraint idx cursor (Allocated 1))
-          Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
-            unfixed appCtx UnfixedGlobalFreeBadOffset
-          Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
-            unfixed appCtx UnfixedRetPtrFree
-          _ -> requirePossiblePointer FreeNonPointer ptr
+        do
+          ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          case ann of
+            Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+              do
+                int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
+                case What4.asConcrete int of
+                  Nothing -> unclass appCtx badBehavior
+                  Just _ ->
+                    do
+                      let tag = ArgFreeBadOffset
+                      liftIO $
+                        (appCtx ^. log) Hi $
+                          Text.unwords
+                            [ "Diagnosis: ",
+                              diagnose tag,
+                              "#" <> Text.pack (show (Ctx.indexVal idx)),
+                              "at",
+                              Text.pack (show (ppCursor (argName idx) cursor)),
+                              "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                            ]
+                      liftIO $ (appCtx ^. log) Hi $ prescribe tag
+                      expectPointerType ftRepr $
+                        const $
+                          return $
+                            ExMissingPreconditions
+                              (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+            Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+              unfixed appCtx UnfixedGlobalFreeBadOffset
+            Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+              unfixed appCtx UnfixedRetPtrFree
+            _ -> requirePossiblePointer FreeNonPointer ptr
     LLVMErrors.BBUndefinedBehavior (UB.DoubleFree (Crucible.RV ptr)) ->
       do
         maybeEx <- handleFreeUnallocated ptr
@@ -312,110 +319,114 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
               truePositive DoubleFree
     LLVMErrors.BBUndefinedBehavior
       (UB.PtrAddOffsetOutOfBounds (Crucible.RV ptr) (Crucible.RV offset)) ->
-        case getPtrOffsetAnn ptr of
-          Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-            case getTermAnn offset of
-              Just (Some (TypedSelector _ (SomeInSelector (SelectArgument _ _)))) ->
+        do
+          ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          case ann of
+            Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+              case getTermAnn offset of
+                Just (Some (TypedSelector _ (SomeInSelector (SelectArgument _ _)))) ->
+                  do
+                    let tag = UnfixedArgPtrOffsetArg
+                    liftIO $
+                      (appCtx ^. log) Hi $
+                        Text.unwords
+                          [ "Diagnosis: ",
+                            ppUnfixed tag,
+                            "#" <> Text.pack (show (Ctx.indexVal idx)),
+                            "at",
+                            Text.pack (show (ppCursor (argName idx) cursor)),
+                            "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                          ]
+                    unfixed appCtx tag
+                _ ->
+                  case What4.asConcrete offset of
+                    Just bv ->
+                      do
+                        let tag = ArgPointerConstOffset
+                        liftIO $
+                          (appCtx ^. log) Hi $
+                            Text.unwords
+                              [ "Diagnosis: ",
+                                diagnose tag,
+                                "#" <> Text.pack (show (Ctx.indexVal idx)),
+                                "at",
+                                Text.pack (show (ppCursor (argName idx) cursor)),
+                                "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                              ]
+                        liftIO $ (appCtx ^. log) Hi $ prescribe tag
+                        expectPointerType ftRepr $
+                          \partTypeRepr ->
+                            return $
+                              ExMissingPreconditions
+                                ( tag,
+                                  oneArgShapeConstraint
+                                    idx
+                                    cursor
+                                    (Allocated (elemsFromOffset' bv partTypeRepr))
+                                )
+                    Nothing ->
+                      do
+                        let tag = AddSymbolicOffsetToArgPointer
+                        liftIO $
+                          (appCtx ^. log) Hi $
+                            Text.unwords
+                              [ "Diagnosis:",
+                                ppUnfixable tag,
+                                "#" <> Text.pack (show (Ctx.indexVal idx)),
+                                "at",
+                                Text.pack (show (ppCursor (argName idx) cursor)),
+                                "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                              ]
+                        unfixable appCtx tag
+            Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+              unfixed appCtx UnfixedGlobalPointerAddOffset
+            Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+              unfixed appCtx UnfixedRetPtrAddOffset
+            _ -> unclass appCtx badBehavior
+    LLVMErrors.BBUndefinedBehavior
+      (UB.MemsetInvalidRegion (Crucible.RV ptr) _fillByte (Crucible.RV len)) ->
+        do
+          ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          case (ann, What4.asConcrete len) of
+            ( Just
+                ( Some
+                    ( TypedSelector
+                        ftRepr
+                        (SomeInSelector (SelectArgument idx cursor))
+                      )
+                  ),
+              Just concreteLen
+              ) ->
                 do
-                  let tag = UnfixedArgPtrOffsetArg
+                  let tag = ArgMemsetTooSmall
                   liftIO $
                     (appCtx ^. log) Hi $
                       Text.unwords
-                        [ "Diagnosis: ",
-                          ppUnfixed tag,
+                        [ "Diagnosis:",
+                          diagnose tag,
                           "#" <> Text.pack (show (Ctx.indexVal idx)),
                           "at",
                           Text.pack (show (ppCursor (argName idx) cursor)),
                           "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                         ]
-                  unfixed appCtx tag
-              _ ->
-                case What4.asConcrete offset of
-                  Just bv ->
-                    do
-                      let tag = ArgPointerConstOffset
-                      liftIO $
-                        (appCtx ^. log) Hi $
-                          Text.unwords
-                            [ "Diagnosis: ",
-                              diagnose tag,
-                              "#" <> Text.pack (show (Ctx.indexVal idx)),
-                              "at",
-                              Text.pack (show (ppCursor (argName idx) cursor)),
-                              "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                            ]
-                      liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                      expectPointerType ftRepr $
-                        \partTypeRepr ->
-                          return $
-                            ExMissingPreconditions
-                              ( tag,
-                                oneArgShapeConstraint
-                                  idx
-                                  cursor
-                                  (Allocated (elemsFromOffset' bv partTypeRepr))
+                  liftIO $ (appCtx ^. log) Hi $ prescribe tag
+                  expectPointerType ftRepr $
+                    \partTypeRepr ->
+                      return $
+                        ExMissingPreconditions
+                          ( tag,
+                            oneArgShapeConstraint
+                              idx
+                              cursor
+                              ( Initialized
+                                  (elemsFromOffset' concreteLen partTypeRepr)
                               )
-                  Nothing ->
-                    do
-                      let tag = AddSymbolicOffsetToArgPointer
-                      liftIO $
-                        (appCtx ^. log) Hi $
-                          Text.unwords
-                            [ "Diagnosis:",
-                              ppUnfixable tag,
-                              "#" <> Text.pack (show (Ctx.indexVal idx)),
-                              "at",
-                              Text.pack (show (ppCursor (argName idx) cursor)),
-                              "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                            ]
-                      unfixable appCtx tag
-          Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
-            unfixed appCtx UnfixedGlobalPointerAddOffset
-          Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
-            unfixed appCtx UnfixedRetPtrAddOffset
-          _ -> unclass appCtx badBehavior
-    LLVMErrors.BBUndefinedBehavior
-      (UB.MemsetInvalidRegion (Crucible.RV ptr) _fillByte (Crucible.RV len)) ->
-        case (getPtrOffsetAnn ptr, What4.asConcrete len) of
-          ( Just
-              ( Some
-                  ( TypedSelector
-                      ftRepr
-                      (SomeInSelector (SelectArgument idx cursor))
-                    )
-                ),
-            Just concreteLen
-            ) ->
-              do
-                let tag = ArgMemsetTooSmall
-                liftIO $
-                  (appCtx ^. log) Hi $
-                    Text.unwords
-                      [ "Diagnosis:",
-                        diagnose tag,
-                        "#" <> Text.pack (show (Ctx.indexVal idx)),
-                        "at",
-                        Text.pack (show (ppCursor (argName idx) cursor)),
-                        "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                      ]
-                liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                expectPointerType ftRepr $
-                  \partTypeRepr ->
-                    return $
-                      ExMissingPreconditions
-                        ( tag,
-                          oneArgShapeConstraint
-                            idx
-                            cursor
-                            ( Initialized
-                                (elemsFromOffset' concreteLen partTypeRepr)
-                            )
-                        )
-          (Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))), _) ->
-            unfixed appCtx UnfixedGlobalMemsetTooSmall
-          (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
-            unfixed appCtx UnfixedRetMemset
-          _ -> unclass appCtx badBehavior
+                          )
+            (Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))), _) ->
+              unfixed appCtx UnfixedGlobalMemsetTooSmall
+            (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
+              unfixed appCtx UnfixedRetMemset
+            _ -> unclass appCtx badBehavior
     LLVMErrors.BBUndefinedBehavior
       (UB.PoisonValueCreated poison) ->
         classifyPoison appCtx funCtx sym annotations poison
@@ -427,51 +438,53 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
           (summarizeOp -> (_expl, ptr, _mem))
           MemError.UnwritableRegion
         ) ->
-        case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
-          (Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))), _) ->
-            expectPointerType ftRepr $
-              const $
-                case argShapes ^. ixF' idx . to (flip Shape.isAllocated cursor) of
-                  Left _ -> panic "classify" ["Bad cursor into argument"]
-                  Right True ->
-                    -- TODO: This should probably be an error, it definitely *can*
-                    -- arise from a use-after-free of an argument see
-                    -- test/programs/use_after_free.c
-                    unclass appCtx badBehavior
-                  Right False ->
-                    do
-                      int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
-                      let tag = ArgWriteUnmapped
-                      liftIO $
-                        (appCtx ^. log) Hi $
-                          Text.unwords
-                            [ "Diagnosis:",
-                              diagnose tag,
-                              "#" <> Text.pack (show (Ctx.indexVal idx)),
-                              "at",
-                              Text.pack (show (ppCursor (argName idx) cursor)),
-                              "(allocation: " <> Text.pack (show (What4.printSymExpr int)) <> ")",
-                              "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                            ]
-                      liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                      return $
-                        ExMissingPreconditions
-                          (tag, oneArgShapeConstraint idx cursor (Allocated 1))
-          (Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))), _) ->
-            unfixed appCtx UnfixedGlobalWriteUnmapped
-          (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
-            unfixed appCtx UnfixedRetWriteUnmapped
-          -- If the pointer expression doesn't involve the function's
-          -- arguments/global variables at all, then it's just a standard null
-          -- dereference or similar.
-          (Nothing, []) ->
-            do
-              notPtr <- liftIO $ notAPointer sym ptr
-              case notPtr of
-                Just True -> truePositive WriteNonPointer
-                _ -> unclass appCtx badBehavior
-          -- If the "pointer" concretely wasn't a pointer, it's a bug.
-          _ -> requirePossiblePointer WriteNonPointer ptr
+        do
+          ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          case (ann, getAnyPtrOffsetAnn ptr) of
+            (Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))), _) ->
+              expectPointerType ftRepr $
+                const $
+                  case argShapes ^. ixF' idx . to (flip Shape.isAllocated cursor) of
+                    Left _ -> panic "classify" ["Bad cursor into argument"]
+                    Right True ->
+                      -- TODO: This should probably be an error, it definitely *can*
+                      -- arise from a use-after-free of an argument see
+                      -- test/programs/use_after_free.c
+                      unclass appCtx badBehavior
+                    Right False ->
+                      do
+                        int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
+                        let tag = ArgWriteUnmapped
+                        liftIO $
+                          (appCtx ^. log) Hi $
+                            Text.unwords
+                              [ "Diagnosis:",
+                                diagnose tag,
+                                "#" <> Text.pack (show (Ctx.indexVal idx)),
+                                "at",
+                                Text.pack (show (ppCursor (argName idx) cursor)),
+                                "(allocation: " <> Text.pack (show (What4.printSymExpr int)) <> ")",
+                                "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                              ]
+                        liftIO $ (appCtx ^. log) Hi $ prescribe tag
+                        return $
+                          ExMissingPreconditions
+                            (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+            (Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))), _) ->
+              unfixed appCtx UnfixedGlobalWriteUnmapped
+            (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
+              unfixed appCtx UnfixedRetWriteUnmapped
+            -- If the pointer expression doesn't involve the function's
+            -- arguments/global variables at all, then it's just a standard null
+            -- dereference or similar.
+            (Nothing, []) ->
+              do
+                notPtr <- liftIO $ notAPointer sym ptr
+                case notPtr of
+                  Just True -> truePositive WriteNonPointer
+                  _ -> unclass appCtx badBehavior
+            -- If the "pointer" concretely wasn't a pointer, it's a bug.
+            _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
           (summarizeOp -> (_expl, ptr, _mem))
@@ -485,10 +498,9 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
           (MemError.NoSatisfyingWrite _storageType ptr)
         ) ->
         do
-          blockAnn <- liftIO $ getPtrBlockAnn ptr
-          case (blockAnn, getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
+          ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          case (ann, getAnyPtrOffsetAnn ptr) of
             ( Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))),
-              _,
               _
               ) ->
                 do
@@ -519,19 +531,11 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                                   )
                               )
                           )
-            ( Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))),
-              _,
-              _
-              ) -> unfixed appCtx UnfixedGlobalReadUninitialized
-            ( _,
-              Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))),
-              _
-              ) -> unfixed appCtx UnfixedGlobalReadUninitialized
-            ( Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))),
-              _,
-              _
-              ) -> unfixed appCtx UnfixedRetReadUninitialized
-            (Nothing, _, [Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))]) ->
+            (Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))), _) ->
+              unfixed appCtx UnfixedGlobalReadUninitialized
+            (Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))), _) ->
+              unfixed appCtx UnfixedRetReadUninitialized
+            (Nothing, [Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))]) ->
               do
                 let tag = ArgReadUninitializedOffset
                 liftIO $
@@ -577,38 +581,40 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
           (MemError.MemLoadHandleOp _type _str ptr mem)
           (MemError.BadFunctionPointer _msg)
         ) ->
-        case getPtrOffsetAnn ptr of
-          Just (Some (TypedSelector _ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-            do
-              let tag = UnfixedFunctionPtrInArg
-              liftIO $
-                (appCtx ^. log) Hi $
-                  Text.unwords
-                    [ "Diagnosis: ",
-                      ppUnfixed tag,
-                      "#" <> Text.pack (show (Ctx.indexVal idx)),
-                      "at",
-                      Text.pack (show (ppCursor (argName idx) cursor)),
-                      "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
-                    ]
-              unfixed appCtx tag
-          Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
-            unfixed appCtx UnfixedGlobalCall
-          Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
-            unfixed appCtx UnfixedRetCall
-          _ ->
-            liftIO (allocInfoFromPtr mem ptr)
-              >>= \case
-                Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
-                  do
-                    when (loc == mallocLocation) $
-                      panic "classify" ["Setup allocated something on the stack?"]
-                    truePositive (CallNonFunctionPointer loc)
-                Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
-                  if loc == mallocLocation
-                    then unclass appCtx badBehavior
-                    else truePositive (CallNonFunctionPointer loc)
-                _ -> unclass appCtx badBehavior
+        do
+          ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          case ann of
+            Just (Some (TypedSelector _ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
+              do
+                let tag = UnfixedFunctionPtrInArg
+                liftIO $
+                  (appCtx ^. log) Hi $
+                    Text.unwords
+                      [ "Diagnosis: ",
+                        ppUnfixed tag,
+                        "#" <> Text.pack (show (Ctx.indexVal idx)),
+                        "at",
+                        Text.pack (show (ppCursor (argName idx) cursor)),
+                        "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
+                      ]
+                unfixed appCtx tag
+            Just (Some (TypedSelector _ (SomeInSelector SelectGlobal {}))) ->
+              unfixed appCtx UnfixedGlobalCall
+            Just (Some (TypedSelector _ (SomeInSelector SelectReturn {}))) ->
+              unfixed appCtx UnfixedRetCall
+            _ ->
+              liftIO (allocInfoFromPtr mem ptr)
+                >>= \case
+                  Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
+                    do
+                      when (loc == mallocLocation) $
+                        panic "classify" ["Setup allocated something on the stack?"]
+                      truePositive (CallNonFunctionPointer loc)
+                  Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
+                    if loc == mallocLocation
+                      then unclass appCtx badBehavior
+                      else truePositive (CallNonFunctionPointer loc)
+                  _ -> unclass appCtx badBehavior
     _ -> unclass appCtx badBehavior
   where
     expectPointerType ::
@@ -645,6 +651,11 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
       do
         int <- What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
         pure $ getTermAnn int
+
+    getPtrBlockOrOffsetAnn ::
+      LLVMPtr.LLVMPtr sym w ->
+      IO (Maybe (Some (TypedSelector m arch argTypes)))
+    getPtrBlockOrOffsetAnn ptr = (getPtrOffsetAnn ptr <|>) <$> getPtrBlockAnn ptr
 
     getAnyPtrOffsetAnn ::
       LLVMPtr.LLVMPtr sym w ->
