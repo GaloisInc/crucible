@@ -39,6 +39,8 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (unzip)
 
+import           Control.Lens.At (At(at), Ixed(ix), Index, IxValue, ixAt)
+import           Control.Lens (lens)
 import           Control.Monad (unless)
 import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExceptT)
 import           Control.Monad.State (State, runState)
@@ -95,12 +97,21 @@ newtype GlobalSymbol m = GlobalSymbol
   {_getGlobalSymbol :: L.Symbol}
   deriving (Eq, Ord)
 
+type instance Index (GlobalMap m a) = GlobalSymbol m
+type instance IxValue (GlobalMap m a) = a
+
 -- | Constructor not exported to enforce the invariant that a 'GlobalMap' holds
 -- a value for every LLVM global in the corresponding module indicated by the
 -- @m@ parameter.
 newtype GlobalMap m a = GlobalMap
-  {_getGlobalMap :: Map (GlobalSymbol m) a}
+  {getGlobalMap :: Map (GlobalSymbol m) a}
   deriving (Foldable, Functor)
+
+instance At (GlobalMap m a) where
+  at symb = lens getGlobalMap (const GlobalMap) . at symb
+
+instance Ixed (GlobalMap m a) where
+  ix = ixAt
 
 lookupGlobalSymbol :: GlobalSymbol m -> GlobalMap m a -> a
 lookupGlobalSymbol symbol (GlobalMap mp) =
