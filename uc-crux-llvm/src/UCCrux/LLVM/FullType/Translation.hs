@@ -32,6 +32,7 @@ module UCCrux.LLVM.FullType.Translation
     lookupGlobalSymbol,
     makeGlobalSymbol,
     getGlobalSymbol,
+    isEmptyGlobalMap,
   )
 where
 
@@ -99,7 +100,7 @@ newtype GlobalSymbol m = GlobalSymbol
 -- @m@ parameter.
 newtype GlobalMap m a = GlobalMap
   {_getGlobalMap :: Map (GlobalSymbol m) a}
-  deriving (Functor)
+  deriving (Foldable, Functor)
 
 lookupGlobalSymbol :: GlobalSymbol m -> GlobalMap m a -> a
 lookupGlobalSymbol symbol (GlobalMap mp) =
@@ -119,6 +120,9 @@ makeGlobalSymbol (GlobalMap mp) symbol =
 
 getGlobalSymbol :: GlobalSymbol m -> L.Symbol
 getGlobalSymbol (GlobalSymbol s) = s
+
+isEmptyGlobalMap :: GlobalMap m a -> Bool
+isEmptyGlobalMap (GlobalMap m) = Map.null m
 
 -- | The existential quantification over @m@ here makes the @FullType@ API safe.
 -- You can only intermingle 'FullTypeRepr' from the same LLVM module, and by

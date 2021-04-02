@@ -81,7 +81,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
 import           UCCrux.LLVM.Classify.Types (Explanation(..), Uncertainty(..))
-import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, argConstraints, globalConstraints, relationalConstraints)
+import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, argConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
@@ -89,7 +89,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
-import           UCCrux.LLVM.FullType (FullType, MapToCrucibleType)
+import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SetupAssumption(SetupAssumption))
@@ -122,8 +122,6 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
               { Crucible.printHandle = view outputHandle ?outputConfig
               }
 
-      unless (Map.null (constraints ^. globalConstraints)) $
-        panic "simulateLLVM" ["Unimplemented: global constraints"]
       unless (null (constraints ^. relationalConstraints)) $
         panic "simulateLLVM" ["Unimplemented: relational constraints"]
 
