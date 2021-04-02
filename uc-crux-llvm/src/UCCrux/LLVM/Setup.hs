@@ -30,14 +30,14 @@ where
 import           Prelude hiding (head, reverse, zip)
 
 import           Control.Lens ((^.), (%~),to)
-import           Control.Monad (foldM, forM)
+import           Control.Monad (foldM, forM, void)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.List.NonEmpty (NonEmpty((:|)), head, reverse, zip, toList)
 import           Data.Foldable (for_)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(Compose))
 import           Data.Proxy (Proxy(Proxy))
-import           Data.Type.Equality ((:~:) (Refl))
+import           Data.Type.Equality ((:~:)(Refl), testEquality)
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
 
@@ -48,7 +48,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+), LeqProof(LeqProof))
 import qualified Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some (Some(Some))
-import           Data.Parameterized.TraversableFC (fmapFC)
 import qualified Data.Parameterized.Vector as PVec
 
 import qualified What4.Interface as W4I
@@ -74,13 +73,13 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
-import           UCCrux.LLVM.FullType.Translation (globalSymbol, makeGlobalSymbol)
+import           UCCrux.LLVM.FullType.Translation (GlobalMap, globalSymbol, makeGlobalSymbol)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.Constraints (ConstrainedShape(..), Constraint(..))
+import           UCCrux.LLVM.Constraints (Constraints, ConstrainedGlobal(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints)
 {- ORMOLU_ENABLE -}
 
 newtype SymValue sym arch ft = SymValue {getSymValue :: Crucible.RegValue sym (ToCrucibleType arch ft)}
@@ -398,45 +397,57 @@ generateArgs _appCtx modCtx funCtx sym argSpecs =
       )
 
 populateNonConstGlobals ::
+  forall m arch sym argTypes.
   ( Crucible.IsSymInterface sym,
     LLVMMem.HasLLVMAnn sym,
     ArchOk arch
   ) =>
   ModuleContext m arch ->
   sym ->
+  GlobalMap m (ConstrainedGlobal m) ->
   Setup m arch sym argTypes ()
-populateNonConstGlobals modCtx sym =
+populateNonConstGlobals modCtx sym constrainedGlobals =
   for_
     (modCtx ^. llvmModule . to L.modGlobals . to (filter (not . isConstGlobal)))
     populateNonConstGlobal
   where
     isConstGlobal = L.gaConstant . L.globalAttrs
+
+    populateNonConstGlobal :: L.Global -> Setup m arch sym argTypes ()
     populateNonConstGlobal glob =
-      do
-        let symb = L.globalSym glob
-        let gSymb =
-              case makeGlobalSymbol (modCtx ^. globalTypes) symb of
+      let symb = L.globalSym glob
+          gSymb =
+            case makeGlobalSymbol (modCtx ^. globalTypes) symb of
+              Nothing ->
+                panic
+                  "populateNonConstGlobal"
+                  ["Missing type for global " ++ show symb]
+              Just gs -> gs
+       in case ( constrainedGlobals ^. globalSymbol gSymb,
+                 modCtx ^. globalTypes . globalSymbol gSymb
+               ) of
+            (ConstrainedGlobal cgTy cgShape, Some fullTy) ->
+              case testEquality cgTy fullTy of
                 Nothing ->
                   panic
                     "populateNonConstGlobal"
-                    ["Missing type for global " ++ show symb]
-                Just gs -> gs
-        Some fullTy <-
-          pure $ modCtx ^. globalTypes . globalSymbol gSymb
-        let selector = SelectGlobal gSymb (Here fullTy)
-        val <-
-          generate
-            sym
-            (modCtx ^. moduleTypes)
-            fullTy
-            selector
-            (ConstrainedShape (fmapFC (\_ -> Compose []) (Shape.minimal fullTy)))
-        storeGlobal
-          sym
-          fullTy
-          selector
-          symb
-          (val ^. Shape.tag . to getSymValue)
+                    ["Ill-typed constraints on global " ++ show symb]
+                Just Refl ->
+                  do
+                    val <-
+                      generate
+                        sym
+                        (modCtx ^. moduleTypes)
+                        fullTy
+                        (SelectGlobal gSymb (Here fullTy))
+                        cgShape
+                    void $
+                      storeGlobal
+                        sym
+                        fullTy
+                        (SelectGlobal gSymb (Here fullTy))
+                        symb
+                        (val ^. Shape.tag . to getSymValue)
 
 -- | Generate arguments (and someday, global variables) that conform to the
 -- preconditions specified in the 'Ctx.Assignment' of 'ConstrainedShape'.
@@ -457,8 +468,8 @@ setupExecution ::
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   sym ->
-  -- | Constraints and memory layouts of each argument
-  Ctx.Assignment (ConstrainedShape m) argTypes ->
+  -- | Constraints and memory layouts of each argument and global
+  Constraints m argTypes ->
   f
     ( Either
         (SetupError m arch argTypes)
@@ -468,7 +479,7 @@ setupExecution ::
           )
         )
     )
-setupExecution appCtx modCtx funCtx sym argSpecs = do
+setupExecution appCtx modCtx funCtx sym constraints = do
   let moduleTrans = modCtx ^. moduleTranslation
   let llvmCtxt = moduleTrans ^. LLVMTrans.transContext
   -- TODO(lb): This could be more lazy: We could initialize and allocate only
@@ -483,5 +494,5 @@ setupExecution appCtx modCtx funCtx sym argSpecs = do
           =<< LLVMGlobals.initializeAllMemory sym llvmCtxt (modCtx ^. llvmModule)
   runSetup modCtx mem $
     do
-      populateNonConstGlobals modCtx sym
-      generateArgs appCtx modCtx funCtx sym argSpecs
+      populateNonConstGlobals modCtx sym (constraints ^. globalConstraints)
+      generateArgs appCtx modCtx funCtx sym (constraints ^. argConstraints)

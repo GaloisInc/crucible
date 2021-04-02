@@ -81,7 +81,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
 import           UCCrux.LLVM.Classify.Types (Explanation(..), Uncertainty(..))
-import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, argConstraints, relationalConstraints)
+import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
@@ -126,7 +126,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
         panic "simulateLLVM" ["Unimplemented: relational constraints"]
 
       setupResult <-
-        liftIO $ setupExecution appCtx modCtx funCtx sym (constraints ^. argConstraints)
+        liftIO $ setupExecution appCtx modCtx funCtx sym constraints
       (mem, argAnnotations, assumptions, argShapes, args) <-
         case setupResult of
           Left err -> panic "setupExecution" [show (ppSetupError err)]
