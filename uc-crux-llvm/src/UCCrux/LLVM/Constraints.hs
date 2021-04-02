@@ -173,6 +173,12 @@ data RelationalConstraint m (argTypes :: Ctx (FullType m))
 
 -- * Collections of constraints
 
+data ConstrainedGlobal m = forall ft.
+  ConstrainedGlobal
+  { _constrainedGlobalType :: FullTypeRepr m ft,
+    _constrainedGlobalShape :: ConstrainedShape m ft
+  }
+
 -- | A collection of constraints on the state of a program. These are used to
 -- hold function preconditions deduced by
 -- "UCCrux.LLVM.Classify.classifyBadBehavior".
@@ -181,14 +187,14 @@ data RelationalConstraint m (argTypes :: Ctx (FullType m))
 -- compatibility.
 data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
-    _globalConstraints :: GlobalMap m (Some (ConstrainedShape m)),
+    _globalConstraints :: GlobalMap m (ConstrainedGlobal m),
     _relationalConstraints :: [RelationalConstraint m argTypes]
   }
 
 argConstraints :: Simple Lens (Constraints m argTypes) (Ctx.Assignment (ConstrainedShape m) argTypes)
 argConstraints = lens _argConstraints (\s v -> s {_argConstraints = v})
 
-globalConstraints :: Simple Lens (Constraints m globalTypes) (GlobalMap m (Some (ConstrainedShape m)))
+globalConstraints :: Simple Lens (Constraints m globalTypes) (GlobalMap m (ConstrainedGlobal m))
 globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
 
 relationalConstraints :: Simple Lens (Constraints m argTypes) [RelationalConstraint m argTypes]
@@ -222,7 +228,9 @@ emptyConstraints globalTypes argTypes =
       _globalConstraints =
         fmap
           ( \(Some ft) ->
-              Some (ConstrainedShape (fmapFC (\_ -> Compose []) (Shape.minimal ft)))
+              ConstrainedGlobal
+                ft
+                (ConstrainedShape (fmapFC (\_ -> Compose []) (Shape.minimal ft)))
           )
           globalTypes,
       _relationalConstraints = []
@@ -264,7 +272,7 @@ ppConstraints (Constraints args _ relCs) =
 isEmpty :: Constraints m argTypes -> Bool
 isEmpty (Constraints args globs rels) =
   allFC isMin args
-    && all (\(Some s) -> isMin s) globs
+    && all (\(ConstrainedGlobal _ s) -> isMin s) globs
     && null rels
   where
     isMin = Shape.isMinimal (null . getCompose) . getConstrainedShape
