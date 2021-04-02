@@ -8,6 +8,7 @@ Stability        : provisional
 -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
@@ -20,14 +21,17 @@ module UCCrux.LLVM.FullType.Translation
   ( FunctionTypes (..),
     MatchingAssign (..),
     DeclTypes,
-    GlobalTypes,
+    GlobalSymbol,
+    GlobalMap,
     TranslatedTypes (..),
     TypeTranslationError (..),
     isDebug,
     translateModuleDefines,
     ppTypeTranslationError,
     lookupDeclTypes,
-    lookupGlobalType,
+    lookupGlobalSymbol,
+    makeGlobalSymbol,
+    getGlobalSymbol,
   )
 where
 
@@ -39,6 +43,7 @@ import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExce
 import           Control.Monad.State (State, runState)
 import           Data.Functor ((<&>))
 import qualified Data.List as List
+import           Data.Maybe (fromMaybe)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -85,14 +90,35 @@ newtype DeclTypes m arch = DeclTypes {_getDeclTypes :: Map L.Symbol (FunctionTyp
 lookupDeclTypes :: L.Symbol -> DeclTypes m arch -> Maybe (FunctionTypes m arch)
 lookupDeclTypes symb (DeclTypes mp) = Map.lookup symb mp
 
--- | Constructor not exported to enforce the invariant that a 'GlobalTypes'
--- holds 'FullTypeRepr' for every LLVM global in the corresponding module
--- indicated by the @m@ parameter.
-newtype GlobalTypes m = GlobalTypes
-  {_getGlobalTypes :: Map L.Symbol (Some (FullTypeRepr m))}
+newtype GlobalSymbol m = GlobalSymbol
+  {_getGlobalSymbol :: L.Symbol}
+  deriving (Eq, Ord)
 
-lookupGlobalType :: L.Symbol -> GlobalTypes m -> Maybe (Some (FullTypeRepr m))
-lookupGlobalType symb (GlobalTypes mp) = Map.lookup symb mp
+-- | Constructor not exported to enforce the invariant that a 'GlobalMap' holds
+-- a value for every LLVM global in the corresponding module indicated by the
+-- @m@ parameter.
+newtype GlobalMap m a = GlobalMap
+  {_getGlobalMap :: Map (GlobalSymbol m) a}
+  deriving (Functor)
+
+lookupGlobalSymbol :: GlobalSymbol m -> GlobalMap m a -> a
+lookupGlobalSymbol symbol (GlobalMap mp) =
+  fromMaybe
+    ( panic
+        "lookupGlobalSymbol"
+        ["Broken invariant: GlobalSymbol not present in GlobalMap"]
+    )
+    (Map.lookup symbol mp)
+
+makeGlobalSymbol :: GlobalMap m a -> L.Symbol -> Maybe (GlobalSymbol m)
+makeGlobalSymbol (GlobalMap mp) symbol =
+  let gs = GlobalSymbol symbol
+   in case Map.lookup gs mp of
+        Just _ -> Just gs
+        Nothing -> Nothing
+
+getGlobalSymbol :: GlobalSymbol m -> L.Symbol
+getGlobalSymbol (GlobalSymbol s) = s
 
 -- | The existential quantification over @m@ here makes the @FullType@ API safe.
 -- You can only intermingle 'FullTypeRepr' from the same LLVM module, and by
@@ -106,7 +132,7 @@ lookupGlobalType symb (GlobalTypes mp) = Map.lookup symb mp
 data TranslatedTypes arch = forall m.
   TranslatedTypes
   { translatedModuleTypes :: ModuleTypes m,
-    translatedGlobalTypes :: GlobalTypes m,
+    translatedGlobalTypes :: GlobalMap m (Some (FullTypeRepr m)),
     translatedDeclTypes :: DeclTypes m arch
   }
 
@@ -171,7 +197,7 @@ translateModuleDefines llvmModule trans =
             <&> \(declTypes, globalTypes) ->
               TranslatedTypes
                 modTypes
-                (GlobalTypes (Map.fromList globalTypes))
+                (GlobalMap (Map.fromList globalTypes))
                 (DeclTypes (Map.fromList declTypes))
   where
     translateGlobal ::
@@ -179,12 +205,12 @@ translateModuleDefines llvmModule trans =
       ExceptT
         TypeTranslationError
         (State (ModuleTypes m))
-        (L.Symbol, Some (FullTypeRepr m))
+        (GlobalSymbol m, Some (FullTypeRepr m))
     translateGlobal glob =
       do
         memTy <- withExceptT BadLift (LLVMTrans.liftMemType (L.globalType glob))
         ty <- withExceptT FullTypeTranslation (toFullTypeM memTy)
-        pure (L.globalSym glob, ty)
+        pure (GlobalSymbol (L.globalSym glob), ty)
 
     translateDefine ::
       L.Define ->

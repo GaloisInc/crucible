@@ -51,10 +51,11 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Ctx (Ctx)
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Classes (OrdF(compareF), ixF')
+import           Data.Parameterized.Classes (OrdF(compareF), ixF', fromOrdering)
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+))
 import qualified Data.Parameterized.TH.GADT as U
 
+import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, getGlobalSymbol)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..), ModuleTypes, asFullType)
 {- ORMOLU_ENABLE -}
 
@@ -222,7 +223,7 @@ ppCursor top =
 -- For documentation of the type parameters, see the comment on 'Cursor'.
 data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   = SelectArgument !(Ctx.Index argTypes inTy) (Cursor m inTy atTy)
-  | SelectGlobal !L.Symbol (Cursor m inTy atTy)
+  | SelectGlobal !(GlobalSymbol m) (Cursor m inTy atTy)
   | SelectReturn !L.Symbol (Cursor m inTy atTy)
 
 -- | A non-parameterized summary of a 'Selector'
@@ -236,7 +237,9 @@ selectWhere :: Selector m argTypes inTy atTy -> Where
 selectWhere =
   \case
     SelectArgument idx _ -> Arg (Ctx.indexVal idx)
-    SelectGlobal (L.Symbol g) _ -> Global g
+    SelectGlobal gSymb _ ->
+      let L.Symbol g = getGlobalSymbol gSymb
+       in Global g
     SelectReturn (L.Symbol f) _ -> ReturnValue f
 
 -- | For documentation of the type parameters, see the comment on 'Cursor'.
@@ -367,6 +370,9 @@ instance OrdF (Selector m argTypes inTy) where
                  ),
                  ( appAny (appAny (U.ConType [t|Ctx.Index|])),
                    [|compareF|]
+                 ),
+                 ( appAny (U.ConType [t|GlobalSymbol|]),
+                   [|\x y -> fromOrdering (compare x y)|]
                  )
                ]
          )
