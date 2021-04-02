@@ -128,7 +128,7 @@ translateLLVMModule ::
   FilePath ->
   L.Module ->
   IO SomeModuleContext'
-translateLLVMModule ucOpts halloc memvar moduleFilePath llvmMod =
+translateLLVMModule ucOpts halloc memVar moduleFilePath llvmMod =
   do
     let llvmOpts = Config.ucLLVMOptions ucOpts
     Some trans <-
