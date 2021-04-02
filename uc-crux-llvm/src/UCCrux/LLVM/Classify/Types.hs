@@ -73,6 +73,11 @@ data TruePositiveTag
   | TagSRemByConcreteZero
   | TagReadNonPointer
   | TagWriteNonPointer
+  | TagFreeNonPointer
+  | TagReadUninitializedStack
+  | TagReadUninitializedHeap
+  | TagCallNonFunctionPointer
+  | TagFloatToPointer
   deriving (Eq, Ord)
 
 data TruePositive
@@ -84,6 +89,11 @@ data TruePositive
   | SRemByConcreteZero
   | ReadNonPointer
   | WriteNonPointer
+  | FreeNonPointer
+  | ReadUninitializedStack !String -- program location
+  | ReadUninitializedHeap !String -- program location
+  | CallNonFunctionPointer !String -- program location of allocation
+  | FloatToPointer
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -96,6 +106,11 @@ truePositiveTag =
     SRemByConcreteZero {} -> TagSRemByConcreteZero
     ReadNonPointer {} -> TagReadNonPointer
     WriteNonPointer {} -> TagWriteNonPointer
+    FreeNonPointer {} -> TagFreeNonPointer
+    ReadUninitializedStack {} -> TagReadUninitializedStack
+    ReadUninitializedHeap {} -> TagReadUninitializedHeap
+    CallNonFunctionPointer {} -> TagCallNonFunctionPointer
+    FloatToPointer {} -> TagFloatToPointer
 
 ppTruePositiveTag :: TruePositiveTag -> Text
 ppTruePositiveTag =
@@ -106,15 +121,26 @@ ppTruePositiveTag =
     TagSDivByConcreteZero -> "Signed division with a concretely zero divisor"
     TagURemByConcreteZero -> "Unsigned remainder with a concretely zero divisor"
     TagSRemByConcreteZero -> "Signed remainder with a concretely zero divisor"
-    TagReadNonPointer -> "Read from an integer that concretely wasn't a pointer"
-    TagWriteNonPointer -> "Write from an integer that concretely wasn't a pointer"
+    TagReadNonPointer -> "Read from data that concretely wasn't a pointer"
+    TagWriteNonPointer -> "Write to data that concretely wasn't a pointer"
+    TagFreeNonPointer -> "`free` called on data that concretely wasn't a pointer"
+    TagReadUninitializedStack -> "Read from uninitialized stack allocation"
+    TagReadUninitializedHeap -> "Read from uninitialized heap allocation"
+    TagCallNonFunctionPointer -> "Called a pointer that wasn't a function pointer"
+    TagFloatToPointer -> "Treated float as pointer"
 
 ppTruePositive :: TruePositive -> Text
 ppTruePositive =
   \case
-    ConcretelyFailingAssert loc ->
-      "Concretely failing call to assert() at " <> Text.pack (show loc)
+    pos@(ConcretelyFailingAssert loc) -> withProgLoc pos loc
+    pos@(ReadUninitializedStack loc) -> withLoc pos loc
+    pos@(ReadUninitializedHeap loc) -> withLoc pos loc
+    pos@(CallNonFunctionPointer loc) -> withLoc pos loc
     tp -> ppTruePositiveTag (truePositiveTag tp)
+  where
+    withLoc pos loc =
+      ppTruePositiveTag (truePositiveTag pos) <> " at " <> Text.pack loc
+    withProgLoc pos loc = withLoc pos (show loc)
 
 -- | All of the preconditions that we can deduce. We know how to detect and fix
 -- these issues.

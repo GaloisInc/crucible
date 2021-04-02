@@ -41,6 +41,7 @@ module UCCrux.LLVM.Shape
     minimal,
     isMinimal,
     isAllocated,
+    isAnyUnallocated,
   )
 where
 
@@ -66,7 +67,7 @@ import           Data.Parameterized.NatRepr (NatRepr, decNat, minusPlusCancel, k
 import           Data.Parameterized.Vector (Vector)
 import qualified Data.Parameterized.Vector as PVec
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.TraversableFC (FunctorFC(fmapFC), fmapFCDefault, TraversableFC(traverseFC), FoldableFC(foldMapFC), foldMapFCDefault, allFC)
+import           Data.Parameterized.TraversableFC (FunctorFC(fmapFC), fmapFCDefault, TraversableFC(traverseFC), FoldableFC(foldMapFC), foldMapFCDefault, allFC, anyFC)
 import qualified Data.Parameterized.TH.GADT as U
 
 import           UCCrux.LLVM.Cursor (Cursor(..))
@@ -105,18 +106,22 @@ data Shape (m :: Type) (tag :: FullType m -> Type) (ft :: FullType m) where
   -- | Function pointers don't have any sub-shapes because they aren't data
   -- pointers and can't be dereferenced.
   ShapeFuncPtr ::
-    tag ('FTFuncPtr ret args) ->
-    Shape m tag ('FTFuncPtr ret args)
+    tag ('FTFuncPtr varArgs ret args) ->
+    Shape m tag ('FTFuncPtr varArgs ret args)
   -- | Opaque pointers don't have any sub-shapes because they can't be
   -- dereferenced.
   ShapeOpaquePtr ::
     tag 'FTOpaquePtr ->
     Shape m tag 'FTOpaquePtr
   ShapeArray ::
-    tag ('FTArray n ft) ->
+    tag ('FTArray ('Just n) ft) ->
     NatRepr n ->
     Vector n (Shape m tag ft) ->
-    Shape m tag ('FTArray n ft)
+    Shape m tag ('FTArray ('Just n) ft)
+  ShapeUnboundedArray ::
+    tag ('FTArray 'Nothing ft) ->
+    Seq (Shape m tag ft) ->
+    Shape m tag ('FTArray 'Nothing ft)
   ShapeStruct ::
     tag ('FTStruct fields) ->
     Ctx.Assignment (Shape m tag) fields ->
@@ -177,6 +182,9 @@ ppShapeA ppTag =
             . (: [])
         )
         (ppTag tag')
+    ShapeUnboundedArray tag' _vec ->
+      -- TODO print elements
+      fmap (PP.pretty "An array of unknown size:" PP.<+>) (ppTag tag')
     ShapeStruct tag' _fields ->
       -- TODO print elements
       fmap
@@ -236,6 +244,7 @@ tag =
         ShapeFuncPtr tg -> tg
         ShapeOpaquePtr tg -> tg
         ShapeArray tg _ _ -> tg
+        ShapeUnboundedArray tg _ -> tg
         ShapeStruct tg _ -> tg
     )
     ( \s tg ->
@@ -246,6 +255,7 @@ tag =
             ShapeFuncPtr _ -> ShapeFuncPtr tg
             ShapeOpaquePtr _ -> ShapeOpaquePtr tg
             ShapeArray _ n rest -> ShapeArray tg n rest
+            ShapeUnboundedArray _ rest -> ShapeUnboundedArray tg rest
             ShapeStruct _ rest -> ShapeStruct tg rest
         )
     )
@@ -359,6 +369,7 @@ minimal =
     FTArrayRepr n contained ->
       case minusPlusCancel n (knownNat :: NatRepr 1) of
         Refl -> ShapeArray c n (PVec.generate (decNat n) (\_ -> minimal contained))
+    FTUnboundedArrayRepr _ -> ShapeUnboundedArray c Seq.empty
     FTStructRepr _ fields -> ShapeStruct c (fmapFC minimal fields)
   where
     c = Const ()
@@ -374,7 +385,9 @@ isMinimal isMinimalTag =
     ShapePtr _tag' _ -> False
     ShapeFuncPtr tag' -> isMinimalTag tag'
     ShapeOpaquePtr tag' -> isMinimalTag tag'
-    ShapeArray tag' _ rest -> isMinimalTag tag' && all (isMinimal isMinimalTag) rest
+    ShapeArray tag' _ rest ->
+      isMinimalTag tag' && all (isMinimal isMinimalTag) rest
+    ShapeUnboundedArray tag' rest -> isMinimalTag tag' && Seq.null rest
     ShapeStruct tag' rest -> isMinimalTag tag' && allFC (isMinimal isMinimalTag) rest
 
 hasPtrShape ::
@@ -401,6 +414,21 @@ isAllocated shape cursor =
         _ -> False
     )
 
+-- | Is any sub-shape of this pointer shape unallocated?
+isAnyUnallocated :: Shape m tag inTy -> Bool
+isAnyUnallocated =
+  \case
+    ShapeInt {} -> False
+    ShapeFloat {} -> False
+    ShapePtr _ ShapeUnallocated -> True
+    ShapePtr _ (ShapeAllocated {}) -> False
+    ShapePtr _ (ShapeInitialized rest) -> any isAnyUnallocated rest
+    ShapeFuncPtr {} -> False
+    ShapeOpaquePtr {} -> False
+    ShapeArray _ _ rest -> any isAnyUnallocated rest
+    ShapeUnboundedArray _ rest -> any isAnyUnallocated rest
+    ShapeStruct _ rest -> anyFC isAnyUnallocated rest
+
 $(return [])
 
 instance FunctorFC (Shape m) where
@@ -419,6 +447,9 @@ instance TraversableFC (Shape m) where
          ( let appAny con = U.TypeApp con U.AnyType
             in [ ( appAny (appAny (appAny (U.ConType [t|PtrShape|]))),
                    [|traverseFC|]
+                 ),
+                 ( appAny (U.ConType [t|Seq|]),
+                   [|\(f :: forall x. f x -> h (g x)) -> traverse (traverseFC f)|]
                  ),
                  ( appAny (appAny (U.ConType [t|Vector|])),
                    [|\(f :: forall x. f x -> h (g x)) -> traverse (traverseFC f)|]

@@ -22,13 +22,14 @@ where
 
 {- ORMOLU_DISABLE -}
 import Control.Exception (SomeException, try, displayException)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Panic hiding (panic)
 import qualified Panic
 {- ORMOLU_ENABLE -}
 
 data Unimplemented
   = VarArgsFunction
-  | VarArgsFunctionType
   | VoidType
   | OpaqueType
   | UnsupportedType
@@ -38,13 +39,15 @@ data Unimplemented
   | ConstrainGlobal
   | GetHostNameNegativeSize
   | GetHostNameSmallSize
-  deriving (Bounded, Enum, Eq, Ord)
+  | NonEmptyUnboundedSizeArrays
+  | NonVoidUndefinedFunc Text
+  | CastIntegerToPointer
+  deriving (Eq, Ord)
 
 ppUnimplemented :: Unimplemented -> String
 ppUnimplemented =
   \case
     VarArgsFunction -> "Exploring variable-arity functions"
-    VarArgsFunctionType -> "Variable-arity function (pointer) types in globals or arguments"
     VoidType -> "Void types in globals or arguments"
     OpaqueType -> "Opaque (undefined) types in globals or arguments"
     UnsupportedType -> "Unsupported types in globals or arguments"
@@ -54,6 +57,10 @@ ppUnimplemented =
     ConstrainGlobal -> "Constraints on a global variable"
     GetHostNameNegativeSize -> "`gethostname` called with a negative length"
     GetHostNameSmallSize -> "`gethostname` called with a small length"
+    NonEmptyUnboundedSizeArrays -> "Generating arrays with unbounded size"
+    NonVoidUndefinedFunc func ->
+      "Non-void function without a definition: " ++ Text.unpack func
+    CastIntegerToPointer -> "Value of integer type treated as/cast to a pointer"
 
 instance PanicComponent Unimplemented where
   panicComponentName _ = "uc-crux-llvm"

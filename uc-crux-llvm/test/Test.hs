@@ -54,7 +54,7 @@ import           Data.Foldable (for_)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
-import           Data.Set (singleton)
+import qualified Data.Set as Set
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
 
@@ -65,7 +65,6 @@ import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, knownNat)
-import           Data.Parameterized.Some (Some(..))
 
 import           Lang.Crucible.FunctionHandle (newHandleAllocator)
 
@@ -77,12 +76,13 @@ import           Crux.LLVM.Config (clangOpts)
 
 -- Code being tested
 import qualified UCCrux.LLVM.Config as Config
-import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
+import           UCCrux.LLVM.Main (SomeModuleContext'(..), loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
-import           UCCrux.LLVM.Overrides (UnsoundOverrideName(..))
+import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
+import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
@@ -93,7 +93,7 @@ import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 exampleHere :: Cursor m ('FTInt 64) ('FTInt 64)
 exampleHere = Here (FTIntRepr knownNat)
 
-_exampleArray :: Cursor m ('FTArray 8 ('FTInt 64)) ('FTInt 64)
+_exampleArray :: Cursor m ('FTArray ('Just 8) ('FTInt 64)) ('FTInt 64)
 _exampleArray = Index (knownNat :: NatRepr 7) knownNat exampleHere
 
 _exampleStruct ::
@@ -125,7 +125,12 @@ findBugs llvmModule file fns =
         (appCtx, path, cruxOpts, ucOpts) <-
           Crux.loadOptions outCfg "uc-crux-llvm" "0.1" conf $ \(cruxOpts, ucOpts) ->
             do
-              let cruxOpts' = cruxOpts {Crux.inputFiles = [testDir </> file]}
+              -- With Yices, cast_float_to_pointer_write.c hangs
+              let cruxOpts' =
+                    cruxOpts
+                      { Crux.inputFiles = [testDir </> file],
+                        Crux.solver = "z3"
+                      }
               let ucOpts' = ucOpts {Config.entryPoints = fns}
               (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
               path <-
@@ -163,7 +168,7 @@ findBugs llvmModule file fns =
         let ?outputConfig = outCfg
         halloc <- newHandleAllocator
         memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
-        Some modCtx <-
+        SomeModuleContext' modCtx <-
           case llvmModule of
             Just lMod -> translateLLVMModule ucOpts halloc memVar path lMod
             Nothing -> translateFile ucOpts halloc memVar path
@@ -305,6 +310,25 @@ isUnclassified fn (Result.SomeBugfindingResult result) =
           Text.unpack (Result.printFunctionSummary (Result.summary result))
         ]
 
+isUnfixed :: String -> Result.SomeBugfindingResult -> IO ()
+isUnfixed fn (Result.SomeBugfindingResult result) =
+  do
+    let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
+          partitionUncertainty (Result.uncertainResults result)
+    [] TH.@=? map show missingAnn
+    [] TH.@=? map show failedAssert
+    [] TH.@=? map show unimpl
+    [] TH.@=? map show unclass
+    [] TH.@=? map show unfixable
+    [] TH.@=? map show timeouts
+    0 < length unfixed
+      TH.@? unwords
+        [ "Expected",
+          fn,
+          "to be unfixed but the result was:\n",
+          Text.unpack (Result.printFunctionSummary (Result.summary result))
+        ]
+
 hasMissingAnn :: String -> Result.SomeBugfindingResult -> IO ()
 hasMissingAnn fn (Result.SomeBugfindingResult result) =
   do
@@ -346,8 +370,13 @@ isUnimplemented file fn =
         Left _ -> pure ()
         Right () -> TH.assertFailure (unwords ["Expected", fn, "to be unimplemented"])
 
-usesOverride :: String -> Unsoundness
-usesOverride name = Unsoundness (singleton (UnsoundOverrideName (Text.pack name)))
+skipOverride :: String -> Unsoundness
+skipOverride name =
+  Unsoundness Set.empty (Set.singleton (SkipOverrideName (Text.pack name)))
+
+unsoundOverride :: String -> Unsoundness
+unsoundOverride name =
+  Unsoundness (Set.singleton (UnsoundOverrideName (Text.pack name))) Set.empty
 
 inFileTests :: TT.TestTree
 inFileTests =
@@ -356,16 +385,28 @@ inFileTests =
       (uncurry inFile)
       [ ("assert_false.c", [("assert_false", hasBugs)]),
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
+        ("call_non_function_pointer.c", [("call_non_function_pointer", hasBugs)]),
+        ("cast_float_to_pointer_deref.c", [("cast_float_to_pointer_deref", hasBugs)]),
+        ("cast_float_to_pointer_free.c", [("cast_float_to_pointer_free", hasBugs)]),
+        ("cast_float_to_pointer_write.c", [("cast_float_to_pointer_write", hasBugs)]),
         ("double_free.c", [("double_free", hasBugs)]),
+        ("uninitialized_heap.c", [("uninitialized_heap", hasBugs)]),
+        ("uninitialized_stack.c", [("uninitialized_stack", hasBugs)]),
         ("write_to_null.c", [("write_to_null", hasBugs)]),
         ("branch.c", [("branch", isSafe mempty)]),
+        -- Unclear whether this is undefined behavior. C11 section 6.5.4 says
+        -- floats can't be cast to pointers, but this one goes through an
+        -- integer first which may be OK.
+        ("cast_float_to_pointer.c", [("cast_float_to_pointer", isSafe mempty)]),
         ("compare_to_null.c", [("compare_to_null", isSafe mempty)]),
+        ("extern_void_function.c", [("extern_void_function", isSafe (skipOverride "do_stuff"))]),
         -- This override needs refinement; the following should be safe with the
         -- precondition that the argument pointer is valid.
-        ("getenv_arg.c", [("getenv_arg", isSafe (usesOverride "getenv"))]),
-        ("getenv_const.c", [("getenv_const", isSafe (usesOverride "getenv"))]),
-        ("gethostname_const_len.c", [("gethostname_const_len", isSafe (usesOverride "gethostname"))]),
+        ("getenv_arg.c", [("getenv_arg", isSafe (unsoundOverride "getenv"))]),
+        ("getenv_const.c", [("getenv_const", isSafe (unsoundOverride "getenv"))]),
+        ("gethostname_const_len.c", [("gethostname_const_len", isSafe (unsoundOverride "gethostname"))]),
         ("id_function_pointer.c", [("id_function_pointer", isSafe mempty)]),
+        ("id_varargs_function_pointer.c", [("id_varargs_function_pointer", isSafe mempty)]),
         ("opaque_struct.c", [("opaque_struct", isSafe mempty)]),
         ("print.c", [("print", isSafe mempty)]),
         ("read_global.c", [("read_global", isSafe mempty)]),
@@ -381,7 +422,7 @@ inFileTests =
         ("free_dict.c", [("free_dict", isSafeWithPreconditions mempty DidHitBounds)]),
         ("free_dict_kv.c", [("free_dict_kv", isSafeWithPreconditions mempty DidHitBounds)]),
         ("free_linked_list.c", [("free_linked_list", isSafeWithPreconditions mempty DidHitBounds)]),
-        ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions (usesOverride "gethostname") DidntHitBounds)]),
+        ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions (unsoundOverride "gethostname") DidntHitBounds)]),
         ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
         ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions mempty DidHitBounds)]),
         ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions mempty DidntHitBounds)]),
@@ -396,35 +437,44 @@ inFileTests =
         ("writes_to_arg_conditional_ptr.c", [("writes_to_arg_conditional_ptr", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("writes_to_arg_field.c", [("writes_to_arg_field", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("writes_to_arg_ptr.c", [("writes_to_arg_ptr", isSafeWithPreconditions mempty DidntHitBounds)]),
-        ("do_exit.c", [("do_exit", isUnclassified)]), -- goal: isSafe
-        ("do_fork.c", [("do_fork", isUnclassified)]),
+        -- This one is interesting... The deduced precondition is a little off,
+        -- in that it "should" require the array *in* the struct to have a
+        -- nonzero size, but it actually requires the input pointer to point to
+        -- an *array of structs*.
+        ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("deref_func_ptr.c", [("deref_func_ptr", isUnclassified)]), -- goal: hasBugs
         ("do_getchar.c", [("do_getchar", isUnclassified)]), -- goal: isSafe
-        ("do_recv.c", [("do_recv", isUnclassified)]),
-        ("do_strdup.c", [("do_strdup", isUnclassified)]), -- goal: isSafe
-        ("do_strcmp.c", [("do_strcmp", isUnclassified)]), -- goal: isSafe
-        ("do_strncmp.c", [("do_strncmp", isUnclassified)]), -- goal: isSafe
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
         ("memset_arg_len.c", [("memset_arg_len", isUnclassified)]), -- goal: isSafeWP
+        ("memset_func_ptr.c", [("memset_func_ptr", isUnclassified)]), -- goal: hasBugs
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
-        ("read_errno.c", [("read_errno", isUnclassified)]), -- goal: isSafe
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
-        ("uninitialized_stack.c", [("uninitialized_stack", isUnclassified)]), -- goal: hasBugs
         ("write_const_global.c", [("write_const_global", isUnclassified)]), -- goal: hasBugs
         ("use_after_free.c", [("use_after_free", isUnclassified)]), -- goal: hasBugs
         --
         --
         -- TODO(lb): Fix upstream? Missing annotations just seems like a bug.
+        ("cast_void_pointer.c", [("cast_void_pointer", hasMissingAnn)]),
+        ("cast_pointer_to_float.c", [("cast_pointer_to_float", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptr_to_int.c", [("compare_ptr_to_int", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
-        ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)])
+        ("deref_arg_arg_index.c", [("deref_arg_arg_index", hasMissingAnn)]),
+        -- This one could use an override. Currently fails because it's
+        -- skipped, and so unreachable code gets reached.
+        ("do_exit.c", [("do_exit", hasMissingAnn)]), -- goal: isSafe
         -- TODO: https://github.com/GaloisInc/crucible/issues/651
         -- , isSafeWithPreconditions "do_strlen.c" "do_strlen" False
+        ("call_function_pointer.c", [("call_function_pointer", isUnfixed)]), -- goal: ???
+        ("call_varargs_function_pointer.c", [("call_varargs_function_pointer", isUnfixed)]), -- goal: ???
+        -- Strangely, this compiles to a function that takes a variable-arity
+        -- function as an argument?
+        ("set_errno.c", [("set_errno", isUnfixed)]) -- goal: ???
 
         -- TODO: Not sure if Crux can do C++?
         -- , isSafe "cxxbasic.cpp" "cxxbasic"
@@ -991,18 +1041,25 @@ main =
       "uc-crux-llvm"
       [ inFileTests,
         moduleTests,
-        isUnimplemented "call_function_pointer.c" "call_function_pointer", -- goal: ???
-        isUnimplemented "call_varargs_function_pointer.c" "call_varargs_function_pointer", -- goal: ???
-        isUnimplemented "id_varargs_function_pointer.c" "id_varargs_function_pointer", -- goal: isSafe
-        -- Strangely, this compiles to a function that takes a variable-arity
-        -- function as an argument?
-        isUnimplemented "set_errno.c" "set_errno", -- goal: ???
+        isUnimplemented "do_fork.c" "do_fork", -- goal: ???
+        isUnimplemented "do_recv.c" "do_recv",
+        isUnimplemented "do_strdup.c" "do_strdup", -- goal: isSafe
+        isUnimplemented "do_strcmp.c" "do_strcmp", -- goal: isSafe
+        isUnimplemented "do_strncmp.c" "do_strncmp", -- goal: isSafe
+        isUnimplemented "extern_non_void_function.c" "extern_non_void_function", -- goal: isSafeWithPreconditions
+        isUnimplemented "read_errno.c" "read_errno", -- goal: isSafe
         isUnimplemented
           "gethostname_neg_len.c"
           "gethostname_neg_len", -- goal: ???
         isUnimplemented
           "gethostname_arg_ptr_len.c"
           "gethostname_arg_ptr_len", -- goal: ???
+        isUnimplemented
+          "cast_int_to_pointer_dereference.c"
+          "cast_int_to_pointer_dereference", -- goal: isSafeWithPreconditions
+        isUnimplemented
+          "cast_int_to_pointer_memset.c"
+          "cast_int_to_pointer_memset", -- goal: isSafeWithPreconditions
         isUnimplemented
           "gethostname_arg_len.c"
           "gethostname_arg_len" -- goal: ???

@@ -273,9 +273,10 @@ Uncertain results:
   - [ ] Develop heuristics for more types of errors
     - [ ] True positives:
       - [ ] Out-of-bounds reads/writes at concrete offsets
+      - [x] Calls to non-function pointers
       - [x] Division by zero
       - [x] Mod by zero
-      - [ ] Use before initialization of non-argument allocation
+      - [x] Use before initialization of non-argument allocation
       - [ ] `free` called on non-argument pointer with non-zero offset
       - [ ] Write of `const` memory
       - [ ] Illegal (un)signed wrap when both operands are concrete

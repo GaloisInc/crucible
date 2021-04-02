@@ -29,6 +29,7 @@ where
 import           Prelude hiding (log)
 
 import           Control.Lens (to, (^.))
+import           Control.Monad (when)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor.Const (Const(getConst))
@@ -37,14 +38,13 @@ import qualified Data.Map as Map
 import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Data.Type.Equality ((:~:)(Refl))
 
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Classes (IxedF'(ixF'), ShowF)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
-import           Data.Parameterized.TraversableFC (foldMapFC)
+import           Data.Parameterized.TraversableFC (foldMapFC, allFC)
 
 import qualified What4.Concrete as What4
 import qualified What4.Interface as What4
@@ -59,35 +59,39 @@ import           Lang.Crucible.LLVM.DataLayout (DataLayout)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemError
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.MemModel.Generic (Mem, AllocInfo)
+import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
 import           UCCrux.LLVM.Classify.Poison
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout)
-import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes)
+import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector))
-import           UCCrux.LLVM.FullType (MapToCrucibleType, IsPtrRepr(..), isPtrRepr, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Setup (SymValue)
-import           UCCrux.LLVM.Setup.Monad (TypedSelector(..))
+import           UCCrux.LLVM.Setup.Monad (TypedSelector(..), mallocLocation)
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
 import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
+import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 {- ORMOLU_ENABLE -}
 
-summarizeOp :: MemError.MemoryOp sym w -> (Maybe String, LLVMPtr.LLVMPtr sym w)
+summarizeOp :: MemError.MemoryOp sym w -> (Maybe String, LLVMPtr.LLVMPtr sym w, Mem sym)
 summarizeOp =
   \case
-    MemError.MemLoadOp _storageType expl ptr _mem -> (expl, ptr)
-    MemError.MemStoreOp _storageType expl ptr _mem -> (expl, ptr)
-    MemError.MemStoreBytesOp expl ptr _sz _mem -> (expl, ptr)
-    MemError.MemCopyOp (destExpl, dest) (_srcExpl, _src) _len _mem -> (destExpl, dest)
-    MemError.MemLoadHandleOp _llvmType expl ptr _mem -> (expl, ptr)
-    MemError.MemInvalidateOp _whatIsThisParam expl ptr _size _mem -> (expl, ptr)
+    MemError.MemLoadOp _storageType expl ptr mem -> (expl, ptr, mem)
+    MemError.MemStoreOp _storageType expl ptr mem -> (expl, ptr, mem)
+    MemError.MemStoreBytesOp expl ptr _sz mem -> (expl, ptr, mem)
+    MemError.MemCopyOp (destExpl, dest) (_srcExpl, _src) _len mem -> (destExpl, dest, mem)
+    MemError.MemLoadHandleOp _llvmType expl ptr mem -> (expl, ptr, mem)
+    MemError.MemInvalidateOp _whatIsThisParam expl ptr _size mem -> (expl, ptr, mem)
 
 classifyAssertion ::
   What4.IsExpr (What4.SymExpr sym) =>
@@ -163,7 +167,7 @@ classifyBadBehavior ::
     ShowF (What4.SymAnnotation sym)
   ) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   sym ->
   -- | Function arguments
@@ -179,15 +183,15 @@ classifyBadBehavior ::
 classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations argShapes badBehavior =
   case badBehavior of
     LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagUDivByConcreteZero UDivByConcreteZero divisor
+      handleDivRemByZero UDivByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.SDivByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagSDivByConcreteZero SDivByConcreteZero divisor
+      handleDivRemByZero SDivByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.URemByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagURemByConcreteZero URemByConcreteZero divisor
+      handleDivRemByZero URemByConcreteZero divisor
     LLVMErrors.BBUndefinedBehavior (UB.SRemByZero _dividend (Crucible.RV divisor)) ->
-      handleDivRemByZero TagSRemByConcreteZero SRemByConcreteZero divisor
-    LLVMErrors.BBUndefinedBehavior (UB.WriteBadAlignment ptr alignment) ->
-      case getPtrOffsetAnn (Crucible.unRV ptr) of
+      handleDivRemByZero SRemByConcreteZero divisor
+    LLVMErrors.BBUndefinedBehavior (UB.WriteBadAlignment (Crucible.RV ptr) alignment) ->
+      case getPtrOffsetAnn ptr of
         Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
           do
             let tag = ArgWriteBadAlignment
@@ -199,19 +203,18 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                     "#" <> Text.pack (show (Ctx.indexVal idx)),
                     "at",
                     Text.pack (show (ppCursor (argName idx) cursor)),
-                    "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
+                    "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                   ]
             liftIO $ (appCtx ^. log) Hi $ prescribe tag
-            case isPtrRepr ftRepr of
-              Nothing -> panic "classify" ["Expected pointer type"]
-              Just (IsPtrRepr Refl) ->
+            expectPointerType ftRepr $
+              const $
                 return $
                   ExMissingPreconditions
                     (tag, oneArgConstraint idx cursor (Aligned alignment))
-        _ -> unclass appCtx badBehavior
+        _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
-      (UB.ReadBadAlignment ptr alignment) ->
-        case getPtrOffsetAnn (Crucible.unRV ptr) of
+      (UB.ReadBadAlignment (Crucible.RV ptr) alignment) ->
+        case getPtrOffsetAnn ptr of
           Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
             do
               let tag = ArgReadBadAlignment
@@ -223,25 +226,23 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       "#" <> Text.pack (show (Ctx.indexVal idx)),
                       "at",
                       Text.pack (show (ppCursor (argName idx) cursor)),
-                      "(" <> Text.pack (show (LLVMPtr.ppPtr (Crucible.unRV ptr))) <> ")"
+                      "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                     ]
               liftIO $ (appCtx ^. log) Hi $ prescribe tag
-              case isPtrRepr ftRepr of
-                Nothing -> panic "classify" ["Expected pointer type"]
-                Just (IsPtrRepr Refl) ->
+              expectPointerType ftRepr $
+                const $
                   return $
                     ExMissingPreconditions
                       (tag, oneArgConstraint idx cursor (Aligned alignment))
-          _ -> unclass appCtx badBehavior
+          _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeUnallocated (Crucible.RV ptr)) ->
-        maybe (unclass appCtx badBehavior) pure =<< handleFreeUnallocated ptr
+        maybe (requirePossiblePointer FreeNonPointer ptr) pure
+          =<< handleFreeUnallocated ptr
     LLVMErrors.BBUndefinedBehavior
       (UB.FreeBadOffset (Crucible.RV ptr)) ->
         case getPtrOffsetAnn ptr of
           Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))) ->
-            -- At the moment, we only handle the case where the pointer is
-            -- unallocated.
             do
               int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
               case What4.asConcrete int of
@@ -260,13 +261,12 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                             "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                           ]
                     liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                    case isPtrRepr ftRepr of
-                      Nothing -> panic "classify" ["Expected pointer type"]
-                      Just (IsPtrRepr Refl) ->
+                    expectPointerType ftRepr $
+                      const $
                         return $
                           ExMissingPreconditions
                             (tag, oneArgShapeConstraint idx cursor (Allocated 1))
-          _ -> unclass appCtx badBehavior
+          _ -> requirePossiblePointer FreeNonPointer ptr
     LLVMErrors.BBUndefinedBehavior (UB.DoubleFree (Crucible.RV ptr)) ->
       do
         maybeEx <- handleFreeUnallocated ptr
@@ -278,10 +278,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             pure ex
           Nothing ->
             do
-              let tag = TagDoubleFree
-              liftIO $
-                (appCtx ^. log) Hi $
-                  Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
               case getPtrOffsetAnn ptr of
                 Just (Some (TypedSelector _ (SomeInSelector (SelectArgument idx cursor)))) ->
                   liftIO $
@@ -294,7 +290,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                           Text.pack (show (ppCursor (argName idx) cursor))
                         ]
                 _ -> pure ()
-              return $ ExTruePositive DoubleFree
+              truePositive DoubleFree
     LLVMErrors.BBUndefinedBehavior
       (UB.PtrAddOffsetOutOfBounds (Crucible.RV ptr) (Crucible.RV offset)) ->
         case getPtrOffsetAnn ptr of
@@ -330,17 +326,16 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                               "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                             ]
                       liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                      case ftRepr of
-                        FTPtrRepr partType ->
+                      expectPointerType ftRepr $
+                        \partTypeRepr ->
                           return $
                             ExMissingPreconditions
                               ( tag,
                                 oneArgShapeConstraint
                                   idx
                                   cursor
-                                  (Allocated (elemsFromOffset' bv partType))
+                                  (Allocated (elemsFromOffset' bv partTypeRepr))
                               )
-                        _ -> panic "classify" ["Expected pointer type"]
                   Nothing ->
                     do
                       let tag = AddSymbolicOffsetToArgPointer
@@ -381,8 +376,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                       ]
                 liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                case ftRepr of
-                  FTPtrRepr partTypeRepr ->
+                expectPointerType ftRepr $
+                  \partTypeRepr ->
                     return $
                       ExMissingPreconditions
                         ( tag,
@@ -393,7 +388,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                 (elemsFromOffset' concreteLen partTypeRepr)
                             )
                         )
-                  _ -> panic "classify" ["Expected pointer type"]
           _ -> unclass appCtx badBehavior
     LLVMErrors.BBUndefinedBehavior
       (UB.PoisonValueCreated poison) ->
@@ -403,14 +397,13 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
             Just expl -> pure expl
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          (summarizeOp -> (_expl, ptr))
+          (summarizeOp -> (_expl, ptr, _mem))
           MemError.UnwritableRegion
         ) ->
         case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
           (Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))), _) ->
-            case isPtrRepr ftRepr of
-              Nothing -> panic "classify" ["Expected pointer type"]
-              Just (IsPtrRepr Refl) ->
+            expectPointerType ftRepr $
+              const $
                 case argShapes ^. ixF' idx . to (flip Shape.isAllocated cursor) of
                   Left _ -> panic "classify" ["Bad cursor into argument"]
                   Right True ->
@@ -437,47 +430,18 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       return $
                         ExMissingPreconditions
                           (tag, oneArgShapeConstraint idx cursor (Allocated 1))
-          -- If the pointer expression doesn't involve the function's
-          -- arguments/global variables at all, then it's just a standard null
-          -- dereference or similar.
-          (Nothing, []) ->
-            do
-              notPtr <- liftIO $ notAPointer sym ptr
-              case notPtr of
-                Just True ->
-                  do
-                    let tag = TagWriteNonPointer
-                    liftIO $
-                      (appCtx ^. log) Hi $
-                        Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
-                    return $ ExTruePositive WriteNonPointer
-                _ -> unclass appCtx badBehavior
-          _ -> unclass appCtx badBehavior
+          -- If the "pointer" concretely wasn't a pointer, it's a bug.
+          _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          (summarizeOp -> (_expl, ptr))
+          (summarizeOp -> (_expl, ptr, _mem))
           MemError.UnreadableRegion
         ) ->
-        case (getPtrOffsetAnn ptr, getAnyPtrOffsetAnn ptr) of
-          -- If the pointer expression doesn't involve the function's
-          -- arguments/global variables at all, then it's just a standard null
-          -- dereference or similar.
-          (Nothing, []) ->
-            do
-              notPtr <- liftIO $ notAPointer sym ptr
-              case notPtr of
-                Just True ->
-                  do
-                    let tag = TagReadNonPointer
-                    liftIO $
-                      (appCtx ^. log) Hi $
-                        Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
-                    return $ ExTruePositive ReadNonPointer
-                _ -> unclass appCtx badBehavior
-          _ -> unclass appCtx badBehavior
+        -- If the "pointer" concretely wasn't a pointer, it's a bug.
+        requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          _op
+          (summarizeOp -> (_expl, _ptr, mem))
           (MemError.NoSatisfyingWrite _storageType ptr)
         ) ->
         do
@@ -500,8 +464,8 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                           "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                         ]
                   liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                  case ftRepr of
-                    FTPtrRepr partTypeRepr ->
+                  expectPointerType ftRepr $
+                    \partTypeRepr ->
                       return $
                         ExMissingPreconditions
                           ( tag,
@@ -515,7 +479,6 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                                   )
                               )
                           )
-                    _ -> panic "classify" ["Expected pointer type"]
             (Nothing, _, [Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor)))]) ->
               do
                 let tag = ArgReadUninitializedOffset
@@ -530,16 +493,28 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                       ]
                 liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                case isPtrRepr ftRepr of
-                  Nothing -> panic "classify" ["Expected pointer type"]
-                  Just (IsPtrRepr Refl) ->
+                expectPointerType ftRepr $
+                  const $
                     return $
                       ExMissingPreconditions
                         (tag, oneArgShapeConstraint idx cursor (Initialized 1))
-            _ -> unclass appCtx badBehavior
+            _ ->
+              liftIO (allocInfoFromPtr mem ptr)
+                >>= \case
+                  Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
+                    do
+                      when (loc == mallocLocation) $
+                        panic "classify" ["Setup allocated something on the stack?"]
+                      truePositive (ReadUninitializedStack loc)
+                  Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
+                    if loc == mallocLocation
+                      then unclass appCtx badBehavior
+                      else truePositive (ReadUninitializedHeap loc)
+                  -- If the "pointer" concretely wasn't a pointer, it's a bug.
+                  _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
-          (MemError.MemLoadHandleOp _type _str ptr _)
+          (MemError.MemLoadHandleOp _type _str ptr mem)
           (MemError.BadFunctionPointer _msg)
         ) ->
         case getPtrOffsetAnn ptr of
@@ -557,9 +532,37 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                       "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                     ]
               unfixed appCtx tag
-          _ -> unclass appCtx badBehavior
+          _ ->
+            liftIO (allocInfoFromPtr mem ptr)
+              >>= \case
+                Just (G.AllocInfo G.StackAlloc _sz _mut _align loc) ->
+                  do
+                    when (loc == mallocLocation) $
+                      panic "classify" ["Setup allocated something on the stack?"]
+                    truePositive (CallNonFunctionPointer loc)
+                Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
+                  if loc == mallocLocation
+                    then unclass appCtx badBehavior
+                    else truePositive (CallNonFunctionPointer loc)
+                _ -> unclass appCtx badBehavior
     _ -> unclass appCtx badBehavior
   where
+    expectPointerType ::
+      FullTypeRepr m ft ->
+      ( forall ft'.
+        ft ~ 'FTPtr ft' =>
+        PartTypeRepr m ft' ->
+        f (Explanation m arch argTypes)
+      ) ->
+      f (Explanation m arch argTypes)
+    expectPointerType ftRepr k =
+      case ftRepr of
+        FTPtrRepr partTypeRepr -> k partTypeRepr
+        FTIntRepr {} ->
+          unimplemented "classify" Unimplemented.CastIntegerToPointer
+        FTFloatRepr {} -> truePositive FloatToPointer
+        _ -> panic "classify" ["Expected pointer type"]
+
     getTermAnn ::
       What4.SymExpr sym tp ->
       Maybe (Some (TypedSelector m arch argTypes))
@@ -596,7 +599,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
       PartTypeRepr m ft ->
       Int
     elemsFromOffset' =
-      elemsFromOffset (modCtx ^. dataLayout) (funCtx ^. moduleTypes)
+      elemsFromOffset (modCtx ^. dataLayout) (modCtx ^. moduleTypes)
 
     handleFreeUnallocated :: LLVMPtr.LLVMPtr sym w -> f (Maybe (Explanation m arch argTypes))
     handleFreeUnallocated ptr =
@@ -622,21 +625,22 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                       ]
                 liftIO $ (appCtx ^. log) Hi $ prescribe tag
-                case isPtrRepr ftRepr of
-                  Nothing -> panic "classify" ["Expected pointer type"]
-                  Just (IsPtrRepr Refl) ->
-                    return $
-                      Just $
-                        ExMissingPreconditions
-                          (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+                Just
+                  <$> expectPointerType
+                    ftRepr
+                    ( const $
+                        return $
+                          ExMissingPreconditions
+                            (tag, oneArgShapeConstraint idx cursor (Allocated 1))
+                    )
             _ -> return Nothing
           else return Nothing
 
     -- If the divisor is concretely zero, it's a bug. If the divisor is from an
     -- argument, add a precondition that that value isn't zero.
     handleDivRemByZero ::
-      TruePositiveTag -> TruePositive -> What4.SymBV sym w -> f (Explanation m arch argTypes)
-    handleDivRemByZero tag truePositive divisor =
+      TruePositive -> What4.SymBV sym w -> f (Explanation m arch argTypes)
+    handleDivRemByZero truePos divisor =
       case What4.asConcrete divisor of
         Nothing ->
           case getTermAnn divisor of
@@ -662,12 +666,7 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
                         )
                   _ -> panic "classify" ["Expected integer type"]
             _ -> unclass appCtx badBehavior
-        Just _ ->
-          do
-            liftIO $
-              (appCtx ^. log) Hi $
-                Text.unwords ["Diagnosis:", ppTruePositiveTag tag]
-            return $ ExTruePositive truePositive
+        Just _ -> truePositive truePos
 
     argName :: Ctx.Index argTypes tp -> String
     argName idx = funCtx ^. argumentNames . ixF' idx . to getConst . to (maybe "<top>" Text.unpack)
@@ -677,3 +676,52 @@ classifyBadBehavior appCtx modCtx funCtx sym (Crucible.RegMap _args) annotations
 
     oneArgShapeConstraint idx cursor shapeConstraint =
       [NewShapeConstraint (SomeInSelector (SelectArgument idx cursor)) shapeConstraint]
+
+    allocInfoFromPtr :: Mem sym -> LLVMPtr.LLVMPtr sym w -> IO (Maybe (AllocInfo sym))
+    allocInfoFromPtr mem ptr =
+      do
+        int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
+        pure $
+          do
+            concreteInt <- What4.asConcrete int
+            G.possibleAllocInfo
+              (fromIntegral (What4.fromConcreteInteger concreteInt))
+              (G.memAllocs mem)
+
+    truePositive :: TruePositive -> f (Explanation m arch argTypes)
+    truePositive pos =
+      do
+        liftIO $
+          (appCtx ^. log) Hi $
+            Text.unwords ["Diagnosis:", ppTruePositive pos]
+        return $ ExTruePositive pos
+
+    -- Unfortunately, this check is pretty coarse. We can conclude that the
+    -- given pointer concretely isn't a pointer only if *both* of the following
+    -- are true:
+    --
+    -- (1) It has a concrete, zero block number
+    -- (2) There are no remaining unallocated pointers in the function's
+    --     arguments
+    --
+    -- The second condition is necessary because unallocated pointers in the
+    -- function arguments have a concretely zero block number, but they can be
+    -- combined with other program data in arbitrarily complex ways that cause
+    -- them to lose their annotations.
+    --
+    -- A possible fix would be to mux input pointers with a fresh, allocated
+    -- pointer (so that their block number is not concretely zero), but this
+    -- causes all kinds of other breakage.
+    --
+    -- To see the problem in action, replace the predicate with "const True"
+    -- below and you should see the test free_with_offset.c start to fail.
+    requirePossiblePointer ::
+      TruePositive ->
+      LLVMPtr.LLVMPtr sym w ->
+      f (Explanation m arch argTypes)
+    requirePossiblePointer pos ptr =
+      do
+        notPtr <- liftIO $ notAPointer sym ptr
+        case (notPtr, allFC (not . Shape.isAnyUnallocated) argShapes) of
+          (Just True, True) -> truePositive pos
+          _ -> unclass appCtx badBehavior

@@ -25,6 +25,7 @@ module UCCrux.LLVM.Main
     loopOnFunctions,
     translateLLVMModule,
     translateFile,
+    SomeModuleContext' (..),
     Result.SomeBugfindingResult (..),
     Result.FunctionSummary (..),
     Result.printFunctionSummary,
@@ -72,7 +73,9 @@ import Crux.LLVM.Simulate (parseLLVM)
 import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext, makeModuleContext, moduleTranslation)
+import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation)
+import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.FullType.CrucibleType (ppTypeTranslationError)
 import           UCCrux.LLVM.Run.Explore (explore)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
@@ -92,7 +95,7 @@ mainWithOutputConfig outCfg =
         path <- genBitCode cruxOpts (Config.ucLLVMOptions ucOpts)
         halloc <- Crucible.newHandleAllocator
         memVar <- mkMemVar "uc-crux-llvm:llvm_memory" halloc
-        Some modCtx <- translateFile ucOpts halloc memVar path
+        SomeModuleContext' modCtx <- translateFile ucOpts halloc memVar path
         if Config.doExplore ucOpts
           then do
             llvmPtrWidth
@@ -124,22 +127,40 @@ translateLLVMModule ::
   GlobalVar Mem ->
   FilePath ->
   L.Module ->
-  IO (Some ModuleContext)
-translateLLVMModule ucOpts halloc memVar moduleFilePath llvmMod =
+  IO SomeModuleContext'
+translateLLVMModule ucOpts halloc memvar moduleFilePath llvmMod =
   do
     let llvmOpts = Config.ucLLVMOptions ucOpts
     Some trans <-
       let ?laxArith = laxArithmetic llvmOpts
           ?optLoopMerge = loopMerge llvmOpts
        in translateModule halloc memVar llvmMod
-    pure $ Some (makeModuleContext moduleFilePath llvmMod trans)
+    llvmPtrWidth
+      (trans ^. transContext)
+      ( \ptrW ->
+          withPtrWidth
+            ptrW
+            ( case makeModuleContext moduleFilePath llvmMod trans of
+                Left err ->
+                  panic
+                    "translateLLVMModule"
+                    [ "Type translation failed",
+                      ppTypeTranslationError err
+                    ]
+                Right (SomeModuleContext modCtx) ->
+                  pure (SomeModuleContext' modCtx)
+            )
+      )
+
+data SomeModuleContext'
+  = forall m arch. SomeModuleContext' (ModuleContext m arch)
 
 translateFile ::
   UCCruxLLVMOptions ->
   Crucible.HandleAllocator ->
   GlobalVar Mem ->
   FilePath ->
-  IO (Some ModuleContext)
+  IO SomeModuleContext'
 translateFile ucOpts halloc memVar moduleFilePath =
   translateLLVMModule ucOpts halloc memVar moduleFilePath =<< parseLLVM moduleFilePath
 
@@ -148,7 +169,7 @@ translateFile ucOpts halloc memVar moduleFilePath =
 loopOnFunctions ::
   (?outputConfig :: OutputConfig) =>
   AppContext ->
-  ModuleContext arch ->
+  ModuleContext m arch ->
   Crucible.HandleAllocator ->
   CruxOptions ->
   UCCruxLLVMOptions ->

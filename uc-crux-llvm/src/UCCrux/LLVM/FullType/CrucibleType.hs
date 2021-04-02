@@ -19,13 +19,23 @@ Stability        : provisional
 module UCCrux.LLVM.FullType.CrucibleType
   ( toCrucibleType,
 
+    -- * Translation
+    FunctionTypes (..),
+    MatchingAssign (..),
+    DeclTypes,
+    TranslatedTypes (..),
+    TypeTranslationError (..),
+    translateModuleDefines,
+    ppTypeTranslationError,
+    lookupDeclTypes,
+
     -- * Assignments
-    SomeAssign (..),
     SomeIndex (..),
-    assignmentToFullType,
     SomeAssign' (..),
     assignmentToCrucibleType,
     assignmentToCrucibleTypeA,
+    testCompatibility,
+    testCompatibilityAssign,
     translateIndex,
     generateM,
     generate,
@@ -35,12 +45,17 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (unzip)
 
+import           Control.Monad (unless)
+import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExceptT)
+import           Control.Monad.State (State, runState)
 import           Data.Coerce (coerce)
 import           Data.Functor ((<&>))
-import           Data.Functor.Const (Const(Const, getConst))
+import           Data.Functor.Const (Const(Const))
 import           Data.Functor.Identity (Identity(Identity, runIdentity))
 import           Data.Functor.Product (Product(Pair))
-import           Control.Monad.State (runStateT)
+import           Data.Proxy (Proxy(Proxy))
+import           Data.Map (Map)
+import qualified Data.Map as Map
 
 import qualified Text.LLVM.AST as L
 
@@ -48,15 +63,19 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(Some))
 
+import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
-import           Lang.Crucible.LLVM.MemType (MemType(..))
+import           Lang.Crucible.LLVM.MemType (fdArgTypes, fdRetType, fdVarArgs)
+import           Lang.Crucible.LLVM.Translation (ModuleTranslation)
+import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Crux.LLVM.Overrides (ArchOk)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Type
+import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, boolToVarArgsRepr)
 {- ORMOLU_ENABLE -}
 
 -- | c.f. @llvmTypeToRepr@
@@ -68,67 +87,182 @@ toCrucibleType ::
 toCrucibleType proxy =
   \case
     FTIntRepr natRepr -> LLVMMem.LLVMPointerRepr natRepr
-    FTPtrRepr _ -> LLVMMem.LLVMPointerRepr ?ptrWidth
-    FTVoidFuncPtrRepr _argTypeReprs -> LLVMMem.LLVMPointerRepr ?ptrWidth
-    FTNonVoidFuncPtrRepr _retTypeRepr _argTypeReprs -> LLVMMem.LLVMPointerRepr ?ptrWidth
-    FTOpaquePtrRepr _aliasName -> LLVMMem.LLVMPointerRepr ?ptrWidth
+    FTPtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth
+    FTVoidFuncPtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth
+    FTNonVoidFuncPtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth
+    FTOpaquePtrRepr {} -> LLVMMem.LLVMPointerRepr ?ptrWidth
     FTFloatRepr floatInfo -> CrucibleTypes.FloatRepr floatInfo
     FTArrayRepr _natRepr fullTypeRepr ->
+      CrucibleTypes.VectorRepr (toCrucibleType proxy fullTypeRepr)
+    FTUnboundedArrayRepr fullTypeRepr ->
       CrucibleTypes.VectorRepr (toCrucibleType proxy fullTypeRepr)
     FTStructRepr _ typeReprs ->
       case assignmentToCrucibleType proxy typeReprs of
         SomeAssign' ctReprs Refl _ -> CrucibleTypes.StructRepr ctReprs
 
+data FunctionTypes m arch = FunctionTypes
+  { ftArgTypes :: MatchingAssign m arch,
+    ftRetType :: Maybe (Some (FullTypeRepr m)),
+    ftIsVarArgs :: Some VarArgsRepr
+  }
+
+data MatchingAssign m arch = forall fullTypes crucibleTypes.
+  MapToCrucibleType arch fullTypes ~ crucibleTypes =>
+  MatchingAssign
+  { maFullTypes :: Ctx.Assignment (FullTypeRepr m) fullTypes,
+    maCrucibleTypes :: Ctx.Assignment CrucibleTypes.TypeRepr crucibleTypes
+  }
+
+-- | Constructor not exported to enforce the invariant that a 'DeclTypes' holds
+-- a 'FunctionTypes' for every LLVM function in the corresponding module
+-- indicated by the @m@ parameter.
+newtype DeclTypes m arch = DeclTypes {_getDeclTypes :: Map L.Symbol (FunctionTypes m arch)}
+
+lookupDeclTypes :: L.Symbol -> DeclTypes m arch -> Maybe (FunctionTypes m arch)
+lookupDeclTypes symb (DeclTypes mp) = Map.lookup symb mp
+
 -- | The existential quantification over @m@ here makes the @FullType@ API safe.
 -- You can only intermingle 'FullTypeRepr' from the same LLVM module, and by
 -- construction, the 'ModuleTypes' contains a 'FullTypeRepr' for every type
--- that\'s (transitively) mentioned in any of the types in the 'Ctx.Assignment'.
+-- that\'s (transitively) mentioned in any of the types in the 'DeclTypes'.
 -- Thus, you can avoid partiality when looking up type aliases in the
 -- 'ModuleTypes', they're guaranteed to be present and translated.
 --
 -- See 'UCCrux.LLVM.FullType.MemType.asFullType' for where partiality is
 -- avoided. Since this function is ubiquitous, this is a big win.
-data SomeAssign arch crucibleTypes = forall m fullTypes.
-  SomeAssign
-  { saFullTypes :: Ctx.Assignment (FullTypeRepr m) fullTypes,
-    saModuleTypes :: ModuleTypes m,
-    saProof :: MapToCrucibleType arch fullTypes :~: crucibleTypes
+data TranslatedTypes arch = forall m.
+  TranslatedTypes
+  { translatedModuleTypes :: ModuleTypes m,
+    translatedDeclTypes :: DeclTypes m arch
   }
 
--- | Convert from a 'Ctx.Assignment' of 'CrucibleTypes.TypeRepr' to a
--- 'Ctx.Assignment' of 'FullTypeRepr', together with a proof of the
--- correspondence of the two assignments via 'MapToCrucibleType'.
-assignmentToFullType ::
-  forall proxy arch crucibleTypes.
+data TypeTranslationError
+  = -- | Couldn't find CFG in translated module
+    NoCFG !L.Symbol
+  | -- | Couldn't lift types in declaration to 'MemType'
+    BadLift !String
+  | -- | Wrong number of arguments after lifting declaration
+    BadLiftArgs !L.Symbol
+  | FullTypeTranslation L.Ident
+
+ppTypeTranslationError :: TypeTranslationError -> String
+ppTypeTranslationError =
+  \case
+    NoCFG (L.Symbol name) -> "Couldn't find definition of function " <> name
+    BadLift name -> "Couldn't lift argument/return types to MemTypes for " <> name
+    BadLiftArgs (L.Symbol name) ->
+      "Wrong number of arguments after lifting declaration of " <> name
+    FullTypeTranslation (L.Ident ident) ->
+      "Couldn't find or couldn't translate type: " <> ident
+
+translateModuleDefines ::
+  forall arch.
   ( ?lc :: TypeContext,
     ArchOk arch
   ) =>
-  proxy arch ->
-  Ctx.Assignment CrucibleTypes.TypeRepr crucibleTypes ->
-  Ctx.Assignment (Const MemType) crucibleTypes ->
-  Either L.Ident (SomeAssign arch crucibleTypes)
-assignmentToFullType proxy crucibleTypes memTypes =
+  L.Module ->
+  ModuleTranslation arch ->
+  Either TypeTranslationError (TranslatedTypes arch)
+translateModuleDefines llvmModule trans =
   case makeModuleTypes ?lc of
-    Some moduleTypes ->
+    Some initialModuleTypes ->
+      let (maybeResult, modTypes) =
+            runState
+              ( runExceptT
+                  ( mapM
+                      (translateDecl . LLVMTrans.declareFromDefine)
+                      (L.modDefines llvmModule)
+                  )
+              )
+              initialModuleTypes
+       in TranslatedTypes modTypes . DeclTypes . Map.fromList <$> maybeResult
+  where
+    translateDecl ::
+      L.Declare ->
+      ExceptT
+        TypeTranslationError
+        (State (ModuleTypes m))
+        (L.Symbol, FunctionTypes m arch)
+    translateDecl decl =
       do
-        (Some fullTypes, moduleTypes') <-
-          runStateT
-            ( Ctx.generateSomeM
-                (Ctx.sizeInt (Ctx.size crucibleTypes))
-                ( \idx ->
-                    case Ctx.intIndex idx (Ctx.size crucibleTypes) of
-                      Nothing -> panic "Impossible" ["Mismatched context size"]
-                      Just (Some idx') ->
-                        do
-                          Some fullTypeRepr <-
-                            toFullTypeM (getConst (memTypes Ctx.! idx'))
-                          pure $ Some fullTypeRepr
-                )
+        liftedDecl <-
+          case LLVMTrans.liftDeclare decl of
+            Left err -> throwError (BadLift err)
+            Right d -> pure d
+        Crucible.AnyCFG cfg <-
+          case Map.lookup (L.decName decl) (LLVMTrans.cfgMap trans) of
+            Just (_, anyCfg) -> pure anyCfg
+            Nothing -> throwError (NoCFG (L.decName decl))
+        let crucibleTypes = Crucible.cfgArgTypes cfg
+        let memTypes = fdArgTypes liftedDecl
+        let isVarArgs = fdVarArgs liftedDecl
+        -- Do the MemTypes agree with the Crucible types on the number of
+        -- arguments? (Note that a variadic function has an "extra" argument
+        -- after being translated to a CFG, hence the "+1")
+        let matchedNumArgTypes =
+              let numCrucibleTypes = Ctx.sizeInt (Ctx.size crucibleTypes)
+               in length memTypes == numCrucibleTypes
+                    || ( isVarArgs
+                           && length memTypes + 1 == numCrucibleTypes
+                       )
+
+        unless matchedNumArgTypes (throwError (BadLiftArgs (L.decName decl)))
+        Some fullTypes <-
+          Ctx.generateSomeM
+            ( Ctx.sizeInt (Ctx.size crucibleTypes)
+                - if isVarArgs
+                  then 1
+                  else 0
             )
-            moduleTypes
-        case testCompatibilityAssign proxy fullTypes crucibleTypes of
-          Just Refl -> Right (SomeAssign fullTypes moduleTypes' Refl)
-          Nothing -> panic "Impossible" []
+            ( \idx ->
+                do
+                  -- NOTE(lb): The indexing here is safe because of the "unless
+                  -- matchedNumArgTypes" just above.
+                  Some fullTypeRepr <-
+                    withExceptT FullTypeTranslation $
+                      toFullTypeM (memTypes !! idx)
+                  pure $ Some fullTypeRepr
+            )
+        retType <-
+          traverse
+            (withExceptT FullTypeTranslation . toFullTypeM)
+            (fdRetType liftedDecl)
+        Some crucibleTypes' <-
+          pure $
+            if isVarArgs
+              then removeVarArgsRepr crucibleTypes
+              else Some crucibleTypes
+        case testCompatibilityAssign (Proxy :: Proxy arch) fullTypes crucibleTypes' of
+          Just Refl ->
+            pure
+              ( L.decName decl,
+                FunctionTypes
+                  { ftArgTypes = MatchingAssign fullTypes crucibleTypes',
+                    ftRetType = retType,
+                    ftIsVarArgs = boolToVarArgsRepr isVarArgs
+                  }
+              )
+          Nothing ->
+            panic
+              "Impossible"
+              ["(toCrucibleType . toFullTypeM) should be the identity function"]
+
+    removeVarArgsRepr ::
+      Ctx.Assignment CrucibleTypes.TypeRepr ctx ->
+      Some (Ctx.Assignment CrucibleTypes.TypeRepr)
+    removeVarArgsRepr crucibleTypes =
+      case Ctx.viewAssign crucibleTypes of
+        Ctx.AssignEmpty ->
+          panic
+            "translateModuleDefines"
+            ["varargs function with no arguments"]
+        Ctx.AssignExtend rest vaRepr ->
+          case testEquality vaRepr LLVMTrans.varArgsRepr of
+            Just Refl -> Some rest
+            Nothing ->
+              panic
+                "translateModuleDefines"
+                ["varargs function with no varargs repr"]
 
 data SomeAssign' arch m fullTypes f = forall crucibleTypes.
   SomeAssign'
