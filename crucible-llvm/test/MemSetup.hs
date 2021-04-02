@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -61,7 +62,8 @@ withLLVMCtx mod' action =
         sym <- CBS.newSimpleBackend CBS.FloatRealRepr nonceGen
         let ?laxArith = False
         let ?optLoopMerge = False
-        Some (LLVMTr.ModuleTranslation _ ctx _ _) <- LLVMTr.translateModule halloc mod'
+        memVar <- LLVMM.mkMemVar "test_llvm_memory" halloc
+        Some (LLVMTr.ModuleTranslation _ ctx _ _) <- LLVMTr.translateModule halloc memVar mod'
         case LLVMTr.llvmArch ctx            of { LLVME.X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do

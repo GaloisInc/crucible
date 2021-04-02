@@ -15,6 +15,7 @@ module Crux
   , SimulatorCallback(..)
   , RunnableState(..)
   , pattern RunnableState
+  , Explainer
   , CruxOptions(..)
   , SomeOnlineSolver(..)
   , HasModel(..)
@@ -95,6 +96,13 @@ data RunnableState sym where
                               -> [ExecutionFeature (personality sym) sym ext (RegEntry sym UnitType)]
                               -> RunnableState sym
 
+-- | A function that can be used to generate a pretty explanation of a
+-- simulation error.
+
+type Explainer sym t ann = Maybe (GroundEvalFn t)
+                           -> LPred sym SimError
+                           -> IO (Doc ann)
+
 -- | Individual crux tools will generally call the @runSimulator@ combinator
 --   to handle the nitty-gritty of setting up and running the simulator.
 --   During that process, crux needs to know how to setup the initial state
@@ -108,7 +116,7 @@ newtype SimulatorCallback
         forall sym t st fs. (IsSymInterface sym, Logs, sym ~ WEB.ExprBuilder t st fs) =>
           sym ->
           Maybe (SomeOnlineSolver sym) ->
-          IO (RunnableState sym, Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc Void))
+          IO (RunnableState sym, Explainer sym t Void)
     }
 
 -- | Given the result of a simulation and proof run, report the overall
@@ -511,9 +519,10 @@ type ProverCallback sym =
     (HasModel personality, sym ~ WEB.ExprBuilder t st fs) =>
     CruxOptions ->
     SimCtxt personality sym ext ->
-    (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc Void)) ->
+    Explainer sym t Void ->
     Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
     IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
+
 
 -- | Core invocation of the symbolic execution engine
 --

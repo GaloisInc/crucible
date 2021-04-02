@@ -12,6 +12,7 @@ module Crux.LLVM.Simulate where
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
+import qualified Data.List as List
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
@@ -27,6 +28,7 @@ import qualified Text.LLVM as LLVM
 import Prettyprinter
 
 -- what4
+import qualified What4.Expr.Builder as WEB
 
 -- crucible
 import Lang.Crucible.Backend
@@ -37,7 +39,7 @@ import Lang.Crucible.Simulator
   ( emptyRegMap
   , fnBindingsFromList, runOverrideSim, callCFG
   , initSimContext, profilingMetrics
-  , ExecState( InitialState )
+  , ExecState( InitialState ), GlobalVar
   , SimState, defaultAbortHandler, printHandle
   , ppSimError
   )
@@ -51,14 +53,13 @@ import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
-        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount
+        ( Mem, MemImpl, mkMemVar, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
         , explainCex, CexExplanation(..)
         )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, cfgMap
-        , LLVMContext, llvmMemVar, ModuleCFGMap
+        , transContext, cfgMap, ModuleCFGMap
         , llvmPtrWidth, llvmTypeCtx
         )
 import Lang.Crucible.LLVM.Intrinsics
@@ -83,9 +84,9 @@ setupSimCtxt ::
   HandleAllocator ->
   sym ->
   MemOptions ->
-  LLVMContext arch ->
+  GlobalVar Mem ->
   SimCtxt Model sym LLVM
-setupSimCtxt halloc sym mo llvmCtxt =
+setupSimCtxt halloc sym mo memVar =
   initSimContext sym
                  llvmIntrinsicTypes
                  halloc
@@ -93,8 +94,7 @@ setupSimCtxt halloc sym mo llvmCtxt =
                  (fnBindingsFromList [])
                  (llvmExtensionImpl mo)
                  emptyModel
-    & profilingMetrics %~ Map.union (llvmMetrics llvmCtxt)
-
+    & profilingMetrics %~ Map.union (memMetrics memVar)
 
 -- | Parse an LLVM bit-code file.
 parseLLVM :: FilePath -> IO LLVM.Module
@@ -125,55 +125,78 @@ registerFunctions llvm_module mtrans =
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
 simulateLLVMFile :: FilePath -> LLVMOptions -> Crux.SimulatorCallback
-simulateLLVMFile llvm_file llvmOpts = Crux.SimulatorCallback $ \sym _maybeOnline ->
-  do llvm_mod   <- parseLLVM llvm_file
-     halloc     <- newHandleAllocator
-     let ?laxArith = laxArithmetic llvmOpts
-     let ?optLoopMerge = loopMerge llvmOpts
-     Some trans <- translateModule halloc llvm_mod
-     let llvmCtxt = trans ^. transContext
+simulateLLVMFile llvm_file llvmOpts = do
+  Crux.SimulatorCallback $ \sym maybeOnline -> do
+    halloc <- newHandleAllocator
+    bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
+    let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
+    runnableState <- setupFileSim halloc llvm_file llvmOpts sym maybeOnline
+    return (runnableState, explainFailure sym bbMapRef)
 
-     llvmPtrWidth llvmCtxt $ \ptrW ->
-       withPtrWidth ptrW $
-         do liftIO $ say "Crux" $ unwords ["Using pointer width:", show ptrW]
-            bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
-            let ?lc = llvmCtxt^.llvmTypeCtx
-            -- shrug... some weird interaction between do notation and implicit parameters here...
-            -- not sure why I have to let/in this expression...
-            let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb) in
-              do let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt)
-                                { printHandle = view outputHandle ?outputConfig }
-                 mem <- populateAllGlobals sym (globalInitMap trans)
-                           =<< initializeAllMemory sym llvmCtxt llvm_mod
+setupFileSim :: Logs
+             => IsSymInterface sym
+             => sym ~ WEB.ExprBuilder t st fs
+             => HasLLVMAnn sym
+             => HandleAllocator
+             -> FilePath
+             -> LLVMOptions
+             -> sym -> Maybe (Crux.SomeOnlineSolver sym)
+             -> IO (Crux.RunnableState sym)
+setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
+  do memVar <- mkMemVar "crux:llvm_memory" halloc
 
-                 let globSt = llvmGlobals llvmCtxt mem
+     let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) memVar)
+                  { printHandle = view outputHandle ?outputConfig }
 
-                 let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
-                          runOverrideSim UnitRepr $
-                            do registerFunctions llvm_mod trans
-                               checkFun (entryPoint llvmOpts) (cfgMap trans)
+     prepped <- prepLLVMModule llvmOpts halloc sym llvm_file memVar
 
-                 -- arbitrary, we should probabl make this limit configurable
-                 let detailLimit = 10
+     let globSt = llvmGlobals memVar (prepMem prepped)
 
-                 let explainFailure evalFn gl =
-                       do bb <- readIORef bbMapRef
-                          ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
-                          let details = case ex of
-                                NoExplanation -> mempty
-                                DisjOfFailures xs ->
-                                  case map ppBB xs of
-                                    []  -> mempty
-                                    [x] -> indent 2 x
-                                    xs' | length xs' <= detailLimit
-                                        -> "All of the following conditions failed:" <> line <> indent 2 (vcat xs')
-                                        | otherwise
-                                        -> "All of the following conditions failed (and other conditions have been elided to reduce output): "
-                                               <> line <> indent 2 (vcat (take detailLimit xs'))
+     return $ Crux.RunnableState $
+       InitialState simctx globSt defaultAbortHandler UnitRepr $
+       runOverrideSim UnitRepr $
+       do Some trans <- return $ prepSomeTrans prepped
+          llvmPtrWidth (trans ^. transContext) $ \ptrW ->
+            withPtrWidth ptrW $
+            do registerFunctions (prepLLVMMod prepped) trans
+               checkFun (entryPoint llvmOpts) (cfgMap trans)
 
-                          return $ vcat [ ppSimError (gl^.labeledPredMsg), details ]
 
-                 return (Crux.RunnableState initSt, explainFailure)
+
+
+data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
+                                   , prepSomeTrans :: Some ModuleTranslation
+                                   , prepMemVar :: GlobalVar Mem
+                                   , prepMem :: MemImpl sym
+                                   }
+
+-- | Given an LLVM Bitcode file, and a GlobalVar memory, translate the
+-- file into the Crucible representation and add the globals and
+-- definitions from the file to the GlobalVar memory.
+
+prepLLVMModule :: IsSymInterface sym
+               => HasLLVMAnn sym
+               => Logs
+               => LLVMOptions
+               -> HandleAllocator
+               -> sym
+               -> FilePath  -- for the LLVM bitcode file
+               -> GlobalVar Mem
+               -> IO (PreppedLLVM sym)
+prepLLVMModule llvmOpts halloc sym bcFile memVar = do
+    llvmMod <- parseLLVM bcFile
+    Some trans <- let ?laxArith = laxArithmetic llvmOpts
+                      ?optLoopMerge = loopMerge llvmOpts
+                  in translateModule halloc memVar llvmMod
+    mem <- let llvmCtxt = trans ^. transContext in
+             let ?lc = llvmCtxt ^. llvmTypeCtx
+             in llvmPtrWidth llvmCtxt $ \ptrW ->
+               withPtrWidth ptrW $ do
+               liftIO $ say "Crux" $ unwords [ "Using pointer width:", show ptrW
+                                             , "for file", bcFile]
+               populateAllGlobals sym (globalInitMap trans)
+                 =<< initializeAllMemory sym llvmCtxt llvmMod
+    return $ PreppedLLVM llvmMod (Some trans) memVar mem
 
 
 checkFun ::
@@ -192,12 +215,16 @@ checkFun nm mp =
 ---------------------------------------------------------------------
 -- Profiling
 
-llvmMetrics :: forall arch p sym ext
-             . LLVMContext arch
+memMetrics :: forall p sym ext
+             . GlobalVar Mem
             -> Map.Map Text (Metric p sym ext)
-llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
-                                    , ("LLVM.writes", writes)
-                                    ]
+memMetrics memVar = Map.fromList
+                    -- Note: These map keys are used by profile.js in
+                    -- https://github.com/GaloisInc/sympro-ui and must
+                    -- match the names there.
+                    [ ("LLVM.allocs", allocs)
+                    , ("LLVM.writes", writes)
+                    ]
   where
     allocs = Metric $ measureMemBy memAllocCount
     writes = Metric $ measureMemBy memWriteCount
@@ -207,6 +234,40 @@ llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
                  -> IO Integer
     measureMemBy f st = do
       let globals = st ^. stateGlobals
-      case lookupGlobal (llvmMemVar llvmCtxt) globals of
+      case lookupGlobal memVar globals of
         Just mem -> return $ toInteger (f mem)
         Nothing -> fail "Memory missing from global vars"
+
+----------------------------------------------------------------------
+
+-- arbitrary, we should probably make this limit configurable
+detailLimit :: Int
+detailLimit = 10
+
+explainFailure :: IsSymInterface sym
+               => sym ~ WEB.ExprBuilder t st fs
+               => sym
+               -> IORef (LLVMAnnMap sym)
+               -> Crux.Explainer sym t ann
+explainFailure sym bbMapRef evalFn gl =
+  do bb <- readIORef bbMapRef
+     ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
+     let details =
+           case ex of
+             NoExplanation -> mempty
+             DisjOfFailures xs ->
+               case ppBB <$> xs of
+                 []  -> mempty
+                 [x] -> indent 2 x
+                 xs' ->
+                   let xs'' = List.take detailLimit xs'
+                       xs'l = length xs'
+                       msg1 = "Failing conditions::"
+                       msg2 = if xs'l > detailLimit
+                              then "[only displaying the first"
+                                   <+> pretty detailLimit
+                                   <+> "of" <+> pretty xs'l
+                                   <+> "failed conditions]"
+                              else "Total failed conditions:" <+> pretty xs'l
+                   in nest 2 $ vcat $ msg1 : xs'' <> [msg2]
+     return $ vcat [ ppSimError (gl^. labeledPredMsg), details ]

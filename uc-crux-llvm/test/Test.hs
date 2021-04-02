@@ -68,6 +68,8 @@ import           Data.Parameterized.NatRepr (NatRepr, knownNat)
 
 import           Lang.Crucible.FunctionHandle (newHandleAllocator)
 
+import           Lang.Crucible.LLVM.MemModel (mkMemVar)
+
 import qualified Crux
 import           Crux.LLVM.Compile (genBitCode)
 import           Crux.LLVM.Config (clangOpts)
@@ -165,10 +167,11 @@ findBugs llvmModule file fns =
         --   )
         let ?outputConfig = outCfg
         halloc <- newHandleAllocator
+        memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
         SomeModuleContext' modCtx <-
           case llvmModule of
-            Just lMod -> translateLLVMModule ucOpts halloc path lMod
-            Nothing -> translateFile ucOpts halloc path
+            Just lMod -> translateLLVMModule ucOpts halloc memVar path lMod
+            Nothing -> translateFile ucOpts halloc memVar path
         loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
 
 inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree

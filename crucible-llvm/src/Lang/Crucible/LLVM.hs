@@ -16,6 +16,7 @@
 module Lang.Crucible.LLVM
   ( LLVM
   , registerModuleFn
+  , llvmGlobalsToCtx
   , llvmGlobals
   , register_llvm_overrides
   , llvmExtensionImpl
@@ -35,7 +36,7 @@ import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
-                   , bindLLVMFunPtr
+                   , bindLLVMFunPtr, Mem
                    )
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -63,12 +64,17 @@ registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
   writeGlobal mvar mem'
 
 
-llvmGlobals
+llvmGlobalsToCtx
    :: LLVMContext arch
    -> MemImpl sym
    -> SymGlobalState sym
-llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
-  where var = llvmMemVar $ ctx
+llvmGlobalsToCtx = llvmGlobals . llvmMemVar
+
+llvmGlobals
+   :: GlobalVar Mem
+   -> MemImpl sym
+   -> SymGlobalState sym
+llvmGlobals memVar mem = emptyGlobals & insertGlobal memVar mem
 
 llvmExtensionImpl ::
   (HasLLVMAnn sym) =>

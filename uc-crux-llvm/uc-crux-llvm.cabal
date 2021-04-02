@@ -125,6 +125,7 @@ test-suite uc-crux-llvm-test
                 base             >= 4.7,
                 containers,
                 crucible,
+                crucible-llvm,
                 crux,
                 crux-llvm,
                 filepath,

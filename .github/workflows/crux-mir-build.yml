@@ -16,7 +16,7 @@ on:
 # (symptom: "No suitable image found ... unknown file type, first
 # eight bytes: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00")
 env:
-  CACHE_VERSION: 3
+  CACHE_VERSION: 4
 
 jobs:
   outputs:
