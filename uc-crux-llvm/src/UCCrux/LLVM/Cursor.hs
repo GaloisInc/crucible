@@ -33,6 +33,8 @@ module UCCrux.LLVM.Cursor
     SomeSelector (..),
     SomeInSelector (..),
     selectorCursor,
+    Where (..),
+    selectWhere,
   )
 where
 
@@ -196,6 +198,20 @@ data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
   = SelectArgument !(Ctx.Index argTypes inTy) (Cursor m inTy atTy)
   | SelectGlobal !L.Symbol (Cursor m inTy atTy)
   | SelectReturn !L.Symbol (Cursor m inTy atTy)
+
+-- | A non-parameterized summary of a 'Selector'
+data Where
+  = Arg !Int
+  | Global !String
+  | ReturnValue !String
+  deriving (Eq, Ord)
+
+selectWhere :: Selector m argTypes inTy atTy -> Where
+selectWhere =
+  \case
+    SelectArgument idx _ -> Arg (Ctx.indexVal idx)
+    SelectGlobal (L.Symbol g) _ -> Global g
+    SelectReturn (L.Symbol f) _ -> ReturnValue f
 
 -- | For documentation of the type parameters, see the comment on 'Cursor'.
 --

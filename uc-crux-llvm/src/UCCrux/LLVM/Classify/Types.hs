@@ -18,8 +18,10 @@ module UCCrux.LLVM.Classify.Types
     LocatedTruePositive (..),
     TruePositiveTag (..),
     truePositiveTag,
-    MissingPreconditionTag (..),
+    Diagnosis (..),
+    DiagnosisTag (..),
     diagnose,
+    diagnoseTag,
     prescribe,
     ppTruePositive,
     ppLocatedTruePositive,
@@ -62,6 +64,7 @@ import           Data.Parameterized.Some (Some)
 import qualified Lang.Crucible.Simulator as Crucible
 
 import           UCCrux.LLVM.Constraints (NewConstraint)
+import           UCCrux.LLVM.Cursor (Where(..))
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 import           UCCrux.LLVM.FullType.Type (FullType)
 {- ORMOLU_ENABLE -}
@@ -159,53 +162,66 @@ ppTruePositive =
 
 -- | All of the preconditions that we can deduce. We know how to detect and fix
 -- these issues.
-data MissingPreconditionTag
-  = ArgWriteBadAlignment
-  | ArgReadBadAlignment
-  | ArgFreeUnallocated
-  | ArgFreeBadOffset
-  | ArgWriteUnmapped
-  | ArgReadUninitialized
-  | ArgReadUninitializedOffset
-  | ArgPointerConstOffset
-  | ArgMemsetTooSmall
-  | ArgAddSignedWrap
-  | ArgSubSignedWrap
-  | ArgNonZero
+data DiagnosisTag
+  = DiagnoseWriteBadAlignment
+  | DiagnoseReadBadAlignment
+  | DiagnoseFreeUnallocated
+  | DiagnoseFreeBadOffset
+  | DiagnoseWriteUnmapped
+  | DiagnoseReadUninitialized
+  | DiagnoseReadUninitializedOffset
+  | DiagnosePointerConstOffset
+  | DiagnoseMemsetTooSmall
+  | DiagnoseAddSignedWrap
+  | DiagnoseSubSignedWrap
+  | DiagnoseNonZero
   deriving (Eq, Ord)
 
-diagnose :: MissingPreconditionTag -> Text
-diagnose =
-  \case
-    ArgWriteBadAlignment -> "Write to a pointer with insufficient alignment in argument"
-    ArgReadBadAlignment -> "Read from a pointer with insufficient alignment in argument"
-    ArgFreeUnallocated -> "`free` called on an unallocated pointer in argument"
-    ArgFreeBadOffset -> "`free` called on pointer with nonzero offset in argument"
-    ArgWriteUnmapped -> "Write to an unmapped pointer in argument"
-    ArgReadUninitialized -> "Read from an uninitialized pointer in argument"
-    ArgReadUninitializedOffset -> "Read from an uninitialized pointer calculated from a pointer in argument"
-    ArgPointerConstOffset -> "Addition of a constant offset to a pointer in argument"
-    ArgMemsetTooSmall -> "`memset` called on pointer to too-small allocation in argument"
-    ArgAddSignedWrap -> "Addition of a constant caused signed wrap of an int in argument"
-    ArgSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int in argument"
-    ArgNonZero -> "Division or remainder by zero in argument"
+data Diagnosis = Diagnosis
+  { diagnosisTag :: DiagnosisTag,
+    argOrGlobal :: Where
+  }
 
-prescribe :: MissingPreconditionTag -> Text
+diagnoseTag :: DiagnosisTag -> Text
+diagnoseTag =
+  \case
+    DiagnoseWriteBadAlignment -> "Write to a pointer with insufficient alignment"
+    DiagnoseReadBadAlignment -> "Read from a pointer with insufficient alignment"
+    DiagnoseFreeUnallocated -> "`free` called on an unallocated pointer"
+    DiagnoseFreeBadOffset -> "`free` called on pointer with nonzero offset"
+    DiagnoseWriteUnmapped -> "Write to an unmapped pointer"
+    DiagnoseReadUninitialized -> "Read from an uninitialized pointer"
+    DiagnoseReadUninitializedOffset -> "Read from an uninitialized pointer calculated from a pointer"
+    DiagnosePointerConstOffset -> "Addition of a constant offset to a pointer"
+    DiagnoseMemsetTooSmall -> "`memset` called on pointer to too-small allocation"
+    DiagnoseAddSignedWrap -> "Addition of a constant caused signed wrap of an int"
+    DiagnoseSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int"
+    DiagnoseNonZero -> "Division or remainder by zero"
+
+diagnose :: Diagnosis -> Text
+diagnose (Diagnosis tag which) =
+  diagnoseTag tag
+    <> case which of
+      Arg n -> "in argument #" <> Text.pack (show n)
+      Global g -> "in global " <> Text.pack g
+      ReturnValue f -> "in return value of skipped function " <> Text.pack f
+
+prescribe :: DiagnosisTag -> Text
 prescribe =
   ("Prescription: Add a precondition that " <>)
     . \case
-      ArgWriteBadAlignment -> "the pointer is sufficiently aligned."
-      ArgReadBadAlignment -> "the pointer is sufficiently aligned."
-      ArgFreeUnallocated -> "the pointer points to initialized memory."
-      ArgFreeBadOffset -> "the pointer points to initialized memory."
-      ArgWriteUnmapped -> "the pointer points to allocated memory."
-      ArgReadUninitialized -> "the pointer points to initialized memory."
-      ArgReadUninitializedOffset -> "the pointer points to initialized memory."
-      ArgPointerConstOffset -> "the allocation is at least that size."
-      ArgMemsetTooSmall -> "the allocation is at least that size."
-      ArgAddSignedWrap -> "the integer is small enough"
-      ArgSubSignedWrap -> "the integer is large enough"
-      ArgNonZero -> "the argument is not zero"
+      DiagnoseWriteBadAlignment -> "the pointer is sufficiently aligned."
+      DiagnoseReadBadAlignment -> "the pointer is sufficiently aligned."
+      DiagnoseFreeUnallocated -> "the pointer points to initialized memory."
+      DiagnoseFreeBadOffset -> "the pointer points to initialized memory."
+      DiagnoseWriteUnmapped -> "the pointer points to allocated memory."
+      DiagnoseReadUninitialized -> "the pointer points to initialized memory."
+      DiagnoseReadUninitializedOffset -> "the pointer points to initialized memory."
+      DiagnosePointerConstOffset -> "the allocation is at least that size."
+      DiagnoseMemsetTooSmall -> "the allocation is at least that size."
+      DiagnoseAddSignedWrap -> "the integer is small enough"
+      DiagnoseSubSignedWrap -> "the integer is large enough"
+      DiagnoseNonZero -> "the integer is not zero"
 
 -- | There was an error and we know roughly what sort it was, but we still can't
 -- do anything about it, i.e., it\'s not clear what kind of precondition could
@@ -217,78 +233,27 @@ data Unfixable
     -- If the offset that was added is symbolic and not part of an argument or
     -- global variable, it\'s not clear what kind of precondition could
     -- mitigate/avoid the error.
-    AddSymbolicOffsetToArgPointer
+    AddSymbolicOffsetToInputPointer
   deriving (Eq, Ord, Show)
 
 ppUnfixable :: Unfixable -> Text
 ppUnfixable =
   \case
-    AddSymbolicOffsetToArgPointer -> "Addition of a symbolic offset to pointer in argument"
+    AddSymbolicOffsetToInputPointer ->
+      "Addition of a symbolic offset to pointer in argument, global variable, or return value of skipped function"
 
 -- | We know how we *could* fix this in theory, but haven't implemented it yet.
 data Unfixed
   = UnfixedArgPtrOffsetArg
-  | UnfixedFunctionPtrInArg
-  | UnfixedUninitializedGlobal
-  | -- The following would be addressed by applying "missing precondition"
-    -- heuristics to return values from skipped functions
-    UnfixedRetReadUninitialized
-  | UnfixedRetWriteUnmapped
-  | UnfixedRetCall
-  | UnfixedRetMemset
-  | UnfixedRetPtrFree
-  | UnfixedRetPtrAddOffset
-  | UnfixedRetReadBadAlignment
-  | UnfixedRetWriteBadAlignment
-  | UnfixedRetDivRemByZero
-  | -- Globals
-    UnfixedGlobalCall
-  | UnfixedGlobalWriteBadAlignment
-  | UnfixedGlobalReadBadAlignment
-  | UnfixedGlobalFreeUnallocated
-  | UnfixedGlobalFreeBadOffset
-  | UnfixedGlobalWriteUnmapped
-  | UnfixedGlobalReadUninitialized
-  | UnfixedGlobalReadUninitializedOffset
-  | UnfixedGlobalPointerAddOffset
-  | UnfixedGlobalMemsetTooSmall
-  | UnfixedGlobalAddSignedWrap
-  | UnfixedGlobalSubSignedWrap
-  | UnfixedGlobalDivRemByZero
+  | UnfixedFunctionPtrInInput
   deriving (Eq, Ord, Show)
 
 ppUnfixed :: Unfixed -> Text
 ppUnfixed =
   \case
     UnfixedArgPtrOffsetArg -> "Addition of an offset from argument to a pointer in argument"
-    UnfixedFunctionPtrInArg -> "Called function pointer in argument"
-    UnfixedUninitializedGlobal -> "Read from uninitialized global variable"
-    UnfixedRetReadUninitialized -> "Read from pointer return value of skipped function"
-    UnfixedRetWriteUnmapped -> "Write to pointer return value of skipped function"
-    UnfixedRetCall -> "Function call via pointer return value of skipped function"
-    UnfixedRetMemset -> "`memset` of pointer return value of skipped function"
-    UnfixedRetPtrFree -> "`free` of pointer return value of skipped function"
-    UnfixedRetPtrAddOffset ->
-      "Addition of an offset to pointer return value of skipped function"
-    UnfixedRetReadBadAlignment ->
-      "Write to a pointer with insufficient alignment in return value of skipped function"
-    UnfixedRetWriteBadAlignment ->
-      "Read from a pointer with insufficient alignment in return value of skipped function"
-    UnfixedRetDivRemByZero -> "Divided by possibly-zero return value of skipped function"
-    -- Globals
-    UnfixedGlobalCall -> "Function call via pointer in global"
-    UnfixedGlobalWriteBadAlignment -> "Write to a pointer with insufficient alignment in global"
-    UnfixedGlobalReadBadAlignment -> "Read from a pointer with insufficient alignment in global"
-    UnfixedGlobalFreeUnallocated -> "`free` called on an unallocated pointer in global"
-    UnfixedGlobalFreeBadOffset -> "`free` called on pointer with nonzero offset in global"
-    UnfixedGlobalWriteUnmapped -> "Write to an unmapped pointer in global"
-    UnfixedGlobalReadUninitialized -> "Read from an uninitialized pointer in global"
-    UnfixedGlobalReadUninitializedOffset -> "Read from an uninitialized pointer calculated from a pointer in global"
-    UnfixedGlobalPointerAddOffset -> "Addition of an offset to a pointer in global"
-    UnfixedGlobalMemsetTooSmall -> "`memset` called on pointer to too-small allocation in global"
-    UnfixedGlobalAddSignedWrap -> "Addition of a constant caused signed wrap of an int in global"
-    UnfixedGlobalSubSignedWrap -> "Subtraction of a constant caused signed wrap of an int in global"
-    UnfixedGlobalDivRemByZero -> "Division or remainder by zero in global"
+    UnfixedFunctionPtrInInput ->
+      "Called function pointer in argument, global, or return value of skipped function"
 
 -- | We don't (yet) know what to do about this error, so we can't continue
 -- executing this function.
@@ -370,14 +335,14 @@ partitionUncertainty = go [] [] [] [] [] [] []
 -- compatibility.
 data Explanation m arch (argTypes :: Ctx (FullType m))
   = ExTruePositive LocatedTruePositive
-  | ExMissingPreconditions (MissingPreconditionTag, [NewConstraint m argTypes])
+  | ExDiagnosis (Diagnosis, [NewConstraint m argTypes])
   | ExUncertain Uncertainty
   | -- | Hit recursion/loop bounds
     ExExhaustedBounds !String
 
 partitionExplanations ::
   [Explanation m arch types] ->
-  ([LocatedTruePositive], [(MissingPreconditionTag, [NewConstraint m types])], [Uncertainty], [String])
+  ([LocatedTruePositive], [(Diagnosis, [NewConstraint m types])], [Uncertainty], [String])
 partitionExplanations = go [] [] [] []
   where
     go ts cs ds es =
@@ -386,7 +351,7 @@ partitionExplanations = go [] [] [] []
         (ExTruePositive t : xs) ->
           let (ts', cs', ds', es') = go ts cs ds es xs
            in (t : ts', cs', ds', es')
-        (ExMissingPreconditions c : xs) ->
+        (ExDiagnosis c : xs) ->
           let (ts', cs', ds', es') = go ts cs ds es xs
            in (ts', c : cs', ds', es')
         (ExUncertain d : xs) ->

@@ -25,21 +25,18 @@ module UCCrux.LLVM.Classify.Poison (classifyPoison) where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
 
-import           Control.Lens ((^.), to)
+import           Control.Lens ((^.))
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 
 import           Data.Bifunctor (bimap)
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
-import           Data.Functor.Const (Const(getConst))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 
 import qualified Text.LLVM.AST as L
 
-import           Data.Parameterized.Classes (IxedF'(ixF'))
-import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, type (<=))
 import           Data.Parameterized.Some (Some(Some))
 
@@ -51,9 +48,8 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
 
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
 import           UCCrux.LLVM.Classify.Types
-import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector))
+import           UCCrux.LLVM.Cursor (ppCursor, SomeInSelector(SomeInSelector), Where, selectWhere, selectorCursor)
 import           UCCrux.LLVM.Constraints (Constraint(BVCmp), NewConstraint(..))
 import           UCCrux.LLVM.FullType.Type (FullType(FTInt), FullTypeRepr(FTIntRepr))
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
@@ -106,12 +102,11 @@ annotationAndValue sym annotations op1 op2 =
 handleBVOp ::
   (MonadIO f, What4.IsExprBuilder sym) =>
   AppContext ->
-  FunctionContext m arch argTypes ->
   sym ->
   -- | Term annotations (origins), see comment on
   -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
   Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
-  MissingPreconditionTag ->
+  (Where -> Diagnosis) ->
   What4.SymBV sym w ->
   What4.SymBV sym w ->
   -- | See comment on 'annotationAndValue' - the 'Either' indicates whether the
@@ -123,30 +118,28 @@ handleBVOp ::
     Maybe (Constraint m ('FTInt w'))
   ) ->
   f (Maybe (Explanation m arch argTypes))
-handleBVOp appCtx funCtx sym annotations tag op1 op2 constraint =
+handleBVOp appCtx sym annotations diagnosis op1 op2 constraint =
   case annotationAndValue sym annotations op1 op2 of
     -- The argument was on the LHS of the operation
-    Just (Some (TypedSelector ftRepr (SomeInSelector (SelectArgument idx cursor))), concreteSummand) ->
+    Just (Some (TypedSelector ftRepr (SomeInSelector selector)), concreteSummand) ->
       do
-        let argName i =
-              funCtx ^. argumentNames . ixF' i . to getConst . to (maybe "<top>" Text.unpack)
+        let d = diagnosis (selectWhere selector)
         liftIO $
           (appCtx ^. log) Hi $
             Text.unwords
               [ "Diagnosis:",
-                diagnose tag,
-                "#" <> Text.pack (show (Ctx.indexVal idx)),
+                diagnose d,
                 "at",
-                Text.pack (show (ppCursor (argName idx) cursor))
+                Text.pack (show (ppCursor "<top>" (selector ^. selectorCursor)))
               ]
-        liftIO $ (appCtx ^. log) Hi (prescribe tag)
+        liftIO $ (appCtx ^. log) Hi (prescribe (diagnosisTag d))
         case ftRepr of
           FTIntRepr w ->
             pure $
-              ExMissingPreconditions
-                . (tag,)
+              ExDiagnosis
+                . (d,)
                 . (: [])
-                . NewConstraint (SomeInSelector (SelectArgument idx cursor))
+                . NewConstraint (SomeInSelector selector)
                 <$>
                 -- NOTE(lb): The trunc' operation here *should* be a
                 -- no-op, but since the Poison constructors don't have a
@@ -161,22 +154,20 @@ classifyPoison ::
   forall f sym m arch argTypes.
   (MonadIO f, What4.IsExprBuilder sym) =>
   AppContext ->
-  FunctionContext m arch argTypes ->
   sym ->
   -- | Term annotations (origins), see comment on
   -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
   Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
   Poison.Poison (Crucible.RegValue' sym) ->
   f (Maybe (Explanation m arch argTypes))
-classifyPoison appCtx funCtx sym annotations =
+classifyPoison appCtx sym annotations =
   \case
     Poison.AddNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
       handleBVOp
         appCtx
-        funCtx
         sym
         annotations
-        ArgAddSignedWrap
+        (Diagnosis DiagnoseAddSignedWrap)
         op1
         op2
         ( \w concreteSummand ->
@@ -195,10 +186,9 @@ classifyPoison appCtx funCtx sym annotations =
     Poison.SubNoSignedWrap (Crucible.RV op1) (Crucible.RV op2) ->
       handleBVOp
         appCtx
-        funCtx
         sym
         annotations
-        ArgSubSignedWrap
+        (Diagnosis DiagnoseSubSignedWrap)
         op1
         op2
         ( \w concreteSummand ->
