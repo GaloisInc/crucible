@@ -29,7 +29,7 @@ module UCCrux.LLVM.FullType.Translation
     translateModuleDefines,
     ppTypeTranslationError,
     lookupDeclTypes,
-    lookupGlobalSymbol,
+    globalSymbol,
     makeGlobalSymbol,
     getGlobalSymbol,
     isEmptyGlobalMap,
@@ -40,7 +40,7 @@ where
 import           Prelude hiding (unzip)
 
 import           Control.Lens.At (At(at), Ixed(ix), Index, IxValue, ixAt)
-import           Control.Lens (lens)
+import           Control.Lens (Lens', lens)
 import           Control.Monad (unless)
 import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExceptT)
 import           Control.Monad.State (State, runState)
@@ -98,6 +98,7 @@ newtype GlobalSymbol m = GlobalSymbol
   deriving (Eq, Ord)
 
 type instance Index (GlobalMap m a) = GlobalSymbol m
+
 type instance IxValue (GlobalMap m a) = a
 
 -- | Constructor not exported to enforce the invariant that a 'GlobalMap' holds
@@ -113,14 +114,18 @@ instance At (GlobalMap m a) where
 instance Ixed (GlobalMap m a) where
   ix = ixAt
 
-lookupGlobalSymbol :: GlobalSymbol m -> GlobalMap m a -> a
-lookupGlobalSymbol symbol (GlobalMap mp) =
-  fromMaybe
-    ( panic
-        "lookupGlobalSymbol"
-        ["Broken invariant: GlobalSymbol not present in GlobalMap"]
+globalSymbol :: GlobalSymbol m -> Lens' (GlobalMap m a) a
+globalSymbol sym =
+  lens
+    ( fromMaybe
+        ( panic
+            "globalSymbol"
+            ["Broken invariant: GlobalSymbol not present in GlobalMap"]
+        )
+        . Map.lookup sym
+        . getGlobalMap
     )
-    (Map.lookup symbol mp)
+    (\(GlobalMap m) a -> GlobalMap (Map.insert sym a m))
 
 makeGlobalSymbol :: GlobalMap m a -> L.Symbol -> Maybe (GlobalSymbol m)
 makeGlobalSymbol (GlobalMap mp) symbol =
