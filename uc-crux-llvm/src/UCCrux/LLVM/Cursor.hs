@@ -23,6 +23,7 @@ module UCCrux.LLVM.Cursor
 
     -- * Operations on 'Cursor'
     findBottom,
+    checkCompatibility,
     deepenPtr,
     deepenStruct,
     deepenArray,
@@ -105,6 +106,31 @@ findBottom =
     Dereference _ cursor' -> findBottom cursor'
     Index _ _ cursor' -> findBottom cursor'
     Field _ _ cursor' -> findBottom cursor'
+
+checkCompatibility ::
+  ModuleTypes m ->
+  Cursor m inTy atTy ->
+  FullTypeRepr m inTy' ->
+  Maybe (Cursor m inTy' atTy)
+checkCompatibility mts cursor ftRepr =
+  case (cursor, ftRepr) of
+    (Here repr, _) ->
+      case testEquality repr ftRepr of
+        Nothing -> Nothing
+        Just Refl -> Just (Here repr)
+    (Dereference i cursor', FTPtrRepr partType) ->
+      Dereference i <$> checkCompatibility mts cursor' (asFullType mts partType)
+    (Index i n cursor', FTArrayRepr m ftRepr') ->
+      case testEquality n m of
+        Nothing -> Nothing
+        Just Refl ->
+          Index i n <$> checkCompatibility mts cursor' ftRepr'
+    (Field fields idx cursor', FTStructRepr _ fields') ->
+      case testEquality fields fields' of
+        Nothing -> Nothing
+        Just Refl ->
+          Field fields idx <$> checkCompatibility mts cursor' (fields' ^. ixF' idx)
+    _ -> Nothing
 
 -- | If you've got enough type information on hand to determine that this
 -- 'Cursor' points to a pointer type, you can get one that points to the
