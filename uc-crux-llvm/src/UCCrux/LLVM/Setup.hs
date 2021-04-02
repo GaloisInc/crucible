@@ -74,6 +74,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
+import           UCCrux.LLVM.FullType.Translation (lookupGlobalType)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Setup.Monad
@@ -415,7 +416,7 @@ populateNonConstGlobals modCtx sym =
         let symb = L.globalSym glob
         Some fullTy <-
           pure $
-            case modCtx ^. globalTypes . to (FTCT.lookupGlobalType symb) of
+            case modCtx ^. globalTypes . to (lookupGlobalType symb) of
               Nothing ->
                 panic
                   "populateNonConstGlobal"

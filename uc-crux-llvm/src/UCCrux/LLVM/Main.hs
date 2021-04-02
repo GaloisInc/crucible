@@ -75,7 +75,7 @@ import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.CrucibleType (ppTypeTranslationError)
+import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
 import           UCCrux.LLVM.Run.Explore (explore)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
