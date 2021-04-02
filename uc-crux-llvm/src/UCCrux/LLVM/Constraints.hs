@@ -25,6 +25,7 @@ module UCCrux.LLVM.Constraints
     RelationalConstraint (..),
 
     -- * Collections of constraints
+    ConstrainedGlobal (..),
     Constraints (..),
     argConstraints,
     globalConstraints,
@@ -74,12 +75,12 @@ import           Data.Parameterized.TraversableFC (allFC, fmapFC, toListFC)
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 
-import           UCCrux.LLVM.Cursor (Selector(..), SomeInSelector(SomeInSelector), seekType)
+import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.FullType.Translation (GlobalMap)
+import           UCCrux.LLVM.FullType.Translation (GlobalMap, globalSymbol)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 
 -- See comment in below block of CPP
@@ -423,22 +424,45 @@ addConstraint ::
   Either ExpansionError (Constraints m argTypes)
 addConstraint argTypes mts constraints =
   \case
-    NewConstraint (SomeInSelector (SelectGlobal _symbol _cursor)) _constraint ->
-      unimplemented "addConstraint" Unimplemented.ConstrainGlobal
-    NewShapeConstraint (SomeInSelector (SelectGlobal _symbol _cursor)) _shapeConstraint ->
-      unimplemented "addConstraint" Unimplemented.ConstrainGlobal
+    NewConstraint (SomeInSelector (SelectGlobal symbol cursor)) constraint ->
+      constraints & globalConstraints . globalSymbol symbol
+        %%~ ( \(ConstrainedGlobal ft shape) ->
+                case checkCompatibility mts cursor ft of
+                  Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
+                  Just cursor' ->
+                    ConstrainedGlobal ft
+                      <$> addOneConstraint
+                        shape
+                        cursor'
+                        constraint
+            )
+    NewShapeConstraint (SomeInSelector (SelectGlobal symbol cursor)) shapeConstraint ->
+      constraints & globalConstraints . globalSymbol symbol
+        %%~ ( \(ConstrainedGlobal ft (ConstrainedShape shape)) ->
+                case checkCompatibility mts cursor ft of
+                  Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
+                  Just cursor' ->
+                    ConstrainedGlobal ft
+                      . ConstrainedShape
+                      <$> joinLeft
+                        ExpShapeSeekError
+                        -- TODO(lb): This is pretty duplicated with the case
+                        -- below, but I'm having trouble un-inlining it into the
+                        -- "where"...
+                        ( let doExpand shape' =
+                                case expand mts (Compose []) (seekType mts cursor' ft) shapeConstraint shape' of
+                                  (Just _redundant, result) -> Right result
+                                  (Nothing, result) -> Right result
+                           in Shape.modifyA' doExpand shape cursor'
+                        )
+            )
     NewConstraint (SomeInSelector SelectReturn {}) _constraint ->
       unimplemented "addConstraint" Unimplemented.ConstrainReturnValue
     NewShapeConstraint (SomeInSelector SelectReturn {}) _constraint ->
       unimplemented "addConstraint" Unimplemented.ConstrainReturnValue
     NewConstraint (SomeInSelector (SelectArgument idx cursor)) constraint ->
       constraints & argConstraints . ixF' idx
-        %%~ ( \(ConstrainedShape shape) ->
-                ConstrainedShape
-                  <$> first
-                    ExpShapeSeekError
-                    (fst <$> Shape.modifyTag (coerce (constraint :)) shape cursor)
-            )
+        %%~ (\shape -> addOneConstraint shape cursor constraint)
     NewShapeConstraint (SomeInSelector (SelectArgument idx cursor)) shapeConstraint ->
       constraints & argConstraints . ixF' idx
         %%~ ( \(ConstrainedShape shape) ->
@@ -457,3 +481,13 @@ addConstraint argTypes mts constraints =
             )
     NewRelationalConstraint relationalConstraint ->
       Right $ constraints & relationalConstraints %~ (relationalConstraint :)
+  where
+    addOneConstraint ::
+      ConstrainedShape m ft ->
+      Cursor m ft atTy ->
+      Constraint m atTy ->
+      Either ExpansionError (ConstrainedShape m ft)
+    addOneConstraint (ConstrainedShape shape) cursor constraint =
+      first
+        ExpShapeSeekError
+        (ConstrainedShape . fst <$> Shape.modifyTag (coerce (constraint :)) shape cursor)
