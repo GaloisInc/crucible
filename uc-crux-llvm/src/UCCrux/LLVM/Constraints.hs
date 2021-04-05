@@ -30,6 +30,7 @@ module UCCrux.LLVM.Constraints
     Constraints (..),
     argConstraints,
     globalConstraints,
+    returnConstraints,
     relationalConstraints,
     emptyConstraints,
     ppConstraints,
@@ -37,6 +38,7 @@ module UCCrux.LLVM.Constraints
 
     -- * 'ConstrainedShape'
     ConstrainedShape (..),
+    minimalConstrainedShape,
     expand,
     ExpansionError (..),
     ppExpansionError,
@@ -186,7 +188,7 @@ data ConstrainedGlobal m = forall ft.
 data ConstrainedReturnValue m = forall ft.
   ConstrainedReturnValue
   { _constrainedReturnValueType :: FullTypeRepr m ft,
-    _constrainedReturnValueShape :: ConstrainedShape m ft
+    constrainedReturnValueShape :: ConstrainedShape m ft
   }
 
 -- | A collection of constraints on the state of a program. These are used to

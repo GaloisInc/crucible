@@ -442,6 +442,7 @@ inFileTests =
         ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
         ("not_double_free.c", [("not_double_free", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("ptr_as_array.c", [("ptr_as_array", isSafeWithPreconditions mempty DidntHitBounds)]),
+        ("read_errno.c", [("read_errno", isSafeWithPreconditions (skipOverride "__errno_location") DidntHitBounds)]),
         ("read_pointer_from_global_struct.c", [("read_pointer_from_global_struct", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("read_null_global_pointer.c", [("read_null_global_pointer", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("sized_array_arg.c", [("sized_array_arg", isSafeWithPreconditions mempty DidntHitBounds)]),
@@ -1071,8 +1072,5 @@ main =
           "cast_int_to_pointer_memset", -- goal: isSafeWithPreconditions
         isUnimplemented
           "gethostname_arg_len.c"
-          "gethostname_arg_len", -- goal: ???
-        isUnimplemented
-          "read_errno.c"
-          "read_errno" -- goal: isSafeWithPreconditions
+          "gethostname_arg_len" -- goal: ???
       ]

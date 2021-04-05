@@ -105,7 +105,8 @@ ppFunctionSummary fs =
           ":\n"
             <> Text.intercalate "\n----------\n" (toList (fmap ppLocatedTruePositive bugs))
       SafeWithPreconditions b u preconditions ->
-        PP.pretty (ppFunctionSummaryTag (functionSummaryTag fs) <> ":\n")
+        PP.pretty
+          (":\n" :: Text)
           <> if didHit b
             then PP.pretty ("The loop/recursion bound is not exceeded, and:\n" :: Text)
             else
