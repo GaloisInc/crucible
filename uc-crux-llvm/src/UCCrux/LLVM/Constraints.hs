@@ -48,6 +48,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (^.))
+import           Control.Lens.Indexed (itoList)
 import           Data.Bifunctor (first)
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
@@ -80,7 +81,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.FullType.Translation (GlobalMap, globalSymbol)
+import           UCCrux.LLVM.FullType.Translation (GlobalMap, globalSymbol, getGlobalSymbol)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 
 -- See comment in below block of CPP
@@ -238,7 +239,7 @@ emptyConstraints globalTypes argTypes =
     }
 
 ppConstraints :: Constraints m argTypes -> Doc Void
-ppConstraints (Constraints args _ relCs) =
+ppConstraints (Constraints args globs relCs) =
   PP.vsep
     ( catMaybes
         [ if Ctx.sizeInt (Ctx.size args) == 0
@@ -251,11 +252,18 @@ ppConstraints (Constraints args _ relCs) =
                       (Shape.ppShape ppConstraints' . getConstrainedShape)
                       args
                   ),
-          -- These aren't yet generated anywhere
           Just $
             nestSep
-              [ PP.pretty "Globals: TODO"
-              ],
+              ( PP.pretty "Globals:" :
+                map
+                  ( \(name, ConstrainedGlobal _type (ConstrainedShape s)) ->
+                      let L.Symbol nm = getGlobalSymbol name
+                       in PP.pretty nm
+                            <> PP.pretty ": "
+                            <> Shape.ppShape ppConstraints' s
+                  )
+                  (itoList globs)
+              ),
           -- These aren't yet generated anywhere
           if null relCs
             then Nothing

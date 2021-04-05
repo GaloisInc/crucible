@@ -7,10 +7,12 @@ Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -41,6 +43,7 @@ import           Prelude hiding (unzip)
 
 import           Control.Lens.At (At(at), Ixed(ix), Index, IxValue, ixAt)
 import           Control.Lens (Lens', lens)
+import           Control.Lens.Indexed (FunctorWithIndex(imap), FoldableWithIndex(ifoldMap))
 import           Control.Monad (unless)
 import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExceptT)
 import           Control.Monad.State (State, runState)
@@ -107,6 +110,13 @@ type instance IxValue (GlobalMap m a) = a
 newtype GlobalMap m a = GlobalMap
   {getGlobalMap :: Map (GlobalSymbol m) a}
   deriving (Foldable, Functor)
+
+-- Not sure why these can't be derived?
+instance FunctorWithIndex (GlobalSymbol m) (GlobalMap m) where
+  imap f (GlobalMap m) = GlobalMap (imap f m)
+
+instance FoldableWithIndex (GlobalSymbol m) (GlobalMap m) where
+  ifoldMap f (GlobalMap m) = ifoldMap f m
 
 instance At (GlobalMap m a) where
   at symb = lens getGlobalMap (const GlobalMap) . at symb
