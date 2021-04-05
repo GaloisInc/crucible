@@ -7,6 +7,7 @@ Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -20,21 +21,28 @@ Stability        : provisional
 {-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.FullType.Translation
-  ( FunctionTypes (..),
-    MatchingAssign (..),
-    DeclTypes,
+  ( -- * Maps
+    DeclSymbol,
+    DeclMap,
     GlobalSymbol,
     GlobalMap,
+    declSymbol,
+    makeDeclSymbol,
+    getDeclSymbol,
+    isEmptyDeclMap,
+    globalSymbol,
+    makeGlobalSymbol,
+    getGlobalSymbol,
+    isEmptyGlobalMap,
+
+    -- * Translation
+    FunctionTypes (..),
+    MatchingAssign (..),
     TranslatedTypes (..),
     TypeTranslationError (..),
     isDebug,
     translateModuleDefines,
     ppTypeTranslationError,
-    lookupDeclTypes,
-    globalSymbol,
-    makeGlobalSymbol,
-    getGlobalSymbol,
-    isEmptyGlobalMap,
   )
 where
 
@@ -75,6 +83,154 @@ import           UCCrux.LLVM.FullType.Type
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, boolToVarArgsRepr)
 {- ORMOLU_ENABLE -}
 
+--------------------------------------------------------------------------------
+-- Maps
+
+-- | Type level only
+data SymbolType
+  = Decl
+  | Global
+
+-- | A name of a function or global from a specific LLVM module
+newtype Symbol m (t :: SymbolType) = Symbol {_getSymbol :: L.Symbol}
+  deriving (Eq, Ord)
+
+newtype DeclSymbol m = DeclSymbol
+  {runDeclSymbol :: Symbol m 'Decl}
+  deriving (Eq, Ord)
+
+newtype GlobalSymbol m = GlobalSymbol
+  {runGlobalSymbol :: Symbol m 'Global}
+  deriving (Eq, Ord)
+
+newtype SymbolMap m t a = SymbolMap
+  {getSymbolMap :: Map (Symbol m t) a}
+  deriving (Foldable, Functor, Traversable)
+
+type instance Index (SymbolMap m t a) = Symbol m t
+
+type instance IxValue (SymbolMap m t a) = a
+
+-- Not sure why these can't be derived?
+instance FunctorWithIndex (Symbol m t) (SymbolMap m t) where
+  imap f (SymbolMap m) = SymbolMap (imap f m)
+
+instance FoldableWithIndex (Symbol m t) (SymbolMap m t) where
+  ifoldMap f (SymbolMap m) = ifoldMap f m
+
+instance At (SymbolMap m t a) where
+  at symb = lens getSymbolMap (const SymbolMap) . at symb
+
+instance Ixed (SymbolMap m t a) where
+  ix = ixAt
+
+-- | Constructor not exported to enforce the invariant that a 'DeclMap'
+-- holds a value for every LLVM function declaration in the corresponding module
+-- indicated by the @m@ parameter.
+newtype DeclMap m a = DeclMap
+  {getDeclMap :: SymbolMap m 'Decl a}
+  deriving (Foldable, Functor, Traversable)
+
+type instance Index (DeclMap m a) = DeclSymbol m
+
+type instance IxValue (DeclMap m a) = a
+
+instance FunctorWithIndex (DeclSymbol m) (DeclMap m) where
+  imap f (DeclMap m) =
+    DeclMap (imap (\sym val -> f (DeclSymbol sym) val) m)
+
+instance FoldableWithIndex (DeclSymbol m) (DeclMap m) where
+  ifoldMap f (DeclMap m) =
+    ifoldMap (\sym val -> f (DeclSymbol sym) val) m
+
+instance At (DeclMap m a) where
+  at symb = lens getDeclMap (const DeclMap) . at (runDeclSymbol symb)
+
+instance Ixed (DeclMap m a) where
+  ix = ixAt
+
+-- | Constructor not exported to enforce the invariant that a 'GlobalMap' holds
+-- a value for every LLVM global in the corresponding module indicated by the
+-- @m@ parameter.
+newtype GlobalMap m a = GlobalMap
+  {getGlobalMap :: SymbolMap m 'Global a}
+  deriving (Foldable, Functor, Traversable)
+
+type instance Index (GlobalMap m a) = GlobalSymbol m
+
+type instance IxValue (GlobalMap m a) = a
+
+instance FunctorWithIndex (GlobalSymbol m) (GlobalMap m) where
+  imap f (GlobalMap m) =
+    GlobalMap (imap (\sym val -> f (GlobalSymbol sym) val) m)
+
+instance FoldableWithIndex (GlobalSymbol m) (GlobalMap m) where
+  ifoldMap f (GlobalMap m) =
+    ifoldMap (\sym val -> f (GlobalSymbol sym) val) m
+
+instance At (GlobalMap m a) where
+  at symb = lens getGlobalMap (const GlobalMap) . at (runGlobalSymbol symb)
+
+instance Ixed (GlobalMap m a) where
+  ix = ixAt
+
+declSymbol :: DeclSymbol m -> Lens' (DeclMap m a) a
+declSymbol (DeclSymbol sym) =
+  lens
+    ( fromMaybe
+        ( panic
+            "declSymbol"
+            ["Broken invariant: DeclSymbol not present in DeclMap"]
+        )
+        . Map.lookup sym
+        . getSymbolMap
+        . getDeclMap
+    )
+    (\(DeclMap (SymbolMap m)) a -> DeclMap (SymbolMap (Map.insert sym a m)))
+
+makeDeclSymbol :: L.Symbol -> DeclMap m a -> Maybe (DeclSymbol m)
+makeDeclSymbol symbol (DeclMap (SymbolMap mp)) =
+  let gs = Symbol symbol
+   in case Map.lookup gs mp of
+        Just _ -> Just (DeclSymbol gs)
+        Nothing -> Nothing
+
+getDeclSymbol :: DeclSymbol m -> L.Symbol
+getDeclSymbol (DeclSymbol (Symbol s)) = s
+
+isEmptyDeclMap :: DeclMap m a -> Bool
+isEmptyDeclMap (DeclMap (SymbolMap m)) = Map.null m
+
+globalSymbol :: GlobalSymbol m -> Lens' (GlobalMap m a) a
+globalSymbol (GlobalSymbol sym) =
+  lens
+    ( fromMaybe
+        ( panic
+            "globalSymbol"
+            ["Broken invariant: GlobalSymbol not present in GlobalMap"]
+        )
+        . Map.lookup sym
+        . getSymbolMap
+        . getGlobalMap
+    )
+    (\(GlobalMap (SymbolMap m)) a -> GlobalMap (SymbolMap (Map.insert sym a m)))
+
+makeGlobalSymbol :: GlobalMap m a -> L.Symbol -> Maybe (GlobalSymbol m)
+makeGlobalSymbol (GlobalMap (SymbolMap mp)) symbol =
+  let gs = Symbol symbol
+   in case Map.lookup gs mp of
+        Just _ -> Just (GlobalSymbol gs)
+        Nothing -> Nothing
+
+getGlobalSymbol :: GlobalSymbol m -> L.Symbol
+getGlobalSymbol (GlobalSymbol (Symbol s)) = s
+
+isEmptyGlobalMap :: GlobalMap m a -> Bool
+isEmptyGlobalMap (GlobalMap (SymbolMap m)) = Map.null m
+
+--------------------------------------------------------------------------------
+-- Translation
+
 data FunctionTypes m arch = FunctionTypes
   { ftArgTypes :: MatchingAssign m arch,
     ftRetType :: Maybe (Some (FullTypeRepr m)),
@@ -87,68 +243,6 @@ data MatchingAssign m arch = forall fullTypes crucibleTypes.
   { maFullTypes :: Ctx.Assignment (FullTypeRepr m) fullTypes,
     maCrucibleTypes :: Ctx.Assignment CrucibleTypes.TypeRepr crucibleTypes
   }
-
--- | Constructor not exported to enforce the invariant that a 'DeclTypes' holds
--- a 'FunctionTypes' for every LLVM function in the corresponding module
--- indicated by the @m@ parameter.
-newtype DeclTypes m arch = DeclTypes {_getDeclTypes :: Map L.Symbol (FunctionTypes m arch)}
-
-lookupDeclTypes :: L.Symbol -> DeclTypes m arch -> Maybe (FunctionTypes m arch)
-lookupDeclTypes symb (DeclTypes mp) = Map.lookup symb mp
-
-newtype GlobalSymbol m = GlobalSymbol
-  {_getGlobalSymbol :: L.Symbol}
-  deriving (Eq, Ord)
-
-type instance Index (GlobalMap m a) = GlobalSymbol m
-
-type instance IxValue (GlobalMap m a) = a
-
--- | Constructor not exported to enforce the invariant that a 'GlobalMap' holds
--- a value for every LLVM global in the corresponding module indicated by the
--- @m@ parameter.
-newtype GlobalMap m a = GlobalMap
-  {getGlobalMap :: Map (GlobalSymbol m) a}
-  deriving (Foldable, Functor)
-
--- Not sure why these can't be derived?
-instance FunctorWithIndex (GlobalSymbol m) (GlobalMap m) where
-  imap f (GlobalMap m) = GlobalMap (imap f m)
-
-instance FoldableWithIndex (GlobalSymbol m) (GlobalMap m) where
-  ifoldMap f (GlobalMap m) = ifoldMap f m
-
-instance At (GlobalMap m a) where
-  at symb = lens getGlobalMap (const GlobalMap) . at symb
-
-instance Ixed (GlobalMap m a) where
-  ix = ixAt
-
-globalSymbol :: GlobalSymbol m -> Lens' (GlobalMap m a) a
-globalSymbol sym =
-  lens
-    ( fromMaybe
-        ( panic
-            "globalSymbol"
-            ["Broken invariant: GlobalSymbol not present in GlobalMap"]
-        )
-        . Map.lookup sym
-        . getGlobalMap
-    )
-    (\(GlobalMap m) a -> GlobalMap (Map.insert sym a m))
-
-makeGlobalSymbol :: GlobalMap m a -> L.Symbol -> Maybe (GlobalSymbol m)
-makeGlobalSymbol (GlobalMap mp) symbol =
-  let gs = GlobalSymbol symbol
-   in case Map.lookup gs mp of
-        Just _ -> Just gs
-        Nothing -> Nothing
-
-getGlobalSymbol :: GlobalSymbol m -> L.Symbol
-getGlobalSymbol (GlobalSymbol s) = s
-
-isEmptyGlobalMap :: GlobalMap m a -> Bool
-isEmptyGlobalMap (GlobalMap m) = Map.null m
 
 -- | The existential quantification over @m@ here makes the @FullType@ API safe.
 -- You can only intermingle 'FullTypeRepr' from the same LLVM module, and by
@@ -163,7 +257,7 @@ data TranslatedTypes arch = forall m.
   TranslatedTypes
   { translatedModuleTypes :: ModuleTypes m,
     translatedGlobalTypes :: GlobalMap m (Some (FullTypeRepr m)),
-    translatedDeclTypes :: DeclTypes m arch
+    translatedDeclTypes :: DeclMap m (FunctionTypes m arch)
   }
 
 data TypeTranslationError
@@ -227,27 +321,27 @@ translateModuleDefines llvmModule trans =
             <&> \(declTypes, globalTypes) ->
               TranslatedTypes
                 modTypes
-                (GlobalMap (Map.fromList globalTypes))
-                (DeclTypes (Map.fromList declTypes))
+                (GlobalMap (SymbolMap (Map.fromList globalTypes)))
+                (DeclMap (SymbolMap (Map.fromList declTypes)))
   where
     translateGlobal ::
       L.Global ->
       ExceptT
         TypeTranslationError
         (State (ModuleTypes m))
-        (GlobalSymbol m, Some (FullTypeRepr m))
+        (Symbol m 'Global, Some (FullTypeRepr m))
     translateGlobal glob =
       do
         memTy <- withExceptT BadLift (LLVMTrans.liftMemType (L.globalType glob))
         ty <- withExceptT FullTypeTranslation (toFullTypeM memTy)
-        pure (GlobalSymbol (L.globalSym glob), ty)
+        pure (Symbol (L.globalSym glob), ty)
 
     translateDefine ::
       L.Define ->
       ExceptT
         TypeTranslationError
         (State (ModuleTypes m))
-        (L.Symbol, FunctionTypes m arch)
+        (Symbol m 'Decl, FunctionTypes m arch)
     translateDefine defn =
       do
         let decl = LLVMTrans.declareFromDefine defn
@@ -301,7 +395,7 @@ translateModuleDefines llvmModule trans =
         case testCompatibilityAssign (Proxy :: Proxy arch) fullTypes crucibleTypes' of
           Just Refl ->
             pure
-              ( L.decName decl,
+              ( Symbol (L.decName decl),
                 FunctionTypes
                   { ftArgTypes = MatchingAssign fullTypes crucibleTypes',
                     ftRetType = retType,
@@ -320,7 +414,7 @@ translateModuleDefines llvmModule trans =
       ExceptT
         TypeTranslationError
         (State (ModuleTypes m))
-        (L.Symbol, FunctionTypes m arch)
+        (Symbol m 'Decl, FunctionTypes m arch)
     translateDeclare decl =
       do
         liftedDecl <-
@@ -346,7 +440,7 @@ translateModuleDefines llvmModule trans =
         SomeAssign' crucibleTypes Refl _ <-
           pure $ assignmentToCrucibleType (Proxy :: Proxy arch) fullTypes
         pure
-          ( L.decName decl,
+          ( Symbol (L.decName decl),
             FunctionTypes
               { ftArgTypes = MatchingAssign fullTypes crucibleTypes,
                 ftRetType = retType,
