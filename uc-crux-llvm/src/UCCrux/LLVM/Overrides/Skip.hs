@@ -24,7 +24,6 @@ where
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.), use, to)
 import           Control.Monad.IO.Class (liftIO)
-import           Data.Functor.Compose (Compose(Compose))
 import           Data.IORef (IORef, modifyIORef)
 import           Data.Maybe (mapMaybe)
 import           Data.Proxy (Proxy(Proxy))
@@ -39,7 +38,6 @@ import           Data.Type.Equality ((:~:)(Refl), testEquality)
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Some (Some(Some))
-import           Data.Parameterized.TraversableFC (fmapFC)
 
 -- what4
 import qualified What4.Interface as What4
@@ -66,12 +64,12 @@ import           Crux.Types (OverM, Model, HasModel)
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Constraints (ConstrainedShape(ConstrainedShape))
+import           UCCrux.LLVM.Constraints (ConstrainedReturnValue(..), minimalConstrainedShape)
 import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
-import           UCCrux.LLVM.FullType.Translation (FunctionTypes, declSymbol, ftRetType, isDebug, makeDeclSymbol)
+import           UCCrux.LLVM.FullType.Translation (FunctionTypes, DeclSymbol, declSymbol, ftRetType, isDebug, makeDeclSymbol)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, ppSetupError, resultAnnotations)
 import qualified UCCrux.LLVM.Shape as Shape
@@ -107,9 +105,11 @@ unsoundSkipOverrides ::
   IORef (Set SkipOverrideName) ->
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  -- | Postconditions of each override (constraints on return values)
+  Map (DeclSymbol m) (ConstrainedReturnValue m) ->
   [L.Declare] ->
   OverM Model sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
-unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef decls =
+unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decls =
   do
     let llvmCtx = mtrans ^. transContext
     let ?lc = llvmCtx ^. llvmTypeCtx
@@ -119,9 +119,24 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef decls =
             map
               (\(SomeHandle hand) -> functionName (handleName hand))
               (handleMapToHandles (fnBindings binds))
+    let create decl =
+          case modCtx ^. declTypes . to (makeDeclSymbol (L.decName decl)) of
+            Nothing ->
+              panic
+                "unsoundSkipOverrides"
+                ["Precondition violation: Declaration not in module"]
+            Just declSym ->
+              createSkipOverride
+                modCtx
+                sym
+                usedRef
+                annotationRef
+                (Map.lookup declSym postconditions)
+                decl
+                declSym
     pure $
       mapMaybe
-        (createSkipOverride modCtx sym usedRef annotationRef)
+        create
         ( filter
             ((`Set.notMember` alreadyDefined) . declName)
             (filter (not . isDebug) decls)
@@ -144,37 +159,32 @@ createSkipOverride ::
   IORef (Set SkipOverrideName) ->
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
+  Maybe (ConstrainedReturnValue m) ->
   L.Declare ->
+  DeclSymbol m ->
   Maybe (OverrideTemplate (personality sym) sym arch rtp l a)
-createSkipOverride modCtx sym usedRef annotationRef decl =
-  case modCtx ^. declTypes . to (makeDeclSymbol symbolName) of
-    Nothing ->
-      -- Impossible due to documented invariant on 'DeclTypes'
-      panic
-        "createSkipOverride"
-        ["Types not translated for declaration: " <> Text.unpack name]
-    Just declSym ->
-      llvmDeclToFunHandleRepr' decl $
-        \args ret ->
-          Just $
-            basic_llvm_override $
-              LLVMOverride
-                { llvmOverride_declare = decl,
-                  llvmOverride_args = args,
-                  llvmOverride_ret = ret,
-                  llvmOverride_def =
-                    \mvar _sym _args ->
-                      do
-                        liftIO $
-                          modifyIORef usedRef (Set.insert (SkipOverrideName name))
-                        Override.modifyGlobal mvar $ \mem ->
-                          liftIO
-                            ( returnValue
-                                mem
-                                ret
-                                (modCtx ^. declTypes . declSymbol declSym)
-                            )
-                }
+createSkipOverride modCtx sym usedRef annotationRef postcondition decl declSym =
+  llvmDeclToFunHandleRepr' decl $
+    \args ret ->
+      Just $
+        basic_llvm_override $
+          LLVMOverride
+            { llvmOverride_declare = decl,
+              llvmOverride_args = args,
+              llvmOverride_ret = ret,
+              llvmOverride_def =
+                \mvar _sym _args ->
+                  do
+                    liftIO $
+                      modifyIORef usedRef (Set.insert (SkipOverrideName name))
+                    Override.modifyGlobal mvar $ \mem ->
+                      liftIO
+                        ( returnValue
+                            mem
+                            ret
+                            (modCtx ^. declTypes . declSymbol declSym)
+                        )
+            }
   where
     name = declName decl
     symbolName = L.decName decl
@@ -222,15 +232,24 @@ createSkipOverride modCtx sym usedRef annotationRef decl =
                         )
                         (Here retFullType)
                     )
-                    ( ConstrainedShape
-                        (fmapFC (\_ -> Compose []) $ Shape.minimal retFullType)
+                    ( case postcondition of
+                        Just (ConstrainedReturnValue ft shape) ->
+                          case testEquality ft retFullType of
+                            Just Refl -> shape
+                            Nothing ->
+                              panic
+                                "createSkipOverride"
+                                [ "Ill-typed constraints on return value for override "
+                                    <> Text.unpack name
+                                ]
+                        Nothing -> minimalConstrainedShape retFullType
                     )
                 )
                 >>= \case
                   Left err ->
                     panic
                       "createSkipOverride"
-                      [ "Couldn't create return value for override"
+                      [ "Couldn't create return value for override "
                           <> Text.unpack name,
                         show (ppSetupError err)
                       ]

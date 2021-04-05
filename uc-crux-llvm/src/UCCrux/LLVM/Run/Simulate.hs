@@ -81,7 +81,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
 import           UCCrux.LLVM.Classify.Types (Explanation(..), Uncertainty(..))
-import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, relationalConstraints)
+import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, returnConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
@@ -206,6 +206,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       trans
                       skipOverrideRef
                       skipReturnValueAnnotations
+                      (constraints ^. returnConstraints)
                       (L.modDeclares (modCtx ^. llvmModule))
                   register_llvm_overrides
                     (modCtx ^. llvmModule)

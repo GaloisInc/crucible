@@ -268,7 +268,7 @@ Uncertain results:
     - [ ] Catch and report panics and unimplemented behaviors
     - [x] Good overall "summary" report
 - Goal: Handle even more kinds of behaviors
-  - [ ] Support generating allocations for reads/writes through pointers appearing in globals
+  - [x] Support generating allocations for reads/writes through pointers appearing in globals
   - [x] Support generating pointer arguments that are treated as arrays
   - [ ] Develop heuristics for more types of errors
     - [ ] True positives:
@@ -294,11 +294,13 @@ Uncertain results:
     - [ ] With compiled C++ programs
     - [ ] Parameterizing compiled programs over a set of compiler flags
           (probably optimization levels)
+    - [ ] Specify why each testcase is safe or unsafe
 
 ### Milestone 4: The Dream Achieved
 
 - [ ] Even more heuristics
-- [ ] Optionally skipping missing functions
+- [x] Optionally skipping missing functions
+  - [x] Deduce postconditions on return values of skipped functions
 - [ ] When a suspected true positive is found, verify it is feasible by reaching
       it from further up the call tree
 - [ ] After deducing preconditions for a function, generate overrides that
