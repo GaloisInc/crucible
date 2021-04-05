@@ -209,7 +209,19 @@ createSkipOverride modCtx sym usedRef annotationRef decl =
                     sym
                     (modCtx ^. moduleTypes)
                     retFullType
-                    (SelectReturn symbolName (Here retFullType))
+                    ( SelectReturn
+                        ( case modCtx ^. declTypes . to (makeDeclSymbol symbolName) of
+                            Nothing ->
+                              panic
+                                "createSkipOverride"
+                                [ "Precondition violation:",
+                                  "Declaration not found in module:",
+                                  show symbolName
+                                ]
+                            Just s -> s
+                        )
+                        (Here retFullType)
+                    )
                     ( ConstrainedShape
                         (fmapFC (\_ -> Compose []) $ Shape.minimal retFullType)
                     )
