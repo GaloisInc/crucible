@@ -57,7 +57,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (GlobalMap, DeclTypes, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, lookupDeclTypes)
+import           UCCrux.LLVM.FullType.Translation (GlobalMap, DeclMap, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, declSymbol, makeDeclSymbol)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
@@ -69,7 +69,7 @@ data ModuleContext m arch = ModuleContext
     _llvmModule :: Module,
     _moduleTypes :: ModuleTypes m,
     _globalTypes :: GlobalMap m (Some (FullTypeRepr m)),
-    _declTypes :: DeclTypes m arch,
+    _declTypes :: DeclMap m (FunctionTypes m arch),
     _moduleTranslation :: ModuleTranslation arch
   }
 
@@ -85,7 +85,7 @@ moduleTypes = lens _moduleTypes (\s v -> s {_moduleTypes = v})
 globalTypes :: Simple Lens (ModuleContext m arch) (GlobalMap m (Some (FullTypeRepr m)))
 globalTypes = lens _globalTypes (\s v -> s {_globalTypes = v})
 
-declTypes :: Simple Lens (ModuleContext m arch) (DeclTypes m arch)
+declTypes :: Simple Lens (ModuleContext m arch) (DeclMap m (FunctionTypes m arch))
 declTypes = lens _declTypes (\s v -> s {_declTypes = v})
 
 moduleTranslation :: Simple Lens (ModuleContext m arch) (ModuleTranslation arch)
@@ -146,8 +146,10 @@ findFun ::
   Maybe (CFGWithTypes m arch)
 findFun modCtx name =
   do
+    declSym <-
+      modCtx ^. declTypes . to (makeDeclSymbol (Symbol name))
     FunctionTypes (MatchingAssign argFTys argCTys) retTy (Some varArgs) <-
-      modCtx ^. declTypes . to (lookupDeclTypes (Symbol name))
+      pure $ modCtx ^. declTypes . declSymbol declSym
     (_decl, Crucible.AnyCFG cfg) <-
       modCtx ^. moduleTranslation . to LLVMTrans.cfgMap . at (Symbol name)
 

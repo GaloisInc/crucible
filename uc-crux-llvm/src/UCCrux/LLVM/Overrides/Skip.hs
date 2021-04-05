@@ -71,7 +71,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, moduleTyp
 import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
-import           UCCrux.LLVM.FullType.Translation (FunctionTypes, lookupDeclTypes, ftRetType, isDebug)
+import           UCCrux.LLVM.FullType.Translation (FunctionTypes, declSymbol, ftRetType, isDebug, makeDeclSymbol)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, ppSetupError, resultAnnotations)
 import qualified UCCrux.LLVM.Shape as Shape
@@ -147,13 +147,13 @@ createSkipOverride ::
   L.Declare ->
   Maybe (OverrideTemplate (personality sym) sym arch rtp l a)
 createSkipOverride modCtx sym usedRef annotationRef decl =
-  case modCtx ^. declTypes . to (lookupDeclTypes symbolName) of
+  case modCtx ^. declTypes . to (makeDeclSymbol symbolName) of
     Nothing ->
       -- Impossible due to documented invariant on 'DeclTypes'
       panic
         "createSkipOverride"
         ["Types not translated for declaration: " <> Text.unpack name]
-    Just funcTypes ->
+    Just declSym ->
       llvmDeclToFunHandleRepr' decl $
         \args ret ->
           Just $
@@ -168,11 +168,16 @@ createSkipOverride modCtx sym usedRef annotationRef decl =
                         liftIO $
                           modifyIORef usedRef (Set.insert (SkipOverrideName name))
                         Override.modifyGlobal mvar $ \mem ->
-                          liftIO (returnValue mem ret funcTypes)
+                          liftIO
+                            ( returnValue
+                                mem
+                                ret
+                                (modCtx ^. declTypes . declSymbol declSym)
+                            )
                 }
   where
     name = declName decl
-    symbolName = L.Symbol (Text.unpack name)
+    symbolName = L.decName decl
 
     returnValue ::
       MemImpl sym ->
