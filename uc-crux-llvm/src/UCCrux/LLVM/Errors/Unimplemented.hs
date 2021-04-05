@@ -42,7 +42,6 @@ data Unimplemented
   | NonEmptyUnboundedSizeArrays
   | NonVoidUndefinedFunc Text
   | CastIntegerToPointer
-  | ConstrainReturnValue
   deriving (Eq, Ord)
 
 ppUnimplemented :: Unimplemented -> String
@@ -62,7 +61,6 @@ ppUnimplemented =
     NonVoidUndefinedFunc func ->
       "Non-void function without a definition: " ++ Text.unpack func
     CastIntegerToPointer -> "Value of integer type treated as/cast to a pointer"
-    ConstrainReturnValue -> "Constraints on return values from skipped functions"
 
 instance PanicComponent Unimplemented where
   panicComponentName _ = "uc-crux-llvm"
