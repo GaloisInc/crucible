@@ -465,78 +465,48 @@ addConstraint modCtx argTypes constraints =
   \case
     NewConstraint (SomeInSelector (SelectGlobal symbol cursor)) constraint ->
       constraints & globalConstraints . globalSymbol symbol
-        %%~ ( \(ConstrainedGlobal ft shape) ->
-                case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-                  Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
-                  Just cursor' ->
-                    ConstrainedGlobal ft
-                      <$> addOneConstraint
-                        shape
-                        cursor'
-                        constraint
-            )
+        %%~ constrainGlobal cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectGlobal symbol cursor)) shapeConstraint ->
       constraints & globalConstraints . globalSymbol symbol
-        %%~ ( \(ConstrainedGlobal ft shape) ->
-                case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-                  Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
-                  Just cursor' ->
-                    ConstrainedGlobal ft
-                      <$> addOneShapeConstraint shape ft cursor' shapeConstraint
-            )
+        %%~ constrainGlobal cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectReturn symbol cursor)) constraint ->
       constraints & returnConstraints . at symbol
-        %%~ ( fmap Just
-                . ( \(ConstrainedReturnValue ft shape) ->
-                      ConstrainedReturnValue ft
-                        <$> case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-                          Nothing ->
-                            panic "addConstraint" ["Ill-typed return value cursor"]
-                          Just cursor' -> addOneConstraint shape cursor' constraint
-                  )
-                . fromMaybe (newReturnValueShape symbol)
-            )
+        %%~ fmap
+          Just
+          . constrainReturn symbol cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectReturn symbol cursor)) shapeConstraint ->
       constraints & returnConstraints . at symbol
-        %%~ ( fmap Just
-                . ( \(ConstrainedReturnValue ft shape) ->
-                      ConstrainedReturnValue ft
-                        <$> case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-                          Nothing ->
-                            panic "addConstraint" ["Ill-typed return value cursor"]
-                          Just cursor' ->
-                            addOneShapeConstraint shape ft cursor' shapeConstraint
-                  )
-                . fromMaybe (newReturnValueShape symbol)
-            )
+        %%~ fmap
+          Just
+          . constrainReturn symbol cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectArgument idx cursor)) constraint ->
       constraints & argConstraints . ixF' idx
-        %%~ (\shape -> addOneConstraint shape cursor constraint)
+        %%~ (\shape -> addOneConstraint constraint shape cursor)
     NewShapeConstraint (SomeInSelector (SelectArgument idx cursor)) shapeConstraint ->
       constraints & argConstraints . ixF' idx
         %%~ ( \shape ->
-                addOneShapeConstraint shape (argTypes ^. ixF' idx) cursor shapeConstraint
+                addOneShapeConstraint shapeConstraint (argTypes ^. ixF' idx) shape cursor
             )
     NewRelationalConstraint relationalConstraint ->
       Right $ constraints & relationalConstraints %~ (relationalConstraint :)
   where
     addOneConstraint ::
+      Constraint m atTy ->
       ConstrainedShape m ft ->
       Cursor m ft atTy ->
-      Constraint m atTy ->
       Either ExpansionError (ConstrainedShape m ft)
-    addOneConstraint (ConstrainedShape shape) cursor constraint =
+    addOneConstraint constraint (ConstrainedShape shape) cursor =
       first
         ExpShapeSeekError
         (ConstrainedShape . fst <$> Shape.modifyTag (coerce (constraint :)) shape cursor)
 
     addOneShapeConstraint ::
-      ConstrainedShape m inTy ->
-      FullTypeRepr m inTy ->
-      Cursor m inTy atTy ->
       ShapeConstraint m atTy ->
+      FullTypeRepr m inTy ->
+      ConstrainedShape m inTy ->
+      Cursor m inTy atTy ->
       Either ExpansionError (ConstrainedShape m inTy)
-    addOneShapeConstraint (ConstrainedShape shape) ft cursor shapeConstraint =
+    addOneShapeConstraint shapeConstraint ft (ConstrainedShape shape) cursor =
       ConstrainedShape
         <$> joinLeft
           ExpShapeSeekError
@@ -553,6 +523,42 @@ addConstraint modCtx argTypes constraints =
                     (Nothing, result) -> Right result
              in Shape.modifyA' doExpand shape cursor
           )
+
+    constrainGlobal ::
+      Cursor m inTy atTy ->
+      ( forall ft.
+        FullTypeRepr m ft ->
+        ConstrainedShape m ft ->
+        Cursor m ft atTy ->
+        Either ExpansionError (ConstrainedShape m ft)
+      ) ->
+      ConstrainedGlobal m ->
+      Either ExpansionError (ConstrainedGlobal m)
+    constrainGlobal cursor doAdd (ConstrainedGlobal ft shape) =
+      case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
+        Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
+        Just cursor' -> ConstrainedGlobal ft <$> doAdd ft shape cursor'
+
+    constrainReturn ::
+      DeclSymbol m ->
+      Cursor m inTy atTy ->
+      ( forall ft.
+        FullTypeRepr m ft ->
+        ConstrainedShape m ft ->
+        Cursor m ft atTy ->
+        Either ExpansionError (ConstrainedShape m ft)
+      ) ->
+      Maybe (ConstrainedReturnValue m) ->
+      Either ExpansionError (ConstrainedReturnValue m)
+    constrainReturn symbol cursor doAdd =
+      ( \(ConstrainedReturnValue ft shape) ->
+          ConstrainedReturnValue ft
+            <$> case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
+              Nothing ->
+                panic "addConstraint" ["Ill-typed return value cursor"]
+              Just cursor' -> doAdd ft shape cursor'
+      )
+        . fromMaybe (newReturnValueShape symbol)
 
     newReturnValueShape :: DeclSymbol m -> ConstrainedReturnValue m
     newReturnValueShape symbol =
