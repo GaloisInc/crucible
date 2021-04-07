@@ -29,13 +29,14 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (head, reverse, zip)
 
-import           Control.Lens ((^.), (%~),to)
+import           Control.Lens ((^.), (%~), to, at)
 import           Control.Monad (foldM, forM, void)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.List.NonEmpty (NonEmpty((:|)), head, reverse, zip, toList)
 import           Data.Foldable (for_)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(Compose))
+import           Data.Map (Map)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 import qualified Data.Sequence as Seq
@@ -73,7 +74,7 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
-import           UCCrux.LLVM.FullType.Translation (GlobalMap, globalSymbol, makeGlobalSymbol)
+import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, globalSymbol, makeGlobalSymbol)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Setup.Monad
@@ -404,7 +405,7 @@ populateNonConstGlobals ::
   ) =>
   ModuleContext m arch ->
   sym ->
-  GlobalMap m (ConstrainedGlobal m) ->
+  Map (GlobalSymbol m) (ConstrainedGlobal m) ->
   Setup m arch sym argTypes ()
 populateNonConstGlobals modCtx sym constrainedGlobals =
   for_
@@ -423,10 +424,10 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
                   "populateNonConstGlobal"
                   ["Missing type for global " ++ show symb]
               Just gs -> gs
-       in case ( constrainedGlobals ^. globalSymbol gSymb,
+       in case ( constrainedGlobals ^. at gSymb,
                  modCtx ^. globalTypes . globalSymbol gSymb
                ) of
-            (ConstrainedGlobal cgTy cgShape, Some fullTy) ->
+            (Just (ConstrainedGlobal cgTy cgShape), Some fullTy) ->
               case testEquality cgTy fullTy of
                 Nothing ->
                   panic
@@ -448,6 +449,7 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
                         (SelectGlobal gSymb (Here fullTy))
                         symb
                         (val ^. Shape.tag . to getSymValue)
+            (Nothing, _) -> pure ()
 
 -- | Generate arguments (and someday, global variables) that conform to the
 -- preconditions specified in the 'Ctx.Assignment' of 'ConstrainedShape'.

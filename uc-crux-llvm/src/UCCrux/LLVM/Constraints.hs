@@ -81,11 +81,11 @@ import           Data.Parameterized.TraversableFC (allFC, fmapFC, toListFC)
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 
-import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, globalTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.FullType.Translation (GlobalMap, globalSymbol, getGlobalSymbol, DeclSymbol, declSymbol, getDeclSymbol, ftRetType)
+import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, globalSymbol, getGlobalSymbol, DeclSymbol, declSymbol, getDeclSymbol, ftRetType)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
 
 -- See comment in below block of CPP
@@ -199,7 +199,7 @@ data ConstrainedReturnValue m = forall ft.
 -- compatibility.
 data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
-    _globalConstraints :: GlobalMap m (ConstrainedGlobal m),
+    _globalConstraints :: Map (GlobalSymbol m) (ConstrainedGlobal m),
     _returnConstraints :: Map (DeclSymbol m) (ConstrainedReturnValue m),
     _relationalConstraints :: [RelationalConstraint m argTypes]
   }
@@ -207,7 +207,7 @@ data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
 argConstraints :: Simple Lens (Constraints m argTypes) (Ctx.Assignment (ConstrainedShape m) argTypes)
 argConstraints = lens _argConstraints (\s v -> s {_argConstraints = v})
 
-globalConstraints :: Simple Lens (Constraints m globalTypes) (GlobalMap m (ConstrainedGlobal m))
+globalConstraints :: Simple Lens (Constraints m globalTypes) (Map (GlobalSymbol m) (ConstrainedGlobal m))
 globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
 
 returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (DeclSymbol m) (ConstrainedReturnValue m))
@@ -235,20 +235,12 @@ emptyArgConstraints argTypes =
 -- whatsoever on globals, and only the minimal constraints (see
 -- 'emptyArgConstraints') on the function arguments.
 emptyConstraints ::
-  GlobalMap m (Some (FullTypeRepr m)) ->
   Ctx.Assignment (FullTypeRepr m) argTypes ->
   Constraints m argTypes
-emptyConstraints globalTypes argTypes =
+emptyConstraints argTypes =
   Constraints
     { _argConstraints = emptyArgConstraints argTypes,
-      _globalConstraints =
-        fmap
-          ( \(Some ft) ->
-              ConstrainedGlobal
-                ft
-                (ConstrainedShape (fmapFC (\_ -> Compose []) (Shape.minimal ft)))
-          )
-          globalTypes,
+      _globalConstraints = Map.empty,
       _returnConstraints = Map.empty,
       _relationalConstraints = []
     }
@@ -466,11 +458,13 @@ addConstraint ::
 addConstraint modCtx argTypes constraints =
   \case
     NewConstraint (SomeInSelector (SelectGlobal symbol cursor)) constraint ->
-      constraints & globalConstraints . globalSymbol symbol
-        %%~ constrainGlobal cursor (\_ftRepr -> addOneConstraint constraint)
+      constraints & globalConstraints . at symbol
+        %%~ fmap Just .
+        constrainGlobal symbol cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectGlobal symbol cursor)) shapeConstraint ->
-      constraints & globalConstraints . globalSymbol symbol
-        %%~ constrainGlobal cursor (addOneShapeConstraint shapeConstraint)
+      constraints & globalConstraints . at symbol
+        %%~ fmap Just .
+        constrainGlobal symbol cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectReturn symbol cursor)) constraint ->
       constraints & returnConstraints . at symbol
         %%~ fmap
@@ -527,6 +521,7 @@ addConstraint modCtx argTypes constraints =
           )
 
     constrainGlobal ::
+      GlobalSymbol m ->
       Cursor m inTy atTy ->
       ( forall ft.
         FullTypeRepr m ft ->
@@ -534,12 +529,15 @@ addConstraint modCtx argTypes constraints =
         Cursor m ft atTy ->
         Either ExpansionError (ConstrainedShape m ft)
       ) ->
-      ConstrainedGlobal m ->
+      Maybe (ConstrainedGlobal m) ->
       Either ExpansionError (ConstrainedGlobal m)
-    constrainGlobal cursor doAdd (ConstrainedGlobal ft shape) =
-      case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-        Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
-        Just cursor' -> ConstrainedGlobal ft <$> doAdd ft shape cursor'
+    constrainGlobal symbol cursor doAdd =
+      ( \(ConstrainedGlobal ft shape) ->
+            case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
+              Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
+              Just cursor' -> ConstrainedGlobal ft <$> doAdd ft shape cursor'
+      )
+        . fromMaybe (newGlobalShape symbol)
 
     constrainReturn ::
       DeclSymbol m ->
@@ -561,6 +559,14 @@ addConstraint modCtx argTypes constraints =
               Just cursor' -> doAdd ft shape cursor'
       )
         . fromMaybe (newReturnValueShape symbol)
+
+    newGlobalShape :: GlobalSymbol m -> ConstrainedGlobal m
+    newGlobalShape symbol =
+      case modCtx ^. globalTypes . globalSymbol symbol of
+        Some ft ->
+          ConstrainedGlobal
+            ft
+            (minimalConstrainedShape ft)
 
     newReturnValueShape :: DeclSymbol m -> ConstrainedReturnValue m
     newReturnValueShape symbol =
