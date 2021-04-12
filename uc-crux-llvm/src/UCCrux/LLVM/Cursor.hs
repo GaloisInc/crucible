@@ -108,6 +108,15 @@ findBottom =
     Index _ _ cursor' -> findBottom cursor'
     Field _ _ cursor' -> findBottom cursor'
 
+-- | Check that this 'Cursor' can be applied to this type.
+--
+-- This is used to \"coerce\" a 'Cursor' that is known to apply to a type due to
+-- invariants that can\'t be proved to the typechecker, though it is total (via
+-- 'Maybe').
+--
+-- Postcondition: if the return value is 'Just', then the returned 'Cursor' is
+-- structurally identical to the one passed in, but with some potentially
+-- different type indices.
 checkCompatibility ::
   ModuleTypes m ->
   Cursor m inTy atTy ->
@@ -230,7 +239,8 @@ data Selector m (argTypes :: Ctx (FullType m)) inTy atTy
 data Where
   = Arg !Int
   | Global !String
-  | ReturnValue !String
+  | -- | Name of the skipped function
+    ReturnValue !String
   deriving (Eq, Ord)
 
 selectWhere :: Selector m argTypes inTy atTy -> Where

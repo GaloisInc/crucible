@@ -80,7 +80,7 @@ import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, d
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.Constraints (Constraints, ConstrainedGlobal(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints)
+import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints)
 {- ORMOLU_ENABLE -}
 
 newtype SymValue sym arch ft = SymValue {getSymValue :: Crucible.RegValue sym (ToCrucibleType arch ft)}
@@ -397,6 +397,8 @@ generateArgs _appCtx modCtx funCtx sym argSpecs =
             )
       )
 
+-- | Populate non-constant global variables with symbolic data, constrained
+-- according to the given preconditions.
 populateNonConstGlobals ::
   forall m arch sym argTypes.
   ( Crucible.IsSymInterface sym,
@@ -405,7 +407,7 @@ populateNonConstGlobals ::
   ) =>
   ModuleContext m arch ->
   sym ->
-  Map (GlobalSymbol m) (ConstrainedGlobal m) ->
+  Map (GlobalSymbol m) (ConstrainedTypedValue m) ->
   Setup m arch sym argTypes ()
 populateNonConstGlobals modCtx sym constrainedGlobals =
   for_
@@ -427,7 +429,7 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
        in case ( constrainedGlobals ^. at gSymb,
                  modCtx ^. globalTypes . globalSymbol gSymb
                ) of
-            (Just (ConstrainedGlobal cgTy cgShape), Some fullTy) ->
+            (Just (ConstrainedTypedValue cgTy cgShape), Some fullTy) ->
               case testEquality cgTy fullTy of
                 Nothing ->
                   panic
@@ -451,8 +453,10 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
                         (val ^. Shape.tag . to getSymValue)
             (Nothing, _) -> pure ()
 
--- | Generate arguments (and someday, global variables) that conform to the
--- preconditions specified in the 'Ctx.Assignment' of 'ConstrainedShape'.
+-- | Generate arguments and global variables that conform to the preconditions
+-- specified in the 'Constraints'.
+--
+-- Constant global variables are also populated by their initializers.
 --
 -- The two returned assignments contain duplicate data, but they are used for
 -- different purposes: The 'Crucible.RegMap' can be (and is) passed directly to

@@ -179,7 +179,7 @@ data DiagnosisTag
 
 data Diagnosis = Diagnosis
   { diagnosisTag :: DiagnosisTag,
-    argOrGlobal :: Where
+    diagnosisWhere :: Where
   }
 
 diagnoseTag :: DiagnosisTag -> Text
