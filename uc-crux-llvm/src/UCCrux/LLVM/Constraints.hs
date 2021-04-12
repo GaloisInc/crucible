@@ -25,8 +25,7 @@ module UCCrux.LLVM.Constraints
     RelationalConstraint (..),
 
     -- * Collections of constraints
-    ConstrainedGlobal (..),
-    ConstrainedReturnValue (..),
+    ConstrainedTypedValue (..),
     Constraints (..),
     argConstraints,
     globalConstraints,
@@ -51,7 +50,6 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens (Simple, Lens, lens, (%~), (%%~), (^.), at, to)
-import           Control.Lens.Indexed (itoList)
 import           Data.Bifunctor (first)
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
@@ -179,16 +177,10 @@ data RelationalConstraint m (argTypes :: Ctx (FullType m))
 
 -- * Collections of constraints
 
-data ConstrainedGlobal m = forall ft.
-  ConstrainedGlobal
-  { _constrainedGlobalType :: FullTypeRepr m ft,
-    _constrainedGlobalShape :: ConstrainedShape m ft
-  }
-
-data ConstrainedReturnValue m = forall ft.
-  ConstrainedReturnValue
-  { _constrainedReturnValueType :: FullTypeRepr m ft,
-    constrainedReturnValueShape :: ConstrainedShape m ft
+data ConstrainedTypedValue m = forall ft.
+  ConstrainedTypedValue
+  { constrainedValue :: FullTypeRepr m ft,
+    constrainedType :: ConstrainedShape m ft
   }
 
 -- | A collection of constraints on the state of a program. These are used to
@@ -199,18 +191,18 @@ data ConstrainedReturnValue m = forall ft.
 -- compatibility.
 data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
-    _globalConstraints :: Map (GlobalSymbol m) (ConstrainedGlobal m),
-    _returnConstraints :: Map (DeclSymbol m) (ConstrainedReturnValue m),
+    _globalConstraints :: Map (GlobalSymbol m) (ConstrainedTypedValue m),
+    _returnConstraints :: Map (DeclSymbol m) (ConstrainedTypedValue m),
     _relationalConstraints :: [RelationalConstraint m argTypes]
   }
 
 argConstraints :: Simple Lens (Constraints m argTypes) (Ctx.Assignment (ConstrainedShape m) argTypes)
 argConstraints = lens _argConstraints (\s v -> s {_argConstraints = v})
 
-globalConstraints :: Simple Lens (Constraints m globalTypes) (Map (GlobalSymbol m) (ConstrainedGlobal m))
+globalConstraints :: Simple Lens (Constraints m globalTypes) (Map (GlobalSymbol m) (ConstrainedTypedValue m))
 globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
 
-returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (DeclSymbol m) (ConstrainedReturnValue m))
+returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (DeclSymbol m) (ConstrainedTypedValue m))
 returnConstraints = lens _returnConstraints (\s v -> s {_returnConstraints = v})
 
 relationalConstraints :: Simple Lens (Constraints m argTypes) [RelationalConstraint m argTypes]
@@ -262,26 +254,12 @@ ppConstraints (Constraints args globs returnCs relCs) =
           Just $
             nestSep
               ( PP.pretty "Globals:" :
-                map
-                  ( \(name, ConstrainedGlobal _type (ConstrainedShape s)) ->
-                      let L.Symbol nm = getGlobalSymbol name
-                       in PP.pretty nm
-                            <> PP.pretty ": "
-                            <> Shape.ppShape ppConstraints' s
-                  )
-                  (itoList globs)
+                map (uncurry (ppLabeledValue getGlobalSymbol)) (Map.toList globs)
               ),
           Just $
             nestSep
               ( PP.pretty "Return values of skipped functions:" :
-                map
-                  ( \(name, ConstrainedReturnValue _type (ConstrainedShape s)) ->
-                      let L.Symbol nm = getDeclSymbol name
-                       in PP.pretty nm
-                            <> PP.pretty ": "
-                            <> Shape.ppShape ppConstraints' s
-                  )
-                  (Map.toList returnCs)
+                map (uncurry (ppLabeledValue getDeclSymbol)) (Map.toList returnCs)
               ),
           -- These aren't yet generated anywhere
           if null relCs
@@ -297,10 +275,16 @@ ppConstraints (Constraints args globs returnCs relCs) =
     ppConstraints' (Compose constraints) = PP.vsep (map ppConstraint constraints)
     nestSep = PP.nest 2 . PP.vsep
 
+    ppLabeledValue getSymbol label (ConstrainedTypedValue _type (ConstrainedShape s)) =
+      let L.Symbol nm = getSymbol label
+       in PP.pretty nm
+            <> PP.pretty ": "
+            <> Shape.ppShape ppConstraints' s
+
 isEmpty :: Constraints m argTypes -> Bool
 isEmpty (Constraints args globs returns rels) =
   allFC isMin args
-    && all (\(ConstrainedGlobal _ s) -> isMin s) globs
+    && all (\(ConstrainedTypedValue _ s) -> isMin s) globs
     && null returns
     && null rels
   where
@@ -459,12 +443,12 @@ addConstraint modCtx argTypes constraints =
   \case
     NewConstraint (SomeInSelector (SelectGlobal symbol cursor)) constraint ->
       constraints & globalConstraints . at symbol
-        %%~ fmap Just .
-        constrainGlobal symbol cursor (\_ftRepr -> addOneConstraint constraint)
+        %%~ fmap Just
+          . constrainGlobal symbol cursor (\_ftRepr -> addOneConstraint constraint)
     NewShapeConstraint (SomeInSelector (SelectGlobal symbol cursor)) shapeConstraint ->
       constraints & globalConstraints . at symbol
-        %%~ fmap Just .
-        constrainGlobal symbol cursor (addOneShapeConstraint shapeConstraint)
+        %%~ fmap Just
+          . constrainGlobal symbol cursor (addOneShapeConstraint shapeConstraint)
     NewConstraint (SomeInSelector (SelectReturn symbol cursor)) constraint ->
       constraints & returnConstraints . at symbol
         %%~ fmap
@@ -529,13 +513,13 @@ addConstraint modCtx argTypes constraints =
         Cursor m ft atTy ->
         Either ExpansionError (ConstrainedShape m ft)
       ) ->
-      Maybe (ConstrainedGlobal m) ->
-      Either ExpansionError (ConstrainedGlobal m)
+      Maybe (ConstrainedTypedValue m) ->
+      Either ExpansionError (ConstrainedTypedValue m)
     constrainGlobal symbol cursor doAdd =
-      ( \(ConstrainedGlobal ft shape) ->
-            case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
-              Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
-              Just cursor' -> ConstrainedGlobal ft <$> doAdd ft shape cursor'
+      ( \(ConstrainedTypedValue ft shape) ->
+          case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
+            Nothing -> panic "addConstraint" ["Ill-typed global cursor"]
+            Just cursor' -> ConstrainedTypedValue ft <$> doAdd ft shape cursor'
       )
         . fromMaybe (newGlobalShape symbol)
 
@@ -548,11 +532,11 @@ addConstraint modCtx argTypes constraints =
         Cursor m ft atTy ->
         Either ExpansionError (ConstrainedShape m ft)
       ) ->
-      Maybe (ConstrainedReturnValue m) ->
-      Either ExpansionError (ConstrainedReturnValue m)
+      Maybe (ConstrainedTypedValue m) ->
+      Either ExpansionError (ConstrainedTypedValue m)
     constrainReturn symbol cursor doAdd =
-      ( \(ConstrainedReturnValue ft shape) ->
-          ConstrainedReturnValue ft
+      ( \(ConstrainedTypedValue ft shape) ->
+          ConstrainedTypedValue ft
             <$> case checkCompatibility (modCtx ^. moduleTypes) cursor ft of
               Nothing ->
                 panic "addConstraint" ["Ill-typed return value cursor"]
@@ -560,15 +544,15 @@ addConstraint modCtx argTypes constraints =
       )
         . fromMaybe (newReturnValueShape symbol)
 
-    newGlobalShape :: GlobalSymbol m -> ConstrainedGlobal m
+    newGlobalShape :: GlobalSymbol m -> ConstrainedTypedValue m
     newGlobalShape symbol =
       case modCtx ^. globalTypes . globalSymbol symbol of
         Some ft ->
-          ConstrainedGlobal
+          ConstrainedTypedValue
             ft
             (minimalConstrainedShape ft)
 
-    newReturnValueShape :: DeclSymbol m -> ConstrainedReturnValue m
+    newReturnValueShape :: DeclSymbol m -> ConstrainedTypedValue m
     newReturnValueShape symbol =
       case modCtx ^. declTypes . declSymbol symbol . to ftRetType of
         Nothing ->
@@ -578,6 +562,6 @@ addConstraint modCtx argTypes constraints =
                 ++ show (getDeclSymbol symbol)
             ]
         Just (Some ft) ->
-          ConstrainedReturnValue
+          ConstrainedTypedValue
             ft
             (minimalConstrainedShape ft)

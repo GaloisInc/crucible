@@ -64,7 +64,7 @@ import           Crux.Types (OverM, Model, HasModel)
 import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
-import           UCCrux.LLVM.Constraints (ConstrainedReturnValue(..), minimalConstrainedShape)
+import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalConstrainedShape)
 import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -106,7 +106,7 @@ unsoundSkipOverrides ::
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
   -- | Postconditions of each override (constraints on return values)
-  Map (DeclSymbol m) (ConstrainedReturnValue m) ->
+  Map (DeclSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
   OverM Model sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
 unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decls =
@@ -159,7 +159,7 @@ createSkipOverride ::
   IORef (Set SkipOverrideName) ->
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
-  Maybe (ConstrainedReturnValue m) ->
+  Maybe (ConstrainedTypedValue m) ->
   L.Declare ->
   DeclSymbol m ->
   Maybe (OverrideTemplate (personality sym) sym arch rtp l a)
@@ -233,7 +233,7 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl declSym =
                         (Here retFullType)
                     )
                     ( case postcondition of
-                        Just (ConstrainedReturnValue ft shape) ->
+                        Just (ConstrainedTypedValue ft shape) ->
                           case testEquality ft retFullType of
                             Just Refl -> shape
                             Nothing ->
