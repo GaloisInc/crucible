@@ -80,7 +80,7 @@ import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, d
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints)
+import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints, minimalConstrainedShape)
 {- ORMOLU_ENABLE -}
 
 newtype SymValue sym arch ft = SymValue {getSymValue :: Crucible.RegValue sym (ToCrucibleType arch ft)}
@@ -426,32 +426,32 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
                   "populateNonConstGlobal"
                   ["Missing type for global " ++ show symb]
               Just gs -> gs
-       in case ( constrainedGlobals ^. at gSymb,
-                 modCtx ^. globalTypes . globalSymbol gSymb
-               ) of
-            (Just (ConstrainedTypedValue cgTy cgShape), Some fullTy) ->
-              case testEquality cgTy fullTy of
-                Nothing ->
-                  panic
-                    "populateNonConstGlobal"
-                    ["Ill-typed constraints on global " ++ show symb]
-                Just Refl ->
-                  do
-                    val <-
-                      generate
-                        sym
-                        (modCtx ^. moduleTypes)
-                        fullTy
-                        (SelectGlobal gSymb (Here fullTy))
-                        cgShape
-                    void $
-                      storeGlobal
-                        sym
-                        fullTy
-                        (SelectGlobal gSymb (Here fullTy))
-                        symb
-                        (val ^. Shape.tag . to getSymValue)
-            (Nothing, _) -> pure ()
+       in case modCtx ^. globalTypes . globalSymbol gSymb of
+            (Some fullTy) ->
+              do
+                val <-
+                  generate
+                    sym
+                    (modCtx ^. moduleTypes)
+                    fullTy
+                    (SelectGlobal gSymb (Here fullTy))
+                    ( case constrainedGlobals ^. at gSymb of
+                        Just (ConstrainedTypedValue cgTy cgShape) ->
+                          case testEquality cgTy fullTy of
+                            Nothing ->
+                              panic
+                                "populateNonConstGlobal"
+                                ["Ill-typed constraints on global " ++ show symb]
+                            Just Refl -> cgShape
+                        Nothing -> minimalConstrainedShape fullTy
+                    )
+                void $
+                  storeGlobal
+                    sym
+                    fullTy
+                    (SelectGlobal gSymb (Here fullTy))
+                    symb
+                    (val ^. Shape.tag . to getSymValue)
 
 -- | Generate arguments and global variables that conform to the preconditions
 -- specified in the 'Constraints'.
