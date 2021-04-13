@@ -140,9 +140,9 @@ unclass appCtx badBehavior errorLoc =
         UUnclassified errorLoc $
           case badBehavior of
             LLVMErrors.BBUndefinedBehavior ub ->
-              UnclassifiedUndefinedBehavior (UB.explain ub) (Some ub)
+              UnclassifiedUndefinedBehavior errorLoc (UB.explain ub) (Some ub)
             LLVMErrors.BBMemoryError memoryError ->
-              UnclassifiedMemoryError (MemError.explain memoryError)
+              UnclassifiedMemoryError errorLoc (MemError.explain memoryError)
 
 unfixed ::
   MonadIO f =>
