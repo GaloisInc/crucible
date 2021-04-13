@@ -536,6 +536,7 @@ inFileTests =
         ("cast_void_pointer.c", [("cast_void_pointer", hasMissingAnn)]),
         ("cast_pointer_to_float.c", [("cast_pointer_to_float", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptr_to_int.c", [("compare_ptr_to_int", hasMissingAnn)]), -- goal: hasBugs
+        ("compare_ptr_to_size_t.c", [("compare_ptr_to_size_t", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
