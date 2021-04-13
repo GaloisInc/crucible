@@ -259,6 +259,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       modCtx
                       funCtx
                       sym
+                      mem
                       skipped
                       (gl ^. Crucible.labeledPredMsg)
                       args
