@@ -52,7 +52,7 @@ import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
 
 import           Lang.Crucible.LLVM.Errors.Standards
-import           Lang.Crucible.LLVM.MemModel.Pointer (concBV)
+import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPointerType, concBV, concPtr', ppPtr)
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.Types
 import qualified What4.Interface as W4I
@@ -125,8 +125,8 @@ data Poison (e :: CrucibleType -> Type) where
   -- | TODO(langston): store the 'Vector'
   InsertElementIndex  :: (1 <= w) => e (BVType w)
                       -> Poison e
-  -- | TODO(langston): store the 'LLVMPointerType'
-  GEPOutOfBounds      :: (1 <= w) => e (BVType w)
+  GEPOutOfBounds      :: (1 <= w, 1 <= wptr) => e (LLVMPointerType wptr)
+                      -> e (BVType w)
                       -> Poison e
   deriving (Typeable)
 
@@ -150,7 +150,7 @@ standard =
     AshrOp2Big _ _          -> LLVMRef LLVM8
     ExtractElementIndex _   -> LLVMRef LLVM8
     InsertElementIndex _    -> LLVMRef LLVM8
-    GEPOutOfBounds _        -> LLVMRef LLVM8
+    GEPOutOfBounds _ _      -> LLVMRef LLVM8
 
 -- | Which section(s) of the document state that this is poison?
 cite :: Poison e -> Doc ann
@@ -173,7 +173,7 @@ cite =
     AshrOp2Big _ _          -> "‘ashr’ Instruction (Semantics)"
     ExtractElementIndex _   -> "‘extractelement’ Instruction (Semantics)"
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
-    GEPOutOfBounds _        -> "‘getelementptr’ Instruction (Semantics)"
+    GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
 
 explain :: Poison e -> Doc ann
 explain =
@@ -219,7 +219,7 @@ explain =
 
     -- The following explanation is a bit unsatisfactory, because it is specific
     -- to how we treat this instruction in Crucible.
-    GEPOutOfBounds _   -> cat $
+    GEPOutOfBounds _ _ -> cat $
       [ "Calling `getelementptr` resulted in an index that was out of bounds for the"
       , "given allocation (likely due to arithmetic overflow), but Crucible currently"
       , "treats all GEP instructions as if they had the `inbounds` flag set."
@@ -246,7 +246,10 @@ details =
     AshrOp2Big        v1 v2 -> args [v1, v2]
     ExtractElementIndex v   -> args [v]
     InsertElementIndex v    -> args [v]
-    GEPOutOfBounds v        -> args [v]
+    GEPOutOfBounds (RV ptr) (RV bv) ->
+      [ "Pointer:" <+> ppPtr ptr
+      , "Bitvector:" <+> W4I.printSymExpr bv
+      ]
 
  where
  args :: forall w. [RegValue' sym (BVType w)] -> [Doc ann]
@@ -318,8 +321,8 @@ concPoison sym conc poison =
       ExtractElementIndex <$> bv v
     InsertElementIndex v ->
       InsertElementIndex <$> bv v
-    GEPOutOfBounds v ->
-      GEPOutOfBounds <$> bv v
+    GEPOutOfBounds p v ->
+      GEPOutOfBounds <$> concPtr' sym conc p <*> bv v
 
 
 -- -----------------------------------------------------------------------
