@@ -60,6 +60,7 @@ library
     UCCrux.LLVM.Run.Simulate
     UCCrux.LLVM.Run.Unsoundness
     UCCrux.LLVM.Setup
+    UCCrux.LLVM.Setup.Assume
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats

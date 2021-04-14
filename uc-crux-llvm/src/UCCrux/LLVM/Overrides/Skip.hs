@@ -71,6 +71,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import           UCCrux.LLVM.FullType.Translation (FunctionTypes, DeclSymbol, declSymbol, ftRetType, isDebug, makeDeclSymbol)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
+import           UCCrux.LLVM.Setup.Assume (assume)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, ppSetupError, resultAnnotations)
 import qualified UCCrux.LLVM.Shape as Shape
 {- ORMOLU_ENABLE -}
@@ -252,13 +253,9 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl declSym =
                         show (ppSetupError err)
                       ]
                   Right (result, value) ->
-                    if not (null (resultAssumptions result))
-                      then
-                        panic
-                          "createSkipOverride"
-                          ["Didn't expect any constraints on minimal shape"]
-                      else do
-                        -- The keys are nonces, so they'll never clash, so the
-                        -- bias of the union is unimportant.
-                        modifyIORef annotationRef (Map.union (resultAnnotations result))
-                        pure (value ^. Shape.tag . to getSymValue, resultMem result)
+                    do
+                      assume name sym (resultAssumptions result)
+                      -- The keys are nonces, so they'll never clash, so the
+                      -- bias of the union is unimportant.
+                      modifyIORef annotationRef (Map.union (resultAnnotations result))
+                      pure (value ^. Shape.tag . to getSymValue, resultMem result)
