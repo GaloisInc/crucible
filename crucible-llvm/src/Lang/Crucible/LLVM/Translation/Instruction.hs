@@ -495,7 +495,7 @@ calcGEP_array typ base idx =
                -- maximum and minimum indices to prevent multiplication overflow
                maxidx = maxSigned PtrWidth `quot` (max isz 1)
                minidx = minSigned PtrWidth `quot` (max isz 1)
-               poison = Poison.GEPOutOfBounds idx'
+               poison = Poison.GEPOutOfBounds base idx'
                cond   =
                 (app $ BVSle PtrWidth (app $ BVLit PtrWidth (BV.mkBV PtrWidth minidx)) idx') .&&
                   (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth (BV.mkBV PtrWidth maxidx)))
