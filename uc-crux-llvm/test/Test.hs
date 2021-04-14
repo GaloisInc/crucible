@@ -495,7 +495,6 @@ inFileTests =
         ("gethostname_arg_ptr.c", [("gethostname_arg_ptr", isSafeWithPreconditions (unsoundOverride "gethostname") DidntHitBounds)]),
         ("linked_list_sum.c", [("linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),
         ("lots_of_loops.c", [("lots_of_loops", isSafeWithPreconditions mempty DidHitBounds)]),
-        ("md5_init.c", [("md5_init", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("memset_const_len.c", [("memset_const_len", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("memset_const_len_arg_byte.c", [("memset_const_len_arg_byte", isSafeWithPreconditions mempty DidntHitBounds)]),
         ("mutually_recursive_linked_list_sum.c", [("mutually_recursive_linked_list_sum", isSafeWithPreconditions mempty DidHitBounds)]),

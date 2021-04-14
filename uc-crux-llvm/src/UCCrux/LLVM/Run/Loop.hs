@@ -121,10 +121,7 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
               (True, [], False, _) -> pure result
               (noNewConstraints, _, isUncertain, isExhausted) ->
                 do
-                  -- If there were some unclassified errors (uncertainties),
-                  -- they can sometimes be resolved by applying some of the new
-                  -- constraints.
-                  if (noNewConstraints && isUncertain) || noNewConstraints || isExhausted
+                  if noNewConstraints || isUncertain || isExhausted
                     then pure result -- We can't really go on
                     else do
                       (appCtx ^. log) Hi "New preconditions:"
