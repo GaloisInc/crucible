@@ -4,6 +4,7 @@
 #![feature(unboxed_closures)]
 
 pub mod bitvector;
+pub mod cryptol;
 pub mod method_spec;
 pub mod sym_bytes;
 pub mod symbolic;

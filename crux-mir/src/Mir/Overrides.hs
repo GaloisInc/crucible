@@ -11,7 +11,7 @@
 {-# Language PartialTypeSignatures #-}
 {-# Language FlexibleContexts #-}
 
-module Mir.Overrides (bindFn) where
+module Mir.Overrides (bindFn, getString) where
 
 import Control.Lens ((^.), (%=), (.=), use)
 import Control.Monad
