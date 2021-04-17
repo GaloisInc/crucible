@@ -201,7 +201,7 @@ stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
   Stmt ext ctx ctx' {- ^ Statement to evaluate -} ->
-  StmtSeq ext blocks r ctx' {- ^ Remaning statements in the block -} ->
+  StmtSeq ext blocks r ctx' {- ^ Remaining statements in the block -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
 stepStmt verb stmt rest =
   do ctx <- view stateContext

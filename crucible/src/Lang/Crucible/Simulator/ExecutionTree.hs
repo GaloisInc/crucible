@@ -190,7 +190,7 @@ gpGlobals = lens _gpGlobals (\s v -> s { _gpGlobals = v })
 ------------------------------------------------------------------------
 -- TopFrame
 
--- | The currently-exeucting frame plus the global state associated with it.
+-- | The currently-executing frame plus the global state associated with it.
 type TopFrame sym ext f a = GlobalPair sym (SimFrame sym ext f a)
 
 -- | Access the Crucible call frame inside a 'TopFrame'.
@@ -292,7 +292,7 @@ data PartialResult sym ext (v :: Type)
    = TotalRes !(GlobalPair sym v)
 
     {- | 'PartialRes' indicates that the global pair may be undefined
-        under some circusmstances.  The predicate specifies under what
+        under some circumstances.  The predicate specifies under what
         conditions the 'GlobalPair' is defined.
         The 'AbortedResult' describes the circumstances under which
         the result would be partial.
@@ -339,13 +339,13 @@ resolvedCallHandle (CrucibleCall _ frm) = frameHandle frm
 -- | Executions that have completed either due to (partial or total)
 --   successful completion or by some abort condition.
 data ExecResult p sym ext (r :: Type)
-   = -- | At least one exeuction path resulted in some return result.
+   = -- | At least one execution path resulted in some return result.
      FinishedResult !(SimContext p sym ext) !(PartialResult sym ext r)
      -- | All execution paths resulted in an abort condition, and there is
      --   no result to return.
    | AbortedResult  !(SimContext p sym ext) !(AbortedResult sym ext)
      -- | An execution stopped somewhere in the middle of a run because
-     --   a timeout condition occured.
+     --   a timeout condition occurred.
    | TimeoutResult !(ExecState p sym ext r)
 
 
@@ -389,7 +389,7 @@ execStateSimState = \case
 -- ExecState
 
 -- | An 'ExecState' represents an intermediate state of executing a
---   Crucible program.  The Crucible simulator executes by transistioning
+--   Crucible program.  The Crucible simulator executes by transitioning
 --   between these different states until it results in a 'ResultState',
 --   indicating the program has completed.
 data ExecState p sym ext (rtp :: Type)
@@ -495,7 +495,7 @@ data ExecState p sym ext (rtp :: Type)
            {- State of the simulator prior to activating the override -}
 
    {- | A branch merge state occurs when the included 'SimState' is
-        in the process of transfering control to the included 'CrucibleBranchTarget'.
+        in the process of transferring control to the included 'CrucibleBranchTarget'.
         We enter a BranchMergeState every time we need to _check_ if there is a
         pending branch, even if no branch is pending. During this process, paths may
         have to be merged.  If several branches must merge at the same control point,
@@ -536,7 +536,7 @@ type ExecCont p sym ext r f a =
 --   that indicates how we got to this running state.
 data RunningStateInfo blocks args
     -- | This indicates that we are now in a @RunningState@ because
-    --   we transfered execution to the start of a basic block.
+    --   we transferred execution to the start of a basic block.
   = RunBlockStart !(BlockID blocks args)
     -- | This indicates that we are in a @RunningState@ because we
     --   reached the terminal statement of a basic block.
@@ -550,7 +550,7 @@ data RunningStateInfo blocks args
 
 -- | A 'ResolvedJump' is a block label together with a collection of
 --   actual arguments that are expected by that block.  These data
---   are sufficent to actually transfer control to the named label.
+--   are sufficient to actually transfer control to the named label.
 data ResolvedJump sym blocks
   = forall args.
       ResolvedJump
@@ -576,9 +576,9 @@ data ControlResumption p sym ext rtp f where
     ControlResumption p sym ext rtp (CrucibleLang blocks r)
 
   {- | When resuming a paused frame with a @SwitchResumption@, we must
-       continue branching to possible alternatives in a variant elmination
+       continue branching to possible alternatives in a variant elimination
        statement.  In other words, we are still in the process of
-       transfering control away from the current basic block (which is now
+       transferring control away from the current basic block (which is now
        at a final @VariantElim@ terminal statement). -}
   SwitchResumption ::
     ![(Pred sym, ResolvedJump sym blocks)] {- remaining branches -} ->
@@ -598,7 +598,7 @@ data ControlResumption p sym ext rtp f where
 
 -- | A 'PausedFrame' represents a path of execution that has been postponed
 --   while other paths are explored.  It consists of a (potentially partial)
---   'SimFrame' togeter with some information about how to resume execution
+--   'SimFrame' together with some information about how to resume execution
 --   of that frame.
 data PausedFrame p sym ext rtp f
    = forall old_args.
@@ -674,7 +674,7 @@ data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
       {- Info about the state of the other branch.
          If the other branch is "VFFActivePath", then we still
          need to process it;  if it is "VFFCompletePath", then
-         it is finsihed, and so once we are done then we go back to the
+         it is finished, and so once we are done then we go back to the
          outer context. -}
 
       !(CrucibleBranchTarget f args)
@@ -687,7 +687,7 @@ data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
   | VFFPartial
 
       !(ValueFromFrame p sym ext ret f)
-      {- The other context--what to do once we are done with this bracnh -}
+      {- The other context--what to do once we are done with this branch -}
 
       !ProgramLoc
       {- Program location of the branch point -}
@@ -846,23 +846,23 @@ vfvParents c0 =
 
 {- | A 'ReturnHandler' indicates what actions to take to resume
 executing in a caller's context once a function call has completed and
-the return value is avaliable.
+the return value is available.
 
 The type parameters have the following meanings:
 
-  * @top_return@ is the type of the return value that is expected.
+  * @ret@ is the type of the return value that is expected.
 
   * @p@ is the personality of the simulator (i.e., custom user state).
 
   * @sym@ is the simulator backend being used.
 
-  * @ext@ specifies what extensions to the Crucible language are enabled
+  * @ext@ specifies what extensions to the Crucible language are enabled.
 
-  * @roor@ is the global return type of the entire computation
+  * @root@ is the global return type of the entire computation.
 
-  * @f@ is the stack type of the caller
+  * @f@ is the stack type of the caller.
 
-  * @args@ is the type of the local variables in scope prior to the call
+  * @args@ is the type of the local variables in scope prior to the call.
 -}
 data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
   {- | The 'ReturnToOverride' constructor indicates that the calling
@@ -870,7 +870,7 @@ data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
    -}
   ReturnToOverride ::
     (RegEntry sym ret -> SimState p sym ext root (OverrideLang r) ('Just args) -> IO (ExecState p sym ext root))
-      {- Remaining override code to run when the return value becomse available -} ->
+      {- Remaining override code to run when the return value becomes available -} ->
     ReturnHandler ret p sym ext root (OverrideLang r) ('Just args)
 
   {- | The 'ReturnToCrucible' constructor indicates that the calling context is an
@@ -1079,7 +1079,7 @@ profilingMetrics = lens _profilingMetrics (\s v -> s { _profilingMetrics = v })
 --   unwinds the tree context to the nearest branch point and
 --   correctly resumes simulation.  However, for some use cases, it
 --   may be desirable to take additional or alternate actions on abort
---   events; in which case, the libary user may replace the default
+--   events; in which case, the library user may replace the default
 --   abort handler with their own.
 newtype AbortHandler p sym ext rtp
       = AH { runAH :: forall (l :: Type) args.

@@ -108,7 +108,7 @@ cabal new-configure
 cabal new-build all
 ```
 
-Alternately, you can target a more specific sub-packge instead of `all`.
+Alternately, you can target a more specific sub-package instead of `all`.
 
 If you wish to build `crucible-server` (which will be built if you
 build all packages, as above), then the build depends on having `hpb`

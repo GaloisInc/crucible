@@ -9,7 +9,7 @@
 --
 -- This module reexports the parts of the symbolic simulator codebase
 -- that are most relevant for users.  Additional types and operations
--- are exported from the relavant submodules if necessary.
+-- are exported from the relevant submodules if necessary.
 ------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
