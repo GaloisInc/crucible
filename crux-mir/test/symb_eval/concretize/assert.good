@@ -3,7 +3,7 @@ test assert/3a1fbbbh::crux_test[0]: returned 1, FAILED
 failures:
 
 ---- assert/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for ./lib/crucible/lib.rs:44:17: 44:82 !test/symb_eval/concretize/assert.rs:10:5: 10:82: error: in assert/3a1fbbbh::crux_test[0]
+Failure for ./lib/crucible/lib.rs:46:17: 46:82 !test/symb_eval/concretize/assert.rs:10:5: 10:82: error: in assert/3a1fbbbh::crux_test[0]
 MIR assertion at test/symb_eval/concretize/assert.rs:10:5:
 	100 + 157 == 1
 Failure for test/symb_eval/concretize/assert.rs:11:16: 11:17: error: in assert/3a1fbbbh::crux_test[0]

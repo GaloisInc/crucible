@@ -131,6 +131,8 @@ u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
 --
 
 transConstVal :: HasCallStack => M.Ty -> Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
+
+-- Custom types
 transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.ConstStruct []]) = do
     val <- case M.fromIntegerLit i of
         0 -> return 0   -- Bv::ZERO
@@ -138,6 +140,11 @@ transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.Cons
         2 -> return $ (1 `shift` fromIntegral (intValue w)) - 1    -- Bv::MAX
         i' -> mirFail $ "unknown bitvector constant " ++ show i'
     return $ MirExp (C.BVRepr w) (S.app $ eBVLit w val)
+transConstVal CTyMethodSpec _ _ = do
+    mirFail "transConstVal: can't construct MethodSpec without an override"
+transConstVal CTyMethodSpecBuilder _ _ = do
+    mirFail "transConstVal: can't construct MethodSpecBuilder without an override"
+
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstInt i) =
     return $ MirExp (C.BVRepr w) (S.app $ eBVLit w (fromInteger (M.fromIntegerLit i)))
 transConstVal _ty (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
@@ -936,6 +943,15 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        return $ buildTuple args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
     case ty of
+      -- It's not legal to construct a MethodSpec using a Rust struct
+      -- constructor, so we translate as "assert(false)" instead.  Only
+      -- functions in the `method_spec::raw` should be creating MethodSpecs
+      -- directly, and those functions will be overridden, so the code we
+      -- generate here never runs.
+      CTyMethodSpec ->
+        mirFail $ "evalRval: can't construct MethodSpec without an override"
+      CTyMethodSpecBuilder ->
+        mirFail $ "evalRval: can't construct MethodSpecBuilder without an override"
       TyAdt _ _ _ -> do
         es <- mapM evalOperand ops
         case adt^.adtkind of
@@ -1499,6 +1515,9 @@ initialValue ty@(CTyBv _sz)
   | Some (C.BVRepr w) <- tyToRepr ty
   = return $ Just $ MirExp (C.BVRepr w) $ S.app $ eBVLit w 0
   | otherwise = mirFail $ "Bv type " ++ show ty ++ " does not have BVRepr"
+initialValue CTyMethodSpec = return Nothing
+initialValue CTyMethodSpecBuilder = return Nothing
+
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = do

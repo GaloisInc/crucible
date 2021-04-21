@@ -70,6 +70,7 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.String
 import qualified Data.Vector as V
+import           Data.Word
 
 import           Prettyprinter
 import qualified Text.Regex as Regex
@@ -97,6 +98,8 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import           Crux.Types (Model)
+
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
 import           What4.Partial
@@ -112,13 +115,6 @@ import           Mir.FancyMuxTree
 import           Debug.Trace
 
 import           Unsafe.Coerce
-
-
-mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
-mirIntrinsicTypes =
-   MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
-   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
-   MapF.empty
 
 
 
@@ -1256,6 +1252,7 @@ mirRef_arrayAsMirVectorLeaf sym _ (MirReference_Integer _ _) =
     leafAbort sym $ GenericSimError $
         "attempted Array->MirVector conversion on the result of an integer-to-pointer cast"
 
+
 refRootEq :: IsSymInterface sym => sym ->
     MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
@@ -1303,6 +1300,142 @@ mirRef_eqLeaf sym (MirReference_Integer _ i1) (MirReference_Integer _ i2) =
 mirRef_eqLeaf sym _ _ =
     -- All valid references are disjoint from all integer references.
     return $ falsePred sym
+
+mirRef_eqIO :: IsSymInterface sym => sym ->
+    MirReferenceMux sym tp -> MirReferenceMux sym tp -> IO (RegValue sym BoolType)
+mirRef_eqIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
+    zipFancyMuxTrees' sym (mirRef_eqLeaf sym) (itePred sym) r1 r2
+
+
+-- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
+-- turn `tp` into `tp''`, we first use a subsidiary `MirReferencePath` to turn
+-- `tp` into `tp'`, then perform one last step to turn `tp'` into `tp''`.
+-- `ReversedRefPath` is represented "outside-in", so the first/outermost
+-- element is the first step of the conversion, not the last.
+data ReversedRefPath sym :: CrucibleType -> CrucibleType -> Type where
+  RrpNil :: forall sym tp. ReversedRefPath sym tp tp
+  RrpCons :: forall sym tp tp' tp''.
+    -- | The first step of the path.  For all cases but Empty_RefPath, the
+    -- nested initial MirReferencePath is always Empty_RefPath.
+    MirReferencePath sym tp tp' ->
+    ReversedRefPath sym tp' tp'' ->
+    ReversedRefPath sym tp tp''
+
+reverseRefPath :: forall sym tp tp'.
+    MirReferencePath sym tp tp' ->
+    ReversedRefPath sym tp tp'
+reverseRefPath rp = go RrpNil rp
+  where
+    go :: forall sym tp tp' tp''.
+        ReversedRefPath sym tp' tp'' ->
+        MirReferencePath sym tp tp' ->
+        ReversedRefPath sym tp tp''
+    go acc Empty_RefPath = acc
+    go acc (Field_RefPath ctx rp idx) =
+        go (Field_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
+    go acc (Variant_RefPath ctx rp idx) =
+        go (Variant_RefPath ctx Empty_RefPath idx `RrpCons` acc) rp
+    go acc (Index_RefPath tpr rp idx) =
+        go (Index_RefPath tpr Empty_RefPath idx `RrpCons` acc) rp
+    go acc (Just_RefPath tpr rp) =
+        go (Just_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+    go acc (VectorAsMirVector_RefPath tpr rp) =
+        go (VectorAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+    go acc (ArrayAsMirVector_RefPath tpr rp) =
+        go (ArrayAsMirVector_RefPath tpr Empty_RefPath `RrpCons` acc) rp
+
+-- | If the final step of `path` is an `Index_RefPath`, remove it.  Otherwise,
+-- return `path` unchanged.
+popIndex :: MirReferencePath sym tp tp' -> Some (MirReferencePath sym tp)
+popIndex (Index_RefPath _ p _) = Some p
+popIndex p = Some p
+
+
+refRootOverlaps :: IsSymInterface sym => sym ->
+    MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
+    MuxLeafT sym IO (RegValue sym BoolType)
+refRootOverlaps sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
+  | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
+refRootOverlaps sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
+  | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
+refRootOverlaps sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+    leafAbort sym $ Unsupported $ "Cannot compare Const_RefRoots"
+refRootOverlaps sym _ _ = return $ falsePred sym
+
+-- | Check whether two `MirReferencePath`s might reference overlapping memory
+-- regions, when starting from the same `MirReferenceRoot`.
+refPathOverlaps :: forall sym tp_base1 tp1 tp_base2 tp2. IsSymInterface sym =>
+    sym ->
+    MirReferencePath sym tp_base1 tp1 ->
+    MirReferencePath sym tp_base2 tp2 ->
+    MuxLeafT sym IO (RegValue sym BoolType)
+refPathOverlaps sym path1 path2 = do
+    -- We remove the outermost `Index` before comparing, since `offset` allows
+    -- modifying the index value arbitrarily, giving access to all elements of
+    -- the containing vector.
+    Some path1' <- return $ popIndex path1
+    Some path2' <- return $ popIndex path2
+    -- Essentially, this checks whether `rrp1` is a prefix of `rrp2` or vice
+    -- versa.
+    go (reverseRefPath path1') (reverseRefPath path2')
+  where
+    go :: forall tp1 tp1' tp2 tp2'.
+        ReversedRefPath sym tp1 tp1' ->
+        ReversedRefPath sym tp2 tp2' ->
+        MuxLeafT sym IO (RegValue sym BoolType)
+    -- An empty RefPath (`RrpNil`) covers the whole object, so it overlaps with
+    -- all other paths into the same object.
+    go RrpNil _ = return $ truePred sym
+    go _ RrpNil = return $ truePred sym
+    go (Empty_RefPath `RrpCons` rrp1) rrp2 = go rrp1 rrp2
+    go rrp1 (Empty_RefPath `RrpCons` rrp2) = go rrp1 rrp2
+    -- If two `Any_RefPath`s have different `tpr`s, then we assume they don't
+    -- overlap, since applying both to the same root will cause at least one to
+    -- give a type mismatch error.
+    go (Any_RefPath tpr1 _ `RrpCons` rrp1) (Any_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (Field_RefPath ctx1 _ idx1 `RrpCons` rrp1) (Field_RefPath ctx2 _ idx2 `RrpCons` rrp2)
+      | Just Refl <- testEquality ctx1 ctx2
+      , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
+    go (Variant_RefPath ctx1 _ idx1 `RrpCons` rrp1) (Variant_RefPath ctx2 _ idx2 `RrpCons` rrp2)
+      | Just Refl <- testEquality ctx1 ctx2
+      , Just Refl <- testEquality idx1 idx2 = go rrp1 rrp2
+    go (Index_RefPath tpr1 _ idx1 `RrpCons` rrp1) (Index_RefPath tpr2 _ idx2 `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = do
+        rrpEq <- go rrp1 rrp2
+        idxEq <- liftIO $ bvEq sym idx1 idx2
+        liftIO $ andPred sym rrpEq idxEq
+    go (Just_RefPath tpr1 _ `RrpCons` rrp1) (Just_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (VectorAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
+        (VectorAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go (ArrayAsMirVector_RefPath tpr1 _ `RrpCons` rrp1)
+        (ArrayAsMirVector_RefPath tpr2 _ `RrpCons` rrp2)
+      | Just Refl <- testEquality tpr1 tpr2 = go rrp1 rrp2
+    go _ _ = return $ falsePred sym
+
+-- | Check whether the memory accessible through `ref1` overlaps the memory
+-- accessible through `ref2`.
+mirRef_overlapsLeaf :: IsSymInterface sym => sym ->
+    MirReference sym tp -> MirReference sym tp' -> MuxLeafT sym IO (RegValue sym BoolType)
+mirRef_overlapsLeaf sym (MirReference root1 path1) (MirReference root2 path2) = do
+    rootOverlaps <- refRootOverlaps sym root1 root2
+    case asConstantPred rootOverlaps of
+        Just False -> return $ falsePred sym
+        _ -> do
+            pathOverlaps <- refPathOverlaps sym path1 path2
+            liftIO $ andPred sym rootOverlaps pathOverlaps
+-- No memory is accessible through an integer reference, so they can't overlap
+-- with anything.
+mirRef_overlapsLeaf sym (MirReference_Integer _ _) _ = return $ falsePred sym
+mirRef_overlapsLeaf sym _ (MirReference_Integer _ _) = return $ falsePred sym
+
+mirRef_overlapsIO :: IsSymInterface sym => sym ->
+    MirReferenceMux sym tp -> MirReferenceMux sym tp' -> IO (RegValue sym BoolType)
+mirRef_overlapsIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
+    zipFancyMuxTrees' sym (mirRef_overlapsLeaf sym) (itePred sym) r1 r2
+
 
 mirRef_offsetLeaf :: IsSymInterface sym => sym ->
     TypeRepr tp -> MirReference sym tp -> RegValue sym IsizeType ->
@@ -1371,6 +1504,59 @@ mirRef_peelIndexIO sym _ (MirReference _ _) =
 mirRef_peelIndexIO sym _ _ = do
     leafAbort sym $ Unsupported $
         "cannot perform peelIndex on invalid pointer"
+
+-- | Compute the index of `ref` within its containing allocation, along with
+-- the length of that allocation.  This is useful for determining the amount of
+-- memory accessible through all valid offsets of `ref`.
+--
+-- Unlike `peelIndex`, this operation is valid on non-`Index_RefPath`
+-- references (on which it returns `(0, 1)`) and also on `MirReference_Integer`
+-- (returning `(0, 0)`).
+mirRef_indexAndLenLeaf :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    MirReference sym tp ->
+    MuxLeafT sym IO (RegValue sym UsizeType, RegValue sym UsizeType)
+mirRef_indexAndLenLeaf sym s (MirReference root (Index_RefPath _tpr' path idx)) = do
+    let parent = MirReference root path
+    parentVec <- readMirRefLeaf s sym parent
+    lenInt <- case parentVec of
+        MirVector_Vector v -> return $ V.length v
+        MirVector_PartialVector pv -> return $ V.length pv
+        MirVector_Array _ -> leafAbort sym $ Unsupported $
+            "can't compute allocation length for MirVector_Array, which is unbounded"
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenInt
+    return (idx, len)
+mirRef_indexAndLenLeaf sym _ (MirReference _ _) = do
+    idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 1
+    return (idx, len)
+mirRef_indexAndLenLeaf sym _ (MirReference_Integer _ _) = do
+    -- No offset of `MirReference_Integer` is dereferenceable, so `len` is
+    -- zero.
+    zero <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
+    return (zero, zero)
+
+mirRef_indexAndLenIO :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    MirReferenceMux sym tp ->
+    IO (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
+mirRef_indexAndLenIO sym s (MirReferenceMux ref) = do
+    readPartialFancyMuxTree sym
+        (mirRef_indexAndLenLeaf sym s)
+        (\c (tIdx, tLen) (eIdx, eLen) -> do
+            idx <- baseTypeIte sym c tIdx eIdx
+            len <- baseTypeIte sym c tLen eLen
+            return (idx, len))
+        ref
+
+mirRef_indexAndLenSim :: IsSymInterface sym =>
+    MirReferenceMux sym tp ->
+    OverrideSim p sym MIR rtp args ret
+        (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
+mirRef_indexAndLenSim ref = do
+    sym <- getSymInterface
+    s <- get
+    liftIO $ mirRef_indexAndLenIO sym s ref
 
 
 execMirStmt :: forall p sym. IsSymInterface sym => EvalStmtFunc p sym MIR
@@ -1508,6 +1694,17 @@ execMirStmt stmt s =
 -- MirReferenceType manipulation within the OverrideSim monad.  These are
 -- useful for implementing overrides that work with MirReferences.
 
+newMirRefSim :: IsSymInterface sym =>
+    TypeRepr tp ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp)
+newMirRefSim tpr = do
+    sym <- getSymInterface
+    s <- get
+    let halloc = simHandleAllocator $ s ^. stateContext
+    rc <- liftIO $ freshRefCell halloc tpr
+    let ref = MirReference (RefCell_RefRoot rc) Empty_RefPath
+    return $ MirReferenceMux $ toFancyMuxTree sym ref
+
 readRefMuxSim :: IsSymInterface sym =>
     TypeRepr tp' ->
     (MirReference sym tp -> MuxLeafT sym IO (RegValue sym tp')) ->
@@ -1518,6 +1715,17 @@ readRefMuxSim tpr' f (MirReferenceMux ref) = do
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
     liftIO $ readFancyMuxTree' sym f (muxRegForType sym iTypes tpr') ref
+
+readRefMuxIO :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    TypeRepr tp' ->
+    (MirReference sym tp -> MuxLeafT sym IO (RegValue sym tp')) ->
+    MirReferenceMux sym tp ->
+    IO (RegValue sym tp')
+readRefMuxIO sym s tpr' f (MirReferenceMux ref) = do
+    let ctx = s ^. stateContext
+    let iTypes = ctxIntrinsicTypes ctx
+    readFancyMuxTree' sym f (muxRegForType sym iTypes tpr') ref
 
 modifyRefMuxSim :: IsSymInterface sym =>
     (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
@@ -1535,7 +1743,22 @@ readMirRefSim :: IsSymInterface sym =>
 readMirRefSim tpr ref = do
     sym <- getSymInterface
     s <- get
-    readRefMuxSim tpr (readMirRefLeaf s sym) ref
+    liftIO $ readMirRefIO sym s tpr ref
+
+readMirRefIO :: IsSymInterface sym =>
+    sym -> SimState p sym ext rtp f a ->
+    TypeRepr tp -> MirReferenceMux sym tp ->
+    IO (RegValue sym tp)
+readMirRefIO sym s tpr ref = readRefMuxIO sym s tpr (readMirRefLeaf s sym) ref
+
+writeMirRefSim :: IsSymInterface sym =>
+    TypeRepr tp -> MirReferenceMux sym tp -> RegValue sym tp ->
+    OverrideSim m sym MIR rtp args ret ()
+writeMirRefSim tpr (MirReferenceMux ref) x = do
+    sym <- getSymInterface
+    s <- get
+    s' <- liftIO $ foldFancyMuxTree sym (\s' ref' -> writeMirRefLeaf s' sym ref' x) s ref
+    put s'
 
 subindexMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym (MirVectorType tp) -> RegValue sym UsizeType ->
@@ -1709,3 +1932,104 @@ getSlicePtr e = getStruct i1of2 e
 
 getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
 getSliceLen e = getStruct i2of2 e
+
+
+--------------------------------------------------------------------------------
+-- ** MethodSpec and MethodSpecBuilder
+--
+-- We define the intrinsics here so they can be used in `TransTy.tyToRepr`, and
+-- also define their interfaces (as typeclasses), but we don't provide any
+-- concrete implementations in `crux-mir`.  Instead, implementations of these
+-- types are in `saw-script/crux-mir-comp`, since they depend on some SAW
+-- components, such as `saw-script`'s `MethodSpec`.
+
+class MethodSpecImpl sym ms where
+    -- | Pretty-print the MethodSpec, returning the result as a Rust string
+    -- (`&str`).
+    msPrettyPrint ::
+        forall rtp args ret.
+        ms ->
+        OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym (MirSlice (BVType 8)))
+
+    -- | Enable the MethodSpec for use as an override for the remainder of the
+    -- current test.
+    msEnable ::
+        forall rtp args ret.
+        ms ->
+        OverrideSim (Model sym) sym MIR rtp args ret ()
+
+data MethodSpec sym = forall ms. MethodSpecImpl sym ms => MethodSpec {
+    msData :: ms,
+    msNonce :: Word64
+}
+
+type MethodSpecSymbol = "MethodSpec"
+type MethodSpecType = IntrinsicType MethodSpecSymbol EmptyCtx
+
+pattern MethodSpecRepr :: () => tp' ~ MethodSpecType => TypeRepr tp'
+pattern MethodSpecRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MethodSpecSymbol) -> Just Refl) Empty
+ where MethodSpecRepr = IntrinsicRepr (knownSymbol @MethodSpecSymbol) Empty
+
+type family MethodSpecFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MethodSpecFam sym EmptyCtx = MethodSpec sym
+  MethodSpecFam sym ctx = TypeError
+    ('Text "MethodSpecType expects no arguments, but was given" ':<>: 'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
+  type Intrinsic sym MethodSpecSymbol ctx = MethodSpecFam sym ctx
+
+  muxIntrinsic _sym _iTypes _nm Empty _p ms1 ms2
+    | msNonce ms1 == msNonce ms2 = return ms1
+    | otherwise = fail "can't mux MethodSpecs"
+  muxIntrinsic _sym _tys nm ctx _ _ _ = typeError nm ctx
+
+
+class MethodSpecBuilderImpl sym msb where
+    msbAddArg :: forall rtp args ret tp.
+        TypeRepr tp -> MirReferenceMux sym tp -> msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbSetReturn :: forall rtp args ret tp.
+        TypeRepr tp -> MirReferenceMux sym tp -> msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbGatherAssumes :: forall rtp args ret.
+        msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbGatherAsserts :: forall rtp args ret.
+        msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret msb
+    msbFinish :: forall rtp args ret.
+        msb ->
+        OverrideSim (Model sym) sym MIR rtp args ret (MethodSpec sym)
+
+data MethodSpecBuilder sym = forall msb. MethodSpecBuilderImpl sym msb => MethodSpecBuilder msb
+
+type MethodSpecBuilderSymbol = "MethodSpecBuilder"
+type MethodSpecBuilderType = IntrinsicType MethodSpecBuilderSymbol EmptyCtx
+
+pattern MethodSpecBuilderRepr :: () => tp' ~ MethodSpecBuilderType => TypeRepr tp'
+pattern MethodSpecBuilderRepr <-
+     IntrinsicRepr (testEquality (knownSymbol @MethodSpecBuilderSymbol) -> Just Refl) Empty
+ where MethodSpecBuilderRepr = IntrinsicRepr (knownSymbol @MethodSpecBuilderSymbol) Empty
+
+type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
+  MethodSpecBuilderFam sym EmptyCtx = MethodSpecBuilder sym
+  MethodSpecBuilderFam sym ctx = TypeError
+    ('Text "MethodSpecBuilderType expects no arguments, but was given" ':<>: 'ShowType ctx)
+instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
+  type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
+
+  muxIntrinsic _sym _iTypes _nm Empty _ _ _ =
+    fail "can't mux MethodSpecBuilders"
+  muxIntrinsic _sym _tys nm ctx _ _ _ = typeError nm ctx
+
+
+-- Table of all MIR-specific intrinsic types.  Must be at the end so it can see
+-- past all previous TH calls.
+
+mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
+mirIntrinsicTypes =
+   MapF.insert (knownSymbol @MirReferenceSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MirVectorSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MethodSpecSymbol) IntrinsicMuxFn $
+   MapF.insert (knownSymbol @MethodSpecBuilderSymbol) IntrinsicMuxFn $
+   MapF.empty

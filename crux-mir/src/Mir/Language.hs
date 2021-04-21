@@ -9,11 +9,22 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE RankNTypes #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
-module Mir.Language (main, mainWithOutputTo, mainWithOutputConfig, runTests,
-                     MIROptions(..), defaultMirOptions) where
+module Mir.Language (
+    main,
+    mainWithExtraOverrides,
+    mainWithOutputTo,
+    mainWithOutputConfig,
+    runTests,
+    runTestsWithExtraOverrides,
+    BindExtraOverridesFn,
+    noExtraOverrides,
+    MIROptions(..),
+    defaultMirOptions,
+) where
 
 import qualified Data.Aeson as Aeson
 import qualified Data.BitVector.Sized as BV
@@ -55,6 +66,7 @@ import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
 
 -- what4
+import qualified What4.Expr.Builder                    as W4
 import qualified What4.Interface                       as W4
 import qualified What4.Config                          as W4
 import qualified What4.Partial                         as W4
@@ -84,21 +96,44 @@ import           Mir.Trans (transStatics)
 import           Mir.TransTy
 
 main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig >>= exitWith
+main = mainWithOutputConfig defaultOutputConfig noExtraOverrides >>= exitWith
 
-mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
+mainWithExtraOverrides :: BindExtraOverridesFn -> IO ()
+mainWithExtraOverrides bindExtra =
+    mainWithOutputConfig defaultOutputConfig bindExtra >>= exitWith
 
-mainWithOutputConfig :: OutputConfig -> IO ExitCode
-mainWithOutputConfig outCfg =
-    Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTests
+mainWithOutputTo :: Handle -> BindExtraOverridesFn -> IO ExitCode
+mainWithOutputTo h bindExtra = mainWithOutputConfig (OutputConfig False h h False) bindExtra
 
-runTests :: (Crux.Logs) => (Crux.CruxOptions, MIROptions) -> IO ExitCode
-runTests (cruxOpts, mirOpts) = do
+mainWithOutputConfig :: OutputConfig -> BindExtraOverridesFn -> IO ExitCode
+mainWithOutputConfig outCfg bindExtra =
+    Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTestsWithExtraOverrides bindExtra
+
+type BindExtraOverridesFn = forall sym t st fs args ret blocks rtp a r.
+    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+    Maybe (Crux.SomeOnlineSolver sym) ->
+    CollectionState ->
+    Text ->
+    C.CFG MIR blocks args ret ->
+    Maybe (C.OverrideSim (Model sym) sym MIR rtp a r ())
+
+noExtraOverrides :: BindExtraOverridesFn
+noExtraOverrides _ _ _ _ = Nothing
+
+runTests :: (Crux.Logs) =>
+    (Crux.CruxOptions, MIROptions) -> IO ExitCode
+runTests opts = runTestsWithExtraOverrides noExtraOverrides opts
+
+runTestsWithExtraOverrides :: (Crux.Logs) =>
+    BindExtraOverridesFn ->
+    (Crux.CruxOptions, MIROptions) ->
+    IO ExitCode
+runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let ?debug              = Crux.simVerbose cruxOpts
     --let ?assertFalseOnError = assertFalse mirOpts
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
+    let ?defaultRlibsDir    = defaultRlibsDir mirOpts
 
     let (filename, nameFilter) = case cargoTestFile mirOpts of
             -- This case is terrible a hack.  The goal is to mimic the behavior
@@ -149,10 +184,13 @@ runTests (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: C.IsSymInterface sym =>
+    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (Model sym) sym MIR rtp a r ()
         linkOverrides symOnline =
-            forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> bindFn symOnline fn cfg
+            forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
+                case bindExtra symOnline (mir ^. rmCS) fn cfg of
+                    Just f -> f
+                    Nothing -> bindFn symOnline (mir ^. rmCS) fn cfg
     let entry = W4.mkProgramLoc "<entry>" W4.InternalPos
     let testStartLoc fnName =
             W4.mkProgramLoc (W4.functionNameFromText $ idText fnName) (W4.OtherPos "<start>")
@@ -171,7 +209,8 @@ runTests (cruxOpts, mirOpts) = do
     -- that calls `simTest`.  Counterexamples are printed separately, and only
     -- for tests that failed.
 
-    let simTest :: forall sym. (C.IsSymInterface sym, Crux.Logs) =>
+    let simTest :: forall sym t st fs.
+            (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, Crux.Logs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun Model sym MIR Ctx.EmptyCtx C.UnitType
         simTest symOnline fnName = do
             when (not $ printResultOnly mirOpts) $
@@ -308,6 +347,11 @@ data MIROptions = MIROptions
     , printResultOnly :: Bool
     , testFilter   :: Maybe Text
     , cargoTestFile :: Maybe FilePath
+    , defaultRlibsDir :: FilePath
+    -- ^ Directory to search for builds of `crux-mir`'s custom standard
+    -- library, if `$CRUX_RUST_LIBRARY_PATH` is unset.  This option exists for
+    -- the purposes of the `crux-mir-comp` test suite; there's no user-facing
+    -- flag to set it.
     }
 
 defaultMirOptions :: MIROptions
@@ -319,6 +363,7 @@ defaultMirOptions = MIROptions
     , printResultOnly = False
     , testFilter = Nothing
     , cargoTestFile = Nothing
+    , defaultRlibsDir = "rlibs"
     }
 
 mirConfig :: Crux.Config MIROptions

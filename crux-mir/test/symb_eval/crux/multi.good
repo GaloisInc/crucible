@@ -7,7 +7,7 @@ failures:
 ---- multi/3a1fbbbh::fail1[0] counterexamples ----
 Failure for test/symb_eval/crux/multi.rs:8:22: 8:27: error: in multi/3a1fbbbh::fail1[0]
 attempt to add with overflow
-Failure for ./lib/crucible/lib.rs:34:41: 34:58 !test/symb_eval/crux/multi.rs:8:5: 8:33: error: in multi/3a1fbbbh::fail1[0]
+Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/multi.rs:8:5: 8:33: error: in multi/3a1fbbbh::fail1[0]
 MIR assertion at test/symb_eval/crux/multi.rs:8:5:
 	x + 1 > x
 
@@ -16,7 +16,7 @@ Failure for internal: error: in multi/3a1fbbbh::fail2[0]
 panicking::begin_panic, called from multi/3a1fbbbh::fail2[0]
 
 ---- multi/3a1fbbbh::fail3[0] counterexamples ----
-Failure for ./lib/crucible/lib.rs:34:41: 34:58 !test/symb_eval/crux/multi.rs:20:5: 20:30: error: in multi/3a1fbbbh::assert_zero[0]
+Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/multi.rs:20:5: 20:30: error: in multi/3a1fbbbh::assert_zero[0]
 MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 	x == 0
 
