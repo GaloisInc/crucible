@@ -24,6 +24,7 @@ module Mir.Language (
     runTestsWithExtraOverrides,
     BindExtraOverridesFn,
     noExtraOverrides,
+    orOverride,
     MIROptions(..),
     defaultMirOptions,
 ) where
@@ -127,6 +128,14 @@ type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
 
 noExtraOverrides :: BindExtraOverridesFn
 noExtraOverrides _ _ _ _ = Nothing
+
+orOverride ::
+    BindExtraOverridesFn -> BindExtraOverridesFn -> BindExtraOverridesFn
+orOverride f g symOnline cs name cfg =
+    case f symOnline cs name cfg of
+        Just x -> Just x
+        Nothing -> g symOnline cs name cfg
+
 
 -- | This closes over the Crucible 'personality' parameter, allowing us to select between
 -- normal execution over Models and concurrent exeuctions that use an Exploration
