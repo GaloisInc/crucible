@@ -9,30 +9,13 @@ pub fn load<F>(module_path: &str, name: &str) -> F {
     unimplemented!("cryptol::load")
 }
 
-
-#[doc(hidden)]
-pub struct SimpleOnce<T>(UnsafeCell<Option<T>>);
-
-unsafe impl<T: Sync> Sync for SimpleOnce<T> {}
-
-impl<T> SimpleOnce<T> {
-    pub const fn new() -> SimpleOnce<T> {
-        SimpleOnce(UnsafeCell::new(None))
-    }
-}
-
-impl<T: Sync> SimpleOnce<T> {
-    pub fn get_or_init<F: FnOnce() -> T>(&self, f: F) -> &T {
-        unsafe {
-            let ptr = self.0.get();
-            if let Some(ref val) = *ptr {
-                val
-            } else {
-                *ptr = Some(f());
-                (*ptr).as_ref().unwrap()
-            }
-        }
-    }
+/// Load the Cryptol function `name` from `module_path` and install it as an override for the
+/// function `f`.  `f` must be a function definition, not a function pointer or closure, and its
+/// signature must match the signature of the Cryptol function.  For example, if the Cryptol
+/// definition has type `[8] -> [8] -> [8]`, then `f` must have the signature `fn(u8, u8) -> u8`,
+/// `fn(i8, i8) -> u8`, or some similar combination.
+pub fn override_<F>(f: F, module_path: &str, name: &str) {
+    unimplemented!("cryptol::override")
 }
 
 
@@ -56,14 +39,17 @@ macro_rules! cryptol {
                 ; )*
     ) => {
         $(
+            #[allow(unconditional_recursion)]
             $pub_ fn $name($($arg_name: $arg_ty),*) $(-> $ret_ty)? {
-                static FUNC: $crate::cryptol::SimpleOnce<fn($($arg_ty),*) $(-> $ret_ty)?> =
-                    $crate::cryptol::SimpleOnce::new();
-                let func = FUNC.get_or_init(|| $crate::cryptol::load(
+                // The first call to `$name` loads the Cryptol definition and installs it as an
+                // override for `$name` itself.  The recursive call below, and all future calls to
+                // `$name`, will dispatch directly to the Cryptol override.
+                $crate::cryptol::override_(
+                    $name,
                     $path,
                     $crate::cryptol_function_name!($($cryptol_name,)? $name),
-                ));
-                func($($arg_name),*)
+                );
+                $name($($arg_name),*)
             }
         )*
     };
