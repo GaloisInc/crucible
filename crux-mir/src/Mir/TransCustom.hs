@@ -100,6 +100,8 @@ customOpDefs = Map.fromList $ [
                          , saturating_sub
                          , ctlz
                          , ctlz_nonzero
+                         , rotate_left
+                         , rotate_right
                          , size_of
                          , min_align_of
                          , intrinsics_assume
@@ -820,6 +822,22 @@ ctlz_nonzero :: (ExplodedDefId, CustomRHS)
 ctlz_nonzero =
     ( ["core","intrinsics", "", "ctlz_nonzero"]
     , ctlz_impl "ctlz_nonzero" Nothing )
+
+rotate_left :: (ExplodedDefId, CustomRHS)
+rotate_left = ( ["core","intrinsics", "", "rotate_left"],
+  \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
+      | Just Refl <- testEquality w w' -> do
+        return $ MirExp (C.BVRepr w) $ R.App $ E.BVRol w eVal eAmt
+    _ -> mirFail $ "invalid arguments for rotate_left")
+
+rotate_right :: (ExplodedDefId, CustomRHS)
+rotate_right = ( ["core","intrinsics", "", "rotate_right"],
+  \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
+      | Just Refl <- testEquality w w' -> do
+        return $ MirExp (C.BVRepr w) $ R.App $ E.BVRor w eVal eAmt
+    _ -> mirFail $ "invalid arguments for rotate_right")
 
 
 ---------------------------------------------------------------------------------------
