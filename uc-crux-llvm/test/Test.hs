@@ -390,6 +390,7 @@ inFileTests =
         ("assert_arg_eq.c", [("assert_arg_eq", hasBugs)]), -- goal: hasFailedAssert
         ("call_non_function_pointer.c", [("call_non_function_pointer", hasBugs)]),
         ("cast_float_to_pointer_deref.c", [("cast_float_to_pointer_deref", hasBugs)]),
+        ("deref_func_ptr.c", [("deref_func_ptr", hasBugs)]),
         ("double_free.c", [("double_free", hasBugs)]),
         ("uninitialized_heap.c", [("uninitialized_heap", hasBugs)]),
         ("uninitialized_stack.c", [("uninitialized_stack", hasBugs)]),
@@ -457,7 +458,6 @@ inFileTests =
         -- nonzero size, but it actually requires the input pointer to point to
         -- an *array of structs*.
         ("unsized_array.c", [("unsized_array", isSafeWithPreconditions mempty DidntHitBounds)]),
-        ("deref_func_ptr.c", [("deref_func_ptr", isUnclassified)]), -- goal: hasBugs
         ("cast_float_to_pointer_free.c", [("cast_float_to_pointer_free", isUnclassified)]),
         ("cast_float_to_pointer_write.c", [("cast_float_to_pointer_write", isUnclassified)]),
         ("free_with_offset.c", [("free_with_offset", isUnclassified)]), -- goal: hasBugs
@@ -466,7 +466,6 @@ inFileTests =
         ("nested_structs.c", [("nested_structs", isUnclassified)]), -- goal: ???
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
-        ("read_extern_global_unsized_array.c", [("read_extern_global_unsized_array", isUnclassified)]), -- goal: isSafeWithPreconditions
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
@@ -478,6 +477,7 @@ inFileTests =
         ("cast_void_pointer.c", [("cast_void_pointer", hasMissingAnn)]),
         ("cast_pointer_to_float.c", [("cast_pointer_to_float", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptr_to_int.c", [("compare_ptr_to_int", hasMissingAnn)]), -- goal: hasBugs
+        ("compare_ptr_to_size_t.c", [("compare_ptr_to_size_t", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_heap_allocs.c", [("compare_ptrs_different_heap_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("compare_ptrs_different_stack_allocs.c", [("compare_ptrs_different_stack_allocs", hasMissingAnn)]), -- goal: hasBugs
         ("memcpy_const_len.c", [("memcpy_const_len", hasMissingAnn)]),
@@ -1058,6 +1058,9 @@ main =
       "uc-crux-llvm"
       [ inFileTests,
         moduleTests,
+        isUnimplemented
+          "read_extern_global_unsized_array.c"
+          "read_extern_global_unsized_array", -- goal: isSafeWithPreconditions
         isUnimplemented
           "gethostname_neg_len.c"
           "gethostname_neg_len", -- goal: ???
