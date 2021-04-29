@@ -98,6 +98,13 @@ customOpDefs = Map.fromList $ [
                          , wrapping_mul
                          , saturating_add
                          , saturating_sub
+                         , unchecked_add
+                         , unchecked_sub
+                         , unchecked_mul
+                         , unchecked_div
+                         , unchecked_rem
+                         , unchecked_shl
+                         , unchecked_shr
                          , ctlz
                          , ctlz_nonzero
                          , rotate_left
@@ -767,6 +774,67 @@ saturating_sub ::  (ExplodedDefId, CustomRHS)
 saturating_sub =
     ( ["core","intrinsics", "", "saturating_sub"]
     , makeSaturatingArith "saturating_sub" Sub
+    )
+
+
+-- | Common implementation for `unchecked_add` and related intrinsics.  These
+-- all perform the normal arithmetic operation, but overflow is undefined
+-- behavior.
+makeUncheckedArith :: String -> BinOp -> CustomRHS
+makeUncheckedArith name bop =
+    \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        ([TyUint _, TyUint _], [e1, e2]) -> do
+            (result, overflow) <- evalBinOp bop (Just Unsigned) e1 e2
+            G.assertExpr (R.App $ E.Not overflow) $
+                S.litExpr $ Text.pack $ "undefined behavior: " ++ name ++ " overflowed"
+            return result
+        ([TyInt _, TyInt _], [e1, e2]) -> do
+            (result, overflow) <- evalBinOp bop (Just Signed) e1 e2
+            G.assertExpr (R.App $ E.Not overflow) $
+                S.litExpr $ Text.pack $ "undefined behavior: " ++ name ++ " overflowed"
+            return result
+        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
+
+unchecked_add ::  (ExplodedDefId, CustomRHS)
+unchecked_add =
+    ( ["core","intrinsics", "", "unchecked_add"]
+    , makeUncheckedArith "unchecked_add" Add
+    )
+
+unchecked_sub ::  (ExplodedDefId, CustomRHS)
+unchecked_sub =
+    ( ["core","intrinsics", "", "unchecked_sub"]
+    , makeUncheckedArith "unchecked_sub" Sub
+    )
+
+unchecked_mul ::  (ExplodedDefId, CustomRHS)
+unchecked_mul =
+    ( ["core","intrinsics", "", "unchecked_mul"]
+    , makeUncheckedArith "unchecked_mul" Mul
+    )
+
+unchecked_div ::  (ExplodedDefId, CustomRHS)
+unchecked_div =
+    ( ["core","intrinsics", "", "unchecked_div"]
+    , makeUncheckedArith "unchecked_div" Div
+    )
+
+unchecked_rem ::  (ExplodedDefId, CustomRHS)
+unchecked_rem =
+    ( ["core","intrinsics", "", "unchecked_rem"]
+    , makeUncheckedArith "unchecked_rem" Rem
+    )
+
+unchecked_shl ::  (ExplodedDefId, CustomRHS)
+unchecked_shl =
+    ( ["core","intrinsics", "", "unchecked_shl"]
+    , makeUncheckedArith "unchecked_shl" Shl
+    )
+
+unchecked_shr ::  (ExplodedDefId, CustomRHS)
+unchecked_shr =
+    ( ["core","intrinsics", "", "unchecked_shr"]
+    , makeUncheckedArith "unchecked_shr" Shr
     )
 
 -- Build a "count leading zeros" implementation.  The function will be
