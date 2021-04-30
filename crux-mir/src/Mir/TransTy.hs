@@ -58,7 +58,7 @@ import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , mirVector_fromVector
-    , cs, discrMap )
+    , cs, collection, discrMap )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , pattern MirVectorRepr
@@ -148,15 +148,15 @@ optionDiscrSome :: Int
 optionDiscrSome = 1
 
 
-tyToRepr :: TransTyConstraint => M.Ty -> Some C.TypeRepr
-tyToRepr t0 = case t0 of
+tyToRepr :: TransTyConstraint => M.Collection -> M.Ty -> Some C.TypeRepr
+tyToRepr col t0 = case t0 of
   CTyInt512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
   CTyBv128 -> Some $ C.BVRepr (knownNat :: NatRepr 128)
   CTyBv256 -> Some $ C.BVRepr (knownNat :: NatRepr 256)
   CTyBv512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
-  CTyVector t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
+  CTyVector t -> tyToReprCont col t $ \repr -> Some (C.VectorRepr repr)
   CTyArray t
-    | Some tpr <- tyToRepr t
+    | Some tpr <- tyToRepr col t
     , C.AsBaseType btr <- C.asBaseType tpr ->
       Some (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> C.BaseBVRepr (knownNat @SizeBits)) btr)
     | otherwise -> error $ "unsupported: crucible arrays of non-base type"
@@ -174,12 +174,12 @@ tyToRepr t0 = case t0 of
   
   -- non-empty tuples are mapped to structures of "maybe" types so
   -- that they can be allocated without being initialized
-  M.TyTuple ts    -> tyListToCtxMaybe ts $ \repr -> Some (C.StructRepr repr)
+  M.TyTuple ts    -> tyListToCtxMaybe col ts $ \repr -> Some (C.StructRepr repr)
 
   -- Closures are just tuples with a fancy name
-  M.TyClosure ts  -> tyListToCtxMaybe ts $ \repr -> Some (C.StructRepr repr)
+  M.TyClosure ts  -> tyListToCtxMaybe col ts $ \repr -> Some (C.StructRepr repr)
 
-  M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (MirVectorRepr repr)
+  M.TyArray t _sz -> tyToReprCont col t $ \repr -> Some (MirVectorRepr repr)
 
   M.TyInt M.USize  -> Some IsizeRepr
   M.TyUint M.USize -> Some UsizeRepr
@@ -187,7 +187,7 @@ tyToRepr t0 = case t0 of
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
   -- These definitions are *not* compositional
-  M.TyRef (M.TySlice t) _ -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+  M.TyRef (M.TySlice t) _ -> tyToReprCont col t $ \repr -> Some (MirSliceRepr repr)
   M.TyRef M.TyStr _       -> Some (MirSliceRepr (C.BVRepr (knownNat @8)))
 
   -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
@@ -199,13 +199,13 @@ tyToRepr t0 = case t0 of
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
   -- TODO: DSTs not behind a reference - these should never appear in real code
-  M.TySlice t -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+  M.TySlice t -> tyToReprCont col t $ \repr -> Some (MirSliceRepr repr)
   M.TyStr -> Some (MirSliceRepr (C.BVRepr (knownNat :: NatRepr 8)))
 
-  M.TyRef t _       -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  M.TyRef t _       -> tyToReprCont col t $ \repr -> Some (MirReferenceRepr repr)
   -- Raw pointers are represented like references, including the fat pointer
   -- cases that are special-cased above.
-  M.TyRawPtr t mutbl -> tyToRepr (M.TyRef t mutbl)
+  M.TyRawPtr t mutbl -> tyToRepr col (M.TyRef t mutbl)
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
@@ -217,8 +217,8 @@ tyToRepr t0 = case t0 of
 
   -- non polymorphic function types go to FunctionHandleRepr
   M.TyFnPtr sig@(M.FnSig args ret _abi _spread) ->
-     tyListToCtx args $ \argsr  ->
-     tyToReprCont ret $ \retr ->
+     tyListToCtx col args $ \argsr  ->
+     tyToReprCont col ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
 
   -- We don't support unsized rvalues.  Currently we error only for standalone
@@ -239,6 +239,12 @@ dynRefCtx = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
 dynRefRepr :: C.TypeRepr DynRefType
 dynRefRepr = C.StructRepr dynRefCtx
+
+
+tyToReprM :: M.Ty -> MirGenerator h s ret (Some C.TypeRepr)
+tyToReprM ty = do
+  col <- use $ cs . collection
+  return $ tyToRepr col ty
 
 
 
@@ -275,11 +281,16 @@ isUnsized ty = case ty of
     _ -> False
 
 
-variantFields :: TransTyConstraint => M.Variant -> Some C.CtxRepr
-variantFields (M.Variant _vn _vd vfs _vct) =
+variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Some C.CtxRepr
+variantFields col (M.Variant _vn _vd vfs _vct) =
     tyReprListToCtx
-        (map (mapSome fieldType . tyToFieldRepr . (^. M.fty)) vfs)
+        (map (mapSome fieldType . tyToFieldRepr col . (^. M.fty)) vfs)
         (\repr -> Some repr)
+
+variantFieldsM :: TransTyConstraint => M.Variant -> MirGenerator h s ret (Some C.CtxRepr)
+variantFieldsM v = do
+  col <- use $ cs . collection
+  return $ variantFields col v
 
 data FieldRepr tp' = forall tp. FieldRepr (FieldKind tp tp')
 
@@ -300,34 +311,44 @@ fieldCtxType :: FieldCtxRepr ctx -> C.CtxRepr ctx
 fieldCtxType Ctx.Empty = Ctx.Empty
 fieldCtxType (ctx Ctx.:> fr) = fieldCtxType ctx Ctx.:> fieldType fr
 
-tyToFieldRepr :: M.Ty -> Some FieldRepr
-tyToFieldRepr ty
-  | canInitialize ty = viewSome (\tpr -> Some $ FieldRepr $ FkInit tpr) (tyToRepr ty)
-  | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr ty)
+tyToFieldRepr :: M.Collection -> M.Ty -> Some FieldRepr
+tyToFieldRepr col ty
+  | canInitialize ty = viewSome (\tpr -> Some $ FieldRepr $ FkInit tpr) (tyToRepr col ty)
+  | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr col ty)
 
-variantFields' :: TransTyConstraint => M.Variant -> Some FieldCtxRepr
-variantFields' (M.Variant _vn _vd vfs _vct) =
+variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Some FieldCtxRepr
+variantFields' col (M.Variant _vn _vd vfs _vct) =
     fieldReprListToCtx
-        (map (tyToFieldRepr . (^. M.fty)) vfs)
+        (map (tyToFieldRepr col . (^. M.fty)) vfs)
         (\x -> Some x)
 
-enumVariants :: TransTyConstraint => M.Adt -> Some C.CtxRepr
-enumVariants (M.Adt name kind vs _ _)
+variantFieldsM' :: TransTyConstraint => M.Variant -> MirGenerator h s ret (Some FieldCtxRepr)
+variantFieldsM' v = do
+  col <- use $ cs . collection
+  return $ variantFields' col v
+
+enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> Some C.CtxRepr
+enumVariants col (M.Adt name kind vs _ _)
   | kind /= M.Enum = error $ "expected " ++ show name ++ " to have kind Enum"
   | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
   where
     variantReprs :: [Some C.TypeRepr]
     variantReprs = map (\v ->
         viewSome (\ctx -> Some $ C.StructRepr ctx) $
-        variantFields v) vs
+        variantFields col v) vs
 
+enumVariantsM :: TransTyConstraint => M.Adt -> MirGenerator h s ret (Some C.CtxRepr)
+enumVariantsM adt = do
+  col <- use $ cs . collection
+  return $ enumVariants col adt
 
 -- As in the CPS translation, functions which manipulate types must be
 -- in CPS form, since type tags are generally hidden underneath an
 -- existential.
 
-tyToReprCont :: forall a. TransTyConstraint => M.Ty -> (forall tp. HasCallStack => C.TypeRepr tp -> a) -> a
-tyToReprCont t f = case tyToRepr t of
+tyToReprCont :: forall a. TransTyConstraint =>
+  M.Collection -> M.Ty -> (forall tp. HasCallStack => C.TypeRepr tp -> a) -> a
+tyToReprCont col t f = case tyToRepr col t of
                  Some x -> f x
 tyReprListToCtx :: forall a. TransTyConstraint => [Some C.TypeRepr] -> (forall ctx. C.CtxRepr ctx -> a) -> a
 tyReprListToCtx ts f =  go ts Ctx.empty
@@ -341,8 +362,9 @@ fieldReprListToCtx frs f =  go frs Ctx.empty
        go []       ctx      = f ctx
        go (Some fr:frs) ctx = go frs (ctx Ctx.:> fr)
 
-tyListToCtx :: forall a. TransTyConstraint => [M.Ty] -> (forall ctx. C.CtxRepr ctx -> a) -> a
-tyListToCtx ts f = tyReprListToCtx (map tyToRepr ts) f
+tyListToCtx :: forall a. TransTyConstraint =>
+  M.Collection -> [M.Ty] -> (forall ctx. C.CtxRepr ctx -> a) -> a
+tyListToCtx col ts f = tyReprListToCtx (map (tyToRepr col) ts) f
 
 reprsToCtx :: forall a. [Some C.TypeRepr] -> (forall ctx. C.CtxRepr ctx -> a) -> a
 reprsToCtx rs f = go rs Ctx.empty
@@ -352,8 +374,9 @@ reprsToCtx rs f = go rs Ctx.empty
 
 
 -- same as tyListToCtx, but each type in the list is wrapped in a Maybe
-tyListToCtxMaybe :: forall a. TransTyConstraint => [M.Ty] -> (forall ctx. C.CtxRepr ctx -> a) -> a
-tyListToCtxMaybe ts f =  go (map tyToRepr ts) Ctx.empty
+tyListToCtxMaybe :: forall a. TransTyConstraint =>
+  M.Collection -> [M.Ty] -> (forall ctx. C.CtxRepr ctx -> a) -> a
+tyListToCtxMaybe col ts f =  go (map (tyToRepr col) ts) Ctx.empty
  where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> a
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> C.MaybeRepr tp)
@@ -368,9 +391,9 @@ exp_to_assgn =
               go ctx asgn [] k = k ctx asgn
               go ctx asgn ((MirExp tyr ex):vs) k = go (ctx Ctx.:> tyr) (asgn Ctx.:> ex) vs k
 
-exp_to_assgn_Maybe :: HasCallStack => [M.Ty] -> [Maybe (MirExp s)]
+exp_to_assgn_Maybe :: HasCallStack => M.Collection -> [M.Ty] -> [Maybe (MirExp s)]
   -> (forall ctx. C.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> a) -> a
-exp_to_assgn_Maybe =
+exp_to_assgn_Maybe col =
     go Ctx.empty Ctx.empty 
         where go :: C.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> [M.Ty] -> [Maybe (MirExp s)]
                 -> (forall ctx'. C.CtxRepr ctx' -> Ctx.Assignment (R.Expr MIR s) ctx' -> a) -> a
@@ -378,7 +401,7 @@ exp_to_assgn_Maybe =
               go ctx asgn (_:tys) (Just (MirExp tyr ex):vs) k =
                 go (ctx Ctx.:> C.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.JustValue tyr ex)) tys vs k
               go ctx asgn (ty:tys) (Nothing:vs) k =
-                tyToReprCont ty $ \tyr -> 
+                tyToReprCont col ty $ \tyr -> 
                    go (ctx Ctx.:> C.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.NothingValue tyr)) tys vs k
               go _ _ _ _ _ = error "BUG in crux-mir: exp_to_assgn_Maybe"
 
@@ -418,9 +441,14 @@ buildTuple :: [MirExp s] -> MirExp s
 buildTuple xs = exp_to_assgn (xs) $ \ctx asgn ->
     MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
 
-buildTupleMaybe :: [M.Ty] -> [Maybe (MirExp s)] -> MirExp s
-buildTupleMaybe tys xs = exp_to_assgn_Maybe tys xs $ \ctx asgn ->
+buildTupleMaybe :: M.Collection -> [M.Ty] -> [Maybe (MirExp s)] -> MirExp s
+buildTupleMaybe col tys xs = exp_to_assgn_Maybe col tys xs $ \ctx asgn ->
     MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
+
+buildTupleMaybeM :: [M.Ty] -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
+buildTupleMaybeM tys xs = do
+  col <- use $ cs . collection
+  return $ buildTupleMaybe col tys xs
 
 accessAggregateMaybe :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
@@ -613,12 +641,12 @@ structInfo adt i = do
         Just fld -> return $ fld ^. M.fty
         Nothing -> mirFail errFieldIndex
 
-    Some ctx <- return $ variantFields var
+    Some ctx <- variantFieldsM var
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail errFieldIndex
     let tpr' = ctx Ctx.! idx
-    Some tpr <- return $ tyToRepr fldTy
+    Some tpr <- tyToReprM fldTy
 
     kind <- checkFieldKind (not $ canInitialize fldTy) tpr tpr' $
         "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
@@ -706,7 +734,7 @@ enumInfo adt i j = do
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
 
-    Some ctx <- return $ enumVariants adt
+    Some ctx <- enumVariantsM adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -720,7 +748,7 @@ enumInfo adt i j = do
         Nothing -> mirFail $ "field index " ++ show j ++ " is out of range for enum " ++
             show (adt ^. M.adtname) ++ " variant " ++ show i
     let tpr' = ctx' Ctx.! idx'
-    Some tpr <- return $ tyToRepr fldTy
+    Some tpr <- tyToReprM fldTy
 
     kind <- checkFieldKind (not $ canInitialize fldTy) tpr tpr' $
         "field " ++ show j ++ " of enum " ++ show (adt ^. M.adtname) ++ " variant " ++ show i
@@ -793,7 +821,7 @@ buildStruct' adt es = do
     when (adt ^. M.adtkind /= M.Struct) $ mirFail $
         "expected struct, but got adt " ++ show (adt ^. M.adtname)
     let var = M.onlyVariant adt
-    Some fctx <- return $ variantFields' var
+    Some fctx <- variantFieldsM' var
     asn <- case buildStructAssign' fctx $ map (fmap (\(MirExp _ e) -> Some e)) es of
         Left err -> mirFail $ "error building struct " ++ show (var^.M.vname) ++ ": " ++ err
         Right x -> return x
@@ -817,7 +845,7 @@ buildEnum' adt i es = do
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
             show (adt ^. M.adtname)
 
-    Some ctx <- return $ enumVariants adt
+    Some ctx <- enumVariantsM adt
     Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
         Just x -> return x
         Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
@@ -827,7 +855,7 @@ buildEnum' adt i es = do
         Nothing -> mirFail $ "variant " ++ show i ++ " of enum " ++
             show (adt ^. M.adtname) ++ " is not a struct?"
 
-    Some fctx' <- return $ variantFields' var
+    Some fctx' <- variantFieldsM' var
     asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es of
         Left err -> mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err
         Right x -> return x
@@ -891,7 +919,7 @@ enumFieldRef adt i j tpr ref = do
 enumDiscriminant :: M.Adt -> MirExp s ->
     MirGenerator h s ret (MirExp s)
 enumDiscriminant adt e = do
-    Some ctx <- pure $ enumVariants adt
+    Some ctx <- enumVariantsM adt
     let v = unpackAnyC (RustEnumRepr ctx) e
     return $ MirExp IsizeRepr $ R.App $ rustEnumDiscriminant v
 
@@ -900,7 +928,8 @@ tupleFieldRef ::
     C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
     MirGenerator h s ret (MirPlace s)
 tupleFieldRef tys i tpr ref = do
-    Some ctx <- return $ tyListToCtxMaybe tys $ \ctx -> Some ctx
+    col <- use $ cs . collection
+    Some ctx <- return $ tyListToCtxMaybe col tys $ \ctx -> Some ctx
     let tpr' = C.StructRepr ctx
     Refl <- testEqualityOrFail tpr tpr' $ "bad representation " ++ show tpr ++
         " for tuple type " ++ show tys ++ ": expected " ++ show tpr'
@@ -930,15 +959,15 @@ testEqualityOrFail x y msg = case testEquality x y of
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
 traitVtableType :: (HasCallStack) =>
-    M.TraitName -> M.Trait -> Some C.TypeRepr
-traitVtableType tname trait = vtableTy
+    M.Collection -> M.TraitName -> M.Trait -> Some C.TypeRepr
+traitVtableType col tname trait = vtableTy
   where
     convertShimSig sig = eraseSigReceiver sig
 
     methodSigs = map (\(M.TraitMethod _name sig) -> sig) (trait ^. M.traitItems)
     shimSigs = map convertShimSig methodSigs
 
-    vtableTy = tyListToCtx (map M.TyFnPtr shimSigs) $ \ctx ->
+    vtableTy = tyListToCtx col (map M.TyFnPtr shimSigs) $ \ctx ->
         Some $ C.StructRepr ctx
 
 eraseSigReceiver :: M.FnSig -> M.FnSig
