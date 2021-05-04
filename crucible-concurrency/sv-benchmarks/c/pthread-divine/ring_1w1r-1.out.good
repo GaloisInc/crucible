@@ -1,0 +1,4 @@
+Failure for sv-benchmarks/c/pthread-divine/ring_1w1r-1.cbl:137:5: error: in reader_maybe_buggy
+Should fail
+Failure for sv-benchmarks/c/pthread-divine/ring_1w1r-1.cbl:137:5: error: in reader_maybe_buggy
+Should fail

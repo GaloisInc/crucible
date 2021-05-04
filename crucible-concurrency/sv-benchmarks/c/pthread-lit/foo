@@ -1,0 +1,7 @@
+Build profile: -w ghc-8.10.4 -O1
+In order, the following will be built (use -v for more details):
+ - crucibles-0.1.0.0 (lib) (file src/Explore.hs changed)
+ - crucibles-0.1.0.0 (exe:cruces) (dependency rebuilt)
+Preprocessing library for crucibles-0.1.0.0..
+Building library for crucibles-0.1.0.0..
+[ 9 of 11] Compiling Explore          ( src/Explore.hs, /Users/abakst/git/crucible/dist-newstyle/build/x86_64-osx/ghc-8.10.4/crucibles-0.1.0.0/build/Explore.o, /Users/abakst/git/crucible/dist-newstyle/build/x86_64-osx/ghc-8.10.4/crucibles-0.1.0.0/build/Explore.dyn_o )

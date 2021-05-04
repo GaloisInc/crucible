@@ -1,0 +1,4 @@
+Failure for sv-benchmarks/c/pthread-divine/one_time_barrier.cbl:26:5: error: in barrier1_wait
+Wait on used barrier!
+Failure for sv-benchmarks/c/pthread-divine/one_time_barrier.cbl:26:5: error: in barrier1_wait
+Wait on used barrier!

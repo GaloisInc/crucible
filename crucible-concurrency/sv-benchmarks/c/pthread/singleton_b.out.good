@@ -1,0 +1,2 @@
+Failure for sv-benchmarks/c/pthread/singleton_b.cbl:43:5: error: in main
+Buggy!

@@ -1,0 +1,28 @@
+(defglobal $$x Integer)
+
+(defun @thread ((_ Unit)) Unit
+  (start start:
+    (funcall @read_effect "$$x")
+    (funcall @cond_wait "cond" "$$x")
+    (assert! (equal? $$x 42) "Spurious!")
+    (return ())))
+
+(defun @main () Unit
+  (registers
+    ($i Integer))
+  (start start:
+    (set-global! $$x 0)
+    (set-register! $i 0)
+    (let t (funcall @spawn @thread))
+    (jump loop:))
+
+  (defblock loop:
+    (funcall @write_effect "$$x")
+    (set-global! $$x $i)
+    (set-register! $i (+ $i 1))
+    (branch (<= $i 42) loop: done:))
+
+  (defblock done:
+    (funcall @cond_signal "cond")
+    (funcall @join t) ;; <-- Actually this introduces a deadlock
+    (return ())))

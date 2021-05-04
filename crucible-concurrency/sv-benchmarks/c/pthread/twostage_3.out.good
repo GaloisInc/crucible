@@ -1,0 +1,2 @@
+Failure for sv-benchmarks/c/pthread/twostage_3.cbl:32:7: error: in funcB
+Wrong?
