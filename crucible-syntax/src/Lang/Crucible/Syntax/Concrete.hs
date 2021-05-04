@@ -1893,7 +1893,7 @@ prog defuns =
             put st'
             let vs = Set.fromList [ Some (AtomValue a) | Pair _ a <- args ]
             case theBlocks of
-              [] -> undefined
+              []       -> error "found no blocks"
               (e:rest) ->
                 do let entry = case blockID e of
                                  LabelID lbl -> lbl
