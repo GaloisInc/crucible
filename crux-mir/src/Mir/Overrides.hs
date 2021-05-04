@@ -40,7 +40,6 @@ import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Nonce(withIONonceGenerator, NonceGenerator)
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
@@ -79,7 +78,7 @@ import Lang.Crucible.Types
 import Lang.Crucible.Utils.MuxTree
 
 
-import Crux (SomeOnlineSolver(..))
+import Crux (SomeOnlineSolver(..), HasModel(..))
 import Crux.Model (addVar, evalModel)
 import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 
@@ -87,11 +86,12 @@ import Mir.DefId
 import Mir.FancyMuxTree
 import Mir.Generator (CollectionState)
 import Mir.Intrinsics
+import Data.BitVector.Sized (mkBV)
 
 
-getString :: forall sym rtp args ret. (IsSymInterface sym) =>
+getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
     RegValue sym (MirSlice (BVType 8)) ->
-    OverrideSim (Model sym) sym MIR rtp args ret (Maybe Text)
+    OverrideSim p sym MIR rtp args ret (Maybe Text)
 getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
     sym <- lift getSymInterface
     state <- get
@@ -111,10 +111,10 @@ data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
 
 makeSymbolicVar ::
-    (IsSymInterface sym) =>
+    (IsSymInterface sym, HasModel p) =>
     RegEntry sym (MirSlice (BVType 8)) ->
     BaseTypeRepr btp ->
-    OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym (BaseToType btp))
+    OverrideSim (p sym) sym MIR rtp args ret (RegValue sym (BaseToType btp))
 makeSymbolicVar nameReg btpr = do
     sym <- getSymInterface
     nameOpt <- getString $ regValue nameReg
@@ -126,14 +126,14 @@ makeSymbolicVar nameReg btpr = do
         Right x -> return x
     v <- liftIO $ freshConstant sym nameSymbol btpr
     loc <- liftIO $ getCurrentProgramLoc sym
-    stateContext.cruciblePersonality %= addVar loc name btpr v
+    stateContext.cruciblePersonality.personalityModel %= addVar loc name btpr v
     return v
 
 array_symbolic ::
-  forall sym rtp btp .
-  (IsSymInterface sym) =>
+  forall sym rtp btp p .
+  (IsSymInterface sym, HasModel p) =>
   BaseTypeRepr btp ->
-  OverrideSim (Model sym) sym MIR rtp
+  OverrideSim (p sym) sym MIR rtp
     (EmptyCtx ::> MirSlice (BVType 8)) (UsizeArrayType btp)
     (RegValue sym (UsizeArrayType btp))
 array_symbolic btpr = do
@@ -141,10 +141,10 @@ array_symbolic btpr = do
     makeSymbolicVar nameReg $ BaseArrayRepr (Empty :> BaseUsizeRepr) btpr
 
 concretize ::
-  forall sym rtp tp .
+  forall sym rtp tp p .
   (IsSymInterface sym) =>
   Maybe (SomeOnlineSolver sym) ->
-  OverrideSim (Model sym) sym MIR rtp (EmptyCtx ::> tp) tp (RegValue sym tp)
+  OverrideSim p sym MIR rtp (EmptyCtx ::> tp) tp (RegValue sym tp)
 concretize (Just SomeOnlineSolver) = do
     (sym :: sym) <- getSymInterface
 
@@ -211,18 +211,18 @@ indexExpr sym tpr l = case l of
 
 
 regEval ::
-    forall sym tp rtp args ret .
+    forall sym tp rtp args ret p .
     (IsSymInterface sym) =>
     sym ->
     (forall bt. BaseTypeRepr bt -> SymExpr sym bt ->
-        OverrideSim (Model sym) sym MIR rtp args ret (SymExpr sym bt)) ->
+        OverrideSim p sym MIR rtp args ret (SymExpr sym bt)) ->
     TypeRepr tp ->
     RegValue sym tp ->
-    OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym tp)
+    OverrideSim p sym MIR rtp args ret (RegValue sym tp)
 regEval sym baseEval tpr v = go tpr v
   where
     go :: forall tp' . TypeRepr tp' -> RegValue sym tp' ->
-        OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym tp')
+        OverrideSim p sym MIR rtp args ret (RegValue sym tp')
     go tpr v | AsBaseType btr <- asBaseType tpr = baseEval btr v
 
     -- Special case for slices.  The issue here is that we can't evaluate
@@ -283,30 +283,30 @@ regEval sym baseEval tpr v = go tpr v
         "evaluation of " ++ show tpr ++ " is not yet implemented"
 
     go' :: forall tp' . TypeRepr tp' -> RegValue' sym tp' ->
-        OverrideSim (Model sym) sym MIR rtp args ret (RegValue' sym tp')
+        OverrideSim p sym MIR rtp args ret (RegValue' sym tp')
     go' tpr (RV v) = RV <$> go tpr v
 
     goFnVal :: forall args' ret' .
         CtxRepr args' -> TypeRepr ret' -> FnVal sym args' ret' ->
-        OverrideSim (Model sym) sym MIR rtp args ret (FnVal sym args' ret')
+        OverrideSim p sym MIR rtp args ret (FnVal sym args' ret')
     goFnVal args ret (ClosureFnVal fv tpr v) =
         ClosureFnVal <$> goFnVal (args :> tpr) ret fv <*> pure tpr <*> go tpr v
     goFnVal _ _ (HandleFnVal fh) = pure $ HandleFnVal fh
 
     goPartExpr :: forall tp' . TypeRepr tp' ->
         PartExpr (Pred sym) (RegValue sym tp') ->
-        OverrideSim (Model sym) sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym tp'))
+        OverrideSim p sym MIR rtp args ret (PartExpr (Pred sym) (RegValue sym tp'))
     goPartExpr tpr Unassigned = pure Unassigned
     goPartExpr tpr (PE p v) = PE <$> baseEval BaseBoolRepr p <*> go tpr v
 
     goVariantBranch :: forall tp' . TypeRepr tp' ->
         VariantBranch sym tp' ->
-        OverrideSim (Model sym) sym MIR rtp args ret (VariantBranch sym tp')
+        OverrideSim p sym MIR rtp args ret (VariantBranch sym tp')
     goVariantBranch tpr (VB pe) = VB <$> goPartExpr tpr pe
 
     goMuxTreeEntries :: forall tp' a . TypeRepr tp' ->
         [(a, Pred sym)] ->
-        OverrideSim (Model sym) sym MIR rtp args ret a
+        OverrideSim p sym MIR rtp args ret a
     goMuxTreeEntries tpr [] = liftIO $ addFailedAssertion sym $ GenericSimError $
         "empty or incomplete mux tree?"
     goMuxTreeEntries tpr ((x, pred) : xs) = do
@@ -319,7 +319,7 @@ regEval sym baseEval tpr v = go tpr v
 
     goRefCell :: forall tp' .
         RefCell tp' ->
-        OverrideSim (Model sym) sym MIR rtp args ret (RefCell tp')
+        OverrideSim p sym MIR rtp args ret (RefCell tp')
     goRefCell rc = do
         let tpr = refType rc
         -- Generate a new refcell to store the evaluated copy.  We don't want
@@ -340,7 +340,7 @@ regEval sym baseEval tpr v = go tpr v
 
     goMirReferenceRoot :: forall tp' .
         MirReferenceRoot sym tp' ->
-        OverrideSim (Model sym) sym MIR rtp args ret (MirReferenceRoot sym tp')
+        OverrideSim p sym MIR rtp args ret (MirReferenceRoot sym tp')
     goMirReferenceRoot (RefCell_RefRoot rc) = RefCell_RefRoot <$> goRefCell rc
     goMirReferenceRoot (GlobalVar_RefRoot gv) =
         liftIO $ addFailedAssertion sym $ GenericSimError $
@@ -349,7 +349,7 @@ regEval sym baseEval tpr v = go tpr v
 
     goMirReferencePath :: forall tp_base tp' .
         MirReferencePath sym tp_base tp' ->
-        OverrideSim (Model sym) sym MIR rtp args ret (MirReferencePath sym tp_base tp')
+        OverrideSim p sym MIR rtp args ret (MirReferencePath sym tp_base tp')
     goMirReferencePath Empty_RefPath =
         pure Empty_RefPath
     goMirReferencePath (Any_RefPath tpr p) =
@@ -369,13 +369,13 @@ regEval sym baseEval tpr v = go tpr v
 
 
 bindFn ::
-  forall args ret blocks sym rtp a r .
-  (IsSymInterface sym) =>
+  forall p ng args ret blocks sym rtp a r.
+  (IsSymInterface sym, HasModel p) =>
   Maybe (SomeOnlineSolver sym) ->
   CollectionState ->
   Text ->
   CFG MIR blocks args ret ->
-  OverrideSim (Model sym) sym MIR rtp a r ()
+  OverrideSim (p sym) sym MIR rtp a r ()
 bindFn symOnline _cs name cfg
   | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
@@ -404,8 +404,8 @@ bindFn _symOnline _cs fn cfg =
     override ::
       forall args ret .
       Text -> CtxRepr args -> TypeRepr ret ->
-      (forall rtp . OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym ret)) ->
-      (Text, FunctionName -> SomeOverride (Model sym) sym)
+      (forall rtp . OverrideSim (p sym) sym MIR rtp args ret (RegValue sym ret)) ->
+      (Text, FunctionName -> SomeOverride (p sym) sym)
     override n args ret act =
         -- Round-trip through `DefId` to normalize the path.  In particular,
         -- this adds the current `defaultDisambiguator` and any missing `[0]`s.
@@ -422,13 +422,13 @@ bindFn _symOnline _cs fn cfg =
     strrepr :: TypeRepr (MirSlice (BVType 8))
     strrepr = knownRepr
 
-    symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (Model sym) sym)
+    symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (p sym) sym)
     symb_bv name n =
       override name (Empty :> strrepr) (BVRepr n) $
       do RegMap (Empty :> str) <- getOverrideArgs
          makeSymbolicVar str $ BaseBVRepr n
 
-    overrides :: sym -> Map Text (FunctionName -> SomeOverride (Model sym) sym)
+    overrides :: sym -> Map Text (FunctionName -> SomeOverride (p sym) sym)
     overrides s =
       fromList [ override "crucible::one" Empty (BVRepr (knownNat @ 8)) $
                  do h <- printHandle <$> getContext
@@ -444,6 +444,7 @@ bindFn _symOnline _cs fn cfg =
                , symb_bv "crucible::bitvector::make_symbolic_128" (knownNat @ 128)
                , symb_bv "crucible::bitvector::make_symbolic_256" (knownNat @ 256)
                , symb_bv "crucible::bitvector::make_symbolic_512" (knownNat @ 512)
+
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override "crucible::crucible_assert_impl" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
