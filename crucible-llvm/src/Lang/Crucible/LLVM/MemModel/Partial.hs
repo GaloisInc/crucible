@@ -126,7 +126,7 @@ instance Semigroup (CexExplanation sym BaseBoolType) where
   DisjOfFailures xs <> DisjOfFailures ys = DisjOfFailures (xs ++ ys)
 
 explainCex :: forall t st fs sym.
-  (IsSymInterface sym, HasLLVMAnn sym, sym ~ ExprBuilder t st fs) =>
+  (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
   sym ->
   LLVMAnnMap sym ->
   Maybe (GroundEvalFn t) ->

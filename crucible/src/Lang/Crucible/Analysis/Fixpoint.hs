@@ -277,22 +277,6 @@ extendRegisters domVal pa =
      , _paRegisterRefs = PU.extend (_paRegisterRefs pa) emptyRefSet
      }
 
--- | Extend the abstraction with a domain value and a set of register references
--- simultaneously.
---
--- Note that we inject a singleton set of reference identifiers here because
--- there was no prior value, so we don't need to set union.
-extendRegisterRefs :: dom (ReferenceType tp)
-                   -> StmtId blocks (ReferenceType tp)
-                   -> dom tp
-                   -> PointAbstraction blocks dom ctx
-                   -> PointAbstraction blocks dom (ctx ::> ReferenceType tp)
-extendRegisterRefs domVal refId refDomVal pa =
-  pa { _paRegisters = PU.extend (_paRegisters pa) domVal
-     , _paRegisterRefs = PU.extend (_paRegisterRefs pa) (RefSet (S.singleton refId))
-     , _paRefs = PM.insert (RefStmtId refId) refDomVal (_paRefs pa)
-     }
-
 -- | Join two point abstractions using the join operation of the domain.
 --
 -- We join registers pointwise.  For globals, we explicitly call join
@@ -407,8 +391,7 @@ assignmentLookupByIndex i ass =
 --
 -- Return a set of blocks to visit later.
 transfer :: forall ext dom blocks ret ctx
-          . ShowF dom
-         => Domain dom
+          . Domain dom
          -> Interpretation ext dom
          -> TypeRepr ret
          -> Block ext blocks ret ctx
@@ -489,31 +472,6 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
           let assignment' = interpWriteGlobal interp gv reg assignment
           in maybe assignment (joinPointAbstractions dom assignment) assignment'
 
-          {-
-        NewRefCell rep initValReg ->
-          let initValAbst = lookupReg initValReg assignment
-          in extendRegisterRefs (domBottom dom) (mkStmtId (ReferenceRepr rep)) initValAbst assignment
-        ReadRefCell (Reg ix) ->
-          -- Look up the set of refs that could be pointed to by this reg in
-          -- _paRegisterRefs, then look up the domain values for each of those
-          -- refs.  Join all of them and take the result as the domain value for
-          -- this register.
-          let RefSet refSet = (assignment ^. paRegisterRefs) PU.! ix
-              refDomVals = [ domVal
-                           | stmtid <- S.toList refSet
-                           , let Just domVal = PM.lookup (RefStmtId stmtid) (_paRefs assignment)
-                           ]
-              regDomVal = foldr (domJoin dom) (domBottom dom) refDomVals
-          in extendRegisters regDomVal assignment
-        WriteRefCell (Reg ix) exprReg ->
-          -- Look up the set of refs that could be pointed to by the destReg in
-          -- _paRegisterRefs.  Update the values associated with those
-          -- references in _paRefs with the dom value that corresponds to exprReg
-          let exprAbstraction = lookupAbstractRegValue assignment exprReg
-              RefSet refSet = (assignment ^. paRegisterRefs) PU.! ix
-              updateAssignment stmtId = PM.insert (RefStmtId stmtId) exprAbstraction
-          in assignment { _paRefs = foldr updateAssignment (_paRefs assignment) (S.toList refSet) }
-          -}
         FreshConstant{} -> error "transferStmt: FreshConstant not supported"
         FreshFloat{} -> error "transferStmt: FreshFloat not supported"
         FreshNat{} -> error "transferStmt: FreshNat not supported"
@@ -644,8 +602,7 @@ isVisited bid = do
 --
 -- 3) The final abstract value for the value returned by the function
 forwardFixpoint' :: forall ext dom blocks ret init
-                 . ShowF dom
-                => Domain dom
+                 . Domain dom
                 -- ^ The domain of abstract values
                 -> Interpretation ext dom
                 -- ^ The transfer functions for each statement type
@@ -697,8 +654,7 @@ forwardFixpoint' dom interp cfg globals0 assignment0 =
 
 -- Preserve old interface for now; fix tests later if my generalization is the right one.
 forwardFixpoint :: forall ext dom blocks ret init
-                . ShowF dom
-                => Domain dom
+                . Domain dom
                 -> Interpretation ext dom
                 -> CFG ext blocks init ret
                 -> PM.MapF GlobalVar dom
@@ -710,7 +666,7 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
 
 -- | Inspect the 'Domain' definition to determine which iteration
 -- strategy the caller requested.
-iterationStrategy :: ShowF dom => Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
+iterationStrategy :: Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
 iterationStrategy dom =
   case domIter dom of
     WTOWidening s op -> wtoIteration (Just (WideningStrategy s, WideningOperator op)) dom
@@ -724,8 +680,7 @@ iterationStrategy dom =
 -- The worklist is actually processed by taking the lowest-numbered
 -- block in a set as the next work item.
 worklistIteration :: forall ext dom blocks ret init
-                   . ShowF dom
-                  => Domain dom
+                   . Domain dom
                   -> Interpretation ext dom
                   -> CFG ext blocks init ret
                   -> M dom blocks ret ()
@@ -757,8 +712,7 @@ worklistIteration dom interp cfg =
 -- block heads are suitable locations to apply widening operators
 -- (which can be provided to this iterator).
 wtoIteration :: forall ext dom blocks ret init
-              . ShowF dom
-             => Maybe (WideningStrategy, WideningOperator dom)
+              . Maybe (WideningStrategy, WideningOperator dom)
               -- ^ An optional widening operator
              -> Domain dom
              -> Interpretation ext dom
@@ -772,7 +726,7 @@ wtoIteration mWiden dom interp cfg = loop (cfgWeakTopologicalOrdering cfg)
       let blk = getBlock bid (cfgBlockMap cfg)
       _ <- transfer dom interp (cfgReturnType cfg) blk assignment
       loop rest
-    loop (SCC { wtoHead = hbid, wtoComps = comps } : rest) = do
+    loop (SCC (SCCData { wtoHead = hbid, wtoComps = comps }) : rest) = do
       processSCC hbid comps 0
       loop rest
 
@@ -805,9 +759,6 @@ lookupAssignment :: forall dom blocks ret tp
 lookupAssignment idx = do
   abstr <- St.get
   return ((abstr ^. isFuncAbstr . faEntryRegs) PU.! idx)
-
-lookupReg :: Reg ctx tp -> PointAbstraction blocks dom ctx -> dom tp
-lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
 
 lookupRegRefs :: Reg ctx tp -> PointAbstraction blocks dom ctx -> RefSet blocks tp
 lookupRegRefs reg assignment = (assignment ^. paRegisterRefs) PU.! regIndex reg

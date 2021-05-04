@@ -1,8 +1,10 @@
 #![no_std]
 #![feature(core_intrinsics)]
 #![feature(crucible_intrinsics)]
+#![feature(unboxed_closures)]
 
 pub mod bitvector;
+pub mod method_spec;
 pub mod sym_bytes;
 pub mod symbolic;
 

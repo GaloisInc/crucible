@@ -58,6 +58,7 @@ import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
 
 import           Lang.Crucible.CFG.Generator
+import           Lang.Crucible.Panic ( panic )
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -92,10 +93,10 @@ data LLVMContext arch
 llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
 llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
 
-mkLLVMContext :: HandleAllocator
+mkLLVMContext :: GlobalVar Mem
               -> L.Module
               -> IO (Some LLVMContext)
-mkLLVMContext halloc m = do
+mkLLVMContext mvar m = do
   let (errs, typeCtx) = typeContextFromModule m
   unless (null errs) $
     malformedLLVMModule "Failed to construct LLVM type context" errs
@@ -104,8 +105,7 @@ mkLLVMContext halloc m = do
   case mkNatRepr (ptrBitwidth dl) of
     Some (wptr :: NatRepr wptr) | Just LeqProof <- testLeq (knownNat @16) wptr ->
       withPtrWidth wptr $
-        do mvar <- mkMemVar halloc
-           let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
+        do let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
                                        -- the target triple, but llvm-pretty doesn't capture this
                                        -- currently.
            let ctx :: LLVMContext (X86 wptr)
@@ -126,11 +126,11 @@ mkLLVMContext halloc m = do
 -- to CFGs.
 type LLVMGenerator s arch ret a =
   (?lc :: TypeContext, HasPtrWidth (ArchWidth arch)) =>
-    Generator (LLVM arch) s (LLVMState arch) ret IO a
+    Generator LLVM s (LLVMState arch) ret IO a
 
 -- | @LLVMGenerator@ without the constraint, can be nested further inside monads.
 type LLVMGenerator' s arch ret =
-  Generator (LLVM arch) s (LLVMState arch) ret IO
+  Generator LLVM s (LLVMState arch) ret IO
 
 
 -- LLVMState
@@ -176,7 +176,10 @@ buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 buildBlockInfo :: L.BasicBlock -> LLVMGenerator s arch ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
-  let Just blk_lbl = L.bbLabel bb
+  let blk_lbl = case L.bbLabel bb of
+                  Just l -> l
+                  Nothing -> panic "crucible-llvm:Translation.buildBlockInfo"
+                             [ "unable to obtain label from BasicBlock" ]
   lab <- newLabel
   return (blk_lbl, LLVMBlockInfo{ block_phi_map = phi_map
                                 , block_label = lab
@@ -212,15 +215,20 @@ buildIdentMap ts True ctx asgn m =
 buildIdentMap [] _ ctx _ m
   | Ctx.null ctx = m
   | otherwise =
-      error "buildIdentMap: passed arguments do not match LLVM input signature"
+      panic "crucible-llvm:Translation.buildIdentMap"
+      [ "buildIdentMap: passed arguments do not match LLVM input signature" ]
 buildIdentMap (ti:ts) _ ctx asgn m = do
-  -- ?? FIXME, irrefutable pattern...
-  let Right ty = liftMemType (L.typedType ti)
+  let ty = case liftMemType (L.typedType ti) of
+             Right t -> t
+             Left err -> panic "crucible-llvm:Translation.buildIdentMap"
+                         [ "Error attempting to lift type " <> show ti
+                         , show err
+                         ]
   packType ty ctx asgn $ \x ctx' asgn' ->
      buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
 
 -- | Build the initial LLVM generator state upon entry to to the entry point of a function.
-initialState :: (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+initialState :: (?lc :: TypeContext, HasPtrWidth wptr)
              => L.Define
              -> LLVMContext arch
              -> CtxRepr args

@@ -43,10 +43,10 @@ aiTests = T.testGroup "Abstract Interpretation" [
   runTest "max_p2" max_p2
   ]
 
-runTest :: (C.IsSyntaxExtension ext, C.ShowF dom) => String -> TestCase ext dom -> T.TestTree
+runTest :: (C.IsSyntaxExtension ext) => String -> TestCase ext dom -> T.TestTree
 runTest name tc = T.testCase name $ join (testAI tc)
 
-testAI :: (C.IsSyntaxExtension ext, C.ShowF dom) => TestCase ext dom -> IO T.Assertion
+testAI :: (C.IsSyntaxExtension ext) => TestCase ext dom -> IO T.Assertion
 testAI TC { tcHandle = hdl
           , tcDef = def
           , tcGlobals = g

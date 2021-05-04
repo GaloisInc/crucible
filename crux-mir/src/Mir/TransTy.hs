@@ -65,6 +65,7 @@ import           Mir.Intrinsics
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
+    , pattern MethodSpecRepr, pattern MethodSpecBuilderRepr
     , DynRefType)
 
 
@@ -103,6 +104,10 @@ pattern CTyBox t <- M.TyAdt _ $(M.normDefIdPat "alloc::boxed::Box") (M.Substs [t
   where CTyBox t = M.TyAdt (M.textId "type::adt") (M.textId "alloc::boxed::Box") (M.Substs [t])
 pattern CTyMaybeUninit t <- M.TyAdt _ $(M.normDefIdPat "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
   where CTyMaybeUninit t = M.TyAdt (M.textId "type::adt") (M.textId "core::mem::maybe_uninit::MaybeUninit") (M.Substs [t])
+-- `UnsafeCell` isn't handled specially inside baseline `crux-mir`, but
+-- `crux-mir-comp` looks for it (using this pattern synonym).
+pattern CTyUnsafeCell t <- M.TyAdt _ $(M.normDefIdPat "core::cell::UnsafeCell") (M.Substs [t])
+  where CTyUnsafeCell t = M.TyAdt (M.textId "type::adt") (M.textId "core::cell::UnsafeCell") (M.Substs [t])
 pattern CTyVector t <- M.TyAdt _ $(M.normDefIdPat "crucible::vector::Vector") (M.Substs [t])
   where CTyVector t = M.TyAdt (M.textId "type::adt") (M.textId "crucible::vector::Vector") (M.Substs [t])
 pattern CTyArray t <- M.TyAdt _ $(M.normDefIdPat "crucible::array::Array") (M.Substs [t])
@@ -122,6 +127,12 @@ pattern CTyBv512 = CTyBv CTyBvSize512
 
 pattern CTyAny <- M.TyAdt _ $(M.normDefIdPat "core::crucible::any::Any") (M.Substs [])
   where CTyAny = M.TyAdt (M.textId "type::adt") (M.textId "core::crucible::any::Any") (M.Substs [])
+
+pattern CTyMethodSpec <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpec") (M.Substs [])
+  where CTyMethodSpec = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpec") (M.Substs [])
+
+pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.normDefIdPat "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
+  where CTyMethodSpecBuilder = M.TyAdt (M.textId "type::adt") (M.textId "crucible::method_spec::raw::MethodSpecBuilder") (M.Substs [])
 
 
 -- These don't have custom representation, but are referenced in various
@@ -150,6 +161,8 @@ tyToRepr t0 = case t0 of
       Some (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> C.BaseBVRepr (knownNat @SizeBits)) btr)
     | otherwise -> error $ "unsupported: crucible arrays of non-base type"
   CTyAny -> Some C.AnyRepr
+  CTyMethodSpec -> Some MethodSpecRepr
+  CTyMethodSpecBuilder -> Some MethodSpecBuilderRepr
 
   -- Defined as `union MaybeUninit<T> { uninit: (), value: ManuallyDrop<T> }`.
   -- We skip the outer union, leaving only `ManuallyDrop<T>`, which is a
@@ -234,6 +247,10 @@ dynRefRepr = C.StructRepr dynRefCtx
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
 canInitialize :: M.Ty -> Bool
 canInitialize ty = case ty of
+    -- Custom types
+    CTyMethodSpec -> False
+    CTyMethodSpecBuilder -> False
+
     -- Primitives
     M.TyBool -> True
     M.TyChar -> True
@@ -247,6 +264,14 @@ canInitialize ty = case ty of
     M.TyArray _ _ -> True
     -- TODO: workaround for a ref init bug - see initialValue for details
     --M.TyRef ty' _ -> canInitialize ty'
+    _ -> False
+
+isUnsized :: M.Ty -> Bool
+isUnsized ty = case ty of
+    M.TyStr -> True
+    M.TySlice _ -> True
+    M.TyDynamic _ -> True
+    -- TODO: struct types whose last field is unsized ("custom DSTs")
     _ -> False
 
 

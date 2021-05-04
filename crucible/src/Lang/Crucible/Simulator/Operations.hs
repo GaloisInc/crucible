@@ -167,8 +167,7 @@ mergePartialResult ::
   IsSymInterface sym =>
   SimState p sym ext root f args ->
   CrucibleBranchTarget f args ->
-  MuxFn (Pred sym)
-     (PartialResult sym ext (SimFrame sym ext f args))
+  MuxFn (Pred sym) (PartialResultFrame sym ext f args)
 mergePartialResult s tgt pred x y =
   let sym       = s^.stateSymInterface
       iteFns    = s^.stateIntrinsicTypes
@@ -285,8 +284,8 @@ abortPartialResult ::
   IsSymInterface sym =>
   SimState p sym ext r f args ->
   CrucibleBranchTarget f a' ->
-  PartialResult sym ext (SimFrame sym ext f a') ->
-  IO (PartialResult sym ext (SimFrame sym ext f a'))
+  PartialResultFrame sym ext f a' ->
+  IO (PartialResultFrame sym ext f a')
 abortPartialResult s tgt pr =
   let sym                    = s^.stateSymInterface
       muxFns                 = s^.stateIntrinsicTypes
@@ -374,7 +373,7 @@ resolveCall bindings c0 args loc callStack =
       resolveCall bindings (HandleFnVal h) (packVarargs addlTypes args) loc callStack
 
     HandleFnVal h -> do
-      case lookupHandleMap h bindings of
+      case lookupHandleMap h (fnBindings bindings) of
         Nothing -> Ex.throw (UnresolvableFunction loc callStack h)
         Just (UseOverride o) -> do
           let f = OverrideFrame { _override = overrideName o

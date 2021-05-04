@@ -67,6 +67,10 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 
     -- * Pretty printing
   , ppPtr
+
+    -- * Annotation
+  , annotatePointerBlock
+  , annotatePointerOffset
   ) where
 
 import           Control.Monad (guard)
@@ -301,7 +305,7 @@ ppPtr (llvmPointerView -> (blk, bv))
 -- and matches the address of the global on the nose. It is used in SAWscript
 -- for friendly error messages.
 isGlobalPointer ::
-  forall sym w. (IsSymInterface sym, 1 <= w) =>
+  forall sym w. (IsSymInterface sym) =>
   Map Natural L.Symbol {- ^ c.f. 'memImplSymbolMap' -} ->
   LLVMPtr sym w -> Maybe L.Symbol
 isGlobalPointer symbolMap needle =
@@ -319,3 +323,22 @@ isGlobalPointer' symbolMap needle =
   case testLeq (knownNat :: NatRepr 1) (ptrWidth needle) of
     Nothing       -> Nothing
     Just LeqProof -> isGlobalPointer symbolMap needle
+
+annotatePointerBlock ::
+  forall sym w. (IsSymInterface sym) =>
+  sym ->
+  LLVMPtr sym w ->
+  IO (SymAnnotation sym BaseIntegerType, LLVMPointer sym w)
+annotatePointerBlock sym (LLVMPointer blk off) =
+  do (annotation, annotatedBlkInt) <- annotateTerm sym =<< natToInteger sym blk
+     annotatedBlkNat <- integerToNat sym annotatedBlkInt
+     pure (annotation, LLVMPointer annotatedBlkNat off)
+
+annotatePointerOffset ::
+  forall sym w. (IsSymInterface sym) =>
+  sym ->
+  LLVMPtr sym w ->
+  IO (SymAnnotation sym (BaseBVType w), LLVMPointer sym w)
+annotatePointerOffset sym (LLVMPointer blk off) =
+  do (annotation, annotatedOff) <- annotateTerm sym off
+     pure (annotation, LLVMPointer blk annotatedOff)

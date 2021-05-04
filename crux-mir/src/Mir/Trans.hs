@@ -48,7 +48,7 @@ import Control.Monad.Trans.Class
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
 
-import Data.Bits (shift)
+import Data.Bits (shift, shiftL)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
@@ -131,6 +131,8 @@ u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
 --
 
 transConstVal :: HasCallStack => M.Ty -> Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
+
+-- Custom types
 transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.ConstStruct []]) = do
     val <- case M.fromIntegerLit i of
         0 -> return 0   -- Bv::ZERO
@@ -138,6 +140,11 @@ transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.Cons
         2 -> return $ (1 `shift` fromIntegral (intValue w)) - 1    -- Bv::MAX
         i' -> mirFail $ "unknown bitvector constant " ++ show i'
     return $ MirExp (C.BVRepr w) (S.app $ eBVLit w val)
+transConstVal CTyMethodSpec _ _ = do
+    mirFail "transConstVal: can't construct MethodSpec without an override"
+transConstVal CTyMethodSpecBuilder _ _ = do
+    mirFail "transConstVal: can't construct MethodSpecBuilder without an override"
+
 transConstVal _ty (Some (C.BVRepr w)) (M.ConstInt i) =
     return $ MirExp (C.BVRepr w) (S.app $ eBVLit w (fromInteger (M.fromIntegerLit i)))
 transConstVal _ty (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
@@ -337,7 +344,7 @@ transBinOp bop op1 op2 = do
     fst <$> evalBinOp bop mat me1 me2
 
 -- Evaluate a binop, returning both the result and an overflow flag.
-evalBinOp :: M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s ->
+evalBinOp :: forall h s ret. M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s ->
     MirGenerator h s ret (MirExp s, R.Expr MIR s C.BoolType)
 evalBinOp bop mat me1 me2 =
     case (me1, me2) of
@@ -377,12 +384,18 @@ evalBinOp bop mat me1 me2 =
                         Nothing -> E.BVUlt
                         Just M.Signed -> E.BVSBorrow
                 return (MirExp (C.BVRepr n) (S.app $ E.BVSub n e1 e2), S.app $ borrow n e1 e2)
-              -- FIXME: implement overflow checks for Mul, Div, and Rem
-              (M.Mul, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), unknownOverflow)
-              (M.Div, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), unknownOverflow)
-              (M.Div, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), unknownOverflow)
-              (M.Rem, Just M.Unsigned) -> return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), unknownOverflow)
-              (M.Rem, Just M.Signed) -> return (MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2), unknownOverflow)
+              (M.Mul, Just M.Unsigned) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), umulOverflow n e1 e2)
+              (M.Mul, Just M.Signed) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVMul n e1 e2), smulOverflow n e1 e2)
+              (M.Div, Just M.Unsigned) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVUdiv n e1 e2), udivOverflow n e1 e2)
+              (M.Div, Just M.Signed) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVSdiv n e1 e2), sdivOverflow n e1 e2)
+              (M.Rem, Just M.Unsigned) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVUrem n e1 e2), udivOverflow n e1 e2)
+              (M.Rem, Just M.Signed) ->
+                return (MirExp (C.BVRepr n) (S.app $ E.BVSrem n e1 e2), sdivOverflow n e1 e2)
               -- Bitwise ops never overflow
               (M.BitXor, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVXor n e1 e2), noOverflow)
               (M.BitAnd, _) -> return (MirExp (C.BVRepr n) (S.app $ E.BVAnd n e1 e2), noOverflow)
@@ -468,9 +481,34 @@ evalBinOp bop mat me1 me2 =
   where
     noOverflow :: R.Expr MIR s C.BoolType
     noOverflow = S.app $ E.BoolLit False
-    -- For now, assume unsupported operations don't overflow.  Eventually all
-    -- overflow checks should be implemented, and we can remove this.
-    unknownOverflow = noOverflow
+
+    -- Check whether unsigned multiplication of `e1 * e2` overflows `w` bits.
+    -- If `zext e1 * zext e2 /= zext (e1 * e2)`, then overflow has occurred.
+    mulOverflow :: forall w. (1 <= w, 1 <= w + w) =>
+        NatRepr w ->
+        (R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType (w + w))) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    mulOverflow w ext e1 e2 = S.app $ E.Not $ S.app $ E.BVEq w'
+        (S.app $ E.BVMul w' (ext e1) (ext e2))
+        (ext $ S.app $ E.BVMul w e1 e2)
+      where w' = addNat w w
+
+    umulOverflow :: forall w. (1 <= w) =>
+        NatRepr w -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    umulOverflow w e1 e2
+      | LeqProof <- leqAdd2 (leqRefl w) (LeqProof @1 @w),
+        LeqProof <- dblPosIsPos (LeqProof @1 @w) =
+        mulOverflow w (S.app . E.BVZext (addNat w w) w) e1 e2
+    smulOverflow :: forall w. (1 <= w) =>
+        NatRepr w -> R.Expr MIR s (C.BVType w) -> R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    smulOverflow w e1 e2
+      | LeqProof <- leqAdd2 (leqRefl w) (LeqProof @1 @w),
+        LeqProof <- dblPosIsPos (LeqProof @1 @w) =
+        mulOverflow w (S.app . E.BVSext (addNat w w) w) e1 e2
 
     -- Check that shift amount `e` is less than the input width `w`.
     shiftOverflowNat w e =
@@ -483,6 +521,26 @@ evalBinOp bop mat me1 me2 =
     shiftOverflowBV w w' e =
         let wLit = S.app $ eBVLit w' $ intValue w
         in S.app $ E.Not $ S.app $ E.BVUlt w' e wLit
+
+    udivOverflow :: (1 <= w) =>
+        NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    udivOverflow w _x y = S.app $ E.BVEq w y $ S.app $ eBVLit w 0
+
+    sdivOverflow :: (1 <= w) =>
+        NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s C.BoolType
+    sdivOverflow w x y =
+        S.app $ E.Or (udivOverflow w x y) $
+            -- Are we dividing INT_MIN by -1?  E.g. `x == -128 && y == -1`
+            S.app $ E.And
+                (S.app $ E.BVEq w x $ S.app $ eBVLit w (1 `shiftL` (w' - 1)))
+                (S.app $ E.BVEq w y $ S.app $ eBVLit w ((1 `shiftL` w') - 1))
+      where w' = fromIntegral $ intValue w
 
 
 
@@ -885,6 +943,15 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        return $ buildTuple args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
     case ty of
+      -- It's not legal to construct a MethodSpec using a Rust struct
+      -- constructor, so we translate as "assert(false)" instead.  Only
+      -- functions in the `method_spec::raw` should be creating MethodSpecs
+      -- directly, and those functions will be overridden, so the code we
+      -- generate here never runs.
+      CTyMethodSpec ->
+        mirFail $ "evalRval: can't construct MethodSpec without an override"
+      CTyMethodSpecBuilder ->
+        mirFail $ "evalRval: can't construct MethodSpecBuilder without an override"
       TyAdt _ _ _ -> do
         es <- mapM evalOperand ops
         case adt^.adtkind of
@@ -1448,6 +1515,9 @@ initialValue ty@(CTyBv _sz)
   | Some (C.BVRepr w) <- tyToRepr ty
   = return $ Just $ MirExp (C.BVRepr w) $ S.app $ eBVLit w 0
   | otherwise = mirFail $ "Bv type " ++ show ty ++ " does not have BVRepr"
+initialValue CTyMethodSpec = return Nothing
+initialValue CTyMethodSpecBuilder = return Nothing
+
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = do

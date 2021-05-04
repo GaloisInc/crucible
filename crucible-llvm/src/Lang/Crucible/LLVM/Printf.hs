@@ -93,7 +93,10 @@ data PrintfConversionType
 
 data PrintfDirective
   = StringDirective BS.ByteString
-  | ConversionDirective
+  | ConversionDirective ConversionDirective
+ deriving (Eq,Ord,Show)
+
+data ConversionDirective = Conversion
     { printfAccessField :: Maybe Int
     , printfFlags     :: Set PrintfFlag
     , printfMinWidth  :: Int
@@ -329,7 +332,7 @@ executeDirectives ops = go id 0 0
        let len'  = len + length s
        let fstr' = fstr . (s ++)
        go fstr' len' fld xs
-   go fstr !len !fld (d@ConversionDirective{}:xs) =
+   go fstr !len !fld (ConversionDirective d:xs) =
        let fld' = fromMaybe (fld+1) (printfAccessField d) in
        case printfType d of
          Conversion_Integer fmt -> do
@@ -396,7 +399,7 @@ parseConversion = do
   prec  <- option 0 (char '.' >> decimal)
   len   <- parseLenModifier
   typ   <- parseConversionType
-  return ConversionDirective
+  return $ ConversionDirective $ Conversion
          { printfAccessField = field
          , printfFlags       = flags
          , printfMinWidth    = width

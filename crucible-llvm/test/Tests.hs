@@ -5,6 +5,7 @@
 {-# LANGUAGE ImplicitParams   #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -44,6 +45,7 @@ import           System.FilePath ( (-<.>), splitExtension, splitFileName )
 import qualified System.Process as Proc
 
 -- Modules being tested
+import           Lang.Crucible.LLVM.MemModel ( mkMemVar )
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
 
@@ -220,7 +222,8 @@ testBuildTranslation srcPath llvmTransTests =
       trans = do halloc <- newHandleAllocator
                  let ?laxArith = False
                  let ?optLoopMerge = False
-                 translateModule halloc =<<
+                 memVar <- mkMemVar "buildTranslation_test_llvm_memory" halloc
+                 translateModule halloc memVar =<<
                    (fromRight (error "parsing was already verified") <$> parseLLVM bcPath)
 
       translate_bitcode =

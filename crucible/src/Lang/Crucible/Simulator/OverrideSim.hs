@@ -239,7 +239,7 @@ bindFnHandle ::
   FnState p sym ext args ret ->
   OverrideSim p sym ext rtp a r ()
 bindFnHandle h s =
-  stateContext . functionBindings %= insertHandleMap h s
+  stateContext . functionBindings %= FnBindings . insertHandleMap h s . fnBindings
 
 ------------------------------------------------------------------------
 -- Mutable variables
@@ -573,12 +573,12 @@ data FnBinding p sym ext where
 insertFnBinding :: FunctionBindings p sym ext
                 -> FnBinding p sym ext
                 -> FunctionBindings p sym ext
-insertFnBinding m (FnBinding h s) = insertHandleMap h s m
+insertFnBinding m (FnBinding h s) = FnBindings $ insertHandleMap h s $ fnBindings m
 
 -- | Build a map of function bindings from a list of
 --   handle/binding pairs.
 fnBindingsFromList :: [FnBinding p sym ext] -> FunctionBindings p sym ext
-fnBindingsFromList = foldl' insertFnBinding emptyHandleMap
+fnBindingsFromList = foldl' insertFnBinding $ FnBindings emptyHandleMap
 
 registerFnBinding :: FnBinding p sym ext
                    -> OverrideSim p sym ext rtp a r ()

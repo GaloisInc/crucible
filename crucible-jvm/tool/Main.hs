@@ -198,7 +198,7 @@ simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    return (Crux.RunnableState initSt, \_ _ -> return mempty) -- TODO add failure explanations
 
 
--- | Entry point, parse command line opions
+-- | Entry point, parse command line options
 main :: IO ()
 main =
   Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1" cruxJVMConfig $

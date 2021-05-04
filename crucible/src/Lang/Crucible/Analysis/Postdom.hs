@@ -89,7 +89,9 @@ postdomMap m breakpointIds = r
           [ (pd_id, mapMaybe f l)
           | (pd,_:l)  <- G.dom g 0
           , pd > 0
-          , let Just pd_id = Map.lookup pd idMap
+          -- Get the post dominator blkID, using a total version of:
+          --    let Just pd_id = Map.lookup pd idMap
+          , pd_id <- catMaybes [ Map.lookup pd idMap ]
           ]
 
 postdomAssignment :: forall ext blocks ret

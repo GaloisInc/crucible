@@ -1,0 +1,138 @@
+Cabal-version: 2.2
+Name:          uc-crux-llvm
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    Langston Barrett, Scott Moore, Tristan Ravitch
+Copyright:     (c) Galois, Inc 2021
+License:       BSD-3-Clause
+License-file:  LICENSE
+Build-type:    Simple
+Category:      Language
+Synopsis:      A bugfinding tool for C programs, using under-constrained symbolic execution.
+
+common bldflags
+  ghc-options: -Wall
+               -Werror=identities
+               -Werror=incomplete-patterns
+               -Werror=incomplete-record-updates
+               -Werror=incomplete-uni-patterns
+               -Werror=missing-exported-signatures
+               -Werror=missing-home-modules
+               -Werror=missing-methods
+               -Werror=overlapping-patterns
+               -Werror=partial-fields
+               -Werror=unused-imports
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+
+library
+  import: bldflags
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    UCCrux.LLVM.Classify
+    UCCrux.LLVM.Classify.Poison
+    UCCrux.LLVM.Classify.Types
+    UCCrux.LLVM.Config
+    UCCrux.LLVM.Constraints
+    UCCrux.LLVM.Context.App
+    UCCrux.LLVM.Context.Function
+    UCCrux.LLVM.Context.Module
+    UCCrux.LLVM.Cursor
+    UCCrux.LLVM.Errors.Panic
+    UCCrux.LLVM.Errors.Unimplemented
+    UCCrux.LLVM.FullType
+    UCCrux.LLVM.FullType.CrucibleType
+    UCCrux.LLVM.FullType.MemType
+    UCCrux.LLVM.FullType.Translation
+    UCCrux.LLVM.FullType.Type
+    UCCrux.LLVM.FullType.ReturnType
+    UCCrux.LLVM.FullType.VarArgs
+    UCCrux.LLVM.Logging
+    UCCrux.LLVM.Main
+    UCCrux.LLVM.Overrides.Skip
+    UCCrux.LLVM.Overrides.Unsound
+    UCCrux.LLVM.PP
+    UCCrux.LLVM.Run.Explore
+    UCCrux.LLVM.Run.Loop
+    UCCrux.LLVM.Run.Result
+    UCCrux.LLVM.Run.Simulate
+    UCCrux.LLVM.Run.Unsoundness
+    UCCrux.LLVM.Setup
+    UCCrux.LLVM.Setup.Monad
+    UCCrux.LLVM.Shape
+    UCCrux.LLVM.Stats
+
+  build-depends:
+    async,
+    base >= 4.8 && < 4.15,
+    bv-sized,
+    bytestring,
+    config-schema,
+    containers,
+    crucible,
+    crucible-llvm,
+    crux,
+    crux-llvm,
+    directory,
+    filepath,
+    lens,
+    llvm-pretty,
+    lumberjack,
+    mtl,
+    panic,
+    parameterized-utils,
+    prettyprinter >= 1.7.0,
+    scheduler,
+    semigroupoids,
+    simple-get-opt,
+    text,
+    vector,
+    what4
+
+
+executable uc-crux-llvm
+  import: bldflags
+
+  hs-source-dirs: exe
+
+  build-depends:
+    base >= 4.8 && < 4.15,
+    uc-crux-llvm
+
+  ghc-options: -threaded
+               -rtsopts
+               "-with-rtsopts=-N"
+
+  main-is: Main.hs
+
+  if os(windows)
+    hs-source-dirs: exe/windows
+  else
+    hs-source-dirs: exe/unix
+    build-depends: unix
+
+  other-modules: RealMain
+
+test-suite uc-crux-llvm-test
+  import: bldflags
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+
+  main-is: Test.hs
+
+  build-depends:
+                base             >= 4.7,
+                containers,
+                crucible,
+                crucible-llvm,
+                crux,
+                crux-llvm,
+                filepath,
+                llvm-pretty,
+                parameterized-utils,
+                tasty            >= 0.10,
+                tasty-hunit      >= 0.10,
+                text,
+                uc-crux-llvm

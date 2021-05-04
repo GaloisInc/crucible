@@ -16,6 +16,7 @@ packages:
   crux-llvm/
   crux-mir/
   crucible-mc/
+  uc-crux-llvm/
 
 optional-packages:
   dependencies/abcBridge/

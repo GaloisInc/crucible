@@ -171,7 +171,7 @@ updateProfiles ::
   (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)) =>
   C.LLVMContext arch ->
   IORef (Map Text [FunctionProfile]) ->
-  C.ExecState p sym (C.LLVM arch) rtp ->
+  C.ExecState p sym ext rtp ->
   IO ()
 updateProfiles llvm cell state
   | C.CallState _ (C.CrucibleCall _ frame) sim <- state
@@ -190,11 +190,11 @@ updateProfiles llvm cell state
   | otherwise = pure ()
 
 arraySizeProfile ::
-  forall sym arch p rtp.
+  forall sym ext arch p rtp.
   (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)) =>
   C.LLVMContext arch ->
   IORef (Map Text [FunctionProfile]) ->
-  IO (C.ExecutionFeature p sym (C.LLVM arch) rtp)
+  IO (C.ExecutionFeature p sym ext rtp)
 arraySizeProfile llvm profiles = do
   pure . C.ExecutionFeature $ \s -> do
     updateProfiles llvm profiles s

@@ -16,6 +16,7 @@
 module Lang.Crucible.LLVM
   ( LLVM
   , registerModuleFn
+  , llvmGlobalsToCtx
   , llvmGlobals
   , register_llvm_overrides
   , llvmExtensionImpl
@@ -35,7 +36,7 @@ import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
                    ( llvmStatementExec, HasPtrWidth, HasLLVMAnn, MemOptions, MemImpl
-                   , bindLLVMFunPtr
+                   , bindLLVMFunPtr, Mem
                    )
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -47,13 +48,13 @@ import           Lang.Crucible.Utils.MonadVerbosity (showWarning)
 registerModuleFn
    :: (1 <= ArchWidth arch, HasPtrWidth (ArchWidth arch), IsSymInterface sym) =>
    LLVMContext arch ->
-   (L.Declare, AnyCFG (LLVM arch)) ->
-   OverrideSim p sym (LLVM arch) rtp l a ()
+   (L.Declare, AnyCFG ext) ->
+   OverrideSim p sym ext rtp l a ()
 registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
   binds <- use (stateContext . functionBindings)
-  when (isJust $ lookupHandleMap h binds) $
+  when (isJust $ lookupHandleMap h $ fnBindings binds) $
     showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
   bindFnHandle h s
   let mvar = llvmMemVar llvm_ctx
@@ -63,17 +64,22 @@ registerModuleFn llvm_ctx (decl, AnyCFG cfg) = do
   writeGlobal mvar mem'
 
 
-llvmGlobals
+llvmGlobalsToCtx
    :: LLVMContext arch
    -> MemImpl sym
    -> SymGlobalState sym
-llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
-  where var = llvmMemVar $ ctx
+llvmGlobalsToCtx = llvmGlobals . llvmMemVar
+
+llvmGlobals
+   :: GlobalVar Mem
+   -> MemImpl sym
+   -> SymGlobalState sym
+llvmGlobals memVar mem = emptyGlobals & insertGlobal memVar mem
 
 llvmExtensionImpl ::
-  (HasPtrWidth (ArchWidth arch), HasLLVMAnn sym) =>
+  (HasLLVMAnn sym) =>
   MemOptions ->
-  ExtensionImpl p sym (LLVM arch)
+  ExtensionImpl p sym LLVM
 llvmExtensionImpl mo =
   let ?memOpts = mo in
   ExtensionImpl

@@ -534,6 +534,9 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ----------------------------------------------------------------------
     -- Float
 
+    -- This is not necessarily considered correct, see crucible#366
+    FloatUndef f -> freshConstant sym emptySymbol (iFloatBaseTypeRepr sym f)
+
     FloatLit f -> iFloatLitSingle sym f
     DoubleLit d -> iFloatLitDouble sym d
     X86_80Lit ld -> iFloatLitLongDouble sym ld
@@ -689,6 +692,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     --------------------------------------------------------------------
     -- BVs
 
+    -- This is not necessarily considered correct, see crucible#366
     BVUndef w ->
       freshConstant sym emptySymbol (BaseBVRepr w)
 

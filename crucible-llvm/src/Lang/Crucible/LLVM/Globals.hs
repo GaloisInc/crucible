@@ -59,7 +59,6 @@ import           Data.Parameterized.NatRepr as NatRepr
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
-import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
@@ -149,7 +148,7 @@ makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (llvmGlobalAliases
 -- allocates space for global variables, but does not set their
 -- initial values.
 initializeAllMemory
-   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   :: (IsSymInterface sym, HasPtrWidth wptr)
    => sym
    -> LLVMContext arch
    -> L.Module
@@ -157,7 +156,7 @@ initializeAllMemory
 initializeAllMemory = initializeMemory (const True)
 
 initializeMemoryConstGlobals
-   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   :: (IsSymInterface sym, HasPtrWidth wptr)
    => sym
    -> LLVMContext arch
    -> L.Module
@@ -165,13 +164,13 @@ initializeMemoryConstGlobals
 initializeMemoryConstGlobals = initializeMemory (L.gaConstant . L.globalAttrs)
 
 initializeMemory
-   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   :: (IsSymInterface sym, HasPtrWidth wptr)
    => (L.Global -> Bool)
    -> sym
    -> LLVMContext arch
    -> L.Module
    -> IO (MemImpl sym)
-initializeMemory predicate sym llvm_ctx m = do
+initializeMemory predicate sym llvm_ctx llvmModl = do
    -- Create initial memory of appropriate endianness
    let ?lc = llvm_ctx^.llvmTypeCtx
    let dl = llvmDataLayout ?lc
@@ -180,12 +179,12 @@ initializeMemory predicate sym llvm_ctx m = do
 
    -- allocate pointers values for function symbols, but do not
    -- yet bind them to function handles
-   let decls = map Left (L.modDeclares m) ++ map Right (L.modDefines m)
+   let decls = map Left (L.modDeclares llvmModl) ++ map Right (L.modDefines llvmModl)
    mem <- foldM (allocLLVMFunPtr sym llvm_ctx) mem0 decls
 
    -- Allocate global values
    let globAliases = llvmGlobalAliases llvm_ctx
-   let globals     = L.modGlobals m
+   let globals     = L.modGlobals llvmModl
    gs_alloc <- mapM (\g -> do
                         let err msg = malformedLLVMModule
                                     ("Invalid type for global" <> fromString (show (L.globalSym g)))
@@ -219,7 +218,7 @@ initializeMemory predicate sym llvm_ctx m = do
 
 
 allocLLVMFunPtr ::
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
   LLVMContext arch ->
   MemImpl sym ->

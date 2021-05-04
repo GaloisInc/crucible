@@ -77,7 +77,7 @@ module Lang.Crucible.Simulator
     -- ** Function bindings
   , Override(..)
   , FnState(..)
-  , FunctionBindings
+  , FunctionBindings(..)
 
     -- ** Extensions
   , ExtensionImpl(..)

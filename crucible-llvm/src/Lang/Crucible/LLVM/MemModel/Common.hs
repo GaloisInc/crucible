@@ -58,7 +58,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Numeric.Natural
 
-import Lang.Crucible.Panic
+import Lang.Crucible.Panic ( panic )
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.MemModel.Type
 
@@ -566,7 +566,10 @@ symbolicValueLoad pref tp bnd v (LinearLoadStoreOffsetDiff stride delta) =
   MuxTable Store Load suffixTable loadFail
   where
     lsz = typeEnd 0 tp
-    Just stp = viewType v
+    stp = case viewType v of
+            Just x -> x
+            Nothing -> panic "crucible-llvm:symbolicValueLoad"
+                       [ "Unable obtain type of stored value ValueView" ]
 
     -- The prefix table represents cases where the load pointer occurs strictly before the
     -- write pointer, so that the end of the load may be partially satisfied by this write.
@@ -664,10 +667,18 @@ memsetValue byte = go
           where fldFn fld = (fld, go (fld^.fieldVal))
 
 -- | Create value of type that splits at a particular byte offset.
+--
+-- This function uses the given 'StorageType' to determine how many bytes to
+-- read (including accounting for padding in struct types).  The function to
+-- load each byte is provided as an argument.
+--
+-- NOTE: The 'Offset' argument is not necessarily the offset into the
+-- allocation; it *could* be zero if the load function captures the offset into
+-- the allocation.
 loadTypedValueFromBytes
-  :: Offset
-  -> StorageType
-  -> (Offset -> IO a)
+  :: Offset -- ^ The initial offset to pass to the byte loading function
+  -> StorageType -- ^ The type used to compute how many bytes to read
+  -> (Offset -> IO a) -- ^ A function to read individual bytes (at the given offset)
   -> IO (ValueCtor a)
 loadTypedValueFromBytes off tp subFn = case storageTypeF tp of
   Bitvector size

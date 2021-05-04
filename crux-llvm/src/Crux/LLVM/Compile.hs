@@ -1,39 +1,41 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+
 module Crux.LLVM.Compile where
 
-import Control.Exception
-  ( SomeException(..), try, displayException )
-import Control.Monad
-  ( unless, when, forM_ )
+import           Control.Applicative
+import           Control.Exception ( SomeException(..), try, displayException )
+import           Control.Monad ( guard, unless, when, forM_ )
+import           Control.Monad.Logic ( observeAll )
 import qualified Data.Foldable as Fold
-import Data.List
-  ( intercalate, isSuffixOf )
+import           Data.List ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
-import System.Directory
-  ( doesFileExist, removeFile, createDirectoryIfMissing, copyFile )
-import System.Exit
-  ( ExitCode(..) )
-import System.FilePath
-  ( takeExtension, (</>), takeDirectory, takeFileName, (-<.>) )
-import System.Process
-  ( readProcess, readProcessWithExitCode )
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import           System.Directory ( doesFileExist, removeFile
+                                  , createDirectoryIfMissing, copyFile )
+import           System.Exit ( ExitCode(..) )
+import           System.FilePath ( takeExtension, (</>), (-<.>)
+                                 , takeDirectory, takeFileName )
+import           System.Process ( readProcess, readProcessWithExitCode )
 
-import What4.Interface
-import What4.ProgramLoc
+import           What4.Interface
+import           What4.ProgramLoc
 
-import Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.SimError
 
-import Crux
+import           Crux
 import qualified Crux.Config.Common as CC
-import Crux.Model( toDouble, showBVLiteral, showFloatLiteral, showDoubleLiteral )
-import Crux.Types
+import           Crux.Model ( toDouble, showBVLiteral, showFloatLiteral
+                            , showDoubleLiteral )
+import           Crux.Types
 
-import Crux.LLVM.Config
+import           Crux.LLVM.Config
 
 
 isCPlusPlus :: FilePath -> Bool
@@ -70,11 +72,11 @@ getClang = attempt (map inPath clangs)
                        Left (SomeException {}) -> attempt more
                        Right a -> return a
 
-runClang :: Logs => LLVMOptions -> [String] -> IO ()
-runClang llvmOpts params =
+runClang :: Logs => CruxOptions -> LLVMOptions -> [String] -> IO ()
+runClang cruxOpts llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     say "CLANG" $ unwords (clang : map show allParams)
+     when (simVerbose cruxOpts > 1) $ say "CLANG" $ unwords (clang : map show allParams)
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
@@ -107,11 +109,14 @@ llvmLinkVersion llvmOpts =
 -- pre-determined filename in the build directory specified in
 -- 'CruxOptions'.
 genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO FilePath
-genBitCode cruxOpts llvmOpts = do
+genBitCode cruxOpts llvmOpts =
   -- n.b. use of head here is OK because inputFiles should not be
   -- empty (and was previously verified as such in CruxLLVMMain).
-  let ofn = "crux~" <> (takeFileName $ head $ Crux.inputFiles cruxOpts) -<.> ".bc"
-  genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts llvmOpts False
+  if noCompile llvmOpts
+  then return (head (Crux.inputFiles cruxOpts))
+  else do
+    let ofn = "crux~" <> (takeFileName $ head $ Crux.inputFiles cruxOpts) -<.> ".bc"
+    genBitCodeToFile ofn (Crux.inputFiles cruxOpts) cruxOpts llvmOpts False
 
 -- | Given the target filename and a list of input files, along with
 -- the crux and llvm options, bitcode-compile each input .c file and
@@ -134,14 +139,19 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
                       Just a -> [ "--target=" <> a ]
       params (src, srcBC)
         | ".ll" `isSuffixOf` src =
-            commonFlags <> ["-O0", "-o", srcBC, src]
+            return $ commonFlags <> ["-O0", "-o", srcBC, src]
 
         | otherwise =
-            commonFlags <> [ "-g" ] ++
-            concat [ [ "-I", dir ] | dir <- incs src ] ++
-            concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ]
-                   | san <- ubSanitizers llvmOpts ] ++
-            [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+            -- Specify commonFlags after flags embedded in the src
+            -- under the /assumption/ that the latter takes
+            -- precedence.
+            let flgs =
+                  commonFlags <> [ "-g" ] ++
+                  concat [ [ "-I", dir ] | dir <- incs src ] ++
+                  concat [ [ "-fsanitize="++san, "-fsanitize-trap="++san ]
+                         | san <- ubSanitizers llvmOpts ] ++
+                  [ "-O" ++ show (optLevel llvmOpts), "-o", srcBC, src ]
+            in (<> flgs) <$> crucibleFlagsFromSrc src
 
   finalBCExists <- doesFileExist finalBCFile
   unless (finalBCExists && lazyCompile llvmOpts) $
@@ -151,13 +161,62 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
            unless (or [ ".bc" `isSuffixOf` src
                       , bcExists && lazyCompile llvmOpts
                       ]) $
-             runClang llvmOpts (params f)
+             runClang cruxOpts llvmOpts =<< params f
          ver <- llvmLinkVersion llvmOpts
          let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                            | otherwise = []
          llvmLink llvmOpts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
          mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
   return finalBCFile
+
+
+-- | A C source file being compiled and evaluated by crux can contain
+-- zero or more lines matching the following:
+--
+-- >   /* CRUCIBLE clang_flags: {FLAGS} */
+-- >   // CRUCIBLE clang_flags: {FLAGS}
+-- >   /* CRUX clang_flags: {FLAGS} */
+-- >   // CRUX clang_flags: {FLAGS}
+--
+-- Note that the "clang_flags" portion is case-insensitive, although
+-- the "CRUCIBLE" or "CRUX" prefix is case sensitive and must be
+-- capitalized.
+--
+-- All {FLAGS} will be collected as a set of space-separated words.
+-- Flags from multiple lines will be concatenated together (without
+-- any attempt to eliminate duplicates or conflicts) and the result
+-- will be passed as additional flags to the `clang` compilation of
+-- the source by Crux.
+--
+-- The above line matching is whitespace-sensitive and case-sensitive.
+-- When C-style comment syntax is used, the comment must be closed on
+-- the same line as it was opened (although there is no line length
+-- restriction).
+
+crucibleFlagsFromSrc :: FilePath -> IO [String]
+crucibleFlagsFromSrc srcFile = do
+  let marker1 = [ "CRUCIBLE ", "CRUX "]
+      marker2 = [ "clang_flags: " ]
+      flagLines fileLines =
+        do let eachFrom = foldr ((<|>) . pure) empty
+           l <- eachFrom fileLines
+           (pfx, sfx) <- eachFrom [ ("/* ", " */"), ("// ", "") ]
+           guard $ pfx `T.isPrefixOf` l
+           let l1 = T.drop (T.length pfx) l
+           guard $ sfx `T.isSuffixOf` l1
+           let l2 = T.take (T.length l1 - T.length sfx) l1
+           m1 <- eachFrom marker1
+           guard $ m1 `T.isPrefixOf` l2
+           let l3 = T.drop (T.length m1) l2
+           m2 <- eachFrom marker2
+           let (l3pfx, l4) = T.splitAt (T.length m2) l3
+           guard $ T.toLower l3pfx == m2
+           pure l4
+    in fmap T.unpack .
+       concatMap T.words .
+       observeAll . flagLines .
+       T.lines <$>
+       TIO.readFile srcFile
 
 
 makeCounterExamplesLLVM ::
@@ -208,14 +267,14 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
          libcxx | anyCPPFiles files = ["-lstdc++"]
                 | otherwise = []
 
-     runClang llvmOpts
+     runClang cruxOpts llvmOpts
                    [ "-I", libs </> "includes"
                    , counterFile
                    , libs </> "print-model.c"
                    , "-o", printExe
                    ]
 
-     runClang llvmOpts $
+     runClang cruxOpts llvmOpts $
               concat [ [ "-I", idir ] | idir <- incs ] ++
                      [ counterFile
                      , libs </> "concrete-backend.c"

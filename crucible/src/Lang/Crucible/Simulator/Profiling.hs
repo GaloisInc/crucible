@@ -173,23 +173,28 @@ positionToJSON p = showJSON $ show $ p
 solverEventToJSON :: (UTCTime, SolverEvent) -> JSValue
 solverEventToJSON (time, ev) =
    case ev of
-     SolverStartSATQuery nm rsn ->
-       JSObject $ toJSObject $
-         [ ("type", showJSON "start")
-         , ("time", utcTimeToJSON time)
-         , ("part", showJSON "solver")
-         , ("solver", showJSON nm)
-         , ("description", showJSON rsn)
-         ]
-     SolverEndSATQuery res _err ->
-       JSObject $ toJSObject $
-         [ ("type", showJSON "finish")
-         , ("time", utcTimeToJSON time)
-         ] ++
-         case res of
-           Sat{} -> [("sat", showJSON True)]
-           Unsat{} -> [("sat", showJSON False)]
-           Unknown{} -> []
+     SolverStartSATQuery ssq -> startSATQueryToJSON time ssq
+     SolverEndSATQuery esq -> endSATQueryToJSON time esq
+
+startSATQueryToJSON :: UTCTime -> SolverStartSATQuery -> JSValue
+startSATQueryToJSON time ssq = JSObject $ toJSObject
+  [ ("type", showJSON "start")
+  , ("time", utcTimeToJSON time)
+  , ("part", showJSON "solver")
+  , ("solver", showJSON $ satQuerySolverName ssq)
+  , ("description", showJSON $ satQueryReason ssq)
+  ]
+
+endSATQueryToJSON :: UTCTime -> SolverEndSATQuery -> JSValue
+endSATQueryToJSON time esq = JSObject $ toJSObject $
+  [ ("type", showJSON "finish")
+  , ("time", utcTimeToJSON time)
+  ] ++
+  case (satQueryResult esq) of
+    Sat{} -> [("sat", showJSON True)]
+    Unsat{} -> [("sat", showJSON False)]
+    Unknown{} -> []
+
 
 callGraphJSON :: UTCTime -> Metrics Identity -> Seq CGEvent -> JSValue
 callGraphJSON now m evs = JSObject $ toJSObject

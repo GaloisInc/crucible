@@ -1,7 +1,7 @@
 CLANG=clang-4.0
 INCLUDES=../includes
 
-CFLGASG=-I $(INCLUDES) -c -Wall -emit-llvm
+CFLAGS=-I $(INCLUDES) -c -Wall -emit-llvm
 
 .PHONY: run all clean counter-example
 
@@ -15,10 +15,10 @@ run: example1.bc
 all: example1.bc
 
 %.bc: %.c
-	$(CLANG) $(CFLGASG) $^ -o $@
+	$(CLANG) $(CFLAGS) $^ -o $@
 
 %.ll: %.c
-	$(CLANG) $(CFLGASG) -S $^ -o $@
+	$(CLANG) $(CFLAGS) -S $^ -o $@
 
 clean:
 	-rm *.bc *.ll

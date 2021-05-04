@@ -133,7 +133,7 @@ globalCtors mod_ =
 -- | Call some or all of the functions in @llvm.global_ctors@
 callCtors :: (Ctor -> Bool) -- ^ Filter function
           -> L.Module
-          -> LLVMGenerator s arch UnitType (Expr (LLVM arch) s UnitType)
+          -> LLVMGenerator s arch UnitType (Expr LLVM s UnitType)
 callCtors select mod_ = do
   let err msg = malformedLLVMModule "Error loading @llvm.global_ctors" [fromString msg]
   let ty = L.FunTy (L.PrimType L.Void) [] False
@@ -144,7 +144,7 @@ callCtors select mod_ = do
   return (App EmptyApp)
 
 -- | Call each function in @llvm.global_ctors@ in order of decreasing priority
-callAllCtors :: L.Module -> LLVMGenerator s arch UnitType (Expr (LLVM arch) s UnitType)
+callAllCtors :: L.Module -> LLVMGenerator s arch UnitType (Expr LLVM s UnitType)
 callAllCtors = callCtors (const True)
 
 ----------------------------------------------------------------------
@@ -156,12 +156,12 @@ generatorToCFG :: forall arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth arch
                => Text
                -> HandleAllocator
                -> LLVMContext arch
-               -> (forall s. LLVMGenerator s arch ret (Expr (LLVM arch) s ret))
+               -> (forall s. LLVMGenerator s arch ret (Expr LLVM s ret))
                -> TypeRepr ret
-               -> IO (Core.SomeCFG (LLVM arch) Core.EmptyCtx ret)
+               -> IO (Core.SomeCFG LLVM Core.EmptyCtx ret)
 generatorToCFG name halloc llvmctx gen ret = do
   let ?lc = _llvmTypeCtx llvmctx
-  let def :: forall args. FunctionDef (LLVM arch) (LLVMState arch) args ret IO
+  let def :: forall args. FunctionDef LLVM (LLVMState arch) args ret IO
       def _inputs = (state, gen)
         where state = LLVMState { _identMap     = empty
                                 , _blockInfoMap = empty
@@ -179,6 +179,6 @@ callCtorsCFG :: forall arch wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <
              -> L.Module
              -> HandleAllocator
              -> LLVMContext arch
-             -> IO (Core.SomeCFG (LLVM arch) Core.EmptyCtx UnitType)
+             -> IO (Core.SomeCFG LLVM Core.EmptyCtx UnitType)
 callCtorsCFG select mod_ halloc llvmctx = do
   generatorToCFG "llvm_global_ctors" halloc llvmctx (callCtors select mod_) UnitRepr

@@ -592,7 +592,7 @@ earlyMergeLoops' ng seen ls cfg
     unseen s li = liHeader li `Set.notMember` s
 
 -- | Apply the transformation described in @earlyMergeLoops@ to a single loop.
-earlyMergeLoop :: ( TraverseExt ext, Monad m, Show (CFG ext s init ret) )
+earlyMergeLoop :: ( TraverseExt ext, Monad m )
                => NonceGenerator m s
                -> CFG ext s init ret
                -> LoopInfo s

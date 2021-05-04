@@ -51,7 +51,6 @@ import           Lang.Crucible.Simulator.SimError
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
-import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
@@ -66,8 +65,8 @@ import           Lang.Crucible.LLVM.Intrinsics.Common
 
 
 llvmMemcpyOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
            (EmptyCtx ::> LLVMPointerType wptr
                      ::> LLVMPointerType wptr
                      ::> BVType wptr)
@@ -83,8 +82,8 @@ llvmMemcpyOverride =
 
 
 llvmMemcpyChkOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> LLVMPointerType wptr
                    ::> BVType wptr
@@ -101,8 +100,8 @@ llvmMemcpyChkOverride =
     )
 
 llvmMemmoveOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
          (EmptyCtx ::> (LLVMPointerType wptr)
                    ::> (LLVMPointerType wptr)
                    ::> BVType wptr)
@@ -116,9 +115,9 @@ llvmMemmoveOverride =
          return $ regValue $ args^._1 -- return first argument
     )
 
-llvmMemsetOverride :: forall p sym arch wptr.
-     (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+llvmMemsetOverride :: forall p sym wptr.
+     (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> BVType 32
                    ::> BVType wptr)
@@ -137,8 +136,8 @@ llvmMemsetOverride =
     )
 
 llvmMemsetChkOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                  ::> BVType 32
                  ::> BVType wptr
@@ -161,8 +160,8 @@ llvmMemsetChkOverride =
 -- *** Allocation
 
 llvmCallocOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext)
+  => LLVMOverride p sym
          (EmptyCtx ::> BVType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmCallocOverride =
@@ -172,8 +171,8 @@ llvmCallocOverride =
 
 
 llvmReallocOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext)
+  => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmReallocOverride =
@@ -182,8 +181,8 @@ llvmReallocOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callRealloc sym memOps alignment) args)
 
 llvmMallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasPtrWidth wptr, ?lc :: TypeContext)
+  => LLVMOverride p sym
          (EmptyCtx ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmMallocOverride =
@@ -192,8 +191,8 @@ llvmMallocOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
 
 posixMemalignOverride ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
-  LLVMOverride p sym arch
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext) =>
+  LLVMOverride p sym
       (EmptyCtx ::> LLVMPointerType wptr
                 ::> BVType wptr
                 ::> BVType wptr)
@@ -204,8 +203,8 @@ posixMemalignOverride =
 
 
 llvmFreeOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr)
          UnitType
 llvmFreeOverride =
@@ -216,8 +215,8 @@ llvmFreeOverride =
 -- *** Strings and I/O
 
 llvmPrintfOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> VectorType AnyType)
          (BVType 32)
@@ -226,8 +225,8 @@ llvmPrintfOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callPrintf sym memOps) args)
 
 llvmPrintfChkOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
          (EmptyCtx ::> BVType 32
                    ::> LLVMPointerType wptr
                    ::> VectorType AnyType)
@@ -238,23 +237,23 @@ llvmPrintfChkOverride =
 
 
 llvmPutCharOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch (EmptyCtx ::> BVType 32) (BVType 32)
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym (EmptyCtx ::> BVType 32) (BVType 32)
 llvmPutCharOverride =
   [llvmOvr| i32 @putchar( i32 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callPutChar sym memOps) args)
 
 
 llvmPutsOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
 llvmPutsOverride =
   [llvmOvr| i32 @puts( i8* ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callPuts sym memOps) args)
 
 llvmStrlenOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
 llvmStrlenOverride =
   [llvmOvr| size_t @strlen( i8* ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callStrlen sym memOps) args)
@@ -266,13 +265,13 @@ llvmStrlenOverride =
 -- *** Allocation
 
 callRealloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, HasLLVMAnn sym)
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
   => sym
   -> GlobalVar Mem
   -> Alignment
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
+  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
 callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
   do szZero  <- liftIO (notPred sym =<< bvIsNonzero sym sz)
      ptrNull <- liftIO (ptrIsNull sym PtrWidth ptr)
@@ -307,13 +306,13 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
 
 
 callPosixMemalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, ?lc :: TypeContext)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType wptr)
   -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
 callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
   case asBV align of
     Nothing -> fail $ unwords ["posix_memalign: alignment value must be concrete:", show (printSymExpr align)]
@@ -331,12 +330,12 @@ callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue ->
                 return (z, mem'')
 
 callMalloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> GlobalVar Mem
   -> Alignment
   -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
+  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
 callMalloc sym mvar alignment (regValue -> sz) =
   modifyGlobal mvar $ \mem -> liftIO $
     do loc <- plSourceLoc <$> getCurrentProgramLoc sym
@@ -344,13 +343,13 @@ callMalloc sym mvar alignment (regValue -> sz) =
        doMalloc sym G.HeapAlloc G.Mutable displayString mem sz alignment
 
 callCalloc
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => sym
   -> GlobalVar Mem
   -> Alignment
   -> RegEntry sym (BVType wptr)
   -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
+  -> OverrideSim p sym ext r args ret (RegValue sym (LLVMPointerType wptr))
 callCalloc sym mvar alignment
            (regValue -> sz)
            (regValue -> num) =
@@ -358,11 +357,11 @@ callCalloc sym mvar alignment
     doCalloc sym mem sz num alignment
 
 callFree
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
+  -> OverrideSim p sym ext r args ret ()
 callFree sym mvar
            (regValue -> ptr) =
   modifyGlobal mvar $ \mem -> liftIO $
@@ -373,14 +372,14 @@ callFree sym mvar
 -- *** Memory manipulation
 
 callMemcpy
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
+  -> OverrideSim p sym ext r args ret ()
 callMemcpy sym mvar
            (regValue -> dest)
            (regValue -> src)
@@ -395,14 +394,14 @@ callMemcpy sym mvar
 -- ranges are disjoint.  The underlying operation
 -- works correctly in both cases.
 callMemmove
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
+  -> OverrideSim p sym ext r args ret ()
 callMemmove sym mvar
            (regValue -> dest)
            (regValue -> src)
@@ -414,14 +413,14 @@ callMemmove sym mvar
        return ((), mem')
 
 callMemset
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType 8)
   -> RegEntry sym (BVType w)
   -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
+  -> OverrideSim p sym ext r args ret ()
 callMemset sym mvar
            (regValue -> dest)
            (regValue -> val)
@@ -435,11 +434,11 @@ callMemset sym mvar
 -- *** Strings and I/O
 
 callPutChar
-  :: (IsSymInterface sym, HasPtrWidth wptr)
+  :: (IsSymInterface sym)
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (BVType 32)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
 callPutChar _sym _mvar
  (regValue -> ch) = do
     h <- printHandle <$> getContext
@@ -452,7 +451,7 @@ callPuts
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
 callPuts sym mvar
   (regValue -> strPtr) = do
     mem <- readGlobal mvar
@@ -467,7 +466,7 @@ callStrlen
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType wptr))
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType wptr))
 callStrlen sym mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
   liftIO $ strLen sym mem strPtr
@@ -481,7 +480,7 @@ callAssert
                   ::> LLVMPointerType wptr
                   ::> BVType 32
                   ::> LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args reg (RegValue sym UnitType)
+  -> OverrideSim p sym ext r args reg (RegValue sym UnitType)
 callAssert mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
      do mem <- readGlobal mvar
         txt <- liftIO $ loadString sym mem (regValue ptxt) Nothing
@@ -494,7 +493,7 @@ callPrintf
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (VectorType AnyType)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+  -> OverrideSim p sym ext r args ret (RegValue sym (BVType 32))
 callPrintf sym mvar
   (regValue -> strPtr)
   (regValue -> valist) = do
@@ -636,8 +635,8 @@ printfOps sym valist =
 
 -- from OSX libc
 llvmAssertRtnOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
                   ::> BVType 32
@@ -649,8 +648,8 @@ llvmAssertRtnOverride =
 
 -- From glibc
 llvmAssertFailOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
                   ::> BVType 32
@@ -662,8 +661,8 @@ llvmAssertFailOverride =
 
 
 llvmAbortOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch EmptyCtx UnitType
+  :: (IsSymInterface sym)
+  => LLVMOverride p sym EmptyCtx UnitType
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
   (\_ sym _args ->
@@ -672,8 +671,8 @@ llvmAbortOverride =
   )
 
 llvmGetenvOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr)
         (LLVMPointerType wptr)
 llvmGetenvOverride =
@@ -684,8 +683,8 @@ llvmGetenvOverride =
 -- atexit stuff
 
 cxa_atexitOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> LLVMPointerType wptr)
         (BVType 32)
 cxa_atexitOverride =

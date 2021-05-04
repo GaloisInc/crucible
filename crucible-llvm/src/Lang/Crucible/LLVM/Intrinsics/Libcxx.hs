@@ -66,7 +66,7 @@ import           Lang.Crucible.LLVM.Translation.Types
 -- | C++ overrides generally have a bit more work to do: their types are more
 -- complex, their names are mangled in the LLVM module, it's a big mess.
 register_cpp_override ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   SomeCPPOverride p sym arch ->
   OverrideTemplate p sym arch rtp l a
 register_cpp_override someCPPOverride =
@@ -89,7 +89,7 @@ register_cpp_override someCPPOverride =
 data SomeCPPOverride p sym arch =
   SomeCPPOverride
   { cppOverrideSubstrings :: [String]
-  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym arch)
+  , cppOverrideAction :: L.Declare -> ABI.DecodedName -> LLVMContext arch -> Maybe (SomeLLVMOverride p sym)
   }
 
 ------------------------------------------------------------------------
@@ -124,9 +124,9 @@ panic_ from decl args ret =
 
 -- | If the requested declaration's symbol matches the filter, look up its
 -- function handle in the symbol table and use that to construct an override
-mkOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+mkOverride :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch))
            => [String] -- ^ Substrings for name filtering
-           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym arch))
+           -> (forall args ret. L.Declare -> CtxRepr args -> TypeRepr ret -> Maybe (SomeLLVMOverride p sym))
            -> (L.Symbol -> ABI.DecodedName -> Bool)
            -> SomeCPPOverride p sym arch
 mkOverride substrings ov filt =

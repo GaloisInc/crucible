@@ -20,6 +20,7 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -204,6 +205,9 @@ possibleAllocInfo n (MemAllocs xs) = asum (map helper xs)
 
 
 -- | Generalized function for checking whether a memory region ID is allocated.
+--
+-- The first predicate indicates whether the region was allocated, the second
+-- indicates whether it has *not* been freed.
 isAllocatedGeneric ::
   forall sym.
   (IsExpr (SymExpr sym), IsExprBuilder sym) =>
@@ -211,40 +215,60 @@ isAllocatedGeneric ::
   (AllocInfo sym -> IO (Pred sym)) ->
   SymNat sym ->
   MemAllocs sym ->
-  IO (Pred sym)
-isAllocatedGeneric sym inAlloc blk = go (pure (falsePred sym))
+  IO (Pred sym, Pred sym)
+isAllocatedGeneric sym inAlloc blk = go (pure (falsePred sym)) (pure (truePred sym))
   where
-    go :: IO (Pred sym) -> MemAllocs sym -> IO (Pred sym)
-    go fallback (MemAllocs []) = fallback
-    go fallback (MemAllocs (alloc : r)) =
+    go :: IO (Pred sym) -> IO (Pred sym) -> MemAllocs sym -> IO (Pred sym, Pred sym)
+    go fallback fallbackFreed (MemAllocs []) = (,) <$> fallback <*> fallbackFreed
+    go fallback fallbackFreed (MemAllocs (alloc : r)) =
       case alloc of
         Allocations am ->
           case asNat blk of
             Just b -> -- concrete block number, look up entry
               case Map.lookup b am of
-                Nothing -> go fallback (MemAllocs r)
-                Just ba -> inAlloc ba
+                Nothing -> go fallback fallbackFreed (MemAllocs r)
+                Just ba -> (,) <$> inAlloc ba <*> fallbackFreed
             Nothing -> -- symbolic block number, need to check all entries
-              Map.foldrWithKey checkEntry (go fallback (MemAllocs r)) am
+              Map.foldrWithKey checkEntry (go fallback fallbackFreed (MemAllocs r)) am
               where
                 checkEntry a ba k =
-                  do sameBlock <- natEq sym blk =<< natLit sym a
-                     itePredM sym sameBlock (inAlloc ba) k
+                  do
+                     sameBlock <- natEq sym blk =<< natLit sym a
+                     case asConstantPred sameBlock of
+                       Just True ->
+                         -- This is where where this block was allocated, and it
+                         -- couldn't have been freed before it was allocated.
+                         --
+                         -- NOTE(lb): It's not clear to me that this branch is
+                         -- reachable: If the equality test can succeed
+                         -- concretely, wouldn't asNat have returned a Just
+                         -- above? In either case, this answer should be sound.
+                         return (truePred sym, truePred sym)
+                       Just False -> k
+                       Nothing ->
+                         do (fallback', fallbackFreed') <- k
+                            here <- itePredM sym sameBlock (inAlloc ba) (pure fallback')
+                            pure (here, fallbackFreed')
         MemFree a _ ->
           do sameBlock <- natEq sym blk a
              case asConstantPred sameBlock of
-               Just True  -> return (falsePred sym)
-               Just False -> go fallback (MemAllocs r)
+               Just True  ->
+                 -- If it was freed, it also must have been allocated beforehand.
+                 return (truePred sym, falsePred sym)
+               Just False -> go fallback fallbackFreed (MemAllocs r)
                Nothing    ->
-                 do notSameBlock <- notPred sym sameBlock
-                    andPred sym notSameBlock =<< go fallback (MemAllocs r)
+                 do (inRest, notFreedInRest) <-
+                      go fallback fallbackFreed (MemAllocs r)
+                    notSameBlock <- notPred sym sameBlock
+                    (inRest,) <$> andPred sym notSameBlock notFreedInRest
         AllocMerge _ (MemAllocs []) (MemAllocs []) ->
-          go fallback (MemAllocs r)
+          go fallback fallbackFreed (MemAllocs r)
         AllocMerge c xr yr ->
-          do p <- go fallback (MemAllocs r) -- TODO: wrap this in a delay
-             px <- go (return p) xr
-             py <- go (return p) yr
-             itePred sym c px py
+          do (inRest, notFreedInRest) <- go fallback fallbackFreed (MemAllocs r) -- TODO: wrap this in a delay
+             (inTrue, notFreedInTrue) <- go (pure inRest) (pure notFreedInRest) xr
+             (inFalse, notFreedInFalse) <- go (pure inRest) (pure notFreedInRest) yr
+             (,) <$> itePred sym c inTrue inFalse
+                 <*> itePred sym c notFreedInTrue notFreedInFalse
 
 --------------------------------------------------------------------------------
 -- Writes

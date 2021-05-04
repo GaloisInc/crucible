@@ -1,3 +1,9 @@
-test checked_mul/3a1fbbbh::crux_test[0]: returned 44, ok
+test checked_mul/3a1fbbbh::crux_test[0]: returned 44, FAILED
 
-[Crux] Overall status: Valid.
+failures:
+
+---- checked_mul/3a1fbbbh::crux_test[0] counterexamples ----
+Failure for test/symb_eval/num/checked_mul.rs:4:5: 4:12: error: in checked_mul/3a1fbbbh::crux_test[0]
+attempt to multiply with overflow
+
+[Crux] Overall status: Invalid.

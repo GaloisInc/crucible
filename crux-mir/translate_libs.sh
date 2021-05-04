@@ -6,8 +6,15 @@ compile() {
 }
 
 compile_2015() {
+    # We use `--remap-path-prefix` to keep the full path to the `crux-mir`
+    # directory from appearing in the generated artifacts.  Otherwise, some
+    # `crux-mir` error messages will contain the path to the `crux-mir`
+    # directory, which usually contains the user's home directory, and our
+    # golden-file tests will break.  We specifically use `pwd -P` ("physical",
+    # meaning resolve symlinks) because `rustc` itself resolves symlinks before
+    # checking for a matching `--remap-path-prefix` rule.
     rustc -L rlibs_native --out-dir rlibs_native --crate-type rlib \
-        --remap-path-prefix $PWD=. \
+        --remap-path-prefix "$(pwd -P)=." \
         "$@"
 }
 
@@ -17,7 +24,7 @@ translate() {
 
 translate_2015() {
     mir-json -L rlibs --out-dir rlibs --crate-type rlib \
-        --remap-path-prefix $PWD=. \
+        --remap-path-prefix "$(pwd -P)=." \
         "$@"
 }
 

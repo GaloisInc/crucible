@@ -19,6 +19,7 @@ License          : BSD3
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -34,9 +35,7 @@ import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 
-import Data.Semigroup (Semigroup(..))
-
-import Control.Lens (makeLenses)
+import Control.Lens (makeLenses, makeWrapped)
 
 import GHC.Generics 
 
@@ -540,6 +539,7 @@ makeLenses ''Vtable
 makeLenses ''Intrinsic
 makeLenses ''Instance
 makeLenses ''NamedTy
+makeWrapped ''Substs
 
 --------------------------------------------------------------------------------------
 -- Other instances for ADT types

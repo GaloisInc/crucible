@@ -86,9 +86,9 @@ buildWTOMap = snd . go 0 0 Map.empty
  go !x !d m (Vertex (Some bid) : cs) =
     let m' = Map.insert (Ctx.indexVal (blockIDIndex bid)) (x,d) m
      in go (x+1) d m' cs
- go !x !d m (SCC (Some hd) subcs : cs) =
-    let m'  = Map.insert (Ctx.indexVal (blockIDIndex hd)) (x,d+1) m
-        (x',m'') = go (x+1) (d+1) m' subcs
+ go !x !d m (SCC scc : cs) =
+    let m'  = viewSome (\hd -> Map.insert (Ctx.indexVal (blockIDIndex hd)) (x,d+1) m) (wtoHead scc)
+        (x',m'') = go (x+1) (d+1) m' $ wtoComps scc
      in go x' d m'' cs
 
 

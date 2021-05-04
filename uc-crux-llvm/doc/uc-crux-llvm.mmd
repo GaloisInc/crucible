@@ -1,0 +1,11 @@
+graph TD
+    in(Generate minimal arguments) -> arg(Constrain/deepen arguments)
+    arg -> symex(Symbolic execution)
+
+    symex -> errors{Errors?}
+    errors -- Yes -> classify{Classify}
+    classify -- False positive -> deduce(Deduce preconditions)
+    deduce -> in
+    classify -- True positive -> report(Report)
+    errors -- No -> depth(Increase argument depth)
+    depth -> in
