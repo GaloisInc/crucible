@@ -29,7 +29,7 @@ library
                        Cruces.CrucesMain
   hs-source-dirs: src
   -- other-extensions:
-  build-depends:       base >=4.14 && <4.15
+  build-depends:       base >=4.7 && < 5
                      , bv-sized
                      , containers
                      , crucible
@@ -54,7 +54,7 @@ library
 executable cruces
   main-is:             crucibles/Main.hs
   -- other-extensions:
-  build-depends:       base >=4.14 && <4.15
+  build-depends:       base >=4.7 && < 5
                      , crucibles
                      , crucible
                      , crucible-syntax
