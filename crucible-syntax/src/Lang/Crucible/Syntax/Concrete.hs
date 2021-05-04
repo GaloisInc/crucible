@@ -925,6 +925,10 @@ synthExpr typeHint =
          case t1 of
            FloatRepr fi ->
              return $ SomeE (StringRepr UnicodeRepr) $ EApp $ ShowFloat fi e
+           NatRepr ->
+             let toint = EApp $ NatToInteger e
+                 showint = EApp $ ShowValue BaseIntegerRepr toint
+             in return $ SomeE (StringRepr UnicodeRepr) showint
            (asBaseType -> AsBaseType bt) ->
              return $ SomeE (StringRepr UnicodeRepr) $ EApp $ ShowValue bt e
            _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
