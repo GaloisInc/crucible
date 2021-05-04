@@ -316,10 +316,25 @@ impl<T> Arc<T> {
     pub fn new(data: T) -> Arc<T> {
         // Start the weak pointer count as 1 which is the weak pointer that's
         // held by all the strong pointers (kinda), see std/rc.rs for more info
-        let x: Box<_> = box ArcInner {
-            strong: atomic::AtomicUsize::new(1),
-            weak: atomic::AtomicUsize::new(1),
-            data,
+
+        let x: Box<_> = {
+            #[cfg(feature = "opaque-arc-atomics")]
+            {
+                box ArcInner {
+                    strong: atomic::AtomicUsize::new_unmodeled(1),
+                    weak: atomic::AtomicUsize::new_unmodeled(1),
+                    data,
+                }
+            }
+
+            #[cfg(not(feature = "opaque-arc-atomics"))]
+            {
+                box ArcInner {
+                    strong: atomic::AtomicUsize::new(1),
+                    weak: atomic::AtomicUsize::new(1),
+                    data,
+                }
+            }
         };
         Self::from_inner(Box::into_raw_non_null(x))
     }
@@ -807,8 +822,13 @@ impl<T: ?Sized> Arc<T> {
         let inner = mem_to_arcinner(mem.as_ptr());
         debug_assert_eq!(Layout::for_value(&*inner), layout);
 
-        ptr::write(&mut (*inner).strong, atomic::AtomicUsize::new(1));
-        ptr::write(&mut (*inner).weak, atomic::AtomicUsize::new(1));
+        if true {
+            ptr::write(&mut (*inner).strong, atomic::AtomicUsize::new_unmodeled(1));
+            ptr::write(&mut (*inner).weak, atomic::AtomicUsize::new_unmodeled(1));
+        } else {
+            ptr::write(&mut (*inner).strong, atomic::AtomicUsize::new(1));
+            ptr::write(&mut (*inner).weak, atomic::AtomicUsize::new(1));
+        }
 
         inner
     }

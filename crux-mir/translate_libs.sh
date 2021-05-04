@@ -28,6 +28,46 @@ translate_2015() {
         "$@"
 }
 
+usage() {
+    echo "Usage: ${0} [FLAGS]"
+    echo ""
+    echo "Flags:"
+    echo "-a --model-internal-atomics      Include stdlib internal atomics in concurrency model (default)"
+    echo "   --no-model-internal-atomics   Do not include stdlib internal atomics in concurrency model"
+}
+
+SHOULD_MODEL_ATOMICS=1
+
+for arg in "$@"
+do
+    case $arg in
+        -a|--model-internal-atomics)
+            SHOULD_MODEL_ATOMICS=1
+            shift
+            ;;
+        --no-model-internal-atomics)
+            SHOULD_MODEL_ATOMICS=0
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+
+if [[ $SHOULD_MODEL_ATOMICS -eq "1" ]]; then
+    CONCURRENCY_LIBALLOC_FEATURES=" "
+    CONCURRENCY_LIBSTD_FEATURES=" "
+else
+    CONCURRENCY_LIBALLOC_FEATURES="--cfg feature=\"opaque-arc-atomics\""
+    CONCURRENCY_LIBSTD_FEATURES="--cfg feature=\"opaque-poison-atomics\""
+fi
 
 translate lib/libcore/lib.rs --crate-name core \
     --cfg 'feature="panic_immediate_abort"' \
@@ -48,6 +88,7 @@ translate_2015 lib/compiler-builtins/src/lib.rs --crate-name compiler_builtins \
 translate lib/crucible/lib.rs --crate-name crucible
 translate lib/int512.rs
 translate lib/liballoc/lib.rs --crate-name alloc \
+    ${CONCURRENCY_LIBALLOC_FEATURES} \
     --extern crucible
 translate lib/cfg-if/src/lib.rs --crate-name cfg_if --cfg 'feature="rustc-dep-of-std"' \
     --extern rustc_std_workspace_core=rlibs/libcore.rlib \
@@ -79,6 +120,7 @@ translate lib/backtrace/src/lib.rs --crate-name backtrace \
     --extern rustc_demangle --extern cfg_if --extern backtrace_sys
 translate lib/libstd/lib.rs --crate-name std \
     --cfg 'feature="panic_immediate_abort"' \
+    ${CONCURRENCY_LIBSTD_FEATURES} \
     --extern alloc --extern cfg_if \
     --extern hashbrown --extern backtrace_rs=rlibs/libbacktrace.rlib
 translate lib/libterm/lib.rs --crate-name term

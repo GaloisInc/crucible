@@ -313,6 +313,7 @@
 #![feature(vec_into_raw_parts)]
 // NB: the above list is sorted to minimize merge conflicts.
 #![default_lib_allocator]
+#![feature(crucible_intrinsics)]
 
 // Explicitly import the prelude. The compiler uses this same unstable attribute
 // to import the prelude implicitly when building crates that depend on std.

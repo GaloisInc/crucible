@@ -124,6 +124,8 @@ use crate::intrinsics;
 
 use crate::hint::spin_loop;
 
+use crate::crucible::concurrency;
+
 /// Signals the processor that it is inside a busy-wait spin-loop ("spin lock").
 ///
 /// Upon receiving spin-loop signal the processor can optimize its behavior by, for example, saving
@@ -159,6 +161,7 @@ pub fn spin_loop_hint() {
 #[repr(C, align(1))]
 pub struct AtomicBool {
     v: UnsafeCell<u8>,
+    model: bool,
 }
 
 #[cfg(target_has_atomic_load_store = "8")]
@@ -325,7 +328,14 @@ impl AtomicBool {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[rustc_const_stable(feature = "const_atomic_new", since = "1.32.0")]
     pub const fn new(v: bool) -> AtomicBool {
-        AtomicBool { v: UnsafeCell::new(v as u8) }
+        AtomicBool { v: UnsafeCell::new(v as u8), model: true }
+    }
+
+    #[inline]
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[rustc_const_stable(feature = "const_atomic_new", since = "1.32.0")]
+    pub const fn new_unmodeled(v: bool) -> AtomicBool {
+        AtomicBool { v: UnsafeCell::new(v as u8), model: false }
     }
 
     /// Returns a mutable reference to the underlying [`bool`].
@@ -401,7 +411,12 @@ impl AtomicBool {
     pub fn load(&self, order: Ordering) -> bool {
         // SAFETY: any data races are prevented by atomic intrinsics and the raw
         // pointer passed in is valid because we got it from a reference.
-        unsafe { atomic_load(self.v.get(), order) != 0 }
+        if self.model {
+            concurrency::sched_yield(true, self.v.get());
+        }
+        unsafe {
+            atomic_load(self.v.get(), order) != 0
+        }
     }
 
     /// Stores a value into the bool.
@@ -435,6 +450,9 @@ impl AtomicBool {
     pub fn store(&self, val: bool, order: Ordering) {
         // SAFETY: any data races are prevented by atomic intrinsics and the raw
         // pointer passed in is valid because we got it from a reference.
+        if self.model {
+            concurrency::sched_yield(false, self.v.get());
+        }
         unsafe {
             atomic_store(self.v.get(), val as u8, order);
         }
@@ -467,6 +485,9 @@ impl AtomicBool {
     #[cfg(target_has_atomic = "8")]
     pub fn swap(&self, val: bool, order: Ordering) -> bool {
         // SAFETY: data races are prevented by atomic intrinsics.
+        if self.model {
+            concurrency::sched_yield(false, self.v.get());
+        }
         unsafe { atomic_swap(self.v.get(), val as u8, order) != 0 }
     }
 
@@ -563,6 +584,10 @@ impl AtomicBool {
         failure: Ordering,
     ) -> Result<bool, bool> {
         // SAFETY: data races are prevented by atomic intrinsics.
+        //
+        if self.model {
+            concurrency::sched_yield(false, self.v.get());
+        }
         match unsafe {
             atomic_compare_exchange(self.v.get(), current as u8, new as u8, success, failure)
         } {
@@ -621,6 +646,9 @@ impl AtomicBool {
         failure: Ordering,
     ) -> Result<bool, bool> {
         // SAFETY: data races are prevented by atomic intrinsics.
+        if self.model {
+            concurrency::sched_yield(false, self.v.get());
+        }
         match unsafe {
             atomic_compare_exchange_weak(self.v.get(), current as u8, new as u8, success, failure)
         } {
@@ -668,6 +696,9 @@ impl AtomicBool {
     #[cfg(target_has_atomic = "8")]
     pub fn fetch_and(&self, val: bool, order: Ordering) -> bool {
         // SAFETY: data races are prevented by atomic intrinsics.
+        if self.model {
+            concurrency::sched_yield(false, self.v.get());
+        }
         unsafe { atomic_and(self.v.get(), val as u8, order) != 0 }
     }
 
@@ -764,6 +795,9 @@ impl AtomicBool {
     #[cfg(target_has_atomic = "8")]
     pub fn fetch_or(&self, val: bool, order: Ordering) -> bool {
         // SAFETY: data races are prevented by atomic intrinsics.
+        if self.model {
+            concurrency::sched_yield(false, self.v.get());
+        }
         unsafe { atomic_or(self.v.get(), val as u8, order) != 0 }
     }
 
@@ -806,6 +840,9 @@ impl AtomicBool {
     #[cfg(target_has_atomic = "8")]
     pub fn fetch_xor(&self, val: bool, order: Ordering) -> bool {
         // SAFETY: data races are prevented by atomic intrinsics.
+        if self.model {
+            concurrency::sched_yield(false, self.v.get());
+        }
         unsafe { atomic_xor(self.v.get(), val as u8, order) != 0 }
     }
 
@@ -934,6 +971,7 @@ impl<T> AtomicPtr<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn load(&self, order: Ordering) -> *mut T {
         // SAFETY: data races are prevented by atomic intrinsics.
+        concurrency::sched_yield(true, self.p.get());
         unsafe { atomic_load(self.p.get() as *mut usize, order) as *mut T }
     }
 
@@ -969,6 +1007,8 @@ impl<T> AtomicPtr<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn store(&self, ptr: *mut T, order: Ordering) {
         // SAFETY: data races are prevented by atomic intrinsics.
+        //
+        concurrency::sched_yield(false, self.p.get());
         unsafe {
             atomic_store(self.p.get() as *mut usize, ptr as usize, order);
         }
@@ -1003,6 +1043,7 @@ impl<T> AtomicPtr<T> {
     #[cfg(target_has_atomic = "ptr")]
     pub fn swap(&self, ptr: *mut T, order: Ordering) -> *mut T {
         // SAFETY: data races are prevented by atomic intrinsics.
+        concurrency::sched_yield(false, self.p.get());
         unsafe { atomic_swap(self.p.get() as *mut usize, ptr as usize, order) as *mut T }
     }
 
@@ -1088,6 +1129,7 @@ impl<T> AtomicPtr<T> {
         failure: Ordering,
     ) -> Result<*mut T, *mut T> {
         // SAFETY: data races are prevented by atomic intrinsics.
+        concurrency::sched_yield(false, self.p.get());
         unsafe {
             let res = atomic_compare_exchange(
                 self.p.get() as *mut usize,
@@ -1152,6 +1194,7 @@ impl<T> AtomicPtr<T> {
         failure: Ordering,
     ) -> Result<*mut T, *mut T> {
         // SAFETY: data races are prevented by atomic intrinsics.
+        concurrency::sched_yield(false, self.p.get());
         unsafe {
             let res = atomic_compare_exchange_weak(
                 self.p.get() as *mut usize,
@@ -1228,6 +1271,7 @@ macro_rules! atomic_int {
         #[repr(C, align($align))]
         pub struct $atomic_type {
             v: UnsafeCell<$int_type>,
+            model: bool
         }
 
         /// An atomic integer initialized to `0`.
@@ -1245,6 +1289,7 @@ macro_rules! atomic_int {
                 Self::new(Default::default())
             }
         }
+
 
         #[$stable_from]
         impl From<$int_type> for $atomic_type {
@@ -1282,7 +1327,28 @@ let atomic_forty_two = ", stringify!($atomic_type), "::new(42);
                 #[$stable]
                 #[$const_stable]
                 pub const fn new(v: $int_type) -> Self {
-                    Self {v: UnsafeCell::new(v)}
+                    Self {
+                        v: UnsafeCell::new(v),
+                        model: true,
+                    }
+                }
+            }
+            doc_comment! {
+                concat!("Creates a new atomic integer.
+
+# Examples
+
+```
+", $extra_feature, "use std::sync::atomic::", stringify!($atomic_type), ";
+
+let atomic_forty_two = ", stringify!($atomic_type), "::new(42);
+```"),
+                #[inline]
+                #[$stable]
+                #[$const_stable]
+                pub const fn new_unmodeled(v: $int_type) -> Self {
+                    let me = $atomic_type::new(v);
+                    Self { model:false,..me }
                 }
             }
 
@@ -1361,6 +1427,9 @@ assert_eq!(some_var.load(Ordering::Relaxed), 5);
                 #[$stable]
                 pub fn load(&self, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(true, self.v.get());
+                    }
                     unsafe { atomic_load(self.v.get(), order) }
                 }
             }
@@ -1396,6 +1465,9 @@ assert_eq!(some_var.load(Ordering::Relaxed), 10);
                 #[$stable]
                 pub fn store(&self, val: $int_type, order: Ordering) {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_store(self.v.get(), val, order); }
                 }
             }
@@ -1427,6 +1499,9 @@ assert_eq!(some_var.swap(10, Ordering::Relaxed), 5);
                 #[$cfg_cas]
                 pub fn swap(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_swap(self.v.get(), val, order) }
                 }
             }
@@ -1530,6 +1605,9 @@ assert_eq!(some_var.load(Ordering::Relaxed), 10);
                                         success: Ordering,
                                         failure: Ordering) -> Result<$int_type, $int_type> {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_compare_exchange(self.v.get(), current, new, success, failure) }
                 }
             }
@@ -1583,6 +1661,9 @@ loop {
                                              success: Ordering,
                                              failure: Ordering) -> Result<$int_type, $int_type> {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe {
                         atomic_compare_exchange_weak(self.v.get(), current, new, success, failure)
                     }
@@ -1618,6 +1699,9 @@ assert_eq!(foo.load(Ordering::SeqCst), 10);
                 #[$cfg_cas]
                 pub fn fetch_add(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_add(self.v.get(), val, order) }
                 }
             }
@@ -1651,6 +1735,9 @@ assert_eq!(foo.load(Ordering::SeqCst), 10);
                 #[$cfg_cas]
                 pub fn fetch_sub(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_sub(self.v.get(), val, order) }
                 }
             }
@@ -1687,6 +1774,9 @@ assert_eq!(foo.load(Ordering::SeqCst), 0b100001);
                 #[$cfg_cas]
                 pub fn fetch_and(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_and(self.v.get(), val, order) }
                 }
             }
@@ -1724,6 +1814,9 @@ assert_eq!(foo.load(Ordering::SeqCst), !(0x13 & 0x31));
                 #[$cfg_cas]
                 pub fn fetch_nand(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_nand(self.v.get(), val, order) }
                 }
             }
@@ -1760,6 +1853,9 @@ assert_eq!(foo.load(Ordering::SeqCst), 0b111111);
                 #[$cfg_cas]
                 pub fn fetch_or(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_or(self.v.get(), val, order) }
                 }
             }
@@ -1796,6 +1892,9 @@ assert_eq!(foo.load(Ordering::SeqCst), 0b011110);
                 #[$cfg_cas]
                 pub fn fetch_xor(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { atomic_xor(self.v.get(), val, order) }
                 }
             }
@@ -1908,6 +2007,9 @@ assert!(max_foo == 42);
                 #[$cfg_cas]
                 pub fn fetch_max(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { $max_fn(self.v.get(), val, order) }
                 }
             }
@@ -1961,6 +2063,9 @@ assert_eq!(min_foo, 12);
                 #[$cfg_cas]
                 pub fn fetch_min(&self, val: $int_type, order: Ordering) -> $int_type {
                     // SAFETY: data races are prevented by atomic intrinsics.
+                    if self.model {
+                        concurrency::sched_yield(false, self.v.get());
+                    }
                     unsafe { $min_fn(self.v.get(), val, order) }
                 }
             }

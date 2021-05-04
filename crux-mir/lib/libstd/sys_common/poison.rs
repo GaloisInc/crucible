@@ -20,7 +20,11 @@ pub struct Flag {
 
 impl Flag {
     pub const fn new() -> Flag {
-        Flag { failed: AtomicBool::new(false) }
+        #[cfg(feature = "opaque-poison-atomics")]
+        { Flag { failed: AtomicBool::new_unmodeled(false) } }
+
+        #[cfg(not(feature = "opaque-poison-atomics"))]
+        { Flag { failed: AtomicBool::new_unmodeled(false) } }
     }
 
     #[inline]
