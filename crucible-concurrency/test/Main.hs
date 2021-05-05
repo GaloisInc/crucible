@@ -57,7 +57,6 @@ findTests group_name test_dir test_action =
 testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
-     debugh   <- openFile "/dev/null" WriteMode
      withFile outFile WriteMode $ \outh ->
        do let options = (defaultCruxOptions { Crux.inputFiles = [inFile],
                                               Crux.simVerbose = 0,
