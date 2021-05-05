@@ -26,6 +26,7 @@ module Mir.TransTy where
 
 import Control.Monad
 import Control.Lens
+import Data.List (findIndices)
 import qualified Data.Maybe as Maybe
 import qualified Data.String as String
 import           Data.String (fromString)
@@ -164,10 +165,7 @@ tyToRepr col t0 = case t0 of
   CTyMethodSpec -> Some MethodSpecRepr
   CTyMethodSpecBuilder -> Some MethodSpecBuilderRepr
 
-  -- Defined as `union MaybeUninit<T> { uninit: (), value: ManuallyDrop<T> }`.
-  -- We skip the outer union, leaving only `ManuallyDrop<T>`, which is a
-  -- struct type.
-  CTyMaybeUninit _ -> Some $ C.AnyRepr
+  -- CMaybeUninit is handled by the normal repr(transparent) TyAdt case.
 
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr
@@ -210,7 +208,11 @@ tyToRepr col t0 = case t0 of
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
   -- An ADT is a `concreteAdtRepr` wrapped in `ANY`
-  M.TyAdt _ _defid _tyargs -> Some C.AnyRepr
+  M.TyAdt name _ _
+    | Just adt <- col ^? M.adts . ix name,
+      Just ty <- reprTransparentFieldTy col adt ->
+      tyToRepr col ty
+    | otherwise -> Some C.AnyRepr
   M.TyDowncast _adt _i   -> Some C.AnyRepr
 
   M.TyFloat _ -> Some C.RealValRepr
@@ -251,8 +253,8 @@ tyToReprM ty = do
 -- Checks whether a type can be default-initialized.  Any time this returns
 -- `True`, `Trans.initialValue` must also return `Just`.  Non-initializable ADT
 -- fields are wrapped in `Maybe` to support field-by-field initialization.
-canInitialize :: M.Ty -> Bool
-canInitialize ty = case ty of
+canInitialize :: M.Collection -> M.Ty -> Bool
+canInitialize col ty = case ty of
     -- Custom types
     CTyMethodSpec -> False
     CTyMethodSpecBuilder -> False
@@ -264,12 +266,14 @@ canInitialize ty = case ty of
     M.TyUint _ -> True
     -- ADTs and related data structures
     M.TyTuple _ -> True
-    M.TyAdt _ _ _ -> True
+    M.TyAdt _ _ _ 
+      | Just ty' <- tyAdtDef col ty >>= reprTransparentFieldTy col -> canInitialize col ty'
+      | otherwise -> True
     M.TyClosure _ -> True
     -- Others
     M.TyArray _ _ -> True
     -- TODO: workaround for a ref init bug - see initialValue for details
-    --M.TyRef ty' _ -> canInitialize ty'
+    --M.TyRef ty' _ -> canInitialize col ty'
     _ -> False
 
 isUnsized :: M.Ty -> Bool
@@ -279,6 +283,49 @@ isUnsized ty = case ty of
     M.TyDynamic _ -> True
     -- TODO: struct types whose last field is unsized ("custom DSTs")
     _ -> False
+
+isZeroSized :: M.Collection -> M.Ty -> Bool
+isZeroSized col ty = go ty
+  where
+    go ty = case ty of
+      M.TyTuple tys -> all go tys
+      M.TyClosure tys -> all go tys
+      M.TyArray ty n -> n == 0 || go ty
+      M.TyAdt name _ _ | Just adt <- col ^? M.adts . ix name -> adt ^. M.adtSize == 0
+      M.TyNever -> True
+      _ -> False
+
+
+-- | Look up the `Adt` definition, if this `Ty` is `TyAdt`.
+tyAdtDef :: M.Collection -> M.Ty -> Maybe M.Adt
+tyAdtDef col (M.TyAdt name _ _) = col ^? M.adts . ix name
+tyAdtDef _ _ = Nothing
+
+-- | If the `Adt` is a `repr(transparent)` struct with at most one
+-- non-zero-sized field, return the index of that field.
+findReprTransparentField :: M.Collection -> M.Adt -> Maybe Int
+findReprTransparentField _ adt
+  -- Special case: Box<T> isn't repr(transparent), but we pretend that it is.
+  -- Since its inner `Unique<T>` pointer is repr(transparent), this results in
+  -- Box<T> being represented as a plain `MirReference`.  This simplifies some
+  -- parts of the translation, namely the `Box` operator and the `Deref`
+  -- projection (which can be applied to boxes just like ordinary refs).
+  | adt ^. M.adtOrigDefId == M.textId "alloc::boxed::Box" = Just 0
+findReprTransparentField col adt = do
+  guard $ adt ^. M.adtReprTransparent
+  [v] <- return $ adt ^. M.adtvariants
+  -- We want to always return a valid field index, which we can't do if there
+  -- are no fields.
+  guard $ not $ null $ v ^. M.vfields
+  let idxs = findIndices (\f -> not $ isZeroSized col $ f ^. M.fty) (v ^. M.vfields)
+  guard $ length idxs <= 1
+  return $ maybe 0 id (idxs ^? ix 0)
+
+reprTransparentFieldTy :: M.Collection -> M.Adt -> Maybe M.Ty
+reprTransparentFieldTy col adt = do
+  idx <- findReprTransparentField col adt
+  adt ^? M.adtvariants . ix 0 . M.vfields . ix idx . M.fty
+
 
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Some C.CtxRepr
@@ -313,7 +360,7 @@ fieldCtxType (ctx Ctx.:> fr) = fieldCtxType ctx Ctx.:> fieldType fr
 
 tyToFieldRepr :: M.Collection -> M.Ty -> Some FieldRepr
 tyToFieldRepr col ty
-  | canInitialize ty = viewSome (\tpr -> Some $ FieldRepr $ FkInit tpr) (tyToRepr col ty)
+  | canInitialize col ty = viewSome (\tpr -> Some $ FieldRepr $ FkInit tpr) (tyToRepr col ty)
   | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr col ty)
 
 variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Some FieldCtxRepr
@@ -328,7 +375,7 @@ variantFieldsM' v = do
   return $ variantFields' col v
 
 enumVariants :: TransTyConstraint => M.Collection -> M.Adt -> Some C.CtxRepr
-enumVariants col (M.Adt name kind vs _ _)
+enumVariants col (M.Adt name kind vs _ _ _ _)
   | kind /= M.Enum = error $ "expected " ++ show name ++ " to have kind Enum"
   | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
   where
@@ -648,7 +695,8 @@ structInfo adt i = do
     let tpr' = ctx Ctx.! idx
     Some tpr <- tyToReprM fldTy
 
-    kind <- checkFieldKind (not $ canInitialize fldTy) tpr tpr' $
+    col <- use $ cs . collection
+    kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
         "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
 
     return $ StructInfo ctx idx kind
@@ -750,7 +798,8 @@ enumInfo adt i j = do
     let tpr' = ctx' Ctx.! idx'
     Some tpr <- tyToReprM fldTy
 
-    kind <- checkFieldKind (not $ canInitialize fldTy) tpr tpr' $
+    col <- use $ cs . collection
+    kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
         "field " ++ show j ++ " of enum " ++ show (adt ^. M.adtname) ++ " variant " ++ show i
 
     return $ EnumInfo ctx idx ctx' idx' kind

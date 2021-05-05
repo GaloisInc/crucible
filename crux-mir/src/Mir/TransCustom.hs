@@ -168,9 +168,6 @@ customOpDefs = Map.fromList $ [
                          , allocate_zeroed
                          , reallocate
 
-                         , unsafe_cell_get
-                         , unsafe_cell_raw_get
-
                          , maybe_uninit_uninit
 
                          , integer_from_u8
@@ -1425,34 +1422,6 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
 -- No `deallocate` for now - we'd need some extra MirRef ops to implement that
 -- (since we need to get from the first-element pointer to the underlying
 -- RefCell that we want to drop).
-
-
---------------------------------------------------------------------------------------------------------------------------
--- UnsafeCell
-
--- The `get` and `raw_get` methods have identical Crucible representation:
--- fn UnsafeCell<T>::get(&self) -> *mut T
--- fn UnsafeCell<T>::raw_get(this: *const Self) -> *mut T
-unsafe_cell_get_impl :: CustomRHS
-unsafe_cell_get_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
-    ([TyRef (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
-    ([TyRawPtr (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
-    _ -> mirFail $ "BUG: invalid arguments to UnsafeCell::get: " ++ show ops
-  where
-    go :: AdtName -> C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-        MirGenerator h s ret (MirExp s)
-    go aname tpr ref = do
-        adt <- findAdt aname
-        fieldPl <- structFieldRef adt 0 tpr ref
-        addrOfPlace fieldPl
-
-unsafe_cell_get :: (ExplodedDefId, CustomRHS)
-unsafe_cell_get =
-    (["core", "cell", "{{impl}}", "get", "crucible_hook"], unsafe_cell_get_impl)
-
-unsafe_cell_raw_get :: (ExplodedDefId, CustomRHS)
-unsafe_cell_raw_get =
-    (["core", "cell", "{{impl}}", "raw_get"], unsafe_cell_get_impl)
 
 
 --------------------------------------------------------------------------------------------------------------------------

@@ -551,7 +551,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, C.AnyRepr)
-      | Just adt <- List.find (\(Adt n _ _ _ _) -> name == n) (col^.adts) -> do
+      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col^.adts) -> do
         optParts <- case adt^.adtkind of
             Struct -> do
                 let var = onlyVariant adt
