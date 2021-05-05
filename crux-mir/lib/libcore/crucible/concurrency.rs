@@ -27,7 +27,7 @@ fn thread_exit<T>(f:T) {}
 /**
 Funny game we're playing here:
 
-In the caller of "spawn", we'll actually effectively overide the behavior of
+In the caller of "spawn", we'll actually effectively override the behavior of
 this function and return the ID of the new thread, while at the same time
 running the body of this function (and f) in a new thread.
 
