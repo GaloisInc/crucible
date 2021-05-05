@@ -123,6 +123,11 @@ pub fn concretize<T>(x: T) -> T {
     x
 }
 
+/// Install `g` as an override for `f`.
+pub fn override_<F, G>(f: F, g: G) {
+    unimplemented!("crucible::override_");
+}
+
 // Some older test cases still use these functions.
 #[deprecated(note = "call i8::symbolic instead")]
 pub fn crucible_i8(name: &'static str) -> i8 { Symbolic::symbolic(name) }

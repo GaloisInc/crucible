@@ -13,13 +13,14 @@
 
 module Mir.Overrides (bindFn, getString) where
 
-import Control.Lens ((^.), (%=), (.=), use)
+import Control.Lens ((^.), (^?), (%=), (.=), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (get)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
+import Data.BitVector.Sized (mkBV)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
@@ -65,7 +66,7 @@ import Lang.Crucible.Backend
     , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
-import Lang.Crucible.FunctionHandle (RefCell, freshRefCell, refType)
+import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Panic
 import Lang.Crucible.Simulator (SimErrorReason(..))
 import Lang.Crucible.Simulator.ExecutionTree
@@ -84,9 +85,9 @@ import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
 
 import Mir.DefId
 import Mir.FancyMuxTree
-import Mir.Generator (CollectionState)
+import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
-import Data.BitVector.Sized (mkBV)
+import qualified Mir.Mir as M
 
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
@@ -368,6 +369,38 @@ regEval sym baseEval tpr v = go tpr v
         ArrayAsMirVector_RefPath tpr <$> goMirReferencePath p
 
 
+-- | Override one Rust function with another.
+overrideRust ::
+  (IsSymInterface sym, HasModel p) =>
+  CollectionState ->
+  Text ->
+  OverrideSim (p sym) sym MIR rtp args ret ()
+overrideRust cs name = do
+  let tyArgs = cs ^? collection . M.intrinsics . ix (textId name) .
+        M.intrInst . M.inSubsts . _Wrapped
+  (fDefId, gDefId) <- case tyArgs of
+    Just [M.TyFnDef f, M.TyFnDef g] -> return (f, g)
+    _ -> error $ "expected two TyFnDef arguments, but got " ++ show tyArgs
+  MirHandle _ _ fhF <- case cs ^? handleMap . ix fDefId of
+    Just fh -> return fh
+    _ -> error $ "failed to get function definition for " ++ show fDefId
+  MirHandle _ _ fhG <- case cs ^? handleMap . ix gDefId of
+    Just fh -> return fh
+    _ -> error $ "failed to get function definition for " ++ show gDefId
+  Refl <- case testEquality (handleArgTypes fhF) (handleArgTypes fhG) of
+    Just x -> return x
+    Nothing -> fail $ "type mismatch: original and override argument lists don't match: " ++
+      show (handleArgTypes fhF, handleArgTypes fhG)
+  Refl <- case testEquality (handleReturnType fhF) (handleReturnType fhG) of
+    Just x -> return x
+    Nothing -> fail $ "type mismatch: original and override return types don't match: " ++
+      show (handleReturnType fhF, handleReturnType fhG)
+
+  bindFnHandle fhF $ UseOverride $ mkOverride' (handleName fhF) (handleReturnType fhF) $ do
+    args <- getOverrideArgs
+    regValue <$> callFnVal (HandleFnVal fhG) args
+
+
 bindFn ::
   forall p ng args ret blocks sym rtp a r.
   (IsSymInterface sym, HasModel p) =>
@@ -376,17 +409,25 @@ bindFn ::
   Text ->
   CFG MIR blocks args ret ->
   OverrideSim (p sym) sym MIR rtp a r ()
-bindFn symOnline _cs name cfg
+bindFn symOnline cs name cfg
   | (normDefId "crucible::array::symbolic" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> MirSliceRepr (BVRepr w) <- cfgArgTypes cfg
   , UsizeArrayRepr btpr <- cfgReturnType cfg
   , Just Refl <- testEquality w (knownNat @8)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "array::symbolic" (UsizeArrayRepr btpr) (array_symbolic btpr)
+
   | (normDefId "crucible::concretize" <> "::_inst") `Text.isPrefixOf` name
   , Empty :> tpr <- cfgArgTypes cfg
   , Just Refl <- testEquality tpr (cfgReturnType cfg)
   = bindFnHandle (cfgHandle cfg) $ UseOverride $ mkOverride' "concretize" tpr $ concretize symOnline
+
+  | (normDefId "crucible::override_" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> UnitRepr :> UnitRepr <- cfgArgTypes cfg
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "crucible_override_" UnitRepr $ overrideRust cs name
+
 bindFn _symOnline _cs fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
