@@ -29,7 +29,7 @@ library
                  time,
                  unordered-containers,
                  crucible,
-                 crucibles,
+                 crucible-concurrency,
                  parameterized-utils >= 1.0.8,
                  containers,
                  lens,

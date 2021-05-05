@@ -1,18 +1,18 @@
-# Crucibles/Cruces: concurrency-enabled symbolic simulation
+# crucible-concurrency: concurrency-enabled symbolic simulation
 
 This package exposes a library for enabling the symbolic simulation of
 multithreaded programs via Crucible. This document should help (1) add
 concurrency support to a language that already has a Crucible translation/Crux
-frontend, and (2) help explain the design of Crucibles for developers.
+frontend, and (2) help explain the design of crucible-concurrency for developers.
 
 ## Overview
 
-Crucibles is a package that uses Crucible to perform symbolic simulation of
-multithreaded programs. At the highest level of abstraction, it achieves this by
-repeatedly executing a Crucible program, each time exploring a different thread
-interleaving.
+Crucible-concurrency (or simply Crucibles[^1]) is a package that uses Crucible to
+perform symbolic simulation of multithreaded programs. At the highest level of
+abstraction, it achieves this by repeatedly executing a Crucible program, each
+time exploring a different thread interleaving.
 
-Crucibles uses Crucible to perform multithreaded symbolic simulation by
+The library uses Crucible to perform multithreaded symbolic simulation by
 recognizing certain _hooks_ in the Crucible code to be explored. These _hooks_
 can be thought of as functions denoting that a global access is about to occur,
 that a thread is about to be spawned, that a lock is going to be acquired, etc.
@@ -22,7 +22,7 @@ current thread should be preempted by consulting a scheduling algorithm. When
 execution terminates, the same scheduling algorithm decides if it should try to
 find a new thread interleaving to explore, or if should terminate.
 
-## Using Crucibles/Cruces in a new language
+## Using crucible-concurrency in a new language
 
 The main thing a client language needs to provide in order to get support from
 Crucibles is to implement a set of primitive matchers. These matchers inspect a
@@ -33,7 +33,7 @@ type in `Crucibles.Primitives`.
 An example implementation for `crucible-syntax` is defined by
 `crucibleSyntaxPrimitives` in the same module.
 
-## Modifying Crucibles/Cruces
+## Modifying crucible-concurrency
 
 Crucibles is driven by an `ExecutionFeature`, `scheduleFeature`, defined in
 `Crucibles.Explore`. The idea is that this feature should not be making many
@@ -183,3 +183,5 @@ pre-analysis.
 
 - The system is set up to be able to yield on multiple resources. However, 
   we probably need to make these types intrinsics so that we can inspect the mux tree.
+
+[^1]: That is, the plural of `crucible`.
