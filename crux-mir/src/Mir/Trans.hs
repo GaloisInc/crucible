@@ -192,13 +192,26 @@ transConstVal ty _ ConstZST = initialValue ty >>= \case
         "failed to evaluate ZST constant of type " ++ show ty ++ " (initialValue failed)"
 transConstVal _ty (Some (MirReferenceRepr tpr)) (ConstRawPtr i) =
     MirExp (MirReferenceRepr tpr) <$> integerToMirRef tpr (R.App $ usizeLit i)
-transConstVal (M.TyAdt aname _ _) _ (ConstStruct fields) = do
+transConstVal ty@(M.TyAdt aname _ _) tpr (ConstStruct fields) = do
     adt <- findAdt aname
-    let fieldDefs = adt ^. adtvariants . ix 0 . vfields
-    let fieldTys = map (\f -> f ^. fty) fieldDefs
     col <- use $ cs . collection
-    exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr col ty) val) fields fieldTys
-    buildStruct adt exps
+    case findReprTransparentField col adt of
+        Just idx -> do
+            ty <- case adt ^? adtvariants . ix 0 . vfields . ix idx . fty of
+                Just x -> return x
+                Nothing -> mirFail $ "repr(transparent) field index " ++ show idx ++
+                    " out of range for " ++ show (pretty ty)
+            const <- case fields ^? ix idx of
+                Just x -> return x
+                Nothing -> mirFail $ "repr(transparent) field index " ++ show idx ++
+                    " out of range for " ++ show (pretty ty) ++ " initializer"
+            transConstVal ty tpr const
+        Nothing -> do
+            let fieldDefs = adt ^. adtvariants . ix 0 . vfields
+            let fieldTys = map (\f -> f ^. fty) fieldDefs
+            exps <- zipWithM (\val ty -> transConstVal ty (tyToRepr col ty) val) fields fieldTys
+            buildStruct adt exps
+
 transConstVal (M.TyAdt aname _ _) _ (ConstEnum variant fields) = do
     adt <- findAdt aname
     let fieldDefs = adt ^. adtvariants . ix variant . vfields
