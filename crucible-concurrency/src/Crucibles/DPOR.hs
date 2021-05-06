@@ -18,7 +18,7 @@ E. That's it! We use clockvectors to quickly compute the happens-before relation
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
-module Crucibles.DPOR (DPOR) where
+module Crucibles.DPOR (DPOR, ppSchedExecutionsDPOR) where
 
 import           Control.Lens
 import           Data.List (intercalate)
