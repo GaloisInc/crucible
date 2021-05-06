@@ -61,15 +61,10 @@ exploreCallback cruxOpts ha outh mkSym =
     (mainHdl, prims, globs, fns) <- mkSym sym
     let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fns emptyExtensionImpl emptyExploration
 
-    let st0  = InitialState simCtx emptyGlobals defaultAbortHandler C.UnitRepr $
+        st0  = InitialState simCtx emptyGlobals defaultAbortHandler C.UnitRepr $
                    runOverrideSim C.UnitRepr (exploreOvr symOnline cruxOpts (regValue <$> callFnVal mainHdl emptyRegMap))
 
-    feats <- case symOnline of
-               Just Crux.SomeOnlineSolver ->
-                 do -- _check <- pathSatisfiabilityFeature sym (considerSatisfiability sym)
-                    return [scheduleFeature prims globs]
-               Nothing ->
-                    return [scheduleFeature prims globs]
+        feats = [scheduleFeature prims globs]
 
     return (Crux.RunnableStateWithExtensions st0 feats, \_ _ -> return mempty)
 

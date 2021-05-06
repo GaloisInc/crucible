@@ -383,13 +383,6 @@ backtrack thId thState =
                    (pure . (Set.singleton pend <>) . fromMaybe mempty)
                _ -> return ()
 
-    -- search e =
-    --   case e ^. eventInfo of
-    --     Read{} -> True
-    --     Write{} -> True
-    --     ThreadSpawn -> e ^. eventThread == thId
-    --     _ -> False
-
 -- | Update vector clocks given a new event: the new event is the new timestamp
 -- for the resources that it mentions.
 updateClocks ::
@@ -408,20 +401,6 @@ updateClocks e =
   where
     rs = eventResource (e ^. eventInfo)
     p  = Thread (e ^. eventThread)
-
--- walkPrevID ::
---   (ScheduleEvent EventInfo -> Bool) ->
---   EventID ->
---   SchedAlgM DPOR EventID
--- walkPrevID stop eid
---   | eid == 0 = return eid
---   | otherwise =
---     do e <- view (exec.event eid)
---        if stop e then
---          return eid
---         else
---          do prev <- view (exec.prevEvent.at eid.to (fromMaybe (error "no parent event in walkPrevID")))
---             walkPrevID stop prev
 
 -- | Given a thread state, turn it into a set of pending threads. This is either
 -- just the threadID + no direction, or both directions of a branch.

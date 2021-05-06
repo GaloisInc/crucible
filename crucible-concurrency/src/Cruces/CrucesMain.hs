@@ -108,7 +108,6 @@ run (cruxOpts, opts) =
   do let ?dpor = not (noDpor opts)
      let ?bound = maxPreemptions opts
      let [fn] = Crux.inputFiles cruxOpts
-     -- Some ng <- newIONonceGenerator
      ha      <- newHandleAllocator
      theInput <- readFile fn
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn (pack theInput) of
@@ -117,7 +116,6 @@ run (cruxOpts, opts) =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-           -- withYicesOnlineBackend FloatRealRepr nonceGen ProduceUnsatCores noFeatures $ \sym -> do
          do let mkSym :: forall s.
                   (IsSymInterface s, IsExprBuilder s) =>
                   s ->
