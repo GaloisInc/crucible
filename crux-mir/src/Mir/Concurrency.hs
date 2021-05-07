@@ -133,7 +133,11 @@ mirRefName t =
              case r of
                MirReference root p ->
                  Text.pack (show root ++ mirPathName p)
-               -- N.B.: I don't think we should ever hit this:
+               -- If std::sys::crux::Mutex becomes zero sized, then we might
+               -- actually hit this case, as the compiler will be free to choose
+               -- any integer to serve as an address. We can probably just get
+               -- away with using this intger as the address, but the results might be
+               -- strange if distinct mutexes are assigned the same address.
                MirReference_Integer t rv ->
                  error "Unexpected MirReference_Integer in mirRefName"
        in (extr <$> refs)
