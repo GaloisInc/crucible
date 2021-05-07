@@ -53,6 +53,15 @@ one of the Crucibles primitives. Next, add a `Match` function to
 
 ### Resource Names
 
+#### Naming Implementation
+
+The way we currently name resources is by turning its `MirReference` value into
+a String. Besides the potential performance drawbacks, this has implications for
+the stability of names across executions, and for how we handle (some) arrays of
+resources.
+
+#### Stable Names
+
 Ideally, it would be possible to assign names to dynamically allocated resources
 such that, along a given control flow path, the same resource has the same name
 across several executions. This is not generally the case, as the `Nonce`s used
@@ -92,3 +101,26 @@ the type in question is `const`, as is the case with `atomic` values. It may
 just be the case that the conversion from `Mir` to `Crucible` needs to add some
 additional elaboration, e.g. after each `new` call, add a call to initialize the
 `id` field.
+
+
+### Vectors of resources
+
+Naively turning a `MirReference` into a string can yield different names for
+syntactically distinct but semantically equivalent resources. That is, given a
+vector `v` of `AtomicUsize`, for example, `v[i]` and `v[j]` have syntactically
+different `MirReference`s when `i` and `j` are symbolic, even if semantically `i
+== j`.
+
+Therefore, at the moment, we simply drop this index component from a resource
+name, if it is present. Thus, accessing `arr[i]` and `arr[j]` will be
+interpreted simply as accessing `arr`.
+
+If `crucible-concurrency` allowed querying a solver to determine if different
+resources are equivalent, then we could more directly reuse the symbolic
+components of a `MirReference`.
+
+Alternatively, it is possible that a combination of source information + clever
+nonce generation could work to solve both this problem and the stable name
+problem by using nonces or a new Intrinsic type as the resource name. An
+advantage of this approach is that we could inspect the Intrinsic's mux tree
+leaves to quickly compute a concrete set of possibly-accessed resources. 

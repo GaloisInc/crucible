@@ -145,7 +145,7 @@ mirPathName p =
     Any_RefPath _ p -> mirPathName p
     Field_RefPath _ p idx -> mirPathName p ++ "." ++ show (indexVal idx)
     Variant_RefPath _ p idx -> mirPathName p ++ "." ++ show (indexVal idx)
-    Index_RefPath _ p idx -> mirPathName p ++ "[]"
+    Index_RefPath _ p idx -> mirPathName p
     Just_RefPath _ p -> mirPathName p
     VectorAsMirVector_RefPath _ p -> mirPathName p
     ArrayAsMirVector_RefPath _ p -> mirPathName p
