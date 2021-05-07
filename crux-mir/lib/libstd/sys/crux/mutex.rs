@@ -26,7 +26,7 @@ impl Mutex {
         // drops, we can enable this assertion to check for (invalid) reentrant locking.
         // assert!(!self.locked.get());
         concurrency::mutex_lock(self);
-        self.locked.set(true); //TODO: Why does this yield an empty mux tree in crux?
+        self.locked.set(true);
     }
     #[inline]
     pub unsafe fn unlock(&self) {
