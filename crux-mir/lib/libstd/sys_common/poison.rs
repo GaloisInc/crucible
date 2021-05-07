@@ -24,7 +24,7 @@ impl Flag {
         { Flag { failed: AtomicBool::new_unmodeled(false) } }
 
         #[cfg(not(feature = "opaque-poison-atomics"))]
-        { Flag { failed: AtomicBool::new_unmodeled(false) } }
+        { Flag { failed: AtomicBool::new(false) } }
     }
 
     #[inline]

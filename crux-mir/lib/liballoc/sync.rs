@@ -822,10 +822,13 @@ impl<T: ?Sized> Arc<T> {
         let inner = mem_to_arcinner(mem.as_ptr());
         debug_assert_eq!(Layout::for_value(&*inner), layout);
 
-        if true {
+        #[cfg(feature = "opaque-arc-atomics")]
+        {
             ptr::write(&mut (*inner).strong, atomic::AtomicUsize::new_unmodeled(1));
             ptr::write(&mut (*inner).weak, atomic::AtomicUsize::new_unmodeled(1));
-        } else {
+        }
+        #[cfg(not(feature = "opaque-arc-atomics"))]
+        {
             ptr::write(&mut (*inner).strong, atomic::AtomicUsize::new(1));
             ptr::write(&mut (*inner).weak, atomic::AtomicUsize::new(1));
         }
