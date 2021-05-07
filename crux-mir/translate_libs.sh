@@ -61,7 +61,7 @@ do
 done
 
 
-if [[ $SHOULD_MODEL_ATOMICS -eq "1" ]]; then
+if [ $SHOULD_MODEL_ATOMICS -eq "1" ]; then
     CONCURRENCY_LIBALLOC_FEATURES=" "
     CONCURRENCY_LIBSTD_FEATURES=" "
 else
