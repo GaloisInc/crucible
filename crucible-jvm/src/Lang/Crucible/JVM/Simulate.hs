@@ -846,8 +846,7 @@ doStaticFieldStore sym jc globals fid val =
     Nothing -> C.addFailedAssertion sym msg
     Just (gvar, _pvar) -> pure (C.insertGlobal gvar val globals)
   where
-    fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
-    msg = C.GenericSimError $ "Static field store: field not found: " ++ fname
+    msg = C.GenericSimError $ "Static field store: field not found: " ++ ppFieldId fid
 
 -- | Set the write permission on a static field. The 'FieldId' must
 -- have already been resolved (see §5.4.3.2 of the JVM spec).
@@ -864,8 +863,10 @@ doStaticFieldWritable sym jc globals fid val =
     Nothing -> C.addFailedAssertion sym msg
     Just (_gvar, pvar) -> pure (C.insertGlobal pvar val globals)
   where
-    fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
-    msg = C.GenericSimError $ "Static field writable: field not found: " ++ fname
+    msg = C.GenericSimError $ "Static field writable: field not found: " ++ ppFieldId fid
+
+ppFieldId :: J.FieldId -> String
+ppFieldId fid = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
 
 -- | Write a value at an index of an array reference.
 doArrayStore ::
