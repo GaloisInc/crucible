@@ -31,18 +31,24 @@ import           Lang.Crucible.JVM.Types
 -- * JVMContext
 
 
-type StaticFieldTable = Map J.FieldId (GlobalVar JVMValueType, GlobalVar BoolType)
+type StaticFieldTable = Map J.FieldId StaticFieldInfo
 type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data JVMHandleInfo where
   JVMHandleInfo :: J.MethodKey -> FnHandle init ret -> JVMHandleInfo
+
+data StaticFieldInfo =
+  StaticFieldInfo
+  { staticFieldValue :: GlobalVar JVMValueType
+  , staticFieldWritable :: GlobalVar BoolType
+  }
 
 -- | Contains information about crucible function handles and global variables
 -- that is statically known during the class translation.
 data JVMContext = JVMContext
   { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
       -- ^ Map from static and dynamic methods to Crucible function handles.
-  , staticFields :: Map J.FieldId (GlobalVar JVMValueType, GlobalVar BoolType)
+  , staticFields :: Map J.FieldId StaticFieldInfo
       -- ^ Map from static field names to Crucible global variables.
       -- Each static field is paired with a permission bit for writability.
       -- We know about these fields at translation time so we can allocate

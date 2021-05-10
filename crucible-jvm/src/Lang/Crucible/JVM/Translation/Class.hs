@@ -364,8 +364,8 @@ getStaticFieldValue rawFieldId =
      initializeClass (J.fieldIdClass fieldId)
      ctx <- gets jsContext
      case Map.lookup fieldId (staticFields ctx) of
-       Just (glob, _) ->
-         do r <- readGlobal glob
+       Just info ->
+         do r <- readGlobal (staticFieldValue info)
             fromJVMDynamic ("getstatic " <> fieldIdText fieldId) (J.fieldIdType fieldId) r
        Nothing ->
          jvmFail $ "getstatic: field " ++ show (fieldIdText fieldId) ++ " not found"
@@ -387,11 +387,11 @@ setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator s ret ()
 setStaticFieldValue fieldId val =
   do ctx <- gets jsContext
      case Map.lookup fieldId (staticFields ctx) of
-       Just (glob, perm) ->
-         do writable <- readGlobal perm
+       Just info ->
+         do writable <- readGlobal (staticFieldWritable info)
             let msg = "putstatic: field " ++ show (fieldIdText fieldId) ++ " not writable"
             assertExpr writable $ fromString msg
-            writeGlobal glob (valueToExpr val)
+            writeGlobal (staticFieldValue info) (valueToExpr val)
        Nothing ->
          jvmFail $ "putstatic: field " ++ show (fieldIdText fieldId) ++ " not found"
 

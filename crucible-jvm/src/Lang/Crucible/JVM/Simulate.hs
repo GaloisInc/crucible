@@ -345,7 +345,7 @@ declareStaticField halloc c m f = do
   let str = fn ++ show (J.fieldType f)
   gvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr JVMValueType)
   pvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr BoolType)
-  return $ Map.insert fieldId (gvar, pvar) m
+  return $ Map.insert fieldId (StaticFieldInfo gvar pvar) m
 
 
 -- | Create the initial 'JVMContext'.
@@ -471,12 +471,14 @@ mkSimSt sym p halloc ctx verbosity ret k =
   do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
      return $ C.InitialState simctx globals C.defaultAbortHandler ret k
   where
-    initField :: J.FieldId -> (GlobalVar JVMValueType, GlobalVar BoolType) -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
-    initField fi (var, perm) m =
+    initField :: J.FieldId -> StaticFieldInfo -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
+    initField fi info m =
       do gs <- m
          z <- zeroValue sym (J.fieldIdType fi)
          let writable = W4.truePred sym -- For crux, default all static fields to writable
-         return (C.insertGlobal perm writable (C.insertGlobal var z gs))
+         let gs1 = C.insertGlobal (staticFieldValue info) z gs
+         let gs2 = C.insertGlobal (staticFieldWritable info) writable gs1
+         pure gs2
 
     simctx = jvmSimContext sym halloc stdout ctx verbosity p
     globals0 = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
@@ -844,7 +846,7 @@ doStaticFieldStore ::
 doStaticFieldStore sym jc globals fid val =
   case Map.lookup fid (staticFields jc) of
     Nothing -> C.addFailedAssertion sym msg
-    Just (gvar, _pvar) -> pure (C.insertGlobal gvar val globals)
+    Just info -> pure (C.insertGlobal (staticFieldValue info) val globals)
   where
     msg = C.GenericSimError $ "Static field store: field not found: " ++ ppFieldId fid
 
@@ -861,7 +863,7 @@ doStaticFieldWritable ::
 doStaticFieldWritable sym jc globals fid val =
   case Map.lookup fid (staticFields jc) of
     Nothing -> C.addFailedAssertion sym msg
-    Just (_gvar, pvar) -> pure (C.insertGlobal pvar val globals)
+    Just info -> pure (C.insertGlobal (staticFieldWritable info) val globals)
   where
     msg = C.GenericSimError $ "Static field writable: field not found: " ++ ppFieldId fid
 
@@ -921,8 +923,8 @@ doStaticFieldLoad ::
 doStaticFieldLoad sym jc globals fid =
   case Map.lookup fid (staticFields jc) of
     Nothing -> C.addFailedAssertion sym msg
-    Just (gvar, _pvar) ->
-      case C.lookupGlobal gvar globals of
+    Just info ->
+      case C.lookupGlobal (staticFieldValue info) globals of
         Nothing -> C.addFailedAssertion sym msg
         Just v -> pure v
   where
