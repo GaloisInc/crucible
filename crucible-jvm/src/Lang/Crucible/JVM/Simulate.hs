@@ -926,8 +926,7 @@ doStaticFieldLoad sym jc globals fid =
         Nothing -> C.addFailedAssertion sym msg
         Just v -> pure v
   where
-    fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
-    msg = C.GenericSimError $ "Static field load: field not found: " ++ fname
+    msg = C.GenericSimError $ "Static field load: field not found: " ++ ppFieldId fid
 
 -- | Read a value at an index of an array reference.
 doArrayLoad ::
