@@ -844,9 +844,7 @@ doStaticFieldStore ::
 doStaticFieldStore sym jc globals fid val =
   case Map.lookup fid (staticFields jc) of
     Nothing -> C.addFailedAssertion sym msg
-    Just (gvar, _pvar) ->
-      do putStrLn $ "doStaticFieldStore " ++ fname
-         pure (C.insertGlobal gvar val globals)
+    Just (gvar, _pvar) -> pure (C.insertGlobal gvar val globals)
   where
     fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
     msg = C.GenericSimError $ "Static field store: field not found: " ++ fname
@@ -864,9 +862,7 @@ doStaticFieldWritable ::
 doStaticFieldWritable sym jc globals fid val =
   case Map.lookup fid (staticFields jc) of
     Nothing -> C.addFailedAssertion sym msg
-    Just (_gvar, pvar) ->
-      do putStrLn $ "doStaticFieldWritable " ++ fname
-         pure (C.insertGlobal pvar val globals)
+    Just (_gvar, pvar) -> pure (C.insertGlobal pvar val globals)
   where
     fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
     msg = C.GenericSimError $ "Static field writable: field not found: " ++ fname
