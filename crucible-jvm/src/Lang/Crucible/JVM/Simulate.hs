@@ -12,6 +12,7 @@ Stability        : provisional
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -343,8 +344,9 @@ declareStaticField halloc c m f = do
   let fn = J.fieldName f
   let fieldId = J.FieldId cn fn (J.fieldType f)
   let str = fn ++ show (J.fieldType f)
-  gvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr JVMValueType)
-  pvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr BoolType)
+  let varname = globalVarName cn str
+  gvar <- C.freshGlobalVar halloc varname (knownRepr :: TypeRepr JVMValueType)
+  pvar <- C.freshGlobalVar halloc (varname <> ".W") (knownRepr :: TypeRepr BoolType)
   return $ Map.insert fieldId (StaticFieldInfo gvar pvar) m
 
 
