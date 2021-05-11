@@ -961,14 +961,16 @@ doAllocateObject ::
   C.HandleAllocator ->
   JVMContext ->
   J.ClassName {- ^ class of object to allocate -} ->
+  (J.FieldId -> Bool) {- ^ which fields are writable -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
-doAllocateObject sym halloc jc cname globals =
+doAllocateObject sym halloc jc cname mut globals =
   do cls <- lookupJVMClassByName sym globals jc cname
      let fieldIds = fieldsOfClassName jc cname
      let pval = W4.justPartExpr sym unassignedJVMValue
      let fields = Map.fromList [ (fieldIdText f, pval) | f <- fieldIds ]
-     let perms = fmap (const (W4.justPartExpr sym ())) fields -- set all fields to writable
+     let unit = W4.justPartExpr sym ()
+     let perms = Map.fromList [ (fieldIdText f, unit) | f <- fieldIds, mut f ]
      let inst = Ctx.Empty Ctx.:> C.RV fields Ctx.:> C.RV perms Ctx.:> C.RV cls
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i1of2 inst)
