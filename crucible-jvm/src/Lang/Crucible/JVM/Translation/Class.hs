@@ -948,17 +948,14 @@ newArray ::
   -> J.Type
   -- ^ type of array array (not of elements)
   -> JVMGenerator s ret (JVMObject s)
-newArray count jty@(J.ArrayType elemType) = do
-  debug 4 $ "new array of type " ++ show jty
-  let nonneg = App (BVSle w32 (App (BVLit w32 (BV.zero w32))) count)
-  assertExpr nonneg "java/lang/NegativeArraySizeException"
-  let val = valueToExpr $ defaultValue elemType
-  let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
-  ty  <- makeJVMTypeRep jty
-  let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ty
-  let arr = App (MkStruct knownRepr ctx)
-  let uobj = injectVariant Ctx.i2of2 arr
-  return $ App (RollRecursive knownRepr knownRepr uobj)
+newArray count jty@(J.ArrayType elemType) =
+  do debug 4 $ "new array of type " ++ show jty
+     let nonneg = App (BVSle w32 (App (BVLit w32 (BV.zero w32))) count)
+     assertExpr nonneg "java/lang/NegativeArraySizeException"
+     let val = valueToExpr $ defaultValue elemType
+     let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
+     mkJVMArrayObject count vec elemType
+
 newArray _count jty = jvmFail $ "newArray: expected array type, got: " ++ show jty
 
 -- | Construct an array of arrays, with initial values determined
@@ -995,21 +992,28 @@ newMultiArray arrType counts = do
 -- | Construct a new array given a vector of initial values
 -- (used for static array initializers).
 newarrayFromVec ::
-  J.Type
-  -- ^ Type of array
-  -> Vector (Expr JVM s JVMValueType)
-  -- ^ Initial values for all array elements
-  -> JVMGenerator s ret (JVMObject s)
-newarrayFromVec aty vec = do
-  debug 4 $ "new arrayFromVec of type " ++ show aty
-  let count = App $ BVLit w32 (BV.mkBV w32 (toInteger (V.length vec)))
-  ty <- makeJVMTypeRep aty
-  let ctx   = Ctx.empty `Ctx.extend` count `Ctx.extend` (App $ VectorLit knownRepr vec) `Ctx.extend` ty
-  let arr   = App (MkStruct knownRepr ctx)
-  let uobj  = injectVariant Ctx.i2of2 arr
-  return $
-    App $ RollRecursive knownRepr knownRepr uobj
+  -- | Type of array
+  J.Type ->
+  -- | Initial values for all array elements
+  Vector (Expr JVM s JVMValueType) ->
+  JVMGenerator s ret (JVMObject s)
+newarrayFromVec aty xs =
+  do debug 4 $ "new arrayFromVec of type " ++ show aty
+     let count = App $ BVLit w32 (BV.mkBV w32 (toInteger (V.length xs)))
+     let vec = App $ VectorLit knownRepr xs
+     mkJVMArrayObject count vec aty
 
+mkJVMArrayObject ::
+  JVMInt s ->
+  Expr JVM s (VectorType JVMValueType) ->
+  J.Type ->
+  JVMGenerator s ret (JVMObject s)
+mkJVMArrayObject count vec aty =
+  do ty <- makeJVMTypeRep aty
+     let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ty
+     let arr = App (MkStruct knownRepr ctx)
+     let uobj = injectVariant Ctx.i2of2 arr
+     pure $ App $ RollRecursive knownRepr knownRepr uobj
 
 -- | Index into an array object.
 arrayIdx :: JVMObject s
