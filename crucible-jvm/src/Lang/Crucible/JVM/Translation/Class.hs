@@ -189,7 +189,16 @@ emptyMethodTable = App (EmptyStringMap knownRepr)
 -- | Add a function handle to the method table.
 -- The function's type must be existentially quantified.
 insertMethodTable :: (JVMString s, Expr JVM s AnyType) -> JVMMethodTable s -> JVMMethodTable s
-insertMethodTable (s, v) sm = App (InsertStringMapEntry knownRepr sm s (App $ JustValue knownRepr v))
+insertMethodTable (s, v) sm = insertJust knownRepr sm s v
+
+insertJust ::
+  TypeRepr tp ->
+  Expr ext s (StringMapType tp) ->
+  Expr ext s (StringType Unicode) ->
+  Expr ext s tp ->
+  Expr ext s (StringMapType tp)
+insertJust tr fs str expr =
+  App (InsertStringMapEntry tr fs str (App (JustValue tr expr)))
 
 --
 -- | Update the jvm class table to include an entry for the specified class.
@@ -240,7 +249,7 @@ initializeJVMClass c  = do
   -- update the dynamic class table
   let gv         = dynamicClassTable ctx
   sm <- readGlobal gv
-  let expr = App $ InsertStringMapEntry knownRepr sm className (App $ JustValue knownRepr str)
+  let expr = insertJust knownRepr sm className str
   writeGlobal gv expr
   return str
 
@@ -351,7 +360,7 @@ setInitStatus c status = do
   sm <- readGlobal gv
   let name  = classNameExpr (J.className c)
   let entry' = setJVMClassInitStatus entry status
-  writeGlobal gv (App $ InsertStringMapEntry knownRepr sm name (App $ JustValue knownRepr entry'))
+  writeGlobal gv (insertJust knownRepr sm name entry')
 
 ----------------------------------------------------------------------
 
@@ -818,10 +827,8 @@ newInstanceInstr cls fieldIds = do
     createField fieldId = do
       let str  = App (StringLit (UnicodeLiteral (fieldIdText fieldId)))
       let expr = valueToExpr (defaultValue (J.fieldIdType fieldId))
-      let val  = App $ JustValue knownRepr expr
-      return (str, val)
-    addField (f,i) fs =
-      App (InsertStringMapEntry knownRepr fs f i)
+      return (str, expr)
+    addField (f,i) fs = insertJust knownRepr fs f i
 
 -- | Given a 'J.FieldId' from a field get or set instruction, consult
 -- the JVM context to determine the class where the field was actually
@@ -862,12 +869,11 @@ getInstanceFieldValue obj fieldId =
 setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator s ret (JVMObject s)
 setInstanceFieldValue obj fieldId val =
   do let dyn  = valueToExpr val
-     let mdyn = App (JustValue knownRepr dyn)
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      inst <- projectVariant "setfield: expected class instance" Ctx.i1of2 uobj
      let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
      key <- fieldIdKey <$> resolveField fieldId
-     let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
+     let fields' = insertJust knownRepr fields key dyn
      let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
      let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
      return $ App (RollRecursive knownRepr knownRepr uobj')
