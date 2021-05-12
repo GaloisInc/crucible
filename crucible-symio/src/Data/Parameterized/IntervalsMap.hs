@@ -46,6 +46,7 @@ module Data.Parameterized.IntervalsMap
   , mapMIntersecting
   , fromList
   , toList
+  , empty
   , IM.Interval(..)
   , mergeIntervalsF
   , mergeWithM

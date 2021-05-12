@@ -12,6 +12,7 @@ common shared
   build-depends:       base >=4.12 && <4.15,
                        ansi-wl-pprint,
                        bv-sized,
+                       bytestring,
                        crucible,
                        containers,
                        IntervalMap,

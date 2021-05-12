@@ -21,6 +21,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.SymIO.Types
@@ -34,6 +35,7 @@ module Lang.Crucible.SymIO.Types
   , FileIdent
   , FileIdentType
   , FileSystem(..)
+  , muxFileSystem
   , FileSystemType
   , FileSystemIndex
   , pattern FileSystemRepr
@@ -41,7 +43,6 @@ module Lang.Crucible.SymIO.Types
   , FileType
   , muxFile
   , DataChunk
-  , DataChunkType
   , SizedDataChunk
   , SizedDataChunkType
   )
@@ -53,11 +54,13 @@ import           GHC.TypeNats
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Context
 import           Data.Parameterized.Classes
+import           Data.Parameterized.NatRepr
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
+import           Lang.Crucible.Utils.MuxTree
 
 import           What4.Interface
 import qualified What4.CachedArray as CA
@@ -75,7 +78,7 @@ symIOIntrinsicTypes = id
 type FileIdent sym = RegValue sym FileIdentType
 
 -- | The crucible-level type of 'FileIdent'
-type FileIdentType = StringType Unicode
+type FileIdentType = StringType Char8
 
 -- | The crucible-level type of 'FileSystem'
 type FileSystemType w = IntrinsicType "VFS_filesystem" (EmptyCtx ::> BVType w)
@@ -86,9 +89,9 @@ data FileSystem sym w =
     {
       fsPtrSize :: NatRepr w
     , fsFileNames :: RegValue sym (StringMapType (FileType w))
-    -- ^ map from concrete file names to identifiers
-    , fsFileSizes :: SymArray sym (EmptyCtx ::> BaseIntegerType) (BaseBVType w)
-    -- ^ a symbolic map from file identifiers to their size
+    -- ^ map from concrete file identifiers to files
+    , fsFileSizes :: CA.CachedArray sym (EmptyCtx ::> BaseIntegerType) (BaseBVType w)
+    -- ^ a symbolic map from files to their size
     , fsSymData :: CA.CachedArray sym (EmptyCtx ::> BaseBVType w ::> BaseIntegerType) (BaseBVType 8)
     -- ^ array representing symbolic file contents
     , fsConstraints :: forall a. ((IsSymInterface sym, 1 <= w) => a) -> a
@@ -97,15 +100,24 @@ data FileSystem sym w =
 -- | A base index into the filesystem, consistent of a file identifier and an offset into that file.
 type FileSystemIndex sym w = Assignment (SymExpr sym) (EmptyCtx ::> BaseBVType w ::> BaseIntegerType)
 
+muxFileSystem ::
+  IsSymInterface sym =>
+  sym ->
+  Pred sym ->
+  FileSystem sym w ->
+  FileSystem sym w ->
+  IO (FileSystem sym w)
+muxFileSystem sym p fsT fsF = do
+  symData <- CA.muxArrays sym p (fsSymData fsT) (fsSymData fsF)
+  symFiles <- muxStringMap sym (muxFile sym) p (fsFileNames fsT) (fsFileNames fsF)
+  symFileSizes <- CA.muxArrays sym p (fsFileSizes fsT) (fsFileSizes fsF)
+  return $ fsT { fsSymData  = symData, fsFileNames = symFiles, fsFileSizes = symFileSizes }
+
 instance (IsSymInterface sym) => IntrinsicClass sym "VFS_filesystem" where
   type Intrinsic sym "VFS_filesystem" (EmptyCtx ::> BVType w) = FileSystem sym w
 
-  muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) p fs1 fs2 = do
-    symData <- CA.muxArrays sym p (fsSymData fs1) (fsSymData fs2)
-    symFiles <- muxStringMap sym (muxFile sym) p (fsFileNames fs1) (fsFileNames fs2)
-    symFileSizes <- baseTypeIte sym p (fsFileSizes fs1) (fsFileSizes fs2)
-    return $ fs1 { fsSymData  = symData, fsFileNames = symFiles, fsFileSizes = symFileSizes }
-  muxIntrinsic _ _ nm ctx _ _ _ = typeError nm ctx
+  muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxFileSystem sym
+  muxIntrinsic _ _ nm ctx = \_ _ _ -> typeError nm ctx
 
 pattern FileSystemRepr :: () => (1 <= w, ty ~ FileSystemType w) => NatRepr w -> TypeRepr ty
 pattern FileSystemRepr w <- IntrinsicRepr (testEquality (knownSymbol :: SymbolRepr "VFS_filesystem") -> Just Refl)
@@ -174,8 +186,17 @@ muxFilePointer sym p (FilePointer f1 off1) (FilePointer f2 off2) =
      off <- bvIte sym p off1 off2
      return $ FilePointer b off
 
-type DataChunkType w = SymbolicArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
-type DataChunk sym w = SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
+
+type DataChunk sym w = CA.ArrayChunk sym (BaseBVType w) (BaseBVType 8)
+
+-- type DataChunkType w = SymbolicArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
+-- type DataChunk sym w = SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
+
+
+-- pattern DataChunkRepr w <-
+--   SymbolicArrayRepr (Empty :> BaseBVRepr w) (BaseBVRepr (testEquality (knownNat @8) -> Just Refl))
+--   where
+--     DataChunkRepr w = SymbolicArrayRepr (Empty :> BaseBVRepr w) (BaseBVRepr (knownNat @8))
 
 
 type SizedDataChunkType w = SymbolicStructType (EmptyCtx ::> BaseArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8) ::> BaseBVType w)
