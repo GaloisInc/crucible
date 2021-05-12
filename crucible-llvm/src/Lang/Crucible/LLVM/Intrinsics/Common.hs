@@ -22,6 +22,7 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , SomeLLVMOverride(..)
   , RegOverrideM
   , llvmSizeT
+  , llvmSSizeT
   , OverrideTemplate(..)
   , TemplateMatcher(..)
     -- ** register_llvm_override
@@ -91,6 +92,10 @@ data SomeLLVMOverride p sym =
 -- | Convenient LLVM representation of the @size_t@ type.
 llvmSizeT :: HasPtrWidth wptr => L.Type
 llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
+
+-- | Convenient LLVM representation of the @ssize_t@ type.
+llvmSSizeT :: HasPtrWidth wptr => L.Type
+llvmSSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
 data OverrideTemplate p sym arch rtp l a =
   OverrideTemplate

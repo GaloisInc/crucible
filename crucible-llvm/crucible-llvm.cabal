@@ -82,7 +82,6 @@ library
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.QQ
-    Lang.Crucible.LLVM.Run
     Lang.Crucible.LLVM.SymIO
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Aliases
