@@ -11,7 +11,6 @@ module Crux.SVCOMP where
 
 import           Config.Schema
 import           Control.Applicative
-import           Control.Monad
 import qualified Data.Attoparsec.Text as Atto
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -91,8 +90,6 @@ data ComputedVerdict
 data BenchmarkSet =
   BenchmarkSet
   { benchmarkName :: Text
-  , benchmarkDescription :: Text
-  , benchmarkArchWidth   :: Maybe Int
   , benchmarkTasks :: [VerificationTask]
   }
  deriving (Show,Eq,Ord)
@@ -109,11 +106,20 @@ data SVCompProperty
   | CoverageFQL Text
  deriving (Show,Eq,Ord)
 
+data SVCompLanguage
+  = C CDataModel
+  | Java
+ deriving (Show,Eq,Ord)
+
+data CDataModel = ILP32 | LP64
+ deriving (Show,Eq,Ord)
+
 data VerificationTask =
   VerificationTask
   { verificationSourceFile :: FilePath
   , verificationInputFiles :: [FilePath]
   , verificationProperties :: [(SVCompProperty, Maybe Bool)]
+  , verificationLanguage   :: SVCompLanguage
   }
  deriving (Show,Eq,Ord)
 
@@ -152,31 +158,6 @@ propParse = Atto.skipSpace *> Atto.choice
   , Atto.string "COVER(" *> coverParse <* ")"
   ]
 
-cfgParse :: Atto.Parser (Text, Maybe Int)
-cfgParse =
-  do d <- parseDesc
-     arch <- (Just <$> parseArch) <|> return Nothing
-     return (d, arch)
- where
- sp = Atto.skipWhile Atto.isHorizontalSpace
-
- parseDesc =
-   do void $ Atto.string "Description:"
-      sp
-      d <- Atto.takeTill Atto.isEndOfLine
-      Atto.endOfLine
-      return d
-
- parseArch =
-   do void $ Atto.string "Architecture:"
-      sp
-      w <- Atto.decimal
-      sp
-      void $ Atto.string "bit"
-      sp
-      Atto.endOfLine
-      return w
-
 loadVerificationTask :: FilePath -> IO VerificationTask
 loadVerificationTask fp =
    Yaml.decodeFileEither fp >>= \case
@@ -186,8 +167,8 @@ loadVerificationTask fp =
  decodeVT :: Yaml.Value -> IO VerificationTask
  decodeVT (Yaml.Object o) =
   do case HM.lookup "format_version" o of
-       Just (Yaml.String "1.0") -> return ()
-       _ -> fail $ unwords ["Expected verification task version 1.0 while parsing", show fp]
+       Just (Yaml.String "2.0") -> return ()
+       _ -> fail $ unwords ["Expected verification task version 2.0 while parsing", show fp]
 
      fs <- case HM.lookup "input_files" o of
              Just v -> getStrs v
@@ -197,10 +178,15 @@ loadVerificationTask fp =
              Just v -> getProps v
              Nothing -> fail $ unwords ["No 'properties' section while parsing", show fp]
 
+     lang <- case HM.lookup "options" o of
+               Just v -> getLang v
+               Nothing -> fail $ unwords ["No 'options' section while parsing", show fp]
+
      return VerificationTask
             { verificationSourceFile = fp
             , verificationInputFiles = fs
             , verificationProperties = ps
+            , verificationLanguage   = lang
             }
  decodeVT v = fail $ unwords ["Expected Yaml object but got:", show v, "when parsing", show fp]
 
@@ -239,6 +225,19 @@ loadVerificationTask fp =
  getProps (Yaml.Array xs) = mapM getProp (V.toList xs)
  getProps _v = fail $ unwords ["expected property array in 'properties' section when parsing", show fp]
 
+ getLang (Yaml.Object o) =
+   case HM.lookup "language" o of
+     Just (Yaml.String "C")    -> getCDataModel o
+     Just (Yaml.String "Java") -> return Java
+     _ -> fail $ unwords ["expected 'C' or 'Java' in 'language' while parsing", show fp]
+
+ getLang _v = fail $ unwords ["expected object in 'options' section when parsing", show fp]
+
+ getCDataModel o =
+   case HM.lookup "data_model" o of
+     Just (Yaml.String "ILP32") -> return (C ILP32)
+     Just (Yaml.String "LP64")  -> return (C LP64)
+     _ -> fail $ unwords ["expected 'ILP32' or 'LP64' in 'data_model' while parsing", show fp]
 
 compilePats :: [Text] -> [Glob.Pattern]
 compilePats xs =
@@ -252,32 +251,28 @@ loadBenchmarkSet :: FilePath -> IO BenchmarkSet
 loadBenchmarkSet fp =
   do let dir  = takeDirectory fp
          base = takeBaseName fp
-         cfg  = dir </> base <> ".cfg"
          set  = dir </> base <> ".set"
 
-     (desc, arch) <- either fail return =<< (Atto.parseOnly cfgParse <$> Text.readFile cfg)
      pats <- compilePats . Text.lines <$> Text.readFile set
      fs <- concat <$> Glob.globDir pats dir
      tasks <- mapM loadVerificationTask fs
 
      return BenchmarkSet
             { benchmarkName = Text.pack base
-            , benchmarkDescription = desc
-            , benchmarkArchWidth = arch
             , benchmarkTasks = tasks
             }
 
 
-type TaskMap = Map (VerificationTask, Maybe Int) [BenchmarkSet]
+type TaskMap = Map VerificationTask [BenchmarkSet]
 
 -- | There is significant overlap between the various verification tasks found in
 --   different benchmark sets in the SV-COMP repository.  This operation collects
 --   together all the potentially duplicated tasks found in a collection of benchmark sets
 --   and places them in a map, ensuring there is at most one reference to each one.
---   The task and it's assumed architecture width are the keys of the map;
---   the benchmark set(s) that referenced a given task are stored in the elements the map.
+--   The tasks are the keys of the map; the benchmark set(s) that referenced a given task
+--   are stored in the elements the map.
 deduplicateTasks :: [BenchmarkSet] -> TaskMap
 deduplicateTasks = Map.unionsWith (++) . map f
   where
   f bs = Map.fromList
-           [ ((t, benchmarkArchWidth bs), [bs]) | t <- benchmarkTasks bs ]
+           [ (t, [bs]) | t <- benchmarkTasks bs ]
