@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering::SeqCst;
  * NO path merging. Hence, we need to explore an exponential number of
  * executions due to the branch in the for-loop in find_entries.
  */
-const ARRAYSIZE:usize = 10;
+const ARRAYSIZE:usize = 6;
 const NUM_THREADS:usize = 2;
 
 const iterations:usize = ARRAYSIZE/NUM_THREADS;
