@@ -658,7 +658,7 @@ getObjectType obj =
   {
     onJust = \inst -> do
       -- this is an instance object, access its class reference
-      let cls = App (GetStruct inst Ctx.i2of2 knownRepr)
+      let cls = App (GetStruct inst Ctx.i3of3 knownRepr)
       -- return a new class type based on that
       return $ makeClassTypeRep cls
 
@@ -807,28 +807,25 @@ getAllFields cls = do
       supFlds <- getAllFields supCls
       return (supFlds ++ (map (mkFieldId cls) (J.classFields cls)))
 
--- | Construct a new JVM object instance, given the class data structure
--- and the list of fields. The fields will be initialized with the
--- default values, according to their types.
+-- | Construct a new JVM object instance, given the class data
+-- structure and the list of fields. The fields will be initialized
+-- with the default values, according to their types. All fields are
+-- set to writable.
 newInstanceInstr ::
-  JVMClass s
-  -- ^ class data structure
-  ->  [J.FieldId]
-  -- ^ Fields
-  ->  JVMGenerator s ret (JVMObject s)
-newInstanceInstr cls fieldIds = do
-    objFields <- mapM createField fieldIds
-    let strMap = foldr addField (App (EmptyStringMap knownRepr)) objFields
-    let ctx    = Ctx.empty `Ctx.extend` strMap `Ctx.extend` cls
-    let inst   = App (MkStruct knownRepr ctx)
-    let uobj   = injectVariant Ctx.i1of2 inst
-    return $ App (RollRecursive knownRepr knownRepr uobj)
+  JVMClass s {- ^ class data structure -} ->
+  [J.FieldId] {- ^ fields -} ->
+  JVMGenerator s ret (JVMObject s)
+newInstanceInstr cls fieldIds =
+  do let strMap = foldr addField (App (EmptyStringMap knownRepr)) fieldIds
+     let wrMap = foldr addWritable (App (EmptyStringMap knownRepr)) fieldIds
+     let ctx = Ctx.empty `Ctx.extend` strMap `Ctx.extend` wrMap `Ctx.extend` cls
+     let inst = App (MkStruct knownRepr ctx)
+     let uobj = injectVariant Ctx.i1of2 inst
+     pure $ App (RollRecursive knownRepr knownRepr uobj)
   where
-    createField fieldId = do
-      let str  = App (StringLit (UnicodeLiteral (fieldIdText fieldId)))
-      let expr = valueToExpr (defaultValue (J.fieldIdType fieldId))
-      return (str, expr)
-    addField (f,i) fs = insertJust knownRepr fs f i
+    addField fid fs = insertJust knownRepr fs (fieldIdKey fid) expr
+      where expr = valueToExpr (defaultValue (J.fieldIdType fid))
+    addWritable fid fs = insertJust knownRepr fs (fieldIdKey fid) (App EmptyApp)
 
 -- | Given a 'J.FieldId' from a field get or set instruction, consult
 -- the JVM context to determine the class where the field was actually
@@ -859,22 +856,27 @@ getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator s ret (JVMValu
 getInstanceFieldValue obj fieldId =
   do let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      inst <- projectVariant "getfield: expected class instance" Ctx.i1of2 uobj
-     let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+     let fields = App (GetStruct inst Ctx.i1of3 knownRepr)
      key <- fieldIdKey <$> resolveField fieldId
      let mval = App (LookupStringMapEntry knownRepr fields key)
      dyn <- assertedJustExpr mval "Field not present"
      fromJVMDynamic ("getfield " <> fieldIdText fieldId) (J.fieldIdType fieldId) dyn
 
--- | Update a field of a JVM object (must be a class instance, not an array).
+-- | Update a field of a JVM object (must be a class instance, not an
+-- array). The field's write permission bit is asserted to be set.
 setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator s ret (JVMObject s)
 setInstanceFieldValue obj fieldId val =
   do let dyn  = valueToExpr val
      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      inst <- projectVariant "setfield: expected class instance" Ctx.i1of2 uobj
-     let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+     let fields = App (GetStruct inst Ctx.i1of3 knownRepr)
+     let perms = App (GetStruct inst Ctx.i2of3 knownRepr)
      key <- fieldIdKey <$> resolveField fieldId
+     let writable = App (LookupStringMapEntry knownRepr perms key)
+     let msg = "putfield: field " <> fieldIdText fieldId <> " not writable"
+     _ <- assertedJustExpr writable (App (StringLit (UnicodeLiteral msg)))
      let fields' = insertJust knownRepr fields key dyn
-     let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
+     let inst' = App (SetStruct knownRepr inst Ctx.i1of3 fields')
      let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
      return $ App (RollRecursive knownRepr knownRepr uobj')
 
@@ -883,7 +885,7 @@ getJVMInstanceClass :: JVMObject s -> JVMGenerator s ret (JVMClass s)
 getJVMInstanceClass obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
   inst <- projectVariant "invokeinterface: expected class instance" Ctx.i1of2 uobj
-  return $ App (GetStruct inst Ctx.i2of2 knownRepr)
+  return $ App (GetStruct inst Ctx.i3of3 knownRepr)
 
 
 ------------------------------------------------------------------------------

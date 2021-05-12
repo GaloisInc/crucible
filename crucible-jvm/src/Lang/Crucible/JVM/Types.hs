@@ -164,10 +164,16 @@ type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
 
 -- ** Objects and Arrays
 
--- | A class instance contains a table of fields
--- and an (immutable) pointer to the class (object).
+-- | A class instance contains a table of fields, a write permission
+-- bit for each field, and an (immutable) pointer to the class
+-- (object).
 type JVMInstanceType =
-  StructType (EmptyCtx ::> StringMapType JVMValueType ::> JVMClassType)
+  StructType (
+    EmptyCtx
+    ::> StringMapType JVMValueType
+    ::> StringMapType UnitType
+    ::> JVMClassType
+  )
 
 -- | An array value is a length, a vector of values,
 -- and an element type.

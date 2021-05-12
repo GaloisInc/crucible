@@ -814,6 +814,7 @@ doAppJVM sym =
 
 -- | Write a value to a field of an object reference. The 'FieldId'
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
+-- The writability permission of the field is not checked.
 doFieldStore ::
   IsSymInterface sym =>
   sym ->
@@ -828,9 +829,9 @@ doFieldStore sym globals ref fid val =
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field store: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
-     let tab = C.unRV (inst Ctx.! Ctx.i1of2)
+     let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let tab' = Map.insert (fieldIdText fid) (W4.justPartExpr sym val) tab
-     let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of2) (C.RV tab') inst
+     let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of3) (C.RV tab') inst
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
@@ -908,7 +909,7 @@ doFieldLoad sym globals ref fid =
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field load: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
-     let tab = C.unRV (inst Ctx.! Ctx.i1of2)
+     let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let msg3 = C.GenericSimError $ "Field load: field not found: " ++ J.fieldIdName fid
      let key = fieldIdText fid
      C.readPartExpr sym (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
@@ -967,7 +968,8 @@ doAllocateObject sym halloc jc cname globals =
      let fieldIds = fieldsOfClassName jc cname
      let pval = W4.justPartExpr sym unassignedJVMValue
      let fields = Map.fromList [ (fieldIdText f, pval) | f <- fieldIds ]
-     let inst = Ctx.Empty Ctx.:> C.RV fields Ctx.:> C.RV cls
+     let perms = fmap (const (W4.justPartExpr sym ())) fields -- set all fields to writable
+     let inst = Ctx.Empty Ctx.:> C.RV fields Ctx.:> C.RV perms Ctx.:> C.RV cls
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i1of2 inst)
      ref <- C.freshRefCell halloc objectRepr

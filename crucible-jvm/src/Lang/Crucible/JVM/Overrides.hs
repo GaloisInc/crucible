@@ -432,8 +432,8 @@ instance Concretize JVMArrayType where
 instance Concretize JVMInstanceType where
   type Concrete JVMInstanceType = (Map Text (Maybe CValue), CClass)
   concretize (C.RV x) = do
-    let (C.RV sm)  = x Ctx.! Ctx.i1of2
-    let cls' = x Ctx.! Ctx.i2of2
+    let (C.RV sm) = x Ctx.! Ctx.i1of3
+    let cls' = x Ctx.! Ctx.i3of3
     (sm1 :: Map Text (Maybe CValue)) <-
       traverse (\mv -> foldr (\a b -> (concretize @JVMValueType . C.RV) a) (return Nothing) mv) sm
     (cc  :: Maybe CClass) <- concretize @JVMClassType cls'
