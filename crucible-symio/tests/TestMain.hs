@@ -34,10 +34,9 @@ import           Data.Parameterized.Some
 import qualified Data.Parameterized.Nonce as N
 import qualified Data.Parameterized.NatRepr as NR
 
-import qualified Data.Text as Text
 
-import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
+import qualified Data.ByteString as BS
 
 import qualified Data.BitVector.Sized as BVS
 
@@ -49,10 +48,10 @@ import qualified Lang.Crucible.Backend as CB
 import qualified Lang.Crucible.CFG.Core as CC
 import qualified Lang.Crucible.Types as CT
 import qualified Lang.Crucible.Simulator as CS
+import qualified Lang.Crucible.Simulator.OverrideSim as CSO
 import qualified Lang.Crucible.FunctionHandle as CFH
 import qualified Lang.Crucible.Simulator.GlobalState as CGS
 
-import qualified What4.Concrete as W4
 import qualified What4.Interface as W4
 import qualified What4.Expr.Builder as W4B
 import qualified What4.Config as W4C
@@ -84,61 +83,31 @@ runFSTest :: FSTest wptr -> IO ()
 runFSTest fsTest = do
   Some gen <- N.newIONonceGenerator
   sym <- CB.newSimpleBackend W4B.FloatRealRepr gen
-  runFSTest' gen sym fsTest
+  runFSTest' sym fsTest
+
+tobs :: [Integer] -> BS.ByteString
+tobs is = BS.pack (map fromIntegral is)
 
 runFSTest' ::
   forall sym wptr t st fs.
   (sym ~ W4B.ExprBuilder t st fs) =>
   CB.IsSymInterface sym =>
   ShowF (W4.SymExpr sym) =>
-  N.NonceGenerator IO t ->
   sym ->
   FSTest wptr ->
   IO ()
-runFSTest' gen sym (FSTest fsTest) = do
+runFSTest' sym (FSTest fsTest) = do
   let config = W4.getConfiguration sym
   W4C.extendConfig W4Y.yicesOptions config
   let
     nRepr = NR.knownNat @wptr
-    ptrRepr = W4.BaseBVRepr nRepr
-    bvLit i = W4.bvLit sym nRepr (BVS.mkBV nRepr i)
-    concEntry (file, addr, val) = do
-      valByte <- W4.bvLit sym (NR.knownNat @8) (BVS.mkBV (NR.knownNat @8) val)
-      return $ (Ctx.empty Ctx.:> W4.ConcreteBV nRepr (BVS.mkBV nRepr addr) Ctx.:> W4.ConcreteInteger file, valByte)
-  
-  sizesArr <- W4.freshConstant sym W4.emptySymbol (W4.BaseArrayRepr (Ctx.empty Ctx.:> W4.BaseIntegerRepr) ptrRepr) 
-  zero <- W4.intLit sym 0
-  one <- W4.intLit sym 1
-  threeBV <- bvLit 3
-  fourBV <- bvLit 4
-  
-  sizesArr_1 <- W4.arrayUpdate sym sizesArr (Ctx.empty Ctx.:> zero) threeBV
-  sizesArr_2 <- W4.arrayUpdate sym sizesArr_1 (Ctx.empty Ctx.:> one) fourBV
 
-  -- start with some concrete file contents
-  entries <- Map.fromList <$> mapM concEntry [ (0, 0, 0), (0, 1, 1), (0, 2, 2), (1, 0, 3), (1, 1, 4), (1, 2, 5), (1, 3, 6)  ]
-  initArray <- CA.initArrayConcrete sym gen W4.knownRepr entries
-  
-  let
-    mkFile :: (Text.Text, Integer) -> IO (Text.Text, W4.PartExpr (W4.Pred sym) (SymIO.File sym wptr))
-    mkFile (nm, i) = do
-        e <- W4.intLit sym i
-        return $ (nm, W4.justPartExpr sym (SymIO.File nRepr e))
-        
-  files <- Map.fromList <$> mapM mkFile [("test0", 0), ("test1", 1)]
-  let
-    fs = SymIO.FileSystem
-           { SymIO.fsPtrSize = nRepr
-           , SymIO.fsFileNames = files
-           , SymIO.fsFileSizes = sizesArr_2
-           , SymIO.fsSymData = initArray
-           , SymIO.fsConstraints = id
-           }
+  fs <- SymIO.initFS sym nRepr [] [("test0", tobs [0,1,2]), ("test1", tobs [3,4,5,6])]
   halloc <- CFH.newHandleAllocator
   fsvar <- CC.freshGlobalVar halloc "fileSystem" (SymIO.FileSystemRepr nRepr)
   
   let    
-    initCtx = CS.initSimContext sym SymIO.symIOIntrinsicTypes halloc IO.stderr CFH.emptyHandleMap CS.emptyExtensionImpl ()
+    initCtx = CS.initSimContext sym SymIO.symIOIntrinsicTypes halloc IO.stderr (CSO.fnBindingsFromList []) CS.emptyExtensionImpl ()
     globals = CGS.insertGlobal fsvar fs CS.emptyGlobals
     cont = CS.runOverrideSim CT.UnitRepr (fsTest fsvar)
     initState = CS.InitialState initCtx globals CS.defaultAbortHandler CT.UnitRepr cont
@@ -170,7 +139,7 @@ proveGoal sym adapter (CB.ProofGoal asms goal) = do
     asmPreds = asms ^.. traverse . CB.labeledPred 
     goalPred = goal ^. CB.labeledPred 
   notgoal <- W4.notPred sym goalPred
-  WSA.solver_adapter_check_sat adapter sym WSA.defaultLogData (notgoal:asmPreds) $ \sr ->
+  WSA.solver_adapter_check_sat adapter sym WSA.defaultLogData(notgoal:asmPreds) $ \sr ->
     case sr of
       W4R.Unsat _ -> return ()
       W4R.Unknown -> T.assertFailure "Inconclusive"
@@ -195,7 +164,7 @@ readOne ::
   SymIO.FileHandle sym wptr ->
   CS.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
 readOne fsVar fhdl = do
-  mval <- SymIO.readByte fsVar fhdl
+  mval <- SymIO.readByte' fsVar fhdl
   sym <- CS.getSymInterface
   liftIO $ CB.readPartExpr sym mval (CS.AssertFailureSimError "readOne" "readOne")
 
@@ -204,30 +173,28 @@ readFromChunk ::
   SymIO.DataChunk sym wptr ->
   W4.SymBV sym wptr ->
   CS.OverrideSim p sym arch r args ret (W4.SymBV sym 8)
-readFromChunk chunk bv = do
-  sym <- CS.getSymInterface
-  liftIO $ W4.arrayLookup sym chunk (Ctx.empty Ctx.:> bv)
+readFromChunk chunk bv = liftIO $ CA.evalChunk chunk bv
 
 testConcReads :: FSTest 32
 testConcReads = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
-  test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
-  test0FileHandle <- SymIO.openFile fsVar test0_name
+  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test0")
+  test0FileHandle <- SymIO.openFile' fsVar test0_name
   byte0_0 <- readOne fsVar test0FileHandle
   byte0_1 <- readOne fsVar test0FileHandle
 
   expect byte0_0 0
   expect byte0_1 1
 
-  test1_name <-  liftIO $  W4.stringLit sym (W4.UnicodeLiteral "test1")
-  test1FileHandle <- SymIO.openFile fsVar test1_name
+  test1_name <-  liftIO $  W4.stringLit sym (W4.Char8Literal "test1")
+  test1FileHandle <- SymIO.openFile' fsVar test1_name
   zero <- mkbv 0
   one <- mkbv 1
   two <- mkbv 2
   three <- mkbv 3
   
   byte1_0 <- readOne fsVar test1FileHandle
-  (chunk_1_1to3, _) <- SymIO.readArray fsVar test1FileHandle three
+  (chunk_1_1to3, _) <- SymIO.readChunk' fsVar test1FileHandle three
 
   byte1_1 <- readFromChunk chunk_1_1to3 zero
   byte1_2 <- readFromChunk chunk_1_1to3 one
@@ -303,7 +270,7 @@ maybeSeekOne fsVar fhdl = do
   sym <- CS.getSymInterface
   b <- liftIO $ W4.freshConstant sym W4.emptySymbol W4.BaseBoolRepr
   args <- CS.getOverrideArgs
-  CS.symbolicBranch b args (SymIO.readByte fsVar fhdl >> return b) Nothing args (return b) Nothing
+  CS.symbolicBranch b args (SymIO.readByte' fsVar fhdl >> return b) Nothing args (return b) Nothing
 
 -- Nondeterministically seeking, but with a mux join
 maybeSeekOne' ::
@@ -334,17 +301,17 @@ neither sym p1 p2 = do
 testOverlappingWritesSingle :: FSTest 32
 testOverlappingWritesSingle = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
-  test1_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test1")
+  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test1")
   
-  test1FileHandle <- SymIO.openFile fsVar test1_name
+  test1FileHandle <- SymIO.openFile' fsVar test1_name
   seek_1 <- maybeSeekOne' fsVar test1FileHandle
   eight <- mkbv 8
-  SymIO.writeByte fsVar test1FileHandle eight
+  SymIO.writeByte' fsVar test1FileHandle eight
 
-  test1FileHandle2 <- SymIO.openFile fsVar test1_name
+  test1FileHandle2 <- SymIO.openFile' fsVar test1_name
   seek_2 <- maybeSeekOne' fsVar test1FileHandle2
   nine <- mkbv 9
-  SymIO.writeByte fsVar test1FileHandle2 nine
+  SymIO.writeByte' fsVar test1FileHandle2 nine
 
   mkCases2 fsVar "test1" seek_1 seek_2
     (3, 9, 5, 6)
@@ -357,22 +324,22 @@ testOverlappingWritesSingle = FSTest $ \fsVar -> do
 testOverlappingWritesRange :: FSTest 32
 testOverlappingWritesRange = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
-  test1_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test1")
+  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test1")
   
-  test1FileHandle <- SymIO.openFile fsVar test1_name
+  test1FileHandle <- SymIO.openFile' fsVar test1_name
   seek_1 <- maybeSeekOne' fsVar test1FileHandle
   (chunk_8_9, two) <- mkConcreteChunk [8,9]
   
-  SymIO.writeArray fsVar test1FileHandle chunk_8_9 two
+  _ <- SymIO.writeChunk' fsVar test1FileHandle chunk_8_9 two
 
   mkCases1 fsVar "test1" seek_1
     (3, 8, 9, 6)
     (8, 9, 5, 6)
 
-  test1FileHandle2 <- SymIO.openFile fsVar test1_name
+  test1FileHandle2 <- SymIO.openFile' fsVar test1_name
   (chunk_10_11, _) <- mkConcreteChunk [10,11]
   seek_2 <- maybeSeekOne' fsVar test1FileHandle2
-  SymIO.writeArray fsVar test1FileHandle2 chunk_10_11 two
+  _ <- SymIO.writeChunk' fsVar test1FileHandle2 chunk_10_11 two
   
   mkCases2 fsVar "test1" seek_1 seek_2
     (3, 10, 11, 6)
@@ -398,42 +365,45 @@ testEOF :: FSTest 32
 testEOF = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
   let err = CS.AssertFailureSimError "expect EOF" "expect EOF"
-  test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
-  fhdl <- SymIO.openFile fsVar test0_name
+  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test0")
+  fhdl <- SymIO.openFile' fsVar test0_name
   _ <- readOne fsVar fhdl
   _ <- readOne fsVar fhdl
   _ <- readOne fsVar fhdl
-  eof <- SymIO.readByte fsVar fhdl
+  eof <- SymIO.readByte' fsVar fhdl
   assertNone eof err
   isOpen <- SymIO.isHandleOpen fsVar fhdl
-  assertNot isOpen err
+  liftIO $ CB.assert sym isOpen err
 
-  fhdl2 <- SymIO.openFile fsVar test0_name
+  fhdl2 <- SymIO.openFile' fsVar test0_name
   _ <- readOne fsVar fhdl2
   three <- mkbv 3
   zero <- mkbv 0
   one <- mkbv 1
 
-  (chunk_2to3, readBytes) <- SymIO.readArray fsVar fhdl2 three
+  (chunk_2to3, readBytes) <- SymIO.readChunk' fsVar fhdl2 three
   expect readBytes 2
   byte_2 <- readFromChunk chunk_2to3 zero
   byte_3 <- readFromChunk chunk_2to3 one
 
   expect byte_2 1
   expect byte_3 2
+  (_, readBytes2) <- SymIO.readChunk' fsVar fhdl2 three
+  expect readBytes2 0
+
   isOpen2 <- SymIO.isHandleOpen fsVar fhdl2
-  assertNot isOpen2 err
-  fhdl3 <- SymIO.openFile fsVar test0_name
-  SymIO.closeFileHandle fsVar fhdl3
+  liftIO $ CB.assert sym isOpen2 err
+  fhdl3 <- SymIO.openFile' fsVar test0_name
+  SymIO.closeFileHandle' fsVar fhdl3
   isOpen3 <- SymIO.isHandleOpen fsVar fhdl3
   assertNot isOpen3 err
 
-  fhdl4 <- SymIO.openFile fsVar test0_name
-  SymIO.writeByte fsVar fhdl4 =<< mkbv 8
-  SymIO.writeByte fsVar fhdl4 =<< mkbv 9
-  SymIO.writeByte fsVar fhdl4 =<< mkbv 10
-  SymIO.writeByte fsVar fhdl4 =<< mkbv 11
-  eof' <- SymIO.readByte fsVar fhdl4
+  fhdl4 <- SymIO.openFile' fsVar test0_name
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 8
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 9
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 10
+  SymIO.writeByte' fsVar fhdl4 =<< mkbv 11
+  eof' <- SymIO.readByte' fsVar fhdl4
   assertNone eof' err
 
   mkCase fsVar "test0" (8, 9, 10, 11)
@@ -470,10 +440,10 @@ getSomeFile fsVar = do
   sym <- CS.getSymInterface
   b <- liftIO $ W4.freshConstant sym W4.emptySymbol W4.BaseBoolRepr
   args <- CS.getOverrideArgs
-  test0_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test0")
-  test1_name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral "test1")
+  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test0")
+  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test1")
   
-  CS.symbolicBranch b args (SymIO.openFile fsVar test0_name) Nothing args (SymIO.openFile fsVar test1_name) Nothing
+  CS.symbolicBranch b args (SymIO.openFile' fsVar test0_name) Nothing args (SymIO.openFile' fsVar test1_name) Nothing
 
 getSomeFile' ::
   forall sym wptr p arch r args ret.
@@ -501,7 +471,8 @@ mkConcreteChunk bytes = do
   arr <- liftIO $ W4.freshConstant sym W4.emptySymbol W4.knownRepr
   sz <- mkbv (fromIntegral $ length bytes)
   arr' <- foldM go arr (zip [0..] bytes)
-  return (arr', sz)
+  chunk <- liftIO $ CA.arrayToChunk sym arr'
+  return (chunk, sz)
   where
     go ::
       W4.SymArray sym (Ctx.EmptyCtx Ctx.::> W4.BaseBVType wptr) (W4.BaseBVType 8) ->
@@ -518,7 +489,7 @@ mkCase ::
   CB.IsSymInterface sym =>
   1 <= wptr =>
   CS.GlobalVar (SymIO.FileSystemType wptr) ->
-  Text.Text ->
+  BS.ByteString ->
   (Integer, Integer, Integer, Integer) ->
   CS.OverrideSim p sym arch r args ret ()
 mkCase fsVar nm case_ = do
@@ -530,7 +501,7 @@ mkCases1 ::
   CB.IsSymInterface sym =>
   1 <= wptr =>
   CS.GlobalVar (SymIO.FileSystemType wptr) ->
-  Text.Text ->
+  BS.ByteString ->
   W4.Pred sym ->
   (Integer, Integer, Integer, Integer) ->
   (Integer, Integer, Integer, Integer) ->
@@ -544,7 +515,7 @@ mkCases2 ::
   CB.IsSymInterface sym =>
   1 <= wptr =>
   CS.GlobalVar (SymIO.FileSystemType wptr) ->
-  Text.Text ->
+  BS.ByteString ->
   W4.Pred sym ->
   W4.Pred sym ->
   (Integer, Integer, Integer, Integer) ->
@@ -554,8 +525,8 @@ mkCases2 ::
   CS.OverrideSim p sym arch r args ret ()
 mkCases2 fsVar nm seek_1 seek_2 case1 case2 case3 case4 = do
   sym <- CS.getSymInterface
-  name <- liftIO $ W4.stringLit sym (W4.UnicodeLiteral nm)
-  fhdl <- SymIO.openFile fsVar name
+  name <- liftIO $ W4.stringLit sym (W4.Char8Literal nm)
+  fhdl <- SymIO.openFile' fsVar name
   byte1 <- readOne fsVar fhdl
   byte2 <- readOne fsVar fhdl
   byte3 <- readOne fsVar fhdl
