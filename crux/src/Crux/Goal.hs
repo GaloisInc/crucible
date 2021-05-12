@@ -171,6 +171,19 @@ updateProcessedGoals _ (NotProved _ (Just _)) pgs =
 updateProcessedGoals _ (NotProved _ Nothing) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs }
 
+progressPrinters ::
+  Logs =>
+  Goals a b ->
+  IO (Integer -> IO (), IO (), IO ())
+progressPrinters goals =
+  if view quiet ?outputConfig then
+    return (\_ -> return (), return (), return ())
+  else if ?outputForIDE then
+    return (sayIDE "Crux" . ("Started goal " ++) . show, return (), return ())
+  else
+    prepStatus "Checking: " (countGoals goals)
+
+
 -- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
 --
 -- This function traverses the 'Goals' tree while keeping track of a collection
@@ -187,7 +200,7 @@ updateProcessedGoals _ (NotProved _ Nothing) pgs =
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
 proveGoalsOffline :: forall st sym p asmp t fs personality
-                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs, HasModel personality)
+                   . (Logs, sym ~ ExprBuilder t st fs, HasModel personality)
                   => [WS.SolverAdapter st]
                   -> CruxOptions
                   -> SimCtxt personality sym p
@@ -197,11 +210,7 @@ proveGoalsOffline :: forall st sym p asmp t fs personality
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
 proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0 0)
-  (start,end,finish) <-
-     if view quiet ?outputConfig then
-       return (\_ -> return (), return (), return ())
-     else
-       prepStatus "Checking: " (countGoals gs0)
+  (start,end,finish) <- progressPrinters gs0
   gs <- go (start,end) goalNum [] gs0
   nms <- readIORef goalNum
   finish
@@ -332,7 +341,7 @@ proveGoalsOnline ::
   , goalSym ~ OnlineBackend s goalSolver fs
   , OnlineSolver goalSolver
   , HasModel personality
-  , ?outputConfig :: OutputConfig
+  , Logs
   ) =>
   goalSym ->
   CruxOptions ->
@@ -349,11 +358,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
        sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
-     (start,end,finish) <-
-       if view quiet ?outputConfig then
-         return (\_ -> return (), return (), return ())
-       else
-         prepStatus "Checking: " (countGoals gs0)
+     (start,end,finish) <- progressPrinters gs0
 
      -- make sure online features are enabled
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)

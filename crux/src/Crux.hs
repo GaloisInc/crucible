@@ -154,19 +154,23 @@ loadOptions outCfg nm ver config cont =
      case opts of
        Cfg.ShowHelp ->
           do let ?outputConfig = outCfg
+             let ?outputForIDE = False
              showHelp nm optSpec
              exitSuccess
        Cfg.ShowVersion ->
           do let ?outputConfig = outCfg
+             let ?outputForIDE = False
              showVersion nm ver
              exitSuccess
        Cfg.Options (crux, os) files ->
           do let ?outputConfig = outCfg & quiet %~ (|| quietMode crux)
+             let ?outputForIDE = outputForIDE crux
              crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
              cont (crux', os)
 
  `Ex.catch` \(e :: Ex.SomeException) ->
    do let ?outputConfig = outCfg
+      let ?outputForIDE = False
       case (Ex.fromException e :: Maybe ExitCode) of
         Just exitCode -> exitWith exitCode
         Nothing -> sayFail "Crux" (Ex.displayException e) >> exitFailure
@@ -441,6 +445,7 @@ withOutputConfig ::
   a
 withOutputConfig outCfg opts k = k
  where ?outputConfig = outCfg & quiet %~ (|| (quietMode opts))
+       ?outputForIDE = outputForIDE opts
 
 -- | Parse through all of the user-provided options and start up the verification process
 --
@@ -589,6 +594,11 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
       let ctx = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
+        let goalsList = proofGoalsToList todo
+        sayIDE "Crux" ("Goal count: " ++ show (length goalsList))
+        forM_ goalsList $ \ goal -> do
+          sayIDE "Crux" (show (view labeledPred (proofGoal goal)))
+          sayIDE "Crux" (show (view labeledPredMsg (proofGoal goal)))
         when (isJust todo) $
           say "Crux" "Attempting to prove verification conditions."
         (nms, proved) <- goalProver cruxOpts ctx explainFailure todo
@@ -629,7 +639,7 @@ printFailedGoals opts (CruxSimulationResult _cmpl allGls)
   where
   printFailed (AtLoc _ _ gls) = printFailed gls
   printFailed (Branch gls1 gls2) = printFailed gls1 >> printFailed gls2
-  printFailed (Goal _asmps _goal _trivial (Proved _)) = return () 
+  printFailed (Goal _asmps _goal _trivial (Proved _)) = return ()
   printFailed (Goal _asmps (err, _msg) _trivial (NotProved ex mdl))
     | skipIncompleteReports opts
     , SimError _ (ResourceExhausted _) <- err

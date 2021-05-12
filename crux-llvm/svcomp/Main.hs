@@ -310,6 +310,7 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task inpBCFile 
       let cruxOpts' = cruxOpts { outDir = taskRoot, inputFiles = inputs }
 
       let ?outputConfig = OutputConfig False writeHdl writeHdl False
+      let ?outputForIDE = False
 
       mres <- try $
                do res <- Crux.runSimulator cruxOpts' (simulateLLVMFile inpBCFile llvmOpts)

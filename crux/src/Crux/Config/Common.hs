@@ -147,6 +147,10 @@ data CruxOptions = CruxOptions
 
   , printFailures            :: Bool
     -- ^ Print errors regarding failed verification goals
+
+  , outputForIDE :: Bool
+    -- ^ Whether to format the output to be machine-readable
+
   }
 
 
@@ -279,6 +283,10 @@ cruxOptions = Config
             "If true, stop attempting to prove goals as soon as one of them is disproved"
 
           onlineProblemFeatures <- pure noFeatures
+
+          outputForIDE <-
+            section "output-for-ide" yesOrNoSpec False
+            "Format the output to be machine-readable"
 
           pure CruxOptions { .. }
 
@@ -422,6 +430,11 @@ cruxOptions = Config
          ++ " i.e. one of [real|ieee|uninterpreted|default]. "
          ++ "Default representation is solver specific: [cvc4|yices]=>real, z3=>ieee.")
         $ ReqArg "FPREP" $ \v opts -> Right opts { floatMode = map toLower v }
+
+      , Option [] ["output-for-ide"]
+        ("Format the output to be machine-readable")
+        $ NoArg $ \opts -> Right opts { outputForIDE = True }
+
       ]
   }
 

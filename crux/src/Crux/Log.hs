@@ -5,7 +5,7 @@ module Crux.Log (
   Logs,
   OutputConfig(..), showColors, outputHandle, errorHandle, defaultOutputConfig, quiet,
   -- * Performing output
-  say, sayOK, sayWarn, sayFail, output, outputLn
+  say, sayOK, sayWarn, sayFail, output, outputLn, sayIDE
   ) where
 
 import Control.Exception (bracket_)
@@ -14,7 +14,10 @@ import Control.Lens
 import System.Console.ANSI
 import System.IO
 
-type Logs = (?outputConfig :: OutputConfig)
+type Logs =
+  ( ?outputConfig :: OutputConfig
+  , ?outputForIDE :: Bool
+  )
 
 -- | Global options for Crux's main. These are not CruxOptions because
 -- they are expected to be set directly by main, rather than by a
@@ -60,21 +63,26 @@ outputColored c msg =
        else output msg
 
 sayOK :: Logs => String -> String -> IO ()
-sayOK = sayCol Green
+sayOK = sayCol (Just Green)
 
 sayWarn :: Logs => String -> String -> IO ()
-sayWarn = sayCol Yellow
+sayWarn = sayCol (Just Yellow)
 
 sayFail :: Logs => String -> String -> IO ()
-sayFail = sayCol Red
+sayFail = sayCol (Just Red)
 
 say :: Logs => String -> String -> IO ()
-say x y
-  | view quiet ?outputConfig = return ()
+say = sayCol Nothing
+
+sayIDE :: Logs => String -> String -> IO ()
+sayIDE x y
+  | not ?outputForIDE = return ()
   | otherwise = outputLn ("[" ++ x ++ "] " ++ y)
 
-sayCol :: Logs => Color -> String -> String -> IO ()
-sayCol col x y =
-  do output "["
-     outputColored col x
-     outputLn ("] " ++ y)
+sayCol :: Logs => Maybe Color -> String -> String -> IO ()
+sayCol col x y
+  | view quiet ?outputConfig || ?outputForIDE = return ()
+  | otherwise =
+    do output "["
+       maybe outputLn outputColored col x
+       outputLn ("] " ++ y)
