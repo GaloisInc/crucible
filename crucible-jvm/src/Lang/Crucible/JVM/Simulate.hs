@@ -12,6 +12,7 @@ Stability        : provisional
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -343,8 +344,10 @@ declareStaticField halloc c m f = do
   let fn = J.fieldName f
   let fieldId = J.FieldId cn fn (J.fieldType f)
   let str = fn ++ show (J.fieldType f)
-  gvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr JVMValueType)
-  return $ Map.insert fieldId gvar m
+  let varname = globalVarName cn str
+  gvar <- C.freshGlobalVar halloc varname (knownRepr :: TypeRepr JVMValueType)
+  pvar <- C.freshGlobalVar halloc (varname <> ".W") (knownRepr :: TypeRepr BoolType)
+  return $ Map.insert fieldId (StaticFieldInfo gvar pvar) m
 
 
 -- | Create the initial 'JVMContext'.
@@ -470,11 +473,14 @@ mkSimSt sym p halloc ctx verbosity ret k =
   do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
      return $ C.InitialState simctx globals C.defaultAbortHandler ret k
   where
-    initField :: J.FieldId -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
-    initField fi var m =
+    initField :: J.FieldId -> StaticFieldInfo -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
+    initField fi info m =
       do gs <- m
          z <- zeroValue sym (J.fieldIdType fi)
-         return (C.insertGlobal var z gs)
+         let writable = W4.truePred sym -- For crux, default all static fields to writable
+         let gs1 = C.insertGlobal (staticFieldValue info) z gs
+         let gs2 = C.insertGlobal (staticFieldWritable info) writable gs1
+         pure gs2
 
     simctx = jvmSimContext sym halloc stdout ctx verbosity p
     globals0 = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
@@ -829,7 +835,8 @@ doFieldStore sym globals ref fid val =
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
 -- | Write a value to a static field of a class. The 'FieldId' must
--- have already been resolved (see §5.4.3.2 of the JVM spec).
+-- have already been resolved (see §5.4.3.2 of the JVM spec). Note
+-- that the writability permission of the field is not checked.
 doStaticFieldStore ::
   IsSymInterface sym =>
   sym ->
@@ -841,12 +848,29 @@ doStaticFieldStore ::
 doStaticFieldStore sym jc globals fid val =
   case Map.lookup fid (staticFields jc) of
     Nothing -> C.addFailedAssertion sym msg
-    Just gvar ->
-      do putStrLn $ "doStaticFieldStore " ++ fname
-         pure (C.insertGlobal gvar val globals)
+    Just info -> pure (C.insertGlobal (staticFieldValue info) val globals)
   where
-    fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
-    msg = C.GenericSimError $ "Static field store: field not found: " ++ fname
+    msg = C.GenericSimError $ "Static field store: field not found: " ++ ppFieldId fid
+
+-- | Set the write permission on a static field. The 'FieldId' must
+-- have already been resolved (see §5.4.3.2 of the JVM spec).
+doStaticFieldWritable ::
+  IsSymInterface sym =>
+  sym ->
+  JVMContext ->
+  C.SymGlobalState sym ->
+  J.FieldId ->
+  W4.Pred sym ->
+  IO (C.SymGlobalState sym)
+doStaticFieldWritable sym jc globals fid val =
+  case Map.lookup fid (staticFields jc) of
+    Nothing -> C.addFailedAssertion sym msg
+    Just info -> pure (C.insertGlobal (staticFieldWritable info) val globals)
+  where
+    msg = C.GenericSimError $ "Static field writable: field not found: " ++ ppFieldId fid
+
+ppFieldId :: J.FieldId -> String
+ppFieldId fid = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
 
 -- | Write a value at an index of an array reference.
 doArrayStore ::
@@ -901,13 +925,12 @@ doStaticFieldLoad ::
 doStaticFieldLoad sym jc globals fid =
   case Map.lookup fid (staticFields jc) of
     Nothing -> C.addFailedAssertion sym msg
-    Just gvar ->
-      case C.lookupGlobal gvar globals of
+    Just info ->
+      case C.lookupGlobal (staticFieldValue info) globals of
         Nothing -> C.addFailedAssertion sym msg
         Just v -> pure v
   where
-    fname = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
-    msg = C.GenericSimError $ "Static field load: field not found: " ++ fname
+    msg = C.GenericSimError $ "Static field load: field not found: " ++ ppFieldId fid
 
 -- | Read a value at an index of an array reference.
 doArrayLoad ::
