@@ -1,0 +1,2 @@
+Failure for sv-benchmarks/c/pthread/stack-2.cbl:33:5: error: in pop
+Underflow!

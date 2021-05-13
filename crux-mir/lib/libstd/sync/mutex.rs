@@ -174,6 +174,10 @@ impl<T> Mutex<T> {
         }
         m
     }
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn crucible_TEMP_unlock(&self) {
+        unsafe { sys::raw(&self.inner).unlock() }
+    }
 }
 
 impl<T: ?Sized> Mutex<T> {

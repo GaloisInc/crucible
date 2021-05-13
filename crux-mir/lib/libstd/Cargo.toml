@@ -48,6 +48,7 @@ wasi = { version = "0.9.0", features = ['rustc-dep-of-std'], default-features = 
 
 [features]
 default = ["std_detect_file_io", "std_detect_dlsym_getauxval"]
+opaque-poison-atomics = []
 
 backtrace = [
   "backtrace_rs/dbghelp",          # backtrace/symbolize on MSVC

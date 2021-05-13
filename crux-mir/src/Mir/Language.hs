@@ -8,8 +8,10 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -83,6 +85,11 @@ import Crux.Types
 import Crux.Log
 
 
+-- concurrency
+import Crucibles.DPOR
+import Crucibles.Explore
+import Cruces.ExploreCrux
+
 -- crux-mir
 import           Mir.Mir
 import           Mir.DefId
@@ -94,6 +101,7 @@ import           Mir.Generator
 import           Mir.Generate (generateMIR, translateMIR)
 import           Mir.Trans (transStatics)
 import           Mir.TransTy
+import           Mir.Concurrency
 
 main :: IO ()
 main = mainWithOutputConfig defaultOutputConfig noExtraOverrides >>= exitWith
@@ -109,16 +117,28 @@ mainWithOutputConfig :: OutputConfig -> BindExtraOverridesFn -> IO ExitCode
 mainWithOutputConfig outCfg bindExtra =
     Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTestsWithExtraOverrides bindExtra
 
-type BindExtraOverridesFn = forall sym t st fs args ret blocks rtp a r.
-    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
+type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
+    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>
     Maybe (Crux.SomeOnlineSolver sym) ->
     CollectionState ->
     Text ->
     C.CFG MIR blocks args ret ->
-    Maybe (C.OverrideSim (Model sym) sym MIR rtp a r ())
+    Maybe (C.OverrideSim (p sym) sym MIR rtp a r ())
 
 noExtraOverrides :: BindExtraOverridesFn
 noExtraOverrides _ _ _ _ = Nothing
+
+-- | This closes over the Crucible 'personality' parameter, allowing us to select between
+-- normal execution over Models and concurrent exeuctions that use an Exploration
+-- personality.
+data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
+  forall personality.
+  HasModel personality =>
+    SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
+                , testFeatures :: [C.ExecutionFeature (personality sym) sym MIR (C.RegEntry sym ty)]
+                , testPersonality :: personality sym
+                }
+
 
 runTests :: (Crux.Logs) =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
@@ -184,8 +204,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (Model sym) sym MIR rtp a r ()
+    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>
+            Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (p sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
                 case bindExtra symOnline (mir ^. rmCS) fn cfg of
@@ -209,51 +229,87 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     -- that calls `simTest`.  Counterexamples are printed separately, and only
     -- for tests that failed.
 
+    let ?bound = 0
+    let simTestBody :: forall sym p t st fs.
+            ( C.IsSymInterface sym
+            , sym ~ W4.ExprBuilder t st fs
+            , Crux.Logs
+            , HasModel p
+            ) =>
+            Maybe (Crux.SomeOnlineSolver sym) ->
+            DefId ->
+            Fun p sym MIR Ctx.EmptyCtx C.UnitType
+        simTestBody symOnline fnName =
+          do linkOverrides symOnline
+             _ <- C.callCFG staticInitCfg C.emptyRegMap
+
+             -- Label the current path for later use
+             sym <- C.getSymInterface
+             liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
+                 C.ExploringAPath entry (Just $ testStartLoc fnName)
+
+             -- Find and run the target function
+             C.AnyCFG cfg <- case Map.lookup (idText fnName) cfgMap of
+                 Just x -> return x
+                 Nothing -> fail $ "couldn't find cfg for " ++ show fnName
+             let hf = C.cfgHandle cfg
+             Refl <- failIfNotEqual (C.handleArgTypes hf) Ctx.Empty $
+                 "test function " ++ show fnName ++ " should not take arguments"
+             resTy <- case List.find (\fn -> fn ^. fname == fnName) (col ^. functions) of
+                 Just fn -> return $ fn^.fsig.fsreturn_ty
+                 Nothing -> fail $ "couldn't find return type for " ++ show fnName
+             res <- C.callCFG cfg C.emptyRegMap
+
+             -- The below are silenced when concurrency is enabled: too much output!
+             -- TODO: think about if/how to present this information when concurrency
+             -- is enabled.
+             when (not (concurrency mirOpts) && printResultOnly mirOpts) $ do
+                 str <- showRegEntry @sym col resTy res
+                 liftIO $ outputLn str
+
+             when (not (concurrency mirOpts) && not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
+                 str <- showRegEntry @sym col resTy res
+                 liftIO $ output $ "returned " ++ str ++ ", "
+
+    let printTest :: DefId -> Fun p sym ext args C.UnitType
+        printTest fnName =
+          when (not $ printResultOnly mirOpts) $
+            liftIO $ output $ "test " ++ show fnName ++ ": "
+
     let simTest :: forall sym t st fs.
-            (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, Crux.Logs) =>
-            Maybe (Crux.SomeOnlineSolver sym) -> DefId -> Fun Model sym MIR Ctx.EmptyCtx C.UnitType
-        simTest symOnline fnName = do
-            when (not $ printResultOnly mirOpts) $
-                liftIO $ output $ "test " ++ show fnName ++ ": "
+            ( C.IsSymInterface sym
+            , sym ~ W4.ExprBuilder t st fs
+            , Crux.Logs
+            ) =>
+            Maybe (Crux.SomeOnlineSolver sym) ->
+            DefId ->
+            SomeTestOvr sym Ctx.EmptyCtx C.UnitType
+        simTest symOnline fnName
+          | concurrency mirOpts = SomeTestOvr
+            { testOvr = do printTest fnName
+                           exploreOvr symOnline cruxOpts $ simTestBody symOnline fnName
+            , testFeatures = [scheduleFeature mirExplorePrimitives []]
+            , testPersonality = emptyExploration @DPOR
+            }
+          | otherwise = SomeTestOvr
+            { testOvr = do printTest fnName
+                           simTestBody symOnline fnName
+            , testFeatures = []
+            , testPersonality = Crux.emptyModel
+            }
 
-            linkOverrides symOnline
-            _ <- C.callCFG staticInitCfg C.emptyRegMap
-
-            -- Label the current path for later use
-            sym <- C.getSymInterface
-            liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
-                C.ExploringAPath entry (Just $ testStartLoc fnName)
-
-            -- Find and run the target function
-            C.AnyCFG cfg <- case Map.lookup (idText fnName) cfgMap of
-                Just x -> return x
-                Nothing -> fail $ "couldn't find cfg for " ++ show fnName
-            let hf = C.cfgHandle cfg
-            Refl <- failIfNotEqual (C.handleArgTypes hf) Ctx.Empty $
-                "test function " ++ show fnName ++ " should not take arguments"
-            resTy <- case List.find (\fn -> fn ^. fname == fnName) (col ^. functions) of
-                Just fn -> return $ fn^.fsig.fsreturn_ty
-                Nothing -> fail $ "couldn't find return type for " ++ show fnName
-            res <- C.callCFG cfg C.emptyRegMap
-
-            when (printResultOnly mirOpts) $ do
-                str <- showRegEntry @sym col resTy res
-                liftIO $ outputLn str
-
-            when (not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
-                str <- showRegEntry @sym col resTy res
-                liftIO $ output $ "returned " ++ str ++ ", "
-
-    let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline -> do
-            let outH = view outputHandle ?outputConfig
-            setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
-            let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
-                    (C.FnBindings C.emptyHandleMap) mirExtImpl Crux.emptyModel
-            return (Crux.RunnableState $
-                    C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
-                     C.runOverrideSim C.UnitRepr $ simTest symOnline fnName
-                   , \_ _ -> return mempty
-                   )
+    let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline ->
+          case simTest symOnline fnName of
+            SomeTestOvr testFn features personality -> do
+              let outH = view outputHandle ?outputConfig
+              setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
+              let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
+                      (C.FnBindings C.emptyHandleMap) mirExtImpl personality
+              return (Crux.RunnableStateWithExtensions
+                      (C.InitialState simCtx C.emptyGlobals C.defaultAbortHandler C.UnitRepr $
+                       C.runOverrideSim C.UnitRepr $ testFn) features
+                     , \_ _ -> return mempty
+                     )
 
     let outputResult (CruxSimulationResult cmpl (fmap snd -> gls))
           | disproved > 0 = output "FAILED"
@@ -336,6 +392,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
         return ExitSuccess
 
 
+
+
 data MIROptions = MIROptions
     { onlyPP       :: Bool
     , printCrucible :: Bool
@@ -345,6 +403,9 @@ data MIROptions = MIROptions
     -- concrete programs, this should normally produce the exact same output as
     -- `rustc prog.rs && ./prog`.
     , printResultOnly :: Bool
+    -- | Generate test overrides that recognize concurrency primitives
+    -- and attempt to explore all interleaving executions
+    , concurrency :: Bool
     , testFilter   :: Maybe Text
     , cargoTestFile :: Maybe FilePath
     , defaultRlibsDir :: FilePath
@@ -360,6 +421,7 @@ defaultMirOptions = MIROptions
     , printCrucible = False
     , showModel = False
     , assertFalse = False
+    , concurrency = False
     , printResultOnly = False
     , testFilter = Nothing
     , cargoTestFile = Nothing
@@ -390,6 +452,10 @@ mirConfig = Crux.Config
         , GetOpt.Option [] ["assert-false-on-error"]
             "when translation fails, assert false in output and keep going"
             (GetOpt.NoArg (\opts -> Right opts { assertFalse = True }))
+
+        , GetOpt.Option [] ["concurrency"]
+            "run with support for concurrency primitives"
+            (GetOpt.NoArg (\opts -> Right opts { concurrency = True }))
 
         , GetOpt.Option []  ["test-filter"]
             "run only tests whose names contain this string"

@@ -29,6 +29,7 @@ library
                  time,
                  unordered-containers,
                  crucible,
+                 crucible-concurrency,
                  parameterized-utils >= 1.0.8,
                  containers,
                  lens,
@@ -65,6 +66,7 @@ library
                    Mir.PP
                    Mir.Generate
                    Mir.DefId
+                   Mir.Concurrency
                    Mir.FancyMuxTree
                    Mir.Intrinsics
                    Mir.Overrides

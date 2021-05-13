@@ -1,0 +1,2 @@
+Failure for sv-benchmarks/c/pthread/stateful01-1.cbl:36:5: error: in main
+This fails
