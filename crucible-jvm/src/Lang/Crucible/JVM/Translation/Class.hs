@@ -666,7 +666,7 @@ getObjectType obj =
       -- must be an array object
       let marr = App $ ProjectVariant knownRepr Ctx.i2of2 unr
       arr <- assertedJustExpr marr "must be instance or array"
-      return $ App $ GetStruct arr Ctx.i3of3 knownRepr
+      return $ App $ GetStruct arr Ctx.i4of4 knownRepr
   }
 
 
@@ -1010,7 +1010,9 @@ mkJVMArrayObject ::
   JVMGenerator s ret (JVMObject s)
 mkJVMArrayObject count vec aty =
   do ty <- makeJVMTypeRep aty
-     let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ty
+     let w = App (BoolLit True) -- new arrays default to writable
+     let ws = App (VectorReplicate knownRepr (App (BvToNat w32 count)) w)
+     let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ws `Ctx.extend` ty
      let arr = App (MkStruct knownRepr ctx)
      let uobj = injectVariant Ctx.i2of2 arr
      pure $ App $ RollRecursive knownRepr knownRepr uobj
@@ -1021,11 +1023,11 @@ arrayIdx :: JVMObject s
   -> JVMInt s
   -- ^ index into the array
   -> JVMGenerator s ret (Expr JVM s JVMValueType)
-arrayIdx obj idx = do
-     let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+arrayIdx obj idx =
+  do let uobj = App (UnrollRecursive knownRepr knownRepr obj)
      let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
      arr <- assertedJustExpr marr "array index: not a valid array"
-     let vec = App (GetStruct arr Ctx.i2of3 knownRepr)
+     let vec = App (GetStruct arr Ctx.i2of4 knownRepr)
      -- TODO: assert 0 <= idx < length arr
      let val = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
      return val
@@ -1039,10 +1041,13 @@ arrayUpdate obj idx val = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
   let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
   arr <- assertedJustExpr marr "array update: not a valid array"
-  let vec = App (GetStruct arr Ctx.i2of3 knownRepr)
+  let ws = App (GetStruct arr Ctx.i3of4 knownRepr)
+  let writable = App (VectorGetEntry knownRepr ws (App (BvToNat w32 idx)))
+  assertExpr writable "astore: array not writable"
+  let vec = App (GetStruct arr Ctx.i2of4 knownRepr)
      -- TODO: assert 0 <= idx < length arr
   let vec' = App (VectorSetEntry knownRepr vec (App (BvToNat w32 idx)) val)
-  let arr' = App (SetStruct knownRepr arr Ctx.i2of3 vec')
+  let arr' = App (SetStruct knownRepr arr Ctx.i2of4 vec')
   let uobj' = App (InjectVariant knownRepr Ctx.i2of2 arr')
   let obj' = App (RollRecursive knownRepr knownRepr uobj')
   return obj'
@@ -1053,7 +1058,7 @@ arrayLength obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
   let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
   arr <- assertedJustExpr marr "array length: not a valid array"
-  let len = App (GetStruct arr Ctx.i1of3 knownRepr)
+  let len = App (GetStruct arr Ctx.i1of4 knownRepr)
   return len
 
 

@@ -873,7 +873,8 @@ doStaticFieldWritable sym jc globals fid val =
 ppFieldId :: J.FieldId -> String
 ppFieldId fid = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
 
--- | Write a value at an index of an array reference.
+-- | Write a value at an index of an array reference. The write
+-- permission bit is not checked.
 doArrayStore ::
   IsSymInterface sym =>
   sym ->
@@ -888,9 +889,9 @@ doArrayStore sym globals ref idx val =
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Object is not an array"
      arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
-     let vec = C.unRV (arr Ctx.! Ctx.i2of3)
+     let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let vec' = vec V.// [(idx, val)]
-     let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of3) (C.RV vec') arr
+     let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of4) (C.RV vec') arr
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
@@ -947,7 +948,7 @@ doArrayLoad sym globals ref idx =
      -- TODO: define a 'projectVariant' function in the OverrideSim monad
      let msg2 = C.GenericSimError "Array load: object is not an array"
      arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
-     let vec = C.unRV (arr Ctx.! Ctx.i2of3)
+     let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let msg3 = C.GenericSimError $ "Array load: index out of bounds: " ++ show idx
      case vec V.!? idx of
        Just val -> return val
@@ -985,13 +986,15 @@ doAllocateArray ::
   sym ->
   C.HandleAllocator ->
   JVMContext -> Int {- ^ array length -} -> J.Type {- ^ element type -} ->
+  (Int -> Bool) {- ^ per-index writability -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
-doAllocateArray sym halloc jc len elemTy globals =
+doAllocateArray sym halloc jc len elemTy mut globals =
   do len' <- liftIO $ W4.bvLit sym w32 (BV.mkBV w32 (toInteger len))
      let vec = V.replicate len unassignedJVMValue
      rep <- makeJVMTypeRep sym globals jc elemTy
-     let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV rep
+     let ws = V.generate len (W4.backendPred sym . mut)
+     let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV ws Ctx.:> C.RV rep
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i2of2 arr)
      ref <- C.freshRefCell halloc objectRepr

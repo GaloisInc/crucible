@@ -175,10 +175,16 @@ type JVMInstanceType =
     ::> JVMClassType
   )
 
--- | An array value is a length, a vector of values,
--- and an element type.
+-- | An array value is a length, a vector of values, a vector of write
+-- permission bits, and an element type.
 type JVMArrayType =
-  StructType (EmptyCtx ::> JVMIntType ::> VectorType JVMValueType ::> JVMTypeRepType)
+  StructType (
+    EmptyCtx
+    ::> JVMIntType
+    ::> VectorType JVMValueType
+    ::> VectorType BoolType
+    ::> JVMTypeRepType
+  )
 
 -- | An object is either a class instance or an array.
 type JVMObjectImpl =
