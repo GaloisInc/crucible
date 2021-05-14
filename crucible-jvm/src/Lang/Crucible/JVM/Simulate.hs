@@ -814,6 +814,7 @@ doAppJVM sym =
 
 -- | Write a value to a field of an object reference. The 'FieldId'
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
+-- The writability permission of the field is not checked.
 doFieldStore ::
   IsSymInterface sym =>
   sym ->
@@ -828,9 +829,9 @@ doFieldStore sym globals ref fid val =
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field store: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
-     let tab = C.unRV (inst Ctx.! Ctx.i1of2)
+     let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let tab' = Map.insert (fieldIdText fid) (W4.justPartExpr sym val) tab
-     let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of2) (C.RV tab') inst
+     let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of3) (C.RV tab') inst
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
@@ -872,7 +873,8 @@ doStaticFieldWritable sym jc globals fid val =
 ppFieldId :: J.FieldId -> String
 ppFieldId fid = J.unClassName (J.fieldIdClass fid) ++ "." ++ J.fieldIdName fid
 
--- | Write a value at an index of an array reference.
+-- | Write a value at an index of an array reference. The write
+-- permission bit is not checked.
 doArrayStore ::
   IsSymInterface sym =>
   sym ->
@@ -887,9 +889,9 @@ doArrayStore sym globals ref idx val =
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Object is not an array"
      arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
-     let vec = C.unRV (arr Ctx.! Ctx.i2of3)
+     let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let vec' = vec V.// [(idx, val)]
-     let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of3) (C.RV vec') arr
+     let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of4) (C.RV vec') arr
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
@@ -908,7 +910,7 @@ doFieldLoad sym globals ref fid =
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
      let msg2 = C.GenericSimError "Field load: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
-     let tab = C.unRV (inst Ctx.! Ctx.i1of2)
+     let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let msg3 = C.GenericSimError $ "Field load: field not found: " ++ J.fieldIdName fid
      let key = fieldIdText fid
      C.readPartExpr sym (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
@@ -946,7 +948,7 @@ doArrayLoad sym globals ref idx =
      -- TODO: define a 'projectVariant' function in the OverrideSim monad
      let msg2 = C.GenericSimError "Array load: object is not an array"
      arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
-     let vec = C.unRV (arr Ctx.! Ctx.i2of3)
+     let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let msg3 = C.GenericSimError $ "Array load: index out of bounds: " ++ show idx
      case vec V.!? idx of
        Just val -> return val
@@ -960,14 +962,17 @@ doAllocateObject ::
   C.HandleAllocator ->
   JVMContext ->
   J.ClassName {- ^ class of object to allocate -} ->
+  (J.FieldId -> Bool) {- ^ which fields are writable -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
-doAllocateObject sym halloc jc cname globals =
+doAllocateObject sym halloc jc cname mut globals =
   do cls <- lookupJVMClassByName sym globals jc cname
      let fieldIds = fieldsOfClassName jc cname
      let pval = W4.justPartExpr sym unassignedJVMValue
      let fields = Map.fromList [ (fieldIdText f, pval) | f <- fieldIds ]
-     let inst = Ctx.Empty Ctx.:> C.RV fields Ctx.:> C.RV cls
+     let unit = W4.justPartExpr sym ()
+     let perms = Map.fromList [ (fieldIdText f, unit) | f <- fieldIds, mut f ]
+     let inst = Ctx.Empty Ctx.:> C.RV fields Ctx.:> C.RV perms Ctx.:> C.RV cls
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i1of2 inst)
      ref <- C.freshRefCell halloc objectRepr
@@ -981,13 +986,15 @@ doAllocateArray ::
   sym ->
   C.HandleAllocator ->
   JVMContext -> Int {- ^ array length -} -> J.Type {- ^ element type -} ->
+  (Int -> Bool) {- ^ per-index writability -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
-doAllocateArray sym halloc jc len elemTy globals =
+doAllocateArray sym halloc jc len elemTy mut globals =
   do len' <- liftIO $ W4.bvLit sym w32 (BV.mkBV w32 (toInteger len))
      let vec = V.replicate len unassignedJVMValue
      rep <- makeJVMTypeRep sym globals jc elemTy
-     let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV rep
+     let ws = V.generate len (W4.backendPred sym . mut)
+     let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV ws Ctx.:> C.RV rep
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i2of2 arr)
      ref <- C.freshRefCell halloc objectRepr
