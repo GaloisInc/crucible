@@ -157,6 +157,7 @@ test-suite helper-tests
   main-is: Main.hs
   build-depends: base,
                  containers,
+                 hspec >= 2.5,
                  mtl,
                  crucible,
                  what4,
