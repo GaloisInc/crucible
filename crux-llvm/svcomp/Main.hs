@@ -68,12 +68,12 @@ genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskM
                  -> IO [(Int, VerificationTask, Either SomeException FilePath)]
 genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::Int ..] (Map.toList tm))
  where
- goTask (n, ((task, tgtWidth), bss)) = action `catch` handler
+ goTask (n, (task, bss)) = action `catch` handler
    where
    outputPath = svTaskDirectory (Crux.outDir cruxOpts) n task
 
    action =
-     do tgt <- getTarget tgtWidth bss
+     do tgt <- getTarget task bss
         rslt <- processVerificationTask tgt n task
         return $! maybe [] (\outFile -> [(n, task, Right outFile)]) rslt
 
@@ -90,12 +90,11 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
             return [(n, task, Left e)]
 
 
- getTarget tgtWidth bss =
-   case tgtWidth of
-     Just 32 -> return "i386-unknown-linux-elf"
-     Just 64 -> return "x86_64-unknown-linux-elf"
-     Just x  -> fail $ "Unexpected architecture width (" ++ show x ++ ") for benchmark(s) " ++ show (map benchmarkName bss)
-     Nothing -> fail $ "Missing architecture width for benchmark(s) " ++ show (map benchmarkName bss)
+ getTarget task bss =
+   case verificationLanguage task of
+     C ILP32 -> return "i386-unknown-linux-elf"
+     C LP64  -> return "x86_64-unknown-linux-elf"
+     Java    -> fail $ "Cannot handle Java benchmark(s) " ++ show (map benchmarkName bss)
 
  processVerificationTask _tgt _num task
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
