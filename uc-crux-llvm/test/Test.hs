@@ -467,6 +467,8 @@ inFileTests =
         ("oob_read_heap.c", [("oob_read_heap", isUnclassified)]), -- goal: hasBugs
         ("oob_read_stack.c", [("oob_read_stack", isUnclassified)]), -- goal: hasBugs
         ("read_extern_global_unsized_array.c", [("read_extern_global_unsized_array", isUnclassified)]), -- goal: isSafeWithPreconditions
+        ("read_global_neg_offset.c", [("read_global_neg_offset", isUnclassified)]), -- goal: hasBugs
+        ("read_global_neg_offset_strlen.c", [("read_global_neg_offset_strlen", isUnclassified)]), -- goal: hasBugs
         ("signed_add_wrap_concrete.c", [("signed_add_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_mul_wrap_concrete.c", [("signed_mul_wrap_concrete", isUnclassified)]), -- goal: hasBugs
         ("signed_sub_wrap_concrete.c", [("signed_sub_wrap_concrete", isUnclassified)]), -- goal: hasBugs
