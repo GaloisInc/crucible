@@ -4,9 +4,13 @@
 
 module Crux.LLVM.Config where
 
+import           Control.Applicative ( Alternative(..) )
 import           Control.Exception ( Exception, displayException, throwIO )
+import           Control.Monad ( guard )
 import           Control.Monad.State ( liftIO, MonadIO )
-import           System.FilePath ( (</>) )
+import           System.Directory ( doesDirectoryExist )
+import           System.Environment ( getExecutablePath )
+import           System.FilePath ( (</>), joinPath, normalise, splitPath, takeDirectory )
 
 import qualified Data.LLVM.BitCode as LLVM
 
@@ -69,10 +73,42 @@ data LLVMOptions = LLVMOptions
   , loopMerge :: Bool
   }
 
+-- | The @c-src@ directory, which contains @crux-llvm@–specific files such as
+-- @crucible.h@, can live in different locations depending on how @crux-llvm@
+-- was built. This function looks in a couple of common places:
+--
+-- 1. A directory relative to the @crux-llvm@ binary itself. This is the case
+--    when running a @crux-llvm@ binary distribution. If that can't be found,
+--    default to...
+--
+-- 2. The @data-files@ directory, as reported by @cabal@'s 'getDataDir'
+--    function.
+--
+-- This isn't always guaranteed to work in every situation, but it should cover
+-- enough common cases to be useful in practice.
+findDefaultLibDir :: IO FilePath
+findDefaultLibDir = getDirRelativeToBin <|> getCabalDataDir
+  where
+    getDirRelativeToBin :: IO FilePath
+    getDirRelativeToBin = do
+      binDir <- takeDirectory `fmap` getExecutablePath
+      let libDirPrefix = normalise . joinPath . init . splitPath $ binDir
+          libDir       = libDirPrefix </> cSrc
+      libDirExists <- doesDirectoryExist libDir
+      guard libDirExists
+      pure libDir
+
+    getCabalDataDir :: IO FilePath
+    getCabalDataDir = do
+      libDirPrefix <- getDataDir
+      pure $ libDirPrefix </> cSrc
+
+    cSrc :: FilePath
+    cSrc = "c-src"
+
 llvmCruxConfig :: IO (Crux.Config LLVMOptions)
 llvmCruxConfig = do
-  ddir <- getDataDir
-  let libDirDefault = ddir </> "c-src"
+  libDirDefault <- findDefaultLibDir
   return Crux.Config
    { Crux.cfgFile =
       do clangBin <- Crux.section "clang" Crux.fileSpec "clang"
