@@ -54,3 +54,9 @@ macro_rules! cryptol {
         )*
     };
 }
+
+/// Convert all what4 expressions within `x` to saw-core and back.  The resulting expressions will
+/// be equivalent but not necessarily identical.
+pub fn munge<T>(x: T) -> T {
+    x
+}
