@@ -128,6 +128,11 @@ pub fn override_<F, G>(f: F, g: G) {
     unimplemented!("crucible::override_");
 }
 
+/// Print a what4 expression to stderr.  `T` must have a primitive/base type for its Crucible
+/// representation.
+pub fn dump_what4<T>(desc: &str, x: T) {
+}
+
 // Some older test cases still use these functions.
 #[deprecated(note = "call i8::symbolic instead")]
 pub fn crucible_i8(name: &'static str) -> i8 { Symbolic::symbolic(name) }

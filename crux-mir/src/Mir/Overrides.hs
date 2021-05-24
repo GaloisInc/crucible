@@ -89,6 +89,8 @@ import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
 import qualified Mir.Mir as M
 
+import Debug.Trace
+
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
     RegValue sym (MirSlice (BVType 8)) ->
@@ -427,6 +429,19 @@ bindFn symOnline cs name cfg
   , UnitRepr <- cfgReturnType cfg
   = bindFnHandle (cfgHandle cfg) $ UseOverride $
     mkOverride' "crucible_override_" UnitRepr $ overrideRust cs name
+
+  | (normDefId "crucible::dump_what4" <> "::_inst") `Text.isPrefixOf` name
+  , Empty :> MirSliceRepr (BVRepr w) :> (asBaseType -> AsBaseType btpr) <- cfgArgTypes cfg
+  , Just Refl <- testEquality w (knownNat @8)
+  , UnitRepr <- cfgReturnType cfg
+  = bindFnHandle (cfgHandle cfg) $ UseOverride $
+    mkOverride' "crucible_override_" UnitRepr $ do
+        RegMap (Empty :> RegEntry _ strRef :> RegEntry _ expr) <- getOverrideArgs
+        str <- getString strRef >>= \x -> case x of
+            Just x -> return x
+            Nothing -> fail $ "dump_what4: desc string must be concrete"
+        traceM $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+
 
 bindFn _symOnline _cs fn cfg =
   getSymInterface >>= \s ->
