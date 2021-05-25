@@ -41,6 +41,7 @@ char           __VERIFIER_nondet_char (void)   { return crucible_int8_t("x");  }
 int            __VERIFIER_nondet_bool (void)   { return crucible_int32_t("x"); }
 float          __VERIFIER_nondet_float (void)  { return crucible_float("x");   }
 double         __VERIFIER_nondet_double (void) { return crucible_double("x");  }
+void           __VERIFIER_assert(int x)        { crucible_assert(x, "??", 0);  }
 void           __VERIFIER_assume(int x)        { crucible_assume(x, "??", 0);  }
 void           __VERIFIER_error(void)          { crucible_assert(0, "??", 0);  }
 

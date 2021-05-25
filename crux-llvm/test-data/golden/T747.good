@@ -1,0 +1,7 @@
+[Crux] Counter example for test-data/golden/T747.c:11:3: error: in main
+__VERIFIER_assert
+[Crux] Found counterexample for verification goal
+test-data/golden/T747.c:11:3: error: in main
+__VERIFIER_assert
+
+[Crux] Overall status: Invalid.
