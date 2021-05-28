@@ -145,6 +145,29 @@ executable crux-llvm-svcomp
     Paths_crux_llvm
 
 
+executable crux-llvm-svcomp-witness
+  import: bldflags
+  hs-source-dirs: svcomp-witness
+  main-is: Main.hs
+
+  other-modules:
+    SVComp.Witness.Log
+    Paths_crux_llvm
+
+  autogen-modules:
+    Paths_crux_llvm
+
+  build-depends:
+    attoparsec,
+    base16-bytestring,
+    config-schema,
+    crux-llvm,
+    cryptohash-sha256,
+    extra,
+    indexed-traversable,
+    time,
+    xml
+
 test-suite crux-llvm-test
   import: bldflags, testdefs
   type: exitcode-stdio-1.0
