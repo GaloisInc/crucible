@@ -36,6 +36,8 @@ import Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
+import qualified Data.Version as Version (showVersion)
+import Data.Version (Version)
 import Data.Void
 import Control.Monad(when)
 import Prettyprinter
@@ -144,7 +146,7 @@ postprocessSimResult opts res =
 loadOptions ::
   OutputConfig ->
   Text {- ^ Name -} ->
-  Text {- ^ Version -}->
+  Version ->
   Config opts ->
   (Logs => (CruxOptions, opts) -> IO a) ->
   IO a
@@ -177,9 +179,9 @@ showHelp nm cfg = do
   let opts = LayoutOptions $ AvailablePerLine outWidth 0.98
   outputLn (TL.unpack $ PR.renderLazy $ layoutPretty opts (configDocs nm cfg))
 
-showVersion :: Logs => Text -> Text -> IO ()
+showVersion :: Logs => Text -> Version -> IO ()
 showVersion nm ver =
-  outputLn $ "crux version: " <> Crux.version <> ", " <> Text.unpack nm <> " version: " <> Text.unpack ver
+  outputLn $ "crux version: " <> Crux.version <> ", " <> Text.unpack nm <> " version: " <> Version.showVersion ver
 
 
 --------------------------------------------------------------------------------
@@ -629,7 +631,7 @@ printFailedGoals opts (CruxSimulationResult _cmpl allGls)
   where
   printFailed (AtLoc _ _ gls) = printFailed gls
   printFailed (Branch gls1 gls2) = printFailed gls1 >> printFailed gls2
-  printFailed (Goal _asmps _goal _trivial (Proved _)) = return () 
+  printFailed (Goal _asmps _goal _trivial (Proved _)) = return ()
   printFailed (Goal _asmps (err, _msg) _trivial (NotProved ex mdl))
     | skipIncompleteReports opts
     , SimError _ (ResourceExhausted _) <- err

@@ -15,6 +15,7 @@ import           System.IO
 
 import qualified Crux
 import Cruces.CrucesMain
+import Paths_crucible_concurrency (version)
 
 main :: IO ()
-main = Crux.loadOptions Crux.defaultOutputConfig "cruces" "0.1" cruciblesConfig $ run
+main = Crux.loadOptions Crux.defaultOutputConfig "cruces" version cruciblesConfig $ run

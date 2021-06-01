@@ -85,6 +85,7 @@ import           Lang.JVM.JavaTools
 
 import           Lang.Crucible.JVM.Simulate (setupCrucibleJVMCrux)
 import           Lang.Crucible.JVM.Types
+import           Paths_crucible_jvm (version)
 
 -- executable
 
@@ -201,7 +202,7 @@ simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
 -- | Entry point, parse command line options
 main :: IO ()
 main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" "0.1" cruxJVMConfig $
+  Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" version cruxJVMConfig $
     \(cruxOpts, jvmOpts) -> do
       jvmOpts' <- processJVMOptions jvmOpts
       exitWith =<< Crux.postprocessSimResult cruxOpts =<<

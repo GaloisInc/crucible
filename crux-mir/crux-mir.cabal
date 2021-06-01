@@ -14,7 +14,7 @@ maintainer:          spernsteiner@galois.com
 copyright:           2017-2020 Galois, Inc.
 category:            Web
 build-type:          Simple
-cabal-version:       >=1.10
+cabal-version:       2.0
 extra-source-files:  README.md
 
 library
@@ -73,6 +73,8 @@ library
                    Mir.TransTy
                    Mir.Trans
                    Mir.TransCustom
+  other-modules: Paths_crux_mir
+  autogen-modules: Paths_crux_mir
 
 
 executable crux-mir

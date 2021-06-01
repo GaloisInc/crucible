@@ -53,6 +53,8 @@ library
 
 executable cruces
   main-is:             crucibles/Main.hs
+  other-modules:       Paths_crucible_concurrency
+  autogen-modules:     Paths_crucible_concurrency
   -- other-extensions:
   build-depends:       base >=4.7 && < 5
                      , crucible

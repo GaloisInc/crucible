@@ -17,8 +17,8 @@ Description:
   verification, usually by embedding verification specifications in
   the source language.
 
-library 
-        
+library
+
   build-depends:
     base >= 4 && < 5,
     aig,
@@ -77,6 +77,10 @@ library
   other-modules:
    Crux.UI.Jquery,
    Crux.UI.IndexHtml
+   Paths_crux
+
+  autogen-modules:
+   Paths_crux
 
   ghc-options: -Wall
                -Wcompat

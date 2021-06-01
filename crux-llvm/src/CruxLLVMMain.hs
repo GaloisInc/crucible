@@ -21,6 +21,7 @@ import Crux.Config.Common(CruxOptions(..))
 import Crux.LLVM.Config
 import Crux.LLVM.Compile
 import Crux.LLVM.Simulate
+import Paths_crux_llvm (version)
 
 
 mainWithOutputTo :: Handle -> IO ExitCode
@@ -29,7 +30,7 @@ mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
 mainWithOutputConfig :: OutputConfig -> IO ExitCode
 mainWithOutputConfig outCfg = do
   cfg <- llvmCruxConfig
-  Crux.loadOptions outCfg "crux-llvm" "0.1" cfg $ \initOpts ->
+  Crux.loadOptions outCfg "crux-llvm" version cfg $ \initOpts ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
        bcFile <- genBitCode cruxOpts llvmOpts
        res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)

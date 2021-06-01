@@ -102,6 +102,7 @@ import           Mir.Generate (generateMIR, translateMIR)
 import           Mir.Trans (transStatics)
 import           Mir.TransTy
 import           Mir.Concurrency
+import           Paths_crux_mir (version)
 
 main :: IO ()
 main = mainWithOutputConfig defaultOutputConfig noExtraOverrides >>= exitWith
@@ -115,7 +116,7 @@ mainWithOutputTo h bindExtra = mainWithOutputConfig (OutputConfig False h h Fals
 
 mainWithOutputConfig :: OutputConfig -> BindExtraOverridesFn -> IO ExitCode
 mainWithOutputConfig outCfg bindExtra =
-    Crux.loadOptions outCfg "crux-mir" "0.1" mirConfig $ runTestsWithExtraOverrides bindExtra
+    Crux.loadOptions outCfg "crux-mir" version mirConfig $ runTestsWithExtraOverrides bindExtra
 
 type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>

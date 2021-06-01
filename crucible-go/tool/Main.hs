@@ -20,6 +20,7 @@ import qualified Crux.Types   as Crux
 import Language.Go.Parser
 import Lang.Crucible.Go.Simulate (setupCrucibleGoCrux)
 import Lang.Crucible.Go.Types
+import Paths_crucible_go (version)
 
 -- | A simulator context
 type SimCtxt sym = SimContext (Crux.Model sym) sym Go
@@ -63,7 +64,7 @@ simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
 -- | Entry point, parse command line options
 main :: IO ()
 main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-go" "0.1" cruxGoConfig $
+  Crux.loadOptions Crux.defaultOutputConfig "crux-go" version cruxGoConfig $
     \(cruxOpts, goOpts) ->
       exitWith =<< Crux.postprocessSimResult cruxOpts =<<
         Crux.runSimulator (cruxOpts { Crux.outDir = "report"

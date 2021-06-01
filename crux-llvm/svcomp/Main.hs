@@ -51,12 +51,13 @@ import Crux.LLVM.Config
 import Crux.LLVM.Compile
 import Crux.LLVM.Simulate
 import CruxLLVMMain( processLLVMOptions )
+import Paths_crux_llvm (version)
 
 main :: IO ()
 main = do
   cfg <- llvmCruxConfig
   let opts = Crux.cfgJoin cfg svcompOptions
-  Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" "0.1" opts $ \(co0,(lo0,svOpts)) ->
+  Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" version opts $ \(co0,(lo0,svOpts)) ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        bss <- loadSVCOMPBenchmarks cruxOpts
        let taskMap = deduplicateTasks bss

@@ -64,6 +64,12 @@ library
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats
 
+  other-modules:
+    Paths_uc_crux_llvm
+
+  autogen-modules:
+    Paths_uc_crux_llvm
+
   build-depends:
     async,
     base >= 4.8 && < 4.15,
@@ -121,6 +127,8 @@ test-suite uc-crux-llvm-test
   hs-source-dirs: test
 
   main-is: Test.hs
+  other-modules: Paths_uc_crux_llvm
+  autogen-modules: Paths_uc_crux_llvm
 
   build-depends:
                 base             >= 4.7,

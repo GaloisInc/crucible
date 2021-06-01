@@ -75,6 +75,7 @@ import           Crux.LLVM.Compile (genBitCode)
 import           Crux.LLVM.Config (clangOpts)
 
 -- Code being tested
+import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Main (SomeModuleContext'(..), loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
@@ -123,7 +124,7 @@ findBugs llvmModule file fns =
         let outCfg = Crux.OutputConfig False h h True
         conf <- Config.ucCruxLLVMConfig
         (appCtx, path, cruxOpts, ucOpts) <-
-          Crux.loadOptions outCfg "uc-crux-llvm" "0.1" conf $ \(cruxOpts, ucOpts) ->
+          Crux.loadOptions outCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) ->
             do
               -- With Yices, cast_float_to_pointer_write.c hangs
               let cruxOpts' =
