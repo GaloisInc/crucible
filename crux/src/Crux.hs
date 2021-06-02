@@ -478,11 +478,7 @@ runSimulator cruxOpts simCallback = do
           -- since they weren't included in the symbolic backend configuration
           -- with the initial setup of the online solver (since it could have
           -- been a different solver)
-          unless (CCS.sameSolver onSolver offSolver) $ do
-            -- In this case we don't add the extra configuration options because
-            -- the online solver setup already added them.  What4 raises an
-            -- error if the same option is added more than once.
-            extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
+          extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
           doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline (proveGoalsOffline [adapter])
     Right (CCS.OnlyOfflineSolvers offSolvers) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolvers $ \floatRepr -> do
