@@ -137,7 +137,7 @@ svTaskDirectory base num task = base </> path
 
  padTaskNum = padding ++ xs
    where
-   padding = take (padWidth - length xs) (repeat '0')
+   padding = replicate (padWidth - length xs) '0'
    xs = show num
 
 hGetContentsStrict :: Handle -> IO String
