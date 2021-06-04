@@ -114,8 +114,8 @@ build() {
 test() {
   # System-agnostic path
   export PATH="$PATH:/usr/local/opt/llvm/bin:/c/Program Files/LLVM/bin"
-  ${CLANG:-:} --version
-  ${LLVM_LINK:-:} --version
+  ${CLANG:-:} --version || echo clang version unknown
+  ${LLVM_LINK:-:} --version || echo llvm_link version unknown
   cabal v2-test "$@"
 }
 
