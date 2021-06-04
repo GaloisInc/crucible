@@ -20,6 +20,7 @@ import qualified Crux.Types as Crux
 import qualified Language.Wasm as Wasm
 
 import Lang.Crucible.Wasm
+import Paths_crucible_wasm (version)
 
 data WasmOptions = WasmOptions
 
@@ -65,7 +66,7 @@ simulateWasm cruxOpts _wasmOpts = Crux.SimulatorCallback $ \sym _mOnline ->
 
 main :: IO ()
 main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-wasm" "0.1" cruxWasmConfig
+  Crux.loadOptions Crux.defaultOutputConfig "crux-wasm" version cruxWasmConfig
    \(cruxOpts, wasmOpts) ->
        do res <- Crux.runSimulator cruxOpts (simulateWasm cruxOpts wasmOpts)
           exitWith =<< Crux.postprocessSimResult cruxOpts res

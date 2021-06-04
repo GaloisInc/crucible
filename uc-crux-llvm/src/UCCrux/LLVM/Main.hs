@@ -70,6 +70,7 @@ import Crux.LLVM.Config
 import Crux.LLVM.Compile (genBitCode)
 import Crux.LLVM.Simulate (parseLLVM)
 
+import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
 import           UCCrux.LLVM.Context.App (AppContext)
@@ -89,7 +90,7 @@ mainWithOutputConfig :: OutputConfig -> IO ExitCode
 mainWithOutputConfig outCfg =
   do
     conf <- Config.ucCruxLLVMConfig
-    Crux.loadOptions outCfg "uc-crux-llvm" "0.1" conf $ \opts ->
+    Crux.loadOptions outCfg "uc-crux-llvm" version conf $ \opts ->
       do
         (appCtx, cruxOpts, ucOpts) <- Config.processUCCruxLLVMOptions opts
         path <- genBitCode cruxOpts (Config.ucLLVMOptions ucOpts)
