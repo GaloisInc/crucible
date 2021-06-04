@@ -167,7 +167,7 @@ translateFile ucOpts halloc memVar moduleFilePath =
 -- | Postcondition: The keys of the returned map are exactly the entryPoints of
 -- the 'UCCruxLLVMOptions'.
 loopOnFunctions ::
-  (Crux.Logs) =>
+  Crux.Logs =>
   AppContext ->
   ModuleContext m arch ->
   Crucible.HandleAllocator ->

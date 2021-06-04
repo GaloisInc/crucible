@@ -40,7 +40,6 @@ but may be imprecise. If that's not the current state, such a comment indicates
 a very real bug.
 -}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
