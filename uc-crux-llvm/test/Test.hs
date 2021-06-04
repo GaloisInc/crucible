@@ -123,27 +123,30 @@ findBugs llvmModule file fns =
         let mkOutCfg = Crux.mkOutputConfig False h h
         conf <- Config.ucCruxLLVMConfig
         Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) -> do
-          let cruxOpts' = cruxOpts
-                          { Crux.inputFiles = [testDir </> file],
-                            -- With Yices, cast_float_to_pointer_write.c hangs
-                            Crux.solver = "z3"
-                          }
+          let cruxOpts' =
+                cruxOpts
+                  { Crux.inputFiles = [testDir </> file],
+                    -- With Yices, cast_float_to_pointer_write.c hangs
+                    Crux.solver = "z3"
+                  }
           let ucOpts' = ucOpts {Config.entryPoints = fns}
           (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
-          path <- do let uclopts = (Config.ucLLVMOptions ucOpts')
-                                   { -- NB(lb): The -fno-wrapv here ensures that
-                                     -- Clang will emit 'nsw' flags even on platforms
-                                     -- using nixpkgs, which injects
-                                     -- -fno-strict-overflow by default.
-                                     clangOpts = ["-fno-wrapv"]
-                                   }
-                         complain exc = do
-                           Crux.say Crux.Fail "UC-Crux-LLVM" "Trouble when running Clang:"
-                           Crux.logException exc
-                           error "aborting"
-                     if isRealFile
-                       then try (genBitCode cruxOpts'' uclopts) >>= either complain return
-                       else return "<fake-path>"
+          path <- do
+            let uclopts =
+                  (Config.ucLLVMOptions ucOpts')
+                    { -- NB(lb): The -fno-wrapv here ensures that
+                      -- Clang will emit 'nsw' flags even on platforms
+                      -- using nixpkgs, which injects
+                      -- -fno-strict-overflow by default.
+                      clangOpts = ["-fno-wrapv"]
+                    }
+                complain exc = do
+                  Crux.say Crux.Fail "UC-Crux-LLVM" "Trouble when running Clang:"
+                  Crux.logException exc
+                  error "aborting"
+                if isRealFile
+                  then try (genBitCode cruxOpts'' uclopts) >>= either complain return
+                  else return "<fake-path>"
 
           -- TODO(lb): It would be nice to print this only when the test fails
           -- putStrLn
