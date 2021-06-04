@@ -32,7 +32,7 @@ library
     optparse-applicative,
     parameterized-utils >= 0.1.7,
     prettyprinter >= 1.7.0,
-    megaparsec >= 7.0 && < 8.1,
+    megaparsec >= 7.0 && < 9.1,
     s-cargot,
     text,
     transformers,
