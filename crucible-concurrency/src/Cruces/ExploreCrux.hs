@@ -116,8 +116,8 @@ exploreOvr symOnline cruxOpts mainAct =
         do sym <- getSymInterface
            ctx <- use stateContext
            todo <- liftIO $ getProofObligations sym
-           let ?outputConfig = Crux.defaultOutputConfig { Crux._quiet = True }
            let cruxOpts' = cruxOpts { Crux.quietMode = True, Crux.simVerbose = 0 }
+           let ?outputConfig = Crux.defaultOutputConfig Nothing
            (processed, _) <- liftIO $ proveGoalsOnline sym cruxOpts' ctx (\_ _ -> return mempty) todo
            let provedAll = totalProcessedGoals processed == provedGoals processed
            when provedAll $ liftIO $ clearProofObligations sym

@@ -121,10 +121,9 @@ findBugs llvmModule file fns =
     withFile (testDir </> file <> ".output") WriteMode $ \h ->
       do
         let isRealFile = isNothing llvmModule
-        let outCfg = Crux.OutputConfig False h h True
+        let mkOutCfg = Crux.mkOutputConfig False h h
         conf <- Config.ucCruxLLVMConfig
-        (appCtx, path, cruxOpts, ucOpts) <-
-          Crux.loadOptions outCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) ->
+        Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) ->
             do
               -- With Yices, cast_float_to_pointer_write.c hangs
               let cruxOpts' =
@@ -155,25 +154,23 @@ findBugs llvmModule file fns =
                         Right path -> pure path
                   else pure "<fake-path>"
 
-              pure (appCtx, path, cruxOpts'', ucOpts'')
-        -- TODO(lb): It would be nice to print this only when the test fails
-        -- putStrLn
-        --   ( unwords
-        --       [ "\nReproduce with:\n",
-        --         "cabal v2-run exe:uc-crux-llvm -- ",
-        --         "--entry-points",
-        --         intercalate " --entry-points " (map show fns),
-        --         testDir </> file
-        --       ]
-        --   )
-        let ?outputConfig = outCfg
-        halloc <- newHandleAllocator
-        memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
-        SomeModuleContext' modCtx <-
-          case llvmModule of
-            Just lMod -> translateLLVMModule ucOpts halloc memVar path lMod
-            Nothing -> translateFile ucOpts halloc memVar path
-        loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
+              -- TODO(lb): It would be nice to print this only when the test fails
+              -- putStrLn
+              --   ( unwords
+              --       [ "\nReproduce with:\n",
+              --         "cabal v2-run exe:uc-crux-llvm -- ",
+              --         "--entry-points",
+              --         intercalate " --entry-points " (map show fns),
+              --         testDir </> file
+              --       ]
+              --   )
+              halloc <- newHandleAllocator
+              memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
+              SomeModuleContext' modCtx <-
+                case llvmModule of
+                  Just lMod -> translateLLVMModule ucOpts'' halloc memVar path lMod
+                  Nothing -> translateFile ucOpts'' halloc memVar path
+              loopOnFunctions appCtx modCtx halloc cruxOpts'' ucOpts''
 
 inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
 inFile file specs =

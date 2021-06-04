@@ -1,2 +1,4 @@
-Failure for examples/cbl/infeasible.cbl:39:5: error: in main
-ASDF
+[Crux] Attempting to prove verification conditions.
+[Crux] Found counterexample for verification goal
+[Crux]   examples/cbl/infeasible.cbl:39:5: error: in main
+[Crux]   ASDF

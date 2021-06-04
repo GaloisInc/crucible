@@ -1,17 +1,20 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoMonoLocalBinds #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language RankNTypes, ImplicitParams, TypeApplications, MultiWayIf #-}
 {-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
+
 module Crux
   ( runSimulator
   , postprocessSimResult
   , loadOptions
-  , withOutputConfig
+  , mkOutputConfig
+  , defaultOutputConfig
   , SimulatorCallback(..)
   , RunnableState(..)
   , pattern RunnableState
@@ -24,67 +27,69 @@ module Crux
   ) where
 
 import qualified Control.Exception as Ex
-import Control.Lens
-import Control.Monad ( unless, void )
-import Data.Text (Text)
-import qualified Data.Text as Text
-import Data.Foldable
-import Data.IORef
-import Data.List ( intercalate )
-import Data.Maybe ( fromMaybe )
-import Data.Proxy ( Proxy(..) )
+import           Control.Lens
+import           Control.Monad ( unless, void, when )
+import           Data.Foldable
+import           Data.Functor.Contravariant ( (>$<) )
+import           Data.Functor.Contravariant.Divisible ( divide )
+import           Data.IORef
+import           Data.Maybe ( fromMaybe )
+import           Data.Proxy ( Proxy(..) )
 import qualified Data.Sequence as Seq
+import           Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Version as Version (showVersion)
-import Data.Version (Version)
-import Data.Void
-import Control.Monad(when)
-import Prettyprinter
+import           Data.Version (Version)
+import qualified Data.Version as Version ( showVersion )
+import           Data.Void
+import qualified Lumberjack as LJ
+import           Prettyprinter
 import qualified Prettyprinter.Render.Text as PR
-import System.Console.Terminal.Size ( size, Window(..) )
-import System.Exit(exitSuccess, ExitCode(..), exitFailure, exitWith)
-import System.Directory(createDirectoryIfMissing)
-import System.FilePath((</>))
+import qualified System.Console.ANSI as AC
+import           System.Console.Terminal.Size ( size, Window(..) )
+import           System.Directory (createDirectoryIfMissing)
+import           System.Exit (exitSuccess, ExitCode(..), exitFailure, exitWith)
+import           System.FilePath ((</>))
+import           System.IO ( Handle, hPutStr, stdout, stderr )
 
-import Data.Parameterized.Classes
-import Data.Parameterized.Nonce(newIONonceGenerator, NonceGenerator)
-import Data.Parameterized.Some ( Some(..) )
+import           Data.Parameterized.Classes
+import           Data.Parameterized.Nonce (newIONonceGenerator, NonceGenerator)
+import           Data.Parameterized.Some ( Some(..) )
 
-import Lang.Crucible.Backend
-import Lang.Crucible.Backend.Online
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Backend.Online
 import qualified Lang.Crucible.Backend.Simple as CBS
-import Lang.Crucible.CFG.Extension
-import Lang.Crucible.Simulator
-import Lang.Crucible.Simulator.BoundedExec
-import Lang.Crucible.Simulator.BoundedRecursion
-import Lang.Crucible.Simulator.Profiling
-import Lang.Crucible.Simulator.PathSatisfiability
-import Lang.Crucible.Simulator.PathSplitting
-import Lang.Crucible.Types
+import           Lang.Crucible.CFG.Extension
+import           Lang.Crucible.Simulator
+import           Lang.Crucible.Simulator.BoundedExec
+import           Lang.Crucible.Simulator.BoundedRecursion
+import           Lang.Crucible.Simulator.PathSatisfiability
+import           Lang.Crucible.Simulator.PathSplitting
+import           Lang.Crucible.Simulator.Profiling
+import           Lang.Crucible.Types
 
 
-import What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, extendConfig)
-import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
-import What4.Interface (IsExprBuilder, getConfiguration)
-import What4.Expr (GroundEvalFn)
+import           What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, extendConfig)
+import           What4.Expr (GroundEvalFn)
 import qualified What4.Expr.Builder as WEB
-import What4.FunctionName (FunctionName)
-import What4.Protocol.Online (OnlineSolver)
+import           What4.FunctionName (FunctionName)
+import           What4.Interface (IsExprBuilder, getConfiguration)
+import           What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
+import           What4.Protocol.Online (OnlineSolver)
 import qualified What4.Solver as WS
-import What4.Solver.CVC4 (cvc4Timeout)
-import What4.Solver.Z3 (z3Timeout)
-import What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
+import           What4.Solver.CVC4 (cvc4Timeout)
+import           What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
+import           What4.Solver.Z3 (z3Timeout)
 
-import Crux.Log
-import Crux.Types
-import Crux.Config
-import Crux.Goal
-import Crux.Report
+import           Crux.Config
+import           Crux.Config.Common
+import           Crux.Config.Doc
 import qualified Crux.Config.Load as Cfg
 import qualified Crux.Config.Solver as CCS
-import Crux.Config.Common
-import Crux.Config.Doc
+import           Crux.FormatOut ( sayWhatFailedGoals, sayWhatResultStatus )
+import           Crux.Goal
+import           Crux.Log
+import           Crux.Report
+import           Crux.Types
 import qualified Crux.Version as Crux
 
 pattern RunnableState :: forall sym . () => forall ext personality . (IsSyntaxExtension ext, HasModel personality) => ExecState (personality sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
@@ -125,11 +130,8 @@ newtype SimulatorCallback
 --   status, generate user-consumable reports and compute the exit code.
 postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
 postprocessSimResult opts res =
-  do -- print goals that failed
-     printFailedGoals opts res
-
-     -- print the overall result
-     reportStatus res
+  do -- print goals that failed and overall result
+     logSimResult res
 
      -- Generate report
      generateReport opts res
@@ -144,44 +146,100 @@ postprocessSimResult opts res =
 --   just print something and exit, so this function may never call
 --   its continuation.
 loadOptions ::
-  OutputConfig ->
+  (Maybe CruxOptions -> OutputConfig) ->
   Text {- ^ Name -} ->
   Version ->
   Config opts ->
   (Logs => (CruxOptions, opts) -> IO a) ->
   IO a
-loadOptions outCfg nm ver config cont =
+loadOptions mkOutCfg nm ver config cont =
   do let optSpec = cfgJoin cruxOptions config
      opts <- Cfg.loadConfig nm optSpec
      case opts of
        Cfg.ShowHelp ->
-          do let ?outputConfig = outCfg
+          do let ?outputConfig = mkOutCfg Nothing
              showHelp nm optSpec
              exitSuccess
        Cfg.ShowVersion ->
-          do let ?outputConfig = outCfg
+          do let ?outputConfig = mkOutCfg Nothing
              showVersion nm ver
              exitSuccess
        Cfg.Options (crux, os) files ->
-          do let ?outputConfig = outCfg & quiet %~ (|| quietMode crux)
+          do let ?outputConfig = mkOutCfg (Just crux)
              crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
              cont (crux', os)
 
  `Ex.catch` \(e :: Ex.SomeException) ->
-   do let ?outputConfig = outCfg
+   do let ?outputConfig = mkOutCfg Nothing
       case (Ex.fromException e :: Maybe ExitCode) of
         Just exitCode -> exitWith exitCode
-        Nothing -> sayFail "Crux" (Ex.displayException e) >> exitFailure
+        Nothing -> logException e >> exitFailure
+
 
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = do
   outWidth <- maybe 80 (\(Window _ w) -> w) <$> size
   let opts = LayoutOptions $ AvailablePerLine outWidth 0.98
-  outputLn (TL.unpack $ PR.renderLazy $ layoutPretty opts (configDocs nm cfg))
+  say OK "Crux" (PR.renderStrict $ layoutPretty opts (configDocs nm cfg))
 
 showVersion :: Logs => Text -> Version -> IO ()
 showVersion nm ver =
-  outputLn $ "crux version: " <> Crux.version <> ", " <> Text.unpack nm <> " version: " <> Version.showVersion ver
+  say OK "Crux" $ T.unwords [ "version: " <> T.pack Crux.version <> ","
+                            , nm
+                            , "version: " <> T.pack (Version.showVersion ver)
+                            ]
+
+
+-- | Create an OutputConfig for Crux, based on an indication of
+-- whether colored output should be used, the normal and error output
+-- handles, and the parsed CruxOptions.  The following CruxOptions
+-- affect the generated OutputConfig:
+--
+-- printFailures
+-- quietMode
+
+mkOutputConfig :: Bool -> Handle -> Handle -> Maybe CruxOptions -> OutputConfig
+mkOutputConfig withColors outHandle errHandle opts =
+  let lgWhat = let la = LJ.LogAction $ logToStd withColors outHandle errHandle
+                   -- TODO simVerbose may not be the best setting to use here...
+                   baseline = if maybe False ((> 1) . simVerbose) opts
+                              then Noisily
+                              else Simply
+               in if maybe False quietMode opts
+                  then logfltr OK >$< la
+                  else logfltr baseline >$< la
+      logfltr allowed = \case
+        SayNothing -> SayNothing
+        w@(SayWhat lvl _ _) -> if lvl >= allowed then w else SayNothing
+        SayMore m1 m2 -> case (logfltr allowed m1, logfltr allowed m2) of
+          (SayNothing, SayNothing) -> SayNothing
+          (SayNothing, m) -> m
+          (m, SayNothing) -> m
+          (m1', m2') -> SayMore m1' m2'
+
+      lgGoal = sayWhatFailedGoals (maybe True printFailures opts) >$< lgWhat
+      splitResults r@(CruxSimulationResult _cmpl gls) = (snd <$> gls, r)
+  in OutputConfig
+     {
+       _outputHandle = outHandle
+     , _quiet = maybe True quietMode opts
+     , _logWhat = lgWhat
+     , _logExc = let seeRed = AC.hSetSGR errHandle
+                              [ AC.SetConsoleIntensity AC.BoldIntensity
+                              , AC.SetColor AC.Foreground AC.Vivid AC.Red]
+                     seeCalm = AC.hSetSGR errHandle [AC.Reset]
+                     dispExc = hPutStr errHandle . Ex.displayException
+                 in if withColors
+                    then LJ.LogAction $ \e -> Ex.bracket_ seeRed seeCalm $ dispExc e
+                    else LJ.LogAction $ dispExc
+     , _logSimResult = divide splitResults
+                       lgGoal
+                       (sayWhatResultStatus >$< lgWhat)
+     , _logGoal = Seq.singleton >$< lgGoal
+     }
+
+defaultOutputConfig :: Maybe CruxOptions -> OutputConfig
+defaultOutputConfig = Crux.mkOutputConfig True stdout stderr
 
 
 --------------------------------------------------------------------------------
@@ -283,7 +341,7 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
         CCS.STP -> do
           -- We don't have a timeout option for STP
           case goalTimeout cruxOpts of
-            Just _ -> sayWarn "Crux" "Goal timeout requested but not supported by STP"
+            Just _ -> say Warn "Crux" "Goal timeout requested but not supported by STP"
             Nothing -> return ()
           withSTPOnlineBackend floatRepr nonceGen (k floatRepr)
 
@@ -436,14 +494,6 @@ withSolverAdapters solverOffs k =
     base adapters = k adapters
     go nextOff withAdapters adapters = withSolverAdapter nextOff (\adapter -> withAdapters (adapter:adapters))
 
-withOutputConfig ::
-  OutputConfig ->
-  CruxOptions ->
-  (Logs => a) ->
-  a
-withOutputConfig outCfg opts k = k
- where ?outputConfig = outCfg & quiet %~ (|| (quietMode opts))
-
 -- | Parse through all of the user-provided options and start up the verification process
 --
 -- This figures out which solvers need to be run, and in which modes.  It takes
@@ -456,9 +506,8 @@ runSimulator ::
   SimulatorCallback ->
   IO CruxSimulationResult
 runSimulator cruxOpts simCallback = do
-  when (simVerbose cruxOpts > 1) $
-    do let fileText = intercalate ", " (map show (inputFiles cruxOpts))
-       say "Crux" ("Checking " ++ fileText)
+  say Noisily "Crux" ("Checking "
+                      <> T.intercalate ", " (T.pack <$> inputFiles cruxOpts))
   createDirectoryIfMissing True (outDir cruxOpts)
   compRef <- newIORef ProgramComplete
   glsRef <- newIORef Seq.empty
@@ -562,13 +611,13 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
                          (map genericToExecutionFeature execFeatures ++ exts)
                          initSt
                          (resultCont frm explainFailure . Result)
-           say "Crux" ("Total paths explored: " ++ show i)
+           say Simply "Crux" ("Total paths explored: " <> T.pack (show i))
            unless (null ws) $
-             sayWarn "Crux"
-               (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
+             say Warn "Crux"
+               (T.unwords [ T.pack $ show (Seq.length ws)
+                          , "paths remaining not explored: program might not be fully verified"])
 
-  when (simVerbose cruxOpts > 1) $ do
-    say "Crux" "Simulation complete."
+  say Noisily "Crux" "Simulation complete."
   when (isProfiling cruxOpts) $ writeProf profInfo
   CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
 
@@ -579,7 +628,7 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
    do timedOut <-
         case res of
           TimeoutResult {} ->
-            do sayWarn "Crux" "Simulation timed out! Program might not be fully verified!"
+            do say Warn "Crux" "Simulation timed out! Program might not be fully verified!"
                writeIORef compRef ProgramIncomplete
                return True
           _ -> return False
@@ -588,7 +637,7 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
         when (isJust todo) $
-          say "Crux" "Attempting to prove verification conditions."
+          say Simply "Crux" "Attempting to prove verification conditions."
         (nms, proved) <- goalProver cruxOpts ctx explainFailure todo
         mgt <- provedGoalsTree ctx proved
         case mgt of
@@ -614,55 +663,3 @@ computeExitCode (CruxSimulationResult cmpl gls) = maximum . (base:) . fmap f . t
        ExitSuccess
      else
        ExitFailure 1
-
-printFailedGoals ::
-  Logs =>
-  CruxOptions ->
-  CruxSimulationResult ->
-  IO ()
-printFailedGoals opts (CruxSimulationResult _cmpl allGls)
-  | printFailures opts && not (quietMode opts) = mapM_ (printFailed . snd) (toList allGls)
-  | otherwise = return ()
-
-  where
-  printFailed (AtLoc _ _ gls) = printFailed gls
-  printFailed (Branch gls1 gls2) = printFailed gls1 >> printFailed gls2
-  printFailed (Goal _asmps _goal _trivial (Proved _)) = return ()
-  printFailed (Goal _asmps (err, _msg) _trivial (NotProved ex mdl))
-    | skipIncompleteReports opts
-    , SimError _ (ResourceExhausted _) <- err
-    = return ()
-
-    | Just _ <- mdl
-    = sayFail "Crux" (show $ vcat [ "Found counterexample for verification goal", ex ])
-
-    | otherwise
-    = sayFail "Crux" (show $ vcat [ "Failed to prove verification goal", ex ])
-
-reportStatus ::
-  Logs =>
-  CruxSimulationResult ->
-  IO ()
-reportStatus (CruxSimulationResult cmpl gls) =
-  do let tot        = sum (totalProcessedGoals . fst <$> gls)
-         proved     = sum (provedGoals . fst <$> gls)
-         disproved  = sum (disprovedGoals . fst <$> gls)
-         incomplete = sum (incompleteGoals . fst <$> gls)
-         unknown    = tot - (proved + disproved + incomplete)
-     if tot == 0 then
-       do say "Crux" "All goals discharged through internal simplification."
-     else
-       do say "Crux" "Goal status:"
-          say "Crux" ("  Total: " ++ show tot)
-          say "Crux" ("  Proved: " ++ show proved)
-          say "Crux" ("  Disproved: " ++ show disproved)
-          say "Crux" ("  Incomplete: " ++ show incomplete)
-          say "Crux" ("  Unknown: " ++ show unknown)
-     if | disproved > 0 ->
-            sayFail "Crux" "Overall status: Invalid."
-        | incomplete > 0 || cmpl == ProgramIncomplete ->
-            sayWarn "Crux" "Overall status: Unknown (incomplete)."
-        | unknown > 0 -> sayWarn "Crux" "Overall status: Unknown."
-        | proved == tot -> sayOK "Crux" "Overall status: Valid."
-        | otherwise ->
-            sayFail "Crux" "Internal error computing overall status."

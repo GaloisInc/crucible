@@ -27,7 +27,6 @@ import qualified Test.Tasty as TT
 import           Test.Tasty.HUnit ( testCase, assertFailure )
 import qualified Test.Tasty.Sugar as TS
 
-import qualified Crux.Log as C
 import qualified CruxLLVMMain as C
 
 
@@ -249,6 +248,7 @@ mkTest clangVer sweet _ expct =
                      [
                        ("--config=" <>) <$> lookup "config" (TS.associated expct)
                      , Just $ "--solver=" <> solver
+                     , Just "--quiet"
                      ]
             failureMsg = let bss = BSIO.pack . fmap (toEnum . fromEnum) . show in \case
               Left e -> "***[test]*** Crux failed with exception: " <> bss (show (e :: SomeException)) <> "\n"
@@ -257,9 +257,8 @@ mkTest clangVer sweet _ expct =
         r <- withFile outFile WriteMode $ \h ->
           (try $
             withArgs (cfargs <> [TS.rootFile sweet]) $
-            -- Quiet mode, don't print colors
-            let quietMode = True in
-              C.mainWithOutputConfig (C.OutputConfig False h h quietMode))
+            let coloredOutput = False
+            in (C.mainWithOutputConfig $ C.mkOutputConfig coloredOutput h h))
         BSIO.writeFile resFName $ failureMsg r
 
       checkResult =

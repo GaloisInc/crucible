@@ -1,4 +1,7 @@
-Failure for sv-benchmarks/c/pthread-divine/one_time_barrier.cbl:26:5: error: in barrier1_wait
-Wait on used barrier!
-Failure for sv-benchmarks/c/pthread-divine/one_time_barrier.cbl:26:5: error: in barrier1_wait
-Wait on used barrier!
+[Crux] Attempting to prove verification conditions.
+[Crux] Found counterexample for verification goal
+[Crux]   sv-benchmarks/c/pthread-divine/one_time_barrier.cbl:26:5: error: in barrier1_wait
+[Crux]   Wait on used barrier!
+[Crux] Found counterexample for verification goal
+[Crux]   sv-benchmarks/c/pthread-divine/one_time_barrier.cbl:26:5: error: in barrier1_wait
+[Crux]   Wait on used barrier!

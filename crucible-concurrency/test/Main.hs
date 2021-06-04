@@ -66,5 +66,5 @@ testSimulator inFile outFile =
                                               Crux.checkPathSat = True
                                             },
                          defaultCrucesOptions)
-          let ?outputConfig = Crux.OutputConfig False outh outh True
+          let ?outputConfig = Crux.mkOutputConfig False outh outh $ Just (fst options)
           run options

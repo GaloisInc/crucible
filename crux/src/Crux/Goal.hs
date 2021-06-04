@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# Language ImplicitParams #-}
@@ -245,8 +246,8 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
               case details of
                 NotProved _ (Just _) ->
                   when (failfast && not (isResourceExhausted p)) $
-                    sayOK "Crux" "Counterexample found, skipping remaining goals"
-                _                  -> return ()
+                    say OK "Crux" "Counterexample found, skipping remaining goals"
+                _ -> return ()
               return (Prove (p, details))
             Left es -> do
               modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing))
@@ -308,7 +309,7 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
               await as' es
         Nothing -> do
           mapM_ kill as
-          return $ Right $ NotProved (pretty "(Timeout)") Nothing
+          return $ Right $ NotProved "(Timeout)" Nothing
 
     withTimeout action
       | Just seconds <- mtimeoutSeconds = ST.timeout (round seconds * 1000000) action
@@ -348,7 +349,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
   do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
-       sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
+       say Warn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      (start,end,finish) <-
        if view quiet ?outputConfig then
          return (\_ -> return (), return (), return ())
@@ -408,7 +409,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                            let gt = NotProved explain (Just (ModelView vals))
                            modifyIORef' gn (updateProcessedGoals p gt)
                            when (failfast && not (isResourceExhausted p)) $
-                             (sayOK "Crux" "Counterexample found, skipping remaining goals.")
+                             (say OK "Crux" "Counterexample found, skipping remaining goals.")
                            return (Prove (p, gt))
                       Unknown ->
                         do explain <- explainFailure Nothing p

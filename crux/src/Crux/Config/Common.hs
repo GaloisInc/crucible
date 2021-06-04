@@ -37,7 +37,7 @@ checkPathStrategyInteractions crux =
     AlwaysMergePaths -> return crux
     SplitAndExploreDepthFirst
      | profileCrucibleFunctions crux || branchCoverage crux ->
-         do sayWarn "Crux" "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
+         do say Warn "Crux" "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
             return crux { profileCrucibleFunctions = False, branchCoverage = False }
      | otherwise -> return crux
 
@@ -47,7 +47,7 @@ checkPathSatInteractions crux =
     True -> return crux
     False
       | branchCoverage crux ->
-          do sayWarn "Crux" "Branch coverage requires enabling path satisfiability checking.  Coverage measurement is disabled!"
+          do say Warn "Crux" "Branch coverage requires enabling path satisfiability checking.  Coverage measurement is disabled!"
              return crux { branchCoverage = False }
       | otherwise -> return crux
 

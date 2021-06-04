@@ -21,7 +21,7 @@ Stability    : provisional
 module UCCrux.LLVM.Main
   ( mainWithOutputTo,
     mainWithOutputConfig,
-    defaultOutputConfig,
+    Crux.defaultOutputConfig,
     loopOnFunctions,
     translateLLVMModule,
     translateFile,
@@ -61,9 +61,7 @@ import Lang.Crucible.LLVM.Translation
 
 -- crux
 import qualified Crux
-
 import Crux.Config.Common
-import Crux.Log (say, OutputConfig(..), defaultOutputConfig)
 
  -- local
 import Crux.LLVM.Config
@@ -84,13 +82,13 @@ import           UCCrux.LLVM.Run.Loop (loopOnFunction)
 {- ORMOLU_ENABLE -}
 
 mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
+mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig False h h
 
-mainWithOutputConfig :: OutputConfig -> IO ExitCode
-mainWithOutputConfig outCfg =
+mainWithOutputConfig :: (Maybe CruxOptions -> Crux.OutputConfig) -> IO ExitCode
+mainWithOutputConfig mkOutCfg =
   do
     conf <- Config.ucCruxLLVMConfig
-    Crux.loadOptions outCfg "uc-crux-llvm" version conf $ \opts ->
+    Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \opts ->
       do
         (appCtx, cruxOpts, ucOpts) <- Config.processUCCruxLLVMOptions opts
         path <- genBitCode cruxOpts (Config.ucLLVMOptions ucOpts)
@@ -118,8 +116,9 @@ mainWithOutputConfig outCfg =
               flip Map.traverseWithKey results $
                 \func (SomeBugfindingResult result) ->
                   do
-                    say "Crux" ("Results for " <> func)
-                    say "Crux" $ Text.unpack (Result.printFunctionSummary (summary result))
+                    Crux.say Crux.Simply "Crux" ("Results for " <> Text.pack func)
+                    Crux.say Crux.Simply "Crux"
+                      $ Result.printFunctionSummary (summary result)
         return ExitSuccess
 
 translateLLVMModule ::
@@ -168,7 +167,7 @@ translateFile ucOpts halloc memVar moduleFilePath =
 -- | Postcondition: The keys of the returned map are exactly the entryPoints of
 -- the 'UCCruxLLVMOptions'.
 loopOnFunctions ::
-  (?outputConfig :: OutputConfig) =>
+  (Crux.Logs) =>
   AppContext ->
   ModuleContext m arch ->
   Crucible.HandleAllocator ->
