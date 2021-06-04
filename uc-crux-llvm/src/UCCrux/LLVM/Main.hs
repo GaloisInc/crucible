@@ -117,8 +117,8 @@ mainWithOutputConfig mkOutCfg =
                 \func (SomeBugfindingResult result) ->
                   do
                     Crux.say Crux.Simply "Crux" ("Results for " <> Text.pack func)
-                    Crux.say Crux.Simply "Crux"
-                      $ Result.printFunctionSummary (summary result)
+                    Crux.say Crux.Simply "Crux" $
+                      Result.printFunctionSummary (summary result)
         return ExitSuccess
 
 translateLLVMModule ::
