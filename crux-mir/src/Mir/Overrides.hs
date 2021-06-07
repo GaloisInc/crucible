@@ -89,8 +89,6 @@ import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
 import qualified Mir.Mir as M
 
-import Debug.Trace
-
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
     RegValue sym (MirSlice (BVType 8)) ->
@@ -440,7 +438,7 @@ bindFn symOnline cs name cfg
         str <- getString strRef >>= \x -> case x of
             Just x -> return x
             Nothing -> fail $ "dump_what4: desc string must be concrete"
-        traceM $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
+        liftIO $ putStrLn $ Text.unpack str ++ " = " ++ show (printSymExpr expr)
 
 
 bindFn _symOnline _cs fn cfg =
