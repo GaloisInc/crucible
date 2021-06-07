@@ -389,6 +389,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let skipSummary = printResultOnly mirOpts && resComp == ProgramComplete && Seq.null resGoals
     if not skipSummary then do
         outputLn ""
+        say Simply "Crux-MIR" "---- FINAL RESULTS ----"
         Crux.postprocessSimResult cruxOpts res
       else
         return ExitSuccess
