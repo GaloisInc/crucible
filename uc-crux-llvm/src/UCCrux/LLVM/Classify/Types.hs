@@ -23,6 +23,7 @@ module UCCrux.LLVM.Classify.Types
     diagnose,
     diagnoseTag,
     prescribe,
+    ppProgramLoc,
     ppTruePositive,
     ppLocatedTruePositive,
     ppTruePositiveTag,
@@ -107,12 +108,15 @@ data LocatedTruePositive = LocatedTruePositive
   }
   deriving (Eq, Ord)
 
+ppProgramLoc :: What4.ProgramLoc -> Text
+ppProgramLoc = Text.pack . show . What4.plSourceLoc
+
 ppLocatedTruePositive :: LocatedTruePositive -> Text
 ppLocatedTruePositive (LocatedTruePositive pos loc) =
   Text.unwords
     [ ppTruePositive pos,
       Text.pack "at",
-      Text.pack (show (What4.plSourceLoc loc))
+      ppProgramLoc loc
     ]
 
 truePositiveTag :: TruePositive -> TruePositiveTag
@@ -285,9 +289,9 @@ instance Show Unclassified where
 
 -- | Possible sources of uncertainty, these might be true or false positives
 data Uncertainty
-  = UUnclassified Unclassified
-  | UUnfixable Unfixable
-  | UUnfixed Unfixed
+  = UUnclassified !What4.ProgramLoc Unclassified
+  | UUnfixable !What4.ProgramLoc Unfixable
+  | UUnfixed !What4.ProgramLoc Unfixed
   | -- | Simulation, input generation, or classification encountered
     -- unimplemented functionality
     UUnimplemented (Panic Unimplemented)
@@ -315,13 +319,13 @@ partitionUncertainty = go [] [] [] [] [] [] []
         (UUnimplemented unin : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
            in (ms', fs', unin : ns', us', ufd', ufa', ts')
-        (UUnclassified unclass : rest) ->
+        (UUnclassified _loc unclass : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
            in (ms', fs', ns', unclass : us', ufd', ufa', ts')
-        (UUnfixed uf : rest) ->
+        (UUnfixed _loc uf : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
            in (ms', fs', ns', us', uf : ufd', ufa', ts')
-        (UUnfixable uf : rest) ->
+        (UUnfixable _loc uf : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
            in (ms', fs', ns', us', ufd', uf : ufa', ts')
         (UTimeout fun : rest) ->
@@ -364,12 +368,24 @@ partitionExplanations = go [] [] [] []
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =
   \case
-    UUnclassified unclass ->
-      "Unclassified error:\n"
-        <> (unclass ^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict)
-    UUnfixable unfix -> "Unfixable/inactionable error:\n" <> ppUnfixable unfix
-    UUnfixed unfix ->
-      "Fixable, but fix not yet implemented for this error:\n" <> ppUnfixed unfix
+    UUnclassified errorLoc unclass ->
+      Text.unlines
+        [ "Unclassified error:",
+          unclass ^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict,
+          "at: " <> ppProgramLoc errorLoc
+        ]
+    UUnfixable errorLoc unfix ->
+      Text.unlines
+        [ "Unfixable/inactionable error:",
+          ppUnfixable unfix,
+          "at: " <> ppProgramLoc errorLoc
+        ]
+    UUnfixed errorLoc unfix ->
+      Text.unlines
+        [ "Fixable missing precondition, but fix not yet implemented for this error:",
+          ppUnfixed unfix,
+          "at: " <> ppProgramLoc errorLoc
+        ]
     UMissingAnnotation err ->
       "(Internal issue) Missing annotation for error:\n" <> Text.pack (show err)
     UFailedAssert loc ->

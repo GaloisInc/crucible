@@ -39,7 +39,6 @@ import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Maybe (maybeToList)
-import           Data.Text (Text)
 import qualified Data.Text as Text
 
 import qualified Text.LLVM.AST as L
@@ -124,13 +123,18 @@ unclass ::
   (MonadIO f, What4.IsExpr (What4.SymExpr sym)) =>
   AppContext ->
   LLVMErrors.BadBehavior sym ->
+  -- | Source position where error occurred
+  What4.ProgramLoc ->
   f (Explanation m arch argTypes)
-unclass appCtx badBehavior =
+unclass appCtx badBehavior errorLoc =
   do
-    liftIO $ (appCtx ^. log) Hi ("Couldn't classify error." :: Text)
+    liftIO $
+      (appCtx ^. log)
+        Hi
+        ("Couldn't classify error. At: " <> ppProgramLoc errorLoc)
     pure $
       ExUncertain $
-        UUnclassified $
+        UUnclassified errorLoc $
           case badBehavior of
             LLVMErrors.BBUndefinedBehavior ub ->
               UnclassifiedUndefinedBehavior (UB.explain ub) (Some ub)
@@ -138,18 +142,38 @@ unclass appCtx badBehavior =
               UnclassifiedMemoryError (MemError.explain memoryError)
 
 unfixed ::
-  MonadIO f => AppContext -> Unfixed -> f (Explanation m arch argTypes)
-unfixed appCtx tag =
+  MonadIO f =>
+  AppContext ->
+  Unfixed ->
+  -- | Source position where error occurred
+  What4.ProgramLoc ->
+  f (Explanation m arch argTypes)
+unfixed appCtx tag errorLoc =
   do
-    liftIO $ (appCtx ^. log) Hi "Prognosis: Fixable, but the fix is not yet implemented."
-    pure $ ExUncertain (UUnfixed tag)
+    liftIO $
+      (appCtx ^. log)
+        Hi
+        ( "Prognosis: Fixable, but the fix is not yet implemented. At: "
+            <> ppProgramLoc errorLoc
+        )
+    pure $ ExUncertain (UUnfixed errorLoc tag)
 
 unfixable ::
-  MonadIO f => AppContext -> Unfixable -> f (Explanation m arch argTypes)
-unfixable appCtx tag =
+  MonadIO f =>
+  AppContext ->
+  Unfixable ->
+  -- | Source position where error occurred
+  What4.ProgramLoc ->
+  f (Explanation m arch argTypes)
+unfixable appCtx tag errorLoc =
   do
-    liftIO $ (appCtx ^. log) Hi "Prognosis: Don't know how to fix this."
-    pure $ ExUncertain (UUnfixable tag)
+    liftIO $
+      (appCtx ^. log)
+        Hi
+        ( "Prognosis: Don't know how to fix this error. At: "
+            <> ppProgramLoc errorLoc
+        )
+    pure $ ExUncertain (UUnfixable errorLoc tag)
 
 notAPointer ::
   Crucible.IsSymInterface sym =>
@@ -240,7 +264,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
               do
                 int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
                 case What4.asConcrete int of
-                  Nothing -> unclass appCtx badBehavior
+                  Nothing -> unclass appCtx badBehavior errorLoc
                   Just _ ->
                     do
                       let diagnosis = Diagnosis DiagnoseFreeBadOffset (selectWhere selector)
@@ -281,7 +305,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                             Text.pack (show (ppCursor (argName idx) cursor)),
                             "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                           ]
-                    unfixed appCtx tag
+                    unfixed appCtx tag errorLoc
                 _ ->
                   case What4.asConcrete offset of
                     Just bv ->
@@ -308,8 +332,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                                 ppUnfixable tag,
                                 "(" <> Text.pack (show (LLVMPtr.ppPtr ptr)) <> ")"
                               ]
-                        unfixable appCtx tag
-            _ -> unclass appCtx badBehavior
+                        unfixable appCtx tag errorLoc
+            _ -> unclass appCtx badBehavior errorLoc
     LLVMErrors.BBUndefinedBehavior
       (UB.MemsetInvalidRegion (Crucible.RV ptr) _fillByte (Crucible.RV len)) ->
         do
@@ -332,12 +356,12 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                                   (elemsFromOffset' concreteLen partTypeRepr)
                               )
                           )
-            _ -> unclass appCtx badBehavior
+            _ -> unclass appCtx badBehavior errorLoc
     LLVMErrors.BBUndefinedBehavior
       (UB.PoisonValueCreated poison) ->
         classifyPoison appCtx sym annotations poison
           >>= \case
-            Nothing -> unclass appCtx badBehavior
+            Nothing -> unclass appCtx badBehavior errorLoc
             Just expl -> pure expl
     LLVMErrors.BBMemoryError
       ( MemError.MemoryError
@@ -363,7 +387,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                           -- TODO: This should probably be an error, it definitely *can*
                           -- arise from a use-after-free of an argument see
                           -- test/programs/use_after_free.c
-                          unclass appCtx badBehavior
+                          unclass appCtx badBehavior errorLoc
                         Right False ->
                           do
                             let diagnosis =
@@ -380,7 +404,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                 notPtr <- liftIO $ notAPointer sym ptr
                 case notPtr of
                   Just True -> truePositive WriteNonPointer
-                  _ -> unclass appCtx badBehavior
+                  _ -> unclass appCtx badBehavior errorLoc
             -- If the "pointer" concretely wasn't a pointer, it's a bug.
             _ -> requirePossiblePointer WriteNonPointer ptr
     LLVMErrors.BBMemoryError
@@ -445,10 +469,10 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                       -- variable.
                       if Set.null skipped
                         then truePositive (ReadUninitializedStack loc)
-                        else unclass appCtx badBehavior
+                        else unclass appCtx badBehavior errorLoc
                   Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
                     if loc == mallocLocation
-                      then unclass appCtx badBehavior
+                      then unclass appCtx badBehavior errorLoc
                       else truePositive (ReadUninitializedHeap loc)
                   -- TODO(lb): Result in false negatives
                   -- Just (G.AllocInfo G.GlobalAlloc _sz _mut _align _loc) ->
@@ -469,7 +493,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                 liftIO $
                   (appCtx ^. log) Hi $
                     Text.unwords ["Diagnosis: ", ppUnfixed tag]
-                unfixed appCtx tag
+                unfixed appCtx tag errorLoc
             _ ->
               liftIO (allocInfoFromPtr mem ptr)
                 >>= \case
@@ -480,11 +504,13 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                       truePositive (CallNonFunctionPointer loc)
                   Just (G.AllocInfo G.HeapAlloc _sz _mut _align loc) ->
                     if loc == mallocLocation
-                      then unclass appCtx badBehavior
+                      then unclass appCtx badBehavior errorLoc
                       else truePositive (CallNonFunctionPointer loc)
-                  _ -> unclass appCtx badBehavior
-    _ -> unclass appCtx badBehavior
+                  _ -> unclass appCtx badBehavior errorLoc
+    _ -> unclass appCtx badBehavior errorLoc
   where
+    errorLoc = Crucible.simErrorLoc simError
+
     expectPointerType ::
       FullTypeRepr m ft ->
       ( forall ft'.
@@ -592,7 +618,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                           oneConstraint selector (BVCmp L.Ine w (BV.mkBV w 0))
                         )
                   _ -> panic "classify" ["Expected integer type"]
-            _ -> unclass appCtx badBehavior
+            _ -> unclass appCtx badBehavior errorLoc
         Just _ -> truePositive truePos
 
     argName :: Ctx.Index argTypes tp -> String
@@ -634,12 +660,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
         liftIO $
           (appCtx ^. log) Hi $
             Text.unwords ["Diagnosis:", ppTruePositive pos]
-        return $
-          ExTruePositive
-            ( LocatedTruePositive
-                pos
-                (Crucible.simErrorLoc simError)
-            )
+        return $ ExTruePositive (LocatedTruePositive pos errorLoc)
 
     -- Unfortunately, this check is pretty coarse. We can conclude that the
     -- given pointer concretely isn't a pointer only if *all* of the following
@@ -668,4 +689,4 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
         notPtr <- liftIO $ notAPointer sym ptr
         case (notPtr, null (getAnyPtrOffsetAnn ptr)) of
           (Just True, True) -> truePositive pos
-          _ -> unclass appCtx badBehavior
+          _ -> unclass appCtx badBehavior errorLoc
