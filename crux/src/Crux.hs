@@ -192,11 +192,18 @@ showVersion nm ver =
 
 -- | Create an OutputConfig for Crux, based on an indication of
 -- whether colored output should be used, the normal and error output
--- handles, and the parsed CruxOptions.  The following CruxOptions
--- affect the generated OutputConfig:
+-- handles, and the parsed CruxOptions.
 --
--- printFailures
--- quietMode
+-- If no CruxOptions are available (i.e. Nothing, as used in the
+-- preliminary portions of loadOptions), then a default output stance
+-- is applied; the default stance is described along with the
+-- individual option below.
+--
+-- The following CruxOptions affect the generated OutputConfig:
+--
+--  * printFailures  (default stance: True)
+--  * quietMode      (default stance: False)
+--  * simVerbose     (default stance: False)
 
 mkOutputConfig :: Bool -> Handle -> Handle -> Maybe CruxOptions -> OutputConfig
 mkOutputConfig withColors outHandle errHandle opts =
