@@ -355,7 +355,7 @@ readFancyMuxTree' :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
 readFancyMuxTree' sym f mux t = readFancyMuxTree sym f mux t >>= \my -> case my of
     Just y -> return y
     Nothing -> liftIO $ addFailedAssertion sym $ GenericSimError $
-        "attemted to read empty mux tree"
+        "attempted to read empty mux tree"
 
 readPartialFancyMuxTree :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
     sym ->
@@ -391,7 +391,7 @@ zipFancyMuxTrees' :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
 zipFancyMuxTrees' sym f mux tx ty = zipFancyMuxTrees sym f mux tx ty >>= \my -> case my of
     Just y -> return y
     Nothing -> liftIO $ addFailedAssertion sym $ GenericSimError $
-        "attemted to read empty mux tree"
+        "attempted to read empty mux tree"
 
 mergeFancyMuxTree :: (IsExprBuilder sym, OrdSkel a, MonadIO m) =>
     sym -> (Pred sym -> a -> a -> m a) ->
