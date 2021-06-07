@@ -212,9 +212,10 @@ mkOutputConfig withColors outHandle errHandle opts =
                    baseline = if maybe False ((> 1) . simVerbose) opts
                               then Noisily
                               else Simply
-               in if maybe False quietMode opts
+               in if beQuiet
                   then logfltr OK >$< la
                   else logfltr baseline >$< la
+      beQuiet = maybe False quietMode opts
       logfltr allowed = \case
         SayNothing -> SayNothing
         w@(SayWhat lvl _ _) -> if lvl >= allowed then w else SayNothing
@@ -229,7 +230,7 @@ mkOutputConfig withColors outHandle errHandle opts =
   in OutputConfig
      {
        _outputHandle = outHandle
-     , _quiet = maybe True quietMode opts
+     , _quiet = beQuiet
      , _logWhat = lgWhat
      , _logExc = let seeRed = AC.hSetSGR errHandle
                               [ AC.SetConsoleIntensity AC.BoldIntensity
