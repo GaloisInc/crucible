@@ -22,7 +22,7 @@ jobs:
           tar xvf hlint.tar.gz
           ./hlint-3.3/hlint exe src test
 
-      - uses: mrkkrp/ormolu-action@v1
+      - uses: mrkkrp/ormolu-action@v2
         with:
           pattern: |
             uc-crux-llvm/exe/**/*.hs
