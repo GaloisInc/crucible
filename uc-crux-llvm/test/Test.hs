@@ -144,9 +144,9 @@ findBugs llvmModule file fns =
                   Crux.say Crux.Fail "UC-Crux-LLVM" "Trouble when running Clang:"
                   Crux.logException exc
                   error "aborting"
-                if isRealFile
-                  then try (genBitCode cruxOpts'' uclopts) >>= either complain return
-                  else return "<fake-path>"
+              in if isRealFile
+                 then try (genBitCode cruxOpts'' uclopts) >>= either complain return
+                 else return "<fake-path>"
 
           -- TODO(lb): It would be nice to print this only when the test fails
           -- putStrLn
