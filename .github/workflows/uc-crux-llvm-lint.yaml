@@ -23,6 +23,10 @@ jobs:
           ./hlint-3.3/hlint exe src test
 
       - uses: mrkkrp/ormolu-action@v2
+        # This is currently disabled, since it complains about
+        # problems in uc-crux-llvm (without many details) that
+        # GHC says don't exist.  2021 June 07
+        if: false
         with:
           pattern: |
             uc-crux-llvm/exe/**/*.hs
