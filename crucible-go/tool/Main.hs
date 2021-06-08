@@ -1,5 +1,7 @@
 -- | Command line interface to crucible-go
+{-# Language ImplicitParams #-}
 {-# Language OverloadedStrings #-}
+
 module Main where
 
 import qualified Data.ByteString.Lazy as BS
@@ -37,7 +39,7 @@ cruxGoConfig = Crux.Config
   , Crux.cfgCmdLineFlag = []
   }
 
-simulateGo :: Crux.CruxOptions -> GoOptions -> Crux.SimulatorCallback
+simulateGo :: Crux.CruxOptions -> GoOptions -> Crux.SimulatorCallback msgs
 simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
@@ -64,8 +66,11 @@ simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
 -- | Entry point, parse command line options
 main :: IO ()
 main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-go" version cruxGoConfig $
-    \(cruxOpts, goOpts) ->
+  Crux.withCruxLogMessage $
+  Crux.loadOptions
+    (Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat)
+    "crux-go" version cruxGoConfig
+    $ \(cruxOpts, goOpts) ->
       exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
         Crux.runSimulator (cruxOpts { Crux.outDir = "report"
                                     , Crux.skipReport = False })

@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -44,7 +45,7 @@ setupWasmState sym s =
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))
 
-simulateWasm :: Crux.CruxOptions -> WasmOptions -> Crux.SimulatorCallback
+simulateWasm :: Crux.CruxOptions -> WasmOptions -> Crux.SimulatorCallback msgs
 simulateWasm cruxOpts _wasmOpts = Crux.SimulatorCallback $ \sym _mOnline ->
    do let files = Crux.inputFiles cruxOpts
 
@@ -64,7 +65,10 @@ simulateWasm cruxOpts _wasmOpts = Crux.SimulatorCallback $ \sym _mOnline ->
 
 main :: IO ()
 main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-wasm" version cruxWasmConfig
-   \(cruxOpts, wasmOpts) ->
-       do res <- Crux.runSimulator cruxOpts (simulateWasm cruxOpts wasmOpts)
-          exitWith =<< Crux.postprocessSimResult True cruxOpts res
+  Crux.withCruxLogMessage $
+  Crux.loadOptions
+    (Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat)
+    "crux-wasm" version cruxWasmConfig
+    $ \(cruxOpts, wasmOpts) ->
+      do res <- Crux.runSimulator cruxOpts (simulateWasm cruxOpts wasmOpts)
+         exitWith =<< Crux.postprocessSimResult True cruxOpts res

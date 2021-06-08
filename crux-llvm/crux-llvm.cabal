@@ -77,6 +77,7 @@ library
     CruxLLVMMain
     Crux.LLVM.Compile
     Crux.LLVM.Config
+    Crux.LLVM.Log
     Crux.LLVM.Overrides
     Crux.LLVM.Simulate
     Paths_crux_llvm
@@ -137,6 +138,7 @@ executable crux-llvm-svcomp
     unix
 
   other-modules:
+    SVComp.Log
     Paths_crux_llvm
 
   autogen-modules:

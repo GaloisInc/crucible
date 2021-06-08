@@ -1,17 +1,17 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -27,6 +27,9 @@ module Mir.Language (
     orOverride,
     MIROptions(..),
     defaultMirOptions,
+    MirLogging(..),
+    mirLoggingToSayWhat,
+    withMirLogging,
 ) where
 
 import qualified Data.Aeson as Aeson
@@ -77,7 +80,8 @@ import qualified What4.ProgramLoc                      as W4
 import qualified What4.FunctionName                    as W4
 
 -- crux
-import qualified Crux as Crux
+import qualified Crux
+import qualified Crux.Log as Log
 import qualified Crux.Model as Crux
 import qualified Crux.UI.JS as Crux
 
@@ -99,26 +103,50 @@ import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, pattern MirVectorRepr, MirVector(..))
 import           Mir.Generator
 import           Mir.Generate (generateMIR, translateMIR)
+import qualified Mir.Log as Log
 import           Mir.Trans (transStatics)
 import           Mir.TransTy
 import           Mir.Concurrency
 import           Paths_crux_mir (version)
 
+defaultOutputConfig :: Maybe Crux.CruxOptions -> OutputConfig MirLogging
+defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
+
 main :: IO ()
-main = mainWithOutputConfig Crux.defaultOutputConfig noExtraOverrides >>= exitWith
+main = mainWithOutputConfig defaultOutputConfig noExtraOverrides >>= exitWith
 
 mainWithExtraOverrides :: BindExtraOverridesFn -> IO ()
 mainWithExtraOverrides bindExtra =
-    mainWithOutputConfig Crux.defaultOutputConfig bindExtra >>= exitWith
+    mainWithOutputConfig defaultOutputConfig bindExtra >>= exitWith
 
 mainWithOutputTo :: Handle -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig False h h
+mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig False h h mirLoggingToSayWhat
 
-mainWithOutputConfig :: (Maybe Crux.CruxOptions -> OutputConfig)
+data MirLogging
+    = LoggingCrux Crux.CruxLogMessage
+    | LoggingMir Log.MirLogMessage
+
+mirLoggingToSayWhat :: MirLogging -> SayWhat
+mirLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
+mirLoggingToSayWhat (LoggingMir msg) = Log.mirLogMessageToSayWhat msg
+
+withMirLogging ::
+    (
+        ( Log.SupportsCruxLogMessage MirLogging
+        , Log.SupportsMirLogMessage MirLogging
+        ) => computation
+    ) -> computation
+withMirLogging computation =
+    let ?injectCruxLogMessage = LoggingCrux
+        ?injectMirLogMessage = LoggingMir
+     in computation
+
+mainWithOutputConfig :: (Maybe Crux.CruxOptions -> OutputConfig MirLogging)
                      -> BindExtraOverridesFn -> IO ExitCode
 mainWithOutputConfig mkOutCfg bindExtra =
+    withMirLogging $
     Crux.loadOptions mkOutCfg "crux-mir" version mirConfig
-    $ runTestsWithExtraOverrides bindExtra
+        $ runTestsWithExtraOverrides bindExtra
 
 type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
@@ -150,11 +178,17 @@ data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
                 }
 
 
-runTests :: (Crux.Logs) =>
+runTests ::
+    Crux.Logs msgs =>
+    Crux.SupportsCruxLogMessage msgs =>
+    Log.SupportsMirLogMessage msgs =>
     (Crux.CruxOptions, MIROptions) -> IO ExitCode
 runTests opts = runTestsWithExtraOverrides noExtraOverrides opts
 
-runTestsWithExtraOverrides :: (Crux.Logs) =>
+runTestsWithExtraOverrides ::
+    Crux.Logs msgs =>
+    Crux.SupportsCruxLogMessage msgs =>
+    Log.SupportsMirLogMessage msgs =>
     BindExtraOverridesFn ->
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
@@ -243,7 +277,6 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let simTestBody :: forall sym p t st fs.
             ( C.IsSymInterface sym
             , sym ~ W4.ExprBuilder t st fs
-            , Crux.Logs
             ) =>
             Maybe (Crux.SomeOnlineSolver sym) ->
             DefId ->
@@ -285,10 +318,12 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
           when (not $ printResultOnly mirOpts) $
             liftIO $ output $ "test " ++ show fnName ++ ": "
 
-    let simTest :: forall sym t st fs.
+    let simTest :: forall sym t st fs msgs.
             ( C.IsSymInterface sym
             , sym ~ W4.ExprBuilder t st fs
-            , Crux.Logs
+            , Logs msgs
+            , Log.SupportsCruxLogMessage msgs
+            , Log.SupportsMirLogMessage msgs
             ) =>
             Maybe (Crux.SomeOnlineSolver sym) ->
             DefId ->
@@ -394,7 +429,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let skipSummary = printResultOnly mirOpts && resComp == ProgramComplete && Seq.null resGoals
     if not skipSummary then do
         outputLn ""
-        say Simply "Crux-MIR" "---- FINAL RESULTS ----"
+        Log.sayMir Log.FinalResults
         Crux.postprocessSimResult False cruxOpts res
       else
         return ExitSuccess

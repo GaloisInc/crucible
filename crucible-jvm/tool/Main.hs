@@ -175,7 +175,7 @@ cruxJVMConfig = Crux.Config
       ]
   }
 
-simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallback
+simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallback msgs
 simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
@@ -202,8 +202,11 @@ simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
 -- | Entry point, parse command line options
 main :: IO ()
 main =
-  Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" version cruxJVMConfig $
-    \(cruxOpts, jvmOpts) -> do
+  Crux.withCruxLogMessage $
+  Crux.loadOptions
+    (Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat)
+    "crux-jvm" version cruxJVMConfig
+    $ \(cruxOpts, jvmOpts) -> do
       jvmOpts' <- processJVMOptions jvmOpts
       exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
         Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts')

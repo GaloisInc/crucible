@@ -6,7 +6,6 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -36,7 +35,7 @@ import Lang.Crucible.LLVM.Translation (llvmPtrWidth, transContext)
 
 -- crux
 import Crux.Config.Common
-import Crux.Log (OutputConfig(..))
+import Crux.Log as Crux
 
  -- local
 import Crux.LLVM.Config (throwCError, CError(MissingFun), memOpts)
@@ -60,9 +59,9 @@ import qualified UCCrux.LLVM.Run.Simulate as Sim
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
 bugfindingLoop ::
-  ( ?outputConfig :: OutputConfig,
-    ArchOk arch
-  ) =>
+  ArchOk arch =>
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
   AppContext ->
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
@@ -134,7 +133,8 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
     loop [] emptyConstraints' [] mempty
 
 loopOnFunction ::
-  (?outputConfig :: OutputConfig) =>
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
   AppContext ->
   ModuleContext m arch ->
   Crucible.HandleAllocator ->

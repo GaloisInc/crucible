@@ -39,9 +39,12 @@ currently \"unclassified\", the current state of the code isn't wrong per se,
 but may be imprecise. If that's not the current state, such a comment indicates
 a very real bug.
 -}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -70,17 +73,20 @@ import           Lang.Crucible.FunctionHandle (newHandleAllocator)
 import           Lang.Crucible.LLVM.MemModel (mkMemVar)
 
 import qualified Crux
+import qualified Crux.Log as Log
 import           Crux.LLVM.Compile (genBitCode)
 import           Crux.LLVM.Config (clangOpts)
+import qualified Crux.LLVM.Log as Log
 
 -- Code being tested
 import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config as Config
-import           UCCrux.LLVM.Main (SomeModuleContext'(..), loopOnFunctions, translateFile, translateLLVMModule)
+import qualified UCCrux.LLVM.Main as Main
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
+import qualified UCCrux.LLVM.Logging as Log
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
@@ -110,61 +116,114 @@ _exampleStruct =
 testDir :: FilePath
 testDir = "test/programs"
 
+-- | Extra logging messages specific to this test suite
+
+data UCCruxLLVMTestLogMessage
+  = ClangTrouble
+
+type SupportsUCCruxLLVMTestLogMessage msgs =
+  (?injectUCCruxLLVMTestLogMessage :: UCCruxLLVMTestLogMessage -> msgs)
+
+sayUCCruxLLVMTest ::
+  Crux.Logs msgs =>
+  (?injectUCCruxLLVMTestLogMessage :: UCCruxLLVMTestLogMessage -> msgs) =>
+  UCCruxLLVMTestLogMessage ->
+  IO ()
+sayUCCruxLLVMTest msg =
+  let ?injectMessage = ?injectUCCruxLLVMTestLogMessage
+   in Crux.say msg
+
+ucCruxLLVMTestLogMessageToSayWhat ::
+  UCCruxLLVMTestLogMessage ->
+  Crux.SayWhat
+ucCruxLLVMTestLogMessageToSayWhat ClangTrouble =
+  Crux.SayWhat Crux.Fail Log.ucCruxLLVMTag "Trouble when running Clang:"
+
+-- | Logging data type joining test log messages and uc-crux-llvm log messages
+
+data UCCruxLLVMTestLogging
+  = LoggingViaUCCruxLLVM Main.UCCruxLLVMLogging
+  | LoggingUCCruxLLVMTest UCCruxLLVMTestLogMessage
+
+ucCruxLLVMTestLoggingToSayWhat :: UCCruxLLVMTestLogging -> Log.SayWhat
+ucCruxLLVMTestLoggingToSayWhat (LoggingViaUCCruxLLVM msg) =
+  Main.ucCruxLLVMLoggingToSayWhat msg
+ucCruxLLVMTestLoggingToSayWhat (LoggingUCCruxLLVMTest msg) =
+  ucCruxLLVMTestLogMessageToSayWhat msg
+
+withUCCruxLLVMTestLogging ::
+  ( ( Log.SupportsCruxLogMessage UCCruxLLVMTestLogging,
+      Log.SupportsCruxLLVMLogMessage UCCruxLLVMTestLogging,
+      Log.SupportsUCCruxLLVMLogMessage UCCruxLLVMTestLogging,
+      SupportsUCCruxLLVMTestLogMessage UCCruxLLVMTestLogging
+    ) =>
+    computation
+  ) ->
+  computation
+withUCCruxLLVMTestLogging computation =
+  let ?injectCruxLogMessage = LoggingViaUCCruxLLVM . Main.LoggingCrux
+      ?injectCruxLLVMLogMessage = LoggingViaUCCruxLLVM . Main.LoggingCruxLLVM
+      ?injectUCCruxLLVMLogMessage = LoggingViaUCCruxLLVM . Main.LoggingUCCruxLLVM
+      ?injectUCCruxLLVMTestLogMessage = LoggingUCCruxLLVMTest
+   in computation
+
 findBugs ::
   Maybe L.Module ->
   FilePath ->
   [String] ->
   IO (Map.Map String Result.SomeBugfindingResult)
 findBugs llvmModule file fns =
-  do
-    withFile (testDir </> file <> ".output") WriteMode $ \h ->
-      do
-        let isRealFile = isNothing llvmModule
-        let mkOutCfg = Crux.mkOutputConfig False h h
-        conf <- Config.ucCruxLLVMConfig
-        Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) -> do
-          let cruxOpts' =
-                cruxOpts
-                  { Crux.inputFiles = [testDir </> file],
-                    -- With Yices, cast_float_to_pointer_write.c hangs
-                    Crux.solver = "z3"
-                  }
-          let ucOpts' = ucOpts {Config.entryPoints = fns}
-          (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
-          path <- do
-            let uclopts =
-                  (Config.ucLLVMOptions ucOpts')
-                    { -- NB(lb): The -fno-wrapv here ensures that
-                      -- Clang will emit 'nsw' flags even on platforms
-                      -- using nixpkgs, which injects
-                      -- -fno-strict-overflow by default.
-                      clangOpts = ["-fno-wrapv"]
-                    }
-                complain exc = do
-                  Crux.say Crux.Fail "UC-Crux-LLVM" "Trouble when running Clang:"
-                  Crux.logException exc
-                  error "aborting"
-              in if isRealFile
-                 then try (genBitCode cruxOpts'' uclopts) >>= either complain return
-                 else return "<fake-path>"
+  withUCCruxLLVMTestLogging $
+    do
+      withFile (testDir </> file <> ".output") WriteMode $ \h ->
+        do
+          let isRealFile = isNothing llvmModule
+          let mkOutCfg = Crux.mkOutputConfig False h h ucCruxLLVMTestLoggingToSayWhat
+          conf <- Config.ucCruxLLVMConfig
+          Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $
+            \(cruxOpts, ucOpts) -> do
+              let cruxOpts' =
+                    cruxOpts
+                      { Crux.inputFiles = [testDir </> file],
+                        -- With Yices, cast_float_to_pointer_write.c hangs
+                        Crux.solver = "z3"
+                      }
+              let ucOpts' = ucOpts {Config.entryPoints = fns}
+              (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
+              path <- do
+                let uclopts =
+                      (Config.ucLLVMOptions ucOpts')
+                        { -- NB(lb): The -fno-wrapv here ensures that
+                          -- Clang will emit 'nsw' flags even on platforms
+                          -- using nixpkgs, which injects
+                          -- -fno-strict-overflow by default.
+                          clangOpts = ["-fno-wrapv"]
+                        }
+                    complain exc = do
+                      sayUCCruxLLVMTest ClangTrouble
+                      Crux.logException exc
+                      error "aborting"
+                 in if isRealFile
+                      then try (genBitCode cruxOpts'' uclopts) >>= either complain return
+                      else return "<fake-path>"
 
-          -- TODO(lb): It would be nice to print this only when the test fails
-          -- putStrLn
-          --   ( unwords
-          --       [ "\nReproduce with:\n",
-          --         "cabal v2-run exe:uc-crux-llvm -- ",
-          --         "--entry-points",
-          --         intercalate " --entry-points " (map show fns),
-          --         testDir </> file
-          --       ]
-          --   )
-          halloc <- newHandleAllocator
-          memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
-          SomeModuleContext' modCtx <-
-            case llvmModule of
-              Just lMod -> translateLLVMModule ucOpts'' halloc memVar path lMod
-              Nothing -> translateFile ucOpts'' halloc memVar path
-          loopOnFunctions appCtx modCtx halloc cruxOpts'' ucOpts''
+              -- TODO(lb): It would be nice to print this only when the test fails
+              -- putStrLn
+              --   ( unwords
+              --       [ "\nReproduce with:\n",
+              --         "cabal v2-run exe:uc-crux-llvm -- ",
+              --         "--entry-points",
+              --         intercalate " --entry-points " (map show fns),
+              --         testDir </> file
+              --       ]
+              --   )
+              halloc <- newHandleAllocator
+              memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
+              Main.SomeModuleContext' modCtx <-
+                case llvmModule of
+                  Just lMod -> Main.translateLLVMModule ucOpts'' halloc memVar path lMod
+                  Nothing -> Main.translateFile ucOpts'' halloc memVar path
+              Main.loopOnFunctions appCtx modCtx halloc cruxOpts'' ucOpts''
 
 inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
 inFile file specs =

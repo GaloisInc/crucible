@@ -21,6 +21,8 @@ library
 
   build-depends:
     base >= 4 && < 5,
+    aeson,
+    aeson-typescript,
     aig,
     array,
     async,
@@ -94,4 +96,3 @@ library
                -Wincomplete-uni-patterns
   ghc-prof-options: -O2
   default-language: Haskell2010
-

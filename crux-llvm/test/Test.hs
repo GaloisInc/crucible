@@ -258,7 +258,7 @@ mkTest clangVer sweet _ expct =
           (try $
             withArgs (cfargs <> [TS.rootFile sweet]) $
             let coloredOutput = False
-            in (C.mainWithOutputConfig $ C.mkOutputConfig coloredOutput h h))
+            in (C.mainWithOutputConfig $ C.mkOutputConfig coloredOutput h h C.cruxLLVMLoggingToSayWhat))
         BSIO.writeFile resFName $ failureMsg r
 
       checkResult =

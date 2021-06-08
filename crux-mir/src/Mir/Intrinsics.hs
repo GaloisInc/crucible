@@ -1047,7 +1047,7 @@ instance TypeApp MirStmt where
     MirVector_Resize tp _ _ -> MirVectorRepr tp
 
 instance PrettyApp MirStmt where
-  ppApp pp = \case 
+  ppApp pp = \case
     MirNewRef tp -> "newMirRef" <+> pretty tp
     MirIntegerToRef tp i -> "integerToMirRef" <+> pretty tp <+> pp i
     MirGlobalRef gv -> "globalMirRef" <+> pretty gv

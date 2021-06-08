@@ -15,8 +15,7 @@ import Data.IORef
 import qualified Data.List as List
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
-import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text as Text (Text, pack)
 import GHC.Exts ( proxy# )
 
 import System.IO (stdout)
@@ -73,9 +72,10 @@ import Lang.Crucible.LLVM.Extension( LLVM )
 import qualified Crux
 
 import Crux.Types
-import Crux.Log
+import Crux.Log ( outputHandle )
 
 import Crux.LLVM.Config
+import qualified Crux.LLVM.Log as Log
 import Crux.LLVM.Overrides
 
 -- | Create a simulator context for the given architecture.
@@ -124,7 +124,10 @@ registerFunctions llvm_module mtrans =
      -- register all the functions defined in the LLVM module
      mapM_ (registerModuleFn llvm_ctx) $ Map.elems $ cfgMap mtrans
 
-simulateLLVMFile :: FilePath -> LLVMOptions -> Crux.SimulatorCallback
+simulateLLVMFile ::
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  FilePath -> LLVMOptions -> Crux.SimulatorCallback msgs
 simulateLLVMFile llvm_file llvmOpts = do
   Crux.SimulatorCallback $ \sym maybeOnline -> do
     halloc <- newHandleAllocator
@@ -133,7 +136,8 @@ simulateLLVMFile llvm_file llvmOpts = do
     runnableState <- setupFileSim halloc llvm_file llvmOpts sym maybeOnline
     return (runnableState, explainFailure sym bbMapRef)
 
-setupFileSim :: Logs
+setupFileSim :: Crux.Logs msgs
+             => Log.SupportsCruxLLVMLogMessage msgs
              => IsSymInterface sym
              => sym ~ WEB.ExprBuilder t st fs
              => HasLLVMAnn sym
@@ -176,7 +180,8 @@ data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
 
 prepLLVMModule :: IsSymInterface sym
                => HasLLVMAnn sym
-               => Logs
+               => Crux.Logs msgs
+               => Log.SupportsCruxLLVMLogMessage msgs
                => LLVMOptions
                -> HandleAllocator
                -> sym
@@ -192,24 +197,22 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
              let ?lc = llvmCtxt ^. llvmTypeCtx
              in llvmPtrWidth llvmCtxt $ \ptrW ->
                withPtrWidth ptrW $ do
-               say Simply "Crux" $ T.unwords [ "Using pointer width:"
-                                             , T.pack $ show ptrW
-                                             , "for file", T.pack bcFile]
+               Log.sayCruxLLVM (Log.UsingPointerWidthForFile (intValue ptrW) (Text.pack bcFile))
                populateAllGlobals sym (globalInitMap trans)
                  =<< initializeAllMemory sym llvmCtxt llvmMod
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
 
 
 checkFun ::
-  (Logs) =>
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
   String -> ModuleCFGMap -> OverM personality sym LLVM ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (_, AnyCFG anyCfg) ->
       case cfgArgTypes anyCfg of
         Empty ->
-          do liftIO $ say Simply "Crux" ("Simulating function "
-                                         <> T.pack (show nm))
+          do liftIO $ Log.sayCruxLLVM (Log.SimulatingFunction (Text.pack nm))
              (callCFG anyCfg emptyRegMap) >> return ()
         _     -> throwCError BadFun  -- TODO(lb): Suggest uc-crux-llvm?
     Nothing -> throwCError (MissingFun nm)

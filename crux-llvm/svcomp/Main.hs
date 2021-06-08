@@ -7,6 +7,7 @@
 {-# Language ImplicitParams #-}
 {-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
+{-# Language RankNTypes #-}
 {-# Language RecordWildCards #-}
 {-# Language ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -42,7 +43,7 @@ import System.Posix.Resource
 -- crux
 import qualified Crux
 import Crux.Config.Common(CruxOptions(..))
-import Crux.Log
+import qualified Crux.Log as Log
 import Crux.Report
 import Crux.SVCOMP
 import Crux.Types as Crux
@@ -50,16 +51,40 @@ import Crux.Types as Crux
 -- local
 import Crux.LLVM.Config
 import Crux.LLVM.Compile
+import qualified Crux.LLVM.Log as Log
 import Crux.LLVM.Simulate
-import CruxLLVMMain ( processLLVMOptions, defaultOutputConfig )
+import CruxLLVMMain ( processLLVMOptions )
 import Paths_crux_llvm (version)
+import qualified SVComp.Log as Log
 
+data SVCompLogging
+  = LoggingCrux Log.CruxLogMessage
+  | LoggingCruxLLVM Log.CruxLLVMLogMessage
+  | LoggingSVComp Log.SVCompLogMessage
+
+svCompLoggingToSayWhat :: SVCompLogging -> SayWhat
+svCompLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
+svCompLoggingToSayWhat (LoggingCruxLLVM msg) = Log.cruxLLVMLogMessageToSayWhat msg
+svCompLoggingToSayWhat (LoggingSVComp msg) = Log.svCompLogMessageToSayWhat msg
+
+withSVCompLogging ::
+  ( ( Log.SupportsCruxLogMessage SVCompLogging
+    , Log.SupportsCruxLLVMLogMessage SVCompLogging
+    , Log.SupportsSVCompLogMessage SVCompLogging
+    ) => computation ) ->
+  computation
+withSVCompLogging computation = do
+  let ?injectCruxLogMessage = LoggingCrux
+      ?injectCruxLLVMLogMessage = LoggingCruxLLVM
+      ?injectSVCompLogMessage = LoggingSVComp
+    in computation
 
 main :: IO ()
-main = do
+main = withSVCompLogging $ do
   cfg <- llvmCruxConfig
   let opts = Crux.cfgJoin cfg svcompOptions
-  Crux.loadOptions defaultOutputConfig "crux-llvm-svcomp" version opts $ \(co0,(lo0,svOpts)) ->
+  Crux.loadOptions (Crux.defaultOutputConfig svCompLoggingToSayWhat) "crux-llvm-svcomp" version opts
+    $ \(co0,(lo0,svOpts)) ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        bss <- loadSVCOMPBenchmarks cruxOpts
        let taskMap = deduplicateTasks bss
@@ -67,11 +92,20 @@ main = do
        evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts
 
 
-genSVCOMPBitCode :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap
+
+genSVCOMPBitCode :: forall msgs
+                  . Log.Logs msgs
+                 => Log.SupportsCruxLLVMLogMessage msgs
+                 => Log.SupportsSVCompLogMessage msgs
+                 => CruxOptions -> LLVMOptions -> SVCOMPOptions -> TaskMap
                  -> IO [(Int, VerificationTask, Either SomeException FilePath)]
 genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::Int ..] (Map.toList tm))
  where
- goTask (n, (task, bss)) = action `catch` handler
+ goTask :: Log.SupportsSVCompLogMessage msgs
+        => (Int, (VerificationTask, [BenchmarkSet]))
+        -> IO [(Int, VerificationTask, Either SomeException FilePath)]
+ goTask (n, (task, bss)) =
+   action `catch` handler
    where
    outputPath = svTaskDirectory (Crux.outDir cruxOpts) n task
 
@@ -83,13 +117,11 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
    handler e
      | Just (_::AsyncException) <- fromException e = throwIO e
      | otherwise =
-         do say Fail "SVCOMP" ("Failed to compile task:"
-                               <> (T.pack $ show $ verificationSourceFile task))
-            logException e
+         do Log.saySVComp (Log.FailedToCompileTask (T.pack (verificationSourceFile task)))
+            Log.logException e
             removeDirectoryRecursive outputPath `catch` \e' -> do
-               say Fail "SVCOMP" ("Double fault! While trying to remove: "
-                                  <> T.pack outputPath)
-               logException (e'::SomeException)
+               Log.saySVComp (Log.DoubleFaultWhileTryingToRemove (T.pack outputPath))
+               Log.logException (e'::SomeException)
             return [(n, task, Left e)]
 
 
@@ -101,19 +133,13 @@ genSVCOMPBitCode cruxOpts llvmOpts svOpts tm = concat <$> mapM goTask (zip [0::I
 
  processVerificationTask _tgt _num task
    | or [ isSuffixOf bl (verificationSourceFile task) | bl <- svcompBlacklist svOpts ]
-   = do say Warn "SVCOMP" $ T.unlines
-          [ "Skipping:"
-          , "  " <> T.pack (verificationSourceFile task) <> " due to blacklist"
-          ]
+   = do Log.saySVComp (Log.Skipping Log.DueToBlacklist (T.pack (verificationSourceFile task)))
         return Nothing
 
  processVerificationTask tgt num task =
    let files = verificationInputFiles task in
      if null files
-     then do say Warn "SVCOMP" $ T.unlines
-               [ "Skipping:"
-               , "  " <> T.pack (verificationSourceFile task) <> " because no input files are present"
-               ]
+     then do Log.saySVComp (Log.Skipping Log.NoInputFiles (T.pack (verificationSourceFile task)))
              return Nothing
      else
        do let taskFile = verificationSourceFile task
@@ -148,7 +174,8 @@ hGetContentsStrict hdl =
   do s <- hGetContents hdl
      length s `seq` return s
 
-evaluateBenchmarkLLVM :: Logs => CruxOptions -> LLVMOptions -> SVCOMPOptions
+evaluateBenchmarkLLVM :: Crux.Logs SVCompLogging
+                      => CruxOptions -> LLVMOptions -> SVCOMPOptions
                       -> [(Int, VerificationTask, Either SomeException FilePath)]
                       -> IO ()
 evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
@@ -166,6 +193,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
  root = Crux.outDir cruxOpts
 
  evaluateVerificationTask jsonOutHdl (num, task, compileErrOrOutFile) =
+   withSVCompLogging $
     do ed <- case compileErrOrOutFile of
          Left ex ->
            failTask num task "Failed to compile task" ex
@@ -207,11 +235,7 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
        readHdl <- fdToHandle readFd
        jsonReadHdl <- fdToHandle jsonReadFd
 
-       say OK "SVCOMP" $ T.unlines
-         [ "Evaluating:"
-         , "  " <> T.pack taskRoot
-         , "  " <> T.pack sourceFile
-         ]
+       Log.saySVComp (Log.Evaluating (T.pack taskRoot) (T.pack sourceFile))
 
        startTime <- getCurrentTime
 
@@ -232,35 +256,25 @@ evaluateBenchmarkLLVM cruxOpts llvmOpts svOpts ts =
 
        closeFd writeFd
        out <- wait aout
-       output out
+       Log.output out
 
        closeFd jsonWriteFd
        res <- wait ares
 
        let wallTime = diffUTCTime endTime startTime
-       say OK "SVCOMP" $ T.unwords ["Elapsed wall-clock time:"
-                                   , T.pack $ show wallTime
-                                   ]
+       Log.saySVComp (Log.ElapsedWallClockTime (T.pack (show wallTime)))
 
        case st of
          Just (Exited ExitSuccess) ->
            return ()
          Just (Exited (ExitFailure x)) ->
-           say Fail "SVCOMP"
-           $ T.unwords ["Evaluation process exited with failure code"
-                       , T.pack $ show x
-                       ]
+           Log.saySVComp (Log.EvaluationProcessFailed (Log.ExitedWithFailureCode (T.pack (show x))))
          Just (Terminated sig _) ->
-           say Warn "SVCOMP"
-           $ T.unwords ["Evaluation process terminated by signal"
-                       , T.pack $ show sig
-                       ]
+           Log.saySVComp (Log.EvaluationProcessFailed (Log.TerminatedBySignal (T.pack (show sig))))
          Just (Stopped sig) ->
-           say Warn "SVCOMP" $ T.unwords ["Evaluation process stopped by signal"
-                                         , T.pack $ show sig
-                                         ]
+           Log.saySVComp (Log.EvaluationProcessFailed (Log.StoppedBySignal (T.pack (show sig))))
          Nothing ->
-           say Fail "SVCOMP" "Could not retrieve evaluation process status"
+           Log.saySVComp (Log.EvaluationProcessFailed Log.UnknownStatus)
 
        return EvaluationData
               { taskRoot = taskRoot
@@ -316,12 +330,13 @@ evaluateSingleTask :: Handle -> Handle -> CruxOptions -> LLVMOptions
                    -> FilePath
                    -> Int -> VerificationTask -> FilePath -> IO ()
 evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task inpBCFile =
+   withSVCompLogging $
    do let taskRoot = svTaskDirectory bsRoot num task
       let srcRoot  = takeDirectory (verificationSourceFile task)
       let inputs   = map (srcRoot </>) (verificationInputFiles task)
       let cruxOpts' = cruxOpts { outDir = taskRoot, inputFiles = inputs }
 
-      let ?outputConfig = Crux.mkOutputConfig True writeHdl writeHdl $ Just cruxOpts
+      let ?outputConfig = Crux.mkOutputConfig True writeHdl writeHdl svCompLoggingToSayWhat $ Just cruxOpts
 
       mres <- try $
                do res <- Crux.runSimulator cruxOpts' (simulateLLVMFile inpBCFile llvmOpts)
@@ -330,8 +345,8 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task inpBCFile 
 
       case mres of
         Left e ->
-          do say Fail "SVCOMP" "Simulator threw exception:"
-             logException (e :: SomeException)
+          do Log.saySVComp Log.SimulatorThrewException
+             Log.logException (e :: SomeException)
              hClose writeHdl
              hClose jsonHdl
              exitFailure
@@ -362,25 +377,8 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task inpBCFile 
                                     Unknown -> Nothing
 
              case expectedResult of
-               Nothing -> say Warn "SVCOMP"
-                          $ T.unlines ("No verdict to evaluate!"
-                                       : (T.pack . show
-                                          <$> (verificationProperties task)))
-               Just True ->
-                 case verdict of
-                   Verified  ->
-                      say OK "SVCOMP" "CORRECT (Verified)"
-                   Falsified ->
-                      say Fail "SVCOMP" $ "FAILED! benchmark should be verified"
-                   Unknown -> say Warn "SVCOMP" "UNKNOWN (Should verify)"
-               Just False ->
-                 case verdict of
-                   Verified  ->
-                      say Fail "SVCOMP" $ "FAILED! benchmark should contain an error!"
-                   Falsified ->
-                      say OK "SVCOMP" "CORRECT (Falsifed)"
-                   Unknown ->
-                      say Warn "SVCOMP" "UNKNOWN (Should be falsified)"
+               Nothing -> Log.saySVComp (Log.NoVerdict (T.pack . show <$> verificationProperties task))
+               Just expected -> Log.saySVComp (Log.VerdictExpecting expected verdict)
 
              LBS.hPut jsonHdl (encode EvaluationResult{ .. })
 

@@ -25,7 +25,6 @@ import qualified Data.Vector as V
 
 import Crux.Config
 import Crux.Config.Common
-import Crux.Log
 
 
 data SVCOMPOptions = SVCOMPOptions
@@ -244,7 +243,7 @@ compilePats xs =
   let xs' = filter (not . Text.null) $ map Text.strip xs
    in map (Glob.compile . Text.unpack) xs'
 
-loadSVCOMPBenchmarks :: Logs => CruxOptions -> IO [BenchmarkSet]
+loadSVCOMPBenchmarks :: CruxOptions -> IO [BenchmarkSet]
 loadSVCOMPBenchmarks cruxOpts = mapM loadBenchmarkSet (inputFiles cruxOpts)
 
 loadBenchmarkSet :: FilePath -> IO BenchmarkSet
