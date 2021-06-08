@@ -233,6 +233,7 @@ muxRegForType s itefns p =
 
      MaybeRepr r          -> mergePartExpr s (muxRegForType s itefns r)
      VectorRepr r         -> muxVector s (muxRegForType s itefns r)
+     SequenceRepr _r      -> muxSymSequence s
      StringMapRepr r      -> muxStringMap s (muxRegForType s itefns r)
      SymbolicArrayRepr{}         -> arrayIte s
      SymbolicStructRepr{}        -> structIte s

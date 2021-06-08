@@ -110,6 +110,7 @@ library
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
     Lang.Crucible.Simulator.SimError
+    Lang.Crucible.Simulator.SymSequence
     Lang.Crucible.Syntax
     Lang.Crucible.Types
     Lang.Crucible.Vector

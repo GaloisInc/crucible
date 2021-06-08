@@ -66,6 +66,7 @@ import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.Simulator.SymSequence
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 
@@ -469,6 +470,27 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       e <- evalSub e_expr
       v <- evalSub v_expr
       return $ V.cons e v
+
+    --------------------------------------------------------------------
+    -- Sequence
+
+    SequenceNil _tpr -> nilSymSequence sym
+    SequenceCons _tpr x xs ->
+      join $ consSymSequence sym <$> evalSub x <*> evalSub xs
+    SequenceAppend _tpr xs ys ->
+      join $ appendSymSequence sym <$> evalSub xs <*> evalSub ys
+    SequenceIsNil _tpr xs ->
+      isNilSymSequence sym =<< evalSub xs
+    SequenceLength _tpr xs ->
+      lengthSymSequence sym =<< evalSub xs
+    SequenceHead tpr xs ->
+      headSymSequence sym (muxRegForType sym itefns tpr) =<< evalSub xs
+    SequenceTail _tpr xs ->
+      tailSymSequence sym =<< evalSub xs
+    SequenceUncons tpr xs ->
+      do xs' <- evalSub xs
+         mu <- unconsSymSequence sym (muxRegForType sym itefns tpr) xs'
+         traverse (\ (h,tl) -> pure (Ctx.Empty Ctx.:> RV h Ctx.:> RV tl)) mu
 
     --------------------------------------------------------------------
     -- Symbolic Arrays
