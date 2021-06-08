@@ -66,7 +66,6 @@ module Lang.Crucible.Syntax.ExprParse
 
 import Control.Applicative
 import Control.Lens hiding (List, cons, backwards)
-import Control.Monad (ap)
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as Strict
 import qualified Control.Monad.State.Lazy as Lazy
@@ -79,7 +78,6 @@ import Data.Foldable as Foldable
 import Data.List
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty(..))
-import Data.Semigroup (Semigroup(..))
 import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T

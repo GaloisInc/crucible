@@ -288,7 +288,7 @@ stringSort =
 isType :: MonadSyntax Atomic m => m (Some TypeRepr)
 isType =
   describe "type" $ call
-    (atomicType <|> stringT <|> vector <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var)
+    (atomicType <|> stringT <|> vector <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var <|> struct)
 
   where
     atomicType =
@@ -323,6 +323,8 @@ isType =
     var :: MonadSyntax Atomic m => m (Some TypeRepr)
     var = cons (kw VariantT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
 
+    struct ::  MonadSyntax Atomic m => m (Some TypeRepr)
+    struct = cons (kw StructT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (StructRepr tys)
 
 someExprType :: SomeExpr s -> Maybe (Some TypeRepr)
 someExprType (SomeE tpr _) = Just (Some tpr)
@@ -439,6 +441,7 @@ synthExpr typeHint =
      toAny <|> fromAny <|> stringAppend <|> stringEmpty <|> stringLength <|> showExpr <|>
      just <|> nothing <|> fromJust_ <|> injection <|> projection <|>
      vecLit <|> vecCons <|> vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
+     struct <|> getField <|> setField <|>
      ite <|>  intLit <|> rationalLit <|> intp <|>
      binaryToFp <|> fpToBinary <|> realToFp <|> fpToReal <|>
      ubvToFloat <|> floatToUBV <|> sbvToFloat <|> floatToSBV <|>
@@ -449,7 +452,6 @@ synthExpr typeHint =
 -- Syntactic constructs still to add (see issue #74)
 
 -- BvToInteger, SbvToInteger, BvToNat
--- MkStruct, GetStruct, SetStruct
 -- NatToInteger, IntegerToReal
 -- RealRound, RealFloor, RealCeil
 -- IntegerToBV, RealToNat
@@ -919,6 +921,46 @@ synthExpr typeHint =
                      return $ SomeE (VectorRepr elemT) $ EApp $ VectorSetEntry elemT vec n elt
                 _ -> later $ describe "argument with vector type" empty)
 
+    struct :: m (SomeExpr s)
+    struct = describe "struct literal" $ followedBy (kw MkStruct_) (commit *>
+      do ls <- case typeHint of
+                  Just (Some (StructRepr ctx)) ->
+                     list (toListFC (\t -> forceSynth =<< synthExpr (Just (Some t))) ctx)
+                  Just (Some t) -> later $ describe ("value of type " <> T.pack (show t) <> " but got struct") empty
+                  Nothing -> rep (forceSynth =<< synthExpr Nothing)
+         pure $! buildStruct ls)
+
+    getField :: m (SomeExpr s)
+    getField =
+      describe "struct field projection" $
+      followedBy (kw GetField_) (commit *>
+      depCons int (\n ->
+      depCons synth (\(Pair t e) ->
+         case t of
+           StructRepr ts ->
+             case Ctx.intIndex (fromInteger n) (Ctx.size ts) of
+               Nothing ->
+                 describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
+               Just (Some idx) ->
+                 do let ty = ts^.ixF' idx
+                    return $ SomeE ty $ EApp $ GetStruct e idx ty
+           _ -> describe ("struct type (got " <> T.pack (show t) <> ")") empty)))
+
+    setField :: m (SomeExpr s)
+    setField = describe "update to a struct type" $
+      followedBy (kw SetField_) (commit *>
+      depConsCond (forceSynth =<< synthExpr typeHint) (\ (Pair tp e) ->
+        case tp of
+          StructRepr ts -> Right <$>
+            depConsCond int (\n ->
+              case Ctx.intIndex (fromInteger n) (Ctx.size ts) of
+                Nothing -> pure (Left (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)))
+                Just (Some idx) -> Right <$>
+                  do let ty = ts^.ixF' idx
+                     (v,()) <- cons (check ty) emptyList
+                     pure $ SomeE (StructRepr ts) $ EApp $ SetStruct ts e idx v)
+          _ -> pure $ Left $ ("struct type, but got " <> T.pack (show tp))))
+
     showExpr :: m (SomeExpr s)
     showExpr =
       do Pair t1 e <- unary Show synth
@@ -932,6 +974,14 @@ synthExpr typeHint =
            (asBaseType -> AsBaseType bt) ->
              return $ SomeE (StringRepr UnicodeRepr) $ EApp $ ShowValue bt e
            _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
+
+
+buildStruct :: [Pair TypeRepr (E s)] -> SomeExpr s
+buildStruct = loop Ctx.Empty Ctx.Empty
+  where
+    loop :: Ctx.Assignment TypeRepr ctx -> Ctx.Assignment (E s) ctx -> [Pair TypeRepr (E s)] -> SomeExpr s
+    loop tps vs [] = SomeE (StructRepr tps) (EApp (MkStruct tps vs))
+    loop tps vs (Pair tp x:xs) = loop (tps Ctx.:> tp) (vs Ctx.:> x) xs
 
 data NatHint
   = NoHint

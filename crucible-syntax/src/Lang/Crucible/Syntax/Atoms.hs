@@ -50,7 +50,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Just_ | Nothing_ | FromJust
              | Inj | Proj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitvectorT | VectorT | FPT | FunT | MaybeT | VariantT | RefT
+             | BitvectorT | VectorT | FPT | FunT | MaybeT | VariantT | StructT | RefT
              | Half_ | Float_ | Double_ | Quad_ | X86_80_ | DoubleDouble_
              | Unicode_ | Char8_ | Char16_
              | The
@@ -64,6 +64,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | ToAny | FromAny
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
+             | MkStruct_ | GetField_ | SetField_
              | Deref | Ref | EmptyRef
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_ | PrintLn_
@@ -133,6 +134,7 @@ keywords =
   , ("->", FunT)
   , ("Maybe", MaybeT)
   , ("Variant", VariantT)
+  , ("Struct", StructT)
 
     -- string sorts
   , ("Unicode", Unicode_)
@@ -181,6 +183,11 @@ keywords =
     -- Variants
   , ("inj", Inj)
   , ("proj", Proj)
+
+    -- Structs
+  , ("struct", MkStruct_)
+  , ("get-field", GetField_)
+  , ("set-field", SetField_)
 
     -- Maybe
   , ("just" , Just_)
