@@ -17,6 +17,7 @@ module Lang.Crucible.Simulator.SymSequence
 , headSymSequence
 , tailSymSequence
 , unconsSymSequence
+, concreteizeSymSequence
 ) where
 
 import           Data.Functor.Const
@@ -33,25 +34,31 @@ import           What4.Partial
 ------------------------------------------------------------------------
 -- SymSequence
 
+-- | A symbolic sequence of values supporting efficent merge operations.
+--   Semantically, these are essentially cons-lists, and designed to
+--   support access from the front only.  Nodes carry nonce values
+--   that allow DAG-based traversal, which efficently supports the common
+--   case where merged nodes share a common sublist.
 data SymSequence sym a where
   SymSequenceNil :: SymSequence sym a
+
   SymSequenceCons ::
-    Nonce GlobalNonceGenerator a ->
+    !(Nonce GlobalNonceGenerator a) ->
     a ->
-    SymSequence sym a ->
+    !(SymSequence sym a) ->
     SymSequence sym a
 
   SymSequenceAppend ::
-    Nonce GlobalNonceGenerator a ->
-    SymSequence sym a ->
-    SymSequence sym a ->
+    !(Nonce GlobalNonceGenerator a) ->
+    !(SymSequence sym a) ->
+    !(SymSequence sym a) ->
     SymSequence sym a
 
   SymSequenceMerge ::
-    Nonce GlobalNonceGenerator a ->
-    Pred sym ->
-    SymSequence sym a ->
-    SymSequence sym a ->
+    !(Nonce GlobalNonceGenerator a) ->
+    !(Pred sym) ->
+    !(SymSequence sym a) ->
+    !(SymSequence sym a) ->
     SymSequence sym a
 
 instance Eq (SymSequence sym a) where
@@ -64,6 +71,10 @@ instance Eq (SymSequence sym a) where
     isJust (testEquality n1 n2)
   _ == _ = False
 
+-- | Compute an if/then/else on symbolic sequences.
+--   This will simply produce an internal merge node
+--   except in the special case where the then and
+--   else branches are sytactically identical.
 muxSymSequence :: IsExprBuilder sym =>
   sym ->
   Pred sym ->
@@ -82,6 +93,7 @@ newtype SeqCache (f :: Type -> Type)
 newSeqCache :: IO (SeqCache f)
 newSeqCache = SeqCache <$> newIORef MapF.empty
 
+-- | Compute the nonce of a sequence, if it has one
 symSequenceNonce :: SymSequence sym a -> Maybe (Nonce GlobalNonceGenerator a)
 symSequenceNonce SymSequenceNil = Nothing
 symSequenceNonce (SymSequenceCons n _ _ ) = Just n
@@ -112,9 +124,11 @@ evalWithCache (SeqCache ref) fn = loop
 
       | otherwise = fn loop s
 
+-- | Generate an empty sequence value
 nilSymSequence :: sym -> IO (SymSequence sym a)
 nilSymSequence _sym = pure SymSequenceNil
 
+-- | Cons a new value onto the front of a sequence
 consSymSequence ::
   sym ->
   a ->
@@ -124,10 +138,11 @@ consSymSequence _sym x xs =
   do n <- freshNonce globalNonceGenerator
      pure (SymSequenceCons n x xs)
 
+-- | Append two sequences
 appendSymSequence ::
   sym ->
-  SymSequence sym a ->
-  SymSequence sym a ->
+  SymSequence sym a {- ^ front sequence -} ->
+  SymSequence sym a {- ^ back sequence -} ->
   IO (SymSequence sym a)
 
 -- special cases, nil is the unit for append
@@ -141,6 +156,7 @@ appendSymSequence _sym xs ys =
      pure (SymSequenceAppend n xs ys)
 
 
+-- | Test if a sequence is nil (is empty)
 isNilSymSequence :: forall sym a.
   IsExprBuilder sym =>
   sym ->
@@ -158,6 +174,7 @@ isNilSymSequence sym = \s -> getConst <$> evalWithFreshCache f s
      Const <$> itePredM sym p (getConst <$> loop xs) (getConst <$> loop ys)
 
 
+-- | Compute the length of a sequence
 lengthSymSequence :: forall sym a.
   IsExprBuilder sym =>
   sym ->
@@ -183,10 +200,11 @@ lengthSymSequence sym = \s -> getConst <$> evalWithFreshCache f s
 
 newtype SeqHead sym a = SeqHead { getSeqHead :: PartExpr (Pred sym) a }
 
+-- | Compute the head of a sequence, if it has one
 headSymSequence :: forall sym a.
   IsExprBuilder sym =>
   sym ->
-  (Pred sym -> a -> a -> IO a) ->
+  (Pred sym -> a -> a -> IO a) {- ^ mux function on values -} ->
   SymSequence sym a ->
   IO (PartExpr (Pred sym) a)
 headSymSequence sym mux = \s -> getSeqHead <$> evalWithFreshCache f s
@@ -219,10 +237,11 @@ newtype SeqUncons sym a =
   { getSeqUncons :: PartExpr (Pred sym) (a, SymSequence sym a)
   }
 
+-- | Compute both the head and the tail of a sequence, if it is nonempty
 unconsSymSequence :: forall sym a.
   IsExprBuilder sym =>
   sym ->
-  (Pred sym -> a -> a -> IO a) ->
+  (Pred sym -> a -> a -> IO a) {- ^ mux function on values -} ->
   SymSequence sym a ->
   IO (PartExpr (Pred sym) (a, SymSequence sym a))
 unconsSymSequence sym mux = \s -> getSeqUncons <$> evalWithFreshCache f s
@@ -231,7 +250,7 @@ unconsSymSequence sym mux = \s -> getSeqUncons <$> evalWithFreshCache f s
          (a, SymSequence sym a) ->
          (a, SymSequence sym a) ->
          PartialT sym IO (a, SymSequence sym a)
-   f' c x y = PartialT $ \_ p -> PE p <$> 
+   f' c x y = PartialT $ \_ p -> PE p <$>
                     do h  <- mux c (fst x) (fst y)
                        tl <- muxSymSequence sym c (snd x) (snd y)
                        pure (h, tl)
@@ -265,6 +284,7 @@ newtype SeqTail sym tp =
   SeqTail
   { getSeqTail :: PartExpr (Pred sym) (SymSequence sym tp) }
 
+-- | Compute the tail of a sequence, if it has one
 tailSymSequence :: forall sym a.
   IsExprBuilder sym =>
   sym ->
@@ -300,3 +320,19 @@ tailSymSequence sym = \s -> getSeqTail <$> evalWithFreshCache f s
                  do p <- orPred sym px py
                     t <- appendSymSequence sym tx ys
                     SeqTail <$> runPartialT sym p (f' px t ty)
+
+-- | Using the given evaluation function for booleans, and an evaluation
+--   function for values, compute a concrete sequence corresponding
+--   to the given symbolic sequence.
+concreteizeSymSequence ::
+  (Pred sym -> IO Bool) {- ^ evaluation for booleans -} ->
+  (a -> IO b) {- ^ evaluation for values -} ->
+  SymSequence sym a -> IO [b]
+concreteizeSymSequence conc eval = loop
+  where
+    loop SymSequenceNil = pure []
+    loop (SymSequenceCons _ v tl) = (:) <$> eval v <*> loop tl
+    loop (SymSequenceAppend _ xs ys) = (++) <$> loop xs <*> loop ys
+    loop (SymSequenceMerge _ p xs ys) =
+      do b <- conc p
+         if b then loop xs else loop ys
