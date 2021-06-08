@@ -2,11 +2,13 @@
 module Crux.Types where
 
 import qualified Control.Lens as L
-import           Data.Parameterized.Map (MapF)
+import qualified Data.List as List
+import           Data.Parameterized.Map (MapF, foldrWithKey)
 import           Data.Sequence (Seq)
 import           Data.Text ( Text )
 import           Data.Void
 import           Prettyprinter
+import           Text.Show (showListWith)
 
 import           What4.Expr (GroundValue)
 import           What4.Interface (Pred)
@@ -73,6 +75,7 @@ data ProcessedGoals =
                  , disprovedGoals :: !Integer
                  , incompleteGoals :: !Integer
                  }
+  deriving Show
 
 data ProofResult a
    = Proved [a]
@@ -80,7 +83,7 @@ data ProofResult a
      -- ^ The first argument is an explanation of the failure and
      -- counter example as provided by the Explainer (if any) and the
      -- second maybe a model for the counter-example.
- deriving (Functor)
+ deriving (Functor, Show)
 
 type LPred sym   = LabeledPred (Pred sym)
 
@@ -101,6 +104,7 @@ data ProvedGoals a =
     --
     --   * The 'Bool' (third argument) indicates if the goal is
     --     trivial (i.e., the assumptions are inconsistent)
+  deriving Show
 
 
 data ProgramCompleteness
@@ -115,6 +119,7 @@ data CruxSimulationResult =
   { cruxSimResultCompleteness :: ProgramCompleteness
   , cruxSimResultGoals        :: Seq (ProcessedGoals, ProvedGoals (Either AssumptionReason SimError))
   }
+  deriving Show
 
 
 -- From Model
@@ -148,6 +153,7 @@ data Entry ty       = Entry { entryName :: String
                             , entryLoc :: ProgramLoc
                             , entryValue :: ty
                             }
+  deriving Show
 
 -- | A portable/concrete view of a model's contents, organized by
 -- crucible type. I.e., each crucible type is associated
@@ -155,6 +161,22 @@ data Entry ty       = Entry { entryName :: String
 -- that type for the given model, used to describe the
 -- conditions under which an SMT query is satisfiable.
 newtype ModelView = ModelView { modelVals :: MapF BaseTypeRepr Vals }
+
+instance Show ModelView where
+  show (ModelView m) = "{ " ++ List.intercalate ", " l ++ " }"
+    where
+      l = foldrWithKey (\k a l0 -> showPair k a : l0) [] m
+
+      showPair :: BaseTypeRepr ty -> Vals ty -> String
+      showPair tp (Vals vs) =
+        let showEntryValue =
+              case tp of
+                BaseBVRepr{}    -> shows
+                BaseFloatRepr{} -> shows
+                BaseRealRepr{}  -> shows
+                _               -> error ("Type not implemented: " ++ show tp)
+
+        in show tp ++ " -> " ++ showListWith showEntryValue (map entryValue vs) ""
 
 ----------------------------------------------------------------------
 -- Various things that can be logged/output
