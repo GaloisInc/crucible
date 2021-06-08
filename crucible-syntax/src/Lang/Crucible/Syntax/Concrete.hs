@@ -244,16 +244,16 @@ repUntilLast sp = describe "zero or more followed by one" $ repUntilLast' sp
           (cons p emptyList <&> \(x, ()) -> ([], x)) <|>
           (cons p (repUntilLast' p) <&> \(x, (xs, lst)) -> (x:xs, lst))
 
-isBaseType :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
-isBaseType =
+_isBaseType :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
+_isBaseType =
   describe "base type" $
   do Some tp <- isType
      case asBaseType tp of
        NotBaseType -> empty
        AsBaseType bt -> return (Some bt)
 
-isFloatingType :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
-isFloatingType =
+_isFloatingType :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
+_isFloatingType =
   describe "floating-point type" $
   do Some tp <- isType
      case tp of
@@ -288,7 +288,7 @@ stringSort =
 isType :: MonadSyntax Atomic m => m (Some TypeRepr)
 isType =
   describe "type" $ call
-    (atomicType <|> stringT <|> vector <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var <|> struct)
+    (atomicType <|> stringT <|> vector <|> seqt <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var <|> struct)
 
   where
     atomicType =
@@ -303,6 +303,7 @@ isType =
              , kw CharT        $> Some CharRepr
              ]
     vector = unary VectorT isType <&> \(Some t) -> Some (VectorRepr t)
+    seqt   = unary SequenceT isType <&> \(Some t) -> Some (SequenceRepr t)
     ref    = unary RefT isType <&> \(Some t) -> Some (ReferenceRepr t)
     bv :: MonadSyntax Atomic m => m  (Some TypeRepr)
     bv     = do BoundedNat len <- unary BitvectorT posNat
@@ -442,6 +443,8 @@ synthExpr typeHint =
      just <|> nothing <|> fromJust_ <|> injection <|> projection <|>
      vecLit <|> vecCons <|> vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
      struct <|> getField <|> setField <|>
+     seqNil <|> seqCons <|> seqAppend <|> seqNilP <|> seqLen <|>
+     seqHead <|> seqTail <|> seqUncons <|>
      ite <|>  intLit <|> rationalLit <|> intp <|>
      binaryToFp <|> fpToBinary <|> realToFp <|> fpToReal <|>
      ubvToFloat <|> floatToUBV <|> sbvToFloat <|> floatToSBV <|>
@@ -960,6 +963,92 @@ synthExpr typeHint =
                      (v,()) <- cons (check ty) emptyList
                      pure $ SomeE (StructRepr ts) $ EApp $ SetStruct ts e idx v)
           _ -> pure $ Left $ ("struct type, but got " <> T.pack (show tp))))
+
+    seqNil :: m (SomeExpr s)
+    seqNil =
+      do Some t <- unary SequenceNil_ isType
+         return $ SomeE (SequenceRepr t) $ EApp $ SequenceNil t
+      <|>
+      kw SequenceNil_ *>
+      case typeHint of
+        Just (Some (SequenceRepr t)) ->
+          return $ SomeE (SequenceRepr t) $ EApp $ SequenceNil t
+        Just (Some t) ->
+          later $ describe ("value of type " <> T.pack (show t)) empty
+        Nothing ->
+          later $ describe ("unambiguous nil value") empty
+
+    seqCons :: m (SomeExpr s)
+    seqCons =
+      do let newhint = case typeHint of
+                         Just (Some (SequenceRepr t)) -> Just (Some t)
+                         _ -> Nothing
+         (a, d) <- binary SequenceCons_ (later (synthExpr newhint)) (later (synthExpr typeHint))
+         let g Nothing = Nothing
+             g (Just (Some t)) = Just (Some (SequenceRepr t))
+         case join (find isJust [ typeHint, g (someExprType a), someExprType d ]) of
+           Just (Some (SequenceRepr t)) ->
+             SomeE (SequenceRepr t) . EApp <$> (SequenceCons t <$> evalSomeExpr t a <*> evalSomeExpr (SequenceRepr t) d)
+           _ -> later $ describe "unambiguous sequence cons (add a type ascription to disambiguate)" empty
+
+    seqAppend :: m (SomeExpr s)
+    seqAppend =
+      do (x, y) <- binary SequenceAppend_ (later (synthExpr typeHint)) (later (synthExpr typeHint))
+         case join (find isJust [ typeHint, someExprType x, someExprType y ]) of
+           Just (Some (SequenceRepr t)) ->
+             SomeE (SequenceRepr t) . EApp <$>
+               (SequenceAppend t <$> evalSomeExpr (SequenceRepr t) x <*> evalSomeExpr (SequenceRepr t) y)
+           _ -> later $ describe "unambiguous sequence append (add a type ascription to disambiguate)" empty
+
+    seqNilP :: m (SomeExpr s)
+    seqNilP =
+      do Pair t e <- unary SequenceIsNil_ synth
+         case t of
+           SequenceRepr t' -> return $ SomeE BoolRepr $ EApp $ SequenceIsNil t' e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqLen :: m (SomeExpr s)
+    seqLen =
+      do Pair t e <- unary SequenceLength_ synth
+         case t of
+           SequenceRepr t' -> return $ SomeE NatRepr $ EApp $ SequenceLength t' e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqHead :: m (SomeExpr s)
+    seqHead =
+      do let newhint = case typeHint of
+                         Just (Some (MaybeRepr t)) -> Just (Some (SequenceRepr t))
+                         _ -> Nothing
+         (Pair t e) <-
+            unary SequenceHead_ (forceSynth =<< synthExpr newhint)
+         case t of
+           SequenceRepr elemT -> return $ SomeE (MaybeRepr elemT) $ EApp $ SequenceHead elemT e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqTail :: m (SomeExpr s)
+    seqTail =
+      do let newhint = case typeHint of
+                         Just (Some (MaybeRepr t)) -> Just (Some t)
+                         _ -> Nothing
+         (Pair t e) <-
+            unary SequenceTail_ (forceSynth =<< synthExpr newhint)
+         case t of
+           SequenceRepr elemT -> return $ SomeE (MaybeRepr (SequenceRepr elemT)) $ EApp $ SequenceTail elemT e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqUncons :: m (SomeExpr s)
+    seqUncons =
+      do let newhint = case typeHint of
+                         Just (Some (MaybeRepr (StructRepr (Ctx.Empty Ctx.:> t Ctx.:> _)))) ->
+                           Just (Some (SequenceRepr t))
+                         _ -> Nothing
+         (Pair t e) <-
+            unary SequenceUncons_ (forceSynth =<< synthExpr newhint)
+         case t of
+           SequenceRepr elemT ->
+             return $ SomeE (MaybeRepr (StructRepr (Ctx.Empty Ctx.:> elemT Ctx.:> SequenceRepr elemT))) $
+               EApp $ SequenceUncons elemT e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
 
     showExpr :: m (SomeExpr s)
     showExpr =
