@@ -30,7 +30,7 @@ class HasModel personality where
 -- any special instantiation of the personality parameter, and so can just use a
 -- 'Model' directly.
 instance HasModel Model where
-  personalityModel = \f a -> fmap id (f a)
+  personalityModel = id
 
 -- | A simulator context
 type SimCtxt personality sym p = SimContext (personality sym) sym p
