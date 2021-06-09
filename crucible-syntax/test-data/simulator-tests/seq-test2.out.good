@@ -1,0 +1,26 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  test-data/simulator-tests/seq-test2.cbl:29:5: error: in main
+  head check
+  eq (ite cb@0:b cx@1:i cz@3:i) (ite cb@0:b cx@1:i cz@3:i)
+PROVED
+Assuming:
+* The branch in main from test-data/simulator-tests/seq-test2.cbl:33:5 to test-data/simulator-tests/seq-test2.cbl:36:13
+    cb@0:b
+Prove:
+  test-data/simulator-tests/seq-test2.cbl:38:5: error: in main
+  tail 2 condition check
+  cb@0:b
+PROVED
+Assuming:
+* The branch in main from test-data/simulator-tests/seq-test2.cbl:33:5 to test-data/simulator-tests/seq-test2.cbl:45:14
+    not cb@0:b
+Prove:
+  test-data/simulator-tests/seq-test2.cbl:45:5: error: in main
+  tail 2 none check
+  not cb@0:b
+PROVED
