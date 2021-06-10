@@ -1,11 +1,15 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
+-- Needed for Pretty instance
+{-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.Simulator.SymSequence
 ( SymSequence(..)
 , nilSymSequence
@@ -17,15 +21,22 @@ module Lang.Crucible.Simulator.SymSequence
 , headSymSequence
 , tailSymSequence
 , unconsSymSequence
+, traverseSymSequence
 , concreteizeSymSequence
+, prettySymSequence
 ) where
 
+import           Control.Monad.State
 import           Data.Functor.Const
 import           Data.Kind (Type)
 import           Data.IORef
 import           Data.Maybe (isJust)
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Parameterized.Nonce
 import qualified Data.Parameterized.Map as MapF
+import           Prettyprinter (Doc)
+import qualified Prettyprinter as PP
 
 import           Lang.Crucible.Types
 import           What4.Interface
@@ -75,7 +86,7 @@ instance Eq (SymSequence sym a) where
 --   This will simply produce an internal merge node
 --   except in the special case where the then and
 --   else branches are sytactically identical.
-muxSymSequence :: IsExprBuilder sym =>
+muxSymSequence ::
   sym ->
   Pred sym ->
   SymSequence sym a ->
@@ -100,26 +111,39 @@ symSequenceNonce (SymSequenceCons n _ _ ) = Just n
 symSequenceNonce (SymSequenceAppend n _ _) = Just n
 symSequenceNonce (SymSequenceMerge n _ _ _) = Just n
 
-evalWithFreshCache ::
+{-# SPECIALIZE
+  evalWithFreshCache ::
   ((SymSequence sym a -> IO (f a)) -> SymSequence sym a -> IO (f a)) ->
   (SymSequence sym a -> IO (f a))
+ #-}
+
+evalWithFreshCache :: MonadIO m =>
+  ((SymSequence sym a -> m (f a)) -> SymSequence sym a -> m (f a)) ->
+  (SymSequence sym a -> m (f a))
 evalWithFreshCache fn s =
-  do c <- newSeqCache
+  do c <- liftIO newSeqCache
      evalWithCache c fn s
 
-evalWithCache ::
+{-# SPECIALIZE
+  evalWithCache ::
   SeqCache f ->
   ((SymSequence sym a -> IO (f a)) -> SymSequence sym a -> IO (f a)) ->
   (SymSequence sym a -> IO (f a))
+ #-}
+
+evalWithCache :: MonadIO m =>
+  SeqCache f ->
+  ((SymSequence sym a -> m (f a)) -> SymSequence sym a -> m (f a)) ->
+  (SymSequence sym a -> m (f a))
 evalWithCache (SeqCache ref) fn = loop
   where
     loop s
       | Just n <- symSequenceNonce s =
-          (MapF.lookup n <$> readIORef ref) >>= \case
+          (MapF.lookup n <$> liftIO (readIORef ref)) >>= \case
             Just v -> pure v
             Nothing ->
               do v <- fn loop s
-                 modifyIORef ref (MapF.insert n v)
+                 liftIO (modifyIORef ref (MapF.insert n v))
                  pure v
 
       | otherwise = fn loop s
@@ -321,6 +345,44 @@ tailSymSequence sym = \s -> getSeqTail <$> evalWithFreshCache f s
                     t <- appendSymSequence sym tx ys
                     SeqTail <$> runPartialT sym p (f' px t ty)
 
+
+{-# SPECIALIZE
+  traverseSymSequence ::
+  sym ->
+  (a -> IO b) ->
+  SymSequence sym a ->
+  IO (SymSequence sym b)
+ #-}
+
+-- | Visit every element in the given symbolic sequence,
+--   applying the given action, and constructing a new
+--   sequence. The traversal is memoized, so any given
+--   subsequence will be visited at most once.
+traverseSymSequence :: forall m sym a b.
+  MonadIO m =>
+  sym ->
+  (a -> m b) ->
+  SymSequence sym a ->
+  m (SymSequence sym b)
+traverseSymSequence sym f = \s -> getConst <$> evalWithFreshCache fn s
+  where
+   fn :: (SymSequence sym a -> m (Const (SymSequence sym b) a)) ->
+         (SymSequence sym a -> m (Const (SymSequence sym b) a))
+   fn _loop SymSequenceNil = pure (Const SymSequenceNil)
+   fn loop (SymSequenceCons _ v tl) =
+     do v'  <- f v
+        tl' <- getConst <$> loop tl
+        liftIO (Const <$> consSymSequence sym v' tl')
+   fn loop (SymSequenceAppend _ xs ys) =
+     do xs' <- getConst <$> loop xs
+        ys' <- getConst <$> loop ys
+        liftIO (Const <$> appendSymSequence sym xs' ys')
+   fn loop (SymSequenceMerge _ p xs ys) =
+     do xs' <- getConst <$> loop xs
+        ys' <- getConst <$> loop ys
+        liftIO (Const <$> muxSymSequence sym p xs' ys')
+
+
 -- | Using the given evaluation function for booleans, and an evaluation
 --   function for values, compute a concrete sequence corresponding
 --   to the given symbolic sequence.
@@ -336,3 +398,115 @@ concreteizeSymSequence conc eval = loop
     loop (SymSequenceMerge _ p xs ys) =
       do b <- conc p
          if b then loop xs else loop ys
+
+instance (IsExpr (SymExpr sym), PP.Pretty a) => PP.Pretty (SymSequence sym a) where
+  pretty = prettySymSequence PP.pretty
+
+-- | Given a pretty printer for elements,
+--   print a symbolic sequence.
+prettySymSequence :: IsExpr (SymExpr sym) =>
+  (a -> Doc ann) ->
+  SymSequence sym a ->
+  Doc ann
+prettySymSequence ppa s = if Map.null bs then x else letlayout
+  where
+    occMap = computeOccMap s mempty
+    (x,bs) = runState (prettyAux ppa occMap s) mempty
+    letlayout = PP.vcat
+      ["let" PP.<+> (PP.align (PP.vcat [ letbind n d | (n,d) <- Map.toList bs ]))
+      ," in" PP.<+> x
+      ]
+    letbind n d = ppSeqNonce n PP.<+> "=" PP.<+> PP.align d
+
+computeOccMap ::
+  SymSequence sym a ->
+  Map (Nonce GlobalNonceGenerator a) Integer ->
+  Map (Nonce GlobalNonceGenerator a) Integer
+computeOccMap = loop
+  where
+    visit n k m
+      | Just i <- Map.lookup n m = Map.insert n (i+1) m
+      | otherwise = k (Map.insert n 1 m)
+
+    loop SymSequenceNil = id
+    loop (SymSequenceCons n _ tl) = visit n (loop tl)
+    loop (SymSequenceAppend n xs ys) = visit n (loop xs . loop ys)
+    loop (SymSequenceMerge n _ xs ys) = visit n (loop xs . loop ys)
+
+ppSeqNonce :: Nonce GlobalNonceGenerator a -> Doc ann
+ppSeqNonce n = "s" <> PP.viaShow (indexValue n)
+
+prettyAux ::
+  IsExpr (SymExpr sym) =>
+  (a -> Doc ann) ->
+  Map (Nonce GlobalNonceGenerator a) Integer ->
+  SymSequence sym a ->
+  State (Map (Nonce GlobalNonceGenerator a) (Doc ann)) (Doc ann)
+prettyAux ppa occMap = goTop
+  where
+    goTop SymSequenceNil = pure (PP.list [])
+    goTop (SymSequenceCons _ v tl) = pp [] [v] [tl]
+    goTop (SymSequenceAppend _ xs ys) = pp [] [] [xs,ys]
+    goTop (SymSequenceMerge _ p xs ys) =
+      do xd <- pp [] [] [xs]
+         yd <- pp [] [] [ys]
+         pure $ {- PP.group $ -} PP.hang 2 $ PP.vsep
+           [ "if" PP.<+> printSymExpr p
+           , "then" PP.<+> xd
+           , "else" PP.<+> yd
+           ]
+
+    visit n s =
+      do dm <- get
+         case Map.lookup n dm of
+           Just _ -> return ()
+           Nothing ->
+             do d <- goTop s
+                modify (Map.insert n d)
+         return (ppSeqNonce n)
+
+    finalize []  = PP.list []
+    finalize [x] = x
+    finalize xs  = PP.sep (PP.punctuate (PP.space <> "<>") (reverse xs))
+
+    elemSeq rs = PP.list (map ppa (reverse rs))
+
+    addSeg segs [] seg = (seg : segs)
+    addSeg segs rs seg = (seg : elemSeq rs : segs)
+
+    -- @pp@ accumulates both "segments" of sequences (segs)
+    -- and individual values (rs) to be output.  Both are
+    -- in reversed order.  Segments represent sequences
+    -- and must be combined with the append operator,
+    -- and rs represent individual elements that must be combined
+    -- with cons (or, in actuality, list syntax with brackets and commas).
+
+    -- @pp@ works over a list of SymSequence values, which represent a worklist
+    -- of segments to process.  Morally, the invariant of @pp@ is that the
+    -- arguments always represent the same sequence, which is computed as
+    -- @concat (reverse segs) ++ reverse rs ++ concat ss@
+
+    pp segs [] [] = pure (finalize segs)
+    pp segs rs [] = pure (finalize ( elemSeq rs : segs ))
+
+    pp segs rs (SymSequenceNil:ss) = pp segs rs ss
+
+    pp segs rs (s@(SymSequenceCons n v tl) : ss)
+      | Just i <- Map.lookup n occMap, i > 1
+      = do x <- visit n s
+           pp (addSeg segs rs x) [] ss
+
+      | otherwise
+      = pp segs (v : rs) (tl : ss)
+
+    pp segs rs (s@(SymSequenceAppend n xs ys) : ss)
+      | Just i <- Map.lookup n occMap, i > 1
+      = do x <- visit n s
+           pp (addSeg segs rs x) [] ss
+
+      | otherwise
+      = pp segs rs (xs:ys:ss)
+
+    pp segs rs (s@(SymSequenceMerge n _ _ _) : ss)
+      = do x <- visit n s
+           pp (addSeg segs rs x) [] ss
