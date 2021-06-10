@@ -34,7 +34,7 @@ mainWithOutputConfig mkOutCfg = do
        bcFile <- genBitCode cruxOpts llvmOpts
        res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
        makeCounterExamplesLLVM cruxOpts llvmOpts res
-       Crux.postprocessSimResult cruxOpts res
+       Crux.postprocessSimResult True cruxOpts res
 
 processLLVMOptions :: (CruxOptions,LLVMOptions) -> IO (CruxOptions,LLVMOptions)
 processLLVMOptions (cruxOpts,llvmOpts) =

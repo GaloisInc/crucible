@@ -47,9 +47,11 @@ say lvl frm = LJ.writeLog (?outputConfig ^. logWhat) . SayWhat lvl frm
 logException :: Logs => SomeException -> IO ()
 logException = LJ.writeLog (_logExc ?outputConfig)
 
--- | Function used to output the summary result for a completed simulation
-logSimResult :: Logs => CruxSimulationResult -> IO ()
-logSimResult = LJ.writeLog (_logSimResult ?outputConfig)
+-- | Function used to output the summary result for a completed
+-- simulation.  If the flag is true, show the details of each failed
+-- goal before showing the summary.
+logSimResult :: Logs => Bool -> CruxSimulationResult -> IO ()
+logSimResult showFailedGoals = LJ.writeLog (_logSimResult ?outputConfig showFailedGoals)
 
 -- | Function used to output any individual goal proof failures from a simulation
 logGoal :: Logs => ProvedGoals (Either AssumptionReason CSE.SimError) -> IO ()
@@ -77,7 +79,8 @@ data OutputConfig =
                , _quiet :: Bool
                , _logWhat :: LJ.LogAction IO SayWhat
                , _logExc :: LJ.LogAction IO SomeException
-               , _logSimResult :: LJ.LogAction IO CruxSimulationResult
+               , _logSimResult :: Bool -> LJ.LogAction IO CruxSimulationResult
+                 -- ^ True to show individual goals, false for summary only
                , _logGoal :: LJ.LogAction IO (ProvedGoals
                                               (Either AssumptionReason
                                                CSE.SimError))

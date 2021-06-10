@@ -128,10 +128,10 @@ newtype SimulatorCallback
 
 -- | Given the result of a simulation and proof run, report the overall
 --   status, generate user-consumable reports and compute the exit code.
-postprocessSimResult :: Logs => CruxOptions -> CruxSimulationResult -> IO ExitCode
-postprocessSimResult opts res =
+postprocessSimResult :: Logs => Bool -> CruxOptions -> CruxSimulationResult -> IO ExitCode
+postprocessSimResult showFailedGoals opts res =
   do -- print goals that failed and overall result
-     logSimResult res
+     logSimResult showFailedGoals res
 
      -- Generate report
      generateReport opts res
@@ -240,9 +240,12 @@ mkOutputConfig withColors outHandle errHandle opts =
                  in if withColors
                     then LJ.LogAction $ \e -> Ex.bracket_ seeRed seeCalm $ dispExc e
                     else LJ.LogAction $ dispExc
-     , _logSimResult = divide splitResults
-                       lgGoal
-                       (sayWhatResultStatus >$< lgWhat)
+     , _logSimResult = \showDetails ->
+                         if showDetails
+                         then divide splitResults
+                              lgGoal
+                              (sayWhatResultStatus >$< lgWhat)
+                         else sayWhatResultStatus >$< lgWhat
      , _logGoal = Seq.singleton >$< lgGoal
      }
 

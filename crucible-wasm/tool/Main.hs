@@ -69,4 +69,4 @@ main =
   Crux.loadOptions Crux.defaultOutputConfig "crux-wasm" version cruxWasmConfig
    \(cruxOpts, wasmOpts) ->
        do res <- Crux.runSimulator cruxOpts (simulateWasm cruxOpts wasmOpts)
-          exitWith =<< Crux.postprocessSimResult cruxOpts res
+          exitWith =<< Crux.postprocessSimResult True cruxOpts res

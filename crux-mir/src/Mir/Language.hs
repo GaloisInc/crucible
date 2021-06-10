@@ -390,7 +390,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     if not skipSummary then do
         outputLn ""
         say Simply "Crux-MIR" "---- FINAL RESULTS ----"
-        Crux.postprocessSimResult cruxOpts res
+        Crux.postprocessSimResult False cruxOpts res
       else
         return ExitSuccess
 
