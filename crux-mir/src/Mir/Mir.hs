@@ -177,6 +177,8 @@ data Adt = Adt
     { _adtname :: DefId
     , _adtkind :: AdtKind
     , _adtvariants :: [Variant]
+    , _adtSize :: Int
+    , _adtReprTransparent :: Bool
     , _adtOrigDefId :: DefId
     , _adtOrigSubsts :: Substs
     }
@@ -576,8 +578,8 @@ fromIntegerLit (Isize i) = i
 
 -- Get the only variant of a struct or union ADT.
 onlyVariant :: Adt -> Variant
-onlyVariant (Adt _ _ [v] _ _) = v
-onlyVariant (Adt name kind _ _ _) = error $
+onlyVariant (Adt _ _ [v] _ _ _ _) = v
+onlyVariant (Adt name kind _ _ _ _ _) = error $
     "expected " ++ show kind ++ " " ++ show name ++ " to have only one variant"
 
 

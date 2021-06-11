@@ -98,7 +98,7 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
-import           Crux.Types (Model)
+import           Crux.Types (HasModel)
 
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
@@ -1947,16 +1947,18 @@ class MethodSpecImpl sym ms where
     -- | Pretty-print the MethodSpec, returning the result as a Rust string
     -- (`&str`).
     msPrettyPrint ::
-        forall rtp args ret.
+        forall p rtp args ret.
+        (HasModel p) =>
         ms ->
-        OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym (MirSlice (BVType 8)))
+        OverrideSim (p sym) sym MIR rtp args ret (RegValue sym (MirSlice (BVType 8)))
 
     -- | Enable the MethodSpec for use as an override for the remainder of the
     -- current test.
     msEnable ::
-        forall rtp args ret.
+        forall p rtp args ret.
+        (HasModel p) =>
         ms ->
-        OverrideSim (Model sym) sym MIR rtp args ret ()
+        OverrideSim (p sym) sym MIR rtp args ret ()
 
 data MethodSpec sym = forall ms. MethodSpecImpl sym ms => MethodSpec {
     msData :: ms,
@@ -1985,21 +1987,26 @@ instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
 
 
 class MethodSpecBuilderImpl sym msb where
-    msbAddArg :: forall rtp args ret tp.
+    msbAddArg :: forall p rtp args ret tp.
+        (HasModel p) =>
         TypeRepr tp -> MirReferenceMux sym tp -> msb ->
-        OverrideSim (Model sym) sym MIR rtp args ret msb
-    msbSetReturn :: forall rtp args ret tp.
+        OverrideSim (p sym) sym MIR rtp args ret msb
+    msbSetReturn :: forall p rtp args ret tp.
+        (HasModel p) =>
         TypeRepr tp -> MirReferenceMux sym tp -> msb ->
-        OverrideSim (Model sym) sym MIR rtp args ret msb
-    msbGatherAssumes :: forall rtp args ret.
+        OverrideSim (p sym) sym MIR rtp args ret msb
+    msbGatherAssumes :: forall p rtp args ret.
+        (HasModel p) =>
         msb ->
-        OverrideSim (Model sym) sym MIR rtp args ret msb
-    msbGatherAsserts :: forall rtp args ret.
+        OverrideSim (p sym) sym MIR rtp args ret msb
+    msbGatherAsserts :: forall p rtp args ret.
+        (HasModel p) =>
         msb ->
-        OverrideSim (Model sym) sym MIR rtp args ret msb
-    msbFinish :: forall rtp args ret.
+        OverrideSim (p sym) sym MIR rtp args ret msb
+    msbFinish :: forall p rtp args ret.
+        (HasModel p) =>
         msb ->
-        OverrideSim (Model sym) sym MIR rtp args ret (MethodSpec sym)
+        OverrideSim (p sym) sym MIR rtp args ret (MethodSpec sym)
 
 data MethodSpecBuilder sym = forall msb. MethodSpecBuilderImpl sym msb => MethodSpecBuilder msb
 

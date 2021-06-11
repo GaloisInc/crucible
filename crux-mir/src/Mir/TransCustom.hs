@@ -98,8 +98,17 @@ customOpDefs = Map.fromList $ [
                          , wrapping_mul
                          , saturating_add
                          , saturating_sub
+                         , unchecked_add
+                         , unchecked_sub
+                         , unchecked_mul
+                         , unchecked_div
+                         , unchecked_rem
+                         , unchecked_shl
+                         , unchecked_shr
                          , ctlz
                          , ctlz_nonzero
+                         , rotate_left
+                         , rotate_right
                          , size_of
                          , min_align_of
                          , intrinsics_assume
@@ -158,9 +167,6 @@ customOpDefs = Map.fromList $ [
                          , allocate
                          , allocate_zeroed
                          , reallocate
-
-                         , unsafe_cell_get
-                         , unsafe_cell_raw_get
 
                          , maybe_uninit_uninit
 
@@ -224,7 +230,7 @@ panicking_panicking = (["std", "panicking", "panicking"], \_ -> Just $ CustomOp 
 vector_new :: (ExplodedDefId, CustomRHS)
 vector_new = ( ["crucible","vector","{{impl}}", "new"], ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ _ -> do
-        Some tpr <- return $ tyToRepr t
+        Some tpr <- tyToReprM t
         return $ MirExp (C.VectorRepr tpr) (R.App $ E.VectorLit tpr V.empty)
     _ -> Nothing
 
@@ -273,7 +279,7 @@ vector_pop = ( ["crucible","vector","{{impl}}", "pop"], ) $ \substs -> case subs
             meInit <- MirExp (C.VectorRepr tpr) <$> vectorInit tpr eVec
             -- `Option<T>` must exist because it appears in the return type.
             meLast <- vectorLast tpr eVec >>= maybeToOption t tpr
-            return $ buildTupleMaybe [CTyVector t, CTyOption t] [Just meInit, Just meLast]
+            buildTupleMaybeM [CTyVector t, CTyOption t] [Just meInit, Just meLast]
         _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
     _ -> Nothing
 
@@ -284,7 +290,7 @@ vector_pop_front = ( ["crucible","vector","{{impl}}", "pop_front"], ) $ \substs 
             -- `Option<T>` must exist because it appears in the return type.
             meHead <- vectorHead tpr eVec >>= maybeToOption t tpr
             meTail <- MirExp (C.VectorRepr tpr) <$> vectorTail tpr eVec
-            return $ buildTupleMaybe [CTyOption t, CTyVector t] [Just meHead, Just meTail]
+            buildTupleMaybeM [CTyOption t, CTyVector t] [Just meHead, Just meTail]
         _ -> mirFail $ "bad arguments for Vector::pop_front: " ++ show ops
     _ -> Nothing
 
@@ -328,7 +334,7 @@ vector_split_at = ( ["crucible","vector","{{impl}}", "split_at"], ) $ \substs ->
             let eIdxNat = R.App $ usizeToNat eIdx
             mePre <- MirExp (C.VectorRepr tpr) <$> vectorTake tpr eVec eIdxNat
             meSuf <- MirExp (C.VectorRepr tpr) <$> vectorDrop tpr eVec eIdxNat
-            return $ buildTupleMaybe [CTyVector t, CTyVector t] [Just mePre, Just meSuf]
+            buildTupleMaybeM [CTyVector t, CTyVector t] [Just mePre, Just meSuf]
         _ -> mirFail $ "bad arguments for Vector::split_at: " ++ show ops
     _ -> Nothing
 
@@ -351,8 +357,8 @@ vector_copy_from_slice = ( ["crucible","vector","{{impl}}", "copy_from_slice"], 
 
 array_zeroed :: (ExplodedDefId, CustomRHS)
 array_zeroed = ( ["crucible","array","{{impl}}", "zeroed"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ _ -> case tyToRepr t of
-        Some (C.BVRepr w) -> do
+    Substs [t] -> Just $ CustomOp $ \_ _ -> tyToReprM t >>= \(Some tpr) -> case tpr of
+        C.BVRepr w -> do
             let idxs = Ctx.Empty Ctx.:> BaseUsizeRepr
             v <- arrayZeroed idxs w
             return $ MirExp (C.SymbolicArrayRepr idxs (C.BaseBVRepr w)) v
@@ -421,8 +427,8 @@ any_new = ( ["core", "crucible", "any", "{{impl}}", "new"], \substs -> case subs
 any_downcast :: (ExplodedDefId, CustomRHS)
 any_downcast = ( ["core", "crucible", "any", "{{impl}}", "downcast"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp C.AnyRepr e]
-          | Some tpr <- tyToRepr t -> do
+        [MirExp C.AnyRepr e] -> do
+            Some tpr <- tyToReprM t
             let maybeVal = R.App $ E.UnpackAny tpr e
             let errMsg = R.App $ E.StringLit $ fromString $
                     "failed to downcast Any as " ++ show tpr
@@ -767,6 +773,67 @@ saturating_sub =
     , makeSaturatingArith "saturating_sub" Sub
     )
 
+
+-- | Common implementation for `unchecked_add` and related intrinsics.  These
+-- all perform the normal arithmetic operation, but overflow is undefined
+-- behavior.
+makeUncheckedArith :: String -> BinOp -> CustomRHS
+makeUncheckedArith name bop =
+    \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        ([TyUint _, TyUint _], [e1, e2]) -> do
+            (result, overflow) <- evalBinOp bop (Just Unsigned) e1 e2
+            G.assertExpr (R.App $ E.Not overflow) $
+                S.litExpr $ Text.pack $ "undefined behavior: " ++ name ++ " overflowed"
+            return result
+        ([TyInt _, TyInt _], [e1, e2]) -> do
+            (result, overflow) <- evalBinOp bop (Just Signed) e1 e2
+            G.assertExpr (R.App $ E.Not overflow) $
+                S.litExpr $ Text.pack $ "undefined behavior: " ++ name ++ " overflowed"
+            return result
+        _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show (opTys, ops)
+
+unchecked_add ::  (ExplodedDefId, CustomRHS)
+unchecked_add =
+    ( ["core","intrinsics", "", "unchecked_add"]
+    , makeUncheckedArith "unchecked_add" Add
+    )
+
+unchecked_sub ::  (ExplodedDefId, CustomRHS)
+unchecked_sub =
+    ( ["core","intrinsics", "", "unchecked_sub"]
+    , makeUncheckedArith "unchecked_sub" Sub
+    )
+
+unchecked_mul ::  (ExplodedDefId, CustomRHS)
+unchecked_mul =
+    ( ["core","intrinsics", "", "unchecked_mul"]
+    , makeUncheckedArith "unchecked_mul" Mul
+    )
+
+unchecked_div ::  (ExplodedDefId, CustomRHS)
+unchecked_div =
+    ( ["core","intrinsics", "", "unchecked_div"]
+    , makeUncheckedArith "unchecked_div" Div
+    )
+
+unchecked_rem ::  (ExplodedDefId, CustomRHS)
+unchecked_rem =
+    ( ["core","intrinsics", "", "unchecked_rem"]
+    , makeUncheckedArith "unchecked_rem" Rem
+    )
+
+unchecked_shl ::  (ExplodedDefId, CustomRHS)
+unchecked_shl =
+    ( ["core","intrinsics", "", "unchecked_shl"]
+    , makeUncheckedArith "unchecked_shl" Shl
+    )
+
+unchecked_shr ::  (ExplodedDefId, CustomRHS)
+unchecked_shr =
+    ( ["core","intrinsics", "", "unchecked_shr"]
+    , makeUncheckedArith "unchecked_shr" Shr
+    )
+
 -- Build a "count leading zeros" implementation.  The function will be
 -- polymorphic, accepting bitvectors of any width.  The `NatRepr` is the width
 -- of the output, or `Nothing` to return a bitvector of the same width as the
@@ -820,6 +887,22 @@ ctlz_nonzero :: (ExplodedDefId, CustomRHS)
 ctlz_nonzero =
     ( ["core","intrinsics", "", "ctlz_nonzero"]
     , ctlz_impl "ctlz_nonzero" Nothing )
+
+rotate_left :: (ExplodedDefId, CustomRHS)
+rotate_left = ( ["core","intrinsics", "", "rotate_left"],
+  \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
+      | Just Refl <- testEquality w w' -> do
+        return $ MirExp (C.BVRepr w) $ R.App $ E.BVRol w eVal eAmt
+    _ -> mirFail $ "invalid arguments for rotate_left")
+
+rotate_right :: (ExplodedDefId, CustomRHS)
+rotate_right = ( ["core","intrinsics", "", "rotate_right"],
+  \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+    [MirExp (C.BVRepr w) eVal, MirExp (C.BVRepr w') eAmt]
+      | Just Refl <- testEquality w w' -> do
+        return $ MirExp (C.BVRepr w) $ R.App $ E.BVRor w eVal eAmt
+    _ -> mirFail $ "invalid arguments for rotate_right")
 
 
 ---------------------------------------------------------------------------------------
@@ -881,9 +964,12 @@ mem_crucible_identity_transmute ::  (ExplodedDefId, CustomRHS)
 mem_crucible_identity_transmute = (["core","mem", "crucible_identity_transmute"],
     \ substs -> case substs of
       Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
-        [e@(MirExp argTy _)]
-          | Some retTy <- tyToRepr tyU
-          , Just Refl <- testEquality argTy retTy -> return e
+        [e@(MirExp argTy _)] -> do
+            Some retTy <- tyToReprM tyU
+            case testEquality argTy retTy of
+                Just refl -> return e
+                Nothing -> mirFail $ "crucible_identity_transmute: types are not compatible: " ++
+                    show (tyT, argTy) ++ " != " ++ show (tyU, retTy)
         _ -> mirFail $ "bad arguments to mem_crucible_identity_transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing
@@ -894,7 +980,7 @@ mem_transmute = (["core", "intrinsics", "", "transmute"],
     \ substs -> case substs of
       Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
         [e@(MirExp argTy _)] -> do
-            Some retTy <- return $ tyToRepr tyU
+            Some retTy <- tyToReprM tyU
             case testEquality argTy retTy of
                 Just Refl -> return e
                 Nothing -> mirFail $
@@ -1155,12 +1241,14 @@ integer_rem = (["int512", "rem"], \(Substs []) ->
 
 bv_convert :: (ExplodedDefId, CustomRHS)
 bv_convert = (["crucible", "bitvector", "convert"], \(Substs [_, u]) ->
-    Just $ CustomOp $ \_optys ops -> impl u ops)
+    Just $ CustomOp $ \_optys ops -> do
+        col <- use $ cs . collection
+        impl col u ops)
   where
-    impl :: HasCallStack => Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
-    impl u ops
+    impl :: HasCallStack => Collection -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s) 
+    impl col u ops
       | [MirExp (C.BVRepr w1) v] <- ops
-      , Some (C.BVRepr w2) <- tyToRepr u
+      , Some (C.BVRepr w2) <- tyToRepr col u
       = case compareNat w1 w2 of
             NatLT _ -> return $ MirExp (C.BVRepr w2) $
                 S.app $ E.BVZext w2 w1 v
@@ -1258,8 +1346,8 @@ type BVMakeLiteral = forall ext f w.
 
 bv_literal :: Text -> BVMakeLiteral -> (ExplodedDefId, CustomRHS)
 bv_literal name op = (["crucible", "bitvector", "{{impl}}", name], \(Substs [sz]) ->
-    Just $ CustomOp $ \_optys _ops -> case tyToRepr (CTyBv sz) of
-        Some (C.BVRepr w) ->
+    Just $ CustomOp $ \_optys _ops -> tyToReprM (CTyBv sz) >>= \(Some tpr) -> case tpr of
+        C.BVRepr w ->
             return $ MirExp (C.BVRepr w) $ S.app $ op w
         _ -> mirFail $
             "BUG: invalid type param for bv_" ++ Text.unpack name ++ ": " ++ show sz)
@@ -1281,7 +1369,7 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
         [MirExp UsizeRepr len] -> do
             -- Create an uninitialized `MirVector_PartialVector` of length
             -- `len`, and return a pointer to its first element.
-            Some tpr <- return $ tyToRepr t
+            Some tpr <- tyToReprM t
             vec <- mirVector_uninit tpr len
             ref <- newMirRef (MirVectorRepr tpr)
             writeMirRef ref vec
@@ -1296,7 +1384,7 @@ allocate_zeroed :: (ExplodedDefId, CustomRHS)
 allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr len] -> do
-            Some tpr <- return $ tyToRepr t
+            Some tpr <- tyToReprM t
             zero <- mkZero tpr
             let lenNat = R.App $ usizeToNat len
             let vec = R.App $ E.VectorReplicate tpr lenNat zero
@@ -1334,34 +1422,6 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
 -- No `deallocate` for now - we'd need some extra MirRef ops to implement that
 -- (since we need to get from the first-element pointer to the underlying
 -- RefCell that we want to drop).
-
-
---------------------------------------------------------------------------------------------------------------------------
--- UnsafeCell
-
--- The `get` and `raw_get` methods have identical Crucible representation:
--- fn UnsafeCell<T>::get(&self) -> *mut T
--- fn UnsafeCell<T>::raw_get(this: *const Self) -> *mut T
-unsafe_cell_get_impl :: CustomRHS
-unsafe_cell_get_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
-    ([TyRef (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
-    ([TyRawPtr (TyAdt aname _ _) _], [MirExp (MirReferenceRepr tpr) ref]) -> go aname tpr ref
-    _ -> mirFail $ "BUG: invalid arguments to UnsafeCell::get: " ++ show ops
-  where
-    go :: AdtName -> C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
-        MirGenerator h s ret (MirExp s)
-    go aname tpr ref = do
-        adt <- findAdt aname
-        fieldPl <- structFieldRef adt 0 tpr ref
-        addrOfPlace fieldPl
-
-unsafe_cell_get :: (ExplodedDefId, CustomRHS)
-unsafe_cell_get =
-    (["core", "cell", "{{impl}}", "get", "crucible_hook"], unsafe_cell_get_impl)
-
-unsafe_cell_raw_get :: (ExplodedDefId, CustomRHS)
-unsafe_cell_raw_get =
-    (["core", "cell", "{{impl}}", "raw_get"], unsafe_cell_get_impl)
 
 
 --------------------------------------------------------------------------------------------------------------------------
@@ -1403,7 +1463,7 @@ atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops
         let eq = R.App $ E.BVEq w old expect
         let new = R.App $ E.BVIte eq w val old
         writeMirRef ref new
-        return $ buildTupleMaybe [ty, TyBool] $
+        buildTupleMaybeM [ty, TyBool] $
             [Just $ MirExp tpr old, Just $ MirExp C.BoolRepr eq]
     _ -> mirFail $ "BUG: invalid arguments to atomic_cxchg: " ++ show ops
 
@@ -1531,7 +1591,7 @@ cloneShimDef (TyTuple tys) parts = CustomMirOp $ \ops -> do
     fieldRefExps <- mapM evalRval fieldRefRvs
     fieldRefOps <- zipWithM (\ty exp -> makeTempOperand (TyRef ty Immut) exp) tys fieldRefExps
     clonedExps <- zipWithM (\part op -> callExp part [op]) parts fieldRefOps
-    return $ buildTupleMaybe tys (map Just clonedExps)
+    buildTupleMaybeM tys (map Just clonedExps)
 cloneShimDef (TyArray ty len) parts
   | [part] <- parts = CustomMirOp $ \ops -> do
     lv <- case ops of
@@ -1546,7 +1606,7 @@ cloneShimDef (TyArray ty len) parts
     elementRefExps <- mapM evalRval elementRefRvs
     elementRefOps <- mapM (\exp -> makeTempOperand (TyRef ty Immut) exp) elementRefExps
     clonedExps <- mapM (\op -> callExp part [op]) elementRefOps
-    Some tpr <- return $ tyToRepr ty
+    Some tpr <- tyToReprM ty
     buildArrayLit tpr clonedExps
   | otherwise = CustomOp $ \_ _ -> mirFail $
     "expected exactly one clone function for in array clone shim, but got " ++ show parts

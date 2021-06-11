@@ -64,7 +64,7 @@ class GenericOps a where
 -- generated `PartialEq` impls use `Rvalue::Discriminant` and compare the
 -- result to the constants from the enum definition.
 adtIndices :: Adt -> Collection -> [Integer]
-adtIndices (Adt _aname _kind vars _ _) col = go 0 vars
+adtIndices (Adt _aname _kind vars _ _ _ _) col = go 0 vars
   where
     go _ [] = []
     go lastExplicit (v : vs) =

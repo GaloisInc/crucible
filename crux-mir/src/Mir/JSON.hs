@@ -141,6 +141,8 @@ instance FromJSON Adt where
         <$> v .: "name"
         <*> v .: "kind"
         <*> v .: "variants"
+        <*> v .: "size"
+        <*> v .: "repr_transparent"
         <*> v .: "orig_def_id"
         <*> v .: "orig_substs"
 

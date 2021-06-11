@@ -24,6 +24,7 @@ module Mir.Language (
     runTestsWithExtraOverrides,
     BindExtraOverridesFn,
     noExtraOverrides,
+    orOverride,
     MIROptions(..),
     defaultMirOptions,
 ) where
@@ -128,6 +129,14 @@ type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
 
 noExtraOverrides :: BindExtraOverridesFn
 noExtraOverrides _ _ _ _ = Nothing
+
+orOverride ::
+    BindExtraOverridesFn -> BindExtraOverridesFn -> BindExtraOverridesFn
+orOverride f g symOnline cs name cfg =
+    case f symOnline cs name cfg of
+        Just x -> Just x
+        Nothing -> g symOnline cs name cfg
+
 
 -- | This closes over the Crucible 'personality' parameter, allowing us to select between
 -- normal execution over Models and concurrent exeuctions that use an Exploration
@@ -543,16 +552,16 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     (TyAdt name _ _, C.AnyRepr)
-      | Just adt <- List.find (\(Adt n _ _ _ _) -> name == n) (col^.adts) -> do
+      | Just adt <- List.find (\(Adt n _ _ _ _ _ _) -> name == n) (col^.adts) -> do
         optParts <- case adt^.adtkind of
             Struct -> do
                 let var = onlyVariant adt
-                C.Some fctx <- return $ variantFields' var
+                C.Some fctx <- return $ variantFields' col var
                 let ctx = fieldCtxType fctx
                 let fields = unpackAnyValue rv (C.StructRepr ctx)
                 return $ Right (var, readFields fctx fields)
             Enum -> do
-                C.Some vctx <- return $ enumVariants adt
+                C.Some vctx <- return $ enumVariants col adt
                 let enumVal = unpackAnyValue rv (RustEnumRepr vctx)
                 -- Note we don't look at the discriminant here, because mapping
                 -- a discriminant value to a variant index is somewhat complex.
@@ -562,7 +571,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                         let i = Ctx.indexVal idx
                         let var = fromMaybe (error "bad index from findVariant?") $
                                 adt ^? adtvariants . ix i
-                        C.Some fctx <- return $ variantFields' var
+                        C.Some fctx <- return $ variantFields' col var
                         Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
                             ("when printing enum type " ++ show name)
                         return $ Right (var, readFields fctx fields)
