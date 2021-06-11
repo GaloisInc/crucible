@@ -268,7 +268,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
              -- is enabled.
              when (not (concurrency mirOpts) && printResultOnly mirOpts) $ do
                  str <- showRegEntry @sym col resTy res
-                 liftIO $ say Simply "Crux-MIR" $ Text.pack str
+                 liftIO $ outputLn str
 
              when (not (concurrency mirOpts) && not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
                  str <- showRegEntry @sym col resTy res
