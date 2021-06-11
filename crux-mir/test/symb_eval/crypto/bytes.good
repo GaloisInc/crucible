@@ -3,20 +3,25 @@ test bytes/3a1fbbbh::f[0]: FAILED
 failures:
 
 ---- bytes/3a1fbbbh::f[0] counterexamples ----
-Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
-MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
-	a[i] == b[i]
-Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
-MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
-	a[i] == b[i]
-Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
-MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
-	a[i] == b[i]
-Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
-MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
-	a[i] == b[i]
-Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
-MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
-	a[i] == b[i]
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
+[Crux]   	a[i] == b[i]
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
+[Crux]   	a[i] == b[i]
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
+[Crux]   	a[i] == b[i]
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
+[Crux]   	a[i] == b[i]
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crypto/bytes.rs:85:7: 85:38: error: in bytes/3a1fbbbh::f[0]
+[Crux]   MIR assertion at test/symb_eval/crypto/bytes.rs:85:7:
+[Crux]   	a[i] == b[i]
 
 [Crux] Overall status: Invalid.

@@ -4,12 +4,14 @@ test early_fail/3a1fbbbh::fail2[0]: FAILED
 failures:
 
 ---- early_fail/3a1fbbbh::fail1[0] counterexamples ----
-Failure for internal: error: in early_fail/3a1fbbbh::fail1[0]
-panicking::begin_panic, called from early_fail/3a1fbbbh::fail1[0]
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in early_fail/3a1fbbbh::fail1[0]
+[Crux]   panicking::begin_panic, called from early_fail/3a1fbbbh::fail1[0]
 
 ---- early_fail/3a1fbbbh::fail2[0] counterexamples ----
-Failure for ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/early_fail.rs:17:5: 17:30: error: in early_fail/3a1fbbbh::fail2[0]
-MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
-	x == 0
+[Crux] Found counterexample for verification goal
+[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/early_fail.rs:17:5: 17:30: error: in early_fail/3a1fbbbh::fail2[0]
+[Crux]   MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
+[Crux]   	x == 0
 
 [Crux] Overall status: Invalid.
