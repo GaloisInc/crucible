@@ -153,13 +153,7 @@ run (cruxOpts, opts) =
 
             return ()
 
-printCounterexamples :: (?outputConfig::Crux.OutputConfig) => ProvedGoals a -> IO ()
-printCounterexamples gs = case gs of
-            AtLoc _ _ gs1 -> printCounterexamples gs1
-            Branch g1 g2  -> printCounterexamples g1 >> printCounterexamples g2
-            Goal _ (c, _) _ res ->
-                let msg = show c
-                in case res of
-                    NotProved _ (Just _) -> do
-                        Crux.outputLn ("Failure for " ++ msg)
-                    _ -> return ()
+printCounterexamples :: Crux.Logs
+                     => ProvedGoals (Either AssumptionReason SimError)
+                     -> IO ()
+printCounterexamples = Crux.logGoal

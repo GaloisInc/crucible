@@ -16,6 +16,7 @@ import qualified Data.List as List
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text (Text)
+import qualified Data.Text as T
 import GHC.Exts ( proxy# )
 
 import System.IO (stdout)
@@ -192,8 +193,9 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
              let ?lc = llvmCtxt ^. llvmTypeCtx
              in llvmPtrWidth llvmCtxt $ \ptrW ->
                withPtrWidth ptrW $ do
-               liftIO $ say "Crux" $ unwords [ "Using pointer width:", show ptrW
-                                             , "for file", bcFile]
+               say Simply "Crux" $ T.unwords [ "Using pointer width:"
+                                             , T.pack $ show ptrW
+                                             , "for file", T.pack bcFile]
                populateAllGlobals sym (globalInitMap trans)
                  =<< initializeAllMemory sym llvmCtxt llvmMod
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
@@ -207,7 +209,8 @@ checkFun nm mp =
     Just (_, AnyCFG anyCfg) ->
       case cfgArgTypes anyCfg of
         Empty ->
-          do liftIO $ say "Crux" ("Simulating function " ++ show nm)
+          do liftIO $ say Simply "Crux" ("Simulating function "
+                                         <> T.pack (show nm))
              (callCFG anyCfg emptyRegMap) >> return ()
         _     -> throwCError BadFun  -- TODO(lb): Suggest uc-crux-llvm?
     Nothing -> throwCError (MissingFun nm)

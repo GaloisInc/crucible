@@ -3,7 +3,8 @@ test downcast_fail/3a1fbbbh::crux_test[0]: FAILED
 failures:
 
 ---- downcast_fail/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for test/symb_eval/any/downcast_fail.rs:10:14: 10:15: error: in downcast_fail/3a1fbbbh::crux_test[0]
-failed to downcast Any as BVRepr 32
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/any/downcast_fail.rs:10:14: 10:15: error: in downcast_fail/3a1fbbbh::crux_test[0]
+[Crux]   failed to downcast Any as BVRepr 32
 
 [Crux] Overall status: Invalid.

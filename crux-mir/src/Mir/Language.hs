@@ -106,18 +106,20 @@ import           Mir.Concurrency
 import           Paths_crux_mir (version)
 
 main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig noExtraOverrides >>= exitWith
+main = mainWithOutputConfig Crux.defaultOutputConfig noExtraOverrides >>= exitWith
 
 mainWithExtraOverrides :: BindExtraOverridesFn -> IO ()
 mainWithExtraOverrides bindExtra =
-    mainWithOutputConfig defaultOutputConfig bindExtra >>= exitWith
+    mainWithOutputConfig Crux.defaultOutputConfig bindExtra >>= exitWith
 
 mainWithOutputTo :: Handle -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputTo h bindExtra = mainWithOutputConfig (OutputConfig False h h False) bindExtra
+mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig False h h
 
-mainWithOutputConfig :: OutputConfig -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputConfig outCfg bindExtra =
-    Crux.loadOptions outCfg "crux-mir" version mirConfig $ runTestsWithExtraOverrides bindExtra
+mainWithOutputConfig :: (Maybe Crux.CruxOptions -> OutputConfig)
+                     -> BindExtraOverridesFn -> IO ExitCode
+mainWithOutputConfig mkOutCfg bindExtra =
+    Crux.loadOptions mkOutCfg "crux-mir" version mirConfig
+    $ runTestsWithExtraOverrides bindExtra
 
 type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
     (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>
@@ -364,11 +366,10 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let printCounterexamples gs = case gs of
             AtLoc _ _ gs1 -> printCounterexamples gs1
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
-            Goal _ (c, _) _ res ->
-                let msg = show c
-                in case res of
+            Goal _ (_, _) _ res ->
+                case res of
                     NotProved _ (Just m) -> do
-                        outputLn ("Failure for " ++ msg)
+                        logGoal gs
                         when (showModel mirOpts) $ do
                            outputLn "Model:"
                            mjs <- Crux.modelJS m
@@ -397,7 +398,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let skipSummary = printResultOnly mirOpts && resComp == ProgramComplete && Seq.null resGoals
     if not skipSummary then do
         outputLn ""
-        Crux.postprocessSimResult cruxOpts res
+        say Simply "Crux-MIR" "---- FINAL RESULTS ----"
+        Crux.postprocessSimResult False cruxOpts res
       else
         return ExitSuccess
 

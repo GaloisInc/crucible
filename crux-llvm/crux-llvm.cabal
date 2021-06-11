@@ -91,6 +91,7 @@ library
     logict,
     llvm-pretty,
     llvm-pretty-bc-parser,
+    lumberjack >= 1.0 && < 1.1,
     mtl,
     parameterized-utils,
     prettyprinter >= 1.7.0,
@@ -131,8 +132,15 @@ executable crux-llvm-svcomp
     async >= 2.2,
     ansi-terminal,
     crux-llvm,
+    lumberjack,
     time,
     unix
+
+  other-modules:
+    Paths_crux_llvm
+
+  autogen-modules:
+    Paths_crux_llvm
 
 
 test-suite crux-llvm-test
@@ -145,5 +153,6 @@ test-suite crux-llvm-test
   build-depends:
                 crux-llvm,
                 deepseq,
+                lumberjack,
                 parsec,
                 versions

@@ -205,5 +205,5 @@ main =
   Crux.loadOptions Crux.defaultOutputConfig "crux-jvm" version cruxJVMConfig $
     \(cruxOpts, jvmOpts) -> do
       jvmOpts' <- processJVMOptions jvmOpts
-      exitWith =<< Crux.postprocessSimResult cruxOpts =<<
+      exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
         Crux.runSimulator cruxOpts (simulateJVM cruxOpts jvmOpts')

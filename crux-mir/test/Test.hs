@@ -88,7 +88,8 @@ runCrux rustFile outHandle mode = do
                                             _ -> "",
                                         Crux.branchCoverage = (mode == RcmCoverage) } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
-    let ?outputConfig = Crux.OutputConfig False outHandle outHandle quiet
+    let ?outputConfig = Crux.mkOutputConfig False outHandle outHandle $
+                        Just (fst options)
     _exitCode <- Mir.runTests options
     return ()
 
@@ -166,7 +167,7 @@ doGoldenTest rustFile goodFile outFile act = goldenTest (takeBaseName rustFile)
     (act >> BS.readFile outFile)
     (\good out -> return $ if good == out then Nothing else
       Just $ "files " ++ goodFile ++ " and " ++ outFile ++ " differ; " ++
-        goodFile ++ " contains:\n" ++ BS8.toString out)
+        outFile ++ " contains:\n" ++ BS8.toString out)
     (\out -> BS.writeFile goodFile out)
 
 main :: IO ()

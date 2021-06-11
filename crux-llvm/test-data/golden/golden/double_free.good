@@ -1,16 +1,12 @@
 ????
-[Crux] Counter example for test-data/golden/golden/double_free.c:16:3: error: in main
-Undefined behavior encountered
-Details:
-  `free` called on a pointer to already-freed memory
 [Crux] Found counterexample for verification goal
-test-data/golden/golden/double_free.c:16:3: error: in main
-Undefined behavior encountered
-Details:
-  `free` called on a pointer to already-freed memory
-  Pointer: (10, 0x0:[64])
-  Reference: 
-    The C language standard, version C11
-    §7.22.3.3 The free function, ¶2
-    Document URL: http://www.iso-9899.info/n1570.html
+[Crux]   test-data/golden/golden/double_free.c:16:3: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     `free` called on a pointer to already-freed memory
+[Crux]     Pointer: (10, 0x0:[64])
+[Crux]     Reference: 
+[Crux]       The C language standard, version C11
+[Crux]       §7.22.3.3 The free function, ¶2
+[Crux]       Document URL: http://www.iso-9899.info/n1570.html
 [Crux] Overall status: Invalid.

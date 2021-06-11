@@ -3,7 +3,8 @@ test checked_add/3a1fbbbh::crux_test[0]: returned 44, FAILED
 failures:
 
 ---- checked_add/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for test/symb_eval/num/checked_add.rs:5:5: 5:12: error: in checked_add/3a1fbbbh::crux_test[0]
-attempt to add with overflow
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/num/checked_add.rs:5:5: 5:12: error: in checked_add/3a1fbbbh::crux_test[0]
+[Crux]   attempt to add with overflow
 
 [Crux] Overall status: Invalid.

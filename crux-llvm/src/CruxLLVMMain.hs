@@ -1,41 +1,40 @@
 {-# Language OverloadedStrings #-}
 module CruxLLVMMain
-  ( mainWithOutputTo, mainWithOutputConfig, defaultOutputConfig, processLLVMOptions )
+  ( mainWithOutputTo, mainWithOutputConfig
+  , Crux.defaultOutputConfig
+  , Crux.mkOutputConfig
+  , processLLVMOptions )
   where
 
-import System.Exit
-  ( ExitCode )
-import System.IO
-  ( Handle )
-import System.FilePath
-  ( dropExtension, takeFileName, (</>) )
-import System.Directory
-  ( createDirectoryIfMissing )
+import           System.Directory ( createDirectoryIfMissing )
+import           System.Exit ( ExitCode )
+import           System.FilePath ( dropExtension, takeFileName, (</>) )
+import           System.IO ( Handle )
 
 -- crux
 import qualified Crux
-import Crux.Log (OutputConfig(..), defaultOutputConfig)
-import Crux.Config.Common(CruxOptions(..))
+import           Crux.Log ( OutputConfig(..) )
+import           Crux.Config.Common (CruxOptions(..))
 
 -- local
-import Crux.LLVM.Config
-import Crux.LLVM.Compile
-import Crux.LLVM.Simulate
-import Paths_crux_llvm (version)
+import           Crux.LLVM.Config
+import           Crux.LLVM.Compile
+import           Crux.LLVM.Simulate
+import           Paths_crux_llvm (version)
 
 
 mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h False)
+mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig True h h
 
-mainWithOutputConfig :: OutputConfig -> IO ExitCode
-mainWithOutputConfig outCfg = do
+mainWithOutputConfig :: (Maybe CruxOptions -> OutputConfig) -> IO ExitCode
+mainWithOutputConfig mkOutCfg = do
   cfg <- llvmCruxConfig
-  Crux.loadOptions outCfg "crux-llvm" version cfg $ \initOpts ->
+  Crux.loadOptions mkOutCfg "crux-llvm" version cfg $ \initOpts ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
        bcFile <- genBitCode cruxOpts llvmOpts
        res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
        makeCounterExamplesLLVM cruxOpts llvmOpts res
-       Crux.postprocessSimResult cruxOpts res
+       Crux.postprocessSimResult True cruxOpts res
 
 processLLVMOptions :: (CruxOptions,LLVMOptions) -> IO (CruxOptions,LLVMOptions)
 processLLVMOptions (cruxOpts,llvmOpts) =

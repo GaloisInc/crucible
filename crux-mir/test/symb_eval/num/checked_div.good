@@ -3,11 +3,14 @@ test checked_div/3a1fbbbh::crux_test[0]: returned 65, FAILED
 failures:
 
 ---- checked_div/3a1fbbbh::crux_test[0] counterexamples ----
-Failure for test/symb_eval/num/checked_div.rs:3:5: 3:10: error: in checked_div/3a1fbbbh::div_signed[0]
-attempt to divide with overflow
-Failure for test/symb_eval/num/checked_div.rs:3:5: 3:10: error: in checked_div/3a1fbbbh::div_signed[0]
-attempt to divide by zero
-Failure for test/symb_eval/num/checked_div.rs:8:5: 8:10: error: in checked_div/3a1fbbbh::div_unsigned[0]
-attempt to divide by zero
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/num/checked_div.rs:3:5: 3:10: error: in checked_div/3a1fbbbh::div_signed[0]
+[Crux]   attempt to divide with overflow
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/num/checked_div.rs:3:5: 3:10: error: in checked_div/3a1fbbbh::div_signed[0]
+[Crux]   attempt to divide by zero
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/num/checked_div.rs:8:5: 8:10: error: in checked_div/3a1fbbbh::div_unsigned[0]
+[Crux]   attempt to divide by zero
 
 [Crux] Overall status: Invalid.

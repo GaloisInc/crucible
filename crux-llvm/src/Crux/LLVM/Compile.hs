@@ -9,7 +9,7 @@
 module Crux.LLVM.Compile where
 
 import           Control.Applicative
-import           Control.Exception ( SomeException(..), try, displayException )
+import           Control.Exception ( SomeException(..), try )
 import           Control.Monad ( guard, unless, when, forM_ )
 import           Control.Monad.Logic ( observeAll )
 import qualified Data.Foldable as Fold
@@ -76,7 +76,7 @@ runClang :: Logs => CruxOptions -> LLVMOptions -> [String] -> IO ()
 runClang cruxOpts llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     when (simVerbose cruxOpts > 1) $ say "CLANG" $ unwords (clang : map show allParams)
+     say Noisily "CLANG" $ T.unwords (T.pack <$> (clang : map show allParams))
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
@@ -234,20 +234,20 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
       let suff = case plSourceLoc (simErrorLoc c) of
                    SourcePos _ l _ -> show l
                    _               -> "unknown"
-          msg = show c
           skipGoal = case simErrorReason c of
                        ResourceExhausted _ -> True
                        _ -> False
 
       in case (r, skipGoal) of
            (NotProved _ (Just m), False) ->
-             do sayFail "Crux" ("Counter example for " ++ msg)
-                try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
-                  Left (ex :: SomeException) ->
-                    sayFail "Crux" (unlines ["Failed to build counterexample executable", displayException ex])
+             do try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
+                  Left (ex :: SomeException) -> do
+                    logGoal gs
+                    say Fail "Crux" "Failed to build counterexample executable"
+                    logException ex
                   Right (_prt,dbg) -> do
-                    say "Crux" ("*** debug executable: " ++ dbg)
-                    say "Crux" ("*** break on line: " ++ suff)
+                    say Simply "Crux" ("*** debug executable: " <> T.pack dbg)
+                    say Simply "Crux" ("*** break on line: " <> T.pack suff)
            _ -> return ()
 
 buildModelExes :: Logs => CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)

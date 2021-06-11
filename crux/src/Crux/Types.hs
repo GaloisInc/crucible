@@ -2,8 +2,9 @@
 module Crux.Types where
 
 import qualified Control.Lens as L
-import           Data.Sequence (Seq)
 import           Data.Parameterized.Map (MapF)
+import           Data.Sequence (Seq)
+import           Data.Text ( Text )
 import           Data.Void
 import           Prettyprinter
 
@@ -12,7 +13,6 @@ import           What4.Interface (Pred)
 import           What4.ProgramLoc
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator
 import           Lang.Crucible.Types
 
@@ -76,7 +76,10 @@ data ProcessedGoals =
 
 data ProofResult a
    = Proved [a]
-   | NotProved (Doc Void) (Maybe ModelView)   -- ^ An explanation of the failure and counter example, if any
+   | NotProved (Doc Void) (Maybe ModelView)
+     -- ^ The first argument is an explanation of the failure and
+     -- counter example as provided by the Explainer (if any) and the
+     -- second maybe a model for the counter-example.
  deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)
@@ -87,10 +90,17 @@ data ProvedGoals a =
   | Goal [(AssumptionReason,String)]
          (SimError,String) Bool (ProofResult a)
     -- ^ Keeps only the explanations for the relevant assumptions.
-    -- The 'Maybe Int' in the assumptions corresponds to its depth in the tree
-    -- (i.e., the step number, if this is a path assumption)
-    -- The 'Bool' indicates if the goal is trivial (i.e., the assumptions
-    -- are inconsistent)
+    --
+    --   * The array of (AssumptionReason,String) is the set of
+    --     assumptions for this Goal.
+    --
+    --   * The (SimError,String) is information about the failure,
+    --     with the specific SimError (Lang.Crucible.Simulator) and a
+    --     string representation of the Crucible term that encountered
+    --     the error.
+    --
+    --   * The 'Bool' (third argument) indicates if the goal is
+    --     trivial (i.e., the assumptions are inconsistent)
 
 
 data ProgramCompleteness
@@ -146,6 +156,15 @@ data Entry ty       = Entry { entryName :: String
 -- conditions under which an SMT query is satisfiable.
 newtype ModelView = ModelView { modelVals :: MapF BaseTypeRepr Vals }
 
+----------------------------------------------------------------------
+-- Various things that can be logged/output
 
+-- | Specify some general text that should be presented (to the user).
+data SayWhat = SayWhat SayLevel Text Text  -- ^ fields are: Level From Message
+             | SayMore SayWhat SayWhat
+             | SayNothing
 
-
+-- | Specify the verbosity/severity level of a message.  These are in
+-- ordinal order for possible filtering, and higher levels may be sent
+-- to a different location (e.g. stderr v.s. stdout).
+data SayLevel = Noisily | Simply | OK | Warn | Fail deriving (Eq, Ord)
