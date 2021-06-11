@@ -167,7 +167,7 @@ doGoldenTest rustFile goodFile outFile act = goldenTest (takeBaseName rustFile)
     (act >> BS.readFile outFile)
     (\good out -> return $ if good == out then Nothing else
       Just $ "files " ++ goodFile ++ " and " ++ outFile ++ " differ; " ++
-        goodFile ++ " contains:\n" ++ BS8.toString out)
+        outFile ++ " contains:\n" ++ BS8.toString out)
     (\out -> BS.writeFile goodFile out)
 
 main :: IO ()
