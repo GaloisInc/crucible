@@ -10,7 +10,7 @@ failures:
 [Crux]   test/symb_eval/crux/mixed_fail.rs:8:22: 8:27: error: in mixed_fail/3a1fbbbh::fail1[0]
 [Crux]   attempt to add with overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/mixed_fail.rs:8:5: 8:33: error: in mixed_fail/3a1fbbbh::fail1[0]
+[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crux/mixed_fail.rs:8:5: 8:33: error: in mixed_fail/3a1fbbbh::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:8:5:
 [Crux]   	x + 1 > x
 
@@ -19,7 +19,7 @@ failures:
 [Crux]   test/symb_eval/crux/mixed_fail.rs:14:22: 14:27: error: in mixed_fail/3a1fbbbh::fail2[0]
 [Crux]   attempt to add with overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/mixed_fail.rs:14:5: 14:33: error: in mixed_fail/3a1fbbbh::fail2[0]
+[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crux/mixed_fail.rs:14:5: 14:33: error: in mixed_fail/3a1fbbbh::fail2[0]
 [Crux]   MIR assertion at test/symb_eval/crux/mixed_fail.rs:14:5:
 [Crux]   	x + 2 > x
 

@@ -9,7 +9,7 @@ failures:
 [Crux]   test/symb_eval/crux/multi.rs:8:22: 8:27: error: in multi/3a1fbbbh::fail1[0]
 [Crux]   attempt to add with overflow
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/multi.rs:8:5: 8:33: error: in multi/3a1fbbbh::fail1[0]
+[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crux/multi.rs:8:5: 8:33: error: in multi/3a1fbbbh::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:8:5:
 [Crux]   	x + 1 > x
 
@@ -20,7 +20,7 @@ failures:
 
 ---- multi/3a1fbbbh::fail3[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/multi.rs:20:5: 20:30: error: in multi/3a1fbbbh::assert_zero[0]
+[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crux/multi.rs:20:5: 20:30: error: in multi/3a1fbbbh::assert_zero[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 [Crux]   	x == 0
 

@@ -91,7 +91,8 @@ instance Pretty Ty where
     pretty (TyInterned s) = pretty s
 
 instance Pretty Adt where
-   pretty (Adt nm kind vs origName origSubsts) =
+   pretty (Adt nm kind vs _size reprTransparent origName origSubsts) =
+    (if reprTransparent then pretty "#[repr(transparent)]" else mempty) <+>
     pretty kind <+> pretty nm <> brackets (pretty origName <+> pretty origSubsts)
         <> tupled (map pretty vs)
 
@@ -197,7 +198,7 @@ instance Pretty Rvalue where
     pretty (RAdtAg a) = pretty a
 
 instance Pretty AdtAg where
-  pretty (AdtAg (Adt nm _kind _vs _ _) i ops _) = pretty_fn3 "AdtAg" nm i ops
+  pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _) = pretty_fn3 "AdtAg" nm i ops
 
 
 instance Pretty Terminator where

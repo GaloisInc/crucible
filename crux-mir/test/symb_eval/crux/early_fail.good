@@ -10,7 +10,7 @@ failures:
 
 ---- early_fail/3a1fbbbh::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./lib/crucible/lib.rs:36:41: 36:58 !test/symb_eval/crux/early_fail.rs:17:5: 17:30: error: in early_fail/3a1fbbbh::fail2[0]
+[Crux]   ./lib/crucible/lib.rs:37:41: 37:58 !test/symb_eval/crux/early_fail.rs:17:5: 17:30: error: in early_fail/3a1fbbbh::fail2[0]
 [Crux]   MIR assertion at test/symb_eval/crux/early_fail.rs:17:5:
 [Crux]   	x == 0
 
