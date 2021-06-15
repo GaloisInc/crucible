@@ -1,0 +1,52 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:95:5: error: in eqseq
+  value mismatch!
+  eq (ite cb1@0:b cx@2:i cy@3:i) (ite cb1@0:b cx@2:i cy@3:i)
+PROVED
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:95:5: error: in eqseq
+  value mismatch!
+  eq (ite cb2@1:b cz@4:i cw@5:i) (ite cb2@1:b cz@4:i cw@5:i)
+PROVED
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:56:5: error: in main
+  head 1 eq check
+  eq (ite cb1@0:b cx@2:i cy@3:i) (ite cb1@0:b cx@2:i cy@3:i)
+PROVED
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:57:5: error: in main
+  head 1 check
+  eq (ite cb1@0:b cx@2:i cy@3:i) (ite cb1@0:b cx@2:i cy@3:i)
+PROVED
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:95:5: error: in eqseq
+  value mismatch!
+  eq (ite cb2@1:b cz@4:i cw@5:i) (ite cb2@1:b cz@4:i cw@5:i)
+PROVED
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:95:5: error: in eqseq
+  value mismatch!
+  eq (ite cb2@1:b cz@4:i cw@5:i) (ite cb2@1:b cz@4:i cw@5:i)
+PROVED
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:95:5: error: in eqseq
+  value mismatch!
+  eq (ite cb2@1:b cz@4:i cw@5:i) (ite cb2@1:b cz@4:i cw@5:i)
+PROVED
+Assuming:
+Prove:
+  test-data/simulator-tests/seq-test3.cbl:95:5: error: in eqseq
+  value mismatch!
+  eq (ite cb2@1:b cz@4:i cw@5:i) (ite cb2@1:b cz@4:i cw@5:i)
+PROVED

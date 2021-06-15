@@ -28,7 +28,6 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Types
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
-import Lang.Crucible.Simulator.SimError (ppSimError)
 
 
 setupOverrides ::

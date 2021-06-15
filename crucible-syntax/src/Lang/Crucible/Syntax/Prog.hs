@@ -106,13 +106,13 @@ simulateProgram fn theInput outh profh opts setup =
                 case find isMain cs of
                   Just (ACFG Ctx.Empty retType mn) ->
                     do let mainHdl = cfgHandle mn
-                       let fnBindings = fnBindingsFromList
+                       let fns = fnBindingsFromList
                              [ case toSSA g of
                                  C.SomeCFG ssa ->
                                    FnBinding (cfgHandle g) (UseCFG ssa (postdomInfo ssa))
                              | ACFG _ _ g <- cs
                              ]
-                       let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fnBindings emptyExtensionImpl ()
+                       let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fns emptyExtensionImpl ()
                        let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs

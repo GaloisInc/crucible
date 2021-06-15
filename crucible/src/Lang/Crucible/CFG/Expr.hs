@@ -488,6 +488,50 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
                 -> App ext f (UnrollType nm ctx)
 
   ----------------------------------------------------------------------
+  -- Sequences
+
+  -- Create an empty sequence
+  SequenceNil :: !(TypeRepr tp) -> App ext f (SequenceType tp)
+
+  -- Add a new value to the front of a sequence
+  SequenceCons :: !(TypeRepr tp)
+               -> !(f tp)
+               -> !(f (SequenceType tp))
+               -> App ext f (SequenceType tp)
+
+  -- Append two sequences
+  SequenceAppend :: !(TypeRepr tp)
+                 -> !(f (SequenceType tp))
+                 -> !(f (SequenceType tp))
+                 -> App ext f (SequenceType tp)
+
+  -- Test if a sequence is nil
+  SequenceIsNil :: !(TypeRepr tp)
+                -> !(f (SequenceType tp))
+                -> App ext f BoolType
+
+  -- Return the length of a sequence
+  SequenceLength :: !(TypeRepr tp)
+                 -> !(f (SequenceType tp))
+                 -> App ext f NatType
+
+  -- Return the head of a sesquence, if it is non-nil.
+  SequenceHead :: !(TypeRepr tp)
+               -> !(f (SequenceType tp))
+               -> App ext f (MaybeType tp)
+
+  -- Return the tail of a sequence, if it is non-nil.
+  SequenceTail :: !(TypeRepr tp)
+               -> !(f (SequenceType tp))
+               -> App ext f (MaybeType (SequenceType tp))
+
+  -- Deconstruct a sequence.  Return nothing if nil,
+  -- return the head and tail if non-nil.
+  SequenceUncons :: !(TypeRepr tp)
+                 -> !(f (SequenceType tp))
+                 -> App ext f (MaybeType (StructType (EmptyCtx ::> tp ::> SequenceType tp)))
+
+  ----------------------------------------------------------------------
   -- Vector
 
   -- Vector literal.
@@ -1172,6 +1216,18 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     VectorGetEntry  tp _ _   -> tp
     VectorSetEntry  tp _ _ _ -> VectorRepr tp
     VectorCons      tp _ _   -> VectorRepr tp
+
+    ----------------------------------------------------------------------
+    -- Sequence
+    SequenceNil tpr -> SequenceRepr tpr
+    SequenceCons tpr _ _ -> SequenceRepr tpr
+    SequenceAppend tpr _ _ -> SequenceRepr tpr
+    SequenceIsNil _ _ -> knownRepr
+    SequenceHead tpr _ -> MaybeRepr tpr
+    SequenceUncons tpr _ ->
+      MaybeRepr (StructRepr (Ctx.Empty Ctx.:> tpr Ctx.:> SequenceRepr tpr))
+    SequenceLength{} -> knownRepr
+    SequenceTail tpr _ -> MaybeRepr (SequenceRepr tpr)
 
     ----------------------------------------------------------------------
     -- SymbolicArrayType

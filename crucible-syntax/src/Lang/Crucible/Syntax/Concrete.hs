@@ -244,16 +244,16 @@ repUntilLast sp = describe "zero or more followed by one" $ repUntilLast' sp
           (cons p emptyList <&> \(x, ()) -> ([], x)) <|>
           (cons p (repUntilLast' p) <&> \(x, (xs, lst)) -> (x:xs, lst))
 
-isBaseType :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
-isBaseType =
+_isBaseType :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
+_isBaseType =
   describe "base type" $
   do Some tp <- isType
      case asBaseType tp of
        NotBaseType -> empty
        AsBaseType bt -> return (Some bt)
 
-isFloatingType :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
-isFloatingType =
+_isFloatingType :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
+_isFloatingType =
   describe "floating-point type" $
   do Some tp <- isType
      case tp of
@@ -288,7 +288,7 @@ stringSort =
 isType :: MonadSyntax Atomic m => m (Some TypeRepr)
 isType =
   describe "type" $ call
-    (atomicType <|> stringT <|> vector <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var)
+    (atomicType <|> stringT <|> vector <|> seqt <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var <|> struct)
 
   where
     atomicType =
@@ -303,6 +303,7 @@ isType =
              , kw CharT        $> Some CharRepr
              ]
     vector = unary VectorT isType <&> \(Some t) -> Some (VectorRepr t)
+    seqt   = unary SequenceT isType <&> \(Some t) -> Some (SequenceRepr t)
     ref    = unary RefT isType <&> \(Some t) -> Some (ReferenceRepr t)
     bv :: MonadSyntax Atomic m => m  (Some TypeRepr)
     bv     = do BoundedNat len <- unary BitvectorT posNat
@@ -323,6 +324,8 @@ isType =
     var :: MonadSyntax Atomic m => m (Some TypeRepr)
     var = cons (kw VariantT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
 
+    struct ::  MonadSyntax Atomic m => m (Some TypeRepr)
+    struct = cons (kw StructT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (StructRepr tys)
 
 someExprType :: SomeExpr s -> Maybe (Some TypeRepr)
 someExprType (SomeE tpr _) = Just (Some tpr)
@@ -439,6 +442,9 @@ synthExpr typeHint =
      toAny <|> fromAny <|> stringAppend <|> stringEmpty <|> stringLength <|> showExpr <|>
      just <|> nothing <|> fromJust_ <|> injection <|> projection <|>
      vecLit <|> vecCons <|> vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
+     struct <|> getField <|> setField <|>
+     seqNil <|> seqCons <|> seqAppend <|> seqNilP <|> seqLen <|>
+     seqHead <|> seqTail <|> seqUncons <|>
      ite <|>  intLit <|> rationalLit <|> intp <|>
      binaryToFp <|> fpToBinary <|> realToFp <|> fpToReal <|>
      ubvToFloat <|> floatToUBV <|> sbvToFloat <|> floatToSBV <|>
@@ -449,7 +455,6 @@ synthExpr typeHint =
 -- Syntactic constructs still to add (see issue #74)
 
 -- BvToInteger, SbvToInteger, BvToNat
--- MkStruct, GetStruct, SetStruct
 -- NatToInteger, IntegerToReal
 -- RealRound, RealFloor, RealCeil
 -- IntegerToBV, RealToNat
@@ -919,6 +924,132 @@ synthExpr typeHint =
                      return $ SomeE (VectorRepr elemT) $ EApp $ VectorSetEntry elemT vec n elt
                 _ -> later $ describe "argument with vector type" empty)
 
+    struct :: m (SomeExpr s)
+    struct = describe "struct literal" $ followedBy (kw MkStruct_) (commit *>
+      do ls <- case typeHint of
+                  Just (Some (StructRepr ctx)) ->
+                     list (toListFC (\t -> forceSynth =<< synthExpr (Just (Some t))) ctx)
+                  Just (Some t) -> later $ describe ("value of type " <> T.pack (show t) <> " but got struct") empty
+                  Nothing -> rep (forceSynth =<< synthExpr Nothing)
+         pure $! buildStruct ls)
+
+    getField :: m (SomeExpr s)
+    getField =
+      describe "struct field projection" $
+      followedBy (kw GetField_) (commit *>
+      depCons int (\n ->
+      depCons synth (\(Pair t e) ->
+         case t of
+           StructRepr ts ->
+             case Ctx.intIndex (fromInteger n) (Ctx.size ts) of
+               Nothing ->
+                 describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
+               Just (Some idx) ->
+                 do let ty = ts^.ixF' idx
+                    return $ SomeE ty $ EApp $ GetStruct e idx ty
+           _ -> describe ("struct type (got " <> T.pack (show t) <> ")") empty)))
+
+    setField :: m (SomeExpr s)
+    setField = describe "update to a struct type" $
+      followedBy (kw SetField_) (commit *>
+      depConsCond (forceSynth =<< synthExpr typeHint) (\ (Pair tp e) ->
+        case tp of
+          StructRepr ts -> Right <$>
+            depConsCond int (\n ->
+              case Ctx.intIndex (fromInteger n) (Ctx.size ts) of
+                Nothing -> pure (Left (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)))
+                Just (Some idx) -> Right <$>
+                  do let ty = ts^.ixF' idx
+                     (v,()) <- cons (check ty) emptyList
+                     pure $ SomeE (StructRepr ts) $ EApp $ SetStruct ts e idx v)
+          _ -> pure $ Left $ ("struct type, but got " <> T.pack (show tp))))
+
+    seqNil :: m (SomeExpr s)
+    seqNil =
+      do Some t <- unary SequenceNil_ isType
+         return $ SomeE (SequenceRepr t) $ EApp $ SequenceNil t
+      <|>
+      kw SequenceNil_ *>
+      case typeHint of
+        Just (Some (SequenceRepr t)) ->
+          return $ SomeE (SequenceRepr t) $ EApp $ SequenceNil t
+        Just (Some t) ->
+          later $ describe ("value of type " <> T.pack (show t)) empty
+        Nothing ->
+          later $ describe ("unambiguous nil value") empty
+
+    seqCons :: m (SomeExpr s)
+    seqCons =
+      do let newhint = case typeHint of
+                         Just (Some (SequenceRepr t)) -> Just (Some t)
+                         _ -> Nothing
+         (a, d) <- binary SequenceCons_ (later (synthExpr newhint)) (later (synthExpr typeHint))
+         let g Nothing = Nothing
+             g (Just (Some t)) = Just (Some (SequenceRepr t))
+         case join (find isJust [ typeHint, g (someExprType a), someExprType d ]) of
+           Just (Some (SequenceRepr t)) ->
+             SomeE (SequenceRepr t) . EApp <$> (SequenceCons t <$> evalSomeExpr t a <*> evalSomeExpr (SequenceRepr t) d)
+           _ -> later $ describe "unambiguous sequence cons (add a type ascription to disambiguate)" empty
+
+    seqAppend :: m (SomeExpr s)
+    seqAppend =
+      do (x, y) <- binary SequenceAppend_ (later (synthExpr typeHint)) (later (synthExpr typeHint))
+         case join (find isJust [ typeHint, someExprType x, someExprType y ]) of
+           Just (Some (SequenceRepr t)) ->
+             SomeE (SequenceRepr t) . EApp <$>
+               (SequenceAppend t <$> evalSomeExpr (SequenceRepr t) x <*> evalSomeExpr (SequenceRepr t) y)
+           _ -> later $ describe "unambiguous sequence append (add a type ascription to disambiguate)" empty
+
+    seqNilP :: m (SomeExpr s)
+    seqNilP =
+      do Pair t e <- unary SequenceIsNil_ synth
+         case t of
+           SequenceRepr t' -> return $ SomeE BoolRepr $ EApp $ SequenceIsNil t' e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqLen :: m (SomeExpr s)
+    seqLen =
+      do Pair t e <- unary SequenceLength_ synth
+         case t of
+           SequenceRepr t' -> return $ SomeE NatRepr $ EApp $ SequenceLength t' e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqHead :: m (SomeExpr s)
+    seqHead =
+      do let newhint = case typeHint of
+                         Just (Some (MaybeRepr t)) -> Just (Some (SequenceRepr t))
+                         _ -> Nothing
+         (Pair t e) <-
+            unary SequenceHead_ (forceSynth =<< synthExpr newhint)
+         case t of
+           SequenceRepr elemT -> return $ SomeE (MaybeRepr elemT) $ EApp $ SequenceHead elemT e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqTail :: m (SomeExpr s)
+    seqTail =
+      do let newhint = case typeHint of
+                         Just (Some (MaybeRepr t)) -> Just (Some t)
+                         _ -> Nothing
+         (Pair t e) <-
+            unary SequenceTail_ (forceSynth =<< synthExpr newhint)
+         case t of
+           SequenceRepr elemT -> return $ SomeE (MaybeRepr (SequenceRepr elemT)) $ EApp $ SequenceTail elemT e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqUncons :: m (SomeExpr s)
+    seqUncons =
+      do let newhint = case typeHint of
+                         Just (Some (MaybeRepr (StructRepr (Ctx.Empty Ctx.:> t Ctx.:> _)))) ->
+                           Just (Some (SequenceRepr t))
+                         _ -> Nothing
+         (Pair t e) <-
+            unary SequenceUncons_ (forceSynth =<< synthExpr newhint)
+         case t of
+           SequenceRepr elemT ->
+             return $ SomeE (MaybeRepr (StructRepr (Ctx.Empty Ctx.:> elemT Ctx.:> SequenceRepr elemT))) $
+               EApp $ SequenceUncons elemT e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
     showExpr :: m (SomeExpr s)
     showExpr =
       do Pair t1 e <- unary Show synth
@@ -932,6 +1063,14 @@ synthExpr typeHint =
            (asBaseType -> AsBaseType bt) ->
              return $ SomeE (StringRepr UnicodeRepr) $ EApp $ ShowValue bt e
            _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
+
+
+buildStruct :: [Pair TypeRepr (E s)] -> SomeExpr s
+buildStruct = loop Ctx.Empty Ctx.Empty
+  where
+    loop :: Ctx.Assignment TypeRepr ctx -> Ctx.Assignment (E s) ctx -> [Pair TypeRepr (E s)] -> SomeExpr s
+    loop tps vs [] = SomeE (StructRepr tps) (EApp (MkStruct tps vs))
+    loop tps vs (Pair tp x:xs) = loop (tps Ctx.:> tp) (vs Ctx.:> x) xs
 
 data NatHint
   = NoHint
