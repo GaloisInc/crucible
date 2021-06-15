@@ -66,7 +66,7 @@ main :: IO ()
 main =
   Crux.loadOptions Crux.defaultOutputConfig "crux-go" version cruxGoConfig $
     \(cruxOpts, goOpts) ->
-      exitWith =<< Crux.postprocessSimResult cruxOpts =<<
+      exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
         Crux.runSimulator (cruxOpts { Crux.outDir = "report"
                                     , Crux.skipReport = False })
         (simulateGo cruxOpts goOpts)
