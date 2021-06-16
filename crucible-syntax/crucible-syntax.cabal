@@ -16,7 +16,7 @@ extra-source-files:
 
 library
   build-depends:
-    base >= 4.7,
+    base >= 4.9,
     bv-sized >= 1.0.0,
     bytestring >= 0.10.2,
     containers,
@@ -55,7 +55,7 @@ library
 
 executable crucibler
   build-depends:
-    base >= 4.7 && < 4.16,
+    base >= 4.9 && < 4.16,
     crucible,
     crucible-syntax,
     lens,

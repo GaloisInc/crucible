@@ -187,7 +187,6 @@ eventBeforeProc eid p exe dpor
   = False
   | th <- exe ^.event eid.eventThread
   = eid <= val th
-  | otherwise = False
   where
     val t        = dpor ^. clockVectors.at (Thread p).to emp.cvAt (Thread t)
     emp Nothing  = CV mempty

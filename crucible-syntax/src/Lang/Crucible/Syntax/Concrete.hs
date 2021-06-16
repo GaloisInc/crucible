@@ -57,6 +57,7 @@ import qualified Data.BitVector.Sized as BV
 import Data.Foldable
 import Data.Functor
 import qualified Data.Functor.Product as Functor
+import Data.Kind (Type)
 import Data.Maybe
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
@@ -119,12 +120,12 @@ data E s t where
   EDeref :: !Position -> !(E s (ReferenceType t)) -> E s t
   EApp   :: !(App () (E s) t) -> E s t
 
-data SomeExpr :: * -> * where
+data SomeExpr :: Type -> Type where
   SomeE :: TypeRepr t -> E s t -> SomeExpr s
   SomeOverloaded :: AST s -> Keyword -> [SomeExpr s] -> SomeExpr s
   SomeIntLiteral :: AST s -> Integer -> SomeExpr s
 
-data SomeBVExpr :: * -> * where
+data SomeBVExpr :: Type -> Type where
   SomeBVExpr :: (1 <= w) => NatRepr w -> E s (BVType w) -> SomeBVExpr s
 
 data ExprErr s where
@@ -1200,7 +1201,7 @@ check t =
 
 -------------------------------------------------------------------------
 
-data LabelInfo :: * -> * where
+data LabelInfo :: Type -> Type where
   NoArgLbl :: Label s -> LabelInfo s
   ArgLbl :: forall s ty . TypeRepr ty -> LambdaLabel s ty -> LabelInfo s
 
@@ -1778,8 +1779,8 @@ data Rand s t = Rand (AST s) (E s t)
 --------------------------------------------------------------------------
 
 -- | Any CFG, regardless of its arguments and return type, with its helpers
-data ACFG :: * where
-  ACFG :: forall (s :: *) (init :: Ctx CrucibleType) (ret :: CrucibleType) .
+data ACFG :: Type where
+  ACFG :: forall (s :: Type) (init :: Ctx CrucibleType) (ret :: CrucibleType) .
           CtxRepr init -> TypeRepr ret ->
           CFG () s init ret ->
           ACFG
