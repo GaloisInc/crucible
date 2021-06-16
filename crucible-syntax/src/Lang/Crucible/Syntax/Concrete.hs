@@ -65,6 +65,7 @@ import qualified Data.BitVector.Sized as BV
 import Data.Foldable
 import Data.Functor
 import qualified Data.Functor.Product as Functor
+import Data.Kind (Type)
 import Data.Maybe
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
@@ -1259,7 +1260,7 @@ check t =
 
 -------------------------------------------------------------------------
 
-data LabelInfo :: * -> * where
+data LabelInfo :: Type -> Type where
   NoArgLbl :: Label s -> LabelInfo s
   ArgLbl :: forall s ty . TypeRepr ty -> LambdaLabel s ty -> LabelInfo s
 
@@ -1888,8 +1889,8 @@ data Rand ext s t = Rand (AST s) (E ext s t)
 --------------------------------------------------------------------------
 
 -- | Any CFG, regardless of its arguments and return type, with its helpers
-data ACFG ext :: * where
-  ACFG :: forall (s :: *) (init :: Ctx CrucibleType) (ret :: CrucibleType) ext .
+data ACFG ext :: Type where
+  ACFG :: forall (s :: Type) (init :: Ctx CrucibleType) (ret :: CrucibleType) ext .
           ( LCCE.IsSyntaxExtension ext ) =>
           CtxRepr init -> TypeRepr ret ->
           CFG ext s init ret ->
