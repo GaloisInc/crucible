@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest] # , macos-latest] # , windows-latest]
-        ghc: ["8.6.5", "8.8.4", "8.10.4"]
+        ghc: ["8.6.5", "8.8.4", "8.10.4", "9.0.1"]
         allow-failure: [false]
         include:
           - os: macos-latest
@@ -59,8 +59,15 @@ jobs:
           ghc-version: ${{ matrix.ghc }}
 
       - uses: cachix/install-nix-action@v12
+        name: Nix 20.09 base
+        if: matrix.ghc != '9.0.1'
         with:
           nix_path: nixpkgs=channel:nixos-20.09
+      - uses: cachix/install-nix-action@v12
+        name: Nix unstable base
+        if: matrix.ghc == '9.0.1'
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
       - uses: actions/cache@v2
         name: Cache cabal store
         with:
