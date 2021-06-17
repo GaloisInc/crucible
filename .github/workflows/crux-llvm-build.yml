@@ -251,7 +251,6 @@ jobs:
           VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
-        if: startsWith(github.ref, 'refs/heads/release-') || github.event == 'workflow_dispatch'
         with:
           path: crux-llvm-*.tar.gz*
           name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}
