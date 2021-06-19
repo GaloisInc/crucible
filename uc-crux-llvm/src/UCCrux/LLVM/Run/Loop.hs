@@ -9,11 +9,14 @@ Stability    : provisional
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module UCCrux.LLVM.Run.Loop
   ( bugfindingLoop,
     loopOnFunction,
+    loopOnFunctions,
+    zipResults,
   )
 where
 
@@ -22,9 +25,19 @@ import           Prelude hiding (log)
 
 import           Control.Lens ((^.))
 import           Control.Monad (foldM)
+import           Control.Exception (throw)
+import           Data.Foldable (toList)
 import           Data.Function ((&))
+import qualified Data.Map.Strict as Map
+import qualified Data.Map.Merge.Strict as Map
+import qualified Data.Set as Set
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
+import           Data.Traversable (for)
 import           Panic (Panic)
+
+import qualified Text.LLVM.AST as L
 
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.FunctionHandle as Crucible
@@ -48,7 +61,7 @@ import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
@@ -75,7 +88,7 @@ bugfindingLoop ::
   CruxOptions ->
   LLVMOptions ->
   Crucible.HandleAllocator ->
-  IO (BugfindingResult m arch argTypes)
+  IO (BugfindingResult m arch argTypes, Seq (Sim.UCCruxSimulationResult m arch argTypes))
 bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
   do
     let runSim preconds =
@@ -88,24 +101,27 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
             -- configurably don't?
             simResult <- runSim constraints
             let newExpls = Sim.explanations simResult
-            let (_, newConstraints, _, _) = partitionExplanations newExpls
+            let (_, newConstraints, _, _) =
+                  partitionExplanations locatedValue newExpls
             let (_, newConstraints') = unzip (map locatedValue newConstraints)
             let allConstraints = addConstraints constraints (concat newConstraints')
             let allUnsoundness = unsoundness <> Sim.unsoundness simResult
-            let allResults = simResult : results
+            let allResults = results Seq.|> simResult
             if shouldStop newExpls
               then
-                pure $
-                  makeResult
-                    allConstraints
-                    (concatMap Sim.explanations allResults)
-                    allUnsoundness
+                pure
+                  ( makeResult
+                      allConstraints
+                      (concatMap Sim.explanations (toList allResults))
+                      allUnsoundness,
+                    allResults
+                  )
               else do
                 (appCtx ^. log) Hi "New preconditions:"
                 (appCtx ^. log) Hi $ Text.pack (show (ppConstraints allConstraints))
                 loop allConstraints allResults allUnsoundness
 
-    loop (emptyConstraints (funCtx ^. argumentFullTypes)) [] mempty
+    loop (emptyConstraints (funCtx ^. argumentFullTypes)) Seq.empty mempty
   where
     addConstraints ::
       Constraints m argTypes ->
@@ -129,7 +145,7 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
       Bool
     shouldStop expls =
       let (truePositives, constraints, uncertain, resourceExhausted) =
-            partitionExplanations expls
+            partitionExplanations locatedValue expls
        in case ( null constraints,
                  truePositives,
                  not (null uncertain),
@@ -153,7 +169,7 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
       BugfindingResult m arch argTypes
     makeResult constraints expls unsoundness =
       let (truePositives, newConstraints, uncertain, resourceExhausted) =
-            partitionExplanations expls
+            partitionExplanations locatedValue (toList expls)
           (precondTags, _) = unzip (map locatedValue newConstraints)
        in BugfindingResult
             uncertain
@@ -196,7 +212,7 @@ loopOnFunction appCtx modCtx halloc cruxOpts ucOpts fn =
                   Right funCtx ->
                     do
                       (appCtx ^. log) Hi $ "Checking function " <> (funCtx ^. functionName)
-                      SomeBugfindingResult
+                      uncurry SomeBugfindingResult
                         <$> bugfindingLoop
                           appCtx
                           modCtx
@@ -207,3 +223,73 @@ loopOnFunction appCtx modCtx halloc cruxOpts ucOpts fn =
                           halloc
             )
       )
+
+-- | Postcondition: The keys of the returned map are exactly the entryPoints of
+-- the 'UCCruxLLVMOptions'.
+loopOnFunctions ::
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
+  AppContext ->
+  ModuleContext m arch ->
+  Crucible.HandleAllocator ->
+  CruxOptions ->
+  UCCruxLLVMOptions ->
+  IO (Map.Map String SomeBugfindingResult)
+loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts =
+  Map.fromList
+    <$> llvmPtrWidth
+      (modCtx ^. moduleTranslation . transContext)
+      ( \ptrW ->
+          withPtrWidth
+            ptrW
+            ( for (Config.entryPoints ucOpts) $
+                \entry ->
+                  (entry,) . either throw id
+                    <$> loopOnFunction appCtx modCtx halloc cruxOpts ucOpts entry
+            )
+      )
+
+-- | Given two modules, run the bugfinding loop on the specified functions
+-- (which need to be present in both modules), or if @--explore@ was set, run the
+-- loop on all functions present in both modules.
+zipResults ::
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
+  AppContext ->
+  ModuleContext m1 arch1 ->
+  ModuleContext m2 arch2 ->
+  Crucible.HandleAllocator ->
+  CruxOptions ->
+  UCCruxLLVMOptions ->
+  IO (Map.Map String (SomeBugfindingResult, SomeBugfindingResult))
+zipResults appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts =
+  do
+    let getFuncs modc =
+          Set.fromList
+            ( map
+                ((\(L.Symbol f) -> f) . L.defName)
+                (L.modDefines (modc ^. llvmModule))
+            )
+    let ucOpts' =
+          ucOpts
+            { Config.entryPoints =
+                if Config.doExplore ucOpts
+                  then
+                    Set.toList
+                      ( Set.intersection
+                          (getFuncs modCtx1)
+                          (getFuncs modCtx2)
+                      )
+                  else Config.entryPoints ucOpts
+            }
+    results1 <- loopOnFunctions appCtx modCtx1 halloc cruxOpts ucOpts'
+    results2 <- loopOnFunctions appCtx modCtx2 halloc cruxOpts ucOpts'
+    pure $
+      -- Note: It's a postcondition of loopOnFunctions that these two maps
+      -- have the same keys.
+      Map.merge
+        Map.dropMissing
+        Map.dropMissing
+        (Map.zipWithMatched (const (,)))
+        results1
+        results2

@@ -30,6 +30,7 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Data.List.NonEmpty (NonEmpty((:|)), toList)
+import           Data.Sequence (Seq)
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Void (Void)
@@ -43,6 +44,7 @@ import           Data.Parameterized.Ctx (Ctx)
 import           UCCrux.LLVM.Classify.Types (Located, ppLocated, TruePositive, ppTruePositive, Uncertainty, ppUncertainty, Diagnosis)
 import           UCCrux.LLVM.Constraints (isEmpty, ppConstraints, Constraints(..))
 import           UCCrux.LLVM.FullType.Type (FullType)
+import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness, ppUnsoundness)
 {- ORMOLU_ENABLE -}
 
@@ -83,7 +85,10 @@ data FunctionSummary m (argTypes :: Ctx (FullType m))
   | AlwaysSafe Unsoundness
 
 data SomeBugfindingResult
-  = forall m arch argTypes. SomeBugfindingResult (BugfindingResult m arch argTypes)
+  = forall m arch argTypes.
+    SomeBugfindingResult
+      (BugfindingResult m arch argTypes)
+      (Seq (UCCruxSimulationResult m arch argTypes))
 
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
 -- compatibility.

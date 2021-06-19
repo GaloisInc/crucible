@@ -7,7 +7,6 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
@@ -367,25 +366,27 @@ data Explanation m arch (argTypes :: Ctx (FullType m))
     ExExhaustedBounds !String
 
 partitionExplanations ::
-  [Located (Explanation m arch types)] ->
-  ([Located TruePositive], [Located (Diagnosis, [NewConstraint m types])], [Located Uncertainty], [Located String])
-partitionExplanations = go [] [] [] []
+  Functor f =>
+  (f (Explanation m arch types) -> Explanation m arch types) ->
+  [f (Explanation m arch types)] ->
+  ([f TruePositive], [f (Diagnosis, [NewConstraint m types])], [f Uncertainty], [f String])
+partitionExplanations project = go [] [] [] []
   where
-    go ts cs ds es =
-      \case
-        [] -> (ts, cs, ds, es)
-        (Located loc (ExTruePositive t) : xs) ->
+    go ts cs ds es [] = (ts, cs, ds, es)
+    go ts cs ds es (x : xs) =
+      case project x of
+        ExTruePositive t ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (Located loc t : ts', cs', ds', es')
-        (Located loc (ExDiagnosis c) : xs) ->
+           in (fmap (const t) x : ts', cs', ds', es')
+        ExDiagnosis c ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', Located loc c : cs', ds', es')
-        (Located loc (ExUncertain d) : xs) ->
+           in (ts', fmap (const c) x : cs', ds', es')
+        ExUncertain d ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', cs', Located loc d : ds', es')
-        (Located loc (ExExhaustedBounds e) : xs) ->
+           in (ts', cs', fmap (const d) x : ds', es')
+        ExExhaustedBounds e ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', cs', ds', Located loc e : es')
+           in (ts', cs', ds', fmap (const e) x : es')
 
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =

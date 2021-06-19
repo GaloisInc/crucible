@@ -40,6 +40,7 @@ library
     UCCrux.LLVM.Context.Function
     UCCrux.LLVM.Context.Module
     UCCrux.LLVM.Cursor
+    UCCrux.LLVM.Equivalence
     UCCrux.LLVM.Errors.Panic
     UCCrux.LLVM.Errors.Unimplemented
     UCCrux.LLVM.FullType
@@ -146,5 +147,6 @@ test-suite uc-crux-llvm-test
                 parameterized-utils,
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
+                tasty-quickcheck >= 0.10,
                 text,
                 uc-crux-llvm

@@ -35,6 +35,8 @@ import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
 
 data UCCruxLLVMOptions = UCCruxLLVMOptions
   { ucLLVMOptions :: LLVMOptions,
+    crashEquivalence :: FilePath,
+    crashEquivalenceStrict :: Bool,
     doExplore :: Bool,
     reExplore :: Bool,
     exploreBudget :: Int,
@@ -73,6 +75,12 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
         )
     pure (appCtx, finalCOpts, initUCOpts {ucLLVMOptions = finalLLOpts})
 
+crashEquivalenceDoc :: Text
+crashEquivalenceDoc = "Check crash-equivalence with another LLVM bitcode module"
+
+crashEquivalenceStrictDoc :: Text
+crashEquivalenceStrictDoc = "Check for strict crash equivalence"
+
 exploreDoc :: Text
 exploreDoc = "Run in exploration mode"
 
@@ -105,6 +113,8 @@ ucCruxLLVMConfig = do
       { Crux.cfgFile =
           UCCruxLLVMOptions
             <$> Crux.cfgFile llvmOpts
+            <*> Crux.section "crash-equivalence" Crux.fileSpec "" crashEquivalenceDoc
+            <*> Crux.section "strict-crash-equivalence" Crux.yesOrNoSpec False crashEquivalenceStrictDoc
             <*> Crux.section "explore" Crux.yesOrNoSpec False exploreDoc
             <*> Crux.section "re-explore" Crux.yesOrNoSpec False reExploreDoc
             <*> Crux.section "explore-budget" Crux.numSpec 8 exploreBudgetDoc
@@ -118,6 +128,18 @@ ucCruxLLVMConfig = do
         Crux.cfgCmdLineFlag =
           (Crux.liftOptDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgCmdLineFlag llvmOpts)
             ++ [ Crux.Option
+                   []
+                   ["crash-equivalence"]
+                   (Text.unpack crashEquivalenceDoc)
+                   $ Crux.ReqArg "LLVMMODULE" $
+                     \v opts -> Right opts {crashEquivalence = v},
+                 Crux.Option
+                   []
+                   ["strict-crash-equivalence"]
+                   (Text.unpack crashEquivalenceStrictDoc)
+                   $ Crux.NoArg $
+                     \opts -> Right opts {crashEquivalenceStrict = True},
+                 Crux.Option
                    []
                    ["explore"]
                    (Text.unpack exploreDoc)
