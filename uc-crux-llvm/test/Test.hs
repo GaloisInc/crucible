@@ -180,56 +180,54 @@ findBugs ::
   IO (Map.Map String Result.SomeBugfindingResult)
 findBugs llvmModule file fns =
   withUCCruxLLVMTestLogging $
-    do
-      withFile (testDir </> file <> ".output") WriteMode $ \h ->
-        do
-          let isRealFile = isNothing llvmModule
-          let mkOutCfg = Crux.mkOutputConfig False h h ucCruxLLVMTestLoggingToSayWhat
-          conf <- Config.ucCruxLLVMConfig
-          Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $
-            \(cruxOpts, ucOpts) -> do
-              let cruxOpts' =
-                    cruxOpts
-                      { Crux.inputFiles = [testDir </> file],
-                        -- With Yices, cast_float_to_pointer_write.c hangs
-                        Crux.solver = "z3"
-                      }
-              let ucOpts' = ucOpts {Config.entryPoints = fns}
-              (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
-              path <- do
-                let uclopts =
-                      (Config.ucLLVMOptions ucOpts')
-                        { -- NB(lb): The -fno-wrapv here ensures that
-                          -- Clang will emit 'nsw' flags even on platforms
-                          -- using nixpkgs, which injects
-                          -- -fno-strict-overflow by default.
-                          clangOpts = ["-fno-wrapv"]
-                        }
-                    complain exc = do
-                      sayUCCruxLLVMTest ClangTrouble
-                      Crux.logException exc
-                      error "aborting"
-                 in if isRealFile
-                      then try (genBitCode cruxOpts'' uclopts) >>= either complain return
-                      else return "<fake-path>"
+    withFile (testDir </> file <> ".output") WriteMode $ \h ->
+      do
+        let isRealFile = isNothing llvmModule
+        let mkOutCfg = Crux.mkOutputConfig False h h ucCruxLLVMTestLoggingToSayWhat
+        conf <- Config.ucCruxLLVMConfig
+        Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) -> do
+          let cruxOpts' =
+                cruxOpts
+                  { Crux.inputFiles = [testDir </> file],
+                    -- With Yices, cast_float_to_pointer_write.c hangs
+                    Crux.solver = "z3"
+                  }
+          let ucOpts' = ucOpts {Config.entryPoints = fns}
+          (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
+          path <- do
+            let uclopts =
+                  (Config.ucLLVMOptions ucOpts')
+                    { -- NB(lb): The -fno-wrapv here ensures that
+                      -- Clang will emit 'nsw' flags even on platforms
+                      -- using nixpkgs, which injects
+                      -- -fno-strict-overflow by default.
+                      clangOpts = ["-fno-wrapv"]
+                    }
+                complain exc = do
+                  sayUCCruxLLVMTest ClangTrouble
+                  Crux.logException exc
+                  error "aborting"
+             in if isRealFile
+                then try (genBitCode cruxOpts'' uclopts) >>= either complain return
+                else return "<fake-path>"
 
-              -- TODO(lb): It would be nice to print this only when the test fails
-              -- putStrLn
-              --   ( unwords
-              --       [ "\nReproduce with:\n",
-              --         "cabal v2-run exe:uc-crux-llvm -- ",
-              --         "--entry-points",
-              --         intercalate " --entry-points " (map show fns),
-              --         testDir </> file
-              --       ]
-              --   )
-              halloc <- newHandleAllocator
-              memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
-              Main.SomeModuleContext' modCtx <-
-                case llvmModule of
-                  Just lMod -> Main.translateLLVMModule ucOpts'' halloc memVar path lMod
-                  Nothing -> Main.translateFile ucOpts'' halloc memVar path
-              Main.loopOnFunctions appCtx modCtx halloc cruxOpts'' ucOpts''
+          -- TODO(lb): It would be nice to print this only when the test fails
+          -- putStrLn
+          --   ( unwords
+          --       [ "\nReproduce with:\n",
+          --         "cabal v2-run exe:uc-crux-llvm -- ",
+          --         "--entry-points",
+          --         intercalate " --entry-points " (map show fns),
+          --         testDir </> file
+          --       ]
+          --   )
+          halloc <- newHandleAllocator
+          memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
+          Main.SomeModuleContext' modCtx <-
+            case llvmModule of
+              Just lMod -> Main.translateLLVMModule ucOpts'' halloc memVar path lMod
+              Nothing -> Main.translateFile ucOpts'' halloc memVar path
+          Main.loopOnFunctions appCtx modCtx halloc cruxOpts'' ucOpts''
 
 inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
 inFile file specs =
