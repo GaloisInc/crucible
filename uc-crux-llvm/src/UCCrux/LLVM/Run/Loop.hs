@@ -8,6 +8,7 @@ Stability    : provisional
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module UCCrux.LLVM.Run.Loop
@@ -41,10 +42,10 @@ import Crux.Log as Crux
 import Crux.LLVM.Config (LLVMOptions, throwCError, CError(MissingFun))
 import Crux.LLVM.Overrides
 
-import           UCCrux.LLVM.Classify.Types (partitionExplanations)
+import           UCCrux.LLVM.Classify.Types (Explanation, partitionExplanations)
 import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
 import qualified UCCrux.LLVM.Config as Config
-import           UCCrux.LLVM.Constraints (ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
+import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun)
@@ -55,10 +56,15 @@ import           UCCrux.LLVM.FullType (MapToCrucibleType)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
 import qualified UCCrux.LLVM.Run.Simulate as Sim
+import           UCCrux.LLVM.Run.Unsoundness (Unsoundness)
 {- ORMOLU_ENABLE -}
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
+--
+-- Also returns the individual 'UCCruxSimulationResult' results in the order in
+-- which they were encountered.
 bugfindingLoop ::
+  forall m msgs arch argTypes blocks ret.
   ArchOk arch =>
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
@@ -76,61 +82,88 @@ bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
           Sim.runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts llvmOpts
 
     -- Loop, learning preconditions and reporting errors
-    let loop truePositives constraints precondTags unsoundness =
+    let loop constraints results unsoundness =
           do
             -- TODO(lb) We basically ignore symbolic assertion failures. Maybe
             -- configurably don't?
             simResult <- runSim constraints
-            let (newTruePositives, newConstraints, newUncertain, newResourceExhausted) =
-                  partitionExplanations (Sim.explanations simResult)
-            let (newPrecondTags, newConstraints') = unzip newConstraints
-            let allConstraints =
-                  foldM
-                    (addConstraint modCtx (funCtx ^. argumentFullTypes))
-                    constraints
-                    (concat newConstraints')
-                    & \case
-                      Left err ->
-                        panic
-                          "bugfindingLoop"
-                          ["Error adding constraints", Text.unpack (ppExpansionError err)]
-                      Right allCs -> allCs
-
-            let allTruePositives = truePositives <> newTruePositives
-            let allPrecondTags = newPrecondTags <> precondTags
+            let newExpls = Sim.explanations simResult
+            let (_, newConstraints, _, _) = partitionExplanations newExpls
+            let (_, newConstraints') = unzip newConstraints
+            let allConstraints = addConstraints constraints (concat newConstraints')
             let allUnsoundness = unsoundness <> Sim.unsoundness simResult
-            let result =
-                  BugfindingResult
-                    newUncertain
-                    allPrecondTags
-                    ( Result.makeFunctionSummary
-                        allConstraints
-                        -- This only needs to look at the latest run because we
-                        -- don't continue if there was any uncertainty
-                        newUncertain
-                        allTruePositives
-                        -- This only needs to look at the latest run because we
-                        -- don't continue if the bounds were hit
-                        ( if null newResourceExhausted
-                            then Result.DidntHitBounds
-                            else Result.DidHitBounds
-                        )
-                        allUnsoundness
-                    )
-            case (null newConstraints, newTruePositives, not (null newUncertain), not (null newResourceExhausted)) of
-              (True, [], False, _) -> pure result
-              (noNewConstraints, _, isUncertain, isExhausted) ->
-                do
-                  if noNewConstraints || isUncertain || isExhausted
-                    then pure result -- We can't really go on
-                    else do
-                      (appCtx ^. log) Hi "New preconditions:"
-                      (appCtx ^. log) Hi $ Text.pack (show (ppConstraints allConstraints))
-                      loop allTruePositives allConstraints allPrecondTags allUnsoundness
+            let allResults = simResult : results
+            if shouldStop newExpls
+              then
+                pure $
+                  makeResult
+                    allConstraints
+                    (concatMap Sim.explanations allResults)
+                    allUnsoundness
+              else do
+                (appCtx ^. log) Hi "New preconditions:"
+                (appCtx ^. log) Hi $ Text.pack (show (ppConstraints allConstraints))
+                loop allConstraints allResults allUnsoundness
 
-    let emptyConstraints' =
-          emptyConstraints (funCtx ^. argumentFullTypes)
-    loop [] emptyConstraints' [] mempty
+    loop (emptyConstraints (funCtx ^. argumentFullTypes)) [] mempty
+  where
+    addConstraints ::
+      Constraints m argTypes ->
+      [NewConstraint m argTypes] ->
+      Constraints m argTypes
+    addConstraints constraints newConstraints =
+      foldM
+        (addConstraint modCtx (funCtx ^. argumentFullTypes))
+        constraints
+        newConstraints
+        & \case
+          Left err ->
+            panic
+              "bugfindingLoop"
+              ["Error adding constraints", Text.unpack (ppExpansionError err)]
+          Right allCs -> allCs
+
+    -- Given these results from simulation, should we continue looping?
+    shouldStop ::
+      [Explanation m arch argTypes] ->
+      Bool
+    shouldStop expls =
+      let (truePositives, constraints, uncertain, resourceExhausted) =
+            partitionExplanations expls
+       in case (null constraints, truePositives, not (null uncertain), not (null resourceExhausted)) of
+            (True, [], False, _) ->
+              -- No new constraints were learned, nor were any bugs found, nor
+              -- was there any uncertain results. The code is conditionally
+              -- safe, we can stop here.
+              True
+            (noNewConstraints, _, isUncertain, isExhausted) ->
+              -- We can't proceed if (1) new input constraints weren't learned,
+              -- (2) uncertainty was encountered, or (3) resource bounds were
+              -- exhausted.
+              noNewConstraints || isUncertain || isExhausted
+
+    makeResult ::
+      Constraints m argTypes ->
+      [Explanation m arch argTypes] ->
+      Unsoundness ->
+      BugfindingResult m arch argTypes
+    makeResult constraints expls unsoundness =
+      let (truePositives, newConstraints, uncertain, resourceExhausted) =
+            partitionExplanations expls
+          (precondTags, _) = unzip newConstraints
+       in BugfindingResult
+            uncertain
+            precondTags
+            ( Result.makeFunctionSummary
+                constraints
+                uncertain
+                truePositives
+                ( if null resourceExhausted
+                    then Result.DidntHitBounds
+                    else Result.DidHitBounds
+                )
+                unsoundness
+            )
 
 loopOnFunction ::
   Crux.Logs msgs =>
