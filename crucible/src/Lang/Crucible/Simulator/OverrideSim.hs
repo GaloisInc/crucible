@@ -35,6 +35,10 @@ module Lang.Crucible.Simulator.OverrideSim
   , getOverrideArgs
   , overrideError
   , overrideAbort
+  , overrideAssert
+  , overrideAssertions
+  , overrideAssume
+  , overrideAssumptions
   , symbolicBranch
   , symbolicBranches
   , overrideReturn
@@ -482,6 +486,30 @@ overrideError err = Sim $ StateContT $ \_ -> runErrorHandler err
 --   should be generated.
 overrideAbort :: AbortExecReason -> OverrideSim p sym ext rtp args res a
 overrideAbort abt = Sim $ StateContT $ \_ -> runAbortHandler abt
+
+overrideAssert :: IsExprBuilder sym => Pred sym -> SimErrorReason -> OverrideSim p sym ext rtp args res ()
+overrideAssert p rsn =
+  Sim $ StateContT $ \c st ->
+     do let sym = st^.stateSymInterface
+        loc <- getCurrentProgramLoc sym
+        let err = SimError loc rsn
+        return (AssertState [LabeledPred p err] (ReaderT (c ())) st)
+
+overrideAssertions :: [Assertion sym] -> OverrideSim p sym ext rtp args res ()
+overrideAssertions asserts =
+   Sim $ StateContT $ \c st ->
+     return (AssertState asserts (ReaderT (c ())) st)
+
+overrideAssume :: Pred sym -> AssumptionReason -> OverrideSim p sym ext rtp args res ()
+overrideAssume p rsn =
+  Sim $ StateContT $ \c st ->
+    return (AssumeState [LabeledPred p rsn] (ReaderT (c ())) st)
+
+overrideAssumptions :: IsExprBuilder sym => [Assumption sym] -> OverrideSim p sym ext rtp args res ()
+overrideAssumptions assumes =
+  Sim $ StateContT $ \c st ->
+    return (AssumeState assumes (ReaderT (c ())) st)
+
 
 overrideReturn :: KnownRepr TypeRepr res => RegValue sym res -> OverrideSim p sym ext rtp args res a
 overrideReturn v = Sim $ StateContT $ \_ -> runReaderT $ returnValue (RegEntry knownRepr v)

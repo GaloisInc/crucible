@@ -42,6 +42,8 @@ module Lang.Crucible.Simulator.Operations
   , runAbortHandler
   , runErrorHandler
   , runGenericErrorHandler
+  , performAssumes
+  , performAsserts
   , performIntraFrameMerge
   , performIntraFrameSplit
   , performFunctionCall
@@ -430,8 +432,7 @@ runErrorHandler msg st =
          let err = SimError loc msg
          let obl = LabeledPred (falsePred sym) err
          let rsn = AssumedFalse (AssumingNoError err)
-         addProofObligation sym obl
-         return (AbortState rsn st)
+         return (AssertState [obl] (ReaderT (return . AbortState rsn)) st)
 
 -- | Abort the current thread of execution with an error.
 --   This adds a proof obligation that requires the current
@@ -808,6 +809,35 @@ handleSimReturn ::
 handleSimReturn fnName vfv return_value =
   ReaderT $ return . ReturnState fnName vfv return_value
 
+performAsserts ::
+  IsSymInterface sym =>
+  [Assertion sym] ->
+  ReaderT (SimState p sym ext r f a) IO (Maybe SimError)
+performAsserts asserts
+  | Just ast <- filterAsserts asserts =
+      do sym <- view stateSymInterface
+         liftIO (addProofObligation sym ast)
+         return (Just (ast^.labeledPredMsg))
+
+  | otherwise =
+      do sym <- view stateSymInterface
+         liftIO (forM_ asserts (addAssertion sym))
+         return Nothing
+
+ where
+   filterAsserts [] = Nothing
+   filterAsserts (lp:ps)
+     | Just False <- asConstantPred (lp^.labeledPred) = Just lp
+     | otherwise = filterAsserts ps
+
+
+performAssumes ::
+  IsSymInterface sym =>
+  [Assumption sym] ->
+  ReaderT (SimState p sym ext r f a) IO ()
+performAssumes assumes =
+  do sym <- view stateSymInterface
+     liftIO (forM_ assumes (addAssumption sym))
 
 -- | Resolve the return value, and begin executing in the caller's context again.
 performReturn ::

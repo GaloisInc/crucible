@@ -316,8 +316,10 @@ stepStmt verb stmt rest =
             let err = case asString msg of
                          Just (UnicodeLiteral txt) -> AssertFailureSimError (Text.unpack txt) ""
                          _ -> AssertFailureSimError "Symbolic message" (show (printSymExpr msg))
-            liftIO $ assert sym c err
-            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+            loc <- liftIO (getCurrentProgramLoc sym)
+            let asrt = SimError loc err
+            let cont = continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+            ReaderT (return . AssertState [LabeledPred c asrt] cont)
 
        Assume c_expr msg_expr ->
          do c <- evalReg c_expr
@@ -325,11 +327,10 @@ stepStmt verb stmt rest =
             let msg' = case asString msg of
                          Just (UnicodeLiteral txt) -> Text.unpack txt
                          _ -> show (printSymExpr msg)
-            liftIO $
-              do loc <- getCurrentProgramLoc sym
-                 addAssumption sym (LabeledPred c (AssumptionReason loc msg'))
-            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
-
+            loc <- liftIO (getCurrentProgramLoc sym)
+            let asm = AssumptionReason loc msg'
+            let cont = continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+            ReaderT (return . AssumeState [LabeledPred c asm] cont)
 
 {-# INLINABLE stepTerm #-}
 
@@ -491,6 +492,15 @@ dispatchExecState getVerb exst kresult k =
     AbortState rsn st ->
       let (AH handler) = st^.abortHandler in
       k (handler rsn) st
+
+    AssertState asserts next st ->
+      k (performAsserts asserts >>= \case
+           Nothing  -> next
+           Just rsn -> ReaderT (runAbortHandler (AssumedFalse (AssumingNoError rsn))))
+        st
+
+    AssumeState assumes next st ->
+      k (performAssumes assumes >> next) st
 
     OverrideState ovr st ->
       k (overrideHandler ovr) st
