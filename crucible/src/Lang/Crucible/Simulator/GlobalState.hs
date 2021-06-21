@@ -22,6 +22,8 @@ module Lang.Crucible.Simulator.GlobalState
 
 import           Control.Applicative ((<|>))
 import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.Trans.Except
+import           Control.Monad.Trans.Maybe
 import           Data.Functor.Identity
 import           Data.Kind
 
@@ -332,7 +334,7 @@ muxGlobalContents ::
   IsSymInterface sym =>
   sym ->
   IntrinsicTypes sym ->
-  MuxFn (Pred sym) (GlobalContents sym)
+  MuxFn' (Pred sym) (GlobalContents sym)
 muxGlobalContents sym iteFns c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
   do vs' <- MapF.mergeWithKeyM muxEntry checkNullMap checkNullMap vs1 vs2
      rs' <- MapF.mergeWithKeyM muxRef refLeft refRight rs1 rs2
@@ -341,18 +343,24 @@ muxGlobalContents sym iteFns c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
     muxEntry :: GlobalVar tp
              -> GlobalEntry sym tp
              -> GlobalEntry sym tp
-             -> IO (Maybe (GlobalEntry sym tp))
+             -> ExceptT (Some TypeRepr) IO (Maybe (GlobalEntry sym tp))
     muxEntry g (GlobalEntry u) (GlobalEntry v) =
-      Just . GlobalEntry <$> muxRegForType sym iteFns (globalType g) c u v
+      do res <- lift (runMaybeT (muxRegForType sym iteFns (globalType g) c u v))
+         case res of
+           Nothing -> throwE (Some (globalType g))
+           Just z  -> return (Just (GlobalEntry z))
 
     muxRef :: RefCell tp
            -> RefCellContents sym tp
            -> RefCellContents sym tp
-           -> IO (Maybe (RefCellContents sym tp))
+           -> ExceptT (Some TypeRepr) IO (Maybe (RefCellContents sym tp))
     muxRef r (RefCellContents pu u) (RefCellContents pv v) =
-      do uv <- muxRegForType sym iteFns (refType r) c u v
-         p <- itePred sym c pu pv
-         return . Just $ RefCellContents p uv
+      do res <- lift (runMaybeT (muxRegForType sym iteFns (refType r) c u v))
+         case res of
+           Just uv ->
+             do p <- lift (itePred sym c pu pv)
+                return . Just $ RefCellContents p uv
+           Nothing -> throwE (Some (refType r))
 
     -- Make a partial value undefined unless the given predicate holds.
     restrictRefCellContents :: Pred sym -> RefCellContents sym tp -> IO (RefCellContents sym tp)
@@ -360,17 +368,17 @@ muxGlobalContents sym iteFns c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
       do p' <- andPred sym p1 p2
          return (RefCellContents p' x)
 
-    refLeft :: MapF.MapF RefCell (RefCellContents sym) -> IO (MapF.MapF RefCell (RefCellContents sym))
-    refLeft m = traverseF (restrictRefCellContents c) m
+    refLeft :: MapF.MapF RefCell (RefCellContents sym) -> ExceptT (Some TypeRepr) IO (MapF.MapF RefCell (RefCellContents sym))
+    refLeft m = lift (traverseF (restrictRefCellContents c) m)
 
-    refRight :: MapF.MapF RefCell (RefCellContents sym) -> IO (MapF.MapF RefCell (RefCellContents sym))
-    refRight m =
+    refRight :: MapF.MapF RefCell (RefCellContents sym) -> ExceptT (Some TypeRepr) IO (MapF.MapF RefCell (RefCellContents sym))
+    refRight m = lift $
       do cnot <- notPred sym c
          traverseF (restrictRefCellContents cnot) m
 
     -- Sets of global variables are required to be the same in both branches.
     checkNullMap :: MapF.MapF GlobalVar (GlobalEntry sym)
-                 -> IO (MapF.MapF GlobalVar (GlobalEntry sym))
+                 -> ExceptT (Some TypeRepr) IO (MapF.MapF GlobalVar (GlobalEntry sym))
     checkNullMap m
       | MapF.null m = return m
       | otherwise =
@@ -390,7 +398,7 @@ muxGlobalUpdates ::
   sym ->
   IntrinsicTypes sym ->
   GlobalContents sym ->
-  MuxFn (Pred sym) (GlobalUpdates sym)
+  MuxFn' (Pred sym) (GlobalUpdates sym)
 muxGlobalUpdates sym iteFns (GlobalTable vs0 rs0) c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
   do -- Zip together the two maps of globals.
      vs3 <- MapF.mergeWithKeyM
@@ -444,16 +452,22 @@ muxGlobalUpdates sym iteFns (GlobalTable vs0 rs0) c (GlobalTable vs1 rs1) (Globa
     muxEntry :: GlobalVar tp
              -> GlobalEntry sym tp
              -> GlobalEntry sym tp
-             -> IO (GlobalEntry sym tp)
+             -> ExceptT (Some TypeRepr) IO (GlobalEntry sym tp)
     muxEntry g (GlobalEntry u) (GlobalEntry v) =
-      GlobalEntry <$> muxRegForType sym iteFns (globalType g) c u v
+      do res <- lift (runMaybeT (muxRegForType sym iteFns (globalType g) c u v))
+         case res of
+           Just z  -> return (GlobalEntry z)
+           Nothing -> throwE (Some (globalType g))
 
     muxRef :: RefCell tp
            -> RefCellUpdate sym tp
            -> RefCellUpdate sym tp
-           -> IO (RefCellUpdate sym tp)
+           -> ExceptT (Some TypeRepr) IO (RefCellUpdate sym tp)
     muxRef r (RefCellUpdate pe1) (RefCellUpdate pe2) =
-      RefCellUpdate <$> muxPartialRegForType sym iteFns (refType r) c pe1 pe2
+      do res <- lift (runMaybeT (muxPartialRegForType sym iteFns (refType r) c pe1 pe2))
+         case res of
+           Just z  -> return (RefCellUpdate z)
+           Nothing -> throwE (Some (refType r))
 
     panicNull =
       panic "GlobalState.globalMuxFn"
@@ -468,7 +482,7 @@ globalMuxFn ::
   IsSymInterface sym =>
   sym ->
   IntrinsicTypes sym ->
-  MuxFn (Pred sym) (SymGlobalState sym)
+  MuxFn' (Pred sym) (SymGlobalState sym)
 
 globalMuxFn sym iteFns cond
   (GlobalState (BranchFrame u1 cache1 gf1) s1)
@@ -486,7 +500,7 @@ globalMuxFn sym iteFns cond
        return (GlobalState gf3 s3)
 
 globalMuxFn sym _ _ (GlobalState gf1 _) (GlobalState gf2 _) =
-  do loc <- getCurrentProgramLoc sym
+  do loc <- lift (getCurrentProgramLoc sym)
      panic "GlobalState.globalMuxFn"
            [ "Attempting to merge global states of incorrect branch depths:"
            , " *** Depth 1:  " ++ show (globalPendingBranches gf1)

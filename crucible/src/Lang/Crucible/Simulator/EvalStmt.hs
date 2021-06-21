@@ -47,6 +47,7 @@ module Lang.Crucible.Simulator.EvalStmt
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Maybe
 import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
@@ -166,10 +167,10 @@ alterRef ::
   MuxTree sym (RefCell tp) ->
   PartExpr (Pred sym) (RegValue sym tp) ->
   SymGlobalState sym ->
-  IO (SymGlobalState sym)
+  MaybeT IO (SymGlobalState sym)
 alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
   where
-  f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+  f p a b = lift (muxRegForType sym iTypes tpr p a b)
 
   upd gs (r,p) =
     do let oldv = lookupRef r globs
@@ -184,14 +185,13 @@ readRef ::
   TypeRepr tp ->
   MuxTree sym (RefCell tp) ->
   SymGlobalState sym ->
-  IO (RegValue sym tp)
+  MaybeT IO (RegValue sym tp)
 readRef sym iTypes tpr rs globs =
   do let vs = map (\(r,p) -> (p,lookupRef r globs)) (viewMuxTree rs)
-     let f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+     let f p a b = lift (muxRegForType sym iTypes tpr p a b)
      pv <- mergePartials sym f vs
      let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
-     readPartExpr sym pv msg
-
+     lift (readPartExpr sym pv msg)
 
 -- | Evaluation operation for evaluating a single straight-line
 --   statement of the Crucible evaluator.
@@ -231,24 +231,31 @@ stepStmt verb stmt rest =
 
        ReadRefCell x ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
-            v <- liftIO $ readRef sym iTypes tpr rs globals
-            continueWith $
-              stateCrucibleFrame %~ extendFrame tpr v rest
+            res <- lift (runMaybeT (readRef sym iTypes tpr rs globals))
+            case res of
+              Nothing -> lift (addFailedAssertion sym (MuxFailure (Some tpr)))
+              Just v -> continueWith (stateCrucibleFrame %~ extendFrame tpr v rest)
 
        WriteRefCell x y ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
             newv <- justPartExpr sym <$> evalReg y
-            globals' <- liftIO $ alterRef sym iTypes tpr rs newv globals
-            continueWith $
-              (stateTree . actFrame . gpGlobals .~ globals') .
-              (stateCrucibleFrame  . frameStmts .~ rest)
+            res <- lift (runMaybeT (alterRef sym iTypes tpr rs newv globals))
+            case res of
+              Nothing -> lift (addFailedAssertion sym (MuxFailure (Some tpr)))
+              Just globals' ->
+                continueWith $
+                  (stateTree . actFrame . gpGlobals .~ globals') .
+                  (stateCrucibleFrame  . frameStmts .~ rest)
 
        DropRefCell x ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
-            globals' <- liftIO $ alterRef sym iTypes tpr rs Unassigned globals
-            continueWith $
-              (stateTree . actFrame . gpGlobals .~ globals') .
-              (stateCrucibleFrame  . frameStmts .~ rest)
+            res <- lift (runMaybeT (alterRef sym iTypes tpr rs Unassigned globals))
+            case res of
+              Nothing -> lift (addFailedAssertion sym (MuxFailure (Some tpr)))
+              Just globals' ->
+                continueWith $
+                  (stateTree . actFrame . gpGlobals .~ globals') .
+                  (stateCrucibleFrame  . frameStmts .~ rest)
 
        ReadGlobal global_var -> do
          case lookupGlobal global_var globals of

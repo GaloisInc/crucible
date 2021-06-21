@@ -27,6 +27,7 @@ module Lang.Crucible.Simulator.SymSequence
 ) where
 
 import           Control.Monad.State
+import           Control.Monad.Trans.Maybe
 import           Data.Functor.Const
 import           Data.Kind (Type)
 import           Data.IORef
@@ -228,15 +229,15 @@ newtype SeqHead sym a = SeqHead { getSeqHead :: PartExpr (Pred sym) a }
 headSymSequence :: forall sym a.
   IsExprBuilder sym =>
   sym ->
-  (Pred sym -> a -> a -> IO a) {- ^ mux function on values -} ->
+  (Pred sym -> a -> a -> MaybeT IO a) {- ^ mux function on values -} ->
   SymSequence sym a ->
-  IO (PartExpr (Pred sym) a)
+  MaybeT IO (PartExpr (Pred sym) a)
 headSymSequence sym mux = \s -> getSeqHead <$> evalWithFreshCache f s
   where
-   f' :: Pred sym -> a -> a -> PartialT sym IO a
+   f' :: Pred sym -> a -> a -> PartialT sym (MaybeT IO) a
    f' c x y = PartialT (\_ p -> PE p <$> mux c x y)
 
-   f :: (SymSequence sym a -> IO (SeqHead sym a)) -> (SymSequence sym a -> IO (SeqHead sym a))
+   f :: (SymSequence sym a -> MaybeT IO (SeqHead sym a)) -> (SymSequence sym a -> MaybeT IO (SeqHead sym a))
    f _loop SymSequenceNil = pure (SeqHead Unassigned)
    f _loop (SymSequenceCons _ v _) = pure (SeqHead (justPartExpr sym v))
    f loop (SymSequenceMerge _ p xs ys) =
@@ -253,7 +254,7 @@ headSymSequence sym mux = \s -> getSeqHead <$> evalWithFreshCache f s
              loop ys >>= \case
                SeqHead Unassigned -> pure (SeqHead (PE px hx))
                SeqHead (PE py hy) ->
-                 do p <- orPred sym px py
+                 do p <- lift (orPred sym px py)
                     SeqHead <$> runPartialT sym p (f' px hx hy)
 
 newtype SeqUncons sym a =
@@ -265,21 +266,21 @@ newtype SeqUncons sym a =
 unconsSymSequence :: forall sym a.
   IsExprBuilder sym =>
   sym ->
-  (Pred sym -> a -> a -> IO a) {- ^ mux function on values -} ->
+  (Pred sym -> a -> a -> MaybeT IO a) {- ^ mux function on values -} ->
   SymSequence sym a ->
-  IO (PartExpr (Pred sym) (a, SymSequence sym a))
+  MaybeT IO (PartExpr (Pred sym) (a, SymSequence sym a))
 unconsSymSequence sym mux = \s -> getSeqUncons <$> evalWithFreshCache f s
   where
    f' :: Pred sym ->
          (a, SymSequence sym a) ->
          (a, SymSequence sym a) ->
-         PartialT sym IO (a, SymSequence sym a)
+         PartialT sym (MaybeT IO) (a, SymSequence sym a)
    f' c x y = PartialT $ \_ p -> PE p <$>
                     do h  <- mux c (fst x) (fst y)
-                       tl <- muxSymSequence sym c (snd x) (snd y)
+                       tl <- lift (muxSymSequence sym c (snd x) (snd y))
                        pure (h, tl)
 
-   f :: (SymSequence sym a -> IO (SeqUncons sym a)) -> (SymSequence sym a -> IO (SeqUncons sym a))
+   f :: (SymSequence sym a -> MaybeT IO (SeqUncons sym a)) -> (SymSequence sym a -> MaybeT IO (SeqUncons sym a))
    f _loop SymSequenceNil = pure (SeqUncons Unassigned)
    f _loop (SymSequenceCons _ v tl) = pure (SeqUncons (justPartExpr sym (v, tl)))
    f loop (SymSequenceMerge _ p xs ys) =
@@ -292,15 +293,15 @@ unconsSymSequence sym mux = \s -> getSeqUncons <$> evalWithFreshCache f s
        SeqUncons Unassigned -> loop ys
        SeqUncons (PE px ux)
          | Just True <- asConstantPred px ->
-             do t <- appendSymSequence sym (snd ux) ys
+             do t <- lift (appendSymSequence sym (snd ux) ys)
                 pure (SeqUncons (PE px (fst ux, t)))
 
          | otherwise ->
              loop ys >>= \case
                SeqUncons Unassigned -> pure (SeqUncons (PE px ux))
                SeqUncons (PE py uy) ->
-                 do p <- orPred sym px py
-                    t <- appendSymSequence sym (snd ux) ys
+                 do p <- lift (orPred sym px py)
+                    t <- lift (appendSymSequence sym (snd ux) ys)
                     let ux' = (fst ux, t)
                     SeqUncons <$> runPartialT sym p (f' px ux' uy)
 

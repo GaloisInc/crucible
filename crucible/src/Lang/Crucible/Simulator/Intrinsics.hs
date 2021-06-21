@@ -34,6 +34,8 @@ module Lang.Crucible.Simulator.Intrinsics
   , typeError
   ) where
 
+import           Control.Monad.Trans.Maybe
+
 import           Data.Kind
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.SymbolRepr
@@ -100,7 +102,7 @@ class IntrinsicClass (sym :: Type) (nm :: GHC.TypeLits.Symbol) where
                -> Pred sym
                -> Intrinsic sym nm ctx
                -> Intrinsic sym nm ctx
-               -> IO (Intrinsic sym nm ctx)
+               -> MaybeT IO (Intrinsic sym nm ctx)
 
 -- | Sometimes it is convenient to provide a 'CrucibleType' as the type
 -- argument to 'Intrinsic', rather than the symbol and context. If you

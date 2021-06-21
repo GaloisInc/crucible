@@ -32,6 +32,7 @@ module Lang.Crucible.Simulator.BoundedExec
 
 import           Control.Lens ( (^.), to, (&), (%~), (.~) )
 import           Control.Monad ( when )
+import           Control.Monad.Trans ( lift )
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -110,7 +111,7 @@ incrementBoundCount cs depth =
 instance IntrinsicClass sym "BoundedExecFrameData" where
   type Intrinsic sym "BoundedExecFrameData" ctx = [Either FunctionName FrameBoundData]
 
-  muxIntrinsic _sym _iTypes _nm _ _p fd1 fd2 = combineFrameBoundData fd1 fd2
+  muxIntrinsic _sym _iTypes _nm _ _p fd1 fd2 = lift (combineFrameBoundData fd1 fd2)
 
 mergeCounts :: Seq Word64 -> Seq Word64 -> Seq Word64
 mergeCounts cx cy =

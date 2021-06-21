@@ -25,9 +25,12 @@ module Lang.Crucible.Simulator.SimError (
   ) where
 
 import Control.Exception
+import Data.Parameterized.Some
 import Data.String
 import Data.Typeable
 import Prettyprinter
+
+import Lang.Crucible.Types ( TypeRepr )
 
 import What4.ProgramLoc
 
@@ -38,6 +41,7 @@ import What4.ProgramLoc
 data SimErrorReason
    = GenericSimError !String
    | Unsupported !String -- ^ We can't do that (yet?)
+   | MuxFailure (Some TypeRepr) -- ^ could not mux values at the given type
    | ReadBeforeWriteSimError !String -- FIXME? include relevant data instead of a string?
    | AssertFailureSimError !String !String
      -- ^ An assertion failed. The first parameter is a short
@@ -60,6 +64,7 @@ simErrorReasonMsg (Unsupported msg) = "Unsupported feature: " ++ msg
 simErrorReasonMsg (ReadBeforeWriteSimError msg) = msg
 simErrorReasonMsg (AssertFailureSimError msg _) = msg
 simErrorReasonMsg (ResourceExhausted msg) = "Resource exhausted: " ++ msg
+simErrorReasonMsg (MuxFailure (Some tp)) = "Could not mux values at type: " ++ show tp
 
 simErrorDetailsMsg :: SimErrorReason -> String
 simErrorDetailsMsg (AssertFailureSimError _ msg) = msg
