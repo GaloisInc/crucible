@@ -74,6 +74,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   ) where
 
 import           Control.Monad (guard)
+import           Control.Monad.Trans (lift)
 import           Data.Map (Map)
 import qualified Data.Map as Map (lookup)
 import           Numeric.Natural
@@ -126,7 +127,7 @@ data SomePointer sym = forall w. (1 <= w) => SomePointer !(LLVMPtr sym w)
 instance (IsSymInterface sym) => IntrinsicClass sym "LLVM_pointer" where
   type Intrinsic sym "LLVM_pointer" ctx = LLVMPointerImpl sym ctx
 
-  muxIntrinsic sym _iTypes _nm (Ctx.Empty Ctx.:> (BVRepr _w)) = muxLLVMPtr sym
+  muxIntrinsic sym _iTypes _nm (Ctx.Empty Ctx.:> (BVRepr _w)) = \c x y -> lift (muxLLVMPtr sym c x y)
   muxIntrinsic _ _ nm ctx = typeError nm ctx
 
 -- | Alternative to the 'LLVMPointer' pattern synonym, this function can be used as a view
