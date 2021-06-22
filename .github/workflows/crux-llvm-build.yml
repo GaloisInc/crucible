@@ -156,7 +156,7 @@ jobs:
       - shell: bash
         name: Test uc-crux-llvm (Linux)
         run: .github/ci.sh test uc-crux-llvm
-        if: runner.os == 'Linux'
+        if: matrix.os == 'ubuntu-20.04'
         env:
           LLVM_LINK: "llvm-link-10"
           CLANG: "clang-10"
@@ -253,4 +253,4 @@ jobs:
       - uses: actions/upload-artifact@v2
         with:
           path: crux-llvm-*.tar.gz*
-          name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}
+          name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}
