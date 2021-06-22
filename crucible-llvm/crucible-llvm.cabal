@@ -95,6 +95,7 @@ library
     Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.MemLog
+    Lang.Crucible.LLVM.MemModel.Monad
     Lang.Crucible.LLVM.MemModel.Options
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.MemModel.Value
