@@ -258,7 +258,8 @@ boundedExecFeature getLoopBounds generateSideConditions =
          do let msg = "reached maximum number of loop iterations (" ++ show n ++ ")"
             let loc = st^.stateCrucibleFrame.to frameProgramLoc
             let err = SimError loc (ResourceExhausted msg)
-            when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) err))
+            let rsn = AssertionReason False err
+            when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) rsn))
             return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError err)) st'))
        Nothing -> return (ExecutionFeatureModifiedState (ControlTransferState res st'))
 

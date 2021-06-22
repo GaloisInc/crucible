@@ -497,7 +497,7 @@ overrideAssert p rsn =
   Sim $ StateContT $ \c st ->
      do let sym = st^.stateSymInterface
         loc <- getCurrentProgramLoc sym
-        let err = SimError loc rsn
+        let err = AssertionReason False (SimError loc rsn)
         return (AssertState [LabeledPred p err] (ReaderT (c ())) st)
 
 overrideAssertions :: [Assertion sym] -> OverrideSim p sym ext rtp args res ()

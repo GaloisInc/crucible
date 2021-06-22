@@ -431,7 +431,7 @@ runErrorHandler msg st =
    in ctxSolverProof ctx $
       do loc <- getCurrentProgramLoc sym
          let err = SimError loc msg
-         let obl = LabeledPred (falsePred sym) err
+         let obl = LabeledPred (falsePred sym) (AssertionReason False err)
          let rsn = AssumedFalse (AssumingNoError err)
          return (AssertState [obl] (ReaderT (return . AbortState rsn)) st)
 
@@ -818,7 +818,7 @@ handleSimReturn fnName vfv return_value =
 performAsserts ::
   IsSymInterface sym =>
   [Assertion sym] ->
-  ReaderT (SimState p sym ext r f a) IO (Maybe SimError)
+  ReaderT (SimState p sym ext r f a) IO (Maybe AssertionReason)
 performAsserts asserts
   | Just ast <- filterAsserts asserts =
       do sym <- view stateSymInterface

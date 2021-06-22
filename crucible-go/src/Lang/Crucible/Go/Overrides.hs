@@ -111,9 +111,10 @@ do_assert = do
   sym <- C.getSymInterface
   RegMap (Empty :> mgs :> file :> b) <- C.getOverrideArgs
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addDurableAssertion sym (LabeledPred (regValue b)
-                                    (C.SimError loc $ C.AssertFailureSimError
-                                     "assertion_failure" ""))
+  liftIO $ addAssertion sym (LabeledPred (regValue b)
+                             (AssertionReason True -- N.B. durable assertion
+                              (C.SimError loc $ C.AssertFailureSimError
+                                     "assertion_failure" "")))
   return Ctx.empty
 
 go_overrides :: (IsSymInterface sym, 1 <= w)

@@ -134,23 +134,24 @@ proveToGoal ::
   ProvedGoals (Either AssumptionReason SimError)
 proveToGoal _ allAsmps p pr =
   case pr of
-    NotProved ex cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved ex cex)
+    NotProved ex cex -> Goal (map showAssume allAsmps) (showAssert p) False (NotProved ex cex)
     Proved xs ->
-      let xs' = map (either (Left . (view labeledPredMsg)) (Right . (view labeledPredMsg))) xs in
+      let xs' = map (either (Left . (view labeledPredMsg)) (Right . assertionSimError . (view labeledPredMsg))) xs in
       case partitionEithers xs of
-        (asmps, [])  -> Goal (map showLabPred asmps) (showLabPred p) True (Proved xs')
-        (asmps, _:_) -> Goal (map showLabPred asmps) (showLabPred p) False (Proved xs')
+        (asmps, [])  -> Goal (map showAssume asmps) (showAssert p) True (Proved xs')
+        (asmps, _:_) -> Goal (map showAssume asmps) (showAssert p) False (Proved xs')
 
  where
- showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
+ showAssert  x = (assertionSimError (x^.labeledPredMsg), show (printSymExpr (x^.labeledPred)))
+ showAssume  x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
 
 
-isResourceExhausted :: LabeledPred p SimError -> Bool
-isResourceExhausted (view labeledPredMsg -> SimError _ (ResourceExhausted _)) = True
+isResourceExhausted :: LabeledPred p AssertionReason -> Bool
+isResourceExhausted (assertionSimError . view labeledPredMsg -> SimError _ (ResourceExhausted _)) = True
 isResourceExhausted _ = False
 
 updateProcessedGoals ::
-  LabeledPred p SimError ->
+  LabeledPred p AssertionReason ->
   ProofResult a ->
   ProcessedGoals ->
   ProcessedGoals
@@ -192,9 +193,9 @@ proveGoalsOffline :: forall st sym p asmp t fs personality
                   => [WS.SolverAdapter st]
                   -> CruxOptions
                   -> SimCtxt personality sym p
-                  -> (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc Void))
-                  -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
-                  -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
+                  -> (Maybe (GroundEvalFn t) -> LPred sym AssertionReason -> IO (Doc Void))
+                  -> Maybe (Goals (LPred sym asmp) (LPred sym AssertionReason))
+                  -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym AssertionReason, ProofResult (Either (LPred sym asmp) (LPred sym AssertionReason)))))
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
 proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0 0)
@@ -214,8 +215,8 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
     go :: (Integer -> IO (), IO ())
        -> IORef ProcessedGoals
        -> [Seq.Seq (LPred sym asmp)]
-       -> Goals (LPred sym asmp) (LPred sym SimError)
-       -> IO (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError))))
+       -> Goals (LPred sym asmp) (LPred sym AssertionReason)
+       -> IO (Goals (LPred sym asmp) (LPred sym AssertionReason, ProofResult (Either (LPred sym asmp) (LPred sym AssertionReason))))
     go (start,end) goalNum assumptionsInScope gs =
       case gs of
         Assuming ps gs1 -> do
@@ -254,7 +255,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
               let allExceptions = unlines (displayException <$> es)
               fail allExceptions
 
-    runOneSolver :: LPred sym SimError
+    runOneSolver :: LPred sym AssertionReason
                  -> [Seq.Seq (LPred sym asmp)]
                  -> BoolExpr t
                  -> BoolExpr t
@@ -328,7 +329,7 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
   ( sym ~ OnlineBackend s solver fs
-  , ast ~ SimError
+  , ast ~ AssertionReason
   , OnlineSolver solver
   , goalSym ~ OnlineBackend s goalSolver fs
   , OnlineSolver goalSolver

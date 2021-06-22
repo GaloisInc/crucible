@@ -120,7 +120,8 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
                    do loc <- getCurrentProgramLoc sym
                       let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
                       let err = SimError loc (ResourceExhausted msg)
-                      when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) err))
+                      let rsn = AssertionReason False err
+                      when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) rsn))
                       return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError err)) st))
                  _ ->
                    do let x'  = Map.insert h v x

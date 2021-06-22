@@ -324,7 +324,7 @@ stepStmt verb stmt rest =
                          Just (UnicodeLiteral txt) -> AssertFailureSimError (Text.unpack txt) ""
                          _ -> AssertFailureSimError "Symbolic message" (show (printSymExpr msg))
             loc <- liftIO (getCurrentProgramLoc sym)
-            let asrt = SimError loc err
+            let asrt = AssertionReason False (SimError loc err) -- TODO? Should these assertions be durable?
             let cont = continueWith (stateCrucibleFrame  . frameStmts .~ rest)
             ReaderT (return . AssertState [LabeledPred c asrt] cont)
 
@@ -503,7 +503,7 @@ dispatchExecState getVerb exst kresult k =
     AssertState asserts next st ->
       k (performAsserts asserts >>= \case
            Nothing  -> next
-           Just rsn -> ReaderT (runAbortHandler (AssumedFalse (AssumingNoError rsn))))
+           Just rsn -> ReaderT (runAbortHandler (AssumedFalse (assertToAssume rsn))))
         st
 
     AssumeState assumes next st ->

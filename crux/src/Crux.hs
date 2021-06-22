@@ -107,7 +107,7 @@ data RunnableState sym where
 -- simulation error.
 
 type Explainer sym t ann = Maybe (GroundEvalFn t)
-                           -> LPred sym SimError
+                           -> LPred sym AssertionReason
                            -> IO (Doc ann)
 
 -- | Individual crux tools will generally call the @runSimulator@ combinator
@@ -578,8 +578,8 @@ type ProverCallback sym =
     CruxOptions ->
     SimCtxt personality sym ext ->
     Explainer sym t Void ->
-    Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
-    IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
+    Maybe (Goals (LPred sym AssumptionReason) (LPred sym AssertionReason)) ->
+    IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym AssertionReason, ProofResult (Either (LPred sym AssumptionReason) (LPred sym AssertionReason)))))
 
 
 -- | Core invocation of the symbolic execution engine

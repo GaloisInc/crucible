@@ -38,6 +38,7 @@ module Lang.Crucible.Backend
 
     -- * Assumption management
   , AssumptionReason(..)
+  , AssertionReason(..)
   , ppAssumptionReason
   , assumptionLoc
   , Assertion
@@ -57,6 +58,7 @@ module Lang.Crucible.Backend
   , AS.ProofGoals
   , AS.Goals(..)
   , AS.proofGoalsToList
+  , AS.assertToAssume
 
     -- ** Aborting execution
   , AbortExecReason(..)
@@ -65,7 +67,6 @@ module Lang.Crucible.Backend
 
     -- * Utilities
   , addAssertion
-  , addDurableAssertion
   , addAssertionM
   , addFailedAssertion
   , assertIsInteger
@@ -76,7 +77,7 @@ module Lang.Crucible.Backend
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), to)
 import           Control.Monad
 import           Data.Foldable (toList)
 import           Data.Sequence (Seq)
@@ -115,15 +116,20 @@ assumptionLoc r =
     ExploringAPath l _   -> l
     AssumingNoError s    -> simErrorLoc s
 
-instance AS.AssumeAssert AssumptionReason SimError where
-  assertToAssume = AssumingNoError
+instance AS.AssumeAssert AssumptionReason AssertionReason where
+  assertToAssume = AssumingNoError . assertionSimError
 
+data AssertionReason =
+  AssertionReason
+  { assertionIsDurable :: Bool
+  , assertionSimError  :: SimError
+  }
 
-type Assertion sym  = AS.LabeledPred (Pred sym) SimError
+type Assertion sym  = AS.LabeledPred (Pred sym) AssertionReason
 type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
 type ProofObligation sym = AS.ProofGoal (Assumption sym) (Assertion sym)
-type ProofObligations sym = Maybe (AS.ProofGoals (Pred sym) AssumptionReason SimError)
-type AssumptionState sym = AS.LabeledGoalCollector (Pred sym) AssumptionReason SimError
+type ProofObligations sym = Maybe (AS.ProofGoals (Pred sym) AssumptionReason AssertionReason)
+type AssumptionState sym = AS.LabeledGoalCollector (Pred sym) AssumptionReason AssertionReason
 
 -- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =
@@ -236,10 +242,12 @@ class IsBoolSolver sym where
   addProofObligation ::
     (IsExprBuilder sym) =>
     sym -> Assertion sym -> IO ()
-  addProofObligation sym a =
-    case asConstantPred (a ^. AS.labeledPred) of
-      Just True -> return ()
-      _ -> addDurableProofObligation sym a
+  addProofObligation sym a
+    | not (assertionIsDurable (a ^. AS.labeledPredMsg))
+    , Just True <- asConstantPred (a ^. AS.labeledPred)
+    = return ()
+
+    | otherwise = addDurableProofObligation sym a
 
   -- | Add a new proof obligation to the system which will persist
   -- throughout symbolic execution even if it is concretely valid.
@@ -292,17 +300,6 @@ addAssertion sym a =
   do addProofObligation sym a
      assumeAssertion sym a
 
--- | Add a durable proof obligation for the given predicate, and then
--- assume it (when the assertThenAssume option is true).
--- Note that assuming the prediate might cause the current execution
--- path to abort, if we happened to assume something that is obviously false.
-addDurableAssertion ::
-  (IsExprBuilder sym, IsBoolSolver sym) =>
-  sym -> Assertion sym -> IO ()
-addDurableAssertion sym a =
-  do addDurableProofObligation sym a
-     assumeAssertion sym a
-
 -- | Assume assertion when the assertThenAssume option is true.
 assumeAssertion ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
@@ -311,7 +308,7 @@ assumeAssertion sym (AS.LabeledPred p msg) =
   do assert_then_assume_opt <- getOpt
        =<< getOptionSetting assertThenAssumeConfigOption (getConfiguration sym)
      when assert_then_assume_opt $
-       addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
+       addAssumption sym (AS.LabeledPred p (AS.assertToAssume msg))
 
 -- | Throw an exception, thus aborting the current execution path.
 abortExecBecause :: AbortExecReason -> IO a
@@ -327,7 +324,7 @@ assert ::
   IO ()
 assert sym p msg =
   do loc <- getCurrentProgramLoc sym
-     addAssertion sym (AS.LabeledPred p (SimError loc msg))
+     addAssertion sym (AS.LabeledPred p (AssertionReason False (SimError loc msg)))
 
 -- | Add a proof obligation for False. This always aborts execution
 -- of the current path, because after asserting false, we get to assume it,
@@ -336,7 +333,7 @@ assert sym p msg =
 addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym) => sym -> SimErrorReason -> IO a
 addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
-     let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
+     let err = AS.LabeledPred (falsePred sym) (AssertionReason False (SimError loc msg))
      addProofObligation sym err
      abortExecBecause $ AssumedFalse
                       $ AssumingNoError
@@ -376,7 +373,7 @@ readPartExpr sym Unassigned msg = do
   addFailedAssertion sym msg
 readPartExpr sym (PE p v) msg = do
   loc <- getCurrentProgramLoc sym
-  addAssertion sym (AS.LabeledPred p (SimError loc msg))
+  addAssertion sym (AS.LabeledPred p (AssertionReason False (SimError loc msg)))
   return v
 
 ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc ann
@@ -397,4 +394,4 @@ ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
 
  ppGl =
    PP.indent 2 $
-   PP.vsep [ppSimError (gl^.AS.labeledPredMsg), printSymExpr (gl^.AS.labeledPred)]
+   PP.vsep [ppSimError (gl^.AS.labeledPredMsg.to assertionSimError), printSymExpr (gl^.AS.labeledPred)]
