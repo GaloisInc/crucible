@@ -273,4 +273,4 @@ explainFailure sym bbMapRef evalFn gl =
                                    <+> "failed conditions]"
                               else "Total failed conditions:" <+> pretty xs'l
                    in nest 2 $ vcat $ msg1 : xs'' <> [msg2]
-     return $ vcat [ ppSimError (gl^. labeledPredMsg), details ]
+     return $ vcat [ ppSimError (assertionSimError (gl^. labeledPredMsg)), details ]

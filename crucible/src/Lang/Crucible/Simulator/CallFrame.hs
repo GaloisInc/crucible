@@ -228,7 +228,7 @@ extendFrame tp v s f = f { _frameRegs = assignReg tp v (_frameRegs f)
 mergeCallFrame :: IsSymInterface sym
                => sym
                -> IntrinsicTypes sym
-               -> MuxFn (Pred sym) (CallFrame sym ext blocks ret args)
+               -> MuxFn' (Pred sym) (CallFrame sym ext blocks ret args)
 mergeCallFrame s iteFns p xcf ycf = do
   r <- mergeRegs s iteFns p (_frameRegs xcf) (_frameRegs ycf)
   return $ xcf { _frameRegs = r }

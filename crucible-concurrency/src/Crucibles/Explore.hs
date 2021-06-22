@@ -554,7 +554,7 @@ returnFinishedResult mres =
          do sym <- use (stateContext.ctxSymInterface)
             loc <- liftIO $ getCurrentProgramLoc sym
             let simerr = SimError loc "<deadlock>"
-            let err = LabeledPred (falsePred sym) simerr
+            let err = LabeledPred (falsePred sym) (AssertionReason False simerr)
             liftIO $ addProofObligation sym err
             s <- get
             liftIO $

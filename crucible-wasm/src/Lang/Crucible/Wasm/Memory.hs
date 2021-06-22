@@ -12,6 +12,7 @@
 
 module Lang.Crucible.Wasm.Memory where
 
+import Control.Monad.Trans( lift )
 import Data.Bits
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString.Lazy as LBS
@@ -266,8 +267,8 @@ instance IsSymInterface sym => IntrinsicClass sym "Wasm_Mem" where
   muxIntrinsic sym _ _nm _ctx p mem1 mem2 =
     do let WasmMemImpl heap1 sz1 mx1 = mem1
        let WasmMemImpl heap2 sz2 mx2 = mem2
-       sz <- bvIte sym p sz1 sz2
-       mx <- bvIte sym p mx1 mx2
+       sz <- lift (bvIte sym p sz1 sz2)
+       mx <- lift (bvIte sym p mx1 mx2)
        return $ WasmMemImpl (G.mergeMem p heap1 heap2) sz mx
 
   pushBranchIntrinsic _sym _iTypes _nm _ctx mem =

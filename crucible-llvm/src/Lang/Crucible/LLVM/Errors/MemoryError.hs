@@ -22,6 +22,7 @@ module Lang.Crucible.LLVM.Errors.MemoryError
 , details
 , ppMemoryError
 , MemoryOp(..)
+, descMemoryOp
 , ppMemoryOp
 , MemoryErrorReason(..)
 , ppMemoryErrorReason
@@ -87,6 +88,16 @@ ppGSym :: Maybe String -> [Doc ann]
 ppGSym Nothing = []
 ppGSym (Just nm) = [ "Global symbol", viaShow nm ]
 
+-- | A short description of a memory operation
+descMemoryOp :: MemoryOp sym w -> String
+descMemoryOp MemLoadOp{}       = "memory load"
+descMemoryOp MemStoreOp{}      = "memory store"
+descMemoryOp MemStoreBytesOp{} = "memory byte array store"
+descMemoryOp MemCopyOp{}       = "memory copy"
+descMemoryOp MemLoadHandleOp{} = "function handle load"
+descMemoryOp MemInvalidateOp{} = "memory invalidation"
+
+-- | A detailed description of a memory operation
 ppMemoryOp :: IsExpr (SymExpr sym) => MemoryOp sym w -> Doc ann
 ppMemoryOp (MemLoadOp tp gsym ptr mem)  =
   vsep [ "Performing overall load at type:" <+> ppType tp

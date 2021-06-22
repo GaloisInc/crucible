@@ -509,7 +509,7 @@ muxRefRoot sym iTypes c root1 root2 = case (root1, root2) of
   (GlobalVar_RefRoot gv1, GlobalVar_RefRoot gv2)
     | Just Refl <- testEquality gv1 gv2 -> return root1
   (Const_RefRoot tpr v1, Const_RefRoot _tpr v2) -> do
-    v' <- lift $ muxRegForType sym iTypes tpr c v1 v2
+    v' <- muxRegForType sym iTypes tpr c v1 v2
     return $ Const_RefRoot tpr v'
   _ -> mzero
 
@@ -558,21 +558,14 @@ muxRef' :: forall sym tp.
   Pred sym ->
   MirReference sym tp ->
   MirReference sym tp ->
-  IO (MirReference sym tp)
+  MaybeT IO (MirReference sym tp)
 muxRef' sym iTypes c (MirReference r1 p1) (MirReference r2 p2) =
-   runMaybeT action >>= \case
-     Nothing -> fail "Incompatible MIR reference merge"
-     Just x  -> return x
-
-  where
-  action :: MaybeT IO (MirReference sym tp)
-  action =
     do Refl <- MaybeT (return $ testEquality (refRootType r1) (refRootType r2))
        r' <- muxRefRoot sym iTypes c r1 r2
        p' <- muxRefPath sym c p1 p2
        return (MirReference r' p')
 muxRef' sym _iTypes c (MirReference_Integer tpr i1) (MirReference_Integer _ i2) = do
-    i' <- bvIte sym c i1 i2
+    i' <- lift (bvIte sym c i1 i2)
     return $ MirReference_Integer tpr i'
 muxRef' _ _ _ _ _ = do
     fail "incompatible MIR reference merge"
@@ -584,10 +577,10 @@ muxRef :: forall sym tp.
   Pred sym ->
   MirReferenceMux sym tp ->
   MirReferenceMux sym tp ->
-  IO (MirReferenceMux sym tp)
+  MaybeT IO (MirReferenceMux sym tp)
 muxRef sym iTypes c (MirReferenceMux mt1) (MirReferenceMux mt2) =
     MirReferenceMux <$> mergeFancyMuxTree sym mux c mt1 mt2
-  where mux p a b = liftIO $ muxRef' sym iTypes p a b
+  where mux p a b = muxRef' sym iTypes p a b
 
 
 --------------------------------------------------------------
@@ -640,21 +633,21 @@ muxMirVector :: forall sym tp.
   Pred sym ->
   MirVector sym tp ->
   MirVector sym tp ->
-  IO (MirVector sym tp)
+  MaybeT IO (MirVector sym tp)
 -- Two total vectors of matching length can remain total.
 muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2)
   | V.length v1 == V.length v2 =
     MirVector_Vector <$> muxRegForType sym itefns (VectorRepr tpr) c v1 v2
 -- All other combinations of total and partial vectors become partial.
 muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_Vector v2) = do
-    pv1 <- toPartialVector sym tpr v1
-    pv2 <- toPartialVector sym tpr v2
+    pv1 <- lift (toPartialVector sym tpr v1)
+    pv2 <- lift (toPartialVector sym tpr v2)
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
 muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_Vector v2) = do
-    pv2 <- toPartialVector sym tpr v2
+    pv2 <- lift (toPartialVector sym tpr v2)
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
 muxMirVector sym itefns tpr c (MirVector_Vector v1) (MirVector_PartialVector pv2) = do
-    pv1 <- toPartialVector sym tpr v1
+    pv1 <- lift (toPartialVector sym tpr v1)
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
 muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_PartialVector pv2) = do
     MirVector_PartialVector <$> muxPartialVectors sym itefns tpr c pv1 pv2
@@ -662,8 +655,8 @@ muxMirVector sym itefns tpr c (MirVector_PartialVector pv1) (MirVector_PartialVe
 muxMirVector sym itefns (asBaseType -> AsBaseType btpr) c
         (MirVector_Array a1) (MirVector_Array a2) =
     MirVector_Array <$> muxRegForType sym itefns (UsizeArrayRepr btpr) c a1 a2
-muxMirVector sym _ _ _ _ _ =
-    addFailedAssertion sym $ Unsupported $ "Cannot merge dissimilar MirVectors."
+muxMirVector _ _ _ _ _ _ = mzero
+--    addFailedAssertion sym $ Unsupported $ "Cannot merge dissimilar MirVectors."
 
 toPartialVector :: IsSymInterface sym =>
     sym -> TypeRepr tp ->
@@ -675,7 +668,7 @@ muxPartialVectors :: IsSymInterface sym =>
     Pred sym ->
     RegValue sym (VectorType (MaybeType tp)) ->
     RegValue sym (VectorType (MaybeType tp)) ->
-    IO (RegValue sym (VectorType (MaybeType tp)))
+    MaybeT IO (RegValue sym (VectorType (MaybeType tp)))
 muxPartialVectors sym itefns tpr c pv1 pv2 = do
     let len = max (V.length pv1) (V.length pv2)
     V.generateM len $ \i -> do
@@ -688,7 +681,7 @@ muxPartialVectors sym itefns tpr c pv1 pv2 = do
 leafIndexVectorWithSymIndex ::
     IsSymInterface sym =>
     sym ->
-    (Pred sym -> a -> a -> IO a) ->
+    (Pred sym -> a -> a -> MuxLeafT sym IO a) ->
     V.Vector a ->
     RegValue sym UsizeType ->
     MuxLeafT sym IO a
@@ -706,8 +699,8 @@ leafIndexVectorWithSymIndex sym iteFn v i
         inRange <- liftIO $ bvUlt sym i =<< bvLit sym knownNat (BV.mkBV knownNat (fromIntegral $ V.length v))
         leafAssert sym inRange $ GenericSimError $
             "vector index out of range: the length is " ++ show (V.length v)
-        liftIO $ muxRange
-            (\j -> bvEq sym i =<< bvLit sym knownNat (BV.mkBV knownNat (fromIntegral j)))
+        muxRange
+            (\j -> liftIO (bvEq sym i =<< bvLit sym knownNat (BV.mkBV knownNat (fromIntegral j))))
             iteFn
             (\j -> return $ v V.! fromIntegral j)
             0 (fromIntegral $ V.length v - 1)
@@ -715,7 +708,7 @@ leafIndexVectorWithSymIndex sym iteFn v i
 leafAdjustVectorWithSymIndex ::
     forall sym a. IsSymInterface sym =>
     sym ->
-    (Pred sym -> a -> a -> IO a) ->
+    (Pred sym -> a -> a -> MuxLeafT sym IO a) ->
     V.Vector a ->
     RegValue sym UsizeType ->
     (a -> MuxLeafT sym IO a) ->
@@ -745,13 +738,13 @@ leafAdjustVectorWithSymIndex sym iteFn v i adj
         -- in the case of nested arrays, which are uncommon.
         mx' <- subMuxLeafIO sym (adj x) hit
         case mx' of
-            Just x' -> liftIO $ iteFn hit x' x
+            Just x' -> iteFn hit x' x
             Nothing -> return x
 
 indexMirVectorWithSymIndex ::
     IsSymInterface sym =>
     sym ->
-    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+    (Pred sym -> RegValue sym tp -> RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
     MirVector sym tp ->
     RegValue sym UsizeType ->
     MuxLeafT sym IO (RegValue sym tp)
@@ -769,7 +762,7 @@ indexMirVectorWithSymIndex sym _ (MirVector_Array a) i =
 adjustMirVectorWithSymIndex ::
     IsSymInterface sym =>
     sym ->
-    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+    (Pred sym -> RegValue sym tp -> RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
     MirVector sym tp ->
     RegValue sym UsizeType ->
     (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
@@ -794,7 +787,7 @@ adjustMirVectorWithSymIndex sym _ (MirVector_Array a) i adj = do
 writeMirVectorWithSymIndex ::
     IsSymInterface sym =>
     sym ->
-    (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
+    (Pred sym -> RegValue sym tp -> RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
     MirVector sym tp ->
     RegValue sym UsizeType ->
     RegValue sym tp ->
@@ -1049,7 +1042,7 @@ instance TypeApp MirStmt where
     MirVector_Resize tp _ _ -> MirVectorRepr tp
 
 instance PrettyApp MirStmt where
-  ppApp pp = \case 
+  ppApp pp = \case
     MirNewRef tp -> "newMirRef" <+> pretty tp
     MirIntegerToRef tp i -> "integerToMirRef" <+> pretty tp <+> pp i
     MirGlobalRef gv -> "globalMirRef" <+> pretty gv
@@ -1129,7 +1122,10 @@ writeRefRoot s sym (RefCell_RefRoot rc) v = do
     let iTypes = ctxIntrinsicTypes $ s^.stateContext
     let gs = s ^. stateTree . actFrame . gpGlobals
     let tpr = refType rc
-    let f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+    let f p a b = do res <- lift (runMaybeT (muxRegForType sym iTypes tpr p a b))
+                     case res of
+                       Just x -> return x
+                       Nothing -> leafAbort sym (MuxFailure (Some tpr))
     let oldv = lookupRef rc gs
     newv <- leafUpdatePartExpr sym f v oldv
     return $ s & stateTree . actFrame . gpGlobals %~ updateRef rc newv
@@ -1140,7 +1136,11 @@ writeRefRoot s sym (GlobalVar_RefRoot gv) v = do
     p <- leafPredicate
     newv <- case lookupGlobal gv gs of
         _ | Just True <- asConstantPred p -> return v
-        Just oldv -> liftIO $ muxRegForType sym iTypes tpr p v oldv
+        Just oldv -> do res <- lift (runMaybeT (muxRegForType sym iTypes tpr p v oldv))
+                        case res of
+                          Just x -> return x
+                          Nothing -> leafAbort sym (MuxFailure (Some tpr))
+
         -- GlobalVars can't be conditionally initialized.
         Nothing -> leafAbort sym $ ReadBeforeWriteSimError $
             "attempted conditional write to uninitialized global " ++
@@ -1304,7 +1304,7 @@ mirRef_eqLeaf sym _ _ =
 mirRef_eqIO :: IsSymInterface sym => sym ->
     MirReferenceMux sym tp -> MirReferenceMux sym tp -> IO (RegValue sym BoolType)
 mirRef_eqIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
-    zipFancyMuxTrees' sym (mirRef_eqLeaf sym) (itePred sym) r1 r2
+    zipFancyMuxTrees' sym (mirRef_eqLeaf sym) (\c x y -> lift (itePred sym c x y)) r1 r2
 
 
 -- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
@@ -1434,7 +1434,7 @@ mirRef_overlapsLeaf sym _ (MirReference_Integer _ _) = return $ falsePred sym
 mirRef_overlapsIO :: IsSymInterface sym => sym ->
     MirReferenceMux sym tp -> MirReferenceMux sym tp' -> IO (RegValue sym BoolType)
 mirRef_overlapsIO sym (MirReferenceMux r1) (MirReferenceMux r2) =
-    zipFancyMuxTrees' sym (mirRef_overlapsLeaf sym) (itePred sym) r1 r2
+    zipFancyMuxTrees' sym (mirRef_overlapsLeaf sym) (\c x y -> lift $ itePred sym c x y) r1 r2
 
 
 mirRef_offsetLeaf :: IsSymInterface sym => sym ->
@@ -1585,26 +1585,26 @@ execMirStmt stmt s =
          writeOnly $ foldFancyMuxTree sym (\s' ref' -> writeMirRefLeaf s' sym ref' x) s ref
        MirDropRef (regValue -> MirReferenceMux ref) ->
          writeOnly $ foldFancyMuxTree sym (\s' ref' -> dropMirRefLeaf s' sym ref') s ref
-       MirSubanyRef tp (regValue -> ref) ->
-         readOnly s $ modifyRefMux (subanyMirRefLeaf sym tp) ref
-       MirSubfieldRef ctx0 (regValue -> ref) idx ->
-         readOnly s $ modifyRefMux (\ref' -> subfieldMirRefLeaf sym ctx0 ref' idx) ref
-       MirSubvariantRef ctx0 (regValue -> ref) idx ->
-         readOnly s $ modifyRefMux (\ref' -> subvariantMirRefLeaf sym ctx0 ref' idx) ref
-       MirSubindexRef tpr (regValue -> ref) (regValue -> idx) ->
-         readOnly s $ modifyRefMux (\ref' -> subindexMirRefLeaf sym tpr ref' idx) ref
-       MirSubjustRef tpr (regValue -> ref) ->
-         readOnly s $ modifyRefMux (subjustMirRefLeaf sym tpr) ref
-       MirRef_VectorAsMirVector tpr (regValue -> ref) ->
-         readOnly s $ modifyRefMux (mirRef_vectorAsMirVectorLeaf sym tpr) ref
-       MirRef_ArrayAsMirVector tpr (regValue -> ref) ->
-         readOnly s $ modifyRefMux (mirRef_arrayAsMirVectorLeaf sym tpr) ref
+       MirSubanyRef tp ref ->
+         readOnly s $ modifyRefMux tp (subanyMirRefLeaf sym tp) ref
+       MirSubfieldRef ctx0 ref idx ->
+         readOnly s $ modifyRefMux (ctx0!idx) (\ref' -> subfieldMirRefLeaf sym ctx0 ref' idx) ref
+       MirSubvariantRef ctx0 ref idx ->
+         readOnly s $ modifyRefMux (ctx0!idx) (\ref' -> subvariantMirRefLeaf sym ctx0 ref' idx) ref
+       MirSubindexRef tpr ref (regValue -> idx) ->
+         readOnly s $ modifyRefMux tpr (\ref' -> subindexMirRefLeaf sym tpr ref' idx) ref
+       MirSubjustRef tpr ref ->
+         readOnly s $ modifyRefMux tpr (subjustMirRefLeaf sym tpr) ref
+       MirRef_VectorAsMirVector tpr ref ->
+         readOnly s $ modifyRefMux (MirVectorRepr tpr) (mirRef_vectorAsMirVectorLeaf sym tpr) ref
+       MirRef_ArrayAsMirVector tpr ref ->
+         readOnly s $ modifyRefMux (MirVectorRepr (baseToType tpr)) (mirRef_arrayAsMirVectorLeaf sym tpr) ref
        MirRef_Eq (regValue -> MirReferenceMux r1) (regValue -> MirReferenceMux r2) ->
-         readOnly s $ zipFancyMuxTrees' sym (mirRef_eqLeaf sym) (itePred sym) r1 r2
-       MirRef_Offset tpr (regValue -> ref) (regValue -> off) ->
-         readOnly s $ modifyRefMux (\ref' -> mirRef_offsetLeaf sym tpr ref' off) ref
-       MirRef_OffsetWrap tpr (regValue -> ref) (regValue -> off) ->
-         readOnly s $ modifyRefMux (\ref' -> mirRef_offsetWrapLeaf sym tpr ref' off) ref
+         readOnly s $ zipFancyMuxTrees' sym (mirRef_eqLeaf sym) (\c x y -> lift (itePred sym c x y)) r1 r2
+       MirRef_Offset tpr ref (regValue -> off) ->
+         readOnly s $ modifyRefMux tpr (\ref' -> mirRef_offsetLeaf sym tpr ref' off) ref
+       MirRef_OffsetWrap tpr ref (regValue -> off) ->
+         readOnly s $ modifyRefMux tpr (\ref' -> mirRef_offsetWrapLeaf sym tpr ref' off) ref
        MirRef_TryOffsetFrom (regValue -> MirReferenceMux r1) (regValue -> MirReferenceMux r2) ->
          readOnly s $ zipFancyMuxTrees' sym (mirRef_tryOffsetFromLeaf sym)
             (mux $ MaybeRepr IsizeRepr) r1 r2
@@ -1674,8 +1674,8 @@ execMirStmt stmt s =
     mkRef ref = MirReferenceMux $ toFancyMuxTree sym ref
 
     mux :: forall tp. TypeRepr tp -> Pred sym ->
-        RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)
-    mux tpr p a b = muxRegForType sym iTypes tpr p a b
+        RegValue sym tp -> RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)
+    mux = muxRegForTypeLeaf sym iTypes
 
     readOnly :: SimState p sym ext rtp f a -> IO b ->
         IO (b, SimState p sym ext rtp f a)
@@ -1685,10 +1685,33 @@ execMirStmt stmt s =
         IO ((), SimState p sym ext rtp f a)
     writeOnly act = act >>= \s' -> return ((), s')
 
-    modifyRefMux :: (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
-        MirReferenceMux sym tp -> IO (MirReferenceMux sym tp')
-    modifyRefMux f (MirReferenceMux ref) =
-        MirReferenceMux <$> mapFancyMuxTree sym (muxRef' sym iTypes) f ref
+    modifyRefMux ::
+      TypeRepr tp' ->
+      (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
+      RegEntry sym (MirReferenceType tp) ->
+      IO (MirReferenceMux sym tp')
+    modifyRefMux tpr f (RegEntry _ (MirReferenceMux ref)) =
+        MirReferenceMux <$> mapFancyMuxTree sym (muxRefLeaf sym iTypes tpr) f ref
+
+
+maybeToMuxLeaf :: Monad m => sym -> TypeRepr tp -> MaybeT m a -> MuxLeafT sym m a
+maybeToMuxLeaf sym tpr action =
+  do res <- lift (runMaybeT action)
+     case res of
+       Just x -> return x
+       Nothing -> leafAbort sym (MuxFailure (Some tpr))
+
+muxRegForTypeLeaf :: IsSymInterface sym =>
+  sym -> IntrinsicTypes sym -> TypeRepr tp ->
+  Pred sym -> RegValue sym tp -> RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)
+muxRegForTypeLeaf sym iTypes tpr c x y =
+  maybeToMuxLeaf sym tpr (muxRegForType sym iTypes tpr c x y)
+
+muxRefLeaf :: IsSymInterface sym =>
+  sym -> IntrinsicTypes sym -> TypeRepr tp -> Pred sym ->
+  MirReference sym tp -> MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp)
+muxRefLeaf sym iTypes tpr c x y =
+  maybeToMuxLeaf sym tpr (muxRef' sym iTypes c x y)
 
 
 -- MirReferenceType manipulation within the OverrideSim monad.  These are
@@ -1714,7 +1737,7 @@ readRefMuxSim tpr' f (MirReferenceMux ref) = do
     sym <- getSymInterface
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ readFancyMuxTree' sym f (muxRegForType sym iTypes tpr') ref
+    liftIO $ readFancyMuxTree' sym f (\c x y -> maybeToMuxLeaf sym tpr' (muxRegForType sym iTypes tpr' c x y)) ref
 
 readRefMuxIO :: IsSymInterface sym =>
     sym -> SimState p sym ext rtp f a ->
@@ -1725,17 +1748,18 @@ readRefMuxIO :: IsSymInterface sym =>
 readRefMuxIO sym s tpr' f (MirReferenceMux ref) = do
     let ctx = s ^. stateContext
     let iTypes = ctxIntrinsicTypes ctx
-    readFancyMuxTree' sym f (muxRegForType sym iTypes tpr') ref
+    readFancyMuxTree' sym f (muxRegForTypeLeaf sym iTypes tpr') ref
 
 modifyRefMuxSim :: IsSymInterface sym =>
+    TypeRepr tp' ->
     (MirReference sym tp -> MuxLeafT sym IO (MirReference sym tp')) ->
     MirReferenceMux sym tp ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp')
-modifyRefMuxSim f (MirReferenceMux ref) = do
+modifyRefMuxSim tpr' f (MirReferenceMux ref) = do
     sym <- getSymInterface
     ctx <- getContext
     let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ MirReferenceMux <$> mapFancyMuxTree sym (muxRef' sym iTypes) f ref
+    liftIO $ MirReferenceMux <$> mapFancyMuxTree sym (muxRefLeaf sym iTypes tpr') f ref
 
 readMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym tp ->
@@ -1754,7 +1778,7 @@ readMirRefIO sym s tpr ref = readRefMuxIO sym s tpr (readMirRefLeaf s sym) ref
 writeMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym tp -> RegValue sym tp ->
     OverrideSim m sym MIR rtp args ret ()
-writeMirRefSim tpr (MirReferenceMux ref) x = do
+writeMirRefSim _tpr (MirReferenceMux ref) x = do
     sym <- getSymInterface
     s <- get
     s' <- liftIO $ foldFancyMuxTree sym (\s' ref' -> writeMirRefLeaf s' sym ref' x) s ref
@@ -1765,21 +1789,21 @@ subindexMirRefSim :: IsSymInterface sym =>
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp)
 subindexMirRefSim tpr ref idx = do
     sym <- getSymInterface
-    modifyRefMuxSim (\ref' -> subindexMirRefLeaf sym tpr ref' idx) ref
+    modifyRefMuxSim tpr (\ref' -> subindexMirRefLeaf sym tpr ref' idx) ref
 
 mirRef_offsetSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym tp -> RegValue sym IsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp)
 mirRef_offsetSim tpr ref off = do
     sym <- getSymInterface
-    modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf sym tpr ref' off) ref
+    modifyRefMuxSim tpr (\ref' -> mirRef_offsetWrapLeaf sym tpr ref' off) ref
 
 mirRef_offsetWrapSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym tp -> RegValue sym IsizeType ->
     OverrideSim m sym MIR rtp args ret (MirReferenceMux sym tp)
 mirRef_offsetWrapSim tpr ref off = do
     sym <- getSymInterface
-    modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf sym tpr ref' off) ref
+    modifyRefMuxSim tpr (\ref' -> mirRef_offsetWrapLeaf sym tpr ref' off) ref
 
 
 writeRefPath :: IsSymInterface sym =>
@@ -1802,7 +1826,7 @@ writeRefPath sym iTypes v (Just_RefPath _tp path) x =
 -- MirVector_PartialVector can be initialized by a write.
 writeRefPath sym iTypes v (Index_RefPath tp path idx) x = do
   adjustRefPath sym iTypes v path (\vec ->
-    writeMirVectorWithSymIndex sym (muxRegForType sym iTypes tp) vec idx x)
+    writeMirVectorWithSymIndex sym (muxRegForTypeLeaf sym iTypes tp) vec idx x)
 writeRefPath sym iTypes v path x =
   adjustRefPath sym iTypes v path (\_ -> return x)
 
@@ -1831,7 +1855,7 @@ adjustRefPath sym iTypes v path0 adj = case path0 of
         RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
   Index_RefPath tp path idx ->
       adjustRefPath sym iTypes v path (\v' -> do
-        adjustMirVectorWithSymIndex sym (muxRegForType sym iTypes tp) v' idx adj)
+        adjustMirVectorWithSymIndex sym (muxRegForTypeLeaf sym iTypes tp) v' idx adj)
   Just_RefPath tp path ->
       adjustRefPath sym iTypes v path $ \v' -> do
           let msg = ReadBeforeWriteSimError $
@@ -1878,7 +1902,7 @@ readRefPath sym iTypes v = \case
        leafReadPartExpr sym (unVB $ variant ! fld) msg
   Index_RefPath tp path idx ->
     do v' <- readRefPath sym iTypes v path
-       indexMirVectorWithSymIndex sym (muxRegForType sym iTypes tp) v' idx
+       indexMirVectorWithSymIndex sym (muxRegForTypeLeaf sym iTypes tp) v' idx
   Just_RefPath tp path ->
     do v' <- readRefPath sym iTypes v path
        let msg = ReadBeforeWriteSimError $

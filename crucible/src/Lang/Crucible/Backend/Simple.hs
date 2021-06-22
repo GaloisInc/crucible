@@ -40,7 +40,6 @@ import qualified What4.Expr.Builder as B
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Simulator.SimError
 
 type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 
@@ -51,7 +50,7 @@ type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 -- It contains the current assertion stack.
 
 newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason SimError }
+      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason AssertionReason }
 
 -- | Returns an initial execution state.
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
@@ -69,7 +68,7 @@ newSimpleBackend floatMode gen =
      extendConfig backendOptions (getConfiguration sym)
      return sym
 
-getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason AssertionReason)
 getAssumptionStack sym = pure (sbAssumptionStack (B.sbUserState sym))
 
 instance IsBoolSolver (SimpleBackend t fs) where

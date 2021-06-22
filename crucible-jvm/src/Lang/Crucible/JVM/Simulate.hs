@@ -27,11 +27,14 @@ module Lang.Crucible.JVM.Simulate where
 import Control.Monad.Fail( MonadFail )
 #endif
 
-import           Data.Maybe (maybeToList)
 import           Control.Monad.State.Strict
+import           Control.Monad.Trans.Maybe
+
+import           Data.Maybe (maybeToList)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
+import           Data.Parameterized.Some
 import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.List (isPrefixOf)
@@ -812,6 +815,31 @@ doAppJVM sym =
   where
     out _verbosity _msg = return () --putStrLn
 
+
+readObjRef :: IsSymInterface sym =>
+  sym ->
+  C.RegValue sym (ReferenceType JVMObjectType) ->
+  C.SymGlobalState sym ->
+  IO (C.RegValue sym JVMObjectType)
+readObjRef sym r globals =
+  do res <- runMaybeT (EvalStmt.readRef sym jvmIntrinsicTypes objectRepr r globals)
+     case res of
+       Just x  -> return x
+       Nothing -> addFailedAssertion sym (C.MuxFailure (Some objectRepr))
+
+writeObjRef :: IsSymInterface sym =>
+  sym ->
+  C.RegValue sym (ReferenceType JVMObjectType) ->
+  C.RegValue sym JVMObjectType ->
+  C.SymGlobalState sym ->
+  IO (C.SymGlobalState sym)
+writeObjRef sym ref val globals =
+  do res <- runMaybeT (EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref (W4.justPartExpr sym val) globals)
+     case res of
+       Just x -> return x
+       Nothing -> addFailedAssertion sym (C.MuxFailure (Some objectRepr))
+
+
 -- | Write a value to a field of an object reference. The 'FieldId'
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
 -- The writability permission of the field is not checked.
@@ -826,14 +854,14 @@ doFieldStore ::
 doFieldStore sym globals ref fid val =
   do let msg1 = C.GenericSimError "Field store: null reference"
      ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     obj <- readObjRef sym ref' globals
      let msg2 = C.GenericSimError "Field store: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
      let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let tab' = Map.insert (fieldIdText fid) (W4.justPartExpr sym val) tab
      let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of3) (C.RV tab') inst
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
-     EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
+     writeObjRef sym ref' obj' globals
 
 -- | Write a value to a static field of a class. The 'FieldId' must
 -- have already been resolved (see §5.4.3.2 of the JVM spec). Note
@@ -886,14 +914,15 @@ doArrayStore ::
 doArrayStore sym globals ref idx val =
   do let msg1 = C.GenericSimError "Array store: null reference"
      ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     obj <- readObjRef sym ref' globals
      let msg2 = C.GenericSimError "Object is not an array"
      arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
      let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let vec' = vec V.// [(idx, val)]
      let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of4) (C.RV vec') arr
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
-     EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
+     writeObjRef sym ref' obj' globals
+
 
 -- | Read a value from a field of an object reference. The 'FieldId'
 -- must have already been resolved (see §5.4.3.2 of the JVM spec).
@@ -907,7 +936,7 @@ doFieldLoad ::
 doFieldLoad sym globals ref fid =
   do let msg1 = C.GenericSimError "Field load: null reference"
      ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     obj <- readObjRef sym ref' globals
      let msg2 = C.GenericSimError "Field load: object is not a class instance"
      inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
      let tab = C.unRV (inst Ctx.! Ctx.i1of3)
@@ -944,7 +973,7 @@ doArrayLoad ::
 doArrayLoad sym globals ref idx =
   do let msg1 = C.GenericSimError "Array load: null reference"
      ref' <- C.readPartExpr sym ref msg1
-     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     obj <- readObjRef sym ref' globals
      -- TODO: define a 'projectVariant' function in the OverrideSim monad
      let msg2 = C.GenericSimError "Array load: object is not an array"
      arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2

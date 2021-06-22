@@ -26,6 +26,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.Simulator.RegMap
   ( RegEntry(..)
+  , MuxFn'
   , muxRegEntry
   , RegMap(..)
   , regMapSize
@@ -51,8 +52,14 @@ module Lang.Crucible.Simulator.RegMap
   , module Lang.Crucible.Simulator.RegValue
   ) where
 
+import           Control.Monad
+import           Control.Monad.Trans.Class
+import           Control.Monad.Trans.Maybe
+import           Control.Monad.Trans.Except
+
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
+import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 
 import           What4.Interface
@@ -61,7 +68,6 @@ import           What4.WordMap
 import           Lang.Crucible.CFG.Core (Reg(..))
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
-import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
@@ -69,6 +75,13 @@ import           Lang.Crucible.Panic
 
 ------------------------------------------------------------------------
 -- RegMap
+
+-- | A type for describing functions that compute "mux" or
+--   "if/then/else" combinations of values.  Mux functions of this
+--   type should @throwE@ a @TypeRepr@ if values given are incapable
+--   of being combined; this @TypeRepr@ should indicate at what type
+--   we were unable to mux some values.
+type MuxFn' p v = p -> v -> v -> ExceptT (Some TypeRepr) IO v
 
 -- | The value of a register.
 data RegEntry sym tp = RegEntry { regType :: !(TypeRepr tp)
@@ -140,17 +153,12 @@ muxAny :: IsSymInterface sym
 muxAny s itefns p (AnyValue tpx x) (AnyValue tpy y)
   | Just Refl <- testEquality tpx tpy =
        AnyValue tpx <$> muxRegForType s itefns tpx p x y
-  | otherwise =
-    addFailedAssertion s $
-      Unsupported $ unwords
-                      ["Attempted to mux ANY values of different runtime type"
-                      , show tpx, show tpy
-                      ]
+  | otherwise = mzero
 
 muxReference :: IsSymInterface sym
              => sym
              -> ValMuxFn sym (ReferenceType tp)
-muxReference s = mergeMuxTree s
+muxReference s c x y = lift $ mergeMuxTree s c x y
 
 {-# INLINABLE pushBranchForType #-}
 pushBranchForType :: forall sym tp
@@ -224,19 +232,19 @@ muxRegForType s itefns p =
      StructRepr  ctx -> muxStruct    (muxRegForType s itefns) ctx
      VariantRepr ctx -> muxVariant s (muxRegForType s itefns) ctx
      ReferenceRepr _x -> muxReference s
-     WordMapRepr w tp -> muxWordMap s w tp
+     WordMapRepr w tp -> \c x y -> lift $ muxWordMap s w tp c x y
      BVRepr w ->
        case isPosNat w of
          Nothing -> \_ x _ -> return x
-         Just LeqProof -> bvIte s
+         Just LeqProof -> \c x y -> lift $ bvIte s c x y
      FunctionHandleRepr _ _ -> muxReg s p
 
      MaybeRepr r          -> mergePartExpr s (muxRegForType s itefns r)
      VectorRepr r         -> muxVector s (muxRegForType s itefns r)
-     SequenceRepr _r      -> muxSymSequence s
+     SequenceRepr _r      -> \c x y -> lift $ muxSymSequence s c x y
      StringMapRepr r      -> muxStringMap s (muxRegForType s itefns r)
-     SymbolicArrayRepr{}         -> arrayIte s
-     SymbolicStructRepr{}        -> structIte s
+     SymbolicArrayRepr{}         -> \c x y -> lift $ arrayIte s c x y
+     SymbolicStructRepr{}        -> \c x y -> lift $ structIte s c x y
      RecursiveRepr nm ctx -> muxRecursive (muxRegForType s itefns) nm ctx
      IntrinsicRepr nm ctx ->
        case MapF.lookup nm itefns of
@@ -249,12 +257,16 @@ muxRegForType s itefns p =
 
 -- | Mux two register entries.
 {-# INLINE muxRegEntry #-}
-muxRegEntry :: IsSymInterface sym
-             => sym
-             -> IntrinsicTypes sym
-             -> MuxFn (Pred sym) (RegEntry sym tp)
-muxRegEntry sym iteFns pp (RegEntry rtp x) (RegEntry _ y) = do
-  RegEntry rtp <$> muxRegForType sym iteFns rtp pp x y
+muxRegEntry ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  MuxFn' (Pred sym) (RegEntry sym tp)
+muxRegEntry sym iteFns pp (RegEntry tpr x) (RegEntry _ y) = do
+  do res <- lift (runMaybeT (muxRegForType sym iteFns tpr pp x y))
+     case res of
+       Just z  -> return (RegEntry tpr z)
+       Nothing -> throwE (Some tpr)
 
 pushBranchRegEntry
              :: (IsSymInterface sym)
@@ -276,11 +288,12 @@ abortBranchRegEntry sym iTypes (RegEntry tp x) =
 
 
 {-# INLINE mergeRegs #-}
-mergeRegs :: (IsSymInterface sym)
-          => sym
-          -> IntrinsicTypes sym
-          -> MuxFn (Pred sym) (RegMap sym ctx)
-mergeRegs sym iTypes pp (RegMap rx) (RegMap ry) = do
+mergeRegs :: forall sym ctx.
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  MuxFn' (Pred sym) (RegMap sym ctx)
+mergeRegs sym iTypes pp (RegMap rx) (RegMap ry) =
   RegMap <$> Ctx.zipWithM (muxRegEntry sym iTypes pp) rx ry
 
 {-# INLINE pushBranchRegs #-}

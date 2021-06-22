@@ -47,6 +47,7 @@ module Lang.Crucible.Simulator.EvalStmt
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Maybe
 import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
@@ -166,10 +167,10 @@ alterRef ::
   MuxTree sym (RefCell tp) ->
   PartExpr (Pred sym) (RegValue sym tp) ->
   SymGlobalState sym ->
-  IO (SymGlobalState sym)
+  MaybeT IO (SymGlobalState sym)
 alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
   where
-  f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+  f p a b = lift (muxRegForType sym iTypes tpr p a b)
 
   upd gs (r,p) =
     do let oldv = lookupRef r globs
@@ -184,14 +185,13 @@ readRef ::
   TypeRepr tp ->
   MuxTree sym (RefCell tp) ->
   SymGlobalState sym ->
-  IO (RegValue sym tp)
+  MaybeT IO (RegValue sym tp)
 readRef sym iTypes tpr rs globs =
   do let vs = map (\(r,p) -> (p,lookupRef r globs)) (viewMuxTree rs)
-     let f p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+     let f p a b = lift (muxRegForType sym iTypes tpr p a b)
      pv <- mergePartials sym f vs
      let msg = ReadBeforeWriteSimError "Attempted to read uninitialized reference cell"
-     readPartExpr sym pv msg
-
+     lift (readPartExpr sym pv msg)
 
 -- | Evaluation operation for evaluating a single straight-line
 --   statement of the Crucible evaluator.
@@ -231,24 +231,31 @@ stepStmt verb stmt rest =
 
        ReadRefCell x ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
-            v <- liftIO $ readRef sym iTypes tpr rs globals
-            continueWith $
-              stateCrucibleFrame %~ extendFrame tpr v rest
+            res <- lift (runMaybeT (readRef sym iTypes tpr rs globals))
+            case res of
+              Nothing -> lift (addFailedAssertion sym (MuxFailure (Some tpr)))
+              Just v -> continueWith (stateCrucibleFrame %~ extendFrame tpr v rest)
 
        WriteRefCell x y ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
             newv <- justPartExpr sym <$> evalReg y
-            globals' <- liftIO $ alterRef sym iTypes tpr rs newv globals
-            continueWith $
-              (stateTree . actFrame . gpGlobals .~ globals') .
-              (stateCrucibleFrame  . frameStmts .~ rest)
+            res <- lift (runMaybeT (alterRef sym iTypes tpr rs newv globals))
+            case res of
+              Nothing -> lift (addFailedAssertion sym (MuxFailure (Some tpr)))
+              Just globals' ->
+                continueWith $
+                  (stateTree . actFrame . gpGlobals .~ globals') .
+                  (stateCrucibleFrame  . frameStmts .~ rest)
 
        DropRefCell x ->
          do RegEntry (ReferenceRepr tpr) rs <- evalReg' x
-            globals' <- liftIO $ alterRef sym iTypes tpr rs Unassigned globals
-            continueWith $
-              (stateTree . actFrame . gpGlobals .~ globals') .
-              (stateCrucibleFrame  . frameStmts .~ rest)
+            res <- lift (runMaybeT (alterRef sym iTypes tpr rs Unassigned globals))
+            case res of
+              Nothing -> lift (addFailedAssertion sym (MuxFailure (Some tpr)))
+              Just globals' ->
+                continueWith $
+                  (stateTree . actFrame . gpGlobals .~ globals') .
+                  (stateCrucibleFrame  . frameStmts .~ rest)
 
        ReadGlobal global_var -> do
          case lookupGlobal global_var globals of
@@ -316,8 +323,10 @@ stepStmt verb stmt rest =
             let err = case asString msg of
                          Just (UnicodeLiteral txt) -> AssertFailureSimError (Text.unpack txt) ""
                          _ -> AssertFailureSimError "Symbolic message" (show (printSymExpr msg))
-            liftIO $ assert sym c err
-            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+            loc <- liftIO (getCurrentProgramLoc sym)
+            let asrt = AssertionReason False (SimError loc err) -- TODO? Should these assertions be durable?
+            let cont = continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+            ReaderT (return . AssertState [LabeledPred c asrt] cont)
 
        Assume c_expr msg_expr ->
          do c <- evalReg c_expr
@@ -325,11 +334,10 @@ stepStmt verb stmt rest =
             let msg' = case asString msg of
                          Just (UnicodeLiteral txt) -> Text.unpack txt
                          _ -> show (printSymExpr msg)
-            liftIO $
-              do loc <- getCurrentProgramLoc sym
-                 addAssumption sym (LabeledPred c (AssumptionReason loc msg'))
-            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
-
+            loc <- liftIO (getCurrentProgramLoc sym)
+            let asm = AssumptionReason loc msg'
+            let cont = continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+            ReaderT (return . AssumeState [LabeledPred c asm] cont)
 
 {-# INLINABLE stepTerm #-}
 
@@ -491,6 +499,15 @@ dispatchExecState getVerb exst kresult k =
     AbortState rsn st ->
       let (AH handler) = st^.abortHandler in
       k (handler rsn) st
+
+    AssertState asserts next st ->
+      k (performAsserts asserts >>= \case
+           Nothing  -> next
+           Just rsn -> ReaderT (runAbortHandler (AssumedFalse (assertToAssume rsn))))
+        st
+
+    AssumeState assumes next st ->
+      k (performAssumes assumes >> next) st
 
     OverrideState ovr st ->
       k (overrideHandler ovr) st

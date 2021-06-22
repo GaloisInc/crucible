@@ -42,7 +42,10 @@ import Control.Monad.Fail( MonadFail )
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
+import           Control.Monad.Trans
+import           Control.Monad.Trans.Maybe
 import qualified Data.BitVector.Sized as BV
+import           Data.Parameterized.Some
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import qualified Data.Text as Text
@@ -105,26 +108,26 @@ complexRealAsChar v = do
 -- | Helper method for implementing 'indexSymbolic'
 indexSymbolic' :: IsSymInterface sym
                => sym
-               -> (Pred sym -> a -> a -> IO a)
+               -> (Pred sym -> a -> a -> MaybeT IO a)
                   -- ^ Function for merging valeus
                -> ([Natural] -> IO a) -- ^ Concrete index function.
                -> [Natural] -- ^ Values of processed indices (in reverse order)
                -> [(Natural,Natural)] -- ^ Bounds on remaining indices.
                -> [SymNat sym] -- ^ Remaining indices.
-               -> IO a
-indexSymbolic' _ _ f p [] _ = f (reverse p)
-indexSymbolic' _ _ f p _ [] = f (reverse p)
+               -> MaybeT IO a
+indexSymbolic' _ _ f p [] _ = lift (f (reverse p))
+indexSymbolic' _ _ f p _ [] = lift (f (reverse p))
 indexSymbolic' sym iteFn f p ((l,h):nl) (si:il) = do
   let subIndex idx = indexSymbolic' sym iteFn f (idx:p) nl il
   case asNat si of
     Just i
       | l <= i && i <= h -> subIndex i
-      | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
+      | otherwise -> lift (addFailedAssertion sym (AssertFailureSimError msg details))
         where msg = "Index outside matrix dimensions." ++ show (l,i,h)
               details = unwords ["Index", show i, "is outside of range", show (l, h)]
     Nothing ->
-      do ensureInRange sym l h si "Index outside matrix dimensions."
-         let predFn i = natEq sym si =<< natLit sym i
+      do lift (ensureInRange sym l h si "Index outside matrix dimensions.")
+         let predFn i = lift (natEq sym si =<< natLit sym i)
          muxRange predFn iteFn subIndex l h
 
 
@@ -152,12 +155,12 @@ ensureInRange sym l h si msg =
 -- It assumes that the indices are all in range.
 indexSymbolic :: IsSymInterface sym
               => sym
-              -> (Pred sym -> a  -> a -> IO a)
+              -> (Pred sym -> a  -> a -> MaybeT IO a)
                  -- ^ Function for combining results together.
               -> ([Natural] -> IO a) -- ^ Concrete index function.
               -> [(Natural,Natural)] -- ^ High and low bounds at the indices.
               -> [SymNat sym]
-              -> IO a
+              -> MaybeT IO a
 indexSymbolic sym iteFn f = indexSymbolic' sym iteFn f []
 
 -- | Evaluate an indexTermterm to an index value.
@@ -171,21 +174,22 @@ evalBase _ evalSub (BaseTerm _tp e) = evalSub e
 -- | Get value stored in vector at a symbolic index.
 indexVectorWithSymNat :: IsSymInterface sym
                       => sym
-                      -> (Pred sym -> a -> a -> IO a)
+                      -> (Pred sym -> a -> a -> MaybeT IO a)
                          -- ^ Ite function
                       -> V.Vector a
                       -> SymNat sym
-                      -> IO a
+                      -> MaybeT IO a
 indexVectorWithSymNat sym iteFn v si =
   Ex.assert (n > 0) $
   case asNat si of
     Just i | 0 <= i && i < n -> return (v V.! fromIntegral i)
-           | otherwise -> addFailedAssertion sym (AssertFailureSimError msg details)
+           | otherwise -> lift (addFailedAssertion sym (AssertFailureSimError msg details))
     Nothing ->
-      do let predFn i = natEq sym si =<< natLit sym i
+      do let predFn i = lift (natEq sym si =<< natLit sym i)
          let getElt i = return (v V.! fromIntegral i)
-         ensureInRange sym 0 (n - 1) si msg
+         lift (ensureInRange sym 0 (n - 1) si msg)
          muxRange predFn iteFn getElt 0 (n - 1)
+
   where
   n   = fromIntegral (V.length v)
   msg = "Vector index out of range"
@@ -197,7 +201,7 @@ indexVectorWithSymNat sym iteFn v si =
 updateVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
-                       -> (Pred sym -> a -> a -> IO a)
+                       -> (Pred sym -> a -> a -> MaybeT IO a)
                           -- ^ Ite function
                        -> V.Vector a
                           -- ^ Vector to update
@@ -205,7 +209,7 @@ updateVectorWithSymNat :: IsSymInterface sym
                           -- ^ Index to update
                        -> a
                           -- ^ New value to assign
-                       -> IO (V.Vector a)
+                       -> MaybeT IO (V.Vector a)
 updateVectorWithSymNat sym iteFn v si new_val = do
   adjustVectorWithSymNat sym iteFn v si (\_ -> return new_val)
 
@@ -213,7 +217,7 @@ updateVectorWithSymNat sym iteFn v si new_val = do
 adjustVectorWithSymNat :: IsSymInterface sym
                        => sym
                           -- ^ Symbolic backend
-                       -> (Pred sym -> a -> a -> IO a)
+                       -> (Pred sym -> a -> a -> MaybeT IO a)
                           -- ^ Ite function
                        -> V.Vector a
                           -- ^ Vector to update
@@ -221,31 +225,31 @@ adjustVectorWithSymNat :: IsSymInterface sym
                           -- ^ Index to update
                        -> (a -> IO a)
                           -- ^ Adjustment function to apply
-                       -> IO (V.Vector a)
+                       -> MaybeT IO (V.Vector a)
 adjustVectorWithSymNat sym iteFn v si adj =
   case asNat si of
     Just i
 
       | i < fromIntegral n ->
-        do new_val <- adj (v V.! fromIntegral i)
+        do new_val <- lift (adj (v V.! fromIntegral i))
            return $ v V.// [(fromIntegral i, new_val)]
 
       | otherwise ->
-        addFailedAssertion sym $ AssertFailureSimError msg (details i)
+        lift (addFailedAssertion sym $ AssertFailureSimError msg (details i))
 
     Nothing ->
-      do ensureInRange sym 0 (fromIntegral (n-1)) si msg
+      do lift (ensureInRange sym 0 (fromIntegral (n-1)) si msg)
          V.generateM n setFn
       where
       setFn j =
         do -- Compare si and j.
-            c <- natEq sym si =<< natLit sym (fromIntegral j)
+            c <- lift (natEq sym si =<< natLit sym (fromIntegral j))
             -- Select old value or new value
             case asConstantPred c of
-              Just True  -> adj (v V.! j)
+              Just True  -> lift (adj (v V.! j))
               Just False -> return (v V.! j)
               Nothing ->
-                do new_val <- adj (v V.! j)
+                do new_val <- lift (adj (v V.! j))
                    iteFn c new_val (v V.! j)
 
 
@@ -460,12 +464,18 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     VectorGetEntry rtp v_expr i_expr -> do
       v <- evalSub v_expr
       i <- evalSub i_expr
-      indexVectorWithSymNat sym (muxRegForType sym itefns rtp) v i
+      res <- runMaybeT (indexVectorWithSymNat sym (muxRegForType sym itefns rtp) v i)
+      case res of
+        Just x  -> return x
+        Nothing -> addFailedAssertion sym (MuxFailure (Some rtp))
     VectorSetEntry rtp v_expr i_expr n_expr -> do
       v <- evalSub v_expr
       i <- evalSub i_expr
       n <- evalSub n_expr
-      updateVectorWithSymNat sym (muxRegForType sym itefns rtp) v i n
+      res <- runMaybeT (updateVectorWithSymNat sym (muxRegForType sym itefns rtp) v i n)
+      case res of
+        Just x  -> return x
+        Nothing -> addFailedAssertion sym (MuxFailure (Some rtp))
     VectorCons _ e_expr v_expr -> do
       e <- evalSub e_expr
       v <- evalSub v_expr
@@ -484,13 +494,20 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     SequenceLength _tpr xs ->
       lengthSymSequence sym =<< evalSub xs
     SequenceHead tpr xs ->
-      headSymSequence sym (muxRegForType sym itefns tpr) =<< evalSub xs
+      do xs' <- evalSub xs
+         res <- runMaybeT (headSymSequence sym (muxRegForType sym itefns tpr) xs')
+         case res of
+           Just x  -> return x
+           Nothing -> addFailedAssertion sym (MuxFailure (Some tpr))
     SequenceTail _tpr xs ->
       tailSymSequence sym =<< evalSub xs
     SequenceUncons tpr xs ->
       do xs' <- evalSub xs
-         mu <- unconsSymSequence sym (muxRegForType sym itefns tpr) xs'
-         traverse (\ (h,tl) -> pure (Ctx.Empty Ctx.:> RV h Ctx.:> RV tl)) mu
+         res <- runMaybeT (unconsSymSequence sym (muxRegForType sym itefns tpr) xs')
+         case res of
+           Just mu -> traverse (\ (h,tl) -> pure (Ctx.Empty Ctx.:> RV h Ctx.:> RV tl)) mu
+           Nothing -> addFailedAssertion sym (MuxFailure (Some tpr))
+
 
     --------------------------------------------------------------------
     -- Symbolic Arrays
@@ -900,7 +917,10 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       case x of
         Unassigned -> return d
         PE p v -> do
-          muxRegForType sym itefns (baseToType tp) p v d
+          do res <- runMaybeT (muxRegForType sym itefns (baseToType tp) p v d)
+             case res of
+               Just z -> return z
+               Nothing -> addFailedAssertion sym (MuxFailure (Some (baseToType tp)))
 
     ---------------------------------------------------------------------
     -- Struct

@@ -157,7 +157,8 @@ import           What4.Interface (Pred, getConfiguration)
 import           What4.FunctionName (FunctionName, startFunctionName)
 import           What4.ProgramLoc (ProgramLoc, plSourceLoc)
 
-import           Lang.Crucible.Backend (IsSymInterface, AbortExecReason, FrameIdentifier, Assumption)
+import           Lang.Crucible.Backend
+                   (IsSymInterface, AbortExecReason, FrameIdentifier, Assumption, Assertion)
 import           Lang.Crucible.CFG.Core (BlockID, CFG, CFGPostdom, StmtSeq)
 import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
@@ -358,6 +359,8 @@ execStateContext :: ExecState p sym ext r -> SimContext p sym ext
 execStateContext = \case
   ResultState res        -> execResultContext res
   AbortState _ st        -> st^.stateContext
+  AssumeState _ _ st     -> st^.stateContext
+  AssertState _ _ st     -> st^.stateContext
   UnwindCallState _ _ st -> st^.stateContext
   CallState _ _ st       -> st^.stateContext
   TailCallState _ _ st   -> st^.stateContext
@@ -374,6 +377,8 @@ execStateSimState :: ExecState p sym ext r
 execStateSimState = \case
   ResultState _                  -> Nothing
   AbortState _ st                -> Just (SomeSimState st)
+  AssumeState _ _ st             -> Just (SomeSimState st)
+  AssertState _ _ st             -> Just (SomeSimState st)
   UnwindCallState _ _ st         -> Just (SomeSimState st)
   CallState _ _ st               -> Just (SomeSimState st)
   TailCallState _ _ st           -> Just (SomeSimState st)
@@ -406,6 +411,23 @@ data ExecState p sym ext (rtp :: Type)
            {- Description of what abort condition occurred -}
          !(SimState p sym ext rtp f a)
            {- State of the simulator prior to causing the abort condition -}
+
+   {- | An assert state indicates that the execution of the program requires
+        the listed assertions to be true for the program to continue. -}
+   | forall f a.
+       AssertState
+         ![Assertion sym] {- ^ Assertions to make -}
+         !(ExecCont p sym ext rtp f a) {- ^ How to resume execution -}
+         !(SimState p sym ext rtp f a)
+
+   {- | An assume state indicates that the given assumptions should be added to
+        the current path condition.  These assumptions may be relied on in following
+        program states to reason about symbolic branches or when proving assertions. -}
+   | forall f a.
+       AssumeState
+         ![Assumption sym] {- ^ Assumptions to make at this point in the program -}
+         !(ExecCont p sym ext rtp f a) {- ^ How to resume execution -}
+         !(SimState p sym ext rtp f a)
 
    {- | An unwind call state occurs when we are about to leave the context of a
         function call because of an abort.  The included @ValueFromValue@ is the

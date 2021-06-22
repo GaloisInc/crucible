@@ -331,7 +331,7 @@ assertSafe sym (Err p) = do
   do let rsn = AssertFailureSimError "Error during memory load" ""
      loc <- getCurrentProgramLoc sym
      let err = SimError loc rsn
-     addProofObligation sym (LabeledPred p err)
+     addProofObligation sym (LabeledPred p (AssertionReason False err))
      abortExecBecause $ AssumedFalse $ AssumingNoError err
 
 

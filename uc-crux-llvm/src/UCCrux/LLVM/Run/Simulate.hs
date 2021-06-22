@@ -231,7 +231,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       panic "simulateLLVM" ["Unexplained error: no error for annotation."]
                     Nothing ->
                       modifyIORef explRef . (:) $
-                        case gl ^. Crucible.labeledPredMsg . to Crucible.simErrorReason of
+                        case gl ^. Crucible.labeledPredMsg . to Crucible.assertionSimError . to Crucible.simErrorReason of
                           Crucible.ResourceExhausted msg ->
                             ExExhaustedBounds msg
                           Crucible.AssertFailureSimError msg _ ->
@@ -240,9 +240,9 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                                 classifyAssertion
                                   sym
                                   (gl ^. Crucible.labeledPred)
-                                  (gl ^. Crucible.labeledPredMsg . to Crucible.simErrorLoc)
-                              else ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg))
-                          _ -> ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg))
+                                  (gl ^. Crucible.labeledPredMsg . to Crucible.assertionSimError . to Crucible.simErrorLoc)
+                              else ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg . to Crucible.assertionSimError))
+                          _ -> ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg . to Crucible.assertionSimError))
                 Just badBehavior ->
                   do
                     -- Helpful for debugging:
@@ -258,7 +258,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       funCtx
                       sym
                       skipped
-                      (gl ^. Crucible.labeledPredMsg)
+                      (gl ^. Crucible.labeledPredMsg . to Crucible.assertionSimError)
                       args
                       (Map.union argAnnotations retAnns)
                       argShapes

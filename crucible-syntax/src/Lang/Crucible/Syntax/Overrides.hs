@@ -56,7 +56,8 @@ proveObligations =
             gl <- notPred sym ((proofGoal o)^.labeledPred)
             let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                          , logReason = "assertion proof" }
+            let msg = show $ ppSimError $ assertionSimError $ (proofGoal o)^.labeledPredMsg
             runZ3InOverride sym logData (asms ++ [gl]) $ \case
-              Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-              Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-              Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+              Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", msg]
+              Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", msg]
+              Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", msg]

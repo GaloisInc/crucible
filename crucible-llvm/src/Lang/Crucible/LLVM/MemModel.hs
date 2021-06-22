@@ -440,7 +440,7 @@ evalStmt sym = eval
              do p <- Partial.annotateME sym mop (BadFunctionPointer doc) (falsePred sym)
                 loc <- getCurrentProgramLoc sym
                 let err = SimError loc (AssertFailureSimError "Failed to load function handle" (show doc))
-                addProofObligation sym (LabeledPred p err)
+                addProofObligation sym (LabeledPred p (AssertionReason False err))
                 abortExecBecause $ AssumedFalse $ AssumingNoError err
 
            Right (VarargsFnHandle h) ->

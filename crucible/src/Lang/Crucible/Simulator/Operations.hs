@@ -42,6 +42,8 @@ module Lang.Crucible.Simulator.Operations
   , runAbortHandler
   , runErrorHandler
   , runGenericErrorHandler
+  , performAssumes
+  , performAsserts
   , performIntraFrameMerge
   , performIntraFrameSplit
   , performFunctionCall
@@ -78,6 +80,7 @@ import Prelude hiding (pred)
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Except
 import           Data.Maybe (fromMaybe)
 import           Data.List (isPrefixOf)
 import qualified Data.Parameterized.Context as Ctx
@@ -111,9 +114,9 @@ import           Lang.Crucible.Simulator.SimError
 
 -- | Merge two globals together.
 mergeGlobalPair ::
-  MuxFn p v ->
-  MuxFn p (SymGlobalState sym) ->
-  MuxFn p (GlobalPair sym v)
+  MuxFn' p v ->
+  MuxFn' p (SymGlobalState sym) ->
+  MuxFn' p (GlobalPair sym v)
 mergeGlobalPair merge_fn global_fn c x y =
   GlobalPair <$> merge_fn  c (x^.gpValue) (y^.gpValue)
              <*> global_fn c (x^.gpGlobals) (y^.gpGlobals)
@@ -149,7 +152,7 @@ mergeCrucibleFrame ::
   sym ->
   IntrinsicTypes sym ->
   CrucibleBranchTarget f args {- ^ Target of branch -} ->
-  MuxFn (Pred sym) (SimFrame sym ext f args)
+  MuxFn' (Pred sym) (SimFrame sym ext f args)
 mergeCrucibleFrame sym muxFns tgt p x0 y0 =
   case tgt of
     BlockTarget _b_id -> do
@@ -167,7 +170,7 @@ mergePartialResult ::
   IsSymInterface sym =>
   SimState p sym ext root f args ->
   CrucibleBranchTarget f args ->
-  MuxFn (Pred sym) (PartialResultFrame sym ext f args)
+  MuxFn' (Pred sym) (PartialResultFrame sym ext f args)
 mergePartialResult s tgt pred x y =
   let sym       = s^.stateSymInterface
       iteFns    = s^.stateIntrinsicTypes
@@ -181,20 +184,20 @@ mergePartialResult s tgt pred x y =
           TotalRes <$> merge_fn pred cx cy
 
         PartialRes loc py cy fy ->
-          PartialRes loc <$> orPred sym pred py
+          PartialRes loc <$> lift (orPred sym pred py)
                          <*> merge_fn pred cx cy
                          <*> pure fy
 
     PartialRes loc px cx fx ->
       case y of
         TotalRes cy ->
-          do pc <- notPred sym pred
-             PartialRes loc <$> orPred sym pc px
+          do pc <- lift (notPred sym pred)
+             PartialRes loc <$> lift (orPred sym pc px)
                             <*> merge_fn pred cx cy
                             <*> pure fx
 
         PartialRes loc' py cy fy ->
-          PartialRes loc' <$> itePred sym pred px py
+          PartialRes loc' <$> lift (itePred sym pred px py)
                           <*> merge_fn pred cx cy
                           <*> pure (AbortedBranch loc' pred fx fy)
 
@@ -428,10 +431,9 @@ runErrorHandler msg st =
    in ctxSolverProof ctx $
       do loc <- getCurrentProgramLoc sym
          let err = SimError loc msg
-         let obl = LabeledPred (falsePred sym) err
+         let obl = LabeledPred (falsePred sym) (AssertionReason False err)
          let rsn = AssumedFalse (AssumingNoError err)
-         addProofObligation sym obl
-         return (AbortState rsn st)
+         return (AssertState [obl] (ReaderT (return . AbortState rsn)) st)
 
 -- | Abort the current thread of execution with an error.
 --   This adds a proof obligation that requires the current
@@ -623,20 +625,25 @@ performIntraFrameMerge tgt = do
 
           -- We are done with both branches, pop-off back to the outer context.
           VFFCompletePath otherAssumes other ->
-            do ar <- ReaderT $ \s ->
-                 mergePartialResult s tgt pred er other
+            do mar <- ReaderT $ \s ->
+                 runExceptT (mergePartialResult s tgt pred er other)
 
-               -- Merge the assumptions from each branch and add to the
-               -- current assumption frame
-               pathAssumes <- liftIO $ popAssumptionFrame sym assume_frame
+               case mar of
+                 -- TODO... go to assertion state instead.
+                 Left someTp -> liftIO (addFailedAssertion sym (MuxFailure someTp))
 
-               liftIO $ addAssumptions sym
-                 =<< mergeAssumptions sym pred pathAssumes otherAssumes
+                 Right ar -> do
+                     -- Merge the assumptions from each branch and add to the
+                     -- current assumption frame
+                     pathAssumes <- liftIO $ popAssumptionFrame sym assume_frame
 
-               -- Check for more potential merge targets.
-               withReaderT
-                 (stateTree .~ ActiveTree ctx ar)
-                 (checkForIntraFrameMerge tgt)
+                     liftIO $ addAssumptions sym
+                       =<< mergeAssumptions sym pred pathAssumes otherAssumes
+
+                     -- Check for more potential merge targets.
+                     withReaderT
+                       (stateTree .~ ActiveTree ctx ar)
+                       (checkForIntraFrameMerge tgt)
 
     -- Since the other branch aborted before it got to the merge point,
     -- we merge-in the partiality on our current path and keep going.
@@ -808,6 +815,35 @@ handleSimReturn ::
 handleSimReturn fnName vfv return_value =
   ReaderT $ return . ReturnState fnName vfv return_value
 
+performAsserts ::
+  IsSymInterface sym =>
+  [Assertion sym] ->
+  ReaderT (SimState p sym ext r f a) IO (Maybe AssertionReason)
+performAsserts asserts
+  | Just ast <- filterAsserts asserts =
+      do sym <- view stateSymInterface
+         liftIO (addProofObligation sym ast)
+         return (Just (ast^.labeledPredMsg))
+
+  | otherwise =
+      do sym <- view stateSymInterface
+         liftIO (forM_ asserts (addAssertion sym))
+         return Nothing
+
+ where
+   filterAsserts [] = Nothing
+   filterAsserts (lp:ps)
+     | Just False <- asConstantPred (lp^.labeledPred) = Just lp
+     | otherwise = filterAsserts ps
+
+
+performAssumes ::
+  IsSymInterface sym =>
+  [Assumption sym] ->
+  ReaderT (SimState p sym ext r f a) IO ()
+performAssumes assumes =
+  do sym <- view stateSymInterface
+     liftIO (forM_ assumes (addAssumption sym))
 
 -- | Resolve the return value, and begin executing in the caller's context again.
 performReturn ::

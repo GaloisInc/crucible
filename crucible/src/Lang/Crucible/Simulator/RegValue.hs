@@ -52,6 +52,9 @@ module Lang.Crucible.Simulator.RegValue
 
 import           Control.Monad
 import           Control.Monad.Trans.Class
+import           Control.Monad.Trans.Maybe
+import           Control.Monad.IO.Class
+
 import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -72,13 +75,16 @@ import           What4.WordMap
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Simulator.SymSequence
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
-import           Lang.Crucible.Backend
 
-type MuxFn p v = p -> v -> v -> IO v
+-- | A type for describing functions that compute "mux" or
+--   "if/then/else" combinations of values.  Mux functions
+--   should yield @mzero@ if the values given are incapable
+--   of being combined, e.g., because there structure is
+--   incompatible.
+type MuxFn p v = p -> v -> v -> MaybeT IO v
 
 -- | Maps register types to the runtime representation.
 type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
@@ -161,13 +167,9 @@ class CanMux sym (tp :: CrucibleType) where
 -- | Merge function that checks if two values are equal, and
 -- fails if they are not.
 {-# INLINE eqMergeFn #-}
-eqMergeFn :: (IsSymInterface sym, Eq v) => sym -> String -> MuxFn p v
-eqMergeFn sym nm = \_ x y ->
-  if x == y then
-    return x
-  else
-    addFailedAssertion sym
-      $ Unsupported $ "Cannot merge dissimilar " ++ nm ++ "."
+eqMergeFn :: Eq v => sym -> MuxFn p v
+eqMergeFn _sym = \_ x y ->
+  if x == y then return x else mzero
 
 ------------------------------------------------------------------------
 -- RegValue AnyType instance
@@ -186,48 +188,45 @@ instance CanMux sym UnitType where
 
 instance IsExprBuilder sym => CanMux sym BoolType where
   {-# INLINE muxReg #-}
-  muxReg s = const $ itePred s
+  muxReg s _ c x y = liftIO $ itePred s c x y
 
 instance IsExprBuilder sym => CanMux sym NatType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> natIte s
+  muxReg s _ c x y = liftIO $ natIte s c x y
 
 instance IsExprBuilder sym => CanMux sym IntegerType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> intIte s
+  muxReg s _ c x y = liftIO $ intIte s c x y
 
 instance IsExprBuilder sym => CanMux sym RealValType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> realIte s
+  muxReg s _ c x y = liftIO $ realIte s c x y
 
 instance IsInterpretedFloatExprBuilder sym => CanMux sym (FloatType fi) where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> iFloatIte @sym @fi s
+  muxReg s _ c x y = liftIO $ iFloatIte @sym @fi s c x y
 
 instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> cplxIte s
+  muxReg s _ c x y = liftIO $ cplxIte s c x y
 
 instance IsExprBuilder sym => CanMux sym (StringType si) where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> stringIte s
+  muxReg s _ c x y = liftIO $ stringIte s c x y
 
 instance IsExprBuilder sym => CanMux sym (IEEEFloatType fpp) where
-  muxReg s = \_ -> floatIte s
+  muxReg s _ c x y = liftIO $ floatIte s c x y
 
 ------------------------------------------------------------------------
 -- RegValue Vector instance
 
 {-# INLINE muxVector #-}
-muxVector :: IsSymInterface sym =>
-             sym -> MuxFn p e -> MuxFn p (V.Vector e)
-muxVector sym f p x y
+muxVector :: sym -> MuxFn p e -> MuxFn p (V.Vector e)
+muxVector _sym f p x y
   | V.length x == V.length y = V.zipWithM (f p) x y
-  | otherwise =
-    addFailedAssertion sym
-      $ Unsupported "Cannot merge vectors with different dimensions."
+  | otherwise = mzero
 
-instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
+instance CanMux sym tp => CanMux sym (VectorType tp) where
   {-# INLINE muxReg #-}
   muxReg s _ = muxVector s (muxReg s (Proxy :: Proxy tp))
 
@@ -237,25 +236,25 @@ instance (IsSymInterface sym, CanMux sym tp) => CanMux sym (VectorType tp) where
 instance (IsExprBuilder sym, KnownNat w, KnownRepr BaseTypeRepr tp)
   => CanMux sym (WordMapType w tp) where
   {-# INLINE muxReg #-}
-  muxReg s _ p = muxWordMap s knownNat knownRepr p
+  muxReg s _ p x y = lift $ muxWordMap s knownNat knownRepr p x y
 
 ------------------------------------------------------------------------
 -- RegValue MatlabChar instance
 
-instance IsSymInterface sym => CanMux sym CharType where
+instance CanMux sym CharType where
   {-# INLINE muxReg #-}
-  muxReg s = \_ -> eqMergeFn s "characters"
+  muxReg s = \_ -> eqMergeFn s
 
 ------------------------------------------------------------------------
 -- RegValue Maybe instance
 
 mergePartExpr :: IsExprBuilder sym
               => sym
-              -> (Pred sym -> v -> v -> IO v)
+              -> (Pred sym -> v -> v -> MaybeT IO v)
               -> Pred sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
-              -> IO (PartExpr (Pred sym) v)
+              -> MaybeT IO (PartExpr (Pred sym) v)
 mergePartExpr sym fn = mergePartial sym (\c a b -> lift (fn c a b))
 
 instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
@@ -274,15 +273,14 @@ muxHandle :: IsExpr (SymExpr sym)
           -> Pred sym
           -> FnVal sym a r
           -> FnVal sym a r
-          -> IO (FnVal sym a r)
+          -> MaybeT IO (FnVal sym a r)
 muxHandle _ c x y
   | Just b <- asConstantPred c = pure $! if b then x else y
-  | otherwise = return x
+  | otherwise = mzero
 
 instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where
   {-# INLINE muxReg #-}
-  muxReg s = \_ c x y -> do
-    muxHandle s c x y
+  muxReg s _ = muxHandle s
 
 ------------------------------------------------------------------------
 -- RegValue IdentValueMap instance

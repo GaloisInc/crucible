@@ -35,6 +35,10 @@ module Lang.Crucible.Simulator.OverrideSim
   , getOverrideArgs
   , overrideError
   , overrideAbort
+  , overrideAssert
+  , overrideAssertions
+  , overrideAssume
+  , overrideAssumptions
   , symbolicBranch
   , symbolicBranches
   , overrideReturn
@@ -86,6 +90,8 @@ import qualified Control.Monad.Catch as X
 import           Control.Monad.Reader hiding (fail)
 import           Control.Monad.ST
 import           Control.Monad.State.Strict hiding (fail)
+import           Control.Monad.Trans.Maybe
+
 import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
@@ -148,7 +154,7 @@ newtype OverrideSim p sym ext rtp (args :: Ctx CrucibleType) (ret :: CrucibleTyp
 
 -- | Exit from the current execution by ignoring the continuation
 --   and immediately returning an aborted execution result.
-exitExecution :: IsSymInterface sym => ExitCode -> OverrideSim p sym ext rtp args r a
+exitExecution :: ExitCode -> OverrideSim p sym ext rtp args r a
 exitExecution ec = Sim $ StateContT $ \_c s ->
   return $ ResultState $ AbortedResult (s^.stateContext) (AbortedExit ec)
 
@@ -254,7 +260,6 @@ writeGlobals g = stateTree . actFrame . gpGlobals .= g
 
 -- | Read a particular global variable from the global variable state.
 readGlobal ::
-  IsSymInterface sym =>
   GlobalVar tp                                     {- ^ global variable -} ->
   OverrideSim p sym ext rtp args ret (RegValue sym tp) {- ^ current value   -}
 readGlobal k =
@@ -276,7 +281,6 @@ writeGlobal g v = stateTree . actFrame . gpGlobals %= insertGlobal g v
 
 -- | Run an action to compute the new value of a global.
 modifyGlobal ::
-  IsSymInterface sym =>
   GlobalVar tp    {- ^ global variable to modify -} ->
   (RegValue sym tp ->
     OverrideSim p sym ext rtp args ret (a, RegValue sym tp)) {- ^ modification action -} ->
@@ -319,7 +323,7 @@ readRef r =
 
 -- | Write a value into a reference cell.
 writeRef ::
-  IsSymInterface sym =>
+  IsExprBuilder sym =>
   RefCell tp {- ^ Reference cell to write -} ->
   RegValue sym tp {- ^ Value to write into the cell -} ->
   OverrideSim p sym ext rtp args ret ()
@@ -350,7 +354,10 @@ readMuxTreeRef tpr r =
   do sym <- getSymInterface
      iTypes <- ctxIntrinsicTypes <$> use stateContext
      globals <- use (stateTree . actFrame . gpGlobals)
-     liftIO $ EvalStmt.readRef sym iTypes tpr r globals
+     res <- liftIO (runMaybeT (EvalStmt.readRef sym iTypes tpr r globals))
+     case res of
+       Nothing -> overrideError (MuxFailure (Some tpr))
+       Just x -> return x
 
 -- | Write a value into a mux tree of reference cells.
 writeMuxTreeRef ::
@@ -363,8 +370,11 @@ writeMuxTreeRef tpr r v =
   do sym <- getSymInterface
      iTypes <- ctxIntrinsicTypes <$> use stateContext
      globals <- use (stateTree . actFrame . gpGlobals)
-     globals' <- liftIO $ EvalStmt.alterRef sym iTypes tpr r (justPartExpr sym v) globals
-     stateTree . actFrame . gpGlobals .= globals'
+     res <- liftIO (runMaybeT (EvalStmt.alterRef sym iTypes tpr r (justPartExpr sym v) globals))
+     case res of
+       Nothing -> overrideError (MuxFailure (Some tpr))
+       Just globals' ->
+         stateTree . actFrame . gpGlobals .= globals'
 
 
 -- | Turn an 'OverrideSim' action into an 'ExecCont' that can be executed
@@ -472,9 +482,8 @@ callOverride h ovr args =
 -- | Add a failed assertion.  This aborts execution along the current
 -- evaluation path, and adds a proof obligation ensuring that we can't get here
 -- in the first place.
-overrideError :: IsSymInterface sym => SimErrorReason -> OverrideSim p sym ext rtp args res a
+overrideError :: SimErrorReason -> OverrideSim p sym ext rtp args res a
 overrideError err = Sim $ StateContT $ \_ -> runErrorHandler err
-
 
 -- | Abort the current thread of execution for the given reason.  Unlike @overrideError@,
 --   this operation will not add proof obligation, even if the given abort reason
@@ -482,6 +491,30 @@ overrideError err = Sim $ StateContT $ \_ -> runErrorHandler err
 --   should be generated.
 overrideAbort :: AbortExecReason -> OverrideSim p sym ext rtp args res a
 overrideAbort abt = Sim $ StateContT $ \_ -> runAbortHandler abt
+
+overrideAssert :: IsExprBuilder sym => Pred sym -> SimErrorReason -> OverrideSim p sym ext rtp args res ()
+overrideAssert p rsn =
+  Sim $ StateContT $ \c st ->
+     do let sym = st^.stateSymInterface
+        loc <- getCurrentProgramLoc sym
+        let err = AssertionReason False (SimError loc rsn)
+        return (AssertState [LabeledPred p err] (ReaderT (c ())) st)
+
+overrideAssertions :: [Assertion sym] -> OverrideSim p sym ext rtp args res ()
+overrideAssertions asserts =
+   Sim $ StateContT $ \c st ->
+     return (AssertState asserts (ReaderT (c ())) st)
+
+overrideAssume :: Pred sym -> AssumptionReason -> OverrideSim p sym ext rtp args res ()
+overrideAssume p rsn =
+  Sim $ StateContT $ \c st ->
+    return (AssumeState [LabeledPred p rsn] (ReaderT (c ())) st)
+
+overrideAssumptions :: IsExprBuilder sym => [Assumption sym] -> OverrideSim p sym ext rtp args res ()
+overrideAssumptions assumes =
+  Sim $ StateContT $ \c st ->
+    return (AssumeState assumes (ReaderT (c ())) st)
+
 
 overrideReturn :: KnownRepr TypeRepr res => RegValue sym res -> OverrideSim p sym ext rtp args res a
 overrideReturn v = Sim $ StateContT $ \_ -> runReaderT $ returnValue (RegEntry knownRepr v)

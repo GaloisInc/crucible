@@ -162,13 +162,13 @@ instance OrdSkel a => Ord (Skeleton a) where
 viewFancyMuxTree :: FancyMuxTree sym a -> [(a, Pred sym)]
 viewFancyMuxTree (FancyMuxTree m) = Map.elems m
 
-buildFancyMuxTree :: (IsExprBuilder sym, IsBoolSolver sym, OrdSkel a) =>
+buildFancyMuxTree :: (IsExprBuilder sym, IsBoolSolver sym, OrdSkel a, MonadIO m) =>
     sym ->
     -- | Mux operation on values.  This will only be called when the skeletons
     -- of the two values are `EQ`.
-    (Pred sym -> a -> a -> IO a) ->
+    (Pred sym -> a -> a -> m a) ->
     [(a, Pred sym)] ->
-    IO (FancyMuxTree sym a)
+    m (FancyMuxTree sym a)
 buildFancyMuxTree sym mux xs_ = FancyMuxTree <$> go Map.empty xs_
   where
     go m [] = return m
@@ -180,7 +180,7 @@ buildFancyMuxTree sym mux xs_ = FancyMuxTree <$> go Map.empty xs_
                 Nothing -> return $ Just (x, p)
                 Just (y, q) -> do
                     xy <- mux p x y
-                    pq <- orPred sym p q
+                    pq <- liftIO (orPred sym p q)
                     return $ Just (xy, pq)) (Skeleton x) m
             go m' xs
 
@@ -264,7 +264,7 @@ leafReadPartExpr sym (PE p v) msg = do
 -- | Set a PartExpr to a new value, conditional on the current leaf being
 -- active.
 leafUpdatePartExpr :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
-    sym -> (Pred sym -> a -> a -> m a) ->
+    sym -> (Pred sym -> a -> a -> MuxLeafT sym m a) ->
     a -> PartExpr (Pred sym) a -> MuxLeafT sym m (PartExpr (Pred sym) a)
 leafUpdatePartExpr _sym _mux x Unassigned = mkPE <$> leafPredicate <*> pure x
 leafUpdatePartExpr sym mux x (PE q y) = do
@@ -274,7 +274,7 @@ leafUpdatePartExpr sym mux x (PE q y) = do
         Just False -> return $ PE q y
         Nothing -> do
             pq <- liftIO $ orPred sym p q
-            xy <- lift $ mux p x y
+            xy <- mux p x y
             return $ mkPE pq xy
 
 -- | Set a PartExpr to Unassigned, conditional on the current leaf being
@@ -300,8 +300,12 @@ foldFancyMuxTree sym f z t = foldM g z $ viewFancyMuxTree t
     g acc (x, p) = maybe acc id <$> runMuxLeafIO sym (f acc x) p
 
 foldZipFancyMuxTree :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
-    sym -> (c -> a -> b -> MuxLeafT sym m c) -> c ->
-    FancyMuxTree sym a -> FancyMuxTree sym b -> m c
+    sym ->
+    (c -> a -> b -> MuxLeafT sym m c) ->
+    c ->
+    FancyMuxTree sym a ->
+    FancyMuxTree sym b ->
+    m c
 foldZipFancyMuxTree sym f z tx ty =
     foldM g z $ zip (viewFancyMuxTree tx) (viewFancyMuxTree ty)
   where
@@ -312,19 +316,23 @@ foldZipFancyMuxTree sym f z tx ty =
 -- | Map `f` over the potential values of the `FancyMuxTree`.  If `f` aborts,
 -- then the input value will not have a corresponding entry in the output.
 mapFancyMuxTree :: (IsExprBuilder sym, IsBoolSolver sym, OrdSkel b) =>
-    sym -> (Pred sym -> b -> b -> IO b) ->
-    (a -> MuxLeafT sym IO b) -> FancyMuxTree sym a -> IO (FancyMuxTree sym b)
+    sym ->
+    (Pred sym -> b -> b -> MuxLeafT sym IO b) ->
+    (a -> MuxLeafT sym IO b) ->
+    FancyMuxTree sym a ->
+    IO (FancyMuxTree sym b)
 mapFancyMuxTree sym mux f t = do
     ys <- Maybe.catMaybes <$>
         mapM (\(x,p) -> runMuxLeafIO sym (f x >>= \y -> return (y, p)) p) (viewFancyMuxTree t)
-    buildFancyMuxTree sym mux ys
+    runMuxLeafIO' sym (buildFancyMuxTree sym mux ys)
 
 collapseFancyMuxTree :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
-    sym -> (Pred sym -> a -> a -> m a) -> FancyMuxTree sym a -> m (Maybe a)
+    sym -> (Pred sym -> a -> a -> MuxLeafT sym m a) -> FancyMuxTree sym a -> m (Maybe a)
 collapseFancyMuxTree sym mux t = readFancyMuxTree sym return mux t
 
 collapseFancyMuxTree' :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
-    sym -> (Pred sym -> a -> a -> m a) ->
+    sym ->
+    (Pred sym -> a -> a -> MuxLeafT sym m a) ->
     FancyMuxTree sym a -> m a
 collapseFancyMuxTree' sym mux t = readFancyMuxTree' sym return mux t
 
@@ -337,7 +345,7 @@ collapsePartialFancyMuxTree sym mux t = readPartialFancyMuxTree sym return mux t
 readFancyMuxTree :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
     sym ->
     (a -> MuxLeafT sym m b) ->
-    (Pred sym -> b -> b -> m b) ->
+    (Pred sym -> b -> b -> MuxLeafT sym m b) ->
     FancyMuxTree sym a -> m (Maybe b)
 readFancyMuxTree sym f mux t = foldFancyMuxTree sym go Nothing t
   where
@@ -345,12 +353,12 @@ readFancyMuxTree sym f mux t = foldFancyMuxTree sym go Nothing t
     go (Just old) x = do
         y <- f x
         p <- leafPredicate
-        lift $ Just <$> mux p y old
+        Just <$> mux p y old
 
 readFancyMuxTree' :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
     sym ->
     (a -> MuxLeafT sym m b) ->
-    (Pred sym -> b -> b -> m b) ->
+    (Pred sym -> b -> b -> MuxLeafT sym m b) ->
     FancyMuxTree sym a -> m b
 readFancyMuxTree' sym f mux t = readFancyMuxTree sym f mux t >>= \my -> case my of
     Just y -> return y
@@ -373,7 +381,7 @@ readPartialFancyMuxTree sym f mux t = foldFancyMuxTree sym go Unassigned t
 zipFancyMuxTrees :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
     sym ->
     (a -> b -> MuxLeafT sym m c) ->
-    (Pred sym -> c -> c -> m c) ->
+    (Pred sym -> c -> c -> MuxLeafT sym m c) ->
     FancyMuxTree sym a -> FancyMuxTree sym b -> m (Maybe c)
 zipFancyMuxTrees sym f mux tx ty = foldZipFancyMuxTree sym go Nothing tx ty
   where
@@ -381,12 +389,12 @@ zipFancyMuxTrees sym f mux tx ty = foldZipFancyMuxTree sym go Nothing tx ty
     go (Just old) x y = do
         z <- f x y
         p <- leafPredicate
-        lift $ Just <$> mux p z old
+        Just <$> mux p z old
 
 zipFancyMuxTrees' :: (IsExprBuilder sym, IsBoolSolver sym, MonadIO m) =>
     sym ->
     (a -> b -> MuxLeafT sym m c) ->
-    (Pred sym -> c -> c -> m c) ->
+    (Pred sym -> c -> c -> MuxLeafT sym m c) ->
     FancyMuxTree sym a -> FancyMuxTree sym b -> m c
 zipFancyMuxTrees' sym f mux tx ty = zipFancyMuxTrees sym f mux tx ty >>= \my -> case my of
     Just y -> return y

@@ -110,7 +110,6 @@ import qualified What4.Solver.Z3 as Z3
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
-import           Lang.Crucible.Simulator.SimError
 
 data UnsatFeatures
   = NoUnsatFeatures
@@ -305,7 +304,7 @@ data SolverState scope solver =
 -- It contains the current assertions and program location.
 data OnlineBackendState solver userState scope = OnlineBackendState
   { assumptionStack ::
-      !(AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+      !(AssumptionStack (B.BoolExpr scope) AssumptionReason AssertionReason)
       -- ^ Number of times we have pushed
   , solverProc :: !(IORef (SolverState scope solver))
     -- ^ The solver process, if any.
@@ -337,7 +336,7 @@ initialOnlineBackendState gen feats ust =
 
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
-  IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+  IO (AssumptionStack (B.BoolExpr scope) AssumptionReason AssertionReason)
 getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
 
@@ -371,7 +370,7 @@ resetSolverProcess' st = do
 
 restoreSolverState ::
   OnlineSolver solver =>
-  AS.LabeledGoalCollector (B.BoolExpr scope) AssumptionReason SimError ->
+  AS.LabeledGoalCollector (B.BoolExpr scope) AssumptionReason AssertionReason ->
   OnlineBackendState solver userSt scope ->
   IO ()
 restoreSolverState gc st =
