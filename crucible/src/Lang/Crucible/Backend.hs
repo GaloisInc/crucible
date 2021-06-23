@@ -48,15 +48,13 @@ module Lang.Crucible.Backend
   , assert
 
     -- ** Reexports
-  , AS.LabeledPred(..)
-  , AS.labeledPred
-  , AS.labeledPredMsg
-  , AS.ProofGoal(..)
+  , LabeledPred(..)
+  , labeledPred
+  , labeledPredMsg
   , AS.AssumptionStack
   , AS.FrameIdentifier
-  , AS.ProofGoals
-  , AS.Goals(..)
-  , AS.proofGoalsToList
+  , PG.ProofGoal(..)
+  , PG.Goals(..)
 
     -- ** Aborting execution
   , AbortExecReason(..)
@@ -86,6 +84,7 @@ import           What4.Concrete
 import           What4.Config
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
+import           What4.LabeledPred
 import           What4.Partial
 import           What4.ProgramLoc
 
@@ -115,15 +114,11 @@ assumptionLoc r =
     ExploringAPath l _   -> l
     AssumingNoError s    -> simErrorLoc s
 
-instance AS.AssumeAssert AssumptionReason SimError where
-  assertToAssume = AssumingNoError
-
-
-type Assertion sym  = AS.LabeledPred (Pred sym) SimError
-type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
+type Assertion sym  = LabeledPred (Pred sym) SimError
+type Assumption sym = LabeledPred (Pred sym) AssumptionReason
 type ProofObligation sym = AS.ProofGoal (Assumption sym) (Assertion sym)
-type ProofObligations sym = Maybe (AS.ProofGoals (Pred sym) AssumptionReason SimError)
-type AssumptionState sym = AS.LabeledGoalCollector (Pred sym) AssumptionReason SimError
+type ProofObligations sym = Maybe (AS.Goals (Assumption sym) (Assertion sym))
+type AssumptionState sym = PG.GoalCollector (Assumption sym) (Assertion sym)
 
 -- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =
@@ -237,7 +232,7 @@ class IsBoolSolver sym where
     (IsExprBuilder sym) =>
     sym -> Assertion sym -> IO ()
   addProofObligation sym a =
-    case asConstantPred (a ^. AS.labeledPred) of
+    case asConstantPred (a ^. labeledPred) of
       Just True -> return ()
       _ -> addDurableProofObligation sym a
 
@@ -307,11 +302,11 @@ addDurableAssertion sym a =
 assumeAssertion ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
   sym -> Assertion sym -> IO ()
-assumeAssertion sym (AS.LabeledPred p msg) =
+assumeAssertion sym (LabeledPred p msg) =
   do assert_then_assume_opt <- getOpt
        =<< getOptionSetting assertThenAssumeConfigOption (getConfiguration sym)
      when assert_then_assume_opt $
-       addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
+       addAssumption sym (LabeledPred p (AssumingNoError msg))
 
 -- | Throw an exception, thus aborting the current execution path.
 abortExecBecause :: AbortExecReason -> IO a
@@ -327,7 +322,7 @@ assert ::
   IO ()
 assert sym p msg =
   do loc <- getCurrentProgramLoc sym
-     addAssertion sym (AS.LabeledPred p (SimError loc msg))
+     addAssertion sym (LabeledPred p (SimError loc msg))
 
 -- | Add a proof obligation for False. This always aborts execution
 -- of the current path, because after asserting false, we get to assume it,
@@ -336,7 +331,7 @@ assert sym p msg =
 addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym) => sym -> SimErrorReason -> IO a
 addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
-     let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
+     let err = LabeledPred (falsePred sym) (SimError loc msg)
      addProofObligation sym err
      abortExecBecause $ AssumedFalse
                       $ AssumingNoError
@@ -376,7 +371,7 @@ readPartExpr sym Unassigned msg = do
   addFailedAssertion sym msg
 readPartExpr sym (PE p v) msg = do
   loc <- getCurrentProgramLoc sym
-  addAssertion sym (AS.LabeledPred p (SimError loc msg))
+  addAssertion sym (LabeledPred p (SimError loc msg))
   return v
 
 ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc ann
@@ -389,12 +384,12 @@ ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
   ]
  where
  ppAsm asm
-   | asConstantPred (asm^.AS.labeledPred) /= Just True =
+   | asConstantPred (asm^.labeledPred) /= Just True =
       ["* " PP.<> PP.hang 2
-        (PP.vcat [ppAssumptionReason (asm^.AS.labeledPredMsg),
-                  printSymExpr (asm^.AS.labeledPred)])]
+        (PP.vcat [ppAssumptionReason (asm^.labeledPredMsg),
+                  printSymExpr (asm^.labeledPred)])]
    | otherwise = []
 
  ppGl =
    PP.indent 2 $
-   PP.vsep [ppSimError (gl^.AS.labeledPredMsg), printSymExpr (gl^.AS.labeledPred)]
+   PP.vsep [ppSimError (gl^.labeledPredMsg), printSymExpr (gl^.labeledPred)]

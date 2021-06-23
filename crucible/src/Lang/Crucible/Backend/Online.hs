@@ -305,8 +305,10 @@ data SolverState scope solver =
 -- It contains the current assertions and program location.
 data OnlineBackendState solver userState scope = OnlineBackendState
   { assumptionStack ::
-      !(AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
-      -- ^ Number of times we have pushed
+      !(AssumptionStack
+          (LabeledPred (B.BoolExpr scope) AssumptionReason)
+          (LabeledPred (B.BoolExpr scope) SimError))
+
   , solverProc :: !(IORef (SolverState scope solver))
     -- ^ The solver process, if any.
   , currentFeatures :: !(IORef ProblemFeatures)
@@ -337,7 +339,8 @@ initialOnlineBackendState gen feats ust =
 
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
-  IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+  IO (AssumptionStack (LabeledPred (B.BoolExpr scope) AssumptionReason)
+                      (LabeledPred (B.BoolExpr scope) SimError))
 getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
 
@@ -371,7 +374,8 @@ resetSolverProcess' st = do
 
 restoreSolverState ::
   OnlineSolver solver =>
-  AS.LabeledGoalCollector (B.BoolExpr scope) AssumptionReason SimError ->
+  PG.GoalCollector (LabeledPred (B.BoolExpr scope) AssumptionReason)
+                   (LabeledPred (B.BoolExpr scope) SimError) ->
   OnlineBackendState solver userSt scope ->
   IO ()
 restoreSolverState gc st =
@@ -561,7 +565,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
 
                  -- Record assumption, even if trivial.
                  -- This allows us to keep track of the full path we are on.
-                 AS.assume a =<< getAssumptionStack sym
+                 AS.addAssumption a =<< getAssumptionStack sym
 
   addAssumptions sym a =
     -- NB, don't add the assumption to the assumption stack unless
