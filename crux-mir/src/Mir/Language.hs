@@ -366,15 +366,15 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let printCounterexamples gs = case gs of
             AtLoc _ _ gs1 -> printCounterexamples gs1
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
-            Goal _ (_, _) _ res ->
-                case res of
-                    NotProved _ (Just m) -> do
-                        logGoal gs
-                        when (showModel mirOpts) $ do
-                           outputLn "Model:"
-                           mjs <- Crux.modelJS m
-                           outputLn (Crux.renderJS mjs)
-                    _ -> return ()
+            ProvedGoal{} -> return ()
+            NotProvedGoal _ _ _ Nothing -> return ()
+            NotProvedGoal _ _ _ (Just m) -> do
+               logGoal gs
+               when (showModel mirOpts) $ do
+                  outputLn "Model:"
+                  mjs <- Crux.modelJS m
+                  outputLn (Crux.renderJS mjs)
+
     when anyFailed $ do
         outputLn ""
         outputLn "failures:"

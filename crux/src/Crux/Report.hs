@@ -3,6 +3,7 @@
 {-# Language OverloadedStrings #-}
 module Crux.Report where
 
+import Data.Void (Void)
 import System.FilePath
 import System.Directory (createDirectoryIfMissing, canonicalizePath)
 import System.IO
@@ -13,6 +14,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Control.Exception (catch, SomeException(..))
 import Control.Monad (forM_)
+import Prettyprinter (Doc)
 
 import qualified Data.Text.IO as T
 
@@ -80,21 +82,22 @@ maybeGenerateSource opts files =
 
 -- | Return a list of all program locations referenced in a set of
 -- proved goals.
-provedGoalLocs :: ProvedGoals a -> [ProgramLoc]
+provedGoalLocs :: ProvedGoals -> [ProgramLoc]
 provedGoalLocs (AtLoc loc _ goals) = loc : provedGoalLocs goals
 provedGoalLocs (Branch goals1 goals2) = provedGoalLocs goals1 ++
                                         provedGoalLocs goals2
-provedGoalLocs (Goal _ (err, _) _ _) = [simErrorLoc err]
+provedGoalLocs (ProvedGoal _ (err, _) _) = [simErrorLoc err]
+provedGoalLocs (NotProvedGoal _ (err, _) _ _) = [simErrorLoc err]
 
 -- | Return a list of all files referenced in a set of proved goals.
-provedGoalFiles :: ProvedGoals a -> [FilePath]
+provedGoalFiles :: ProvedGoals -> [FilePath]
 provedGoalFiles = mapMaybe posFile . map plSourceLoc . provedGoalLocs
   where
     posFile (SourcePos f _ _) = Just $ Text.unpack f
     posFile (BinaryPos f _) = Just $ Text.unpack f
     posFile _ = Nothing
 
-renderSideConds :: CruxOptions -> [ProvedGoals b] -> IO [ JS ]
+renderSideConds :: CruxOptions -> [ProvedGoals] -> IO [ JS ]
 renderSideConds opts = concatMapM (go [])
   where
   concatMapM f xs = concat <$> mapM f xs
@@ -104,7 +107,8 @@ renderSideConds opts = concatMapM (go [])
   flatBranch []                  = []
 
   isGoal x = case x of
-               Goal {} -> True
+               ProvedGoal {} -> True
+               NotProvedGoal {} -> True
                _       -> False
 
   go path gs =
@@ -117,66 +121,90 @@ renderSideConds opts = concatMapM (go [])
         let (now,rest) = partition isGoal (flatBranch [g1,g2]) in
           (++) <$> concatMapM (go path) now <*> concatMapM (go path) rest
 
-      Goal asmps conc triv proved
-        | skipSuccessReports opts
-        , Proved _ <- proved
-        -> pure []
+      ProvedGoal asmps conc triv
+        | skipSuccessReports opts -> pure []
+        | otherwise -> jsProvedGoal apath (map fst asmps) (fst conc) triv
 
+      NotProvedGoal asmps conc explain cex
         | skipIncompleteReports opts
         , (SimError _ (ResourceExhausted _), _) <- conc
         -> pure []
 
-        | otherwise
-        -> do s <- jsSideCond apath asmps conc triv proved
-              pure [s]
+        | otherwise -> jsNotProvedGoal apath (map fst asmps) (fst conc) explain cex
 
-          where
-            (ls,ps) = unzip (reverse path)
-            ap      = map fst (annotateLoops ps)
-            mkStep a l = jsObj [ "loop" ~> jsList (map jsNum a)
-                               , "loc"  ~> l ]
-            apath   = zipWith mkStep ap ls
+    where
+      (ls,ps) = unzip (reverse path)
+      ap      = map fst (annotateLoops ps)
+      mkStep a l = jsObj [ "loop" ~> jsList (map jsNum a)
+                         , "loc"  ~> l ]
+      apath   = zipWith mkStep ap ls
 
 
-jsSideCond ::
+jsProvedGoal ::
   [ JS ] ->
-  [(CrucibleAssumption (), asdf)] ->
-  (SimError, asdf) ->
+  [ CrucibleAssumption () ] ->
+  SimError ->
   Bool ->
-  ProofResult b ->
-  IO JS
-jsSideCond path asmps (conc,_) triv status =
+  IO [JS]
+jsProvedGoal apath asmps conc triv =
   do loc <- jsLoc (simErrorLoc conc)
      asmps' <- mapM mkAsmp asmps
-     ex <- example
-     pure $ jsObj
-       [ "status"          ~> proved
-       , "counter-example" ~> ex
+     pure [jsObj
+       [ "status"          ~> jsStr "ok"
        , "goal"            ~> goalReason
        , "details-short"   ~> goalDetails
        , "location"        ~> loc
        , "assumptions"     ~> jsList asmps'
        , "trivial"         ~> jsBool triv
-       , "path"            ~> jsList path
-       , "details-long"    ~> longDetails
-       ]
+       , "path"            ~> jsList apath
+       ]]
   where
-  proved = case (status, simErrorReason conc) of
-             (Proved{}, _) -> jsStr "ok"
-             (NotProved _ (Just _), _) -> jsStr "fail"
-             (NotProved _ _, ResourceExhausted _) -> jsStr "unknown"
-             (NotProved _ Nothing, _) -> jsStr "unknown"
+  mkAsmp asmp =
+    do l <- jsLoc (assumptionLoc asmp)
+       pure $ jsObj
+         [ "loc" ~> l
+         , "text" ~> jsStr (show (ppAssumption (\_ -> mempty) asmp))
+         ]
 
-  example = case status of
-             NotProved _ex (Just m) -> modelJS m
-             _                      -> pure jsNull
+  goalReason  = jsStr (simErrorReasonMsg (simErrorReason conc))
+  goalDetails
+     | null msg  = jsNull
+     | otherwise = jsStr msg
+    where msg = simErrorDetailsMsg (simErrorReason conc)
 
-  longDetails =
-     case status of
-       NotProved ex _ -> jsStr (show ex)
-       _ -> jsNull
 
-  mkAsmp (asmp,_) =
+jsNotProvedGoal ::
+  [ JS ] ->
+  [ CrucibleAssumption () ] ->
+  SimError ->
+  Doc Void ->
+  Maybe ModelView ->
+  IO [JS]
+jsNotProvedGoal apath asmps conc explain cex =
+  do loc <- jsLoc (simErrorLoc conc)
+     asmps' <- mapM mkAsmp asmps
+     ex <- case cex of
+             Just m -> modelJS m
+             _      -> pure jsNull
+     pure [jsObj
+       [ "status"          ~> status
+       , "counter-example" ~> ex
+       , "goal"            ~> goalReason
+       , "details-short"   ~> goalDetails
+       , "location"        ~> loc
+       , "assumptions"     ~> jsList asmps'
+       , "trivial"         ~> jsBool False
+       , "path"            ~> jsList apath
+       , "details-long"    ~> jsStr (show explain)
+       ]]
+  where
+  status = case cex of
+             Just _
+               | ResourceExhausted _ <- simErrorReason conc -> jsStr "unknown"
+               | otherwise -> jsStr "fail"
+             Nothing -> jsStr "unknown"
+
+  mkAsmp asmp =
     do l <- jsLoc (assumptionLoc asmp)
        pure $ jsObj
          [ "loc" ~> l

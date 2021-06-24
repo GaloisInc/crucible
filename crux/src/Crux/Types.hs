@@ -74,21 +74,27 @@ data ProcessedGoals =
                  , incompleteGoals :: !Integer
                  }
 
-data ProofResult a
-   = Proved [a]
+data ProofResult sym
+   = Proved [Either (Assumption sym) (Assertion sym)]
    | NotProved (Doc Void) (Maybe ModelView)
      -- ^ The first argument is an explanation of the failure and
      -- counter example as provided by the Explainer (if any) and the
      -- second maybe a model for the counter-example.
- deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)
 
-data ProvedGoals a =
-    AtLoc ProgramLoc (Maybe ProgramLoc) (ProvedGoals a)
-  | Branch (ProvedGoals a) (ProvedGoals a)
-  | Goal [(CrucibleAssumption (), Doc Void )]
-         (SimError, Doc Void) Bool (ProofResult a)
+data ProvedGoals =
+    AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
+  | Branch ProvedGoals ProvedGoals
+  | NotProvedGoal
+         [(CrucibleAssumption (), Doc Void)]
+         (SimError, Doc Void)
+         (Doc Void)
+         (Maybe ModelView)
+  | ProvedGoal
+         [(CrucibleAssumption (), Doc Void)]
+         (SimError, Doc Void)
+         Bool
     -- ^ Keeps only the explanations for the relevant assumptions.
     --
     --   * The array of (AssumptionReason,String) is the set of
@@ -113,7 +119,7 @@ data ProgramCompleteness
 data CruxSimulationResult =
   CruxSimulationResult
   { cruxSimResultCompleteness :: ProgramCompleteness
-  , cruxSimResultGoals        :: Seq (ProcessedGoals, ProvedGoals (Either (CrucibleAssumption ()) SimError))
+  , cruxSimResultGoals        :: Seq (ProcessedGoals, ProvedGoals)
   }
 
 

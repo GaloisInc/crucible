@@ -19,7 +19,6 @@ import           Prettyprinter ( (<+>) )
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PPR
 
-import           Lang.Crucible.Backend ( CrucibleAssumption () )
 import qualified Lang.Crucible.Simulator.SimError as CSE
 
 import           Crux.Types
@@ -54,15 +53,13 @@ sayWhatResultStatus (CruxSimulationResult cmpl gls) =
           | otherwise ->
               SayWhat Fail "Crux" "Internal error computing overall status."
 
-sayWhatFailedGoals :: Bool
-                   -> Seq (ProvedGoals (Either (CrucibleAssumption ()) CSE.SimError))
-                   -> SayWhat
+sayWhatFailedGoals :: Bool -> Seq ProvedGoals -> SayWhat
 sayWhatFailedGoals skipIncompl allGls =
   let failedDoc = \case
         AtLoc _ _ gls -> failedDoc gls
         Branch gls1 gls2 -> failedDoc gls1 <> failedDoc gls2
-        Goal _asmps _goal _trivial (Proved _) -> []
-        Goal _asmps (err, _msg) _trivial (NotProved ex mdl) ->
+        ProvedGoal _asmps _goal _trivial -> []
+        NotProvedGoal _asmps (err, _msg) ex mdl ->
           if | skipIncompl, CSE.SimError _ (CSE.ResourceExhausted _) <- err -> []
              | Just _ <- mdl ->
                  [ PP.nest 2 $ PP.vcat

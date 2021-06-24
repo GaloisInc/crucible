@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Crux.LLVM.Compile where
 
@@ -230,25 +231,25 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
   case gs of
     AtLoc _ _ gs1 -> go gs1
     Branch g1 g2  -> go g1 >> go g2
-    Goal _ (c,_) _ r ->
-      let suff = case plSourceLoc (simErrorLoc c) of
-                   SourcePos _ l _ -> show l
-                   _               -> "unknown"
-          skipGoal = case simErrorReason c of
-                       ResourceExhausted _ -> True
-                       _ -> False
-
-      in case (r, skipGoal) of
-           (NotProved _ (Just m), False) ->
-             do try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
-                  Left (ex :: SomeException) -> do
-                    logGoal gs
-                    say Fail "Crux" "Failed to build counterexample executable"
-                    logException ex
-                  Right (_prt,dbg) -> do
-                    say Simply "Crux" ("*** debug executable: " <> T.pack dbg)
-                    say Simply "Crux" ("*** break on line: " <> T.pack suff)
-           _ -> return ()
+    -- skip proved goals
+    ProvedGoal{} -> return ()
+    -- skip unknown goals
+    NotProvedGoal _ _ _ Nothing -> return ()
+    -- skip resource exhausted goals
+    NotProvedGoal _ (simErrorReason -> ResourceExhausted{},_) _ _ -> return ()
+    -- counterexample to non-resource-exhaustion goal
+    NotProvedGoal _ (c,_) _ (Just m) ->
+      do let suff = case plSourceLoc (simErrorLoc c) of
+                      SourcePos _ l _ -> show l
+                      _               -> "unknown"
+         try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
+           Left (ex :: SomeException) -> do
+             logGoal gs
+             say Fail "Crux" "Failed to build counterexample executable"
+             logException ex
+           Right (_prt,dbg) -> do
+             say Simply "Crux" ("*** debug executable: " <> T.pack dbg)
+             say Simply "Crux" ("*** break on line: " <> T.pack suff)
 
 buildModelExes :: Logs => CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
 buildModelExes cruxOpts llvmOpts suff counter_src =

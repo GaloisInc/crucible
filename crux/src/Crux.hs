@@ -520,8 +520,6 @@ runSimulator cruxOpts simCallback = do
   say Noisily "Crux" ("Checking "
                       <> T.intercalate ", " (T.pack <$> inputFiles cruxOpts))
   createDirectoryIfMissing True (outDir cruxOpts)
-  compRef <- newIORef ProgramComplete
-  glsRef <- newIORef Seq.empty
   Some (nonceGen :: NonceGenerator IO s) <- newIONonceGenerator
   case CCS.parseSolverConfig cruxOpts of
     Right (CCS.SingleOnlineSolver onSolver) ->
@@ -529,7 +527,7 @@ runSimulator cruxOpts simCallback = do
         let monline = Just SomeOnlineSolver
         setupSolver cruxOpts (onlineSolverOutput cruxOpts) sym
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym monline
-        doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline (proveGoalsOnline sym)
+        doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline (proveGoalsOnline sym)
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
       withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing $ \_ sym -> do
         let monline = Just SomeOnlineSolver
@@ -541,7 +539,7 @@ runSimulator cruxOpts simCallback = do
           -- with the initial setup of the online solver (since it could have
           -- been a different solver)
           extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration sym)
-          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline (proveGoalsOffline [adapter])
+          doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline (proveGoalsOffline [adapter])
     Right (CCS.OnlyOfflineSolvers offSolvers) -> do
       withFloatRepr (Proxy @s) cruxOpts offSolvers $ \floatRepr -> do
         withSolverAdapters offSolvers $ \adapters -> do
@@ -551,7 +549,7 @@ runSimulator cruxOpts simCallback = do
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options =<< adapters) (getConfiguration sym)
           (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts sym Nothing
-          doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo Nothing (proveGoalsOffline adapters)
+          doSimWithResults cruxOpts simCallback sym execFeatures profInfo Nothing (proveGoalsOffline adapters)
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) -> do
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
@@ -566,7 +564,7 @@ runSimulator cruxOpts simCallback = do
           -- use the same float mode, so no mismatch here should be possible.
           case testEquality floatRepr1 floatRepr2 of
             Just Refl ->
-              doSimWithResults cruxOpts simCallback compRef glsRef pathSatSym execFeatures profInfo (Just SomeOnlineSolver) (proveGoalsOnline goalSym)
+              doSimWithResults cruxOpts simCallback pathSatSym execFeatures profInfo (Just SomeOnlineSolver) (proveGoalsOnline goalSym)
             Nothing -> fail "Impossible: the argument interpretation produced two different float modes"
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
@@ -579,7 +577,7 @@ type ProverCallback sym =
     SimCtxt personality sym ext ->
     Explainer sym t Void ->
     Maybe (Goals (Assumption sym) (Assertion sym)) ->
-    IO (ProcessedGoals, Maybe (Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym)))))
+    IO (ProcessedGoals, Maybe (Goals (Assumption sym) (Assertion sym, ProofResult sym)))
 
 -- | Core invocation of the symbolic execution engine
 --
@@ -594,8 +592,6 @@ doSimWithResults ::
   (Logs, IsSymInterface sym, sym ~ WEB.ExprBuilder t st fs) =>
   CruxOptions ->
   SimulatorCallback ->
-  IORef ProgramCompleteness ->
-  IORef (Seq.Seq (ProcessedGoals, ProvedGoals (Either (CrucibleAssumption ()) SimError))) ->
   sym ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
@@ -604,7 +600,9 @@ doSimWithResults ::
     {- ^ The function to use to prove goals; this is intended to be
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO CruxSimulationResult
-doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo monline goalProver = do
+doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProver = do
+  compRef <- newIORef ProgramComplete
+  glsRef <- newIORef Seq.empty
 
   frm <- pushAssumptionFrame sym
   inFrame profInfo "<Crux>" $ do
@@ -615,12 +613,12 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
     case pathStrategy cruxOpts of
       AlwaysMergePaths ->
         do res <- executeCrucible (map genericToExecutionFeature execFeatures ++ exts) initSt
-           void $ resultCont frm explainFailure (Result res)
+           void $ resultCont compRef glsRef frm explainFailure (Result res)
       SplitAndExploreDepthFirst ->
         do (i,ws) <- executeCrucibleDFSPaths
                          (map genericToExecutionFeature execFeatures ++ exts)
                          initSt
-                         (resultCont frm explainFailure . Result)
+                         (resultCont compRef glsRef frm explainFailure . Result)
            say Simply "Crux" ("Total paths explored: " <> T.pack (show i))
            unless (null ws) $
              say Warn "Crux"
@@ -634,7 +632,7 @@ doSimWithResults cruxOpts simCallback compRef glsRef sym execFeatures profInfo m
  where
  failfast = proofGoalsFailFast cruxOpts
 
- resultCont frm explainFailure (Result res) =
+ resultCont compRef glsRef frm explainFailure (Result res) =
    do timedOut <-
         case res of
           TimeoutResult {} ->
