@@ -140,8 +140,8 @@ renderSideConds opts = concatMapM (go [])
 
 jsSideCond ::
   [ JS ] ->
-  [(AssumptionReason,String)] ->
-  (SimError,String) ->
+  [(CrucibleAssumption (), asdf)] ->
+  (SimError, asdf) ->
   Bool ->
   ProofResult b ->
   IO JS
@@ -180,7 +180,7 @@ jsSideCond path asmps (conc,_) triv status =
     do l <- jsLoc (assumptionLoc asmp)
        pure $ jsObj
          [ "loc" ~> l
-         , "text" ~> jsStr (show (ppAssumptionReason asmp))
+         , "text" ~> jsStr (show (ppAssumption (\_ -> mempty) asmp))
          ]
 
   goalReason  = jsStr (simErrorReasonMsg (simErrorReason conc))

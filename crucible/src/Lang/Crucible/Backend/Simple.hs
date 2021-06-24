@@ -51,7 +51,7 @@ type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 -- It contains the current assertion stack.
 
 type AS t =
-     AssumptionStack (LabeledPred (B.BoolExpr t) AssumptionReason)
+     AssumptionStack (CrucibleAssumption (B.BoolExpr t))
                      (LabeledPred (B.BoolExpr t) SimError)
 
 newtype SimpleBackendState t = SimpleBackendState { sbAssumptionStack :: AS t }
@@ -81,9 +81,9 @@ instance IsBoolSolver (SimpleBackend t fs) where
      AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
-    case asConstantPred (a^.labeledPred) of
-      Just False -> abortExecBecause (AssumedFalse (a ^. labeledPredMsg))
-      _          -> AS.addAssumption a =<< getAssumptionStack sym
+    case impossibleAssumption a of
+      Just rsn -> abortExecBecause rsn
+      Nothing  -> AS.addAssumption a =<< getAssumptionStack sym
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym
@@ -95,7 +95,7 @@ instance IsBoolSolver (SimpleBackend t fs) where
   getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- AS.collectAssumptions stk
-    andAllOf sym (folded.labeledPred) ps
+    andAllOf sym (folded.traverseAssumption) ps
 
   getProofObligations sym = do
     stk <- getAssumptionStack sym

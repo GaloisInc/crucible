@@ -51,7 +51,7 @@ import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
           ( IsSymInterface, addDurableAssertion, addFailedAssertion
-          , addAssumption, LabeledPred(..), AssumptionReason(..))
+          , addAssumption, LabeledPred(..), CrucibleAssumption(..))
 import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
@@ -443,8 +443,7 @@ do_assume arch mvar sym (Empty :> p :> pFile :> line) =
      let pos = SourcePos (T.pack file) l 0
      loc <- liftIO $ getCurrentProgramLoc sym
      let loc' = loc{ plSourceLoc = pos }
-     let msg = AssumptionReason loc' "crucible_assume"
-     liftIO $ addAssumption sym (LabeledPred cond msg)
+     liftIO $ addAssumption sym (GenericAssumption loc' "crucible_assume" cond)
 
 do_assert ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
@@ -499,8 +498,8 @@ cprover_assume ::
 cprover_assume _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
-     let msg = AssumptionReason loc "__CPROVER_assume"
-     addAssumption sym (LabeledPred cond msg)
+     addAssumption sym (GenericAssumption loc "__CPROVER_assume" cond)
+
 
 cprover_assert ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
@@ -549,8 +548,7 @@ sv_comp_assume ::
 sv_comp_assume _mvar sym (Empty :> p) = liftIO $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
-     let msg = AssumptionReason loc "__VERIFIER_assume"
-     addAssumption sym (LabeledPred cond msg)
+     addAssumption sym (GenericAssumption loc "__VERIFIER_assume" cond)
 
 sv_comp_assert ::
   (IsSymInterface sym) =>

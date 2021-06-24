@@ -306,7 +306,7 @@ data SolverState scope solver =
 data OnlineBackendState solver userState scope = OnlineBackendState
   { assumptionStack ::
       !(AssumptionStack
-          (LabeledPred (B.BoolExpr scope) AssumptionReason)
+          (CrucibleAssumption (B.BoolExpr scope))
           (LabeledPred (B.BoolExpr scope) SimError))
 
   , solverProc :: !(IORef (SolverState scope solver))
@@ -339,7 +339,7 @@ initialOnlineBackendState gen feats ust =
 
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
-  IO (AssumptionStack (LabeledPred (B.BoolExpr scope) AssumptionReason)
+  IO (AssumptionStack (CrucibleAssumption (B.BoolExpr scope))
                       (LabeledPred (B.BoolExpr scope) SimError))
 getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
@@ -374,7 +374,7 @@ resetSolverProcess' st = do
 
 restoreSolverState ::
   OnlineSolver solver =>
-  PG.GoalCollector (LabeledPred (B.BoolExpr scope) AssumptionReason)
+  PG.GoalCollector (CrucibleAssumption (B.BoolExpr scope))
                    (LabeledPred (B.BoolExpr scope) SimError) ->
   OnlineBackendState solver userSt scope ->
   IO ()
@@ -468,16 +468,16 @@ data BranchResult
 restoreAssumptionFrames ::
   OnlineSolver solver =>
   SolverProcess scope solver ->
-  AssumptionFrames (LabeledPred (B.BoolExpr scope) AssumptionReason) ->
+  AssumptionFrames (CrucibleAssumption (B.BoolExpr scope)) ->
   IO ()
 restoreAssumptionFrames proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
-     mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList base)
+     (mapM_ . traverseAssumption) (SMT.assume (solverConn proc)) base
 
      -- populate the pushed frames
      forM_ (map snd $ toList frms) $ \frm ->
       do push proc
-         mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList frm)
+         (mapM_ . traverseAssumption) (SMT.assume (solverConn proc)) frm
 
 considerSatisfiability ::
   OnlineSolver solver =>
@@ -552,35 +552,35 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
      AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
-    let cond = asConstantPred (a^.labeledPred)
-    in case cond of
-         Just False -> abortExecBecause (AssumedFalse (a^.labeledPredMsg))
-         _ -> -- Send assertion to the solver, unless it is trivial.
-              -- NB, don't add the assumption to the assumption stack unless
-              -- the solver assumptions succeeded
-              do withSolverConn sym $ \conn ->
-                   case cond of
-                     Just True -> return ()
-                     _ -> SMT.assume conn (a^.labeledPred)
+    case impossibleAssumption a of
+      Just rsn -> abortExecBecause rsn
+      Nothing ->
+          do -- Send assertion to the solver, unless it is trivial.
+             void $ traverseAssumption
+               (\p -> withSolverConn sym (\conn ->
+                  unless (asConstantPred p == Just True) (SMT.assume conn p)))
+               a
 
-                 -- Record assumption, even if trivial.
-                 -- This allows us to keep track of the full path we are on.
-                 AS.addAssumption a =<< getAssumptionStack sym
+             -- Record assumption, even if trivial.
+             -- This allows us to keep track of the full path we are on.
+             AS.addAssumption a =<< getAssumptionStack sym
 
-  addAssumptions sym a =
+  addAssumptions sym as =
     -- NB, don't add the assumption to the assumption stack unless
     -- the solver assumptions succeeded
     do withSolverConn sym $ \conn ->
           -- Tell the solver of assertions
-          mapM_ (SMT.assume conn . view labeledPred) (toList a)
+          (mapM_ . traverseAssumption)
+            (\p -> unless (asConstantPred p == Just True) (SMT.assume conn p))
+            as
+
        -- Add assertions to list
-       stk <- getAssumptionStack sym
-       appendAssumptions a stk
+       appendAssumptions as =<< getAssumptionStack sym
 
   getPathCondition sym =
     do stk <- getAssumptionStack sym
        ps <- AS.collectAssumptions stk
-       andAllOf sym (folded.labeledPred) ps
+       andAllOf sym (folded.traverseAssumption) ps
 
   collectAssumptions sym =
     AS.collectAssumptions =<< getAssumptionStack sym

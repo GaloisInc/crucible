@@ -62,7 +62,7 @@ import What4.SatResult (SatResult(..))
 
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
-    ( AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption
+    ( CrucibleAssumption(..), IsBoolSolver, LabeledPred(..), addAssumption
     , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
@@ -529,7 +529,7 @@ bindFn _symOnline _cs fn cfg =
                        col <- maybe (fail "not a constant column number") pure
                               (BV.asUnsigned <$> asBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
-                       let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
-                       liftIO $ addAssumption s (LabeledPred (regValue c) reason)
+                       let reason = GenericAssumption loc ("Assumption \n\t" <> src <> "\nfrom " <> locStr) (regValue c)
+                       liftIO $ addAssumption s reason
                        return ()
                ]

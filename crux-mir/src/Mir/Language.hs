@@ -257,8 +257,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
 
              -- Label the current path for later use
              sym <- C.getSymInterface
-             liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
-                 C.ExploringAPath entry (Just $ testStartLoc fnName)
+             liftIO $ C.addAssumption sym $
+                 C.BranchCondition entry (Just $ testStartLoc fnName) (W4.truePred sym)
 
              -- Find and run the target function
              C.AnyCFG cfg <- case Map.lookup (idText fnName) cfgMap of

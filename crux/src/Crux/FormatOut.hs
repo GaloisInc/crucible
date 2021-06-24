@@ -19,7 +19,7 @@ import           Prettyprinter ( (<+>) )
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PPR
 
-import           Lang.Crucible.Backend ( AssumptionReason )
+import           Lang.Crucible.Backend ( CrucibleAssumption () )
 import qualified Lang.Crucible.Simulator.SimError as CSE
 
 import           Crux.Types
@@ -55,7 +55,7 @@ sayWhatResultStatus (CruxSimulationResult cmpl gls) =
               SayWhat Fail "Crux" "Internal error computing overall status."
 
 sayWhatFailedGoals :: Bool
-                   -> Seq (ProvedGoals (Either AssumptionReason CSE.SimError))
+                   -> Seq (ProvedGoals (Either (CrucibleAssumption ()) CSE.SimError))
                    -> SayWhat
 sayWhatFailedGoals skipIncompl allGls =
   let failedDoc = \case

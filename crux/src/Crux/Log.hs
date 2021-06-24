@@ -31,7 +31,7 @@ import qualified Lumberjack as LJ
 import           System.Console.ANSI
 import           System.IO
 
-import           Lang.Crucible.Backend ( AssumptionReason )
+import           Lang.Crucible.Backend ( CrucibleAssumption () )
 import qualified Lang.Crucible.Simulator.SimError as CSE
 
 import           Crux.Types
@@ -54,7 +54,7 @@ logSimResult :: Logs => Bool -> CruxSimulationResult -> IO ()
 logSimResult showFailedGoals = LJ.writeLog (_logSimResult ?outputConfig showFailedGoals)
 
 -- | Function used to output any individual goal proof failures from a simulation
-logGoal :: Logs => ProvedGoals (Either AssumptionReason CSE.SimError) -> IO ()
+logGoal :: Logs => ProvedGoals (Either (CrucibleAssumption ()) CSE.SimError) -> IO ()
 logGoal = LJ.writeLog (_logGoal ?outputConfig)
 
 
@@ -82,7 +82,7 @@ data OutputConfig =
                , _logSimResult :: Bool -> LJ.LogAction IO CruxSimulationResult
                  -- ^ True to show individual goals, false for summary only
                , _logGoal :: LJ.LogAction IO (ProvedGoals
-                                              (Either AssumptionReason
+                                              (Either (CrucibleAssumption ())
                                                CSE.SimError))
                }
 

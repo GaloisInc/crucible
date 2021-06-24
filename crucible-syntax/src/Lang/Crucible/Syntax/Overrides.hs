@@ -48,11 +48,11 @@ proveObligations =
      liftIO $ do
        hPutStrLn h "Attempting to prove all outstanding obligations!\n"
 
-       obls <- proofGoalsToList <$> getProofObligations sym
+       obls <- maybe [] goalsToList <$> getProofObligations sym
        clearProofObligations sym
 
        forM_ obls $ \o ->
-         do let asms = map (view labeledPred) $ toList $ proofAssumptions o
+         do let asms = map (assumptionPred sym) $ toList $ proofAssumptions o
             gl <- notPred sym ((proofGoal o)^.labeledPred)
             let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                          , logReason = "assertion proof" }

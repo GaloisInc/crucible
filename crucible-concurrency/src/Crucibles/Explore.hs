@@ -130,11 +130,14 @@ schedule prims globs = \case
   -- though it wasn't actually runnable. In any case, restart the computation
   -- using the mainCont continuation.
   ResultState (AbortedResult ctx (AbortedExec rsn gps))
-    | InfeasibleBranch <- rsn ->
+    | InfeasibleBranch _ <- rsn ->
       return $ ExecutionFeatureNewState s0
-    | AssumedFalse _   <- rsn ->
+    | AssertionFailure _ <- rsn ->
       return $ ExecutionFeatureNewState s0
+
+      -- TODO? This only covers the `VariantOptionExhausted` constructor.  Why is it different?
     | otherwise               -> return ExecutionFeatureNoChange
+
     where
       k  = ctx ^. cruciblePersonality.scheduler.to mainCont
       t  = ctx ^. cruciblePersonality.scheduler.retRepr
@@ -521,7 +524,7 @@ restoreBranchingThread tID dir branchPred stk tframe fframe =
                             then (tframe, return branchPred)
                             else (fframe, notPred sym branchPred)
      assmPred <- liftIO assm
-     liftIO $ addAssumption sym (LabeledPred assmPred (ExploringAPath loc (pausedLoc frame)))
+     liftIO $ addAssumption sym (BranchCondition loc (pausedLoc frame) assmPred)
      s <- get
      case frame of
        PausedFrame frm cont l ->
@@ -536,7 +539,9 @@ abortInfeasible ::
   ThreadExecM alg sym ext ret rtp f a (ExecState (ThreadExec alg sym ext ret) sym ext rtp)
 abortInfeasible =
   do s <- get
-     liftIO $ runReaderT (abortExec InfeasibleBranch) s
+     sym <- use (stateContext.ctxSymInterface)
+     loc <- liftIO $ getCurrentProgramLoc sym
+     liftIO $ runReaderT (abortExec (InfeasibleBranch loc)) s
 
 returnFinishedResult ::
   ( SchedulerConstraints sym ext alg
@@ -559,7 +564,7 @@ returnFinishedResult mres =
             s <- get
             liftIO $
               do putStrLn "<deadlock>"
-                 runReaderT (abortExec (AssumedFalse $ AssumingNoError simerr)) s
+                 runReaderT (abortExec (AssertionFailure simerr)) s
 
 -- | ThreadState helpers
 

@@ -154,6 +154,6 @@ run (cruxOpts, opts) =
             return ()
 
 printCounterexamples :: Crux.Logs
-                     => ProvedGoals (Either AssumptionReason SimError)
+                     => ProvedGoals (Either (CrucibleAssumption ()) SimError)
                      -> IO ()
 printCounterexamples = Crux.logGoal

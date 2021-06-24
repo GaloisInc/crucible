@@ -212,11 +212,11 @@ mergeAssumptions ::
   IO (Seq (Assumption sym))
 mergeAssumptions sym p thens elses =
   do pnot <- notPred sym p
-     th' <- (traverse.labeledPred) (impliesPred sym p) thens
-     el' <- (traverse.labeledPred) (impliesPred sym pnot) elses
+     th' <- (traverse.traverseAssumption) (impliesPred sym p) thens
+     el' <- (traverse.traverseAssumption) (impliesPred sym pnot) elses
      let xs = th' <> el'
      -- Filter out all the trivally true assumptions
-     return (Seq.filter ((/= Just True) . asConstantPred . view labeledPred) xs)
+     return (Seq.filter (not . trivialAssumption) xs)
 
 forgetPostdomFrame ::
   PausedFrame p sym ext rtp g ->
@@ -428,10 +428,8 @@ runErrorHandler msg st =
    in ctxSolverProof ctx $
       do loc <- getCurrentProgramLoc sym
          let err = SimError loc msg
-         let obl = LabeledPred (falsePred sym) err
-         let rsn = AssumedFalse (AssumingNoError err)
-         addProofObligation sym obl
-         return (AbortState rsn st)
+         addProofObligation sym (LabeledPred (falsePred sym) err)
+         return (AbortState (AssertionFailure err) st)
 
 -- | Abort the current thread of execution with an error.
 --   This adds a proof obligation that requires the current
@@ -615,7 +613,7 @@ performIntraFrameMerge tgt = do
             do pathAssumes      <- liftIO $ popAssumptionFrame sym assume_frame
                pnot             <- liftIO $ notPred sym pred
                new_assume_frame <-
-                  liftIO $ assumeInNewFrame sym (LabeledPred pnot (ExploringAPath loc (pausedLoc next)))
+                  liftIO $ assumeInNewFrame sym (BranchCondition loc (pausedLoc next) pnot)
 
                -- The current branch is done
                let new_other = VFFCompletePath pathAssumes er
@@ -735,7 +733,7 @@ resumeValueFromFrameAbort ctx0 ar0 = do
 
            -- We have some more work to do.
            VFFActivePath n ->
-             do liftIO $ addAssumption sym (LabeledPred pnot (ExploringAPath loc (pausedLoc n)))
+             do liftIO $ addAssumption sym (BranchCondition loc (pausedLoc n) pnot)
                 resumeFrame n nextCtx
 
            -- The other branch had finished successfully;
@@ -937,7 +935,7 @@ intra_branch p t_label f_label tgt = do
       do p' <- liftIO $ predEqConst sym p chosen_branch
          let a_frame = if chosen_branch then t_label else f_label
          loc <- liftIO $ getCurrentProgramLoc sym
-         liftIO $ addAssumption sym (LabeledPred p' (ExploringAPath loc (pausedLoc a_frame)))
+         liftIO $ addAssumption sym (BranchCondition loc (pausedLoc a_frame) p')
          resumeFrame a_frame ctx
 {-# INLINABLE intra_branch #-}
 
@@ -966,7 +964,7 @@ performIntraFrameSplit p a_frame o_frame tgt =
      o_frame' <- pushPausedFrame o_frame
 
      assume_frame <-
-       liftIO $ assumeInNewFrame sym (LabeledPred p (ExploringAPath loc (pausedLoc a_frame')))
+       liftIO $ assumeInNewFrame sym (BranchCondition loc (pausedLoc a_frame') p)
 
      -- Create context for paused frame.
      let todo = VFFActivePath o_frame'

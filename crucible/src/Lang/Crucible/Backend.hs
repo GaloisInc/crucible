@@ -26,22 +26,29 @@ obligations with a solver backend.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Backend
   ( IsBoolSolver(..)
   , IsSymInterface
 
     -- * Assumption management
-  , AssumptionReason(..)
-  , ppAssumptionReason
-  , assumptionLoc
-  , Assertion
+  , CrucibleAssumption(..)
   , Assumption
+  , Assertion
+
+  , trivialAssumption
+  , impossibleAssumption
+  , ppAssumption
+  , assumptionLoc
+  , traverseAssumption
+  , assumptionPred
   , ProofObligation
   , ProofObligations
   , AssumptionState
@@ -55,6 +62,7 @@ module Lang.Crucible.Backend
   , AS.FrameIdentifier
   , PG.ProofGoal(..)
   , PG.Goals(..)
+  , PG.goalsToList
 
     -- ** Aborting execution
   , AbortExecReason(..)
@@ -74,7 +82,7 @@ module Lang.Crucible.Backend
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), Traversal)
 import           Control.Monad
 import           Data.Foldable (toList)
 import           Data.Sequence (Seq)
@@ -92,42 +100,65 @@ import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 
-data AssumptionReason =
-    AssumptionReason ProgramLoc String
+data CrucibleAssumption p
+  = GenericAssumption ProgramLoc String p
     -- ^ An unstructured description of the source of an assumption.
 
-  | ExploringAPath ProgramLoc (Maybe ProgramLoc)
+  | BranchCondition ProgramLoc (Maybe ProgramLoc) p
     -- ^ This arose because we want to explore a specific path.
     -- The first location is the location of the branch predicate.
     -- The second one is the location of the branch target.
 
-  | AssumingNoError SimError
+  | AssumingNoError SimError p
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
-    deriving Show
+ deriving (Functor)
 
-
-assumptionLoc :: AssumptionReason -> ProgramLoc
+assumptionLoc :: CrucibleAssumption p -> ProgramLoc
 assumptionLoc r =
   case r of
-    AssumptionReason l _ -> l
-    ExploringAPath l _   -> l
-    AssumingNoError s    -> simErrorLoc s
+    GenericAssumption l _ _ -> l
+    BranchCondition  l _ _   -> l
+    AssumingNoError s _    -> simErrorLoc s
+
+impossibleAssumption :: IsExpr p => CrucibleAssumption (p BaseBoolType) -> Maybe AbortExecReason
+impossibleAssumption (AssumingNoError err p)
+  | Just False <- asConstantPred p = Just (AssertionFailure err)
+impossibleAssumption (BranchCondition loc _ p)
+  | Just False <- asConstantPred p = Just (InfeasibleBranch loc)
+impossibleAssumption (GenericAssumption loc _ p)
+  | Just False <- asConstantPred p = Just (InfeasibleBranch loc)
+impossibleAssumption _ = Nothing
+
+
+traverseAssumption :: Traversal (CrucibleAssumption p) (CrucibleAssumption p') p p'
+traverseAssumption f = \case
+  GenericAssumption loc msg p -> GenericAssumption loc msg <$> f p
+  BranchCondition l t p -> BranchCondition l t <$> f p
+  AssumingNoError err p -> AssumingNoError err <$> f p
+
+assumptionPred :: IsExprBuilder sym =>
+  sym -> Assumption sym -> Pred sym
+assumptionPred _ (GenericAssumption _ _ p) = p
+assumptionPred _ (BranchCondition _ _ p) = p
+assumptionPred _ (AssumingNoError _ p) = p
+
 
 type Assertion sym  = LabeledPred (Pred sym) SimError
-type Assumption sym = LabeledPred (Pred sym) AssumptionReason
+type Assumption sym = CrucibleAssumption (Pred sym)
 type ProofObligation sym = AS.ProofGoal (Assumption sym) (Assertion sym)
 type ProofObligations sym = Maybe (AS.Goals (Assumption sym) (Assertion sym))
 type AssumptionState sym = PG.GoalCollector (Assumption sym) (Assertion sym)
 
 -- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =
-    InfeasibleBranch
-    -- ^ We tried to decide which way to go at a branch point,
-    -- but neither option is viable.
+    InfeasibleBranch ProgramLoc
+    -- ^ We have discovered that the currently-executing
+    --   branch is infeasible. The given program location
+    --   describes the point at which infeasibility was discovered.
 
-  | AssumedFalse AssumptionReason
-    -- ^ We assumed false on some branch
+  | AssertionFailure SimError
+    -- ^ An assertion concretely failed.
 
   | VariantOptionsExhausted ProgramLoc
     -- ^ We tried all possible cases for a variant, and now we should
@@ -141,22 +172,40 @@ instance Exception AbortExecReason
 ppAbortExecReason :: AbortExecReason -> PP.Doc ann
 ppAbortExecReason e =
   case e of
-    InfeasibleBranch -> "Abort an infeasible branch."
-    AssumedFalse reason ->
+    InfeasibleBranch l -> ppLocated l "Executing branch was discovered to be infeasible."
+    AssertionFailure err ->
       PP.vcat
-      [ "Abort due to false assumption:"
-      , PP.indent 2 (ppAssumptionReason reason)
+      [ "Abort due to assertion failure:"
+      , PP.indent 2 (ppSimError err)
       ]
     VariantOptionsExhausted l -> ppLocated l "Variant options exhausted."
 
-ppAssumptionReason :: AssumptionReason -> PP.Doc ann
-ppAssumptionReason e =
+ppAssumption :: (p -> PP.Doc ann) -> CrucibleAssumption p -> PP.Doc ann
+ppAssumption ppDoc e =
   case e of
-    AssumptionReason l msg -> ppLocated l (PP.pretty msg)
-    ExploringAPath l Nothing -> "The branch in" PP.<+> ppFn l PP.<+> "at" PP.<+> ppLoc l
-    ExploringAPath l (Just t) ->
-        "The branch in" PP.<+> ppFn l PP.<+> "from" PP.<+> ppLoc l PP.<+> "to" PP.<+> ppLoc t
-    AssumingNoError simErr -> ppSimError simErr
+    GenericAssumption l msg p ->
+      PP.vsep [ ppLocated l (PP.pretty msg)
+              , ppDoc p
+              ]
+    BranchCondition l Nothing p ->
+      PP.vsep [ "The branch in" PP.<+> ppFn l PP.<+> "at" PP.<+> ppLoc l
+              , ppDoc p
+              ]
+    BranchCondition l (Just t) p ->
+      PP.vsep [ "The branch in" PP.<+> ppFn l PP.<+> "from" PP.<+> ppLoc l PP.<+> "to" PP.<+> ppLoc t
+              , ppDoc p
+              ]
+    AssumingNoError simErr p ->
+      PP.vsep [ "Assuming the following error does not occur:"
+              , PP.indent 2 (ppSimError simErr)
+              , ppDoc p
+              ]
+
+trivialAssumption :: IsExpr p => CrucibleAssumption (p BaseBoolType) -> Bool
+trivialAssumption (GenericAssumption _ _ p) = asConstantPred p == Just True
+trivialAssumption (BranchCondition _ _ p) = asConstantPred p == Just True
+trivialAssumption (AssumingNoError _ p) = asConstantPred p == Just True
+
 
 ppLocated :: ProgramLoc -> PP.Doc ann -> PP.Doc ann
 ppLocated l x = "in" PP.<+> ppFn l PP.<+> ppLoc l PP.<> ":" PP.<+> x
@@ -306,7 +355,7 @@ assumeAssertion sym (LabeledPred p msg) =
   do assert_then_assume_opt <- getOpt
        =<< getOptionSetting assertThenAssumeConfigOption (getConfiguration sym)
      when assert_then_assume_opt $
-       addAssumption sym (LabeledPred p (AssumingNoError msg))
+       addAssumption sym (AssumingNoError msg p)
 
 -- | Throw an exception, thus aborting the current execution path.
 abortExecBecause :: AbortExecReason -> IO a
@@ -331,12 +380,9 @@ assert sym p msg =
 addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym) => sym -> SimErrorReason -> IO a
 addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
-     let err = LabeledPred (falsePred sym) (SimError loc msg)
-     addProofObligation sym err
-     abortExecBecause $ AssumedFalse
-                      $ AssumingNoError
-                        SimError { simErrorLoc = loc, simErrorReason = msg }
-
+     let err = SimError loc msg
+     addProofObligation sym (LabeledPred (falsePred sym) err)
+     abortExecBecause (AssertionFailure err)
 
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM ::
@@ -374,7 +420,7 @@ readPartExpr sym (PE p v) msg = do
   addAssertion sym (LabeledPred p (SimError loc msg))
   return v
 
-ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc ann
+ppProofObligation :: IsExprBuilder sym => sym -> ProofObligation sym -> PP.Doc ann
 ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
   PP.vsep
   [ if null as then mempty else
@@ -384,10 +430,7 @@ ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
   ]
  where
  ppAsm asm
-   | asConstantPred (asm^.labeledPred) /= Just True =
-      ["* " PP.<> PP.hang 2
-        (PP.vcat [ppAssumptionReason (asm^.labeledPredMsg),
-                  printSymExpr (asm^.labeledPred)])]
+   | not (trivialAssumption asm) = ["* " PP.<> PP.hang 2 (ppAssumption printSymExpr asm)]
    | otherwise = []
 
  ppGl =

@@ -33,7 +33,6 @@ import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.Analysis.Postdom
 import Lang.Crucible.Backend
-import Lang.Crucible.Backend.ProofGoals
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
@@ -138,7 +137,7 @@ simulateProgram fn theInput outh profh opts setup =
                               forM_ (goalsToList gs) (\g ->
                                 do hPrint outh (ppProofObligation sym g)
                                    neggoal <- notPred sym (view labeledPred (proofGoal g))
-                                   let bs = neggoal : map (view labeledPred) (toList (proofAssumptions g))
+                                   let bs = neggoal : map (assumptionPred sym) (toList (proofAssumptions g))
                                    runZ3InOverride sym defaultLogData bs (\case
                                      Sat _   -> hPutStrLn outh "COUNTEREXAMPLE"
                                      Unsat _ -> hPutStrLn outh "PROVED"

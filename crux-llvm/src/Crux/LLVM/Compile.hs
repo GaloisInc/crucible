@@ -73,7 +73,7 @@ getClang = attempt (map inPath clangs)
                        Right a -> return a
 
 runClang :: Logs => CruxOptions -> LLVMOptions -> [String] -> IO ()
-runClang cruxOpts llvmOpts params =
+runClang _cruxOpts llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
      say Noisily "CLANG" $ T.unwords (T.pack <$> (clang : map show allParams))

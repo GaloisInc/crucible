@@ -332,7 +332,7 @@ assertSafe sym (Err p) = do
      loc <- getCurrentProgramLoc sym
      let err = SimError loc rsn
      addProofObligation sym (LabeledPred p err)
-     abortExecBecause $ AssumedFalse $ AssumingNoError err
+     abortExecBecause (AssertionFailure err)
 
 
 ------------------------------------------------------------------------

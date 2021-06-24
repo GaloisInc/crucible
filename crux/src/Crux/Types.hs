@@ -87,8 +87,8 @@ type LPred sym   = LabeledPred (Pred sym)
 data ProvedGoals a =
     AtLoc ProgramLoc (Maybe ProgramLoc) (ProvedGoals a)
   | Branch (ProvedGoals a) (ProvedGoals a)
-  | Goal [(AssumptionReason,String)]
-         (SimError,String) Bool (ProofResult a)
+  | Goal [(CrucibleAssumption (), Doc Void )]
+         (SimError, Doc Void) Bool (ProofResult a)
     -- ^ Keeps only the explanations for the relevant assumptions.
     --
     --   * The array of (AssumptionReason,String) is the set of
@@ -113,7 +113,7 @@ data ProgramCompleteness
 data CruxSimulationResult =
   CruxSimulationResult
   { cruxSimResultCompleteness :: ProgramCompleteness
-  , cruxSimResultGoals        :: Seq (ProcessedGoals, ProvedGoals (Either AssumptionReason SimError))
+  , cruxSimResultGoals        :: Seq (ProcessedGoals, ProvedGoals (Either (CrucibleAssumption ()) SimError))
   }
 
 

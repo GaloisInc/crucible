@@ -121,7 +121,7 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
                       let msg = ("reached maximum number of recursive calls to function " ++ show h ++ " (" ++ show b ++ ")")
                       let err = SimError loc (ResourceExhausted msg)
                       when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) err))
-                      return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError err)) st))
+                      return (ExecutionFeatureNewState (AbortState (AssertionFailure err) st))
                  _ ->
                    do let x'  = Map.insert h v x
                       let st' = st & stateGlobals %~ insertGlobal gv (rebuildStack x' x xs)

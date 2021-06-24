@@ -143,18 +143,16 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   try $
                     Crucible.addAssumption
                       sym
-                      ( Crucible.LabeledPred
-                          predicate
-                          ( Crucible.AssumptionReason
-                              ( What4.mkProgramLoc
-                                  (What4.functionNameFromText (funCtx ^. functionName))
-                                  What4.InternalPos
-                              )
-                              "constraint"
+                      ( Crucible.GenericAssumption
+                          ( What4.mkProgramLoc
+                              (What4.functionNameFromText (funCtx ^. functionName))
+                              What4.InternalPos
                           )
+                          "constraint"
+                          predicate
                       )
               case maybeException of
-                Left e@(Crucible.AssumedFalse _) ->
+                Left e@(Crucible.AssertionFailure _) ->
                   panic
                     "classify"
                     [ "Concretely false assumption",

@@ -578,9 +578,8 @@ type ProverCallback sym =
     CruxOptions ->
     SimCtxt personality sym ext ->
     Explainer sym t Void ->
-    Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError)) ->
-    IO (ProcessedGoals, Maybe (Goals (LPred sym AssumptionReason) (LPred sym SimError, ProofResult (Either (LPred sym AssumptionReason) (LPred sym SimError)))))
-
+    Maybe (Goals (Assumption sym) (Assertion sym)) ->
+    IO (ProcessedGoals, Maybe (Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym)))))
 
 -- | Core invocation of the symbolic execution engine
 --
@@ -596,7 +595,7 @@ doSimWithResults ::
   CruxOptions ->
   SimulatorCallback ->
   IORef ProgramCompleteness ->
-  IORef (Seq.Seq (ProcessedGoals, ProvedGoals (Either AssumptionReason SimError))) ->
+  IORef (Seq.Seq (ProcessedGoals, ProvedGoals (Either (CrucibleAssumption ()) SimError))) ->
   sym ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->

@@ -68,7 +68,7 @@ import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
-import           Lang.Crucible.FunctionHandle
+--import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 
 ------------------------------------------------------------------------
