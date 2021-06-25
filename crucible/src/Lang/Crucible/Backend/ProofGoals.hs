@@ -8,6 +8,7 @@ proof obligations, and the current state of assumptions.
 -}
 
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 module Lang.Crucible.Backend.ProofGoals
@@ -49,7 +50,7 @@ import           Data.Word
 --   with the given assertion.
 data ProofGoal asmp goal =
   ProofGoal
-  { proofAssumptions :: Seq asmp
+  { proofAssumptions :: asmp
   , proofGoal        :: goal
   }
 
@@ -57,7 +58,7 @@ data ProofGoal asmp goal =
 data Goals asmp goal =
     -- | Make an assumption that is in context for all the
     --   contained goals.
-    Assuming (Seq asmp) !(Goals asmp goal)
+    Assuming asmp !(Goals asmp goal)
 
     -- | A proof obligation, to be proved in the context of
     --   all previously-made assumptions.
@@ -69,8 +70,7 @@ data Goals asmp goal =
 
 -- | Construct a goal that first assumes a collection of
 --   assumptions and then states a goal.
-assuming :: Seq asmp -> Goals asmp goal -> Goals asmp goal
-assuming Seq.Empty g = g
+assuming :: Monoid asmp => asmp -> Goals asmp goal -> Goals asmp goal
 assuming as (Assuming bs g) = assuming (as <> bs) g
 assuming as g = Assuming as g
 
@@ -92,7 +92,7 @@ goalsConj (Just x) (Just y) = Just (ProveConj x y)
 
 -- | Render the tree of goals as a list instead, duplicating
 --   shared assumptions over each goal as necessary.
-goalsToList :: Goals asmp goal -> [ProofGoal asmp goal]
+goalsToList :: Monoid asmp => Goals asmp goal -> [ProofGoal asmp goal]
 goalsToList =
   getConst . traverseGoalsWithAssumptions
     (\as g -> Const [ProofGoal as g])
@@ -112,8 +112,8 @@ goalsToList =
 --
 --   * 'assumeAction' is a transformer action on goals.  Return
 --     'Nothing' if you wish to remove the goal from the overall tree.
-traverseGoals :: Applicative f =>
-                 (forall a. Seq asmp -> f a -> f (Seq asmp', a))
+traverseGoals :: (Applicative f, Monoid asmp') =>
+                 (forall a. asmp -> f a -> f (asmp', a))
               -> (goal -> f (Maybe goal'))
               -> Goals asmp goal
               -> f (Maybe (Goals asmp' goal'))
@@ -127,7 +127,7 @@ traverseGoals fas fgl = go
   assuming' (as, Just g) = Just $! assuming as g
 
 
-traverseOnlyGoals :: Applicative f =>
+traverseOnlyGoals :: (Applicative f, Monoid asmp) =>
   (goal -> f (Maybe goal')) ->
   Goals asmp goal -> f (Maybe (Goals asmp goal'))
 traverseOnlyGoals f = traverseGoals (\as m -> (as,) <$> m) f
@@ -135,8 +135,8 @@ traverseOnlyGoals f = traverseGoals (\as m -> (as,) <$> m) f
 -- | Traverse a sequence of 'Goals' data structures.  See 'traverseGoals'
 --   for an explanation of the action arguments.  The resulting sequence
 --   may be shorter than the original if some 'Goals' become trivial.
-traverseGoalsSeq :: Applicative f =>
-  (forall a. Seq asmp -> f a -> f (Seq asmp', a)) ->
+traverseGoalsSeq :: (Applicative f, Monoid asmp') =>
+  (forall a. asmp -> f a -> f (asmp', a)) ->
   (goal -> f (Maybe goal')) ->
   Seq (Goals asmp goal) -> f (Seq (Goals asmp' goal'))
 traverseGoalsSeq fas fgl = go
@@ -149,8 +149,8 @@ traverseGoalsSeq fas fgl = go
 
 -- | Visit every goal in a 'Goals' structure, remembering the sequence of
 --   assumptions along the way to that goal.
-traverseGoalsWithAssumptions :: Applicative f =>
-  (Seq asmp -> goal -> f (Maybe goal')) ->
+traverseGoalsWithAssumptions :: (Applicative f, Monoid asmp) =>
+  (asmp -> goal -> f (Maybe goal')) ->
   Goals asmp goal -> f (Maybe (Goals asmp goal'))
 
 traverseGoalsWithAssumptions f gls =
@@ -176,7 +176,7 @@ newtype FrameIdentifier = FrameIdentifier Word64
 data GoalCollector asmp goal
   = TopCollector !(Seq (Goals asmp goal))
   | CollectorFrame !FrameIdentifier !(GoalCollector asmp goal)
-  | CollectingAssumptions !(Seq asmp) !(GoalCollector asmp goal)
+  | CollectingAssumptions !asmp !(GoalCollector asmp goal)
   | CollectingGoals !(Seq (Goals asmp goal)) !(GoalCollector asmp goal)
 
 -- | A collector with no goals and no context.
@@ -185,8 +185,8 @@ emptyGoalCollector = TopCollector mempty
 
 -- | Traverse the goals in a 'GoalCollector.  See 'traverseGoals'
 --   for an explaination of the action arguments.
-traverseGoalCollector :: Applicative f =>
-  (forall a. Seq asmp -> f a -> f (Seq asmp', a)) ->
+traverseGoalCollector :: (Applicative f, Monoid asmp') =>
+  (forall a. asmp -> f a -> f (asmp', a)) ->
   (goal -> f (Maybe goal')) ->
   GoalCollector asmp goal -> f (GoalCollector asmp' goal')
 traverseGoalCollector fas fgl = go
@@ -198,8 +198,8 @@ traverseGoalCollector fas fgl = go
 
 -- | Traverse the goals in a 'GoalCollector', keeping track,
 --   for each goal, of the assumptions leading to that goal.
-traverseGoalCollectorWithAssumptions :: Applicative f =>
-  (Seq asmp -> goal -> f (Maybe goal')) ->
+traverseGoalCollectorWithAssumptions :: (Applicative f, Monoid asmp) =>
+  (asmp -> goal -> f (Maybe goal')) ->
   GoalCollector asmp goal -> f (GoalCollector asmp goal')
 traverseGoalCollectorWithAssumptions f gc =
     runReaderT (traverseGoalCollector fas fgl gc) mempty
@@ -212,12 +212,12 @@ traverseGoalCollectorWithAssumptions f gc =
 --   assumptions made inside a 'GoalCollector'.
 data AssumptionFrames asmp =
   AssumptionFrames
-  { -- | A sequence of assumptions made at the top level of a solver.
-    baseFrame    :: !(Seq asmp)
+  { -- | Assumptions made at the top level of a solver.
+    baseFrame    :: !asmp
     -- | A sequence of pushed frames, together with the assumptions that
     --   were made in each frame.  The sequence is organized with newest
     --   frames on the end (right side) of the sequence.
-  , pushedFrames :: !(Seq (FrameIdentifier, Seq asmp))
+  , pushedFrames :: !(Seq (FrameIdentifier, asmp))
   }
 
 -- | Return a list of all the assumption frames in this goal collector.
@@ -226,12 +226,12 @@ data AssumptionFrames asmp =
 --   assumption frames, each consisting of a collection of assumptions
 --   made in that frame.  Frames closer to the front of the list
 --   are older.  A `gcPop` will remove the newest (rightmost) frame from the list.
-gcFrames :: GoalCollector asmp goal -> AssumptionFrames asmp
+gcFrames :: forall asmp goal. Monoid asmp => GoalCollector asmp goal -> AssumptionFrames asmp
 gcFrames = go mempty mempty
   where
   go ::
-    Seq asmp ->
-    Seq (FrameIdentifier, Seq asmp) ->
+    asmp ->
+    Seq (FrameIdentifier, asmp) ->
     GoalCollector asmp goal ->
     AssumptionFrames asmp
 
@@ -261,7 +261,7 @@ gcProve :: goal -> GoalCollector asmp goal -> GoalCollector asmp goal
 gcProve g = gcAddGoals (Prove g)
 
 -- | Add a sequence of extra assumptions to the current context.
-gcAddAssumes :: Seq asmp -> GoalCollector asmp goal -> GoalCollector asmp goal
+gcAddAssumes :: Monoid asmp => asmp -> GoalCollector asmp goal -> GoalCollector asmp goal
 gcAddAssumes as' (CollectingAssumptions as gls) = CollectingAssumptions (as <> as') gls
 gcAddAssumes as' gls = CollectingAssumptions as' gls
 
@@ -278,8 +278,9 @@ If the result is 'Right', then we popped all the way to the top, and the
 result is the goal tree, or 'Nothing' if there were no goals. -}
 
 gcPop ::
+  Monoid asmp =>
   GoalCollector asmp goal ->
-  Either (FrameIdentifier, Seq asmp, Maybe (Goals asmp goal), GoalCollector asmp goal)
+  Either (FrameIdentifier, asmp, Maybe (Goals asmp goal), GoalCollector asmp goal)
          (Maybe (Goals asmp goal))
 gcPop = go Nothing mempty
   where
@@ -301,7 +302,7 @@ gcPop = go Nothing mempty
     go (goalsConj (proveAll gs) hole) as gc
 
 -- | Get all currently collected goals.
-gcFinish :: GoalCollector asmp goal -> Maybe (Goals asmp goal)
+gcFinish :: Monoid asmp => GoalCollector asmp goal -> Maybe (Goals asmp goal)
 gcFinish gc = case gcPop gc of
                 Left (_,_,Just g,gc1)  -> gcFinish (gcAddGoals g gc1)
                 Left (_,_,Nothing,gc1) -> gcFinish gc1
@@ -309,7 +310,7 @@ gcFinish gc = case gcPop gc of
 
 -- | Reset the goal collector to the empty assumption state; but first
 --   collect all the pending proof goals and stash them.
-gcReset :: GoalCollector asmp goal -> GoalCollector asmp goal
+gcReset :: Monoid asmp => GoalCollector asmp goal -> GoalCollector asmp goal
 gcReset gc = TopCollector gls
   where
   gls = case gcFinish gc of
@@ -334,6 +335,7 @@ pushGoalsToTop gls = go
 --   proof obligations of both collectors, and has the same
 --   assumption context as the first collector.
 gcRestore ::
+  Monoid asmp =>
   GoalCollector asmp goal {- ^ The assumption state to restore -} ->
   GoalCollector asmp goal {- ^ The assumptions state to overwrite -} ->
   GoalCollector asmp goal
@@ -344,7 +346,7 @@ gcRestore restore old =
 
 -- | Remove all collected proof obligations, but keep the current set
 -- of assumptions.
-gcRemoveObligations :: GoalCollector asmp goal -> GoalCollector asmp goal
+gcRemoveObligations :: Monoid asmp => GoalCollector asmp goal -> GoalCollector asmp goal
 gcRemoveObligations = go
  where
  go (TopCollector _) = TopCollector mempty

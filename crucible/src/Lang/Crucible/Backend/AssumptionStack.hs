@@ -1,5 +1,5 @@
 {-|
-Module      : Lang.Crucible.Backend.AssumptionStack
+Module      : Lang.Crucible.Backend.AssumptionStakck
 Copyright   : (c) Galois, Inc 2018
 License     : BSD3
 Maintainer  : Rob Dockins <rdockins@galois.com>
@@ -61,6 +61,7 @@ import           Data.Parameterized.Nonce
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
+
 import           Lang.Crucible.Backend.ProofGoals
 import           Lang.Crucible.Panic (panic)
 
@@ -81,11 +82,11 @@ data AssumptionFrame asm =
 data AssumptionStack asm ast =
   AssumptionStack
   { assumeStackGen   :: IO FrameIdentifier
-  , proofObligations :: IORef (GoalCollector asm ast)
+  , proofObligations :: IORef (GoalCollector (Seq asm) ast)
   }
 
 
-allAssumptionFrames :: AssumptionStack asm ast -> IO (AssumptionFrames asm)
+allAssumptionFrames :: AssumptionStack asm ast -> IO (AssumptionFrames (Seq asm))
 allAssumptionFrames stk =
   gcFrames <$> readIORef (proofObligations stk)
 
@@ -106,7 +107,7 @@ initAssumptionStack gen =
 --   NOTE! however, that proof obligations are NOT copied into the saved
 --   stack data. Instead, proof obligations remain only in the original
 --   @AssumptionStack@ and the new stack has an empty obligation list.
-saveAssumptionStack :: AssumptionStack asm ast -> IO (GoalCollector asm ast)
+saveAssumptionStack :: AssumptionStack asm ast -> IO (GoalCollector (Seq asm) ast)
 saveAssumptionStack stk =
   gcRemoveObligations <$> readIORef (proofObligations stk)
 
@@ -117,7 +118,7 @@ saveAssumptionStack stk =
 --   will have no included proof obligations; restoring such a stack will
 --   have no effect on the current proof obligations.
 restoreAssumptionStack ::
-  GoalCollector asm ast ->
+  GoalCollector (Seq asm) ast ->
   AssumptionStack asm ast ->
   IO ()
 restoreAssumptionStack gc stk =
@@ -150,7 +151,7 @@ collectAssumptions stk =
      return (base <> F.asum (fmap snd frms))
 
 -- | Retrieve the current collection of proof obligations.
-getProofObligations :: AssumptionStack asm ast -> IO (Maybe (Goals asm ast))
+getProofObligations :: AssumptionStack asm ast -> IO (Maybe (Goals (Seq asm) ast))
 getProofObligations stk = gcFinish <$> readIORef (proofObligations stk)
 
 -- | Remove all pending proof obligations.
@@ -227,7 +228,7 @@ popFrame ident stk =
 popFrameAndGoals ::
   FrameIdentifier ->
   AssumptionStack asm ast ->
-  IO (Seq asm, Maybe (Goals asm ast))
+  IO (Seq asm, Maybe (Goals (Seq asm) ast))
 popFrameAndGoals ident stk =
   atomicModifyIORef' (proofObligations stk) $ \gc ->
        case gcPop gc of

@@ -576,8 +576,8 @@ type ProverCallback sym =
     CruxOptions ->
     SimCtxt personality sym ext ->
     Explainer sym t Void ->
-    Maybe (Goals (Assumption sym) (Assertion sym)) ->
-    IO (ProcessedGoals, Maybe (Goals (Assumption sym) (Assertion sym, ProofResult sym)))
+    Maybe (Goals (Assumptions sym) (Assertion sym)) ->
+    IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, ProofResult sym)))
 
 -- | Core invocation of the symbolic execution engine
 --

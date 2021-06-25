@@ -58,12 +58,12 @@ provedGoalsTree :: forall personality sym p.
   ( IsSymInterface sym
   ) =>
   SimCtxt personality sym p ->
-  Maybe (Goals (Assumption sym) (Assertion sym, ProofResult sym)) ->
+  Maybe (Goals (Assumptions sym) (Assertion sym, ProofResult sym)) ->
   IO (Maybe ProvedGoals)
 provedGoalsTree ctxt = traverse (go [])
   where
   go :: [Assumption sym] ->
-        Goals (Assumption sym) (Assertion sym, ProofResult sym) ->
+        Goals (Assumptions sym) (Assertion sym, ProofResult sym) ->
         IO ProvedGoals
   go asmps gs =
     case gs of
@@ -75,8 +75,8 @@ provedGoalsTree ctxt = traverse (go [])
 
   goAsmp ::
         [Assumption sym] ->
-        Seq.Seq (Assumption sym) ->
-        Goals (Assumption sym) (Assertion sym, ProofResult sym) ->
+        Assumptions sym ->
+        Goals (Assumptions sym) (Assertion sym, ProofResult sym) ->
         IO ProvedGoals
 
   goAsmp asmps Seq.Empty gs = go asmps gs
@@ -205,8 +205,8 @@ proveGoalsOffline :: forall st sym p t fs personality.
   CruxOptions ->
   SimCtxt personality sym p ->
   (Maybe (GroundEvalFn t) -> Assertion sym -> IO (Doc Void)) ->
-  Maybe (Goals (Assumption sym) (Assertion sym)) ->
-  IO (ProcessedGoals, Maybe (Goals (Assumption sym) (Assertion sym, ProofResult sym)))
+  Maybe (Goals (Assumptions sym) (Assertion sym)) ->
+  IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, ProofResult sym)))
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
 proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0 0)
@@ -225,9 +225,9 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
     go :: (Integer -> IO (), IO ())
        -> IORef ProcessedGoals
-       -> [Seq.Seq (Assumption sym)]
-       -> Goals (Assumption sym) (Assertion sym)
-       -> IO (Goals (Assumption sym) (Assertion sym, ProofResult sym))
+       -> [Assumptions sym]
+       -> Goals (Assumptions sym) (Assertion sym)
+       -> IO (Goals (Assumptions sym) (Assertion sym, ProofResult sym))
     go (start,end) goalNum assumptionsInScope gs =
       case gs of
         Assuming ps gs1 -> do
@@ -267,7 +267,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
               fail allExceptions
 
     runOneSolver :: Assertion sym
-                 -> [Seq.Seq (Assumption sym)]
+                 -> [Assumptions sym]
                  -> BoolExpr t
                  -> BoolExpr t
                  -> WS.SolverAdapter st
@@ -350,8 +350,8 @@ proveGoalsOnline ::
   CruxOptions ->
   SimCtxt personality sym p ->
   (Maybe (GroundEvalFn s) -> Assertion sym -> IO (Doc Void)) ->
-  Maybe (Goals (Assumption sym) (Assertion sym)) ->
-  IO (ProcessedGoals, Maybe (Goals (Assumption sym) (Assertion sym, ProofResult sym)))
+  Maybe (Goals (Assumptions sym) (Assertion sym)) ->
+  IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, ProofResult sym)))
 
 proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)

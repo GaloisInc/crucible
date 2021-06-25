@@ -142,7 +142,7 @@ traverseAssumption f = \case
   AssumingNoError err p -> AssumingNoError err <$> f p
 
 
-type Assumptions sym = Seq (Assumption sym)
+
 
 
 {- | Merge the assumptions collected from the branches of a conditional.
@@ -168,9 +168,10 @@ mergeAssumptions sym p thens elses =
 
 type Assertion sym  = LabeledPred (Pred sym) SimError
 type Assumption sym = CrucibleAssumption (Pred sym)
-type ProofObligation sym = AS.ProofGoal (Assumption sym) (Assertion sym)
-type ProofObligations sym = Maybe (AS.Goals (Assumption sym) (Assertion sym))
-type AssumptionState sym = PG.GoalCollector (Assumption sym) (Assertion sym)
+type Assumptions sym = Seq (Assumption sym)
+type ProofObligation sym = AS.ProofGoal (Assumptions sym) (Assertion sym)
+type ProofObligations sym = Maybe (AS.Goals (Assumptions sym) (Assertion sym))
+type AssumptionState sym = PG.GoalCollector (Assumptions sym) (Assertion sym)
 
 -- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =

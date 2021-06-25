@@ -85,6 +85,7 @@ import           Data.Data (Data)
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
+import           Data.Sequence (Seq)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           System.IO
@@ -374,7 +375,7 @@ resetSolverProcess' st = do
 
 restoreSolverState ::
   OnlineSolver solver =>
-  PG.GoalCollector (CrucibleAssumption (B.BoolExpr scope))
+  PG.GoalCollector (Seq (CrucibleAssumption (B.BoolExpr scope)))
                    (LabeledPred (B.BoolExpr scope) SimError) ->
   OnlineBackendState solver userSt scope ->
   IO ()
@@ -468,7 +469,7 @@ data BranchResult
 restoreAssumptionFrames ::
   OnlineSolver solver =>
   SolverProcess scope solver ->
-  AssumptionFrames (CrucibleAssumption (B.BoolExpr scope)) ->
+  AssumptionFrames (Seq (CrucibleAssumption (B.BoolExpr scope))) ->
   IO ()
 restoreAssumptionFrames proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
