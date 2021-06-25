@@ -59,6 +59,7 @@ import qualified Data.Foldable as F
 import           Data.IORef
 import           Data.Parameterized.Nonce
 import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 
 import           Lang.Crucible.Backend.ProofGoals
 import           Lang.Crucible.Panic (panic)
@@ -126,7 +127,7 @@ restoreAssumptionStack gc stk =
 addAssumption ::
   asm -> AssumptionStack asm ast -> IO ()
 addAssumption p stk =
-  modifyIORef' (proofObligations stk) (gcAssume p)
+  modifyIORef' (proofObligations stk) (gcAddAssumes (Seq.singleton p))
 
 -- | Add the given collection logical assumptions to the current stack frame.
 appendAssumptions ::

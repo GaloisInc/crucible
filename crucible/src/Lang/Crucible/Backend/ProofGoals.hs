@@ -12,7 +12,7 @@ proof obligations, and the current state of assumptions.
 
 module Lang.Crucible.Backend.ProofGoals
   ( -- * Goals
-    ProofGoal(..), Goals(..), goalsToList, proveAll, goalsConj, assuming
+    ProofGoal(..), Goals(..), goalsToList, proveAll, goalsConj -- , assuming
     -- ** traversals
   , traverseGoals, traverseOnlyGoals
   , traverseGoalsWithAssumptions
@@ -27,7 +27,7 @@ module Lang.Crucible.Backend.ProofGoals
   , traverseGoalCollectorWithAssumptions
 
     -- ** Context management
-  , gcAssume, gcAddAssumes, gcProve
+  , gcAddAssumes, gcProve
   , gcPush, gcPop, gcAddGoals,
 
     -- ** Global operations on context
@@ -259,10 +259,6 @@ gcAddGoals g gc = CollectingGoals (Seq.singleton g) gc
 -- | Add a new proof obligation to the current context.
 gcProve :: goal -> GoalCollector asmp goal -> GoalCollector asmp goal
 gcProve g = gcAddGoals (Prove g)
-
--- | Add an extra assumption to the current context.
-gcAssume :: asmp -> GoalCollector asmp goal -> GoalCollector asmp goal
-gcAssume a = gcAddAssumes (Seq.singleton a)
 
 -- | Add a sequence of extra assumptions to the current context.
 gcAddAssumes :: Seq asmp -> GoalCollector asmp goal -> GoalCollector asmp goal

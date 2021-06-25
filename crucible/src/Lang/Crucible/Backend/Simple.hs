@@ -95,7 +95,7 @@ instance IsBoolSolver (SimpleBackend t fs) where
   getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- AS.collectAssumptions stk
-    andAllOf sym (folded.traverseAssumption) ps
+    andAllOf sym (folded.foldAssumption) ps
 
   getProofObligations sym = do
     stk <- getAssumptionStack sym

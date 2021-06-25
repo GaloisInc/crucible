@@ -82,8 +82,6 @@ import           Data.Maybe (fromMaybe)
 import           Data.List (isPrefixOf)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
-import           Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import qualified Data.Vector as V
 import           Data.Type.Equality hiding (sym)
 import           System.IO
@@ -197,26 +195,6 @@ mergePartialResult s tgt pred x y =
           PartialRes loc' <$> itePred sym pred px py
                           <*> merge_fn pred cx cy
                           <*> pure (AbortedBranch loc' pred fx fy)
-
-{- | Merge the assumptions collected from the branches of a conditional.
-The result is a bunch of qualified assumptions: if the branch condition
-is @p@, then the true assumptions become @p => a@, while the false ones
-beome @not p => a@.
--}
-mergeAssumptions ::
-  IsExprBuilder sym =>
-  sym ->
-  Pred sym ->
-  Seq (Assumption sym) ->
-  Seq (Assumption sym) ->
-  IO (Seq (Assumption sym))
-mergeAssumptions sym p thens elses =
-  do pnot <- notPred sym p
-     th' <- (traverse.traverseAssumption) (impliesPred sym p) thens
-     el' <- (traverse.traverseAssumption) (impliesPred sym pnot) elses
-     let xs = th' <> el'
-     -- Filter out all the trivally true assumptions
-     return (Seq.filter (not . trivialAssumption) xs)
 
 forgetPostdomFrame ::
   PausedFrame p sym ext rtp g ->

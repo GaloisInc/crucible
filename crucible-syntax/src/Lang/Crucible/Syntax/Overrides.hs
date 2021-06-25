@@ -12,7 +12,6 @@ module Lang.Crucible.Syntax.Overrides
 import Control.Lens hiding ((:>), Empty)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class
-import Data.Foldable(toList)
 import System.IO
 
 import Data.Parameterized.Context hiding (view)
@@ -52,8 +51,8 @@ proveObligations =
        clearProofObligations sym
 
        forM_ obls $ \o ->
-         do let asms = map (assumptionPred sym) $ toList $ proofAssumptions o
-            gl <- notPred sym ((proofGoal o)^.labeledPred)
+         do let asms = o ^.. to proofAssumptions.folded.foldAssumption
+            gl <- notPred sym (o ^. to proofGoal.labeledPred)
             let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                          , logReason = "assertion proof" }
             runZ3InOverride sym logData (asms ++ [gl]) $ \case

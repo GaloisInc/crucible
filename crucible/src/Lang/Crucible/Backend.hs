@@ -42,13 +42,14 @@ module Lang.Crucible.Backend
   , CrucibleAssumption(..)
   , Assumption
   , Assertion
+  , Assumptions
 
   , trivialAssumption
   , impossibleAssumption
   , ppAssumption
   , assumptionLoc
-  , traverseAssumption
-  , assumptionPred
+  , mergeAssumptions
+  , foldAssumption
   , ProofObligation
   , ProofObligations
   , AssumptionState
@@ -82,9 +83,10 @@ module Lang.Crucible.Backend
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
-import           Control.Lens ((^.), Traversal)
+import           Control.Lens ((^.), Fold, Traversal)
 import           Control.Monad
 import           Data.Foldable (toList)
+import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
 import qualified Prettyprinter as PP
 
@@ -130,6 +132,8 @@ impossibleAssumption (GenericAssumption loc _ p)
   | Just False <- asConstantPred p = Just (InfeasibleBranch loc)
 impossibleAssumption _ = Nothing
 
+foldAssumption :: Fold (CrucibleAssumption p) p
+foldAssumption = traverseAssumption
 
 traverseAssumption :: Traversal (CrucibleAssumption p) (CrucibleAssumption p') p p'
 traverseAssumption f = \case
@@ -137,11 +141,29 @@ traverseAssumption f = \case
   BranchCondition l t p -> BranchCondition l t <$> f p
   AssumingNoError err p -> AssumingNoError err <$> f p
 
-assumptionPred :: IsExprBuilder sym =>
-  sym -> Assumption sym -> Pred sym
-assumptionPred _ (GenericAssumption _ _ p) = p
-assumptionPred _ (BranchCondition _ _ p) = p
-assumptionPred _ (AssumingNoError _ p) = p
+
+type Assumptions sym = Seq (Assumption sym)
+
+
+{- | Merge the assumptions collected from the branches of a conditional.
+The result is a bunch of qualified assumptions: if the branch condition
+is @p@, then the true assumptions become @p => a@, while the false ones
+beome @not p => a@.
+-}
+mergeAssumptions ::
+  IsExprBuilder sym =>
+  sym ->
+  Pred sym ->
+  Assumptions sym ->
+  Assumptions sym ->
+  IO (Assumptions sym)
+mergeAssumptions sym p thens elses =
+  do pnot <- notPred sym p
+     th' <- (traverse.traverseAssumption) (impliesPred sym p) thens
+     el' <- (traverse.traverseAssumption) (impliesPred sym pnot) elses
+     let xs = th' <> el'
+     -- Filter out all the trivally true assumptions
+     return (Seq.filter (not . trivialAssumption) xs)
 
 
 type Assertion sym  = LabeledPred (Pred sym) SimError
@@ -239,7 +261,7 @@ class IsBoolSolver sym where
   --   in this frame are returned.  Pops are required to be well-bracketed
   --   with pushes.  In particular, if the given frame identifier is not
   --   the identifier of the top frame on the stack, an error will be raised.
-  popAssumptionFrame :: sym -> AS.FrameIdentifier -> IO (Seq (Assumption sym))
+  popAssumptionFrame :: sym -> AS.FrameIdentifier -> IO (Assumptions sym)
 
   -- | Pop all assumption frames up to and including the frame with the given
   --   frame identifier.  This operation will panic if the named frame does
@@ -252,7 +274,7 @@ class IsBoolSolver sym where
   --   with pushes.  In particular, if the given frame identifier is not
   --   the identifier of the top frame on the stack, an error will be raised.
   popAssumptionFrameAndObligations ::
-    sym -> AS.FrameIdentifier -> IO (Seq (Assumption sym), ProofObligations sym)
+    sym -> AS.FrameIdentifier -> IO (Assumptions sym, ProofObligations sym)
 
   ----------------------------------------------------------------------
   -- Assertions
@@ -263,13 +285,13 @@ class IsBoolSolver sym where
   addAssumption :: sym -> Assumption sym -> IO ()
 
   -- | Add a collection of assumptions to the current state.
-  addAssumptions :: sym -> Seq (Assumption sym) -> IO ()
+  addAssumptions :: sym -> Assumptions sym -> IO ()
 
   -- | Get the current path condition as a predicate.  This consists of the conjunction
   --   of all the assumptions currently in scope.
   getPathCondition :: sym -> IO (Pred sym)
 
-  collectAssumptions :: sym -> IO (Seq (Assumption sym))
+  collectAssumptions :: sym -> IO (Assumptions sym)
 
   -- | Add a new proof obligation to the system.
   -- The proof may use the current path condition and assumptions. Note

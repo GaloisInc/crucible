@@ -12,7 +12,7 @@ module Crux.Goal where
 
 import Control.Concurrent.Async (async, asyncThreadId, waitAnyCatch)
 import Control.Exception (throwTo, SomeException, displayException)
-import Control.Lens ((^.), view)
+import Control.Lens ((^.), (^..), view)
 import qualified Control.Lens as L
 import Control.Monad (forM, forM_, unless, when)
 import Data.Either (partitionEithers)
@@ -92,7 +92,7 @@ proveToGoal ::
   Assertion sym ->
   ProofResult sym ->
   ProvedGoals
-proveToGoal ctx allAsmps p pr =
+proveToGoal _ctx allAsmps p pr =
   case pr of
     NotProved ex cex -> NotProvedGoal (map showAsmp allAsmps) (showGoal p) ex cex
     Proved xs ->
@@ -101,8 +101,7 @@ proveToGoal ctx allAsmps p pr =
         (asmps, _:_) -> ProvedGoal (map showAsmp asmps) (showGoal p) False
 
  where
- sym = ctx^.ctxSymInterface
- showAsmp x = (fmap (const ()) x, printSymExpr (assumptionPred sym x))
+ showAsmp x = (fmap (const ()) x, vcat (x ^.. foldAssumption. L.to printSymExpr))
  showGoal x = (x^.labeledPredMsg, printSymExpr (x^.labeledPred))
 
 
@@ -248,7 +247,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
           let sym = ctx ^. ctxSymInterface
-          assumptions <- WI.andAllOf sym (L.folded . traverse . traverseAssumption) assumptionsInScope
+          assumptions <- WI.andAllOf sym (L.folded.traverse.foldAssumption) assumptionsInScope
           goal <- notPred sym (p ^. labeledPred)
 
           res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters $ runOneSolver p assumptionsInScope assumptions goal
@@ -389,10 +388,12 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
     case gs of
 
       Assuming ps gs1 ->
-        do forM_ ps $ \p ->
-             unless (trivialAssumption p) $
-              do nm <- doAssume =<< mkFormula conn (assumptionPred sym p)
-                 bindName nm (Left p) nameMap
+        do forM_ ps $ \asm ->
+             unless (trivialAssumption asm) $
+               L.traverseOf_ foldAssumption
+                 (\p -> do nm <- doAssume =<< mkFormula conn p
+                           bindName nm (Left asm) nameMap)
+                 asm
            res <- go (start,end) sp gn gs1 nameMap
            return (Assuming ps res)
 

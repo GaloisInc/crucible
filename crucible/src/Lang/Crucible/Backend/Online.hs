@@ -472,12 +472,12 @@ restoreAssumptionFrames ::
   IO ()
 restoreAssumptionFrames proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
-     (mapM_ . traverseAssumption) (SMT.assume (solverConn proc)) base
+     (mapM_ . traverseOf_ foldAssumption) (SMT.assume (solverConn proc)) base
 
      -- populate the pushed frames
      forM_ (map snd $ toList frms) $ \frm ->
       do push proc
-         (mapM_ . traverseAssumption) (SMT.assume (solverConn proc)) frm
+         (mapM_ . traverseOf_ foldAssumption) (SMT.assume (solverConn proc)) frm
 
 considerSatisfiability ::
   OnlineSolver solver =>
@@ -556,7 +556,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
       Just rsn -> abortExecBecause rsn
       Nothing ->
           do -- Send assertion to the solver, unless it is trivial.
-             void $ traverseAssumption
+             traverseOf_ foldAssumption
                (\p -> withSolverConn sym (\conn ->
                   unless (asConstantPred p == Just True) (SMT.assume conn p)))
                a
@@ -570,7 +570,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
     -- the solver assumptions succeeded
     do withSolverConn sym $ \conn ->
           -- Tell the solver of assertions
-          (mapM_ . traverseAssumption)
+          (mapM_ . traverseOf_ foldAssumption)
             (\p -> unless (asConstantPred p == Just True) (SMT.assume conn p))
             as
 
@@ -580,7 +580,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
   getPathCondition sym =
     do stk <- getAssumptionStack sym
        ps <- AS.collectAssumptions stk
-       andAllOf sym (folded.traverseAssumption) ps
+       andAllOf sym (folded.foldAssumption) ps
 
   collectAssumptions sym =
     AS.collectAssumptions =<< getAssumptionStack sym
