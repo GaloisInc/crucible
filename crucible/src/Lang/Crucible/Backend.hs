@@ -28,6 +28,7 @@ obligations with a solver backend.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
@@ -53,7 +54,6 @@ module Lang.Crucible.Backend
   , assumptionLoc
   , mergeAssumptions
   , foldAssumption
-  , foldAssumptions
   , forgetAssumption
   , assumptionsPred
   , flattenAssumptions
@@ -153,25 +153,53 @@ traverseAssumption f = \case
   BranchCondition l t p -> BranchCondition l t <$> f p
   AssumingNoError err p -> AssumingNoError err <$> f p
 
-newtype CrucibleAssumptions (e :: BaseType -> Type) =
-  CrucibleAssumptions (Seq (CrucibleAssumption e))
+data CrucibleAssumptions (e :: BaseType -> Type) where
+  SingleAssumption :: CrucibleAssumption e -> CrucibleAssumptions e
+  ManyAssumptions  :: Seq (CrucibleAssumptions e) -> CrucibleAssumptions e
+  MergeAssumptions ::
+    e BaseBoolType {- ^ branch condition -} ->
+    CrucibleAssumptions e {- ^ "then" assumptions -} ->
+    CrucibleAssumptions e {- ^ "else" assumptions -} ->
+    CrucibleAssumptions e
 
 instance Semigroup (CrucibleAssumptions e) where
-  CrucibleAssumptions xs <> CrucibleAssumptions ys = CrucibleAssumptions (xs <> ys)
+  ManyAssumptions xs <> ManyAssumptions ys = ManyAssumptions (xs <> ys)
+  ManyAssumptions xs <> y = ManyAssumptions (xs Seq.|> y)
+  x <> ManyAssumptions ys = ManyAssumptions (x Seq.<| ys)
+  x <> y = ManyAssumptions (Seq.fromList [x,y])
+
 instance Monoid (CrucibleAssumptions e) where
-  mempty = CrucibleAssumptions mempty
+  mempty = ManyAssumptions mempty
 
 singleAssumption :: CrucibleAssumption e -> CrucibleAssumptions e
-singleAssumption x = CrucibleAssumptions (Seq.singleton x)
+singleAssumption x = SingleAssumption x
 
 assumptionsPred :: IsExprBuilder sym => sym -> Assumptions sym -> IO (Pred sym)
-assumptionsPred sym (CrucibleAssumptions xs) = andAllOf sym (folded.foldAssumption) xs
-
-foldAssumptions :: Fold (CrucibleAssumptions e) (e BaseBoolType)
-foldAssumptions f (CrucibleAssumptions xs) = CrucibleAssumptions <$> traverse (foldAssumption f) xs
+assumptionsPred sym (SingleAssumption a) =
+  andAllOf sym foldAssumption a
+assumptionsPred sym (ManyAssumptions xs) =
+  andAllOf sym folded =<< traverse (assumptionsPred sym) xs
+assumptionsPred sym (MergeAssumptions c xs ys) =
+  do xs' <- assumptionsPred sym xs
+     ys' <- assumptionsPred sym ys
+     itePred sym c xs' ys'
 
 flattenAssumptions :: IsExprBuilder sym => sym -> Assumptions sym -> IO [Assumption sym]
-flattenAssumptions _ (CrucibleAssumptions xs) = pure (toList xs)
+flattenAssumptions sym = loop Nothing
+  where
+    loop mz (SingleAssumption a) =
+      do a' <- maybe (pure a) (\z -> traverseAssumption (impliesPred sym z) a) mz
+         if trivialAssumption a' then return [] else return [a']
+    loop mz (ManyAssumptions as) =
+      concat <$> traverse (loop mz) as
+    loop mz (MergeAssumptions p xs ys) =
+      do pnot <- notPred sym p
+         px <- maybe (pure p) (andPred sym p) mz
+         py <- maybe (pure pnot) (andPred sym pnot) mz
+         xs' <- loop (Just px) xs
+         ys' <- loop (Just py) ys
+         return (xs' <> ys')
+
 
 {- | Merge the assumptions collected from the branches of a conditional.
 The result is a bunch of qualified assumptions: if the branch condition
@@ -185,15 +213,8 @@ mergeAssumptions ::
   Assumptions sym ->
   Assumptions sym ->
   IO (Assumptions sym)
-mergeAssumptions sym p (CrucibleAssumptions thens) (CrucibleAssumptions elses) =
-  CrucibleAssumptions <$>
-  do pnot <- notPred sym p
-     th' <- (traverse.traverseAssumption) (impliesPred sym p) thens
-     el' <- (traverse.traverseAssumption) (impliesPred sym pnot) elses
-     let xs = th' <> el'
-     -- Filter out all the trivally true assumptions
-     return (Seq.filter (not . trivialAssumption) xs)
-
+mergeAssumptions _sym p thens elses =
+  return (MergeAssumptions p thens elses)
 
 type Assertion sym  = LabeledPred (Pred sym) SimError
 type Assumption sym = CrucibleAssumption (SymExpr sym)
@@ -472,14 +493,15 @@ readPartExpr sym (PE p v) msg = do
   addAssertion sym (LabeledPred p (SimError loc msg))
   return v
 
-ppProofObligation :: IsExprBuilder sym => sym -> ProofObligation sym -> PP.Doc ann
-ppProofObligation _ (AS.ProofGoal (CrucibleAssumptions (toList -> as)) gl) =
-  PP.vsep
-  [ if null as then mempty else
-      PP.vcat ("Assuming:" : concatMap ppAsm (toList as))
-  , "Prove:"
-  , ppGl
-  ]
+ppProofObligation :: IsExprBuilder sym => sym -> ProofObligation sym -> IO (PP.Doc ann)
+ppProofObligation sym (AS.ProofGoal asmps gl) =
+  do as <- flattenAssumptions sym asmps
+     return $ PP.vsep
+       [ if null as then mempty else
+           PP.vcat ("Assuming:" : concatMap ppAsm (toList as))
+       , "Prove:"
+       , ppGl
+       ]
  where
  ppAsm asm
    | not (trivialAssumption asm) = ["* " PP.<> PP.hang 2 (ppAssumption printSymExpr asm)]

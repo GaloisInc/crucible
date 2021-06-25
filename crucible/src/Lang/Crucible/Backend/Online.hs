@@ -374,12 +374,13 @@ resetSolverProcess' st = do
 
 restoreSolverState ::
   OnlineSolver solver =>
+  OnlineBackendUserSt scope solver userSt fs ->
   PG.GoalCollector (CrucibleAssumptions (B.Expr scope))
                    (LabeledPred (B.BoolExpr scope) SimError) ->
-  OnlineBackendState solver userSt scope ->
   IO ()
-restoreSolverState gc st =
-  do mproc <- readIORef (solverProc st)
+restoreSolverState sym gc =
+  do let st = B.sbUserState sym
+     mproc <- readIORef (solverProc st)
      case mproc of
        -- Nothing to do, state will be restored next time we start the process
        SolverNotStarted -> return ()
@@ -388,7 +389,7 @@ restoreSolverState gc st =
          (do -- reset the solver state
              reset proc
              -- restore the assumption structure
-             restoreAssumptionFrames proc (PG.gcFrames gc))
+             restoreAssumptionFrames sym proc (PG.gcFrames gc))
            `onException`
           ((killSolver proc)
              `finally`
@@ -430,7 +431,7 @@ withSolverProcess sym def action = do
                     -- set up the solver in the same assumption state as specified
                     -- by the current assumption stack
                     (do frms <- AS.allAssumptionFrames stk
-                        restoreAssumptionFrames p frms
+                        restoreAssumptionFrames sym p frms
                       ) `onException`
                       (killSolver p `finally` maybe (return ()) hClose auxh)
                     writeIORef (solverProc st) (SolverStarted p auxh)
@@ -467,17 +468,18 @@ data BranchResult
 
 restoreAssumptionFrames ::
   OnlineSolver solver =>
+  OnlineBackendUserSt scope solver userSt fs ->
   SolverProcess scope solver ->
   AssumptionFrames (CrucibleAssumptions (B.Expr scope)) ->
   IO ()
-restoreAssumptionFrames proc (AssumptionFrames base frms) =
+restoreAssumptionFrames sym proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
-     (traverseOf_ foldAssumptions) (SMT.assume (solverConn proc)) base
+     SMT.assume (solverConn proc) =<< assumptionsPred sym base
 
      -- populate the pushed frames
      forM_ (map snd $ toList frms) $ \frm ->
       do push proc
-         (traverseOf_ foldAssumptions) (SMT.assume (solverConn proc)) frm
+         SMT.assume (solverConn proc) =<< assumptionsPred sym frm
 
 considerSatisfiability ::
   OnlineSolver solver =>
@@ -569,10 +571,9 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
     -- NB, don't add the assumption to the assumption stack unless
     -- the solver assumptions succeeded
     do withSolverConn sym $ \conn ->
-          -- Tell the solver of assertions
-          (traverseOf_ foldAssumptions)
-            (\p -> unless (asConstantPred p == Just True) (SMT.assume conn p))
-            as
+         do -- Tell the solver of assertions
+            p <- assumptionsPred sym as
+            unless (asConstantPred p == Just True) (SMT.assume conn p)
 
        -- Add assertions to list
        appendAssumptions as =<< getAssumptionStack sym
@@ -622,8 +623,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
        AS.saveAssumptionStack stk
 
   restoreAssumptionState sym gc =
-    do let st = B.sbUserState sym
-       restoreSolverState gc st
+    do restoreSolverState sym gc
 
        -- restore the previous assumption stack
        stk <- getAssumptionStack sym

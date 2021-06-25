@@ -19,7 +19,6 @@ import Data.Either (partitionEithers)
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
-import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import           Data.Void
 import           Prettyprinter
@@ -66,12 +65,14 @@ provedGoalsTree ctxt = traverse (go [])
         IO ProvedGoals
   go asmps gs =
     case gs of
-      Assuming (CrucibleAssumptions ps) gs1 -> goAsmp asmps ps gs1
+      Assuming _ gs1 -> go asmps gs1
+      --Assuming (CrucibleAssumptions ps) gs1 -> goAsmp asmps ps gs1
 
       Prove (p,r) -> return $ proveToGoal ctxt asmps p r
 
       ProveConj g1 g2 -> Branch <$> go asmps g1 <*> go asmps g2
 
+{-
   goAsmp ::
         [Assumption sym] ->
         Seq.Seq (Assumption sym) ->
@@ -83,6 +84,7 @@ provedGoalsTree ctxt = traverse (go [])
         case p of
           BranchCondition from to _ -> AtLoc from to <$> goAsmp (p : asmps) ps gs
           _ -> goAsmp (p : asmps) ps gs
+-}
 
 proveToGoal ::
   (IsSymInterface sym) =>
@@ -247,7 +249,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
-          assumptions <- WI.andAllOf sym (L.folded.foldAssumptions) assumptionsInScope
+          assumptions <- WI.andAllOf sym L.folded =<< traverse (assumptionsPred sym) assumptionsInScope
           goal <- notPred sym (p ^. labeledPred)
 
           res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters $ runOneSolver p assumptionsInScope assumptions goal

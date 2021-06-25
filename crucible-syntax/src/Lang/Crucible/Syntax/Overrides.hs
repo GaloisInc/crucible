@@ -51,11 +51,11 @@ proveObligations =
        clearProofObligations sym
 
        forM_ obls $ \o ->
-         do let asms = o ^.. to proofAssumptions.foldAssumptions
+         do asms <- assumptionsPred sym (proofAssumptions o)
             gl <- notPred sym (o ^. to proofGoal.labeledPred)
             let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                          , logReason = "assertion proof" }
-            runZ3InOverride sym logData (asms ++ [gl]) $ \case
+            runZ3InOverride sym logData [asms,gl] $ \case
               Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]

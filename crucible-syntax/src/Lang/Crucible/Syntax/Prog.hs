@@ -5,7 +5,7 @@
 
 module Lang.Crucible.Syntax.Prog where
 
-import Control.Lens (view, (^..), to)
+import Control.Lens (view)
 import Control.Monad
 
 import Data.List (find)
@@ -133,9 +133,10 @@ simulateProgram fn theInput outh profh opts setup =
                          Just gs ->
                            do hPutStrLn outh "==== Proof obligations ===="
                               forM_ (goalsToList gs) (\g ->
-                                do hPrint outh (ppProofObligation sym g)
+                                do hPrint outh =<< ppProofObligation sym g
                                    neggoal <- notPred sym (view labeledPred (proofGoal g))
-                                   let bs = neggoal : (g ^.. to proofAssumptions.foldAssumptions)
+                                   asms <- assumptionsPred sym (proofAssumptions g)
+                                   let bs = [neggoal, asms]
                                    runZ3InOverride sym defaultLogData bs (\case
                                      Sat _   -> hPutStrLn outh "COUNTEREXAMPLE"
                                      Unsat _ -> hPutStrLn outh "PROVED"
