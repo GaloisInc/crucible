@@ -86,6 +86,7 @@ import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
 import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           System.IO
@@ -307,7 +308,7 @@ data SolverState scope solver =
 data OnlineBackendState solver userState scope = OnlineBackendState
   { assumptionStack ::
       !(AssumptionStack
-          (CrucibleAssumption (B.BoolExpr scope))
+          (Seq (CrucibleAssumption (B.BoolExpr scope)))
           (LabeledPred (B.BoolExpr scope) SimError))
 
   , solverProc :: !(IORef (SolverState scope solver))
@@ -340,7 +341,7 @@ initialOnlineBackendState gen feats ust =
 
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
-  IO (AssumptionStack (CrucibleAssumption (B.BoolExpr scope))
+  IO (AssumptionStack (Seq (CrucibleAssumption (B.BoolExpr scope)))
                       (LabeledPred (B.BoolExpr scope) SimError))
 getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
@@ -564,7 +565,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
 
              -- Record assumption, even if trivial.
              -- This allows us to keep track of the full path we are on.
-             AS.addAssumption a =<< getAssumptionStack sym
+             AS.appendAssumptions (Seq.singleton a) =<< getAssumptionStack sym
 
   addAssumptions sym as =
     -- NB, don't add the assumption to the assumption stack unless

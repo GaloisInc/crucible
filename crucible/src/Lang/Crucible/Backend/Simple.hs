@@ -33,6 +33,7 @@ module Lang.Crucible.Backend.Simple
 import           Control.Lens
 import           Control.Monad (void)
 import           Data.Parameterized.Nonce
+import qualified Data.Sequence as Seq
 
 import           What4.Config
 import           What4.Interface
@@ -51,7 +52,7 @@ type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 -- It contains the current assertion stack.
 
 type AS t =
-     AssumptionStack (CrucibleAssumption (B.BoolExpr t))
+     AssumptionStack (Seq.Seq (CrucibleAssumption (B.BoolExpr t)))
                      (LabeledPred (B.BoolExpr t) SimError)
 
 newtype SimpleBackendState t = SimpleBackendState { sbAssumptionStack :: AS t }
@@ -83,7 +84,7 @@ instance IsBoolSolver (SimpleBackend t fs) where
   addAssumption sym a =
     case impossibleAssumption a of
       Just rsn -> abortExecBecause rsn
-      Nothing  -> AS.addAssumption a =<< getAssumptionStack sym
+      Nothing  -> AS.appendAssumptions (Seq.singleton a) =<< getAssumptionStack sym
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym
