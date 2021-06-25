@@ -51,7 +51,7 @@ proveObligations =
        clearProofObligations sym
 
        forM_ obls $ \o ->
-         do let asms = o ^.. to proofAssumptions.folded.foldAssumption
+         do let asms = o ^.. to proofAssumptions.foldAssumptions
             gl <- notPred sym (o ^. to proofGoal.labeledPred)
             let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                          , logReason = "assertion proof" }

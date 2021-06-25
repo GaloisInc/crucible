@@ -2,6 +2,7 @@
 module Crux.Types where
 
 import qualified Control.Lens as L
+import           Data.Functor.Const
 import           Data.Parameterized.Map (MapF)
 import           Data.Sequence (Seq)
 import           Data.Text ( Text )
@@ -87,12 +88,12 @@ data ProvedGoals =
     AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
   | Branch ProvedGoals ProvedGoals
   | NotProvedGoal
-         [(CrucibleAssumption (), Doc Void)]
+         [(CrucibleAssumption (Const ()), Doc Void)]
          (SimError, Doc Void)
          (Doc Void)
          (Maybe ModelView)
   | ProvedGoal
-         [(CrucibleAssumption (), Doc Void)]
+         [(CrucibleAssumption (Const ()), Doc Void)]
          (SimError, Doc Void)
          Bool
     -- ^ Keeps only the explanations for the relevant assumptions.

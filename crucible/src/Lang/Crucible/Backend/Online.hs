@@ -85,8 +85,6 @@ import           Data.Data (Data)
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
-import           Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           System.IO
@@ -308,7 +306,7 @@ data SolverState scope solver =
 data OnlineBackendState solver userState scope = OnlineBackendState
   { assumptionStack ::
       !(AssumptionStack
-          (Seq (CrucibleAssumption (B.BoolExpr scope)))
+          (CrucibleAssumptions (B.Expr scope))
           (LabeledPred (B.BoolExpr scope) SimError))
 
   , solverProc :: !(IORef (SolverState scope solver))
@@ -341,7 +339,7 @@ initialOnlineBackendState gen feats ust =
 
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
-  IO (AssumptionStack (Seq (CrucibleAssumption (B.BoolExpr scope)))
+  IO (AssumptionStack (CrucibleAssumptions (B.Expr scope))
                       (LabeledPred (B.BoolExpr scope) SimError))
 getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
@@ -376,7 +374,7 @@ resetSolverProcess' st = do
 
 restoreSolverState ::
   OnlineSolver solver =>
-  PG.GoalCollector (Seq (CrucibleAssumption (B.BoolExpr scope)))
+  PG.GoalCollector (CrucibleAssumptions (B.Expr scope))
                    (LabeledPred (B.BoolExpr scope) SimError) ->
   OnlineBackendState solver userSt scope ->
   IO ()
@@ -470,16 +468,16 @@ data BranchResult
 restoreAssumptionFrames ::
   OnlineSolver solver =>
   SolverProcess scope solver ->
-  AssumptionFrames (Seq (CrucibleAssumption (B.BoolExpr scope))) ->
+  AssumptionFrames (CrucibleAssumptions (B.Expr scope)) ->
   IO ()
 restoreAssumptionFrames proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
-     (mapM_ . traverseOf_ foldAssumption) (SMT.assume (solverConn proc)) base
+     (traverseOf_ foldAssumptions) (SMT.assume (solverConn proc)) base
 
      -- populate the pushed frames
      forM_ (map snd $ toList frms) $ \frm ->
       do push proc
-         (mapM_ . traverseOf_ foldAssumption) (SMT.assume (solverConn proc)) frm
+         (traverseOf_ foldAssumptions) (SMT.assume (solverConn proc)) frm
 
 considerSatisfiability ::
   OnlineSolver solver =>
@@ -565,14 +563,14 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
 
              -- Record assumption, even if trivial.
              -- This allows us to keep track of the full path we are on.
-             AS.appendAssumptions (Seq.singleton a) =<< getAssumptionStack sym
+             AS.appendAssumptions (singleAssumption a) =<< getAssumptionStack sym
 
   addAssumptions sym as =
     -- NB, don't add the assumption to the assumption stack unless
     -- the solver assumptions succeeded
     do withSolverConn sym $ \conn ->
           -- Tell the solver of assertions
-          (mapM_ . traverseOf_ foldAssumption)
+          (traverseOf_ foldAssumptions)
             (\p -> unless (asConstantPred p == Just True) (SMT.assume conn p))
             as
 
@@ -582,7 +580,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
   getPathCondition sym =
     do stk <- getAssumptionStack sym
        ps <- AS.collectAssumptions stk
-       andAllOf sym (folded.foldAssumption) ps
+       assumptionsPred sym ps
 
   collectAssumptions sym =
     AS.collectAssumptions =<< getAssumptionStack sym

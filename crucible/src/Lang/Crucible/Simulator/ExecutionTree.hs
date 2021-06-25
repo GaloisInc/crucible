@@ -146,7 +146,6 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Parameterized.Ctx
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Sequence (Seq)
 import           Data.Text (Text)
 import           System.Exit (ExitCode)
 import           System.IO
@@ -157,7 +156,7 @@ import           What4.Interface (Pred, getConfiguration)
 import           What4.FunctionName (FunctionName, startFunctionName)
 import           What4.ProgramLoc (ProgramLoc, plSourceLoc)
 
-import           Lang.Crucible.Backend (IsSymInterface, AbortExecReason, FrameIdentifier, Assumption)
+import           Lang.Crucible.Backend (IsSymInterface, AbortExecReason, FrameIdentifier, Assumptions)
 import           Lang.Crucible.CFG.Core (BlockID, CFG, CFGPostdom, StmtSeq)
 import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
@@ -625,7 +624,7 @@ data VFFOtherPath p sym ext ret f args
 
      {- | This is a completed execution path. -}
    | VFFCompletePath
-        !(Seq (Assumption sym))
+        !(Assumptions sym)
           {- Assumptions that we collected while analyzing the branch -}
         !(PartialResultFrame sym ext f args)
           {- Result of running the other branch -}

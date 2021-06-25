@@ -8,6 +8,7 @@ import System.FilePath
 import System.Directory (createDirectoryIfMissing, canonicalizePath)
 import System.IO
 import qualified Data.Foldable as Fold
+import Data.Functor.Const
 import Data.List (partition)
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
@@ -142,7 +143,7 @@ renderSideConds opts = concatMapM (go [])
 
 jsProvedGoal ::
   [ JS ] ->
-  [ CrucibleAssumption () ] ->
+  [ CrucibleAssumption (Const ()) ] ->
   SimError ->
   Bool ->
   IO [JS]
@@ -175,7 +176,7 @@ jsProvedGoal apath asmps conc triv =
 
 jsNotProvedGoal ::
   [ JS ] ->
-  [ CrucibleAssumption () ] ->
+  [ CrucibleAssumption (Const ()) ] ->
   SimError ->
   Doc Void ->
   Maybe ModelView ->

@@ -16,7 +16,6 @@ import Control.Lens ((^.), (^..), view)
 import qualified Control.Lens as L
 import Control.Monad (forM, forM_, unless, when)
 import Data.Either (partitionEithers)
-import qualified Data.Foldable as F
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
@@ -67,7 +66,7 @@ provedGoalsTree ctxt = traverse (go [])
         IO ProvedGoals
   go asmps gs =
     case gs of
-      Assuming ps gs1 -> goAsmp asmps ps gs1
+      Assuming (CrucibleAssumptions ps) gs1 -> goAsmp asmps ps gs1
 
       Prove (p,r) -> return $ proveToGoal ctxt asmps p r
 
@@ -75,7 +74,7 @@ provedGoalsTree ctxt = traverse (go [])
 
   goAsmp ::
         [Assumption sym] ->
-        Assumptions sym ->
+        Seq.Seq (Assumption sym) ->
         Goals (Assumptions sym) (Assertion sym, ProofResult sym) ->
         IO ProvedGoals
 
@@ -101,7 +100,7 @@ proveToGoal _ctx allAsmps p pr =
         (asmps, _:_) -> ProvedGoal (map showAsmp asmps) (showGoal p) False
 
  where
- showAsmp x = (fmap (const ()) x, vcat (x ^.. foldAssumption. L.to printSymExpr))
+ showAsmp x = (forgetAssumption x, vcat (x ^.. foldAssumption. L.to printSymExpr))
  showGoal x = (x^.labeledPredMsg, printSymExpr (x^.labeledPred))
 
 
@@ -221,6 +220,8 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
   return (nms, Just gs)
 
   where
+    sym = ctx^.ctxSymInterface
+
     failfast = proofGoalsFailFast opts
 
     go :: (Integer -> IO (), IO ())
@@ -246,8 +247,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
-          let sym = ctx ^. ctxSymInterface
-          assumptions <- WI.andAllOf sym (L.folded.traverse.foldAssumption) assumptionsInScope
+          assumptions <- WI.andAllOf sym (L.folded.foldAssumptions) assumptionsInScope
           goal <- notPred sym (p ^. labeledPred)
 
           res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters $ runOneSolver p assumptionsInScope assumptions goal
@@ -281,7 +281,8 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
           Unsat _ -> do
             -- NOTE: We don't have an easy way to get an unsat core here
             -- because we don't have a solver connection.
-            let core = fmap Left (F.toList (mconcat assumptionsInScope)) ++ [ Right p ]
+            as <- flattenAssumptions sym (mconcat assumptionsInScope)
+            let core = fmap Left as ++ [ Right p ]
             return (Proved core)
           Sat (evalFn, _) -> do
             let model = ctx ^. cruciblePersonality . personalityModel
@@ -387,15 +388,16 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
   go (start,end) sp gn gs nameMap = do
     case gs of
 
-      Assuming ps gs1 ->
-        do forM_ ps $ \asm ->
+      Assuming asms gs1 ->
+        do ps <- flattenAssumptions sym asms
+           forM_ ps $ \asm ->
              unless (trivialAssumption asm) $
                L.traverseOf_ foldAssumption
                  (\p -> do nm <- doAssume =<< mkFormula conn p
                            bindName nm (Left asm) nameMap)
                  asm
            res <- go (start,end) sp gn gs1 nameMap
-           return (Assuming ps res)
+           return (Assuming (mconcat (map singleAssumption ps)) res)
 
       Prove p ->
         do start . totalProcessedGoals =<< readIORef gn

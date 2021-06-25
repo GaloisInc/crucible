@@ -31,6 +31,7 @@ obligations with a solver backend.
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -40,16 +41,22 @@ module Lang.Crucible.Backend
 
     -- * Assumption management
   , CrucibleAssumption(..)
+  , CrucibleAssumptions(..)
   , Assumption
   , Assertion
   , Assumptions
 
+  , singleAssumption
   , trivialAssumption
   , impossibleAssumption
   , ppAssumption
   , assumptionLoc
   , mergeAssumptions
   , foldAssumption
+  , foldAssumptions
+  , forgetAssumption
+  , assumptionsPred
+  , flattenAssumptions
   , ProofObligation
   , ProofObligations
   , AssumptionState
@@ -83,9 +90,12 @@ module Lang.Crucible.Backend
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
-import           Control.Lens ((^.), Fold, Traversal)
+import           Control.Lens ((^.), Fold, Traversal, folded)
 import           Control.Monad
+import           Data.Kind (Type)
 import           Data.Foldable (toList)
+import           Data.Functor.Identity
+import           Data.Functor.Const
 import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
 import qualified Prettyprinter as PP
@@ -102,28 +112,27 @@ import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 
-data CrucibleAssumption p
-  = GenericAssumption ProgramLoc String p
+data CrucibleAssumption (e :: BaseType -> Type)
+  = GenericAssumption ProgramLoc String (e BaseBoolType)
     -- ^ An unstructured description of the source of an assumption.
 
-  | BranchCondition ProgramLoc (Maybe ProgramLoc) p
+  | BranchCondition ProgramLoc (Maybe ProgramLoc) (e BaseBoolType)
     -- ^ This arose because we want to explore a specific path.
     -- The first location is the location of the branch predicate.
     -- The second one is the location of the branch target.
 
-  | AssumingNoError SimError p
+  | AssumingNoError SimError (e BaseBoolType)
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
- deriving (Functor)
 
-assumptionLoc :: CrucibleAssumption p -> ProgramLoc
+assumptionLoc :: CrucibleAssumption e -> ProgramLoc
 assumptionLoc r =
   case r of
     GenericAssumption l _ _ -> l
     BranchCondition  l _ _   -> l
     AssumingNoError s _    -> simErrorLoc s
 
-impossibleAssumption :: IsExpr p => CrucibleAssumption (p BaseBoolType) -> Maybe AbortExecReason
+impossibleAssumption :: IsExpr e => CrucibleAssumption e -> Maybe AbortExecReason
 impossibleAssumption (AssumingNoError err p)
   | Just False <- asConstantPred p = Just (AssertionFailure err)
 impossibleAssumption (BranchCondition loc _ p)
@@ -132,18 +141,37 @@ impossibleAssumption (GenericAssumption loc _ p)
   | Just False <- asConstantPred p = Just (InfeasibleBranch loc)
 impossibleAssumption _ = Nothing
 
-foldAssumption :: Fold (CrucibleAssumption p) p
+forgetAssumption :: CrucibleAssumption e -> CrucibleAssumption (Const ())
+forgetAssumption = runIdentity . traverseAssumption (\_ -> Identity (Const ()))
+
+foldAssumption :: Fold (CrucibleAssumption e) (e BaseBoolType)
 foldAssumption = traverseAssumption
 
-traverseAssumption :: Traversal (CrucibleAssumption p) (CrucibleAssumption p') p p'
+traverseAssumption :: Traversal (CrucibleAssumption e) (CrucibleAssumption e') (e BaseBoolType) (e' BaseBoolType)
 traverseAssumption f = \case
   GenericAssumption loc msg p -> GenericAssumption loc msg <$> f p
   BranchCondition l t p -> BranchCondition l t <$> f p
   AssumingNoError err p -> AssumingNoError err <$> f p
 
+newtype CrucibleAssumptions (e :: BaseType -> Type) =
+  CrucibleAssumptions (Seq (CrucibleAssumption e))
 
+instance Semigroup (CrucibleAssumptions e) where
+  CrucibleAssumptions xs <> CrucibleAssumptions ys = CrucibleAssumptions (xs <> ys)
+instance Monoid (CrucibleAssumptions e) where
+  mempty = CrucibleAssumptions mempty
 
+singleAssumption :: CrucibleAssumption e -> CrucibleAssumptions e
+singleAssumption x = CrucibleAssumptions (Seq.singleton x)
 
+assumptionsPred :: IsExprBuilder sym => sym -> Assumptions sym -> IO (Pred sym)
+assumptionsPred sym (CrucibleAssumptions xs) = andAllOf sym (folded.foldAssumption) xs
+
+foldAssumptions :: Fold (CrucibleAssumptions e) (e BaseBoolType)
+foldAssumptions f (CrucibleAssumptions xs) = CrucibleAssumptions <$> traverse (foldAssumption f) xs
+
+flattenAssumptions :: IsExprBuilder sym => sym -> Assumptions sym -> IO [Assumption sym]
+flattenAssumptions _ (CrucibleAssumptions xs) = pure (toList xs)
 
 {- | Merge the assumptions collected from the branches of a conditional.
 The result is a bunch of qualified assumptions: if the branch condition
@@ -157,7 +185,8 @@ mergeAssumptions ::
   Assumptions sym ->
   Assumptions sym ->
   IO (Assumptions sym)
-mergeAssumptions sym p thens elses =
+mergeAssumptions sym p (CrucibleAssumptions thens) (CrucibleAssumptions elses) =
+  CrucibleAssumptions <$>
   do pnot <- notPred sym p
      th' <- (traverse.traverseAssumption) (impliesPred sym p) thens
      el' <- (traverse.traverseAssumption) (impliesPred sym pnot) elses
@@ -167,8 +196,8 @@ mergeAssumptions sym p thens elses =
 
 
 type Assertion sym  = LabeledPred (Pred sym) SimError
-type Assumption sym = CrucibleAssumption (Pred sym)
-type Assumptions sym = Seq (Assumption sym)
+type Assumption sym = CrucibleAssumption (SymExpr sym)
+type Assumptions sym = CrucibleAssumptions (SymExpr sym)
 type ProofObligation sym = AS.ProofGoal (Assumptions sym) (Assertion sym)
 type ProofObligations sym = Maybe (AS.Goals (Assumptions sym) (Assertion sym))
 type AssumptionState sym = PG.GoalCollector (Assumptions sym) (Assertion sym)
@@ -203,7 +232,7 @@ ppAbortExecReason e =
       ]
     VariantOptionsExhausted l -> ppLocated l "Variant options exhausted."
 
-ppAssumption :: (p -> PP.Doc ann) -> CrucibleAssumption p -> PP.Doc ann
+ppAssumption :: (forall tp. e tp -> PP.Doc ann) -> CrucibleAssumption e -> PP.Doc ann
 ppAssumption ppDoc e =
   case e of
     GenericAssumption l msg p ->
@@ -224,7 +253,7 @@ ppAssumption ppDoc e =
               , ppDoc p
               ]
 
-trivialAssumption :: IsExpr p => CrucibleAssumption (p BaseBoolType) -> Bool
+trivialAssumption :: IsExpr e => CrucibleAssumption e -> Bool
 trivialAssumption (GenericAssumption _ _ p) = asConstantPred p == Just True
 trivialAssumption (BranchCondition _ _ p) = asConstantPred p == Just True
 trivialAssumption (AssumingNoError _ p) = asConstantPred p == Just True
@@ -444,7 +473,7 @@ readPartExpr sym (PE p v) msg = do
   return v
 
 ppProofObligation :: IsExprBuilder sym => sym -> ProofObligation sym -> PP.Doc ann
-ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
+ppProofObligation _ (AS.ProofGoal (CrucibleAssumptions (toList -> as)) gl) =
   PP.vsep
   [ if null as then mempty else
       PP.vcat ("Assuming:" : concatMap ppAsm (toList as))
