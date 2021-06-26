@@ -92,7 +92,7 @@ import           Paths_crucible_jvm (version)
 import System.Console.GetOpt
 
 -- | A simulator context
-type SimCtxt sym = SimContext (Crux.Model sym) sym JVM
+type SimCtxt sym = SimContext (Crux.Crux sym) sym JVM
 
 data JVMOptions = JVMOptions
   { classPath        :: [FilePath]
@@ -193,7 +193,7 @@ simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let nullstr = RegEntry refRepr W4.Unassigned
    let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-   initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.emptyModel
+   initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym Crux.CruxPersonality
      cname mname regmap
 
    return (Crux.RunnableState initSt, \_ _ -> return mempty) -- TODO add failure explanations
