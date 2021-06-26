@@ -201,7 +201,7 @@ updateProcessedGoals _ (NotProved _ Nothing) pgs =
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
 proveGoalsOffline :: forall st sym p t fs personality.
-  (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs, HasModel personality) =>
+  (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs) =>
   [WS.SolverAdapter st] ->
   CruxOptions ->
   SimCtxt personality sym p ->
@@ -356,7 +356,6 @@ proveGoalsOnline ::
   , OnlineSolver solver
   , goalSym ~ OnlineBackend s goalSolver fs
   , OnlineSolver goalSolver
-  , HasModel personality
   , ?outputConfig :: OutputConfig
   ) =>
   goalSym ->

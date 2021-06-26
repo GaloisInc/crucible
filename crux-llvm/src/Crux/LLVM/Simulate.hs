@@ -73,7 +73,6 @@ import Lang.Crucible.LLVM.Extension( LLVM )
 import qualified Crux
 
 import Crux.Types
-import Crux.Model
 import Crux.Log
 
 import Crux.LLVM.Config
@@ -86,7 +85,7 @@ setupSimCtxt ::
   sym ->
   MemOptions ->
   GlobalVar Mem ->
-  SimCtxt Model sym LLVM
+  SimCtxt Crux sym LLVM
 setupSimCtxt halloc sym mo memVar =
   initSimContext sym
                  llvmIntrinsicTypes
@@ -94,7 +93,7 @@ setupSimCtxt halloc sym mo memVar =
                  stdout
                  (fnBindingsFromList [])
                  (llvmExtensionImpl mo)
-                 emptyModel
+                 CruxPersonality
     & profilingMetrics %~ Map.union (memMetrics memVar)
 
 -- | Parse an LLVM bit-code file.
@@ -109,7 +108,7 @@ registerFunctions ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   LLVM.Module ->
   ModuleTranslation arch ->
-  OverM Model sym LLVM ()
+  OverM Crux sym LLVM ()
 registerFunctions llvm_module mtrans =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx

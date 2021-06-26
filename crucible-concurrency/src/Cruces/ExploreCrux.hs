@@ -29,7 +29,6 @@ import           Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import           Lang.Crucible.Backend
 
 import qualified Crux
-import           Crux.Model
 
 import           Crucibles.SchedulingAlgorithm hiding (_exec, exec)
 import           Crucibles.Execution
@@ -73,7 +72,6 @@ emptyExploration :: SchedulingAlgorithm alg => Exploration alg ext C.UnitType sy
 emptyExploration = Exploration { _exec      = initialExecutions
                                , _scheduler = s0
                                , _schedAlg  = initialAlgState
-                               , _model     = emptyModel
                                , _num       = 0
                                , _gVars     = mempty
                                }

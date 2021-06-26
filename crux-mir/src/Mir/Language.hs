@@ -122,7 +122,7 @@ mainWithOutputConfig mkOutCfg bindExtra =
     $ runTestsWithExtraOverrides bindExtra
 
 type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
-    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>
+    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     Maybe (Crux.SomeOnlineSolver sym) ->
     CollectionState ->
     Text ->
@@ -145,7 +145,6 @@ orOverride f g symOnline cs name cfg =
 -- personality.
 data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
   forall personality.
-  HasModel personality =>
     SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
                 , testFeatures :: [C.ExecutionFeature (personality sym) sym MIR (C.RegEntry sym ty)]
                 , testPersonality :: personality sym
@@ -216,7 +215,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>
+    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (p sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
@@ -246,7 +245,6 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             ( C.IsSymInterface sym
             , sym ~ W4.ExprBuilder t st fs
             , Crux.Logs
-            , HasModel p
             ) =>
             Maybe (Crux.SomeOnlineSolver sym) ->
             DefId ->
@@ -307,7 +305,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             { testOvr = do printTest fnName
                            simTestBody symOnline fnName
             , testFeatures = []
-            , testPersonality = Crux.emptyModel
+            , testPersonality = Crux.CruxPersonality
             }
 
     let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline ->

@@ -98,8 +98,6 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
-import           Crux.Types (HasModel)
-
 import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
 import           What4.Partial
@@ -1948,7 +1946,6 @@ class MethodSpecImpl sym ms where
     -- (`&str`).
     msPrettyPrint ::
         forall p rtp args ret.
-        (HasModel p) =>
         ms ->
         OverrideSim (p sym) sym MIR rtp args ret (RegValue sym (MirSlice (BVType 8)))
 
@@ -1956,7 +1953,6 @@ class MethodSpecImpl sym ms where
     -- current test.
     msEnable ::
         forall p rtp args ret.
-        (HasModel p) =>
         ms ->
         OverrideSim (p sym) sym MIR rtp args ret ()
 
@@ -1988,23 +1984,18 @@ instance IsSymInterface sym => IntrinsicClass sym MethodSpecSymbol where
 
 class MethodSpecBuilderImpl sym msb where
     msbAddArg :: forall p rtp args ret tp.
-        (HasModel p) =>
         TypeRepr tp -> MirReferenceMux sym tp -> msb ->
         OverrideSim (p sym) sym MIR rtp args ret msb
     msbSetReturn :: forall p rtp args ret tp.
-        (HasModel p) =>
         TypeRepr tp -> MirReferenceMux sym tp -> msb ->
         OverrideSim (p sym) sym MIR rtp args ret msb
     msbGatherAssumes :: forall p rtp args ret.
-        (HasModel p) =>
         msb ->
         OverrideSim (p sym) sym MIR rtp args ret msb
     msbGatherAsserts :: forall p rtp args ret.
-        (HasModel p) =>
         msb ->
         OverrideSim (p sym) sym MIR rtp args ret msb
     msbFinish :: forall p rtp args ret.
-        (HasModel p) =>
         msb ->
         OverrideSim (p sym) sym MIR rtp args ret (MethodSpec sym)
 

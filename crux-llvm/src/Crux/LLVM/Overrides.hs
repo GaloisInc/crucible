@@ -20,7 +20,6 @@ module Crux.LLVM.Overrides
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import Control.Lens((%=))
 import Control.Monad.IO.Class(liftIO)
 import GHC.Exts ( Proxy# )
 import System.IO (hPutStrLn)
@@ -40,8 +39,7 @@ import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(GlobalVar)
 import Lang.Crucible.Simulator.RegMap(regValue,RegValue,RegEntry)
-import Lang.Crucible.Simulator.ExecutionTree
-  ( stateContext, cruciblePersonality, printHandle )
+import Lang.Crucible.Simulator.ExecutionTree( printHandle )
 import Lang.Crucible.Simulator.OverrideSim
         ( getSymInterface
         , getContext
@@ -52,7 +50,7 @@ import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
           ( IsSymInterface, addDurableAssertion, addFailedAssertion
           , addAssumption, LabeledPred(..), CrucibleAssumption(..)
-          , addAssumptions, singleEvent, CrucibleEvent(..), ppEvent )
+          , addAssumptions, singleEvent, CrucibleEvent(..) )
 import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
@@ -70,7 +68,6 @@ import           Lang.Crucible.LLVM.Intrinsics
 import Lang.Crucible.LLVM.Extension ( ArchWidth )
 
 import Crux.Types
-import Crux.Model
 
 -- | This happens quite a lot, so just a shorter name
 type ArchOk arch    = HasPtrWidth (ArchWidth arch)
@@ -79,7 +76,7 @@ type TBits n        = BVType n
 
 
 cruxLLVMOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cruxLLVMOverrides arch =
@@ -153,7 +150,7 @@ cruxLLVMOverrides arch =
 
 
 cbmcOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext, HasModel personality) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cbmcOverrides arch =
@@ -246,7 +243,7 @@ cbmcOverrides arch =
 
 
 svCompOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, HasModel personality) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   [OverrideTemplate (personality sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
@@ -309,7 +306,7 @@ svCompOverrides =
 --------------------------------------------------------------------------------
 
 mkFresh ::
-  (IsSymInterface sym, HasModel personality) =>
+  (IsSymInterface sym) =>
   String ->
   BaseTypeRepr ty ->
   OverM personality sym ext (RegValue sym (BaseToType ty))
@@ -320,13 +317,12 @@ mkFresh nm ty =
                Right a  -> return a
      elt <- liftIO (freshConstant sym name ty)
      loc   <- liftIO $ getCurrentProgramLoc sym
-     stateContext.cruciblePersonality.personalityModel %= addVar loc nm ty elt
      let ev = CreateVariableEvent loc nm ty elt
      liftIO $ addAssumptions sym (singleEvent ev)
      return elt
 
 mkFreshFloat
-  ::(IsSymInterface sym, HasModel personality)
+  ::(IsSymInterface sym)
   => String
   -> FloatInfoRepr fi
   -> OverM personality sym ext (RegValue sym (FloatType fi))
@@ -337,8 +333,8 @@ mkFreshFloat nm fi = do
             Right a  -> return a
   elt  <- liftIO $ freshFloatConstant sym name fi
   loc  <- liftIO $ getCurrentProgramLoc sym
-  stateContext.cruciblePersonality.personalityModel %=
-    addVar loc nm (iFloatBaseTypeRepr sym fi) elt
+  let ev = CreateVariableEvent loc nm (iFloatBaseTypeRepr sym fi) elt
+  liftIO $ addAssumptions sym (singleEvent ev)
   return elt
 
 lookupString ::
@@ -352,7 +348,7 @@ lookupString _ mvar ptr =
      return (BS8.unpack (BS.pack bytes))
 
 sv_comp_fresh_bits ::
-  (IsSymInterface sym, 1 <= w, HasModel personality) =>
+  (IsSymInterface sym, 1 <= w) =>
   NatRepr w ->
   GlobalVar Mem ->
   sym ->
@@ -361,7 +357,7 @@ sv_comp_fresh_bits ::
 sv_comp_fresh_bits w _mvar _sym Empty = mkFresh "X" (BaseBVRepr w)
 
 sv_comp_fresh_float ::
-  (IsSymInterface sym, HasModel personality) =>
+  (IsSymInterface sym) =>
   FloatInfoRepr fi ->
   GlobalVar Mem ->
   sym ->
@@ -370,7 +366,7 @@ sv_comp_fresh_float ::
 sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
-  (ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w, HasModel personality) =>
+  (ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w) =>
   Proxy# arch ->
   NatRepr w ->
   GlobalVar Mem ->
@@ -382,7 +378,7 @@ fresh_bits arch w mvar _ (Empty :> pName) =
      mkFresh name (BaseBVRepr w)
 
 fresh_float ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, HasModel personality) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
   Proxy# arch ->
   FloatInfoRepr fi ->
   GlobalVar Mem ->
