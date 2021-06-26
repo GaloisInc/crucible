@@ -243,6 +243,8 @@ evalModelFromAssumptions gfn asms =
      return (ModelView (foldl f (modelVals emptyModelView) evs))
  where
    f m (CreateVariableEvent loc nm tpr (GVW v)) = MapF.insertWith jn tpr (Vals [Entry nm loc v]) m
+   f m _ = m
+
    jn (Vals new) (Vals old) = Vals (old++new)
 
 dispatchSolversOnGoalAsync :: forall a s time.

@@ -56,11 +56,13 @@ module Lang.Crucible.Backend
   , impossibleAssumption
   , ppAssumption
   , assumptionLoc
+  , eventLoc
   , mergeAssumptions
   , foldAssumption
   , forgetAssumption
   , assumptionsPred
   , flattenAssumptions
+  , assumptionsTopLevelLocs
   , ProofObligation
   , ProofObligations
   , AssumptionState
@@ -133,11 +135,18 @@ data CrucibleAssumption (e :: BaseType -> Type)
 data CrucibleEvent (e :: BaseType -> Type) where
   CreateVariableEvent ::
     ProgramLoc -> String -> BaseTypeRepr tp -> e tp -> CrucibleEvent e
+  LocationReachedEvent ::
+    ProgramLoc -> CrucibleEvent e
 
 ppEvent :: IsExpr e => CrucibleEvent e -> PP.Doc ann
 ppEvent (CreateVariableEvent loc nm _tpr v) =
-  "create var" PP.<+> PP.pretty nm PP.<+> "=" PP.<+> printSymExpr v PP.<+> PP.pretty (plSourceLoc loc)
+  "create var" PP.<+> PP.pretty nm PP.<+> "=" PP.<+> printSymExpr v PP.<+> "at" PP.<+> PP.pretty (plSourceLoc loc)
+ppEvent (LocationReachedEvent loc) =
+  "reached" PP.<+> PP.pretty (plSourceLoc loc) PP.<+> "in" PP.<+> PP.pretty (plFunction loc)
 
+eventLoc :: CrucibleEvent e -> ProgramLoc
+eventLoc (CreateVariableEvent loc _ _ _) = loc
+eventLoc (LocationReachedEvent loc) = loc
 
 assumptionLoc :: CrucibleAssumption e -> ProgramLoc
 assumptionLoc r =
@@ -192,6 +201,12 @@ singleAssumption x = SingleAssumption x
 singleEvent :: CrucibleEvent e -> CrucibleAssumptions e
 singleEvent x = SingleEvent x
 
+assumptionsTopLevelLocs :: CrucibleAssumptions e -> [ProgramLoc]
+assumptionsTopLevelLocs (SingleEvent e)      = [eventLoc e]
+assumptionsTopLevelLocs (SingleAssumption a) = [assumptionLoc a]
+assumptionsTopLevelLocs (ManyAssumptions as) = concatMap assumptionsTopLevelLocs as
+assumptionsTopLevelLocs MergeAssumptions{}   = []
+
 assumptionsPred :: IsExprBuilder sym => sym -> Assumptions sym -> IO (Pred sym)
 assumptionsPred sym (SingleEvent _) =
   return (truePred sym)
@@ -208,6 +223,7 @@ traverseEvent :: Applicative m =>
   (forall tp. e tp -> m (e' tp)) ->
   CrucibleEvent e -> m (CrucibleEvent e')
 traverseEvent f (CreateVariableEvent loc nm tpr v) = CreateVariableEvent loc nm tpr <$> f v
+traverseEvent _ (LocationReachedEvent loc) = pure (LocationReachedEvent loc)
 
 concretizeEvents ::
   IsExpr e =>
