@@ -12,7 +12,7 @@ module Crux.Goal where
 
 import Control.Concurrent.Async (async, asyncThreadId, waitAnyCatch)
 import Control.Exception (throwTo, SomeException, displayException)
-import Control.Lens ((^.), (^..), view)
+import Control.Lens ((^.), view)
 import qualified Control.Lens as L
 import Control.Monad (forM, forM_, unless, when)
 import Data.Either (partitionEithers)
@@ -26,7 +26,7 @@ import           Prettyprinter
 import           System.Exit (ExitCode(ExitSuccess))
 import qualified System.Timeout as ST
 
-import What4.Interface (notPred, printSymExpr,getConfiguration)
+import What4.Interface (notPred, getConfiguration)
 import What4.Config (setOpt, getOptionSetting)
 import What4.SatResult(SatResult(..))
 import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, Expr, GroundValueWrapper(..))
@@ -87,8 +87,8 @@ proveToGoal sym allAsmps p pr =
         (asmps, _:_) -> return (ProvedGoal (map showAsmp asmps) (showGoal p) False)
 
  where
- showAsmp x = (forgetAssumption x, vcat (x ^.. foldAssumption. L.to printSymExpr))
- showGoal x = (x^.labeledPredMsg, printSymExpr (x^.labeledPred))
+ showAsmp x = forgetAssumption x
+ showGoal x = x^.labeledPredMsg
 
 
 countGoals :: Goals a b -> Int

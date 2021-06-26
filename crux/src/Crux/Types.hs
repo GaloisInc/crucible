@@ -67,13 +67,13 @@ type LPred sym   = LabeledPred (Pred sym)
 data ProvedGoals
   = Branch ProvedGoals ProvedGoals
   | NotProvedGoal
-         [(CrucibleAssumption (Const ()), Doc Void)]
-         (SimError, Doc Void)
+         [CrucibleAssumption (Const ())]
+         SimError
          (Doc Void)
          (Maybe ModelView)
   | ProvedGoal
-         [(CrucibleAssumption (Const ()), Doc Void)]
-         (SimError, Doc Void)
+         [CrucibleAssumption (Const ())]
+         SimError
          Bool
     -- ^ Keeps only the explanations for the relevant assumptions.
     --

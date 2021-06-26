@@ -88,8 +88,8 @@ provedGoalLocs :: ProvedGoals -> [ProgramLoc]
 --provedGoalLocs (AtLoc loc _ goals) = loc : provedGoalLocs goals
 provedGoalLocs (Branch goals1 goals2) = provedGoalLocs goals1 ++
                                         provedGoalLocs goals2
-provedGoalLocs (ProvedGoal _ (err, _) _) = [simErrorLoc err]
-provedGoalLocs (NotProvedGoal _ (err, _) _ _) = [simErrorLoc err]
+provedGoalLocs (ProvedGoal _ err _) = [simErrorLoc err]
+provedGoalLocs (NotProvedGoal _ err _ _) = [simErrorLoc err]
 
 -- | Return a list of all files referenced in a set of proved goals.
 provedGoalFiles :: ProvedGoals -> [FilePath]
@@ -121,14 +121,14 @@ renderSideConds opts = concatMapM (go ( [] :: [(JS,ProgramLoc)] ))
 
       ProvedGoal asmps conc triv
         | skipSuccessReports opts -> pure []
-        | otherwise -> jsProvedGoal apath (map fst asmps) (fst conc) triv
+        | otherwise -> jsProvedGoal apath asmps conc triv
 
       NotProvedGoal asmps conc explain cex
         | skipIncompleteReports opts
-        , (SimError _ (ResourceExhausted _), _) <- conc
+        , SimError _ (ResourceExhausted _) <- conc
         -> pure []
 
-        | otherwise -> jsNotProvedGoal apath (map fst asmps) (fst conc) explain cex
+        | otherwise -> jsNotProvedGoal apath asmps conc explain cex
 
     where
       (ls,ps) = unzip (reverse path)
