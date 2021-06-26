@@ -15,7 +15,6 @@ module Crux.Model where
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.Pair (Pair(..))
 import qualified Numeric as N
 import           LibBF (BigFloat)
 import qualified LibBF as BF
@@ -27,17 +26,7 @@ import           Crux.Types
 
 
 emptyModelView :: ModelView
-emptyModelView = ModelView $ MapF.fromList
-  [ noVals (BaseBVRepr (knownNat @8))
-  , noVals (BaseBVRepr (knownNat @16))
-  , noVals (BaseBVRepr (knownNat @32))
-  , noVals (BaseBVRepr (knownNat @64))
-  , noVals (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
-  , noVals (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
-  ]
-
-noVals :: BaseTypeRepr ty -> Pair BaseTypeRepr Vals
-noVals ty = Pair ty (Vals [])
+emptyModelView = ModelView $ MapF.empty
 
 --------------------------------------------------------------------------------
 

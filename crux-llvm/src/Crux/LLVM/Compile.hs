@@ -16,6 +16,7 @@ import           Control.Monad.Logic ( observeAll )
 import qualified Data.Foldable as Fold
 import           Data.List ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
+import           Data.Parameterized.Some
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           System.Directory ( doesFileExist, removeFile
@@ -286,7 +287,7 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
      return (printExe, debugExe)
 
 
-ppValsC :: BaseTypeRepr ty -> Vals ty -> String
+ppValsC :: BaseTypeRepr ty -> Vals ty -> [String]
 ppValsC ty (Vals xs) =
   let (cty, cnm, ppRawVal) = case ty of
         BaseBVRepr n ->
@@ -302,8 +303,7 @@ ppValsC ty (Vals xs) =
         BaseRealRepr -> ("double", "real", (show . toDouble))
 
         _ -> error ("Type not implemented: " ++ show ty)
-  in unlines
-      [ "size_t const crucible_values_number_" ++ cnm ++
+  in  [ "size_t const crucible_values_number_" ++ cnm ++
                 " = " ++ show (length xs) ++ ";"
 
       , "const char* crucible_names_" ++ cnm ++ "[] = { " ++
@@ -319,5 +319,21 @@ ppModelC m = unlines
              : "#include <stddef.h>"
              : "#include <math.h>"
              : ""
-             : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
-            where vals = modelVals m
+             : concatMap ppModelForType llvmModelTypes
+ where
+  ppModelForType (Some tpr) =
+    case MapF.lookup tpr (modelVals m) of
+      -- NB, produce the declarations even if there are no variables
+      Nothing   -> ppValsC tpr (Vals [])
+      Just vals -> ppValsC tpr vals
+
+
+llvmModelTypes :: [Some BaseTypeRepr]
+llvmModelTypes =
+  [ Some (BaseBVRepr (knownNat @8))
+  , Some (BaseBVRepr (knownNat @16))
+  , Some (BaseBVRepr (knownNat @32))
+  , Some (BaseBVRepr (knownNat @64))
+  , Some (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
+  , Some (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
+  ]
