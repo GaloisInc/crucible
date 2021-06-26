@@ -113,51 +113,6 @@ countGoals gs =
     Prove _         -> 1
     ProveConj g1 g2 -> countGoals g1 + countGoals g2
 
-countTotalGoals :: ProvedGoals -> Int
-countTotalGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countTotalGoals gs1
-    Branch gs1 gs2 -> countTotalGoals gs1 + countTotalGoals gs2
-    ProvedGoal{} -> 1
-    NotProvedGoal{} -> 1
-
-countDisprovedGoals :: ProvedGoals -> Int
-countDisprovedGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countDisprovedGoals gs1
-    Branch gs1 gs2 -> countDisprovedGoals gs1 + countDisprovedGoals gs2
-    NotProvedGoal _ _ _ (Just _) -> 1
-    NotProvedGoal _ _ _ Nothing -> 0
-    ProvedGoal{} -> 0
-
-countUnknownGoals :: ProvedGoals -> Int
-countUnknownGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countUnknownGoals gs1
-    Branch gs1 gs2 -> countUnknownGoals gs1 + countUnknownGoals gs2
-    NotProvedGoal _ _ _ (Just _) -> 0
-    NotProvedGoal _ _ _ Nothing -> 1
-    ProvedGoal{} -> 0
-
-countProvedGoals :: ProvedGoals -> Int
-countProvedGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countProvedGoals gs1
-    Branch gs1 gs2 -> countProvedGoals gs1 + countProvedGoals gs2
-    NotProvedGoal{} -> 0
-    ProvedGoal{} -> 1
-
-countIncompleteGoals :: ProvedGoals -> Int
-countIncompleteGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countIncompleteGoals gs1
-    Branch gs1 gs2 -> countIncompleteGoals gs1 + countIncompleteGoals gs2
-    NotProvedGoal _ (SimError _ (ResourceExhausted _), _) _ Nothing -> 1
-    NotProvedGoal{} -> 0
-    ProvedGoal{} -> 0
-
-
-
 isResourceExhausted :: LabeledPred p SimError -> Bool
 isResourceExhausted (view labeledPredMsg -> SimError _ (ResourceExhausted _)) = True
 isResourceExhausted _ = False

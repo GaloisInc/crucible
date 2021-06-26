@@ -81,7 +81,6 @@ import qualified Crux as Crux
 import qualified Crux.Model as Crux
 import qualified Crux.UI.JS as Crux
 
-import Crux.Goal (countProvedGoals, countDisprovedGoals, countTotalGoals)
 import Crux.Types
 import Crux.Log
 
@@ -321,15 +320,15 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
                      , \_ _ -> return mempty
                      )
 
-    let outputResult (CruxSimulationResult cmpl (fmap snd -> gls))
+    let outputResult (CruxSimulationResult cmpl gls)
           | disproved > 0 = output "FAILED"
           | cmpl /= ProgramComplete = output "UNKNOWN"
           | proved == tot = output "ok"
           | otherwise = output "UNKNOWN"
           where
-            tot = sum (fmap countTotalGoals gls)
-            proved = sum (fmap countProvedGoals gls)
-            disproved = sum (fmap countDisprovedGoals gls)
+            tot = sum (fmap (totalProcessedGoals . fst) gls)
+            proved = sum (fmap (provedGoals . fst) gls)
+            disproved = sum (fmap (disprovedGoals . fst) gls)
 
     results <- forM testNames $ \fnName -> do
         let cruxOpts' = cruxOpts {
@@ -356,9 +355,9 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
         return res
 
     -- Print counterexamples
-    let isResultOK (CruxSimulationResult comp (fmap snd -> gls)) =
+    let isResultOK (CruxSimulationResult comp gls) =
             comp == ProgramComplete &&
-            sum (fmap countProvedGoals gls) == sum (fmap countTotalGoals gls)
+            sum (fmap (provedGoals . fst) gls) == sum (fmap (totalProcessedGoals . fst) gls)
     let anyFailed = any (not . isResultOK) results
 
     let printCounterexamples gs = case gs of
