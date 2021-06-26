@@ -51,7 +51,8 @@ import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
           ( IsSymInterface, addDurableAssertion, addFailedAssertion
-          , addAssumption, LabeledPred(..), CrucibleAssumption(..))
+          , addAssumption, LabeledPred(..), CrucibleAssumption(..)
+          , addAssumptions, singleEvent, CrucibleEvent(..), ppEvent )
 import Lang.Crucible.LLVM.QQ( llvmOvr )
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
@@ -320,6 +321,8 @@ mkFresh nm ty =
      elt <- liftIO (freshConstant sym name ty)
      loc   <- liftIO $ getCurrentProgramLoc sym
      stateContext.cruciblePersonality.personalityModel %= addVar loc nm ty elt
+     let ev = CreateVariableEvent loc nm ty elt
+     liftIO $ addAssumptions sym (singleEvent ev)
      return elt
 
 mkFreshFloat

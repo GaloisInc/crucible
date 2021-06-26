@@ -19,6 +19,7 @@ import Data.Either (partitionEithers)
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
+import qualified Data.Parameterized.Map as MapF
 import qualified Data.Text as Text
 import           Data.Void
 import           Prettyprinter
@@ -27,9 +28,8 @@ import qualified System.Timeout as ST
 
 import What4.Interface (notPred, printSymExpr,getConfiguration)
 import What4.Config (setOpt, getOptionSetting)
-import qualified What4.Interface as WI
 import What4.SatResult(SatResult(..))
-import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr)
+import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, Expr, GroundValueWrapper(..))
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
@@ -41,7 +41,7 @@ import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
-        (ctxSymInterface, cruciblePersonality)
+        (ctxSymInterface)
 import Lang.Crucible.Panic (panic)
 
 import Crux.Types
@@ -216,7 +216,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
        return (\_ -> return (), return (), return ())
      else
        prepStatus "Checking: " (countGoals gs0)
-  gs <- go (start,end) goalNum [] gs0
+  gs <- go (start,end) goalNum mempty gs0
   nms <- readIORef goalNum
   finish
   return (nms, Just gs)
@@ -228,13 +228,13 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
     go :: (Integer -> IO (), IO ())
        -> IORef ProcessedGoals
-       -> [Assumptions sym]
+       -> Assumptions sym
        -> Goals (Assumptions sym) (Assertion sym)
        -> IO (Goals (Assumptions sym) (Assertion sym, ProofResult sym))
     go (start,end) goalNum assumptionsInScope gs =
       case gs of
         Assuming ps gs1 -> do
-          res <- go (start,end) goalNum (ps : assumptionsInScope) gs1
+          res <- go (start,end) goalNum (assumptionsInScope <> ps) gs1
           return (Assuming ps res)
 
         ProveConj g1 g2 -> do
@@ -249,7 +249,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
-          assumptions <- WI.andAllOf sym L.folded =<< traverse (assumptionsPred sym) assumptionsInScope
+          assumptions <- assumptionsPred sym assumptionsInScope
           goal <- notPred sym (p ^. labeledPred)
 
           res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters $ runOneSolver p assumptionsInScope assumptions goal
@@ -269,7 +269,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
               fail allExceptions
 
     runOneSolver :: Assertion sym
-                 -> [Assumptions sym]
+                 -> Assumptions sym
                  -> BoolExpr t
                  -> BoolExpr t
                  -> WS.SolverAdapter st
@@ -283,17 +283,27 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
           Unsat _ -> do
             -- NOTE: We don't have an easy way to get an unsat core here
             -- because we don't have a solver connection.
-            as <- flattenAssumptions sym (mconcat assumptionsInScope)
+            as <- flattenAssumptions sym assumptionsInScope
             let core = fmap Left as ++ [ Right p ]
             return (Proved core)
           Sat (evalFn, _) -> do
-            let model = ctx ^. cruciblePersonality . personalityModel
-            vals <- evalModel evalFn model
+            vals <- evalModelFromAssumptions evalFn assumptionsInScope
             explain <- explainFailure (Just evalFn) p
-            return (NotProved explain (Just (ModelView vals)))
+            return (NotProved explain (Just vals))
           Unknown -> do
             explain <- explainFailure Nothing p
             return (NotProved explain Nothing)
+
+evalModelFromAssumptions ::
+  GroundEvalFn t ->
+  CrucibleAssumptions (Expr t) ->
+  IO ModelView
+evalModelFromAssumptions gfn asms =
+  do evs <- concretizeEvents (groundEval gfn) asms
+     return (ModelView (foldl f (modelVals emptyModelView) evs))
+ where
+   f m (CreateVariableEvent loc nm tpr (GVW v)) = MapF.insertWith jn tpr (Vals [Entry nm loc v]) m
+   jn (Vals new) (Vals old) = Vals (old++new)
 
 dispatchSolversOnGoalAsync :: forall a s time.
                               (RealFrac time)
@@ -359,7 +369,7 @@ proveGoalsOnline ::
 proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)
 
-proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
+proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
   do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
@@ -375,7 +385,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
      _ <- setOpt enableOpt True
 
      res <- withSolverProcess sym (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
-              inNewFrame sp (go (start,end) sp goalNum gs0 nameMap)
+              inNewFrame sp (go (start,end) sp mempty goalNum gs0 nameMap)
      nms <- readIORef goalNum
      finish
      return (nms, Just res)
@@ -387,7 +397,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
 
   failfast = proofGoalsFailFast opts
 
-  go (start,end) sp gn gs nameMap = do
+  go (start,end) sp assumptionsInScope gn gs nameMap = do
     case gs of
 
       Assuming asms gs1 ->
@@ -398,7 +408,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                  (\p -> do nm <- doAssume =<< mkFormula conn p
                            bindName nm (Left asm) nameMap)
                  asm
-           res <- go (start,end) sp gn gs1 nameMap
+           res <- go (start,end) sp (assumptionsInScope <> asms) gn gs1 nameMap
            return (Assuming (mconcat (map singleAssumption ps)) res)
 
       Prove p ->
@@ -420,11 +430,11 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
 
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
-                           let model = ctxt ^. cruciblePersonality . personalityModel
-                           vals <- evalModel f model
+                           vals <- evalModelFromAssumptions f assumptionsInScope
+
                            explain <- explainFailure (Just f) p
                            end
-                           let gt = NotProved explain (Just (ModelView vals))
+                           let gt = NotProved explain (Just vals)
                            modifyIORef' gn (updateProcessedGoals p gt)
                            when (failfast && not (isResourceExhausted p)) $
                              (say OK "Crux" "Counterexample found, skipping remaining goals.")
@@ -438,7 +448,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
            return ret
 
       ProveConj g1 g2 ->
-        do g1' <- inNewFrame sp (go (start,end) sp gn g1 nameMap)
+        do g1' <- inNewFrame sp (go (start,end) sp assumptionsInScope gn g1 nameMap)
 
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
@@ -447,9 +457,9 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                 if numDisproved > 0 then
                   return g1'
                 else
-                  ProveConj g1' <$> go (start,end) sp gn g2 nameMap
+                  ProveConj g1' <$> go (start,end) sp assumptionsInScope gn g2 nameMap
            else
-             ProveConj g1' <$> go (start,end) sp gn g2 nameMap
+             ProveConj g1' <$> go (start,end) sp assumptionsInScope gn g2 nameMap
 
     where
     conn = solverConn sp

@@ -41,8 +41,21 @@ emptyModel = Model $ MapF.fromList
   , noVars (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
   ]
 
+emptyModelView :: ModelView
+emptyModelView = ModelView $ MapF.fromList
+  [ noVals (BaseBVRepr (knownNat @8))
+  , noVals (BaseBVRepr (knownNat @16))
+  , noVals (BaseBVRepr (knownNat @32))
+  , noVals (BaseBVRepr (knownNat @64))
+  , noVals (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
+  , noVals (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
+  ]
+
 noVars :: BaseTypeRepr ty -> Pair BaseTypeRepr (Vars sym)
 noVars ty = Pair ty (Vars [])
+
+noVals :: BaseTypeRepr ty -> Pair BaseTypeRepr Vals
+noVals ty = Pair ty (Vals [])
 
 addVar ::
   ProgramLoc ->

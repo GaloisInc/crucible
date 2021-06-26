@@ -42,11 +42,15 @@ module Lang.Crucible.Backend
 
     -- * Assumption management
   , CrucibleAssumption(..)
+  , CrucibleEvent(..)
   , CrucibleAssumptions(..)
   , Assumption
   , Assertion
   , Assumptions
 
+  , concretizeEvents
+  , ppEvent
+  , singleEvent
   , singleAssumption
   , trivialAssumption
   , impossibleAssumption
@@ -107,6 +111,7 @@ import           What4.InterpretedFloatingPoint
 import           What4.LabeledPred
 import           What4.Partial
 import           What4.ProgramLoc
+import           What4.Expr (GroundValue, GroundValueWrapper(..))
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
@@ -124,6 +129,15 @@ data CrucibleAssumption (e :: BaseType -> Type)
   | AssumingNoError SimError (e BaseBoolType)
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
+
+data CrucibleEvent (e :: BaseType -> Type) where
+  CreateVariableEvent ::
+    ProgramLoc -> String -> BaseTypeRepr tp -> e tp -> CrucibleEvent e
+
+ppEvent :: IsExpr e => CrucibleEvent e -> PP.Doc ann
+ppEvent (CreateVariableEvent loc nm _tpr v) =
+  "create var" PP.<+> PP.pretty nm PP.<+> "=" PP.<+> printSymExpr v PP.<+> PP.pretty (plSourceLoc loc)
+
 
 assumptionLoc :: CrucibleAssumption e -> ProgramLoc
 assumptionLoc r =
@@ -155,6 +169,7 @@ traverseAssumption f = \case
 
 data CrucibleAssumptions (e :: BaseType -> Type) where
   SingleAssumption :: CrucibleAssumption e -> CrucibleAssumptions e
+  SingleEvent      :: CrucibleEvent e -> CrucibleAssumptions e
   ManyAssumptions  :: Seq (CrucibleAssumptions e) -> CrucibleAssumptions e
   MergeAssumptions ::
     e BaseBoolType {- ^ branch condition -} ->
@@ -174,7 +189,12 @@ instance Monoid (CrucibleAssumptions e) where
 singleAssumption :: CrucibleAssumption e -> CrucibleAssumptions e
 singleAssumption x = SingleAssumption x
 
+singleEvent :: CrucibleEvent e -> CrucibleAssumptions e
+singleEvent x = SingleEvent x
+
 assumptionsPred :: IsExprBuilder sym => sym -> Assumptions sym -> IO (Pred sym)
+assumptionsPred sym (SingleEvent _) =
+  return (truePred sym)
 assumptionsPred sym (SingleAssumption a) =
   andAllOf sym foldAssumption a
 assumptionsPred sym (ManyAssumptions xs) =
@@ -184,9 +204,31 @@ assumptionsPred sym (MergeAssumptions c xs ys) =
      ys' <- assumptionsPred sym ys
      itePred sym c xs' ys'
 
+traverseEvent :: Applicative m =>
+  (forall tp. e tp -> m (e' tp)) ->
+  CrucibleEvent e -> m (CrucibleEvent e')
+traverseEvent f (CreateVariableEvent loc nm tpr v) = CreateVariableEvent loc nm tpr <$> f v
+
+concretizeEvents ::
+  IsExpr e =>
+  (forall tp. e tp -> IO (GroundValue tp)) ->
+  CrucibleAssumptions e ->
+  IO [CrucibleEvent GroundValueWrapper]
+concretizeEvents f = loop
+  where
+    loop (SingleEvent e) =
+      do e' <- traverseEvent (\v -> GVW <$> f v) e
+         return [e']
+    loop (SingleAssumption _) = return []
+    loop (ManyAssumptions as) = concat <$> traverse loop as
+    loop (MergeAssumptions p xs ys) =
+      do b <- f p
+         if b then loop xs else loop ys
+
 flattenAssumptions :: IsExprBuilder sym => sym -> Assumptions sym -> IO [Assumption sym]
 flattenAssumptions sym = loop Nothing
   where
+    loop _mz (SingleEvent _) = return []
     loop mz (SingleAssumption a) =
       do a' <- maybe (pure a) (\z -> traverseAssumption (impliesPred sym z) a) mz
          if trivialAssumption a' then return [] else return [a']

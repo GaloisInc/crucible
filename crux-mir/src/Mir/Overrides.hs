@@ -63,7 +63,8 @@ import What4.SatResult (SatResult(..))
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
     ( CrucibleAssumption(..), IsBoolSolver, LabeledPred(..), addAssumption
-    , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface )
+    , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface
+    , singleEvent, addAssumptions, CrucibleEvent(..) )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.FunctionHandle
@@ -128,6 +129,8 @@ makeSymbolicVar nameReg btpr = do
     v <- liftIO $ freshConstant sym nameSymbol btpr
     loc <- liftIO $ getCurrentProgramLoc sym
     stateContext.cruciblePersonality.personalityModel %= addVar loc name btpr v
+    let ev = CreateVariableEvent loc name btpr v
+    liftIO $ addAssumptions sym (singleEvent ev)
     return v
 
 array_symbolic ::
