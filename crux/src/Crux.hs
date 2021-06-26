@@ -647,7 +647,7 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
         when (isJust todo) $
           say Simply "Crux" "Attempting to prove verification conditions."
         (nms, proved) <- goalProver cruxOpts ctx explainFailure todo
-        mgt <- provedGoalsTree ctx proved
+        mgt <- provedGoalsTree sym proved
         case mgt of
           Nothing -> return (not timedOut)
           Just gt ->

@@ -84,7 +84,8 @@ maybeGenerateSource opts files =
 -- | Return a list of all program locations referenced in a set of
 -- proved goals.
 provedGoalLocs :: ProvedGoals -> [ProgramLoc]
-provedGoalLocs (AtLoc loc _ goals) = loc : provedGoalLocs goals
+-- TODO?
+--provedGoalLocs (AtLoc loc _ goals) = loc : provedGoalLocs goals
 provedGoalLocs (Branch goals1 goals2) = provedGoalLocs goals1 ++
                                         provedGoalLocs goals2
 provedGoalLocs (ProvedGoal _ (err, _) _) = [simErrorLoc err]
@@ -99,7 +100,7 @@ provedGoalFiles = mapMaybe posFile . map plSourceLoc . provedGoalLocs
     posFile _ = Nothing
 
 renderSideConds :: CruxOptions -> [ProvedGoals] -> IO [ JS ]
-renderSideConds opts = concatMapM (go [])
+renderSideConds opts = concatMapM (go ( [] :: [(JS,ProgramLoc)] ))
   where
   concatMapM f xs = concat <$> mapM f xs
 
@@ -114,10 +115,6 @@ renderSideConds opts = concatMapM (go [])
 
   go path gs =
     case gs of
-      AtLoc pl _ gs1  ->
-        do pl' <- jsLoc pl
-           go ((pl', pl) : path) gs1
-
       Branch g1 g2 ->
         let (now,rest) = partition isGoal (flatBranch [g1,g2]) in
           (++) <$> concatMapM (go path) now <*> concatMapM (go path) rest

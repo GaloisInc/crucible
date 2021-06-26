@@ -361,7 +361,6 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let anyFailed = any (not . isResultOK) results
 
     let printCounterexamples gs = case gs of
-            AtLoc _ _ gs1 -> printCounterexamples gs1
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
             ProvedGoal{} -> return ()
             NotProvedGoal _ _ _ Nothing -> return ()

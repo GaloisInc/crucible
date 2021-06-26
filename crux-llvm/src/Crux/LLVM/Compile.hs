@@ -230,7 +230,6 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
  where
  go gs =
   case gs of
-    AtLoc _ _ gs1 -> go gs1
     Branch g1 g2  -> go g1 >> go g2
     -- skip proved goals
     ProvedGoal{} -> return ()

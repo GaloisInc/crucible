@@ -64,9 +64,8 @@ data ProofResult sym
 
 type LPred sym   = LabeledPred (Pred sym)
 
-data ProvedGoals =
-    AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
-  | Branch ProvedGoals ProvedGoals
+data ProvedGoals
+  = Branch ProvedGoals ProvedGoals
   | NotProvedGoal
          [(CrucibleAssumption (Const ()), Doc Void)]
          (SimError, Doc Void)

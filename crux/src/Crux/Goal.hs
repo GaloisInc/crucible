@@ -52,54 +52,39 @@ import Crux.ProgressBar
 
 
 -- | Simplify the proved goals.
-provedGoalsTree :: forall personality sym p.
+provedGoalsTree :: forall sym.
   ( IsSymInterface sym
   ) =>
-  SimCtxt personality sym p ->
+  sym ->
   Maybe (Goals (Assumptions sym) (Assertion sym, ProofResult sym)) ->
   IO (Maybe ProvedGoals)
-provedGoalsTree ctxt = traverse (go [])
+provedGoalsTree sym = traverse (go mempty)
   where
-  go :: [Assumption sym] ->
+  go :: Assumptions sym ->
         Goals (Assumptions sym) (Assertion sym, ProofResult sym) ->
         IO ProvedGoals
   go asmps gs =
     case gs of
-      Assuming _ gs1 -> go asmps gs1
-      --Assuming (CrucibleAssumptions ps) gs1 -> goAsmp asmps ps gs1
-
-      Prove (p,r) -> return $ proveToGoal ctxt asmps p r
-
+      Assuming as gs1 -> go (asmps <> as) gs1
+      Prove (p,r) -> proveToGoal sym asmps p r
       ProveConj g1 g2 -> Branch <$> go asmps g1 <*> go asmps g2
-
-{-
-  goAsmp ::
-        [Assumption sym] ->
-        Seq.Seq (Assumption sym) ->
-        Goals (Assumptions sym) (Assertion sym, ProofResult sym) ->
-        IO ProvedGoals
-
-  goAsmp asmps Seq.Empty gs = go asmps gs
-  goAsmp asmps (ps Seq.:|> p) gs =
-        case p of
-          BranchCondition from to _ -> AtLoc from to <$> goAsmp (p : asmps) ps gs
-          _ -> goAsmp (p : asmps) ps gs
--}
 
 proveToGoal ::
   (IsSymInterface sym) =>
-  SimCtxt personality sym p ->
-  [Assumption sym] ->
+  sym ->
+  Assumptions sym ->
   Assertion sym ->
   ProofResult sym ->
-  ProvedGoals
-proveToGoal _ctx allAsmps p pr =
+  IO ProvedGoals
+proveToGoal sym allAsmps p pr =
   case pr of
-    NotProved ex cex -> NotProvedGoal (map showAsmp allAsmps) (showGoal p) ex cex
+    NotProved ex cex ->
+      do as <- flattenAssumptions sym allAsmps
+         return (NotProvedGoal (map showAsmp as) (showGoal p) ex cex)
     Proved xs ->
       case partitionEithers xs of
-        (asmps, [])  -> ProvedGoal (map showAsmp asmps) (showGoal p) True
-        (asmps, _:_) -> ProvedGoal (map showAsmp asmps) (showGoal p) False
+        (asmps, [])  -> return (ProvedGoal (map showAsmp asmps) (showGoal p) True)
+        (asmps, _:_) -> return (ProvedGoal (map showAsmp asmps) (showGoal p) False)
 
  where
  showAsmp x = (forgetAssumption x, vcat (x ^.. foldAssumption. L.to printSymExpr))
