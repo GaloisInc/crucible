@@ -73,8 +73,7 @@ userSymbol' s = case What4.userSymbol s of
 assume :: CB.IsSymInterface sym => sym -> What4.Pred sym -> IO ()
 assume sym p = do
   loc <- What4.getCurrentProgramLoc sym
-  CB.addAssumption sym $
-    CB.LabeledPred p $ CB.AssumptionReason loc ""
+  CB.addAssumption sym (CB.GenericAssumption loc "assume" p)
 
 checkSat ::
   W4O.OnlineSolver solver =>
