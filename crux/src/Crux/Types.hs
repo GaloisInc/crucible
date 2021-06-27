@@ -70,10 +70,12 @@ data ProvedGoals
          [CrucibleAssumption (Const ())]
          SimError
          (Doc Void)
+         [ProgramLoc]
          (Maybe (ModelView, [CrucibleEvent GroundValueWrapper]))
   | ProvedGoal
          [CrucibleAssumption (Const ())]
          SimError
+         [ProgramLoc]
          Bool
     -- ^ Keeps only the explanations for the relevant assumptions.
     --

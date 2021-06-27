@@ -363,8 +363,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let printCounterexamples gs = case gs of
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
             ProvedGoal{} -> return ()
-            NotProvedGoal _ _ _ Nothing -> return ()
-            NotProvedGoal _ _ _ (Just (m,_evs)) -> do
+            NotProvedGoal _ _ _ _ Nothing -> return ()
+            NotProvedGoal _ _ _ _ (Just (m,_evs)) -> do
                logGoal gs
                when (showModel mirOpts) $ do
                   outputLn "Model:"

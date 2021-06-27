@@ -14,6 +14,7 @@ module Crux.Model where
 
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
+import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Map as MapF
 import qualified Numeric as N
 import           LibBF (BigFloat)
@@ -77,7 +78,7 @@ valsJS ty (Vals xs) =
   where
   showEnt' :: Show b => (a -> String) -> b -> Entry a -> IO JS
   showEnt' repr n e =
-    do l <- jsLoc (entryLoc e)
+    do l <- fromMaybe jsNull <$> jsLoc (entryLoc e)
        pure $ jsObj
          [ "name" ~> jsStr (entryName e)
          , "loc"  ~> l

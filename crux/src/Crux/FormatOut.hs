@@ -57,8 +57,8 @@ sayWhatFailedGoals :: Bool -> Seq ProvedGoals -> SayWhat
 sayWhatFailedGoals skipIncompl allGls =
   let failedDoc = \case
         Branch gls1 gls2 -> failedDoc gls1 <> failedDoc gls2
-        ProvedGoal _asmps _goal _trivial -> []
-        NotProvedGoal _asmps err ex mdl ->
+        ProvedGoal{} -> []
+        NotProvedGoal _asmps err ex _locs mdl ->
           if | skipIncompl, CSE.SimError _ (CSE.ResourceExhausted _) <- err -> []
              | Just _ <- mdl ->
                  [ PP.nest 2 $ PP.vcat

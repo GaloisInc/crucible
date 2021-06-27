@@ -1,5 +1,6 @@
 -- from: crucible-c/src/Report.hs
 
+{-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
 module Crux.Report where
 
@@ -10,7 +11,7 @@ import System.IO
 import qualified Data.Foldable as Fold
 import Data.Functor.Const
 import Data.List (partition)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Control.Exception (catch, SomeException(..))
@@ -43,11 +44,9 @@ generateReport opts res
   | otherwise =
     do let xs = cruxSimResultGoals res
            goals = map snd $ Fold.toList xs
-           referencedFiles = inputFiles opts ++
-                             concatMap provedGoalFiles goals
-           dedup = Set.toList . Set.fromList
+           referencedFiles = Set.toList (Set.fromList (inputFiles opts) <> mconcat (map provedGoalFiles goals))
        createDirectoryIfMissing True (outDir opts)
-       maybeGenerateSource opts (dedup referencedFiles)
+       maybeGenerateSource opts referencedFiles
        scs <- renderSideConds opts goals
        let contents = renderJS (jsList scs)
        -- Due to CORS restrictions, the only current way of statically loading local data
@@ -85,23 +84,21 @@ maybeGenerateSource opts files =
 -- | Return a list of all program locations referenced in a set of
 -- proved goals.
 provedGoalLocs :: ProvedGoals -> [ProgramLoc]
--- TODO?
---provedGoalLocs (AtLoc loc _ goals) = loc : provedGoalLocs goals
 provedGoalLocs (Branch goals1 goals2) = provedGoalLocs goals1 ++
                                         provedGoalLocs goals2
-provedGoalLocs (ProvedGoal _ err _) = [simErrorLoc err]
-provedGoalLocs (NotProvedGoal _ err _ _) = [simErrorLoc err]
+provedGoalLocs (ProvedGoal _ err locs _) = locs ++ [simErrorLoc err]
+provedGoalLocs (NotProvedGoal _ err _ locs _) = locs ++ [simErrorLoc err]
 
 -- | Return a list of all files referenced in a set of proved goals.
-provedGoalFiles :: ProvedGoals -> [FilePath]
-provedGoalFiles = mapMaybe posFile . map plSourceLoc . provedGoalLocs
+provedGoalFiles :: ProvedGoals -> Set.Set FilePath
+provedGoalFiles = Fold.foldl' ins mempty . map plSourceLoc . provedGoalLocs
   where
-    posFile (SourcePos f _ _) = Just $ Text.unpack f
-    posFile (BinaryPos f _) = Just $ Text.unpack f
-    posFile _ = Nothing
+    ins s (SourcePos f _ _) = Set.insert (Text.unpack f) s
+    ins s (BinaryPos f _) = Set.insert (Text.unpack f) s
+    ins s _ = s
 
 renderSideConds :: CruxOptions -> [ProvedGoals] -> IO [ JS ]
-renderSideConds opts = concatMapM (go ( [] :: [(JS,ProgramLoc)] ))
+renderSideConds opts = concatMapM go
   where
   concatMapM f xs = concat <$> mapM f xs
 
@@ -114,40 +111,54 @@ renderSideConds opts = concatMapM (go ( [] :: [(JS,ProgramLoc)] ))
                NotProvedGoal {} -> True
                _       -> False
 
-  go path gs =
+  go gs =
     case gs of
       Branch g1 g2 ->
         let (now,rest) = partition isGoal (flatBranch [g1,g2]) in
-          (++) <$> concatMapM (go path) now <*> concatMapM (go path) rest
+          (++) <$> concatMapM go now <*> concatMapM go rest
 
-      ProvedGoal asmps conc triv
+      ProvedGoal asmps conc locs triv
         | skipSuccessReports opts -> pure []
-        | otherwise -> jsProvedGoal apath asmps conc triv
+        | otherwise -> jsProvedGoal locs asmps conc triv
 
-      NotProvedGoal asmps conc explain cex
+      NotProvedGoal asmps conc explain locs cex
         | skipIncompleteReports opts
         , SimError _ (ResourceExhausted _) <- conc
         -> pure []
 
-        | otherwise -> jsNotProvedGoal apath asmps conc explain cex
+        | otherwise -> jsNotProvedGoal locs asmps conc explain cex
 
+
+removeRepeats :: Eq a => [a] -> [a]
+removeRepeats [] = []
+removeRepeats [x] = [x]
+removeRepeats (x:y:zs)
+  | x == y = removeRepeats (y:zs)
+  | otherwise = x : removeRepeats (y:zs)
+
+jsPath :: [ProgramLoc] -> IO [ JS ]
+jsPath locs = concat <$> mapM mkStep locs'
     where
-      (ls,ps) = unzip (reverse path)
-      ap      = map fst (annotateLoops ps)
-      mkStep a l = jsObj [ "loop" ~> jsList (map jsNum a)
-                         , "loc"  ~> l ]
-      apath   = zipWith mkStep ap ls
-
+      locs'      = annotateLoops (removeRepeats locs)
+      mkStep (a,l) =
+       jsLoc l >>= \case
+         Nothing -> return []
+         Just l' ->
+           return [jsObj
+             [ "loop" ~> jsList (map jsNum a)
+             , "loc"  ~> l'
+             ]]
 
 jsProvedGoal ::
-  [ JS ] ->
+  [ ProgramLoc ] ->
   [ CrucibleAssumption (Const ()) ] ->
   SimError ->
   Bool ->
   IO [JS]
-jsProvedGoal apath asmps conc triv =
-  do loc <- jsLoc (simErrorLoc conc)
+jsProvedGoal locs asmps conc triv =
+  do loc <- fromMaybe jsNull <$> jsLoc (simErrorLoc conc)
      asmps' <- mapM mkAsmp asmps
+     path   <- jsPath locs
      pure [jsObj
        [ "status"          ~> jsStr "ok"
        , "goal"            ~> goalReason
@@ -155,11 +166,11 @@ jsProvedGoal apath asmps conc triv =
        , "location"        ~> loc
        , "assumptions"     ~> jsList asmps'
        , "trivial"         ~> jsBool triv
-       , "path"            ~> jsList apath
+       , "path"            ~> jsList path
        ]]
   where
   mkAsmp asmp =
-    do l <- jsLoc (assumptionLoc asmp)
+    do l <- fromMaybe jsNull <$> jsLoc (assumptionLoc asmp)
        pure $ jsObj
          [ "loc" ~> l
          , "text" ~> jsStr (show (ppAssumption (\_ -> mempty) asmp))
@@ -173,18 +184,19 @@ jsProvedGoal apath asmps conc triv =
 
 
 jsNotProvedGoal ::
-  [ JS ] ->
+  [ ProgramLoc ] ->
   [ CrucibleAssumption (Const ()) ] ->
   SimError ->
   Doc Void ->
   Maybe (ModelView, [CrucibleEvent GroundValueWrapper]) ->
   IO [JS]
-jsNotProvedGoal apath asmps conc explain cex =
-  do loc <- jsLoc (simErrorLoc conc)
+jsNotProvedGoal locs asmps conc explain cex =
+  do loc <- fromMaybe jsNull <$> jsLoc (simErrorLoc conc)
      asmps' <- mapM mkAsmp asmps
      ex <- case cex of
              Just (m,_) -> modelJS m
              _          -> pure jsNull
+     path <- jsPath locs
      pure [jsObj
        [ "status"          ~> status
        , "counter-example" ~> ex
@@ -193,7 +205,7 @@ jsNotProvedGoal apath asmps conc explain cex =
        , "location"        ~> loc
        , "assumptions"     ~> jsList asmps'
        , "trivial"         ~> jsBool False
-       , "path"            ~> jsList apath
+       , "path"            ~> jsList path
        , "details-long"    ~> jsStr (show explain)
        ]]
   where
@@ -204,7 +216,7 @@ jsNotProvedGoal apath asmps conc explain cex =
              Nothing -> jsStr "unknown"
 
   mkAsmp asmp =
-    do l <- jsLoc (assumptionLoc asmp)
+    do l <- fromMaybe jsNull <$> jsLoc (assumptionLoc asmp)
        pure $ jsObj
          [ "loc" ~> l
          , "text" ~> jsStr (show (ppAssumption (\_ -> mempty) asmp))
