@@ -22,6 +22,7 @@ import qualified Data.Text.IO as T
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Backend
 import What4.ProgramLoc
+import What4.Expr (GroundValueWrapper)
 
 import Crux.Types
 import Crux.Config.Common
@@ -176,14 +177,14 @@ jsNotProvedGoal ::
   [ CrucibleAssumption (Const ()) ] ->
   SimError ->
   Doc Void ->
-  Maybe ModelView ->
+  Maybe (ModelView, [CrucibleEvent GroundValueWrapper]) ->
   IO [JS]
 jsNotProvedGoal apath asmps conc explain cex =
   do loc <- jsLoc (simErrorLoc conc)
      asmps' <- mapM mkAsmp asmps
      ex <- case cex of
-             Just m -> modelJS m
-             _      -> pure jsNull
+             Just (m,_) -> modelJS m
+             _          -> pure jsNull
      pure [jsObj
        [ "status"          ~> status
        , "counter-example" ~> ex

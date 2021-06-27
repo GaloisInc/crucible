@@ -29,7 +29,7 @@ import qualified System.Timeout as ST
 import What4.Interface (notPred, getConfiguration)
 import What4.Config (setOpt, getOptionSetting)
 import What4.SatResult(SatResult(..))
-import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, Expr, GroundValueWrapper(..))
+import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, GroundValueWrapper(..))
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
@@ -124,6 +124,22 @@ updateProcessedGoals _ (NotProved _ (Just _)) pgs =
 
 updateProcessedGoals _ (NotProved _ Nothing) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs }
+
+-- | A function that can be used to generate a pretty explanation of a
+-- simulation error.
+
+type Explainer sym t ann = Maybe (GroundEvalFn t)
+                           -> LPred sym SimError
+                           -> IO (Doc ann)
+
+type ProverCallback sym =
+  forall ext personality t st fs.
+    (sym ~ ExprBuilder t st fs) =>
+    CruxOptions ->
+    SimCtxt personality sym ext ->
+    Explainer sym t Void ->
+    Maybe (Goals (Assumptions sym) (Assertion sym)) ->
+    IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, ProofResult sym)))
 
 -- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
 --
@@ -227,20 +243,19 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
             let core = fmap Left as ++ [ Right p ]
             return (Proved core)
           Sat (evalFn, _) -> do
-            vals <- evalModelFromAssumptions evalFn assumptionsInScope
+            evs  <- concretizeEvents (groundEval evalFn) assumptionsInScope
+            vals <- evalModelFromEvents evs
             explain <- explainFailure (Just evalFn) p
-            return (NotProved explain (Just vals))
+            return (NotProved explain (Just (vals,evs)))
           Unknown -> do
             explain <- explainFailure Nothing p
             return (NotProved explain Nothing)
 
-evalModelFromAssumptions ::
-  GroundEvalFn t ->
-  CrucibleAssumptions (Expr t) ->
+evalModelFromEvents ::
+  [CrucibleEvent GroundValueWrapper] ->
   IO ModelView
-evalModelFromAssumptions gfn asms =
-  do evs <- concretizeEvents (groundEval gfn) asms
-     return (ModelView (foldl f (modelVals emptyModelView) evs))
+evalModelFromEvents evs =
+   return (ModelView (foldl f (modelVals emptyModelView) evs))
  where
    f m (CreateVariableEvent loc nm tpr (GVW v)) = MapF.insertWith jn tpr (Vals [Entry nm loc v]) m
    f m _ = m
@@ -371,11 +386,12 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
 
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
-                           vals <- evalModelFromAssumptions f assumptionsInScope
+                           evs  <- concretizeEvents (groundEval f) assumptionsInScope
+                           vals <- evalModelFromEvents evs
 
                            explain <- explainFailure (Just f) p
                            end
-                           let gt = NotProved explain (Just vals)
+                           let gt = NotProved explain (Just (vals,evs))
                            modifyIORef' gn (updateProcessedGoals p gt)
                            when (failfast && not (isResourceExhausted p)) $
                              (say OK "Crux" "Counterexample found, skipping remaining goals.")

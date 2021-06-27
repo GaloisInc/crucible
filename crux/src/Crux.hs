@@ -69,7 +69,6 @@ import           Lang.Crucible.Types
 
 
 import           What4.Config (Opt, ConfigOption, setOpt, getOptionSetting, verbosity, extendConfig)
-import           What4.Expr (GroundEvalFn)
 import qualified What4.Expr.Builder as WEB
 import           What4.FunctionName (FunctionName)
 import           What4.Interface (IsExprBuilder, getConfiguration)
@@ -102,13 +101,6 @@ data RunnableState sym where
                               => ExecState (personality sym) sym ext (RegEntry sym UnitType)
                               -> [ExecutionFeature (personality sym) sym ext (RegEntry sym UnitType)]
                               -> RunnableState sym
-
--- | A function that can be used to generate a pretty explanation of a
--- simulation error.
-
-type Explainer sym t ann = Maybe (GroundEvalFn t)
-                           -> LPred sym SimError
-                           -> IO (Doc ann)
 
 -- | Individual crux tools will generally call the @runSimulator@ combinator
 --   to handle the nitty-gritty of setting up and running the simulator.
@@ -569,15 +561,6 @@ runSimulator cruxOpts simCallback = do
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
 
-
-type ProverCallback sym =
-  forall ext personality t st fs.
-    (sym ~ WEB.ExprBuilder t st fs) =>
-    CruxOptions ->
-    SimCtxt personality sym ext ->
-    Explainer sym t Void ->
-    Maybe (Goals (Assumptions sym) (Assertion sym)) ->
-    IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, ProofResult sym)))
 
 -- | Core invocation of the symbolic execution engine
 --

@@ -364,7 +364,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
             ProvedGoal{} -> return ()
             NotProvedGoal _ _ _ Nothing -> return ()
-            NotProvedGoal _ _ _ (Just m) -> do
+            NotProvedGoal _ _ _ (Just (m,_evs)) -> do
                logGoal gs
                when (showModel mirOpts) $ do
                   outputLn "Model:"

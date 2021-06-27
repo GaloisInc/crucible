@@ -8,7 +8,7 @@ import           Data.Text ( Text )
 import           Data.Void
 import           Prettyprinter
 
-import           What4.Expr (GroundValue)
+import           What4.Expr (GroundValue,GroundValueWrapper)
 import           What4.Interface (Pred)
 import           What4.ProgramLoc
 
@@ -57,7 +57,7 @@ data ProcessedGoals =
 
 data ProofResult sym
    = Proved [Either (Assumption sym) (Assertion sym)]
-   | NotProved (Doc Void) (Maybe ModelView)
+   | NotProved (Doc Void) (Maybe (ModelView, [CrucibleEvent GroundValueWrapper]))
      -- ^ The first argument is an explanation of the failure and
      -- counter example as provided by the Explainer (if any) and the
      -- second maybe a model for the counter-example.
@@ -70,7 +70,7 @@ data ProvedGoals
          [CrucibleAssumption (Const ())]
          SimError
          (Doc Void)
-         (Maybe ModelView)
+         (Maybe (ModelView, [CrucibleEvent GroundValueWrapper]))
   | ProvedGoal
          [CrucibleAssumption (Const ())]
          SimError
