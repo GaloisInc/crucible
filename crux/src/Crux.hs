@@ -64,6 +64,7 @@ import           Lang.Crucible.Simulator.BoundedExec
 import           Lang.Crucible.Simulator.BoundedRecursion
 import           Lang.Crucible.Simulator.PathSatisfiability
 import           Lang.Crucible.Simulator.PathSplitting
+import           Lang.Crucible.Simulator.PositionTracking
 import           Lang.Crucible.Simulator.Profiling
 import           Lang.Crucible.Types
 
@@ -476,7 +477,10 @@ setupExecutionFeatures cruxOpts sym maybeOnline = do
            $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
     Nothing -> return []
 
-  return (concat [tfs, profExecFeatures profInfo, bfs, rfs, psat_fs], profInfo)
+  -- Position tracking
+  trackfs <- positionTrackingFeature sym
+
+  return (concat [tfs, profExecFeatures profInfo, bfs, rfs, psat_fs, [trackfs]], profInfo)
 
 -- | Select the What4 solver adapter for the user's solver choice (used for
 -- offline solvers)
