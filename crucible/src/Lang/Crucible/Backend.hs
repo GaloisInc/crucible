@@ -58,7 +58,7 @@ module Lang.Crucible.Backend
   , assumptionLoc
   , eventLoc
   , mergeAssumptions
-  , foldAssumption
+  , assumptionPred
   , forgetAssumption
   , assumptionsPred
   , flattenAssumptions
@@ -96,7 +96,7 @@ module Lang.Crucible.Backend
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
-import           Control.Lens ((^.), Fold, Traversal, folded)
+import           Control.Lens ((^.), Traversal, folded)
 import           Control.Monad
 import           Data.Kind (Type)
 import           Data.Foldable (toList)
@@ -119,6 +119,7 @@ import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import qualified Lang.Crucible.Backend.ProofGoals as PG
 import           Lang.Crucible.Simulator.SimError
 
+-- | This type describes assumptions made at some point during program execution.
 data CrucibleAssumption (e :: BaseType -> Type)
   = GenericAssumption ProgramLoc String (e BaseBoolType)
     -- ^ An unstructured description of the source of an assumption.
@@ -132,22 +133,34 @@ data CrucibleAssumption (e :: BaseType -> Type)
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
 
+-- | This type describes events we can track during program execution.
 data CrucibleEvent (e :: BaseType -> Type) where
+  -- | This event describes the creation of a symbolic variable.
   CreateVariableEvent ::
-    ProgramLoc -> String -> BaseTypeRepr tp -> e tp -> CrucibleEvent e
-  LocationReachedEvent ::
-    ProgramLoc -> CrucibleEvent e
+    ProgramLoc {- ^ location where the variable was created -} ->
+    String {- ^ user-provided name for the variable -} ->
+    BaseTypeRepr tp {- ^ type of the variable -} ->
+    e tp {- ^ the variable expression -} ->
+    CrucibleEvent e
 
+  -- | This event describes reaching a particular program location.
+  LocationReachedEvent ::
+    ProgramLoc ->
+    CrucibleEvent e
+
+-- | Pretty print an event
 ppEvent :: IsExpr e => CrucibleEvent e -> PP.Doc ann
 ppEvent (CreateVariableEvent loc nm _tpr v) =
   "create var" PP.<+> PP.pretty nm PP.<+> "=" PP.<+> printSymExpr v PP.<+> "at" PP.<+> PP.pretty (plSourceLoc loc)
 ppEvent (LocationReachedEvent loc) =
   "reached" PP.<+> PP.pretty (plSourceLoc loc) PP.<+> "in" PP.<+> PP.pretty (plFunction loc)
 
+-- | Return the program location associated with an event
 eventLoc :: CrucibleEvent e -> ProgramLoc
 eventLoc (CreateVariableEvent loc _ _ _) = loc
 eventLoc (LocationReachedEvent loc) = loc
 
+-- | Return the program location associated with an assumption
 assumptionLoc :: CrucibleAssumption e -> ProgramLoc
 assumptionLoc r =
   case r of
@@ -155,6 +168,14 @@ assumptionLoc r =
     BranchCondition  l _ _   -> l
     AssumingNoError s _    -> simErrorLoc s
 
+-- | Get the predicate associated with this assumption
+assumptionPred :: CrucibleAssumption e -> e BaseBoolType
+assumptionPred (AssumingNoError _ p) = p
+assumptionPred (BranchCondition _ _ p) = p
+assumptionPred (GenericAssumption _ _ p) = p
+
+-- | If an assumption is clearly impossible, return an abort reason
+--   that can be used to unwind the execution of this branch.
 impossibleAssumption :: IsExpr e => CrucibleAssumption e -> Maybe AbortExecReason
 impossibleAssumption (AssumingNoError err p)
   | Just False <- asConstantPred p = Just (AssertionFailure err)
@@ -167,15 +188,15 @@ impossibleAssumption _ = Nothing
 forgetAssumption :: CrucibleAssumption e -> CrucibleAssumption (Const ())
 forgetAssumption = runIdentity . traverseAssumption (\_ -> Identity (Const ()))
 
-foldAssumption :: Fold (CrucibleAssumption e) (e BaseBoolType)
-foldAssumption = traverseAssumption
-
 traverseAssumption :: Traversal (CrucibleAssumption e) (CrucibleAssumption e') (e BaseBoolType) (e' BaseBoolType)
 traverseAssumption f = \case
   GenericAssumption loc msg p -> GenericAssumption loc msg <$> f p
   BranchCondition l t p -> BranchCondition l t <$> f p
   AssumingNoError err p -> AssumingNoError err <$> f p
 
+-- | This type tracks both logical assumptions and program events
+--   that are relevant when evaluating proof obligations arising
+--   from simulation.
 data CrucibleAssumptions (e :: BaseType -> Type) where
   SingleAssumption :: CrucibleAssumption e -> CrucibleAssumptions e
   SingleEvent      :: CrucibleEvent e -> CrucibleAssumptions e
@@ -201,17 +222,22 @@ singleAssumption x = SingleAssumption x
 singleEvent :: CrucibleEvent e -> CrucibleAssumptions e
 singleEvent x = SingleEvent x
 
+-- | Collect the program locations of all assumptions and
+--   events that did not occur in the context of a symbolic branch.
+--   These are locations that every program path represented by
+--   this assumptions structure must have passed through.
 assumptionsTopLevelLocs :: CrucibleAssumptions e -> [ProgramLoc]
 assumptionsTopLevelLocs (SingleEvent e)      = [eventLoc e]
 assumptionsTopLevelLocs (SingleAssumption a) = [assumptionLoc a]
 assumptionsTopLevelLocs (ManyAssumptions as) = concatMap assumptionsTopLevelLocs as
 assumptionsTopLevelLocs MergeAssumptions{}   = []
 
+-- | Compute the logical predicate corresponding to this collection of assumptions.
 assumptionsPred :: IsExprBuilder sym => sym -> Assumptions sym -> IO (Pred sym)
 assumptionsPred sym (SingleEvent _) =
   return (truePred sym)
 assumptionsPred sym (SingleAssumption a) =
-  andAllOf sym foldAssumption a
+  return (assumptionPred a)
 assumptionsPred sym (ManyAssumptions xs) =
   andAllOf sym folded =<< traverse (assumptionsPred sym) xs
 assumptionsPred sym (MergeAssumptions c xs ys) =
@@ -225,6 +251,8 @@ traverseEvent :: Applicative m =>
 traverseEvent f (CreateVariableEvent loc nm tpr v) = CreateVariableEvent loc nm tpr <$> f v
 traverseEvent _ (LocationReachedEvent loc) = pure (LocationReachedEvent loc)
 
+-- | Given a ground evaluation function, compute a linear, ground-valued
+--   sequence of events corresponding to this program run.
 concretizeEvents ::
   IsExpr e =>
   (forall tp. e tp -> IO (GroundValue tp)) ->
@@ -241,6 +269,10 @@ concretizeEvents f = loop
       do b <- f p
          if b then loop xs else loop ys
 
+-- | Given an assumptions structure, flatten all the muxed assumptions into
+--   a flat sequence of assumptions that have been appropriately weakened.
+--   Note, once these assumptions have been flattened, their order might no longer
+--   strictly correspond to any concrete program run.
 flattenAssumptions :: IsExprBuilder sym => sym -> Assumptions sym -> IO [Assumption sym]
 flattenAssumptions sym = loop Nothing
   where
@@ -258,12 +290,7 @@ flattenAssumptions sym = loop Nothing
          ys' <- loop (Just py) ys
          return (xs' <> ys')
 
-
-{- | Merge the assumptions collected from the branches of a conditional.
-The result is a bunch of qualified assumptions: if the branch condition
-is @p@, then the true assumptions become @p => a@, while the false ones
-beome @not p => a@.
--}
+-- | Merge the assumptions collected from the branches of a conditional.
 mergeAssumptions ::
   IsExprBuilder sym =>
   sym ->
@@ -332,11 +359,9 @@ ppAssumption ppDoc e =
               , ppDoc p
               ]
 
+-- | Check if an assumption is trivial (always true)
 trivialAssumption :: IsExpr e => CrucibleAssumption e -> Bool
-trivialAssumption (GenericAssumption _ _ p) = asConstantPred p == Just True
-trivialAssumption (BranchCondition _ _ p) = asConstantPred p == Just True
-trivialAssumption (AssumingNoError _ p) = asConstantPred p == Just True
-
+trivialAssumption a = asConstantPred (assumptionPred a) == Just True
 
 ppLocated :: ProgramLoc -> PP.Doc ann -> PP.Doc ann
 ppLocated l x = "in" PP.<+> ppFn l PP.<+> ppLoc l PP.<> ":" PP.<+> x
@@ -388,9 +413,7 @@ class IsBoolSolver sym where
   ----------------------------------------------------------------------
   -- Assertions
 
-  -- | Add an assumption to the current state.  Like assertions, assumptions
-  --   add logical facts to the current path condition.  However, assumptions
-  --   do not produce proof obligations the way assertions do.
+  -- | Add an assumption to the current state.
   addAssumption :: sym -> Assumption sym -> IO ()
 
   -- | Add a collection of assumptions to the current state.
@@ -400,6 +423,7 @@ class IsBoolSolver sym where
   --   of all the assumptions currently in scope.
   getPathCondition :: sym -> IO (Pred sym)
 
+  -- | Collect all the assumptions currently in scope
   collectAssumptions :: sym -> IO (Assumptions sym)
 
   -- | Add a new proof obligation to the system.

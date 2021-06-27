@@ -76,7 +76,6 @@ module Lang.Crucible.Backend.Online
   ) where
 
 
-import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.IO.Class
@@ -557,23 +556,23 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
     case impossibleAssumption a of
       Just rsn -> abortExecBecause rsn
       Nothing ->
-          do -- Send assertion to the solver, unless it is trivial.
-             traverseOf_ foldAssumption
-               (\p -> withSolverConn sym (\conn ->
-                  unless (asConstantPred p == Just True) (SMT.assume conn p)))
-               a
+        do -- Send assertion to the solver, unless it is trivial.
+           let p = assumptionPred a
+           unless (asConstantPred p == Just True) $
+              withSolverConn sym $ \conn -> SMT.assume conn p
 
-             -- Record assumption, even if trivial.
-             -- This allows us to keep track of the full path we are on.
-             AS.appendAssumptions (singleAssumption a) =<< getAssumptionStack sym
+           -- Record assumption, even if trivial.
+           -- This allows us to keep track of the full path we are on.
+           AS.appendAssumptions (singleAssumption a) =<< getAssumptionStack sym
 
   addAssumptions sym as =
     -- NB, don't add the assumption to the assumption stack unless
     -- the solver assumptions succeeded
-    do withSolverConn sym $ \conn ->
-         do -- Tell the solver of assertions
-            p <- assumptionsPred sym as
-            unless (asConstantPred p == Just True) (SMT.assume conn p)
+    do p <- assumptionsPred sym as
+
+       -- Tell the solver of assertions
+       unless (asConstantPred p == Just True) $
+         withSolverConn sym $ \conn -> SMT.assume conn p
 
        -- Add assertions to list
        appendAssumptions as =<< getAssumptionStack sym

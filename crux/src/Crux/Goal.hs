@@ -13,7 +13,7 @@ module Crux.Goal where
 import Control.Concurrent.Async (async, asyncThreadId, waitAnyCatch)
 import Control.Exception (throwTo, SomeException, displayException)
 import Control.Lens ((^.), view)
-import qualified Control.Lens as L
+
 import Control.Monad (forM, forM_, unless, when)
 import Data.Either (partitionEithers)
 import Data.IORef
@@ -372,10 +372,9 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
         do ps <- flattenAssumptions sym asms
            forM_ ps $ \asm ->
              unless (trivialAssumption asm) $
-               L.traverseOf_ foldAssumption
-                 (\p -> do nm <- doAssume =<< mkFormula conn p
-                           bindName nm (Left asm) nameMap)
-                 asm
+               do let p = assumptionPred asm
+                  nm <- doAssume =<< mkFormula conn p
+                  bindName nm (Left asm) nameMap
            res <- go (start,end) sp (assumptionsInScope <> asms) gn gs1 nameMap
            return (Assuming (mconcat (map singleAssumption ps)) res)
 
