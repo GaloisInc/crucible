@@ -218,7 +218,9 @@ mkOutputConfig withColors outHandle errHandle opts =
           (m, SayNothing) -> m
           (m1', m2') -> SayMore m1' m2'
 
-      lgGoal = sayWhatFailedGoals (maybe True printFailures opts) >$< lgWhat
+      printFails = maybe True printFailures opts
+      printVars = maybe False printSymbolicVars opts
+      lgGoal = sayWhatFailedGoals printFails printVars >$< lgWhat
       splitResults r@(CruxSimulationResult _cmpl gls) = (snd <$> gls, r)
   in OutputConfig
      {

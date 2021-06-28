@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -12,6 +13,7 @@ module Crux.FormatOut
   )
 where
 
+import qualified Data.BitVector.Sized as BV
 import           Data.Foldable ( toList )
 import           Data.Sequence (Seq)
 import           Data.Text ( Text )
@@ -19,10 +21,14 @@ import           Prettyprinter ( (<+>) )
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PPR
 
+import           What4.Expr (GroundValueWrapper(..), GroundValue)
+import           What4.BaseTypes
+import           What4.ProgramLoc
+
+import           Lang.Crucible.Backend (CrucibleEvent(..))
 import qualified Lang.Crucible.Simulator.SimError as CSE
 
 import           Crux.Types
-
 
 sayWhatResultStatus :: CruxSimulationResult -> SayWhat
 sayWhatResultStatus (CruxSimulationResult cmpl gls) =
@@ -53,33 +59,49 @@ sayWhatResultStatus (CruxSimulationResult cmpl gls) =
           | otherwise ->
               SayWhat Fail "Crux" "Internal error computing overall status."
 
-sayWhatFailedGoals :: Bool -> Seq ProvedGoals -> SayWhat
-sayWhatFailedGoals skipIncompl allGls =
-  let failedDoc = \case
-        Branch gls1 gls2 -> failedDoc gls1 <> failedDoc gls2
-        ProvedGoal{} -> []
-        NotProvedGoal _asmps err ex _locs mdl ->
-          if | skipIncompl, CSE.SimError _ (CSE.ResourceExhausted _) <- err -> []
-             | Just _ <- mdl ->
-                 [ PP.nest 2 $ PP.vcat
-                   [ "Found counterexample for verification goal"
-                   -- n.b. prefer the prepared pretty explanation, but
-                   -- if not available, use the NotProved information.
-                   -- Don't show both: they tend to be duplications.
-                   , if null (show ex) then PP.viaShow err else ex
-                   -- TODO the msg is typically the string
-                   -- representation of the crucible term that failed.
-                   -- It might be nice to have a debug or noisy flag
-                   -- that would enable emitting this, since it tends
-                   -- to be rather lengthy.
-                   -- , PP.pretty msg
-                   ] ]
-             | otherwise ->
-               [ PP.nest 2 $ PP.vcat [ "Failed to prove verification goal", ex ] ]
-      allDocs = mconcat (failedDoc <$> toList allGls)
-  in if null allDocs
+sayWhatFailedGoals :: Bool -> Bool -> Seq ProvedGoals -> SayWhat
+sayWhatFailedGoals skipIncompl showVars allGls =
+  if null allDocs
      then SayNothing
      else SayWhat Fail "Crux" $ ppToText $ PP.vsep allDocs
+ where
+  failedDoc = \case
+    Branch gls1 gls2 -> failedDoc gls1 <> failedDoc gls2
+    ProvedGoal{} -> []
+    NotProvedGoal _asmps err ex _locs mdl ->
+      if | skipIncompl, CSE.SimError _ (CSE.ResourceExhausted _) <- err -> []
+         | Just (_m,evs) <- mdl ->
+             [ PP.nest 2 $ PP.vcat (
+               [ "Found counterexample for verification goal"
+               -- n.b. prefer the prepared pretty explanation, but
+               -- if not available, use the NotProved information.
+               -- Don't show both: they tend to be duplications.
+               , if null (show ex) then PP.viaShow err else ex
+               ] -- if `showVars` is set, print the sequence of symbolic
+                 -- variable events that led to this failure
+                 ++ if showVars then
+                      ["Symbolic variables:", PP.indent 2 (PP.vcat (ppVars evs))]
+                    else [])
+             ]
+         | otherwise ->
+           [ PP.nest 2 $ PP.vcat [ "Failed to prove verification goal", ex ] ]
+
+  ppVars evs =
+    do CreateVariableEvent loc nm tpr (GVW v) <- evs
+       pure (ppVarEvent loc nm tpr v)
+
+  ppVarEvent loc nm tpr v =
+    PP.pretty nm PP.<+> "=" PP.<+> ppVal tpr v PP.<+> "at" PP.<+> PP.pretty (plSourceLoc loc)
+
+  ppVal :: BaseTypeRepr tp -> GroundValue tp -> PP.Doc ann
+  ppVal tpr v = case tpr of
+    BaseBVRepr _w -> PP.viaShow (BV.asUnsigned v)
+    BaseFloatRepr _fpp -> PP.viaShow v
+    BaseRealRepr -> PP.viaShow v
+    _ -> "<unknown>" PP.<+> PP.viaShow tpr
+
+  allDocs = mconcat (failedDoc <$> toList allGls)
+
 
 
 ppToText :: PP.Doc ann -> Text
