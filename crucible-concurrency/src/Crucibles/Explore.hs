@@ -129,19 +129,10 @@ schedule prims globs = \case
   -- we might have conservatively added this thread to a backtracking list even
   -- though it wasn't actually runnable. In any case, restart the computation
   -- using the mainCont continuation.
-  ResultState (AbortedResult ctx (AbortedExec rsn gps))
-    | InfeasibleBranch _ <- rsn ->
-      return $ ExecutionFeatureNewState s0
-    | AssertionFailure _ <- rsn ->
-      return $ ExecutionFeatureNewState s0
-
-      -- TODO? This only covers the `VariantOptionExhausted` constructor.  Why is it different?
-    | otherwise               -> return ExecutionFeatureNoChange
-
+  ResultState (AbortedResult ctx (AbortedExec _rsn _gps)) -> return (ExecutionFeatureNewState s0)
     where
       k  = ctx ^. cruciblePersonality.scheduler.to mainCont
       t  = ctx ^. cruciblePersonality.scheduler.retRepr
-      globVars = gps ^. gpGlobals
       s0 = InitialState ctx emptyGlobals defaultAbortHandler t $ runOverrideSim t k
 
   -- TODO: I don't think this is reachable anymore, but this needs to be
