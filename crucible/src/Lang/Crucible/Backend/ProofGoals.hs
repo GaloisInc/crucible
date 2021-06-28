@@ -13,7 +13,7 @@ proof obligations, and the current state of assumptions.
 
 module Lang.Crucible.Backend.ProofGoals
   ( -- * Goals
-    ProofGoal(..), Goals(..), goalsToList, proveAll, goalsConj -- , assuming
+    ProofGoal(..), Goals(..), goalsToList, proveAll, goalsConj
     -- ** traversals
   , traverseGoals, traverseOnlyGoals
   , traverseGoalsWithAssumptions

@@ -254,7 +254,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
             return (locs, Proved core)
           Sat (evalFn, _) -> do
             evs  <- concretizeEvents (groundEval evalFn) assumptionsInScope
-            vals <- evalModelFromEvents evs
+            let vals = evalModelFromEvents evs
             explain <- explainFailure (Just evalFn) p
             let locs = map eventLoc evs
             return (locs, NotProved explain (Just (vals,evs)))
@@ -263,11 +263,8 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
             let locs = assumptionsTopLevelLocs assumptionsInScope
             return (locs, NotProved explain Nothing)
 
-evalModelFromEvents ::
-  [CrucibleEvent GroundValueWrapper] ->
-  IO ModelView
-evalModelFromEvents evs =
-   return (ModelView (foldl f (modelVals emptyModelView) evs))
+evalModelFromEvents :: [CrucibleEvent GroundValueWrapper] -> ModelView
+evalModelFromEvents evs = ModelView (foldl f (modelVals emptyModelView) evs)
  where
    f m (CreateVariableEvent loc nm tpr (GVW v)) = MapF.insertWith jn tpr (Vals [Entry nm loc v]) m
    f m _ = m
@@ -398,8 +395,8 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
 
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
-                           evs  <- concretizeEvents (groundEval f) assumptionsInScope
-                           vals <- evalModelFromEvents evs
+                           evs <- concretizeEvents (groundEval f) assumptionsInScope
+                           let vals = evalModelFromEvents evs
 
                            explain <- explainFailure (Just f) p
                            end

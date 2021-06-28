@@ -225,7 +225,7 @@ singleEvent x = SingleEvent x
 -- | Collect the program locations of all assumptions and
 --   events that did not occur in the context of a symbolic branch.
 --   These are locations that every program path represented by
---   this assumptions structure must have passed through.
+--   this @CrucibleAssumptions@ structure must have passed through.
 assumptionsTopLevelLocs :: CrucibleAssumptions e -> [ProgramLoc]
 assumptionsTopLevelLocs (SingleEvent e)      = [eventLoc e]
 assumptionsTopLevelLocs (SingleAssumption a) = [assumptionLoc a]
@@ -236,7 +236,7 @@ assumptionsTopLevelLocs MergeAssumptions{}   = []
 assumptionsPred :: IsExprBuilder sym => sym -> Assumptions sym -> IO (Pred sym)
 assumptionsPred sym (SingleEvent _) =
   return (truePred sym)
-assumptionsPred sym (SingleAssumption a) =
+assumptionsPred _sym (SingleAssumption a) =
   return (assumptionPred a)
 assumptionsPred sym (ManyAssumptions xs) =
   andAllOf sym folded =<< traverse (assumptionsPred sym) xs
@@ -269,7 +269,7 @@ concretizeEvents f = loop
       do b <- f p
          if b then loop xs else loop ys
 
--- | Given an assumptions structure, flatten all the muxed assumptions into
+-- | Given a @CrucibleAssumptions@ structure, flatten all the muxed assumptions into
 --   a flat sequence of assumptions that have been appropriately weakened.
 --   Note, once these assumptions have been flattened, their order might no longer
 --   strictly correspond to any concrete program run.

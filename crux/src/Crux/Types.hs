@@ -115,7 +115,7 @@ data Crux sym = CruxPersonality
 -- datatype).
 newtype Vals ty     = Vals [ Entry (GroundValue ty) ]
 
--- | A named value of type `ty` with a program
+-- | A named value of type @a@ with a program
 -- location. Used to describe and report models from SMT
 -- queries (see Model and ModelView datatypes).
 data Entry a        = Entry { entryName :: String

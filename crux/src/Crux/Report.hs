@@ -44,7 +44,7 @@ generateReport opts res
   | otherwise =
     do let xs = cruxSimResultGoals res
            goals = map snd $ Fold.toList xs
-           referencedFiles = Set.toList (Set.fromList (inputFiles opts) <> mconcat (map provedGoalFiles goals))
+           referencedFiles = Set.toList (Set.fromList (inputFiles opts) <> foldMap provedGoalFiles goals)
        createDirectoryIfMissing True (outDir opts)
        maybeGenerateSource opts referencedFiles
        scs <- renderSideConds opts goals
@@ -109,7 +109,7 @@ renderSideConds opts = concatMapM go
   isGoal x = case x of
                ProvedGoal {} -> True
                NotProvedGoal {} -> True
-               _       -> False
+               Branch{} -> False
 
   go gs =
     case gs of

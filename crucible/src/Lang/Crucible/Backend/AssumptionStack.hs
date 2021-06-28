@@ -1,10 +1,10 @@
 {-|
-Module      : Lang.Crucible.Backend.AssumptionStakck
+Module      : Lang.Crucible.Backend.AssumptionStack
 Copyright   : (c) Galois, Inc 2018
 License     : BSD3
 Maintainer  : Rob Dockins <rdockins@galois.com>
 
-This module provides managament support for keeping track
+This module provides management support for keeping track
 of a context of logical assumptions.  The API provided here
 is similar to the interactive mode of an SMT solver.  Logical
 conditions can be assumed into the current context, and bundles
@@ -62,7 +62,7 @@ import           Lang.Crucible.Backend.ProofGoals
 import           Lang.Crucible.Panic (panic)
 
 -- | A single @AssumptionFrame@ represents a collection
---   of assumtptions.  They will later be recinded when
+--   of assumptions.  They will later be rescinded when
 --   the associated frame is popped from the stack.
 data AssumptionFrame asmp =
   AssumptionFrame
@@ -107,7 +107,7 @@ saveAssumptionStack :: Monoid asmp => AssumptionStack asmp ast -> IO (GoalCollec
 saveAssumptionStack stk =
   gcRemoveObligations <$> readIORef (proofObligations stk)
 
--- | Restore a prevsiously saved assumption stack.  Any proof
+-- | Restore a previously saved assumption stack.  Any proof
 --   obligations in the saved stack will be copied into the
 --   assumption stack, which will also retain any proof obligations
 --   it had previously.  A saved stack created with `saveAssumptionStack`
@@ -166,7 +166,7 @@ pushFrame stk =
      return ident
 
 -- | Pop all frames up to and including the frame with the
---   given identifier.  The return value indiciates how
+--   given identifier.  The return value indicates how
 --   many stack frames were popped.
 popFramesUntil :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO Int
 popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
