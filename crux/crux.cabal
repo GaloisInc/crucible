@@ -54,7 +54,10 @@ library
     config-schema,
     semigroupoids,
     unordered-containers,
-    yaml >= 0.11 && < 0.12
+    yaml >= 0.11 && < 0.12,
+
+    template-haskell,
+    th-abstraction
 
   hs-source-dirs: src
 
@@ -81,6 +84,7 @@ library
    Crux.UI.Jquery,
    Crux.UI.IndexHtml
    Paths_crux
+   StructuralShowsPrec
 
   autogen-modules:
    Paths_crux

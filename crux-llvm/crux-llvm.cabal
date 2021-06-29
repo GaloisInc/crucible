@@ -95,7 +95,9 @@ library
     mtl,
     parameterized-utils,
     prettyprinter >= 1.7.0,
-    template-haskell
+    template-haskell,
+
+    pretty-show
 
 
 executable crux-llvm

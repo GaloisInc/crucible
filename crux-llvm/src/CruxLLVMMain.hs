@@ -22,6 +22,8 @@ import           Crux.LLVM.Compile
 import           Crux.LLVM.Simulate
 import           Paths_crux_llvm (version)
 
+import Text.Show.Pretty (pPrint)
+
 
 mainWithOutputTo :: Handle -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig True h h
@@ -33,6 +35,7 @@ mainWithOutputConfig mkOutCfg = do
     do (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
        bcFile <- genBitCode cruxOpts llvmOpts
        res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
+       pPrint res
        makeCounterExamplesLLVM cruxOpts llvmOpts res
        Crux.postprocessSimResult True cruxOpts res
 

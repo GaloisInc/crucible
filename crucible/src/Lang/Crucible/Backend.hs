@@ -32,9 +32,12 @@ obligations with a solver backend.
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Backend
   ( IsBoolSolver(..)
@@ -133,6 +136,8 @@ data CrucibleAssumption (e :: BaseType -> Type)
     -- ^ An assumption justified by a proof of the impossibility of
     -- a certain simulator error.
 
+deriving instance (forall tp. Show (e tp)) => Show (CrucibleAssumption e)
+
 -- | This type describes events we can track during program execution.
 data CrucibleEvent (e :: BaseType -> Type) where
   -- | This event describes the creation of a symbolic variable.
@@ -147,6 +152,8 @@ data CrucibleEvent (e :: BaseType -> Type) where
   LocationReachedEvent ::
     ProgramLoc ->
     CrucibleEvent e
+
+deriving instance (forall tp. Show (e tp)) => Show (CrucibleEvent e)
 
 -- | Pretty print an event
 ppEvent :: IsExpr e => CrucibleEvent e -> PP.Doc ann

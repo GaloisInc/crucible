@@ -1,4 +1,7 @@
 {-# Language DeriveFunctor, RankNTypes, ConstraintKinds, TypeFamilies, ScopedTypeVariables, GADTs #-}
+{-# Language StandaloneDeriving #-}
+{-# Language TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Crux.Types where
 
 import           Data.Functor.Const
@@ -15,6 +18,9 @@ import           What4.ProgramLoc
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator
 import           Lang.Crucible.Types
+
+import Data.Parameterized.TH.GADT (TypePat(..))
+import StructuralShowsPrec (structuralShowsPrec)
 
 -- | A simulator context
 type SimCtxt personality sym p = SimContext (personality sym) sym p
@@ -54,6 +60,7 @@ data ProcessedGoals =
                  , disprovedGoals :: !Integer
                  , incompleteGoals :: !Integer
                  }
+  deriving Show
 
 data ProofResult sym
    = Proved [Either (Assumption sym) (Assertion sym)]
@@ -142,3 +149,25 @@ data SayWhat = SayWhat SayLevel Text Text  -- ^ fields are: Level From Message
 -- ordinal order for possible filtering, and higher levels may be sent
 -- to a different location (e.g. stderr v.s. stdout).
 data SayLevel = Noisily | Simply | OK | Warn | Fail deriving (Eq, Ord)
+
+$(pure [])
+
+instance Show ProvedGoals where
+  showsPrec =
+    $(structuralShowsPrec [t| ProvedGoals |]
+        [ ( ConType [t| SimError |]
+          , [| \(_p :: Int) _x -> showString "(SimError)" |]
+          )
+        , ( ConType [t| Doc |] `TypeApp` ConType [t| Void |]
+          , [| \p doc -> shows (showsPrec p doc "") |]
+          )
+        , ( ConType [t| Maybe |] `TypeApp` AnyType
+          , [| \p mbEvents -> case mbEvents of
+                 Nothing          -> showString "Nothing"
+                 Just (_, events) -> showsPrec p (Just events) |]
+          )
+        ])
+
+deriving instance Show CruxSimulationResult
+instance Show (GroundValueWrapper tp) where
+  showsPrec _ _ = showString "(GVW)"
