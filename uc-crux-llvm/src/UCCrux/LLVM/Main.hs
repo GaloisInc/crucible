@@ -16,7 +16,6 @@ Stability    : provisional
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 
 module UCCrux.LLVM.Main
   ( mainWithOutputTo,
@@ -35,10 +34,8 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
 
-import           Control.Exception (throw)
 import           Control.Lens ((^.))
 import           Control.Monad (void)
-import           Data.Traversable (for)
 import           System.Exit (ExitCode(..))
 import           System.IO (Handle)
 import qualified Data.Map.Strict as Map
@@ -71,14 +68,14 @@ import Crux.LLVM.Simulate (parseLLVM)
 import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
-import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation)
+import           UCCrux.LLVM.Equivalence (checkEquiv)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
 import           UCCrux.LLVM.Run.Explore (explore)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
-import           UCCrux.LLVM.Run.Loop (loopOnFunction)
+import           UCCrux.LLVM.Run.Loop (loopOnFunctions)
 {- ORMOLU_ENABLE -}
 
 mainWithOutputTo :: Handle -> IO ExitCode
@@ -95,30 +92,41 @@ mainWithOutputConfig mkOutCfg =
         halloc <- Crucible.newHandleAllocator
         memVar <- mkMemVar "uc-crux-llvm:llvm_memory" halloc
         SomeModuleContext' modCtx <- translateFile ucOpts halloc memVar path
-        if Config.doExplore ucOpts
+        let checkEquivalenceWith = Config.crashEquivalence ucOpts
+        if checkEquivalenceWith /= ""
           then do
-            llvmPtrWidth
-              (modCtx ^. moduleTranslation . transContext)
-              ( \ptrW ->
-                  withPtrWidth
-                    ptrW
-                    ( explore
-                        appCtx
-                        modCtx
-                        cruxOpts
-                        ucOpts
-                        halloc
-                    )
-              )
-          else do
-            results <- loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
-            void $
-              flip Map.traverseWithKey results $
-                \func (SomeBugfindingResult result) ->
-                  do
-                    Crux.say Crux.Simply "Crux" ("Results for " <> Text.pack func)
-                    Crux.say Crux.Simply "Crux" $
-                      Result.printFunctionSummary (summary result)
+            path' <-
+              genBitCode
+                (cruxOpts {inputFiles = [checkEquivalenceWith]})
+                (Config.ucLLVMOptions ucOpts)
+            memVar' <- mkMemVar "uc-crux-llvm:llvm_memory'" halloc
+            SomeModuleContext' modCtx' <- translateFile ucOpts halloc memVar' path'
+            void $ checkEquiv appCtx modCtx modCtx' halloc cruxOpts ucOpts
+          else
+            if Config.doExplore ucOpts
+              then do
+                llvmPtrWidth
+                  (modCtx ^. moduleTranslation . transContext)
+                  ( \ptrW ->
+                      withPtrWidth
+                        ptrW
+                        ( explore
+                            appCtx
+                            modCtx
+                            cruxOpts
+                            ucOpts
+                            halloc
+                        )
+                  )
+              else do
+                results <- loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
+                void $
+                  flip Map.traverseWithKey results $
+                    \func (SomeBugfindingResult result _) ->
+                      do
+                        Crux.say Crux.Simply "Crux" ("Results for " <> Text.pack func)
+                        Crux.say Crux.Simply "Crux" $
+                          Result.printFunctionSummary (summary result)
         return ExitSuccess
 
 translateLLVMModule ::
@@ -163,27 +171,3 @@ translateFile ::
   IO SomeModuleContext'
 translateFile ucOpts halloc memVar moduleFilePath =
   translateLLVMModule ucOpts halloc memVar moduleFilePath =<< parseLLVM moduleFilePath
-
--- | Postcondition: The keys of the returned map are exactly the entryPoints of
--- the 'UCCruxLLVMOptions'.
-loopOnFunctions ::
-  Crux.Logs =>
-  AppContext ->
-  ModuleContext m arch ->
-  Crucible.HandleAllocator ->
-  CruxOptions ->
-  UCCruxLLVMOptions ->
-  IO (Map.Map String SomeBugfindingResult)
-loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts =
-  Map.fromList
-    <$> llvmPtrWidth
-      (modCtx ^. moduleTranslation . transContext)
-      ( \ptrW ->
-          withPtrWidth
-            ptrW
-            ( for (Config.entryPoints ucOpts) $
-                \entry ->
-                  (entry,) . either throw id
-                    <$> loopOnFunction appCtx modCtx halloc cruxOpts ucOpts entry
-            )
-      )

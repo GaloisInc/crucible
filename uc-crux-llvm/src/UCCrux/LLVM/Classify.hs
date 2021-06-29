@@ -67,7 +67,7 @@ import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
 import           Lang.Crucible.LLVM.MemType (memTypeSize)
 
 import           UCCrux.LLVM.Classify.Poison
-import           UCCrux.LLVM.Classify.Types hiding (truePositive)
+import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
@@ -101,12 +101,18 @@ classifyAssertion ::
   sym ->
   What4.Pred sym ->
   What4.ProgramLoc ->
-  Explanation m arch argTypes
+  Located (Explanation m arch argTypes)
 classifyAssertion _sym predicate loc =
   case What4.asConstantPred predicate of
     Just True -> panic "classifyAssertionFailure" ["Concretely true assertion failure??"]
-    Just False -> ExTruePositive (LocatedTruePositive ConcretelyFailingAssert loc)
-    Nothing -> ExUncertain (UFailedAssert loc)
+    Just False ->
+      Located
+        loc
+        (ExTruePositive ConcretelyFailingAssert)
+    Nothing ->
+      Located
+        loc
+        (ExUncertain UFailedAssert)
 
 elemsFromOffset ::
   DataLayout ->
@@ -134,7 +140,7 @@ unclass appCtx badBehavior errorLoc =
         ("Couldn't classify error. At: " <> ppProgramLoc errorLoc)
     pure $
       ExUncertain $
-        UUnclassified errorLoc $
+        UUnclassified $
           case badBehavior of
             LLVMErrors.BBUndefinedBehavior ub ->
               UnclassifiedUndefinedBehavior (UB.explain ub) (Some ub)
@@ -156,7 +162,7 @@ unfixed appCtx tag errorLoc =
         ( "Prognosis: Fixable, but the fix is not yet implemented. At: "
             <> ppProgramLoc errorLoc
         )
-    pure $ ExUncertain (UUnfixed errorLoc tag)
+    pure $ ExUncertain (UUnfixed tag)
 
 unfixable ::
   MonadIO f =>
@@ -173,7 +179,7 @@ unfixable appCtx tag errorLoc =
         ( "Prognosis: Don't know how to fix this error. At: "
             <> ppProgramLoc errorLoc
         )
-    pure $ ExUncertain (UUnfixable errorLoc tag)
+    pure $ ExUncertain (UUnfixable tag)
 
 notAPointer ::
   Crucible.IsSymInterface sym =>
@@ -211,8 +217,47 @@ classifyBadBehavior ::
   Ctx.Assignment (Shape m (SymValue sym arch)) argTypes ->
   -- | Data about the error that occurred
   LLVMErrors.BadBehavior sym ->
+  f (Located (Explanation m arch argTypes))
+classifyBadBehavior appCtx modCtx funCtx sym skipped simError args annotations argShapes badBehavior =
+  Located (Crucible.simErrorLoc simError)
+    <$> doClassifyBadBehavior
+      appCtx
+      modCtx
+      funCtx
+      sym
+      skipped
+      simError
+      args
+      annotations
+      argShapes
+      badBehavior
+
+doClassifyBadBehavior ::
+  forall f m sym arch argTypes t st fs.
+  ( Crucible.IsSymInterface sym,
+    sym ~ What4.ExprBuilder t st fs, -- needed for asApp
+    MonadIO f,
+    ShowF (What4.SymAnnotation sym)
+  ) =>
+  AppContext ->
+  ModuleContext m arch ->
+  FunctionContext m arch argTypes ->
+  sym ->
+  -- | Functions skipped during execution
+  Set SkipOverrideName ->
+  -- | Simulation error (including source position)
+  Crucible.SimError ->
+  -- | Function arguments
+  Crucible.RegMap sym (MapToCrucibleType arch argTypes) ->
+  -- | Term annotations (origins), see comment on
+  -- 'UCCrux.LLVM.Setup.Monad.resultAnnotations'.
+  Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes)) ->
+  -- | The arguments that were passed to the function
+  Ctx.Assignment (Shape m (SymValue sym arch)) argTypes ->
+  -- | Data about the error that occurred
+  LLVMErrors.BadBehavior sym ->
   f (Explanation m arch argTypes)
-classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _args) annotations argShapes badBehavior =
+doClassifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _args) annotations argShapes badBehavior =
   case badBehavior of
     LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
       handleDivRemByZero UDivByConcreteZero divisor
@@ -660,7 +705,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
         liftIO $
           (appCtx ^. log) Hi $
             Text.unwords ["Diagnosis:", ppTruePositive pos]
-        return $ ExTruePositive (LocatedTruePositive pos errorLoc)
+        return $ ExTruePositive pos
 
     -- Unfortunately, this check is pretty coarse. We can conclude that the
     -- given pointer concretely isn't a pointer only if *all* of the following

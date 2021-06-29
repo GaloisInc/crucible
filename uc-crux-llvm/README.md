@@ -1,8 +1,12 @@
 # UC-Crux-LLVM
 
 UC-Crux-LLVM is a tool for under-constrained symbolic execution of C programs.
-It can be used to find undefined behavior and failing assertions, or for simple
-functions, to formally verify the absence of such behaviors.
+It can be used to:
+
+- find undefined behavior and failing assertions,
+- verify the absence of undefined behavior and failing assertions,
+- deduce sufficient function preconditions to avoid undefined behavior, and
+- check two versions of a program for crash-equivalence.
 
 **UC-Crux-LLVM is still in development.**
 
@@ -201,6 +205,22 @@ Uncertain results:
   Missing annotations: 1
   Symbolically failing assertions: 1
 ```
+
+### Crash-Equivalence Checking
+
+UC-Crux-LLVM can check two different versions of the same program (or two
+implementations of the same interface) for *crash-equivalence*, meaning
+the two implementations are considered the same unless UC-Crux-LLVM can find a
+bug in one but not the other.
+
+The argument to the `--check-equivalence` flag is a second program to check for
+*crash ordering*, i.e. UC-Crux-LLVM checks that the program passed to
+`--check-equivalence` has *fewer* crashes than the one passed as an argument. If
+the `--strict-crash-equivalence` is also passed to UC-Crux-LLVM, it checks for
+*crash-equivalence*. Crash-ordering is a partial order over programs, and
+crash-equivalence is an equivalence relation. Use `--entry-points` to check
+specific functions, or `--explore` to check all functions from both programs
+that share a name.
 
 ## Roadmap
 
