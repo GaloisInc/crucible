@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Crux.LLVM.Compile where
 
@@ -15,6 +16,7 @@ import           Control.Monad.Logic ( observeAll )
 import qualified Data.Foldable as Fold
 import           Data.List ( intercalate, isSuffixOf )
 import qualified Data.Parameterized.Map as MapF
+import           Data.Parameterized.Some
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           System.Directory ( doesFileExist, removeFile
@@ -72,8 +74,8 @@ getClang = attempt (map inPath clangs)
                        Left (SomeException {}) -> attempt more
                        Right a -> return a
 
-runClang :: Logs => CruxOptions -> LLVMOptions -> [String] -> IO ()
-runClang cruxOpts llvmOpts params =
+runClang :: Logs => LLVMOptions -> [String] -> IO ()
+runClang llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
      say Noisily "CLANG" $ T.unwords (T.pack <$> (clang : map show allParams))
@@ -161,7 +163,7 @@ genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
            unless (or [ ".bc" `isSuffixOf` src
                       , bcExists && lazyCompile llvmOpts
                       ]) $
-             runClang cruxOpts llvmOpts =<< params f
+             runClang llvmOpts =<< params f
          ver <- llvmLinkVersion llvmOpts
          let libcxxBitcode | anyCPPFiles files = [libDir llvmOpts </> "libcxx-" ++ ver ++ ".bc"]
                            | otherwise = []
@@ -228,27 +230,26 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
  where
  go gs =
   case gs of
-    AtLoc _ _ gs1 -> go gs1
     Branch g1 g2  -> go g1 >> go g2
-    Goal _ (c,_) _ r ->
-      let suff = case plSourceLoc (simErrorLoc c) of
-                   SourcePos _ l _ -> show l
-                   _               -> "unknown"
-          skipGoal = case simErrorReason c of
-                       ResourceExhausted _ -> True
-                       _ -> False
-
-      in case (r, skipGoal) of
-           (NotProved _ (Just m), False) ->
-             do try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
-                  Left (ex :: SomeException) -> do
-                    logGoal gs
-                    say Fail "Crux" "Failed to build counterexample executable"
-                    logException ex
-                  Right (_prt,dbg) -> do
-                    say Simply "Crux" ("*** debug executable: " <> T.pack dbg)
-                    say Simply "Crux" ("*** break on line: " <> T.pack suff)
-           _ -> return ()
+    -- skip proved goals
+    ProvedGoal{} -> return ()
+    -- skip unknown goals
+    NotProvedGoal _ _ _ _ Nothing -> return ()
+    -- skip resource exhausted goals
+    NotProvedGoal _ (simErrorReason -> ResourceExhausted{}) _ _ _ -> return ()
+    -- counterexample to non-resource-exhaustion goal
+    NotProvedGoal _ c _ _ (Just (m,_evs)) ->
+      do let suff = case plSourceLoc (simErrorLoc c) of
+                      SourcePos _ l _ -> show l
+                      _               -> "unknown"
+         try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
+           Left (ex :: SomeException) -> do
+             logGoal gs
+             say Fail "Crux" "Failed to build counterexample executable"
+             logException ex
+           Right (_prt,dbg) -> do
+             say Simply "Crux" ("*** debug executable: " <> T.pack dbg)
+             say Simply "Crux" ("*** break on line: " <> T.pack suff)
 
 buildModelExes :: Logs => CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
 buildModelExes cruxOpts llvmOpts suff counter_src =
@@ -267,14 +268,14 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
          libcxx | anyCPPFiles files = ["-lstdc++"]
                 | otherwise = []
 
-     runClang cruxOpts llvmOpts
+     runClang llvmOpts
                    [ "-I", libs </> "includes"
                    , counterFile
                    , libs </> "print-model.c"
                    , "-o", printExe
                    ]
 
-     runClang cruxOpts llvmOpts $
+     runClang llvmOpts $
               concat [ [ "-I", idir ] | idir <- incs ] ++
                      [ counterFile
                      , libs </> "concrete-backend.c"
@@ -285,7 +286,7 @@ buildModelExes cruxOpts llvmOpts suff counter_src =
      return (printExe, debugExe)
 
 
-ppValsC :: BaseTypeRepr ty -> Vals ty -> String
+ppValsC :: BaseTypeRepr ty -> Vals ty -> [String]
 ppValsC ty (Vals xs) =
   let (cty, cnm, ppRawVal) = case ty of
         BaseBVRepr n ->
@@ -301,8 +302,7 @@ ppValsC ty (Vals xs) =
         BaseRealRepr -> ("double", "real", (show . toDouble))
 
         _ -> error ("Type not implemented: " ++ show ty)
-  in unlines
-      [ "size_t const crucible_values_number_" ++ cnm ++
+  in  [ "size_t const crucible_values_number_" ++ cnm ++
                 " = " ++ show (length xs) ++ ";"
 
       , "const char* crucible_names_" ++ cnm ++ "[] = { " ++
@@ -318,5 +318,21 @@ ppModelC m = unlines
              : "#include <stddef.h>"
              : "#include <math.h>"
              : ""
-             : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
-            where vals = modelVals m
+             : concatMap ppModelForType llvmModelTypes
+ where
+  ppModelForType (Some tpr) =
+    case MapF.lookup tpr (modelVals m) of
+      -- NB, produce the declarations even if there are no variables
+      Nothing   -> ppValsC tpr (Vals [])
+      Just vals -> ppValsC tpr vals
+
+
+llvmModelTypes :: [Some BaseTypeRepr]
+llvmModelTypes =
+  [ Some (BaseBVRepr (knownNat @8))
+  , Some (BaseBVRepr (knownNat @16))
+  , Some (BaseBVRepr (knownNat @32))
+  , Some (BaseBVRepr (knownNat @64))
+  , Some (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
+  , Some (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
+  ]

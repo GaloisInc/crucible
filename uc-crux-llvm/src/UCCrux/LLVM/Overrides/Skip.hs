@@ -58,7 +58,7 @@ import           Lang.Crucible.LLVM.Translation (ModuleTranslation, transContext
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), LLVMOverride(..), basic_llvm_override)
 
-import           Crux.Types (OverM, Model, HasModel)
+import           Crux.Types (OverM)
 
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
@@ -95,8 +95,7 @@ unsoundSkipOverrides ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
-    ?lc :: TypeContext,
-    HasModel personality
+    ?lc :: TypeContext
   ) =>
   ModuleContext m arch ->
   sym ->
@@ -108,7 +107,7 @@ unsoundSkipOverrides ::
   -- | Postconditions of each override (constraints on return values)
   Map (DeclSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
-  OverM Model sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
+  OverM personality sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
 unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decls =
   do
     let llvmCtx = mtrans ^. transContext
@@ -151,8 +150,7 @@ createSkipOverride ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
-    ?lc :: TypeContext,
-    HasModel personality
+    ?lc :: TypeContext
   ) =>
   ModuleContext m arch ->
   sym ->

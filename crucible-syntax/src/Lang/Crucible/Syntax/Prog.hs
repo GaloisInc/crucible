@@ -8,11 +8,9 @@ module Lang.Crucible.Syntax.Prog where
 import Control.Lens (view)
 import Control.Monad
 
-import Data.Foldable (toList)
 import Data.List (find)
 import Data.Text (Text)
 import Data.String (IsString(..))
---import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import System.IO
 import System.Exit
@@ -33,7 +31,6 @@ import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.Analysis.Postdom
 import Lang.Crucible.Backend
-import Lang.Crucible.Backend.ProofGoals
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
@@ -136,9 +133,10 @@ simulateProgram fn theInput outh profh opts setup =
                          Just gs ->
                            do hPutStrLn outh "==== Proof obligations ===="
                               forM_ (goalsToList gs) (\g ->
-                                do hPrint outh (ppProofObligation sym g)
+                                do hPrint outh =<< ppProofObligation sym g
                                    neggoal <- notPred sym (view labeledPred (proofGoal g))
-                                   let bs = neggoal : map (view labeledPred) (toList (proofAssumptions g))
+                                   asms <- assumptionsPred sym (proofAssumptions g)
+                                   let bs = [neggoal, asms]
                                    runZ3InOverride sym defaultLogData bs (\case
                                      Sat _   -> hPutStrLn outh "COUNTEREXAMPLE"
                                      Unsat _ -> hPutStrLn outh "PROVED"

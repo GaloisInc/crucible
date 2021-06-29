@@ -76,7 +76,6 @@ module Lang.Crucible.Backend.Online
   ) where
 
 
-import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.IO.Class
@@ -305,8 +304,10 @@ data SolverState scope solver =
 -- It contains the current assertions and program location.
 data OnlineBackendState solver userState scope = OnlineBackendState
   { assumptionStack ::
-      !(AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
-      -- ^ Number of times we have pushed
+      !(AssumptionStack
+          (CrucibleAssumptions (B.Expr scope))
+          (LabeledPred (B.BoolExpr scope) SimError))
+
   , solverProc :: !(IORef (SolverState scope solver))
     -- ^ The solver process, if any.
   , currentFeatures :: !(IORef ProblemFeatures)
@@ -337,7 +338,8 @@ initialOnlineBackendState gen feats ust =
 
 getAssumptionStack ::
   OnlineBackendUserSt scope solver userSt fs ->
-  IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
+  IO (AssumptionStack (CrucibleAssumptions (B.Expr scope))
+                      (LabeledPred (B.BoolExpr scope) SimError))
 getAssumptionStack sym = pure (assumptionStack (B.sbUserState sym))
 
 
@@ -371,11 +373,13 @@ resetSolverProcess' st = do
 
 restoreSolverState ::
   OnlineSolver solver =>
-  AS.LabeledGoalCollector (B.BoolExpr scope) AssumptionReason SimError ->
-  OnlineBackendState solver userSt scope ->
+  OnlineBackendUserSt scope solver userSt fs ->
+  PG.GoalCollector (CrucibleAssumptions (B.Expr scope))
+                   (LabeledPred (B.BoolExpr scope) SimError) ->
   IO ()
-restoreSolverState gc st =
-  do mproc <- readIORef (solverProc st)
+restoreSolverState sym gc =
+  do let st = B.sbUserState sym
+     mproc <- readIORef (solverProc st)
      case mproc of
        -- Nothing to do, state will be restored next time we start the process
        SolverNotStarted -> return ()
@@ -384,7 +388,7 @@ restoreSolverState gc st =
          (do -- reset the solver state
              reset proc
              -- restore the assumption structure
-             restoreAssumptionFrames proc (PG.gcFrames gc))
+             restoreAssumptionFrames sym proc (PG.gcFrames gc))
            `onException`
           ((killSolver proc)
              `finally`
@@ -426,7 +430,7 @@ withSolverProcess sym def action = do
                     -- set up the solver in the same assumption state as specified
                     -- by the current assumption stack
                     (do frms <- AS.allAssumptionFrames stk
-                        restoreAssumptionFrames p frms
+                        restoreAssumptionFrames sym p frms
                       ) `onException`
                       (killSolver p `finally` maybe (return ()) hClose auxh)
                     writeIORef (solverProc st) (SolverStarted p auxh)
@@ -463,17 +467,18 @@ data BranchResult
 
 restoreAssumptionFrames ::
   OnlineSolver solver =>
+  OnlineBackendUserSt scope solver userSt fs ->
   SolverProcess scope solver ->
-  AssumptionFrames (LabeledPred (B.BoolExpr scope) AssumptionReason) ->
+  AssumptionFrames (CrucibleAssumptions (B.Expr scope)) ->
   IO ()
-restoreAssumptionFrames proc (AssumptionFrames base frms) =
+restoreAssumptionFrames sym proc (AssumptionFrames base frms) =
   do -- assume the base-level assumptions
-     mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList base)
+     SMT.assume (solverConn proc) =<< assumptionsPred sym base
 
      -- populate the pushed frames
      forM_ (map snd $ toList frms) $ \frm ->
       do push proc
-         mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList frm)
+         SMT.assume (solverConn proc) =<< assumptionsPred sym frm
 
 considerSatisfiability ::
   OnlineSolver solver =>
@@ -548,35 +553,34 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
      AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
-    let cond = asConstantPred (a^.labeledPred)
-    in case cond of
-         Just False -> abortExecBecause (AssumedFalse (a^.labeledPredMsg))
-         _ -> -- Send assertion to the solver, unless it is trivial.
-              -- NB, don't add the assumption to the assumption stack unless
-              -- the solver assumptions succeeded
-              do withSolverConn sym $ \conn ->
-                   case cond of
-                     Just True -> return ()
-                     _ -> SMT.assume conn (a^.labeledPred)
+    case impossibleAssumption a of
+      Just rsn -> abortExecBecause rsn
+      Nothing ->
+        do -- Send assertion to the solver, unless it is trivial.
+           let p = assumptionPred a
+           unless (asConstantPred p == Just True) $
+              withSolverConn sym $ \conn -> SMT.assume conn p
 
-                 -- Record assumption, even if trivial.
-                 -- This allows us to keep track of the full path we are on.
-                 AS.assume a =<< getAssumptionStack sym
+           -- Record assumption, even if trivial.
+           -- This allows us to keep track of the full path we are on.
+           AS.appendAssumptions (singleAssumption a) =<< getAssumptionStack sym
 
-  addAssumptions sym a =
+  addAssumptions sym as =
     -- NB, don't add the assumption to the assumption stack unless
     -- the solver assumptions succeeded
-    do withSolverConn sym $ \conn ->
-          -- Tell the solver of assertions
-          mapM_ (SMT.assume conn . view labeledPred) (toList a)
+    do p <- assumptionsPred sym as
+
+       -- Tell the solver of assertions
+       unless (asConstantPred p == Just True) $
+         withSolverConn sym $ \conn -> SMT.assume conn p
+
        -- Add assertions to list
-       stk <- getAssumptionStack sym
-       appendAssumptions a stk
+       appendAssumptions as =<< getAssumptionStack sym
 
   getPathCondition sym =
     do stk <- getAssumptionStack sym
        ps <- AS.collectAssumptions stk
-       andAllOf sym (folded.labeledPred) ps
+       assumptionsPred sym ps
 
   collectAssumptions sym =
     AS.collectAssumptions =<< getAssumptionStack sym
@@ -618,8 +622,7 @@ instance OnlineSolver solver => IsBoolSolver (OnlineBackendUserSt scope solver u
        AS.saveAssumptionStack stk
 
   restoreAssumptionState sym gc =
-    do let st = B.sbUserState sym
-       restoreSolverState gc st
+    do restoreSolverState sym gc
 
        -- restore the previous assumption stack
        stk <- getAssumptionStack sym

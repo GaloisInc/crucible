@@ -327,7 +327,8 @@ stepStmt verb stmt rest =
                          _ -> show (printSymExpr msg)
             liftIO $
               do loc <- getCurrentProgramLoc sym
-                 addAssumption sym (LabeledPred c (AssumptionReason loc msg'))
+                 addAssumption sym (GenericAssumption loc msg' c)
+
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
 

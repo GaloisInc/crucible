@@ -14,8 +14,6 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.FunctionHandle
 
 import qualified Crux
-import qualified Crux.Model as Crux
-import qualified Crux.Types as Crux
 
 import qualified Language.Wasm as Wasm
 
@@ -35,13 +33,13 @@ cruxWasmConfig = Crux.Config
   }
 
 setupWasmState :: IsSymInterface sym =>
-  sym -> Wasm.Script -> IO (ExecState (Crux.Model sym) sym WasmExt (RegEntry sym UnitType))
+  sym -> Wasm.Script -> IO (ExecState (Crux.Crux sym) sym WasmExt (RegEntry sym UnitType))
 setupWasmState sym s =
   do halloc <- newHandleAllocator
 
      let globals = emptyGlobals
      let bindings = emptyHandleMap
-     let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout (FnBindings bindings) extImpl Crux.emptyModel
+     let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout (FnBindings bindings) extImpl Crux.CruxPersonality
      let m = execScript s emptyScriptState >> pure ()
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))

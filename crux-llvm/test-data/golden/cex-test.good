@@ -1,0 +1,9 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/cex-test.c:19:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux]   Symbolic variables:
+[Crux]     b = 1 at test-data/golden/cex-test.c:10:17
+[Crux]     b = 2 at test-data/golden/cex-test.c:10:17
+[Crux]     b = 2 at test-data/golden/cex-test.c:10:17
+[Crux] Overall status: Invalid.

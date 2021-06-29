@@ -81,7 +81,6 @@ import qualified Crux as Crux
 import qualified Crux.Model as Crux
 import qualified Crux.UI.JS as Crux
 
-import Crux.Goal (countProvedGoals, countDisprovedGoals, countTotalGoals)
 import Crux.Types
 import Crux.Log
 
@@ -122,7 +121,7 @@ mainWithOutputConfig mkOutCfg bindExtra =
     $ runTestsWithExtraOverrides bindExtra
 
 type BindExtraOverridesFn = forall sym p t st fs args ret blocks rtp a r.
-    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>
+    (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
     Maybe (Crux.SomeOnlineSolver sym) ->
     CollectionState ->
     Text ->
@@ -145,7 +144,6 @@ orOverride f g symOnline cs name cfg =
 -- personality.
 data SomeTestOvr sym ctx (ty :: C.CrucibleType) =
   forall personality.
-  HasModel personality =>
     SomeTestOvr { testOvr      :: Fun personality sym MIR ctx ty
                 , testFeatures :: [C.ExecutionFeature (personality sym) sym MIR (C.RegEntry sym ty)]
                 , testPersonality :: personality sym
@@ -216,7 +214,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
     let cfgMap = mir^.rmCFGs
 
     -- Simulate each test case
-    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs, HasModel p) =>
+    let linkOverrides :: (C.IsSymInterface sym, sym ~ W4.ExprBuilder t st fs) =>
             Maybe (Crux.SomeOnlineSolver sym) -> C.OverrideSim (p sym) sym MIR rtp a r ()
         linkOverrides symOnline =
             forM_ (Map.toList cfgMap) $ \(fn, C.AnyCFG cfg) -> do
@@ -246,7 +244,6 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             ( C.IsSymInterface sym
             , sym ~ W4.ExprBuilder t st fs
             , Crux.Logs
-            , HasModel p
             ) =>
             Maybe (Crux.SomeOnlineSolver sym) ->
             DefId ->
@@ -257,8 +254,8 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
 
              -- Label the current path for later use
              sym <- C.getSymInterface
-             liftIO $ C.addAssumption sym $ C.LabeledPred (W4.truePred sym) $
-                 C.ExploringAPath entry (Just $ testStartLoc fnName)
+             liftIO $ C.addAssumption sym $
+                 C.BranchCondition entry (Just $ testStartLoc fnName) (W4.truePred sym)
 
              -- Find and run the target function
              C.AnyCFG cfg <- case Map.lookup (idText fnName) cfgMap of
@@ -307,7 +304,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
             { testOvr = do printTest fnName
                            simTestBody symOnline fnName
             , testFeatures = []
-            , testPersonality = Crux.emptyModel
+            , testPersonality = Crux.CruxPersonality
             }
 
     let simCallback fnName = Crux.SimulatorCallback $ \sym symOnline ->
@@ -323,15 +320,15 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
                      , \_ _ -> return mempty
                      )
 
-    let outputResult (CruxSimulationResult cmpl (fmap snd -> gls))
+    let outputResult (CruxSimulationResult cmpl gls)
           | disproved > 0 = output "FAILED"
           | cmpl /= ProgramComplete = output "UNKNOWN"
           | proved == tot = output "ok"
           | otherwise = output "UNKNOWN"
           where
-            tot = sum (fmap countTotalGoals gls)
-            proved = sum (fmap countProvedGoals gls)
-            disproved = sum (fmap countDisprovedGoals gls)
+            tot = sum (fmap (totalProcessedGoals . fst) gls)
+            proved = sum (fmap (provedGoals . fst) gls)
+            disproved = sum (fmap (disprovedGoals . fst) gls)
 
     results <- forM testNames $ \fnName -> do
         let cruxOpts' = cruxOpts {
@@ -358,23 +355,22 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
         return res
 
     -- Print counterexamples
-    let isResultOK (CruxSimulationResult comp (fmap snd -> gls)) =
+    let isResultOK (CruxSimulationResult comp gls) =
             comp == ProgramComplete &&
-            sum (fmap countProvedGoals gls) == sum (fmap countTotalGoals gls)
+            sum (fmap (provedGoals . fst) gls) == sum (fmap (totalProcessedGoals . fst) gls)
     let anyFailed = any (not . isResultOK) results
 
     let printCounterexamples gs = case gs of
-            AtLoc _ _ gs1 -> printCounterexamples gs1
             Branch g1 g2 -> printCounterexamples g1 >> printCounterexamples g2
-            Goal _ (_, _) _ res ->
-                case res of
-                    NotProved _ (Just m) -> do
-                        logGoal gs
-                        when (showModel mirOpts) $ do
-                           outputLn "Model:"
-                           mjs <- Crux.modelJS m
-                           outputLn (Crux.renderJS mjs)
-                    _ -> return ()
+            ProvedGoal{} -> return ()
+            NotProvedGoal _ _ _ _ Nothing -> return ()
+            NotProvedGoal _ _ _ _ (Just (m,_evs)) -> do
+               logGoal gs
+               when (showModel mirOpts) $ do
+                  outputLn "Model:"
+                  mjs <- Crux.modelJS m
+                  outputLn (Crux.renderJS mjs)
+
     when anyFailed $ do
         outputLn ""
         outputLn "failures:"

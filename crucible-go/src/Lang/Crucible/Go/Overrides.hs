@@ -99,8 +99,7 @@ do_assume = do
   sym <- C.getSymInterface
   RegMap (Empty :> mgs :> file :> b) <- C.getOverrideArgs
   loc <- liftIO $ W4.getCurrentProgramLoc sym
-  liftIO $ addAssumption sym (LabeledPred (regValue b) $
-                              AssumptionReason loc "assume")
+  liftIO $ addAssumption sym (GenericAssumption loc "assume" (regValue b))
   return Ctx.empty
 
 do_assert :: IsSymInterface sym

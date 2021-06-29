@@ -441,7 +441,7 @@ evalStmt sym = eval
                 loc <- getCurrentProgramLoc sym
                 let err = SimError loc (AssertFailureSimError "Failed to load function handle" (show doc))
                 addProofObligation sym (LabeledPred p err)
-                abortExecBecause $ AssumedFalse $ AssumingNoError err
+                abortExecBecause (AssertionFailure err)
 
            Right (VarargsFnHandle h) ->
              let err = failedAssert "Failed to load function handle"
@@ -1195,15 +1195,13 @@ mergeWriteOperations sym mem cond true_write_op false_write_op = do
   loc <- getCurrentProgramLoc sym
 
   true_frame_id <- pushAssumptionFrame sym
-  addAssumption sym $ LabeledPred cond $
-    AssumptionReason loc "conditional memory write predicate"
+  addAssumption sym (GenericAssumption loc "conditional memory write predicate" cond)
   true_mutated_heap <- memImplHeap <$> true_write_op branched_mem
   _ <- popAssumptionFrame sym true_frame_id
 
   false_frame_id <- pushAssumptionFrame sym
   not_cond <- notPred sym cond
-  addAssumption sym $ LabeledPred not_cond $
-    AssumptionReason loc "conditional memory write predicate"
+  addAssumption sym (GenericAssumption loc "conditional memory write predicate" not_cond)
   false_mutated_heap <- memImplHeap <$> false_write_op branched_mem
   _ <- popAssumptionFrame sym false_frame_id
 

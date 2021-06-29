@@ -14,63 +14,20 @@ module Crux.Model where
 
 import           Data.BitVector.Sized (BV)
 import qualified Data.BitVector.Sized as BV
-import           Data.Parameterized.Map (MapF)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.Pair (Pair(..))
-import           Data.Parameterized.TraversableF (traverseF)
 import qualified Numeric as N
 import           LibBF (BigFloat)
 import qualified LibBF as BF
 
 import           Lang.Crucible.Types
-import           Lang.Crucible.Simulator.RegMap (RegValue)
-import           What4.Expr (GroundEvalFn(..), ExprBuilder)
-import           What4.ProgramLoc
 
 import           Crux.UI.JS
 import           Crux.Types
 
 
-emptyModel :: Model sym
-emptyModel = Model $ MapF.fromList
-  [ noVars (BaseBVRepr (knownNat @8))
-  , noVars (BaseBVRepr (knownNat @16))
-  , noVars (BaseBVRepr (knownNat @32))
-  , noVars (BaseBVRepr (knownNat @64))
-  , noVars (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
-  , noVars (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
-  ]
-
-noVars :: BaseTypeRepr ty -> Pair BaseTypeRepr (Vars sym)
-noVars ty = Pair ty (Vars [])
-
-addVar ::
-  ProgramLoc ->
-  String ->
-  BaseTypeRepr ty ->
-  RegValue sym (BaseToType ty) ->
-  Model sym ->
-  Model sym
-addVar l nm k v (Model mp) = Model (MapF.insertWith jn k (Vars [ ent ]) mp)
-  where jn (Vars new) (Vars old) = Vars (new ++ old)
-        ent = Entry { entryName = nm, entryLoc = l, entryValue = v }
-
-evalVars ::
-  sym ~ ExprBuilder t st fs =>
-  GroundEvalFn t ->
-  Vars sym ty ->
-  IO (Vals ty)
-evalVars ev (Vars xs) = Vals . reverse <$> mapM evEntry xs
-  where evEntry e = do v <- groundEval ev (entryValue e)
-                       return e { entryValue = v }
-
-evalModel ::
-  sym ~ ExprBuilder t st fs =>
-  GroundEvalFn t ->
-  Model sym ->
-  IO (MapF BaseTypeRepr Vals)
-evalModel ev (Model mp) = traverseF (evalVars ev) mp
-
+emptyModelView :: ModelView
+emptyModelView = ModelView $ MapF.empty
 
 --------------------------------------------------------------------------------
 
@@ -121,7 +78,7 @@ valsJS ty (Vals xs) =
   where
   showEnt' :: Show b => (a -> String) -> b -> Entry a -> IO JS
   showEnt' repr n e =
-    do l <- jsLoc (entryLoc e)
+    do l <- fromMaybe jsNull <$> jsLoc (entryLoc e)
        pure $ jsObj
          [ "name" ~> jsStr (entryName e)
          , "loc"  ~> l
@@ -132,12 +89,3 @@ valsJS ty (Vals xs) =
 modelJS :: ModelView -> IO JS
 modelJS m =
   jsList . concat <$> sequence (MapF.foldrWithKey (\k v xs -> valsJS k v : xs) [] (modelVals m))
-
-instance Semigroup (Model sym) where
-  (Model m1) <> m2 = MapF.foldrWithKey f m2 m1 where
-    f :: forall s. BaseTypeRepr s -> Vars sym s -> Model sym -> Model sym
-    f k vs (Model m) = Model (MapF.insertWith jn k vs m)
-    jn (Vars new) (Vars old) = Vars (new ++ old)
-
-instance Monoid (Model sym) where
-  mempty = emptyModel

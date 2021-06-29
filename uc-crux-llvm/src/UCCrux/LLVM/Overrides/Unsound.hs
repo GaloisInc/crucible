@@ -54,8 +54,6 @@ import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.LLVM.Intrinsics (OverrideTemplate(..), basic_llvm_override)
 
-import           Crux.Types (HasModel)
-
 -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
 
@@ -78,8 +76,7 @@ unsoundOverrides ::
   ( IsSymInterface sym,
     HasLLVMAnn sym,
     ArchOk arch,
-    ?lc :: TypeContext,
-    HasModel personality
+    ?lc :: TypeContext
   ) =>
   proxy arch ->
   IORef (Set UnsoundOverrideName) ->

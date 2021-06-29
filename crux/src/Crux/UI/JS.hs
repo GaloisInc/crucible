@@ -10,7 +10,7 @@ import System.Directory( canonicalizePath )
 
 import What4.ProgramLoc
 
-jsLoc :: ProgramLoc -> IO JS
+jsLoc :: ProgramLoc -> IO (Maybe JS)
 jsLoc x =
   case plSourceLoc x of
     SourcePos f l c ->
@@ -18,12 +18,12 @@ jsLoc x =
          fabsolute <-
             if | null fstr -> pure ""
                | otherwise -> canonicalizePath fstr
-         pure $ jsObj
+         pure $ Just $ jsObj
            [ "file" ~> jsStr fabsolute
            , "line" ~> jsStr (show l)
            , "col"  ~> jsStr (show c)
            ]
-    _ -> pure jsNull
+    _ -> pure Nothing
 
 --------------------------------------------------------------------------------
 newtype JS = JS { renderJS :: String }

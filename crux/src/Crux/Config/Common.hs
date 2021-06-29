@@ -147,6 +147,10 @@ data CruxOptions = CruxOptions
 
   , printFailures            :: Bool
     -- ^ Print errors regarding failed verification goals
+
+  , printSymbolicVars        :: Bool
+    -- ^ Print values assigned to symbolic variables
+    --   when printing failed verification goals
   }
 
 
@@ -257,6 +261,11 @@ cruxOptions = Config
           printFailures <-
             section "print-failures" yesOrNoSpec True
             "Print error messages regarding failed verification goals"
+
+          printSymbolicVars <-
+            section "print-symbolic-vars" yesOrNoSpec False
+            ("Print values assigned to symbolic variables " <>
+             "when printing failed verification goals")
 
           skipReport <-
             section "skip-report" yesOrNoSpec False

@@ -15,7 +15,6 @@ import Data.Map.Strict
 import Data.Parameterized (Some(..))
 
 import Lang.Crucible.Simulator
-import Crux.Types (Model, HasModel(..))
 
 import Crucibles.Scheduler
 import Crucibles.Execution
@@ -45,17 +44,12 @@ data Exploration alg ext ret sym = Exploration
     -- ^ State of each thread
   , _schedAlg  :: !alg
     -- ^ State required by the scheduling algorithm
-  , _model     :: !(Model sym)
-    -- ^ For use by Crux
   , _num       :: !Int
     -- ^ Number of executions explored
   , _gVars     :: !(Map Text (Some GlobalVar))
     -- ^ Map from name to GlobalVars that the exploration has invented. Typically these are locks.
   }
 makeLenses ''Exploration
-
-instance HasModel (Exploration alg ext ret) where
-  personalityModel = model
 
 stateExpl :: Simple Lens (SimState (ThreadExec alg sym ext ret) sym ext r f a) (ThreadExec alg sym ext ret)
 stateExpl = stateContext.cruciblePersonality

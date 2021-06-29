@@ -62,8 +62,9 @@ import What4.SatResult (SatResult(..))
 
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend
-    ( AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption
-    , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface )
+    ( CrucibleAssumption(..), IsBoolSolver, LabeledPred(..), addAssumption
+    , assert, getPathCondition, Assumption(..), addFailedAssertion, IsSymInterface
+    , singleEvent, addAssumptions, CrucibleEvent(..) )
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
 import Lang.Crucible.FunctionHandle
@@ -79,9 +80,8 @@ import Lang.Crucible.Types
 import Lang.Crucible.Utils.MuxTree
 
 
-import Crux (SomeOnlineSolver(..), HasModel(..))
-import Crux.Model (addVar, evalModel)
-import Crux.Types (Model(..), Vars(..), Vals(..), Entry(..))
+import Crux (SomeOnlineSolver(..))
+import Crux.Types (Vals(..), Entry(..))
 
 import Mir.DefId
 import Mir.FancyMuxTree
@@ -112,7 +112,7 @@ data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
 
 makeSymbolicVar ::
-    (IsSymInterface sym, HasModel p) =>
+    (IsSymInterface sym) =>
     RegEntry sym (MirSlice (BVType 8)) ->
     BaseTypeRepr btp ->
     OverrideSim (p sym) sym MIR rtp args ret (RegValue sym (BaseToType btp))
@@ -127,12 +127,13 @@ makeSymbolicVar nameReg btpr = do
         Right x -> return x
     v <- liftIO $ freshConstant sym nameSymbol btpr
     loc <- liftIO $ getCurrentProgramLoc sym
-    stateContext.cruciblePersonality.personalityModel %= addVar loc name btpr v
+    let ev = CreateVariableEvent loc name btpr v
+    liftIO $ addAssumptions sym (singleEvent ev)
     return v
 
 array_symbolic ::
   forall sym rtp btp p .
-  (IsSymInterface sym, HasModel p) =>
+  (IsSymInterface sym) =>
   BaseTypeRepr btp ->
   OverrideSim (p sym) sym MIR rtp
     (EmptyCtx ::> MirSlice (BVType 8)) (UsizeArrayType btp)
@@ -371,7 +372,7 @@ regEval sym baseEval tpr v = go tpr v
 
 -- | Override one Rust function with another.
 overrideRust ::
-  (IsSymInterface sym, HasModel p) =>
+  (IsSymInterface sym) =>
   CollectionState ->
   Text ->
   OverrideSim (p sym) sym MIR rtp args ret ()
@@ -403,7 +404,7 @@ overrideRust cs name = do
 
 bindFn ::
   forall p ng args ret blocks sym rtp a r.
-  (IsSymInterface sym, HasModel p) =>
+  (IsSymInterface sym) =>
   Maybe (SomeOnlineSolver sym) ->
   CollectionState ->
   Text ->
@@ -529,7 +530,7 @@ bindFn _symOnline _cs fn cfg =
                        col <- maybe (fail "not a constant column number") pure
                               (BV.asUnsigned <$> asBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
-                       let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
-                       liftIO $ addAssumption s (LabeledPred (regValue c) reason)
+                       let reason = GenericAssumption loc ("Assumption \n\t" <> src <> "\nfrom " <> locStr) (regValue c)
+                       liftIO $ addAssumption s reason
                        return ()
                ]

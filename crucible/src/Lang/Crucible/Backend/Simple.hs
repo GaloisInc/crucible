@@ -30,7 +30,6 @@ module Lang.Crucible.Backend.Simple
   , B.Flags
   ) where
 
-import           Control.Lens
 import           Control.Monad (void)
 import           Data.Parameterized.Nonce
 
@@ -50,8 +49,11 @@ type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertion stack.
 
-newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason SimError }
+type AS t =
+     AssumptionStack (CrucibleAssumptions (B.Expr t))
+                     (LabeledPred (B.BoolExpr t) SimError)
+
+newtype SimpleBackendState t = SimpleBackendState { sbAssumptionStack :: AS t }
 
 -- | Returns an initial execution state.
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
@@ -69,7 +71,7 @@ newSimpleBackend floatMode gen =
      extendConfig backendOptions (getConfiguration sym)
      return sym
 
-getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack :: SimpleBackend t fs -> IO (AS t)
 getAssumptionStack sym = pure (sbAssumptionStack (B.sbUserState sym))
 
 instance IsBoolSolver (SimpleBackend t fs) where
@@ -78,9 +80,9 @@ instance IsBoolSolver (SimpleBackend t fs) where
      AS.addProofObligation a =<< getAssumptionStack sym
 
   addAssumption sym a =
-    case asConstantPred (a^.labeledPred) of
-      Just False -> abortExecBecause (AssumedFalse (a ^. labeledPredMsg))
-      _          -> AS.assume a =<< getAssumptionStack sym
+    case impossibleAssumption a of
+      Just rsn -> abortExecBecause rsn
+      Nothing  -> AS.appendAssumptions (singleAssumption a) =<< getAssumptionStack sym
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym
@@ -92,7 +94,7 @@ instance IsBoolSolver (SimpleBackend t fs) where
   getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- AS.collectAssumptions stk
-    andAllOf sym (folded.labeledPred) ps
+    assumptionsPred sym ps
 
   getProofObligations sym = do
     stk <- getAssumptionStack sym

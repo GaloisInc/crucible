@@ -4,7 +4,7 @@ Copyright   : (c) Galois, Inc 2018
 License     : BSD3
 Maintainer  : Rob Dockins <rdockins@galois.com>
 
-This module provides managament support for keeping track
+This module provides management support for keeping track
 of a context of logical assumptions.  The API provided here
 is similar to the interactive mode of an SMT solver.  Logical
 conditions can be assumed into the current context, and bundles
@@ -24,11 +24,8 @@ solvers.
 {-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.Backend.AssumptionStack
   ( -- * Assertions and proof goals
-    LabeledPred(..)
-  , labeledPred
-  , labeledPredMsg
-  , ProofGoal(..)
-  , AssumeAssert(..)
+    ProofGoal(..)
+  , Goals(..)
 
     -- * Frames and assumption stacks
     -- ** Basic data types
@@ -50,74 +47,47 @@ module Lang.Crucible.Backend.AssumptionStack
   , addProofObligation
   , inFreshFrame
     -- ** Assumption management
-  , assume
-  , assert
   , collectAssumptions
   , appendAssumptions
   , allAssumptionFrames
 
-    -- * Collection of proof obligations
-  , Goals(..), proofGoalsToList
-  , ProofGoals
-  , LabeledGoalCollector
   ) where
 
 import           Control.Exception (bracketOnError)
-import           Control.Lens
 import qualified Data.Foldable as F
 import           Data.IORef
 import           Data.Parameterized.Nonce
-import           Data.Sequence (Seq)
 
 import           Lang.Crucible.Backend.ProofGoals
 import           Lang.Crucible.Panic (panic)
 
-import           What4.LabeledPred
-
 -- | A single @AssumptionFrame@ represents a collection
---   of assumtptions.  They will later be recinded when
+--   of assumptions.  They will later be rescinded when
 --   the associated frame is popped from the stack.
-data AssumptionFrame pred assumeMsg =
+data AssumptionFrame asmp =
   AssumptionFrame
   { assumeFrameIdent :: FrameIdentifier
-  , assumeFrameCond  :: Seq (LabeledPred pred assumeMsg)
+  , assumeFrameCond  :: asmp
   }
-
-
-type LabeledGoalCollector pred assumeMsg assertMsg =
-  GoalCollector (LabeledPred pred assumeMsg) (LabeledPred pred assertMsg)
-
-type ProofGoals pred assumeMsg assertMsg =
-  Goals (LabeledPred pred assumeMsg) (LabeledPred pred assertMsg)
-
-proofGoalsToList ::
-  Maybe (ProofGoals pred assumeMsg assertMsg) ->
-  [ ProofGoal (LabeledPred pred assumeMsg) (LabeledPred pred assertMsg) ]
-proofGoalsToList = maybe [] goalsToList
-
 
 -- | An assumption stack is a data structure for tracking
 --   logical assumptions and proof obligations.  Assumptions
 --   can be added to the current stack frame, and stack frames
 --   may be pushed (to remember a previous state) or popped
 --   to restore a previous state.
-data AssumptionStack pred assumeMsg assertMsg =
+data AssumptionStack asmp ast =
   AssumptionStack
   { assumeStackGen   :: IO FrameIdentifier
-  , proofObligations :: IORef (LabeledGoalCollector pred assumeMsg assertMsg)
+  , proofObligations :: IORef (GoalCollector asmp ast)
   }
 
 
-allAssumptionFrames ::
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO (AssumptionFrames (LabeledPred pred assumeMsg))
+allAssumptionFrames :: Monoid asmp => AssumptionStack asmp ast -> IO (AssumptionFrames asmp)
 allAssumptionFrames stk =
   gcFrames <$> readIORef (proofObligations stk)
 
 -- | Produce a fresh assumption stack.
-initAssumptionStack ::
-  NonceGenerator IO t ->
-  IO (AssumptionStack pred assumeMsg assertMsg)
+initAssumptionStack :: NonceGenerator IO t -> IO (AssumptionStack asmp ast)
 initAssumptionStack gen =
   do let genM = FrameIdentifier . indexValue <$> freshNonce gen
      oblsRef <- newIORef emptyGoalCollector
@@ -133,118 +103,72 @@ initAssumptionStack gen =
 --   NOTE! however, that proof obligations are NOT copied into the saved
 --   stack data. Instead, proof obligations remain only in the original
 --   @AssumptionStack@ and the new stack has an empty obligation list.
-saveAssumptionStack ::
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO (LabeledGoalCollector pred assumeMsg assertMsg)
+saveAssumptionStack :: Monoid asmp => AssumptionStack asmp ast -> IO (GoalCollector asmp ast)
 saveAssumptionStack stk =
   gcRemoveObligations <$> readIORef (proofObligations stk)
 
--- | Restore a prevsiously saved assumption stack.  Any proof
+-- | Restore a previously saved assumption stack.  Any proof
 --   obligations in the saved stack will be copied into the
 --   assumption stack, which will also retain any proof obligations
 --   it had previously.  A saved stack created with `saveAssumptionStack`
 --   will have no included proof obligations; restoring such a stack will
 --   have no effect on the current proof obligations.
 restoreAssumptionStack ::
-  LabeledGoalCollector pred assumeMsg assertMsg ->
-  AssumptionStack pred assumeMsg assertMsg ->
+  Monoid asmp => 
+  GoalCollector asmp ast ->
+  AssumptionStack asmp ast ->
   IO ()
 restoreAssumptionStack gc stk =
   modifyIORef' (proofObligations stk) (gcRestore gc)
 
--- | Add the given logical assumption to the current stack frame.
-assume ::
-  LabeledPred pred assumeMsg ->
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO ()
-assume p stk =
-  modifyIORef' (proofObligations stk) (gcAssume p)
-
 -- | Add the given collection logical assumptions to the current stack frame.
 appendAssumptions ::
-  Seq (LabeledPred pred assumeMsg) ->
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO ()
+  Monoid asmp => asmp -> AssumptionStack asmp ast -> IO ()
 appendAssumptions ps stk =
   modifyIORef' (proofObligations stk) (gcAddAssumes ps)
-
--- | This class witnesses the ability to inject assertion messages
---   into assumption messages.  This happens when an assertion is made;
---   in addition to producing a proof obligation, the assertion is assumed
---   so that later obligations can rely on it having been proved.
-class AssumeAssert assumeMsg assertMsg where
-  assertToAssume :: assertMsg -> assumeMsg
-
 
 -- | Add a new proof obligation to the current collection of obligations based
 --   on all the assumptions currently in scope and the predicate in the
 --   given assertion.
-addProofObligation ::
-  LabeledPred pred assertMsg ->
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO ()
+addProofObligation :: ast -> AssumptionStack asmp ast -> IO ()
 addProofObligation p stk = modifyIORef' (proofObligations stk) (gcProve p)
 
 
--- | Add a new proof obligation to the current collection of obligations based
---   on all the assumptions currently in scope and the predicate in the given assertion.
---
---   Then, assume the given assertion predicate in the current assumption frame.
-assert ::
-  AssumeAssert assumeMsg assertMsg =>
-  LabeledPred pred assertMsg ->
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO ()
-assert p stk =
-  do modifyIORef' (proofObligations stk) (gcProve p)
-     assume (p & over labeledPredMsg assertToAssume) stk
-
 -- | Collect all the assumptions currently in scope in this stack frame
 --   and all previously-pushed stack frames.
-collectAssumptions ::
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO (Seq (LabeledPred pred assumeMsg))
+collectAssumptions :: Monoid asmp => AssumptionStack asmp ast -> IO asmp
 collectAssumptions stk =
   do AssumptionFrames base frms <- gcFrames <$> readIORef (proofObligations stk)
-     return (base <> F.asum (fmap snd frms))
+     return (base <> F.fold (fmap snd frms))
 
 -- | Retrieve the current collection of proof obligations.
-getProofObligations ::
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO (Maybe (ProofGoals pred assumeMsg assertMsg))
+getProofObligations :: Monoid asmp => AssumptionStack asmp ast -> IO (Maybe (Goals asmp ast))
 getProofObligations stk = gcFinish <$> readIORef (proofObligations stk)
 
 -- | Remove all pending proof obligations.
-clearProofObligations ::
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO ()
+clearProofObligations :: Monoid asmp => AssumptionStack asmp ast -> IO ()
 clearProofObligations stk =
   modifyIORef' (proofObligations stk) gcRemoveObligations
 
 -- | Reset the 'AssumptionStack' to an empty set of assumptions,
 --   but retain any pending proof obligations.
-resetStack :: AssumptionStack pred assumeMsg assertMsg -> IO ()
+resetStack :: Monoid asmp => AssumptionStack asmp ast -> IO ()
 resetStack stk = modifyIORef' (proofObligations stk) gcReset
 
 -- | Push a new assumption frame on top of the stack.  The
 --   returned @FrameIdentifier@ can be used later to pop this
 --   frame.  Frames must be pushed and popped in a coherent,
 --   well-bracketed way.
-pushFrame ::
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO FrameIdentifier
+pushFrame :: AssumptionStack asmp ast -> IO FrameIdentifier
 pushFrame stk =
   do ident <- assumeStackGen stk
      modifyIORef' (proofObligations stk) (gcPush ident)
      return ident
 
 -- | Pop all frames up to and including the frame with the
---   given identifier.  The return value indiciates how
+--   given identifier.  The return value indicates how
 --   many stack frames were popped.
-popFramesUntil ::
-  FrameIdentifier ->
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO Int
+popFramesUntil :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO Int
 popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
  where
  go n gc =
@@ -266,10 +190,7 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
 -- | Pop a previously-pushed assumption frame from the stack.
 --   All assumptions in that frame will be forgotten.  The
 --   assumptions contained in the popped frame are returned.
-popFrame ::
-  FrameIdentifier ->
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO (Seq (LabeledPred pred assumeMsg))
+popFrame :: Monoid asmp => FrameIdentifier -> AssumptionStack asmp ast -> IO asmp
 popFrame ident stk =
   atomicModifyIORef' (proofObligations stk) $ \gc ->
        case gcPop gc of
@@ -296,9 +217,10 @@ popFrame ident stk =
 
 
 popFrameAndGoals ::
+  Monoid asmp =>
   FrameIdentifier ->
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO (Seq (LabeledPred pred assumeMsg), Maybe (ProofGoals pred assumeMsg assertMsg))
+  AssumptionStack asmp ast ->
+  IO (asmp, Maybe (Goals asmp ast))
 popFrameAndGoals ident stk =
   atomicModifyIORef' (proofObligations stk) $ \gc ->
        case gcPop gc of
@@ -324,10 +246,7 @@ popFrameAndGoals ident stk =
 --   The frame will be popped and returned on successful
 --   completion of the action.  If the action raises an exception,
 --   the frame will be popped and discarded.
-inFreshFrame ::
-  AssumptionStack pred assumeMsg assertMsg ->
-  IO a ->
-  IO (Seq (LabeledPred pred assumeMsg), a)
+inFreshFrame :: Monoid asmp => AssumptionStack asmp ast -> IO a -> IO (asmp, a)
 inFreshFrame stk action =
   bracketOnError
      (pushFrame stk)

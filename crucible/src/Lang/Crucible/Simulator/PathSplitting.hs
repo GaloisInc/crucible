@@ -99,7 +99,7 @@ restoreWorkItem (WorkItem branchPred loc frm st assumes) =
   do let sym = st ^. stateSymInterface
      setCurrentProgramLoc sym loc
      restoreAssumptionState sym assumes
-     addAssumption sym (LabeledPred branchPred (ExploringAPath loc (pausedLoc frm)))
+     addAssumption sym (BranchCondition loc (pausedLoc frm) branchPred)
      let ctx = st ^. stateTree . actContext
      runReaderT (resumeFrame frm ctx) st
 
@@ -130,7 +130,7 @@ pathSplittingFeature wl = ExecutionFeature $ \case
                 }
        queueWorkItem wi wl
 
-       addAssumption sym (LabeledPred p (ExploringAPath loc (pausedLoc trueFrame)))
+       addAssumption sym (BranchCondition loc (pausedLoc trueFrame) p)
 
        let ctx = st ^. stateTree . actContext
        ExecutionFeatureNewState <$> runReaderT (resumeFrame (forgetPostdomFrame trueFrame) ctx) st

@@ -4,6 +4,7 @@
 {-# Language ImplicitParams #-}
 {-# Language MultiWayIf #-}
 {-# Language PatternSynonyms #-}
+{-# Language ScopedTypeVariables #-}
 {-# Language TypeFamilies #-}
 {-# Language ViewPatterns #-}
 
@@ -12,25 +13,24 @@ module Crux.Goal where
 import Control.Concurrent.Async (async, asyncThreadId, waitAnyCatch)
 import Control.Exception (throwTo, SomeException, displayException)
 import Control.Lens ((^.), view)
-import qualified Control.Lens as L
+
 import Control.Monad (forM, forM_, unless, when)
 import Data.Either (partitionEithers)
-import qualified Data.Foldable as F
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
-import qualified Data.Sequence as Seq
+import qualified Data.Parameterized.Map as MapF
 import qualified Data.Text as Text
 import           Data.Void
 import           Prettyprinter
 import           System.Exit (ExitCode(ExitSuccess))
 import qualified System.Timeout as ST
 
-import What4.Interface (notPred, printSymExpr,asConstantPred,getConfiguration)
+import What4.Interface (notPred, getConfiguration)
 import What4.Config (setOpt, getOptionSetting)
-import qualified What4.Interface as WI
+import What4.ProgramLoc (ProgramLoc)
 import What4.SatResult(SatResult(..))
-import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr)
+import What4.Expr (ExprBuilder, GroundEvalFn(..), BoolExpr, GroundValueWrapper(..))
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
@@ -42,7 +42,7 @@ import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator.SimError
         ( SimError(..), SimErrorReason(..) )
 import Lang.Crucible.Simulator.ExecutionTree
-        (ctxSymInterface, cruciblePersonality)
+        (ctxSymInterface)
 import Lang.Crucible.Panic (panic)
 
 import Crux.Types
@@ -53,27 +53,44 @@ import Crux.ProgressBar
 
 
 -- | Simplify the proved goals.
-provedGoalsTree ::
+provedGoalsTree :: forall sym.
   ( IsSymInterface sym
   ) =>
-  SimCtxt personality sym p ->
-  Maybe (Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym)))) ->
-  IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
-provedGoalsTree ctxt = traverse (go [])
+  sym ->
+  Maybe (Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym)) ->
+  IO (Maybe ProvedGoals)
+provedGoalsTree sym = traverse (go mempty)
   where
+  go :: Assumptions sym ->
+        Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym) ->
+        IO ProvedGoals
   go asmps gs =
     case gs of
-      Assuming ps gs1 -> goAsmp asmps ps gs1
-
-      Prove (p,r) -> return $ proveToGoal ctxt asmps p r
-
+      Assuming as gs1 -> go (asmps <> as) gs1
+      Prove (p,locs,r) -> proveToGoal sym asmps p locs r
       ProveConj g1 g2 -> Branch <$> go asmps g1 <*> go asmps g2
 
-  goAsmp asmps Seq.Empty gs = go asmps gs
-  goAsmp asmps (ps Seq.:|> p) gs =
-        case p ^. labeledPredMsg of
-          ExploringAPath from to -> AtLoc from to <$> goAsmp (p : asmps) ps gs
-          _                      -> goAsmp (p : asmps) ps gs
+proveToGoal ::
+  (IsSymInterface sym) =>
+  sym ->
+  Assumptions sym ->
+  Assertion sym ->
+  [ProgramLoc] ->
+  ProofResult sym ->
+  IO ProvedGoals
+proveToGoal sym allAsmps p locs pr =
+  case pr of
+    NotProved ex cex ->
+      do as <- flattenAssumptions sym allAsmps
+         return (NotProvedGoal (map showAsmp as) (showGoal p) ex locs cex)
+    Proved xs ->
+      case partitionEithers xs of
+        (asmps, [])  -> return (ProvedGoal (map showAsmp asmps) (showGoal p) locs True)
+        (asmps, _:_) -> return (ProvedGoal (map showAsmp asmps) (showGoal p) locs False)
+
+ where
+ showAsmp x = forgetAssumption x
+ showGoal x = x^.labeledPredMsg
 
 
 countGoals :: Goals a b -> Int
@@ -82,68 +99,6 @@ countGoals gs =
     Assuming _ gs1  -> countGoals gs1
     Prove _         -> 1
     ProveConj g1 g2 -> countGoals g1 + countGoals g2
-
-countTotalGoals :: ProvedGoals a -> Int
-countTotalGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countTotalGoals gs1
-    Branch gs1 gs2 -> countTotalGoals gs1 + countTotalGoals gs2
-    Goal _ _ _ _ -> 1
-
-countDisprovedGoals :: ProvedGoals a -> Int
-countDisprovedGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countDisprovedGoals gs1
-    Branch gs1 gs2 -> countDisprovedGoals gs1 + countDisprovedGoals gs2
-    Goal _ _ _ (NotProved _ (Just _)) -> 1
-    Goal _ _ _ (NotProved _ Nothing) -> 0
-    Goal _ _ _ (Proved _) -> 0
-
-countUnknownGoals :: ProvedGoals a -> Int
-countUnknownGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countUnknownGoals gs1
-    Branch gs1 gs2 -> countUnknownGoals gs1 + countUnknownGoals gs2
-    Goal _ _ _ (NotProved _ Nothing) -> 1
-    Goal _ _ _ (NotProved _ (Just _)) -> 0
-    Goal _ _ _ (Proved _) -> 0
-
-countProvedGoals :: ProvedGoals a -> Int
-countProvedGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countProvedGoals gs1
-    Branch gs1 gs2 -> countProvedGoals gs1 + countProvedGoals gs2
-    Goal _ _ _ (NotProved _ _) -> 0
-    Goal _ _ _ (Proved _) -> 1
-
-countIncompleteGoals :: ProvedGoals a -> Int
-countIncompleteGoals gs =
-  case gs of
-    AtLoc _ _ gs1 -> countIncompleteGoals gs1
-    Branch gs1 gs2 -> countIncompleteGoals gs1 + countIncompleteGoals gs2
-    Goal _ (SimError _ (ResourceExhausted _), _) _ (NotProved _ Nothing) -> 1
-    Goal _ _ _ _ -> 0
-
-
-proveToGoal ::
-  (IsSymInterface sym) =>
-  SimCtxt personality sym p ->
-  [Assumption sym] ->
-  Assertion sym ->
-  ProofResult (Either (Assumption sym) (Assertion sym)) ->
-  ProvedGoals (Either AssumptionReason SimError)
-proveToGoal _ allAsmps p pr =
-  case pr of
-    NotProved ex cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved ex cex)
-    Proved xs ->
-      let xs' = map (either (Left . (view labeledPredMsg)) (Right . (view labeledPredMsg))) xs in
-      case partitionEithers xs of
-        (asmps, [])  -> Goal (map showLabPred asmps) (showLabPred p) True (Proved xs')
-        (asmps, _:_) -> Goal (map showLabPred asmps) (showLabPred p) False (Proved xs')
-
- where
- showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
-
 
 isResourceExhausted :: LabeledPred p SimError -> Bool
 isResourceExhausted (view labeledPredMsg -> SimError _ (ResourceExhausted _)) = True
@@ -172,6 +127,22 @@ updateProcessedGoals _ (NotProved _ (Just _)) pgs =
 updateProcessedGoals _ (NotProved _ Nothing) pgs =
   pgs{ totalProcessedGoals = 1 + totalProcessedGoals pgs }
 
+-- | A function that can be used to generate a pretty explanation of a
+-- simulation error.
+
+type Explainer sym t ann = Maybe (GroundEvalFn t)
+                           -> LPred sym SimError
+                           -> IO (Doc ann)
+
+type ProverCallback sym =
+  forall ext personality t st fs.
+    (sym ~ ExprBuilder t st fs) =>
+    CruxOptions ->
+    SimCtxt personality sym ext ->
+    Explainer sym t Void ->
+    Maybe (Goals (Assumptions sym) (Assertion sym)) ->
+    IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym)))
+
 -- | Discharge a tree of proof obligations ('Goals') by using a non-online solver
 --
 -- This function traverses the 'Goals' tree while keeping track of a collection
@@ -187,14 +158,14 @@ updateProcessedGoals _ (NotProved _ Nothing) pgs =
 --
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
-proveGoalsOffline :: forall st sym p asmp t fs personality
-                   . (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs, HasModel personality)
-                  => [WS.SolverAdapter st]
-                  -> CruxOptions
-                  -> SimCtxt personality sym p
-                  -> (Maybe (GroundEvalFn t) -> LPred sym SimError -> IO (Doc Void))
-                  -> Maybe (Goals (LPred sym asmp) (LPred sym SimError))
-                  -> IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError)))))
+proveGoalsOffline :: forall st sym p t fs personality.
+  (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs) =>
+  [WS.SolverAdapter st] ->
+  CruxOptions ->
+  SimCtxt personality sym p ->
+  (Maybe (GroundEvalFn t) -> Assertion sym -> IO (Doc Void)) ->
+  Maybe (Goals (Assumptions sym) (Assertion sym)) ->
+  IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym)))
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
 proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0 0)
@@ -203,23 +174,25 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
        return (\_ -> return (), return (), return ())
      else
        prepStatus "Checking: " (countGoals gs0)
-  gs <- go (start,end) goalNum [] gs0
+  gs <- go (start,end) goalNum mempty gs0
   nms <- readIORef goalNum
   finish
   return (nms, Just gs)
 
   where
+    sym = ctx^.ctxSymInterface
+
     failfast = proofGoalsFailFast opts
 
     go :: (Integer -> IO (), IO ())
        -> IORef ProcessedGoals
-       -> [Seq.Seq (LPred sym asmp)]
-       -> Goals (LPred sym asmp) (LPred sym SimError)
-       -> IO (Goals (LPred sym asmp) (LPred sym SimError, ProofResult (Either (LPred sym asmp) (LPred sym SimError))))
+       -> Assumptions sym
+       -> Goals (Assumptions sym) (Assertion sym)
+       -> IO (Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym))
     go (start,end) goalNum assumptionsInScope gs =
       case gs of
         Assuming ps gs1 -> do
-          res <- go (start,end) goalNum (ps : assumptionsInScope) gs1
+          res <- go (start,end) goalNum (assumptionsInScope <> ps) gs1
           return (Assuming ps res)
 
         ProveConj g1 g2 -> do
@@ -234,32 +207,38 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
-          let sym = ctx ^. ctxSymInterface
-          assumptions <- WI.andAllOf sym (L.folded . id) (fmap (^. labeledPred) (mconcat assumptionsInScope))
+          assumptions <- assumptionsPred sym assumptionsInScope
           goal <- notPred sym (p ^. labeledPred)
 
-          res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters $ runOneSolver p assumptionsInScope assumptions goal
+          res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters
+                           (runOneSolver p assumptionsInScope assumptions goal)
           end
           case res of
-            Right details -> do
+            Right Nothing -> do
+              let details = NotProved "(timeout)" Nothing
+              let locs = assumptionsTopLevelLocs assumptionsInScope
+              modifyIORef' goalNum (updateProcessedGoals p details)
+              return (Prove (p, locs, details))
+
+            Right (Just (locs,details)) -> do
               modifyIORef' goalNum (updateProcessedGoals p details)
               case details of
                 NotProved _ (Just _) ->
                   when (failfast && not (isResourceExhausted p)) $
                     say OK "Crux" "Counterexample found, skipping remaining goals"
                 _ -> return ()
-              return (Prove (p, details))
+              return (Prove (p, locs, details))
             Left es -> do
               modifyIORef' goalNum (updateProcessedGoals p (NotProved mempty Nothing))
               let allExceptions = unlines (displayException <$> es)
               fail allExceptions
 
-    runOneSolver :: LPred sym SimError
-                 -> [Seq.Seq (LPred sym asmp)]
+    runOneSolver :: Assertion sym
+                 -> Assumptions sym
                  -> BoolExpr t
                  -> BoolExpr t
                  -> WS.SolverAdapter st
-                 -> IO (ProofResult (Either (LPred sym asmp) a))
+                 -> IO ([ProgramLoc], ProofResult sym)
     runOneSolver p assumptionsInScope assumptions goal adapter = do
       -- NOTE: We don't currently provide a method for capturing the output
       -- sent to offline solvers.  We would probably want a file per goal per adapter.
@@ -269,23 +248,35 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
           Unsat _ -> do
             -- NOTE: We don't have an easy way to get an unsat core here
             -- because we don't have a solver connection.
-            let core = fmap Left (F.toList (mconcat assumptionsInScope))
-            return (Proved core)
+            as <- flattenAssumptions sym assumptionsInScope
+            let core = fmap Left as ++ [ Right p ]
+            let locs = assumptionsTopLevelLocs assumptionsInScope
+            return (locs, Proved core)
           Sat (evalFn, _) -> do
-            let model = ctx ^. cruciblePersonality . personalityModel
-            vals <- evalModel evalFn model
+            evs  <- concretizeEvents (groundEval evalFn) assumptionsInScope
+            let vals = evalModelFromEvents evs
             explain <- explainFailure (Just evalFn) p
-            return (NotProved explain (Just (ModelView vals)))
+            let locs = map eventLoc evs
+            return (locs, NotProved explain (Just (vals,evs)))
           Unknown -> do
             explain <- explainFailure Nothing p
-            return (NotProved explain Nothing)
+            let locs = assumptionsTopLevelLocs assumptionsInScope
+            return (locs, NotProved explain Nothing)
 
-dispatchSolversOnGoalAsync :: forall a s time.
+evalModelFromEvents :: [CrucibleEvent GroundValueWrapper] -> ModelView
+evalModelFromEvents evs = ModelView (foldl f (modelVals emptyModelView) evs)
+ where
+   f m (CreateVariableEvent loc nm tpr (GVW v)) = MapF.insertWith jn tpr (Vals [Entry nm loc v]) m
+   f m _ = m
+
+   jn (Vals new) (Vals old) = Vals (old++new)
+
+dispatchSolversOnGoalAsync :: forall a b s time.
                               (RealFrac time)
                            => Maybe time
                            -> [WS.SolverAdapter s]
-                           -> (WS.SolverAdapter s -> IO (ProofResult a))
-                           -> IO (Either [SomeException] (ProofResult a))
+                           -> (WS.SolverAdapter s -> IO (b,ProofResult a))
+                           -> IO (Either [SomeException] (Maybe (b,ProofResult a)))
 dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
   asyncs <- forM adapters (async . withAdapter)
   await asyncs []
@@ -299,17 +290,17 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
           case result of
             Left  exc ->
               await as' (exc : es)
-            Right r@(Proved _) -> do
+            Right (x, r@(Proved _)) -> do
               mapM_ kill as'
-              return $ Right r
-            Right r@(NotProved _ (Just _)) -> do
+              return $ Right (Just (x,r))
+            Right (x,r@(NotProved _ (Just _))) -> do
               mapM_ kill as'
-              return $ Right r
+              return $ Right (Just (x,r))
             Right _ ->
               await as' es
         Nothing -> do
           mapM_ kill as
-          return $ Right $ NotProved "(Timeout)" Nothing
+          return $ Right $ Nothing
 
     withTimeout action
       | Just seconds <- mtimeoutSeconds = ST.timeout (round seconds * 1000000) action
@@ -328,24 +319,22 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
 -- satisfiability checking and goal discharge.
 proveGoalsOnline ::
   ( sym ~ OnlineBackend s solver fs
-  , ast ~ SimError
   , OnlineSolver solver
   , goalSym ~ OnlineBackend s goalSolver fs
   , OnlineSolver goalSolver
-  , HasModel personality
   , ?outputConfig :: OutputConfig
   ) =>
   goalSym ->
   CruxOptions ->
   SimCtxt personality sym p ->
-  (Maybe (GroundEvalFn s) -> LPred sym ast -> IO (Doc Void)) ->
-  Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
-  IO (ProcessedGoals, Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
+  (Maybe (GroundEvalFn s) -> Assertion sym -> IO (Doc Void)) ->
+  Maybe (Goals (Assumptions sym) (Assertion sym)) ->
+  IO (ProcessedGoals, Maybe (Goals (Assumptions sym) (Assertion sym, [ProgramLoc], ProofResult sym)))
 
 proveGoalsOnline _ _opts _ctxt _explainFailure Nothing =
      return (ProcessedGoals 0 0 0 0, Nothing)
 
-proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
+proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
   do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
@@ -361,7 +350,7 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
      _ <- setOpt enableOpt True
 
      res <- withSolverProcess sym (panic "proveGoalsOnline" ["Online solving not enabled!"]) $ \sp ->
-              inNewFrame sp (go (start,end) sp goalNum gs0 nameMap)
+              inNewFrame sp (go (start,end) sp mempty goalNum gs0 nameMap)
      nms <- readIORef goalNum
      finish
      return (nms, Just res)
@@ -373,16 +362,18 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
 
   failfast = proofGoalsFailFast opts
 
-  go (start,end) sp gn gs nameMap = do
+  go (start,end) sp assumptionsInScope gn gs nameMap = do
     case gs of
 
-      Assuming ps gs1 ->
-        do forM_ ps $ \p ->
-             unless (asConstantPred (p^.labeledPred) == Just True) $
-              do nm <- doAssume =<< mkFormula conn (p ^. labeledPred)
-                 bindName nm (Left p) nameMap
-           res <- go (start,end) sp gn gs1 nameMap
-           return (Assuming ps res)
+      Assuming asms gs1 ->
+        do ps <- flattenAssumptions sym asms
+           forM_ ps $ \asm ->
+             unless (trivialAssumption asm) $
+               do let p = assumptionPred asm
+                  nm <- doAssume =<< mkFormula conn p
+                  bindName nm (Left asm) nameMap
+           res <- go (start,end) sp (assumptionsInScope <> asms) gn gs1 nameMap
+           return (Assuming (mconcat (map singleAssumption ps)) res)
 
       Prove p ->
         do start . totalProcessedGoals =<< readIORef gn
@@ -397,30 +388,35 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
                            end
-                           modifyIORef' gn (updateProcessedGoals p (Proved core))
-                           return (Prove (p, (Proved core)))
+                           let pr = Proved core
+                           modifyIORef' gn (updateProcessedGoals p pr)
+                           let locs = assumptionsTopLevelLocs assumptionsInScope
+                           return (Prove (p, locs, pr))
 
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
-                           let model = ctxt ^. cruciblePersonality . personalityModel
-                           vals <- evalModel f model
+                           evs <- concretizeEvents (groundEval f) assumptionsInScope
+                           let vals = evalModelFromEvents evs
+
                            explain <- explainFailure (Just f) p
                            end
-                           let gt = NotProved explain (Just (ModelView vals))
+                           let gt = NotProved explain (Just (vals,evs))
                            modifyIORef' gn (updateProcessedGoals p gt)
                            when (failfast && not (isResourceExhausted p)) $
                              (say OK "Crux" "Counterexample found, skipping remaining goals.")
-                           return (Prove (p, gt))
+                           let locs = map eventLoc evs
+                           return (Prove (p, locs, gt))
                       Unknown ->
                         do explain <- explainFailure Nothing p
                            end
                            let gt = NotProved explain Nothing
                            modifyIORef' gn (updateProcessedGoals p gt)
-                           return (Prove (p, gt))
+                           let locs = assumptionsTopLevelLocs assumptionsInScope
+                           return (Prove (p, locs, gt))
            return ret
 
       ProveConj g1 g2 ->
-        do g1' <- inNewFrame sp (go (start,end) sp gn g1 nameMap)
+        do g1' <- inNewFrame sp (go (start,end) sp assumptionsInScope gn g1 nameMap)
 
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
@@ -429,9 +425,9 @@ proveGoalsOnline sym opts ctxt explainFailure (Just gs0) =
                 if numDisproved > 0 then
                   return g1'
                 else
-                  ProveConj g1' <$> go (start,end) sp gn g2 nameMap
+                  ProveConj g1' <$> go (start,end) sp assumptionsInScope gn g2 nameMap
            else
-             ProveConj g1' <$> go (start,end) sp gn g2 nameMap
+             ProveConj g1' <$> go (start,end) sp assumptionsInScope gn g2 nameMap
 
     where
     conn = solverConn sp
