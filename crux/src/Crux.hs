@@ -205,6 +205,7 @@ showVersion nm ver = sayCrux (Log.Version nm ver)
 --
 -- The following CruxOptions affect the generated OutputConfig:
 --
+--  * noColors       (default stance: False)
 --  * printFailures  (default stance: True)
 --  * quietMode      (default stance: False)
 --  * simVerbose     (default stance: False)
@@ -213,7 +214,8 @@ mkOutputConfig ::
   (msgs -> SayWhat) -> Maybe CruxOptions ->
   OutputConfig msgs
 mkOutputConfig withColors outHandle errHandle logMessageToSayWhat opts =
-  let lgWhat = let la = LJ.LogAction $ logToStd withColors outHandle errHandle
+  let withColorsConsensus = withColors && not (maybe False noColors opts)
+      lgWhat = let la = LJ.LogAction $ logToStd withColorsConsensus outHandle errHandle
                    -- TODO simVerbose may not be the best setting to use here...
                    baseline = if maybe False ((> 1) . simVerbose) opts
                               then Noisily
