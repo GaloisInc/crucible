@@ -96,10 +96,10 @@ import           UCCrux.LLVM.Run.Loop (loopOnFunctions)
 mainWithOutputTo :: Handle -> IO ExitCode
 mainWithOutputTo h =
   mainWithOutputConfig $
-    Crux.mkOutputConfig False h h ucCruxLLVMLoggingToSayWhat
+    Crux.mkOutputConfig (h, False) (h, False) ucCruxLLVMLoggingToSayWhat
 
-defaultOutputConfig :: Maybe CruxOptions -> Log.OutputConfig UCCruxLLVMLogging
-defaultOutputConfig opts = Crux.defaultOutputConfig ucCruxLLVMLoggingToSayWhat opts
+defaultOutputConfig :: IO (Maybe CruxOptions -> Log.OutputConfig UCCruxLLVMLogging)
+defaultOutputConfig = Crux.defaultOutputConfig ucCruxLLVMLoggingToSayWhat
 
 data UCCruxLLVMLogging
   = LoggingCrux Log.CruxLogMessage

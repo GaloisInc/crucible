@@ -30,5 +30,5 @@ makeMain ::
 makeMain mainWithOutputConfig =
   do
     installSIGTERMHandler
-    ec <- mainWithOutputConfig defaultOutputConfig
+    ec <- mainWithOutputConfig =<< defaultOutputConfig
     exitWith ec

@@ -137,6 +137,12 @@ data CruxOptions = CruxOptions
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
 
+  , noColorsOut              :: Bool
+    -- ^ Suppresses color codes in the output when set.
+
+  , noColorsErr              :: Bool
+    -- ^ Suppresses color codes in the errors when set.
+
   , quietMode                :: Bool
     -- ^ If true, produce minimal output
 
@@ -292,6 +298,18 @@ cruxOptions = Config
             section "skip-incomplete-reports" yesOrNoSpec False
             "Skip reporting on proof obligations that arise from timeouts and resource exhaustion"
 
+          noColors <-
+            section "no-colors" yesOrNoSpec False
+            "Suppress color codes in both the output and the errors"
+
+          noColorsErr <-
+            section "no-colors-err" yesOrNoSpec False
+            "Suppress color codes in the errors"
+
+          noColorsOut <-
+            section "no-colors-out" yesOrNoSpec False
+            "Suppress color codes in the output"
+
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
             "If true, produce minimal output"
@@ -302,7 +320,11 @@ cruxOptions = Config
 
           onlineProblemFeatures <- pure noFeatures
 
-          pure CruxOptions { .. }
+          pure CruxOptions
+            { noColorsErr = noColorsErr || noColors
+            , noColorsOut = noColorsOut || noColors
+            , ..
+            }
 
 
   , cfgEnv =
@@ -434,6 +456,18 @@ cruxOptions = Config
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
         $ NoArg $ \opts -> Right opts { proofGoalsFailFast = True }
+
+      , Option [] ["no-colors-err"]
+        "Suppress color codes in the errors"
+        $ NoArg $ \opts -> Right opts{ noColorsErr = True }
+
+      , Option [] ["no-colors-out"]
+        "Suppress color codes in the output"
+        $ NoArg $ \opts -> Right opts{ noColorsOut = True }
+
+      , Option [] ["no-colors"]
+        "Suppress color codes in both the output and the errors"
+        $ NoArg $ \opts -> Right opts{ noColorsErr = True, noColorsOut = True }
 
       , Option "q" ["quiet"]
         "Quiet mode; produce minimal output"

@@ -195,27 +195,33 @@ showVersion ::
 showVersion nm ver = sayCrux (Log.Version nm ver)
 
 
--- | Create an OutputConfig for Crux, based on an indication of
--- whether colored output should be used, the normal and error output
--- handles, and the parsed CruxOptions.
+-- | Create an OutputConfig for Crux, based on an indication of whether colored
+-- output should be used, the normal and error output handles, and the parsed
+-- CruxOptions.
 --
--- If no CruxOptions are available (i.e. Nothing, as used in the
--- preliminary portions of loadOptions), then a default output stance
--- is applied; the default stance is described along with the
--- individual option below.
+-- If no CruxOptions are available (i.e. Nothing, as used in the preliminary
+-- portions of loadOptions), then a default output stance is applied; the
+-- default stance is described along with the individual option below.
 --
 -- The following CruxOptions affect the generated OutputConfig:
 --
+--  * noColorsErr    (default stance: False when the error handle supports
+--    colors, as reported by System.Console.ANSI.hSupportsANSIColor)
+--  * noColorsOut    (default stance: False when the output handle supports
+--    colors, as reported by System.Console.ANSI.hSupportsANSIColor)
 --  * printFailures  (default stance: True)
 --  * quietMode      (default stance: False)
 --  * simVerbose     (default stance: False)
 mkOutputConfig ::
   JSON.ToJSON msgs =>
-  Bool -> Handle -> Handle ->
+  (Handle, Bool) -> (Handle, Bool) ->
   (msgs -> SayWhat) -> Maybe CruxOptions ->
   OutputConfig msgs
-mkOutputConfig withColors outHandle errHandle logMessageToSayWhat opts =
-  let lgWhat = let la = LJ.LogAction $ logToStd withColors outHandle errHandle
+mkOutputConfig (outHandle, outWantsColor) (errHandle, errWantsColor) logMessageToSayWhat opts =
+  let consensusBetween wants maybeRefuses = wants && not (maybe False maybeRefuses opts)
+      outSpec = (outHandle, consensusBetween outWantsColor noColorsOut)
+      errSpec@(_, errShouldColor) = (errHandle, consensusBetween errWantsColor noColorsErr)
+      lgWhat = let la = LJ.LogAction $ logToStd outSpec errSpec
                    -- TODO simVerbose may not be the best setting to use here...
                    baseline = if maybe False ((> 1) . simVerbose) opts
                               then Noisily
@@ -246,7 +252,7 @@ mkOutputConfig withColors outHandle errHandle logMessageToSayWhat opts =
                               , AC.SetColor AC.Foreground AC.Vivid AC.Red]
                      seeCalm = AC.hSetSGR errHandle [AC.Reset]
                      dispExc = hPutStr errHandle . Ex.displayException
-                 in if withColors
+                 in if errShouldColor
                     then LJ.LogAction $ \e -> Ex.bracket_ seeRed seeCalm $ dispExc e
                     else LJ.LogAction $ dispExc
      , _logSimResult = \showDetails ->
@@ -260,8 +266,11 @@ mkOutputConfig withColors outHandle errHandle logMessageToSayWhat opts =
 
 defaultOutputConfig ::
   JSON.ToJSON msgs =>
-  (msgs -> SayWhat) -> Maybe CruxOptions -> OutputConfig msgs
-defaultOutputConfig = Crux.mkOutputConfig True stdout stderr
+  (msgs -> SayWhat) -> IO (Maybe CruxOptions -> OutputConfig msgs)
+defaultOutputConfig logMessagesToSayWhat = do
+  outWantsColor <- AC.hSupportsANSIColor stdout
+  errWantsColor <- AC.hSupportsANSIColor stderr
+  return $ Crux.mkOutputConfig (stdout, outWantsColor) (stderr, errWantsColor) logMessagesToSayWhat
 
 
 --------------------------------------------------------------------------------
