@@ -518,6 +518,8 @@ evalStmt sym = eval
   eval (LLVM_PtrSubtract _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
        liftIO $ doPtrSubtract sym mem x y
+  
+  eval LLVM_Debug{} = pure ()
 
 
 mkMemVar :: Text
