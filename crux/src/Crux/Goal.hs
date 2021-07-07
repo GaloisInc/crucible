@@ -47,7 +47,7 @@ import Lang.Crucible.Panic (panic)
 
 import Crux.Types
 import Crux.Model
-import Crux.Log
+import Crux.Log as Log
 import Crux.Config.Common
 import Crux.ProgressBar
 
@@ -158,8 +158,11 @@ type ProverCallback sym =
 --
 -- Note that this function uses the same symbolic backend ('ExprBuilder') as the
 -- symbolic execution phase, which should not be a problem.
-proveGoalsOffline :: forall st sym p t fs personality.
-  (?outputConfig :: OutputConfig, sym ~ ExprBuilder t st fs) =>
+proveGoalsOffline :: forall st sym p t fs personality msgs.
+  ( sym ~ ExprBuilder t st fs
+  , Logs msgs
+  , SupportsCruxLogMessage msgs
+  ) =>
   [WS.SolverAdapter st] ->
   CruxOptions ->
   SimCtxt personality sym p ->
@@ -184,7 +187,8 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
     failfast = proofGoalsFailFast opts
 
-    go :: (Integer -> IO (), IO ())
+    go :: SupportsCruxLogMessage msgs
+       => (Integer -> IO (), IO ())
        -> IORef ProcessedGoals
        -> Assumptions sym
        -> Goals (Assumptions sym) (Assertion sym)
@@ -225,7 +229,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
               case details of
                 NotProved _ (Just _) ->
                   when (failfast && not (isResourceExhausted p)) $
-                    say OK "Crux" "Counterexample found, skipping remaining goals"
+                    sayCrux Log.FoundCounterExample
                 _ -> return ()
               return (Prove (p, locs, details))
             Left es -> do
@@ -322,7 +326,8 @@ proveGoalsOnline ::
   , OnlineSolver solver
   , goalSym ~ OnlineBackend s goalSolver fs
   , OnlineSolver goalSolver
-  , ?outputConfig :: OutputConfig
+  , Logs msgs
+  , SupportsCruxLogMessage msgs
   ) =>
   goalSym ->
   CruxOptions ->
@@ -338,7 +343,7 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
   do goalNum <- newIORef (ProcessedGoals 0 0 0 0)
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
-       say Warn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
+       sayCrux Log.SkippingUnsatCoresBecauseMCSatEnabled
      (start,end,finish) <-
        if view quiet ?outputConfig then
          return (\_ -> return (), return (), return ())
@@ -403,7 +408,7 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
                            let gt = NotProved explain (Just (vals,evs))
                            modifyIORef' gn (updateProcessedGoals p gt)
                            when (failfast && not (isResourceExhausted p)) $
-                             (say OK "Crux" "Counterexample found, skipping remaining goals.")
+                             sayCrux Log.FoundCounterExample
                            let locs = map eventLoc evs
                            return (Prove (p, locs, gt))
                       Unknown ->

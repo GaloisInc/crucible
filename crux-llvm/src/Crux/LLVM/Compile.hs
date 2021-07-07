@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -38,6 +39,7 @@ import           Crux.Model ( toDouble, showBVLiteral, showFloatLiteral
 import           Crux.Types
 
 import           Crux.LLVM.Config
+import qualified Crux.LLVM.Log as Log
 
 
 isCPlusPlus :: FilePath -> Bool
@@ -74,11 +76,14 @@ getClang = attempt (map inPath clangs)
                        Left (SomeException {}) -> attempt more
                        Right a -> return a
 
-runClang :: Logs => LLVMOptions -> [String] -> IO ()
+runClang ::
+  Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  LLVMOptions -> [String] -> IO ()
 runClang llvmOpts params =
   do let clang = clangBin llvmOpts
          allParams = clangOpts llvmOpts ++ params
-     say Noisily "CLANG" $ T.unwords (T.pack <$> (clang : map show allParams))
+     Log.sayCruxLLVM (Log.ClangInvocation (T.pack <$> (clang : map show allParams)))
      (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
@@ -110,7 +115,10 @@ llvmLinkVersion llvmOpts =
 -- specified in the 'CruxOptions' argument, writing the output to a
 -- pre-determined filename in the build directory specified in
 -- 'CruxOptions'.
-genBitCode :: Logs => CruxOptions -> LLVMOptions -> IO FilePath
+genBitCode ::
+  Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  CruxOptions -> LLVMOptions -> IO FilePath
 genBitCode cruxOpts llvmOpts =
   -- n.b. use of head here is OK because inputFiles should not be
   -- empty (and was previously verified as such in CruxLLVMMain).
@@ -125,7 +133,8 @@ genBitCode cruxOpts llvmOpts =
 -- link the resulting files, along with any input .ll files into the
 -- target bitcode (BC) file.  Returns the filepath of the target
 -- bitcode file.
-genBitCodeToFile :: Logs
+genBitCodeToFile :: Crux.Logs msgs
+                 => Log.SupportsCruxLLVMLogMessage msgs
                  => String -> [FilePath] -> CruxOptions -> LLVMOptions -> Bool
                  -> IO FilePath
 genBitCodeToFile finalBCFileName files cruxOpts llvmOpts copySrc = do
@@ -222,7 +231,9 @@ crucibleFlagsFromSrc srcFile = do
 
 
 makeCounterExamplesLLVM ::
-  Logs => CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  CruxOptions -> LLVMOptions -> CruxSimulationResult -> IO ()
 makeCounterExamplesLLVM cruxOpts llvmOpts res
   | makeCexes cruxOpts = mapM_ (go . snd) . Fold.toList $ (cruxSimResultGoals res)
   | otherwise = return ()
@@ -245,13 +256,16 @@ makeCounterExamplesLLVM cruxOpts llvmOpts res
          try (buildModelExes cruxOpts llvmOpts suff (ppModelC m)) >>= \case
            Left (ex :: SomeException) -> do
              logGoal gs
-             say Fail "Crux" "Failed to build counterexample executable"
+             Log.sayCruxLLVM Log.FailedToBuildCounterexampleExecutable
              logException ex
            Right (_prt,dbg) -> do
-             say Simply "Crux" ("*** debug executable: " <> T.pack dbg)
-             say Simply "Crux" ("*** break on line: " <> T.pack suff)
+             Log.sayCruxLLVM (Log.Executable (T.pack dbg))
+             Log.sayCruxLLVM (Log.Breakpoint (T.pack suff))
 
-buildModelExes :: Logs => CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
+buildModelExes ::
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  CruxOptions -> LLVMOptions -> String -> String -> IO (FilePath,FilePath)
 buildModelExes cruxOpts llvmOpts suff counter_src =
   do let dir  = Crux.outDir cruxOpts
      createDirectoryIfMissing True dir

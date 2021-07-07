@@ -72,7 +72,7 @@ import qualified Crux
 import qualified Crux.Types as Crux
 
 import           Crux.Config.Common (CruxOptions)
-import           Crux.Log (outputHandle, OutputConfig(..))
+import           Crux.Log (outputHandle)
 
  -- crux-llvm
 import           Crux.LLVM.Overrides (ArchOk)
@@ -108,7 +108,7 @@ simulateLLVM ::
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   MemOptions ->
-  Crux.SimulatorCallback
+  Crux.SimulatorCallback msgs
 simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverrideRef constraints cfg memOptions =
   Crux.SimulatorCallback $ \sym _maybeOnline ->
     do
@@ -274,7 +274,8 @@ data UCCruxSimulationResult m arch (argTypes :: Ctx (FullType m)) = UCCruxSimula
   }
 
 runSimulator ::
-  ( ?outputConfig :: OutputConfig,
+  ( Crux.Logs msgs,
+    Crux.SupportsCruxLogMessage msgs,
     ArchOk arch
   ) =>
   AppContext ->

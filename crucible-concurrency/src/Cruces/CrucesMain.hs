@@ -103,8 +103,11 @@ findMain mainName cs =
   where
     isFn x (ACFG _ _ g) = handleName (cfgHandle g) == x
 
-run :: (Crux.Logs) => (Crux.CruxOptions, CrucesOptions) -> IO ()
+run :: Crux.Logs Crux.CruxLogMessage
+    => (Crux.CruxOptions, CrucesOptions)
+    -> IO ()
 run (cruxOpts, opts) =
+  Crux.withCruxLogMessage $
   do let ?dpor = not (noDpor opts)
      let ?bound = maxPreemptions opts
      let [fn] = Crux.inputFiles cruxOpts
@@ -153,5 +156,7 @@ run (cruxOpts, opts) =
 
             return ()
 
-printCounterexamples :: Crux.Logs => ProvedGoals -> IO ()
+printCounterexamples ::
+  Crux.Logs Crux.CruxLogMessage =>
+  ProvedGoals -> IO ()
 printCounterexamples = Crux.logGoal

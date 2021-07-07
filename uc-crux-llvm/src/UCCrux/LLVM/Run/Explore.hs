@@ -7,7 +7,6 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module UCCrux.LLVM.Run.Explore
@@ -42,7 +41,7 @@ import qualified Lang.Crucible.FunctionHandle as Crucible
 
 -- crux
 import Crux.Config.Common (CruxOptions, bldDir)
-import Crux.Log (OutputConfig(..))
+import Crux.Log as Crux
 
  -- crux-llvm
 import Crux.LLVM.Overrides (ArchOk)
@@ -62,9 +61,9 @@ withTimeout :: Int -> IO a -> IO (Either () a)
 withTimeout timeout action = race (threadDelay timeout) action
 
 exploreOne ::
-  ( ?outputConfig :: OutputConfig,
-    ArchOk arch
-  ) =>
+  ArchOk arch =>
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
   AppContext ->
   ModuleContext m arch ->
   CruxOptions ->
@@ -113,9 +112,9 @@ exploreOne appCtx modCtx cruxOpts ucOpts halloc dir func =
 -- The strategy/order is exceedingly naive right now, it literally just applies
 -- @take@ to the list of 'L.Define' in the module and explores those functions.
 explore ::
-  ( ?outputConfig :: OutputConfig,
-    ArchOk arch
-  ) =>
+  ArchOk arch =>
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
   AppContext ->
   ModuleContext m arch ->
   CruxOptions ->

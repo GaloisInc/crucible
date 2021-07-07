@@ -1,8 +1,16 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
+{-# LANGUAGE RankNTypes #-}
 module Crux.Log (
   -- * Output Configuration
   Logs,
@@ -10,12 +18,19 @@ module Crux.Log (
   , outputHandle
   , quiet
   -- * Standard output API functions
+  , CruxLogMessage(..)
+  , LogDoc(..)
   , SayWhat(..)
   , SayLevel(..)
-  , say
+  , SupportsCruxLogMessage
+  , cruxLogMessageToSayWhat
+  , cruxLogTag
   , logException
-  , logSimResult
   , logGoal
+  , logSimResult
+  , say
+  , sayCrux
+  , withCruxLogMessage
   -- * Low-level output API functions
   , output
   , outputLn
@@ -24,34 +39,192 @@ module Crux.Log (
   ) where
 
 import           Control.Exception ( SomeException, bracket_,  )
-import           Control.Lens
-import           Data.Text ( Text, lines )
-import           Data.Text.IO as TIO
+import           Control.Lens ( Getter, view )
+import           Data.Aeson ( Value(String), ToJSON, toJSON )
+import qualified Data.Text as T
+import           Data.Text.IO as TIO ( hPutStr, hPutStrLn )
+import           Data.Version ( Version, showVersion )
+import           Data.Word ( Word64 )
+import           GHC.Generics ( Generic )
 import qualified Lumberjack as LJ
+import           Prettyprinter ( SimpleDocStream )
+import           Prettyprinter.Render.Text ( renderStrict )
 import           System.Console.ANSI
-import           System.IO
+    ( Color(..), ColorIntensity(..), ConsoleIntensity(..), ConsoleLayer(..)
+    , SGR(..), hSetSGR )
+import           System.IO ( Handle, hPutStr, hPutStrLn )
 
 import           Crux.Types
+    ( CruxSimulationResult, ProvedGoals, SayLevel(..), SayWhat(..) )
+import           Crux.Version ( version )
 
 ----------------------------------------------------------------------
 -- Various functions used by the main code to generate logging output
 
+newtype LogDoc = LogDoc (SimpleDocStream ())
+
+instance ToJSON LogDoc where
+  toJSON (LogDoc doc) = String (renderStrict doc)
+
+
+-- | All messages that Crux wants to output should be listed here.
+--
+-- Messages ought to be serializable to JSON so that they have a somewhat
+-- portable machine-readable representation.  Some tools may rely on the
+-- serialization format, so be sure to check with consumers before changing the
+-- 'ToJSON' instance.
+--
+-- Other crux-based tools are encouraged to create their own:
+--
+-- * log message datatype '<Tool>LogMessage', similar to 'CruxLogMessage' below,
+--
+-- * constraint synonym 'Supports<Tool>LogMessage' similar to
+-- 'SupportsCruxLogMessage' below,
+--
+-- * constraint dispatcher 'with<Tool>LogMessage' similar to
+-- 'withCruxLogMessage' below,
+--
+-- * logger method 'say<Tool>' similar to 'sayCrux' below,
+--
+-- * default log message converter '<Tool>LogMessageToSayWhat' similar to
+-- 'cruxLogMessageToSayWhat'.
+--
+-- The default log message converter can be used to decide how messages are
+-- displayed to the standard output for a human consumer.  Automated tools may
+-- prefer to filter and encode log messages in some machine-readable format and
+-- exchange it over a separate channel.
+data CruxLogMessage
+  = AttemptingProvingVCs
+  | Checking [FilePath]
+  | DisablingBranchCoverageRequiresPathSatisfiability
+  | DisablingProfilingIncompatibleWithPathSplitting
+  | FoundCounterExample
+  | Help LogDoc
+  | PathsUnexplored Int
+  | SimulationComplete
+  | SimulationTimedOut
+  | SkippingUnsatCoresBecauseMCSatEnabled
+  | StartedGoal Integer
+  | TotalPathsExplored Word64
+  | UnsupportedTimeoutFor String -- ^ name of the backend
+  | Version T.Text Version
+  deriving ( Generic, ToJSON )
+
+
+type SupportsCruxLogMessage msgs =
+  ( ?injectCruxLogMessage :: CruxLogMessage -> msgs )
+
+withCruxLogMessage ::
+  (SupportsCruxLogMessage CruxLogMessage => a) -> a
+withCruxLogMessage a =
+  let ?injectCruxLogMessage = id in a
+
+
+cruxLogTag :: T.Text
+cruxLogTag = "Crux"
+
+
+cruxNoisily :: T.Text -> SayWhat
+cruxNoisily = SayWhat Noisily cruxLogTag
+
+cruxOK :: T.Text -> SayWhat
+cruxOK = SayWhat OK cruxLogTag
+
+cruxSimply :: T.Text -> SayWhat
+cruxSimply = SayWhat Simply cruxLogTag
+
+cruxWarn :: T.Text -> SayWhat
+cruxWarn = SayWhat Warn cruxLogTag
+
+
+cruxLogMessageToSayWhat :: CruxLogMessage -> SayWhat
+
+cruxLogMessageToSayWhat AttemptingProvingVCs =
+  cruxSimply "Attempting to prove verification conditions."
+
+cruxLogMessageToSayWhat (Checking files) =
+  cruxNoisily ("Checking " <> T.intercalate ", " (T.pack <$> files))
+
+cruxLogMessageToSayWhat DisablingBranchCoverageRequiresPathSatisfiability =
+  cruxWarn
+    "Branch coverage requires enabling path satisfiability checking.  Coverage measurement is disabled!"
+
+cruxLogMessageToSayWhat DisablingProfilingIncompatibleWithPathSplitting =
+  cruxWarn
+    "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
+
+cruxLogMessageToSayWhat FoundCounterExample =
+  cruxOK "Counterexample found, skipping remaining goals"
+
+cruxLogMessageToSayWhat (Help (LogDoc doc)) =
+  cruxOK (renderStrict doc)
+
+cruxLogMessageToSayWhat (PathsUnexplored numberOfPaths) =
+  cruxWarn
+    ( T.unwords
+        [ T.pack $ show numberOfPaths,
+          "paths remaining not explored: program might not be fully verified"
+        ]
+    )
+
+cruxLogMessageToSayWhat SimulationComplete =
+  cruxNoisily "Simulation complete."
+
+cruxLogMessageToSayWhat SimulationTimedOut =
+  cruxWarn
+    "Simulation timed out! Program might not be fully verified!"
+
+cruxLogMessageToSayWhat SkippingUnsatCoresBecauseMCSatEnabled =
+  cruxWarn "Warning: skipping unsat cores because MC-SAT is enabled."
+
+cruxLogMessageToSayWhat (StartedGoal goalNumber) =
+  cruxOK (T.pack ("Started goal " ++ show goalNumber))
+
+cruxLogMessageToSayWhat (TotalPathsExplored i) =
+  cruxSimply ("Total paths explored: " <> T.pack (show i))
+
+cruxLogMessageToSayWhat (UnsupportedTimeoutFor backend) =
+  cruxWarn
+    (T.pack ("Goal timeout requested but not supported by " <> backend))
+
+cruxLogMessageToSayWhat (Version nm ver) =
+  cruxOK
+    ( T.pack
+        ( unwords
+            [ "version: " <> version <> ",",
+              T.unpack nm,
+              "version: " <> (showVersion ver)
+            ]
+        )
+    )
+
 -- | Main function used to log/output a general text message of some kind
-say :: Logs => SayLevel -> Text -> Text -> IO ()
-say lvl frm = LJ.writeLog (?outputConfig ^. logWhat) . SayWhat lvl frm
+say ::
+  Logs msgs =>
+  ( ?injectMessage :: msg -> msgs ) =>
+  msg -> IO ()
+say = LJ.writeLog (view logMsg ?outputConfig) . ?injectMessage
+
+sayCrux ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  CruxLogMessage -> IO ()
+sayCrux msg =
+  let ?injectMessage = ?injectCruxLogMessage in
+  say msg
 
 -- | Function used to log/output exception information
-logException :: Logs => SomeException -> IO ()
+logException :: Logs msgs => SomeException -> IO ()
 logException = LJ.writeLog (_logExc ?outputConfig)
 
 -- | Function used to output the summary result for a completed
 -- simulation.  If the flag is true, show the details of each failed
 -- goal before showing the summary.
-logSimResult :: Logs => Bool -> CruxSimulationResult -> IO ()
+logSimResult :: Logs msgs => Bool -> CruxSimulationResult -> IO ()
 logSimResult showFailedGoals = LJ.writeLog (_logSimResult ?outputConfig showFailedGoals)
 
 -- | Function used to output any individual goal proof failures from a simulation
-logGoal :: Logs => ProvedGoals -> IO ()
+logGoal :: Logs msgs => ProvedGoals -> IO ()
 logGoal = LJ.writeLog (_logGoal ?outputConfig)
 
 
@@ -61,7 +234,7 @@ logGoal = LJ.writeLog (_logGoal ?outputConfig)
 -- | The Logs constraint should be applied for any function that will
 -- use the main logging functions: says, logException, logSimResult,
 -- or logGoal.
-type Logs = (?outputConfig :: OutputConfig)
+type Logs msgs = ( ?outputConfig :: OutputConfig msgs )
 
 -- | Global options for Crux's main. These are not CruxOptions because
 -- they are expected to be set directly by main, rather than by a
@@ -71,10 +244,10 @@ type Logs = (?outputConfig :: OutputConfig)
 -- The Crux mkOutputConfig is recommended as a helper function for
 -- creating this object, although it can be initialized directly if
 -- needed.
-data OutputConfig =
+data OutputConfig msgs =
   OutputConfig { _outputHandle :: Handle
                , _quiet :: Bool
-               , _logWhat :: LJ.LogAction IO SayWhat
+               , _logMsg :: LJ.LogAction IO msgs
                , _logExc :: LJ.LogAction IO SomeException
                , _logSimResult :: Bool -> LJ.LogAction IO CruxSimulationResult
                  -- ^ True to show individual goals, false for summary only
@@ -85,15 +258,15 @@ data OutputConfig =
 -- directly instead of using the logging/output functions above.  It
 -- can either get the _outputHandle directly or it can use the
 -- output/outputLn functions below.
-outputHandle :: Getter OutputConfig Handle
+outputHandle :: Getter (OutputConfig msgs) Handle
 outputHandle f o = o <$ f (_outputHandle o)
 
 -- | Lens to allow client code to determine if running in quiet mode.
-quiet :: Getter OutputConfig Bool
+quiet :: Getter (OutputConfig msgs) Bool
 quiet f o = o <$ f (_quiet o)
 
-logWhat :: Getter OutputConfig (LJ.LogAction IO SayWhat)
-logWhat f o = o <$ f (_logWhat o)
+logMsg :: Getter (OutputConfig msgs) (LJ.LogAction IO msgs)
+logMsg f o = o <$ f (_logMsg o)
 
 
 ----------------------------------------------------------------------
@@ -129,7 +302,7 @@ logToStd withColors outH errH = \case
            else straightOut
         straightOut hndl l = do TIO.hPutStr hndl $ "[" <> frm <> "] "
                                 TIO.hPutStrLn hndl l
-    in mapM_ sayer $ Data.Text.lines msg
+    in mapM_ sayer $ T.lines msg
   SayMore s1 s2 -> do logToStd withColors outH errH s1
                       logToStd withColors outH errH s2
   SayNothing -> return ()
@@ -146,7 +319,7 @@ logToStd withColors outH errH = \case
 --
 -- This function does _not_ emit a newline at the end of the output.
 
-output :: Logs => String -> IO ()
+output :: Logs msgs => String -> IO ()
 output str = System.IO.hPutStr (view outputHandle ?outputConfig) str
 
 -- | This function emits output to the normal output handle (specified
@@ -157,5 +330,5 @@ output str = System.IO.hPutStr (view outputHandle ?outputConfig) str
 --
 -- This function emits a newline at the end of the output.
 
-outputLn :: Logs => String -> IO ()
+outputLn :: Logs msgs => String -> IO ()
 outputLn str = System.IO.hPutStrLn (view outputHandle ?outputConfig) str

@@ -67,7 +67,9 @@ data RunCruxMode = RcmConcrete | RcmSymbolic | RcmCoverage
   deriving (Show, Eq)
 
 runCrux :: FilePath -> Handle -> RunCruxMode -> IO ()
-runCrux rustFile outHandle mode = do
+runCrux rustFile outHandle mode =
+  Mir.withMirLogging $
+  do
     -- goalTimeout is bumped from 60 to 180 because scalar.rs symbolic
     -- verification runs close to the timeout, causing flaky results
     -- (especially in CI).
@@ -88,7 +90,7 @@ runCrux rustFile outHandle mode = do
                                             _ -> "",
                                         Crux.branchCoverage = (mode == RcmCoverage) } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
-    let ?outputConfig = Crux.mkOutputConfig False outHandle outHandle $
+    let ?outputConfig = Crux.mkOutputConfig False outHandle outHandle Mir.mirLoggingToSayWhat $
                         Just (fst options)
     _exitCode <- Mir.runTests options
     return ()
@@ -108,7 +110,7 @@ cruxOracleTest dir name step = do
   step ("Oracle output: " ++ orOut)
 
   let rustFile = dir </> name <.> "rs"
-  
+
   cruxOut <- withSystemTempFile name $ \tempName h -> do
     runCrux rustFile h RcmConcrete
     hClose h
@@ -178,7 +180,7 @@ suite = do
   let ?debug = 0 :: Int
   let ?assertFalseOnError = True
   let ?printCrucible = False
-  trees <- sequence 
+  trees <- sequence
            [ testGroup "crux concrete" <$> sequence [ testDir cruxOracleTest "test/conc_eval/" ]
            , testGroup "crux symbolic" <$> sequence [ symbTest "test/symb_eval" ]
            , testGroup "crux coverage" <$> sequence [ coverageTests "test/coverage" ]

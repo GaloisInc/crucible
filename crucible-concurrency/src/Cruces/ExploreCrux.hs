@@ -44,6 +44,7 @@ import           Crux.Types (totalProcessedGoals, provedGoals)
 -- | Callback for crucible-syntax exploration
 exploreCallback :: forall alg.
   (?bound::Int, SchedulingAlgorithm alg) =>
+  Crux.Logs Crux.CruxLogMessage =>
   Crux.CruxOptions ->
   HandleAllocator ->
   Handle ->
@@ -54,8 +55,9 @@ exploreCallback :: forall alg.
            , [Pair C.TypeRepr C.GlobalVar]
            , FunctionBindings (ThreadExec alg s () C.UnitType) s ())
            ) ->
-  Crux.SimulatorCallback
+  Crux.SimulatorCallback Crux.CruxLogMessage
 exploreCallback cruxOpts ha outh mkSym =
+  Crux.withCruxLogMessage $
   Crux.SimulatorCallback $ \sym symOnline -> do
     (mainHdl, prims, globs, fns) <- mkSym sym
     let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fns emptyExtensionImpl emptyExploration
@@ -85,7 +87,9 @@ emptyExploration = Exploration { _exec      = initialExecutions
 
 -- | Wrap an override to produce a NEW override that will explore the executions of a concurrent program.
 -- Must also use the 'scheduleFeature' 'ExecutionFeature'
-exploreOvr :: forall sym ext alg ret rtp.
+exploreOvr :: forall sym ext alg ret rtp msgs.
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
   (?bound::Int, IsSymInterface sym, IsSyntaxExtension ext, SchedulingAlgorithm alg, RegValue sym ret ~ ()) =>
   Maybe (Crux.SomeOnlineSolver sym) ->
   Crux.CruxOptions ->
@@ -109,13 +113,15 @@ exploreOvr symOnline cruxOpts mainAct =
          retH verb assmSt
 
     checkGoals :: forall r. OverrideSim (Exploration alg ext ret sym) sym ext r Ctx.EmptyCtx ret Bool
-    checkGoals = case symOnline of
+    checkGoals =
+      Crux.withCruxLogMessage $
+      case symOnline of
       Just Crux.SomeOnlineSolver ->
         do sym <- getSymInterface
            ctx <- use stateContext
            todo <- liftIO $ getProofObligations sym
            let cruxOpts' = cruxOpts { Crux.quietMode = True, Crux.simVerbose = 0 }
-           let ?outputConfig = Crux.defaultOutputConfig $ Just cruxOpts'
+           let ?outputConfig = Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat $ Just cruxOpts'
            (processed, _) <- liftIO $ proveGoalsOnline sym cruxOpts' ctx (\_ _ -> return mempty) todo
            let provedAll = totalProcessedGoals processed == provedGoals processed
            when provedAll $ liftIO $ clearProofObligations sym

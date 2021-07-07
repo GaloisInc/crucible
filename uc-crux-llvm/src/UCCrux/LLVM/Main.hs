@@ -21,7 +21,7 @@ Stability    : provisional
 module UCCrux.LLVM.Main
   ( mainWithOutputTo,
     mainWithOutputConfig,
-    Crux.defaultOutputConfig,
+    defaultOutputConfig,
     loopOnFunctions,
     translateLLVMModule,
     translateFile,
@@ -29,6 +29,9 @@ module UCCrux.LLVM.Main
     Result.SomeBugfindingResult (..),
     Result.FunctionSummary (..),
     Result.printFunctionSummary,
+    UCCruxLLVMLogging (..),
+    ucCruxLLVMLoggingToSayWhat,
+    withUCCruxLLVMLogging,
   )
 where
 
@@ -61,12 +64,14 @@ import Lang.Crucible.LLVM.Translation
 
 -- crux
 import qualified Crux
+import qualified Crux.Log as Log
 import Crux.Config.Common
 
- -- local
-import Crux.LLVM.Config
-import Crux.LLVM.Compile (genBitCode)
-import Crux.LLVM.Simulate (parseLLVM)
+-- local
+import           Crux.LLVM.Config
+import           Crux.LLVM.Compile (genBitCode)
+import qualified Crux.LLVM.Log as Log
+import           Crux.LLVM.Simulate (parseLLVM)
 
 import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config as Config
@@ -75,6 +80,7 @@ import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
+import qualified UCCrux.LLVM.Logging as Log
 import           UCCrux.LLVM.Run.Explore (explore)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
@@ -82,11 +88,41 @@ import           UCCrux.LLVM.Run.Loop (loopOnFunction)
 {- ORMOLU_ENABLE -}
 
 mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig False h h
+mainWithOutputTo h =
+  mainWithOutputConfig $
+    Crux.mkOutputConfig False h h ucCruxLLVMLoggingToSayWhat
 
-mainWithOutputConfig :: (Maybe CruxOptions -> Crux.OutputConfig) -> IO ExitCode
+defaultOutputConfig :: Maybe CruxOptions -> Log.OutputConfig UCCruxLLVMLogging
+defaultOutputConfig = Crux.defaultOutputConfig ucCruxLLVMLoggingToSayWhat
+
+data UCCruxLLVMLogging
+  = LoggingCrux Log.CruxLogMessage
+  | LoggingCruxLLVM Log.CruxLLVMLogMessage
+  | LoggingUCCruxLLVM Log.UCCruxLLVMLogMessage
+
+ucCruxLLVMLoggingToSayWhat :: UCCruxLLVMLogging -> Log.SayWhat
+ucCruxLLVMLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
+ucCruxLLVMLoggingToSayWhat (LoggingCruxLLVM msg) = Log.cruxLLVMLogMessageToSayWhat msg
+ucCruxLLVMLoggingToSayWhat (LoggingUCCruxLLVM msg) = Log.ucCruxLLVMLogMessageToSayWhat msg
+
+withUCCruxLLVMLogging ::
+  ( ( Log.SupportsCruxLogMessage UCCruxLLVMLogging,
+      Log.SupportsCruxLLVMLogMessage UCCruxLLVMLogging,
+      Log.SupportsUCCruxLLVMLogMessage UCCruxLLVMLogging
+    ) =>
+    computation
+  ) ->
+  computation
+withUCCruxLLVMLogging computation =
+  let ?injectCruxLogMessage = LoggingCrux
+      ?injectCruxLLVMLogMessage = LoggingCruxLLVM
+      ?injectUCCruxLLVMLogMessage = LoggingUCCruxLLVM
+   in computation
+
+mainWithOutputConfig ::
+  (Maybe CruxOptions -> Crux.OutputConfig UCCruxLLVMLogging) -> IO ExitCode
 mainWithOutputConfig mkOutCfg =
-  do
+  withUCCruxLLVMLogging $ do
     conf <- Config.ucCruxLLVMConfig
     Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \opts ->
       do
@@ -116,9 +152,11 @@ mainWithOutputConfig mkOutCfg =
               flip Map.traverseWithKey results $
                 \func (SomeBugfindingResult result) ->
                   do
-                    Crux.say Crux.Simply "Crux" ("Results for " <> Text.pack func)
-                    Crux.say Crux.Simply "Crux" $
-                      Result.printFunctionSummary (summary result)
+                    Log.sayUCCruxLLVM
+                      ( Log.Results
+                          (Text.pack func)
+                          (Result.printFunctionSummary (summary result))
+                      )
         return ExitSuccess
 
 translateLLVMModule ::
@@ -167,7 +205,8 @@ translateFile ucOpts halloc memVar moduleFilePath =
 -- | Postcondition: The keys of the returned map are exactly the entryPoints of
 -- the 'UCCruxLLVMOptions'.
 loopOnFunctions ::
-  Crux.Logs =>
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
   AppContext ->
   ModuleContext m arch ->
   Crucible.HandleAllocator ->

@@ -60,6 +60,7 @@ library
   exposed-modules: Mir.JSON
                    Mir.Generator
                    Mir.Language
+                   Mir.Log
                    Mir.Mir
                    Mir.GenericOps
                    Mir.Pass
@@ -130,6 +131,7 @@ test-suite test
                 deepseq,
                 directory,
                 filepath,
+                lens,
                 lumberjack,
                 parsec,
                 process,

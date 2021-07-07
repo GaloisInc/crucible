@@ -39,13 +39,11 @@ import qualified Data.Sequence as Seq
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Version (Version)
-import qualified Data.Version as Version ( showVersion )
-import           Data.Void
+import           Data.Void (Void)
 import qualified Lumberjack as LJ
 import           Prettyprinter
-import qualified Prettyprinter.Render.Text as PR
 import qualified System.Console.ANSI as AC
-import           System.Console.Terminal.Size ( size, Window(..) )
+import           System.Console.Terminal.Size (Window(Window), size)
 import           System.Directory (createDirectoryIfMissing)
 import           System.Exit (exitSuccess, ExitCode(..), exitFailure, exitWith)
 import           System.FilePath ((</>))
@@ -87,10 +85,10 @@ import qualified Crux.Config.Load as Cfg
 import qualified Crux.Config.Solver as CCS
 import           Crux.FormatOut ( sayWhatFailedGoals, sayWhatResultStatus )
 import           Crux.Goal
-import           Crux.Log
+import           Crux.Log -- for the export list
+import           Crux.Log as Log
 import           Crux.Report
 import           Crux.Types
-import qualified Crux.Version as Crux
 
 pattern RunnableState :: forall sym . () => forall ext personality . (IsSyntaxExtension ext) => ExecState (personality sym) sym ext (RegEntry sym UnitType) -> RunnableState sym
 pattern RunnableState es = RunnableStateWithExtensions es []
@@ -110,10 +108,14 @@ data RunnableState sym where
 --   which is provided a symbolic interface object and is responsible for setting up
 --   global variables, registering override functions, constructing the initial
 --   program entry point, and generally doing any necessary language-specific setup.
-newtype SimulatorCallback
+newtype SimulatorCallback msgs
   = SimulatorCallback
     { initSimulatorState ::
-        forall sym t st fs. (IsSymInterface sym, Logs, sym ~ WEB.ExprBuilder t st fs) =>
+        forall sym t st fs.
+          ( IsSymInterface sym
+          , Logs msgs
+          , sym ~ WEB.ExprBuilder t st fs
+          ) =>
           sym ->
           Maybe (SomeOnlineSolver sym) ->
           IO (RunnableState sym, Explainer sym t Void)
@@ -121,7 +123,9 @@ newtype SimulatorCallback
 
 -- | Given the result of a simulation and proof run, report the overall
 --   status, generate user-consumable reports and compute the exit code.
-postprocessSimResult :: Logs => Bool -> CruxOptions -> CruxSimulationResult -> IO ExitCode
+postprocessSimResult ::
+  Logs msgs =>
+  Bool -> CruxOptions -> CruxSimulationResult -> IO ExitCode
 postprocessSimResult showFailedGoals opts res =
   do -- print goals that failed and overall result
      logSimResult showFailedGoals res
@@ -139,11 +143,12 @@ postprocessSimResult showFailedGoals opts res =
 --   just print something and exit, so this function may never call
 --   its continuation.
 loadOptions ::
-  (Maybe CruxOptions -> OutputConfig) ->
+  SupportsCruxLogMessage msgs =>
+  (Maybe CruxOptions -> OutputConfig msgs) ->
   Text {- ^ Name -} ->
   Version ->
   Config opts ->
-  (Logs => (CruxOptions, opts) -> IO a) ->
+  (Logs msgs => (CruxOptions, opts) -> IO a) ->
   IO a
 loadOptions mkOutCfg nm ver config cont =
   do let optSpec = cfgJoin cruxOptions config
@@ -169,18 +174,24 @@ loadOptions mkOutCfg nm ver config cont =
         Nothing -> logException e >> exitFailure
 
 
-showHelp :: Logs => Text -> Config opts -> IO ()
+showHelp ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  Text -> Config opts -> IO ()
 showHelp nm cfg = do
+  -- Ideally, this would be done in the log handler.  We will soon try to change
+  -- the logging mechanism so thaat it prefers 'Doc' over 'Text' so that layout
+  -- decisions can be delayed to the log handlers.
   outWidth <- maybe 80 (\(Window _ w) -> w) <$> size
   let opts = LayoutOptions $ AvailablePerLine outWidth 0.98
-  say OK "Crux" (PR.renderStrict $ layoutPretty opts (configDocs nm cfg))
+  sayCrux (Log.Help (LogDoc (layoutPretty opts (configDocs nm cfg))))
 
-showVersion :: Logs => Text -> Version -> IO ()
-showVersion nm ver =
-  say OK "Crux" $ T.unwords [ "version: " <> T.pack Crux.version <> ","
-                            , nm
-                            , "version: " <> T.pack (Version.showVersion ver)
-                            ]
+
+showVersion ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  Text -> Version -> IO ()
+showVersion nm ver = sayCrux (Log.Version nm ver)
 
 
 -- | Create an OutputConfig for Crux, based on an indication of
@@ -197,9 +208,11 @@ showVersion nm ver =
 --  * printFailures  (default stance: True)
 --  * quietMode      (default stance: False)
 --  * simVerbose     (default stance: False)
-
-mkOutputConfig :: Bool -> Handle -> Handle -> Maybe CruxOptions -> OutputConfig
-mkOutputConfig withColors outHandle errHandle opts =
+mkOutputConfig ::
+  Bool -> Handle -> Handle ->
+  (msgs -> SayWhat) -> Maybe CruxOptions ->
+  OutputConfig msgs
+mkOutputConfig withColors outHandle errHandle logMessageToSayWhat opts =
   let lgWhat = let la = LJ.LogAction $ logToStd withColors outHandle errHandle
                    -- TODO simVerbose may not be the best setting to use here...
                    baseline = if maybe False ((> 1) . simVerbose) opts
@@ -223,10 +236,9 @@ mkOutputConfig withColors outHandle errHandle opts =
       lgGoal = sayWhatFailedGoals printFails printVars >$< lgWhat
       splitResults r@(CruxSimulationResult _cmpl gls) = (snd <$> gls, r)
   in OutputConfig
-     {
-       _outputHandle = outHandle
+     { _outputHandle = outHandle
      , _quiet = beQuiet
-     , _logWhat = lgWhat
+     , _logMsg = logMessageToSayWhat >$< lgWhat
      , _logExc = let seeRed = AC.hSetSGR errHandle
                               [ AC.SetConsoleIntensity AC.BoldIntensity
                               , AC.SetColor AC.Foreground AC.Vivid AC.Red]
@@ -244,7 +256,8 @@ mkOutputConfig withColors outHandle errHandle opts =
      , _logGoal = Seq.singleton >$< lgGoal
      }
 
-defaultOutputConfig :: Maybe CruxOptions -> OutputConfig
+defaultOutputConfig ::
+  (msgs -> SayWhat) -> Maybe CruxOptions -> OutputConfig msgs
 defaultOutputConfig = Crux.mkOutputConfig True stdout stderr
 
 
@@ -295,7 +308,8 @@ floatReprString floatRepr =
 -- such a way that captures the necessary 'IsInterpretedFloatExprBuilder'
 -- constraints.
 withSelectedOnlineBackend ::
-  Logs =>
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
   CruxOptions ->
   NonceGenerator IO scope ->
   CCS.SolverOnline ->
@@ -347,7 +361,7 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
         CCS.STP -> do
           -- We don't have a timeout option for STP
           case goalTimeout cruxOpts of
-            Just _ -> say Warn "Crux" "Goal timeout requested but not supported by STP"
+            Just _ -> sayCrux (Log.UnsupportedTimeoutFor "STP")
             Nothing -> return ()
           withSTPOnlineBackend floatRepr nonceGen (k floatRepr)
 
@@ -510,13 +524,13 @@ withSolverAdapters solverOffs k =
 -- minimize code duplication between the different verification paths (e.g.,
 -- online vs offline solving).
 runSimulator ::
-  Logs =>
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallback ->
+  SimulatorCallback msgs ->
   IO CruxSimulationResult
 runSimulator cruxOpts simCallback = do
-  say Noisily "Crux" ("Checking "
-                      <> T.intercalate ", " (T.pack <$> inputFiles cruxOpts))
+  sayCrux (Log.Checking (inputFiles cruxOpts))
   createDirectoryIfMissing True (outDir cruxOpts)
   Some (nonceGen :: NonceGenerator IO s) <- newIONonceGenerator
   case CCS.parseSolverConfig cruxOpts of
@@ -578,9 +592,12 @@ runSimulator cruxOpts simCallback = do
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  (Logs, IsSymInterface sym, sym ~ WEB.ExprBuilder t st fs) =>
+  sym ~ WEB.ExprBuilder t st fs =>
+  IsSymInterface sym =>
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
   CruxOptions ->
-  SimulatorCallback ->
+  SimulatorCallback msgs ->
   sym ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
@@ -608,13 +625,11 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
                          (map genericToExecutionFeature execFeatures ++ exts)
                          initSt
                          (resultCont compRef glsRef frm explainFailure . Result)
-           say Simply "Crux" ("Total paths explored: " <> T.pack (show i))
+           sayCrux (Log.TotalPathsExplored i)
            unless (null ws) $
-             say Warn "Crux"
-               (T.unwords [ T.pack $ show (Seq.length ws)
-                          , "paths remaining not explored: program might not be fully verified"])
+             sayCrux (Log.PathsUnexplored (Seq.length ws))
 
-  say Noisily "Crux" "Simulation complete."
+  sayCrux Log.SimulationComplete
   when (isProfiling cruxOpts) $ writeProf profInfo
   CruxSimulationResult <$> readIORef compRef <*> readIORef glsRef
 
@@ -625,7 +640,7 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
    do timedOut <-
         case res of
           TimeoutResult {} ->
-            do say Warn "Crux" "Simulation timed out! Program might not be fully verified!"
+            do sayCrux Log.SimulationTimedOut
                writeIORef compRef ProgramIncomplete
                return True
           _ -> return False
@@ -633,8 +648,7 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
       let ctx = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
-        when (isJust todo) $
-          say Simply "Crux" "Attempting to prove verification conditions."
+        when (isJust todo) $ sayCrux Log.AttemptingProvingVCs
         (nms, proved) <- goalProver cruxOpts ctx explainFailure todo
         mgt <- provedGoalsTree sym proved
         case mgt of

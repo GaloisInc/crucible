@@ -1,9 +1,15 @@
+{-# Language ImplicitParams #-}
+{-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
+
 module CruxLLVMMain
-  ( mainWithOutputTo, mainWithOutputConfig
-  , Crux.defaultOutputConfig
+  ( cruxLLVMLoggingToSayWhat
+  , defaultOutputConfig
+  , mainWithOutputTo
+  , mainWithOutputConfig
   , Crux.mkOutputConfig
-  , processLLVMOptions )
+  , processLLVMOptions
+  )
   where
 
 import           System.Directory ( createDirectoryIfMissing )
@@ -13,26 +19,41 @@ import           System.IO ( Handle )
 
 -- crux
 import qualified Crux
-import           Crux.Log ( OutputConfig(..) )
+import           Crux.Log as Log ( OutputConfig(..), cruxLogMessageToSayWhat )
 import           Crux.Config.Common (CruxOptions(..))
 
 -- local
 import           Crux.LLVM.Config
 import           Crux.LLVM.Compile
+import qualified Crux.LLVM.Log as Log
 import           Crux.LLVM.Simulate
 import           Paths_crux_llvm (version)
 
 
 mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig True h h
+mainWithOutputTo h = mainWithOutputConfig $
+  Crux.mkOutputConfig True h h cruxLLVMLoggingToSayWhat
 
-mainWithOutputConfig :: (Maybe CruxOptions -> OutputConfig) -> IO ExitCode
+data CruxLLVMLogging
+  = LoggingCrux Crux.CruxLogMessage
+  | LoggingCruxLLVM Log.CruxLLVMLogMessage
+
+cruxLLVMLoggingToSayWhat :: CruxLLVMLogging -> Crux.SayWhat
+cruxLLVMLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
+cruxLLVMLoggingToSayWhat (LoggingCruxLLVM msg) = Log.cruxLLVMLogMessageToSayWhat msg
+
+defaultOutputConfig :: Maybe CruxOptions -> OutputConfig CruxLLVMLogging
+defaultOutputConfig = Crux.defaultOutputConfig cruxLLVMLoggingToSayWhat
+
+mainWithOutputConfig :: (Maybe CruxOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode
 mainWithOutputConfig mkOutCfg = do
+  let ?injectCruxLogMessage = LoggingCrux
+  let ?injectCruxLLVMLogMessage = LoggingCruxLLVM
   cfg <- llvmCruxConfig
   Crux.loadOptions mkOutCfg "crux-llvm" version cfg $ \initOpts ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
        bcFile <- genBitCode cruxOpts llvmOpts
-       res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
+       res <- Crux.runSimulator cruxOpts $ simulateLLVMFile bcFile llvmOpts
        makeCounterExamplesLLVM cruxOpts llvmOpts res
        Crux.postprocessSimResult True cruxOpts res
 

@@ -1,4 +1,8 @@
-{-# Language RecordWildCards, OverloadedStrings, ApplicativeDo #-}
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+
 module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
 
 import Data.Functor.Alt
@@ -10,7 +14,7 @@ import Data.Text (pack)
 import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config
-import Crux.Log
+import Crux.Log as Log
 import Config.Schema
 
 import What4.ProblemFeatures
@@ -25,29 +29,38 @@ pathStrategySpec =
   (SplitAndExploreDepthFirst <$ atomSpec "split-dfs")
 
 
-postprocessOptions :: Logs => CruxOptions -> IO CruxOptions
+postprocessOptions ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  CruxOptions -> IO CruxOptions
 postprocessOptions =
   checkPathStrategyInteractions >>
   checkPathSatInteractions >>
   checkBldDir
 
-checkPathStrategyInteractions :: Logs => CruxOptions -> IO CruxOptions
+checkPathStrategyInteractions ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  CruxOptions -> IO CruxOptions
 checkPathStrategyInteractions crux =
   case pathStrategy crux of
     AlwaysMergePaths -> return crux
     SplitAndExploreDepthFirst
      | profileCrucibleFunctions crux || branchCoverage crux ->
-         do say Warn "Crux" "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
+         do sayCrux Log.DisablingProfilingIncompatibleWithPathSplitting
             return crux { profileCrucibleFunctions = False, branchCoverage = False }
      | otherwise -> return crux
 
-checkPathSatInteractions :: Logs => CruxOptions -> IO CruxOptions
+checkPathSatInteractions ::
+  Logs msgs =>
+  SupportsCruxLogMessage msgs =>
+  CruxOptions -> IO CruxOptions
 checkPathSatInteractions crux =
   case checkPathSat crux of
     True -> return crux
     False
       | branchCoverage crux ->
-          do say Warn "Crux" "Branch coverage requires enabling path satisfiability checking.  Coverage measurement is disabled!"
+          do sayCrux Log.DisablingBranchCoverageRequiresPathSatisfiability
              return crux { branchCoverage = False }
       | otherwise -> return crux
 
