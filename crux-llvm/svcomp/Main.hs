@@ -3,6 +3,7 @@
    and produce benchmark data for that run.
 -}
 
+{-# Language DeriveAnyClass #-}
 {-# Language DeriveGeneric #-}
 {-# Language ImplicitParams #-}
 {-# Language LambdaCase #-}
@@ -61,6 +62,7 @@ data SVCompLogging
   = LoggingCrux Log.CruxLogMessage
   | LoggingCruxLLVM Log.CruxLLVMLogMessage
   | LoggingSVComp Log.SVCompLogMessage
+  deriving (Generic, ToJSON)
 
 svCompLoggingToSayWhat :: SVCompLogging -> SayWhat
 svCompLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
@@ -336,7 +338,7 @@ evaluateSingleTask writeHdl jsonHdl cruxOpts llvmOpts bsRoot num task inpBCFile 
       let inputs   = map (srcRoot </>) (verificationInputFiles task)
       let cruxOpts' = cruxOpts { outDir = taskRoot, inputFiles = inputs }
 
-      let ?outputConfig = Crux.mkOutputConfig True writeHdl writeHdl svCompLoggingToSayWhat $ Just cruxOpts
+      let ?outputConfig = Crux.mkOutputConfig True writeHdl writeHdl svCompLoggingToSayWhat (Just cruxOpts)
 
       mres <- try $
                do res <- Crux.runSimulator cruxOpts' (simulateLLVMFile inpBCFile llvmOpts)

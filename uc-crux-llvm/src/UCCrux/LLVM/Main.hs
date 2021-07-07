@@ -7,6 +7,8 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -41,7 +43,9 @@ import           Prelude hiding (log)
 import           Control.Exception (throw)
 import           Control.Lens ((^.))
 import           Control.Monad (void)
+import           Data.Aeson (ToJSON)
 import           Data.Traversable (for)
+import           GHC.Generics (Generic)
 import           System.Exit (ExitCode(..))
 import           System.IO (Handle)
 import qualified Data.Map.Strict as Map
@@ -93,12 +97,13 @@ mainWithOutputTo h =
     Crux.mkOutputConfig False h h ucCruxLLVMLoggingToSayWhat
 
 defaultOutputConfig :: Maybe CruxOptions -> Log.OutputConfig UCCruxLLVMLogging
-defaultOutputConfig = Crux.defaultOutputConfig ucCruxLLVMLoggingToSayWhat
+defaultOutputConfig opts = Crux.defaultOutputConfig ucCruxLLVMLoggingToSayWhat opts
 
 data UCCruxLLVMLogging
   = LoggingCrux Log.CruxLogMessage
   | LoggingCruxLLVM Log.CruxLLVMLogMessage
   | LoggingUCCruxLLVM Log.UCCruxLLVMLogMessage
+  deriving (Generic, ToJSON)
 
 ucCruxLLVMLoggingToSayWhat :: UCCruxLLVMLogging -> Log.SayWhat
 ucCruxLLVMLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg

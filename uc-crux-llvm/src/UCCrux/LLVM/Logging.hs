@@ -11,6 +11,8 @@ NOTE! This module contains an orphan instance of a 'LJ.HasLog' instance for
 work...
 -}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
@@ -34,8 +36,10 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
 
+import           Data.Aeson (ToJSON)
 import           Data.Text as Text
 import qualified Data.Text.IO as TextIO
+import           GHC.Generics (Generic)
 
 import qualified Lumberjack as LJ
 import           Lumberjack (writeLogM)
@@ -75,6 +79,7 @@ data UCCruxLLVMLogMessage
       -- ^ Function name
       Text
       -- ^ Summary
+  deriving (Generic, ToJSON)
 
 type SupportsUCCruxLLVMLogMessage msgs =
   (?injectUCCruxLLVMLogMessage :: UCCruxLLVMLogMessage -> msgs)
