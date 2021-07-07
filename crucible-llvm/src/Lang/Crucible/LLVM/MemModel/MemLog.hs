@@ -61,6 +61,7 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , ppAllocInfo
   , ppAllocs
   , ppMem
+  , ppMemWrites
   , ppWrite
 
     -- * Concretization
