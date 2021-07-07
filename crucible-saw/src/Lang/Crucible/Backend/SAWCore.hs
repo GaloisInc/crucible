@@ -1007,6 +1007,25 @@ evaluateExpr sym sc cache = f []
                SAWExpr <$> SC.scArrayUpdate sc sc_idx_type sc_elm_type sc_arr sc_idx sc_elm
           | otherwise -> unimplemented "multidimensional UpdateArray"
 
+        B.CopyArray w a_repr dest_arr dest_idx src_arr src_idx len ->
+          do sc_w <- SC.scNat sc (natValue w)
+             sc_a <- baseSCType sym sc a_repr
+             sc_dest_arr <- f env dest_arr
+             sc_dest_idx <- f env dest_idx
+             sc_src_arr <- f env src_arr
+             sc_src_idx <- f env src_idx
+             sc_len <- f env len
+             SAWExpr <$> SC.scArrayCopy sc sc_w sc_a sc_dest_arr sc_dest_idx sc_src_arr sc_src_idx sc_len
+
+        B.SetArray w a_repr arr idx val len ->
+          do sc_w <- SC.scNat sc (natValue w)
+             sc_a <- baseSCType sym sc a_repr
+             sc_arr <- f env arr
+             sc_idx <- f env idx
+             sc_val <- f env val
+             sc_len <- f env len
+             SAWExpr <$> SC.scArraySet sc sc_w sc_a sc_arr sc_idx sc_val sc_len
+
         B.NatToInteger x -> NatToIntSAWExpr <$> eval env x
         B.IntegerToNat x ->
            eval env x >>= \case
