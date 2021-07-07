@@ -1,17 +1,25 @@
+{-# Language DeriveAnyClass #-}
+{-# Language DeriveGeneric #-}
 {-# Language ImplicitParams #-}
 {-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
+{-# Language RankNTypes #-}
 
 module CruxLLVMMain
-  ( cruxLLVMLoggingToSayWhat
+  ( CruxLLVMLogging
+  , cruxLLVMLoggingToSayWhat
   , defaultOutputConfig
+  , mainWithOptions
   , mainWithOutputTo
   , mainWithOutputConfig
   , Crux.mkOutputConfig
   , processLLVMOptions
+  , withCruxLLVMLogging
   )
   where
 
+import           Data.Aeson ( ToJSON )
+import           GHC.Generics ( Generic )
 import           System.Directory ( createDirectoryIfMissing )
 import           System.Exit ( ExitCode )
 import           System.FilePath ( dropExtension, takeFileName, (</>) )
@@ -19,7 +27,7 @@ import           System.IO ( Handle )
 
 -- crux
 import qualified Crux
-import           Crux.Log as Log ( OutputConfig(..), cruxLogMessageToSayWhat )
+import qualified Crux.Log as Log
 import           Crux.Config.Common (CruxOptions(..))
 
 -- local
@@ -37,25 +45,46 @@ mainWithOutputTo h = mainWithOutputConfig $
 data CruxLLVMLogging
   = LoggingCrux Crux.CruxLogMessage
   | LoggingCruxLLVM Log.CruxLLVMLogMessage
+  deriving ( Generic, ToJSON )
 
 cruxLLVMLoggingToSayWhat :: CruxLLVMLogging -> Crux.SayWhat
 cruxLLVMLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
 cruxLLVMLoggingToSayWhat (LoggingCruxLLVM msg) = Log.cruxLLVMLogMessageToSayWhat msg
 
-defaultOutputConfig :: Maybe CruxOptions -> OutputConfig CruxLLVMLogging
+defaultOutputConfig :: Maybe CruxOptions -> Log.OutputConfig CruxLLVMLogging
 defaultOutputConfig = Crux.defaultOutputConfig cruxLLVMLoggingToSayWhat
 
-mainWithOutputConfig :: (Maybe CruxOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode
-mainWithOutputConfig mkOutCfg = do
-  let ?injectCruxLogMessage = LoggingCrux
-  let ?injectCruxLLVMLogMessage = LoggingCruxLLVM
+withCruxLLVMLogging ::
+  (
+    Log.SupportsCruxLogMessage CruxLLVMLogging =>
+    Log.SupportsCruxLLVMLogMessage CruxLLVMLogging =>
+    a
+  ) -> a
+withCruxLLVMLogging a =
+  let
+    ?injectCruxLogMessage = LoggingCrux
+    ?injectCruxLLVMLogMessage = LoggingCruxLLVM
+  in a
+
+mainWithOutputConfig ::
+  (Maybe CruxOptions -> Log.OutputConfig CruxLLVMLogging) ->
+  IO ExitCode
+mainWithOutputConfig mkOutCfg = withCruxLLVMLogging $ do
   cfg <- llvmCruxConfig
-  Crux.loadOptions mkOutCfg "crux-llvm" version cfg $ \initOpts ->
-    do (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
-       bcFile <- genBitCode cruxOpts llvmOpts
-       res <- Crux.runSimulator cruxOpts $ simulateLLVMFile bcFile llvmOpts
-       makeCounterExamplesLLVM cruxOpts llvmOpts res
-       Crux.postprocessSimResult True cruxOpts res
+  Crux.loadOptions mkOutCfg "crux-llvm" version cfg mainWithOptions
+
+mainWithOptions ::
+  Log.Logs msgs =>
+  Log.SupportsCruxLogMessage msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  (CruxOptions, LLVMOptions) -> IO ExitCode
+mainWithOptions initOpts =
+  do
+    (cruxOpts, llvmOpts) <- processLLVMOptions initOpts
+    bcFile <- genBitCode cruxOpts llvmOpts
+    res <- Crux.runSimulator cruxOpts $ simulateLLVMFile bcFile llvmOpts
+    makeCounterExamplesLLVM cruxOpts llvmOpts res
+    Crux.postprocessSimResult True cruxOpts res
 
 processLLVMOptions :: (CruxOptions,LLVMOptions) -> IO (CruxOptions,LLVMOptions)
 processLLVMOptions (cruxOpts,llvmOpts) =

@@ -1,4 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -10,12 +12,16 @@ module Mir.Log
   )
 where
 
+import Data.Aeson (ToJSON)
+import qualified Data.Text as T
+import GHC.Generics (Generic)
+
 import Crux.Log (SayLevel (..), SayWhat (..))
 import qualified Crux.Log as Log
-import qualified Data.Text as T
 
 data MirLogMessage
   = FinalResults
+  deriving (Generic, ToJSON)
 
 type SupportsMirLogMessage msgs =
   (?injectMirLogMessage :: MirLogMessage -> msgs)

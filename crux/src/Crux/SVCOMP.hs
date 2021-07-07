@@ -4,6 +4,8 @@
 --   reporting results, etc.
 
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -11,6 +13,7 @@ module Crux.SVCOMP where
 
 import           Config.Schema
 import           Control.Applicative
+import           Data.Aeson (ToJSON)
 import qualified Data.Attoparsec.Text as Atto
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -18,6 +21,7 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 import qualified Data.Yaml as Yaml
+import           GHC.Generics (Generic)
 import           System.FilePath
 import qualified System.FilePath.Glob as Glob
 import qualified Data.HashMap.Strict as HM
@@ -84,7 +88,7 @@ data ComputedVerdict
   = Verified
   | Falsified
   | Unknown
- deriving (Show,Eq,Ord)
+ deriving (Eq, Generic, Ord, Show, ToJSON)
 
 data BenchmarkSet =
   BenchmarkSet
