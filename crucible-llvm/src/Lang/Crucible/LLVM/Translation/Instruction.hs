@@ -1825,14 +1825,16 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
        do (val, lv, di) <- dbgArgs args
           ptr <- case asScalar val of
                    Scalar _ PtrRepr ptr -> pure ptr
-                   _ -> fail "dbg.declare: expected pointer"
+                   Scalar _ _ x -> fail ("dbg.declare: expected scalar pointer, got: " ++ show x)
+                   NotScalar -> fail ("dbg.declare: expected scalar pointer, got: NotScalar")
           extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
 
      | L.ValSymbol "llvm.dbg.addr" <- fn =
        do (val, lv, di) <- dbgArgs args
           ptr <- case asScalar val of
                    Scalar _ PtrRepr ptr -> pure ptr
-                   _ -> fail "dbg.addr: expected pointer"
+                   Scalar _ _ x -> fail ("dbg.addr: expected scalar pointer, got: " ++ show x)
+                   NotScalar -> fail ("dbg.addr: expected scalar pointer, got: NotScalar")
           extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
 
      | L.ValSymbol "llvm.dbg.value" <- fn =
