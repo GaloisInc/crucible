@@ -1874,19 +1874,19 @@ dbgArgs args =
   do (valArg, lvArg, diArg) <-
        case args of
          [valArg, lvArg, diArg] -> pure (valArg, lvArg, diArg)
-         _ -> fail "dbg expected 3 arguments"
+         _ -> fail ("dbg: expected 3 arguments, got: " ++ show (length args))
      val <-
        case valArg of
          L.Typed _ (L.ValMd (L.ValMdValue val)) -> pure val
-         _ -> fail "dbg: argument 1 expected value metadata"
+         _ -> fail ("dbg: argument 1 expected value metadata, got: " ++ show valArg)
      lv <-
        case lvArg of
          L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) -> pure lv
-         _ -> fail "dbg: argument 2 expected local variable metadata"
+         _ -> fail ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg)
      di <-
        case diArg of
          L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) -> pure di
-         _ -> fail "dbg: argument 3 expected DIExpression"
+         _ -> fail ("dbg: argument 3 expected DIExpression, got: " ++ show diArg)
      v <- transTypedValue val
      pure (v, lv, di)
 
