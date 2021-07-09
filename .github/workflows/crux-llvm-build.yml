@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest] # , macos-latest] # , windows-latest]
+        os: [ubuntu-20.04, ubuntu-18.04] # , macos-latest] # , windows-latest]
         ghc: ["8.6.5", "8.8.4", "8.10.4"]
         allow-failure: [false]
         include:
@@ -84,9 +84,9 @@ jobs:
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
-          key: ${{ env.CACHE_VERSION }}-cabal-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
+          key: ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-${{ github.sha }}
           restore-keys: |
-            ${{ env.CACHE_VERSION }}-cabal-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
+            ${{ env.CACHE_VERSION }}-cabal-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles(format('cabal.GHC-{0}.config', matrix.ghc)) }}-
 
       - shell: bash
         run: .github/ci.sh install_system_deps
@@ -156,7 +156,7 @@ jobs:
       - shell: bash
         name: Test uc-crux-llvm (Linux)
         run: .github/ci.sh test uc-crux-llvm
-        if: runner.os == 'Linux'
+        if: matrix.os == 'ubuntu-20.04'
         env:
           LLVM_LINK: "llvm-link-10"
           CLANG: "clang-10"
@@ -244,14 +244,13 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
-        if: startsWith(github.ref, 'refs/heads/release-')
         env:
+          OS_TAG: ${{ matrix.os }}
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
-        if: startsWith(github.ref, 'refs/heads/release-')
         with:
           path: crux-llvm-*.tar.gz*
-          name: crux-llvm-${{ runner.os }}-${{ matrix.ghc }}
+          name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}
