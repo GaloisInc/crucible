@@ -169,6 +169,8 @@ zip_dist() {
   cp "$(which yices)"      dist/bin/
   cp "$(which yices-smt2)" dist/bin/
   cp "$(which z3)"         dist/bin/
+  cp scripts/with-solvers.sh dist/crux-llvm-svcomp.sh
+  sed -i'' 's/replaceme/crux-llvm-svcomp/' dist/crux-llvm-svcomp.sh
   cp -r dist "$spkgname"
   tar -cvzf "$spkgname".tar.gz "$spkgname"
   sign "$spkgname".tar.gz
