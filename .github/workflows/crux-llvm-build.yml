@@ -254,3 +254,8 @@ jobs:
         with:
           path: crux-llvm-*.tar.gz*
           name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: crux-llvm-*.tar.gz*
+          name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}
