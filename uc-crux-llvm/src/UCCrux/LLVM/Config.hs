@@ -17,8 +17,8 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Applicative ((<|>))
+import           Control.Lens (Lens', lens)
 import           Control.Monad (when)
-import           Data.Functor ((<&>))
 import           Data.Word (Word64)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -44,6 +44,9 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     skipFunctions :: [String],
     verbosity :: Int
   }
+
+ucCruxLLVMOptionsToLLVMOptions :: Lens' UCCruxLLVMOptions LLVMOptions
+ucCruxLLVMOptionsToLLVMOptions = lens ucLLVMOptions (\uc llvm -> uc {ucLLVMOptions = llvm})
 
 -- | Crucible will infinitely loop when it encounters unbounded program loops,
 -- so we cap the iterations here if the user doesn't provide a bound explicitly.
@@ -111,41 +114,9 @@ ucCruxLLVMConfig = do
             <*> Crux.section "skip-functions" (Crux.listSpec Crux.stringSpec) [] skipDoc
             <*> Crux.section "verbosity" Crux.numSpec 0 verbDoc,
         Crux.cfgEnv =
-          map
-            ( \envDescr ->
-                envDescr
-                  { Crux.evValue =
-                      \v opts ->
-                        Crux.evValue envDescr v (ucLLVMOptions opts)
-                          <&> \llOpts -> opts {ucLLVMOptions = llOpts}
-                  }
-            )
-            (Crux.cfgEnv llvmOpts)
-            ++ [],
+          Crux.liftEnvDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgEnv llvmOpts,
         Crux.cfgCmdLineFlag =
-          map
-            ( \optDescr ->
-                optDescr
-                  { Crux.optArgument =
-                      case Crux.optArgument optDescr of
-                        Crux.NoArg setter ->
-                          Crux.NoArg $
-                            \opts ->
-                              setter (ucLLVMOptions opts)
-                                <&> \llOpts -> opts {ucLLVMOptions = llOpts}
-                        Crux.ReqArg desc setter ->
-                          Crux.ReqArg desc $
-                            \v opts ->
-                              setter v (ucLLVMOptions opts)
-                                <&> \llOpts -> opts {ucLLVMOptions = llOpts}
-                        Crux.OptArg desc setter ->
-                          Crux.OptArg desc $
-                            \v opts ->
-                              setter v (ucLLVMOptions opts)
-                                <&> \llOpts -> opts {ucLLVMOptions = llOpts}
-                  }
-            )
-            (Crux.cfgCmdLineFlag llvmOpts)
+          (Crux.liftOptDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgCmdLineFlag llvmOpts)
             ++ [ Crux.Option
                    []
                    ["explore"]

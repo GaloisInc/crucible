@@ -1,8 +1,10 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Main (main) where
 
+import Control.Lens (makeLenses, view)
 import Crux (OutputConfig)
 import qualified Crux
 import Crux.Config.Common (CruxOptions)
@@ -20,10 +22,12 @@ import RealMain (makeMain)
 import System.Exit (ExitCode)
 
 data ForIDEOptions = ForIDEOptions
-  { cruxLLVMOptions :: LLVMOptions,
-    ideHost :: String,
-    idePort :: Int
+  { _cruxLLVMOptions :: LLVMOptions,
+    _ideHost :: String,
+    _idePort :: Int
   }
+
+makeLenses ''ForIDEOptions
 
 forIDEConfig :: IO (Crux.Config ForIDEOptions)
 forIDEConfig = do
@@ -43,8 +47,8 @@ forIDEConfig = do
               Crux.numSpec
               0
               "Port at which the IDE is listening",
-        Crux.cfgEnv = [],
-        Crux.cfgCmdLineFlag = []
+        Crux.cfgEnv = Crux.liftEnvDescr cruxLLVMOptions <$> Crux.cfgEnv llvmOpts,
+        Crux.cfgCmdLineFlag = Crux.liftOptDescr cruxLLVMOptions <$> Crux.cfgCmdLineFlag llvmOpts
       }
 
 mainWithOutputConfig ::
@@ -54,7 +58,7 @@ mainWithOutputConfig mkOutCfg =
     do
       conf <- forIDEConfig
       Crux.loadOptions mkOutCfg "crux-llvm-for-ide" version conf $ \(cruxOpts, forIDEOpts) ->
-        WS.runClient (ideHost forIDEOpts) (idePort forIDEOpts) "/" $ \conn ->
+        WS.runClient (view ideHost forIDEOpts) (view idePort forIDEOpts) "/" $ \conn ->
           do
             let ?outputConfig =
                   ?outputConfig
@@ -62,7 +66,7 @@ mainWithOutputConfig mkOutCfg =
                         Crux._logMsg ?outputConfig
                           <> LJ.LogAction (WS.sendTextData conn . JSON.encode)
                     }
-            mainWithOptions (cruxOpts, cruxLLVMOptions forIDEOpts)
+            mainWithOptions (cruxOpts, view cruxLLVMOptions forIDEOpts)
 
 main :: IO ()
 main = makeMain mainWithOutputConfig
