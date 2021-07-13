@@ -4,13 +4,34 @@ import System.IO
 import System.Console.ANSI
 import Control.Monad(zipWithM)
 
-prepStatus :: String -> Int -> IO (Integer -> IO (), Integer -> IO (), IO ())
+-- | Callback called with index when a goal is started
+type ProverMilestoneStartGoal = Integer -> IO ()
+
+-- | Callback called with index when a goal has ended
+type ProverMilestoneEndGoal = Integer -> IO ()
+
+-- | Callback called when all goals have ended
+type ProverMilestoneFinish = IO ()
+
+-- | Set of three callbacks called by the prover to let loggers indicate
+-- progress of the proving process.
+type ProverMilestoneCallbacks =
+  ( ProverMilestoneStartGoal
+  , ProverMilestoneEndGoal
+  , ProverMilestoneFinish
+  )
+
+silentProverMilestoneCallbacks :: ProverMilestoneCallbacks
+silentProverMilestoneCallbacks =
+  (const (return ()), const (return ()), return ())
+
+prepStatus :: String -> Int -> IO ProverMilestoneCallbacks
 prepStatus pref tot =
    do ansi <- hSupportsANSI stdout
       if ansi then
         return (start,end,finish)
       else
-        return (const (return ()), const (return ()), return ())
+        return silentProverMilestoneCallbacks
 
   where
   start n = do hSaveCursor stdout
@@ -58,5 +79,3 @@ withProgressBar w xs f =
          a : as ->
            do b <- f a
               go (shown + new) (loc + step) as (b : done)
-
-

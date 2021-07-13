@@ -184,7 +184,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
     failfast = proofGoalsFailFast opts
 
     go :: SupportsCruxLogMessage msgs
-       => (Integer -> IO (), Integer -> IO ())
+       => (ProverMilestoneStartGoal, ProverMilestoneEndGoal)
        -> IORef ProcessedGoals
        -> Assumptions sym
        -> Goals (Assumptions sym) (Assertion sym)
@@ -318,11 +318,11 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
 proverMilestoneCallbacks ::
   Log.Logs msgs =>
   Log.SupportsCruxLogMessage msgs =>
-  Goals asmp ast -> IO (Integer -> IO (), Integer -> IO (), IO ())
+  Goals asmp ast -> IO ProverMilestoneCallbacks
 proverMilestoneCallbacks goals = do
   (start, end, finish) <-
     if view quiet ?outputConfig then
-      return (\_ -> return (), \_ -> return (), return ())
+      return silentProverMilestoneCallbacks
     else
       prepStatus "Checking: " (countGoals goals)
   return
