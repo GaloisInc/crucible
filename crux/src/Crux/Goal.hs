@@ -172,11 +172,7 @@ proveGoalsOffline :: forall st sym p t fs personality msgs.
 proveGoalsOffline _adapter _opts _ctx _explainFailure Nothing = return (ProcessedGoals 0 0 0 0, Nothing)
 proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
   goalNum <- newIORef (ProcessedGoals 0 0 0 0)
-  (start,end,finish) <-
-     if view quiet ?outputConfig then
-       return (\_ -> return (), return (), return ())
-     else
-       prepStatus "Checking: " (countGoals gs0)
+  (start,end,finish) <- proverMilestoneCallbacks gs0
   gs <- go (start,end) goalNum mempty gs0
   nms <- readIORef goalNum
   finish
@@ -188,7 +184,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
     failfast = proofGoalsFailFast opts
 
     go :: SupportsCruxLogMessage msgs
-       => (Integer -> IO (), IO ())
+       => (Integer -> IO (), Integer -> IO ())
        -> IORef ProcessedGoals
        -> Assumptions sym
        -> Goals (Assumptions sym) (Assertion sym)
@@ -207,7 +203,8 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
             else ProveConj g1' <$> go (start,end) goalNum assumptionsInScope g2
 
         Prove p -> do
-          start . totalProcessedGoals =<< readIORef goalNum
+          goalNumber <- totalProcessedGoals <$> readIORef goalNum
+          start goalNumber
 
           -- Conjoin all of the in-scope assumptions, the goal, then negate and
           -- check sat with the adapter
@@ -216,7 +213,7 @@ proveGoalsOffline adapters opts ctx explainFailure (Just gs0) = do
 
           res <- dispatchSolversOnGoalAsync (goalTimeout opts) adapters
                            (runOneSolver p assumptionsInScope assumptions goal)
-          end
+          end goalNumber
           case res of
             Right Nothing -> do
               let details = NotProved "(timeout)" Nothing
@@ -314,6 +311,27 @@ dispatchSolversOnGoalAsync mtimeoutSeconds adapters withAdapter = do
     kill a = throwTo (asyncThreadId a) ExitSuccess
 
 
+-- | Returns three actions, called respectively when the proving process for a
+-- goal is started, when it is ended, and when the final goal is solved.  These
+-- handlers should handle all necessary output / notifications to external
+-- observers, based on the run options.
+proverMilestoneCallbacks ::
+  Log.Logs msgs =>
+  Log.SupportsCruxLogMessage msgs =>
+  Goals asmp ast -> IO (Integer -> IO (), Integer -> IO (), IO ())
+proverMilestoneCallbacks goals = do
+  (start, end, finish) <-
+    if view quiet ?outputConfig then
+      return (\_ -> return (), \_ -> return (), return ())
+    else
+      prepStatus "Checking: " (countGoals goals)
+  return
+    ( start <> sayCrux . Log.StartedGoal
+    , end <> sayCrux . Log.EndedGoal
+    , finish
+    )
+
+
 -- | Prove a collection of goals.  The result is a goal tree, where
 -- each goal is annotated with the outcome of the proof.
 --
@@ -344,11 +362,7 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
      nameMap <- newIORef Map.empty
      when (unsatCores opts && yicesMCSat opts) $
        sayCrux Log.SkippingUnsatCoresBecauseMCSatEnabled
-     (start,end,finish) <-
-       if view quiet ?outputConfig then
-         return (\_ -> return (), return (), return ())
-       else
-         prepStatus "Checking: " (countGoals gs0)
+     (start,end,finish) <- proverMilestoneCallbacks gs0
 
      -- make sure online features are enabled
      enableOpt <- getOptionSetting enableOnlineBackend (getConfiguration sym)
@@ -381,7 +395,8 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
            return (Assuming (mconcat (map singleAssumption ps)) res)
 
       Prove p ->
-        do start . totalProcessedGoals =<< readIORef gn
+        do goalNumber <- totalProcessedGoals <$> readIORef gn
+           start goalNumber
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
 
@@ -392,7 +407,7 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)
-                           end
+                           end goalNumber
                            let pr = Proved core
                            modifyIORef' gn (updateProcessedGoals p pr)
                            let locs = assumptionsTopLevelLocs assumptionsInScope
@@ -404,7 +419,7 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
                            let vals = evalModelFromEvents evs
 
                            explain <- explainFailure (Just f) p
-                           end
+                           end goalNumber
                            let gt = NotProved explain (Just (vals,evs))
                            modifyIORef' gn (updateProcessedGoals p gt)
                            when (failfast && not (isResourceExhausted p)) $
@@ -413,7 +428,7 @@ proveGoalsOnline sym opts _ctxt explainFailure (Just gs0) =
                            return (Prove (p, locs, gt))
                       Unknown ->
                         do explain <- explainFailure Nothing p
-                           end
+                           end goalNumber
                            let gt = NotProved explain Nothing
                            modifyIORef' gn (updateProcessedGoals p gt)
                            let locs = assumptionsTopLevelLocs assumptionsInScope

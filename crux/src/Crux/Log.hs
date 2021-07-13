@@ -98,7 +98,9 @@ data CruxLogMessage
   | Checking [FilePath]
   | DisablingBranchCoverageRequiresPathSatisfiability
   | DisablingProfilingIncompatibleWithPathSplitting
+  | EndedGoal Integer
   | FoundCounterExample
+  | Goals [(T.Text, T.Text)]
   | Help LogDoc
   | PathsUnexplored Int
   | SimulationComplete
@@ -153,8 +155,14 @@ cruxLogMessageToSayWhat DisablingProfilingIncompatibleWithPathSplitting =
   cruxWarn
     "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
 
+-- for now, this message is only for IDE consumers
+cruxLogMessageToSayWhat (EndedGoal {}) = SayNothing
+
 cruxLogMessageToSayWhat FoundCounterExample =
   cruxOK "Counterexample found, skipping remaining goals"
+
+-- for now, this message is only for IDE consumers
+cruxLogMessageToSayWhat (Goals {}) = SayNothing
 
 cruxLogMessageToSayWhat (Help (LogDoc doc)) =
   cruxOK (renderStrict doc)
@@ -177,8 +185,8 @@ cruxLogMessageToSayWhat SimulationTimedOut =
 cruxLogMessageToSayWhat SkippingUnsatCoresBecauseMCSatEnabled =
   cruxWarn "Warning: skipping unsat cores because MC-SAT is enabled."
 
-cruxLogMessageToSayWhat (StartedGoal goalNumber) =
-  cruxOK (T.pack ("Started goal " ++ show goalNumber))
+-- for now, this message is only for IDE consumers
+cruxLogMessageToSayWhat (StartedGoal {}) = SayNothing
 
 cruxLogMessageToSayWhat (TotalPathsExplored i) =
   cruxSimply ("Total paths explored: " <> T.pack (show i))

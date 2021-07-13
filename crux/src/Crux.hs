@@ -648,6 +648,10 @@ doSimWithResults cruxOpts simCallback sym execFeatures profInfo monline goalProv
       let ctx = execResultContext res
       inFrame profInfo "<Prove Goals>" $ do
         todo <- getProofObligations sym
+        let showGoal = \ g -> ( T.pack (show (view labeledPred g))
+                              , T.pack (show (view labeledPredMsg g))
+                              )
+        sayCrux $ Log.Goals (showGoal . proofGoal <$> maybe [] goalsToList todo)
         when (isJust todo) $ sayCrux Log.AttemptingProvingVCs
         (nms, proved) <- goalProver cruxOpts ctx explainFailure todo
         mgt <- provedGoalsTree sym proved

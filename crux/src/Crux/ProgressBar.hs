@@ -4,19 +4,19 @@ import System.IO
 import System.Console.ANSI
 import Control.Monad(zipWithM)
 
-prepStatus :: String -> Int -> IO (Integer -> IO (), IO (), IO ())
+prepStatus :: String -> Int -> IO (Integer -> IO (), Integer -> IO (), IO ())
 prepStatus pref tot =
    do ansi <- hSupportsANSI stdout
       if ansi then
         return (start,end,finish)
       else
-        return (const (return ()), return (), return ())
+        return (const (return ()), const (return ()), return ())
 
   where
   start n = do hSaveCursor stdout
                hPutStr stdout (msg n)
                hFlush stdout
-  end     = do hRestoreCursor stdout
+  end _n  = do hRestoreCursor stdout
                hFlush stdout
 
   finish = do hClearLine stdout
@@ -37,7 +37,7 @@ withProgressBar' pref xs f =
        let one n a =
             do start n
                b <- f a
-               end
+               end n
                return b
        zipWithM one [ 1 .. ] xs <* finish
 
