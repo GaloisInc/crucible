@@ -7,10 +7,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-{-# LANGUAGE RankNTypes #-}
 module Crux.Log (
   -- * Output Configuration
   Logs,
@@ -20,6 +21,7 @@ module Crux.Log (
   -- * Standard output API functions
   , CruxLogMessage(..)
   , LogDoc(..)
+  , LogProofObligation(..)
   , SayWhat(..)
   , SayLevel(..)
   , SupportsCruxLogMessage
@@ -40,7 +42,8 @@ module Crux.Log (
 
 import           Control.Exception ( SomeException, bracket_,  )
 import           Control.Lens ( Getter, view )
-import           Data.Aeson ( Value(String), ToJSON, toJSON )
+import qualified Data.Aeson as JSON
+import           Data.Aeson.TH ( deriveToJSON )
 import qualified Data.Text as T
 import           Data.Text.IO as TIO ( hPutStr, hPutStrLn )
 import           Data.Version ( Version, showVersion )
@@ -57,15 +60,32 @@ import           System.IO ( Handle, hPutStr, hPutStrLn )
 import           Crux.Types
     ( CruxSimulationResult, ProvedGoals, SayLevel(..), SayWhat(..) )
 import           Crux.Version ( version )
+import           Lang.Crucible.Backend ( ProofGoal(..), ProofObligation )
+import           What4.Expr.Builder ( ExprBuilder )
+import           What4.LabeledPred ( labeledPred, labeledPredMsg )
 
 ----------------------------------------------------------------------
 -- Various functions used by the main code to generate logging output
 
 newtype LogDoc = LogDoc (SimpleDocStream ())
 
-instance ToJSON LogDoc where
-  toJSON (LogDoc doc) = String (renderStrict doc)
+instance JSON.ToJSON LogDoc where
+  toJSON (LogDoc doc) = JSON.String (renderStrict doc)
 
+-- | A version of 'ProofObligation' that supports a 'ToJSON' instance.
+data LogProofObligation =
+  forall t st fs.
+  LogProofObligation (ProofObligation (ExprBuilder t st fs))
+
+instance JSON.ToJSON LogProofObligation where
+  -- for now, we only need the goal in the IDE
+  toJSON (LogProofObligation g) =
+    let
+      goal = proofGoal g
+    in
+    JSON.object [ "labeledPred" JSON..= show (view labeledPred goal)
+                , "labeledPredMsg" JSON..= show (view labeledPredMsg goal)
+                ]
 
 -- | All messages that Crux wants to output should be listed here.
 --
@@ -100,9 +120,9 @@ data CruxLogMessage
   | DisablingProfilingIncompatibleWithPathSplitting
   | EndedGoal Integer
   | FoundCounterExample
-  | Goals [(T.Text, T.Text)]
   | Help LogDoc
   | PathsUnexplored Int
+  | ProofObligations [LogProofObligation]
   | SimulationComplete
   | SimulationTimedOut
   | SkippingUnsatCoresBecauseMCSatEnabled
@@ -110,7 +130,9 @@ data CruxLogMessage
   | TotalPathsExplored Word64
   | UnsupportedTimeoutFor String -- ^ name of the backend
   | Version T.Text Version
-  deriving ( Generic, ToJSON )
+  deriving (Generic)
+
+$(deriveToJSON JSON.defaultOptions ''CruxLogMessage)
 
 
 type SupportsCruxLogMessage msgs =
@@ -161,9 +183,6 @@ cruxLogMessageToSayWhat (EndedGoal {}) = SayNothing
 cruxLogMessageToSayWhat FoundCounterExample =
   cruxOK "Counterexample found, skipping remaining goals"
 
--- for now, this message is only for IDE consumers
-cruxLogMessageToSayWhat (Goals {}) = SayNothing
-
 cruxLogMessageToSayWhat (Help (LogDoc doc)) =
   cruxOK (renderStrict doc)
 
@@ -174,6 +193,9 @@ cruxLogMessageToSayWhat (PathsUnexplored numberOfPaths) =
           "paths remaining not explored: program might not be fully verified"
         ]
     )
+
+-- for now, this message is only for IDE consumers
+cruxLogMessageToSayWhat (ProofObligations {}) = SayNothing
 
 cruxLogMessageToSayWhat SimulationComplete =
   cruxNoisily "Simulation complete."
