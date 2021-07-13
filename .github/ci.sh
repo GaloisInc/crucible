@@ -3,7 +3,7 @@ set -Eeuxo pipefail
 
 DATE=$(date "+%Y-%m-%d")
 [[ "$RUNNER_OS" == 'Windows' ]] && IS_WIN=true || IS_WIN=false
-BIN=bin
+BIN=${PWD}/bin
 EXT=""
 $IS_WIN && EXT=".exe"
 mkdir -p "$BIN"
@@ -138,8 +138,8 @@ install_system_deps() {
   install_yices
   install_llvm
   # wait
-  export PATH=$PWD/$BIN:$PATH
-  echo "$PWD/$BIN" >> $GITHUB_PATH
+  export PATH=$BIN:$PATH
+  echo "$BIN" >> "$GITHUB_PATH"
   is_exe "$BIN" z3 && is_exe "$BIN" yices
 }
 
@@ -160,10 +160,26 @@ setup_dist() {
 zip_dist() {
   : "${VERSION?VERSION is required as an environment variable}"
   pkgname="${pkgname:-"$1-$VERSION-$OS_TAG-x86_64"}"
-  mv dist "$pkgname"
+  cp -r dist "$pkgname"
   tar -czf "$pkgname".tar.gz "$pkgname"
-  sign "$pkgname".tar.gz
+  # sign "$pkgname".tar.gz
   [[ -f "$pkgname".tar.gz.sig ]] && [[ -f "$pkgname".tar.gz ]]
+  spkgname="${pkgname}-with-solvers"
+  cp "$(which cvc4)"       dist/bin/
+  cp "$(which yices)"      dist/bin/
+  cp "$(which yices-smt2)" dist/bin/
+  cp "$(which z3)"         dist/bin/
+  cp "$(which clang)"      dist/bin/
+  cp "$(which llvm-link)"  dist/bin/
+  cp scripts/with-solvers.sh dist/crux-llvm-svcomp-witness.sh
+  sed -i'' 's/replaceme/crux-llvm-svcomp-witness/' dist/crux-llvm-svcomp-witness.sh
+  # Including the LICENSE file is an SVCOMP requirement
+  # TODO RGS: Upstream this change
+  cp crux-llvm/LICENSE dist/
+  cp -r dist "$spkgname"
+  zip -r "$spkgname".zip "$spkgname"
+  # sign "$spkgname".zip
+  [[ -f "$spkgname".zip.sig ]] && [[ -f "$spkgname".zip.gz ]]
   rm -rf dist
 }
 
@@ -172,6 +188,7 @@ bundle_crux_llvm_files() {
   extract_exe crux-llvm dist/bin
   if ! $IS_WIN; then
     extract_exe crux-llvm-svcomp dist/bin
+    extract_exe crux-llvm-svcomp-witness dist/bin
   fi
   cp crux-llvm/README.md dist/doc
   cp -r crux-llvm/c-src dist
