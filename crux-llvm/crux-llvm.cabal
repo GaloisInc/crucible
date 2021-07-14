@@ -86,6 +86,7 @@ library
     Paths_crux_llvm
 
   build-depends:
+    aeson,
     bv-sized,
     config-schema,
     data-binary-ieee754,
@@ -117,6 +118,31 @@ executable crux-llvm
     build-depends: unix
 
   other-modules: RealMain
+
+
+executable crux-llvm-for-ide
+  import: bldflags
+
+  hs-source-dirs: for-ide
+
+  build-depends:
+    aeson,
+    ansi-terminal,
+    crux-llvm,
+    lumberjack,
+    websockets >= 0.12
+
+  main-is: Main.hs
+
+  if os(windows)
+    hs-source-dirs: for-ide/windows
+  else
+    hs-source-dirs: for-ide/unix
+    build-depends: unix
+
+  other-modules:
+    Paths_crux_llvm
+    RealMain
 
 
 executable crux-llvm-svcomp

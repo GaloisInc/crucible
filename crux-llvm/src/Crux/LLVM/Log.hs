@@ -1,4 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -12,7 +14,9 @@ where
 
 import Crux.Log (SayLevel (..), SayWhat (..), cruxLogTag)
 import qualified Crux.Log as Log
+import Data.Aeson (ToJSON)
 import Data.Text as Text (Text, pack, unwords)
+import GHC.Generics (Generic)
 
 data CruxLLVMLogMessage
   = Breakpoint Text
@@ -21,6 +25,7 @@ data CruxLLVMLogMessage
   | FailedToBuildCounterexampleExecutable
   | SimulatingFunction Text
   | UsingPointerWidthForFile Integer Text
+  deriving ( Generic, ToJSON )
 
 type SupportsCruxLLVMLogMessage msgs =
   (?injectCruxLLVMLogMessage :: CruxLLVMLogMessage -> msgs)

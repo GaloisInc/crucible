@@ -41,6 +41,8 @@ a very real bug.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -52,11 +54,13 @@ module Main (main) where
 
 {- ORMOLU_DISABLE -}
 import           Control.Exception ( try )
+import           Data.Aeson (ToJSON)
 import           Data.Foldable (for_)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as Set
+import           GHC.Generics (Generic)
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
 
@@ -120,6 +124,7 @@ testDir = "test/programs"
 
 data UCCruxLLVMTestLogMessage
   = ClangTrouble
+  deriving (Generic, ToJSON)
 
 type SupportsUCCruxLLVMTestLogMessage msgs =
   (?injectUCCruxLLVMTestLogMessage :: UCCruxLLVMTestLogMessage -> msgs)
@@ -144,6 +149,7 @@ ucCruxLLVMTestLogMessageToSayWhat ClangTrouble =
 data UCCruxLLVMTestLogging
   = LoggingViaUCCruxLLVM Main.UCCruxLLVMLogging
   | LoggingUCCruxLLVMTest UCCruxLLVMTestLogMessage
+  deriving (Generic, ToJSON)
 
 ucCruxLLVMTestLoggingToSayWhat :: UCCruxLLVMTestLogging -> Log.SayWhat
 ucCruxLLVMTestLoggingToSayWhat (LoggingViaUCCruxLLVM msg) =

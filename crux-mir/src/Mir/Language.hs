@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -47,6 +49,7 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
 import qualified Data.Vector     as Vector
 import           Control.Lens ((^.), (^?), (^..), ix, each)
+import           GHC.Generics (Generic)
 
 import System.Console.ANSI
 import           System.IO (Handle)
@@ -120,11 +123,13 @@ mainWithExtraOverrides bindExtra =
     mainWithOutputConfig defaultOutputConfig bindExtra >>= exitWith
 
 mainWithOutputTo :: Handle -> BindExtraOverridesFn -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig $ Crux.mkOutputConfig False h h mirLoggingToSayWhat
+mainWithOutputTo h = mainWithOutputConfig $
+    Crux.mkOutputConfig False h h mirLoggingToSayWhat
 
 data MirLogging
     = LoggingCrux Crux.CruxLogMessage
     | LoggingMir Log.MirLogMessage
+    deriving (Generic, Aeson.ToJSON)
 
 mirLoggingToSayWhat :: MirLogging -> SayWhat
 mirLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
