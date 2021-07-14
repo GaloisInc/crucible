@@ -137,6 +137,9 @@ data CruxOptions = CruxOptions
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
 
+  , noColors                 :: Bool
+    -- ^ Suppresses color codes in the output when set.
+
   , quietMode                :: Bool
     -- ^ If true, produce minimal output
 
@@ -292,6 +295,10 @@ cruxOptions = Config
             section "skip-incomplete-reports" yesOrNoSpec False
             "Skip reporting on proof obligations that arise from timeouts and resource exhaustion"
 
+          noColors <-
+            section "no-colors" yesOrNoSpec False
+            "Suppress color codes in the output"
+
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
             "If true, produce minimal output"
@@ -434,6 +441,10 @@ cruxOptions = Config
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
         $ NoArg $ \opts -> Right opts { proofGoalsFailFast = True }
+
+      , Option [] ["no-colors"]
+        "Suppress color codes in output"
+        $ NoArg $ \opts -> Right opts{ noColors = True }
 
       , Option "q" ["quiet"]
         "Quiet mode; produce minimal output"
