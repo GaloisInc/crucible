@@ -1820,13 +1820,34 @@ callFunctionWithCont :: forall s arch ret a.
    LLVMGenerator s arch ret a {- ^ continuation for next instructions -} ->
    LLVMGenerator s arch ret a
 callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
+
+     | L.ValSymbol "llvm.dbg.declare" <- fn =
+       do (val, lv, di) <- dbgArgs args
+          ptr <- case asScalar val of
+                   Scalar _ PtrRepr ptr -> pure ptr
+                   Scalar _ _ x -> fail ("dbg.declare: expected scalar pointer, got: " ++ show x)
+                   NotScalar -> fail ("dbg.declare: expected scalar pointer, got: NotScalar")
+          extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
+
+     | L.ValSymbol "llvm.dbg.addr" <- fn =
+       do (val, lv, di) <- dbgArgs args
+          ptr <- case asScalar val of
+                   Scalar _ PtrRepr ptr -> pure ptr
+                   Scalar _ _ x -> fail ("dbg.addr: expected scalar pointer, got: " ++ show x)
+                   NotScalar -> fail ("dbg.addr: expected scalar pointer, got: NotScalar")
+          extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
+
+     | L.ValSymbol "llvm.dbg.value" <- fn =
+       do (val, lv, di) <- dbgArgs args
+          case asScalar val of
+            Scalar _ repr v1 -> extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr v1 lv di)) >> k
+            NotScalar -> fail "dbg.value: expected scalar"
+
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
      -- would require some work to support.
      | L.ValSymbol nm <- fn
-     , nm `elem` [ "llvm.dbg.declare"
-                 , "llvm.dbg.value"
-                 , "llvm.dbg.label"
+     , nm `elem` [ "llvm.dbg.label"
                  , "llvm.lifetime.start"
                  , "llvm.lifetime.start.p0i8"
                  , "llvm.lifetime.end"
@@ -1846,6 +1867,30 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
             k
 
      | otherwise = callFunction (Just instr) tailCall_ fnTy fn args assign_f >> k
+
+-- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
+dbgArgs :: 
+  [L.Typed L.Value] {- ^ debug call arguments -} ->
+  LLVMGenerator s arch ret (LLVMExpr s arch, L.DILocalVariable, L.DIExpression)
+dbgArgs args =
+  do (valArg, lvArg, diArg) <-
+       case args of
+         [valArg, lvArg, diArg] -> pure (valArg, lvArg, diArg)
+         _ -> fail ("dbg: expected 3 arguments, got: " ++ show (length args))
+     val <-
+       case valArg of
+         L.Typed _ (L.ValMd (L.ValMdValue val)) -> pure val
+         _ -> fail ("dbg: argument 1 expected value metadata, got: " ++ show valArg)
+     lv <-
+       case lvArg of
+         L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) -> pure lv
+         _ -> fail ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg)
+     di <-
+       case diArg of
+         L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) -> pure di
+         _ -> fail ("dbg: argument 3 expected DIExpression, got: " ++ show diArg)
+     v <- transTypedValue val
+     pure (v, lv, di)
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->
