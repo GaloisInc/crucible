@@ -1216,11 +1216,14 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
   p2 <- isAligned sym w ptr alignment
   maybe_allocation_array <- asMemAllocationArrayStore sym w ptr mem
   mem' <- case maybe_allocation_array of
-    -- if this write is inside an allocation backed by a SMT array store,
-    -- then decompose this write into disassembling the value to individual
-    -- bytes, writing them in the SMT array, and writing the updated SMT array
-    -- in the memory
-    Just (ok, arr, arr_sz) | Just True <- asConstantPred ok -> do
+    -- if this write is inside an allocation backed by a SMT array store and
+    -- the value is not a pointer, then decompose this write into disassembling
+    -- the value to individual bytes, writing them in the SMT array, and
+    -- writing the updated SMT array in the memory
+    Just (ok, arr, arr_sz) | Just True <- asConstantPred ok
+                           , case val of
+                               LLVMValInt block _ -> (asNat block) == (Just 0)
+                               _ -> True -> do
       let subFn :: ValueLoad Addr -> IO (PartLLVMVal sym)
           subFn = \case
             LastStore val_view -> applyView
