@@ -61,7 +61,12 @@ anyCPPFiles = any isCPlusPlus
 getClang :: IO FilePath
 getClang = attempt (map findExecutable clangs)
   where
-  clangs = [ "clang", "clang-4.0", "clang-3.6", "clang-3.8", "clang-7", "clang-8" ]
+  clangs = "clang"
+         : [ "clang-" ++ ver
+           | ver <- ["3.6", "3.7", "3.8", "3.9", "4.0", "5.0", "6.0"]
+                    -- Starting with LLVM 7, the version numbers used in binaries only display the major version. See
+                    -- https://releases.llvm.org/7.0.0/tools/clang/docs/ReleaseNotes.html#non-comprehensive-list-of-changes-in-this-release
+                 ++ ["7", "8", "9", "10", "11"] ]
 
   attempt :: [IO (Maybe FilePath)] -> IO FilePath
   attempt ms =
