@@ -20,12 +20,12 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Some
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import           System.Directory ( doesFileExist, removeFile
+import           System.Directory ( doesFileExist, findExecutable, removeFile
                                   , createDirectoryIfMissing, copyFile )
 import           System.Exit ( ExitCode(..) )
 import           System.FilePath ( takeExtension, (</>), (-<.>)
                                  , takeDirectory, takeFileName )
-import           System.Process ( readProcess, readProcessWithExitCode )
+import           System.Process ( readProcessWithExitCode )
 
 import           What4.Interface
 import           What4.ProgramLoc
@@ -59,22 +59,21 @@ anyCPPFiles = any isCPlusPlus
 -- (NOTE: do not look for environment var "CLANG". That is assumed
 --  to be tried already.)
 getClang :: IO FilePath
-getClang = attempt (map inPath clangs)
+getClang = attempt (map findExecutable clangs)
   where
-  inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
-  clangs   = [ "clang", "clang-4.0", "clang-3.6", "clang-3.8", "clang-7", "clang-8" ]
+  clangs = [ "clang", "clang-4.0", "clang-3.6", "clang-3.8", "clang-7", "clang-8" ]
 
-  attempt :: [IO FilePath] -> IO FilePath
+  attempt :: [IO (Maybe FilePath)] -> IO FilePath
   attempt ms =
     case ms of
       [] -> throwCError $ EnvError $
               unlines [ "Failed to find `clang`."
                       , "You may use CLANG to provide path to executable."
                       ]
-      m : more -> do x <- try m
+      m : more -> do x <- m
                      case x of
-                       Left (SomeException {}) -> attempt more
-                       Right a -> return a
+                       Nothing -> attempt more
+                       Just a  -> return a
 
 runClang ::
   Logs msgs =>
