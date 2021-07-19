@@ -1821,27 +1821,29 @@ callFunctionWithCont :: forall s arch ret a.
    LLVMGenerator s arch ret a
 callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
 
+     -- Supports LLVM 4-12
      | L.ValSymbol "llvm.dbg.declare" <- fn =
-       do (val, lv, di) <- dbgArgs args
-          ptr <- case asScalar val of
-                   Scalar _ PtrRepr ptr -> pure ptr
-                   Scalar _ _ x -> fail ("dbg.declare: expected scalar pointer, got: " ++ show x)
-                   NotScalar -> fail ("dbg.declare: expected scalar pointer, got: NotScalar")
-          extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
+       do mbArgs <- dbgArgs args
+          case mbArgs of
+            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
+              extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
+            _ -> k
 
+     -- Supports LLVM 6-12
      | L.ValSymbol "llvm.dbg.addr" <- fn =
-       do (val, lv, di) <- dbgArgs args
-          ptr <- case asScalar val of
-                   Scalar _ PtrRepr ptr -> pure ptr
-                   Scalar _ _ x -> fail ("dbg.addr: expected scalar pointer, got: " ++ show x)
-                   NotScalar -> fail ("dbg.addr: expected scalar pointer, got: NotScalar")
-          extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
+       do mbArgs <- dbgArgs args
+          case mbArgs of
+            Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
+              extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
+            _ -> k
 
+     -- Supports LLVM 6-12 (earlier versions had an extra argument)
      | L.ValSymbol "llvm.dbg.value" <- fn =
-       do (val, lv, di) <- dbgArgs args
-          case asScalar val of
-            Scalar _ repr v1 -> extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr v1 lv di)) >> k
-            NotScalar -> fail "dbg.value: expected scalar"
+       do mbArgs <- dbgArgs args
+          case mbArgs of
+            Right (asScalar -> Scalar _ repr val, lv, di) ->
+              extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di)) >> k
+            _ -> k
 
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
@@ -1871,26 +1873,22 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
 dbgArgs :: 
   [L.Typed L.Value] {- ^ debug call arguments -} ->
-  LLVMGenerator s arch ret (LLVMExpr s arch, L.DILocalVariable, L.DIExpression)
+  LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
 dbgArgs args =
-  do (valArg, lvArg, diArg) <-
-       case args of
-         [valArg, lvArg, diArg] -> pure (valArg, lvArg, diArg)
-         _ -> fail ("dbg: expected 3 arguments, got: " ++ show (length args))
-     val <-
-       case valArg of
-         L.Typed _ (L.ValMd (L.ValMdValue val)) -> pure val
-         _ -> fail ("dbg: argument 1 expected value metadata, got: " ++ show valArg)
-     lv <-
-       case lvArg of
-         L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) -> pure lv
-         _ -> fail ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg)
-     di <-
-       case diArg of
-         L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) -> pure di
-         _ -> fail ("dbg: argument 3 expected DIExpression, got: " ++ show diArg)
-     v <- transTypedValue val
-     pure (v, lv, di)
+  case args of
+    [valArg, lvArg, diArg] ->
+      case valArg of
+        L.Typed _ (L.ValMd (L.ValMdValue val)) ->
+          case lvArg of
+            L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
+              case diArg of
+                L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) -> 
+                  do v <- transTypedValue val
+                     pure (Right (v, lv, di))
+                _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
+            _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
+        _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
+    _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))     
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->
