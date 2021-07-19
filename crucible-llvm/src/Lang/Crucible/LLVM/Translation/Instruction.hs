@@ -1821,6 +1821,7 @@ callFunctionWithCont :: forall s arch ret a.
    LLVMGenerator s arch ret a
 callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
 
+     -- Supports LLVM 4-12
      | L.ValSymbol "llvm.dbg.declare" <- fn =
        do mbArgs <- dbgArgs args
           case mbArgs of
@@ -1828,6 +1829,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
               extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
             _ -> k
 
+     -- Supports LLVM 6-12
      | L.ValSymbol "llvm.dbg.addr" <- fn =
        do mbArgs <- dbgArgs args
           case mbArgs of
@@ -1835,6 +1837,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
               extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
             _ -> k
 
+     -- Supports LLVM 6-12 (earlier versions had an extra argument)
      | L.ValSymbol "llvm.dbg.value" <- fn =
        do mbArgs <- dbgArgs args
           case mbArgs of
