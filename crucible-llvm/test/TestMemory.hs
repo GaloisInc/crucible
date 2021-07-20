@@ -15,7 +15,7 @@ import           Data.Foldable ( foldlM )
 import qualified Data.Vector as V
 
 import qualified Test.Tasty as T
-import           Test.Tasty.HUnit ( testCase, (@=?) )
+import           Test.Tasty.HUnit ( testCase, (@=?), assertFailure )
 
 import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Context as Ctx
@@ -45,6 +45,7 @@ memoryTests = T.testGroup "Memory"
   , testMemWritesIndexed
   , testMemArrayWithConstants
   , testMemArray
+  , testPointerStore
   ]
 
 
@@ -348,3 +349,37 @@ testMemAllocs =
      assertion <- foldM (What4.andPred sym) (What4.truePred sym) assertions
      res <- checkSat sym =<< What4.notPred sym assertion
      True @=? W4Sat.isUnsat res
+
+-- | Test storing and retrieving pointer in an SMT-backed array memory model
+testPointerStore :: T.TestTree
+testPointerStore = testCase "pointer store" $ withMem LLVMD.BigEndian $ \sym mem0 -> do
+  -- Allocate two blocks
+  sz <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth (1024 * 1024)
+  (base_ptr1, _) <- LLVMMem.mallocRaw sym mem0 sz noAlignment
+  (base_ptr2, block2_mem1) <- LLVMMem.mallocRaw sym mem0 sz noAlignment
+
+  -- Store the first base pointer in the second block
+  let pointer_storage_type = LLVMMem.bitvectorType 8
+  let base_ptr1_val = LLVMMem.ptrToPtrVal base_ptr1
+  block2_mem2 <- LLVMMem.storeRaw sym
+                                  block2_mem1
+                                  base_ptr2
+                                  pointer_storage_type
+                                  noAlignment
+                                  base_ptr1_val
+  -- Read the pointer back
+  base_ptr1_back <- LLVMMem.loadRaw sym
+                                    block2_mem2
+                                    base_ptr2
+                                    pointer_storage_type
+                                    noAlignment
+
+  -- Assert that the read pointer is equal to the original pointer
+  base_ptr1_back_safe <- LLVMMem.assertSafe sym base_ptr1_back
+  is_equal <- LLVMMem.testEqual sym base_ptr1_val base_ptr1_back_safe
+  case is_equal of
+    Nothing -> assertFailure "testEqual failed"
+    Just p -> do
+      goal <- What4.notPred sym p
+      res <- checkSat sym goal
+      True @=? W4Sat.isUnsat res
