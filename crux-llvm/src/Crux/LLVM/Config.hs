@@ -71,6 +71,7 @@ data LLVMOptions = LLVMOptions
   , noCompile :: Bool
   , optLevel :: Int
   , loopMerge :: Bool
+  , debugIntrinsics :: Bool
   }
 
 -- | The @c-src@ directory, which contains @crux-llvm@–specific files such as
@@ -160,6 +161,9 @@ llvmCruxConfig = do
 
          loopMerge <- Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
                         "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
+
+         debugIntrinsics <- Crux.section "debug-intrinsics" Crux.yesOrNoSpec False
+                              "Translate statements using certain llvm.dbg intrinsic functions."
 
          return LLVMOptions { .. }
 

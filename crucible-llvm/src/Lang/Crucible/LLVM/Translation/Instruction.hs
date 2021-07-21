@@ -1362,7 +1362,7 @@ translateSelect instr _ _ _ _ _ _ =
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
 generateInstr :: forall s arch ret a.
-   (?laxArith :: Bool) =>
+   (?laxArith :: Bool, ?debugIntrinsics :: Bool) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
    L.Instr        {- ^ The instruction to translate -} ->
@@ -1811,7 +1811,8 @@ callFunction instr _tailCall fnTy _fn _args _assign_f =
 -- | Generate a call to an LLVM function, with a continuation to fetch more
 -- instructions.
 callFunctionWithCont :: forall s arch ret a.
-   L.Instr {- ^ Source instruction o the call -} -> 
+   (?debugIntrinsics :: Bool) =>
+   L.Instr {- ^ Source instruction o the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
@@ -1845,7 +1846,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
               extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di)) >> k
             _ -> k
 
-     -- Skip calls to debugging intrinsics.  We might want to support these in some way
+     -- Skip calls to other debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
      -- would require some work to support.
      | L.ValSymbol nm <- fn
@@ -1871,24 +1872,33 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
      | otherwise = callFunction (Just instr) tailCall_ fnTy fn args assign_f >> k
 
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
-dbgArgs :: 
+dbgArgs ::
+  (?debugIntrinsics :: Bool) =>
   [L.Typed L.Value] {- ^ debug call arguments -} ->
   LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs args =
-  case args of
-    [valArg, lvArg, diArg] ->
-      case valArg of
-        L.Typed _ (L.ValMd (L.ValMdValue val)) ->
-          case lvArg of
-            L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
-              case diArg of
-                L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) -> 
-                  do v <- transTypedValue val
-                     pure (Right (v, lv, di))
-                _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
-            _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
-        _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
-    _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))     
+dbgArgs args
+  | -- Why guard translating llvm.dbg statements behind its own option? It's
+    -- because Clang can sometimes generate llvm.dbg statements with improperly
+    -- scoped arguments—see https://bugs.llvm.org/show_bug.cgi?id=51155. This
+    -- wreaks all sorts of havoc on Crucible's later analyses, so one can work
+    -- around the issue by not translating the llvm.dbg statements at all.
+    ?debugIntrinsics
+  = case args of
+      [valArg, lvArg, diArg] ->
+        case valArg of
+          L.Typed _ (L.ValMd (L.ValMdValue val)) ->
+            case lvArg of
+              L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
+                case diArg of
+                  L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) ->
+                    do v <- transTypedValue val
+                       pure (Right (v, lv, di))
+                  _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
+              _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
+          _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
+      _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
+  | otherwise
+  = pure (Left ("Not translating llvm.dbg statement due to debugIntrinsics not being enabled"))
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->

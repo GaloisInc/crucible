@@ -62,6 +62,7 @@ withLLVMCtx mod' action =
         sym <- CBS.newSimpleBackend CBS.FloatRealRepr nonceGen
         let ?laxArith = False
         let ?optLoopMerge = False
+        let ?debugIntrinsics = False
         memVar <- LLVMM.mkMemVar "test_llvm_memory" halloc
         Some (LLVMTr.ModuleTranslation _ ctx _ _) <- LLVMTr.translateModule halloc memVar mod'
         case LLVMTr.llvmArch ctx            of { LLVME.X86Repr width ->

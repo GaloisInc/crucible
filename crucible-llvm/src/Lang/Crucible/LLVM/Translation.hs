@@ -187,7 +187,7 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 
 
 -- | Generate crucible code for each LLVM statement in turn.
-generateStmts :: (?laxArith :: Bool)
+generateStmts :: (?laxArith :: Bool, ?debugIntrinsics :: Bool)
         => TypeRepr ret
         -> L.BlockLabel
         -> [L.Stmt]
@@ -308,7 +308,7 @@ findFile _ = Nothing
 -- | Lookup the block info for the given LLVM block and then define a new crucible block
 --   by translating the given LLVM statements.
 defineLLVMBlock
-        :: (?laxArith :: Bool)
+        :: (?laxArith :: Bool, ?debugIntrinsics :: Bool)
         => TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
@@ -326,7 +326,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --
 --   This step introduces a new dummy entry point that simply jumps to the LLVM entry
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
-genDefn :: (?laxArith :: Bool)
+genDefn :: (?laxArith :: Bool, ?debugIntrinsics :: Bool)
         => L.Define
         -> TypeRepr ret
         -> LLVMGenerator s arch ret (Expr ext s ret)
@@ -357,7 +357,8 @@ genDefn defn retType =
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: forall arch wptr.
-               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?laxArith :: Bool, ?optLoopMerge :: Bool)
+               ( HasPtrWidth wptr, wptr ~ ArchWidth arch
+               , ?laxArith :: Bool, ?optLoopMerge :: Bool, ?debugIntrinsics :: Bool )
             => HandleAllocator
             -> LLVMContext arch
             -> L.Define
@@ -386,7 +387,7 @@ transDefine halloc ctx d = do
 -- | Translate a module into Crucible control-flow graphs.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
-translateModule :: (?laxArith :: Bool, ?optLoopMerge :: Bool)
+translateModule :: (?laxArith :: Bool, ?optLoopMerge :: Bool, ?debugIntrinsics :: Bool)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
