@@ -29,6 +29,7 @@ module Crux
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad ( unless, void, when )
+import qualified Data.Aeson as JSON
 import           Data.Foldable
 import           Data.Functor.Contravariant ( (>$<) )
 import           Data.Functor.Contravariant.Divisible ( divide )
@@ -209,6 +210,7 @@ showVersion nm ver = sayCrux (Log.Version nm ver)
 --  * quietMode      (default stance: False)
 --  * simVerbose     (default stance: False)
 mkOutputConfig ::
+  JSON.ToJSON msgs =>
   Bool -> Handle -> Handle ->
   (msgs -> SayWhat) -> Maybe CruxOptions ->
   OutputConfig msgs
@@ -257,6 +259,7 @@ mkOutputConfig withColors outHandle errHandle logMessageToSayWhat opts =
      }
 
 defaultOutputConfig ::
+  JSON.ToJSON msgs =>
   (msgs -> SayWhat) -> Maybe CruxOptions -> OutputConfig msgs
 defaultOutputConfig = Crux.mkOutputConfig True stdout stderr
 

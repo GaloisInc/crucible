@@ -71,6 +71,7 @@ library
     Paths_uc_crux_llvm
 
   build-depends:
+    aeson,
     async,
     base >= 4.8 && < 4.15,
     bv-sized,
@@ -131,6 +132,7 @@ test-suite uc-crux-llvm-test
   autogen-modules: Paths_uc_crux_llvm
 
   build-depends:
+                aeson,
                 base             >= 4.7,
                 containers,
                 crucible,

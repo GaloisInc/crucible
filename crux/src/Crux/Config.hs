@@ -1,4 +1,4 @@
-{-# Language MultiWayIf, OverloadedStrings #-}
+{-# Language MultiWayIf, OverloadedStrings, RankNTypes #-}
 -- | This module deals with loading configurations.
 module Crux.Config
   ( -- * Writing configurations
@@ -10,7 +10,7 @@ module Crux.Config
   , oneOrList, fileSpec, dirSpec, listSpec
 
     -- ** Environment variables
-  , EnvDescr(..), mapEnvDescr
+  , EnvDescr(..), mapEnvDescr, liftEnvDescr, liftOptDescr
 
     -- ** Command line options
   , OptDescr(..), ArgDescr(..), OptSetter
@@ -18,6 +18,7 @@ module Crux.Config
   , parsePosNum
   ) where
 
+import Control.Lens (Lens', set, view)
 import Data.Text (Text)
 import Data.Maybe (fromMaybe)
 import Text.Read(readMaybe)
@@ -49,6 +50,29 @@ data EnvDescr opts =
          , evDoc   :: String                   -- ^ Documentation
          , evValue :: String -> OptSetter opts -- ^ How it affects the options
          }
+
+-- | Lifts an 'EnvDescr' for some smaller type 'b' into an 'EnvDescr' with the
+-- same name and documentation, but operating over a larger type 'a'.  Useful
+-- for embedding the options of another executable within an executable with
+-- possibly additional options.
+liftEnvDescr :: Lens' a b -> EnvDescr b -> EnvDescr a
+liftEnvDescr lens envDescr =
+  envDescr { evValue = liftOptSetter lens . evValue envDescr }
+
+-- | Lifts an 'OptDescr' for some smaller type 'b' into an 'OptDescr' with the
+-- same name and documentation, but operating over a larger type 'a'.  Useful
+-- for embedding the options of another executable within an executable with
+-- possibly additional options.
+liftOptDescr :: Lens' a b -> OptDescr b -> OptDescr a
+liftOptDescr lens (Option a b c d) = Option a b c (liftArgDescr lens d)
+
+liftArgDescr :: Lens' a b -> ArgDescr b -> ArgDescr a
+liftArgDescr lens (NoArg s) = NoArg (liftOptSetter lens s)
+liftArgDescr lens (ReqArg v s) = ReqArg v (liftOptSetter lens . s)
+liftArgDescr lens (OptArg v s) = OptArg v (liftOptSetter lens . s)
+
+liftOptSetter :: Lens' a b -> OptSetter b -> OptSetter a
+liftOptSetter lens v o = flip (set lens) o <$> v (view lens o)
 
 
 cfgJoin :: Config a -> Config b -> Config (a,b)

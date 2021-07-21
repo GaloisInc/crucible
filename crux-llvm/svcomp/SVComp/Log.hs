@@ -1,4 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -15,17 +17,21 @@ where
 import Crux (SayLevel (..), SayWhat (..))
 import qualified Crux.Log as Log
 import Crux.SVCOMP (ComputedVerdict (..))
+import Data.Aeson (ToJSON)
 import qualified Data.Text as T
+import GHC.Generics (Generic)
 
 data EvaluationProcessFailureReason
   = ExitedWithFailureCode T.Text
   | StoppedBySignal T.Text
   | TerminatedBySignal T.Text
   | UnknownStatus
+  deriving (Generic, ToJSON)
 
 data SVCompSkipReason
   = DueToBlacklist
   | NoInputFiles
+  deriving (Generic, ToJSON)
 
 svCompSkipReasonSuffix :: SVCompSkipReason -> T.Text
 svCompSkipReasonSuffix DueToBlacklist = " due to blacklist"
@@ -49,6 +55,7 @@ data SVCompLogMessage
       -- ^ the actual verdict
   | NoVerdict [T.Text]
   | Skipping SVCompSkipReason T.Text
+  deriving (Generic, ToJSON)
 
 type SupportsSVCompLogMessage msgs =
   (?injectSVCompLogMessage :: SVCompLogMessage -> msgs)

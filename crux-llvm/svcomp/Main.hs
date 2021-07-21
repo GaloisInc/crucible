@@ -3,6 +3,7 @@
    and produce benchmark data for that run.
 -}
 
+{-# Language DeriveAnyClass #-}
 {-# Language DeriveGeneric #-}
 {-# Language ImplicitParams #-}
 {-# Language LambdaCase #-}
@@ -61,6 +62,7 @@ data SVCompLogging
   = LoggingCrux Log.CruxLogMessage
   | LoggingCruxLLVM Log.CruxLLVMLogMessage
   | LoggingSVComp Log.SVCompLogMessage
+  deriving (Generic, ToJSON)
 
 svCompLoggingToSayWhat :: SVCompLogging -> SayWhat
 svCompLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
