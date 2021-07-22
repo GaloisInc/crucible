@@ -123,8 +123,8 @@ runFSTest' sym (FSTest fsTest) = do
         _ -> do
           putStrLn $ showF p
           T.assertFailure "Partial Result"
-  goals <- CB.proofGoalsToList <$> CB.getProofObligations sym
-  mapM_ (proveGoal sym W4Y.yicesAdapter) goals
+  obligations <- CB.getProofObligations sym
+  mapM_ (proveGoal sym W4Y.yicesAdapter) (maybe [] CB.goalsToList obligations)
 
 
 proveGoal ::
@@ -132,21 +132,19 @@ proveGoal ::
   CB.IsSymInterface sym =>
   sym ->
   WSA.SolverAdapter st ->
-  CB.ProofGoal (CB.LabeledPred (W4.Pred sym) CB.AssumptionReason) (CB.LabeledPred (W4.Pred sym) CS.SimError) ->
+  CB.ProofGoal (CB.Assumptions sym) (CB.Assertion sym) ->
   IO ()
 proveGoal sym adapter (CB.ProofGoal asms goal) = do
-  let
-    asmPreds = asms ^.. traverse . CB.labeledPred 
-    goalPred = goal ^. CB.labeledPred 
+  let goalPred = goal ^. CB.labeledPred
+  asmsPred <- CB.assumptionsPred sym asms
   notgoal <- W4.notPred sym goalPred
-  WSA.solver_adapter_check_sat adapter sym WSA.defaultLogData(notgoal:asmPreds) $ \sr ->
+  WSA.solver_adapter_check_sat adapter sym WSA.defaultLogData [notgoal, asmsPred] $ \sr ->
     case sr of
       W4R.Unsat _ -> return ()
       W4R.Unknown -> T.assertFailure "Inconclusive"
       W4R.Sat _ -> do
-        mapM_ (\e -> putStrLn $ showF e) asmPreds
-        putStrLn (show $ Seq.length asms)
-        putStrLn $ showF goalPred
+        putStrLn (showF asmsPred)
+        putStrLn (showF goalPred)
         T.assertFailure "Assertion Failure"
 
 showAbortedResult :: CS.AbortedResult c d -> String
