@@ -28,49 +28,36 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE LambdaCase #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.SymIO
   ( llvmSymIOIntrinsicTypes
   , symio_overrides
   )
   where
 
-import           GHC.Natural
-import qualified Codec.Binary.UTF8.Generic as UTF8
+import           GHC.Natural ( Natural )
 
-import           Control.Lens ((^.), _1, _2, _3)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad ( forM, foldM )
 
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import qualified Data.BitVector.Sized as BVS
-import qualified Data.Vector as V
-
-import           Data.Maybe ( catMaybes )
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import qualified Data.Map.Merge.Strict as Map
 
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty, (::>), EmptyCtx )
-import qualified Data.Parameterized.Context as Ctx
 
-import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.SymbolRepr
 
-import qualified Text.LLVM.AST as L
-
 import           Lang.Crucible.Types ( IntrinsicType, BVType, TypeRepr(..) )
-import           Lang.Crucible.Simulator.Intrinsics ( IntrinsicClass(..) )
 import qualified Lang.Crucible.Utils.MuxTree as CMT
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.Backend as C
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.RegValue ( mergePartExpr )
-import           Lang.Crucible.Simulator.SimError
 
 import           Lang.Crucible.LLVM.Bytes (toBytes)
 import           Lang.Crucible.LLVM.MemModel
@@ -78,12 +65,9 @@ import           Lang.Crucible.LLVM.Extension ( ArchWidth )
 import           Lang.Crucible.LLVM.DataLayout ( noAlignment )
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.QQ( llvmOvr )
-import           Lang.Crucible.LLVM.Intrinsics.Common
 
 import qualified What4.Interface as W4
 import qualified What4.Partial as W4P
-import qualified What4.Expr.ArrayUpdateMap as AUM
-import qualified What4.IndexLit as IL
 
 import qualified Lang.Crucible.SymIO as SymIO
 
