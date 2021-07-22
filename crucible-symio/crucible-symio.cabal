@@ -44,7 +44,7 @@ test-suite crucible-symio-tests
                  crucible,
                  crucible-symio,
                  parameterized-utils,
-                 tasty < 1.3.1,
+                 tasty,
                  tasty-hunit,
                  tasty-expected-failure >= 0.12
 
