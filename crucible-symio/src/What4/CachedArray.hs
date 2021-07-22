@@ -60,6 +60,7 @@ import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr ( type (<=) )
+import qualified Data.Parameterized.Nonce as PN
 import qualified Data.BitVector.Sized as BV
 
 import qualified Lang.Crucible.Utils.MuxTree as MT
@@ -126,9 +127,9 @@ writeChunk sym loExpr offExpr chunk arr | NonEmptyCtxRepr <- nonEmptyCtxRepr @_ 
         (SymOffset idxOffsetExpr) <- indexToOffset <$> subSymOffset sym idx' off
         v <- evalChunk chunk idxOffsetExpr
         return $ W4.mkPE p v
-  entry <- mkMultiEntry sym vals
+  entry <- mkMultiEntry vals
   arr'' <- IM.insertWithM (mergeEntriesMux sym (isInRange sym rng)) (symRangeToAbs rng) (toPMuxTree sym entry)  (arrMap arr')
-  incNonce sym $ arr { arrMap = arr''}
+  incNonce $ arr { arrMap = arr''}
 
 
 writeSingle ::
@@ -144,7 +145,7 @@ writeSingle sym symIdxExpr val arr = arrConstraints arr $ do
   entry <- mkValEntry sym symIdx val
   
   arr'' <- IM.insertWithM (mergeEntriesMux sym (isEqIndex sym symIdx)) (symIdxToAbs symIdx) (toPMuxTree sym entry)  (arrMap arr')
-  incNonce sym $ arr { arrMap = arr'' }
+  incNonce $ arr { arrMap = arr'' }
   where
     symIdx = mkSymIndex symIdxExpr
 
@@ -221,7 +222,7 @@ muxArrays sym p arr1 arr2 = case arr1 == arr2 of
               (muxEntries sym p)
               (arrMap arr1)
               (arrMap arr2)
-    incNonce sym $ arr1 { arrMap = arr' }
+    incNonce $ arr1 { arrMap = arr' }
 
 -- | Initialize an array with symbolic contents at concrete locations
 initArrayConcrete ::
@@ -233,7 +234,7 @@ initArrayConcrete ::
   [(Ctx.Assignment W4.ConcreteVal idx, W4.SymExpr sym tp)] ->
   IO (CachedArray sym idx tp)
 initArrayConcrete sym repr m = do
-  nonce <- freshArrayNonce sym
+  nonce <- freshArrayNonce
   im <- IM.fromList <$> mapM go m
   return $ CachedArray im id repr nonce
   where
@@ -255,7 +256,7 @@ initArray ::
   [(Ctx.Assignment (W4.SymExpr sym) idx, W4.SymExpr sym tp)] ->
   IO (CachedArray sym idx tp)
 initArray sym repr m = do
-  nonce <- freshArrayNonce sym
+  nonce <- freshArrayNonce
   im <- IM.fromList <$> mapM go m
   return $ CachedArray im id repr nonce
   where
@@ -271,23 +272,18 @@ initArray sym repr m = do
 ---------------------------------------------------
 -- Implementation
 
--- | A sentinel integer that is refreshed every time the array is updated.
--- Effectively we are just using its internal nonce, but
--- without the need for introducing a new type parameter for a fresh nonce generator.
-newtype ArrayNonce sym = ArrayNonce (W4.SymInteger sym)
+-- | A sentinel nonce that is refreshed every time the array is updated.
+newtype ArrayNonce = ArrayNonce (PN.Nonce PN.GlobalNonceGenerator IO)
 
-instance TestEquality (W4.SymExpr sym) => Eq (ArrayNonce sym) where
+instance Eq ArrayNonce where
   (ArrayNonce i1) == (ArrayNonce i2) | Just Refl <- testEquality i1 i2 = True
   _ == _ = False
 
-instance OrdF (W4.SymExpr sym) => Ord (ArrayNonce sym) where
+instance Ord ArrayNonce where
   compare (ArrayNonce i1) (ArrayNonce i2) = toOrdering $ compareF i1 i2
 
-freshArrayNonce ::
-  W4.IsSymExprBuilder sym =>
-  sym ->
-  IO (ArrayNonce sym)
-freshArrayNonce sym = ArrayNonce <$> W4.freshConstant sym W4.emptySymbol W4.BaseIntegerRepr
+freshArrayNonce :: IO ArrayNonce
+freshArrayNonce = ArrayNonce <$> PN.freshNonce PN.globalNonceGenerator
 
 data CachedArray sym (ctx :: Ctx.Ctx W4.BaseType) (tp :: W4.BaseType) where
   CachedArray ::
@@ -295,19 +291,17 @@ data CachedArray sym (ctx :: Ctx.Ctx W4.BaseType) (tp :: W4.BaseType) where
       arrMap :: IM.IntervalsMap AbsIntervalEnd ctx (PMuxTree sym (ArrayEntry sym ctx tp))
     , arrConstraints :: forall a. (NonEmptyCtx ctx => a) -> a
     , arrTypeRepr :: W4.BaseTypeRepr tp
-    , _arrNonce :: ArrayNonce sym
+    , _arrNonce :: ArrayNonce
     } -> CachedArray sym ctx tp
 
 instance TestEquality (W4.SymExpr sym) => Eq (CachedArray sym idx tp) where
   (CachedArray _ _ _ nonce1) == (CachedArray _ _ _ nonce2) = nonce1 == nonce2
 
 incNonce ::
-  W4.IsSymExprBuilder sym =>
-  sym ->
   CachedArray sym idx tp ->
   IO (CachedArray sym idx tp)
-incNonce sym (CachedArray am ac tr _) = do
-  nonce <- freshArrayNonce sym
+incNonce (CachedArray am ac tr _) = do
+  nonce <- freshArrayNonce
   return $ CachedArray am ac tr nonce
 
 -- | An array entry defines a set of possible values for a given
@@ -317,17 +311,15 @@ data ArrayEntry sym ctx tp where
   ArrayEntry ::
     { -- TODO: should we cache these results?
       entryVals :: (SymIndex sym ctx -> IO (W4.PartExpr (W4.Pred sym) (W4.SymExpr sym tp)))
-    , entryNonce :: ArrayNonce sym
+    , entryNonce :: ArrayNonce
     } -> ArrayEntry sym ctx tp
 
 
 incNonceEntry ::
-  W4.IsSymExprBuilder sym =>
-  sym ->
   ArrayEntry sym ctx tp ->
   IO (ArrayEntry sym ctx tp)
-incNonceEntry sym (ArrayEntry vals _) = do
-  nonce <- freshArrayNonce sym
+incNonceEntry (ArrayEntry vals _) = do
+  nonce <- freshArrayNonce
   return $ ArrayEntry vals nonce
 
 instance TestEquality (W4.SymExpr sym) => Eq (ArrayEntry sym ctx tp) where
@@ -609,15 +601,13 @@ mkValEntry sym idx v = do
   let vals idx' = do
         p <- isEqIndex sym idx idx'
         return $ W4.mkPE p v
-  mkMultiEntry sym vals
+  mkMultiEntry vals
 
 mkMultiEntry ::
-  W4.IsSymExprBuilder sym =>
-  sym ->
   (SymIndex sym ctx -> IO (W4.PartExpr (W4.Pred sym) (W4.SymExpr sym tp))) ->
   IO (ArrayEntry sym ctx tp)
-mkMultiEntry sym vals = do
-  nonce <- freshArrayNonce sym
+mkMultiEntry vals = do
+  nonce <- freshArrayNonce
   return $ ArrayEntry vals nonce
 
 symIdxToAbs ::
@@ -653,7 +643,7 @@ invalidateRange sym invalid_rng entry = do
         notThis <- W4.notPred sym =<< isInRange sym invalid_rng symIdx'
         val <- entryVals entry symIdx'
         W4.runPartialT sym notThis $ W4.returnPartial val
-  entry' <- incNonceEntry sym $ entry { entryVals = vals }
+  entry' <- incNonceEntry $ entry { entryVals = vals }
   return $ Just entry'
 
 
@@ -747,7 +737,7 @@ mergeEntries sym pickLeftFn e1 e2 = do
         val2 <- entryVals e2 symIdx'
         W4.mergePartial sym (\p a b -> lift $ W4.baseTypeIte sym p a b)
           pickLeft val1 val2
-  incNonceEntry sym $ e1 { entryVals = vals }
+  incNonceEntry $ e1 { entryVals = vals }
 
 mergeEntriesMux ::
   forall sym ctx tp.
