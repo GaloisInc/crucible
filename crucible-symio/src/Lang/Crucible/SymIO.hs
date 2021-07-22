@@ -106,16 +106,20 @@ import           Lang.Crucible.SymIO.Types
 -- $filetypes
 -- The associated crucible types used to interact with the filesystem.
 
-initFS ::
-  forall sym wptr.
-  (1 <= wptr, IsSymInterface sym) =>
-  sym ->
-  NatRepr wptr ->
-  -- | files with initially symbolic contents
-  [(Text.Text, [W4.SymBV sym 8])] ->
-  -- | initially concrete files
-  [(Text.Text, BS.ByteString)] ->
-  IO (FileSystem sym wptr)
+-- | Create an initial 'FileSystem' based on files with initial symbolic and
+-- concrete contents
+initFS
+  :: forall sym wptr
+   .(1 <= wptr, IsSymInterface sym)
+  => sym
+  -- ^ The symbolic backend
+  -> NatRepr wptr
+  -- ^ A type-level representative of the pointer width
+  -> [(Text.Text, [W4.SymBV sym 8])]
+  -- ^ Pairs of filenames (full paths) mapped to their initial symbolic contents
+  -> [(Text.Text, BS.ByteString)]
+  -- ^ Pairs of filenames (full paths) mapped to their initial concrete contenst
+  -> IO (FileSystem sym wptr)
 initFS sym ptrSize symContents concContents = do
   symContents' <- DT.forM concContents $ \(name, bytes) -> do
     bytes' <- bytesToSym bytes
@@ -193,7 +197,6 @@ eitherToMaybeL _ = Nothing
 
 -- | Open a file by resolving a 'FileIdent' into a 'File' and then allocating a fresh
 -- 'FileHandle' pointing to the start of its contents.
-
 openFile ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
@@ -390,7 +393,13 @@ isFileIdentValid fvar ident = runFileM fvar $ do
 -----------------------------------------
 -- Internal operations
 
-
+-- | This internal monad defines a stateful context in which file operations are executed
+--
+-- Operations in this monad have full access to the symbolic filesystem (which
+-- is normally carried throughout the symbolic execution).
+--
+-- Note that most operations actually use 'FileM' instead, which fixes some
+-- useful constraints on top of the monad.
 newtype FileM_ p arch r args ret sym wptr a = FileM { _unFM :: CMS.StateT (FileSystem sym wptr) (C.OverrideSim p sym arch r args ret) a }
   deriving
      ( Applicative
@@ -406,8 +415,9 @@ data FileIdentError = FileNotFound
 instance MF.MonadFail (FileM_ p arch r args ret sym wpt) where
   fail str = useConstraints $ do
     sym <- getSym
-    liftIO $ addFailedAssertion sym $ GenericSimError $ str
+    liftIO $ addFailedAssertion sym $ GenericSimError str
 
+-- | The monad in which all filesystem operations run
 type FileM p arch r args ret sym wptr a =
   (IsSymInterface sym, 1 <= wptr) =>
   FileM_ p arch r args ret sym wptr a
@@ -424,6 +434,10 @@ liftOV ::
   FileM p arch r args ret sym wptr a
 liftOV f = FileM $ CMT.lift f
 
+-- | Run a 'FileM_' action in the 'C.OverrideSim' monad
+--
+-- This extracts the current filesystem state and threads it appropriately
+-- through the 'FileM_' monad context.
 runFileM ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
@@ -498,11 +512,12 @@ runFileMIdentCont fvar ident cont f = do
     ]
 
 getSym :: FileM p arch r args ret sym wptr sym
-getSym = liftOV $ C.getSymInterface
+getSym = liftOV C.getSymInterface
 
 getPtrSz :: FileM p arch r args ret sym wptr (NatRepr wptr)
 getPtrSz = CMS.gets fsPtrSize
 
+-- | Get the (possibly symbolic) size in bytes of the given file
 getFileSize :: FileHandle sym wptr -> FileM p arch r args ret sym wptr (W4.SymBV sym wptr)
 getFileSize fhdl = do
   (FilePointer (File _ fileid) _, _) <- readHandle fhdl
@@ -533,10 +548,15 @@ getHandle fhandle = do
 
 
 -- | Resolve a file identifier to a 'File'
+--
+-- Note that this adds a failing assertion if:
+--
+-- - The file does not exist (or the the filename is symbolic)
+-- - The filename is malformed (i.e., not utf8)
 resolveFileIdent ::
   FileIdent sym ->
   FileM p arch r args ret sym wptr (File sym wptr)
-resolveFileIdent ident = do  
+resolveFileIdent ident = do
   sym <- getSym
   m <- CMS.gets fsFileNames
   let missingErr = AssertFailureSimError "missing file" "resolveFileIdent attempted to lookup a file handle that does not exist"
@@ -545,7 +565,7 @@ resolveFileIdent ident = do
       | Right str <- Text.decodeUtf8' i'
       -> case Map.lookup str m of
       Just n -> liftIO $ readPartExpr sym n missingErr
-      Nothing -> liftIO $  addFailedAssertion sym missingErr
+      Nothing -> liftIO $ addFailedAssertion sym missingErr
     _ -> liftIO $ addFailedAssertion sym $
       Unsupported "Unsupported string in resolveFileIdent"
 

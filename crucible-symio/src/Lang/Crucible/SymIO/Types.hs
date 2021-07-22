@@ -75,6 +75,8 @@ symIOIntrinsicTypes = id
 
 -- | An identifier for a file, which must be resolved into a 'File' to access
 -- the underlying filesystem.
+--
+-- This is a file path
 type FileIdent sym = RegValue sym FileIdentType
 
 -- | The crucible-level type of 'FileIdent'
@@ -188,16 +190,6 @@ muxFilePointer sym p (FilePointer f1 off1) (FilePointer f2 off2) =
 
 
 type DataChunk sym w = CA.ArrayChunk sym (BaseBVType w) (BaseBVType 8)
-
--- type DataChunkType w = SymbolicArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
--- type DataChunk sym w = SymArray sym (EmptyCtx ::> BaseBVType w) (BaseBVType 8)
-
-
--- pattern DataChunkRepr w <-
---   SymbolicArrayRepr (Empty :> BaseBVRepr w) (BaseBVRepr (testEquality (knownNat @8) -> Just Refl))
---   where
---     DataChunkRepr w = SymbolicArrayRepr (Empty :> BaseBVRepr w) (BaseBVRepr (knownNat @8))
-
 
 type SizedDataChunkType w = SymbolicStructType (EmptyCtx ::> BaseArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8) ::> BaseBVType w)
 type SizedDataChunk sym w = SymStruct sym (EmptyCtx ::> BaseArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8) ::> BaseBVType w)
