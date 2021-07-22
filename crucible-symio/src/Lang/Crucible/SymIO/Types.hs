@@ -40,6 +40,7 @@ module Lang.Crucible.SymIO.Types
   , FileSystemIndex
   , pattern FileSystemRepr
   , File(..)
+  , pattern FileRepr
   , FileType
   , muxFile
   , DataChunk
@@ -60,7 +61,6 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
-import           Lang.Crucible.Utils.MuxTree
 
 import           What4.Interface
 import qualified What4.CachedArray as CA

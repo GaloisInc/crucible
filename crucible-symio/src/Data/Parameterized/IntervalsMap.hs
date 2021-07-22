@@ -35,7 +35,6 @@ module Data.Parameterized.IntervalsMap
   , mkIntervalF
   , Intervals(..)
   , IntervalsMap
-  , mkIntervals
   , intersecting
   , unionWith
   , unionWithM
@@ -54,6 +53,7 @@ module Data.Parameterized.IntervalsMap
   ) where
 
 
+import           Data.Kind ( Type )
 import           Data.Maybe (catMaybes)
 
 import           Data.IntervalMap.Strict ( IntervalMap )
@@ -100,15 +100,7 @@ instance (OrdF f => Ord (Intervals f ctx)) where
     compare a1 a2 <> compare (Intervals rest1) (Intervals rest2)
   compare (Intervals Ctx.Empty) (Intervals Ctx.Empty) = EQ
 
-mkIntervals ::
-  Ctx.Assignment f ctx ->
-  (forall tp. f tp -> IM.Interval (g tp)) ->
-  Intervals g ctx
-mkIntervals (rest Ctx.:> a) f =
-  let Intervals rest' = mkIntervals rest f
-  in Intervals $ rest' Ctx.:> IntervalF (fmap AsOrd (f a))
-
-data IntervalsMap (f :: k -> *) (ctx :: Ctx.Ctx k) tp where
+data IntervalsMap (f :: k -> Type) (ctx :: Ctx.Ctx k) tp where
   IntervalsMapCons ::
     IntervalMap (AsOrd f idx) (IntervalsMap f ctx tp) ->
     IntervalsMap f (ctx Ctx.::> idx) tp

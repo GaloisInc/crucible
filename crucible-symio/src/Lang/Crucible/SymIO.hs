@@ -66,26 +66,25 @@ module Lang.Crucible.SymIO
   ) where
 
 import           GHC.TypeNats
-import           Prelude hiding ( fail )
-import           Control.Monad.Trans.State ( StateT, runStateT, evalStateT )
-import           Control.Monad.Trans.Except ( ExceptT, runExceptT )
 
-import           Control.Monad.State hiding ( fail )
-import           Control.Monad.Except
-import           Control.Monad.Fail
+import           Control.Monad.IO.Class ( MonadIO, liftIO )
+import qualified Control.Monad.State as CMS
+import qualified Control.Monad.Fail as MF
+import qualified Control.Monad.Trans as CMT
 
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
+import qualified Data.Traversable as DT
 import qualified Data.Map as Map
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 
 import           Data.Parameterized.NatRepr
-import           Data.Parameterized.Context ( pattern (:>), pattern Empty, EmptyCtx, (::>) )
+import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 
 import           Lang.Crucible.CFG.Core
-import           Lang.Crucible.Simulator.RegMap ( RegValue, RegMap(..), emptyRegMap, RegEntry(..), unconsReg, reg, regMapSize )
+import           Lang.Crucible.Simulator.RegMap ( RegMap(..), emptyRegMap, RegEntry(..), unconsReg, regMapSize )
 import           Lang.Crucible.Simulator.SimError
 import qualified Lang.Crucible.Simulator.OverrideSim as C
 
@@ -93,10 +92,8 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Utils.MuxTree
 import qualified What4.Interface as W4
 import qualified What4.Concrete as W4C
-import qualified What4.Expr.ArrayUpdateMap as AUM
 import           What4.Partial
 
-import           What4.ProgramLoc ( Position )
 import qualified What4.CachedArray as CA
 import           Lang.Crucible.SymIO.Types
 
@@ -120,7 +117,7 @@ initFS ::
   [(Text.Text, BS.ByteString)] ->
   IO (FileSystem sym wptr)
 initFS sym ptrSize symContents concContents = do
-  symContents' <- forM concContents $ \(name, bytes) -> do
+  symContents' <- DT.forM concContents $ \(name, bytes) -> do
     bytes' <- bytesToSym bytes
     return (name, bytes')
   let
@@ -133,14 +130,13 @@ initFS sym ptrSize symContents concContents = do
   initArray <- CA.initArrayConcrete sym (W4.BaseBVRepr (knownNat @8))
     (map mkFileEntry flatContents)
 
-  sizes <- forM contentsIdx $ \(fileIdx, (_, bytes)) -> do
+  sizes <- DT.forM contentsIdx $ \(fileIdx, (_, bytes)) -> do
     size_bv <- W4.bvLit sym ptrSize (BV.mkBV ptrSize (fromIntegral (length bytes)))
     return $ (Ctx.empty :> W4C.ConcreteInteger fileIdx, size_bv)
 
-  undef_size <- W4.freshConstant sym W4.emptySymbol (BaseBVRepr ptrSize)
   sizes_arr <- CA.initArrayConcrete sym (W4.BaseBVRepr ptrSize) sizes
 
-  names <- forM contentsIdx $ \(fileIdx, (name, _)) -> do
+  names <- DT.forM contentsIdx $ \(fileIdx, (name, _)) -> do
     fileIdx_int <- W4.intLit sym fileIdx
     return $ (name, justPartExpr sym (File ptrSize fileIdx_int))
 
@@ -382,7 +378,7 @@ isFileIdentValid ::
   C.OverrideSim p sym arch args r ret (W4.Pred sym)
 isFileIdentValid fvar ident = runFileM fvar $ do
   sym <- getSym
-  m <- gets fsFileNames
+  m <- CMS.gets fsFileNames
   case W4.asString ident of
     Just (W4.Char8Literal i')
       | Right str <- Text.decodeUtf8' i'
@@ -395,19 +391,19 @@ isFileIdentValid fvar ident = runFileM fvar $ do
 -- Internal operations
 
 
-newtype FileM_ p arch r args ret sym wptr a = FileM { _unFM :: StateT (FileSystem sym wptr) (C.OverrideSim p sym arch r args ret) a }
+newtype FileM_ p arch r args ret sym wptr a = FileM { _unFM :: CMS.StateT (FileSystem sym wptr) (C.OverrideSim p sym arch r args ret) a }
   deriving
      ( Applicative
      , Functor
      , Monad
      , MonadIO
-     , MonadState (FileSystem sym wptr)
+     , CMS.MonadState (FileSystem sym wptr)
      )
 
 data FileHandleError = FileHandleClosed
 data FileIdentError = FileNotFound
 
-instance MonadFail (FileM_ p arch r args ret sym wpt) where
+instance MF.MonadFail (FileM_ p arch r args ret sym wpt) where
   fail str = useConstraints $ do
     sym <- getSym
     liftIO $ addFailedAssertion sym $ GenericSimError $ str
@@ -420,13 +416,13 @@ useConstraints ::
   FileM p arch r args ret sym wptr a ->
   FileM_ p arch r args ret sym wptr a
 useConstraints f = do
-  st <- get
+  st <- CMS.get
   fsConstraints st $ f
 
 liftOV ::
   C.OverrideSim p sym arch r args ret a ->
   FileM p arch r args ret sym wptr a
-liftOV f = FileM $ lift f
+liftOV f = FileM $ CMT.lift f
 
 runFileM ::
   (IsSymInterface sym, 1 <= wptr) =>
@@ -435,7 +431,7 @@ runFileM ::
   C.OverrideSim p sym arch r args ret a
 runFileM fvar (FileM f) = do
   fs <- C.readGlobal fvar
-  (a, fs') <- runStateT f fs
+  (a, fs') <- CMS.runStateT f fs
   C.writeGlobal fvar fs'
   return a
 
@@ -505,12 +501,12 @@ getSym :: FileM p arch r args ret sym wptr sym
 getSym = liftOV $ C.getSymInterface
 
 getPtrSz :: FileM p arch r args ret sym wptr (NatRepr wptr)
-getPtrSz = gets fsPtrSize
+getPtrSz = CMS.gets fsPtrSize
 
 getFileSize :: FileHandle sym wptr -> FileM p arch r args ret sym wptr (W4.SymBV sym wptr)
 getFileSize fhdl = do
   (FilePointer (File _ fileid) _, _) <- readHandle fhdl
-  szArray <- gets fsFileSizes
+  szArray <- CMS.gets fsFileSizes
   sym <- getSym
   liftIO $ CA.readSingle sym (Ctx.empty Ctx.:> fileid) szArray
 
@@ -542,7 +538,7 @@ resolveFileIdent ::
   FileM p arch r args ret sym wptr (File sym wptr)
 resolveFileIdent ident = do  
   sym <- getSym
-  m <- gets fsFileNames
+  m <- CMS.gets fsFileNames
   let missingErr = AssertFailureSimError "missing file" "resolveFileIdent attempted to lookup a file handle that does not exist"
   case W4.asString ident of
     Just (W4.Char8Literal i')
@@ -626,13 +622,13 @@ updateFileSize ::
   FileM p arch r args ret sym wptr ()
 updateFileSize fhdl = do
   (FilePointer (File _ fileid) off, _) <- readHandle fhdl
-  szArray <- gets fsFileSizes
+  szArray <- CMS.gets fsFileSizes
   sym <- getSym
   oldsz <- liftIO $ CA.readSingle sym (Ctx.empty Ctx.:> fileid) szArray
   szArray' <- liftIO $ CA.writeSingle sym (Ctx.empty Ctx.:> fileid) off szArray
   outbounds <- liftIO $ W4.bvUlt sym oldsz off
   szArray'' <- liftIO $ CA.muxArrays sym outbounds szArray' szArray
-  modify $ \arr -> arr { fsFileSizes = szArray'' }
+  CMS.modify' $ \arr -> arr { fsFileSizes = szArray'' }
 
 addToPointer ::
   W4.SymBV sym wptr ->
@@ -651,9 +647,9 @@ writeBytePointer ::
 writeBytePointer fptr bv = do
   let idx = filePointerIdx fptr
   sym <- getSym
-  dataArr <- gets fsSymData
+  dataArr <- CMS.gets fsSymData
   dataArr' <- liftIO $ CA.writeSingle sym idx bv dataArr  
-  modify $ \fs -> fs { fsSymData = dataArr' }
+  CMS.modify' $ \fs -> fs { fsSymData = dataArr' }
 
 readBytePointer ::
   FilePointer sym wptr ->
@@ -661,7 +657,7 @@ readBytePointer ::
 readBytePointer fptr = do
   sym <- getSym
   let idx = filePointerIdx fptr
-  dataArr <- gets fsSymData
+  dataArr <- CMS.gets fsSymData
   liftIO $ CA.readSingle sym idx dataArr
 
 
@@ -673,9 +669,9 @@ writeChunkPointer ::
 writeChunkPointer fptr chunk sz = do
   let idx = filePointerIdx fptr
   sym <- getSym
-  dataArr <- gets fsSymData
+  dataArr <- CMS.gets fsSymData
   dataArr' <- liftIO $ CA.writeChunk sym idx sz chunk dataArr
-  modify $ \fs -> fs { fsSymData = dataArr' }
+  CMS.modify' $ \fs -> fs { fsSymData = dataArr' }
 
 
 readChunkPointer ::
@@ -686,7 +682,7 @@ readChunkPointer ::
 readChunkPointer fptr sz = do
   let idx = filePointerIdx fptr
   sym <- getSym
-  dataArr <- gets fsSymData
+  dataArr <- CMS.gets fsSymData
   liftIO $ CA.readChunk sym idx sz dataArr
 
 filePointerIdx ::

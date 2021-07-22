@@ -47,21 +47,15 @@ module What4.CachedArray
   , initArray
   ) where
 
-import           GHC.Natural
-
-import           Control.Lens ( (.=), (.~), (&) )
+import           Control.Lens ( (.~), (&) )
 import           Control.Monad ( foldM, join )
 import           Control.Monad.Trans ( lift )
 import           Data.Functor.Const
 import           Data.Maybe ( catMaybes )
-import           Data.Map ( Map )
 import qualified Data.Map as Map
-import           Data.List (find)
 import           Data.Maybe (mapMaybe)
 import qualified Data.IORef as IO
 
-import           Data.Parameterized.Some
-import qualified Data.Parameterized.Nonce as N
 import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
@@ -70,7 +64,6 @@ import qualified Data.BitVector.Sized as BV
 
 import qualified Lang.Crucible.Utils.MuxTree as MT
 
-import qualified What4.Expr.Builder as W4B
 import qualified What4.Interface as W4
 import qualified What4.Partial as W4
 import qualified What4.Concrete as W4
@@ -477,7 +470,7 @@ symRangeToAbs (SymRangeMulti loIdx hiIdx) =
 -- | Create a range that is exclusive of the given offset
 -- i.e. 2 + 4 --> (2, 5)
 mkSymRangeOff ::
-  forall sym ctx ctx' offtp.
+  forall sym ctx .
   W4.IsSymExprBuilder sym =>
   NonEmptyCtx ctx =>
   sym ->
@@ -509,17 +502,6 @@ instance NonEmptyCtx (ctx Ctx.::> tp) where
   type CtxHead (ctx Ctx.::> tp) = tp
   type CtxTail (ctx Ctx.::> tp) = ctx
   nonEmptyCtxRepr = NonEmptyCtxRepr
-
-
-constEntryCond ::
-  W4.IsSymExprBuilder sym =>
-  ArrayEntry sym ctx tp ->
-  SymIndex sym ctx ->
-  IO (Maybe Bool)
-constEntryCond entry idx = entryVals entry idx >>= \case
-  W4.Unassigned -> return $ Just False
-  W4.PE p _ -> return $ W4.asConstantPred p
-
 
 data AbsIntervalEnd tp where
   AbsIntervalEndInt :: W4.ValueBound Integer -> AbsIntervalEnd W4.BaseIntegerType
