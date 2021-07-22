@@ -1,0 +1,4 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/T784-fail.c:4:3: error: in main
+[Crux]   Call to exit() with non-zero argument
+[Crux] Overall status: Invalid.

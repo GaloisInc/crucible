@@ -487,6 +487,18 @@ callAssert mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
         let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
         liftIO $ addFailedAssertion sym err
 
+callExit :: (IsSymInterface sym)
+         => sym
+         -> RegEntry sym (BVType 32)
+         -> OverrideSim p sym ext r args ret (RegValue sym UnitType)
+callExit sym ec = liftIO $
+  do cond <- bvEq sym (regValue ec) =<< bvLit sym knownNat (BV.zero knownNat)
+     -- If the argument is non-zero, throw an assertion failure. Otherwise,
+     -- simply stop the current thread of execution.
+     assert sym cond "Call to exit() with non-zero argument"
+     loc <- getCurrentProgramLoc sym
+     abortExecBecause $ EarlyExit loc
+
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
   => sym
@@ -669,6 +681,16 @@ llvmAbortOverride =
      do let err = AssertFailureSimError "Call to abort" ""
         liftIO $ assert sym (falsePred sym) err
   )
+
+llvmExitOverride
+  :: forall sym p
+   . (IsSymInterface sym)
+  => LLVMOverride p sym
+         (EmptyCtx ::> BVType 32)
+         UnitType
+llvmExitOverride =
+  [llvmOvr| void @exit( i32 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callExit sym) args)
 
 llvmGetenvOverride
   :: (IsSymInterface sym, HasPtrWidth wptr)

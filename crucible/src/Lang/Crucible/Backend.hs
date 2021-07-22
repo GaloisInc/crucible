@@ -322,6 +322,9 @@ data AbortExecReason =
     -- ^ We tried all possible cases for a variant, and now we should
     -- do something else.
 
+  | EarlyExit ProgramLoc
+    -- ^ TODO RGS
+
     deriving Show
 
 instance Exception AbortExecReason
@@ -337,6 +340,7 @@ ppAbortExecReason e =
       , PP.indent 2 (ppSimError err)
       ]
     VariantOptionsExhausted l -> ppLocated l "Variant options exhausted."
+    EarlyExit l -> ppLocated l "Program exited early."
 
 ppAssumption :: (forall tp. e tp -> PP.Doc ann) -> CrucibleAssumption e -> PP.Doc ann
 ppAssumption ppDoc e =
