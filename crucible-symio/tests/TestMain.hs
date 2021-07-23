@@ -62,7 +62,6 @@ import qualified What4.Partial as W4
 
 import qualified What4.CachedArray as CA
 import qualified Lang.Crucible.SymIO as SymIO
-import qualified Lang.Crucible.SymIO.Types as SymIO
 
 import qualified System.IO as IO
 

@@ -40,6 +40,9 @@ module Lang.Crucible.SymIO
   , FileIdent
   , DataChunk
   , CA.mkArrayChunk
+  -- ** Reprs
+  , pattern FileRepr
+  , pattern FileSystemRepr
   -- * Filesystem operations
   -- $fileops
   , initFS

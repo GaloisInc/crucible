@@ -25,6 +25,7 @@ library
   import: shared
   exposed-modules:
       Lang.Crucible.SymIO
+  other-modules:
       Lang.Crucible.SymIO.Types
       What4.CachedArray
       Data.Parameterized.IntervalsMap
@@ -35,8 +36,14 @@ library
 test-suite crucible-symio-tests
   import: shared
   type: exitcode-stdio-1.0
+  default-language: Haskell2010
+  other-modules:
+    Data.Parameterized.IntervalsMap
+    Lang.Crucible.SymIO
+    Lang.Crucible.SymIO.Types
+    What4.CachedArray
   main-is: TestMain.hs
-  hs-source-dirs: tests
+  hs-source-dirs: tests, src
   build-depends: base >=4.12 && <4.15,
                  what4,
                  crucible,
