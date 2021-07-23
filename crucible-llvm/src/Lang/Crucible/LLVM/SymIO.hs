@@ -32,25 +32,28 @@
 module Lang.Crucible.LLVM.SymIO
   ( llvmSymIOIntrinsicTypes
   , symio_overrides
+  , LLVMFileSystem
+  , initialLLVMFileSystem
   )
   where
 
-import           GHC.Natural ( Natural )
-
-import           Control.Monad.IO.Class (liftIO)
+import           Control.Arrow ( first )
 import           Control.Monad ( forM, foldM )
-
-import qualified Data.ByteString as BS
+import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BVS
-import qualified Data.Set as Set
+import qualified Data.ByteString as BS
 import qualified Data.Map as Map
-
+import qualified Data.Parameterized.Classes as PC
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty, (::>), EmptyCtx )
-
-import           Data.Parameterized.NatRepr
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.SymbolRepr
+import qualified Data.Parameterized.NatRepr as PN
+import qualified Data.Parameterized.SymbolRepr as PS
+import qualified Data.Set as Set
+import qualified Data.Text as Text
+import           GHC.Natural ( Natural )
+import           GHC.TypeNats ( type (<=) )
 
+import qualified Lang.Crucible.FunctionHandle as LCF
 import           Lang.Crucible.Types ( IntrinsicType, BVType, TypeRepr(..) )
 import qualified Lang.Crucible.Utils.MuxTree as CMT
 import           Lang.Crucible.CFG.Common
@@ -58,6 +61,7 @@ import           Lang.Crucible.Backend as C
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
+import qualified Lang.Crucible.Simulator.GlobalState as LCSG
 
 import           Lang.Crucible.LLVM.Bytes (toBytes)
 import           Lang.Crucible.LLVM.MemModel
@@ -71,6 +75,10 @@ import qualified What4.Partial as W4P
 
 import qualified Lang.Crucible.SymIO as SymIO
 
+-- | A representation of the filesystem for the LLVM frontend
+--
+-- This contains the underlying SymIO filesystem as well as the infrastructure
+-- for allocating fresh file handles
 data LLVMFileSystem ptrW =
   LLVMFileSystem
     { llvmFileSystem :: GlobalVar (SymIO.FileSystemType ptrW)
@@ -81,9 +89,48 @@ data LLVMFileSystem ptrW =
 
 data FDescMap sym ptrW where
   FDescMap ::
-    { _fDescNext :: Natural
-    , _fDescMap :: Map.Map Natural (W4P.PartExpr (W4.Pred sym) (SymIO.FileHandle sym ptrW))
+    { fDescNext :: Natural
+    -- ^ The next file descriptor to hand out
+    --
+    -- Note that these are truncated to 32 bit bitvectors when they are handed
+    -- out; we don't have any guards against overflow on that right now
+    , fDescMap :: Map.Map Natural (W4P.PartExpr (W4.Pred sym) (SymIO.FileHandle sym ptrW))
     } -> FDescMap sym ptrW
+
+-- | Create an initial 'LLVMFileSystem' based on given concrete and symbolic file contents
+--
+-- Note that this function takes a 'LCSG.SymGlobalState' because it needs to
+-- allocate a few distinguished global variables for its own bookkeeping. It
+-- adds them to the given global state and returns an updated global state,
+-- which must not be discarded.
+--
+-- The returned 'LLVMFileSystem' is a wrapper around that global state, and is
+-- required to initialize the symbolic I/O overrides.
+initialLLVMFileSystem
+  :: (1 <= ptrW, C.IsSymInterface sym)
+  => LCF.HandleAllocator
+  -> sym
+  -> PN.NatRepr ptrW
+  -- ^ The pointer width for the platform
+  -> [(FilePath, [W4.SymBV sym 8])]
+  -- ^ Pairs of initial file path mapped to symbolic file contents
+  -> [(FilePath, BS.ByteString)]
+  -- ^ Pairs of initial file path mapped to concrete file contents
+  -> LCSG.SymGlobalState sym
+  -- ^ The current globals, which will be updated with necessary bindings to support the filesystem
+  -> IO (LLVMFileSystem ptrW, LCSG.SymGlobalState sym)
+initialLLVMFileSystem halloc sym ptrW symContents concContents globals0 = do
+  fs0 <- SymIO.initFS sym ptrW (fmap (first Text.pack) symContents) (fmap (first Text.pack) concContents)
+  let fdm0 = FDescMap { fDescNext = 0
+                      , fDescMap = Map.empty
+                      }
+  fsVar <- freshGlobalVar halloc (Text.pack "llvmFileSystem_Global") (SymIO.FileSystemRepr ptrW)
+  fdmVar <- freshGlobalVar halloc (Text.pack "llvmFileDescMap_Global") (FDescMapRepr ptrW)
+  let llfs = LLVMFileSystem { llvmFileSystem = fsVar
+                            , llvmFileDescMap = fdmVar
+                            }
+  let globals1 = LCSG.insertGlobal fdmVar fdm0 $ LCSG.insertGlobal fsVar fs0 globals0
+  return (llfs, globals1)
 
 type FDescMapType w = IntrinsicType "LLVM_fdescmap" (EmptyCtx ::> BVType w)
 
@@ -93,6 +140,10 @@ instance (IsSymInterface sym) => IntrinsicClass sym "LLVM_fdescmap" where
   muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxHandleMap sym
   muxIntrinsic _ _ nm ctx = \_ _ _ -> typeError nm ctx
 
+pattern FDescMapRepr :: () => (1 <= w, ty ~ FDescMapType w) => PN.NatRepr w -> TypeRepr ty
+pattern FDescMapRepr w <- IntrinsicRepr (PC.testEquality (PS.knownSymbol @"LLVM_fdescmap") -> Just PC.Refl) (Empty :> BVRepr w)
+  where
+    FDescMapRepr w = IntrinsicRepr PS.knownSymbol (Empty :> BVRepr w)
 
 muxHandleMap
   :: IsSymInterface sym
@@ -114,7 +165,7 @@ muxHandleMap sym p (FDescMap nextT mapT) (FDescMap nextF mapF) = do
 
 llvmSymIOIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 llvmSymIOIntrinsicTypes = id
-  . MapF.insert (knownSymbol :: SymbolRepr "LLVM_fdescmap") IntrinsicMuxFn
+  . MapF.insert (PS.knownSymbol :: PS.SymbolRepr "LLVM_fdescmap") IntrinsicMuxFn
   $ SymIO.symIOIntrinsicTypes
 
 -- | Resolve a symbolic file descriptor to a known allocated file handle.
@@ -150,7 +201,7 @@ chunkFromMemory
   -> IO (SymIO.DataChunk sym wptr)
 chunkFromMemory sym mem ptr = SymIO.mkArrayChunk sym $ \offset -> do
   ptr' <- ptrAdd sym PtrWidth ptr offset
-  doLoad sym mem ptr' (bitvectorType (toBytes (1 :: Integer))) (BVRepr (knownNat @8)) noAlignment
+  doLoad sym mem ptr' (bitvectorType (toBytes (1 :: Integer))) (BVRepr (PN.knownNat @8)) noAlignment
 
 -- | Retrieve the 'SymIO.FileHandle' that the given descriptor represents,
 -- calling the continuation with 'Nothing' if the descriptor does not represent
@@ -174,18 +225,31 @@ lookupFileHandle fsVars fdesc args cont = do
     W4P.Unassigned -> cont Nothing args
 
 
--- | Allocate a fresh 'LLVMPtr' that is associated with the given 'SymIO.FileHandle'
--- TODO: we should add a symbolic offset to these values so that we can't make any
--- concrete assertions about them.
-allocateFileHandle
+-- | Allocate a fresh (integer/bitvector(32)) file descriptor that is associated with the given 'SymIO.FileHandle'
+--
+-- NOTE that this is a file descriptor in the POSIX sense, rather than a @FILE*@
+-- or the underlying 'SymIO.FileHandle'.
+--
+-- NOTE that we truncate the file descriptor source to 32 bits in this function;
+-- it could in theory overflow.
+--
+-- NOTE that the file descriptor counter is incremented monotonically as the
+-- simulator hits calls to @open@; this means that calls to @open@ in parallel
+-- control flow branches would get sequential file descriptor values whereas the
+-- real program would likely allocate the same file descriptor value on both
+-- branches. This could be relevant for some bug finding scenarios.
+--
+-- TODO we should add a symbolic offset to these values so that we can't make
+-- any concrete assertions about them.
+allocateFileDescriptor
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => LLVMFileSystem wptr
   -> SymIO.FileHandle sym wptr
   -> OverrideSim p sym ext r args ret (W4.SymBV sym 32)
-allocateFileHandle fsVars fh = do
+allocateFileDescriptor fsVars fh = do
   sym <- getSymInterface
   modifyGlobal (llvmFileDescMap fsVars) $ \(FDescMap next descMap) -> do
-    fdesc <-  liftIO $ W4.bvLit sym (knownNat @32) (BVS.mkBV (knownNat @32) (toInteger next))
+    fdesc <-  liftIO $ W4.bvLit sym (PN.knownNat @32) (BVS.mkBV (PN.knownNat @32) (toInteger next))
     let ptrMap' = Map.insert next (W4P.justPartExpr sym fh) descMap
     return (fdesc, FDescMap (next + 1) ptrMap')
 
@@ -205,7 +269,7 @@ returnIOError32
   => OverrideSim p sym ext r args ret (W4.SymBV sym 32)
 returnIOError32 = do
   sym <- getSymInterface
-  liftIO $ W4.bvLit sym (knownNat @32) (BVS.mkBV (knownNat @32) (-1))
+  liftIO $ W4.bvLit sym (PN.knownNat @32) (BVS.mkBV (PN.knownNat @32) (-1))
 
 returnIOError
   :: forall wptr p sym ext r args ret
@@ -224,13 +288,13 @@ openFile
            (BVType 32)
 openFile fsVars =
   [llvmOvr| i32 @open( i8*, i32 ) |]
-  -- TODO add mode support
+  -- TODO add mode support by making this a varargs function
   (\memOps _sym (Empty :> filename_ptr :> _flags) ->
        do
          fileIdent <- loadFileIdent memOps (regValue filename_ptr)
          SymIO.openFile (llvmFileSystem fsVars) fileIdent $ \case
            Left SymIO.FileNotFound -> returnIOError32
-           Right fileHandle -> allocateFileHandle fsVars fileHandle
+           Right fileHandle -> allocateFileDescriptor fsVars fileHandle
   )
 
 closeFile
@@ -247,7 +311,7 @@ closeFile fsVars =
            Just fileHandle -> \_ ->
              SymIO.closeFileHandle (llvmFileSystem fsVars) fileHandle $ \case
                Just SymIO.FileHandleClosed -> returnIOError32
-               Nothing -> liftIO $ W4.bvLit sym (knownNat @32) (BVS.mkBV (knownNat @32) 0)
+               Nothing -> liftIO $ W4.bvLit sym (PN.knownNat @32) (BVS.mkBV (PN.knownNat @32) 0)
            Nothing -> \_ -> returnIOError32
   )
 
