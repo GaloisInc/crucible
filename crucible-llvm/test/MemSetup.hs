@@ -60,9 +60,7 @@ withLLVMCtx mod' action =
       with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
         sym <- CBS.newSimpleBackend CBS.FloatRealRepr nonceGen
-        let ?laxArith = False
-        let ?optLoopMerge = False
-        let ?debugIntrinsics = False
+        let ?transOpts = LLVMTr.defaultTranslationOptions
         memVar <- LLVMM.mkMemVar "test_llvm_memory" halloc
         Some (LLVMTr.ModuleTranslation _ ctx _ _) <- LLVMTr.translateModule halloc memVar mod'
         case LLVMTr.llvmArch ctx            of { LLVME.X86Repr width ->

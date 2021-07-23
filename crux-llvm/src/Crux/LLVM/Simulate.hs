@@ -190,9 +190,7 @@ prepLLVMModule :: IsSymInterface sym
                -> IO (PreppedLLVM sym)
 prepLLVMModule llvmOpts halloc sym bcFile memVar = do
     llvmMod <- parseLLVM bcFile
-    Some trans <- let ?laxArith = laxArithmetic llvmOpts
-                      ?optLoopMerge = loopMerge llvmOpts
-                      ?debugIntrinsics = debugIntrinsics llvmOpts
+    Some trans <- let ?transOpts = transOpts llvmOpts
                   in translateModule halloc memVar llvmMod
     mem <- let llvmCtxt = trans ^. transContext in
              let ?lc = llvmCtxt ^. llvmTypeCtx

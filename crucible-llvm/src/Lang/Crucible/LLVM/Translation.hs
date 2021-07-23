@@ -83,6 +83,7 @@ module Lang.Crucible.LLVM.Translation
   , translateModule
 
   , module Lang.Crucible.LLVM.Translation.Constant
+  , module Lang.Crucible.LLVM.Translation.Options
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
@@ -116,6 +117,7 @@ import           Lang.Crucible.LLVM.Translation.Aliases
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
+import           Lang.Crucible.LLVM.Translation.Options
 import           Lang.Crucible.LLVM.Translation.Instruction
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
@@ -187,7 +189,7 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 
 
 -- | Generate crucible code for each LLVM statement in turn.
-generateStmts :: (?laxArith :: Bool, ?debugIntrinsics :: Bool)
+generateStmts :: (?transOpts :: TranslationOptions)
         => TypeRepr ret
         -> L.BlockLabel
         -> [L.Stmt]
@@ -308,7 +310,7 @@ findFile _ = Nothing
 -- | Lookup the block info for the given LLVM block and then define a new crucible block
 --   by translating the given LLVM statements.
 defineLLVMBlock
-        :: (?laxArith :: Bool, ?debugIntrinsics :: Bool)
+        :: (?transOpts :: TranslationOptions)
         => TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
@@ -326,7 +328,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --
 --   This step introduces a new dummy entry point that simply jumps to the LLVM entry
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
-genDefn :: (?laxArith :: Bool, ?debugIntrinsics :: Bool)
+genDefn :: (?transOpts :: TranslationOptions)
         => L.Define
         -> TypeRepr ret
         -> LLVMGenerator s arch ret (Expr ext s ret)
@@ -357,8 +359,7 @@ genDefn defn retType =
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
 transDefine :: forall arch wptr.
-               ( HasPtrWidth wptr, wptr ~ ArchWidth arch
-               , ?laxArith :: Bool, ?optLoopMerge :: Bool, ?debugIntrinsics :: Bool )
+               (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
             => HandleAllocator
             -> LLVMContext arch
             -> L.Define
@@ -377,7 +378,7 @@ transDefine halloc ctx d = do
                   f = genDefn d retType
     sng <- newIONonceGenerator
     (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
-      if ?optLoopMerge then earlyMergeLoops ng cfg else return cfg
+      if optLoopMerge ?transOpts then earlyMergeLoops ng cfg else return cfg
     case toSSA g of
       C.SomeCFG g_ssa -> return (symb, (decl, C.AnyCFG g_ssa))
 
@@ -387,7 +388,7 @@ transDefine halloc ctx d = do
 -- | Translate a module into Crucible control-flow graphs.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
-translateModule :: (?laxArith :: Bool, ?optLoopMerge :: Bool, ?debugIntrinsics :: Bool)
+translateModule :: (?transOpts :: TranslationOptions)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
