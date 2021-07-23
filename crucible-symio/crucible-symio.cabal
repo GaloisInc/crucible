@@ -1,5 +1,10 @@
 cabal-version:       2.2
-
+synopsis:            An implementation of symbolic I/O primitives for Crucible
+description:
+  This library provides language-independent overrides implementing filesystem
+  operations (as provided by most operating systems). These primitives support
+  reading and writing symbolic data. An example use case would be to support verifying
+  programs that e.g., use configuration files or accept input from files.
 name:                crucible-symio
 version:             0.1.0.0
 license-file:        LICENSE
@@ -44,6 +49,7 @@ test-suite crucible-symio-tests
     What4.CachedArray
   main-is: TestMain.hs
   hs-source-dirs: tests, src
+  ghc-options: -Wall -Wcompat
   build-depends: base >=4.12 && <4.15,
                  what4,
                  crucible,
