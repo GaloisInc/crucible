@@ -1,4 +1,4 @@
-# Revision history for crucible-vfs
+# Revision history for crucible-symio
 
 ## 0.1.0.0 -- YYYY-mm-dd
 

@@ -294,7 +294,7 @@ data CachedArray sym (ctx :: Ctx.Ctx W4.BaseType) (tp :: W4.BaseType) where
     , _arrNonce :: ArrayNonce
     } -> CachedArray sym ctx tp
 
-instance TestEquality (W4.SymExpr sym) => Eq (CachedArray sym idx tp) where
+instance Eq (CachedArray sym idx tp) where
   (CachedArray _ _ _ nonce1) == (CachedArray _ _ _ nonce2) = nonce1 == nonce2
 
 incNonce ::
@@ -322,10 +322,10 @@ incNonceEntry (ArrayEntry vals _) = do
   nonce <- freshArrayNonce
   return $ ArrayEntry vals nonce
 
-instance TestEquality (W4.SymExpr sym) => Eq (ArrayEntry sym ctx tp) where
+instance Eq (ArrayEntry sym ctx tp) where
   e1 == e2 = entryNonce e1 == entryNonce e2
 
-instance OrdF (W4.SymExpr sym) => Ord (ArrayEntry sym ctx tp) where
+instance Ord (ArrayEntry sym ctx tp) where
   compare e1 e2 = compare (entryNonce e1) (entryNonce e2)
 
 -- | A symbolic index into the array. It represents the index for a single array element,
@@ -343,10 +343,10 @@ deriving instance (W4.IsSymExprBuilder sym => Ord (SymIndex sym ctx))
 
 -- | An offset is an index into the last element of the array index
 -- A value range is always representable as a base + offset
-data SymOffset sym ctx where
+newtype SymOffset sym ctx where
   SymOffset :: W4.SymExpr sym (CtxFirst ctx) -> SymOffset sym ctx
 
-data FirstIndex ctx where
+newtype FirstIndex ctx where
   FirstIndex :: Ctx.Index ctx (CtxFirst ctx) -> FirstIndex ctx
 
 skipFirst ::

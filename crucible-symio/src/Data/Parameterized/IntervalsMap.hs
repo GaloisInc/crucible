@@ -75,7 +75,7 @@ instance TestEquality f => Eq (AsOrd f tp) where
 instance OrdF f => Ord (AsOrd f tp) where
   compare (AsOrd a) (AsOrd b) = toOrdering $ compareF a b
 
-data IntervalF f tp where
+newtype IntervalF f tp where
   IntervalF :: IM.Interval (AsOrd f tp) -> IntervalF f tp
 
 mkIntervalF ::
