@@ -677,9 +677,11 @@ llvmAbortOverride
   => LLVMOverride p sym EmptyCtx UnitType
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
-  (\_ sym _args ->
+  (\_ sym _args -> liftIO $
      do let err = AssertFailureSimError "Call to abort" ""
-        liftIO $ assert sym (falsePred sym) err
+        assert sym (falsePred sym) err
+        loc <- getCurrentProgramLoc sym
+        abortExecBecause $ EarlyExit loc
   )
 
 llvmExitOverride

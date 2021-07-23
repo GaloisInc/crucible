@@ -1,0 +1,4 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/T787.c:4:3: error: in main
+[Crux]   Call to abort
+[Crux] Overall status: Invalid.
