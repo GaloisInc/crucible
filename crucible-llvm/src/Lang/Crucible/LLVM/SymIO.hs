@@ -6,8 +6,18 @@
 -- License          : BSD3
 -- Maintainer       : Daniel Matichuk <dmatichuk@galois.com>
 -- Stability        : provisional
+--
+--
+-- This module wraps the crucible-symio interface suitably for use within the
+-- LLVM frontend to crucible. It provides overrides for the following functions:
+--
+-- - @open@
+-- - @read@
+-- - @write@
+-- - @close@
+--
+-- as specified by POSIX. Note that it does not yet cover the C stdio functions.
 ------------------------------------------------------------------------
-
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -29,6 +39,7 @@
 {-# LANGUAGE LambdaCase #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Lang.Crucible.LLVM.SymIO
   ( llvmSymIOIntrinsicTypes
   , symio_overrides
@@ -162,7 +173,10 @@ muxHandleMap sym p (FDescMap nextT mapT) (FDescMap nextF mapF) = do
     r <- mergePartExpr sym (CMT.mergeMuxTree sym) p vT vF
     return (k,r)
 
-
+-- | The intrinsics supporting symbolic I/O in LLVM
+--
+-- Note that this includes the base intrinsic types from crucible-symio, so
+-- those do not need to be added again.
 llvmSymIOIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 llvmSymIOIntrinsicTypes = id
   . MapF.insert (PS.knownSymbol :: PS.SymbolRepr "LLVM_fdescmap") IntrinsicMuxFn
@@ -363,7 +377,9 @@ writeFileHandle fsVars =
            Nothing -> \_ -> returnIOError
   )
 
-
+-- | The file handling overrides
+--
+-- See the 'initialLLVMFileSystem' function for creating the initial filesystem state
 symio_overrides
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMFileSystem wptr
