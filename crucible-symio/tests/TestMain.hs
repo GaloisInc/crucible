@@ -24,7 +24,7 @@
 module Main where
 
 import           GHC.TypeNats
-import           Control.Lens ( (^..), (^.) )
+import           Control.Lens ( (^.) )
 
 import           Control.Monad (foldM )
 import           Control.Monad.IO.Class (liftIO)
@@ -34,8 +34,6 @@ import           Data.Parameterized.Some
 import qualified Data.Parameterized.Nonce as N
 import qualified Data.Parameterized.NatRepr as NR
 
-
-import qualified Data.Sequence as Seq
 import qualified Data.ByteString as BS
 
 import qualified Data.BitVector.Sized as BVS
