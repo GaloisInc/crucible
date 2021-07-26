@@ -28,6 +28,7 @@ import           Control.Lens ( (^.) )
 
 import           Control.Monad (foldM )
 import           Control.Monad.IO.Class (liftIO)
+import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Some
@@ -99,7 +100,13 @@ runFSTest' sym (FSTest fsTest) = do
   let
     nRepr = NR.knownNat @wptr
 
-  fs <- SymIO.initFS sym nRepr [] [("test0", tobs [0,1,2]), ("test1", tobs [3,4,5,6])]
+  let contents = SymIO.InitialFileSystemContents { SymIO.symbolicFiles = Map.empty
+                                                 , SymIO.concreteFiles =
+                                                   Map.fromList [ (SymIO.FileTarget "/test0", tobs [0,1,2])
+                                                                , (SymIO.FileTarget "/test1", tobs [3,4,5,6])
+                                                                ]
+                                                 }
+  fs <- SymIO.initFS sym nRepr contents
   halloc <- CFH.newHandleAllocator
   fsvar <- CC.freshGlobalVar halloc "fileSystem" (SymIO.FileSystemRepr nRepr)
   
@@ -173,7 +180,7 @@ readFromChunk chunk bv = liftIO $ CA.evalChunk chunk bv
 testConcReads :: FSTest 32
 testConcReads = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
-  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test0")
+  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "/test0")
   test0FileHandle <- SymIO.openFile' fsVar test0_name
   byte0_0 <- readOne fsVar test0FileHandle
   byte0_1 <- readOne fsVar test0FileHandle
@@ -181,7 +188,7 @@ testConcReads = FSTest $ \fsVar -> do
   expect byte0_0 0
   expect byte0_1 1
 
-  test1_name <-  liftIO $  W4.stringLit sym (W4.Char8Literal "test1")
+  test1_name <-  liftIO $  W4.stringLit sym (W4.Char8Literal "/test1")
   test1FileHandle <- SymIO.openFile' fsVar test1_name
   zero <- mkbv 0
   one <- mkbv 1
@@ -200,7 +207,7 @@ testConcReads = FSTest $ \fsVar -> do
   expect byte1_2 5
   expect byte1_3 6
 
-  mkCase fsVar "test1" (3, 4, 5, 6)
+  mkCase fsVar "/test1" (3, 4, 5, 6)
 
 expect ::
   CB.IsSymInterface sym =>
@@ -296,7 +303,7 @@ neither sym p1 p2 = do
 testOverlappingWritesSingle :: FSTest 32
 testOverlappingWritesSingle = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
-  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test1")
+  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "/test1")
   
   test1FileHandle <- SymIO.openFile' fsVar test1_name
   seek_1 <- maybeSeekOne' fsVar test1FileHandle
@@ -308,7 +315,7 @@ testOverlappingWritesSingle = FSTest $ \fsVar -> do
   nine <- mkbv 9
   SymIO.writeByte' fsVar test1FileHandle2 nine
 
-  mkCases2 fsVar "test1" seek_1 seek_2
+  mkCases2 fsVar "/test1" seek_1 seek_2
     (3, 9, 5, 6)
     (9, 8, 5, 6)
     (8, 9, 5, 6)
@@ -319,7 +326,7 @@ testOverlappingWritesSingle = FSTest $ \fsVar -> do
 testOverlappingWritesRange :: FSTest 32
 testOverlappingWritesRange = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
-  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test1")
+  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "/test1")
   
   test1FileHandle <- SymIO.openFile' fsVar test1_name
   seek_1 <- maybeSeekOne' fsVar test1FileHandle
@@ -327,7 +334,7 @@ testOverlappingWritesRange = FSTest $ \fsVar -> do
   
   _ <- SymIO.writeChunk' fsVar test1FileHandle chunk_8_9 two
 
-  mkCases1 fsVar "test1" seek_1
+  mkCases1 fsVar "/test1" seek_1
     (3, 8, 9, 6)
     (8, 9, 5, 6)
 
@@ -336,7 +343,7 @@ testOverlappingWritesRange = FSTest $ \fsVar -> do
   seek_2 <- maybeSeekOne' fsVar test1FileHandle2
   _ <- SymIO.writeChunk' fsVar test1FileHandle2 chunk_10_11 two
   
-  mkCases2 fsVar "test1" seek_1 seek_2
+  mkCases2 fsVar "/test1" seek_1 seek_2
     (3, 10, 11, 6)
     (10, 11, 9, 6)
     (8, 10, 11, 6)
@@ -360,7 +367,7 @@ testEOF :: FSTest 32
 testEOF = FSTest $ \fsVar -> do
   sym <- CS.getSymInterface
   let err = CS.AssertFailureSimError "expect EOF" "expect EOF"
-  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test0")
+  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "/test0")
   fhdl <- SymIO.openFile' fsVar test0_name
   _ <- readOne fsVar fhdl
   _ <- readOne fsVar fhdl
@@ -401,7 +408,7 @@ testEOF = FSTest $ \fsVar -> do
   eof' <- SymIO.readByte' fsVar fhdl4
   assertNone eof' err
 
-  mkCase fsVar "test0" (8, 9, 10, 11)
+  mkCase fsVar "/test0" (8, 9, 10, 11)
 
 
 
@@ -435,8 +442,8 @@ getSomeFile fsVar = do
   sym <- CS.getSymInterface
   b <- liftIO $ W4.freshConstant sym W4.emptySymbol W4.BaseBoolRepr
   args <- CS.getOverrideArgs
-  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test0")
-  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "test1")
+  test0_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "/test0")
+  test1_name <- liftIO $ W4.stringLit sym (W4.Char8Literal "/test1")
   
   CS.symbolicBranch b args (SymIO.openFile' fsVar test0_name) Nothing args (SymIO.openFile' fsVar test1_name) Nothing
 

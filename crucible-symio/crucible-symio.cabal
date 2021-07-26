@@ -15,10 +15,14 @@ extra-source-files:  CHANGELOG.md
 
 common shared
   build-depends:       base >=4.12 && <4.15,
+                       aeson,
                        bv-sized,
                        bytestring,
                        crucible,
                        containers,
+                       directory,
+                       filemanip,
+                       filepath,
                        IntervalMap,
                        lens,
                        mtl,
@@ -30,6 +34,7 @@ library
   import: shared
   exposed-modules:
       Lang.Crucible.SymIO
+      Lang.Crucible.SymIO.Loader
   other-modules:
       Lang.Crucible.SymIO.Types
       What4.CachedArray
@@ -45,6 +50,7 @@ test-suite crucible-symio-tests
   other-modules:
     Data.Parameterized.IntervalsMap
     Lang.Crucible.SymIO
+    Lang.Crucible.SymIO.Loader
     Lang.Crucible.SymIO.Types
     What4.CachedArray
   main-is: TestMain.hs

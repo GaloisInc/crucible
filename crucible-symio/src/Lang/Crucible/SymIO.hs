@@ -30,9 +30,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.SymIO
   (
+  -- * Setup
+    FDTarget(..)
+  , InitialFileSystemContents(..)
   -- * Filesystem types
   -- $filetypes
-    FileSystemType
+  , FileSystemType
   , FileHandle
   , FileHandleType
   , FilePointer
@@ -70,6 +73,7 @@ module Lang.Crucible.SymIO
 
 import           GHC.TypeNats
 
+import           Control.Arrow ( first )
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
 import qualified Control.Monad.State as CMS
 import qualified Control.Monad.Fail as MF
@@ -103,6 +107,33 @@ import           Lang.Crucible.SymIO.Types
 ---------------------------------------
 -- Interface
 
+data FDTarget = FileTarget FilePath
+              | StdinTarget
+              deriving (Eq, Ord, Show)
+
+-- | Convert an 'FDTarget' to 'T.Text'
+--
+-- We need to do this because filenames are stored in a Crucible StringMap, so
+-- we can't use our custom ADT.  We have to do some custom namespacing here to
+-- avoid collisions between named files and our special files.
+--
+-- We will adopt the convention that /all/ actual files will have absolute paths
+-- in the symbolic filesystem.  The special files will have names that are not
+-- valid absolute paths.
+--
+-- FIXME: Add some validation somewhere so that we actually enforce the absolute
+-- path property
+fdTargetToText :: FDTarget -> Text.Text
+fdTargetToText t =
+  case t of
+    FileTarget f -> Text.pack f
+    StdinTarget -> Text.pack "<stdin>"
+
+data InitialFileSystemContents sym =
+  InitialFileSystemContents { concreteFiles :: Map.Map FDTarget BS.ByteString
+                            , symbolicFiles :: Map.Map FDTarget [W4.SymBV sym 8]
+                            }
+
 -- $fileops
 -- Top-level overrides for filesystem operations.
 
@@ -118,12 +149,12 @@ initFS
   -- ^ The symbolic backend
   -> NatRepr wptr
   -- ^ A type-level representative of the pointer width
-  -> [(Text.Text, [W4.SymBV sym 8])]
-  -- ^ Pairs of filenames (full paths) mapped to their initial symbolic contents
-  -> [(Text.Text, BS.ByteString)]
-  -- ^ Pairs of filenames (full paths) mapped to their initial concrete contenst
+  -> InitialFileSystemContents sym
+  -- ^ The initial contents of the filesystem
   -> IO (FileSystem sym wptr)
-initFS sym ptrSize symContents concContents = do
+initFS sym ptrSize initContents = do
+  let symContents = Map.toList (symbolicFiles initContents)
+  let concContents = Map.toList (concreteFiles initContents)
   symContents' <- DT.forM concContents $ \(name, bytes) -> do
     bytes' <- bytesToSym bytes
     return (name, bytes')
@@ -149,7 +180,7 @@ initFS sym ptrSize symContents concContents = do
 
   return $ FileSystem
     { fsPtrSize = ptrSize
-    , fsFileNames = Map.fromList names
+    , fsFileNames = Map.fromList (fmap (first fdTargetToText) names)
     , fsFileSizes = sizes_arr
     , fsSymData = initArray
     , fsConstraints = id

@@ -48,7 +48,6 @@ module Lang.Crucible.LLVM.SymIO
   )
   where
 
-import           Control.Arrow ( first )
 import           Control.Monad ( forM, foldM )
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BVS
@@ -123,15 +122,13 @@ initialLLVMFileSystem
   -> sym
   -> PN.NatRepr ptrW
   -- ^ The pointer width for the platform
-  -> [(FilePath, [W4.SymBV sym 8])]
-  -- ^ Pairs of initial file path mapped to symbolic file contents
-  -> [(FilePath, BS.ByteString)]
-  -- ^ Pairs of initial file path mapped to concrete file contents
+  -> SymIO.InitialFileSystemContents sym
+  -- ^ The initial contents of the symbolic filesystem
   -> LCSG.SymGlobalState sym
   -- ^ The current globals, which will be updated with necessary bindings to support the filesystem
   -> IO (LLVMFileSystem ptrW, LCSG.SymGlobalState sym)
-initialLLVMFileSystem halloc sym ptrW symContents concContents globals0 = do
-  fs0 <- SymIO.initFS sym ptrW (fmap (first Text.pack) symContents) (fmap (first Text.pack) concContents)
+initialLLVMFileSystem halloc sym ptrW initContents globals0 = do
+  fs0 <- SymIO.initFS sym ptrW initContents
   let fdm0 = FDescMap { fDescNext = 0
                       , fDescMap = Map.empty
                       }
