@@ -11,10 +11,10 @@
 -- This module wraps the crucible-symio interface suitably for use within the
 -- LLVM frontend to crucible. It provides overrides for the following functions:
 --
--- - @open@
--- - @read@
--- - @write@
--- - @close@
+--   * @open@
+--   * @read@
+--   * @write@
+--   * @close@
 --
 -- as specified by POSIX. Note that it does not yet cover the C stdio functions.
 ------------------------------------------------------------------------
