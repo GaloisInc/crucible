@@ -76,7 +76,6 @@ import           GHC.TypeNats
 import           Control.Arrow ( first )
 import           Control.Monad.IO.Class ( MonadIO, liftIO )
 import qualified Control.Monad.State as CMS
-import qualified Control.Monad.Fail as MF
 import qualified Control.Monad.Trans as CMT
 
 import qualified Data.Text as Text
@@ -446,22 +445,10 @@ newtype FileM_ p arch r args ret sym wptr a = FileM { _unFM :: CMS.StateT (FileS
 data FileHandleError = FileHandleClosed
 data FileIdentError = FileNotFound
 
-instance MF.MonadFail (FileM_ p arch r args ret sym wpt) where
-  fail str = useConstraints $ do
-    sym <- getSym
-    liftIO $ addFailedAssertion sym $ GenericSimError str
-
 -- | The monad in which all filesystem operations run
 type FileM p arch r args ret sym wptr a =
   (IsSymInterface sym, 1 <= wptr) =>
   FileM_ p arch r args ret sym wptr a
-
-useConstraints ::
-  FileM p arch r args ret sym wptr a ->
-  FileM_ p arch r args ret sym wptr a
-useConstraints f = do
-  st <- CMS.get
-  fsConstraints st $ f
 
 liftOV ::
   C.OverrideSim p sym arch r args ret a ->
