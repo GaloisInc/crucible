@@ -88,10 +88,16 @@ instance JSON.FromJSON SymbolicManifest
 newtype AbsolutePath = AbsolutePath FilePath
   deriving (Eq, Ord, Show)
 
+-- | Create an absolute path *within the symbolic filesystem* based on the root
+-- FS path and the absolute path to a file in the real filesystem
+--
+-- This effectively strips the real root FS off of the absolute file path,
+-- creating an absolute path within the symbolic FS.
 toInternalAbsolutePath
   :: FilePath
-  -- ^ The
+  -- ^ The path to the root filesystem in the real (non-symbolic) filesystem
   -> FilePath
+  -- ^ The absolute path to the file in the real (non-symbolic) filesystem
   -> AbsolutePath
 toInternalAbsolutePath pfx x = AbsolutePath (fromMaybe x (List.stripPrefix pfx x))
 
