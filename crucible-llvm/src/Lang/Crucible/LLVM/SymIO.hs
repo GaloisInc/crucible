@@ -109,12 +109,12 @@ data FDescMap sym ptrW where
     , fDescMap :: Map.Map Natural (W4P.PartExpr (W4.Pred sym) (SymIO.FileHandle sym ptrW))
     } -> FDescMap sym ptrW
 
--- | An existential wrapper around an 'OverrideSim' action
+-- | A wrapper around a RankN 'OverrideSim' action
 --
 -- This enables us to make explicit that all of the type variables are free and
 -- can be instantiated at any types since this override action has to be
 -- returned from the 'initialLLVMFileSystem' function.
-data SomeOverrideSim sym a where
+newtype SomeOverrideSim sym a where
   SomeOverrideSim :: (forall p ext rtp args ret . OverrideSim p sym ext rtp args ret a) -> SomeOverrideSim sym a
 
 -- | Create an initial 'LLVMFileSystem' based on given concrete and symbolic file contents
