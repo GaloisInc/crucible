@@ -177,7 +177,7 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
            runOverrideSim UnitRepr $
              withPtrWidth ptrW $
                 do registerFunctions (memOpts llvmOpts) (prepLLVMMod prepped) trans fs0
-                   initFSOverride ()
+                   initFSOverride
                    checkFun (entryPoint llvmOpts) (cfgMap trans)
 
 

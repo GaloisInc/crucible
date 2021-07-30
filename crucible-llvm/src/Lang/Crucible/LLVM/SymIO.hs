@@ -115,7 +115,7 @@ data FDescMap sym ptrW where
 -- can be instantiated at any types since this override action has to be
 -- returned from the 'initialLLVMFileSystem' function.
 data SomeOverrideSim sym a where
-  SomeOverrideSim :: (forall p ext rtp args ret . () -> OverrideSim p sym ext rtp args ret a) -> SomeOverrideSim sym a
+  SomeOverrideSim :: (forall p ext rtp args ret . OverrideSim p sym ext rtp args ret a) -> SomeOverrideSim sym a
 
 -- | Create an initial 'LLVMFileSystem' based on given concrete and symbolic file contents
 --
@@ -156,8 +156,8 @@ initialLLVMFileSystem halloc sym ptrW initContents globals0 = do
                             , llvmFileDescMap = fdmVar
                             }
   let globals1 = LCSG.insertGlobal fdmVar fdm0 $ LCSG.insertGlobal fsVar fs0 globals0
-  let bootstrapStdio :: x -> OverrideSim p sym ext rtp args ret ()
-      bootstrapStdio _ = do
+  let bootstrapStdio :: OverrideSim p sym ext rtp args ret ()
+      bootstrapStdio = do
         -- Allocate the file handles for the standard IO streams in order such
         -- that they are in file descriptors 0, 1, and 2 respectively
         --
