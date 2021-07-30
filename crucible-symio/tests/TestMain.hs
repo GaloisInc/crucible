@@ -105,6 +105,8 @@ runFSTest' sym (FSTest fsTest) = do
                                                    Map.fromList [ (SymIO.FileTarget "/test0", tobs [0,1,2])
                                                                 , (SymIO.FileTarget "/test1", tobs [3,4,5,6])
                                                                 ]
+                                                 , SymIO.useStdout = False
+                                                 , SymIO.useStderr = False
                                                  }
   fs <- SymIO.initFS sym nRepr contents
   halloc <- CFH.newHandleAllocator

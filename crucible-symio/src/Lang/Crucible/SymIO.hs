@@ -9,8 +9,9 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -32,7 +33,12 @@ module Lang.Crucible.SymIO
   (
   -- * Setup
     FDTarget(..)
+  , TargetDirection
+  , In
+  , Out
+  , fdTargetToText
   , InitialFileSystemContents(..)
+  , emptyInitialFileSystemContents
   -- * Filesystem types
   -- $filetypes
   , FileSystemType
@@ -106,9 +112,19 @@ import           Lang.Crucible.SymIO.Types
 ---------------------------------------
 -- Interface
 
-data FDTarget = FileTarget FilePath
-              | StdinTarget
-              deriving (Eq, Ord, Show)
+data TargetDirection = In | Out
+type In = 'In
+type Out = 'Out
+
+data FDTarget (k :: TargetDirection) where
+  FileTarget :: FilePath -> FDTarget In
+  StdinTarget :: FDTarget In
+  StdoutTarget :: FDTarget Out
+  StderrTarget :: FDTarget Out
+
+deriving instance Eq (FDTarget k)
+deriving instance Ord (FDTarget k)
+deriving instance Show (FDTarget k)
 
 -- | Convert an 'FDTarget' to 'T.Text'
 --
@@ -122,15 +138,34 @@ data FDTarget = FileTarget FilePath
 --
 -- FIXME: Add some validation somewhere so that we actually enforce the absolute
 -- path property
-fdTargetToText :: FDTarget -> Text.Text
+fdTargetToText :: FDTarget k -> Text.Text
 fdTargetToText t =
   case t of
     FileTarget f -> Text.pack f
     StdinTarget -> Text.pack "<stdin>"
+    StdoutTarget -> Text.pack "<stdout>"
+    StderrTarget -> Text.pack "<stderr>"
 
+-- | The initial contents of the symbolic filesystem
+--
+-- Note that standard input will be enabled if it is specified as one of the
+-- 'FDTarget' keys.
+--
+-- Standard output and standard error will be connected if possible and if their
+-- respective boolean flags are set to True
 data InitialFileSystemContents sym =
-  InitialFileSystemContents { concreteFiles :: Map.Map FDTarget BS.ByteString
-                            , symbolicFiles :: Map.Map FDTarget [W4.SymBV sym 8]
+  InitialFileSystemContents { concreteFiles :: Map.Map (FDTarget In) BS.ByteString
+                            , symbolicFiles :: Map.Map (FDTarget In) [W4.SymBV sym 8]
+                            , useStdout :: Bool
+                            , useStderr :: Bool
+                            }
+
+emptyInitialFileSystemContents :: InitialFileSystemContents sym
+emptyInitialFileSystemContents =
+  InitialFileSystemContents { concreteFiles = Map.empty
+                            , symbolicFiles = Map.empty
+                            , useStdout = False
+                            , useStderr = False
                             }
 
 -- $fileops

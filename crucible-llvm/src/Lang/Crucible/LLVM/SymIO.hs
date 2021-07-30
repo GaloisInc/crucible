@@ -44,11 +44,12 @@ module Lang.Crucible.LLVM.SymIO
   ( llvmSymIOIntrinsicTypes
   , symio_overrides
   , LLVMFileSystem
+  , SomeOverrideSim(..)
   , initialLLVMFileSystem
   )
   where
 
-import           Control.Monad ( forM, foldM )
+import           Control.Monad ( forM, foldM, when )
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BVS
 import qualified Data.ByteString as BS
@@ -60,6 +61,7 @@ import qualified Data.Parameterized.NatRepr as PN
 import qualified Data.Parameterized.SymbolRepr as PS
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
 import           GHC.Natural ( Natural )
 import           GHC.TypeNats ( type (<=) )
 
@@ -107,6 +109,14 @@ data FDescMap sym ptrW where
     , fDescMap :: Map.Map Natural (W4P.PartExpr (W4.Pred sym) (SymIO.FileHandle sym ptrW))
     } -> FDescMap sym ptrW
 
+-- | An existential wrapper around an 'OverrideSim' action
+--
+-- This enables us to make explicit that all of the type variables are free and
+-- can be instantiated at any types since this override action has to be
+-- returned from the 'initialLLVMFileSystem' function.
+data SomeOverrideSim sym a where
+  SomeOverrideSim :: (forall p ext rtp args ret . () -> OverrideSim p sym ext rtp args ret a) -> SomeOverrideSim sym a
+
 -- | Create an initial 'LLVMFileSystem' based on given concrete and symbolic file contents
 --
 -- Note that this function takes a 'LCSG.SymGlobalState' because it needs to
@@ -116,8 +126,16 @@ data FDescMap sym ptrW where
 --
 -- The returned 'LLVMFileSystem' is a wrapper around that global state, and is
 -- required to initialize the symbolic I/O overrides.
+--
+-- This function also returns an 'OverrideSim' action (wrapped in a
+-- 'SomeOverrideSim') that must be run to initialize any standard IO file
+-- descriptors that have been requested.  This action should be run *before* the
+-- entry point of the function that is being verified is invoked.
+--
+-- See Note [Standard IO Setup] for details
 initialLLVMFileSystem
-  :: (1 <= ptrW, C.IsSymInterface sym)
+  :: forall sym ptrW
+   . (HasPtrWidth ptrW, C.IsSymInterface sym)
   => LCF.HandleAllocator
   -> sym
   -> PN.NatRepr ptrW
@@ -126,7 +144,7 @@ initialLLVMFileSystem
   -- ^ The initial contents of the symbolic filesystem
   -> LCSG.SymGlobalState sym
   -- ^ The current globals, which will be updated with necessary bindings to support the filesystem
-  -> IO (LLVMFileSystem ptrW, LCSG.SymGlobalState sym)
+  -> IO (LLVMFileSystem ptrW, LCSG.SymGlobalState sym, SomeOverrideSim sym ())
 initialLLVMFileSystem halloc sym ptrW initContents globals0 = do
   fs0 <- SymIO.initFS sym ptrW initContents
   let fdm0 = FDescMap { fDescNext = 0
@@ -138,7 +156,30 @@ initialLLVMFileSystem halloc sym ptrW initContents globals0 = do
                             , llvmFileDescMap = fdmVar
                             }
   let globals1 = LCSG.insertGlobal fdmVar fdm0 $ LCSG.insertGlobal fsVar fs0 globals0
-  return (llfs, globals1)
+  let bootstrapStdio :: x -> OverrideSim p sym ext rtp args ret ()
+      bootstrapStdio _ = do
+        -- Allocate the file handles for the standard IO streams in order such
+        -- that they are in file descriptors 0, 1, and 2 respectively
+        --
+        -- We discard the actual file descriptors because they are accessed via
+        -- literals in the program.  The 'allocateFileDescriptor' function
+        -- handles mapping the underlying FileHandle to an int file descriptor
+        -- internally.
+        let toLit = W4.Char8Literal . TextEncoding.encodeUtf8 . SymIO.fdTargetToText
+        when (Map.member SymIO.StdinTarget (SymIO.concreteFiles initContents) || Map.member SymIO.StdinTarget (SymIO.symbolicFiles initContents)) $ do
+          stdinFilename <- liftIO $ W4.stringLit sym (toLit SymIO.StdinTarget)
+          _inFD <- SymIO.openFile' fsVar stdinFilename >>= allocateFileDescriptor llfs
+          return ()
+        when (SymIO.useStdout initContents) $ do
+          stdoutFilename <- liftIO $ W4.stringLit sym (toLit SymIO.StdoutTarget)
+          _outFD <- SymIO.openFile' fsVar stdoutFilename >>= allocateFileDescriptor llfs
+          return ()
+        when (SymIO.useStderr initContents) $ do
+          stderrFilename <- liftIO $ W4.stringLit sym (toLit SymIO.StderrTarget)
+          _errFD <- SymIO.openFile' fsVar stderrFilename >>= allocateFileDescriptor llfs
+          return ()
+
+  return (llfs, globals1, SomeOverrideSim bootstrapStdio)
 
 type FDescMapType w = IntrinsicType "LLVM_fdescmap" (EmptyCtx ::> BVType w)
 
@@ -387,3 +428,36 @@ symio_overrides fs =
   , basic_llvm_override $ readFileHandle fs
   , basic_llvm_override $ writeFileHandle fs
   ]
+
+{- Note [Standard IO Setup]
+
+The underlying symbolic IO library hands out abstract 'FileHande's, which are an
+internal type that do not correspond to any source-level data values.  Frontends
+must map them to something from the target programming language.  In this
+module, that means we must map them to POSIX file descriptors (represented as C
+ints).
+
+In particular, when setting up the symbolic execution engine, we want to be able
+to map standard input, standard output, and standard error to their prescribed
+file descriptors (0, 1, and 2 respectively).  We can do that by simply
+allocating them in order, as we start the file descriptor counter at 0 (see
+'FDescMap').  Note that we just reuse the existing infrastructure to allocate
+file descriptors (in particular, 'allocateFileDescriptor'). Note that we do
+*not* use the 'openFile' function defined in this module because it expects the
+filename to be stored in the LLVM memory, which our magic names for the standard
+streams are not.
+
+Note that if we start the symbolic execution engine without standard
+in/out/error, we could potentially hand out file descriptors at these usually
+reserved numbers. That isn't necessarily a problem, but it could be. We could
+one day provide a method for forcing file descriptors to start at 3 even if
+these special files are not allocated (i.e., start off closed).  We should
+investigate the behavior of the OS and mimic it (or make it an option).
+
+As a note on file names, the standard IO streams do not have prescribed names
+that can be opened. We use synthetic names defined in the underlying
+architecture-independent symbolic IO library.  We do not need to know what they
+are here, but they are arranged to not collide with any valid names for actual
+files in the symbolic filesystem.
+
+-}

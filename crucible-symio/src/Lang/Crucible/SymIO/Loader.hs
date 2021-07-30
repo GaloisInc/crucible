@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 -- | This module defines a default loader for initial symbolic filesystem contents
@@ -48,8 +50,9 @@ import qualified Lang.Crucible.Backend as LCB
 import qualified Lang.Crucible.SymIO as SymIO
 
 data FileSystemLoadError = ErrorDecodingJSON String
-                         | FileSpecifiedAsSymbolicAndConcrete SymIO.FDTarget
-  deriving (Show)
+                         | forall k . FileSpecifiedAsSymbolicAndConcrete (SymIO.FDTarget k)
+
+deriving instance Show FileSystemLoadError
 
 instance X.Exception FileSystemLoadError
 
@@ -74,6 +77,8 @@ instance JSON.FromJSON SymbolicFileContents
 -- Note that the file paths are /absolute/ paths within the symbolic filesystem
 data SymbolicManifest =
   SymbolicManifest { symbolicFiles :: [(FilePath, SymbolicFileContents)]
+                   , useStdout :: Bool
+                   , useStderr :: Bool
                    }
   deriving (Show, Generic)
 
@@ -94,7 +99,7 @@ createSymbolicFile
   :: (LCB.IsSymInterface sym)
   => sym
   -> (FilePath, SymbolicFileContents)
-  -> IO (SymIO.FDTarget, [WI.SymBV sym 8])
+  -> IO (SymIO.FDTarget SymIO.In, [WI.SymBV sym 8])
 createSymbolicFile sym (internalAbsPath, symContent) =
   case symContent of
     SymbolicContents { symbolicContentSize = numBytes } -> do
@@ -102,7 +107,6 @@ createSymbolicFile sym (internalAbsPath, symContent) =
         let symName = WI.safeSymbol (internalAbsPath ++ "_" ++ show byteNum)
         WI.freshConstant sym symName (WT.BaseBVRepr (PN.knownNat @8))
       return (SymIO.FileTarget internalAbsPath, bytes)
-
 
 -- | Load the symbolic filesystem at the given file path
 --
@@ -132,8 +136,13 @@ loadInitialFiles sym fsRoot = do
 
   let manifestFilePath = fsRoot </> "system-manifest.json"
   hasManifest <- SD.doesFileExist manifestFilePath
-  (concContent, symContent) <- case hasManifest of
-    False -> return (concMap, Map.empty)
+  case hasManifest of
+    False ->
+      return SymIO.InitialFileSystemContents { SymIO.concreteFiles = concMap
+                                             , SymIO.symbolicFiles = Map.empty
+                                             , SymIO.useStdout = False
+                                             , SymIO.useStderr = False
+                                             }
     True -> do
       manifestBytes <- BS.readFile manifestFilePath
       case JSON.eitherDecodeStrict manifestBytes of
@@ -144,8 +153,8 @@ loadInitialFiles sym fsRoot = do
             case Map.lookup fdTarget concMap of
               Nothing -> return ()
               Just _ -> X.throwIO (FileSpecifiedAsSymbolicAndConcrete fdTarget)
-          return (concMap, Map.fromList symFiles)
-
-  return SymIO.InitialFileSystemContents { SymIO.concreteFiles = concContent
-                                         , SymIO.symbolicFiles = symContent
-                                         }
+          return SymIO.InitialFileSystemContents { SymIO.concreteFiles = concMap
+                                                 , SymIO.symbolicFiles = Map.fromList symFiles
+                                                 , SymIO.useStdout = useStdout symManifest
+                                                 , SymIO.useStderr = useStderr symManifest
+                                                 }

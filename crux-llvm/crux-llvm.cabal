@@ -53,6 +53,7 @@ common bldflags
                   , bytestring
                   , containers
                   , crucible
+                  , crucible-symio
                   , crucible-llvm
                   , crux
                   , directory
