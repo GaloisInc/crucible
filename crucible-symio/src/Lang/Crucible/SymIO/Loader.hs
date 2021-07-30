@@ -26,7 +26,8 @@
 -- Note: future versions of this interface could support symbolic filesystems
 -- stored in zip or tar files.
 module Lang.Crucible.SymIO.Loader (
-  loadInitialFiles
+    loadInitialFiles
+  , FileSystemLoadError(..)
   ) where
 
 import qualified Control.Exception as X
