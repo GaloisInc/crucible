@@ -171,7 +171,7 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
      llvmPtrWidth (trans ^. transContext) $ \ptrW -> withPtrWidth ptrW $ do
        mContents <- T.traverse (SymIO.Loader.loadInitialFiles sym) (symFSRoot llvmOpts)
        let fsContents = fromMaybe SymIO.emptyInitialFileSystemContents mContents
-       (fs0, globSt', SomeOverrideSim initFSOverride) <- initialLLVMFileSystem halloc sym ptrW fsContents globSt
+       (fs0, globSt', SomeOverrideSim initFSOverride) <- initialLLVMFileSystem halloc sym ptrW fsContents [] globSt
        return $ Crux.RunnableState $
          InitialState simctx globSt' defaultAbortHandler UnitRepr $
            runOverrideSim UnitRepr $

@@ -72,6 +72,7 @@ module Lang.Crucible.SymIO
   , symIOIntrinsicTypes
   , CA.chunkToArray
   , CA.arrayToChunk
+  , CA.evalChunk
   -- * Error conditions
   , FileIdentError(..)
   , FileHandleError(..)

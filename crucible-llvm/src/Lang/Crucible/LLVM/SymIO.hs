@@ -53,6 +53,7 @@ import           Control.Monad ( forM, foldM, when )
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BVS
 import qualified Data.ByteString as BS
+import qualified Data.Foldable as F
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Classes as PC
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty, (::>), EmptyCtx )
@@ -62,8 +63,10 @@ import qualified Data.Parameterized.SymbolRepr as PS
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEncoding
+import qualified Data.Text.IO as Text.IO
 import           GHC.Natural ( Natural )
 import           GHC.TypeNats ( type (<=) )
+import qualified System.IO as IO
 
 import qualified Lang.Crucible.FunctionHandle as LCF
 import           Lang.Crucible.Types ( IntrinsicType, BVType, TypeRepr(..) )
@@ -97,6 +100,9 @@ data LLVMFileSystem ptrW =
     -- | we represent filesystem pointers as LLVMpointers on the outside, where
     -- we need to maintain the mapping to internal handles here
     , llvmFileDescMap :: GlobalVar (FDescMapType ptrW)
+    , llvmHandles :: Map.Map Natural IO.Handle
+    -- ^ Handles that concrete output will be mirrored to
+    , llvmFilePointerRepr :: PN.NatRepr ptrW
     }
 
 data FDescMap sym ptrW where
@@ -116,6 +122,13 @@ data FDescMap sym ptrW where
 -- returned from the 'initialLLVMFileSystem' function.
 newtype SomeOverrideSim sym a where
   SomeOverrideSim :: (forall p ext rtp args ret . OverrideSim p sym ext rtp args ret a) -> SomeOverrideSim sym a
+
+targetToFD :: SymIO.FDTarget k -> Maybe Natural
+targetToFD t =
+  case t of
+    SymIO.StdoutTarget -> Just 1
+    SymIO.StderrTarget -> Just 2
+    _ -> Nothing
 
 -- | Create an initial 'LLVMFileSystem' based on given concrete and symbolic file contents
 --
@@ -142,10 +155,18 @@ initialLLVMFileSystem
   -- ^ The pointer width for the platform
   -> SymIO.InitialFileSystemContents sym
   -- ^ The initial contents of the symbolic filesystem
+  -> [(SymIO.FDTarget SymIO.Out, IO.Handle)]
+  -- ^ A mapping from file targets to handles, to which output should be
+  -- mirrored. This is intended to support mirroring symbolic stdout/stderr to
+  -- concrete stdout/stderr, but could be more flexible in the future (e.g.,
+  -- handling sockets).
+  --
+  -- Note that the writes to the associated underlying symbolic files are still
+  -- recorded in the symbolic filesystem
   -> LCSG.SymGlobalState sym
   -- ^ The current globals, which will be updated with necessary bindings to support the filesystem
   -> IO (LLVMFileSystem ptrW, LCSG.SymGlobalState sym, SomeOverrideSim sym ())
-initialLLVMFileSystem halloc sym ptrW initContents globals0 = do
+initialLLVMFileSystem halloc sym ptrW initContents handles globals0 = do
   fs0 <- SymIO.initFS sym ptrW initContents
   let fdm0 = FDescMap { fDescNext = 0
                       , fDescMap = Map.empty
@@ -154,6 +175,11 @@ initialLLVMFileSystem halloc sym ptrW initContents globals0 = do
   fdmVar <- freshGlobalVar halloc (Text.pack "llvmFileDescMap_Global") (FDescMapRepr ptrW)
   let llfs = LLVMFileSystem { llvmFileSystem = fsVar
                             , llvmFileDescMap = fdmVar
+                            , llvmFilePointerRepr = ptrW
+                            , llvmHandles = Map.fromList [ (fd, hdl)
+                                                         | (tgt, hdl) <- handles
+                                                         , Just fd <- return (targetToFD tgt)
+                                                         ]
                             }
   let globals1 = LCSG.insertGlobal fdmVar fdm0 $ LCSG.insertGlobal fsVar fs0 globals0
   let bootstrapStdio :: OverrideSim p sym ext rtp args ret ()
@@ -392,6 +418,40 @@ readFileHandle fsVars =
            Nothing -> \_ -> returnIOError
   )
 
+-- | If the write is to a concrete FD for which we have an associated 'IO.Handle', mirror the write to that Handle
+--
+-- This is intended to support mirroring stdout/stderr in a user-visible way
+-- (noting that symbolic IO can be repeated due to the simulator branching).
+-- Note also that only writes of a concrete length are mirrored reasonably;
+-- writes with symbolic length are denoted with a substitute token. Likewise
+-- individual symbolic bytes are printed as @?@ characters.
+doConcreteWrite
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => PN.NatRepr wptr
+  -> Map.Map Natural IO.Handle
+  -> RegValue sym (BVType 32)
+  -> SymIO.DataChunk sym wptr
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym ext rtp args ret ()
+doConcreteWrite ptrw handles symFD chunk size =
+  case W4.asBV symFD of
+    Just (BVS.asNatural -> fd)
+      | Just hdl <- Map.lookup fd handles
+      , Just numBytes <- BVS.asUnsigned <$> W4.asBV (regValue size) -> do
+          -- We have a concrete size of the write and an IO Handle to write
+          -- to. Write each byte that is concrete, or replace it with a '?'
+          sym <- getSymInterface
+          F.forM_ [0..numBytes] $ \idx -> do
+            idxBV <- liftIO $ W4.bvLit sym ptrw (BVS.mkBV ptrw idx)
+            byteVal <- liftIO $ SymIO.evalChunk chunk idxBV
+            case W4.asBV byteVal of
+              Just (BVS.asUnsigned -> concByte) -> liftIO $ BS.hPut hdl (BS.pack [fromIntegral concByte])
+              Nothing -> liftIO $ BS.hPut hdl (BS.pack [63])
+      | Just hdl <- Map.lookup fd handles -> do
+          -- In this case, we have a write of symbolic size.  We can't really
+          -- write that out, but do our best
+          liftIO $ Text.IO.hPutStr hdl (Text.pack "[‽]")
+    _ -> return ()
 
 writeFileHandle
   :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
@@ -409,6 +469,7 @@ writeFileHandle fsVars =
            Just fileHandle -> \(RegMap (Empty :> _ :> buffer_ptr :> size)) -> do
              mem <- readGlobal memOps
              chunk <- liftIO $ chunkFromMemory sym mem (regValue buffer_ptr)
+             doConcreteWrite (llvmFilePointerRepr fsVars) (llvmHandles fsVars) (regValue filedesc) chunk size
              SymIO.writeChunk (llvmFileSystem fsVars) fileHandle chunk (regValue size) $ \case
                Left SymIO.FileHandleClosed -> returnIOError
                Right bytesWritten -> return bytesWritten
