@@ -171,6 +171,9 @@ data InitialFileSystemContents sym =
                             , useStderr :: Bool
                             }
 
+-- | An empty initial symbolic filesystem
+--
+-- This has no files and also disables stdout and stderr
 emptyInitialFileSystemContents :: InitialFileSystemContents sym
 emptyInitialFileSystemContents =
   InitialFileSystemContents { concreteFiles = Map.empty
