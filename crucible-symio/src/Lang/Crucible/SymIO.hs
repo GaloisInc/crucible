@@ -92,9 +92,9 @@ import qualified Data.Map as Map
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 
-import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.NatRepr
 
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.Simulator.RegMap ( RegMap(..), emptyRegMap, RegEntry(..), unconsReg, regMapSize )
@@ -169,6 +169,9 @@ emptyInitialFileSystemContents =
                             , useStderr = False
                             }
 
+singletonIf :: Bool -> a -> [a]
+singletonIf b p = if b then [p] else []
+
 -- $fileops
 -- Top-level overrides for filesystem operations.
 
@@ -188,8 +191,11 @@ initFS
   -- ^ The initial contents of the filesystem
   -> IO (FileSystem sym wptr)
 initFS sym ptrSize initContents = do
-  let symContents = Map.toList (symbolicFiles initContents)
-  let concContents = Map.toList (concreteFiles initContents)
+  let symContents = fmap (first Some) $ Map.toList (symbolicFiles initContents)
+  let stdioOutputs = concat [ singletonIf (useStdout initContents) (Some StdoutTarget, BS.empty)
+                            , singletonIf (useStderr initContents) (Some StderrTarget, BS.empty)
+                            ]
+  let concContents = stdioOutputs ++ fmap (first Some) (Map.toList (concreteFiles initContents))
   symContents' <- DT.forM concContents $ \(name, bytes) -> do
     bytes' <- bytesToSym bytes
     return (name, bytes')
@@ -215,7 +221,9 @@ initFS sym ptrSize initContents = do
 
   return $ FileSystem
     { fsPtrSize = ptrSize
-    , fsFileNames = Map.fromList (fmap (first fdTargetToText) names)
+    , fsFileNames = Map.fromList [ (fdTargetToText name, x)
+                                 | (Some name, x) <- names
+                                 ]
     , fsFileSizes = sizes_arr
     , fsSymData = initArray
     , fsConstraints = id

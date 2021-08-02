@@ -170,7 +170,14 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
      Some trans <- return $ prepSomeTrans prepped
      llvmPtrWidth (trans ^. transContext) $ \ptrW -> withPtrWidth ptrW $ do
        mContents <- T.traverse (SymIO.Loader.loadInitialFiles sym) (symFSRoot llvmOpts)
-       let fsContents = fromMaybe SymIO.emptyInitialFileSystemContents mContents
+       -- We modify the defaults, which are extremely conservative.  Unless the
+       -- user directs otherwise, we default to connecting stdin, stdout, and stderr.
+       let defaultFileContents = SymIO.emptyInitialFileSystemContents
+                                 { SymIO.useStderr = True
+                                 , SymIO.useStdout = True
+                                 , SymIO.concreteFiles = Map.fromList [(SymIO.StdinTarget, mempty)]
+                                 }
+       let fsContents = fromMaybe defaultFileContents mContents
        (fs0, globSt', SomeOverrideSim initFSOverride) <- initialLLVMFileSystem halloc sym ptrW fsContents [] globSt
        return $ Crux.RunnableState $
          InitialState simctx globSt' defaultAbortHandler UnitRepr $
