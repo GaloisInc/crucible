@@ -6,6 +6,6 @@
 #define MSG "output\n"
 
 int main() {
-  int res = write(STDOUT_FILENO, MSG, sizeof(MSG));
-  check(res == sizeof(MSG));
+  int res = write(STDOUT_FILENO, MSG, sizeof(MSG) - 1);
+  check(res == sizeof(MSG) - 1);
 }
