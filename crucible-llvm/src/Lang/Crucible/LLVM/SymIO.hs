@@ -265,11 +265,11 @@ getHandle
   :: forall sym ptrW
    . IsSymInterface sym
   => sym
-  -> W4.SymNat sym
+  -> W4.SymBV sym 32
   -> FDescMap sym ptrW
   -> IO (W4P.PartExpr (W4.Pred sym) (SymIO.FileHandle sym ptrW))
-getHandle sym fdesc (FDescMap _ m) = case W4.asNat fdesc of
-  Just fdesc_lit | Just fhdl <- Map.lookup fdesc_lit m -> return fhdl
+getHandle sym fdesc (FDescMap _ m) = case W4.asBV fdesc of
+  Just fdesc_lit | Just fhdl <- Map.lookup (BVS.asNatural fdesc_lit) m -> return fhdl
   _ -> do
     cases <- mapM go (Map.assocs m)
     foldM (\a (p, b) -> mergePartExpr sym (CMT.mergeMuxTree sym) p b a) W4P.Unassigned cases
@@ -277,8 +277,8 @@ getHandle sym fdesc (FDescMap _ m) = case W4.asNat fdesc of
     go :: (Natural, (W4P.PartExpr (W4.Pred sym) (SymIO.FileHandle sym ptrW)))
        -> IO (W4.Pred sym, (W4P.PartExpr (W4.Pred sym) (SymIO.FileHandle sym ptrW)))
     go (n, fhdl) = do
-      n_sym <- W4.natLit sym n
-      fdesc_eq <- W4.natEq sym n_sym fdesc
+      n_sym <- W4.bvLit sym PN.knownNat (BVS.mkBV PN.knownNat (toInteger n))
+      fdesc_eq <- W4.bvEq sym n_sym fdesc
       return $ (fdesc_eq, fhdl)
 
 -- | Construct a 'SymIO.DataChunk' from a pointer
@@ -311,8 +311,7 @@ lookupFileHandle
 lookupFileHandle fsVars fdesc args cont = do
   descMap <- readGlobal (llvmFileDescMap fsVars)
   sym <- getSymInterface
-  fdesc_nat <- liftIO $ W4.bvToNat sym fdesc
-  (liftIO $ getHandle sym fdesc_nat descMap) >>= \case
+  (liftIO $ getHandle sym fdesc descMap) >>= \case
     W4P.PE p fhdl -> do
       symbolicBranch p
         args (getOverrideArgs >>= \args' -> cont (Just fhdl) args') Nothing
