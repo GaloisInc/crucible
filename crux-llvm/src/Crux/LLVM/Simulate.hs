@@ -116,7 +116,7 @@ registerFunctions ::
   MemOptions ->
   LLVM.Module ->
   ModuleTranslation arch ->
-  LLVMFileSystem ptrW ->
+  Maybe (LLVMFileSystem ptrW) ->
   OverM Crux sym LLVM ()
 registerFunctions memOptions llvm_module mtrans fs0 =
   do let llvm_ctx = mtrans ^. transContext
@@ -128,7 +128,7 @@ registerFunctions memOptions llvm_module mtrans fs0 =
        (concat [ cruxLLVMOverrides proxy#
                , svCompOverrides
                , cbmcOverrides proxy#
-               , symio_overrides fs0
+               , maybe [] symio_overrides fs0
                ])
        llvm_ctx
 
@@ -176,7 +176,7 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
          InitialState simctx globSt' defaultAbortHandler UnitRepr $
            runOverrideSim UnitRepr $
              withPtrWidth ptrW $
-                do registerFunctions (memOpts llvmOpts) (prepLLVMMod prepped) trans fs0
+                do registerFunctions (memOpts llvmOpts) (prepLLVMMod prepped) trans (Just fs0)
                    initFSOverride
                    checkFun (entryPoint llvmOpts) (cfgMap trans)
 
