@@ -117,7 +117,7 @@ do_assert = do
 
 go_overrides :: (IsSymInterface sym, 1 <= w)
              => NatRepr w
-             -> [(SomeOverride (Crux.Model sym) sym ext)]
+             -> [SomeOverride (p sym) sym ext]
 go_overrides w =
   [ mkSomeOverride "crucible" "FreshInt" Ctx.empty (BVRepr w) (fresh_int w)
   , mkSomeOverride "crucible" "FreshInt8" Ctx.empty

@@ -15,8 +15,6 @@ import Lang.Crucible.Simulator
 
 -- crux
 import qualified Crux
-import qualified Crux.Model   as Crux
-import qualified Crux.Types   as Crux
 
 -- Go
 import Language.Go.Parser
@@ -25,7 +23,7 @@ import Lang.Crucible.Go.Types
 import Paths_crucible_go (version)
 
 -- | A simulator context
-type SimCtxt sym = SimContext (Crux.Model sym) sym Go
+type SimCtxt sym = SimContext (Crux.Crux sym) sym Go
 
 data GoOptions = GoOptions { }
 
@@ -55,7 +53,7 @@ simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let regmap = RegMap Ctx.Empty
 
    -- Set up initial crucible execution state
-   initSt <- setupCrucibleGoCrux 32 fwi verbosity sym Crux.emptyModel regmap
+   initSt <- setupCrucibleGoCrux 32 fwi verbosity sym Crux.CruxPersonality regmap
 
    -- TODO: add failure explanations
    let explainFailure _evalFn _gl = return mempty

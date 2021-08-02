@@ -142,15 +142,15 @@ mkGlobals sym globals =
             return $ insertGlobal glob zv state)
   emptyGlobals globals
 
-setupCrucibleGoCrux :: forall sym args.
+setupCrucibleGoCrux :: forall sym args p.
   (IsSymInterface sym, KnownRepr CtxRepr args)
   => Int                   -- ^ Machine word width
   -> Node P.SourcePos Main -- ^ Input program
   -> Int                   -- ^ Verbosity level
   -> sym                   -- ^ Simulator state
-  -> Crux.Model sym        -- ^ Personality
+  -> p sym                 -- ^ Personality
   -> C.RegMap sym args     -- ^ Arguments
-  -> IO (C.ExecState (Crux.Model sym) sym Go (C.RegEntry sym UnitType))
+  -> IO (C.ExecState (p sym) sym Go (C.RegEntry sym UnitType))
 setupCrucibleGoCrux machineWordWidth fwi verbosity sym p args = do
   setSimulatorVerbosity verbosity sym
 
