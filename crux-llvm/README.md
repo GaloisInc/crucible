@@ -497,6 +497,12 @@ may appear more than once if a call to `write` occurs on a symbolic branch.
 It is intended that the symbolic I/O facility will be extended over time to
 support more operations.
 
+Also note that the order in which file descriptor numbers are handed out to
+client code can be subtly different than in the real program. In particular, on
+a symbolic branch where both branches open a new file, the two branches will get
+sequential file descriptors. In contrast, the real program would allocate the
+same file descriptor to both (as only one branch would be taken).
+
 # Acknowledgements
 
 Crux is partly based upon work supported by the Defense Advanced
