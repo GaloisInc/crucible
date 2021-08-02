@@ -118,6 +118,13 @@ data TargetDirection = In | Out
 type In = 'In
 type Out = 'Out
 
+-- | Files to which concrete or symbolic contents can be assigned
+--
+-- This covers both named files and the standard I/O streams. In the future, it
+-- could also cover sockets and other file-like entities.  Note that the GADT
+-- tags are in place to let us restrict the 'InitialFileSystemContents' to only
+-- refer to files that can serve as inputs (i.e., write only files cannot have
+-- initial contents).
 data FDTarget (k :: TargetDirection) where
   FileTarget :: FilePath -> FDTarget In
   StdinTarget :: FDTarget In

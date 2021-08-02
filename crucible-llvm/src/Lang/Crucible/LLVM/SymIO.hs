@@ -17,6 +17,10 @@
 --   * @close@
 --
 -- as specified by POSIX. Note that it does not yet cover the C stdio functions.
+-- This additional layer on top of crucible-symio is necessary to bridge the gap
+-- between LLVMPointer arguments and more primitive argument types (including
+-- that filenames need to be read from the LLVM memory model before they can be
+-- interpreted).
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
@@ -97,14 +101,20 @@ import qualified Lang.Crucible.SymIO as SymIO
 data LLVMFileSystem ptrW =
   LLVMFileSystem
     { llvmFileSystem :: GlobalVar (SymIO.FileSystemType ptrW)
-    -- | we represent filesystem pointers as LLVMpointers on the outside, where
-    -- we need to maintain the mapping to internal handles here
+    -- ^ The underlying symbolic filesystem
     , llvmFileDescMap :: GlobalVar (FDescMapType ptrW)
+    -- ^ Maintains the mapping from file descriptors to low-level crucible-symio
+    -- 'SymIO.FileHandle's
     , llvmHandles :: Map.Map Natural IO.Handle
-    -- ^ Handles that concrete output will be mirrored to
+    -- ^ Handles that concrete output will be mirrored to; if this is empty, no
+    -- mirroring will be performed
     , llvmFilePointerRepr :: PN.NatRepr ptrW
     }
 
+-- | Contains the mapping from file descriptors to the underlying 'SymIO.FileHandle'
+--
+-- This also tracks the next file descriptor to hand out.  See Note [File
+-- Descriptor Sequence].
 data FDescMap sym ptrW where
   FDescMap ::
     { fDescNext :: Natural
@@ -270,7 +280,11 @@ getHandle sym fdesc (FDescMap _ m) = case W4.asNat fdesc of
       fdesc_eq <- W4.natEq sym n_sym fdesc
       return $ (fdesc_eq, fhdl)
 
-
+-- | Construct a 'SymIO.DataChunk' from a pointer
+--
+-- Note that this is a lazy construct that does not load memory immediately. An
+-- 'SymIO.DataChunk' is a wrapper around a function to peek memory at a given
+-- offset one byte at a time.
 chunkFromMemory
   :: forall sym wptr
    . (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
@@ -319,8 +333,10 @@ lookupFileHandle fsVars fdesc args cont = do
 -- real program would likely allocate the same file descriptor value on both
 -- branches. This could be relevant for some bug finding scenarios.
 --
--- TODO we should add a symbolic offset to these values so that we can't make
--- any concrete assertions about them.
+-- TODO It would be interesting if we could add a symbolic offset to these
+-- values so that we can't make any concrete assertions about them. It isn't
+-- clear if that ever happens in real code. If we do that, we need an escape
+-- hatch to let us allocate file descriptors 0, 1, and 2 if needed.
 allocateFileDescriptor
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => LLVMFileSystem wptr
@@ -522,5 +538,23 @@ that can be opened. We use synthetic names defined in the underlying
 architecture-independent symbolic IO library.  We do not need to know what they
 are here, but they are arranged to not collide with any valid names for actual
 files in the symbolic filesystem.
+
+-}
+
+{- Note [File Descriptor Sequence]
+
+This code uses a global counter to provide the next file descriptor to hand out
+when a file is opened.  This can lead to a subtle difference in behavior
+compared to a real program.
+
+Consider the case where a program contains a symbolic branch where both branches
+open files.  The symbolic I/O system will allocate each of the opened files a
+different file descriptor.  In contrast, a real system would only assign one of
+those file descriptors because it would only see one branch.  This means that
+later opened files would differ from the real program.
+
+This should only be observable if the program makes control decisions based on
+the values in file descriptors, which it really should not. However, it is
+possible in the real world.
 
 -}
