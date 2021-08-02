@@ -494,7 +494,9 @@ may appear more than once if a call to `write` occurs on a symbolic branch.
 * Filenames must be absolute paths (relative paths require additionally modeling the current working directory)
 * Many file operations are not yet modeled
 * Files can currently only be entirely concrete or entirely symbolic
-* File permissions are not yet modeled
+* The `open` function does not accept a mode (i.e., file permissions are not yet modeled)
+* The `open` function accepts flags (but currently ignores them)
+* The `open` function cannot create new files that do not exist in the filesystem
 * The special handling of `printf` does not yet interact with the symbolic standard output file descriptor
 
 It is intended that the symbolic I/O facility will be extended over time to
