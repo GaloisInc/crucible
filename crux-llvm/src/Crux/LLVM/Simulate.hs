@@ -21,7 +21,7 @@ import Control.Monad.State(liftIO)
 import Data.Text as Text (Text, pack)
 import GHC.Exts ( proxy# )
 
-import System.IO (stdout, stderr)
+import System.IO (stdout)
 
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
@@ -178,8 +178,8 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
                                  , SymIO.concreteFiles = Map.fromList [(SymIO.StdinTarget, mempty)]
                                  }
        let fsContents = fromMaybe defaultFileContents mContents
-       let mirroredOutputs = [ (SymIO.StdoutTarget, stdout)
-                             , (SymIO.StderrTarget, stderr)
+       let mirroredOutputs = [ (SymIO.StdoutTarget, ?outputConfig ^. Crux.outputHandle)
+                             , (SymIO.StderrTarget, ?outputConfig ^. Crux.outputHandle)
                              ]
        (fs0, globSt', SomeOverrideSim initFSOverride) <- initialLLVMFileSystem halloc sym ptrW fsContents mirroredOutputs globSt
        return $ Crux.RunnableState $
