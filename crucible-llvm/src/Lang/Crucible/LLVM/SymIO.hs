@@ -459,7 +459,7 @@ doConcreteWrite ptrw handles symFD chunk size =
           -- We have a concrete size of the write and an IO Handle to write
           -- to. Write each byte that is concrete, or replace it with a '?'
           sym <- getSymInterface
-          F.forM_ [0..numBytes] $ \idx -> do
+          F.forM_ [0..numBytes - 1] $ \idx -> do
             idxBV <- liftIO $ W4.bvLit sym ptrw (BVS.mkBV ptrw idx)
             byteVal <- liftIO $ SymIO.evalChunk chunk idxBV
             case W4.asBV byteVal of
