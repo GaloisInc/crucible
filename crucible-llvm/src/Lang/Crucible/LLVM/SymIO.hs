@@ -279,7 +279,8 @@ chunkFromMemory
   -> IO (SymIO.DataChunk sym wptr)
 chunkFromMemory sym mem ptr = SymIO.mkArrayChunk sym $ \offset -> do
   ptr' <- ptrAdd sym PtrWidth ptr offset
-  doLoad sym mem ptr' (bitvectorType (toBytes (1 :: Integer))) (BVRepr (PN.knownNat @8)) noAlignment
+  llbytes <- doLoad sym mem ptr' (bitvectorType (toBytes (1 :: Integer))) (LLVMPointerRepr (PN.knownNat @8)) noAlignment
+  projectLLVM_bv sym llbytes
 
 -- | Retrieve the 'SymIO.FileHandle' that the given descriptor represents,
 -- calling the continuation with 'Nothing' if the descriptor does not represent
