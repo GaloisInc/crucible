@@ -436,8 +436,7 @@ readChunk' fsVar fhdl sz = readChunk fsVar fhdl sz $ \case
     liftIO $ addFailedAssertion sym $ AssertFailureSimError "Failed to read array due to closed file handle." "readArray': Closed file handle"
   Right arr -> return arr
 
--- | Returns a predicate indicating whether or not the file handle
--- has hit the end-of-file.
+-- | Returns a predicate indicating whether or not the file handle is still open.
 isHandleOpen ::
   (IsSymInterface sym, 1 <= wptr) =>
   GlobalVar (FileSystemType wptr) ->
