@@ -672,8 +672,8 @@ appendArray sym errCtx (NoErr _ v1) (NoErr _ v2) =
 
 -- | Make a partial LLVM array value.
 --
--- It returns 'Unassigned' if any of the elements of the vector are
--- 'Unassigned'. Otherwise, the 'AssertionTree' on the returned value
+-- It returns 'Err' if any of the elements of the vector are
+-- 'Err'. Otherwise, the 'Pred' on the returned 'NoErr' value
 -- is the 'And' of all the assertions on the values.
 mkArray :: forall sym. (IsExprBuilder sym, IsSymInterface sym) =>
   sym ->
@@ -695,8 +695,8 @@ mkArray sym tp vec =
 
 -- | Make a partial LLVM struct value.
 --
--- It returns 'Unassigned' if any of the struct fields are 'Unassigned'.
--- Otherwise, the 'AssertionTree' on the returned value is the 'And' of all the
+-- It returns 'Err' if any of the struct fields are 'Err'.
+-- Otherwise, the 'Pred' on the returned 'NoErr' value is the 'And' of all the
 -- assertions on the values.
 mkStruct :: forall sym. IsExprBuilder sym =>
   sym ->
