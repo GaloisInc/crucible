@@ -126,6 +126,7 @@ newtype SomeOverrideSim sym a where
 targetToFD :: SymIO.FDTarget k -> Maybe Natural
 targetToFD t =
   case t of
+    SymIO.StdinTarget -> Just 0
     SymIO.StdoutTarget -> Just 1
     SymIO.StderrTarget -> Just 2
     _ -> Nothing
