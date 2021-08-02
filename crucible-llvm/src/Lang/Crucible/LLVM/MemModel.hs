@@ -1387,6 +1387,11 @@ unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
 unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
   = traverse (unpackMemValue sym tpr) xs
 
+unpackMemValue _sym (BVRepr w) (LLVMValInt blk bv)
+  | Just Refl <- testEquality (bvWidth bv) w
+  , Just 0 <- asNat blk =
+      return bv
+
 unpackMemValue _sym ctp@(BVRepr _) lval@(LLVMValInt _ _) =
     panic "MemModel.unpackMemValue"
       [ "Cannot unpack an integer LLVM value to a crucible bitvector type"
