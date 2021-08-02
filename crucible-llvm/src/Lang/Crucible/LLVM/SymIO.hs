@@ -57,6 +57,7 @@ import           Control.Monad ( forM, foldM, when )
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BVS
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Foldable as F
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Classes as PC
@@ -464,7 +465,7 @@ doConcreteWrite ptrw handles symFD chunk size =
             byteVal <- liftIO $ SymIO.evalChunk chunk idxBV
             case W4.asBV byteVal of
               Just (BVS.asUnsigned -> concByte) -> liftIO $ BS.hPut hdl (BS.pack [fromIntegral concByte])
-              Nothing -> liftIO $ BS.hPut hdl (BS.pack [63])
+              Nothing -> liftIO $ BS.hPut hdl (BSC.pack ['?'])
       | Just hdl <- Map.lookup fd handles -> do
           -- In this case, we have a write of symbolic size.  We can't really
           -- write that out, but do our best
