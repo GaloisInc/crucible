@@ -135,6 +135,10 @@ type FileHandle sym w = RegValue sym (FileHandleType w)
 
 -- | A 'File' represents a file in the filesystem independent
 -- of any open handles to it
+--
+-- The 'NatRepr' records the size of file pointers (in bits)
+--
+-- The 'SymInteger' is an index into the underlying array of arrays that represents file contents
 data File sym w = File (NatRepr w) (SymInteger sym)
 
 pattern FileRepr :: () => (1 <= w, ty ~ FileType w) => NatRepr w -> TypeRepr ty
