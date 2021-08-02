@@ -380,7 +380,7 @@ In addition, the following flags can optionally be provided:
 
 * `--symbolic-fs-root=DIR`: Specify a directory containing the initial contents of
   a symbolic filesystem to use during symbolic execution.  See the Symbolic I/O
-  documentation for the format of this directory.
+  documentation for the format of this directory. [Experimental]
 
 # Environment Variables
 
@@ -424,7 +424,10 @@ This specifies the name of the command to run for `clang` and
 `llvm-link`, instructs `crux-llvm` not to create counter-example
 demonstration executables, and provides a list of input files.
 
-# Symbolic I/O
+# Symbolic I/O [Experimental]
+
+Note that Symbolic I/O is currently experimental.  We expect that the API (both
+internal and command line) will change.
 
 `crux-llvm` supports *symbolic* I/O operations via the POSIX `open`, `read`,
 `write`, and `close` functions.  These operations are symbolic in the sense that
