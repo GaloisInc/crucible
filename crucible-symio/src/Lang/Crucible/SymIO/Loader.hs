@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
@@ -38,6 +39,7 @@ import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import           Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.NatRepr as PN
+import qualified Data.Text as T
 import qualified Data.Traversable as T
 import           Data.Word ( Word64 )
 import           GHC.Generics ( Generic )
@@ -129,7 +131,12 @@ loadInitialFiles sym fsRoot = do
   -- FIXME: Use the lower-level fold primitive that enables exception handling;
   -- this version just spews errors to stderr, which is inappropriate.
   let concreteFilesRoot = fsRoot </> "root"
-  concreteFilePaths <- SFF.find SFF.always SFF.always concreteFilesRoot
+  let isRegular = SFF.fileType SFF.==? SFF.RegularFile
+  concreteFilePaths <- SFF.find SFF.always isRegular concreteFilesRoot
+
+  -- Check if standard input has been specified as a concrete file
+  let stdinPath = fsRoot </> T.unpack (SymIO.fdTargetToText SymIO.StdinTarget)
+  hasStdin <- SD.doesFileExist stdinPath
 
   -- Note that all of these paths are absolute *if* @fsRoot@ was absolute.
   -- Also, if it has leading .. components, they will be included.  We need to
@@ -139,13 +146,18 @@ loadInitialFiles sym fsRoot = do
                       | p <- concreteFilePaths
                       ]
   concFiles <- mapM (\(p, name) -> (name,) <$> BS.readFile p) relativePaths
-  let concMap = Map.fromList [ (SymIO.FileTarget p, bytes) | (AbsolutePath p, bytes) <- concFiles ]
+  let concMap0 = Map.fromList [ (SymIO.FileTarget p, bytes) | (AbsolutePath p, bytes) <- concFiles ]
+  concMap1 <-
+    if | hasStdin -> do
+           stdinBytes <- BS.readFile stdinPath
+           return (Map.insert SymIO.StdinTarget stdinBytes concMap0)
+       | otherwise -> return concMap0
 
   let manifestFilePath = fsRoot </> "system-manifest.json"
   hasManifest <- SD.doesFileExist manifestFilePath
   case hasManifest of
     False ->
-      return SymIO.InitialFileSystemContents { SymIO.concreteFiles = concMap
+      return SymIO.InitialFileSystemContents { SymIO.concreteFiles = concMap1
                                              , SymIO.symbolicFiles = Map.empty
                                              , SymIO.useStdout = False
                                              , SymIO.useStderr = False
@@ -157,10 +169,10 @@ loadInitialFiles sym fsRoot = do
         Right symManifest -> do
           symFiles <- mapM (createSymbolicFile sym) (symbolicFiles symManifest)
           F.forM_ symFiles $ \(fdTarget, _) -> do
-            case Map.lookup fdTarget concMap of
+            case Map.lookup fdTarget concMap1 of
               Nothing -> return ()
               Just _ -> X.throwIO (FileSpecifiedAsSymbolicAndConcrete fdTarget)
-          return SymIO.InitialFileSystemContents { SymIO.concreteFiles = concMap
+          return SymIO.InitialFileSystemContents { SymIO.concreteFiles = concMap1
                                                  , SymIO.symbolicFiles = Map.fromList symFiles
                                                  , SymIO.useStdout = useStdout symManifest
                                                  , SymIO.useStderr = useStderr symManifest

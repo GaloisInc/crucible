@@ -92,6 +92,7 @@ import qualified Data.Map as Map
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 
+import qualified Data.Parameterized.Classes as PC
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
@@ -126,6 +127,8 @@ data FDTarget (k :: TargetDirection) where
 deriving instance Eq (FDTarget k)
 deriving instance Ord (FDTarget k)
 deriving instance Show (FDTarget k)
+instance PC.ShowF FDTarget where
+  showF = show
 
 -- | Convert an 'FDTarget' to 'T.Text'
 --
@@ -143,9 +146,9 @@ fdTargetToText :: FDTarget k -> Text.Text
 fdTargetToText t =
   case t of
     FileTarget f -> Text.pack f
-    StdinTarget -> Text.pack "<stdin>"
-    StdoutTarget -> Text.pack "<stdout>"
-    StderrTarget -> Text.pack "<stderr>"
+    StdinTarget -> Text.pack "stdin"
+    StdoutTarget -> Text.pack "stdout"
+    StderrTarget -> Text.pack "stderr"
 
 -- | The initial contents of the symbolic filesystem
 --
