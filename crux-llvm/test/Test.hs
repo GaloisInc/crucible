@@ -50,6 +50,7 @@ main = do let cubes = [ cube { TS.inputDir = dir, TS.rootName = rootName }
                       | dir <- [ "test-data/golden"
                                , "test-data/golden/golden"
                                , "test-data/golden/golden-loop-merging"
+                               , "test-data/golden/stdio"
                                ]
                       , rootName <- [ "*.c", "*.ll" ]
                       ]
