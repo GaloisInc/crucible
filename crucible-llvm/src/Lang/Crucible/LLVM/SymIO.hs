@@ -21,6 +21,9 @@
 -- between LLVMPointer arguments and more primitive argument types (including
 -- that filenames need to be read from the LLVM memory model before they can be
 -- interpreted).
+--
+-- The limitations of this library are enumerated in the README for crux-llvm,
+-- which is the user-facing documentation for this functionality.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
