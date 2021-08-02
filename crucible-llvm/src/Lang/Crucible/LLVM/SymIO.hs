@@ -213,7 +213,7 @@ type FDescMapType w = IntrinsicType "LLVM_fdescmap" (EmptyCtx ::> BVType w)
 instance (IsSymInterface sym) => IntrinsicClass sym "LLVM_fdescmap" where
   type Intrinsic sym "LLVM_fdescmap" (EmptyCtx ::> BVType w) = FDescMap sym w
 
-  muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxHandleMap sym
+  muxIntrinsic sym _iTypes _nm (Empty :> (BVRepr _w)) = muxFDescMap sym
   muxIntrinsic _ _ nm ctx = \_ _ _ -> typeError nm ctx
 
 pattern FDescMapRepr :: () => (1 <= w, ty ~ FDescMapType w) => PN.NatRepr w -> TypeRepr ty
@@ -221,14 +221,14 @@ pattern FDescMapRepr w <- IntrinsicRepr (PC.testEquality (PS.knownSymbol @"LLVM_
   where
     FDescMapRepr w = IntrinsicRepr PS.knownSymbol (Empty :> BVRepr w)
 
-muxHandleMap
+muxFDescMap
   :: IsSymInterface sym
   => sym
   -> W4.Pred sym
   -> FDescMap sym ptrW
   -> FDescMap sym ptrW
   -> IO (FDescMap sym ptrW)
-muxHandleMap sym p (FDescMap nextT mapT) (FDescMap nextF mapF) = do
+muxFDescMap sym p (FDescMap nextT mapT) (FDescMap nextF mapF) = do
   let
     keys = Set.toList $ Set.union (Map.keysSet mapT) (Map.keysSet mapF)
     next = max nextT nextF
