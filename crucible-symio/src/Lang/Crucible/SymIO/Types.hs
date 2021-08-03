@@ -166,6 +166,11 @@ muxFile ::
 muxFile sym p (File w f1) (File _w f2) = File w <$> baseTypeIte sym p f1 f2
 
 -- | A file pointer represents an index into a particular file.
+--
+-- The 'File' is similar to an inode, and uniquely identifies a file (as an
+-- index into the array of all files).  The 'SymBV' is the offset into the file
+-- that the file pointer is currently at (i.e., where the next read or write
+-- will be from).
 data FilePointer sym w =
   FilePointer (File sym w) (SymBV sym w) 
 
@@ -198,7 +203,14 @@ type DataChunk sym w = CA.ArrayChunk sym (BaseBVType w) (BaseBVType 8)
 type SizedDataChunkType w = SymbolicStructType (EmptyCtx ::> BaseArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8) ::> BaseBVType w)
 type SizedDataChunk sym w = SymStruct sym (EmptyCtx ::> BaseArrayType (EmptyCtx ::> BaseBVType w) (BaseBVType 8) ::> BaseBVType w)
 
-
+-- | A file handle is a reference to an optional file pointer
+--
+-- If the file pointer is not present, the file handle is closed. Otherwise, the
+-- file pointer is the current pointer into the file (i.e., that will be read
+-- from or written to next).
+--
+-- Note that this is just the repr and the real file handle value is symbolic
+-- and stored in a Crucible reference.
 pattern FileHandleRepr :: () => (1 <= w, ty ~ FileHandleType w) => NatRepr w -> TypeRepr ty
 pattern FileHandleRepr w = ReferenceRepr (MaybeRepr (FilePointerRepr w))
 

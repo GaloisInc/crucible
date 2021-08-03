@@ -6,6 +6,14 @@
 -- License          : BSD3
 -- Maintainer       : Daniel Matichuk <dmatichuk@galois.com>
 -- Stability        : provisional
+--
+--
+-- This module provides a storage structure that supports arrays that have reads
+-- from and writes to a mix of concrete and symbolic indexes. It can be thought
+-- of as a multi-dimensional array that supports reading and writing contiguous
+-- "chunks".  It is built on the 'Data.Parameterized.IntervalsMap' structure,
+-- which computes an abstract domain over indexes (supporting symbolic
+-- reads/writes).
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
@@ -285,6 +293,14 @@ instance Ord ArrayNonce where
 freshArrayNonce :: IO ArrayNonce
 freshArrayNonce = ArrayNonce <$> PN.freshNonce PN.globalNonceGenerator
 
+-- | An array that supports reading from a stack of mixed concrete/symbolic writes efficiently.
+--
+-- The primary interface is intended to be 'readChunk' and 'writeChunk', which
+-- allow writing contiguous subsequences of data to the array.
+--
+-- Note that the equality instances is based on a unique nonce (see
+-- 'ArrayNonce') that is incremented each time the array is updated, and is thus
+-- an identity test rather than a structural equality test.
 data CachedArray sym (ctx :: Ctx.Ctx W4.BaseType) (tp :: W4.BaseType) where
   CachedArray ::
     {
