@@ -39,6 +39,7 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.Interface
+import           What4.InterpretedFloatingPoint (iFloatToReal)
 import           What4.ProgramLoc (plSourceLoc)
 
 import           Lang.Crucible.Backend
@@ -550,9 +551,9 @@ printfOps sym valist =
 
   , printfGetFloat = \i _len ->
      case valist V.!? (i-1) of
-       Just (AnyValue (FloatRepr _fi) _x) ->
-         -- TODO: handle interpreted floats
-         return Nothing
+       Just (AnyValue (FloatRepr (_fi :: FloatInfoRepr fi)) x) ->
+         do xr <- liftIO (iFloatToReal @_ @fi sym x)
+            return (asRational xr)
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError
