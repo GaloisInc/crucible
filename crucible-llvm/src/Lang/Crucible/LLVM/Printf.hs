@@ -100,7 +100,7 @@ data ConversionDirective = Conversion
     { printfAccessField :: Maybe Int
     , printfFlags     :: Set PrintfFlag
     , printfMinWidth  :: Int
-    , printfPrecision :: Int
+    , printfPrecision :: Maybe Int
     , printfLengthMod :: PrintfLengthModifier
     , printfType      :: PrintfConversionType
     }
@@ -133,13 +133,13 @@ formatInteger
   :: Maybe Integer
   -> IntFormat
   -> Int -- min width
-  -> Int -- precision
+  -> Maybe Int -- precision
   -> Set PrintfFlag
   -> String
 formatInteger mi fmt minwidth prec flags =
   case mi of
     Nothing ->
-      let n = max 4 (max minwidth prec)
+      let n = max 4 (max minwidth (fromMaybe 0 prec))
        in replicate n '?'
     Just i  -> do
       case fmt of
@@ -161,7 +161,7 @@ insertThousands sep = reverse . go . reverse
 formatSignedDec
   :: Integer -- value to format
   -> Int     -- minwidth
-  -> Int     -- precision
+  -> Maybe Int     -- precision
   -> Set PrintfFlag
   -> String
 formatSignedDec i minwidth prec flags = do
@@ -170,11 +170,11 @@ formatSignedDec i minwidth prec flags = do
                | Set.member PrintfPosSpace flags -> " "
                | otherwise -> ""
   let digits = N.showInt (abs i) []
-  let precdigits = if prec > 0 then
-                      let n = max 0 (prec - length digits) in
-                      replicate n '0' ++ digits
-                   else
-                      digits
+  let precdigits = case prec of
+                     Just p ->
+                       let n = max 0 (p - length digits) in
+                       replicate n '0' ++ digits
+                     Nothing -> digits
   let sepdigits = if Set.member PrintfThousandsSep flags then
                       insertThousands ',' precdigits -- FIXME, get thousands separator from somewhere?
                   else
@@ -182,7 +182,7 @@ formatSignedDec i minwidth prec flags = do
   let pad = max 0 (minwidth - length sepdigits - length sgn)
   if | Set.member PrintfNegativeWidth flags ->
           sgn ++ sepdigits ++ replicate pad ' '
-     | Set.member PrintfZeroPadding flags && prec == 0 ->
+     | Set.member PrintfZeroPadding flags && prec == Nothing ->
           -- FIXME? this interacts poorly with the thousands seperation flag...
           sgn ++ replicate pad '0' ++ sepdigits
      | otherwise ->
@@ -191,16 +191,16 @@ formatSignedDec i minwidth prec flags = do
 formatUnsignedDec
   :: Integer -- value to format
   -> Int     -- minwidth
-  -> Int     -- precision
+  -> Maybe Int     -- precision
   -> Set PrintfFlag
   -> String
 formatUnsignedDec i minwidth prec flags = do
   let digits = N.showInt (abs i) []
-  let precdigits = if prec > 0 then
-                      let n = max 0 (prec - length digits) in
-                      replicate n '0' ++ digits
-                   else
-                      digits
+  let precdigits = case prec of
+                     Just p ->
+                       let n = max 0 (p - length digits) in
+                       replicate n '0' ++ digits
+                     Nothing -> digits
   let sepdigits = if Set.member PrintfThousandsSep flags then
                       insertThousands ',' precdigits -- FIXME, get thousands separator from somewhere?
                   else
@@ -208,7 +208,7 @@ formatUnsignedDec i minwidth prec flags = do
   let pad = max 0 (minwidth - length sepdigits)
   if | Set.member PrintfNegativeWidth flags ->
           sepdigits ++ replicate pad ' '
-     | Set.member PrintfZeroPadding flags && prec == 0 ->
+     | Set.member PrintfZeroPadding flags && prec == Nothing ->
           -- FIXME? this interacts poorly with the thousands seperation flag...
           replicate pad '0' ++ sepdigits
      | otherwise ->
@@ -217,16 +217,16 @@ formatUnsignedDec i minwidth prec flags = do
 formatOctal
   :: Integer -- value to format
   -> Int     -- minwidth
-  -> Int     -- precision
+  -> Maybe Int     -- precision
   -> Set PrintfFlag
   -> String
 formatOctal i minwidth prec flags = do
   let digits = N.showOct (abs i) []
-  let precdigits = if prec > 0 then
-                      let n = max 0 (prec - length digits) in
-                      replicate n '0' ++ digits
-                   else
-                      digits
+  let precdigits = case prec of
+                     Just p ->
+                       let n = max 0 (p - length digits) in
+                       replicate n '0' ++ digits
+                     Nothing -> digits
   let altdigits = if Set.member PrintfAlternateForm flags && head precdigits /= '0' then
                      '0':precdigits
                   else
@@ -234,7 +234,7 @@ formatOctal i minwidth prec flags = do
   let pad = max 0 (minwidth - length altdigits)
   if | Set.member PrintfNegativeWidth flags ->
           altdigits ++ replicate pad ' '
-     | Set.member PrintfZeroPadding flags && prec == 0 ->
+     | Set.member PrintfZeroPadding flags && prec == Nothing ->
           replicate pad '0' ++ altdigits
      | otherwise ->
           replicate pad ' ' ++ altdigits
@@ -243,16 +243,16 @@ formatHex
   :: Integer -- value to format
   -> Case    -- upper or lower case
   -> Int     -- minwidth
-  -> Int     -- precision
+  -> Maybe Int     -- precision
   -> Set PrintfFlag
   -> String
 formatHex i c minwidth prec flags = do
   let digits = N.showHex (abs i) []
-  let precdigits = if prec > 0 then
-                      let n = max 0 (prec - length digits) in
-                      replicate n '0' ++ digits
-                   else
-                      digits
+  let precdigits = case prec of
+                     Just p ->
+                        let n = max 0 (p - length digits) in
+                        replicate n '0' ++ digits
+                     Nothing -> digits
   -- Why only add "0x" when i is non-zero?  I have no idea,
   -- that's just what the docs say...
   let altstring = if Set.member PrintfAlternateForm flags && i /= 0 then
@@ -262,7 +262,7 @@ formatHex i c minwidth prec flags = do
   let pad = max 0 (minwidth - length precdigits - length altstring)
   let padded = if | Set.member PrintfNegativeWidth flags ->
                        altstring ++ precdigits ++ replicate pad ' '
-                  | Set.member PrintfZeroPadding flags && prec == 0 ->
+                  | Set.member PrintfZeroPadding flags && prec == Nothing ->
                        altstring ++ replicate pad '0' ++ precdigits
                   | otherwise ->
                        replicate pad ' ' ++ altstring ++ precdigits
@@ -275,18 +275,17 @@ formatRational
   :: Maybe Rational
   -> FloatFormat
   -> Int -- min width
-  -> Int -- precision
+  -> Maybe Int -- precision
   -> Set PrintfFlag
   -> Either String String   -- ^ Left indicates an error, right is OK
 formatRational mr fmt minwidth prec flags =
   case mr of
     Nothing ->
-      let n = max 4 (min minwidth prec)
+      let n = max 4 (min minwidth (fromMaybe 0 prec))
        in return (replicate n '?')
     Just r ->
       -- FIXME, we ignore the thousands flag...
-      do let mprec = if prec == 0 then Nothing else Just prec
-         let toCase c x = case c of
+      do let toCase c x = case c of
                             UpperCase -> map toUpper x
                             LowerCase -> x
          let sgn = if | r < 0  -> "-"
@@ -294,19 +293,20 @@ formatRational mr fmt minwidth prec flags =
                       | Set.member PrintfPosSpace flags -> " "
                       | otherwise -> ""
          let dbl = N.fromRat (abs r) :: Double
+         let prec' = case prec of Nothing -> Just 6; _ -> prec
          str <- case fmt of
                   FloatFormat_Scientific c ->
-                       return $ toCase c $ N.showEFloat mprec dbl []
+                       return $ toCase c $ N.showEFloat prec' dbl []
                   FloatFormat_Standard c ->
                    return $ toCase c $
                      if Set.member PrintfAlternateForm flags
-                       then N.showFFloatAlt mprec dbl []
-                       else N.showFFloat mprec dbl []
+                       then N.showFFloatAlt prec' dbl []
+                       else N.showFFloat prec' dbl []
                   FloatFormat_Auto c ->
                     return $ toCase c $
                       if Set.member PrintfAlternateForm flags
-                         then N.showGFloatAlt mprec dbl []
-                         else N.showGFloat mprec dbl []
+                         then N.showGFloatAlt prec' dbl []
+                         else N.showGFloat prec' dbl []
                   FloatFormat_Hex _c ->
                     -- FIXME, could probably implement this using N.floatToDigits...
                     Left "'a' and 'A' conversion codes not currently supported"
@@ -354,8 +354,7 @@ executeDirectives ops = go id 0 0
            let fstr' = fstr . (rstr ++)
            go fstr' len' fld' xs
          Conversion_String -> do
-           let prec  = if printfPrecision d == 0 then Nothing else Just (printfPrecision d)
-           ws <- printfGetString ops fld' prec
+           ws <- printfGetString ops fld' (printfPrecision d)
            let s     = UTF8.toString ws
            let len'  = len + length s
            let fstr' = fstr . (s ++)
@@ -396,7 +395,7 @@ parseConversion = do
                 return d)
   flags <- parseFlags Set.empty
   width <- option 0 decimal
-  prec  <- option 0 (char '.' >> decimal)
+  prec  <- option Nothing (char '.' >> (Just <$> decimal))
   len   <- parseLenModifier
   typ   <- parseConversionType
   return $ ConversionDirective $ Conversion
