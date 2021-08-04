@@ -158,6 +158,16 @@ insertThousands sep = reverse . go . reverse
   go (a:b:c:xs@(_:_)) = a:b:c:sep:go xs
   go xs = xs
 
+
+addLeadingZeros ::
+  Maybe Int -> -- precision
+  String ->
+  String
+addLeadingZeros Nothing digits = digits
+addLeadingZeros (Just p) digits =
+   let n = max 0 (p - length digits) in
+   replicate n '0' ++ digits
+
 formatSignedDec
   :: Integer -- value to format
   -> Int     -- minwidth
@@ -170,11 +180,7 @@ formatSignedDec i minwidth prec flags = do
                | Set.member PrintfPosSpace flags -> " "
                | otherwise -> ""
   let digits = N.showInt (abs i) []
-  let precdigits = case prec of
-                     Just p ->
-                       let n = max 0 (p - length digits) in
-                       replicate n '0' ++ digits
-                     Nothing -> digits
+  let precdigits = addLeadingZeros prec digits
   let sepdigits = if Set.member PrintfThousandsSep flags then
                       insertThousands ',' precdigits -- FIXME, get thousands separator from somewhere?
                   else
@@ -196,11 +202,7 @@ formatUnsignedDec
   -> String
 formatUnsignedDec i minwidth prec flags = do
   let digits = N.showInt (abs i) []
-  let precdigits = case prec of
-                     Just p ->
-                       let n = max 0 (p - length digits) in
-                       replicate n '0' ++ digits
-                     Nothing -> digits
+  let precdigits = addLeadingZeros prec digits
   let sepdigits = if Set.member PrintfThousandsSep flags then
                       insertThousands ',' precdigits -- FIXME, get thousands separator from somewhere?
                   else
@@ -222,11 +224,7 @@ formatOctal
   -> String
 formatOctal i minwidth prec flags = do
   let digits = N.showOct (abs i) []
-  let precdigits = case prec of
-                     Just p ->
-                       let n = max 0 (p - length digits) in
-                       replicate n '0' ++ digits
-                     Nothing -> digits
+  let precdigits = addLeadingZeros prec digits
   let altdigits = if Set.member PrintfAlternateForm flags && head precdigits /= '0' then
                      '0':precdigits
                   else
@@ -248,11 +246,7 @@ formatHex
   -> String
 formatHex i c minwidth prec flags = do
   let digits = N.showHex (abs i) []
-  let precdigits = case prec of
-                     Just p ->
-                        let n = max 0 (p - length digits) in
-                        replicate n '0' ++ digits
-                     Nothing -> digits
+  let precdigits = addLeadingZeros prec digits
   -- Why only add "0x" when i is non-zero?  I have no idea,
   -- that's just what the docs say...
   let altstring = if Set.member PrintfAlternateForm flags && i /= 0 then
