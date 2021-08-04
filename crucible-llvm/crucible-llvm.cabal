@@ -102,6 +102,7 @@ library
     Lang.Crucible.LLVM.Translation.Expr
     Lang.Crucible.LLVM.Translation.Instruction
     Lang.Crucible.LLVM.Translation.Monad
+    Lang.Crucible.LLVM.Translation.Options
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
 

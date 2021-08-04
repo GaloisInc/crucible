@@ -15,6 +15,7 @@ import           System.FilePath ( (</>), joinPath, normalise, splitPath, takeDi
 import qualified Data.LLVM.BitCode as LLVM
 
 import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
+import           Lang.Crucible.LLVM.Translation ( TranslationOptions(..) )
 
 import qualified Crux
 import           Paths_crux_llvm ( getDataDir )
@@ -65,12 +66,11 @@ data LLVMOptions = LLVMOptions
   , targetArch :: Maybe String
   , ubSanitizers :: [String]
   , memOpts    :: MemOptions
-  , laxArithmetic :: Bool
+  , transOpts  :: TranslationOptions
   , entryPoint :: String
   , lazyCompile :: Bool
   , noCompile :: Bool
   , optLevel :: Int
-  , loopMerge :: Bool
   }
 
 -- | The @c-src@ directory, which contains @crux-llvm@–specific files such as
@@ -140,11 +140,18 @@ llvmCruxConfig = do
                            "Allow equality comparisons between pointers to constant data"
                        return MemOptions{..}
 
+         transOpts <- do laxArith <-
+                           Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
+                             "Do not produce proof obligations related to arithmetic overflow, etc."
+                         optLoopMerge <-
+                           Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
+                             "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
+                         debugIntrinsics <- Crux.section "debug-intrinsics" Crux.yesOrNoSpec False
+                              "Translate statements using certain llvm.dbg intrinsic functions."
+                         return TranslationOptions{..}
+
          entryPoint <- Crux.section "entry-point" Crux.stringSpec "main"
                            "Name of the entry point function to begin simulation."
-
-         laxArithmetic <- Crux.section "lax-arithmetic" Crux.yesOrNoSpec False
-                           "Do not produce proof obligations related to arithmetic overflow, etc."
 
          lazyCompile <- Crux.section "lazy-compile" Crux.yesOrNoSpec False
                            "Avoid compiling bitcode from source if intermediate files already exist"
@@ -157,9 +164,6 @@ llvmCruxConfig = do
 
          optLevel <- Crux.section "opt-level" Crux.numSpec 1
                            "Optimization level to request from `clang`"
-
-         loopMerge <- Crux.section "opt-loop-merge" Crux.yesOrNoSpec False
-                        "Insert merge blocks in loops with early exits (i.e. breaks or returns). This may improve simulation performance."
 
          return LLVMOptions { .. }
 
@@ -194,12 +198,12 @@ llvmCruxConfig = do
       , Crux.Option [] ["lax-arithmetic"]
         "Turn on lax rules for arithemetic overflow"
         $ Crux.NoArg
-        $ \opts -> Right opts { laxArithmetic = True }
+        $ \opts -> Right opts { transOpts = (transOpts opts) { laxArith = True } }
 
       , Crux.Option [] ["opt-loop-merge"]
         "Insert merge blocks in loops with early exits"
         $ Crux.NoArg
-        $ \opts -> Right opts { loopMerge = True }
+        $ \opts -> Right opts { transOpts = (transOpts opts) { optLoopMerge = True } }
 
       , Crux.Option [] ["lazy-compile"]
         "Avoid compiling bitcode from source if intermediate files already exist (default: off)"

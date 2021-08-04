@@ -78,6 +78,7 @@ import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
+import           Lang.Crucible.LLVM.Translation.Options
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 import           Lang.Crucible.Syntax hiding (IsExpr)
@@ -528,7 +529,7 @@ calcGEP_struct fi base =
      if ioff == 0 then return base else callPtrAddOffset base off
 
 
-translateConversion :: (?laxArith :: Bool) =>
+translateConversion :: (?transOpts :: TranslationOptions) =>
   L.Instr ->
   L.ConvOp ->
   MemType {- Input type -} ->
@@ -797,7 +798,7 @@ vecSplit elLen expr =
   lay = llvmDataLayout ?lc
 
 
-bitop :: (?laxArith :: Bool) =>
+bitop :: (?transOpts :: TranslationOptions) =>
   L.BitOp ->
   MemType ->
   LLVMExpr s arch ->
@@ -819,7 +820,7 @@ bitop op _ x y =
 
     _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
-raw_bitop :: (?laxArith :: Bool, 1 <= w) =>
+raw_bitop :: (?transOpts :: TranslationOptions, 1 <= w) =>
   L.BitOp ->
   NatRepr w ->
   Expr LLVM s (BVType w) ->
@@ -827,6 +828,7 @@ raw_bitop :: (?laxArith :: Bool, 1 <= w) =>
   LLVMGenerator s arch ret (Expr LLVM s (BVType w))
 raw_bitop op w a b =
   let withSideConds val lst = sideConditionsA (BVRepr w) val lst
+      noLaxArith = not (laxArith ?transOpts)
   in
     case op of
       L.And -> return $ App (BVAnd w a b)
@@ -837,16 +839,16 @@ raw_bitop op w a b =
         let wlit = App (BVLit w (BV.width w))
         result <- AtomExpr <$> mkAtom (App (BVShl w a b))
         withSideConds result
-          [ ( not ?laxArith
+          [ ( noLaxArith
             , pure  $ App (BVUlt w b wlit) -- TODO: is this the right condition?
             , UB.PoisonValueCreated $ Poison.ShlOp2Big a b
             )
-          , ( nuw && not ?laxArith
+          , ( nuw && noLaxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVLshr w result b)))
             , UB.PoisonValueCreated $ Poison.ShlNoUnsignedWrap a b
             )
-          , ( nsw && not ?laxArith
+          , ( nsw && noLaxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVAshr w result b)))
             , UB.PoisonValueCreated $ Poison.ShlNoSignedWrap a b
@@ -857,11 +859,11 @@ raw_bitop op w a b =
         let wlit = App (BVLit w (BV.width w))
         result <- AtomExpr <$> mkAtom (App (BVLshr w a b))
         withSideConds result
-          [ ( not ?laxArith
+          [ ( noLaxArith
             , pure  $ App (BVUlt w b wlit)
             , UB.PoisonValueCreated $ Poison.LshrOp2Big a b
             )
-          , ( exact && not ?laxArith
+          , ( exact && noLaxArith
             , fmap (App . BVEq w a . AtomExpr)
                    (mkAtom (App (BVShl w result b)))
             , UB.PoisonValueCreated $ Poison.LshrExact a b
@@ -873,11 +875,11 @@ raw_bitop op w a b =
             let wlit = App (BVLit w (BV.width w))
             result <- AtomExpr <$> mkAtom (App (BVAshr w a b))
             withSideConds result
-              [ ( not ?laxArith
+              [ ( noLaxArith
                 , pure  $ App (BVUlt w b wlit)
                 , UB.PoisonValueCreated $ Poison.AshrOp2Big a b
                 )
-              , ( exact && not ?laxArith
+              , ( exact && noLaxArith
                 , fmap (App . BVEq w a)
                        (AtomExpr <$> mkAtom (App (BVShl w result b)))
                 , UB.PoisonValueCreated $ Poison.AshrExact a b
@@ -890,7 +892,7 @@ raw_bitop op w a b =
 -- | Translate an LLVM integer operation into a Crucible CFG expression.
 --
 -- Poison values can arise from such operations.
-intop :: forall w s arch ret. (?laxArith :: Bool, 1 <= w)
+intop :: forall w s arch ret. (?transOpts :: TranslationOptions, 1 <= w)
       => L.ArithOp
       -> NatRepr w
       -> Expr LLVM s (BVType w)
@@ -906,24 +908,25 @@ intop op w a b =
       bNeqZero = \ub -> (True, pure (notExpr (App (BVEq w z b))), ub)
       neg1     = App (BVLit w (BV.mkBV w (-1)))
       minInt   = App (BVLit w (BV.minSigned w))
+      noLaxArith = not (laxArith ?transOpts)
   in case op of
        L.Add nuw nsw -> withPoison (App (BVAdd w a b))
-         [ ( nuw && not ?laxArith
+         [ ( nuw && noLaxArith
            , notExpr (App (BVCarry w a b))
            , Poison.AddNoUnsignedWrap a b
            )
-         , ( nsw && not ?laxArith
+         , ( nsw && noLaxArith
            , notExpr (App (BVSCarry w a b))
            , Poison.AddNoSignedWrap a b
            )
          ]
 
        L.Sub nuw nsw -> withPoison (App (BVSub w a b))
-         [ ( nuw && not ?laxArith
+         [ ( nuw && noLaxArith
            , notExpr (App (BVUlt w a b))
            , Poison.SubNoUnsignedWrap a b
            )
-         , ( nsw && not ?laxArith
+         , ( nsw && noLaxArith
            , notExpr (App (BVSBorrow w a b))
            , Poison.SubNoSignedWrap a b
            )
@@ -936,7 +939,7 @@ intop op w a b =
 
          prod <- AtomExpr <$> mkAtom (App (BVMul w a b))
          withSideConds prod
-           [ ( nuw && not ?laxArith
+           [ ( nuw && noLaxArith
              , do
                  az       <- AtomExpr <$> mkAtom (App (BVZext w' w a))
                  bz       <- AtomExpr <$> mkAtom (App (BVZext w' w b))
@@ -945,7 +948,7 @@ intop op w a b =
                  return (App (BVEq w' wideprod prodz))
              , UB.PoisonValueCreated $ Poison.MulNoUnsignedWrap a b
              )
-           , ( nsw && not ?laxArith
+           , ( nsw && noLaxArith
              , do
                  as       <- AtomExpr <$> mkAtom (App (BVSext w' w a))
                  bs       <- AtomExpr <$> mkAtom (App (BVSext w' w b))
@@ -959,7 +962,7 @@ intop op w a b =
        L.UDiv exact -> do
          q <- AtomExpr <$> mkAtom (App (BVUdiv w a b))
          withSideConds q
-           [ ( exact && not ?laxArith
+           [ ( exact && noLaxArith
              , fmap (App . BVEq w a . AtomExpr)
                     (mkAtom (App (BVMul w q b)))
              , UB.PoisonValueCreated $ Poison.UDivExact a b
@@ -971,12 +974,12 @@ intop op w a b =
          | Just LeqProof <- isPosNat w -> do
            q <- AtomExpr <$> mkAtom (App (BVSdiv w a b))
            withSideConds q
-            [ ( exact && not ?laxArith
+            [ ( exact && noLaxArith
               , fmap (App . BVEq w a . AtomExpr)
                      (mkAtom (App (BVMul w q b)))
               , UB.PoisonValueCreated $ Poison.SDivExact a b
               )
-            , ( not ?laxArith
+            , ( noLaxArith
               , pure (notExpr (App (BVEq w neg1 b) .&& App (BVEq w minInt a)))
               , UB.SDivOverflow a b
               )
@@ -991,7 +994,7 @@ intop op w a b =
          | Just LeqProof <- isPosNat w ->
             do r <- AtomExpr <$> mkAtom (App (BVSrem w a b))
                withSideConds r
-                 [ ( not ?laxArith
+                 [ ( noLaxArith
                    , pure (notExpr (App (BVEq w neg1 b) .&& App (BVEq w minInt a)))
                    , UB.SRemOverflow a b
                    )
@@ -1243,7 +1246,7 @@ pointerCmp op x y =
                 ]
 
 pointerOp
-   :: (wptr ~ ArchWidth arch, ?laxArith :: Bool)
+   :: (wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
    => L.ArithOp
    -> Expr LLVM s (LLVMPointerType wptr)
    -> Expr LLVM s (LLVMPointerType wptr)
@@ -1362,7 +1365,7 @@ translateSelect instr _ _ _ _ _ _ =
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
 generateInstr :: forall s arch ret a.
-   (?laxArith :: Bool) =>
+   (?transOpts :: TranslationOptions) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
    L.Instr        {- ^ The instruction to translate -} ->
@@ -1711,7 +1714,7 @@ generateInstr retType lab instr assign_f k =
  unsupported = reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $
                  unwords ["unsupported instruction", showInstr instr]
 
-arithOp :: (?laxArith :: Bool) =>
+arithOp :: (?transOpts :: TranslationOptions) =>
   L.ArithOp ->
   MemType ->
   LLVMExpr s arch ->
@@ -1811,7 +1814,8 @@ callFunction instr _tailCall fnTy _fn _args _assign_f =
 -- | Generate a call to an LLVM function, with a continuation to fetch more
 -- instructions.
 callFunctionWithCont :: forall s arch ret a.
-   L.Instr {- ^ Source instruction o the call -} -> 
+   (?transOpts :: TranslationOptions) =>
+   L.Instr {- ^ Source instruction o the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
@@ -1845,7 +1849,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
               extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di)) >> k
             _ -> k
 
-     -- Skip calls to debugging intrinsics.  We might want to support these in some way
+     -- Skip calls to other debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
      -- would require some work to support.
      | L.ValSymbol nm <- fn
@@ -1871,24 +1875,33 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
      | otherwise = callFunction (Just instr) tailCall_ fnTy fn args assign_f >> k
 
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
-dbgArgs :: 
+dbgArgs ::
+  (?transOpts :: TranslationOptions) =>
   [L.Typed L.Value] {- ^ debug call arguments -} ->
   LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs args =
-  case args of
-    [valArg, lvArg, diArg] ->
-      case valArg of
-        L.Typed _ (L.ValMd (L.ValMdValue val)) ->
-          case lvArg of
-            L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
-              case diArg of
-                L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) -> 
-                  do v <- transTypedValue val
-                     pure (Right (v, lv, di))
-                _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
-            _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
-        _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
-    _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))     
+dbgArgs args
+  | -- Why guard translating llvm.dbg statements behind its own option? It's
+    -- because Clang can sometimes generate llvm.dbg statements with improperly
+    -- scoped arguments—see https://bugs.llvm.org/show_bug.cgi?id=51155. This
+    -- wreaks all sorts of havoc on Crucible's later analyses, so one can work
+    -- around the issue by not translating the llvm.dbg statements at all.
+    debugIntrinsics ?transOpts
+  = case args of
+      [valArg, lvArg, diArg] ->
+        case valArg of
+          L.Typed _ (L.ValMd (L.ValMdValue val)) ->
+            case lvArg of
+              L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
+                case diArg of
+                  L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) ->
+                    do v <- transTypedValue val
+                       pure (Right (v, lv, di))
+                  _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
+              _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
+          _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
+      _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
+  | otherwise
+  = pure (Left ("Not translating llvm.dbg statement due to debugIntrinsics not being enabled"))
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->

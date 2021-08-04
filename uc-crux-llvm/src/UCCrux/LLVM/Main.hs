@@ -175,8 +175,7 @@ translateLLVMModule ucOpts halloc memVar moduleFilePath llvmMod =
   do
     let llvmOpts = Config.ucLLVMOptions ucOpts
     Some trans <-
-      let ?laxArith = laxArithmetic llvmOpts
-          ?optLoopMerge = loopMerge llvmOpts
+      let ?transOpts = transOpts llvmOpts
        in translateModule halloc memVar llvmMod
     llvmPtrWidth
       (trans ^. transContext)

@@ -220,8 +220,7 @@ testBuildTranslation srcPath llvmTransTests =
           Right _ -> pure ()
 
       trans = do halloc <- newHandleAllocator
-                 let ?laxArith = False
-                 let ?optLoopMerge = False
+                 let ?transOpts = defaultTranslationOptions
                  memVar <- mkMemVar "buildTranslation_test_llvm_memory" halloc
                  translateModule halloc memVar =<<
                    (fromRight (error "parsing was already verified") <$> parseLLVM bcPath)
