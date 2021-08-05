@@ -117,6 +117,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
       bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
       let ?lc = llvmCtxt ^. llvmTypeCtx
       let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
+      let ?memOpts = memOptions
       let simctx =
             (setupSimCtxt halloc sym memOptions (llvmMemVar llvmCtxt))
               { Crucible.printHandle = view outputHandle ?outputConfig
@@ -195,7 +196,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   -- programs where the vast majority of functions wouldn't be
                   -- called from any particular function. Needs some
                   -- benchmarking.
-                  registerFunctions (modCtx ^. llvmModule) trans
+                  registerFunctions memOptions (modCtx ^. llvmModule) trans
                   let uOverrides = unsoundOverrides trans unsoundOverrideRef
                   sOverrides <-
                     unsoundSkipOverrides

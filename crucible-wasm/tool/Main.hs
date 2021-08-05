@@ -14,6 +14,8 @@ import Lang.Crucible.Types
 import Lang.Crucible.Simulator
 import Lang.Crucible.FunctionHandle
 
+import Lang.Crucible.LLVM.MemModel
+
 import qualified Crux
 
 import qualified Language.Wasm as Wasm
@@ -34,13 +36,14 @@ cruxWasmConfig = Crux.Config
   }
 
 setupWasmState :: IsSymInterface sym =>
-  sym -> Wasm.Script -> IO (ExecState (Crux.Crux sym) sym WasmExt (RegEntry sym UnitType))
-setupWasmState sym s =
+  sym -> MemOptions -> Wasm.Script -> IO (ExecState (Crux.Crux sym) sym WasmExt (RegEntry sym UnitType))
+setupWasmState sym memOptions s =
   do halloc <- newHandleAllocator
 
      let globals = emptyGlobals
      let bindings = emptyHandleMap
-     let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout (FnBindings bindings) extImpl Crux.CruxPersonality
+     let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout (FnBindings bindings) (extImpl memOptions) Crux.CruxPersonality
+     let ?memOpts = memOptions
      let m = execScript s emptyScriptState >> pure ()
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))
@@ -59,7 +62,7 @@ simulateWasm cruxOpts _wasmOpts = Crux.SimulatorCallback $ \sym _mOnline ->
              Left msg -> fail msg
              Right s -> return s
 
-      initSt <- setupWasmState sym script
+      initSt <- setupWasmState sym defaultMemOptions script
 
       return (Crux.RunnableState initSt, \_ _ -> return mempty)
 

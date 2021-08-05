@@ -112,7 +112,8 @@ ptrArraySize mem ptr
   | otherwise = Nothing
 
 ptrIsInitialized ::
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
+  ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w
+  , ?memOpts :: C.MemOptions ) =>
   sym ->
   G.Mem sym ->
   C.LLVMPtr sym w ->
@@ -123,7 +124,8 @@ ptrIsInitialized sym mem ptr =
   _ -> pure False
 
 intrinsicArgProfile ::
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
+  ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w
+  , ?memOpts :: C.MemOptions ) =>
   sym ->
   G.Mem sym ->
   SymbolRepr nm ->
@@ -137,7 +139,8 @@ intrinsicArgProfile sym mem
 intrinsicArgProfile _ _ _ _ _ = pure $ ArgProfile Nothing False
 
 regValueArgProfile ::
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
+  ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w
+  , ?memOpts :: C.MemOptions ) =>
   sym ->
   G.Mem sym ->
   C.TypeRepr tp ->
@@ -147,7 +150,8 @@ regValueArgProfile sym mem (C.IntrinsicRepr nm ctx) i = intrinsicArgProfile sym 
 regValueArgProfile _ _ _ _ = pure $ ArgProfile Nothing False
 
 regEntryArgProfile ::
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
+  ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w
+  , ?memOpts :: C.MemOptions ) =>
   sym ->
   G.Mem sym ->
   C.RegEntry sym tp ->
@@ -156,7 +160,8 @@ regEntryArgProfile sym mem (C.RegEntry t v) = regValueArgProfile sym mem t v
 
 newtype Wrap a (b :: C.CrucibleType) = Wrap { unwrap :: a }
 argProfiles ::
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w) =>
+  ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth w
+  , ?memOpts :: C.MemOptions ) =>
   sym ->
   G.Mem sym ->
   Ctx.Assignment (C.RegEntry sym) ctx ->
@@ -168,7 +173,8 @@ argProfiles sym mem as =
 -- Execution feature for learning profiles
 
 updateProfiles ::
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)) =>
+  ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)
+  , ?memOpts :: C.MemOptions ) =>
   C.LLVMContext arch ->
   IORef (Map Text [FunctionProfile]) ->
   C.ExecState p sym ext rtp ->
@@ -191,7 +197,8 @@ updateProfiles llvm cell state
 
 arraySizeProfile ::
   forall sym ext arch p rtp.
-  (C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)) =>
+  ( C.IsSymInterface sym, C.HasLLVMAnn sym, C.HasPtrWidth (C.ArchWidth arch)
+  , ?memOpts :: C.MemOptions ) =>
   C.LLVMContext arch ->
   IORef (Map Text [FunctionProfile]) ->
   IO (C.ExecutionFeature p sym ext rtp)

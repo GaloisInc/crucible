@@ -59,7 +59,7 @@ import Lang.Crucible.LLVM.MemModel
    doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
    doArrayStore, doArrayConstStore, HasLLVMAnn,
    isAllocatedAlignedPointer, Mutability(..),
-   pattern PtrWidth, doDumpMem
+   pattern PtrWidth, doDumpMem, MemOptions
    )
 
 import           Lang.Crucible.LLVM.TypeContext( TypeContext )
@@ -76,7 +76,8 @@ type TBits n        = BVType n
 
 
 cruxLLVMOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cruxLLVMOverrides arch =
@@ -150,7 +151,8 @@ cruxLLVMOverrides arch =
 
 
 cbmcOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
+  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cbmcOverrides arch =
@@ -338,7 +340,8 @@ mkFreshFloat nm fi = do
   return elt
 
 lookupString ::
-  (IsSymInterface sym, HasLLVMAnn sym, ArchOk arch) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, ArchOk arch
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM personality sym ext String
 lookupString _ mvar ptr =
@@ -366,7 +369,8 @@ sv_comp_fresh_float ::
 sv_comp_fresh_float fi _mvar _sym Empty = mkFreshFloat "X" fi
 
 fresh_bits ::
-  (ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w) =>
+  ( ArchOk arch, HasLLVMAnn sym, IsSymInterface sym, 1 <= w
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   NatRepr w ->
   GlobalVar Mem ->
@@ -378,7 +382,8 @@ fresh_bits arch w mvar _ (Empty :> pName) =
      mkFresh name (BaseBVRepr w)
 
 fresh_float ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   FloatInfoRepr fi ->
   GlobalVar Mem ->
@@ -390,7 +395,8 @@ fresh_float arch fi mvar _ (Empty :> pName) =
      mkFreshFloat name fi
 
 fresh_str ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->
@@ -427,7 +433,8 @@ fresh_str arch mvar sym (Empty :> pName :> maxLen) =
      return ptr
 
 do_assume ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->
@@ -445,7 +452,8 @@ do_assume arch mvar sym (Empty :> p :> pFile :> line) =
      liftIO $ addAssumption sym (GenericAssumption loc' "crucible_assume" cond)
 
 do_assert ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->
@@ -501,7 +509,8 @@ cprover_assume _mvar sym (Empty :> p) = liftIO $
 
 
 cprover_assert ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->

@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -28,6 +29,8 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Types
+
+import Lang.Crucible.LLVM.MemModel (MemOptions)
 
 import Lang.Crucible.Wasm.Instantiate
 import Lang.Crucible.Wasm.Memory
@@ -129,15 +132,18 @@ data WasmStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
     !(f (FloatType DoubleFloat)) ->
     WasmStmt f UnitType
 
-extImpl :: ExtensionImpl p sym WasmExt
-extImpl =
+extImpl :: MemOptions ->
+           ExtensionImpl p sym WasmExt
+extImpl mo =
+  let ?memOpts = mo in
   ExtensionImpl
   { -- There are no interesting extension expression formers
     extensionEval = \_ _ _ _ -> \case{}
   , extensionExec = evalWasmExt
   }
 
-evalWasmExt :: EvalStmtFunc p sym WasmExt
+evalWasmExt :: (?memOpts :: MemOptions) =>
+               EvalStmtFunc p sym WasmExt
 evalWasmExt stmt cst =
   let sym = cst^.stateSymInterface
    in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
@@ -146,7 +152,7 @@ type EvalM p sym ext rtp blocks ret args a =
   StateT (CrucibleState p sym ext rtp blocks ret args) IO a
 
 evalStmt :: forall p sym ext rtp blocks ret args tp.
-  IsSymInterface sym =>
+  (IsSymInterface sym, ?memOpts :: MemOptions) =>
   sym ->
   WasmStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)

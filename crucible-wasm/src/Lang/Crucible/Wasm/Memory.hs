@@ -198,7 +198,8 @@ wasmStoreDouble sym off v mem =
      (heap',_,_) <- G.writeMem sym knownNat Nothing p doubleType noAlignment val (wasmMemHeap mem)
      return mem{ wasmMemHeap = heap' }
 
-wasmLoadInt :: (1 <= w, IsSymInterface sym) => sym -> SymBV sym 32 -> NatRepr w -> WasmMemImpl sym -> IO (SymBV sym w)
+wasmLoadInt :: (1 <= w, IsSymInterface sym, ?memOpts :: MemOptions) =>
+               sym -> SymBV sym 32 -> NatRepr w -> WasmMemImpl sym -> IO (SymBV sym w)
 wasmLoadInt sym off w mem =
   do let bs = Bytes (intValue w `div` 8)
      assertInBounds sym off bs mem
@@ -211,7 +212,7 @@ wasmLoadInt sym off w mem =
        _ -> panic "wasmLoadInt" ["type mismatch"]
 
 wasmLoadFloat ::
-  IsSymInterface sym =>
+  (IsSymInterface sym, ?memOpts :: MemOptions) =>
   sym ->
   SymBV sym 32 ->
   WasmMemImpl sym ->
@@ -228,7 +229,7 @@ wasmLoadFloat sym off mem =
        _ -> panic "wasmLoadFloat" ["type mismatch"]
 
 wasmLoadDouble ::
-  IsSymInterface sym =>
+  (IsSymInterface sym, ?memOpts :: MemOptions) =>
   sym ->
   SymBV sym 32 ->
   WasmMemImpl sym ->
