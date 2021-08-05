@@ -1,4 +1,5 @@
-{ "symbolicFiles": [],
+{ "symbolicFiles": [ ["/dev/urandom", {"symbolicContentSize": 1024} ]
+                   ],
   "useStdout": true,
   "useStderr": true
 }
