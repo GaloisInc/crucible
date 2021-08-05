@@ -346,14 +346,18 @@ extractValue (ZeroExpr (StructType si)) is =
  where tps = map fiType $ toList $ siFields si
 extractValue (ZeroExpr (ArrayType n tp)) is =
    extractValue (VecExpr tp $ Seq.replicate (fromIntegral n) (ZeroExpr tp)) is
-extractValue (BaseExpr (StructRepr ctx) x) (i:is)
-   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-           let tpr = ctx Ctx.! idx
-           extractValue (BaseExpr tpr (getStruct idx x)) is
 extractValue (StructExpr vs) (i:is)
    | fromIntegral i < Seq.length vs = extractValue (snd $ Seq.index vs $ fromIntegral i) is
 extractValue (VecExpr _ vs) (i:is)
    | fromIntegral i < Seq.length vs = extractValue (Seq.index vs $ fromIntegral i) is
+extractValue (BaseExpr (StructRepr ctx) x) (i:is)
+   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
+           let tpr = ctx Ctx.! idx
+           extractValue (BaseExpr tpr (getStruct idx x)) is
+extractValue (BaseExpr (VectorRepr elTp) x) (i:is)
+   | i >= 0 =
+   do let n = fromIntegral i :: Natural
+      extractValue (BaseExpr elTp (app (VectorGetEntry elTp x (litExpr n)))) is
 extractValue _ _ = fail "invalid extractValue instruction"
 
 
@@ -375,15 +379,6 @@ insertValue (ZeroExpr (StructType si)) v is =
  where tps = map fiType $ toList $ siFields si
 insertValue (ZeroExpr (ArrayType n tp)) v is =
    insertValue (VecExpr tp $ Seq.replicate (fromIntegral n) (ZeroExpr tp)) v is
-insertValue (BaseExpr (StructRepr ctx) x) v (i:is)
-   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-           let tpr = ctx Ctx.! idx
-           x' <- insertValue (BaseExpr tpr (getStruct idx x)) v is
-           case x' of
-             BaseExpr tpr' x''
-               | Just Refl <- testEquality tpr tpr' ->
-                    return $ BaseExpr (StructRepr ctx) (setStruct ctx x idx x'')
-             _ -> fail "insertValue was expected to return base value of same type"
 insertValue (StructExpr vs) v (i:is)
    | fromIntegral i < Seq.length vs = do
         let (xtp, x) = Seq.index vs (fromIntegral i)
@@ -394,6 +389,24 @@ insertValue (VecExpr tp vs) v (i:is)
         let x = Seq.index vs (fromIntegral i)
         x' <- insertValue x v is
         return (VecExpr tp (Seq.adjust (\_ -> x') (fromIntegral i) vs))
+insertValue (BaseExpr (StructRepr ctx) x) v (i:is)
+   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
+           let tpr = ctx Ctx.! idx
+           x' <- insertValue (BaseExpr tpr (getStruct idx x)) v is
+           let ?err = fail
+           unpackOne x' $ \_px tpr' x'' ->
+             case testEquality tpr tpr' of
+               Just Refl -> return $ BaseExpr (StructRepr ctx) (setStruct ctx x idx x'')
+               Nothing   -> fail "insertValue was expected to return base value of same type (struct case)"
+insertValue (BaseExpr (VectorRepr elTp) x) v (i:is)
+   | i >= 0 =
+   do let n = fromIntegral i :: Natural
+      x' <- insertValue (BaseExpr elTp (app (VectorGetEntry elTp x (litExpr n)))) v is
+      let ?err = fail
+      unpackOne x' $ \_px tpr' x'' ->
+        case testEquality elTp tpr' of
+          Just Refl -> return $ BaseExpr (VectorRepr elTp) (app (VectorSetEntry elTp x (litExpr n) x''))
+          Nothing   -> fail "insertValue was expected to return base value of same type (vector case)"
 insertValue _ _ _ = fail "invalid insertValue instruction"
 
 
