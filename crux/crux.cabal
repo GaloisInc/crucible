@@ -66,6 +66,7 @@ library
     Crux.FormatOut,
     Crux.Goal,
     Crux.Log,
+    Crux.LogConfiguration,
     Crux.ProgressBar,
     Crux.Report,
     Crux.Model,

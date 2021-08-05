@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -24,7 +25,9 @@ module Crux.Log (
   , LogProofObligation(..)
   , SayWhat(..)
   , SayLevel(..)
+  , SerializedLogProofObligation
   , SupportsCruxLogMessage
+  , cruxJSONOptions
   , cruxLogMessageToSayWhat
   , cruxLogTag
   , logException
@@ -44,6 +47,8 @@ import           Control.Exception ( SomeException, bracket_,  )
 import           Control.Lens ( Getter, view )
 import qualified Data.Aeson as JSON
 import           Data.Aeson.TH ( deriveToJSON )
+import           Data.Aeson.TypeScript.TH ( deriveTypeScript, TypeScript(..) )
+import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Text as T
 import           Data.Text.IO as TIO ( hPutStr, hPutStrLn )
 import           Data.Version ( Version, showVersion )
@@ -57,6 +62,7 @@ import           System.Console.ANSI
     , SGR(..), hSetSGR )
 import           System.IO ( Handle, hPutStr, hPutStrLn )
 
+import           Crux.LogConfiguration ( cruxJSONOptions )
 import           Crux.Types
     ( CruxSimulationResult, ProvedGoals, SayLevel(..), SayWhat(..) )
 import           Crux.Version ( version )
@@ -64,10 +70,14 @@ import           Lang.Crucible.Backend ( ProofGoal(..), ProofObligation )
 import           What4.Expr.Builder ( ExprBuilder )
 import           What4.LabeledPred ( labeledPred, labeledPredMsg )
 
+
 ----------------------------------------------------------------------
 -- Various functions used by the main code to generate logging output
 
 newtype LogDoc = LogDoc (SimpleDocStream ())
+
+instance TypeScript LogDoc where
+  getTypeScriptType _ = "string"
 
 instance JSON.ToJSON LogDoc where
   toJSON (LogDoc doc) = JSON.String (renderStrict doc)
@@ -77,15 +87,29 @@ data LogProofObligation =
   forall t st fs.
   LogProofObligation (ProofObligation (ExprBuilder t st fs))
 
+data SerializedLogProofObligation =
+  SerializedLogProofObligation
+    { labeledPred :: String
+    , labeledPredMsg :: String
+    }
+    deriving ( Generic, JSON.ToJSON )
+
+$(deriveTypeScript cruxJSONOptions ''SerializedLogProofObligation)
+
+
+instance TypeScript LogProofObligation where
+  getTypeScriptType _ = getTypeScriptType (Proxy :: Proxy SerializedLogProofObligation)
+
 instance JSON.ToJSON LogProofObligation where
   -- for now, we only need the goal in the IDE
   toJSON (LogProofObligation g) =
     let
       goal = proofGoal g
     in
-    JSON.object [ "labeledPred" JSON..= show (view labeledPred goal)
-                , "labeledPredMsg" JSON..= show (view labeledPredMsg goal)
-                ]
+    JSON.toJSON (SerializedLogProofObligation {
+      Crux.Log.labeledPred = show (view What4.LabeledPred.labeledPred goal),
+      Crux.Log.labeledPredMsg = show (view What4.LabeledPred.labeledPredMsg goal)
+    })
 
 -- | All messages that Crux wants to output should be listed here.
 --
@@ -132,7 +156,9 @@ data CruxLogMessage
   | Version T.Text Version
   deriving (Generic)
 
-$(deriveToJSON JSON.defaultOptions ''CruxLogMessage)
+$(deriveToJSON cruxJSONOptions ''CruxLogMessage)
+
+$(deriveTypeScript cruxJSONOptions ''CruxLogMessage)
 
 
 type SupportsCruxLogMessage msgs =

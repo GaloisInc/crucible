@@ -3,6 +3,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Crux.LLVM.Log
   ( CruxLLVMLogMessage (..),
@@ -15,6 +17,7 @@ where
 import Crux.Log (SayLevel (..), SayWhat (..), cruxLogTag)
 import qualified Crux.Log as Log
 import Data.Aeson (ToJSON)
+import Data.Aeson.TypeScript.TH (deriveTypeScript)
 import Data.Text as Text (Text, pack, unwords)
 import GHC.Generics (Generic)
 
@@ -26,6 +29,9 @@ data CruxLLVMLogMessage
   | SimulatingFunction Text
   | UsingPointerWidthForFile Integer Text
   deriving ( Generic, ToJSON )
+
+$(deriveTypeScript Log.cruxJSONOptions ''CruxLLVMLogMessage)
+
 
 type SupportsCruxLLVMLogMessage msgs =
   (?injectCruxLLVMLogMessage :: CruxLLVMLogMessage -> msgs)

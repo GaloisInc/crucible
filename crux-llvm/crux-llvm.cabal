@@ -88,6 +88,7 @@ library
 
   build-depends:
     aeson,
+    aeson-typescript,
     bv-sized,
     config-schema,
     data-binary-ieee754,
@@ -144,6 +145,18 @@ executable crux-llvm-for-ide
   other-modules:
     Paths_crux_llvm
     RealMain
+
+
+executable typescript-of-crux-llvm
+  import: bldflags
+
+  hs-source-dirs: for-ide/typescript-of-crux-llvm
+
+  build-depends:
+    aeson-typescript,
+    crux-llvm
+
+  main-is: TypeScriptOfCruxLLVM.hs
 
 
 executable crux-llvm-svcomp

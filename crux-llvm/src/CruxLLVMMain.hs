@@ -4,6 +4,8 @@
 {-# Language LambdaCase #-}
 {-# Language OverloadedStrings #-}
 {-# Language RankNTypes #-}
+{-# Language ScopedTypeVariables #-}
+{-# Language TemplateHaskell #-}
 
 module CruxLLVMMain
   ( CruxLLVMLogging
@@ -19,6 +21,7 @@ module CruxLLVMMain
   where
 
 import           Data.Aeson ( ToJSON )
+import           Data.Aeson.TypeScript.TH ( deriveTypeScript )
 import           GHC.Generics ( Generic )
 import           System.Directory ( createDirectoryIfMissing )
 import           System.Exit ( ExitCode )
@@ -38,14 +41,18 @@ import           Crux.LLVM.Simulate
 import           Paths_crux_llvm (version)
 
 
-mainWithOutputTo :: Handle -> IO ExitCode
-mainWithOutputTo h = mainWithOutputConfig $
-  Crux.mkOutputConfig True h h cruxLLVMLoggingToSayWhat
-
 data CruxLLVMLogging
   = LoggingCrux Crux.CruxLogMessage
   | LoggingCruxLLVM Log.CruxLLVMLogMessage
   deriving ( Generic, ToJSON )
+
+$(deriveTypeScript Log.cruxJSONOptions ''CruxLLVMLogging)
+
+
+mainWithOutputTo :: Handle -> IO ExitCode
+mainWithOutputTo h = mainWithOutputConfig $
+  Crux.mkOutputConfig True h h cruxLLVMLoggingToSayWhat
+
 
 cruxLLVMLoggingToSayWhat :: CruxLLVMLogging -> Crux.SayWhat
 cruxLLVMLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
