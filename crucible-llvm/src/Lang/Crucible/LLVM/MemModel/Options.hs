@@ -33,6 +33,10 @@ data MemOptions
       --   be consolidated, so pointer apparently-distinct pointers
       --   will sometimes compare equal if the compiler decides to
       --   consolidate their storage.
+
+    , readUnwrittenMemory :: !Bool
+      -- ^ Should we allow reading from previously unwritten memory? Such a
+      ---  read will return an arbitrary, fixed value of the appropriate type.
     }
 
 
@@ -43,6 +47,7 @@ defaultMemOptions =
   MemOptions
   { laxPointerOrdering = False
   , laxConstantEquality = False
+  , readUnwrittenMemory = False
   }
 
 
@@ -53,4 +58,5 @@ laxPointerMemOptions =
   MemOptions
   { laxPointerOrdering = True
   , laxConstantEquality = True
+  , readUnwrittenMemory = False
   }

@@ -323,7 +323,8 @@ data AbortExecReason =
     -- do something else.
 
   | EarlyExit ProgramLoc
-    -- ^ TODO RGS
+    -- ^ We invoked a function which ends the current thread of execution
+    --   (e.g., @abort()@ or @exit(1)@).
 
     deriving Show
 

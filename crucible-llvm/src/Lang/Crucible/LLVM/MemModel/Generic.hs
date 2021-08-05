@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -103,6 +104,7 @@ import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Errors.MemoryError (MemErrContext, MemoryErrorReason(..), MemoryOp(..))
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Common
+import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.MemLog
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
@@ -680,7 +682,9 @@ readMemInvalidate sym w end mop (LLVMPointer blk off) tp d msg sz readPrev =
 
 -- | Read a value from memory.
 readMem :: forall sym w.
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) => sym ->
+  ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
+  sym ->
   NatRepr w ->
   Maybe String ->
   LLVMPtr sym w ->
@@ -740,7 +744,9 @@ toCacheEntry tp (llvmPointerView -> (blk, bv)) = CacheEntry tp blk bv
 -- handled in 'readMem'.
 readMem' ::
   forall w sym.
-  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) => sym ->
+  ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
+  sym ->
   NatRepr w ->
   EndianForm ->
   Maybe String ->
@@ -760,13 +766,15 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
       LLVMPtr sym w ->
       ReadMem sym (PartLLVMVal sym)
     fallback0 tp l =
-      do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
-         -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
-         -- and we can be relatively sure the annotation will survive.
-         liftIO $ do
-           b <- freshConstant sym emptySymbol BaseBoolRepr
-           Partial.Err <$>
-             Partial.annotateME sym mop (NoSatisfyingWrite tp l) b
+      liftIO $
+        if readUnwrittenMemory ?memOpts
+        then Partial.totalLLVMVal sym <$> freshLLVMVal sym tp
+        else do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
+                -- sure it always fails.  But, because it's a variable, it won't be constant-folded away
+                -- and we can be relatively sure the annotation will survive.
+                b <- freshConstant sym emptySymbol BaseBoolRepr
+                Partial.Err <$>
+                  Partial.annotateME sym mop (NoSatisfyingWrite tp l) b
 
     go :: (StorageType -> LLVMPtr sym w -> ReadMem sym (PartLLVMVal sym)) ->
           LLVMPtr sym w ->

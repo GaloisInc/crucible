@@ -106,12 +106,14 @@ parseLLVM file =
 
 registerFunctions ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  MemOptions ->
   LLVM.Module ->
   ModuleTranslation arch ->
   OverM Crux sym LLVM ()
-registerFunctions llvm_module mtrans =
+registerFunctions memOptions llvm_module mtrans =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
+         ?memOpts = memOptions
 
      -- register the callable override functions
      register_llvm_overrides llvm_module []
@@ -162,7 +164,7 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
        do Some trans <- return $ prepSomeTrans prepped
           llvmPtrWidth (trans ^. transContext) $ \ptrW ->
             withPtrWidth ptrW $
-            do registerFunctions (prepLLVMMod prepped) trans
+            do registerFunctions (memOpts llvmOpts) (prepLLVMMod prepped) trans
                checkFun (entryPoint llvmOpts) (cfgMap trans)
 
 
@@ -194,6 +196,7 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
                   in translateModule halloc memVar llvmMod
     mem <- let llvmCtxt = trans ^. transContext in
              let ?lc = llvmCtxt ^. llvmTypeCtx
+                 ?memOpts = memOpts llvmOpts
              in llvmPtrWidth llvmCtxt $ \ptrW ->
                withPtrWidth ptrW $ do
                Log.sayCruxLLVM (Log.UsingPointerWidthForFile (intValue ptrW) (Text.pack bcFile))

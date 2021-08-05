@@ -56,13 +56,15 @@ withMem ::
     , CB.IsSymInterface sym
     , LLVMMem.HasLLVMAnn sym
     , W4O.OnlineSolver solver
-    , LLVMMem.HasPtrWidth wptr ) =>
+    , LLVMMem.HasPtrWidth wptr
+    , ?memOpts :: LLVMMem.MemOptions ) =>
     sym -> LLVMMem.MemImpl sym -> IO a) ->
   IO a
 withMem endianess action = withIONonceGenerator $ \nonce_gen ->
   CBO.withZ3OnlineBackend W4B.FloatIEEERepr nonce_gen CBO.NoUnsatFeatures noFeatures $ \sym -> do
     let ?ptrWidth = knownNat @64
     let ?recordLLVMAnnotation = \_ _ -> pure ()
+    let ?memOpts = LLVMMem.defaultMemOptions
     mem <- LLVMMem.emptyMem endianess
     action sym mem
 

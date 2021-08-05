@@ -518,7 +518,7 @@ evalStmt sym = eval
   eval (LLVM_PtrSubtract _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
        liftIO $ doPtrSubtract sym mem x y
-  
+
   eval LLVM_Debug{} = pure ()
 
 
@@ -549,7 +549,8 @@ ptrMessage msg ptr ty =
 --
 -- Precondition: the pointer is valid and aligned, and the loaded value is defined.
 doLoad ::
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to load from      -} ->
@@ -1025,7 +1026,8 @@ isAllocatedAlignedPointer sym w alignment mutability ptr size mem =
 --   of the string may be symbolic; HOWEVER, this function will not terminate
 --   until it eventually reaches a concete null-terminator or a load error.
 strLen :: forall sym wptr.
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -1063,7 +1065,8 @@ strLen sym mem = go (BV.zero PtrWidth) (truePred sym)
 -- `loadString` will stop reading if it encounters a null-terminator.
 loadString ::
   forall sym wptr.
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -1091,7 +1094,8 @@ loadString sym mem = go id
 --   the string as with 'loadString' and return it.
 loadMaybeString ::
   forall sym wptr.
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym      {- ^ memory to read from        -} ->
   LLVMPtr sym wptr {- ^ pointer to string value    -} ->
@@ -1132,7 +1136,8 @@ toStorableType mt =
 
 -- | Load an LLVM value from memory. Asserts that the pointer is valid and the
 -- result value is not undefined.
-loadRaw :: (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym)
+loadRaw :: ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+           , ?memOpts :: MemOptions )
         => sym
         -> MemImpl sym
         -> LLVMPtr sym wptr

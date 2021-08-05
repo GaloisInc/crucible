@@ -216,7 +216,8 @@ llvmFreeOverride =
 -- *** Strings and I/O
 
 llvmPrintfOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> VectorType AnyType)
@@ -226,7 +227,8 @@ llvmPrintfOverride =
   (\memOps sym args -> Ctx.uncurryAssignment (callPrintf sym memOps) args)
 
 llvmPrintfChkOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> BVType 32
                    ::> LLVMPointerType wptr
@@ -246,14 +248,16 @@ llvmPutCharOverride =
 
 
 llvmPutsOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
 llvmPutsOverride =
   [llvmOvr| i32 @puts( i8* ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callPuts sym memOps) args)
 
 llvmStrlenOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
 llvmStrlenOverride =
   [llvmOvr| size_t @strlen( i8* ) |]
@@ -448,7 +452,8 @@ callPutChar _sym _mvar
     return ch
 
 callPuts
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -463,7 +468,8 @@ callPuts sym mvar
     liftIO $ bvLit sym knownNat (BV.one knownNat)
 
 callStrlen
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -473,7 +479,8 @@ callStrlen sym mvar (regValue -> strPtr) = do
   liftIO $ strLen sym mem strPtr
 
 callAssert
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => GlobalVar Mem
   -> sym
   -> Ctx.Assignment (RegEntry sym)
@@ -501,7 +508,8 @@ callExit sym ec = liftIO $
      abortExecBecause $ EarlyExit loc
 
 callPrintf
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -521,7 +529,8 @@ callPrintf sym mvar
         liftIO $ hPutStr h str
         liftIO $ bvLit sym knownNat (BV.mkBV knownNat (toInteger n))
 
-printfOps :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+printfOps :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+             , ?memOpts :: MemOptions )
           => sym
           -> V.Vector (AnyValue sym)
           -> PrintfOperations (StateT (MemImpl sym) IO)
@@ -648,7 +657,8 @@ printfOps sym valist =
 
 -- from OSX libc
 llvmAssertRtnOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
@@ -661,7 +671,8 @@ llvmAssertRtnOverride =
 
 -- From glibc
 llvmAssertFailOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym)
+  :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
