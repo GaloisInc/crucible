@@ -30,7 +30,7 @@ import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Types
 
-import Lang.Crucible.LLVM.MemModel (MemOptions)
+import Lang.Crucible.LLVM.MemModel (HasLLVMAnn, MemOptions)
 
 import Lang.Crucible.Wasm.Instantiate
 import Lang.Crucible.Wasm.Memory
@@ -132,7 +132,8 @@ data WasmStmt (f :: CrucibleType -> Type) :: CrucibleType -> Type where
     !(f (FloatType DoubleFloat)) ->
     WasmStmt f UnitType
 
-extImpl :: MemOptions ->
+extImpl :: HasLLVMAnn sym =>
+           MemOptions ->
            ExtensionImpl p sym WasmExt
 extImpl mo =
   let ?memOpts = mo in
@@ -142,7 +143,7 @@ extImpl mo =
   , extensionExec = evalWasmExt
   }
 
-evalWasmExt :: (?memOpts :: MemOptions) =>
+evalWasmExt :: (HasLLVMAnn sym, ?memOpts :: MemOptions) =>
                EvalStmtFunc p sym WasmExt
 evalWasmExt stmt cst =
   let sym = cst^.stateSymInterface
@@ -152,7 +153,7 @@ type EvalM p sym ext rtp blocks ret args a =
   StateT (CrucibleState p sym ext rtp blocks ret args) IO a
 
 evalStmt :: forall p sym ext rtp blocks ret args tp.
-  (IsSymInterface sym, ?memOpts :: MemOptions) =>
+  (IsSymInterface sym, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   sym ->
   WasmStmt (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)

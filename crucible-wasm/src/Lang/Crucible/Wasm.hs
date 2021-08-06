@@ -49,6 +49,7 @@ import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 import Lang.Crucible.Types
 
+import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 
 import Lang.Crucible.Wasm.Extension
@@ -84,10 +85,12 @@ emptyScriptState =
 
 type WasmOverride p sym = OverrideSim p sym WasmExt (RegEntry sym UnitType)
 
-execScript :: [Wasm.Command] -> ScriptState -> WasmOverride p sym EmptyCtx UnitType ScriptState
+execScript :: HasLLVMAnn sym =>
+              [Wasm.Command] -> ScriptState -> WasmOverride p sym EmptyCtx UnitType ScriptState
 execScript script ss = foldM (flip execCommand) ss script
 
-execCommand :: Wasm.Command -> ScriptState -> WasmOverride p sym EmptyCtx UnitType ScriptState
+execCommand :: HasLLVMAnn sym =>
+               Wasm.Command -> ScriptState -> WasmOverride p sym EmptyCtx UnitType ScriptState
 execCommand (Wasm.ModuleDef mdef) ss =
   do halloc <- use (stateContext . to simHandleAllocator)
      let st = scriptStore ss
@@ -137,6 +140,7 @@ executeStart im =
            callFnVal' (HandleFnVal startFn) Empty
 
 writeDataSegment ::
+  HasLLVMAnn sym =>
   (GlobalVar WasmMem, Word32, LBS.ByteString) ->
   WasmOverride p sym EmptyCtx UnitType ()
 writeDataSegment (mvar, offset, chunk) =
