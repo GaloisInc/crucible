@@ -132,7 +132,7 @@ wasmGrowMem sym n mem =
      return (res, mem')
 
 wasmStoreChunk ::
-  IsSymInterface sym =>
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   SymBV sym 32 ->
   LBS.ByteString ->
@@ -142,7 +142,6 @@ wasmStoreChunk sym offset chunk mem =
   do let bs = Bytes (toInteger (LBS.length chunk))
      assertInBounds sym offset bs mem
      p <- mkPtr sym offset
-     let ?recordLLVMAnnotation = \_ _ -> return ()
      let val = LLVMValString (LBS.toStrict chunk)
      let storageType = arrayType (fromIntegral (LBS.length chunk)) (bitvectorType (Bytes 1))
      (heap',_,_) <- G.writeMem sym knownNat Nothing p storageType noAlignment val (wasmMemHeap mem)
@@ -150,7 +149,7 @@ wasmStoreChunk sym offset chunk mem =
 
 
 wasmStoreInt ::
-  (1 <= w, IsSymInterface sym) =>
+  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   SymBV sym 32 ->
   SymBV sym w ->
@@ -160,14 +159,13 @@ wasmStoreInt sym off v mem =
   do let bs = Bytes (intValue (bvWidth v) `div` 8)
      assertInBounds sym off bs mem
      p <- mkPtr sym off
-     let ?recordLLVMAnnotation = \_ _ -> return ()
      blk <- natLit sym 0
      let val = LLVMValInt blk v
      (heap',_,_) <- G.writeMem sym knownNat Nothing p (bitvectorType bs) noAlignment val (wasmMemHeap mem)
      return mem{ wasmMemHeap = heap' }
 
 wasmStoreFloat ::
-  IsSymInterface sym =>
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   SymBV sym 32 ->
   RegValue sym (FloatType SingleFloat) ->
@@ -177,13 +175,12 @@ wasmStoreFloat sym off v mem =
   do let bs = Bytes 4
      assertInBounds sym off bs mem
      p <- mkPtr sym off
-     let ?recordLLVMAnnotation = \_ _ -> return ()
      let val = LLVMValFloat SingleSize v
      (heap',_,_) <- G.writeMem sym knownNat Nothing p floatType noAlignment val (wasmMemHeap mem)
      return mem{ wasmMemHeap = heap' }
 
 wasmStoreDouble ::
-  IsSymInterface sym =>
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   sym ->
   SymBV sym 32 ->
   RegValue sym (FloatType DoubleFloat) ->
@@ -193,18 +190,17 @@ wasmStoreDouble sym off v mem =
   do let bs = Bytes 8
      assertInBounds sym off bs mem
      p <- mkPtr sym off
-     let ?recordLLVMAnnotation = \_ _ -> return ()
      let val = LLVMValFloat DoubleSize v
      (heap',_,_) <- G.writeMem sym knownNat Nothing p doubleType noAlignment val (wasmMemHeap mem)
      return mem{ wasmMemHeap = heap' }
 
-wasmLoadInt :: (1 <= w, IsSymInterface sym, ?memOpts :: MemOptions) =>
+wasmLoadInt :: ( 1 <= w, IsSymInterface sym, HasLLVMAnn sym
+               , ?memOpts :: MemOptions ) =>
                sym -> SymBV sym 32 -> NatRepr w -> WasmMemImpl sym -> IO (SymBV sym w)
 wasmLoadInt sym off w mem =
   do let bs = Bytes (intValue w `div` 8)
      assertInBounds sym off bs mem
      p <- mkPtr sym off
-     let ?recordLLVMAnnotation = \_ _ -> return ()
      pval <- G.readMem sym knownNat Nothing p (bitvectorType bs) noAlignment (wasmMemHeap mem)
      Partial.assertSafe sym pval >>= \case
        LLVMValZero _ -> bvLit sym w (BV.zero w)
@@ -212,7 +208,7 @@ wasmLoadInt sym off w mem =
        _ -> panic "wasmLoadInt" ["type mismatch"]
 
 wasmLoadFloat ::
-  (IsSymInterface sym, ?memOpts :: MemOptions) =>
+  (IsSymInterface sym, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   sym ->
   SymBV sym 32 ->
   WasmMemImpl sym ->
@@ -221,7 +217,6 @@ wasmLoadFloat sym off mem =
   do let bs = Bytes 4
      assertInBounds sym off bs mem
      p <- mkPtr sym off
-     let ?recordLLVMAnnotation = \_ _ -> return ()
      pval <- G.readMem sym knownNat Nothing p floatType noAlignment (wasmMemHeap mem)
      Partial.assertSafe sym pval >>= \case
        LLVMValZero _ -> iFloatLitRational sym SingleFloatRepr 0
@@ -229,7 +224,7 @@ wasmLoadFloat sym off mem =
        _ -> panic "wasmLoadFloat" ["type mismatch"]
 
 wasmLoadDouble ::
-  (IsSymInterface sym, ?memOpts :: MemOptions) =>
+  (IsSymInterface sym, HasLLVMAnn sym, ?memOpts :: MemOptions) =>
   sym ->
   SymBV sym 32 ->
   WasmMemImpl sym ->
@@ -238,7 +233,6 @@ wasmLoadDouble sym off mem =
   do let bs = Bytes 8
      assertInBounds sym off bs mem
      p <- mkPtr sym off
-     let ?recordLLVMAnnotation = \_ _ -> return ()
      pval <- G.readMem sym knownNat Nothing p doubleType noAlignment (wasmMemHeap mem)
      Partial.assertSafe sym pval >>= \case
        LLVMValZero _ -> iFloatLitRational sym DoubleFloatRepr 0

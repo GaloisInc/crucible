@@ -40,10 +40,11 @@ setupWasmState :: IsSymInterface sym =>
 setupWasmState sym memOptions s =
   do halloc <- newHandleAllocator
 
+     let ?recordLLVMAnnotation = \_ _ -> pure ()
+     let ?memOpts = memOptions
      let globals = emptyGlobals
      let bindings = emptyHandleMap
      let simctx = initSimContext sym wasmIntrinsicTypes halloc stdout (FnBindings bindings) (extImpl memOptions) Crux.CruxPersonality
-     let ?memOpts = memOptions
      let m = execScript s emptyScriptState >> pure ()
 
      pure (InitialState simctx globals defaultAbortHandler knownRepr (runOverrideSim knownRepr m))
