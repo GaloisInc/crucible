@@ -4,11 +4,14 @@
 
 module Main (main) where
 
+import Control.Exception (catch)
 import Control.Lens (makeLenses, set, view)
 import Crux (OutputConfig)
 import qualified Crux
 import Crux.Config.Common (CruxOptions)
 import Crux.LLVM.Config (LLVMOptions, llvmCruxConfig)
+import qualified Crux.LLVM.Log as Log
+import qualified Crux.Log as Log
 import CruxLLVMMain
   ( CruxLLVMLogging,
     mainWithOptions,
@@ -20,7 +23,7 @@ import qualified Lumberjack as LJ
 import qualified Network.WebSockets as WS
 import Paths_crux_llvm (version)
 import RealMain (makeMain)
-import System.Exit (ExitCode)
+import System.Exit (ExitCode (ExitFailure))
 import Text.Read (readEither)
 
 data ForIDEOptions = ForIDEOptions
@@ -76,8 +79,13 @@ forIDEConfig = do
 mainWithOutputConfig ::
   (Maybe CruxOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode
 mainWithOutputConfig mkOutCfg =
-  CruxLLVMMain.withCruxLLVMLogging $
-    do
+  CruxLLVMMain.withCruxLLVMLogging (cruxMain `catch` handleConnectionException)
+  where
+    cruxMain ::
+      Log.SupportsCruxLogMessage CruxLLVMLogging =>
+      Log.SupportsCruxLLVMLogMessage CruxLLVMLogging =>
+      IO ExitCode
+    cruxMain = do
       conf <- forIDEConfig
       Crux.loadOptions mkOutCfg "crux-llvm-for-ide" version conf $ \(cruxOpts, forIDEOpts) ->
         WS.runClient (view ideHost forIDEOpts) (view idePort forIDEOpts) "/" $ \conn ->
@@ -89,6 +97,12 @@ mainWithOutputConfig mkOutCfg =
                           <> LJ.LogAction (WS.sendTextData conn . JSON.encode)
                     }
             mainWithOptions (cruxOpts, view cruxLLVMOptions forIDEOpts)
+
+    handleConnectionException :: WS.ConnectionException -> IO ExitCode
+    handleConnectionException e = do
+      putStrLn "Aborting due to a websocket connection exception:"
+      print e
+      return $ ExitFailure 1
 
 main :: IO ()
 main = makeMain mainWithOutputConfig
