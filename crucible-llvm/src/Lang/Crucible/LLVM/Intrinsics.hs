@@ -28,6 +28,7 @@ module Lang.Crucible.LLVM.Intrinsics
 , llvmDeclToFunHandleRepr
 
 , module Lang.Crucible.LLVM.Intrinsics.Common
+, module Lang.Crucible.LLVM.Intrinsics.Options
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
@@ -57,6 +58,7 @@ import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.LLVM as LLVM
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
 import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
+import           Lang.Crucible.LLVM.Intrinsics.Options
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 llvmIntrinsicTypes =
