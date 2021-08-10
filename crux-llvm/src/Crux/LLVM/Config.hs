@@ -71,6 +71,7 @@ data LLVMOptions = LLVMOptions
   , lazyCompile :: Bool
   , noCompile :: Bool
   , optLevel :: Int
+  , symFSRoot :: Maybe FilePath
   }
 
 -- | The @c-src@ directory, which contains @crux-llvm@–specific files such as
@@ -168,6 +169,10 @@ llvmCruxConfig = do
          optLevel <- Crux.section "opt-level" Crux.numSpec 1
                            "Optimization level to request from `clang`"
 
+         symFSRoot <- Crux.sectionMaybe "symbolic-fs-root" Crux.stringSpec
+                      "The root of a symbolic filesystem to make available to\
+                      \ the program during symbolic execution"
+
          return LLVMOptions { .. }
 
    , Crux.cfgEnv  =
@@ -229,5 +234,9 @@ llvmCruxConfig = do
         $ Crux.parsePosNum "NUM"
         $ \v opts -> opts { optLevel = v }
 
+      , Crux.Option [] ["symbolic-fs-root"]
+        "The root of a symbolic filesystem to make available to the program during symbolic execution"
+        $ Crux.OptArg "DIR"
+        $ \a opts -> Right opts { symFSRoot = a }
       ]
    }

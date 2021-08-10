@@ -13,6 +13,9 @@ import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
 import qualified Data.List as List
+import Data.Maybe ( fromMaybe )
+import qualified Data.Parameterized.Map as MapF
+import qualified Data.Traversable as T
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text as Text (Text, pack)
@@ -63,10 +66,14 @@ import Lang.Crucible.LLVM.Translation
         , llvmPtrWidth, llvmTypeCtx
         )
 import Lang.Crucible.LLVM.Intrinsics
-        (llvmIntrinsicTypes, register_llvm_overrides)
+        (llvmIntrinsicTypes, register_llvm_overrides )
 
 import Lang.Crucible.LLVM.Errors( ppBB )
-import Lang.Crucible.LLVM.Extension( LLVM )
+import Lang.Crucible.LLVM.Extension( LLVM, ArchWidth )
+import Lang.Crucible.LLVM.SymIO
+       ( LLVMFileSystem, llvmSymIOIntrinsicTypes, symio_overrides, initialLLVMFileSystem, SomeOverrideSim(..) )
+import qualified Lang.Crucible.SymIO as SymIO
+import qualified Lang.Crucible.SymIO.Loader as SymIO.Loader
 
 -- crux
 import qualified Crux
@@ -88,7 +95,7 @@ setupSimCtxt ::
   SimCtxt Crux sym LLVM
 setupSimCtxt halloc sym mo memVar =
   initSimContext sym
-                 llvmIntrinsicTypes
+                 (MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes)
                  halloc
                  stdout
                  (fnBindingsFromList [])
@@ -105,12 +112,13 @@ parseLLVM file =
        Right m  -> return m
 
 registerFunctions ::
-  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym) =>
+  (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, ptrW ~ ArchWidth arch) =>
   MemOptions ->
   LLVM.Module ->
   ModuleTranslation arch ->
+  Maybe (LLVMFileSystem ptrW) ->
   OverM Crux sym LLVM ()
-registerFunctions memOptions llvm_module mtrans =
+registerFunctions memOptions llvm_module mtrans fs0 =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
          ?memOpts = memOptions
@@ -120,6 +128,7 @@ registerFunctions memOptions llvm_module mtrans =
        (concat [ cruxLLVMOverrides proxy#
                , svCompOverrides
                , cbmcOverrides proxy#
+               , maybe [] symio_overrides fs0
                ])
        llvm_ctx
 
@@ -158,16 +167,28 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
 
      let globSt = llvmGlobals memVar (prepMem prepped)
 
-     return $ Crux.RunnableState $
-       InitialState simctx globSt defaultAbortHandler UnitRepr $
-       runOverrideSim UnitRepr $
-       do Some trans <- return $ prepSomeTrans prepped
-          llvmPtrWidth (trans ^. transContext) $ \ptrW ->
-            withPtrWidth ptrW $
-            do registerFunctions (memOpts llvmOpts) (prepLLVMMod prepped) trans
-               checkFun (entryPoint llvmOpts) (cfgMap trans)
-
-
+     Some trans <- return $ prepSomeTrans prepped
+     llvmPtrWidth (trans ^. transContext) $ \ptrW -> withPtrWidth ptrW $ do
+       mContents <- T.traverse (SymIO.Loader.loadInitialFiles sym) (symFSRoot llvmOpts)
+       -- We modify the defaults, which are extremely conservative.  Unless the
+       -- user directs otherwise, we default to connecting stdin, stdout, and stderr.
+       let defaultFileContents = SymIO.emptyInitialFileSystemContents
+                                 { SymIO.useStderr = True
+                                 , SymIO.useStdout = True
+                                 , SymIO.concreteFiles = Map.fromList [(SymIO.StdinTarget, mempty)]
+                                 }
+       let fsContents = fromMaybe defaultFileContents mContents
+       let mirroredOutputs = [ (SymIO.StdoutTarget, ?outputConfig ^. Crux.outputHandle)
+                             , (SymIO.StderrTarget, ?outputConfig ^. Crux.outputHandle)
+                             ]
+       (fs0, globSt', SomeOverrideSim initFSOverride) <- initialLLVMFileSystem halloc sym ptrW fsContents mirroredOutputs globSt
+       return $ Crux.RunnableState $
+         InitialState simctx globSt' defaultAbortHandler UnitRepr $
+           runOverrideSim UnitRepr $
+             withPtrWidth ptrW $
+                do registerFunctions (memOpts llvmOpts) (prepLLVMMod prepped) trans (Just fs0)
+                   initFSOverride
+                   checkFun (entryPoint llvmOpts) (cfgMap trans)
 
 
 data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module

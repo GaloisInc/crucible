@@ -1,0 +1,1024 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] 
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/stdio/read-symbolic-bytes.c:20:0: error: in main
+[Crux]   crucible_assert
+[Crux] Overall status: Invalid.

@@ -1,0 +1,68 @@
+cabal-version:       2.2
+synopsis:            An implementation of symbolic I/O primitives for Crucible
+description:
+  This library provides language-independent overrides implementing filesystem
+  operations (as provided by most operating systems). These primitives support
+  reading and writing symbolic data. An example use case would be to support verifying
+  programs that e.g., use configuration files or accept input from files.
+name:                crucible-symio
+version:             0.1.0.0
+license-file:        LICENSE
+author:              Daniel Matichuk
+maintainer:          dmatichuk@galois.com
+build-type:          Simple
+extra-source-files:  CHANGELOG.md
+
+common shared
+  build-depends:       base >=4.12 && <4.15,
+                       aeson,
+                       bv-sized,
+                       bytestring,
+                       crucible,
+                       containers,
+                       directory,
+                       filemanip,
+                       filepath,
+                       IntervalMap,
+                       lens,
+                       mtl,
+                       parameterized-utils,
+                       text,
+                       what4       
+                     
+library
+  import: shared
+  exposed-modules:
+      Lang.Crucible.SymIO
+      Lang.Crucible.SymIO.Loader
+  other-modules:
+      Lang.Crucible.SymIO.Types
+      What4.CachedArray
+      Data.Parameterized.IntervalsMap
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  ghc-options: -Wall -Wcompat
+
+test-suite crucible-symio-tests
+  import: shared
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+  other-modules:
+    Data.Parameterized.IntervalsMap
+    Lang.Crucible.SymIO
+    Lang.Crucible.SymIO.Loader
+    Lang.Crucible.SymIO.Types
+    What4.CachedArray
+  main-is: TestMain.hs
+  hs-source-dirs: tests, src
+  ghc-options: -Wall -Wcompat
+  build-depends: base >=4.12 && <4.15,
+                 what4,
+                 crucible,
+                 crucible-symio,
+                 parameterized-utils,
+                 tasty,
+                 tasty-hunit,
+                 tasty-expected-failure >= 0.12
+
+

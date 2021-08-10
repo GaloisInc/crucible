@@ -43,6 +43,7 @@ data QQType
   = QQVar String     -- ^ This constructor represents a type metavariable, e.g. @$var@
   | QQIntVar String  -- ^ This constructor represents a integer type metavariable, e.g. @#var@
   | QQSizeT          -- ^ This constructor represents an integer type that is the same width as a pointer
+  | QQSSizeT          -- ^ This constructor represents a signed integer type that is the same width as a pointer
   | QQPrim L.PrimType
   | QQPtrTo QQType
   | QQAlias L.Ident
@@ -181,6 +182,7 @@ parseType =
              , QQPrim <$> parsePrimType
              , pure QQOpaque <* AT.string "opaque"
              , pure QQSizeT  <* AT.string "size_t"
+             , pure QQSSizeT  <* AT.string "ssize_t"
              ]
      base' <- AT.choice
               [ do AT.skipSpace
@@ -223,6 +225,7 @@ liftQQType tp =
     QQVar nm     -> varE (mkName nm)
     QQIntVar nm  -> [| L.PrimType (L.Integer (fromInteger (intValue $(varE (mkName nm)) ))) |]
     QQSizeT      -> varE 'IC.llvmSizeT
+    QQSSizeT      -> varE 'IC.llvmSSizeT
     QQAlias nm   -> [| L.Alias $(dataToExpQ (const Nothing) nm) |]
     QQPrim pt    -> [| L.PrimType $(dataToExpQ (const Nothing) pt) |]
     QQPtrTo t    -> [| L.PtrTo $(liftQQType t) |]
@@ -256,6 +259,7 @@ liftTypeRepr t = case t of
     QQVar nm      -> varE (mkName (nm++"_repr"))
     QQIntVar nm   -> [| BVRepr $(varE (mkName nm)) |]
     QQSizeT       -> [| SizeT |]
+    QQSSizeT      -> [| SSizeT |]
     QQPrim pt     -> liftPrim pt
     QQPtrTo _t    -> [| PtrRepr |]
     QQArray _ t'  -> [| VectorRepr $(liftTypeRepr t') |]

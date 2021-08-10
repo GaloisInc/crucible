@@ -33,6 +33,7 @@ library
     bytestring,
     containers >= 0.5.8.0,
     crucible >= 0.5,
+    crucible-symio,
     what4 >= 0.4.1,
     deepseq,
     directory,
@@ -81,6 +82,7 @@ library
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.QQ
+    Lang.Crucible.LLVM.SymIO
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Aliases
     Lang.Crucible.LLVM.TypeContext

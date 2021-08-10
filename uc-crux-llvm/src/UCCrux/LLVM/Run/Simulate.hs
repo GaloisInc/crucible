@@ -196,7 +196,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   -- programs where the vast majority of functions wouldn't be
                   -- called from any particular function. Needs some
                   -- benchmarking.
-                  registerFunctions memOptions (modCtx ^. llvmModule) trans
+                  registerFunctions memOptions (modCtx ^. llvmModule) trans Nothing
                   let uOverrides = unsoundOverrides trans unsoundOverrideRef
                   sOverrides <-
                     unsoundSkipOverrides

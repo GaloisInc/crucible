@@ -12,6 +12,7 @@ packages:
   crucible-wasm/
   crucible-syntax/
   crucible-concurrency/
+  crucible-symio/
   crux/
   crux-llvm/
   crux-mir/

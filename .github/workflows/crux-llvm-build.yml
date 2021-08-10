@@ -137,6 +137,11 @@ jobs:
           CLANG: "clang-10"
 
       - shell: bash
+        name: Test crucible-symio (Linux)
+        run: cabal test pkg:crucible-symio
+        if: runner.os == 'Linux'
+
+      - shell: bash
         name: Test crucible-llvm (Linux)
         run: .github/ci.sh test crucible-llvm
         if: runner.os == 'Linux'

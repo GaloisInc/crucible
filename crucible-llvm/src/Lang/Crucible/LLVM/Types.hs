@@ -30,6 +30,7 @@ module Lang.Crucible.LLVM.Types
   , pattern LLVMPointerRepr
   , pattern PtrRepr
   , pattern SizeT
+  , pattern SSizeT
   , withPtrWidth
   , HasPtrWidth
   , pattern PtrWidth
@@ -98,3 +99,8 @@ pattern PtrRepr = LLVMPointerRepr PtrWidth
 --   that are of the distinguished pointer width.
 pattern SizeT :: HasPtrWidth wptr => (ty ~ BVType wptr) => TypeRepr ty
 pattern SizeT = BVRepr PtrWidth
+
+-- | This pattern creates/matches against the TypeRepr for raw signed bitvector values
+--   that are of the distinguished pointer width.
+pattern SSizeT :: HasPtrWidth wptr => (ty ~ BVType wptr) => TypeRepr ty
+pattern SSizeT = BVRepr PtrWidth
