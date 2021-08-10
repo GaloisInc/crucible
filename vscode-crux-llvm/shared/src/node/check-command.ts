@@ -23,13 +23,16 @@ import { settingsName } from '../constants'
  *
  * @returns true when command can be found, false otherwise
  */
-export function checkCommand(
+export function checkCommand<
+    Key extends keyof Configuration,
+    SubConfiguration extends Configuration & Record<Key, string>
+>(
     configuration: Configuration,
-    commandStr: keyof Configuration & string,
+    commandStr: Key,
 ): CheckCommandResult {
     try {
         const output = ChildProcess.execFileSync(
-            configuration[commandStr],
+            (configuration as SubConfiguration)[commandStr],
             ['--version'],
         )
         return {

@@ -1,25 +1,29 @@
+import * as ChildProcess from 'child_process'
+import { SIGKILL } from 'constants'
 import * as path from 'path'
+
 
 import { debounce } from 'debounce'
 import * as LanguageServer from 'vscode-languageserver'
-// import { WorkDoneProgress, WorkDoneProgressCreateRequest } from 'vscode-languageserver'
 import { TextDocument } from 'vscode-languageserver-textdocument'
-// import { attachWorkDone, createWorkDoneProgress } from 'vscode-languageserver/lib/common/progress'
 import * as LanguageServerNode from 'vscode-languageserver/node'
 
 import * as Configuration from '@shared/configuration'
 import * as Constants from '@shared/constants'
 import { checkCommand, checkCommandViaPATH } from '@shared/node/check-command'
-import { validateTextDocument } from '@shared/node/validate'
+
+import { validateTextDocument } from './validate'
+
 
 /** Connection to the extension front-end */
-
 const connection: LanguageServerNode.Connection = (
     LanguageServerNode.createConnection(LanguageServerNode.ProposedFeatures.all)
 )
 
+
 console.log = connection.console.log.bind(connection.console)
 console.error = connection.console.error.bind(connection.console)
+
 
 /** Documents being watched */
 const documents: LanguageServerNode.TextDocuments<TextDocument> =
@@ -123,6 +127,20 @@ async function checkConfiguration(): Promise<boolean> {
     )
 }
 
+
+/**
+ * We try and enforce the invariant that there is at most one crux-llvm instance
+ * running at a given time.  This way, we can reuse the same websocket port, and
+ * avoid mixing messages from two separate processes.
+ */
+let outstandingCruxLLVMProcess: ChildProcess.ChildProcess | null = null
+
+/**
+ * Called whenever the buffer changes.  Orchestrates running crux-llvm and
+ * gathering results.
+ * @param change - VSCode change event.
+ * @returns Once the background process is started.
+ */
 async function onChangedContent(
     change: LanguageServer.TextDocumentChangeEvent<TextDocument>,
 ): Promise<void> {
@@ -149,7 +167,12 @@ async function onChangedContent(
     // but we need it to be '/path/to/file.c'
     const filePath = document.uri.replace('file://', '')
 
-    await validateTextDocument(configuration, filePath, {
+    if (outstandingCruxLLVMProcess) {
+        outstandingCruxLLVMProcess.kill(SIGKILL)
+    }
+
+    outstandingCruxLLVMProcess = await validateTextDocument(configuration, filePath, {
+
         onDiagnostics: (diagnostics) => {
             if (clientSupportsWorkDoneProgress) {
                 progress.done()
@@ -159,18 +182,25 @@ async function onChangedContent(
                 diagnostics,
             })
         },
+
         onError: (e) => {
             if (clientSupportsWorkDoneProgress) {
                 progress.done()
             }
             connection.window.showErrorMessage(e)
         },
+
+        onExit: () => {
+            outstandingCruxLLVMProcess = null
+        },
+
         onWarning: (w) => connection.window.showWarningMessage(w),
+
     })
 
-    debugMessage('Done validating')
-
 }
+
+// createWebsocketServer()
 
 documents.onDidChangeContent(debounce(onChangedContent))
 

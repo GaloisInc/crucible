@@ -16,6 +16,7 @@
         "target": "ES6",
     },
     "files": [
+        "src/validate.ts",
         "src/server.ts",
     ],
     "references": [

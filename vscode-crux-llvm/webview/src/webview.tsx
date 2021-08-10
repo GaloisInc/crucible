@@ -1,12 +1,16 @@
 import update from 'immutability-helper'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
+import { UnreachableCaseError } from 'ts-essentials'
 
 import { CheckCommandResult } from '@shared/check-command-result'
 import * as Configuration from '@shared/configuration'
 import { webviewContainerId } from '@shared/constants'
 import * as ExtensionToWebview from '@shared/extension-to-webview'
 
+import { handleCruxLLVMLog } from './crux-llvm-log-handler'
+import { Goal, showGoalStatus } from './goals'
+import CSS from './styles/webview.css'
 
 interface PersistedState {
     results: string[]
@@ -40,18 +44,22 @@ if (container === null) {
 
 type ReactSetter<T> = React.Dispatch<React.SetStateAction<T>>
 
-function makeMessageListener(setters: {
-    setConfiguration: ReactSetter<Configuration.Configuration>,
-    setContent: ReactSetter<string>,
-    setStatusOfClang: ReactSetter<ExtensionToWebview.StatusOfClang>,
-    setStatusOfCruxLLVM: ReactSetter<ExtensionToWebview.StatusOfCruxLLVM>,
-    setStatusOfLLVMLink: ReactSetter<ExtensionToWebview.StatusOfLLVMLink>,
-    setStatusOfZ3: ReactSetter<ExtensionToWebview.StatusOfZ3>,
-    setValidationDiagnostics: ReactSetter<ExtensionToWebview.ValidationDiagnostics>,
-    setValidationErrors: ReactSetter<ExtensionToWebview.ValidationError[]>,
-    setValidationWarnings: ReactSetter<ExtensionToWebview.ValidationWarning[]>,
-}) {
+function makeMessageListener(
+    setters: {
+        setConfiguration: ReactSetter<Configuration.Configuration>,
+        setContent: ReactSetter<string>,
+        setGoals: ReactSetter<Goal[]>,
+        setStatusOfClang: ReactSetter<ExtensionToWebview.StatusOfClang>,
+        setStatusOfCruxLLVM: ReactSetter<ExtensionToWebview.StatusOfCruxLLVM>,
+        setStatusOfLLVMLink: ReactSetter<ExtensionToWebview.StatusOfLLVMLink>,
+        setStatusOfZ3: ReactSetter<ExtensionToWebview.StatusOfZ3>,
+        setValidationDiagnostics: ReactSetter<ExtensionToWebview.ValidationDiagnostics>,
+        setValidationErrors: ReactSetter<ExtensionToWebview.ValidationError[]>,
+        setValidationWarnings: ReactSetter<ExtensionToWebview.ValidationWarning[]>,
+    },
+) {
     return (message: ExtensionToWebview.ExtensionToWebview) => {
+
         switch (message.tag) {
 
             case ExtensionToWebview.configurationChanged: {
@@ -67,6 +75,11 @@ function makeMessageListener(setters: {
                 )
                 setters.setValidationErrors([])
                 setters.setValidationWarnings([])
+                break
+            }
+
+            case ExtensionToWebview.cruxLLVMLogEntry: {
+                handleCruxLLVMLog(setters, message)
                 break
             }
 
@@ -109,6 +122,11 @@ function makeMessageListener(setters: {
                 break
             }
 
+            default: {
+                // If you see a type error here, you're missing a case!
+                throw new UnreachableCaseError(message)
+            }
+
         }
     }
 }
@@ -135,7 +153,11 @@ export function Webview(props: {
     } = props.initialData
 
     const [configuration, setConfiguration] = React.useState(initialConfiguration)
-    const [content, setContent] = React.useState(initialContent)
+
+    // This one is only useful for debugging purposes
+    const [, setContent] = React.useState(initialContent)
+
+    const [goals, setGoals] = React.useState([] as Goal[])
 
     const [statusOfClang, setStatusOfClang] = React.useState(initialStatusOfClang)
     const [statusOfCruxLLVM, setStatusOfCruxLLVM] = React.useState(initialStatusOfCruxLLVM)
@@ -148,17 +170,20 @@ export function Webview(props: {
 
     React.useEffect(() => {
         const handler = (e: MessageEvent) => {
-            return makeMessageListener({
-                setConfiguration,
-                setContent,
-                setStatusOfClang,
-                setStatusOfCruxLLVM,
-                setStatusOfLLVMLink,
-                setStatusOfZ3,
-                setValidationDiagnostics,
-                setValidationErrors,
-                setValidationWarnings,
-            })(e.data)
+            return makeMessageListener(
+                {
+                    setConfiguration,
+                    setContent,
+                    setGoals,
+                    setStatusOfClang,
+                    setStatusOfCruxLLVM,
+                    setStatusOfLLVMLink,
+                    setStatusOfZ3,
+                    setValidationDiagnostics,
+                    setValidationErrors,
+                    setValidationWarnings,
+                },
+            )(e.data)
         }
         window.addEventListener('message', handler)
         return () => {
@@ -183,6 +208,24 @@ export function Webview(props: {
 
     const warnings = validationWarnings.map(({ warning }, index) => (
         <div key={index} className="warning">{warning}</div>
+    ))
+
+    const goalsHeaderView = (
+        <tr>
+            <th className={CSS.goalNumber}>Goal number</th>
+            {/* <th>Goal predicate</th> */}
+            <th className={CSS.goalMessage}>Message</th>
+            <th className={CSS.goalStatus}>Status</th>
+        </tr>
+    )
+
+    const goalsView = goals.map(({ labeledPredMsg, status }, index) => (
+        <tr key={index}>
+            <td>{index}</td>
+            {/* <td>{labeledPred}</td> */}
+            <td>{labeledPredMsg.split('\n').slice(-1)[0]}</td>
+            <td>{showGoalStatus(status)}</td>
+        </tr>
     ))
 
     return (
@@ -224,7 +267,15 @@ export function Webview(props: {
             </div>
             <div>{errors}</div>
             <div>{warnings}</div>
-            <div>Content being checked: {content}</div>
+            <table>
+                <thead>
+                    {goalsHeaderView}
+                </thead>
+                <tbody>
+                    {goalsView}
+                </tbody>
+            </table>
+            {/* <div>Content being checked: {content}</div> */}
         </div >
     )
 

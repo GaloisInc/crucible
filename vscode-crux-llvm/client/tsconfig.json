@@ -12,7 +12,9 @@
         "rootDir": "..",
     },
     "files": [
-        "src/extension.ts"
+        "src/crux-llvm.d.ts",
+        "src/extension.ts",
+        "src/websocket-server.ts",
     ],
     "references": [
         {

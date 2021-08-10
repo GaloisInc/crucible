@@ -9,9 +9,10 @@
         "src/check-command-result.ts",
         "src/configuration.ts",
         "src/constants.ts",
+        "src/crux-llvm.d.ts",
         "src/extension-to-webview.ts",
-        "src/report.ts",
         "src/node/check-command.ts",
-        "src/node/validate.ts",
+        "src/report.ts",
+        "src/types.ts",
     ],
 }

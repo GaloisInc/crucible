@@ -34,7 +34,7 @@
         {
             "label": "sleep",
             "type": "shell",
-            "command": "sleep 5",
+            "command": "sleep 10",
             "windows": {
                 "command": "ping 127.0.0.1 -n 5 > nul",
             },

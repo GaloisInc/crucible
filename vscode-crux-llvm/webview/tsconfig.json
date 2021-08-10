@@ -13,6 +13,9 @@
         "target": "ES6",
     },
     "files": [
+        "src/crux-llvm-log-handler.ts",
+        "src/crux-llvm.d.ts",
+        "src/goals.ts",
         "src/webview.tsx",
     ],
     "references": [

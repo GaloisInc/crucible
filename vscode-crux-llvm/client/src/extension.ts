@@ -7,7 +7,9 @@ import * as Configuration from '@shared/configuration'
 import * as Constants from '@shared/constants'
 import * as ExtensionToWebview from '@shared/extension-to-webview'
 import { checkCommand, checkCommandViaPATH } from '@shared/node/check-command'
-import { validateTextDocument } from '@shared/node/validate'
+
+import { createWebsocketServer } from './websocket-server'
+
 
 let client: LanguageClientNode.LanguageClient
 
@@ -54,6 +56,19 @@ class CruxLLVMViewProvider implements vscode.WebviewViewProvider {
             ],
         }
 
+        // FIXME: wrap this in a Disposable so we can let VSCode close the server
+        createWebsocketServer(
+            msg => {
+                if (msg.type === 'utf8') {
+                    // console.log(msg.utf8Data)
+                    webview.postMessage({
+                        tag: ExtensionToWebview.cruxLLVMLogEntry,
+                        logEntry: JSON.parse(msg.utf8Data),
+                    } as ExtensionToWebview.CruxLLVMLogEntry)
+                }
+            }
+        )
+
         vscode.workspace.onDidChangeConfiguration((e) => {
 
             if (e.affectsConfiguration(Constants.settingsName)) {
@@ -64,12 +79,15 @@ class CruxLLVMViewProvider implements vscode.WebviewViewProvider {
             }
 
             const postMessageIfAffected =
-                (
-                    field: keyof Configuration.Configuration,
+                <
+                    Key extends keyof Configuration.Configuration,
+                    SubConfiguration extends Configuration.Configuration & Record<Key, string>
+                >(
+                    field: Key,
                     messageTag: string,
                 ) => {
                     if (e.affectsConfiguration(`${Constants.settingsName}.${field}`)) {
-                        const newStatus = checkCommand(getConfiguration(), field)
+                        const newStatus = checkCommand<Key, SubConfiguration>(getConfiguration(), field)
                         webviewView.webview.postMessage({
                             tag: messageTag,
                             status: newStatus,
@@ -99,34 +117,34 @@ class CruxLLVMViewProvider implements vscode.WebviewViewProvider {
                 newContent: e.document.getText(),
             } as ExtensionToWebview.ContentChanged)
 
-            validateTextDocument(
-                getConfiguration(),
-                e.document.uri.fsPath,
-                {
+            // validateTextDocument(
+            //     getConfiguration(),
+            //     e.document.uri.fsPath,
+            //     {
 
-                    onDiagnostics: (diagnostics) => {
-                        webview.postMessage({
-                            tag: ExtensionToWebview.validationDiagnostics,
-                            diagnostics,
-                        } as ExtensionToWebview.ValidationDiagnostics)
-                    },
+            //         onDiagnostics: (diagnostics) => {
+            //             webview.postMessage({
+            //                 tag: ExtensionToWebview.validationDiagnostics,
+            //                 diagnostics,
+            //             } as ExtensionToWebview.ValidationDiagnostics)
+            //         },
 
-                    onError: (error) => {
-                        webview.postMessage({
-                            tag: ExtensionToWebview.validationError,
-                            error,
-                        } as ExtensionToWebview.ValidationError)
-                    },
+            //         onError: (error) => {
+            //             webview.postMessage({
+            //                 tag: ExtensionToWebview.validationError,
+            //                 error,
+            //             } as ExtensionToWebview.ValidationError)
+            //         },
 
-                    onWarning: (warning) => {
-                        webview.postMessage({
-                            tag: ExtensionToWebview.validationWarning,
-                            warning,
-                        } as ExtensionToWebview.ValidationWarning)
-                    },
+            //         onWarning: (warning) => {
+            //             webview.postMessage({
+            //                 tag: ExtensionToWebview.validationWarning,
+            //                 warning,
+            //             } as ExtensionToWebview.ValidationWarning)
+            //         },
 
-                },
-            )
+            //     },
+            // )
 
         })
 
@@ -195,8 +213,8 @@ class CruxLLVMViewProvider implements vscode.WebviewViewProvider {
                 <meta charset="UTF-8">
 				<meta http-equiv="Content-Security-Policy" content="
                     default-src 'none';
-                    font-src ${uris.vscodeCodiconsTTF};
-                    style-src ${cspSource} ${uris.vscodeCodiconsCSS};
+                    font-src ${uris.vscodeCodiconsTTF.path};
+                    style-src ${cspSource} ${uris.vscodeCodiconsCSS.path};
                     script-src 'nonce-${nonce}';
                 ">
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -233,7 +251,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     const debugOptions = {
         execArgv: [
-            '--inspect=6005',
+            '--inspect=6005', // this must match the port in launch.json
             '--nolazy',
         ],
     }

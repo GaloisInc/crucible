@@ -11,7 +11,7 @@ export type Configuration = {
     [configCruxLLVM]: string
     [configClang]: string
     [configDebug]: string
-    [configIncludeDirs]: string
+    [configIncludeDirs]: string[]
     [configLLVMLink]: string
     [configPATH]: string
 }

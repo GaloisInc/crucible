@@ -19,6 +19,7 @@ export interface InitialData {
 export type ExtensionToWebview = (
     ConfigurationChanged
     | ContentChanged
+    | CruxLLVMLogEntry
     | StatusOfClang
     | StatusOfCruxLLVM
     | StatusOfLLVMLink
@@ -38,6 +39,12 @@ export const contentChanged = 'ContentChanged'
 export interface ContentChanged {
     readonly tag: typeof contentChanged
     readonly newContent: string
+}
+
+export const cruxLLVMLogEntry = 'CruxLLVMLogEntry'
+export interface CruxLLVMLogEntry {
+    readonly tag: typeof cruxLLVMLogEntry
+    readonly logEntry: CruxLLVMLogging
 }
 
 export const statusOfClang = 'StatusOfClang'

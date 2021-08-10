@@ -16,10 +16,14 @@
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "dependencies": {
-        "vscode-languageclient": "^7.0.0"
+        "bytes": "^3.1.0",
+        "vscode-languageclient": "^7.0.0",
+        "websocket": "^1.0.34"
     },
     "devDependencies": {
-        "@types/vscode": "^1.58.1",
+        "@types/bytes": "^3.1.1",
+        "@types/vscode": "^1.59.0",
+        "@types/websocket": "^1.0.4",
         "npm-check-updates": "^11.8.3"
     }
 }

@@ -18,6 +18,11 @@
                 "webview/src/*"
             ]
         },
+        "plugins": [
+            {
+                "name": "typescript-plugin-css-modules",
+            }
+        ],
         "rootDirs": [
             "client/src",
             "server/src",

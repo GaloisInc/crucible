@@ -26,6 +26,23 @@ const sharedConfiguration: Configuration = {
 
     module: {
         rules: [
+
+            {
+                test: /\.css$/,
+                use: [
+                    'style-loader',
+                    'webpack-typings-for-css',
+                    {
+                        loader: 'css-loader',
+                        options: {
+                            modules: {
+                                localIdentName: '[name]__[local]__[hash:base64]',
+                            },
+                        },
+                    },
+                ],
+            },
+
             {
                 test: /\.tsx?$/,
                 exclude: /node_modules/,
@@ -36,6 +53,7 @@ const sharedConfiguration: Configuration = {
                     },
                 },
             },
+
         ],
     },
 

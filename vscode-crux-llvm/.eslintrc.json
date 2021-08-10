@@ -64,7 +64,15 @@
                     "sibling",
                     "index"
                 ],
-                "newlines-between": "always"
+                "newlines-between": "always",
+                "pathGroups": [
+                    {
+                        "pattern": "@shared/**",
+                        "group": "parent",
+                        "position": "after"
+                    }
+                ],
+                "pathGroupsExcludedImportTypes": []
             }
         ],
         "import/no-unresolved": "error",

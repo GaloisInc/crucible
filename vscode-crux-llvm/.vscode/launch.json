@@ -16,7 +16,7 @@
                 "${workspaceFolder}/examples",
             ],
             "outFiles": [
-                "${workspaceFolder}/dist/**/*.js",
+                "${workspaceFolder}/dist/client.bundle.js",
             ],
             "skipFiles": [
                 "<node_internals>/**",
@@ -35,23 +35,7 @@
             "trace": true,
             // array options
             "outFiles": [
-                "${workspaceFolder}/dist/server/**/*.js",
-            ],
-        },
-        {
-            "name": "Language Server E2E Test",
-            // one-line options
-            "type": "extensionHost",
-            "request": "launch",
-            "runtimeExecutable": "${execPath}",
-            "sourceMaps": true,
-            "stopOnEntry": false,
-            // array options
-            "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}",
-            ],
-            "outFiles": [
-                "${workspaceFolder}/dist/client/test/**/*.js",
+                "${workspaceFolder}/dist/server.bundle.js",
             ],
         },
     ],

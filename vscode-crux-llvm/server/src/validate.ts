@@ -1,15 +1,16 @@
 import * as ChildProcess from 'child_process'
 import * as fs from 'fs'
-import * as http from 'http'
 import * as os from 'os'
 import * as path from 'path'
 
 import { Diagnostic } from 'vscode-languageserver'
-import * as ws from 'websocket'
 
-import * as Configuration from '../configuration'
-import { prefix } from '../constants'
-import * as Report from '../report'
+import * as Configuration from '@shared/configuration'
+import { prefix } from '@shared/constants'
+import * as Report from '@shared/report'
+
+export const websocketURL = '127.0.0.1'
+export const websocketPort = 1234
 
 /** Promisified version of nodejs' filesystem API */
 const fsPromises = fs.promises
@@ -24,9 +25,10 @@ export async function validateTextDocument(
     callbacks: {
         onDiagnostics: (diagnostic: Diagnostic[]) => void,
         onError: (error: string) => void,
+        onExit: () => void,
         onWarning: (warning: string) => void,
     },
-): Promise<void> {
+): Promise<ChildProcess.ChildProcessWithoutNullStreams> {
 
     const cruxLLVM = configuration[Configuration.configCruxLLVM]
 
@@ -34,41 +36,7 @@ export async function validateTextDocument(
     const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'temp-crux-llvm-'))
     const includeDirs = configuration[Configuration.configIncludeDirs]
 
-    const httpServer = http.createServer((req, rsp) => {
-        console.log(req, rsp)
-        rsp.end()
-    })
-    httpServer.listen(1234, () => {
-        console.log('HTTP server listening')
-    })
-
-    const server = new ws.server({
-        httpServer,
-    })
-
-    server.on('request', req => {
-        const connection = req.accept()
-
-        console.log('HTTP connection accepted')
-
-        connection.on('message', msg => {
-            if (msg.type === 'utf8') {
-                console.log(msg.utf8Data)
-            }
-        })
-    })
-
-    // const server = ws.createWebSocketStream(
-    //     new ws('ws://127.0.0.1:12342'),
-    // )
-    // server.on('message', m => console.log(m))
-
-    // const ws = new WebSocket('ws://localhost:1234')
-    // ws.addEventListener('message', m => {
-    //     console.log(m)
-    // })
-
-    // console.log('Starting crux-llvm child process')
+    const includes = includeDirs.map(d => `--include-dirs=${d}`)
 
     // const cruxLLVMProcess = ChildProcess.execFile(
     const cruxLLVMProcess = ChildProcess.spawn(
@@ -78,16 +46,17 @@ export async function validateTextDocument(
             '--sim-verbose=3',
             '--fail-fast',
             '--goal-timeout',
-            '--ide-host=127.0.0.1',
-            '--ide-port=1234',
-            `--include-dirs=${includeDirs}`,
+            `--ide-host=${websocketURL}`,
+            `--ide-port=${websocketPort}`,
             '--no-execs',
             `--output-directory=${tempDir}`,
             '--skip-incomplete-reports',
             '--skip-success-reports',
             '--solver=z3', // yices behaves badly
             '--timeout',
-        ],
+        ].concat(
+            includes,
+        ),
         {
             cwd: tempDir,
             // creates the subprocess in its own process group, necessary
@@ -103,21 +72,32 @@ export async function validateTextDocument(
             },
         })
 
-    cruxLLVMProcess.stderr?.on('data', m => {
-        callbacks.onError(m.toString())
+    cruxLLVMProcess.stdout.on('data', data => {
+        console.log(`stdout: ${data}`)
     })
 
-    cruxLLVMProcess.stdout?.on('data', m => {
-        console.log(m.toString())
+    cruxLLVMProcess.stderr.on('data', data => {
+        console.log(`stderr: ${data}`)
+    })
+
+    cruxLLVMProcess.on('error', e => {
+        console.log(e)
     })
 
     cruxLLVMProcess.on('exit', () => {
+
+        callbacks.onExit()
+
         try {
+            console.log(cruxLLVMProcess.exitCode)
+            console.log(cruxLLVMProcess.signalCode)
+
             // crux-llvm can generate huge reports, arbitrary cutoff
             const reportFile = `${tempDir}/report.json`
 
             if (!fs.existsSync(reportFile)) {
                 callbacks.onError('crux-llvm did not generate report.json. Please report.')
+                return
             }
 
             const sizeInMegabytes = fs.statSync(reportFile).size / 1_000_000
@@ -137,5 +117,7 @@ export async function validateTextDocument(
             callbacks.onError(`${prefix} Error processing report:\n${e}`)
         }
     })
+
+    return cruxLLVMProcess
 
 }

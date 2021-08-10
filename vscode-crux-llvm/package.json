@@ -41,9 +41,12 @@
                     "description": "Set to true to get information about the status of the extension (in the VSCode console)"
                 },
                 "vscode-crux-llvm.include-dirs": {
-                    "type": "string",
-                    "default": "",
-                    "description": "Include directories passed to crux-llvm as --include-dirs"
+                    "type": "array",
+                    "default": [],
+                    "description": "Include directories passed to crux-llvm as --include-dirs",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "vscode-crux-llvm.llvm-link": {
                     "type": "string",
@@ -89,28 +92,32 @@
         "watch": "webpack watch"
     },
     "dependencies": {
+        "css-loader": "^6.2.0",
+        "style-loader": "^3.2.1",
         "ws": "^8.0.0"
     },
     "devDependencies": {
         "@types/mocha": "^9.0.0",
-        "@types/node": "^16.4.12",
+        "@types/node": "^16.4.14",
         "@types/webpack": "^5.28.0",
         "@types/ws": "^7.4.7",
-        "@typescript-eslint/eslint-plugin": "^4.29.0",
-        "@typescript-eslint/parser": "^4.29.0",
+        "@typescript-eslint/eslint-plugin": "^4.29.1",
+        "@typescript-eslint/parser": "^4.29.1",
         "copy-webpack-plugin": "^9.0.1",
         "eslint": "^7.32.0",
         "eslint-import-resolver-typescript": "^2.4.0",
-        "eslint-plugin-import": "^2.23.4",
+        "eslint-plugin-import": "^2.24.0",
         "eslint-plugin-tsdoc": "^0.2.14",
         "mocha": "^9.0.3",
         "npm-check-updates": "^11.8.3",
         "ts-loader": "^9.2.5",
-        "ts-node": "^10.1.0",
+        "ts-node": "^10.2.0",
         "tsconfig-paths-webpack-plugin": "^3.5.1",
         "typescript": "^4.3.5",
+        "typescript-plugin-css-modules": "^3.4.0",
         "vsce": "^1.96.1",
-        "webpack": "^5.48.0",
-        "webpack-cli": "^4.7.2"
+        "webpack": "^5.50.0",
+        "webpack-cli": "^4.7.2",
+        "webpack-typings-for-css": "^0.6.4"
     }
 }
