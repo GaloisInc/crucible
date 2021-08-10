@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.LLVM.MemModel.Options
+-- Module           : Lang.Crucible.LLVM.Translation.Options
 -- Description      : Definition of options that can be tweaked during LLVM translation
 -- Copyright        : (c) Galois, Inc 2021
 -- License          : BSD3
