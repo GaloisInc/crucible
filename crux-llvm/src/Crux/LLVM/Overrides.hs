@@ -77,7 +77,7 @@ type TBits n        = BVType n
 
 cruxLLVMOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cruxLLVMOverrides arch =
@@ -152,7 +152,7 @@ cruxLLVMOverrides arch =
 
 cbmcOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cbmcOverrides arch =
@@ -245,7 +245,8 @@ cbmcOverrides arch =
 
 
 svCompOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
   [OverrideTemplate (personality sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
@@ -453,7 +454,7 @@ do_assume arch mvar sym (Empty :> p :> pFile :> line) =
 
 do_assert ::
   ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->
@@ -510,7 +511,7 @@ cprover_assume _mvar sym (Empty :> p) = liftIO $
 
 cprover_assert ::
   ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->
@@ -559,7 +560,8 @@ sv_comp_assume _mvar sym (Empty :> p) = liftIO $
      addAssumption sym (GenericAssumption loc "__VERIFIER_assume" cond)
 
 sv_comp_assert ::
-  (IsSymInterface sym) =>
+  ( IsSymInterface sym
+  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
@@ -571,7 +573,8 @@ sv_comp_assert _mvar sym (Empty :> p) = liftIO $
      addDurableAssertion sym (LabeledPred cond (SimError loc msg))
 
 sv_comp_error ::
-  (IsSymInterface sym) =>
+  ( IsSymInterface sym
+  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->

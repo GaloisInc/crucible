@@ -29,7 +29,7 @@ import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.FunctionHandle as Crucible
 
 -- crucible-llvm
-import Lang.Crucible.LLVM.MemModel (MemOptions, withPtrWidth)
+import Lang.Crucible.LLVM.MemModel (withPtrWidth)
 import Lang.Crucible.LLVM.Extension( LLVM )
 import Lang.Crucible.LLVM.Translation (llvmPtrWidth, transContext)
 
@@ -38,7 +38,7 @@ import Crux.Config.Common
 import Crux.Log as Crux
 
  -- local
-import Crux.LLVM.Config (throwCError, CError(MissingFun), memOpts)
+import Crux.LLVM.Config (LLVMOptions, throwCError, CError(MissingFun))
 import Crux.LLVM.Overrides
 
 import           UCCrux.LLVM.Classify.Types (partitionExplanations)
@@ -67,13 +67,13 @@ bugfindingLoop ::
   FunctionContext m arch argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
-  MemOptions ->
+  LLVMOptions ->
   Crucible.HandleAllocator ->
   IO (BugfindingResult m arch argTypes)
-bugfindingLoop appCtx modCtx funCtx cfg cruxOpts memOptions halloc =
+bugfindingLoop appCtx modCtx funCtx cfg cruxOpts llvmOpts halloc =
   do
     let runSim preconds =
-          Sim.runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts memOptions
+          Sim.runSimulator appCtx modCtx funCtx halloc preconds cfg cruxOpts llvmOpts
 
     -- Loop, learning preconditions and reporting errors
     let loop truePositives constraints precondTags unsoundness =
@@ -166,7 +166,7 @@ loopOnFunction appCtx modCtx halloc cruxOpts ucOpts fn =
                           funCtx
                           cfg
                           cruxOpts
-                          (memOpts (Config.ucLLVMOptions ucOpts))
+                          (Config.ucLLVMOptions ucOpts)
                           halloc
             )
       )

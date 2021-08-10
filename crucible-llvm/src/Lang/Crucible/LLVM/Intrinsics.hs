@@ -69,7 +69,7 @@ llvmIntrinsicTypes =
 -- | Register all declare and define overrides
 register_llvm_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?memOpts :: MemOptions ) =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] {- ^ Additional "define" overrides -} ->
   [OverrideTemplate p sym arch rtp l a] {- ^ Additional "declare" overrides -} ->
@@ -134,7 +134,7 @@ register_llvm_define_overrides llvmModule addlOvrs llvmctx =
 
 register_llvm_declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?memOpts :: MemOptions ) =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   L.Module ->
   [OverrideTemplate p sym arch rtp l a] ->
   LLVMContext arch ->
@@ -148,7 +148,7 @@ register_llvm_declare_overrides llvmModule addlOvrs llvmctx =
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   [OverrideTemplate p sym arch rtp l a]
 declare_overrides =
   [ basic_llvm_override LLVM.llvmLifetimeStartOverride

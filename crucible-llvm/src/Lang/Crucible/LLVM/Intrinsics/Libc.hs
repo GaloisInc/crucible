@@ -60,6 +60,7 @@ import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
+import           Lang.Crucible.LLVM.Intrinsics.Options
 
 ------------------------------------------------------------------------
 -- ** Declarations
@@ -480,7 +481,7 @@ callStrlen sym mvar (regValue -> strPtr) = do
 
 callAssert
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
+     , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
   => GlobalVar Mem
   -> sym
   -> Ctx.Assignment (RegEntry sym)
@@ -495,7 +496,8 @@ callAssert mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
         let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
         liftIO $ addFailedAssertion sym err
 
-callExit :: (IsSymInterface sym)
+callExit :: ( IsSymInterface sym
+            , ?intrinsicsOpts :: IntrinsicsOptions )
          => sym
          -> RegEntry sym (BVType 32)
          -> OverrideSim p sym ext r args ret (RegValue sym UnitType)
@@ -658,7 +660,7 @@ printfOps sym valist =
 -- from OSX libc
 llvmAssertRtnOverride
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
+     , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
   => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
@@ -672,7 +674,7 @@ llvmAssertRtnOverride =
 -- From glibc
 llvmAssertFailOverride
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
-     , ?memOpts :: MemOptions )
+     , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
   => LLVMOverride p sym
         (EmptyCtx ::> LLVMPointerType wptr
                   ::> LLVMPointerType wptr
@@ -685,7 +687,8 @@ llvmAssertFailOverride =
 
 
 llvmAbortOverride
-  :: (IsSymInterface sym)
+  :: ( IsSymInterface sym
+     , ?intrinsicsOpts :: IntrinsicsOptions )
   => LLVMOverride p sym EmptyCtx UnitType
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
@@ -698,7 +701,8 @@ llvmAbortOverride =
 
 llvmExitOverride
   :: forall sym p
-   . (IsSymInterface sym)
+   . ( IsSymInterface sym
+     , ?intrinsicsOpts :: IntrinsicsOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> BVType 32)
          UnitType
