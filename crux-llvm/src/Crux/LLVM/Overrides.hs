@@ -20,6 +20,7 @@ module Crux.LLVM.Overrides
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
+import Control.Monad (when)
 import Control.Monad.IO.Class(liftIO)
 import GHC.Exts ( Proxy# )
 import System.IO (hPutStrLn)
@@ -461,6 +462,7 @@ do_assert ::
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
 do_assert arch mvar sym (Empty :> p :> pFile :> line) =
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
      file <- lookupString arch mvar pFile
      l <- case asBV (regValue line) of
@@ -518,6 +520,7 @@ cprover_assert ::
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
   OverM personality sym ext (RegValue sym UnitType)
 cprover_assert arch mvar sym (Empty :> p :> pMsg) =
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
      str <- lookupString arch mvar pMsg
      loc <- liftIO $ getCurrentProgramLoc sym
@@ -567,6 +570,7 @@ sv_comp_assert ::
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
 sv_comp_assert _mvar sym (Empty :> p) = liftIO $
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
      let msg = AssertFailureSimError "__VERIFIER_assert" ""
@@ -580,5 +584,6 @@ sv_comp_error ::
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym UnitType)
 sv_comp_error _mvar sym Empty = liftIO $
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do let rsn = AssertFailureSimError "__VERIFIER_error" ""
      addFailedAssertion sym rsn

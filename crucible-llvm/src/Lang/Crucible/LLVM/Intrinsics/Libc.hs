@@ -482,7 +482,8 @@ callStrlen sym mvar (regValue -> strPtr) = do
 callAssert
   :: ( IsSymInterface sym, HasPtrWidth wptr, HasLLVMAnn sym
      , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions )
-  => GlobalVar Mem
+  => Bool -- ^ 'True' if this is @__assert_fail()@, 'False' otherwise.
+  -> GlobalVar Mem
   -> sym
   -> Ctx.Assignment (RegEntry sym)
         (EmptyCtx ::> LLVMPointerType wptr
@@ -490,11 +491,22 @@ callAssert
                   ::> BVType 32
                   ::> LLVMPointerType wptr)
   -> OverrideSim p sym ext r args reg (RegValue sym UnitType)
-callAssert mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
-     do mem <- readGlobal mvar
-        txt <- liftIO $ loadString sym mem (regValue ptxt) Nothing
-        let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
-        liftIO $ addFailedAssertion sym err
+callAssert assert_fail mvar sym (Empty :> _pfn :> _pfile :> _pline :> ptxt ) =
+  do when failUponExit $
+       do mem <- readGlobal mvar
+          txt <- liftIO $ loadString sym mem (regValue ptxt) Nothing
+          let err = AssertFailureSimError "Call to assert()" (UTF8.toString txt)
+          liftIO $ addFailedAssertion sym err
+     liftIO $
+       do loc <- liftIO $ getCurrentProgramLoc sym
+          abortExecBecause $ EarlyExit loc
+  where
+    failUponExit :: Bool
+    failUponExit
+      | assert_fail
+      = abnormalExitBehavior ?intrinsicsOpts `elem` [AlwaysFail, OnlyAssertFail]
+      | otherwise
+      = abnormalExitBehavior ?intrinsicsOpts == AlwaysFail
 
 callExit :: ( IsSymInterface sym
             , ?intrinsicsOpts :: IntrinsicsOptions )
@@ -502,10 +514,11 @@ callExit :: ( IsSymInterface sym
          -> RegEntry sym (BVType 32)
          -> OverrideSim p sym ext r args ret (RegValue sym UnitType)
 callExit sym ec = liftIO $
-  do cond <- bvEq sym (regValue ec) =<< bvLit sym knownNat (BV.zero knownNat)
-     -- If the argument is non-zero, throw an assertion failure. Otherwise,
-     -- simply stop the current thread of execution.
-     assert sym cond "Call to exit() with non-zero argument"
+  do when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+       do cond <- bvEq sym (regValue ec) =<< bvLit sym knownNat (BV.zero knownNat)
+          -- If the argument is non-zero, throw an assertion failure. Otherwise,
+          -- simply stop the current thread of execution.
+          assert sym cond "Call to exit() with non-zero argument"
      loc <- getCurrentProgramLoc sym
      abortExecBecause $ EarlyExit loc
 
@@ -669,7 +682,7 @@ llvmAssertRtnOverride
         UnitType
 llvmAssertRtnOverride =
   [llvmOvr| void @__assert_rtn( i8*, i8*, i32, i8* ) |]
-  callAssert
+  (callAssert False)
 
 -- From glibc
 llvmAssertFailOverride
@@ -683,7 +696,7 @@ llvmAssertFailOverride
         UnitType
 llvmAssertFailOverride =
   [llvmOvr| void @__assert_fail( i8*, i8*, i32, i8* ) |]
-  callAssert
+  (callAssert True)
 
 
 llvmAbortOverride
@@ -693,8 +706,9 @@ llvmAbortOverride
 llvmAbortOverride =
   [llvmOvr| void @abort() |]
   (\_ sym _args -> liftIO $
-     do let err = AssertFailureSimError "Call to abort" ""
-        assert sym (falsePred sym) err
+     do when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
+            let err = AssertFailureSimError "Call to abort" "" in
+            assert sym (falsePred sym) err
         loc <- getCurrentProgramLoc sym
         abortExecBecause $ EarlyExit loc
   )
