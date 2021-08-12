@@ -113,15 +113,16 @@ parseLLVM file =
 
 registerFunctions ::
   (ArchOk arch, IsSymInterface sym, HasLLVMAnn sym, ptrW ~ ArchWidth arch) =>
-  MemOptions ->
+  LLVMOptions ->
   LLVM.Module ->
   ModuleTranslation arch ->
   Maybe (LLVMFileSystem ptrW) ->
   OverM Crux sym LLVM ()
-registerFunctions memOptions llvm_module mtrans fs0 =
+registerFunctions llvmOpts llvm_module mtrans fs0 =
   do let llvm_ctx = mtrans ^. transContext
      let ?lc = llvm_ctx ^. llvmTypeCtx
-         ?memOpts = memOptions
+         ?intrinsicsOpts = intrinsicsOpts llvmOpts
+         ?memOpts = memOpts llvmOpts
 
      -- register the callable override functions
      register_llvm_overrides llvm_module []
@@ -186,7 +187,7 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
          InitialState simctx globSt' defaultAbortHandler UnitRepr $
            runOverrideSim UnitRepr $
              withPtrWidth ptrW $
-                do registerFunctions (memOpts llvmOpts) (prepLLVMMod prepped) trans (Just fs0)
+                do registerFunctions llvmOpts (prepLLVMMod prepped) trans (Just fs0)
                    initFSOverride
                    checkFun (entryPoint llvmOpts) (cfgMap trans)
 

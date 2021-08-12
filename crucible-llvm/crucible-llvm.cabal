@@ -95,6 +95,7 @@ library
     Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.Libcxx
     Lang.Crucible.LLVM.Intrinsics.LLVM
+    Lang.Crucible.LLVM.Intrinsics.Options
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.MemLog
     Lang.Crucible.LLVM.MemModel.Options

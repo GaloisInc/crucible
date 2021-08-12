@@ -61,7 +61,7 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 import           Lang.Crucible.LLVM (llvmGlobalsToCtx)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import           Lang.Crucible.LLVM.Intrinsics (register_llvm_overrides)
-import           Lang.Crucible.LLVM.MemModel (MemOptions,  LLVMAnnMap)
+import           Lang.Crucible.LLVM.MemModel (LLVMAnnMap)
 import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx)
 
 import           Lang.Crucible.LLVM.MemModel.Partial (BoolAnn(BoolAnn))
@@ -75,6 +75,7 @@ import           Crux.Config.Common (CruxOptions)
 import           Crux.Log (outputHandle)
 
  -- crux-llvm
+import           Crux.LLVM.Config (LLVMOptions(..))
 import           Crux.LLVM.Overrides (ArchOk)
 import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
 
@@ -107,16 +108,18 @@ simulateLLVM ::
   IORef (Set UnsoundOverrideName) ->
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
-  MemOptions ->
+  LLVMOptions ->
   Crux.SimulatorCallback msgs
-simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverrideRef constraints cfg memOptions =
+simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverrideRef constraints cfg llvmOpts =
   Crux.SimulatorCallback $ \sym _maybeOnline ->
     do
       let trans = modCtx ^. moduleTranslation
       let llvmCtxt = trans ^. transContext
+      let memOptions = memOpts llvmOpts
       bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
       let ?lc = llvmCtxt ^. llvmTypeCtx
       let ?recordLLVMAnnotation = \an bb -> modifyIORef bbMapRef (Map.insert an bb)
+      let ?intrinsicsOpts = intrinsicsOpts llvmOpts
       let ?memOpts = memOptions
       let simctx =
             (setupSimCtxt halloc sym memOptions (llvmMemVar llvmCtxt))
@@ -196,7 +199,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   -- programs where the vast majority of functions wouldn't be
                   -- called from any particular function. Needs some
                   -- benchmarking.
-                  registerFunctions memOptions (modCtx ^. llvmModule) trans Nothing
+                  registerFunctions llvmOpts (modCtx ^. llvmModule) trans Nothing
                   let uOverrides = unsoundOverrides trans unsoundOverrideRef
                   sOverrides <-
                     unsoundSkipOverrides
@@ -286,9 +289,9 @@ runSimulator ::
   Constraints m argTypes ->
   Crucible.CFG LLVM blocks (MapToCrucibleType arch argTypes) ret ->
   CruxOptions ->
-  MemOptions ->
+  LLVMOptions ->
   IO (UCCruxSimulationResult m arch argTypes)
-runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
+runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts =
   do
     explRef <- newIORef []
     skipOverrideRef <- newIORef Set.empty
@@ -306,7 +309,7 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts memOptions =
             unsoundOverrideRef
             preconditions
             cfg
-            memOptions
+            llvmOpts
         )
     unsoundness' <-
       Unsoundness

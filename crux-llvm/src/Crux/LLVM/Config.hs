@@ -4,16 +4,19 @@
 
 module Crux.LLVM.Config where
 
+import           Config.Schema
 import           Control.Applicative ( Alternative(..) )
 import           Control.Exception ( Exception, displayException, throwIO )
 import           Control.Monad ( guard )
 import           Control.Monad.State ( liftIO, MonadIO )
+import qualified Data.Text as Text
 import           System.Directory ( doesDirectoryExist )
 import           System.Environment ( getExecutablePath )
 import           System.FilePath ( (</>), joinPath, normalise, splitPath, takeDirectory )
 
 import qualified Data.LLVM.BitCode as LLVM
 
+import           Lang.Crucible.LLVM.Intrinsics ( IntrinsicsOptions(..), AbnormalExitBehavior(..) )
 import           Lang.Crucible.LLVM.MemModel ( MemOptions(..), laxPointerMemOptions )
 import           Lang.Crucible.LLVM.Translation ( TranslationOptions(..) )
 
@@ -57,6 +60,12 @@ throwCError :: MonadIO m => CError -> m b
 throwCError e = liftIO (throwIO e)
 
 
+abnormalExitBehaviorSpec :: ValueSpec AbnormalExitBehavior
+abnormalExitBehaviorSpec =
+  (AlwaysFail <$ atomSpec "always-fail") <!>
+  (OnlyAssertFail <$ atomSpec "only-assert-fail") <!>
+  (NeverFail <$ atomSpec "never-fail")
+
 data LLVMOptions = LLVMOptions
   { clangBin   :: FilePath
   , linkBin    :: FilePath
@@ -65,8 +74,9 @@ data LLVMOptions = LLVMOptions
   , incDirs    :: [FilePath]
   , targetArch :: Maybe String
   , ubSanitizers :: [String]
-  , memOpts    :: MemOptions
-  , transOpts  :: TranslationOptions
+  , intrinsicsOpts :: IntrinsicsOptions
+  , memOpts        :: MemOptions
+  , transOpts      :: TranslationOptions
   , entryPoint :: String
   , lazyCompile :: Bool
   , noCompile :: Bool
@@ -132,6 +142,17 @@ llvmCruxConfig = do
          targetArch <- Crux.sectionMaybe "target-architecture" Crux.stringSpec
                        "Target architecture to pass to LLVM build operations.\
                        \ Default is no specification for current system architecture"
+
+         intrinsicsOpts <- do abnormalExitBehavior <-
+                                Crux.section "abnormal-exit-behavior" abnormalExitBehaviorSpec AlwaysFail
+                                  (Text.unwords
+                                    [ "Should Crux fail when simulating a function which triggers an"
+                                    , "abnormal exit, such as abort()? Possible options are:"
+                                    , "'always-fail' (default); 'only-assert-fail', which only fails"
+                                    , "when simulating __assert_fail(); and 'never-fail'."
+                                    , "The latter two options are primarily useful for SV-COMP."
+                                    ])
+                              return IntrinsicsOptions{..}
 
          memOpts <- do laxPointerOrdering <-
                          Crux.section "lax-pointer-ordering" Crux.yesOrNoSpec False

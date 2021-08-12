@@ -20,6 +20,7 @@ module Crux.LLVM.Overrides
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
+import Control.Monad (when)
 import Control.Monad.IO.Class(liftIO)
 import GHC.Exts ( Proxy# )
 import System.IO (hPutStrLn)
@@ -77,7 +78,7 @@ type TBits n        = BVType n
 
 cruxLLVMOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cruxLLVMOverrides arch =
@@ -152,7 +153,7 @@ cruxLLVMOverrides arch =
 
 cbmcOverrides ::
   ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr, wptr ~ ArchWidth arch
-  , ?lc :: TypeContext, ?memOpts :: MemOptions ) =>
+  , ?lc :: TypeContext, ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   [OverrideTemplate (personality sym) sym arch rtp l a]
 cbmcOverrides arch =
@@ -245,7 +246,8 @@ cbmcOverrides arch =
 
 
 svCompOverrides ::
-  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
+  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
   [OverrideTemplate (personality sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
@@ -453,13 +455,14 @@ do_assume arch mvar sym (Empty :> p :> pFile :> line) =
 
 do_assert ::
   ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
 do_assert arch mvar sym (Empty :> p :> pFile :> line) =
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
      file <- lookupString arch mvar pFile
      l <- case asBV (regValue line) of
@@ -510,13 +513,14 @@ cprover_assume _mvar sym (Empty :> p) = liftIO $
 
 cprover_assert ::
   ( ArchOk arch, IsSymInterface sym, HasLLVMAnn sym
-  , ?memOpts :: MemOptions ) =>
+  , ?intrinsicsOpts :: IntrinsicsOptions, ?memOpts :: MemOptions ) =>
   Proxy# arch ->
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32 ::> TPtr arch) ->
   OverM personality sym ext (RegValue sym UnitType)
 cprover_assert arch mvar sym (Empty :> p :> pMsg) =
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do cond <- liftIO $ bvIsNonzero sym (regValue p)
      str <- lookupString arch mvar pMsg
      loc <- liftIO $ getCurrentProgramLoc sym
@@ -559,23 +563,27 @@ sv_comp_assume _mvar sym (Empty :> p) = liftIO $
      addAssumption sym (GenericAssumption loc "__VERIFIER_assume" cond)
 
 sv_comp_assert ::
-  (IsSymInterface sym) =>
+  ( IsSymInterface sym
+  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
   OverM personality sym ext (RegValue sym UnitType)
 sv_comp_assert _mvar sym (Empty :> p) = liftIO $
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do cond <- bvIsNonzero sym (regValue p)
      loc  <- getCurrentProgramLoc sym
      let msg = AssertFailureSimError "__VERIFIER_assert" ""
      addDurableAssertion sym (LabeledPred cond (SimError loc msg))
 
 sv_comp_error ::
-  (IsSymInterface sym) =>
+  ( IsSymInterface sym
+  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
   GlobalVar Mem ->
   sym ->
   Assignment (RegEntry sym) EmptyCtx ->
   OverM personality sym ext (RegValue sym UnitType)
 sv_comp_error _mvar sym Empty = liftIO $
+  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
   do let rsn = AssertFailureSimError "__VERIFIER_error" ""
      addFailedAssertion sym rsn
