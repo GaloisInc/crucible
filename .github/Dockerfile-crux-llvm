@@ -39,6 +39,7 @@ ARG DIR=/crux-llvm
 RUN mkdir -p ${DIR}/build
 ADD crucible ${DIR}/build/crucible
 ADD crucible-llvm ${DIR}/build/crucible-llvm
+ADD crucible-symio ${DIR}/build/crucible-symio
 ADD crux ${DIR}/build/crux
 ADD crux-llvm ${DIR}/build/crux-llvm
 ADD dependencies ${DIR}/build/dependencies
