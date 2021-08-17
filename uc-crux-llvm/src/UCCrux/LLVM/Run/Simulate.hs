@@ -26,11 +26,9 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
 
-import           Control.Exception (displayException, try)
 import           Control.Lens ((^.), view, to)
 import           Control.Monad (void, unless)
 import           Control.Monad.IO.Class (liftIO)
-import           Data.Foldable (for_)
 import           Data.IORef
 import           Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
@@ -40,15 +38,9 @@ import qualified Data.Text as Text
 
 import qualified Text.LLVM.AST as L
 
-import qualified Prettyprinter as PP
-import qualified Prettyprinter.Render.Text as PP
-
 import           Data.Parameterized.Ctx (Ctx)
-import           Data.Parameterized.Some (Some(Some))
 
 import qualified What4.Interface as What4
-import qualified What4.ProgramLoc as What4
-import qualified What4.FunctionName as What4
 
 -- crucible
 import qualified Lang.Crucible.CFG.Core as Crucible
@@ -82,7 +74,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
 import           UCCrux.LLVM.Classify.Types (Explanation(..), Uncertainty(..))
-import           UCCrux.LLVM.Constraints (Constraints, ppConstraint, returnConstraints, relationalConstraints)
+import           UCCrux.LLVM.Constraints (Constraints, returnConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
@@ -93,7 +85,8 @@ import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOver
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
 import           UCCrux.LLVM.PP (ppRegMap)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
-import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult), SetupAssumption(SetupAssumption))
+import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult))
+import           UCCrux.LLVM.Setup.Assume (assume)
 import           UCCrux.LLVM.Setup.Monad (ppSetupError)
 {- ORMOLU_ENABLE -}
 
@@ -138,50 +131,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
             pure (mem, anns, assumptions, argShapes, args)
 
       -- Assume all predicates necessary to satisfy the deduced preconditions
-      for_
-        assumptions
-        ( \(SetupAssumption (Some constraint) predicate) ->
-            do
-              maybeException <-
-                liftIO $
-                  try $
-                    Crucible.addAssumption
-                      sym
-                      ( Crucible.GenericAssumption
-                          ( What4.mkProgramLoc
-                              (What4.functionNameFromText (funCtx ^. functionName))
-                              What4.InternalPos
-                          )
-                          "constraint"
-                          predicate
-                      )
-              case maybeException of
-                Left e@(Crucible.AssertionFailure _) ->
-                  panic
-                    "classify"
-                    [ "Concretely false assumption",
-                      Text.unpack $
-                        PP.renderStrict
-                          ( PP.layoutPretty
-                              PP.defaultLayoutOptions
-                              (ppConstraint constraint)
-                          ),
-                      displayException e
-                    ]
-                Left e ->
-                  panic
-                    "classify"
-                    [ "Unknown issue while adding assumptions",
-                      Text.unpack $
-                        PP.renderStrict
-                          ( PP.layoutPretty
-                              PP.defaultLayoutOptions
-                              (ppConstraint constraint)
-                          ),
-                      displayException e
-                    ]
-                Right value -> pure value
-        )
+      assume (funCtx ^. functionName) sym assumptions
 
       skipReturnValueAnnotations <- newIORef Map.empty
 
@@ -259,6 +209,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       modCtx
                       funCtx
                       sym
+                      mem
                       skipped
                       (gl ^. Crucible.labeledPredMsg)
                       args

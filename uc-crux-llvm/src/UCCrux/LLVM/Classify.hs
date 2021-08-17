@@ -40,6 +40,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Maybe (maybeToList)
 import qualified Data.Text as Text
+import           Numeric.Natural (Natural)
 
 import qualified Text.LLVM.AST as L
 
@@ -61,6 +62,7 @@ import           Lang.Crucible.LLVM.DataLayout (DataLayout)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as MemError
 import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
+import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import           Lang.Crucible.LLVM.MemModel.Generic (Mem, AllocInfo)
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
@@ -69,12 +71,13 @@ import           Lang.Crucible.LLVM.MemType (memTypeSize)
 import           UCCrux.LLVM.Classify.Poison
 import           UCCrux.LLVM.Classify.Types hiding (truePositive)
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes, declTypes, globalTypes)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector), selectWhere, selectorCursor)
 import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
+import           UCCrux.LLVM.FullType.Translation (makeDeclSymbol, makeGlobalSymbol, globalSymbol)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName)
 import           UCCrux.LLVM.Setup (SymValue)
@@ -137,9 +140,9 @@ unclass appCtx badBehavior errorLoc =
         UUnclassified errorLoc $
           case badBehavior of
             LLVMErrors.BBUndefinedBehavior ub ->
-              UnclassifiedUndefinedBehavior (UB.explain ub) (Some ub)
+              UnclassifiedUndefinedBehavior errorLoc (UB.explain ub) (Some ub)
             LLVMErrors.BBMemoryError memoryError ->
-              UnclassifiedMemoryError (MemError.explain memoryError)
+              UnclassifiedMemoryError errorLoc (MemError.explain memoryError)
 
 unfixed ::
   MonadIO f =>
@@ -198,6 +201,8 @@ classifyBadBehavior ::
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   sym ->
+  -- | Initial LLVM memory (containing globals and functions)
+  LLVMMem.MemImpl sym ->
   -- | Functions skipped during execution
   Set SkipOverrideName ->
   -- | Simulation error (including source position)
@@ -212,7 +217,7 @@ classifyBadBehavior ::
   -- | Data about the error that occurred
   LLVMErrors.BadBehavior sym ->
   f (Explanation m arch argTypes)
-classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _args) annotations argShapes badBehavior =
+classifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucible.RegMap _args) annotations argShapes badBehavior =
   case badBehavior of
     LLVMErrors.BBUndefinedBehavior (UB.UDivByZero _dividend (Crucible.RV divisor)) ->
       handleDivRemByZero UDivByConcreteZero divisor
@@ -262,8 +267,8 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
           case ann of
             Just (Some (TypedSelector ftRepr (SomeInSelector selector))) ->
               do
-                int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
-                case What4.asConcrete int of
+                int <- liftIO $ getConcretePointerBlock ptr
+                case int of
                   Nothing -> unclass appCtx badBehavior errorLoc
                   Just _ ->
                     do
@@ -421,6 +426,7 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
         ) ->
         do
           ann <- liftIO $ getPtrBlockOrOffsetAnn ptr
+          blk <- liftIO $ getConcretePointerBlock ptr
           case (ann, getAnyPtrOffsetAnn ptr) of
             ( Just (Some (TypedSelector ftRepr (SomeInSelector selector))),
               _
@@ -474,9 +480,25 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
                     if loc == mallocLocation
                       then unclass appCtx badBehavior errorLoc
                       else truePositive (ReadUninitializedHeap loc)
-                  -- TODO(lb): Result in false negatives
-                  -- Just (G.AllocInfo G.GlobalAlloc _sz _mut _align _loc) ->
-                  --   unfixed appCtx UnfixedUninitializedGlobal
+                  Just (G.AllocInfo G.GlobalAlloc _sz _mut _align _loc) ->
+                    case flip Map.lookup (LLVMMem.memImplSymbolMap memImpl) =<< blk of
+                      Nothing -> requirePossiblePointer ReadNonPointer ptr
+                      Just glob ->
+                        case ( makeDeclSymbol glob (modCtx ^. declTypes),
+                               makeGlobalSymbol (modCtx ^. globalTypes) glob
+                             ) of
+                          (Just {}, _) -> truePositive (DerefFunctionPointer glob)
+                          (_, Just gSymb) ->
+                            case modCtx ^. globalTypes . globalSymbol gSymb of
+                              Some FTUnboundedArrayRepr {} ->
+                                unimplemented
+                                  "classify"
+                                  Unimplemented.NonEmptyUnboundedSizeArrays
+                              _ -> unclass appCtx badBehavior errorLoc
+                          _ ->
+                            panic
+                              "classify"
+                              ["Global not present in module: " ++ show glob]
                   -- If the "pointer" concretely wasn't a pointer, it's a bug.
                   _ -> requirePossiblePointer ReadNonPointer ptr
     LLVMErrors.BBMemoryError
@@ -630,16 +652,20 @@ classifyBadBehavior appCtx modCtx funCtx sym skipped simError (Crucible.RegMap _
     oneShapeConstraint selector shapeConstraint =
       [NewShapeConstraint (SomeInSelector selector) shapeConstraint]
 
+    getConcretePointerBlock :: LLVMPtr.LLVMPtr sym w -> IO (Maybe Natural)
+    getConcretePointerBlock ptr =
+      do
+        int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
+        pure (fromIntegral . What4.fromConcreteInteger <$> What4.asConcrete int)
+
     allocInfoFromPtr :: Mem sym -> LLVMPtr.LLVMPtr sym w -> IO (Maybe (AllocInfo sym))
     allocInfoFromPtr mem ptr =
       do
-        int <- liftIO $ What4.natToInteger sym (LLVMPtr.llvmPointerBlock ptr)
+        int <- liftIO $ getConcretePointerBlock ptr
         pure $
-          do
-            concreteInt <- What4.asConcrete int
-            G.possibleAllocInfo
-              (fromIntegral (What4.fromConcreteInteger concreteInt))
-              (G.memAllocs mem)
+          case int of
+            Just int' -> G.possibleAllocInfo int' (G.memAllocs mem)
+            Nothing -> Nothing
 
     diagnoseAndPrescribe :: Diagnosis -> Selector m argTypes inTy atTy -> f ()
     diagnoseAndPrescribe diagnosis selector =
