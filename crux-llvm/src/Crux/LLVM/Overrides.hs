@@ -49,7 +49,7 @@ import Lang.Crucible.Simulator.OverrideSim
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..),SimError(..))
 import Lang.Crucible.Backend
-          ( IsSymInterface, addDurableAssertion, addFailedAssertion
+          ( IsSymInterface, addDurableAssertion
           , addAssumption, LabeledPred(..), CrucibleAssumption(..)
           , addAssumptions, singleEvent, CrucibleEvent(..) )
 import Lang.Crucible.LLVM.QQ( llvmOvr )
@@ -246,8 +246,7 @@ cbmcOverrides arch =
 
 
 svCompOverrides ::
-  ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
-  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
+  (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr) =>
   [OverrideTemplate (personality sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
@@ -293,18 +292,6 @@ svCompOverrides =
   , basic_llvm_override $
         [llvmOvr| double @__VERIFIER_nondet_double() |]
         (sv_comp_fresh_float DoubleFloatRepr)
-
-  , basic_llvm_override $
-        [llvmOvr| void @__VERIFIER_assert( i32 ) |]
-        sv_comp_assert
-
-  , basic_llvm_override $
-        [llvmOvr| void @__VERIFIER_assume( i32 ) |]
-        sv_comp_assume
-
-  , basic_llvm_override $
-        [llvmOvr| void @__VERIFIER_error( ) |]
-        sv_comp_error
   ]
 
 --------------------------------------------------------------------------------
@@ -550,40 +537,3 @@ cprover_w_ok _ mvar sym (Empty :> (regValue -> p) :> (regValue -> sz)) =
   do mem <- readGlobal mvar
      x <- liftIO $ isAllocatedAlignedPointer sym PtrWidth noAlignment Mutable p (Just sz) mem
      liftIO $ predToBV sym x knownNat
-
-sv_comp_assume ::
-  (IsSymInterface sym) =>
-  GlobalVar Mem ->
-  sym ->
-  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym ext (RegValue sym UnitType)
-sv_comp_assume _mvar sym (Empty :> p) = liftIO $
-  do cond <- bvIsNonzero sym (regValue p)
-     loc  <- getCurrentProgramLoc sym
-     addAssumption sym (GenericAssumption loc "__VERIFIER_assume" cond)
-
-sv_comp_assert ::
-  ( IsSymInterface sym
-  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
-  GlobalVar Mem ->
-  sym ->
-  Assignment (RegEntry sym) (EmptyCtx ::> TBits 32) ->
-  OverM personality sym ext (RegValue sym UnitType)
-sv_comp_assert _mvar sym (Empty :> p) = liftIO $
-  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
-  do cond <- bvIsNonzero sym (regValue p)
-     loc  <- getCurrentProgramLoc sym
-     let msg = AssertFailureSimError "__VERIFIER_assert" ""
-     addDurableAssertion sym (LabeledPred cond (SimError loc msg))
-
-sv_comp_error ::
-  ( IsSymInterface sym
-  , ?intrinsicsOpts :: IntrinsicsOptions ) =>
-  GlobalVar Mem ->
-  sym ->
-  Assignment (RegEntry sym) EmptyCtx ->
-  OverM personality sym ext (RegValue sym UnitType)
-sv_comp_error _mvar sym Empty = liftIO $
-  when (abnormalExitBehavior ?intrinsicsOpts == AlwaysFail) $
-  do let rsn = AssertFailureSimError "__VERIFIER_error" ""
-     addFailedAssertion sym rsn

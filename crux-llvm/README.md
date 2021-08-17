@@ -146,19 +146,10 @@ properties of a program that you would like to prove.
   succeed.
 
 For programs that have been written for the [SV-COMP
-competition](https://sv-comp.sosy-lab.org/), the following alternative
-API is available.
-
-* The `__VERIFIER_assume` function is equivalent to `crucible_assume`,
-  but does not take location information as an argument.
-
-* The `__VERIFIER_error` function indicates that correct control flow
-  should never reach the point of the call. It is equivalent to
-  `check(0)`.
-
-* The `__VERIFIER_nondet_*` functions create non-deterministic values of
-  the corresponding type. These symbolic values all have the name `x`.
-  To supply distinct names, use the `crucible_*_t` functions, instead.
+competition](https://sv-comp.sosy-lab.org/), the `__VERIFIER_nondet_*`
+functions create non-deterministic values of the corresponding type.
+These symbolic values all have the name `x`. To supply distinct names,
+use the `crucible_*_t` functions, instead.
 
 Note that support for the SV-COMP API exists primarily for backward
 compatibility, since a large number of benchmarks already exist in that
@@ -249,7 +240,7 @@ In addition, the following flags can optionally be provided:
 
 * `--sim-verbose=NUM`, `-d NUM`: Set the verbosity level of the symbolic
   simulator to `N`.
-  
+
 * `--floating-point=FPREP`, `-f FPREP`: Select the floating point
   representation to use. The value of `FPREP` can be one of `real`,
   `ieee`, `uninterpreted`, or `default`. Default representation is
@@ -303,7 +294,7 @@ In addition, the following flags can optionally be provided:
 
 * `--goal-timeout=N`: Set the timeout for each call to the SMT solver to
   `N` seconds.
-  
+
 * `--hash-consing`: Enable hash-consing in the symbolic expression
   backend.
 

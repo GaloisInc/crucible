@@ -1,15 +1,13 @@
-
-extern void __VERIFIER_error() __attribute__ ((__noreturn__));
+/* emulates multi-precision addition */
+#include <assert.h>
 
 extern unsigned int __VERIFIER_nondet_uint(void);
 void __VERIFIER_assert(int cond) {
   if (!(cond)) {
-    ERROR: __VERIFIER_error();
+    ERROR: assert(0);
   }
   return;
 }
-/* emulates multi-precision addition */
-#include <assert.h>
 
 unsigned int mp_add(unsigned int a, unsigned int b)
 {
@@ -54,7 +52,7 @@ unsigned int mp_add(unsigned int a, unsigned int b)
             }
         }
     }
-    
+
     carry = (unsigned short)0;
     i = (unsigned char)0;
     while ((i < na) || (i < nb) || (carry != (unsigned short)0)) {
@@ -81,7 +79,7 @@ unsigned int mp_add(unsigned int a, unsigned int b)
         if (i == (unsigned char)0) { r0 = (unsigned char)partial_sum; }
         if (i == (unsigned char)1) { r1 = (unsigned char)partial_sum; }
         if (i == (unsigned char)2) { r2 = (unsigned char)partial_sum; }
-        if (i == (unsigned char)3) { r3 = (unsigned char)partial_sum; }        
+        if (i == (unsigned char)3) { r3 = (unsigned char)partial_sum; }
 
         i = i + (unsigned char)1;
     }
@@ -114,6 +112,6 @@ int main()
     r = mp_add(a, b);
 
     __VERIFIER_assert(r == a + b);
-    
+
     return 0;
 }
