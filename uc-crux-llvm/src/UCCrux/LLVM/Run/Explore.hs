@@ -85,7 +85,7 @@ exploreOne appCtx modCtx cruxOpts ucOpts halloc dir func =
             (Config.exploreTimeout ucOpts * 1000000)
             (loopOnFunction appCtx modCtx halloc cruxOpts ucOpts func)
         case maybeResult of
-          Right (Right (SomeBugfindingResult result)) ->
+          Right (Right (SomeBugfindingResult result _trace)) ->
             do
               writeFile logFilePath (Result.printFunctionSummary (Result.summary result))
               pure (getStats result)

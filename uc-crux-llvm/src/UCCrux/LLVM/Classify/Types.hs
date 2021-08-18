@@ -7,6 +7,8 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -14,9 +16,10 @@ Stability    : provisional
 
 module UCCrux.LLVM.Classify.Types
   ( Explanation (..),
+    Located (..),
+    ppLocated,
     partitionExplanations,
     TruePositive (..),
-    LocatedTruePositive (..),
     TruePositiveTag (..),
     truePositiveTag,
     Diagnosis (..),
@@ -26,7 +29,6 @@ module UCCrux.LLVM.Classify.Types
     prescribe,
     ppProgramLoc,
     ppTruePositive,
-    ppLocatedTruePositive,
     ppTruePositiveTag,
     Unclassified (..),
     doc,
@@ -44,6 +46,7 @@ where
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Void (Void)
+import           GHC.Generics (Generic)
 
 import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
@@ -72,6 +75,19 @@ import           UCCrux.LLVM.Cursor (Where(..))
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented)
 import           UCCrux.LLVM.FullType.Type (FullType)
 {- ORMOLU_ENABLE -}
+
+data Located a = Located
+  { location :: !What4.ProgramLoc,
+    locatedValue :: a
+  }
+  deriving (Eq, Ord, Functor, Generic, Show)
+
+ppProgramLoc :: What4.ProgramLoc -> Text
+ppProgramLoc = Text.pack . show . What4.plSourceLoc
+
+ppLocated :: (a -> Text) -> Located a -> Text
+ppLocated ppVal (Located loc val) =
+  Text.unwords [ppVal val, Text.pack "at", ppProgramLoc loc]
 
 data TruePositiveTag
   = TagConcretelyFailingAssert
@@ -106,23 +122,6 @@ data TruePositive
   | FloatToPointer
   | DerefFunctionPointer !L.Symbol -- Name of function
   deriving (Eq, Ord)
-
-data LocatedTruePositive = LocatedTruePositive
-  { truePositive :: !TruePositive,
-    truePositiveLoc :: !What4.ProgramLoc
-  }
-  deriving (Eq, Ord)
-
-ppProgramLoc :: What4.ProgramLoc -> Text
-ppProgramLoc = Text.pack . show . What4.plSourceLoc
-
-ppLocatedTruePositive :: LocatedTruePositive -> Text
-ppLocatedTruePositive (LocatedTruePositive pos loc) =
-  Text.unwords
-    [ ppTruePositive pos,
-      Text.pack "at",
-      ppProgramLoc loc
-    ]
 
 truePositiveTag :: TruePositive -> TruePositiveTag
 truePositiveTag =
@@ -311,48 +310,48 @@ instance Show Unclassified where
 
 -- | Possible sources of uncertainty, these might be true or false positives
 data Uncertainty
-  = UUnclassified !What4.ProgramLoc Unclassified
-  | UUnfixable !What4.ProgramLoc Unfixable
-  | UUnfixed !What4.ProgramLoc Unfixed
+  = UUnclassified Unclassified
+  | UUnfixable Unfixable
+  | UUnfixed Unfixed
   | -- | Simulation, input generation, or classification encountered
     -- unimplemented functionality
     UUnimplemented (Panic Unimplemented)
   | -- | This @Pred@ was not annotated
     UMissingAnnotation Crucible.SimError
   | -- | A user assertion failed, but symbolically
-    UFailedAssert !What4.ProgramLoc
+    UFailedAssert
   | -- | Simulation timed out
     UTimeout !Text
   deriving (Show)
 
 partitionUncertainty ::
-  [Uncertainty] -> ([Crucible.SimError], [What4.ProgramLoc], [Panic Unimplemented], [Unclassified], [Unfixed], [Unfixable], [Text])
+  [Located Uncertainty] -> ([Located Crucible.SimError], [Located ()], [Located (Panic Unimplemented)], [Located Unclassified], [Located Unfixed], [Located Unfixable], [Located Text])
 partitionUncertainty = go [] [] [] [] [] [] []
   where
     go ms fs ns us ufd ufa ts =
       \case
         [] -> (ms, fs, ns, us, ufd, ufa, ts)
-        (UMissingAnnotation err : rest) ->
+        (Located loc (UMissingAnnotation err) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (err : ms', fs', ns', us', ufd', ufa', ts')
-        (UFailedAssert loc : rest) ->
+           in (Located loc err : ms', fs', ns', us', ufd', ufa', ts')
+        (Located loc UFailedAssert : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', loc : fs', ns', us', ufd', ufa', ts')
-        (UUnimplemented unin : rest) ->
+           in (ms', Located loc () : fs', ns', us', ufd', ufa', ts')
+        (Located loc (UUnimplemented unin) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', unin : ns', us', ufd', ufa', ts')
-        (UUnclassified _loc unclass : rest) ->
+           in (ms', fs', Located loc unin : ns', us', ufd', ufa', ts')
+        (Located loc (UUnclassified unclass) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', unclass : us', ufd', ufa', ts')
-        (UUnfixed _loc uf : rest) ->
+           in (ms', fs', ns', Located loc unclass : us', ufd', ufa', ts')
+        (Located loc (UUnfixed uf) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', us', uf : ufd', ufa', ts')
-        (UUnfixable _loc uf : rest) ->
+           in (ms', fs', ns', us', Located loc uf : ufd', ufa', ts')
+        (Located loc (UUnfixable uf) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', us', ufd', uf : ufa', ts')
-        (UTimeout fun : rest) ->
+           in (ms', fs', ns', us', ufd', Located loc uf : ufa', ts')
+        (Located loc (UTimeout fun) : rest) ->
           let (ms', fs', ns', us', ufd', ufa', ts') = go ms fs ns us ufd ufa ts rest
-           in (ms', fs', ns', us', ufd', ufa', fun : ts')
+           in (ms', fs', ns', us', ufd', ufa', Located loc fun : ts')
 
 -- | An error is either a true positive, a false positive due to some missing
 -- preconditions, or unknown.
@@ -360,57 +359,55 @@ partitionUncertainty = go [] [] [] [] [] [] []
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
 -- compatibility.
 data Explanation m arch (argTypes :: Ctx (FullType m))
-  = ExTruePositive LocatedTruePositive
+  = ExTruePositive TruePositive
   | ExDiagnosis (Diagnosis, [NewConstraint m argTypes])
   | ExUncertain Uncertainty
   | -- | Hit recursion/loop bounds
     ExExhaustedBounds !String
 
 partitionExplanations ::
-  [Explanation m arch types] ->
-  ([LocatedTruePositive], [(Diagnosis, [NewConstraint m types])], [Uncertainty], [String])
-partitionExplanations = go [] [] [] []
+  Functor f =>
+  (f (Explanation m arch types) -> Explanation m arch types) ->
+  [f (Explanation m arch types)] ->
+  ([f TruePositive], [f (Diagnosis, [NewConstraint m types])], [f Uncertainty], [f String])
+partitionExplanations project = go [] [] [] []
   where
-    go ts cs ds es =
-      \case
-        [] -> (ts, cs, ds, es)
-        (ExTruePositive t : xs) ->
+    go ts cs ds es [] = (ts, cs, ds, es)
+    go ts cs ds es (x : xs) =
+      case project x of
+        ExTruePositive t ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (t : ts', cs', ds', es')
-        (ExDiagnosis c : xs) ->
+           in (fmap (const t) x : ts', cs', ds', es')
+        ExDiagnosis c ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', c : cs', ds', es')
-        (ExUncertain d : xs) ->
+           in (ts', fmap (const c) x : cs', ds', es')
+        ExUncertain d ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', cs', d : ds', es')
-        (ExExhaustedBounds e : xs) ->
+           in (ts', cs', fmap (const d) x : ds', es')
+        ExExhaustedBounds e ->
           let (ts', cs', ds', es') = go ts cs ds es xs
-           in (ts', cs', ds', e : es')
+           in (ts', cs', ds', fmap (const e) x : es')
 
 ppUncertainty :: Uncertainty -> Text
 ppUncertainty =
   \case
-    UUnclassified errorLoc unclass ->
+    UUnclassified unclass ->
       Text.unlines
         [ "Unclassified error:",
-          unclass ^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict,
-          "at: " <> ppProgramLoc errorLoc
+          unclass ^. doc . to (PP.layoutPretty PP.defaultLayoutOptions) . to PP.renderStrict
         ]
-    UUnfixable errorLoc unfix ->
+    UUnfixable unfix ->
       Text.unlines
         [ "Unfixable/inactionable error:",
-          ppUnfixable unfix,
-          "at: " <> ppProgramLoc errorLoc
+          ppUnfixable unfix
         ]
-    UUnfixed errorLoc unfix ->
+    UUnfixed unfix ->
       Text.unlines
         [ "Fixable missing precondition, but fix not yet implemented for this error:",
-          ppUnfixed unfix,
-          "at: " <> ppProgramLoc errorLoc
+          ppUnfixed unfix
         ]
     UMissingAnnotation err ->
       "(Internal issue) Missing annotation for error:\n" <> Text.pack (show err)
-    UFailedAssert loc ->
-      "Symbolically failing user assertion at " <> Text.pack (show loc)
+    UFailedAssert -> "Symbolically failing user assertion"
     UUnimplemented pan -> Text.pack (displayException pan)
     UTimeout fun -> Text.pack "Simulation timed out while executing " <> fun

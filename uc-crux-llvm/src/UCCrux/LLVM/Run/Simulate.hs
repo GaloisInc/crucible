@@ -41,6 +41,7 @@ import qualified Text.LLVM.AST as L
 import           Data.Parameterized.Ctx (Ctx)
 
 import qualified What4.Interface as What4
+import qualified What4.ProgramLoc as What4
 
 -- crucible
 import qualified Lang.Crucible.CFG.Core as Crucible
@@ -73,7 +74,7 @@ import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
 
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
-import           UCCrux.LLVM.Classify.Types (Explanation(..), Uncertainty(..))
+import           UCCrux.LLVM.Classify.Types (Located(Located), Explanation(..), Uncertainty(..))
 import           UCCrux.LLVM.Constraints (Constraints, returnConstraints, relationalConstraints)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
@@ -96,7 +97,7 @@ simulateLLVM ::
   ModuleContext m arch ->
   FunctionContext m arch argTypes ->
   Crucible.HandleAllocator ->
-  IORef [Explanation m arch argTypes] ->
+  IORef [Located (Explanation m arch argTypes)] ->
   IORef (Set SkipOverrideName) ->
   IORef (Set UnsoundOverrideName) ->
   Constraints m argTypes ->
@@ -175,6 +176,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
       let explainFailure _ gl =
             do
               bb <- readIORef bbMapRef
+              let loc = gl ^. Crucible.labeledPredMsg . to Crucible.simErrorLoc
               case flip Map.lookup bb . BoolAnn
                 =<< What4.getAnnotation sym (gl ^. Crucible.labeledPred) of
                 Nothing ->
@@ -185,16 +187,22 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       modifyIORef explRef . (:) $
                         case gl ^. Crucible.labeledPredMsg . to Crucible.simErrorReason of
                           Crucible.ResourceExhausted msg ->
-                            ExExhaustedBounds msg
+                            Located loc (ExExhaustedBounds msg)
                           Crucible.AssertFailureSimError msg _ ->
                             if "Call to assert" `isInfixOf` msg -- HACK
                               then
                                 classifyAssertion
                                   sym
                                   (gl ^. Crucible.labeledPred)
-                                  (gl ^. Crucible.labeledPredMsg . to Crucible.simErrorLoc)
-                              else ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg))
-                          _ -> ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg))
+                                  loc
+                              else
+                                Located
+                                  loc
+                                  (ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg)))
+                          _ ->
+                            Located
+                              loc
+                              (ExUncertain (UMissingAnnotation (gl ^. Crucible.labeledPredMsg)))
                 Just badBehavior ->
                   do
                     -- Helpful for debugging:
@@ -225,7 +233,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
 -- compatibility.
 data UCCruxSimulationResult m arch (argTypes :: Ctx (FullType m)) = UCCruxSimulationResult
   { unsoundness :: Unsoundness,
-    explanations :: [Explanation m arch argTypes]
+    explanations :: [Located (Explanation m arch argTypes)]
   }
 
 runSimulator ::
@@ -269,5 +277,9 @@ runSimulator appCtx modCtx funCtx halloc preconditions cfg cruxOpts llvmOpts =
     UCCruxSimulationResult unsoundness'
       <$> case cruxResult of
         Crux.CruxSimulationResult Crux.ProgramIncomplete _ ->
-          pure [ExUncertain (UTimeout (funCtx ^. functionName))]
+          pure
+            [ Located
+                What4.initializationLoc
+                (ExUncertain (UTimeout (funCtx ^. functionName)))
+            ]
         _ -> readIORef explRef

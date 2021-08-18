@@ -48,6 +48,7 @@ a very real bug.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Main (main) where
@@ -55,6 +56,7 @@ module Main (main) where
 {- ORMOLU_DISABLE -}
 import           Control.Exception ( try )
 import           Data.Aeson (ToJSON)
+import           Control.Monad (unless)
 import           Data.Foldable (for_)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
@@ -66,13 +68,14 @@ import           System.IO (IOMode(WriteMode), withFile)
 
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.HUnit as TH
+import qualified Test.Tasty.QuickCheck as TQ
 
 import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, knownNat)
 
-import           Lang.Crucible.FunctionHandle (newHandleAllocator)
+import           Lang.Crucible.FunctionHandle (HandleAllocator, newHandleAllocator)
 
 import           Lang.Crucible.LLVM.MemModel (mkMemVar)
 
@@ -86,6 +89,10 @@ import qualified Crux.LLVM.Log as Log
 import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config as Config
 import qualified UCCrux.LLVM.Main as Main
+import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
+import           UCCrux.LLVM.Context.App (AppContext)
+import           UCCrux.LLVM.Context.Module (ModuleContext)
+import           UCCrux.LLVM.Equivalence (NonEmptyCrashDiff, reportDiffs, getCrashDiffs)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
@@ -173,63 +180,133 @@ withUCCruxLLVMTestLogging computation =
       ?injectUCCruxLLVMTestLogMessage = LoggingUCCruxLLVMTest
    in computation
 
+withOptions ::
+  Maybe L.Module ->
+  FilePath ->
+  [String] ->
+  ( forall m arch.
+    Log.Logs UCCruxLLVMTestLogging =>
+    Log.SupportsCruxLogMessage UCCruxLLVMTestLogging =>
+    AppContext ->
+    ModuleContext m arch ->
+    HandleAllocator ->
+    Crux.CruxOptions ->
+    Config.UCCruxLLVMOptions ->
+    IO a
+  ) ->
+  IO a
+withOptions llvmModule file fns k =
+  withUCCruxLLVMTestLogging $
+  do
+    withFile (testDir </> file <> ".output") WriteMode $ \h ->
+      do
+        let isRealFile = isNothing llvmModule
+        let mkOutCfg = Crux.mkOutputConfig False h h ucCruxLLVMTestLoggingToSayWhat
+        conf <- Config.ucCruxLLVMConfig
+        Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) -> do
+          let cruxOpts' =
+                cruxOpts
+                  { Crux.inputFiles = [testDir </> file],
+                    -- With Yices, cast_float_to_pointer_write.c hangs
+                    Crux.solver = "z3"
+                  }
+          let ucOpts' = ucOpts {Config.entryPoints = fns}
+          (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
+          path <-
+            let uclopts =
+                  (Config.ucLLVMOptions ucOpts')
+                    { -- NB(lb): The -fno-wrapv here ensures that
+                      -- Clang will emit 'nsw' flags even on platforms
+                      -- using nixpkgs, which injects
+                      -- -fno-strict-overflow by default.
+                      clangOpts = ["-fno-wrapv"]
+                    }
+                complain exc = do
+                  sayUCCruxLLVMTest ClangTrouble
+                  Log.logException exc
+                  error "aborting"
+             in if isRealFile
+                then try (genBitCode cruxOpts'' uclopts) >>= either complain return
+                else return "<fake-path>"
+
+          -- TODO(lb): It would be nice to print this only when the test fails
+          -- putStrLn
+          --   ( unwords
+          --       [ "\nReproduce with:\n",
+          --         "cabal v2-run exe:uc-crux-llvm -- ",
+          --         "--entry-points",
+          --         intercalate " --entry-points " (map show fns),
+          --         testDir </> file
+          --       ]
+          --   )
+          halloc <- newHandleAllocator
+          memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
+          Main.SomeModuleContext' modCtx <-
+            case llvmModule of
+              Just lMod -> translateLLVMModule ucOpts'' halloc memVar path lMod
+              Nothing -> translateFile ucOpts'' halloc memVar path
+
+          k appCtx modCtx halloc cruxOpts'' ucOpts''
+
 findBugs ::
   Maybe L.Module ->
   FilePath ->
   [String] ->
   IO (Map.Map String Result.SomeBugfindingResult)
 findBugs llvmModule file fns =
-  withUCCruxLLVMTestLogging $
-    do
-      withFile (testDir </> file <> ".output") WriteMode $ \h ->
-        do
-          let isRealFile = isNothing llvmModule
-          let mkOutCfg = Crux.mkOutputConfig False h h ucCruxLLVMTestLoggingToSayWhat
-          conf <- Config.ucCruxLLVMConfig
-          Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $
-            \(cruxOpts, ucOpts) -> do
-              let cruxOpts' =
-                    cruxOpts
-                      { Crux.inputFiles = [testDir </> file],
-                        -- With Yices, cast_float_to_pointer_write.c hangs
-                        Crux.solver = "z3"
-                      }
-              let ucOpts' = ucOpts {Config.entryPoints = fns}
-              (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
-              path <- do
-                let uclopts =
-                      (Config.ucLLVMOptions ucOpts')
-                        { -- NB(lb): The -fno-wrapv here ensures that
-                          -- Clang will emit 'nsw' flags even on platforms
-                          -- using nixpkgs, which injects
-                          -- -fno-strict-overflow by default.
-                          clangOpts = ["-fno-wrapv"]
-                        }
-                    complain exc = do
-                      sayUCCruxLLVMTest ClangTrouble
-                      Crux.logException exc
-                      error "aborting"
-                 in if isRealFile
-                      then try (genBitCode cruxOpts'' uclopts) >>= either complain return
-                      else return "<fake-path>"
+  withOptions llvmModule file fns $
+    \appCtx modCtx halloc cruxOpts ucOpts ->
+      loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
 
-              -- TODO(lb): It would be nice to print this only when the test fails
-              -- putStrLn
-              --   ( unwords
-              --       [ "\nReproduce with:\n",
-              --         "cabal v2-run exe:uc-crux-llvm -- ",
-              --         "--entry-points",
-              --         intercalate " --entry-points " (map show fns),
-              --         testDir </> file
-              --       ]
-              --   )
-              halloc <- newHandleAllocator
-              memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
-              Main.SomeModuleContext' modCtx <-
-                case llvmModule of
-                  Just lMod -> Main.translateLLVMModule ucOpts'' halloc memVar path lMod
-                  Nothing -> Main.translateFile ucOpts'' halloc memVar path
-              Main.loopOnFunctions appCtx modCtx halloc cruxOpts'' ucOpts''
+getCrashDiff ::
+  FilePath ->
+  L.Module ->
+  FilePath ->
+  L.Module ->
+  IO (AppContext, ([(String, NonEmptyCrashDiff)], [(String, NonEmptyCrashDiff)]))
+getCrashDiff path1 mod1 path2 mod2 =
+  withOptions (Just mod1) path1 ["fake"] $
+    \_ modCtx1 _ _ _ ->
+      withOptions (Just mod2) path2 ["fake"] $
+        \appCtx modCtx2 halloc cruxOpts ucOpts ->
+          let ucOpts' = ucOpts {Config.doExplore = True}
+           in (appCtx,) <$> getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts'
+
+checkCrashDiff ::
+  FilePath ->
+  L.Module ->
+  FilePath ->
+  L.Module ->
+  -- | Should the check be for strict equivalence?
+  Bool ->
+  -- | Should the result be inverted?
+  Bool ->
+  TT.TestTree
+checkCrashDiff path1 mod1 path2 mod2 equivalent invert =
+  TH.testCase
+    ( unwords
+        [ path1,
+          if equivalent
+            then "is crash-equivalent to"
+            else "crashes less than",
+          path2
+        ]
+    )
+    $ do
+      (appCtx, (diffs12, diffs21)) <- getCrashDiff path1 mod1 path2 mod2
+      let diffs21' = if equivalent then diffs21 else []
+      reportDiffs appCtx diffs12 diffs21'
+      unless ((if invert then not else id) (null diffs12 && null diffs21')) $
+        TH.assertFailure
+          ( unwords
+              [ "Expected",
+                path1,
+                "and",
+                path2,
+                "to",
+                (if invert then "not " else "") ++ "be crash-equivalent."
+              ]
+          )
 
 inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())] -> TT.TestTree
 inFile file specs =
@@ -251,7 +328,7 @@ inModule fakePath llvmModule specs =
 
 -- | TODO: Take a list of TruePositiveTag, verify that those are the bugs.
 hasBugs :: String -> Result.SomeBugfindingResult -> IO ()
-hasBugs fn (Result.SomeBugfindingResult result) =
+hasBugs fn (Result.SomeBugfindingResult result _) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
@@ -259,7 +336,7 @@ hasBugs fn (Result.SomeBugfindingResult result) =
       _ -> TH.assertFailure (unwords ["Expected", fn, "to have bugs"])
 
 isSafe :: Unsoundness -> String -> Result.SomeBugfindingResult -> IO ()
-isSafe unsoundness fn (Result.SomeBugfindingResult result) =
+isSafe unsoundness fn (Result.SomeBugfindingResult result _) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
@@ -275,7 +352,7 @@ isSafe unsoundness fn (Result.SomeBugfindingResult result) =
           )
 
 isSafeToBounds :: Unsoundness -> String -> Result.SomeBugfindingResult -> IO ()
-isSafeToBounds unsoundness fn (Result.SomeBugfindingResult result) =
+isSafeToBounds unsoundness fn (Result.SomeBugfindingResult result _) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
@@ -292,7 +369,7 @@ isSafeToBounds unsoundness fn (Result.SomeBugfindingResult result) =
 
 -- | TODO: Take a list of MissingPreconditionTag, check that they match.
 isSafeWithPreconditions :: Unsoundness -> DidHitBounds -> String -> Result.SomeBugfindingResult -> IO ()
-isSafeWithPreconditions unsoundness hitBounds fn (Result.SomeBugfindingResult result) =
+isSafeWithPreconditions unsoundness hitBounds fn (Result.SomeBugfindingResult result _) =
   do
     [] TH.@=? map show (Result.uncertainResults result)
     case Result.summary result of
@@ -311,7 +388,7 @@ isSafeWithPreconditions unsoundness hitBounds fn (Result.SomeBugfindingResult re
           )
 
 _isUnannotated :: String -> Result.SomeBugfindingResult -> IO ()
-_isUnannotated fn (Result.SomeBugfindingResult result) =
+_isUnannotated fn (Result.SomeBugfindingResult result _) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -330,7 +407,7 @@ _isUnannotated fn (Result.SomeBugfindingResult result) =
         ]
 
 _hasFailedAssert :: String -> Result.SomeBugfindingResult -> IO ()
-_hasFailedAssert fn (Result.SomeBugfindingResult result) =
+_hasFailedAssert fn (Result.SomeBugfindingResult result _) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -349,7 +426,7 @@ _hasFailedAssert fn (Result.SomeBugfindingResult result) =
         ]
 
 isUnclassified :: String -> Result.SomeBugfindingResult -> IO ()
-isUnclassified fn (Result.SomeBugfindingResult result) =
+isUnclassified fn (Result.SomeBugfindingResult result _) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -368,7 +445,7 @@ isUnclassified fn (Result.SomeBugfindingResult result) =
         ]
 
 isUnfixed :: String -> Result.SomeBugfindingResult -> IO ()
-isUnfixed fn (Result.SomeBugfindingResult result) =
+isUnfixed fn (Result.SomeBugfindingResult result _) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -387,7 +464,7 @@ isUnfixed fn (Result.SomeBugfindingResult result) =
         ]
 
 hasMissingAnn :: String -> Result.SomeBugfindingResult -> IO ()
-hasMissingAnn fn (Result.SomeBugfindingResult result) =
+hasMissingAnn fn (Result.SomeBugfindingResult result _) =
   do
     let (missingAnn, failedAssert, unimpl, unclass, unfixed, unfixable, timeouts) =
           partitionUncertainty (Result.uncertainResults result)
@@ -412,7 +489,8 @@ isUnimplemented file fn =
     catchUnimplemented
       ( do
           results <- findBugs Nothing file [fn]
-          Result.SomeBugfindingResult result <- pure $ fromMaybe (error "No result") (Map.lookup fn results)
+          Result.SomeBugfindingResult result _ <-
+            pure $ fromMaybe (error "No result") (Map.lookup fn results)
           let (_unclass, _missingAnn, _failedAssert, unimpl, _unfixed, _unfixable, _timeouts) =
                 partitionUncertainty (Result.uncertainResults result)
           0 < length unimpl
@@ -654,6 +732,432 @@ oneArithRight name ty val op =
         ]
     ]
 
+add1Left :: L.Module
+add1Left = oneArithLeft "add1_left" i32 (L.ValInteger 1) (L.Add False False)
+
+add1NswLeft :: L.Module
+add1NswLeft = oneArithLeft "add1_nsw_left" i32 (L.ValInteger 1) (L.Add False True)
+
+add1NuwLeft :: L.Module
+add1NuwLeft = oneArithLeft "add1_nuw_left" i32 (L.ValInteger 1) (L.Add True False)
+
+addNeg1Left :: L.Module
+addNeg1Left = oneArithLeft "add_neg1_left" i32 (L.ValInteger (-1)) (L.Add False False)
+
+addNeg1NswLeft :: L.Module
+addNeg1NswLeft = oneArithLeft "add_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Add False True)
+
+addNeg1NuwLeft :: L.Module
+addNeg1NuwLeft = oneArithLeft "add_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Add True False)
+
+add1FloatLeft :: L.Module
+add1FloatLeft = oneArithLeft "add1_float_left" float (L.ValFloat 1.0) L.FAdd
+
+addNeg1FloatLeft :: L.Module
+addNeg1FloatLeft = oneArithLeft "add_neg1_float_left" float (L.ValFloat (-1.0)) L.FAdd
+
+add1DoubleLeft :: L.Module
+add1DoubleLeft = oneArithLeft "add1_double_left" double (L.ValDouble 1.0) L.FAdd
+
+addNeg1DoubleLeft :: L.Module
+addNeg1DoubleLeft = oneArithLeft "add_neg1_double_left" double (L.ValDouble (-1.0)) L.FAdd
+
+sub1Left :: L.Module
+sub1Left = oneArithLeft "sub1_left" i32 (L.ValInteger 1) (L.Sub False False)
+
+sub1NswLeft :: L.Module
+sub1NswLeft = oneArithLeft "sub1_nsw_left" i32 (L.ValInteger 1) (L.Sub False True)
+
+sub1NuwLeft :: L.Module
+sub1NuwLeft = oneArithLeft "sub1_nuw_left" i32 (L.ValInteger 1) (L.Sub True False)
+
+subNeg1Left :: L.Module
+subNeg1Left = oneArithLeft "sub_neg1_left" i32 (L.ValInteger (-1)) (L.Sub False False)
+
+subNeg1NswLeft :: L.Module
+subNeg1NswLeft = oneArithLeft "sub_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Sub False True)
+
+subNeg1NuwLeft :: L.Module
+subNeg1NuwLeft = oneArithLeft "sub_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Sub True False)
+
+sub1FloatLeft :: L.Module
+sub1FloatLeft = oneArithLeft "sub1_float_left" float (L.ValFloat 1.0) L.FSub
+
+subNeg1FloatLeft :: L.Module
+subNeg1FloatLeft = oneArithLeft "sub_neg1_float_left" float (L.ValFloat (-1.0)) L.FSub
+
+sub1DoubleLeft :: L.Module
+sub1DoubleLeft = oneArithLeft "sub1_double_left" double (L.ValDouble 1.0) L.FSub
+
+subNeg1DoubleLeft :: L.Module
+subNeg1DoubleLeft = oneArithLeft "sub_neg1_double_left" double (L.ValDouble (-1.0)) L.FSub
+
+mul0Left :: L.Module
+mul0Left = oneArithLeft "mul0_left" i32 (L.ValInteger 0) (L.Mul True True)
+
+mul1Left :: L.Module
+mul1Left = oneArithLeft "mul1_left" i32 (L.ValInteger 1) (L.Mul False False)
+
+mul1NswLeft :: L.Module
+mul1NswLeft = oneArithLeft "mul1_nsw_left" i32 (L.ValInteger 1) (L.Mul False True)
+
+mul1NuwLeft :: L.Module
+mul1NuwLeft = oneArithLeft "mul1_nuw_left" i32 (L.ValInteger 1) (L.Mul True False)
+
+mulNeg1Left :: L.Module
+mulNeg1Left = oneArithLeft "mul_neg1_left" i32 (L.ValInteger (-1)) (L.Mul False False)
+
+mulNeg1NswLeft :: L.Module
+mulNeg1NswLeft = oneArithLeft "mul_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Mul False True)
+
+mulNeg1NuwLeft :: L.Module
+mulNeg1NuwLeft = oneArithLeft "mul_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Mul True False)
+
+udiv0Left :: L.Module
+udiv0Left = oneArithLeft "udiv0_left" i32 (L.ValInteger 0) (L.UDiv False)
+
+udiv1Left :: L.Module
+udiv1Left = oneArithLeft "udiv1_left" i32 (L.ValInteger 1) (L.UDiv False)
+
+udiv1ExactLeft :: L.Module
+udiv1ExactLeft = oneArithLeft "udiv1_exact_left" i32 (L.ValInteger 1) (L.UDiv True)
+
+udiv2Left :: L.Module
+udiv2Left = oneArithLeft "udiv2_left" i32 (L.ValInteger 2) (L.UDiv False)
+
+udiv2ExactLeft :: L.Module
+udiv2ExactLeft = oneArithLeft "udiv2_exact_left" i32 (L.ValInteger 2) (L.UDiv True)
+
+udivNeg1Left :: L.Module
+udivNeg1Left = oneArithLeft "udiv_neg1_left" i32 (L.ValInteger (-1)) (L.UDiv False)
+
+udivNeg1ExactLeft :: L.Module
+udivNeg1ExactLeft = oneArithLeft "udiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.UDiv True)
+
+sdiv0Left :: L.Module
+sdiv0Left = oneArithLeft "sdiv0_left" i32 (L.ValInteger 0) (L.SDiv False)
+
+sdiv1Left :: L.Module
+sdiv1Left = oneArithLeft "sdiv1_left" i32 (L.ValInteger 1) (L.SDiv False)
+
+sdiv1ExactLeft :: L.Module
+sdiv1ExactLeft = oneArithLeft "sdiv1_exact_left" i32 (L.ValInteger 1) (L.SDiv True)
+
+sdivNeg1Left :: L.Module
+sdivNeg1Left = oneArithLeft "sdiv_neg1_left" i32 (L.ValInteger (-1)) (L.SDiv False)
+
+sdivNeg1ExactLeft :: L.Module
+sdivNeg1ExactLeft = oneArithLeft "sdiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.SDiv True)
+
+sdiv2Left :: L.Module
+sdiv2Left = oneArithLeft "sdiv2_left" i32 (L.ValInteger 2) (L.SDiv False)
+
+sdiv2ExactLeft :: L.Module
+sdiv2ExactLeft = oneArithLeft "sdiv2_exact_left" i32 (L.ValInteger 2) (L.SDiv True)
+
+sdivNeg2Left :: L.Module
+sdivNeg2Left = oneArithLeft "sdiv_neg2_left" i32 (L.ValInteger (-2)) (L.SDiv False)
+
+sdivNeg2ExactLeft :: L.Module
+sdivNeg2ExactLeft = oneArithLeft "sdiv_neg2_exact_left" i32 (L.ValInteger (-2)) (L.SDiv True)
+
+urem0Left :: L.Module
+urem0Left = oneArithLeft "urem0_left" i32 (L.ValInteger 0) L.URem
+
+urem1Left :: L.Module
+urem1Left = oneArithLeft "urem1_left" i32 (L.ValInteger 1) L.URem
+
+uremNeg1Left :: L.Module
+uremNeg1Left = oneArithLeft "urem_neg1_left" i32 (L.ValInteger (-1)) L.URem
+
+urem2Left :: L.Module
+urem2Left = oneArithLeft "urem2_left" i32 (L.ValInteger 2) L.URem
+
+srem0Left :: L.Module
+srem0Left = oneArithLeft "srem0_left" i32 (L.ValInteger 0) L.SRem
+
+srem1Left :: L.Module
+srem1Left = oneArithLeft "srem1_left" i32 (L.ValInteger 1) L.SRem
+
+sremNeg1Left :: L.Module
+sremNeg1Left = oneArithLeft "srem_neg1_left" i32 (L.ValInteger (-1)) L.SRem
+
+srem2Left :: L.Module
+srem2Left = oneArithLeft "srem2_left" i32 (L.ValInteger 2) L.SRem
+
+sremNeg2Left :: L.Module
+sremNeg2Left = oneArithLeft "srem_neg2_left" i32 (L.ValInteger (-2)) L.SRem
+
+add1Right :: L.Module
+add1Right = oneArithRight "add1_right" i32 (L.ValInteger 1) (L.Add False False)
+
+add1NswRight :: L.Module
+add1NswRight = oneArithRight "add1_nsw_right" i32 (L.ValInteger 1) (L.Add False True)
+
+add1NuwRight :: L.Module
+add1NuwRight = oneArithRight "add1_nuw_right" i32 (L.ValInteger 1) (L.Add True False)
+
+addNeg1Right :: L.Module
+addNeg1Right = oneArithRight "add_neg1_right" i32 (L.ValInteger (-1)) (L.Add False False)
+
+addNeg1NswRight :: L.Module
+addNeg1NswRight = oneArithRight "add_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Add False True)
+
+addNeg1NuwRight :: L.Module
+addNeg1NuwRight = oneArithRight "add_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Add True False)
+
+add1FloatRight :: L.Module
+add1FloatRight = oneArithRight "add1_float_right" float (L.ValFloat 1.0) L.FAdd
+
+addNeg1FloatRight :: L.Module
+addNeg1FloatRight = oneArithRight "add_neg1_float_right" float (L.ValFloat (-1.0)) L.FAdd
+
+add1DoubleRight :: L.Module
+add1DoubleRight = oneArithRight "add1_double_right" double (L.ValDouble 1.0) L.FAdd
+
+addNeg1DoubleRight :: L.Module
+addNeg1DoubleRight = oneArithRight "add_neg1_double_right" double (L.ValDouble (-1.0)) L.FAdd
+
+sub1Right :: L.Module
+sub1Right = oneArithRight "sub1_right" i32 (L.ValInteger 1) (L.Sub False False)
+
+sub1NswRight :: L.Module
+sub1NswRight = oneArithRight "sub1_nsw_right" i32 (L.ValInteger 1) (L.Sub False True)
+
+sub1NuwRight :: L.Module
+sub1NuwRight = oneArithRight "sub1_nuw_right" i32 (L.ValInteger 1) (L.Sub True False)
+
+subNeg1Right :: L.Module
+subNeg1Right = oneArithRight "sub_neg1_right" i32 (L.ValInteger (-1)) (L.Sub False False)
+
+subNeg1NswRight :: L.Module
+subNeg1NswRight = oneArithRight "sub_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Sub False True)
+
+subNeg1NuwRight :: L.Module
+subNeg1NuwRight = oneArithRight "sub_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Sub True False)
+
+sub1FloatRight :: L.Module
+sub1FloatRight = oneArithRight "sub1_float_right" float (L.ValFloat 1.0) L.FSub
+
+subNeg1FloatRight :: L.Module
+subNeg1FloatRight = oneArithRight "sub_neg1_float_right" float (L.ValFloat (-1.0)) L.FSub
+
+sub1DoubleRight :: L.Module
+sub1DoubleRight = oneArithRight "sub1_double_right" double (L.ValDouble 1.0) L.FSub
+
+subNeg1DoubleRight :: L.Module
+subNeg1DoubleRight = oneArithRight "sub_neg1_double_right" double (L.ValDouble (-1.0)) L.FSub
+
+mul0Right :: L.Module
+mul0Right = oneArithRight "mul0_right" i32 (L.ValInteger 0) (L.Mul True True)
+
+mul1Right :: L.Module
+mul1Right = oneArithRight "mul1_right" i32 (L.ValInteger 1) (L.Mul False False)
+
+mul1NswRight :: L.Module
+mul1NswRight = oneArithRight "mul1_nsw_right" i32 (L.ValInteger 1) (L.Mul False True)
+
+mul1NuwRight :: L.Module
+mul1NuwRight = oneArithRight "mul1_nuw_right" i32 (L.ValInteger 1) (L.Mul True False)
+
+mulNeg1Right :: L.Module
+mulNeg1Right = oneArithRight "mul_neg1_right" i32 (L.ValInteger (-1)) (L.Mul False False)
+
+mulNeg1NswRight :: L.Module
+mulNeg1NswRight = oneArithRight "mul_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Mul False True)
+
+mulNeg1NuwRight :: L.Module
+mulNeg1NuwRight = oneArithRight "mul_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Mul True False)
+
+udiv0Right :: L.Module
+udiv0Right = oneArithRight "udiv0_right" i32 (L.ValInteger 0) (L.UDiv False)
+
+udiv1Right :: L.Module
+udiv1Right = oneArithRight "udiv1_right" i32 (L.ValInteger 1) (L.UDiv False)
+
+udiv1ExactRight :: L.Module
+udiv1ExactRight = oneArithRight "udiv1_exact_right" i32 (L.ValInteger 1) (L.UDiv True)
+
+udiv2Right :: L.Module
+udiv2Right = oneArithRight "udiv2_right" i32 (L.ValInteger 2) (L.UDiv False)
+
+udiv2ExactRight :: L.Module
+udiv2ExactRight = oneArithRight "udiv2_exact_right" i32 (L.ValInteger 2) (L.UDiv True)
+
+udivNeg1Right :: L.Module
+udivNeg1Right = oneArithRight "udiv_neg1_right" i32 (L.ValInteger (-1)) (L.UDiv False)
+
+udivNeg1ExactRight :: L.Module
+udivNeg1ExactRight = oneArithRight "udiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.UDiv True)
+
+sdiv0Right :: L.Module
+sdiv0Right = oneArithRight "sdiv0_right" i32 (L.ValInteger 0) (L.SDiv False)
+
+sdiv1Right :: L.Module
+sdiv1Right = oneArithRight "sdiv1_right" i32 (L.ValInteger 1) (L.SDiv False)
+
+sdiv1ExactRight :: L.Module
+sdiv1ExactRight = oneArithRight "sdiv1_exact_right" i32 (L.ValInteger 1) (L.SDiv True)
+
+sdivNeg1Right :: L.Module
+sdivNeg1Right = oneArithRight "sdiv_neg1_right" i32 (L.ValInteger (-1)) (L.SDiv False)
+
+sdivNeg1ExactRight :: L.Module
+sdivNeg1ExactRight = oneArithRight "sdiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.SDiv True)
+
+sdiv2Right :: L.Module
+sdiv2Right = oneArithRight "sdiv2_right" i32 (L.ValInteger 2) (L.SDiv False)
+
+sdiv2ExactRight :: L.Module
+sdiv2ExactRight = oneArithRight "sdiv2_exact_right" i32 (L.ValInteger 2) (L.SDiv True)
+
+sdivNeg2Right :: L.Module
+sdivNeg2Right = oneArithRight "sdiv_neg2_right" i32 (L.ValInteger (-2)) (L.SDiv False)
+
+sdivNeg2ExactRight :: L.Module
+sdivNeg2ExactRight = oneArithRight "sdiv_neg2_exact_right" i32 (L.ValInteger (-2)) (L.SDiv True)
+
+urem0Right :: L.Module
+urem0Right = oneArithRight "urem0_right" i32 (L.ValInteger 0) L.URem
+
+urem1Right :: L.Module
+urem1Right = oneArithRight "urem1_right" i32 (L.ValInteger 1) L.URem
+
+uremNeg1Right :: L.Module
+uremNeg1Right = oneArithRight "urem_neg1_right" i32 (L.ValInteger (-1)) L.URem
+
+urem2Right :: L.Module
+urem2Right = oneArithRight "urem2_right" i32 (L.ValInteger 2) L.URem
+
+srem0Right :: L.Module
+srem0Right = oneArithRight "srem0_right" i32 (L.ValInteger 0) L.SRem
+
+srem1Right :: L.Module
+srem1Right = oneArithRight "srem1_right" i32 (L.ValInteger 1) L.SRem
+
+sremNeg1Right :: L.Module
+sremNeg1Right = oneArithRight "srem_neg1_right" i32 (L.ValInteger (-1)) L.SRem
+
+srem2Right :: L.Module
+srem2Right = oneArithRight "srem2_right" i32 (L.ValInteger 2) L.SRem
+
+sremNeg2Right :: L.Module
+sremNeg2Right = oneArithRight "srem_neg2_right" i32 (L.ValInteger (-2)) L.SRem
+
+arithModules :: [L.Module]
+arithModules =
+  [ add1Left,
+    add1NswLeft,
+    add1NuwLeft,
+    addNeg1Left,
+    addNeg1NswLeft,
+    addNeg1NuwLeft,
+    add1FloatLeft,
+    addNeg1FloatLeft,
+    add1DoubleLeft,
+    addNeg1DoubleLeft,
+    sub1Left,
+    sub1NswLeft,
+    sub1NuwLeft,
+    subNeg1Left,
+    subNeg1NswLeft,
+    subNeg1NuwLeft,
+    sub1FloatLeft,
+    subNeg1FloatLeft,
+    sub1DoubleLeft,
+    subNeg1DoubleLeft,
+    mul0Left,
+    mul1Left,
+    mul1NswLeft,
+    mul1NuwLeft,
+    mulNeg1Left,
+    mulNeg1NswLeft,
+    mulNeg1NuwLeft,
+    udiv0Left,
+    udiv1Left,
+    udiv1ExactLeft,
+    udiv2Left,
+    udiv2ExactLeft,
+    udivNeg1Left,
+    udivNeg1ExactLeft,
+    sdiv0Left,
+    sdiv1Left,
+    sdiv1ExactLeft,
+    sdivNeg1Left,
+    sdivNeg1ExactLeft,
+    sdiv2Left,
+    sdiv2ExactLeft,
+    sdivNeg2Left,
+    sdivNeg2ExactLeft,
+    urem0Left,
+    urem1Left,
+    uremNeg1Left,
+    urem2Left,
+    srem0Left,
+    srem1Left,
+    sremNeg1Left,
+    srem2Left,
+    sremNeg2Left,
+    add1Right,
+    add1NswRight,
+    add1NuwRight,
+    addNeg1Right,
+    addNeg1NswRight,
+    addNeg1NuwRight,
+    add1FloatRight,
+    addNeg1FloatRight,
+    add1DoubleRight,
+    addNeg1DoubleRight,
+    sub1Right,
+    sub1NswRight,
+    sub1NuwRight,
+    subNeg1Right,
+    subNeg1NswRight,
+    subNeg1NuwRight,
+    sub1FloatRight,
+    subNeg1FloatRight,
+    sub1DoubleRight,
+    subNeg1DoubleRight,
+    mul0Right,
+    mul1Right,
+    mul1NswRight,
+    mul1NuwRight,
+    mulNeg1Right,
+    mulNeg1NswRight,
+    mulNeg1NuwRight,
+    udiv0Right,
+    udiv1Right,
+    udiv1ExactRight,
+    udiv2Right,
+    udiv2ExactRight,
+    udivNeg1Right,
+    udivNeg1ExactRight,
+    sdiv0Right,
+    sdiv1Right,
+    sdiv1ExactRight,
+    sdivNeg1Right,
+    sdivNeg1ExactRight,
+    sdiv2Right,
+    sdiv2ExactRight,
+    sdivNeg2Right,
+    sdivNeg2ExactRight,
+    urem0Right,
+    urem1Right,
+    uremNeg1Right,
+    urem2Right,
+    srem0Right,
+    srem1Right,
+    sremNeg1Right,
+    srem2Right,
+    sremNeg2Right
+  ]
+
+newtype ArithModule = ArithModule L.Module
+  deriving (Eq, Ord, Show)
+
+instance TQ.Arbitrary ArithModule where
+  arbitrary = TQ.oneof (map (pure . ArithModule) arithModules)
+
 moduleTests :: TT.TestTree
 moduleTests =
   TT.testGroup
@@ -683,431 +1187,461 @@ moduleTests =
     -- cases and missed a very real bug.
     [ inModule
         "add1_left.c"
-        (oneArithLeft "add1_left" i32 (L.ValInteger 1) (L.Add False False))
+        add1Left
         [("add1_left", isSafe mempty)],
       inModule
         "add1_nsw_left.c"
-        (oneArithLeft "add1_nsw_left" i32 (L.ValInteger 1) (L.Add False True))
+        add1NswLeft
         [("add1_nsw_left", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "add1_nuw_left.c"
-        (oneArithLeft "add1_nuw_left" i32 (L.ValInteger 1) (L.Add True False))
+        add1NuwLeft
         [("add1_nuw_left", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
         "add_neg1_left.c"
-        (oneArithLeft "add_neg1_left" i32 (L.ValInteger (-1)) (L.Add False False))
+        addNeg1Left
         [("add_neg1_left", isSafe mempty)],
       inModule
         "add_neg1_nsw_left.c"
-        (oneArithLeft "add_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Add False True))
+        addNeg1NswLeft
         [("add_neg1_nsw_left", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "add_neg1_nuw_left.c"
-        (oneArithLeft "add_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Add True False))
+        addNeg1NuwLeft
         [("add_neg1_nuw_left", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
         "add1_float_left.c"
-        (oneArithLeft "add1_float_left" float (L.ValFloat 1.0) L.FAdd)
+        add1FloatLeft
         [("add1_float_left", isSafe mempty)],
       inModule
         "add_neg1_float_left.c"
-        (oneArithLeft "add_neg1_float_left" float (L.ValFloat (-1.0)) L.FAdd)
+        addNeg1FloatLeft
         [("add_neg1_float_left", isSafe mempty)],
       inModule
         "add1_double_left.c"
-        (oneArithLeft "add1_double_left" double (L.ValDouble 1.0) L.FAdd)
+        add1DoubleLeft
         [("add1_double_left", isSafe mempty)],
       inModule
         "add_neg1_double_left.c"
-        (oneArithLeft "add_neg1_double_left" double (L.ValDouble (-1.0)) L.FAdd)
+        addNeg1DoubleLeft
         [("add_neg1_double_left", isSafe mempty)],
       inModule
         "sub1_left.c"
-        (oneArithLeft "sub1_left" i32 (L.ValInteger 1) (L.Sub False False))
+        sub1Left
         [("sub1_left", isSafe mempty)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
         "sub1_nsw_left.c"
-        (oneArithLeft "sub1_nsw_left" i32 (L.ValInteger 1) (L.Sub False True))
+        sub1NswLeft
         [("sub1_nsw_left", isUnclassified)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
         "sub1_nuw_left.c"
-        (oneArithLeft "sub1_nuw_left" i32 (L.ValInteger 1) (L.Sub True False))
+        sub1NuwLeft
         [("sub1_nuw_left", isUnclassified)],
       inModule
         "sub_neg1_left.c"
-        (oneArithLeft "sub_neg1_left" i32 (L.ValInteger (-1)) (L.Sub False False))
+        subNeg1Left
         [("sub_neg1_left", isSafe mempty)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
         "sub_neg1_nsw_left.c"
-        (oneArithLeft "sub_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Sub False True))
+        subNeg1NswLeft
         [("sub_neg1_nsw_left", isUnclassified)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
         "sub_neg1_nuw_left.c"
-        (oneArithLeft "sub_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Sub True False))
+        subNeg1NuwLeft
         [("sub_neg1_nuw_left", isUnclassified)],
       inModule
         "sub1_float_left.c"
-        (oneArithLeft "sub1_float_left" float (L.ValFloat 1.0) L.FSub)
+        sub1FloatLeft
         [("sub1_float_left", isSafe mempty)],
       inModule
         "sub_neg1_float_left.c"
-        (oneArithLeft "sub_neg1_float_left" float (L.ValFloat (-1.0)) L.FSub)
+        subNeg1FloatLeft
         [("sub_neg1_float_left", isSafe mempty)],
       inModule
         "sub1_double_left.c"
-        (oneArithLeft "sub1_double_left" double (L.ValDouble 1.0) L.FSub)
+        sub1DoubleLeft
         [("sub1_double_left", isSafe mempty)],
       inModule
         "sub_neg1_double_left.c"
-        (oneArithLeft "sub_neg1_double_left" double (L.ValDouble (-1.0)) L.FSub)
+        subNeg1DoubleLeft
         [("sub_neg1_double_left", isSafe mempty)],
       inModule
         "mul0_left.c"
-        (oneArithLeft "mul0_left" i32 (L.ValInteger 0) (L.Mul True True))
+        mul0Left
         [("mul0_left", isSafe mempty)],
       inModule
         "mul1_left.c"
-        (oneArithLeft "mul1_left" i32 (L.ValInteger 1) (L.Mul False False))
+        mul1Left
         [("mul1_left", isSafe mempty)],
       inModule
         "mul1_nsw_left.c"
-        (oneArithLeft "mul1_nsw_left" i32 (L.ValInteger 1) (L.Mul False True))
+        mul1NswLeft
         [("mul1_nsw_left", isSafe mempty)],
       inModule
         "mul1_nuw_left.c"
-        (oneArithLeft "mul1_nuw_left" i32 (L.ValInteger 1) (L.Mul True False))
+        mul1NuwLeft
         [("mul1_nuw_left", isSafe mempty)],
       inModule
         "mul_neg1_left.c"
-        (oneArithLeft "mul_neg1_left" i32 (L.ValInteger (-1)) (L.Mul False False))
+        mulNeg1Left
         [("mul_neg1_left", isSafe mempty)],
       inModule
         "mul_neg1_nsw_left.c"
-        (oneArithLeft "mul_neg1_nsw_left" i32 (L.ValInteger (-1)) (L.Mul False True))
+        mulNeg1NswLeft
         [("mul_neg1_nsw_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "mul_neg1_nuw_left.c"
-        (oneArithLeft "mul_neg1_nuw_left" i32 (L.ValInteger (-1)) (L.Mul True False))
+        mulNeg1NuwLeft
         [("mul_neg1_nuw_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "udiv0_left.c"
-        (oneArithLeft "udiv0_left" i32 (L.ValInteger 0) (L.UDiv False))
+        udiv0Left
         [("udiv0_left", hasBugs)],
       inModule
         "udiv1_left.c"
-        (oneArithLeft "udiv1_left" i32 (L.ValInteger 1) (L.UDiv False))
+        udiv1Left
         [("udiv1_left", isSafe mempty)],
       inModule
         "udiv1_exact_left.c"
-        (oneArithLeft "udiv1_exact_left" i32 (L.ValInteger 1) (L.UDiv True))
+        udiv1ExactLeft
         [("udiv1_exact_left", isSafe mempty)],
       inModule
         "udiv2_left.c"
-        (oneArithLeft "udiv2_left" i32 (L.ValInteger 2) (L.UDiv False))
+        udiv2Left
         [("udiv2_left", isSafe mempty)],
       inModule
         "udiv2_exact_left.c"
-        (oneArithLeft "udiv2_exact_left" i32 (L.ValInteger 2) (L.UDiv True))
+        udiv2ExactLeft
         [("udiv2_exact_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "udiv_neg1_left.c"
-        (oneArithLeft "udiv_neg1_left" i32 (L.ValInteger (-1)) (L.UDiv False))
+        udivNeg1Left
         [("udiv_neg1_left", isSafe mempty)],
       inModule
         "udiv_neg1_exact_left.c"
-        (oneArithLeft "udiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.UDiv True))
+        udivNeg1ExactLeft
         [("udiv_neg1_exact_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv0_left.c"
-        (oneArithLeft "sdiv0_left" i32 (L.ValInteger 0) (L.SDiv False))
+        sdiv0Left
         [("sdiv0_left", hasBugs)],
       inModule
         "sdiv1_left.c"
-        (oneArithLeft "sdiv1_left" i32 (L.ValInteger 1) (L.SDiv False))
+        sdiv1Left
         [("sdiv1_left", isSafe mempty)],
       inModule
         "sdiv1_exact_left.c"
-        (oneArithLeft "sdiv1_exact_left" i32 (L.ValInteger 1) (L.SDiv True))
+        sdiv1ExactLeft
         [("sdiv1_exact_left", isSafe mempty)],
       inModule
         "sdiv_neg1_left.c"
-        (oneArithLeft "sdiv_neg1_left" i32 (L.ValInteger (-1)) (L.SDiv False))
+        sdivNeg1Left
         [("sdiv_neg1_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv_neg1_exact_left.c"
-        (oneArithLeft "sdiv_neg1_exact_left" i32 (L.ValInteger (-1)) (L.SDiv True))
+        sdivNeg1ExactLeft
         [("sdiv_neg1_exact_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv2_left.c"
-        (oneArithLeft "sdiv2_left" i32 (L.ValInteger 2) (L.SDiv False))
+        sdiv2Left
         [("sdiv2_left", isSafe mempty)],
       inModule
         "sdiv2_exact_left.c"
-        (oneArithLeft "sdiv2_exact_left" i32 (L.ValInteger 2) (L.SDiv True))
+        sdiv2ExactLeft
         [("sdiv2_exact_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv_neg2_left.c"
-        (oneArithLeft "sdiv_neg2_left" i32 (L.ValInteger (-2)) (L.SDiv False))
+        sdivNeg2Left
         [("sdiv_neg2_left", isSafe mempty)],
       inModule
         "sdiv_neg2_exact_left.c"
-        (oneArithLeft "sdiv_neg2_exact_left" i32 (L.ValInteger (-2)) (L.SDiv True))
+        sdivNeg2ExactLeft
         [("sdiv_neg2_exact_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "urem0_left.c"
-        (oneArithLeft "urem0_left" i32 (L.ValInteger 0) L.URem)
+        urem0Left
         [("urem0_left", hasBugs)],
       inModule
         "urem1_left.c"
-        (oneArithLeft "urem1_left" i32 (L.ValInteger 1) L.URem)
+        urem1Left
         [("urem1_left", isSafe mempty)],
       inModule
         "urem_neg1_left.c"
-        (oneArithLeft "urem_neg1_left" i32 (L.ValInteger (-1)) L.URem)
+        uremNeg1Left
         [("urem_neg1_left", isSafe mempty)],
       inModule
         "urem2_left.c"
-        (oneArithLeft "urem2_left" i32 (L.ValInteger 2) L.URem)
+        urem2Left
         [("urem2_left", isSafe mempty)],
       inModule
         "srem0_left.c"
-        (oneArithLeft "srem0_left" i32 (L.ValInteger 0) L.SRem)
+        srem0Left
         [("srem0_left", hasBugs)],
       inModule
         "srem1_left.c"
-        (oneArithLeft "srem1_left" i32 (L.ValInteger 1) L.SRem)
+        srem1Left
         [("srem1_left", isSafe mempty)],
       inModule
         "srem_neg1_left.c"
-        (oneArithLeft "srem_neg1_left" i32 (L.ValInteger (-1)) L.SRem)
+        sremNeg1Left
         [("srem_neg1_left", isUnclassified)], -- TODO Goal: ???
       inModule
         "srem2_left.c"
-        (oneArithLeft "srem2_left" i32 (L.ValInteger 2) L.SRem)
+        srem2Left
         [("srem2_left", isSafe mempty)],
       inModule
         "srem_neg2_left.c"
-        (oneArithLeft "srem_neg2_left" i32 (L.ValInteger (-2)) L.SRem)
+        sremNeg2Left
         [("srem_neg2_left", isSafe mempty)],
       -- --------------------------------------------------- On the right
       inModule
         "add1_right.c"
-        (oneArithRight "add1_right" i32 (L.ValInteger 1) (L.Add False False))
+        add1Right
         [("add1_right", isSafe mempty)],
       inModule
         "add1_nsw_right.c"
-        (oneArithRight "add1_nsw_right" i32 (L.ValInteger 1) (L.Add False True))
+        add1NswRight
         [("add1_nsw_right", isSafeWithPreconditions mempty DidntHitBounds)],
       -- TODO(lb) Goal: isSafeWithPreconditions, precondition is that the
       -- argument isn't near the min/max value.
       inModule
         "add1_nuw_right.c"
-        (oneArithRight "add1_nuw_right" i32 (L.ValInteger 1) (L.Add True False))
+        add1NuwRight
         [("add1_nuw_right", isUnclassified)],
       inModule
         "add_neg1_right.c"
-        (oneArithRight "add_neg1_right" i32 (L.ValInteger (-1)) (L.Add False False))
+        addNeg1Right
         [("add_neg1_right", isSafe mempty)],
       inModule
         "add_neg1_nsw_right.c"
-        (oneArithRight "add_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Add False True))
+        addNeg1NswRight
         [("add_neg1_nsw_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "add_neg1_nuw_right.c"
-        (oneArithRight "add_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Add True False))
+        addNeg1NuwRight
         [("add_neg1_nuw_right", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
         "add1_float_right.c"
-        (oneArithRight "add1_float_right" float (L.ValFloat 1.0) L.FAdd)
+        add1FloatRight
         [("add1_float_right", isSafe mempty)],
       inModule
         "add_neg1_float_right.c"
-        (oneArithRight "add_neg1_float_right" float (L.ValFloat (-1.0)) L.FAdd)
+        addNeg1FloatRight
         [("add_neg1_float_right", isSafe mempty)],
       inModule
         "add1_double_right.c"
-        (oneArithRight "add1_double_right" double (L.ValDouble 1.0) L.FAdd)
+        add1DoubleRight
         [("add1_double_right", isSafe mempty)],
       inModule
         "add_neg1_double_right.c"
-        (oneArithRight "add_neg1_double_right" double (L.ValDouble (-1.0)) L.FAdd)
+        addNeg1DoubleRight
         [("add_neg1_double_right", isSafe mempty)],
       inModule
         "sub1_right.c"
-        (oneArithRight "sub1_right" i32 (L.ValInteger 1) (L.Sub False False))
+        sub1Right
         [("sub1_right", isSafe mempty)],
       inModule
         "sub1_nsw_right.c"
-        (oneArithRight "sub1_nsw_right" i32 (L.ValInteger 1) (L.Sub False True))
+        sub1NswRight
         [("sub1_nsw_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sub1_nuw_right.c"
-        (oneArithRight "sub1_nuw_right" i32 (L.ValInteger 1) (L.Sub True False))
+        sub1NuwRight
         [("sub1_nuw_right", isUnclassified)], -- TODO(lb) Goal: isSafeWithPreconditions
       inModule
         "sub_neg1_right.c"
-        (oneArithRight "sub_neg1_right" i32 (L.ValInteger (-1)) (L.Sub False False))
+        subNeg1Right
         [("sub_neg1_right", isSafe mempty)],
       inModule
         "sub_neg1_nsw_right.c"
-        (oneArithRight "sub_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Sub False True))
+        subNeg1NswRight
         [("sub_neg1_nsw_right", isSafe mempty)], -- TODO Is this right?
       inModule
         "sub_neg1_nuw_right.c"
-        (oneArithRight "sub_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Sub True False))
+        subNeg1NuwRight
         [("sub_neg1_nuw_right", isSafe mempty)],
       inModule
         "sub1_float_right.c"
-        (oneArithRight "sub1_float_right" float (L.ValFloat 1.0) L.FSub)
+        sub1FloatRight
         [("sub1_float_right", isSafe mempty)],
       inModule
         "sub_neg1_float_right.c"
-        (oneArithRight "sub_neg1_float_right" float (L.ValFloat (-1.0)) L.FSub)
+        subNeg1FloatRight
         [("sub_neg1_float_right", isSafe mempty)],
       inModule
         "sub1_double_right.c"
-        (oneArithRight "sub1_double_right" double (L.ValDouble 1.0) L.FSub)
+        sub1DoubleRight
         [("sub1_double_right", isSafe mempty)],
       inModule
         "sub_neg1_double_right.c"
-        (oneArithRight "sub_neg1_double_right" double (L.ValDouble (-1.0)) L.FSub)
+        subNeg1DoubleRight
         [("sub_neg1_double_right", isSafe mempty)],
       inModule
         "mul0_right.c"
-        (oneArithRight "mul0_right" i32 (L.ValInteger 0) (L.Mul True True))
+        mul0Right
         [("mul0_right", isSafe mempty)],
       inModule
         "mul1_right.c"
-        (oneArithRight "mul1_right" i32 (L.ValInteger 1) (L.Mul False False))
+        mul1Right
         [("mul1_right", isSafe mempty)],
       inModule
         "mul1_nsw_right.c"
-        (oneArithRight "mul1_nsw_right" i32 (L.ValInteger 1) (L.Mul False True))
+        mul1NswRight
         [("mul1_nsw_right", isSafe mempty)],
       inModule
         "mul1_nuw_right.c"
-        (oneArithRight "mul1_nuw_right" i32 (L.ValInteger 1) (L.Mul True False))
+        mul1NuwRight
         [("mul1_nuw_right", isSafe mempty)],
       inModule
         "mul_neg1_right.c"
-        (oneArithRight "mul_neg1_right" i32 (L.ValInteger (-1)) (L.Mul False False))
+        mulNeg1Right
         [("mul_neg1_right", isSafe mempty)],
       inModule
         "mul_neg1_nsw_right.c"
-        (oneArithRight "mul_neg1_nsw_right" i32 (L.ValInteger (-1)) (L.Mul False True))
+        mulNeg1NswRight
         [("mul_neg1_nsw_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "mul_neg1_nuw_right.c"
-        (oneArithRight "mul_neg1_nuw_right" i32 (L.ValInteger (-1)) (L.Mul True False))
+        mulNeg1NuwRight
         [("mul_neg1_nuw_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "udiv0_right.c"
-        (oneArithRight "udiv0_right" i32 (L.ValInteger 0) (L.UDiv False))
+        udiv0Right
         [("udiv0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv1_right.c"
-        (oneArithRight "udiv1_right" i32 (L.ValInteger 1) (L.UDiv False))
+        udiv1Right
         [("udiv1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv1_exact_right.c"
-        (oneArithRight "udiv1_exact_right" i32 (L.ValInteger 1) (L.UDiv True))
+        udiv1ExactRight
         [("udiv1_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "udiv2_right.c"
-        (oneArithRight "udiv2_right" i32 (L.ValInteger 2) (L.UDiv False))
+        udiv2Right
         [("udiv2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv2_exact_right.c"
-        (oneArithRight "udiv2_exact_right" i32 (L.ValInteger 2) (L.UDiv True))
+        udiv2ExactRight
         [("udiv2_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "udiv_neg1_right.c"
-        (oneArithRight "udiv_neg1_right" i32 (L.ValInteger (-1)) (L.UDiv False))
+        udivNeg1Right
         [("udiv_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "udiv_neg1_exact_right.c"
-        (oneArithRight "udiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.UDiv True))
+        udivNeg1ExactRight
         [("udiv_neg1_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv0_right.c"
-        (oneArithRight "sdiv0_right" i32 (L.ValInteger 0) (L.SDiv False))
+        sdiv0Right
         [("sdiv0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv1_right.c"
-        (oneArithRight "sdiv1_right" i32 (L.ValInteger 1) (L.SDiv False))
+        sdiv1Right
         [("sdiv1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv1_exact_right.c"
-        (oneArithRight "sdiv1_exact_right" i32 (L.ValInteger 1) (L.SDiv True))
+        sdiv1ExactRight
         [("sdiv1_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv_neg1_right.c"
-        (oneArithRight "sdiv_neg1_right" i32 (L.ValInteger (-1)) (L.SDiv False))
+        sdivNeg1Right
         [("sdiv_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv_neg1_exact_right.c"
-        (oneArithRight "sdiv_neg1_exact_right" i32 (L.ValInteger (-1)) (L.SDiv True))
+        sdivNeg1ExactRight
         [("sdiv_neg1_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv2_right.c"
-        (oneArithRight "sdiv2_right" i32 (L.ValInteger 2) (L.SDiv False))
+        sdiv2Right
         [("sdiv2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv2_exact_right.c"
-        (oneArithRight "sdiv2_exact_right" i32 (L.ValInteger 2) (L.SDiv True))
+        sdiv2ExactRight
         [("sdiv2_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "sdiv_neg2_right.c"
-        (oneArithRight "sdiv_neg2_right" i32 (L.ValInteger (-2)) (L.SDiv False))
+        sdivNeg2Right
         [("sdiv_neg2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "sdiv_neg2_exact_right.c"
-        (oneArithRight "sdiv_neg2_exact_right" i32 (L.ValInteger (-2)) (L.SDiv True))
+        sdivNeg2ExactRight
         [("sdiv_neg2_exact_right", isUnclassified)], -- TODO Goal: ???
       inModule
         "urem0_right.c"
-        (oneArithRight "urem0_right" i32 (L.ValInteger 0) L.URem)
+        urem0Right
         [("urem0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "urem1_right.c"
-        (oneArithRight "urem1_right" i32 (L.ValInteger 1) L.URem)
+        urem1Right
         [("urem1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "urem_neg1_right.c"
-        (oneArithRight "urem_neg1_right" i32 (L.ValInteger (-1)) L.URem)
+        uremNeg1Right
         [("urem_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "urem2_right.c"
-        (oneArithRight "urem2_right" i32 (L.ValInteger 2) L.URem)
+        urem2Right
         [("urem2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem0_right.c"
-        (oneArithRight "srem0_right" i32 (L.ValInteger 0) L.SRem)
+        srem0Right
         [("srem0_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem1_right.c"
-        (oneArithRight "srem1_right" i32 (L.ValInteger 1) L.SRem)
+        srem1Right
         [("srem1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem_neg1_right.c"
-        (oneArithRight "srem_neg1_right" i32 (L.ValInteger (-1)) L.SRem)
+        sremNeg1Right
         [("srem_neg1_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem2_right.c"
-        (oneArithRight "srem2_right" i32 (L.ValInteger 2) L.SRem)
+        srem2Right
         [("srem2_right", isSafeWithPreconditions mempty DidntHitBounds)],
       inModule
         "srem_neg2_right.c"
-        (oneArithRight "srem_neg2_right" i32 (L.ValInteger (-2)) L.SRem)
-        [("srem_neg2_right", isSafeWithPreconditions mempty DidntHitBounds)]
+        sremNeg2Right
+        [("srem_neg2_right", isSafeWithPreconditions mempty DidntHitBounds)],
+      -- This one passes because they share no functions to be tested for
+      -- equivalence:
+      checkCrashDiff "add1_left.c" add1Left "udiv0_left.c" udiv0Left True False,
+      -- This one passes because add1_left.c doesn't crash, whereas udiv0_left.c
+      -- does, so the latter's crashes are a superset of the former's. We have to
+      -- rename the function in add1_left.c to match, though.
+      checkCrashDiff
+        "udiv0_left.c"
+        udiv0Left
+        "add1_left.c"
+        (oneArithLeft "udiv0_left" i32 (L.ValInteger 1) (L.Add False False))
+        False
+        False,
+      -- This is the inverse of the above: udiv0_left.c *isn't* crash-less-than
+      -- add1_left.c.
+      checkCrashDiff
+        "add1_left.c"
+        (oneArithLeft "udiv0_left" i32 (L.ValInteger 1) (L.Add False False))
+        "udiv0_left.c"
+        udiv0Left
+        True
+        True,
+      TQ.testProperty "Crash equivalence is reflexive" $
+        \(ArithModule llvmModule) ->
+          TQ.ioProperty $
+            do
+              (appCtx, (diffs12, diffs21)) <-
+                getCrashDiff "fake1" llvmModule "fake2" llvmModule
+              reportDiffs appCtx diffs12 diffs21
+              pure (null diffs12 && null diffs21)
     ]
 
 main :: IO ()

@@ -30,7 +30,7 @@ import           Prettyprinter (Doc)
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 
-import           UCCrux.LLVM.Classify.Types (DiagnosisTag, partitionUncertainty, diagnoseTag, LocatedTruePositive, ppLocatedTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc, diagnosisTag)
+import           UCCrux.LLVM.Classify.Types (Located(..), ppLocated, DiagnosisTag, partitionUncertainty, diagnoseTag, TruePositive, ppTruePositive, Unfixable, ppUnfixable, Unfixed, ppUnfixed, doc, diagnosisTag)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), FunctionSummaryTag)
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, ppUnimplemented)
@@ -40,7 +40,7 @@ data Stats = Stats
   { missingAnnotation :: !Word,
     symbolicallyFailedAssert :: !Word,
     timeouts :: !Word,
-    truePositiveFreq :: Map LocatedTruePositive Word,
+    truePositiveFreq :: Map (Located TruePositive) Word,
     unclassifiedFreq :: Map Text Word,
     diagnosisFreq :: Map DiagnosisTag Word,
     unimplementedFreq :: Map Unimplemented Word,
@@ -65,12 +65,12 @@ getStats result =
               Result.FoundBugs bugs -> frequencies (toList bugs)
               _ -> Map.empty,
           unclassifiedFreq =
-            frequencies (map (^. doc . to render . to trunc) unclass),
+            frequencies (map (^. to locatedValue . doc . to render . to trunc) unclass),
           diagnosisFreq =
             frequencies (map diagnosisTag (deducedPreconditions result)),
-          unimplementedFreq = frequencies (map panicComponent unimplementeds),
-          unfixedFreq = frequencies unfixed,
-          unfixableFreq = frequencies unfixable,
+          unimplementedFreq = frequencies (map (panicComponent . locatedValue) unimplementeds),
+          unfixedFreq = frequencies (map locatedValue unfixed),
+          unfixableFreq = frequencies (map locatedValue unfixable),
           summaries = Map.singleton (Result.functionSummaryTag (Result.summary result)) 1
         }
   where
@@ -90,7 +90,7 @@ ppStats stats =
     [ ppFreq "Overall results:" (PP.pretty . Result.ppFunctionSummaryTag) (summaries stats),
       ppFreq
         "True positives:"
-        (PP.pretty . ppLocatedTruePositive)
+        (PP.pretty . ppLocated ppTruePositive)
         (truePositiveFreq stats),
       ppFreq
         "Missing preconditions:"
