@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -180,7 +181,8 @@ llvmStackrestore =
   (\_memOps _sym _args -> return ())
 
 llvmMemmoveOverride_8_8_32
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 32 ::> BVType 32 ::> BVType 1)
@@ -190,7 +192,8 @@ llvmMemmoveOverride_8_8_32 =
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemmove sym memOps dst src len v) args)
 
 llvmMemmoveOverride_8_8_32_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 32 ::> BVType 1)
@@ -201,7 +204,8 @@ llvmMemmoveOverride_8_8_32_noalign =
 
 
 llvmMemmoveOverride_8_8_64
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
@@ -212,7 +216,8 @@ llvmMemmoveOverride_8_8_64 =
 
 
 llvmMemmoveOverride_8_8_64_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)
@@ -274,7 +279,8 @@ llvmMemsetOverride_8_32_noalign =
 
 
 llvmMemcpyOverride_8_8_32
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                     ::> BVType 32 ::> BVType 32 ::> BVType 1)
@@ -284,7 +290,8 @@ llvmMemcpyOverride_8_8_32 =
   (\memOps sym args -> Ctx.uncurryAssignment (\dst src len _align v -> Libc.callMemcpy sym memOps dst src len v) args)
 
 llvmMemcpyOverride_8_8_32_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
           (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                     ::> BVType 32 ::> BVType 1)
@@ -295,7 +302,8 @@ llvmMemcpyOverride_8_8_32_noalign =
 
 
 llvmMemcpyOverride_8_8_64
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 32 ::> BVType 1)
@@ -306,7 +314,8 @@ llvmMemcpyOverride_8_8_64 =
 
 
 llvmMemcpyOverride_8_8_64_noalign
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
                    ::> BVType 64 ::> BVType 1)

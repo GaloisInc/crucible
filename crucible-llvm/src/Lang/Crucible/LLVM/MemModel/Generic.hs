@@ -111,6 +111,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal, HasLLVMAnn)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
+import           Lang.Crucible.LLVM.Utils
 import           Lang.Crucible.Simulator.RegMap (RegValue'(..))
 
 --------------------------------------------------------------------------------
@@ -718,8 +719,12 @@ readMem sym w gsym l tp alignment m = do
     -- Otherwise, fall back to the less-optimized read case
     _ -> readMem' sym w (memEndianForm m) gsym l m tp alignment (memWrites m)
 
-  Partial.attachMemoryError sym p1 mop UnreadableRegion =<<
-    Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (RV l) alignment) part_val
+  part_val' <- applyUnless (laxLoadsAndStores ?memOpts)
+                           (Partial.attachSideCondition sym p2 (UB.ReadBadAlignment (RV l) alignment))
+                           part_val
+  applyUnless (laxLoadsAndStores ?memOpts)
+              (Partial.attachMemoryError sym p1 mop UnreadableRegion)
+              part_val'
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
@@ -767,7 +772,7 @@ readMem' sym w end gsym l0 origMem tp0 alignment (MemWrites ws) =
       ReadMem sym (PartLLVMVal sym)
     fallback0 tp l =
       liftIO $
-        if readUnwrittenMemory ?memOpts
+        if laxLoadsAndStores ?memOpts
         then Partial.totalLLVMVal sym <$> freshLLVMVal sym tp
         else do -- We're playing a trick here.  By making a fresh constant a proof obligation, we can be
                 -- sure it always fails.  But, because it's a variable, it won't be constant-folded away

@@ -243,6 +243,7 @@ import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
+import           Lang.Crucible.LLVM.Utils
 import           Lang.Crucible.Panic (panic)
 
 
@@ -912,7 +913,8 @@ doArrayConstStore sym mem ptr alignment arr len = do
 -- Precondition: the source and destination pointers fall within valid allocated
 -- regions.
 doMemcpy ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( 1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   NatRepr w ->
   MemImpl sym ->
@@ -931,7 +933,8 @@ doMemcpy sym w mem mustBeDisjoint dest src len = do
 
   let mop = MemCopyOp (gsym_dest, dest) (gsym_src, src) len (memImplHeap mem)
 
-  p1' <- Partial.annotateME sym mop UnreadableRegion p1
+  p1' <- applyUnless (laxLoadsAndStores ?memOpts)
+                     (Partial.annotateME sym mop UnreadableRegion) p1
   p2' <- Partial.annotateME sym mop UnwritableRegion p2
 
   assert sym p1' $ AssertFailureSimError "Mem copy failed" "Invalid copy source"

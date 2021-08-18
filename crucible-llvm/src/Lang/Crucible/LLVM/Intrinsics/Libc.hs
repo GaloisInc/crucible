@@ -67,7 +67,8 @@ import           Lang.Crucible.LLVM.Intrinsics.Options
 
 
 llvmMemcpyOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
            (EmptyCtx ::> LLVMPointerType wptr
                      ::> LLVMPointerType wptr
@@ -84,7 +85,8 @@ llvmMemcpyOverride =
 
 
 llvmMemcpyChkOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> LLVMPointerType wptr
                    ::> LLVMPointerType wptr
@@ -102,7 +104,8 @@ llvmMemcpyChkOverride =
     )
 
 llvmMemmoveOverride
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => LLVMOverride p sym
          (EmptyCtx ::> (LLVMPointerType wptr)
                    ::> (LLVMPointerType wptr)
@@ -378,7 +381,8 @@ callFree sym mvar
 -- *** Memory manipulation
 
 callMemcpy
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
@@ -400,7 +404,8 @@ callMemcpy sym mvar
 -- ranges are disjoint.  The underlying operation
 -- works correctly in both cases.
 callMemmove
-  :: (IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr)
+  :: ( IsSymInterface sym, HasLLVMAnn sym, HasPtrWidth wptr
+     , ?memOpts :: MemOptions )
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
