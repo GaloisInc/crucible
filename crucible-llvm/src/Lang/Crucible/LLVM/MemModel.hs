@@ -977,7 +977,8 @@ doPtrSubtract sym _m x y = do
 
 -- | Add an offset to a pointer and asserts that the result is a valid pointer.
 doPtrAddOffset ::
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ base pointer -} ->
@@ -989,7 +990,8 @@ doPtrAddOffset sym m x@(LLVMPointer blk _) off = do
   v <- case asConstantPred isBV of
          Just True  -> return isBV
          _ -> orPred sym isBV =<< G.isValidPointer sym PtrWidth x' (memImplHeap m)
-  assertUndefined sym v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
+  unless (laxLoadsAndStores ?memOpts) $
+    assertUndefined sym v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
   return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer

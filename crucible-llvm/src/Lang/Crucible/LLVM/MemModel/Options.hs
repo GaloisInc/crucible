@@ -50,6 +50,11 @@ data MemOptions
       --     treated as undefined behavior. That is, Crucible will not throw a
       --     'ReadBadAlignment' error.
       --
+      --   * Adding an offset to a pointer that results in a pointer to an
+      --     address outside of the allocation is not treated as undefined
+      --     behavior. That is, Crucible will not throw a
+      --     'PtrAddOffsetOutOfBounds' error.
+      --
       --   This option is primarily useful for SV-COMP, which does not treat
       --   the scenarios listed above as fatal errors.
     }
