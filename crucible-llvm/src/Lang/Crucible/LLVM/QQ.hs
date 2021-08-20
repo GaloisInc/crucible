@@ -239,7 +239,9 @@ liftQQType tp =
 liftQQDecl :: QQDeclare -> Q Exp
 liftQQDecl (QQDeclare ret nm args varargs) =
    [| L.Declare
-      { L.decRetType = $(liftQQType ret)
+      { L.decLinkage = Nothing
+      , L.decVisibility = Nothing
+      , L.decRetType = $(liftQQType ret)
       , L.decName    = $(f nm)
       , L.decArgs    = $(listE (map liftQQType args))
       , L.decVarArgs = $(lift varargs)

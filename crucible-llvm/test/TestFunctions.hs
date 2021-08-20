@@ -23,7 +23,9 @@ functionTests =
   -- The following ensures that Crucible treats aliases to functions properly
 
   let alias = L.GlobalAlias
-              { L.aliasName = L.Symbol "aliasName"
+              { L.aliasLinkage = Nothing
+              , L.aliasVisibility = Nothing
+              , L.aliasName = L.Symbol "aliasName"
               , L.aliasType =
                   L.FunTy
                   (L.PrimType L.Void)
@@ -35,6 +37,7 @@ functionTests =
 
       def = L.Define
             { L.defLinkage = Just L.WeakODR
+            , L.defVisibility = Nothing
             , L.defRetType = L.PrimType L.Void
             , L.defName = L.Symbol "defName"
             , L.defArgs =
