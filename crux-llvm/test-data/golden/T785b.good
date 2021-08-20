@@ -1,5 +1,5 @@
 [Crux] Found counterexample for verification goal
-[Crux]   test-data/golden/T785b.c:16:5: error: in main
+[Crux]   test-data/golden/T785b.c:14:5: error: in main
 [Crux]   Call to assert()
 [Crux]   Details:
 [Crux]     __assert_fail
