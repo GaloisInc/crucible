@@ -567,7 +567,7 @@ evalIcmp op w x y = boolConst $ case op of
   L.Islt -> BV.slt w x y
   L.Isle -> BV.sle w x y
 
--- | Evaluate an arithmetic operation.
+-- | Evaluate a binary arithmetic operation.
 evalArith ::
   (MonadError String m, HasPtrWidth wptr) =>
   L.ArithOp ->
@@ -579,9 +579,19 @@ evalArith op (IntType m) (ArithI x) (ArithI y)
   = evalIarith op w x y
 evalArith op FloatType (ArithF x) (ArithF y) = FloatConst <$> evalFarith op x y
 evalArith op DoubleType (ArithD x) (ArithD y) = DoubleConst <$> evalFarith op x y
-evalArith _ _ _ _ = throwError "arithmetic arugment mistmatch"
+evalArith _ _ _ _ = throwError "binary arithmetic argument mismatch"
 
--- | Evaluate a floating-point operation.
+-- | Evaluate a unary arithmetic operation.
+evalUnaryArith ::
+  (MonadError String m, HasPtrWidth wptr) =>
+  L.UnaryArithOp ->
+  MemType ->
+  Arith -> m LLVMConst
+evalUnaryArith op FloatType (ArithF x) = FloatConst <$> evalFunaryArith op x
+evalUnaryArith op DoubleType (ArithD x) = DoubleConst <$> evalFunaryArith op x
+evalUnaryArith _ _ _ = throwError "unary arithmetic argument mismatch"
+
+-- | Evaluate a binary floating-point operation.
 evalFarith ::
   (RealFrac a, MonadError String m) =>
   L.ArithOp ->
@@ -594,6 +604,15 @@ evalFarith op x y =
     L.FDiv -> return (x / y)
     L.FRem -> return (mod' x y)
     _ -> throwError "Encountered integer arithmetic operation applied to floating point arguments"
+
+-- | Evaluate a unary floating-point operation.
+evalFunaryArith ::
+  (RealFrac a, MonadError String m) =>
+  L.UnaryArithOp ->
+  a -> m a
+evalFunaryArith op x =
+  case op of
+    L.FNeg -> return (negate x)
 
 -- | Evaluate an integer or pointer arithmetic operation.
 evalIarith ::
@@ -1100,6 +1119,16 @@ transConstantExpr expr = case expr of
             do a' <- asArith tp' =<< transConstant' mt a
                b' <- asArith tp' =<< transConstant' mt b
                evalArith op tp' a' b'
+
+  L.ConstUnaryArith op (L.Typed tp a) ->
+    do mt <- liftMemType tp
+       case mt of
+          VecType n tp' ->
+            do a' <- asVectorOf n (asArith tp') =<< transConstant' mt a
+               VectorConst tp' <$> traverse (evalUnaryArith op tp') a'
+          tp' ->
+            do a' <- asArith tp' =<< transConstant' mt a
+               evalUnaryArith op tp' a'
 
   L.ConstBit op (L.Typed tp a) b ->
     do mt <- liftMemType tp
