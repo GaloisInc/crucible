@@ -34,29 +34,52 @@ data MemOptions
       --   will sometimes compare equal if the compiler decides to
       --   consolidate their storage.
 
-    , readUnwrittenMemory :: !Bool
-      -- ^ Should we allow reading from previously unwritten memory? Such a
-      ---  read will return an arbitrary, fixed value of the appropriate type.
+    , laxLoadsAndStores :: !Bool
+      -- ^ Should we relax some of Crucible's validity checks for memory loads
+      --   and stores? If 'True', the following checks will be relaxed:
+      --
+      --   * If reading from previously unwritten memory, rather than throw a
+      --     'NoSatisfyingWrite' error, the read will return an arbitrary,
+      --     fixed value of the appropriate type.
+      --
+      --   * If reading from a region that isn't allocated or isn't large
+      --     enough, Crucible will proceed rather than throw an
+      --     'UnreadableRegion' error.
+      --
+      --   * Reading a value from a pointer with insufficent alignment is not
+      --     treated as undefined behavior. That is, Crucible will not throw a
+      --     'ReadBadAlignment' error.
+      --
+      --   * Adding an offset to a pointer that results in a pointer to an
+      --     address outside of the allocation is not treated as undefined
+      --     behavior. That is, Crucible will not throw a
+      --     'PtrAddOffsetOutOfBounds' error.
+      --
+      --   This option is primarily useful for SV-COMP, which does not treat
+      --   the scenarios listed above as fatal errors.
     }
 
 
--- | The default memory model options require strict adherence to
---   the language standard regarding pointer equality and ordering.
+-- | The default memory model options:
+--
+-- * Require strict adherence to the language standard regarding pointer
+--   equality and ordering.
+--
+-- * Perform Crucible's default validity checks for memory loads and stores.
 defaultMemOptions :: MemOptions
 defaultMemOptions =
   MemOptions
   { laxPointerOrdering = False
   , laxConstantEquality = False
-  , readUnwrittenMemory = False
+  , laxLoadsAndStores = False
   }
 
 
--- | The lax pointer memory options allow pointer ordering comparisons
+-- | Like 'defaultMemOptions', but allow pointer ordering comparisons
 --   and equality comparisons of pointers to constant data.
 laxPointerMemOptions :: MemOptions
 laxPointerMemOptions =
-  MemOptions
+  defaultMemOptions
   { laxPointerOrdering = True
   , laxConstantEquality = True
-  , readUnwrittenMemory = False
   }

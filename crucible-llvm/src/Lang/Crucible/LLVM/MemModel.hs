@@ -243,6 +243,7 @@ import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
+import           Lang.Crucible.LLVM.Utils
 import           Lang.Crucible.Panic (panic)
 
 
@@ -912,7 +913,8 @@ doArrayConstStore sym mem ptr alignment arr len = do
 -- Precondition: the source and destination pointers fall within valid allocated
 -- regions.
 doMemcpy ::
-  (1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( 1 <= w, IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   NatRepr w ->
   MemImpl sym ->
@@ -931,7 +933,8 @@ doMemcpy sym w mem mustBeDisjoint dest src len = do
 
   let mop = MemCopyOp (gsym_dest, dest) (gsym_src, src) len (memImplHeap mem)
 
-  p1' <- Partial.annotateME sym mop UnreadableRegion p1
+  p1' <- applyUnless (laxLoadsAndStores ?memOpts)
+                     (Partial.annotateME sym mop UnreadableRegion) p1
   p2' <- Partial.annotateME sym mop UnwritableRegion p2
 
   assert sym p1' $ AssertFailureSimError "Mem copy failed" "Invalid copy source"
@@ -974,7 +977,8 @@ doPtrSubtract sym _m x y = do
 
 -- | Add an offset to a pointer and asserts that the result is a valid pointer.
 doPtrAddOffset ::
-  (IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym) =>
+  ( IsSymInterface sym, HasPtrWidth wptr, Partial.HasLLVMAnn sym
+  , ?memOpts :: MemOptions ) =>
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ base pointer -} ->
@@ -986,7 +990,8 @@ doPtrAddOffset sym m x@(LLVMPointer blk _) off = do
   v <- case asConstantPred isBV of
          Just True  -> return isBV
          _ -> orPred sym isBV =<< G.isValidPointer sym PtrWidth x' (memImplHeap m)
-  assertUndefined sym v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
+  unless (laxLoadsAndStores ?memOpts) $
+    assertUndefined sym v (UB.PtrAddOffsetOutOfBounds (RV x) (RV off))
   return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer

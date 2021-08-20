@@ -160,9 +160,9 @@ llvmCruxConfig = do
                        laxConstantEquality <-
                          Crux.section "lax-constant-equality" Crux.yesOrNoSpec False
                            "Allow equality comparisons between pointers to constant data"
-                       readUnwrittenMemory <-
-                         Crux.section "read-unwritten-memory" Crux.yesOrNoSpec False
-                           "Allow reading from previously unwritten memory"
+                       laxLoadsAndStores <-
+                         Crux.section "lax-loads-and-stores" Crux.yesOrNoSpec False
+                           "Relax some of Crucible's validity checks for memory loads and stores"
                        return MemOptions{..}
 
          transOpts <- do laxArith <-
