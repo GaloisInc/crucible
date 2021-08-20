@@ -81,7 +81,9 @@ varArgsRepr = VectorRepr AnyRepr
 
 declareFromDefine :: L.Define -> L.Declare
 declareFromDefine d =
-  L.Declare { L.decRetType = L.defRetType d
+  L.Declare { L.decLinkage = L.defLinkage d
+            , L.decVisibility = L.defVisibility d
+            , L.decRetType = L.defRetType d
             , L.decName = L.defName d
             , L.decArgs = L.typedType <$> L.defArgs d
             , L.decVarArgs = L.defVarArgs d

@@ -658,6 +658,7 @@ emptyDefine =
       L.defAttrs = [],
       L.defRetType = L.PrimType L.Void,
       L.defLinkage = Nothing,
+      L.defVisibility = Nothing,
       L.defSection = Nothing,
       L.defGC = Nothing,
       L.defBody = [],
