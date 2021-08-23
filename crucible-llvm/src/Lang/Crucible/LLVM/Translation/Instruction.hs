@@ -139,6 +139,7 @@ instrResultType ::
 instrResultType instr =
   case instr of
     L.Arith _ x _ -> liftMemType (L.typedType x)
+    L.UnaryArith _ x -> liftMemType (L.typedType x)
     L.Bit _ x _   -> liftMemType (L.typedType x)
     L.Conv _ _ ty -> liftMemType ty
     L.Call _ (L.PtrTo (L.FunTy ty _ _)) _ _ -> liftMemType ty
@@ -1593,6 +1594,12 @@ generateInstr retType lab instr assign_f k =
          assign_f =<< arithOp op tp x' y'
          k
 
+    L.UnaryArith op x ->
+      do tp <- liftMemType' (L.typedType x)
+         x' <- transValue tp (L.typedValue x)
+         assign_f =<< unaryArithOp op tp x'
+         k
+
     L.FCmp op x y -> do
            tp <- liftMemType' (L.typedType x)
            x' <- transValue tp (L.typedValue x)
@@ -1759,11 +1766,11 @@ arithOp op _ x y =
 
     _ -> reportError
            $ fromString
-           $ unwords ["arithmetic operation on unsupported values",
+           $ unwords ["binary arithmetic operation on unsupported values",
                          show x, show y]
 
   where
-  fop :: (FloatInfoRepr fi) ->
+  fop :: FloatInfoRepr fi ->
          Expr LLVM s (FloatType fi) ->
          Expr LLVM s (FloatType fi) ->
          LLVMGenerator s arch ret (Expr LLVM s (FloatType fi))
@@ -1784,6 +1791,34 @@ arithOp op _ x y =
               $ unwords [ "unsupported floating-point arith operation"
                         , show op, show x, show y
                         ]
+
+unaryArithOp :: (?transOpts :: TranslationOptions) =>
+  L.UnaryArithOp ->
+  MemType ->
+  LLVMExpr s arch ->
+  LLVMGenerator s arch ret (LLVMExpr s arch)
+unaryArithOp op (VecType n tp) (explodeVector n -> Just xs) =
+  VecExpr tp <$> sequence (fmap (unaryArithOp op tp) xs)
+
+unaryArithOp op _ x =
+  case asScalar x of
+    Scalar _archProxy (FloatRepr fi) x' ->
+        do ex <- fop fi x'
+           return (BaseExpr (FloatRepr fi) ex)
+
+    _ -> reportError
+           $ fromString
+           $ unwords ["unary arithmetic operation on unsupported value",
+                         show x]
+
+  where
+  fop :: FloatInfoRepr fi ->
+         Expr LLVM s (FloatType fi) ->
+         LLVMGenerator s arch ret (Expr LLVM s (FloatType fi))
+  fop fi a =
+    case op of
+       L.FNeg ->
+         return $ App $ FloatNeg fi a
 
 -- | Generate a call to an LLVM function.
 callFunction ::
