@@ -20,16 +20,16 @@ Description:
   .
   * a Haskell library with the core functionality,
   .
-  * a crux-llvm executable used to run the verification when given one
+  * a @crux-llvm@ executable used to run the verification when given one
     or more C or C++ source files
   .
   * a set of supplemental C source files, include files, and LLVM
     runtime library bitcode files to use for building the input C
     files into verifiable LLVM BC files.
   .
-  * a crux-llvm-svcomp that is designed to run verification on the set
-    of challenge inputs for the SV-COMP competition and generate
-    benchmark results.
+  * a @crux-llvm-svcomp@ executable that is designed to run verification
+    of challenge inputs for the SV-COMP competition, generating
+    results tailored to the format that SV-COMP expects.
 
 
 data-files:
@@ -151,18 +151,15 @@ executable crux-llvm-svcomp
   hs-source-dirs: svcomp
   main-is: Main.hs
 
-  if os(windows)
-    buildable: False
-
   build-depends:
-    aeson >= 1.4.7,
-    attoparsec >= 0.13,
-    async >= 2.2,
-    ansi-terminal,
+    aeson,
+    attoparsec,
+    base16-bytestring,
     crux-llvm,
-    lumberjack,
-    time,
-    unix
+    cryptohash-sha256,
+    extra,
+    indexed-traversable,
+    time
 
   other-modules:
     SVComp.Log

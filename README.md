@@ -46,10 +46,11 @@ In addition, there are the following library/executable packages:
  * **`crux-llvm`**, a standalone frontend for executing C and C++ programs
    in the crucible symbolic simulator.  The front-end invokes `clang`
    to produce LLVM bitcode, and runs the resulting programs using
-   the `crucible-llvm` language frontend.  Programs interact directly
-   with the symbolic simulator using the protocol established for
-   the [SV-COMP][sv-comp] competition. See [here](crux-llvm/README.md) for
-   more details.
+   the `crucible-llvm` language frontend.
+
+ * **`crux-llvm-svcomp`**, an alternative entrypoint to `crux-llvm`
+   that uses the protocol established for the [SV-COMP][sv-comp] competition.
+   See [here](crux-llvm/README.md) for more details.
 
 [sv-comp]: https://sv-comp.sosy-lab.org
 
