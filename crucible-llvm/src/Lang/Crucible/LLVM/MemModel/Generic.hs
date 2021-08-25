@@ -1269,23 +1269,36 @@ writeMemWithAllocationCheck is_allocated sym w gsym ptr tp alignment val mem = d
                   arrayUpdate sym acc_arr (Ctx.singleton idx) byte
               _ -> return acc_arr
       res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
-
-      -- NOTE: In this case, we have generated an updated SMT array with all of
-      -- the changes needed to reflect this memory write.  Instead of adding
-      -- each individual byte write to the write log, we add a single entry that
-      -- shadows the entire SMT array in memory. This means that the next lookup
-      -- of e.g., a 4 byte read will see the updated array and be able to read 4
-      -- bytes from this array instead of having to traverse the write history
-      -- to find four different `MemStore`s.
-      --
-      -- Note that the pointer we write to is the *base* pointer (i.e., with
-      -- offset zero), since we are shadowing the *entire* array.
-      basePtr <- LLVMPointer (llvmPointerBlock ptr) <$> bvLit sym w (BV.mkBV w 0)
-      return $ memAddWrite basePtr (MemArrayStore res_arr (Just arr_sz)) mem
+      overwriteArrayMem sym w ptr res_arr arr_sz mem
 
     _ -> return $ memAddWrite ptr (MemStore val tp alignment) mem
 
   return (mem', p1, p2)
+
+-- | Overwrite SMT array.
+--
+-- In this case, we have generated an updated SMT array with all of
+-- the changes needed to reflect this memory write.  Instead of adding
+-- each individual byte write to the write log, we add a single entry that
+-- shadows the entire SMT array in memory. This means that the next lookup
+-- of e.g., a 4 byte read will see the updated array and be able to read 4
+-- bytes from this array instead of having to traverse the write history
+-- to find four different `MemStore`s.
+--
+-- Note that the pointer we write to is the *base* pointer (i.e., with
+-- offset zero), since we are shadowing the *entire* array.
+overwriteArrayMem ::
+  (1 <= w, IsSymInterface sym) =>
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym w ->
+  SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) ->
+  SymBV sym w ->
+  Mem sym ->
+  IO (Mem sym)
+overwriteArrayMem sym w ptr arr sz mem = do
+  basePtr <- LLVMPointer (llvmPointerBlock ptr) <$> bvLit sym w (BV.mkBV w 0)
+  return $ memAddWrite basePtr (MemArrayStore arr (Just sz)) mem
 
 -- | Perform a mem copy (a la @memcpy@ in C).
 --
@@ -1302,7 +1315,21 @@ copyMem ::
 copyMem sym w dst src sz m =
   do p1 <- isAllocated sym w noAlignment src (Just sz) m
      p2 <- isAllocatedMutable sym w noAlignment dst (Just sz) m
-     return (memAddWrite dst (MemCopy src sz) m, p1, p2)
+     dst_maybe_allocation_array <- asMemAllocationArrayStore sym w dst m
+     src_maybe_allocation_array <- asMemAllocationArrayStore sym w src m
+     m' <- case (dst_maybe_allocation_array, src_maybe_allocation_array) of
+       -- if both the dst and src of this copy operation are inside allocations
+       -- backed by SMT array stores, then replace this copy operation with
+       -- using SMT array copy, and writing the result SMT array in the memory
+       (Just (dst_ok, dst_arr, dst_arr_sz), Just (src_ok, src_arr, _src_arr_sz))
+         | Just True <- asConstantPred dst_ok
+         , Just True <- asConstantPred src_ok ->
+           do res_arr <- arrayCopy sym dst_arr (llvmPointerOffset dst) src_arr (llvmPointerOffset src) sz
+              overwriteArrayMem sym w dst res_arr dst_arr_sz m
+
+       _ -> return $ memAddWrite dst (MemCopy src sz) m
+
+     return (m', p1, p2)
 
 -- | Perform a mem set, filling a number of bytes with a given 8-bit
 -- value. The returned 'Pred' asserts that the pointer falls within an
@@ -1317,7 +1344,50 @@ setMem ::
 
 setMem sym w ptr val sz m =
   do p <- isAllocatedMutable sym w noAlignment ptr (Just sz) m
-     return (memAddWrite ptr (MemSet val sz) m, p)
+     maybe_allocation_array <- asMemAllocationArrayStore sym w ptr m
+     m' <- case maybe_allocation_array of
+       -- if this set operation is inside an allocation backed by a SMT array
+       -- store, then replace this set operation with using SMT array set, and
+       -- writing the result SMT array in the memory
+       Just (ok, arr, arr_sz) | Just True <- asConstantPred ok ->
+         do res_arr <- arraySet sym arr (llvmPointerOffset ptr) val sz
+            overwriteArrayMem sym w ptr res_arr arr_sz m
+
+       _ -> return $ memAddWrite ptr (MemSet val sz) m
+
+     return (m', p)
+
+writeArrayMemWithAllocationCheck ::
+  (IsSymInterface sym, 1 <= w) =>
+  (sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)) ->
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Pointer -} ->
+  Alignment ->
+  SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
+  Maybe (SymBV sym w) {- ^ Array size; if @Nothing@, the size is unrestricted -} ->
+  Mem sym -> IO (Mem sym, Pred sym, Pred sym)
+writeArrayMemWithAllocationCheck is_allocated sym w ptr alignment arr sz m =
+  do p1 <- is_allocated sym w alignment ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     let default_m = memAddWrite ptr (MemArrayStore arr sz) m
+     maybe_allocation_array <- asMemAllocationArrayStore sym w ptr m
+     m' <- case maybe_allocation_array of
+       -- if this write is inside an allocation backed by a SMT array store,
+       -- then replace this copy operation with using SMT array copy, and
+       -- writing the result SMT array in the memory
+       Just (ok, alloc_arr, alloc_sz)
+         | Just True <- asConstantPred ok, Just arr_sz <- sz ->
+         do sz_diff <- bvSub sym alloc_sz arr_sz
+            case asBV sz_diff of
+              Just (BV.BV 0) -> return default_m
+              _ ->
+                do zero_off <- bvLit sym w $ BV.mkBV w 0
+                   res_arr <- arrayCopy sym alloc_arr (llvmPointerOffset ptr) arr zero_off arr_sz
+                   overwriteArrayMem sym w ptr res_arr alloc_sz m
+
+       _ -> return default_m
+
+     return (m', p1, p2)
 
 -- | Write an array to memory.
 --
@@ -1332,10 +1402,7 @@ writeArrayMem ::
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
   Maybe (SymBV sym w) {- ^ Array size; if @Nothing@, the size is unrestricted -} ->
   Mem sym -> IO (Mem sym, Pred sym, Pred sym)
-writeArrayMem sym w ptr alignment arr sz m =
-  do p1 <- isAllocatedMutable sym w alignment ptr sz m
-     p2 <- isAligned sym w ptr alignment
-     return (memAddWrite ptr (MemArrayStore arr sz) m, p1, p2)
+writeArrayMem = writeArrayMemWithAllocationCheck isAllocatedMutable
 
 -- | Write an array to memory.
 --
@@ -1350,10 +1417,7 @@ writeArrayConstMem ::
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
   Maybe (SymBV sym w) {- ^ Array size -} ->
   Mem sym -> IO (Mem sym, Pred sym, Pred sym)
-writeArrayConstMem sym w ptr alignment arr sz m =
-  do p1 <- isAllocated sym w alignment ptr sz m
-     p2 <- isAligned sym w ptr alignment
-     return (memAddWrite ptr (MemArrayStore arr sz) m, p1, p2)
+writeArrayConstMem = writeArrayMemWithAllocationCheck isAllocated
 
 -- | Explicitly invalidate a region of memory.
 invalidateMem ::

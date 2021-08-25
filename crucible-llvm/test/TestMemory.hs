@@ -10,7 +10,7 @@ module TestMemory
   )
 where
 
-import           Control.Monad ( foldM, forM_ )
+import           Control.Monad ( foldM, forM_, void )
 import           Data.Foldable ( foldlM )
 import qualified Data.Vector as V
 
@@ -22,6 +22,7 @@ import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr ( knownNat )
 import           Data.Parameterized.Nonce ( withIONonceGenerator )
 import qualified What4.Expr.Builder as W4B
+import qualified What4.Config as What4
 import qualified What4.Interface as What4
 import           What4.ProblemFeatures ( noFeatures )
 import qualified What4.Protocol.Online as W4O
@@ -46,6 +47,8 @@ memoryTests = T.testGroup "Memory"
   , testMemArrayWithConstants
   , testMemArray
   , testPointerStore
+  , testMemArrayCopy
+  , testMemArraySet
   ]
 
 
@@ -67,6 +70,11 @@ withMem endianess action = withIONonceGenerator $ \nonce_gen ->
     let ?memOpts = LLVMMem.defaultMemOptions
     mem <- LLVMMem.emptyMem endianess
     action sym mem
+
+setCacheTerms :: CB.IsSymInterface sym => sym -> Bool ->IO ()
+setCacheTerms sym cache_terms_option = do
+  cache_terms_setting <- What4.getOptionSetting W4B.cacheTerms $ What4.getConfiguration sym
+  void $ What4.setOpt cache_terms_setting cache_terms_option
 
 userSymbol' :: String -> What4.SolverSymbol
 userSymbol' s = case What4.userSymbol s of
@@ -138,6 +146,23 @@ testArrayStride = testCase "array stride" $ withMem LLVMD.BigEndian $ \sym mem0 
   at_j'_val <- projectLLVM_bv  sym
     =<< doLoad sym mem4 ptr_j' byte_storage_type ptr_byte_repr noAlignment
   (Just (BV.one knownNat)) @=? What4.asBV at_j'_val
+
+
+allocFreshArray ::
+  (CB.IsSymInterface sym, LLVMMem.HasLLVMAnn sym, LLVMMem.HasPtrWidth wptr) =>
+  sym ->
+  LLVMMem.MemImpl sym ->
+  Integer ->
+  IO (LLVMMem.LLVMPtr sym wptr, What4.SymArray sym (SingleCtx (What4.BaseBVType wptr)) (What4.BaseBVType 8), LLVMMem.MemImpl sym)
+allocFreshArray sym mem sz = do
+  sz_bv <- What4.bvLit sym ?ptrWidth $ BV.mkBV ?ptrWidth sz
+  (base_ptr, mem1) <- LLVMMem.mallocRaw sym mem sz_bv noAlignment
+  arr <- What4.freshConstant
+    sym
+    (userSymbol' "a")
+    (What4.BaseArrayRepr (Ctx.singleton $ What4.BaseBVRepr ?ptrWidth) (What4.BaseBVRepr (knownNat @8)))
+  mem2 <- LLVMMem.doArrayStore sym mem1 base_ptr noAlignment arr sz_bv
+  return (base_ptr, arr, mem2)
 
 
 -- | This test case verifies that the symbolic aspects of the SMT-backed array
@@ -269,6 +294,57 @@ testMemArrayWithConstants = testCase "smt array memory model (with constant inde
     goal <- What4.notPred sym assertion
     res <- checkSat sym goal
     True @=? W4Sat.isUnsat res
+
+
+-- | This test case checks the memcpy aspect of the SMT-backed array memory model
+testMemArrayCopy :: T.TestTree
+testMemArrayCopy = testCase "smt array copy memory model" $ withMem LLVMD.LittleEndian $ \sym mem0 -> do
+  setCacheTerms sym True
+
+  (dst_base_ptr, dst_arr, mem1) <- allocFreshArray sym mem0 (1024 * 1024)
+  (src_base_ptr, src_arr, mem2) <- allocFreshArray sym mem1 1024
+
+  i <- What4.freshConstant sym (userSymbol' "i") $ What4.BaseBVRepr ?ptrWidth
+  dst_ptr <- ptrAdd sym ?ptrWidth dst_base_ptr i
+  assume sym =<< What4.bvUlt sym i =<< What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 1024)
+  len <- What4.freshConstant sym (userSymbol' "l") $ What4.BaseBVRepr ?ptrWidth
+  assume sym =<< What4.bvUlt sym len =<< What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 1024)
+  mem3 <- LLVMMem.doMemcpy sym ?ptrWidth mem2 False dst_ptr src_base_ptr len
+
+  zero_bv <- What4.bvLit sym ?ptrWidth $ BV.zero ?ptrWidth
+  expected_arr <- What4.arrayCopy sym dst_arr i src_arr zero_bv len
+  expected_val <- What4.arrayLookup sym expected_arr $ Ctx.singleton i
+
+  actual_val <- projectLLVM_bv sym
+    =<< doLoad sym mem3 dst_ptr (LLVMMem.bitvectorType 1) (LLVMMem.LLVMPointerRepr $ knownNat @8) noAlignment
+
+  foo <- What4.bvEq sym expected_val actual_val
+  (Just True) @=? What4.asConstantPred foo
+
+
+-- | This test case checks the memset aspect of the SMT-backed array memory model
+testMemArraySet :: T.TestTree
+testMemArraySet = testCase "smt array copy memory model" $ withMem LLVMD.LittleEndian $ \sym mem0 -> do
+  setCacheTerms sym True
+
+  (base_ptr, arr, mem1) <- allocFreshArray sym mem0 (1024 * 1024)
+
+  i <- What4.freshConstant sym (userSymbol' "i") $ What4.BaseBVRepr ?ptrWidth
+  ptr_i <- ptrAdd sym ?ptrWidth base_ptr i
+  assume sym =<< What4.bvUlt sym i =<< What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 1024)
+  val <- What4.freshConstant sym (userSymbol' "v") $ What4.BaseBVRepr $ knownNat @8
+  len <- What4.freshConstant sym (userSymbol' "l") $ What4.BaseBVRepr ?ptrWidth
+  assume sym =<< What4.bvUlt sym len =<< What4.bvLit sym ?ptrWidth (BV.mkBV ?ptrWidth 1024)
+  mem3 <- LLVMMem.doMemset sym ?ptrWidth mem1 ptr_i val len
+
+  expected_arr <- What4.arraySet sym arr i val len
+  expected_val <- What4.arrayLookup sym expected_arr $ Ctx.singleton i
+
+  actual_val <- projectLLVM_bv sym
+    =<< doLoad sym mem3 ptr_i (LLVMMem.bitvectorType 1) (LLVMMem.LLVMPointerRepr $ knownNat @8) noAlignment
+
+  foo <- What4.bvEq sym expected_val actual_val
+  (Just True) @=? What4.asConstantPred foo
 
 
 testMemWritesIndexed :: T.TestTree
