@@ -238,7 +238,7 @@ checkFun nm mp =
         Empty ->
           do liftIO $ Log.sayCruxLLVM (Log.SimulatingFunction (Text.pack nm))
              (callCFG anyCfg emptyRegMap) >> return ()
-        _     -> throwCError BadFun  -- TODO(lb): Suggest uc-crux-llvm?
+        _     -> throwCError (BadFun nm)  -- TODO(lb): Suggest uc-crux-llvm?
     Nothing -> throwCError (MissingFun nm)
 
 ---------------------------------------------------------------------

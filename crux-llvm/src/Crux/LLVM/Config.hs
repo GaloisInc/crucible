@@ -31,7 +31,7 @@ data CError =
     ClangError Int String String
   | LLVMParseError LLVM.Error
   | MissingFun String
-  | BadFun
+  | BadFun String
   | EnvError String
   | NoFiles
     deriving Show
@@ -43,7 +43,7 @@ ppCError :: CError -> String
 ppCError err = case err of
     NoFiles                -> "crux-llvm requires at least one input file."
     EnvError msg           -> msg
-    BadFun                 -> "Function should have no arguments"
+    BadFun fnName          -> "The '" ++ fnName ++ "' function should have no arguments"
     MissingFun x           -> "Cannot find code for " ++ show x
     LLVMParseError e       -> LLVM.formatError e
     ClangError n sout serr ->
