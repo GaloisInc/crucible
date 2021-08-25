@@ -130,11 +130,16 @@ renderSideConds opts = concatMapM go
 
 
 removeRepeats :: Eq a => [a] -> [a]
-removeRepeats [] = []
-removeRepeats [x] = [x]
-removeRepeats (x:y:zs)
-  | x == y = removeRepeats (y:zs)
-  | otherwise = x : removeRepeats (y:zs)
+removeRepeats = removeRepeatsBy (==)
+
+removeRepeatsBy :: (a -> a -> Bool) -> [a] -> [a]
+removeRepeatsBy f = go
+  where
+    go [] = []
+    go [x] = [x]
+    go (x:y:zs)
+      | f x y = go (y:zs)
+      | otherwise = x : go (y:zs)
 
 jsPath :: [ProgramLoc] -> IO [ JS ]
 jsPath locs = concat <$> mapM mkStep locs'

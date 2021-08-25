@@ -6,7 +6,9 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 module Crux.SVCOMP where
@@ -15,6 +17,8 @@ import           Config.Schema
 import           Control.Applicative
 import           Data.Aeson (ToJSON)
 import qualified Data.Attoparsec.Text as Atto
+import           Data.Functor.Identity (Identity(..))
+import           Data.Kind (Type)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Text (Text)
@@ -31,44 +35,94 @@ import Crux.Config
 import Crux.Config.Common
 
 
-data SVCOMPOptions = SVCOMPOptions
+data SVCOMPOptions (f :: Type -> Type) = SVCOMPOptions
   { svcompBlacklist :: [FilePath]
       -- ^ Benchmarks to skip when evaluating in SV-COMP mode
 
-  , svcompMemlimit :: Maybe Integer
-      -- ^ total memory usage limit (in MB) per verification task
+  , svcompArch       :: f Arch
+      -- ^ The architecture assumed for the verification task
 
-  , svcompCPUlimit :: Maybe Integer
-      -- ^ CPU time limit (in seconds) per verification task
+  , svcompSpec       :: f FilePath
+      -- ^ The file containing the specification text used to verify the program. Likely a .prp file.
 
-  , svcompOutputFile :: FilePath
-      -- ^ file path for JSON verification results output
+  , svcompWitnessDir :: FilePath
+      -- ^ The directory in which to output the witness automaton file
   }
 
-svcompOptions :: Config SVCOMPOptions
+data Arch = Arch32 | Arch64
+  deriving (Show,Eq,Ord)
+
+archSpec :: ValueSpec Arch
+archSpec =
+  (Arch32 <$ atomSpec "32bit") <!>
+  (Arch64 <$ atomSpec "64bit")
+
+parseArch :: (Arch -> opts -> opts) -> String -> OptSetter opts
+parseArch mk = \txt opts ->
+  case txt of
+    "32bit" -> Right (mk Arch32 opts)
+    "64bit" -> Right (mk Arch64 opts)
+    _       -> Left "Invalid architecture"
+
+-- | We cannot verify an SV-COMP program without knowing the architecture and
+-- the specification. Unfortunately, Crux's command-line argument parser makes
+-- it somewhat awkward to require certain arguments (without defaults). As a
+-- hacky workaround, we parse the command-line arguments for the
+-- architecture/specification as if they were optional and later check here to
+-- see if they were actually provided, throwing an error if they were not
+-- provided.
+processSVCOMPOptions :: SVCOMPOptions Maybe -> IO (SVCOMPOptions Identity)
+processSVCOMPOptions
+    (SVCOMPOptions{ svcompArch, svcompSpec
+                  , svcompBlacklist, svcompWitnessDir}) = do
+  svcompArch' <- process "svcomp-arch" svcompArch
+  svcompSpec' <- process "svcomp-spec" svcompSpec
+  pure $ SVCOMPOptions{ svcompArch = svcompArch', svcompSpec = svcompSpec'
+                      , svcompBlacklist, svcompWitnessDir }
+  where
+    process :: String -> Maybe a -> IO (Identity a)
+    process optName = maybe (fail $ "A value for --" ++ optName ++ " must be provided") (pure . Identity)
+
+svcompOptions :: Config (SVCOMPOptions Maybe)
 svcompOptions = Config
   { cfgFile =
       do svcompBlacklist <-
            section "svcomp-blacklist" (listSpec stringSpec) []
            "SV-COMP benchmark tasks to skip"
 
-         svcompMemlimit <-
-           sectionMaybe "svcomp-memlimit" numSpec
-           "total memory usage limit (in MB) per verification task"
+         svcompArch <-
+           sectionMaybe "svcomp-arch" archSpec
+           "The architecture assumed for the verification task."
 
-         svcompCPUlimit <-
-           sectionMaybe "svcomp-cpulimit" numSpec
-           "total CPU time limit (in seconds) per verification task"
+         svcompSpec <-
+           sectionMaybe "svcomp-spec" fileSpec
+           "The file containing the specification text used to verify the program. Likely a .prp file."
 
-         svcompOutputFile <-
-           section "svcomp-output" fileSpec "svcomp.json"
-           "output file path for JSON verification results output"
+         svcompWitnessDir <-
+           section "svcomp-witness-dir" fileSpec "."
+           "The directory in which to output the witness automaton file."
 
          return SVCOMPOptions{ .. }
 
   , cfgEnv = []
 
-  , cfgCmdLineFlag = []
+  , cfgCmdLineFlag =
+      [ Option [] ["svcomp-arch"]
+        "The architecture assumed for the verification task."
+        $ ReqArg "`32bit` or `64bit`"
+        $ parseArch
+        $ \a opts -> opts{ svcompArch = Just a }
+
+      , Option [] ["svcomp-spec"]
+        "The file containing the specification text used to verify the program. Likely a .prp file."
+        $ ReqArg "FILE"
+        $ \f opts -> Right opts{ svcompSpec = Just f }
+
+      , Option [] ["svcomp-witness-dir"]
+        "The directory in which to output the witness automaton file."
+        $ ReqArg "DIR"
+        $ \d opts -> Right opts{ svcompWitnessDir = d }
+      ]
   }
 
 propertyVerdict :: VerificationTask -> Maybe Bool
@@ -107,7 +161,7 @@ data SVCompProperty
   | CheckNoOverflow
   | CheckTerminates
   | CoverageFQL Text
- deriving (Show,Eq,Ord)
+ deriving (Show,Eq,Ord,Generic,ToJSON)
 
 data SVCompLanguage
   = C CDataModel

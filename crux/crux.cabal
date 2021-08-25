@@ -28,6 +28,7 @@ library
     async,
     attoparsec,
     bv-sized >= 1.0.0,
+    bytestring,
     containers,
     contravariant >= 1.5 && < 1.6,
     crucible,
@@ -56,6 +57,7 @@ library
     config-schema,
     semigroupoids,
     unordered-containers,
+    xml,
     yaml >= 0.11 && < 0.12
 
   hs-source-dirs: src
@@ -76,6 +78,7 @@ library
     Crux.Config.Common,
     Crux.Config.Solver,
     Crux.SVCOMP,
+    Crux.SVCOMP.Witness,
     Crux.UI.JS,
     Crux.Version
 
