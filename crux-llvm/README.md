@@ -19,7 +19,7 @@ software:
 
 * The Clang compiler: <http://releases.llvm.org/download.html>
 
-* [macOS] To install LLVM on macOS you'll need to run those two commands:
+* [macOS] To install LLVM on macOS you'll need to run those commands:
     * `xcode-select --install`
     * `brew install llvm`
     * `echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile`
