@@ -17,9 +17,10 @@ software:
 
 * The Z3 SMT solver: <https://github.com/Z3Prover/z3/releases>
 
-* The Clang compiler: <http://releases.llvm.org/download.html>
-
-* [macOS] To install LLVM on macOS you'll need to run those commands:
+ * The Clang compiler and LLVM toolchain: <http://releases.llvm.org/download.html>
+   
+   If you are on macOS, one way to install LLVM is with [`brew`](https://brew.sh/).
+   To install LLVM with `brew`, run the following commands:
     * `xcode-select --install`
     * `brew install llvm`
     * `echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile`
