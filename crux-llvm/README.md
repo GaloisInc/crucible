@@ -31,15 +31,14 @@ work well, and any failures with versions in that range should be
 
 The `crux-llvm` tool can be built by doing the following:
 
-* Clone the `crucible` repository:
+* Clone (incl. the submodules) the `crucible` repository:
 
-        git clone https://github.com/GaloisInc/crucible.git
+        git clone --recursive https://github.com/GaloisInc/crucible.git
 
 * Build the `crux-llvm` package:
 
         cabal build crux-llvm
 
-This will compile `crux-llvm` and supporting libraries such that they
 can be executed with `cabal run`. To install the binaries in the
 standard Cabal binary path (usually `$HOME/.cabal/bin`), run the
 following:
