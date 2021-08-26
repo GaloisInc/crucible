@@ -44,8 +44,8 @@ The `crux-llvm` tool can be built by doing the following:
 * Build the `crux-llvm` package:
 
         cabal build crux-llvm
-        
-- This will compile `crux-llvm` and supporting libraries such that they
+
+This will compile `crux-llvm` and supporting libraries such that they
 can be executed with `cabal run`. To install the binaries in the
 standard Cabal binary path (usually `$HOME/.cabal/bin`), run the
 following:
