@@ -17,14 +17,14 @@ software:
 
 * The Z3 SMT solver: <https://github.com/Z3Prover/z3/releases>
 
- * The Clang compiler and LLVM toolchain: <http://releases.llvm.org/download.html>
-   
-   If you are on macOS, one way to install LLVM is with [`brew`](https://brew.sh/).
-   To install LLVM with `brew`, run the following commands:
-    * `xcode-select --install`
-    * `brew install llvm`
-    * `echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile`
-    * run `crux-llvm` in a new console to reload `.bash_profile`
+* The Clang compiler and LLVM toolchain: <http://releases.llvm.org/download.html>
+
+  If you are on macOS, one way to install LLVM is with [`brew`](https://brew.sh/).
+  To install LLVM with `brew`, run the following commands:
+   * `xcode-select --install`
+   * `brew install llvm`
+   * `echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile`
+   * run `crux-llvm` in a new console to reload `.bash_profile`
 
 We have tested `crux-llvm` most heavily with GHC 8.6.5, GHC 8.8.4, GHC
 8.10.4, and `cabal` version 3.2.0.0. We recommend Yices 2.6.x, and Z3
