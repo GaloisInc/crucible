@@ -16,6 +16,7 @@ module Crux.LLVM.Overrides
   , svCompOverrides
   , cbmcOverrides
   , ArchOk
+  , TPtr
   ) where
 
 import qualified Data.ByteString as BS

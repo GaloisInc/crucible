@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -6,9 +7,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Crux.LLVM.Simulate where
 
+import qualified Data.BitVector.Sized as BV
 import Data.String (fromString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
@@ -16,7 +21,7 @@ import qualified Data.List as List
 import Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.Map as MapF
 import qualified Data.Traversable as T
-import Control.Lens ((&), (%~), (^.), view)
+import Control.Lens ((&), (%~), (%=), (^.), view)
 import Control.Monad.State(liftIO)
 import Data.Text as Text (Text, pack)
 import GHC.Exts ( proxy# )
@@ -24,7 +29,7 @@ import GHC.Exts ( proxy# )
 import System.IO (stdout)
 
 import Data.Parameterized.Some (Some(..))
-import Data.Parameterized.Context (pattern Empty)
+import Data.Parameterized.Context (pattern Empty, pattern (:>))
 
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
@@ -32,37 +37,42 @@ import Prettyprinter
 
 -- what4
 import qualified What4.Expr.Builder as WEB
+import What4.Interface (bvLit, natLit)
 
 -- crucible
 import Lang.Crucible.Backend
 import Lang.Crucible.Types
-import Lang.Crucible.CFG.Core(AnyCFG(..), cfgArgTypes)
+import Lang.Crucible.CFG.Core(AnyCFG(..), CFG, cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator
-  ( emptyRegMap
+  ( RegMap(..), assignReg, emptyRegMap
   , fnBindingsFromList, runOverrideSim, callCFG
   , initSimContext, profilingMetrics
   , ExecState( InitialState ), GlobalVar
   , SimState, defaultAbortHandler, printHandle
-  , ppSimError
+  , ppSimError, ctxSymInterface, getContext
   )
-import Lang.Crucible.Simulator.ExecutionTree ( stateGlobals )
-import Lang.Crucible.Simulator.GlobalState ( lookupGlobal )
+import Lang.Crucible.Simulator.ExecutionTree ( actFrame, gpGlobals, stateGlobals, stateTree )
+import Lang.Crucible.Simulator.GlobalState ( insertGlobal, lookupGlobal )
 import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 
 
 -- crucible-llvm
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn )
+import Lang.Crucible.LLVM.Bytes ( bytesToBV )
 import Lang.Crucible.LLVM.Globals
         ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
         ( Mem, MemImpl, mkMemVar, withPtrWidth, memAllocCount, memWriteCount
         , MemOptions(..), HasLLVMAnn, LLVMAnnMap
-        , explainCex, CexExplanation(..)
+        , explainCex, CexExplanation(..), doAlloca
+        , pattern LLVMPointer, pattern LLVMPointerRepr, LLVMPointerType
+        , pattern PtrRepr, pattern PtrWidth
         )
+import Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), i8, memTypeAlign, memTypeSize)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, cfgMap, ModuleCFGMap
+        , transContext, cfgMap
         , llvmPtrWidth, llvmTypeCtx
         )
 import Lang.Crucible.LLVM.Intrinsics
@@ -72,6 +82,7 @@ import Lang.Crucible.LLVM.Errors( ppBB )
 import Lang.Crucible.LLVM.Extension( LLVM, ArchWidth )
 import Lang.Crucible.LLVM.SymIO
        ( LLVMFileSystem, llvmSymIOIntrinsicTypes, symio_overrides, initialLLVMFileSystem, SomeOverrideSim(..) )
+import Lang.Crucible.LLVM.TypeContext (llvmDataLayout)
 import qualified Lang.Crucible.SymIO as SymIO
 import qualified Lang.Crucible.SymIO.Loader as SymIO.Loader
 
@@ -189,7 +200,7 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
              withPtrWidth ptrW $
                 do registerFunctions llvmOpts (prepLLVMMod prepped) trans (Just fs0)
                    initFSOverride
-                   checkFun (entryPoint llvmOpts) (cfgMap trans)
+                   checkFun llvmOpts trans prepped
 
 
 data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
@@ -228,18 +239,81 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
 
 
 checkFun ::
+  forall arch msgs personality sym.
+  (IsSymInterface sym, ArchOk arch) =>
   Crux.Logs msgs =>
   Log.SupportsCruxLLVMLogMessage msgs =>
-  String -> ModuleCFGMap -> OverM personality sym LLVM ()
-checkFun nm mp =
+  LLVMOptions ->
+  ModuleTranslation arch ->
+  PreppedLLVM sym ->
+  OverM personality sym LLVM ()
+checkFun llvmOpts trans prepped =
   case Map.lookup (fromString nm) mp of
     Just (_, AnyCFG anyCfg) ->
       case cfgArgTypes anyCfg of
-        Empty ->
-          do liftIO $ Log.sayCruxLLVM (Log.SimulatingFunction (Text.pack nm))
-             (callCFG anyCfg emptyRegMap) >> return ()
-        _     -> throwCError (BadFun nm)  -- TODO(lb): Suggest uc-crux-llvm?
+        Empty -> simulateFun anyCfg emptyRegMap
+
+        (Empty :> LLVMPointerRepr w :> PtrRepr)
+          |  isMain, shouldSupplyMainArguments
+          ,  Just Refl <- testEquality w (knownNat @32)
+          -> checkMainWithArguments anyCfg
+
+        _ -> throwCError (BadFun nm isMain)  -- TODO(lb): Suggest uc-crux-llvm?
     Nothing -> throwCError (MissingFun nm)
+  where
+    nm     = entryPoint llvmOpts
+    mp     = cfgMap trans
+    memVar = prepMemVar prepped
+    mem    = prepMem prepped
+    isMain = nm == "main"
+    shouldSupplyMainArguments =
+      case supplyMainArguments llvmOpts of
+        NoArguments    -> False
+        EmptyArguments -> True
+
+    simulateFun :: CFG LLVM blocks ctx ret ->
+                   RegMap sym ctx ->
+                   OverM personality sym LLVM ()
+    simulateFun anyCfg args = do
+      liftIO $ Log.sayCruxLLVM (Log.SimulatingFunction (Text.pack nm))
+      callCFG anyCfg args >> return ()
+
+    -- Simulate a function with the signature @int main(int argc, char* argv[])@.
+    -- We do so by behaving as if we are starting from this entrypoint:
+    --
+    --   int crucible_main() {
+    --     int argc = 0;
+    --     char *argv[] = {};
+    --     return main(argc, argv);
+    --   }
+    --
+    -- @argc@ can easily be created with 'bvLit'. For @argv@, we have to choose
+    -- what sort of allocation we want when creating its @LLVMPointer@. We've
+    -- opted for 'doAlloca' since the LLVM bitcode to allocate @argv@ will use
+    -- the @alloca@ instruction. This means that @argv@ will be
+    -- stack-allocated, which is a reasonable choice, given that the @main@
+    -- function's @argv@ argument actually lives on the stack in most binaries.
+    checkMainWithArguments ::
+      CFG LLVM blocks (EmptyCtx ::> LLVMPointerType 32 ::> TPtr arch) ret ->
+      OverM personality sym LLVM ()
+    checkMainWithArguments anyCfg = do
+      ctx <- getContext
+      let w         = knownNat @32
+          sym       = ctx^.ctxSymInterface
+          dl        = llvmDataLayout (trans^.transContext.llvmTypeCtx)
+          tp        = ArrayType 0 (PtrType (MemType i8))
+          tp_sz     = memTypeSize  dl tp
+          alignment = memTypeAlign dl tp
+          loc       = "crux-llvm main(argc, argv) simulation"
+
+      argc <- liftIO $ LLVMPointer <$> natLit sym 0 <*> bvLit sym w (BV.zero w)
+      sz   <- liftIO $ bvLit sym PtrWidth $ bytesToBV PtrWidth tp_sz
+      (argv, mem') <- liftIO $ doAlloca sym mem sz alignment loc
+      stateTree.actFrame.gpGlobals %= insertGlobal memVar mem'
+
+      let args = assignReg PtrRepr argv $
+                 assignReg (LLVMPointerRepr w) argc emptyRegMap
+      simulateFun anyCfg args
 
 ---------------------------------------------------------------------
 -- Profiling
