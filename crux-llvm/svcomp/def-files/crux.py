@@ -7,6 +7,7 @@
 
 import benchexec.tools.template
 import benchexec.result as result
+import re
 from benchexec.tools.sv_benchmarks_util import get_data_model_from_task, ILP32, LP64
 
 
@@ -36,8 +37,21 @@ class Tool(benchexec.tools.template.BaseTool2):
         return s[s.find("version:"):]
 
     def determine_result(self, run):
+        override_pat = re.compile("No implementation or override found for pointer: \"(.+?)\"")
+
         for line in run.output:
-            if "Verification result: VERIFIED" in line:
+            # There are still a good number of functions for which Crux lacks
+            # overrides (see, for example, issue #187). Rather than reporting
+            # FALSIFIED for such programs (which will dock us points), we will
+            # instead conservatively return UNKNOWN, which doesn't lose (or
+            # gain) points. To make it more obvious which programs are UNKNOWN
+            # due to failing overrides versus incomplete goals, we include the
+            # name of the failing override in parentheses after UNKNOWN, which
+            # will show up in benchexec's reports.
+            m = override_pat.search(line)
+            if m:
+                return result.RESULT_UNKNOWN + "(no override: " + m.group(1) + ")"
+            elif "Verification result: VERIFIED" in line:
                 return result.RESULT_TRUE_PROP
             elif "Verification result: FALSIFIED (valid-free)" in line:
                 return result.RESULT_FALSE_FREE
