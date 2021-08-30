@@ -29,8 +29,6 @@ class Tool(benchexec.tools.template.BaseTool2):
         )
         if data_model_param:
             options += ["--svcomp-arch", data_model_param]
-        # TODO: Move this to crux.xml
-        options += ["--config", "unreach-call.config"]
         return [executable] + options + list(task.input_files_or_identifier)
 
     def version(self, executable):

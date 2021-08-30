@@ -7,6 +7,8 @@
   <resultfiles>**.graphml</resultfiles>
 
 <rundefinition name="SV-COMP21_unreach-call">
+  <option name="--config">unreach-call.config</option>
+
   <tasks name="ReachSafety-Arrays">
     <includesfile>../sv-benchmarks/c/ReachSafety-Arrays.set</includesfile>
     <propertyfile>../sv-benchmarks/c/properties/unreach-call.prp</propertyfile>
@@ -128,6 +130,8 @@
 -->
 
 <rundefinition name="SV-COMP21_no-overflow">
+  <option name="--config">no-overflow.config</option>
+
   <tasks name="NoOverflows-BitVectors">
     <includesfile>../sv-benchmarks/c/NoOverflows-BitVectors.set</includesfile>
     <propertyfile>../sv-benchmarks/c/properties/no-overflow.prp</propertyfile>

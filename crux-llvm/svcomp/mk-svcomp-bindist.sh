@@ -50,7 +50,7 @@ bundle_crux_llvm_svcomp_files() {
   ## binaries on the PATH before invocation
   cp crux-llvm-svcomp-driver.sh dist/
   ## Competition-specific configuration files
-  cp config-files/unreach-call.config dist/
+  cp config-files/*.config dist/
   ## The LICENSE and README (a particular SV-COMP requirement listed in
   ## https://sv-comp.sosy-lab.org/2021/rules.php#verifier)
   cp ../LICENSE dist/
