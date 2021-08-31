@@ -72,11 +72,11 @@ will need to prepare three files:
    instructions on how to do this, refer to the "Create a bindist for SV-COMP"
    section.
 2. A `crux.xml` benchmark definition file containing the metadata for the
-   `crux-llvm-svcomp` tool and which benchmarks programs it will run.
-   TODO: Add a link to `crux.xml` once it has been upstreamed.
+   `crux-llvm-svcomp` tool and which benchmarks programs it will run. This is
+   located under `<path-to-crucible-repo>/crux-llvm/svcomp/def-files`.
 3. A `crux.py` tool module that informs `benchexec` (SV-COMP's benchmark
-   harness) how to invoke `crux-llvm-svcomp` and how to interpret its results.
-   TODO: Add a link to `crux.py` once it has been upstreamed.
+   executor) how to invoke `crux-llvm-svcomp` and how to interpret its results.
+   This is located under `<path-to-crucible-repo>/crux-llvm/svcomp/def-files`.
 
 You will need to put each of these files in particular locations under your
 checkout of `bench-defs` (see the "Recreating the SV-COMP competition environment"

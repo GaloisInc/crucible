@@ -145,7 +145,7 @@ processInputFiles cruxOpts llvmOpts svOpts =
              Log.logException (e :: SomeException)
              exitFailure
 
-        Right (CruxSimulationResult cmpl gls) ->
+        Right res@(CruxSimulationResult cmpl gls) ->
           do let numTotalGoals = sum (Crux.totalProcessedGoals . fst <$> gls)
              let numDisprovedGoals = sum (Crux.disprovedGoals . fst <$> gls)
              let numProvedGoals = sum (Crux.provedGoals . fst <$> gls)
@@ -165,9 +165,11 @@ processInputFiles cruxOpts llvmOpts svOpts =
                        Right p -> return p
 
              witType <- case verdict of
-                          Verified  -> do Log.saySVComp $ Log.Verdict Verified prop
+                          Verified  -> do Crux.logSimResult True res
+                                          Log.saySVComp $ Log.Verdict Verified prop
                                           pure CorrectnessWitness
-                          Falsified -> do Log.saySVComp $ Log.Verdict Falsified prop
+                          Falsified -> do Crux.logSimResult True res
+                                          Log.saySVComp $ Log.Verdict Falsified prop
                                           pure ViolationWitness
                           Unknown   -> do Log.saySVComp $ Log.Verdict Unknown prop
                                           exitSuccess
