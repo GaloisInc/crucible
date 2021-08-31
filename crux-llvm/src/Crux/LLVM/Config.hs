@@ -31,7 +31,10 @@ data CError =
     ClangError Int String String
   | LLVMParseError LLVM.Error
   | MissingFun String
-  | BadFun
+  | BadFun String {- The function name -}
+           Bool   {- Is is the main() function?
+                     If so, we can recommend the use of the
+                     `supply-main-arguments` option. -}
   | EnvError String
   | NoFiles
     deriving Show
@@ -43,7 +46,11 @@ ppCError :: CError -> String
 ppCError err = case err of
     NoFiles                -> "crux-llvm requires at least one input file."
     EnvError msg           -> msg
-    BadFun                 -> "Function should have no arguments"
+    BadFun fnName isMain   -> unlines $
+                                [ "The '" ++ fnName ++ "' function should have no arguments"] ++
+                                [ "Enable `supply-main-arguments` to relax this restriction"
+                                | isMain
+                                ]
     MissingFun x           -> "Cannot find code for " ++ show x
     LLVMParseError e       -> LLVM.formatError e
     ClangError n sout serr ->
@@ -66,6 +73,27 @@ abnormalExitBehaviorSpec =
   (OnlyAssertFail <$ atomSpec "only-assert-fail") <!>
   (NeverFail <$ atomSpec "never-fail")
 
+-- | What sort of @main@ functions should @crux-llvm@ support simulating?
+data SupplyMainArguments
+  = NoArguments
+    -- ^ Only support simulating @main@ functions with the signature
+    --   @int main()@. Attempting to simulate a @main@ function that
+    --   takes arguments will result in an error. This is @crux-llvm@'s default
+    --   behavior.
+
+  | EmptyArguments
+    -- ^ Support simulating both @int main()@ and
+    --   @int(main argc, char *argv[])@. If simulating the latter, supply the
+    --   arguments @argc=0@ and @argv={}@. This is a reasonable choice for
+    --   programs whose @main@ function is declared with the latter signature
+    --   but never make use of @argc@ or @argv@.
+  deriving Show
+
+supplyMainArgumentsSpec :: ValueSpec SupplyMainArguments
+supplyMainArgumentsSpec =
+  (NoArguments <$ atomSpec "none") <!>
+  (EmptyArguments <$ atomSpec "empty")
+
 data LLVMOptions = LLVMOptions
   { clangBin   :: FilePath
   , linkBin    :: FilePath
@@ -82,6 +110,7 @@ data LLVMOptions = LLVMOptions
   , noCompile :: Bool
   , optLevel :: Int
   , symFSRoot :: Maybe FilePath
+  , supplyMainArguments :: SupplyMainArguments
   }
 
 -- | The @c-src@ directory, which contains @crux-llvm@–specific files such as
@@ -193,6 +222,16 @@ llvmCruxConfig = do
          symFSRoot <- Crux.sectionMaybe "symbolic-fs-root" Crux.stringSpec
                       "The root of a symbolic filesystem to make available to\
                       \ the program during symbolic execution"
+
+         supplyMainArguments <-
+           Crux.section "supply-main-arguments" supplyMainArgumentsSpec NoArguments
+             (Text.unwords
+               [ "One of `none` or `empty` (default: none). If `none`, only"
+               , "support simulating `main` entrypoint functions with the"
+               , "signature `int main()`. If `empty`, also support simulating"
+               , "`int main(int argc, char *argv[])` such that argc=0 and"
+               , "argv={} are chosen as the arguments."
+               ])
 
          return LLVMOptions { .. }
 

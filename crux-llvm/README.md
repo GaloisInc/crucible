@@ -131,6 +131,16 @@ that property `f(x) < 100` holds whenever the assumption on `x` is
 satisfied. The proof will fail in this case and `crux-llvm` will produce
 a counterexample describing the case where `x` is 99.
 
+## Counterexample limitations
+
+All counterexamples assume that the entrypoint function is `main`, even
+if `entry-point` option is used to specify a different entrypoint during
+simulation. Counterexamples also do not respect the `supply-main-arguments`
+option. That is, if you simulate a `main(int argc, char *argv[])` function
+and use `supply-main-arguments: empty` to pass `argc=0` and `argv={}` to
+`main`, these arguments will _not_ be passed automatically to the
+counterexample executables.
+
 # API
 
 The [`crucible.h` header file](c-src/includes/crucible.h) contains

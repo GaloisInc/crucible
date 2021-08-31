@@ -74,6 +74,7 @@ module Lang.Crucible.LLVM.MemModel
   , doInvalidate
   , doCalloc
   , doFree
+  , doAlloca
   , doLoad
   , doStore
   , doArrayStore
@@ -404,14 +405,8 @@ evalStmt sym = eval
 
   eval (LLVM_Alloca _w mvar (regValue -> sz) alignment loc) =
      do mem <- getMem mvar
-        blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
-        blk <- liftIO $ natLit sym blkNum
-        z <- liftIO $ bvLit sym PtrWidth (BV.zero PtrWidth)
-
-        let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable loc (memImplHeap mem)
-        let ptr = LLVMPointer blk z
-
-        setMem mvar mem{ memImplHeap = heap' }
+        (ptr, mem') <- liftIO $ doAlloca sym mem sz alignment loc
+        setMem mvar mem'
         return ptr
 
   eval (LLVM_Load mvar (regValue -> ptr) tpr valType alignment) =
@@ -542,6 +537,25 @@ ptrMessage msg ptr ty =
           , "  address " ++ show (G.ppPtr ptr)
           , "  at type " ++ show (G.ppType ty)
           ]
+
+-- | Allocate memory on the stack frame of the currently executing function.
+doAlloca ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  SymBV sym wptr {- ^ allocation size -} ->
+  Alignment      {- ^ pointer alignment -} ->
+  String         {- ^ source location for use in error messages -} ->
+  IO (LLVMPtr sym wptr, MemImpl sym)
+doAlloca sym mem sz alignment loc = do
+  blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
+  blk <- liftIO $ natLit sym blkNum
+  z <- liftIO $ bvLit sym PtrWidth (BV.zero PtrWidth)
+
+  let heap' = G.allocMem G.StackAlloc blkNum (Just sz) alignment G.Mutable loc (memImplHeap mem)
+  let ptr   = LLVMPointer blk z
+  let mem'  = mem{ memImplHeap = heap' }
+  pure (ptr, mem')
 
 -- | Load a 'RegValue' from memory. Both the 'StorageType' and 'TypeRepr'
 -- arguments should be computed from a single 'MemType' using

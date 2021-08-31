@@ -1,0 +1,2 @@
+The 'main' function should have no arguments
+Enable `supply-main-arguments` to relax this restriction
