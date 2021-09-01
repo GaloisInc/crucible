@@ -55,6 +55,7 @@ library
     UCCrux.LLVM.Overrides.Skip
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
+    UCCrux.LLVM.Run.EntryPoints
     UCCrux.LLVM.Run.Explore
     UCCrux.LLVM.Run.Explore.Config
     UCCrux.LLVM.Run.Loop
@@ -143,6 +144,7 @@ test-suite uc-crux-llvm-test
                 crux,
                 crux-llvm,
                 filepath,
+                lens,
                 llvm-pretty,
                 lumberjack,
                 parameterized-utils,

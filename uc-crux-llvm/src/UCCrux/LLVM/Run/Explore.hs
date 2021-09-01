@@ -48,7 +48,9 @@ import Crux.LLVM.Config (LLVMOptions)
 import Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath)
+import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, declTypes)
+import           UCCrux.LLVM.Errors.Panic (panic)
+import           UCCrux.LLVM.FullType.Translation (DeclSymbol, getDeclSymbol, makeDeclSymbol)
 import           UCCrux.LLVM.Logging (Verbosity(Low, Med, Hi))
 import           UCCrux.LLVM.Run.Explore.Config (ExploreConfig)
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
@@ -72,10 +74,11 @@ exploreOne ::
   ExploreConfig ->
   Crucible.HandleAllocator ->
   FilePath ->
-  String ->
+  DeclSymbol m ->
   IO Stats
-exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir func =
+exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir declSym =
   do
+    let L.Symbol func = getDeclSymbol declSym
     let logFilePath = dir </> func -<.> ".summary.log"
     logExists <- doesPathExist logFilePath
     if not logExists || ExConfig.exploreAgain exOpts
@@ -85,7 +88,7 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir func =
           withTimeout
             -- Seconds to microseconds
             (ExConfig.exploreTimeout exOpts * 1000000)
-            (loopOnFunction appCtx modCtx halloc cruxOpts llOpts func)
+            (loopOnFunction appCtx modCtx halloc cruxOpts llOpts declSym)
         case maybeResult of
           Right (Right (SomeBugfindingResult result _trace)) ->
             do
@@ -132,11 +135,23 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
     let functions =
           map
             ((\(L.Symbol f) -> f) . L.defName)
-            (take (ExConfig.exploreBudget exOpts) (L.modDefines (modCtx ^. llvmModule)))
+            (take
+              (ExConfig.exploreBudget exOpts)
+              (L.modDefines (modCtx ^. llvmModule)))
     let dir = bldDir cruxOpts </> takeFileName (modCtx ^. moduleFilePath) -<.> ""
     createDirectoryIfMissing True dir
     let funcsToExplore =
           filter (`notElem` ExConfig.exploreSkipFunctions exOpts) functions
+    let declsToExplore =
+          map
+            (\func ->
+                case makeDeclSymbol (L.Symbol func) (modCtx ^. declTypes) of
+                  Just symb -> symb
+                  Nothing ->
+                    -- NB: This can't happen because this function name was
+                    -- taken from the modDefines of this same modCtx just above.
+                    panic "explore" ["Function not found in module :" ++ func])
+            funcsToExplore
     let doExplore ac = exploreOne ac modCtx cruxOpts llOpts exOpts halloc dir
     stats <-
       if ExConfig.exploreParallel exOpts
@@ -144,6 +159,6 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
           traverseConcurrently
             Par
             (doExplore (appCtx & log .~ (\_ _ -> pure ())))
-            funcsToExplore
-        else for funcsToExplore (doExplore appCtx)
+            declsToExplore
+        else for declsToExplore (doExplore appCtx)
     (appCtx ^. log) Low $ ppShow (ppStats (mconcat stats))

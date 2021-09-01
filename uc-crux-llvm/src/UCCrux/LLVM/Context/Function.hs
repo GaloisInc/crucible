@@ -55,6 +55,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, withTypeContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(VarArgsFunction))
+import           UCCrux.LLVM.FullType.Translation (DeclSymbol, getDeclSymbol)
 import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType)
 {- ORMOLU_ENABLE -}
 
@@ -130,16 +131,18 @@ makeFunctionContext ::
   forall m arch fullTypes.
   ArchOk arch =>
   ModuleContext m arch ->
-  Text ->
+  DeclSymbol m ->
   Ctx.Assignment (FullTypeRepr m) fullTypes ->
   Ctx.Assignment CrucibleTypes.TypeRepr (MapToCrucibleType arch fullTypes) ->
   Either FunctionContextError (FunctionContext m arch fullTypes)
-makeFunctionContext modCtx name argFullTypes argTypes =
+makeFunctionContext modCtx declSym argFullTypes argTypes =
   do
     let llvmMod = modCtx ^. llvmModule
+    let symbol@(L.Symbol strName) = getDeclSymbol declSym
+    let name = Text.pack strName
     def <-
       case List.find
-        ((== L.Symbol (Text.unpack name)) . L.defName)
+        ((== symbol) . L.defName)
         (L.modDefines llvmMod) of
         Nothing -> Left (MissingEntrypoint name)
         Just d -> Right d

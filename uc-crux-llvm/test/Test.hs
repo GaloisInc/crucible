@@ -54,6 +54,7 @@ a very real bug.
 module Main (main) where
 
 {- ORMOLU_DISABLE -}
+import           Control.Lens ((^.))
 import           Control.Exception ( try )
 import           Data.Aeson (ToJSON)
 import           Control.Monad (unless)
@@ -91,7 +92,7 @@ import qualified UCCrux.LLVM.Config as Config
 import qualified UCCrux.LLVM.Main as Main
 import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext)
+import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes)
 import           UCCrux.LLVM.Equivalence (NonEmptyCrashDiff, reportDiffs, getCrashDiffs)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
@@ -100,7 +101,7 @@ import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
 import qualified UCCrux.LLVM.Logging as Log
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
-import           UCCrux.LLVM.Run.Loop (makeEntryPoints)
+import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
@@ -263,7 +264,7 @@ findBugs llvmModule file fns =
         halloc
         cruxOpts
         (Config.ucLLVMOptions ucOpts)
-        (makeEntryPoints (Config.entryPoints ucOpts))
+        =<< makeEntryPointsOrThrow (modCtx ^. declTypes) (Config.entryPoints ucOpts)
 
 getCrashDiff ::
   FilePath ->

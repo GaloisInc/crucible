@@ -65,7 +65,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext)
 import           UCCrux.LLVM.Logging (Verbosity(Low))
 import           UCCrux.LLVM.Run.Simulate (UCCruxSimulationResult, explanations)
 import           UCCrux.LLVM.Run.Result (SomeBugfindingResult(..))
-import           UCCrux.LLVM.Run.Loop (makeEntryPoints, zipResults)
+import           UCCrux.LLVM.Run.Loop (zipResults)
 {- ORMOLU_ENABLE -}
 
 data CrashDiff = CrashDiff
@@ -208,10 +208,9 @@ getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts =
         halloc
         cruxOpts
         (Config.ucLLVMOptions ucOpts)
-        (makeEntryPoints
-          (if Config.doExplore ucOpts
-           then []
-           else Config.entryPoints ucOpts))
+        (if Config.doExplore ucOpts
+         then []
+         else Config.entryPoints ucOpts)
     when (Map.null results) $
       (appCtx ^. log)
         Low

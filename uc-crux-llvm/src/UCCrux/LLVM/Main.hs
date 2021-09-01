@@ -77,16 +77,17 @@ import           Crux.LLVM.Simulate (parseLLVM)
 import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
-import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation)
+import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation, declTypes)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
 import qualified UCCrux.LLVM.Logging as Log
+import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Explore (explore)
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
-import           UCCrux.LLVM.Run.Loop (loopOnFunctions, makeEntryPoints)
+import           UCCrux.LLVM.Run.Loop (loopOnFunctions)
 {- ORMOLU_ENABLE -}
 
 mainWithOutputTo :: Handle -> IO ExitCode
@@ -170,6 +171,10 @@ mainWithOutputConfig mkOutCfg =
                         )
                   )
               else do
+                entries <-
+                  makeEntryPointsOrThrow
+                    (modCtx ^. declTypes)
+                    (Config.entryPoints ucOpts)
                 results <-
                   loopOnFunctions
                     appCtx
@@ -177,7 +182,7 @@ mainWithOutputConfig mkOutCfg =
                     halloc
                     cruxOpts
                     (Config.ucLLVMOptions ucOpts)
-                    (makeEntryPoints (Config.entryPoints ucOpts))
+                    entries
                 void $
                   flip Map.traverseWithKey results $
                     \func (SomeBugfindingResult result _) ->
