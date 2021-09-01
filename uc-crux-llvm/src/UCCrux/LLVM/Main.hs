@@ -83,9 +83,10 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
 import qualified UCCrux.LLVM.Logging as Log
 import           UCCrux.LLVM.Run.Explore (explore)
+import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
-import           UCCrux.LLVM.Run.Loop (loopOnFunctions)
+import           UCCrux.LLVM.Run.Loop (loopOnFunctions, makeEntryPoints)
 {- ORMOLU_ENABLE -}
 
 mainWithOutputTo :: Handle -> IO ExitCode
@@ -146,6 +147,14 @@ mainWithOutputConfig mkOutCfg =
           else
             if Config.doExplore ucOpts
               then do
+                let exConfig =
+                      ExConfig.ExploreConfig
+                        { ExConfig.exploreAgain = Config.reExplore ucOpts,
+                          ExConfig.exploreBudget = Config.exploreBudget ucOpts,
+                          ExConfig.exploreTimeout = Config.exploreTimeout ucOpts,
+                          ExConfig.exploreParallel = Config.exploreParallel ucOpts,
+                          ExConfig.exploreSkipFunctions = Config.skipFunctions ucOpts
+                        }
                 llvmPtrWidth
                   (modCtx ^. moduleTranslation . transContext)
                   ( \ptrW ->
@@ -155,12 +164,20 @@ mainWithOutputConfig mkOutCfg =
                             appCtx
                             modCtx
                             cruxOpts
-                            ucOpts
+                            (Config.ucLLVMOptions ucOpts)
+                            exConfig
                             halloc
                         )
                   )
               else do
-                results <- loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
+                results <-
+                  loopOnFunctions
+                    appCtx
+                    modCtx
+                    halloc
+                    cruxOpts
+                    (Config.ucLLVMOptions ucOpts)
+                    (makeEntryPoints (Config.entryPoints ucOpts))
                 void $
                   flip Map.traverseWithKey results $
                     \func (SomeBugfindingResult result _) ->

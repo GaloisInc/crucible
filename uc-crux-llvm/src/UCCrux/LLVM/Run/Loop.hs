@@ -13,7 +13,9 @@ Stability    : provisional
 {-# LANGUAGE TypeFamilies #-}
 
 module UCCrux.LLVM.Run.Loop
-  ( bugfindingLoop,
+  ( EntryPoints,
+    makeEntryPoints,
+    bugfindingLoop,
     loopOnFunction,
     loopOnFunctions,
     zipResults,
@@ -56,8 +58,6 @@ import Crux.LLVM.Config (LLVMOptions, throwCError, CError(MissingFun))
 import Crux.LLVM.Overrides
 
 import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation, partitionExplanations)
-import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
-import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
@@ -71,6 +71,13 @@ import qualified UCCrux.LLVM.Run.Result as Result
 import qualified UCCrux.LLVM.Run.Simulate as Sim
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness)
 {- ORMOLU_ENABLE -}
+
+-- | A list of function names to be explored by the simulator.
+newtype EntryPoints = EntryPoints { getEntryPoints :: [String] }
+  deriving (Eq, Ord, Show)
+
+makeEntryPoints :: [String] -> EntryPoints
+makeEntryPoints = EntryPoints
 
 -- | Run the simulator in a loop, creating a 'BugfindingResult'
 --
@@ -192,10 +199,10 @@ loopOnFunction ::
   ModuleContext m arch ->
   Crucible.HandleAllocator ->
   CruxOptions ->
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
   String ->
   IO (Either (Panic Unimplemented) Result.SomeBugfindingResult)
-loopOnFunction appCtx modCtx halloc cruxOpts ucOpts fn =
+loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
   catchUnimplemented $
     llvmPtrWidth
       (modCtx ^. moduleTranslation . transContext)
@@ -219,13 +226,13 @@ loopOnFunction appCtx modCtx halloc cruxOpts ucOpts fn =
                           funCtx
                           cfg
                           cruxOpts
-                          (Config.ucLLVMOptions ucOpts)
+                          llOpts
                           halloc
             )
       )
 
--- | Postcondition: The keys of the returned map are exactly the entryPoints of
--- the 'UCCruxLLVMOptions'.
+-- | Postcondition: The keys of the returned map are exactly the input function
+-- names.
 loopOnFunctions ::
   Crux.Logs msgs =>
   Crux.SupportsCruxLogMessage msgs =>
@@ -233,19 +240,20 @@ loopOnFunctions ::
   ModuleContext m arch ->
   Crucible.HandleAllocator ->
   CruxOptions ->
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
+  EntryPoints ->
   IO (Map.Map String SomeBugfindingResult)
-loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts =
+loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries =
   Map.fromList
     <$> llvmPtrWidth
       (modCtx ^. moduleTranslation . transContext)
       ( \ptrW ->
           withPtrWidth
             ptrW
-            ( for (Config.entryPoints ucOpts) $
+            ( for (getEntryPoints entries) $
                 \entry ->
                   (entry,) . either throw id
-                    <$> loopOnFunction appCtx modCtx halloc cruxOpts ucOpts entry
+                    <$> loopOnFunction appCtx modCtx halloc cruxOpts llOpts entry
             )
       )
 
@@ -260,9 +268,10 @@ zipResults ::
   ModuleContext m2 arch2 ->
   Crucible.HandleAllocator ->
   CruxOptions ->
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
+  EntryPoints {-^ If empty, the intersection of functions between the modules is used. -} ->
   IO (Map.Map String (SomeBugfindingResult, SomeBugfindingResult))
-zipResults appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts =
+zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
   do
     let getFuncs modc =
           Set.fromList
@@ -270,20 +279,17 @@ zipResults appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts =
                 ((\(L.Symbol f) -> f) . L.defName)
                 (L.modDefines (modc ^. llvmModule))
             )
-    let ucOpts' =
-          ucOpts
-            { Config.entryPoints =
-                if Config.doExplore ucOpts
-                  then
-                    Set.toList
-                      ( Set.intersection
-                          (getFuncs modCtx1)
-                          (getFuncs modCtx2)
-                      )
-                  else Config.entryPoints ucOpts
-            }
-    results1 <- loopOnFunctions appCtx modCtx1 halloc cruxOpts ucOpts'
-    results2 <- loopOnFunctions appCtx modCtx2 halloc cruxOpts ucOpts'
+    let entries' =
+          if null (getEntryPoints entries)
+          then
+            makeEntryPoints
+              (Set.toList
+                (Set.intersection
+                   (getFuncs modCtx1)
+                   (getFuncs modCtx2)))
+          else entries
+    results1 <- loopOnFunctions appCtx modCtx1 halloc cruxOpts llOpts entries'
+    results2 <- loopOnFunctions appCtx modCtx2 halloc cruxOpts llOpts entries'
     pure $
       -- Note: It's a postcondition of loopOnFunctions that these two maps
       -- have the same keys.

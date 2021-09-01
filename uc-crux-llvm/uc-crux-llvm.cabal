@@ -56,6 +56,7 @@ library
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
     UCCrux.LLVM.Run.Explore
+    UCCrux.LLVM.Run.Explore.Config
     UCCrux.LLVM.Run.Loop
     UCCrux.LLVM.Run.Result
     UCCrux.LLVM.Run.Simulate

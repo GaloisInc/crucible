@@ -44,13 +44,14 @@ import Crux.Config.Common (CruxOptions, bldDir)
 import Crux.Log as Crux
 
  -- crux-llvm
+import Crux.LLVM.Config (LLVMOptions)
 import Crux.LLVM.Overrides (ArchOk)
 
-import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
-import qualified UCCrux.LLVM.Config as Config
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath)
 import           UCCrux.LLVM.Logging (Verbosity(Low, Med, Hi))
+import           UCCrux.LLVM.Run.Explore.Config (ExploreConfig)
+import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Run.Result (SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Loop (loopOnFunction)
@@ -67,23 +68,24 @@ exploreOne ::
   AppContext ->
   ModuleContext m arch ->
   CruxOptions ->
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
+  ExploreConfig ->
   Crucible.HandleAllocator ->
   FilePath ->
   String ->
   IO Stats
-exploreOne appCtx modCtx cruxOpts ucOpts halloc dir func =
+exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir func =
   do
     let logFilePath = dir </> func -<.> ".summary.log"
     logExists <- doesPathExist logFilePath
-    if not logExists || Config.reExplore ucOpts
+    if not logExists || ExConfig.exploreAgain exOpts
       then do
         (appCtx ^. log) Hi $ "Exploring " <> Text.pack func
         maybeResult <-
           withTimeout
             -- Seconds to microseconds
-            (Config.exploreTimeout ucOpts * 1000000)
-            (loopOnFunction appCtx modCtx halloc cruxOpts ucOpts func)
+            (ExConfig.exploreTimeout exOpts * 1000000)
+            (loopOnFunction appCtx modCtx halloc cruxOpts llOpts func)
         case maybeResult of
           Right (Right (SomeBugfindingResult result _trace)) ->
             do
@@ -118,24 +120,26 @@ explore ::
   AppContext ->
   ModuleContext m arch ->
   CruxOptions ->
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
+  ExploreConfig ->
   Crucible.HandleAllocator ->
   IO ()
-explore appCtx modCtx cruxOpts ucOpts halloc =
+explore appCtx modCtx cruxOpts llOpts exOpts halloc =
   do
-    (appCtx ^. log) Hi $ "Exploring with budget: " <> Text.pack (show (Config.exploreBudget ucOpts))
+    (appCtx ^. log) Hi $ "Exploring with budget: " <> Text.pack (show (ExConfig.exploreBudget exOpts))
     -- TODO choose randomly
     let ppShow = PP.renderStrict . PP.layoutPretty PP.defaultLayoutOptions
     let functions =
           map
             ((\(L.Symbol f) -> f) . L.defName)
-            (take (Config.exploreBudget ucOpts) (L.modDefines (modCtx ^. llvmModule)))
+            (take (ExConfig.exploreBudget exOpts) (L.modDefines (modCtx ^. llvmModule)))
     let dir = bldDir cruxOpts </> takeFileName (modCtx ^. moduleFilePath) -<.> ""
     createDirectoryIfMissing True dir
-    let funcsToExplore = filter (`notElem` Config.skipFunctions ucOpts) functions
-    let doExplore ac = exploreOne ac modCtx cruxOpts ucOpts halloc dir
+    let funcsToExplore =
+          filter (`notElem` ExConfig.exploreSkipFunctions exOpts) functions
+    let doExplore ac = exploreOne ac modCtx cruxOpts llOpts exOpts halloc dir
     stats <-
-      if Config.exploreParallel ucOpts
+      if ExConfig.exploreParallel exOpts
         then
           traverseConcurrently
             Par

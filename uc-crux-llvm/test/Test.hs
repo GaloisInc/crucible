@@ -100,6 +100,7 @@ import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
 import qualified UCCrux.LLVM.Logging as Log
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
+import           UCCrux.LLVM.Run.Loop (makeEntryPoints)
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
@@ -256,7 +257,13 @@ findBugs ::
 findBugs llvmModule file fns =
   withOptions llvmModule file fns $
     \appCtx modCtx halloc cruxOpts ucOpts ->
-      loopOnFunctions appCtx modCtx halloc cruxOpts ucOpts
+      loopOnFunctions
+        appCtx
+        modCtx
+        halloc
+        cruxOpts
+        (Config.ucLLVMOptions ucOpts)
+        (makeEntryPoints (Config.entryPoints ucOpts))
 
 getCrashDiff ::
   FilePath ->
