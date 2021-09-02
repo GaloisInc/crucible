@@ -30,13 +30,14 @@ import           Crux.Config.Common (CruxOptions, loopBound, recursionBound)
 import           Crux.LLVM.Config (LLVMOptions, llvmCruxConfig)
 import           CruxLLVMMain (processLLVMOptions)
 
-import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Config.Type as Config
+import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Logging (verbosityFromInt)
-import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
+import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
 {- ORMOLU_ENABLE -}
 
 -- | Options as obtained from the Crux command-line and config file machinery.
@@ -49,7 +50,7 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     doExplore :: Bool,
     reExplore :: Bool,
     exploreBudget :: Int,
-    exploreTimeout :: Int,
+    exploreTimeout :: Seconds,
     exploreParallel :: Bool,
     entryPoints :: [FunctionName],
     skipFunctions :: [FunctionName],
@@ -176,7 +177,9 @@ ucCruxLLVMConfig = do
             <*> Crux.section "explore" Crux.yesOrNoSpec False exploreDoc
             <*> Crux.section "re-explore" Crux.yesOrNoSpec False reExploreDoc
             <*> Crux.section "explore-budget" Crux.numSpec 8 exploreBudgetDoc
-            <*> Crux.section "explore-timeout" Crux.numSpec 5 exploreTimeoutDoc
+            <*>
+              (secondsFromInt <$>
+                Crux.section "explore-timeout" Crux.numSpec 5 exploreTimeoutDoc)
             <*> Crux.section "explore-parallel" Crux.yesOrNoSpec False exploreParallelDoc
             <*>
               (map functionNameFromString <$>

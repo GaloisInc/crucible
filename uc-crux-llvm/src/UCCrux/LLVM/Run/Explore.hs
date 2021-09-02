@@ -53,6 +53,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFi
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Translation (DeclSymbol, getDeclSymbol, makeDeclSymbol)
 import           UCCrux.LLVM.Logging (Verbosity(Low, Med, Hi))
+import           UCCrux.LLVM.Newtypes.Seconds (secondsToMicroseconds)
 import           UCCrux.LLVM.Run.Explore.Config (ExploreConfig)
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Run.Result (SomeBugfindingResult(..))
@@ -87,8 +88,7 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir declSym =
         (appCtx ^. log) Hi $ "Exploring " <> Text.pack func
         maybeResult <-
           withTimeout
-            -- Seconds to microseconds
-            (ExConfig.exploreTimeout exOpts * 1000000)
+            (secondsToMicroseconds (ExConfig.exploreTimeout exOpts))
             (loopOnFunction appCtx modCtx halloc cruxOpts llOpts declSym)
         case maybeResult of
           Right (Right (SomeBugfindingResult result _trace)) ->

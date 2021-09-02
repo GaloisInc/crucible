@@ -13,11 +13,12 @@ module UCCrux.LLVM.Run.Explore.Config
 where
 
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
+import           UCCrux.LLVM.Newtypes.Seconds (Seconds)
 
 data ExploreConfig = ExploreConfig
   { exploreAgain :: Bool,
     exploreBudget :: Int,
-    exploreTimeout :: Int,
+    exploreTimeout :: Seconds,
     exploreParallel :: Bool,
     exploreSkipFunctions :: [FunctionName]
   }

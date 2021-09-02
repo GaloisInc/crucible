@@ -55,6 +55,7 @@ library
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
     UCCrux.LLVM.Newtypes.FunctionName
+    UCCrux.LLVM.Newtypes.Seconds
     UCCrux.LLVM.Overrides.Skip
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
