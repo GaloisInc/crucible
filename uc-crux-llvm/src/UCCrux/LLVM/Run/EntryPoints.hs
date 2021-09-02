@@ -19,6 +19,7 @@ import qualified Text.LLVM.AST as L
 
 import           Crux.LLVM.Config (throwCError, CError(MissingFun))
 
+import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.FullType.Translation (DeclMap, DeclSymbol, makeDeclSymbol)
 
 -- | A list of function names to be explored by the simulator.
@@ -35,11 +36,11 @@ getEntryPoints = doGetEntryPoints
 
 -- | Construct a 'EntryPoints' out of a user-supplied list of function names. If
 -- a function can't be found, throw a user error.
-makeEntryPointsOrThrow :: DeclMap m a -> [String] -> IO (EntryPoints m)
+makeEntryPointsOrThrow :: DeclMap m a -> [FunctionName] -> IO (EntryPoints m)
 makeEntryPointsOrThrow declMap =
   fmap makeEntryPoints .
     mapM
       (\nm ->
-        case makeDeclSymbol (L.Symbol nm) declMap of
-          Nothing -> throwCError (MissingFun nm)
+        case makeDeclSymbol (L.Symbol (functionNameToString nm)) declMap of
+          Nothing -> throwCError (MissingFun (functionNameToString nm))
           Just d -> pure d)

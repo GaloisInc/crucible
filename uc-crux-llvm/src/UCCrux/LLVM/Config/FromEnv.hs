@@ -1,6 +1,6 @@
 {-
-Module       : UCCrux.LLVM.Config
-Description  : CLI, environment, and config file options
+Module       : UCCrux.LLVM.Config.FromEnv
+Description  : Grab configuration from CLI, environment variables, and config file
 Copyright    : (c) Galois, Inc 2021
 License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
@@ -8,7 +8,7 @@ Stability    : provisional
 -}
 {-# LANGUAGE OverloadedStrings #-}
 
-module UCCrux.LLVM.Config
+module UCCrux.LLVM.Config.FromEnv
   ( UCCruxLLVMOptions (..),
     ucCruxLLVMConfig,
     processUCCruxLLVMOptions,
@@ -19,6 +19,7 @@ where
 import           Control.Applicative ((<|>))
 import           Control.Lens (Lens', lens)
 import           Control.Monad (when)
+import           Data.List.NonEmpty (nonEmpty)
 import           Data.Word (Word64)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -29,10 +30,18 @@ import           Crux.Config.Common (CruxOptions, loopBound, recursionBound)
 import           Crux.LLVM.Config (LLVMOptions, llvmCruxConfig)
 import           CruxLLVMMain (processLLVMOptions)
 
+import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameFromString)
+import           UCCrux.LLVM.Config.Type (TopLevelConfig)
+import qualified UCCrux.LLVM.Config.Type as Config
+import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
+import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Logging (verbosityFromInt)
 import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
 {- ORMOLU_ENABLE -}
 
+-- | Options as obtained from the Crux command-line and config file machinery.
+--
+-- Processed into a 'TopLevelConfig'.
 data UCCruxLLVMOptions = UCCruxLLVMOptions
   { ucLLVMOptions :: LLVMOptions,
     crashEquivalence :: FilePath,
@@ -42,8 +51,8 @@ data UCCruxLLVMOptions = UCCruxLLVMOptions
     exploreBudget :: Int,
     exploreTimeout :: Int,
     exploreParallel :: Bool,
-    entryPoints :: [String],
-    skipFunctions :: [String],
+    entryPoints :: [FunctionName],
+    skipFunctions :: [FunctionName],
     verbosity :: Int
   }
 
@@ -58,13 +67,34 @@ suggestedLoopBound = 8
 suggestedRecursionBound :: Word64
 suggestedRecursionBound = 8
 
+-- | Parse (as in \"parse, don\'t validate\") options gathered by Crux
+-- ('UCCruxLLVMOptions') into an 'AppContext' and a 'TopLevelConfig'.
 processUCCruxLLVMOptions ::
-  (CruxOptions, UCCruxLLVMOptions) -> IO (AppContext, CruxOptions, UCCruxLLVMOptions)
+  (CruxOptions, UCCruxLLVMOptions) -> IO (AppContext, CruxOptions, TopLevelConfig)
 processUCCruxLLVMOptions (initCOpts, initUCOpts) =
   do
     let appCtx = makeAppContext (verbosityFromInt (verbosity initUCOpts))
-    when (not (doExplore initUCOpts) && null (entryPoints initUCOpts)) $
-      die "At least one entry point (--entry-points) is required (or try --explore)"
+    let doCrashEquivalence = crashEquivalence initUCOpts /= ""
+
+    entries <-
+      if doExplore initUCOpts
+      then pure Nothing
+      else
+        if doCrashEquivalence
+        then pure (nonEmpty (entryPoints initUCOpts))
+        else
+          Just <$>
+            maybe
+              (die
+                (unwords
+                  [ "At least one entry point (--entry-points) is required",
+                    "(or try --explore or --crash-equivalence)"
+                  ]))
+              pure
+              (nonEmpty (entryPoints initUCOpts))
+
+    when (doExplore initUCOpts && doCrashEquivalence) $
+      die "Can't specify both --explore and --crash-equivalence"
     (finalCOpts, finalLLOpts) <-
       processLLVMOptions
         ( initCOpts
@@ -73,7 +103,35 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
             },
           ucLLVMOptions initUCOpts
         )
-    pure (appCtx, finalCOpts, initUCOpts {ucLLVMOptions = finalLLOpts})
+    pure
+      ( appCtx
+      , finalCOpts
+      , Config.TopLevelConfig
+          { Config.ucLLVMOptions = finalLLOpts,
+            Config.runConfig =
+              case entries of
+                Just ents -> Config.RunOn ents
+                Nothing ->
+                  if doExplore initUCOpts
+                  then
+                    Config.Explore
+                      (ExConfig.ExploreConfig
+                        { ExConfig.exploreAgain = reExplore initUCOpts,
+                          ExConfig.exploreBudget = exploreBudget initUCOpts,
+                          ExConfig.exploreTimeout = exploreTimeout initUCOpts,
+                          ExConfig.exploreParallel = exploreParallel initUCOpts,
+                          ExConfig.exploreSkipFunctions = skipFunctions initUCOpts
+                        })
+                  else
+                    Config.CrashEquivalence
+                      (EqConfig.EquivalenceConfig
+                        { EqConfig.equivStrict =
+                            crashEquivalenceStrict initUCOpts,
+                          EqConfig.equivModule = crashEquivalence initUCOpts,
+                          EqConfig.equivEntryPoints = entryPoints initUCOpts
+                        })
+          }
+      )
 
 crashEquivalenceDoc :: Text
 crashEquivalenceDoc = "Check crash-equivalence with another LLVM bitcode module"
@@ -120,8 +178,12 @@ ucCruxLLVMConfig = do
             <*> Crux.section "explore-budget" Crux.numSpec 8 exploreBudgetDoc
             <*> Crux.section "explore-timeout" Crux.numSpec 5 exploreTimeoutDoc
             <*> Crux.section "explore-parallel" Crux.yesOrNoSpec False exploreParallelDoc
-            <*> Crux.section "entry-points" (Crux.listSpec Crux.stringSpec) [] entryPointsDoc
-            <*> Crux.section "skip-functions" (Crux.listSpec Crux.stringSpec) [] skipDoc
+            <*>
+              (map functionNameFromString <$>
+                Crux.section "entry-points" (Crux.listSpec Crux.stringSpec) [] entryPointsDoc)
+            <*>
+              (map functionNameFromString <$>
+                Crux.section "skip-functions" (Crux.listSpec Crux.stringSpec) [] skipDoc)
             <*> Crux.section "verbosity" Crux.numSpec 0 verbDoc,
         Crux.cfgEnv =
           Crux.liftEnvDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgEnv llvmOpts,
@@ -180,13 +242,23 @@ ucCruxLLVMConfig = do
                    ["entry-points"]
                    (Text.unpack entryPointsDoc)
                    $ Crux.ReqArg "FUN" $
-                     \v opts -> Right opts {entryPoints = v : entryPoints opts},
+                     \v opts ->
+                       Right
+                         opts
+                         { entryPoints =
+                            functionNameFromString v : entryPoints opts
+                         },
                  Crux.Option
                    []
                    ["skip-functions"]
                    (Text.unpack skipDoc)
                    $ Crux.ReqArg "FUN" $
-                     \v opts -> Right opts {skipFunctions = v : skipFunctions opts},
+                     \v opts ->
+                       Right
+                         opts
+                         { skipFunctions =
+                             functionNameFromString v : skipFunctions opts
+                         },
                  Crux.Option
                    ['v']
                    ["verbosity"]

@@ -47,6 +47,7 @@ import Crux.Log as Crux
 import Crux.LLVM.Config (LLVMOptions)
 import Crux.LLVM.Overrides (ArchOk)
 
+import           UCCrux.LLVM.Config.FunctionName (functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, declTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -140,8 +141,8 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
               (L.modDefines (modCtx ^. llvmModule)))
     let dir = bldDir cruxOpts </> takeFileName (modCtx ^. moduleFilePath) -<.> ""
     createDirectoryIfMissing True dir
-    let funcsToExplore =
-          filter (`notElem` ExConfig.exploreSkipFunctions exOpts) functions
+    let toSkip = map functionNameToString (ExConfig.exploreSkipFunctions exOpts)
+    let funcsToExplore = filter (`notElem` toSkip) functions
     let declsToExplore =
           map
             (\func ->

@@ -34,13 +34,16 @@ library
     UCCrux.LLVM.Classify
     UCCrux.LLVM.Classify.Poison
     UCCrux.LLVM.Classify.Types
-    UCCrux.LLVM.Config
+    UCCrux.LLVM.Config.FromEnv
+    UCCrux.LLVM.Config.FunctionName
+    UCCrux.LLVM.Config.Type
     UCCrux.LLVM.Constraints
     UCCrux.LLVM.Context.App
     UCCrux.LLVM.Context.Function
     UCCrux.LLVM.Context.Module
     UCCrux.LLVM.Cursor
     UCCrux.LLVM.Equivalence
+    UCCrux.LLVM.Equivalence.Config
     UCCrux.LLVM.Errors.Panic
     UCCrux.LLVM.Errors.Unimplemented
     UCCrux.LLVM.FullType

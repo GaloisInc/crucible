@@ -42,6 +42,7 @@ import           Prelude hiding (log)
 import           Control.Lens ((^.))
 import           Control.Monad (void)
 import           Data.Aeson (ToJSON)
+import qualified Data.List.NonEmpty as NonEmpty
 import           GHC.Generics (Generic)
 import           System.Exit (ExitCode(..))
 import           System.IO (Handle)
@@ -75,16 +76,18 @@ import qualified Crux.LLVM.Log as Log
 import           Crux.LLVM.Simulate (parseLLVM)
 
 import           Paths_uc_crux_llvm (version)
-import qualified UCCrux.LLVM.Config as Config
-import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
+import qualified UCCrux.LLVM.Config.FromEnv as Config.FromEnv
+import           UCCrux.LLVM.Config.Type (TopLevelConfig)
+import qualified UCCrux.LLVM.Config.Type as Config
+import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation, declTypes)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
+import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
 import qualified UCCrux.LLVM.Logging as Log
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Explore (explore)
-import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Loop (loopOnFunctions)
@@ -123,88 +126,92 @@ withUCCruxLLVMLogging computation =
       ?injectUCCruxLLVMLogMessage = LoggingUCCruxLLVM
    in computation
 
+-- | Gather configuration options from the environment and pass them to
+-- 'mainWithConfigs'.
 mainWithOutputConfig ::
   (Maybe CruxOptions -> Crux.OutputConfig UCCruxLLVMLogging) -> IO ExitCode
 mainWithOutputConfig mkOutCfg =
-  withUCCruxLLVMLogging $ do
-    conf <- Config.ucCruxLLVMConfig
-    Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \opts ->
-      do
-        (appCtx, cruxOpts, ucOpts) <- Config.processUCCruxLLVMOptions opts
-        path <- genBitCode cruxOpts (Config.ucLLVMOptions ucOpts)
-        halloc <- Crucible.newHandleAllocator
-        memVar <- mkMemVar "uc-crux-llvm:llvm_memory" halloc
-        SomeModuleContext' modCtx <- translateFile ucOpts halloc memVar path
-        let checkEquivalenceWith = Config.crashEquivalence ucOpts
-        if checkEquivalenceWith /= ""
-          then do
-            path' <-
-              genBitCode
-                (cruxOpts {inputFiles = [checkEquivalenceWith]})
-                (Config.ucLLVMOptions ucOpts)
-            memVar' <- mkMemVar "uc-crux-llvm:llvm_memory'" halloc
-            SomeModuleContext' modCtx' <- translateFile ucOpts halloc memVar' path'
-            void $ checkEquiv appCtx modCtx modCtx' halloc cruxOpts ucOpts
-          else
-            if Config.doExplore ucOpts
-              then do
-                let exConfig =
-                      ExConfig.ExploreConfig
-                        { ExConfig.exploreAgain = Config.reExplore ucOpts,
-                          ExConfig.exploreBudget = Config.exploreBudget ucOpts,
-                          ExConfig.exploreTimeout = Config.exploreTimeout ucOpts,
-                          ExConfig.exploreParallel = Config.exploreParallel ucOpts,
-                          ExConfig.exploreSkipFunctions = Config.skipFunctions ucOpts
-                        }
-                llvmPtrWidth
-                  (modCtx ^. moduleTranslation . transContext)
-                  ( \ptrW ->
-                      withPtrWidth
-                        ptrW
-                        ( explore
-                            appCtx
-                            modCtx
-                            cruxOpts
-                            (Config.ucLLVMOptions ucOpts)
-                            exConfig
-                            halloc
-                        )
-                  )
-              else do
-                entries <-
-                  makeEntryPointsOrThrow
-                    (modCtx ^. declTypes)
-                    (Config.entryPoints ucOpts)
-                results <-
-                  loopOnFunctions
+  do conf <- Config.FromEnv.ucCruxLLVMConfig
+     withUCCruxLLVMLogging $
+       Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \opts ->
+         do (appCtx, cruxOpts, topConf) <-
+              Config.FromEnv.processUCCruxLLVMOptions opts
+            mainWithConfigs appCtx cruxOpts topConf
+
+mainWithConfigs ::
+  Crux.Logs msgs =>
+  Crux.SupportsCruxLogMessage msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  Log.SupportsUCCruxLLVMLogMessage msgs =>
+  AppContext ->
+  CruxOptions ->
+  TopLevelConfig ->
+  IO ExitCode
+mainWithConfigs appCtx cruxOpts topConf =
+  do
+    let llOpts = Config.ucLLVMOptions topConf
+    path <- genBitCode cruxOpts llOpts
+    halloc <- Crucible.newHandleAllocator
+    memVar <- mkMemVar "uc-crux-llvm:llvm_memory" halloc
+    SomeModuleContext' modCtx <- translateFile llOpts halloc memVar path
+    case Config.runConfig topConf of
+      Config.Explore exConfig ->
+        llvmPtrWidth
+          (modCtx ^. moduleTranslation . transContext)
+          ( \ptrW ->
+              withPtrWidth
+                ptrW
+                ( explore
                     appCtx
                     modCtx
-                    halloc
                     cruxOpts
-                    (Config.ucLLVMOptions ucOpts)
-                    entries
-                void $
-                  flip Map.traverseWithKey results $
-                    \func (SomeBugfindingResult result _) ->
-                      Log.sayUCCruxLLVM
-                        ( Log.Results
-                            (Text.pack func)
-                            (Result.printFunctionSummary (summary result))
-                        )
-        return ExitSuccess
+                    llOpts
+                    exConfig
+                    halloc
+                )
+          )
+      Config.RunOn ents ->
+        do entries <-
+             makeEntryPointsOrThrow
+               (modCtx ^. declTypes)
+               (NonEmpty.toList ents)
+           results <-
+             loopOnFunctions
+               appCtx
+               modCtx
+               halloc
+               cruxOpts
+               llOpts
+               entries
+           void $
+             flip Map.traverseWithKey results $
+               \func (SomeBugfindingResult result _) ->
+                 Log.sayUCCruxLLVM
+                   ( Log.Results
+                       (Text.pack func)
+                       (Result.printFunctionSummary (summary result))
+                   )
+      Config.CrashEquivalence eqConfig ->
+        do path' <-
+             genBitCode
+               (cruxOpts {inputFiles = [EqConfig.equivModule eqConfig]})
+               llOpts
+           memVar' <- mkMemVar "uc-crux-llvm:llvm_memory'" halloc
+           SomeModuleContext' modCtx' <- translateFile llOpts halloc memVar' path'
+           void $ checkEquiv appCtx modCtx modCtx' halloc cruxOpts llOpts (EqConfig.equivEntryPoints eqConfig)
+    return ExitSuccess
 
 translateLLVMModule ::
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
   Crucible.HandleAllocator ->
   GlobalVar Mem ->
   FilePath ->
   L.Module ->
   IO SomeModuleContext'
-translateLLVMModule ucOpts halloc memVar moduleFilePath llvmMod =
+translateLLVMModule llOpts halloc memVar moduleFilePath llvmMod =
   do
-    let llvmOpts = Config.ucLLVMOptions ucOpts
     Some trans <-
-      let ?transOpts = transOpts llvmOpts
+      let ?transOpts = transOpts llOpts
        in translateModule halloc memVar llvmMod
     llvmPtrWidth
       (trans ^. transContext)
@@ -227,10 +234,10 @@ data SomeModuleContext'
   = forall m arch. SomeModuleContext' (ModuleContext m arch)
 
 translateFile ::
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
   Crucible.HandleAllocator ->
   GlobalVar Mem ->
   FilePath ->
   IO SomeModuleContext'
-translateFile ucOpts halloc memVar moduleFilePath =
-  translateLLVMModule ucOpts halloc memVar moduleFilePath =<< parseLLVM moduleFilePath
+translateFile llOpts halloc memVar moduleFilePath =
+  translateLLVMModule llOpts halloc memVar moduleFilePath =<< parseLLVM moduleFilePath

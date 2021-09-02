@@ -83,12 +83,14 @@ import           Lang.Crucible.LLVM.MemModel (mkMemVar)
 import qualified Crux
 import qualified Crux.Log as Log
 import           Crux.LLVM.Compile (genBitCode)
-import           Crux.LLVM.Config (clangOpts)
+import           Crux.LLVM.Config (LLVMOptions, clangOpts)
 import qualified Crux.LLVM.Log as Log
 
 -- Code being tested
 import           Paths_uc_crux_llvm (version)
-import qualified UCCrux.LLVM.Config as Config
+import qualified UCCrux.LLVM.Config.FromEnv as Config.FromEnv
+import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameFromString)
+import qualified UCCrux.LLVM.Config.Type as Config
 import qualified UCCrux.LLVM.Main as Main
 import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Context.App (AppContext)
@@ -185,7 +187,7 @@ withUCCruxLLVMTestLogging computation =
 withOptions ::
   Maybe L.Module ->
   FilePath ->
-  [String] ->
+  [FunctionName] ->
   ( forall m arch.
     Log.Logs UCCruxLLVMTestLogging =>
     Log.SupportsCruxLogMessage UCCruxLLVMTestLogging =>
@@ -193,7 +195,7 @@ withOptions ::
     ModuleContext m arch ->
     HandleAllocator ->
     Crux.CruxOptions ->
-    Config.UCCruxLLVMOptions ->
+    LLVMOptions ->
     IO a
   ) ->
   IO a
@@ -204,7 +206,7 @@ withOptions llvmModule file fns k =
       do
         let isRealFile = isNothing llvmModule
         let mkOutCfg = Crux.mkOutputConfig False h h ucCruxLLVMTestLoggingToSayWhat
-        conf <- Config.ucCruxLLVMConfig
+        conf <- Config.FromEnv.ucCruxLLVMConfig
         Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) -> do
           let cruxOpts' =
                 cruxOpts
@@ -212,11 +214,12 @@ withOptions llvmModule file fns k =
                     -- With Yices, cast_float_to_pointer_write.c hangs
                     Crux.solver = "z3"
                   }
-          let ucOpts' = ucOpts {Config.entryPoints = fns}
-          (appCtx, cruxOpts'', ucOpts'') <- Config.processUCCruxLLVMOptions (cruxOpts', ucOpts')
+          let ucOpts' = ucOpts {Config.FromEnv.entryPoints = fns}
+          (appCtx, cruxOpts'', topConf) <-
+            Config.FromEnv.processUCCruxLLVMOptions (cruxOpts', ucOpts')
           path <-
             let uclopts =
-                  (Config.ucLLVMOptions ucOpts')
+                  (Config.FromEnv.ucLLVMOptions ucOpts')
                     { -- NB(lb): The -fno-wrapv here ensures that
                       -- Clang will emit 'nsw' flags even on platforms
                       -- using nixpkgs, which injects
@@ -243,28 +246,29 @@ withOptions llvmModule file fns k =
           --   )
           halloc <- newHandleAllocator
           memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
+          let llOpts = Config.ucLLVMOptions topConf
           Main.SomeModuleContext' modCtx <-
             case llvmModule of
-              Just lMod -> translateLLVMModule ucOpts'' halloc memVar path lMod
-              Nothing -> translateFile ucOpts'' halloc memVar path
+              Just lMod -> translateLLVMModule llOpts halloc memVar path lMod
+              Nothing -> translateFile llOpts halloc memVar path
 
-          k appCtx modCtx halloc cruxOpts'' ucOpts''
+          k appCtx modCtx halloc cruxOpts'' llOpts
 
 findBugs ::
   Maybe L.Module ->
   FilePath ->
-  [String] ->
+  [FunctionName] ->
   IO (Map.Map String Result.SomeBugfindingResult)
 findBugs llvmModule file fns =
   withOptions llvmModule file fns $
-    \appCtx modCtx halloc cruxOpts ucOpts ->
+    \appCtx modCtx halloc cruxOpts llOpts ->
       loopOnFunctions
         appCtx
         modCtx
         halloc
         cruxOpts
-        (Config.ucLLVMOptions ucOpts)
-        =<< makeEntryPointsOrThrow (modCtx ^. declTypes) (Config.entryPoints ucOpts)
+        llOpts
+        =<< makeEntryPointsOrThrow (modCtx ^. declTypes) fns
 
 getCrashDiff ::
   FilePath ->
@@ -273,12 +277,19 @@ getCrashDiff ::
   L.Module ->
   IO (AppContext, ([(String, NonEmptyCrashDiff)], [(String, NonEmptyCrashDiff)]))
 getCrashDiff path1 mod1 path2 mod2 =
-  withOptions (Just mod1) path1 ["fake"] $
+  withOptions (Just mod1) path1 [functionNameFromString "fake"] $
     \_ modCtx1 _ _ _ ->
-      withOptions (Just mod2) path2 ["fake"] $
-        \appCtx modCtx2 halloc cruxOpts ucOpts ->
-          let ucOpts' = ucOpts {Config.doExplore = True}
-           in (appCtx,) <$> getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts'
+      withOptions (Just mod2) path2 [functionNameFromString "fake"] $
+        \appCtx modCtx2 halloc cruxOpts llOpts ->
+           (appCtx,) <$>
+             getCrashDiffs
+               appCtx
+               modCtx1
+               modCtx2
+               halloc
+               cruxOpts
+               llOpts
+               [] -- All functions in the intersection of both modules
 
 checkCrashDiff ::
   FilePath ->
@@ -320,7 +331,8 @@ inFile :: FilePath -> [(String, String -> Result.SomeBugfindingResult -> IO ())]
 inFile file specs =
   TH.testCase file $
     do
-      results <- findBugs Nothing file (map fst specs)
+      results <-
+        findBugs Nothing file (map (functionNameFromString . fst) specs)
       for_ specs $
         \(fn, spec) ->
           spec fn $ fromMaybe (error ("Couldn't find result for function" ++ fn)) $ Map.lookup fn results
@@ -329,7 +341,8 @@ inModule :: FilePath -> L.Module -> [(String, String -> Result.SomeBugfindingRes
 inModule fakePath llvmModule specs =
   TH.testCase fakePath $
     do
-      results <- findBugs (Just llvmModule) fakePath (map fst specs)
+      results <-
+        findBugs (Just llvmModule) fakePath (map (functionNameFromString . fst) specs)
       for_ specs $
         \(fn, spec) ->
           spec fn $ fromMaybe (error ("Couldn't find result for function" ++ fn)) $ Map.lookup fn results
@@ -496,7 +509,7 @@ isUnimplemented file fn =
   TH.testCase (fn <> " exercises unimplemented functionality") $
     catchUnimplemented
       ( do
-          results <- findBugs Nothing file [fn]
+          results <- findBugs Nothing file [functionNameFromString fn]
           Result.SomeBugfindingResult result _ <-
             pure $ fromMaybe (error "No result") (Map.lookup fn results)
           let (_unclass, _missingAnn, _failedAssert, unimpl, _unfixed, _unfixable, _timeouts) =

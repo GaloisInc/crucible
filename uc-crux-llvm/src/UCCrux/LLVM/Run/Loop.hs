@@ -57,6 +57,7 @@ import Crux.LLVM.Overrides
 
 import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation, partitionExplanations)
 import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
+import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, declTypes)
@@ -261,7 +262,8 @@ zipResults ::
   Crucible.HandleAllocator ->
   CruxOptions ->
   LLVMOptions ->
-  [String] {-^ If empty, the intersection of functions between the modules is used. -} ->
+  -- | Entry points. If empty, check functions that are in both modules.
+  [FunctionName] ->
   IO (Map.Map String (SomeBugfindingResult, SomeBugfindingResult))
 zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
   do
@@ -286,7 +288,7 @@ zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
                    Just d -> pure d)
               (if null entries
                then intersect
-               else entries)
+               else map functionNameToString entries)
     entries1 <- makeEntries modCtx1
     entries2 <- makeEntries modCtx2
     results1 <- loopOnFunctions appCtx modCtx1 halloc cruxOpts llOpts entries1

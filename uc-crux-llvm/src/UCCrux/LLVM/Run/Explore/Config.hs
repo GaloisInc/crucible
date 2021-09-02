@@ -12,11 +12,13 @@ module UCCrux.LLVM.Run.Explore.Config
   )
 where
 
+import           UCCrux.LLVM.Config.FunctionName (FunctionName)
+
 data ExploreConfig = ExploreConfig
   { exploreAgain :: Bool,
     exploreBudget :: Int,
     exploreTimeout :: Int,
     exploreParallel :: Bool,
-    exploreSkipFunctions :: [String]
+    exploreSkipFunctions :: [FunctionName]
   }
   deriving (Eq, Ord, Show)

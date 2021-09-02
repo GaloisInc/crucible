@@ -56,10 +56,12 @@ import qualified Lang.Crucible.FunctionHandle as Crucible
 import Crux.Config.Common
 import Crux.Log as Crux
 
+-- crux-llvm
+import Crux.LLVM.Config (LLVMOptions)
+
  -- local
 import           UCCrux.LLVM.Classify.Types (Located(location, locatedValue), Explanation, partitionExplanations, TruePositive, Unfixed, Unfixable, partitionUncertainty)
-import qualified UCCrux.LLVM.Config as Config
-import           UCCrux.LLVM.Config (UCCruxLLVMOptions)
+import           UCCrux.LLVM.Config.FunctionName (FunctionName)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext)
 import           UCCrux.LLVM.Logging (Verbosity(Low))
@@ -196,9 +198,11 @@ getCrashDiffs ::
   ModuleContext m2 arch2 ->
   Crucible.HandleAllocator ->
   CruxOptions ->
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
+  -- | Entry points. If empty, check functions that are in both modules.
+  [FunctionName] ->
   IO ([(String, NonEmptyCrashDiff)], [(String, NonEmptyCrashDiff)])
-getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts =
+getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
   do
     results <-
       zipResults
@@ -207,10 +211,8 @@ getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts =
         modCtx2
         halloc
         cruxOpts
-        (Config.ucLLVMOptions ucOpts)
-        (if Config.doExplore ucOpts
-         then []
-         else Config.entryPoints ucOpts)
+        llOpts
+        entries
     when (Map.null results) $
       (appCtx ^. log)
         Low
@@ -267,12 +269,14 @@ checkEquiv ::
   ModuleContext m2 arch2 ->
   Crucible.HandleAllocator ->
   CruxOptions ->
-  UCCruxLLVMOptions ->
+  LLVMOptions ->
+  -- | Entry points. If empty, check functions that are in both modules.
+  [FunctionName] ->
   IO ()
-checkEquiv appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts =
+checkEquiv appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
   do
-    (diffs12, diffs21) <- getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts ucOpts
+    (diffs12, diffs21) <- getCrashDiffs appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries
     reportDiffs
       appCtx
       diffs12
-      (if Config.crashEquivalenceStrict ucOpts then diffs21 else [])
+      diffs21
