@@ -1,5 +1,5 @@
 {-
-Module       : UCCrux.LLVM.Config.FunctionName
+Module       : UCCrux.LLVM.Newtypes.FunctionName
 Description  : Newtype for names of functions
 Copyright    : (c) Galois, Inc 2021
 License      : BSD3
@@ -7,7 +7,7 @@ Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 -}
 
-module UCCrux.LLVM.Config.FunctionName
+module UCCrux.LLVM.Newtypes.FunctionName
   ( FunctionName
   , functionNameToString
   , functionNameFromString

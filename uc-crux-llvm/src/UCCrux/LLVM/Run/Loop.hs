@@ -57,7 +57,7 @@ import Crux.LLVM.Overrides
 
 import           UCCrux.LLVM.Classify.Types (Located(locatedValue), Explanation, partitionExplanations)
 import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstraints, emptyConstraints, addConstraint, ppExpansionError)
-import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameToString)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, declTypes)

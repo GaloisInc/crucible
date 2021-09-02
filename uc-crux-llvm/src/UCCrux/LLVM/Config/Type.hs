@@ -17,7 +17,7 @@ import           Data.List.NonEmpty (NonEmpty)
 
 import           Crux.LLVM.Config (LLVMOptions)
 
-import           UCCrux.LLVM.Config.FunctionName (FunctionName)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 

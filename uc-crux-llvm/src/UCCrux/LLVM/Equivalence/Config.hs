@@ -12,7 +12,7 @@ module UCCrux.LLVM.Equivalence.Config
   )
 where
 
-import UCCrux.LLVM.Config.FunctionName (FunctionName)
+import UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 
 data EquivalenceConfig
   = EquivalenceConfig

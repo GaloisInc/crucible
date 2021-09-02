@@ -47,7 +47,7 @@ import Crux.Log as Crux
 import Crux.LLVM.Config (LLVMOptions)
 import Crux.LLVM.Overrides (ArchOk)
 
-import           UCCrux.LLVM.Config.FunctionName (functionNameToString)
+import           UCCrux.LLVM.Newtypes.FunctionName (functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, declTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)

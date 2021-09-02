@@ -89,7 +89,7 @@ import qualified Crux.LLVM.Log as Log
 -- Code being tested
 import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Config.FromEnv as Config.FromEnv
-import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameFromString)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import qualified UCCrux.LLVM.Config.Type as Config
 import qualified UCCrux.LLVM.Main as Main
 import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)

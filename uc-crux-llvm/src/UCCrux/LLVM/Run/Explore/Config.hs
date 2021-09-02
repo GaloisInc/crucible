@@ -12,7 +12,7 @@ module UCCrux.LLVM.Run.Explore.Config
   )
 where
 
-import           UCCrux.LLVM.Config.FunctionName (FunctionName)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 
 data ExploreConfig = ExploreConfig
   { exploreAgain :: Bool,

@@ -61,7 +61,7 @@ import Crux.LLVM.Config (LLVMOptions)
 
  -- local
 import           UCCrux.LLVM.Classify.Types (Located(location, locatedValue), Explanation, partitionExplanations, TruePositive, Unfixed, Unfixable, partitionUncertainty)
-import           UCCrux.LLVM.Config.FunctionName (FunctionName)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext)
 import           UCCrux.LLVM.Logging (Verbosity(Low))

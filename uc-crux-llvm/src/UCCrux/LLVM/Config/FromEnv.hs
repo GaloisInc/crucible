@@ -30,7 +30,7 @@ import           Crux.Config.Common (CruxOptions, loopBound, recursionBound)
 import           Crux.LLVM.Config (LLVMOptions, llvmCruxConfig)
 import           CruxLLVMMain (processLLVMOptions)
 
-import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameFromString)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Config.Type (TopLevelConfig)
 import qualified UCCrux.LLVM.Config.Type as Config
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig

@@ -19,7 +19,7 @@ import qualified Text.LLVM.AST as L
 
 import           Crux.LLVM.Config (throwCError, CError(MissingFun))
 
-import           UCCrux.LLVM.Config.FunctionName (FunctionName, functionNameToString)
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.FullType.Translation (DeclMap, DeclSymbol, makeDeclSymbol)
 
 -- | A list of function names to be explored by the simulator.
