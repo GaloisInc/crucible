@@ -21,7 +21,7 @@ import qualified Data.List as List
 import Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.Map as MapF
 import qualified Data.Traversable as T
-import Control.Lens ((&), (%~), (%=), (^.), view)
+import Control.Lens ((&), (%~), (%=), (^.), use, view)
 import Control.Monad.State(liftIO)
 import Data.Text as Text (Text, pack)
 import GHC.Exts ( proxy# )
@@ -200,7 +200,7 @@ setupFileSim halloc llvm_file llvmOpts sym _maybeOnline =
              withPtrWidth ptrW $
                 do registerFunctions llvmOpts (prepLLVMMod prepped) trans (Just fs0)
                    initFSOverride
-                   checkFun llvmOpts trans prepped
+                   checkFun llvmOpts trans memVar
 
 
 data PreppedLLVM sym = PreppedLLVM { prepLLVMMod :: LLVM.Module
@@ -245,9 +245,9 @@ checkFun ::
   Log.SupportsCruxLLVMLogMessage msgs =>
   LLVMOptions ->
   ModuleTranslation arch ->
-  PreppedLLVM sym ->
+  GlobalVar Mem ->
   OverM personality sym LLVM ()
-checkFun llvmOpts trans prepped =
+checkFun llvmOpts trans memVar =
   case Map.lookup (fromString nm) mp of
     Just (_, AnyCFG anyCfg) ->
       case cfgArgTypes anyCfg of
@@ -263,8 +263,6 @@ checkFun llvmOpts trans prepped =
   where
     nm     = entryPoint llvmOpts
     mp     = cfgMap trans
-    memVar = prepMemVar prepped
-    mem    = prepMem prepped
     isMain = nm == "main"
     shouldSupplyMainArguments =
       case supplyMainArguments llvmOpts of
@@ -306,6 +304,10 @@ checkFun llvmOpts trans prepped =
           alignment = memTypeAlign dl tp
           loc       = "crux-llvm main(argc, argv) simulation"
 
+      gs  <- use (stateTree.actFrame.gpGlobals)
+      mem <- case lookupGlobal memVar gs of
+               Just mem -> pure mem
+               Nothing  -> fail "checkFun.checkMainWithArguments: Memory missing from global vars"
       argc <- liftIO $ LLVMPointer <$> natLit sym 0 <*> bvLit sym w (BV.zero w)
       sz   <- liftIO $ bvLit sym PtrWidth $ bytesToBV PtrWidth tp_sz
       (argv, mem') <- liftIO $ doAlloca sym mem sz alignment loc
