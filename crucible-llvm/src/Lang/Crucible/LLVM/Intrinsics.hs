@@ -185,6 +185,9 @@ declare_overrides =
   , basic_llvm_override LLVM.llvmObjectsizeOverride_32_null_dynamic
   , basic_llvm_override LLVM.llvmObjectsizeOverride_64_null_dynamic
 
+  , basic_llvm_override LLVM.llvmPrefetchOverride
+  , basic_llvm_override LLVM.llvmPrefetchOverride_preLLVM10
+
   , basic_llvm_override LLVM.llvmStacksave
   , basic_llvm_override LLVM.llvmStackrestore
 
