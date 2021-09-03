@@ -14,6 +14,7 @@ Stability        : provisional
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -24,12 +25,26 @@ module UCCrux.LLVM.FullType.Translation
   ( -- * Maps
     DeclSymbol,
     DeclMap,
+    DefnSymbol,
+    DefnMap,
+    FuncSymbol(..),
+    FuncMap,
     GlobalSymbol,
     GlobalMap,
     declSymbol,
     makeDeclSymbol,
     getDeclSymbol,
     isEmptyDeclMap,
+    defnSymbol,
+    makeDefnSymbol,
+    getDefnSymbol,
+    isEmptyDefnMap,
+    makeFuncMap,
+    funcMapDecls,
+    funcMapDefns,
+    makeFuncSymbol,
+    funcSymbol,
+    getFuncSymbol,
     globalSymbol,
     makeGlobalSymbol,
     getGlobalSymbol,
@@ -50,7 +65,7 @@ where
 import           Prelude hiding (unzip)
 
 import           Control.Lens.At (At(at), Ixed(ix), Index, IxValue, ixAt)
-import           Control.Lens (Lens', lens)
+import           Control.Lens (Simple, Lens, Lens', lens)
 import           Control.Lens.Indexed (FunctorWithIndex(imap), FoldableWithIndex(ifoldMap))
 import           Control.Monad (unless)
 import           Control.Monad.Except (ExceptT, runExceptT, throwError, withExceptT)
@@ -62,6 +77,8 @@ import           Data.Proxy (Proxy(Proxy))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 
+import qualified Prettyprinter as PP
+
 import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
@@ -71,6 +88,7 @@ import           Data.Parameterized.Some (Some(Some))
 import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
+import           Lang.Crucible.LLVM.MalformedLLVMModule (malformedLLVMModule)
 import           Lang.Crucible.LLVM.MemType (fdArgTypes, fdRetType, fdVarArgs)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation)
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
@@ -89,6 +107,7 @@ import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, boolToVarArgsRepr)
 -- | Type level only
 data SymbolType
   = Decl
+  | Defn
   | Global
 
 -- | A name of a function or global from a specific LLVM module
@@ -97,6 +116,10 @@ newtype Symbol m (t :: SymbolType) = Symbol {_getSymbol :: L.Symbol}
 
 newtype DeclSymbol m = DeclSymbol
   {runDeclSymbol :: Symbol m 'Decl}
+  deriving (Eq, Ord)
+
+newtype DefnSymbol m = DefnSymbol
+  {runDefnSymbol :: Symbol m 'Defn}
   deriving (Eq, Ord)
 
 newtype GlobalSymbol m = GlobalSymbol
@@ -147,6 +170,88 @@ instance At (DeclMap m a) where
   at symb = lens getDeclMap (const DeclMap) . at (runDeclSymbol symb)
 
 instance Ixed (DeclMap m a) where
+  ix = ixAt
+
+-- | Constructor not exported to enforce the invariant that a 'DefnMap'
+-- holds a value for every LLVM function definition in the corresponding module
+-- indicated by the @m@ parameter.
+newtype DefnMap m a = DefnMap
+  {getDefnMap :: SymbolMap m 'Defn a}
+  deriving (Foldable, Functor, Traversable)
+
+type instance Index (DefnMap m a) = DefnSymbol m
+
+type instance IxValue (DefnMap m a) = a
+
+instance FunctorWithIndex (DefnSymbol m) (DefnMap m) where
+  imap f (DefnMap m) =
+    DefnMap (imap (\sym val -> f (DefnSymbol sym) val) m)
+
+instance FoldableWithIndex (DefnSymbol m) (DefnMap m) where
+  ifoldMap f (DefnMap m) =
+    ifoldMap (\sym val -> f (DefnSymbol sym) val) m
+
+instance At (DefnMap m a) where
+  at symb = lens getDefnMap (const DefnMap) . at (runDefnSymbol symb)
+
+instance Ixed (DefnMap m a) where
+  ix = ixAt
+
+-- | A map containing values for function declarations and definitions in an
+-- LLVM module.
+data FuncMap m a = FuncMap
+  { _funcMapDecls :: DeclMap m a,
+    _funcMapDefns :: DefnMap m a
+  }
+  deriving (Foldable, Functor, Traversable)
+
+funcMapDecls :: Simple Lens (FuncMap m a) (DeclMap m a)
+funcMapDecls = lens _funcMapDecls (\s v -> s { _funcMapDecls = v })
+
+funcMapDefns :: Simple Lens (FuncMap m a) (DefnMap m a)
+funcMapDefns = lens _funcMapDefns (\s v -> s { _funcMapDefns = v })
+
+makeFuncMap :: DeclMap m a -> DefnMap m a -> FuncMap m a
+makeFuncMap = FuncMap
+
+newtype FuncSymbol m =
+  FuncSymbol { runFuncSymbol :: Either (DeclSymbol m) (DefnSymbol m) }
+  deriving (Eq, Ord)
+
+type instance Index (FuncMap m a) = FuncSymbol m
+
+type instance IxValue (FuncMap m a) = a
+
+instance FunctorWithIndex (FuncSymbol m) (FuncMap m) where
+  imap f (FuncMap decls defns) =
+    FuncMap
+      { _funcMapDecls =
+          imap
+            (\sym val -> f (FuncSymbol (Left sym)) val)
+            decls,
+        _funcMapDefns =
+          imap
+            (\sym val -> f (FuncSymbol (Right sym)) val)
+            defns
+      }
+
+
+instance FoldableWithIndex (FuncSymbol m) (FuncMap m) where
+  ifoldMap f (FuncMap decls defns) =
+    ifoldMap
+      (\sym val -> f (FuncSymbol (Left sym)) val)
+      decls
+      <> ifoldMap
+           (\sym val -> f (FuncSymbol (Right sym)) val)
+           defns
+
+instance At (FuncMap m a) where
+  at symb =
+    case runFuncSymbol symb of
+      Left declSymb -> funcMapDecls . at declSymb
+      Right defnSymb -> funcMapDefns . at defnSymb
+
+instance Ixed (FuncMap m a) where
   ix = ixAt
 
 -- | Constructor not exported to enforce the invariant that a 'GlobalMap' holds
@@ -200,6 +305,55 @@ getDeclSymbol (DeclSymbol (Symbol s)) = s
 
 isEmptyDeclMap :: DeclMap m a -> Bool
 isEmptyDeclMap (DeclMap (SymbolMap m)) = Map.null m
+
+defnSymbol :: DefnSymbol m -> Lens' (DefnMap m a) a
+defnSymbol (DefnSymbol sym) =
+  lens
+    ( fromMaybe
+        ( panic
+            "defnSymbol"
+            ["Broken invariant: DefnSymbol not present in DefnMap"]
+        )
+        . Map.lookup sym
+        . getSymbolMap
+        . getDefnMap
+    )
+    (\(DefnMap (SymbolMap m)) a -> DefnMap (SymbolMap (Map.insert sym a m)))
+
+makeDefnSymbol :: L.Symbol -> DefnMap m a -> Maybe (DefnSymbol m)
+makeDefnSymbol symbol (DefnMap (SymbolMap mp)) =
+  let gs = Symbol symbol
+   in case Map.lookup gs mp of
+        Just _ -> Just (DefnSymbol gs)
+        Nothing -> Nothing
+
+getDefnSymbol :: DefnSymbol m -> L.Symbol
+getDefnSymbol (DefnSymbol (Symbol s)) = s
+
+isEmptyDefnMap :: DefnMap m a -> Bool
+isEmptyDefnMap (DefnMap (SymbolMap m)) = Map.null m
+
+makeFuncSymbol :: L.Symbol -> FuncMap m a -> Maybe (FuncSymbol m)
+makeFuncSymbol symbol@(L.Symbol name) (FuncMap decls defns) =
+  case ( makeDeclSymbol symbol decls,
+         makeDefnSymbol symbol defns
+       ) of
+    (Just declSymb, Nothing) -> Just (FuncSymbol (Left declSymb))
+    (Nothing, Just defnSymb) -> Just (FuncSymbol (Right defnSymb))
+    (Nothing, Nothing) -> Nothing
+    (Just {}, Just {}) ->
+      malformedLLVMModule
+        "Function both declared and defined"
+        ["Function name:" <> PP.pretty name]
+
+funcSymbol :: FuncSymbol m -> Lens' (FuncMap m a) a
+funcSymbol =
+  \case
+    FuncSymbol (Left declSymb) -> funcMapDecls . declSymbol declSymb
+    FuncSymbol (Right defnSymb) -> funcMapDefns . defnSymbol defnSymb
+
+getFuncSymbol :: FuncSymbol m -> L.Symbol
+getFuncSymbol = either getDeclSymbol getDefnSymbol . runFuncSymbol
 
 globalSymbol :: GlobalSymbol m -> Lens' (GlobalMap m a) a
 globalSymbol (GlobalSymbol sym) =
@@ -257,7 +411,7 @@ data TranslatedTypes arch = forall m.
   TranslatedTypes
   { translatedModuleTypes :: ModuleTypes m,
     translatedGlobalTypes :: GlobalMap m (Some (FullTypeRepr m)),
-    translatedDeclTypes :: DeclMap m (FunctionTypes m arch)
+    translatedDeclTypes :: FuncMap m (FunctionTypes m arch)
   }
 
 data TypeTranslationError
@@ -304,25 +458,25 @@ translateModuleDefines llvmModule trans =
       let (maybeResult, modTypes) =
             runState
               ( runExceptT $
-                  (,)
-                    <$> ( (++)
-                            <$> mapM translateDefine (L.modDefines llvmModule)
-                            <*> mapM
-                              translateDeclare
-                              ( filter
-                                  (not . isDebug)
-                                  (L.modDeclares llvmModule)
-                              )
-                        )
+                  (,,)
+                    <$> mapM
+                          translateDeclare
+                          ( filter
+                              (not . isDebug)
+                              (L.modDeclares llvmModule)
+                          )
+                    <*> mapM translateDefine (L.modDefines llvmModule)
                     <*> mapM translateGlobal (L.modGlobals llvmModule)
               )
               initialModuleTypes
        in maybeResult
-            <&> \(declTypes, globalTypes) ->
+            <&> \(declTypes, defnTypes, globalTypes) ->
               TranslatedTypes
                 modTypes
                 (GlobalMap (SymbolMap (Map.fromList globalTypes)))
-                (DeclMap (SymbolMap (Map.fromList declTypes)))
+                (FuncMap
+                  (DeclMap (SymbolMap (Map.fromList declTypes)))
+                  (DefnMap (SymbolMap (Map.fromList defnTypes))))
   where
     translateGlobal ::
       L.Global ->
@@ -341,7 +495,7 @@ translateModuleDefines llvmModule trans =
       ExceptT
         TypeTranslationError
         (State (ModuleTypes m))
-        (Symbol m 'Decl, FunctionTypes m arch)
+        (Symbol m 'Defn, FunctionTypes m arch)
     translateDefine defn =
       do
         let decl = LLVMTrans.declareFromDefine defn

@@ -60,12 +60,12 @@ import           UCCrux.LLVM.Constraints (Constraints, NewConstraint, ppConstrai
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentFullTypes, makeFunctionContext, functionName, ppFunctionContextError)
-import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, declTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, CFGWithTypes(..), findFun, llvmModule, defnTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
-import           UCCrux.LLVM.FullType.Translation (DeclSymbol, getDeclSymbol, makeDeclSymbol)
+import           UCCrux.LLVM.FullType.Translation (DefnSymbol, FuncSymbol(..), getDefnSymbol, makeDefnSymbol)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints, makeEntryPoints)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
@@ -194,7 +194,7 @@ loopOnFunction ::
   Crucible.HandleAllocator ->
   CruxOptions ->
   LLVMOptions ->
-  DeclSymbol m ->
+  DefnSymbol m ->
   IO (Either (Panic Unimplemented) Result.SomeBugfindingResult)
 loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
   catchUnimplemented $
@@ -204,9 +204,10 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
           withPtrWidth
             ptrW
             ( do
+                let fnSymb = FuncSymbol (Right fn)
                 CFGWithTypes cfg argFTys _retTy _varArgs <-
-                  pure (findFun modCtx fn)
-                case makeFunctionContext modCtx fn argFTys (Crucible.cfgArgTypes cfg) of
+                  pure (findFun modCtx fnSymb)
+                case makeFunctionContext modCtx fnSymb argFTys (Crucible.cfgArgTypes cfg) of
                   Left err -> panic "loopOnFunction" [Text.unpack (ppFunctionContextError err)]
                   Right funCtx ->
                     do
@@ -244,7 +245,7 @@ loopOnFunctions appCtx modCtx halloc cruxOpts llOpts entries =
             ptrW
             ( for (getEntryPoints entries) $
                 \entry ->
-                  let L.Symbol name = getDeclSymbol entry
+                  let L.Symbol name = getDefnSymbol entry
                   in (name,) . either throw id
                        <$> loopOnFunction appCtx modCtx halloc cruxOpts llOpts entry
             )
@@ -283,7 +284,7 @@ zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
           makeEntryPoints <$>
             mapM
               (\nm ->
-                 case makeDeclSymbol (L.Symbol nm) (modCtx ^. declTypes) of
+                 case makeDefnSymbol (L.Symbol nm) (modCtx ^. defnTypes) of
                    Nothing -> throwCError (MissingFun nm)
                    Just d -> pure d)
               (if null entries

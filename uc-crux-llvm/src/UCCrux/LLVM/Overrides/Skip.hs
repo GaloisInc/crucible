@@ -65,11 +65,11 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
 import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalConstrainedShape)
-import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
-import           UCCrux.LLVM.FullType.Translation (FunctionTypes, DeclSymbol, declSymbol, ftRetType, isDebug, makeDeclSymbol)
+import           UCCrux.LLVM.FullType.Translation (FunctionTypes, FuncSymbol, funcSymbol, ftRetType, isDebug, makeFuncSymbol)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
 import           UCCrux.LLVM.Setup.Assume (assume)
 import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, ppSetupError, resultAnnotations)
@@ -106,7 +106,7 @@ unsoundSkipOverrides ::
   -- | Annotations of created values
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
   -- | Postconditions of each override (constraints on return values)
-  Map (DeclSymbol m) (ConstrainedTypedValue m) ->
+  Map (FuncSymbol m) (ConstrainedTypedValue m) ->
   [L.Declare] ->
   OverM personality sym LLVM [OverrideTemplate (personality sym) sym arch rtp l a]
 unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decls =
@@ -120,20 +120,20 @@ unsoundSkipOverrides modCtx sym mtrans usedRef annotationRef postconditions decl
               (\(SomeHandle hand) -> functionName (handleName hand))
               (handleMapToHandles (fnBindings binds))
     let create decl =
-          case modCtx ^. declTypes . to (makeDeclSymbol (L.decName decl)) of
+          case modCtx ^. funcTypes . to (makeFuncSymbol (L.decName decl)) of
             Nothing ->
               panic
                 "unsoundSkipOverrides"
                 ["Precondition violation: Declaration not in module"]
-            Just declSym ->
+            Just funcSym ->
               createSkipOverride
                 modCtx
                 sym
                 usedRef
                 annotationRef
-                (Map.lookup declSym postconditions)
+                (Map.lookup funcSym postconditions)
                 decl
-                declSym
+                funcSym
     pure $
       mapMaybe
         create
@@ -160,9 +160,9 @@ createSkipOverride ::
   IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
   Maybe (ConstrainedTypedValue m) ->
   L.Declare ->
-  DeclSymbol m ->
+  FuncSymbol m ->
   Maybe (OverrideTemplate (personality sym) sym arch rtp l a)
-createSkipOverride modCtx sym usedRef annotationRef postcondition decl declSym =
+createSkipOverride modCtx sym usedRef annotationRef postcondition decl funcSym =
   llvmDeclToFunHandleRepr' decl $
     \args ret ->
       Just $
@@ -181,7 +181,7 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl declSym =
                         ( returnValue
                             mem
                             ret
-                            (modCtx ^. declTypes . declSymbol declSym)
+                            (modCtx ^. funcTypes . funcSymbol funcSym)
                         )
             }
   where
@@ -193,8 +193,8 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl declSym =
       CrucibleTypes.TypeRepr ty ->
       FunctionTypes m arch ->
       IO (Crucible.RegValue sym ty, MemImpl sym)
-    returnValue mem ret funcTypes =
-      case (ret, ftRetType funcTypes) of
+    returnValue mem ret fTypes =
+      case (ret, ftRetType fTypes) of
         (CrucibleTypes.UnitRepr, Nothing) -> pure ((), mem)
         (CrucibleTypes.UnitRepr, _) ->
           panic
@@ -219,7 +219,7 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl declSym =
                     (modCtx ^. moduleTypes)
                     retFullType
                     ( SelectReturn
-                        ( case modCtx ^. declTypes . to (makeDeclSymbol symbolName) of
+                        ( case modCtx ^. funcTypes . to (makeFuncSymbol symbolName) of
                             Nothing ->
                               panic
                                 "createSkipOverride"

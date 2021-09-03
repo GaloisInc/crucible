@@ -71,13 +71,13 @@ import           Lang.Crucible.LLVM.MemType (memTypeSize)
 import           UCCrux.LLVM.Classify.Poison
 import           UCCrux.LLVM.Classify.Types
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes, declTypes, globalTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, dataLayout, moduleTypes, funcTypes, globalTypes)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentNames)
 import           UCCrux.LLVM.Constraints
 import           UCCrux.LLVM.Cursor (ppCursor, Selector(..), SomeInSelector(SomeInSelector), selectWhere, selectorCursor)
 import           UCCrux.LLVM.FullType (FullType(FTPtr), MapToCrucibleType, FullTypeRepr(..), PartTypeRepr, ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
-import           UCCrux.LLVM.FullType.Translation (makeDeclSymbol, makeGlobalSymbol, globalSymbol)
+import           UCCrux.LLVM.FullType.Translation (makeFuncSymbol, makeGlobalSymbol, globalSymbol)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName)
 import           UCCrux.LLVM.Setup (SymValue)
@@ -532,7 +532,7 @@ doClassifyBadBehavior appCtx modCtx funCtx sym memImpl skipped simError (Crucibl
                     case flip Map.lookup (LLVMMem.memImplSymbolMap memImpl) =<< blk of
                       Nothing -> requirePossiblePointer ReadNonPointer ptr
                       Just glob ->
-                        case ( makeDeclSymbol glob (modCtx ^. declTypes),
+                        case ( makeFuncSymbol glob (modCtx ^. funcTypes),
                                makeGlobalSymbol (modCtx ^. globalTypes) glob
                              ) of
                           (Just {}, _) -> truePositive (DerefFunctionPointer glob)

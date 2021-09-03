@@ -20,6 +20,8 @@ module UCCrux.LLVM.Context.Module
     llvmModule,
     moduleTypes,
     globalTypes,
+    funcTypes,
+    defnTypes,
     declTypes,
     moduleTranslation,
     dataLayout,
@@ -56,7 +58,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (DeclSymbol, GlobalMap, DeclMap, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, declSymbol, getDeclSymbol)
+import           UCCrux.LLVM.FullType.Translation (FuncSymbol, DeclMap, DefnMap, FuncMap, GlobalMap, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, funcSymbol, getFuncSymbol, funcMapDecls, funcMapDefns)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
@@ -68,7 +70,7 @@ data ModuleContext m arch = ModuleContext
     _llvmModule :: Module,
     _moduleTypes :: ModuleTypes m,
     _globalTypes :: GlobalMap m (Some (FullTypeRepr m)),
-    _declTypes :: DeclMap m (FunctionTypes m arch),
+    _funcTypes :: FuncMap m (FunctionTypes m arch),
     _moduleTranslation :: ModuleTranslation arch
   }
 
@@ -84,8 +86,14 @@ moduleTypes = lens _moduleTypes (\s v -> s {_moduleTypes = v})
 globalTypes :: Simple Lens (ModuleContext m arch) (GlobalMap m (Some (FullTypeRepr m)))
 globalTypes = lens _globalTypes (\s v -> s {_globalTypes = v})
 
+funcTypes :: Simple Lens (ModuleContext m arch) (FuncMap m (FunctionTypes m arch))
+funcTypes = lens _funcTypes (\s v -> s {_funcTypes = v})
+
 declTypes :: Simple Lens (ModuleContext m arch) (DeclMap m (FunctionTypes m arch))
-declTypes = lens _declTypes (\s v -> s {_declTypes = v})
+declTypes = funcTypes . funcMapDecls
+
+defnTypes :: Simple Lens (ModuleContext m arch) (DefnMap m (FunctionTypes m arch))
+defnTypes = funcTypes . funcMapDefns
 
 moduleTranslation :: Simple Lens (ModuleContext m arch) (ModuleTranslation arch)
 moduleTranslation = lens _moduleTranslation (\s v -> s {_moduleTranslation = v})
@@ -133,20 +141,20 @@ data SomeModuleContext arch
   = forall m. SomeModuleContext (ModuleContext m arch)
 
 -- | This function has a lot of calls to @panic@, these are all justified by the
--- invariant on 'DeclTypes' (namely that it contains types for declarations in
--- the module specified by the @m@ type parameter), and the invariant on
--- 'ModuleContext' that the @moduleTypes@ and @declTypes@ correspond to the
--- @moduleTranslation@.
+-- invariant on 'FuncTypes' (namely that it contains types for declarations and
+-- definitions in the module specified by the @m@ type parameter), and the
+-- invariant on 'ModuleContext' that the @moduleTypes@ and @funcTypes@
+-- correspond to the @moduleTranslation@.
 findFun ::
   forall m arch.
   ArchOk arch =>
   ModuleContext m arch ->
-  DeclSymbol m ->
+  FuncSymbol m ->
   CFGWithTypes m arch
-findFun modCtx declSym =
-  case modCtx ^. declTypes . declSymbol declSym of
+findFun modCtx funcSym =
+  case modCtx ^. funcTypes . funcSymbol funcSym of
     FunctionTypes (MatchingAssign argFTys argCTys) retTy (Some varArgs) ->
-      do let sym@(Symbol name) = getDeclSymbol declSym
+      do let sym@(Symbol name) = getFuncSymbol funcSym
          case modCtx ^. moduleTranslation . to LLVMTrans.cfgMap . at sym of
            Nothing -> panic "findFunc" ["Missing function:" ++ name]
            Just (_decl, Crucible.AnyCFG cfg) ->

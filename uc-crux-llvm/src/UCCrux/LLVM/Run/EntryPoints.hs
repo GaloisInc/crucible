@@ -24,22 +24,22 @@ import qualified Text.LLVM.AST as L
 import           Crux.LLVM.Config (throwCError, CError(MissingFun))
 
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
-import           UCCrux.LLVM.FullType.Translation (DeclMap, DeclSymbol, makeDeclSymbol)
+import           UCCrux.LLVM.FullType.Translation (DefnMap, DefnSymbol, makeDefnSymbol)
 
 -- | A list of function names to be explored by the simulator.
-newtype EntryPoints m = EntryPoints { runEntryPoints :: [DeclSymbol m] }
+newtype EntryPoints m = EntryPoints { runEntryPoints :: [DefnSymbol m] }
   deriving (Eq, Ord)
 
 -- | This function is inverse to 'getEntryPoints'.
-makeEntryPoints :: [DeclSymbol m] -> EntryPoints m
+makeEntryPoints :: [DefnSymbol m] -> EntryPoints m
 makeEntryPoints = EntryPoints
 
 -- | This function is inverse to 'makeEntryPoints'.
-getEntryPoints :: EntryPoints m -> [DeclSymbol m]
+getEntryPoints :: EntryPoints m -> [DefnSymbol m]
 getEntryPoints = runEntryPoints
 
 tryMakeEntryPoints ::
-  DeclMap m a ->
+  DefnMap m a ->
   [FunctionName] ->
   Either (NonEmpty FunctionName) (EntryPoints m)
 tryMakeEntryPoints declMap funs =
@@ -47,7 +47,7 @@ tryMakeEntryPoints declMap funs =
         partitionEithers
           (map
             (\nm ->
-              case makeDeclSymbol (L.Symbol (functionNameToString nm)) declMap of
+              case makeDefnSymbol (L.Symbol (functionNameToString nm)) declMap of
                 Nothing -> Left nm
                 Just d -> Right d)
             funs)
@@ -57,7 +57,7 @@ tryMakeEntryPoints declMap funs =
 
 -- | Construct a 'EntryPoints' out of a user-supplied list of function names. If
 -- a function can't be found, throw a user error.
-makeEntryPointsOrThrow :: DeclMap m a -> [FunctionName] -> IO (EntryPoints m)
+makeEntryPointsOrThrow :: DefnMap m a -> [FunctionName] -> IO (EntryPoints m)
 makeEntryPointsOrThrow declMap funs =
   case tryMakeEntryPoints declMap funs of
     Left errs ->
