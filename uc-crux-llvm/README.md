@@ -38,12 +38,11 @@ void double_free(int* ptr, int x) {
 ```
 ```
 $ uc-crux-llvm --entry-points double_free double_free.c
-[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/some/pathc/includes" "-O1" "-o" "crux-build/double_free.bc" "test/programs/double_free.c"
 [Crux] Attempting to prove verification conditions.
 [Crux] Attempting to prove verification conditions.
-[Crux] Results for double_free
-[Crux] Found likely bugs:
-Pointer freed twice
+[UC-Crux-LLVM] Results for double_free
+[UC-Crux-LLVM] Found likely bugs:
+[UC-Crux-LLVM] Double free at double_free.c:10:5
 ```
 That's not too impressive, a simple linter might be able to find that bug. However, since `uc-crux-llvm` uses symbolic execution, it can precisely conclude that the following program _does not_ have a potential double-free (or _any_ other undefined behavior), provided that it's passed a non-null pointer:
 ```c
@@ -67,15 +66,15 @@ void not_double_free(int *ptr, int x) {
 ```
 ```
 $ uc-crux-llvm --entry-points not_double_free not_double_free.c
-[CLANG] clang "-c" "-DCRUCIBLE" "-emit-llvm" "-g" "-I" "test/programs" "-I" "/some/path/c-src/includes" "-O1" "-o" "crux-build/not_double_free.bc" "test/programs/not_double_free.c"
-even!
 [Crux] Attempting to prove verification conditions.
-even!
-[Crux] Results for not_double_free
-[Crux] Function is safe if deduced preconditions are met:
-Arguments:
-  A pointer to uninitialized space for 1 elements:
-  An integer:
+[Crux] Attempting to prove verification conditions.
+[UC-Crux-LLVM] Results for not_double_free
+[UC-Crux-LLVM] Function is safe if deduced preconditions are met:
+[UC-Crux-LLVM] Arguments:
+[UC-Crux-LLVM]   A pointer to uninitialized space for 1 elements:
+[UC-Crux-LLVM]   An integer:
+[UC-Crux-LLVM] Globals:
+[UC-Crux-LLVM] Return values of skipped functions:
 ```
 While the examples here have very simple inputs, `uc-crux-llvm` is capable of synthesizing much richer inputs, including nested and recursive structs, pointers, floats, and more.
 
