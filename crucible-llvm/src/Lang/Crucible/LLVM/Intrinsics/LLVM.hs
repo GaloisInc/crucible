@@ -367,6 +367,36 @@ llvmObjectsizeOverride_64_null_dynamic =
   [llvmOvr| i64 @llvm.objectsize.i64.p0i8( i8*, i1, i1, i1 ) |]
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize_null_dynamic sym memOps knownNat) args)
 
+-- | This instruction is a hint to code generators, which means that it is a
+-- no-op for us.
+--
+-- <https://releases.llvm.org/12.0.0/docs/LangRef.html#llvm-prefetch-intrinsic LLVM docs>
+llvmPrefetchOverride ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  LLVMOverride p sym
+    (EmptyCtx ::> LLVMPointerType wptr ::> BVType 32 ::> BVType 32 ::> BVType 32)
+    UnitType
+llvmPrefetchOverride =
+  [llvmOvr| void @llvm.prefetch.p0i8( i8*, i32, i32, i32 ) |]
+  (\_memOps _sym _args -> pure ())
+
+-- | This instruction is a hint to code generators, which means that it is a
+-- no-op for us.
+--
+-- See also 'llvmPrefetchOverride'. This version exists for compatibility with
+-- pre-10 versions of LLVM, where llvm.prefetch always assumed that the first
+-- argument resides in address space 0.
+--
+-- <https://releases.llvm.org/12.0.0/docs/LangRef.html#llvm-prefetch-intrinsic LLVM docs>
+llvmPrefetchOverride_preLLVM10 ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  LLVMOverride p sym
+    (EmptyCtx ::> LLVMPointerType wptr ::> BVType 32 ::> BVType 32 ::> BVType 32)
+    UnitType
+llvmPrefetchOverride_preLLVM10 =
+  [llvmOvr| void @llvm.prefetch( i8*, i32, i32, i32 ) |]
+  (\_memOps _sym _args -> pure ())
+
 llvmFshl ::
   (1 <= w, IsSymInterface sym) =>
   NatRepr w ->
