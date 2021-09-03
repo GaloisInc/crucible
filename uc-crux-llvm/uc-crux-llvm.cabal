@@ -34,13 +34,13 @@ library
     UCCrux.LLVM.Classify
     UCCrux.LLVM.Classify.Poison
     UCCrux.LLVM.Classify.Types
-    UCCrux.LLVM.Config
     UCCrux.LLVM.Constraints
     UCCrux.LLVM.Context.App
     UCCrux.LLVM.Context.Function
     UCCrux.LLVM.Context.Module
     UCCrux.LLVM.Cursor
     UCCrux.LLVM.Equivalence
+    UCCrux.LLVM.Equivalence.Config
     UCCrux.LLVM.Errors.Panic
     UCCrux.LLVM.Errors.Unimplemented
     UCCrux.LLVM.FullType
@@ -52,10 +52,16 @@ library
     UCCrux.LLVM.FullType.VarArgs
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
+    UCCrux.LLVM.Main.Config.FromEnv
+    UCCrux.LLVM.Main.Config.Type
+    UCCrux.LLVM.Newtypes.FunctionName
+    UCCrux.LLVM.Newtypes.Seconds
     UCCrux.LLVM.Overrides.Skip
     UCCrux.LLVM.Overrides.Unsound
     UCCrux.LLVM.PP
+    UCCrux.LLVM.Run.EntryPoints
     UCCrux.LLVM.Run.Explore
+    UCCrux.LLVM.Run.Explore.Config
     UCCrux.LLVM.Run.Loop
     UCCrux.LLVM.Run.Result
     UCCrux.LLVM.Run.Simulate
@@ -142,6 +148,7 @@ test-suite uc-crux-llvm-test
                 crux,
                 crux-llvm,
                 filepath,
+                lens,
                 llvm-pretty,
                 lumberjack,
                 parameterized-utils,

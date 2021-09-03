@@ -33,7 +33,6 @@ where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.), Simple, Getter, Lens, lens, to, at)
-import           Control.Monad (when)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
@@ -57,7 +56,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (GlobalMap, DeclMap, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, declSymbol, makeDeclSymbol)
+import           UCCrux.LLVM.FullType.Translation (DeclSymbol, GlobalMap, DeclMap, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, declSymbol, getDeclSymbol)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
@@ -142,52 +141,49 @@ findFun ::
   forall m arch.
   ArchOk arch =>
   ModuleContext m arch ->
-  String ->
-  Maybe (CFGWithTypes m arch)
-findFun modCtx name =
-  do
-    declSym <-
-      modCtx ^. declTypes . to (makeDeclSymbol (Symbol name))
-    FunctionTypes (MatchingAssign argFTys argCTys) retTy (Some varArgs) <-
-      pure $ modCtx ^. declTypes . declSymbol declSym
-    (_decl, Crucible.AnyCFG cfg) <-
-      modCtx ^. moduleTranslation . to LLVMTrans.cfgMap . at (Symbol name)
-
-    when (varArgsReprToBool varArgs) $
-      unimplemented "findFun" Unimplemented.VarArgsFunction
-
-    case testEquality (Crucible.cfgArgTypes cfg) argCTys of
-      Nothing -> panic "findFunc" ["Mismatched argument types"]
-      Just Refl ->
-        Just $
-          case Crucible.cfgReturnType cfg of
-            CrucibleTypes.UnitRepr ->
-              case retTy of
-                Just (Some _) ->
-                  panic
-                    "findFun"
-                    [ unwords
-                        [ "Extra return type: Crucible function type was void",
-                          "but the translated type was not."
-                        ]
-                    ]
-                Nothing ->
-                  CFGWithTypes
-                    { cfgWithTypes = cfg,
-                      cfgArgFullTypes = argFTys,
-                      cfgRetFullType = Void,
-                      cfgIsVarArgs = Some varArgs
-                    }
-            cRetTy ->
-              case retTy of
-                Nothing -> panic "findFun" ["Missing return type"]
-                Just (Some retTy') ->
-                  case testCompatibility (Proxy :: Proxy arch) retTy' cRetTy of
-                    Just Refl ->
-                      CFGWithTypes
-                        { cfgWithTypes = cfg,
-                          cfgArgFullTypes = argFTys,
-                          cfgRetFullType = NonVoid retTy',
-                          cfgIsVarArgs = Some varArgs
-                        }
-                    Nothing -> panic "findFun" ["Bad return type"]
+  DeclSymbol m ->
+  CFGWithTypes m arch
+findFun modCtx declSym =
+  case modCtx ^. declTypes . declSymbol declSym of
+    FunctionTypes (MatchingAssign argFTys argCTys) retTy (Some varArgs) ->
+      do let sym@(Symbol name) = getDeclSymbol declSym
+         case modCtx ^. moduleTranslation . to LLVMTrans.cfgMap . at sym of
+           Nothing -> panic "findFunc" ["Missing function:" ++ name]
+           Just (_decl, Crucible.AnyCFG cfg) ->
+             if varArgsReprToBool varArgs
+             then unimplemented "findFun" Unimplemented.VarArgsFunction
+             else
+               case testEquality (Crucible.cfgArgTypes cfg) argCTys of
+                 Nothing -> panic "findFunc" ["Mismatched argument types"]
+                 Just Refl ->
+                   case Crucible.cfgReturnType cfg of
+                     CrucibleTypes.UnitRepr ->
+                       case retTy of
+                         Just (Some _) ->
+                           panic
+                             "findFun"
+                             [ unwords
+                                 [ "Extra return type: Crucible function type was void",
+                                   "but the translated type was not."
+                                 ]
+                             ]
+                         Nothing ->
+                           CFGWithTypes
+                             { cfgWithTypes = cfg,
+                               cfgArgFullTypes = argFTys,
+                               cfgRetFullType = Void,
+                               cfgIsVarArgs = Some varArgs
+                             }
+                     cRetTy ->
+                       case retTy of
+                         Nothing -> panic "findFun" ["Missing return type"]
+                         Just (Some retTy') ->
+                           case testCompatibility (Proxy :: Proxy arch) retTy' cRetTy of
+                             Just Refl ->
+                               CFGWithTypes
+                                 { cfgWithTypes = cfg,
+                                   cfgArgFullTypes = argFTys,
+                                   cfgRetFullType = NonVoid retTy',
+                                   cfgIsVarArgs = Some varArgs
+                                 }
+                             Nothing -> panic "findFun" ["Bad return type"]
