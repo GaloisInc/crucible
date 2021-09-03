@@ -9,7 +9,8 @@ Stability    : provisional
 The functions/types in this module aren't necessarily appropriate for using
 UC-Crux-LLVM as a library: 'TopLevelConfig' selects among a wide variety of
 functionality, a choice that is likely statically known for most library
-use-cases.
+use-cases. Moreover, these functions/types aren't needed (or used) by the rest
+of the library outside of the "UCCrux.LLVM.Main" module.
 -}
 
 module UCCrux.LLVM.Main.Config.Type

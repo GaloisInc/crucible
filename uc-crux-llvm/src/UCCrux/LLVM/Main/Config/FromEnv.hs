@@ -10,7 +10,9 @@ The functions/types in this module aren't necessarily appropriate for using
 UC-Crux-LLVM as a library: Some of them are impure, and they can throw
 exceptions. Moreover, 'UCCruxLLVMOptions' is a monolithic datatype that combines
 configuration options for a wide variety of functionality, which is probably
-unnecessary for most library use-cases.
+unnecessary for most library use-cases. Moreover, these functions/types aren't
+needed (or used) by the rest of the library outside of the "UCCrux.LLVM.Main"
+module.
 -}
 {-# LANGUAGE OverloadedStrings #-}
 

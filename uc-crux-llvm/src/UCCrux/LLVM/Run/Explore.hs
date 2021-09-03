@@ -83,7 +83,11 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir declSym =
     let L.Symbol func = getDeclSymbol declSym
     let logFilePath = dir </> func -<.> ".summary.log"
     logExists <- doesPathExist logFilePath
-    if not logExists || ExConfig.exploreAgain exOpts
+    if -- If a log exists, then this function has already been
+       -- explored/simulated. Don't explore it again unless the user/client
+       -- specifically requests it. This is useful when exploring a large
+       -- program bit-by-bit.
+       not logExists || ExConfig.exploreAgain exOpts
       then do
         (appCtx ^. log) Hi $ "Exploring " <> Text.pack func
         maybeResult <-
