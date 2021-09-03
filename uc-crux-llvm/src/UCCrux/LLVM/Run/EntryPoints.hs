@@ -27,7 +27,7 @@ import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameTo
 import           UCCrux.LLVM.FullType.Translation (DeclMap, DeclSymbol, makeDeclSymbol)
 
 -- | A list of function names to be explored by the simulator.
-newtype EntryPoints m = EntryPoints { doGetEntryPoints :: [DeclSymbol m] }
+newtype EntryPoints m = EntryPoints { runEntryPoints :: [DeclSymbol m] }
   deriving (Eq, Ord)
 
 -- | This function is inverse to 'getEntryPoints'.
@@ -36,7 +36,7 @@ makeEntryPoints = EntryPoints
 
 -- | This function is inverse to 'makeEntryPoints'.
 getEntryPoints :: EntryPoints m -> [DeclSymbol m]
-getEntryPoints = doGetEntryPoints
+getEntryPoints = runEntryPoints
 
 tryMakeEntryPoints ::
   DeclMap m a ->

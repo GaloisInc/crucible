@@ -16,7 +16,9 @@ import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName)
 import           UCCrux.LLVM.Newtypes.Seconds (Seconds)
 
 data ExploreConfig = ExploreConfig
-  { exploreAgain :: Bool,
+  { -- | Explore functions that already have a log present in the log directory
+    exploreAgain :: Bool,
+    -- | Number of functions to explore
     exploreBudget :: Int,
     exploreTimeout :: Seconds,
     exploreParallel :: Bool,

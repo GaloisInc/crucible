@@ -159,6 +159,7 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
         then
           traverseConcurrently
             Par
+            -- Disable logging during parallel exploration
             (doExplore (appCtx & log .~ (\_ _ -> pure ())))
             declsToExplore
         else for declsToExplore (doExplore appCtx)

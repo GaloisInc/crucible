@@ -5,6 +5,12 @@ Copyright    : (c) Galois, Inc 2021
 License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
+
+The functions in this module aren't necessarily appropriate for using
+UC-Crux-LLVM as a library: Some of them are impure, and they can throw
+exceptions. Moreover, 'UCCruxLLVMOptions' is a monolithic datatype that combines
+configuration options for a wide variety of functionality, which is probably
+unnecessary for most library use-cases.
 -}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -19,7 +25,7 @@ where
 import           Control.Applicative ((<|>))
 import           Control.Lens (Lens', lens)
 import           Control.Monad (when)
-import           Data.List.NonEmpty (nonEmpty)
+import           Data.List.NonEmpty (NonEmpty, nonEmpty)
 import           Data.Word (Word64)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -45,8 +51,8 @@ import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
 -- Processed into a 'TopLevelConfig'.
 data UCCruxLLVMOptions = UCCruxLLVMOptions
   { ucLLVMOptions :: LLVMOptions,
-    crashEquivalence :: FilePath,
-    crashEquivalenceStrict :: Bool,
+    crashOrder :: FilePath,
+    crashEquivalence :: Bool,
     doExplore :: Bool,
     reExplore :: Bool,
     exploreBudget :: Int,
@@ -75,27 +81,34 @@ processUCCruxLLVMOptions ::
 processUCCruxLLVMOptions (initCOpts, initUCOpts) =
   do
     let appCtx = makeAppContext (verbosityFromInt (verbosity initUCOpts))
-    let doCrashEquivalence = crashEquivalence initUCOpts /= ""
+    let doCrashOrder = crashOrder initUCOpts /= ""
 
-    entries <-
-      if doExplore initUCOpts
-      then pure Nothing
-      else
-        if doCrashEquivalence
-        then pure (nonEmpty (entryPoints initUCOpts))
-        else
-          Just <$>
-            maybe
-              (die
-                (unwords
-                  [ "At least one entry point (--entry-points) is required",
-                    "(or try --explore or --crash-equivalence)"
-                  ]))
-              pure
-              (nonEmpty (entryPoints initUCOpts))
+    -- Figure out the entry points. If exploration mode is selected, the
+    -- specified entry points are irrelevant. If crash ordering is selected,
+    -- then entry points may or may not be specified. If neither is selected,
+    -- then entry points must be provided.
+    let makeEntries :: UCCruxLLVMOptions -> IO (Maybe (NonEmpty FunctionName))
+        makeEntries uco =
+          if doExplore initUCOpts
+          then pure Nothing
+          else
+            if doCrashOrder
+            then pure (nonEmpty (entryPoints uco))
+            else
+              Just <$>
+                maybe
+                  (die
+                    (unwords
+                      [ "At least one entry point (--entry-points) is required",
+                        "(or try --explore or --crash-order)"
+                      ]))
+                  pure
+                  (nonEmpty (entryPoints uco))
 
-    when (doExplore initUCOpts && doCrashEquivalence) $
-      die "Can't specify both --explore and --crash-equivalence"
+    entries <- makeEntries initUCOpts
+
+    when (doExplore initUCOpts && doCrashOrder) $
+      die "Can't specify both --explore and --crash-order"
     (finalCOpts, finalLLOpts) <-
       processLLVMOptions
         ( initCOpts
@@ -104,41 +117,43 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
             },
           ucLLVMOptions initUCOpts
         )
-    pure
-      ( appCtx
-      , finalCOpts
-      , Config.TopLevelConfig
-          { Config.ucLLVMOptions = finalLLOpts,
-            Config.runConfig =
-              case entries of
-                Just ents -> Config.RunOn ents
-                Nothing ->
-                  if doExplore initUCOpts
-                  then
-                    Config.Explore
-                      (ExConfig.ExploreConfig
-                        { ExConfig.exploreAgain = reExplore initUCOpts,
-                          ExConfig.exploreBudget = exploreBudget initUCOpts,
-                          ExConfig.exploreTimeout = exploreTimeout initUCOpts,
-                          ExConfig.exploreParallel = exploreParallel initUCOpts,
-                          ExConfig.exploreSkipFunctions = skipFunctions initUCOpts
-                        })
-                  else
-                    Config.CrashEquivalence
-                      (EqConfig.EquivalenceConfig
-                        { EqConfig.equivStrict =
-                            crashEquivalenceStrict initUCOpts,
-                          EqConfig.equivModule = crashEquivalence initUCOpts,
-                          EqConfig.equivEntryPoints = entryPoints initUCOpts
-                        })
-          }
-      )
+
+    let topConf =
+          Config.TopLevelConfig
+            { Config.ucLLVMOptions = finalLLOpts,
+              Config.runConfig =
+                case entries of
+                  Just ents -> Config.RunOn ents
+                  Nothing ->
+                    if doExplore initUCOpts
+                    then
+                      Config.Explore
+                        (ExConfig.ExploreConfig
+                          { ExConfig.exploreAgain = reExplore initUCOpts,
+                            ExConfig.exploreBudget = exploreBudget initUCOpts,
+                            ExConfig.exploreTimeout = exploreTimeout initUCOpts,
+                            ExConfig.exploreParallel = exploreParallel initUCOpts,
+                            ExConfig.exploreSkipFunctions = skipFunctions initUCOpts
+                          })
+                    else
+                      Config.CrashEquivalence
+                        (EqConfig.EquivalenceConfig
+                          { EqConfig.equivOrOrder =
+                              if crashEquivalence initUCOpts
+                              then EqConfig.Equivalence
+                              else EqConfig.Order,
+                            EqConfig.equivModule = crashOrder initUCOpts,
+                            EqConfig.equivEntryPoints = entryPoints initUCOpts
+                          })
+            }
+  
+    return (appCtx, finalCOpts, topConf)
+
+crashOrderDoc :: Text
+crashOrderDoc = "Check crash-ordering with another LLVM bitcode module"
 
 crashEquivalenceDoc :: Text
-crashEquivalenceDoc = "Check crash-equivalence with another LLVM bitcode module"
-
-crashEquivalenceStrictDoc :: Text
-crashEquivalenceStrictDoc = "Check for strict crash equivalence"
+crashEquivalenceDoc = "Check for crash equivalence, rather than just ordering"
 
 exploreDoc :: Text
 exploreDoc = "Run in exploration mode"
@@ -172,8 +187,8 @@ ucCruxLLVMConfig = do
       { Crux.cfgFile =
           UCCruxLLVMOptions
             <$> Crux.cfgFile llvmOpts
-            <*> Crux.section "crash-equivalence" Crux.fileSpec "" crashEquivalenceDoc
-            <*> Crux.section "strict-crash-equivalence" Crux.yesOrNoSpec False crashEquivalenceStrictDoc
+            <*> Crux.section "crash-order" Crux.fileSpec "" crashOrderDoc
+            <*> Crux.section "crash-equivalence" Crux.yesOrNoSpec False crashEquivalenceDoc
             <*> Crux.section "explore" Crux.yesOrNoSpec False exploreDoc
             <*> Crux.section "re-explore" Crux.yesOrNoSpec False reExploreDoc
             <*> Crux.section "explore-budget" Crux.numSpec 8 exploreBudgetDoc
@@ -194,16 +209,16 @@ ucCruxLLVMConfig = do
           (Crux.liftOptDescr ucCruxLLVMOptionsToLLVMOptions <$> Crux.cfgCmdLineFlag llvmOpts)
             ++ [ Crux.Option
                    []
-                   ["crash-equivalence"]
-                   (Text.unpack crashEquivalenceDoc)
+                   ["crash-order"]
+                   (Text.unpack crashOrderDoc)
                    $ Crux.ReqArg "LLVMMODULE" $
-                     \v opts -> Right opts {crashEquivalence = v},
+                     \v opts -> Right opts {crashOrder = v},
                  Crux.Option
                    []
-                   ["strict-crash-equivalence"]
-                   (Text.unpack crashEquivalenceStrictDoc)
+                   ["crash-equivalence"]
+                   (Text.unpack crashEquivalenceDoc)
                    $ Crux.NoArg $
-                     \opts -> Right opts {crashEquivalenceStrict = True},
+                     \opts -> Right opts {crashEquivalence = True},
                  Crux.Option
                    []
                    ["explore"]

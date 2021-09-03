@@ -198,7 +198,16 @@ mainWithConfigs appCtx cruxOpts topConf =
                llOpts
            memVar' <- mkMemVar "uc-crux-llvm:llvm_memory'" halloc
            SomeModuleContext' modCtx' <- translateFile llOpts halloc memVar' path'
-           void $ checkEquiv appCtx modCtx modCtx' halloc cruxOpts llOpts (EqConfig.equivEntryPoints eqConfig)
+           void $
+             checkEquiv
+               appCtx
+               modCtx
+               modCtx'
+               halloc
+               cruxOpts
+               llOpts
+               (EqConfig.equivOrOrder eqConfig)
+               (EqConfig.equivEntryPoints eqConfig)
     return ExitSuccess
 
 translateLLVMModule ::

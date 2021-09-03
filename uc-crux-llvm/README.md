@@ -213,10 +213,10 @@ implementations of the same interface) for *crash-equivalence*, meaning
 the two implementations are considered the same unless UC-Crux-LLVM can find a
 bug in one but not the other.
 
-The argument to the `--check-equivalence` flag is a second program to check for
+The argument to the `--check-ordering` flag is a second program to check for
 *crash ordering*, i.e. UC-Crux-LLVM checks that the program passed to
-`--check-equivalence` has *fewer* crashes than the one passed as an argument. If
-the `--strict-crash-equivalence` is also passed to UC-Crux-LLVM, it checks for
+`--check-ordering` has *fewer* crashes than the one passed as an argument. If
+the `--crash-equivalence` is also passed to UC-Crux-LLVM, it checks for
 *crash-equivalence*. Crash-ordering is a partial order over programs, and
 crash-equivalence is an equivalence relation. Use `--entry-points` to check
 specific functions, or `--explore` to check all functions from both programs
