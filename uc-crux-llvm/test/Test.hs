@@ -88,9 +88,6 @@ import qualified Crux.LLVM.Log as Log
 
 -- Code being tested
 import           Paths_uc_crux_llvm (version)
-import qualified UCCrux.LLVM.Config.FromEnv as Config.FromEnv
-import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
-import qualified UCCrux.LLVM.Config.Type as Config
 import qualified UCCrux.LLVM.Main as Main
 import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Context.App (AppContext)
@@ -101,6 +98,9 @@ import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
 import qualified UCCrux.LLVM.Logging as Log
+import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
+import qualified UCCrux.LLVM.Main.Config.Type as Config
+import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)

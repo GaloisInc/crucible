@@ -5,9 +5,14 @@ Copyright    : (c) Galois, Inc 2021
 License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
+
+The functions/types in this module aren't necessarily appropriate for using
+UC-Crux-LLVM as a library: 'TopLevelConfig' selects among a wide variety of
+functionality, a choice that is likely statically known for most library
+use-cases.
 -}
 
-module UCCrux.LLVM.Config.Type
+module UCCrux.LLVM.Main.Config.Type
   ( RunConfig (..),
     TopLevelConfig (..),
   )
@@ -31,4 +36,3 @@ data TopLevelConfig = TopLevelConfig
   { ucLLVMOptions :: LLVMOptions,
     runConfig :: RunConfig
   }
-

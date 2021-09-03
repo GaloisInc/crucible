@@ -6,7 +6,7 @@ License      : BSD3
 Maintainer   : Langston Barrett <langston@galois.com>
 Stability    : provisional
 
-The functions in this module aren't necessarily appropriate for using
+The functions/types in this module aren't necessarily appropriate for using
 UC-Crux-LLVM as a library: Some of them are impure, and they can throw
 exceptions. Moreover, 'UCCruxLLVMOptions' is a monolithic datatype that combines
 configuration options for a wide variety of functionality, which is probably
@@ -14,7 +14,7 @@ unnecessary for most library use-cases.
 -}
 {-# LANGUAGE OverloadedStrings #-}
 
-module UCCrux.LLVM.Config.FromEnv
+module UCCrux.LLVM.Main.Config.FromEnv
   ( UCCruxLLVMOptions (..),
     ucCruxLLVMConfig,
     processUCCruxLLVMOptions,
@@ -36,12 +36,12 @@ import           Crux.Config.Common (CruxOptions, loopBound, recursionBound)
 import           Crux.LLVM.Config (LLVMOptions, llvmCruxConfig)
 import           CruxLLVMMain (processLLVMOptions)
 
-import           UCCrux.LLVM.Config.Type (TopLevelConfig)
-import qualified UCCrux.LLVM.Config.Type as Config
 import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import qualified UCCrux.LLVM.Run.Explore.Config as ExConfig
 import           UCCrux.LLVM.Logging (verbosityFromInt)
+import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
+import qualified UCCrux.LLVM.Main.Config.Type as Config
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Newtypes.Seconds (Seconds, secondsFromInt)
 {- ORMOLU_ENABLE -}
@@ -88,13 +88,10 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
     -- then entry points may or may not be specified. If neither is selected,
     -- then entry points must be provided.
     let makeEntries :: UCCruxLLVMOptions -> IO (Maybe (NonEmpty FunctionName))
-        makeEntries uco =
-          if doExplore initUCOpts
-          then pure Nothing
-          else
-            if doCrashOrder
-            then pure (nonEmpty (entryPoints uco))
-            else
+        makeEntries uco
+          | doExplore uco = pure Nothing
+          | crashOrder uco /= "" = pure (nonEmpty (entryPoints uco))
+          | otherwise =
               Just <$>
                 maybe
                   (die
@@ -146,7 +143,7 @@ processUCCruxLLVMOptions (initCOpts, initUCOpts) =
                             EqConfig.equivEntryPoints = entryPoints initUCOpts
                           })
             }
-  
+
     return (appCtx, finalCOpts, topConf)
 
 crashOrderDoc :: Text

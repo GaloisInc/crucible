@@ -34,8 +34,6 @@ library
     UCCrux.LLVM.Classify
     UCCrux.LLVM.Classify.Poison
     UCCrux.LLVM.Classify.Types
-    UCCrux.LLVM.Config.FromEnv
-    UCCrux.LLVM.Config.Type
     UCCrux.LLVM.Constraints
     UCCrux.LLVM.Context.App
     UCCrux.LLVM.Context.Function
@@ -54,6 +52,8 @@ library
     UCCrux.LLVM.FullType.VarArgs
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
+    UCCrux.LLVM.Main.Config.FromEnv
+    UCCrux.LLVM.Main.Config.Type
     UCCrux.LLVM.Newtypes.FunctionName
     UCCrux.LLVM.Newtypes.Seconds
     UCCrux.LLVM.Overrides.Skip

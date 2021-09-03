@@ -76,9 +76,6 @@ import qualified Crux.LLVM.Log as Log
 import           Crux.LLVM.Simulate (parseLLVM)
 
 import           Paths_uc_crux_llvm (version)
-import qualified UCCrux.LLVM.Config.FromEnv as Config.FromEnv
-import           UCCrux.LLVM.Config.Type (TopLevelConfig)
-import qualified UCCrux.LLVM.Config.Type as Config
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation, declTypes)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
@@ -86,6 +83,9 @@ import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.Translation (ppTypeTranslationError)
 import qualified UCCrux.LLVM.Logging as Log
+import qualified UCCrux.LLVM.Main.Config.FromEnv as Config.FromEnv
+import           UCCrux.LLVM.Main.Config.Type (TopLevelConfig)
+import qualified UCCrux.LLVM.Main.Config.Type as Config
 import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Explore (explore)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
