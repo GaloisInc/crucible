@@ -66,6 +66,7 @@ import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 
 import           Crux.LLVM.Overrides (ArchOk)
 
+import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints, minimalConstrainedShape)
 import           UCCrux.LLVM.Context.App (AppContext)
 import           UCCrux.LLVM.Context.Function (FunctionContext, argumentCrucibleTypes, argumentFullTypes)
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation, withTypeContext, llvmModule, moduleTypes, globalTypes)
@@ -74,13 +75,12 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
-import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, globalSymbol, makeGlobalSymbol)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
+import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, makeGlobalSymbol, getModule)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints, minimalConstrainedShape)
 {- ORMOLU_ENABLE -}
 
 newtype SymValue sym arch ft = SymValue {getSymValue :: Crucible.RegValue sym (ToCrucibleType arch ft)}
@@ -411,7 +411,7 @@ populateNonConstGlobals ::
   Setup m arch sym argTypes ()
 populateNonConstGlobals modCtx sym constrainedGlobals =
   for_
-    (modCtx ^. llvmModule . to L.modGlobals . to (filter (not . isConstGlobal)))
+    (modCtx ^. llvmModule . to getModule . to L.modGlobals . to (filter (not . isConstGlobal)))
     populateNonConstGlobal
   where
     isConstGlobal = L.gaConstant . L.globalAttrs
@@ -497,7 +497,7 @@ setupExecution appCtx modCtx funCtx sym constraints = do
     withTypeContext modCtx $
       liftIO $
         LLVMGlobals.populateConstGlobals sym (LLVMTrans.globalInitMap moduleTrans)
-          =<< LLVMGlobals.initializeAllMemory sym llvmCtxt (modCtx ^. llvmModule)
+          =<< LLVMGlobals.initializeAllMemory sym llvmCtxt (modCtx ^. llvmModule . to getModule)
   runSetup modCtx mem $
     do
       populateNonConstGlobals modCtx sym (constraints ^. globalConstraints)

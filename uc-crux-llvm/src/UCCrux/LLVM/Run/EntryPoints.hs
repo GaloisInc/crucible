@@ -24,7 +24,7 @@ import qualified Text.LLVM.AST as L
 import           Crux.LLVM.Config (throwCError, CError(MissingFun))
 
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameToString)
-import           UCCrux.LLVM.FullType.Translation (DefnMap, DefnSymbol, makeDefnSymbol)
+import           UCCrux.LLVM.Module (DefnMap, DefnSymbol, makeDefnSymbol)
 
 -- | A list of function names to be explored by the simulator.
 newtype EntryPoints m = EntryPoints { runEntryPoints :: [DefnSymbol m] }

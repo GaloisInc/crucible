@@ -33,7 +33,6 @@ where
 import           Control.Monad (when)
 import           Control.Lens ((^.), Simple, Lens, lens)
 import           Data.Functor.Const (Const(Const, getConst))
-import qualified Data.List as List
 import qualified Data.Map as Map
 import           Data.Map (Map)
 import           Data.Monoid (getFirst, First(First))
@@ -55,8 +54,8 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, withTypeContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented, Unimplemented(VarArgsFunction))
-import           UCCrux.LLVM.FullType.Translation (FuncSymbol, getFuncSymbol)
 import           UCCrux.LLVM.FullType.Type (FullType, FullTypeRepr, MapToCrucibleType)
+import           UCCrux.LLVM.Module (DefnSymbol, defnSymbol, getDefnSymbol, moduleDefnMap, getModule)
 {- ORMOLU_ENABLE -}
 
 -- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
@@ -131,21 +130,16 @@ makeFunctionContext ::
   forall m arch fullTypes.
   ArchOk arch =>
   ModuleContext m arch ->
-  FuncSymbol m ->
+  DefnSymbol m ->
   Ctx.Assignment (FullTypeRepr m) fullTypes ->
   Ctx.Assignment CrucibleTypes.TypeRepr (MapToCrucibleType arch fullTypes) ->
   Either FunctionContextError (FunctionContext m arch fullTypes)
-makeFunctionContext modCtx declSym argFullTypes argTypes =
+makeFunctionContext modCtx defnSymb argFullTypes argTypes =
   do
     let llvmMod = modCtx ^. llvmModule
-    let symbol@(L.Symbol strName) = getFuncSymbol declSym
+    let L.Symbol strName = getDefnSymbol defnSymb
     let name = Text.pack strName
-    def <-
-      case List.find
-        ((== symbol) . L.defName)
-        (L.modDefines llvmMod) of
-        Nothing -> Left (MissingEntrypoint name)
-        Just d -> Right d
+    let def = moduleDefnMap llvmMod ^. defnSymbol defnSymb
     when (L.defVarArgs def) $
       unimplemented "makeFunctionContext" VarArgsFunction
     let trans = modCtx ^. moduleTranslation
@@ -181,7 +175,7 @@ makeFunctionContext modCtx declSym argFullTypes argTypes =
               (Const . getFirst . getConst)
               ( mapToContext
                   (Ctx.size argFullTypes)
-                  (fmap (First . Just) (debugInfoArgNames llvmMod def))
+                  (fmap (First . Just) (debugInfoArgNames (getModule llvmMod) def))
               )
         }
 

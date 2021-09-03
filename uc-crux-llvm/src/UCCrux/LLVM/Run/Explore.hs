@@ -17,7 +17,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log, writeFile)
 
-import           Control.Lens ((.~), (^.))
+import           Control.Lens ((.~), (^.), to)
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race)
 import           Control.Scheduler (Comp(Par), traverseConcurrently)
@@ -51,7 +51,7 @@ import           UCCrux.LLVM.Newtypes.FunctionName (functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, defnTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.Translation (DefnSymbol, getDefnSymbol, makeDefnSymbol)
+import           UCCrux.LLVM.Module (DefnSymbol, getDefnSymbol, makeDefnSymbol, getModule)
 import           UCCrux.LLVM.Logging (Verbosity(Low, Med, Hi))
 import           UCCrux.LLVM.Newtypes.Seconds (secondsToMicroseconds)
 import           UCCrux.LLVM.Run.Explore.Config (ExploreConfig)
@@ -142,7 +142,7 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
             ((\(L.Symbol f) -> f) . L.defName)
             (take
               (ExConfig.exploreBudget exOpts)
-              (L.modDefines (modCtx ^. llvmModule)))
+              (L.modDefines (modCtx ^. llvmModule . to getModule)))
     let dir = bldDir cruxOpts </> takeFileName (modCtx ^. moduleFilePath) -<.> ""
     createDirectoryIfMissing True dir
     let toSkip = map functionNameToString (ExConfig.exploreSkipFunctions exOpts)

@@ -23,7 +23,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log)
 
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), to)
 import           Control.Monad (foldM)
 import           Control.Exception (throw)
 import           Data.Foldable (toList)
@@ -65,7 +65,7 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (Unimplemented, catchUnimplemented)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
 import           UCCrux.LLVM.FullType (MapToCrucibleType)
-import           UCCrux.LLVM.FullType.Translation (DefnSymbol, FuncSymbol(..), getDefnSymbol, makeDefnSymbol)
+import           UCCrux.LLVM.Module (DefnSymbol, FuncSymbol(..), getDefnSymbol, makeDefnSymbol, getModule)
 import           UCCrux.LLVM.Run.EntryPoints (EntryPoints, getEntryPoints, makeEntryPoints)
 import           UCCrux.LLVM.Run.Result (BugfindingResult(..), SomeBugfindingResult(..))
 import qualified UCCrux.LLVM.Run.Result as Result
@@ -204,10 +204,9 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
           withPtrWidth
             ptrW
             ( do
-                let fnSymb = FuncSymbol (Right fn)
                 CFGWithTypes cfg argFTys _retTy _varArgs <-
-                  pure (findFun modCtx fnSymb)
-                case makeFunctionContext modCtx fnSymb argFTys (Crucible.cfgArgTypes cfg) of
+                  pure (findFun modCtx (FuncSymbol (Right fn)))
+                case makeFunctionContext modCtx fn argFTys (Crucible.cfgArgTypes cfg) of
                   Left err -> panic "loopOnFunction" [Text.unpack (ppFunctionContextError err)]
                   Right funCtx ->
                     do
@@ -272,7 +271,7 @@ zipResults appCtx modCtx1 modCtx2 halloc cruxOpts llOpts entries =
           Set.fromList
             ( map
                 ((\(L.Symbol f) -> f) . L.defName)
-                (L.modDefines (modc ^. llvmModule))
+                (L.modDefines (modc ^. llvmModule . to getModule))
             )
     let intersect =
           Set.toList

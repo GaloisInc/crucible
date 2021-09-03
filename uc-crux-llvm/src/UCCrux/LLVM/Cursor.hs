@@ -55,8 +55,8 @@ import           Data.Parameterized.Classes (OrdF(compareF), ixF', fromOrdering)
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+))
 import qualified Data.Parameterized.TH.GADT as U
 
-import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, FuncSymbol, getGlobalSymbol, getFuncSymbol)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(..), ModuleTypes, asFullType)
+import           UCCrux.LLVM.Module (GlobalSymbol, FuncSymbol, getGlobalSymbol, getFuncSymbol)
 {- ORMOLU_ENABLE -}
 
 -- | A 'Cursor' points to a specific part of a value (i.e. a function argument

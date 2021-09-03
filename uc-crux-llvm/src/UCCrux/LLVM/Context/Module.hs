@@ -38,7 +38,8 @@ import           Control.Lens ((^.), Simple, Getter, Lens, lens, to, at)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
 
-import           Text.LLVM (Module, Symbol(Symbol))
+import           Text.LLVM.AST (Symbol(Symbol))
+import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(Some))
@@ -58,16 +59,17 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (testCompatibility)
-import           UCCrux.LLVM.FullType.Translation (FuncSymbol, DeclMap, DefnMap, FuncMap, GlobalMap, TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines, funcSymbol, getFuncSymbol, funcMapDecls, funcMapDefns)
+import           UCCrux.LLVM.FullType.Translation (TranslatedTypes(..), TypeTranslationError, FunctionTypes(..), MatchingAssign(..), translateModuleDefines)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr, ModuleTypes, MapToCrucibleType)
 import           UCCrux.LLVM.FullType.ReturnType (ReturnType(..), ReturnTypeToCrucibleType)
 import           UCCrux.LLVM.FullType.VarArgs (VarArgsRepr, varArgsReprToBool)
+import           UCCrux.LLVM.Module (Module, FuncSymbol, DeclMap, DefnMap, FuncMap, GlobalMap, funcSymbol, getFuncSymbol, funcMapDecls, funcMapDefns)
 {- ORMOLU_ENABLE -}
 
 -- | The @m@ type parameter represents a specific LLVM module
 data ModuleContext m arch = ModuleContext
   { _moduleFilePath :: FilePath,
-    _llvmModule :: Module,
+    _llvmModule :: Module m,
     _moduleTypes :: ModuleTypes m,
     _globalTypes :: GlobalMap m (Some (FullTypeRepr m)),
     _funcTypes :: FuncMap m (FunctionTypes m arch),
@@ -77,7 +79,7 @@ data ModuleContext m arch = ModuleContext
 moduleFilePath :: Simple Lens (ModuleContext m arch) FilePath
 moduleFilePath = lens _moduleFilePath (\s v -> s {_moduleFilePath = v})
 
-llvmModule :: Simple Lens (ModuleContext m arch) Module
+llvmModule :: Simple Lens (ModuleContext m arch) (Module m)
 llvmModule = lens _llvmModule (\s v -> s {_llvmModule = v})
 
 moduleTypes :: Simple Lens (ModuleContext m arch) (ModuleTypes m)
@@ -109,17 +111,17 @@ withTypeContext context computation =
 makeModuleContext ::
   ArchOk arch =>
   FilePath ->
-  Module ->
+  L.Module ->
   ModuleTranslation arch ->
   Either TypeTranslationError (SomeModuleContext arch)
 makeModuleContext path llvmMod trans =
   let ?lc = trans ^. LLVMTrans.transContext . LLVMTrans.llvmTypeCtx
    in case translateModuleDefines llvmMod trans of
         Left err -> Left err
-        Right (TranslatedTypes modTypes globTypes decTypes) ->
+        Right (TranslatedTypes llvmMod' modTypes globTypes decTypes) ->
           Right $
             SomeModuleContext $
-              ModuleContext path llvmMod modTypes globTypes decTypes trans
+              ModuleContext path llvmMod' modTypes globTypes decTypes trans
 
 -- ------------------------------------------------------------------------------
 -- Looking up CFGs
