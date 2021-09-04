@@ -738,6 +738,64 @@ llvmGetenvOverride =
   [llvmOvr| i8* @getenv( i8* ) |]
   (\_ sym _args -> liftIO $ mkNullPointer sym PtrWidth)
 
+llvmHtonlOverride ::
+  (IsSymInterface sym, ?lc :: TypeContext) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 32)
+      (BVType 32)
+llvmHtonlOverride =
+  [llvmOvr| i32 @htonl( i32 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @4)) args)
+
+llvmHtonsOverride ::
+  (IsSymInterface sym, ?lc :: TypeContext) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 16)
+      (BVType 16)
+llvmHtonsOverride =
+  [llvmOvr| i16 @htons( i16 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @2)) args)
+
+llvmNtohlOverride ::
+  (IsSymInterface sym, ?lc :: TypeContext) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 32)
+      (BVType 32)
+llvmNtohlOverride =
+  [llvmOvr| i32 @ntohl( i32 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @4)) args)
+
+llvmNtohsOverride ::
+  (IsSymInterface sym, ?lc :: TypeContext) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 16)
+      (BVType 16)
+llvmNtohsOverride =
+  [llvmOvr| i16 @ntohs( i16 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @2)) args)
+
+callBSwap ::
+  (1 <= width, IsSymInterface sym) =>
+  sym ->
+  NatRepr width ->
+  RegEntry sym (BVType (width * 8)) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType (width * 8)))
+callBSwap sym widthRepr (regValue -> vec) = liftIO $ bvSwap sym widthRepr vec
+
+-- | If the data layout is little-endian, run 'callBSwap' on the input.
+-- Otherwise, return the input unchanged. This is the workhorse for the
+-- @hton{s,l}@ and @ntoh{s,l}@ overrides.
+callBSwapIfLittleEndian ::
+  (1 <= width, IsSymInterface sym, ?lc :: TypeContext) =>
+  sym ->
+  NatRepr width ->
+  RegEntry sym (BVType (width * 8)) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType (width * 8)))
+callBSwapIfLittleEndian sym widthRepr vec =
+  case (llvmDataLayout ?lc)^.intLayout of
+    BigEndian    -> pure (regValue vec)
+    LittleEndian -> callBSwap sym widthRepr vec
+
 ----------------------------------------------------------------------------
 -- atexit stuff
 
