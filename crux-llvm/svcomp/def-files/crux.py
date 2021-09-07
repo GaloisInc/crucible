@@ -51,6 +51,13 @@ class Tool(benchexec.tools.template.BaseTool2):
             m = override_pat.search(line)
             if m:
                 return result.RESULT_UNKNOWN + "(no override: " + m.group(1) + ")"
+            # Crucible does not currently support inline assembly
+            elif "unsupported LLVM value: ValAsm" in line:
+                return result.RESULT_UNKNOWN + "(inline assembly)"
+            # Crucible does not currently support translating `long double`s
+            # (https://github.com/GaloisInc/crucible/issues/810)
+            elif "unsupported LLVM value: ValFP80" in line:
+                return result.RESULT_UNKNOWN + "(long double)"
             elif "Verification result: VERIFIED" in line:
                 return result.RESULT_TRUE_PROP
             elif "Verification result: FALSIFIED (valid-free)" in line:
