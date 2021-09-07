@@ -226,8 +226,8 @@ liftQQType tp =
     QQIntVar nm  -> [| L.PrimType (L.Integer (fromInteger (intValue $(varE (mkName nm)) ))) |]
     QQSizeT      -> varE 'IC.llvmSizeT
     QQSSizeT      -> varE 'IC.llvmSSizeT
-    QQAlias nm   -> [| L.Alias $(dataToExpQ (const Nothing) nm) |]
-    QQPrim pt    -> [| L.PrimType $(dataToExpQ (const Nothing) pt) |]
+    QQAlias nm   -> [| L.Alias nm |]
+    QQPrim pt    -> [| L.PrimType pt |]
     QQPtrTo t    -> [| L.PtrTo $(liftQQType t) |]
     QQArray n t  -> [| L.Array n $(liftQQType t) |]
     QQVector n t -> [| L.Vector n $(liftQQType t) |]
@@ -251,7 +251,7 @@ liftQQDecl (QQDeclare ret nm args varargs) =
     |]
   where
   f (Left v)    = varE (mkName v)
-  f (Right sym) = dataToExpQ (const Nothing) sym
+  f (Right sym) = lift sym
 
 liftKnownNat :: Integral a => a -> Q Exp
 liftKnownNat n = [| knownNat @ $(litT (numTyLit (toInteger n))) |]
