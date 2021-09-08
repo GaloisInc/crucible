@@ -550,10 +550,7 @@ llvmBSwapOverride widthRepr =
         -- From the LLVM docs:
         -- declare i16 @llvm.bswap.i16(i16 <id>)
         [llvmOvr| #width8 $nm( #width8 ) |]
-        (\_ sym args -> liftIO $
-            let vec :: SymBV sym (width * 8)
-                vec = regValue (args^._1)
-            in bvSwap sym widthRepr vec)
+        (\_ sym args -> Ctx.uncurryAssignment (Libc.callBSwap sym widthRepr) args)
     }}}
 
 

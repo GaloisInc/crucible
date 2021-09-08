@@ -252,6 +252,10 @@ declare_overrides =
   , basic_llvm_override Libc.llvmPutCharOverride
   , basic_llvm_override Libc.llvmExitOverride
   , basic_llvm_override Libc.llvmGetenvOverride
+  , basic_llvm_override Libc.llvmHtonlOverride
+  , basic_llvm_override Libc.llvmHtonsOverride
+  , basic_llvm_override Libc.llvmNtohlOverride
+  , basic_llvm_override Libc.llvmNtohsOverride
 
   , basic_llvm_override Libc.cxa_atexitOverride
   , basic_llvm_override Libc.posixMemalignOverride
