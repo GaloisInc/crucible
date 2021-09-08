@@ -153,29 +153,29 @@ joinRegEntry ::
   C.RegEntry sym tp ->
   FixpointMonad sym (C.RegEntry sym tp)
 joinRegEntry sym left right = do
- liftIO $ putStrLn $ "joinRegEntry: left_type=" ++ show (C.regType left) ++ " , right_type=" ++ show (C.regType right)
+--  liftIO $ putStrLn $ "joinRegEntry: left_type=" ++ show (C.regType left) ++ " , right_type=" ++ show (C.regType right)
  case C.regType left of
   C.LLVMPointerRepr w
     | List.isPrefixOf "cmacaw_reg" (show $ W4.printSymNat $ C.llvmPointerBlock (C.regValue left))
     , List.isPrefixOf "cmacaw_reg" (show $ W4.printSymExpr $ C.llvmPointerOffset (C.regValue left)) -> do
-      liftIO $ putStrLn $ "joinRegEntry: cmacaw_reg"
+      -- liftIO $ putStrLn $ "joinRegEntry: cmacaw_reg"
       return left
     | C.llvmPointerBlock (C.regValue left) == C.llvmPointerBlock (C.regValue right) -> do
-      liftIO $ putStrLn $ "joinRegEntry: LLVMPointerRepr"
+      -- liftIO $ putStrLn $ "joinRegEntry: LLVMPointerRepr"
       subst <- get
       if isJust (W4.testEquality (C.llvmPointerOffset (C.regValue left)) (C.llvmPointerOffset (C.regValue right))) then do
-        liftIO $ putStrLn $ "joinRegEntry: left == right"
+        -- liftIO $ putStrLn $ "joinRegEntry: left == right"
         return left
       else case MapF.lookup (C.llvmPointerOffset (C.regValue left)) subst of
         Just join_entry -> do
-          liftIO $ putStrLn $ "joinRegEntry: LLVMPointerRepr: Just: " ++ show (W4.printSymExpr $ bodyValue join_entry)  ++ " -> " ++ show (W4.printSymExpr $ C.llvmPointerOffset (C.regValue right))
+          -- liftIO $ putStrLn $ "joinRegEntry: LLVMPointerRepr: Just: " ++ show (W4.printSymExpr $ bodyValue join_entry)  ++ " -> " ++ show (W4.printSymExpr $ C.llvmPointerOffset (C.regValue right))
           put $ MapF.insert
             (C.llvmPointerOffset (C.regValue left))
             (join_entry { bodyValue = (C.llvmPointerOffset (C.regValue right)) })
             subst
           return left
         Nothing -> do
-          liftIO $ putStrLn $ "joinRegEntry: LLVMPointerRepr: Nothing"
+          -- liftIO $ putStrLn $ "joinRegEntry: LLVMPointerRepr: Nothing"
           join_varaible <- liftIO $ W4.freshConstant sym (fromRight undefined $ W4.userSymbol "foo") (W4.BaseBVRepr w)
           let join_entry = FixpointEntry
                 { headerValue = (C.llvmPointerOffset (C.regValue left))
@@ -184,21 +184,21 @@ joinRegEntry sym left right = do
           put $ MapF.insert join_varaible join_entry subst
           return $ C.RegEntry (C.LLVMPointerRepr w) $ C.LLVMPointer (C.llvmPointerBlock (C.regValue left)) join_varaible
     | otherwise -> do
-      liftIO $ putStrLn $ "joinRegEntry: " ++ show (C.ppPtr $ C.regValue left) ++ " \\/ " ++ show (C.ppPtr $ C.regValue right)
+      -- liftIO $ putStrLn $ "joinRegEntry: " ++ show (C.ppPtr $ C.regValue left) ++ " \\/ " ++ show (C.ppPtr $ C.regValue right)
       fail ""
   C.BoolRepr
     | List.isPrefixOf "cmacaw" (show $ W4.printSymExpr $ (C.regValue left)) -> do
-      liftIO $ putStrLn $ "joinRegEntry: " ++ (show $ W4.printSymExpr $ (C.regValue left))
+      -- liftIO $ putStrLn $ "joinRegEntry: " ++ (show $ W4.printSymExpr $ (C.regValue left))
       return left
     | otherwise -> do
-      liftIO $ putStrLn $ "joinRegEntry: " ++ show (W4.printSymExpr $ C.regValue left) ++ " \\/ " ++ show (W4.printSymExpr $ C.regValue right)
+      -- liftIO $ putStrLn $ "joinRegEntry: " ++ show (W4.printSymExpr $ C.regValue left) ++ " \\/ " ++ show (W4.printSymExpr $ C.regValue right)
       join_varaible <- liftIO $ W4.freshConstant sym (fromRight undefined $ W4.userSymbol "macaw_reg") W4.BaseBoolRepr
       return $ C.RegEntry (C.BoolRepr) $ join_varaible
   C.StructRepr field_types -> do
-    liftIO $ putStrLn $ "joinRegEntry: StructRepr"
+    -- liftIO $ putStrLn $ "joinRegEntry: StructRepr"
     C.RegEntry (C.regType left) <$> fmapFC (C.RV . C.regValue) <$> joinRegEntries sym (Ctx.generate (Ctx.size field_types) $ \i -> C.RegEntry (field_types Ctx.! i) $ C.unRV $ (C.regValue left) Ctx.! i) (Ctx.generate (Ctx.size field_types) $ \i -> C.RegEntry (field_types Ctx.! i) $ C.unRV $ (C.regValue right) Ctx.! i)
   _ -> do
-    liftIO $ putStrLn "boo!"
+    -- liftIO $ putStrLn "boo!"
     fail ""
 
 
@@ -238,7 +238,7 @@ findLoopIndex sym substitution = do
         diff <- liftIO $ W4.bvSub sym (bodyValue) variable
         case (BV.asNatural <$> W4.asBV (headerValue), BV.asNatural <$> W4.asBV diff) of
           (Just start, Just step) -> do
-            liftIO $ putStrLn $ "loop: " ++ (show $ W4.printSymExpr variable) ++ "=" ++ show (start, step)
+            -- liftIO $ putStrLn $ "loop: " ++ (show $ W4.printSymExpr variable) ++ "=" ++ show (start, step)
             return $ Just (variable, start, step)
           _ -> return Nothing
       Nothing -> return Nothing)
@@ -409,7 +409,7 @@ simpleLoopFixpoint ::
   IO (C.ExecutionFeature p sym ext rtp)
 simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
   let ?ptrWidth = knownNat @64
-  putStrLn $ "SimpleLoopFixpoint: " ++ show (C.cfgWeakTopologicalOrdering cfg)
+  -- putStrLn $ "SimpleLoopFixpoint: " ++ show (C.cfgWeakTopologicalOrdering cfg)
   let flattenWTOComponent = \case
         C.SCC (C.SCCData{..}) ->  wtoHead : (concatMap flattenWTOComponent wtoComps)
         C.Vertex v -> [v]
@@ -418,7 +418,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
           C.SCC (C.SCCData{..}) -> Just (wtoHead, (wtoHead : (concatMap flattenWTOComponent wtoComps)))
           C.Vertex{} -> Nothing)
         (C.cfgWeakTopologicalOrdering cfg)
-  putStrLn $ "loops: " ++ show loop_map
+  -- putStrLn $ "loops: " ++ show loop_map
 
   fixpoint_stuff_ref <- newIORef @(FixpointStuff sym blocks) $ FixpointStuff
     { fixpointStatus = BeforeFixpoint
@@ -443,7 +443,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
           case fixpointStatus fixpoint_stuff of
 
             BeforeFixpoint -> do
-              putStrLn $ "RunningState: BeforeFixpoint -> ComputeFixpoint"
+              -- putStrLn $ "RunningState: BeforeFixpoint -> ComputeFixpoint"
               assumption_frame_identifier <- C.pushAssumptionFrame sym
               let (Just mem_impl) = C.lookupGlobal mem_var (state ^. C.stateGlobals)
               let mem_impl' = mem_impl { C.memImplHeap = C.pushStackFrameMem "foo" $ C.memImplHeap mem_impl }
@@ -465,7 +465,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
               , Just Refl <- W4.testEquality
                   (fmapFC C.regType $ C.regMap fixpoint_reg_map)
                   (fmapFC C.regType $ C.regMap $ state ^. C.stateCrucibleFrame ^. C.frameRegs) -> do
-                putStrLn $ "RunningState: ComputeFixpoint: " ++ show block_id
+                -- putStrLn $ "RunningState: ComputeFixpoint: " ++ show block_id
                 _ <- C.popAssumptionFrameAndObligations sym $ fixpointAssumptionFrameIdentifier fixpoint_stuff
                 (fixpoint_reg_map', substitution') <- runStateT
                   (joinRegEntries sym (C.regMap fixpoint_reg_map) (C.regMap $ state ^. C.stateCrucibleFrame ^. C.frameRegs)) $
@@ -506,9 +506,9 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
 
                 if MapF.keys substitution' == MapF.keys (substitution fixpoint_stuff)
                   then do
-                    putStrLn $ "RunningState: ComputeFixpoint -> CheckFixpoint"
-                    putStrLn $ "cond: " ++ show (W4.printSymExpr $ fixpointLoopCondition fixpoint_stuff)
-                    putStrLn $ "cond vars: " ++ show (map (C.viewSome W4.printSymExpr) $ map (C.mapSome $ W4.varExpr sym) $ Set.toList $ W4.exprUninterpConstants sym $ fixpointLoopCondition fixpoint_stuff)
+                    -- putStrLn $ "RunningState: ComputeFixpoint -> CheckFixpoint"
+                    -- putStrLn $ "cond: " ++ show (W4.printSymExpr $ fixpointLoopCondition fixpoint_stuff)
+                    -- putStrLn $ "cond vars: " ++ show (map (C.viewSome W4.printSymExpr) $ map (C.mapSome $ W4.varExpr sym) $ Set.toList $ W4.exprUninterpConstants sym $ fixpointLoopCondition fixpoint_stuff)
 
                     foo <- loadMemJoinVariables sym mem_impl' $ fixpointMemSubstitution fixpoint_stuff
                     bar <- loadMemJoinVariables sym mem_impl $ fixpointMemSubstitution fixpoint_stuff
@@ -516,8 +516,8 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
                           MapF.intersectWithKeyMaybe (\_k x y -> Just $ FixpointEntry x y) foo bar
                     let substitution''' = filterSubstitution sym substitution''
                     let (substitution'''', equality_substitution) = uninterpretedConstantEqualitySubstitution sym substitution'''
-                    putStrLn $ "filterSubstitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList substitution'''')
-                    putStrLn $ "equality_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList equality_substitution)
+                    -- putStrLn $ "filterSubstitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr $ bodyValue y)) $ MapF.toList substitution'''')
+                    -- putStrLn $ "equality_substitution: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList equality_substitution)
 
                     let fixpoint_reg_map'' = applysubstitutionRegEntries sym equality_substitution fixpoint_reg_map'
                     -- putStrLn $ "fixpoint_reg_map'': " ++ show fixpoint_reg_map''
@@ -553,8 +553,8 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
                         & C.stateGlobals %~ C.insertGlobal mem_var mem_impl''
 
                   else do
-                    putStrLn $ "RunningState: ComputeFixpoint -> ComputeFixpoint"
-                    putStrLn $ "diff: " ++ show (MapF.size (MapF.intersectWithKeyMaybe (\_k a b -> if isNothing (W4.testEquality a b) then Just a else Nothing) substitution' (substitution fixpoint_stuff)))
+                    -- putStrLn $ "RunningState: ComputeFixpoint -> ComputeFixpoint"
+                    -- putStrLn $ "diff: " ++ show (MapF.size (MapF.intersectWithKeyMaybe (\_k a b -> if isNothing (W4.testEquality a b) then Just a else Nothing) substitution' (substitution fixpoint_stuff)))
 
                     mem_impl'' <- storeMemJoinVariables sym
                       (mem_impl' { C.memImplHeap = C.pushStackFrameMem "foo" (C.memImplHeap mem_impl') })
@@ -581,7 +581,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
               , Just Refl <- W4.testEquality
                   (fmapFC C.regType $ C.regMap fixpoint_reg_map)
                   (fmapFC C.regType $ C.regMap $ state ^. C.stateCrucibleFrame ^. C.frameRegs) -> do
-                putStrLn $ "RunningState: CheckFixpoint -> AfterFixpoint: " ++ show block_id
+                -- putStrLn $ "RunningState: CheckFixpoint -> AfterFixpoint: " ++ show block_id
 
                 (_ :: ()) <- case fixpointLoopIndexBound fixpoint_stuff of
                   LoopIndexBound{ index = loop_index, stop = loop_stop } -> do
@@ -606,7 +606,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
                 (lalala, lalalala) <- liftIO $ foo_func substitution' $ fixpointLoopCondition fixpoint_stuff
                 locloc <- W4.getCurrentProgramLoc sym
                 C.addProofObligation sym $ C.LabeledPred lalalala $ C.SimError locloc ""
-                putStrLn $ "foo_func: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList lalala)
+                -- putStrLn $ "foo_func: " ++ show (map (\(MapF.Pair x y) -> (W4.printSymExpr x, W4.printSymExpr y)) $ MapF.toList lalala)
 
                 let fixpoint_reg_map' = C.RegMap $ applysubstitutionRegEntries sym lalala (C.regMap fixpoint_reg_map)
 
@@ -638,7 +638,7 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
             AfterFixpoint -> error "boo!"
 
         | otherwise -> do
-          putStrLn $ "RunningState: RunBlockStart: " ++ show block_id
+          -- putStrLn $ "RunningState: RunBlockStart: " ++ show block_id
           return C.ExecutionFeatureNoChange
 
       C.SymbolicBranchState branch_condition true_frame false_frame _target state
@@ -660,14 +660,14 @@ simpleLoopFixpoint sym cfg@C.CFG{..} mem_var foo_func = do
           (condition, frame) <- case fixpointStatus fixpoint_stuff of
             BeforeFixpoint -> error "boo!"
             ComputeFixpoint -> do
-              putStrLn $ "SymbolicBranchState: ComputeFixpoint"
+              -- putStrLn $ "SymbolicBranchState: ComputeFixpoint"
               writeIORef fixpoint_stuff_ref $ fixpoint_stuff { fixpointLoopCondition = loop_condition }
               return (loop_condition, inside_loop_frame)
             CheckFixpoint -> do
-              putStrLn $ "SymbolicBranchState: CheckFixpoint"
+              -- putStrLn $ "SymbolicBranchState: CheckFixpoint"
               return (loop_condition, inside_loop_frame)
             AfterFixpoint -> do
-              putStrLn $ "SymbolicBranchState: AfterFixpoint"
+              -- putStrLn $ "SymbolicBranchState: AfterFixpoint"
               not_loop_condition <- W4.notPred sym loop_condition
               return (not_loop_condition, outside_loop_frame)
 
