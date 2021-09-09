@@ -165,6 +165,16 @@ llvmTrapOverride =
   [llvmOvr| void @llvm.trap() |]
   (\_ops sym _args -> liftIO $ addFailedAssertion sym $ AssertFailureSimError "llvm.trap() called" "")
 
+-- | This is like @llvm.trap()@, but with an argument indicating which sort of
+-- undefined behavior was trapped. The argument acts as an index into
+-- <https://github.com/llvm/llvm-project/blob/650bbc56203c947bb85176c40ca9c7c7a91c3c57/clang/lib/CodeGen/CodeGenFunction.h#L118-L143 this list>.
+-- Ideally, we would do something intelligent with this argument—see #368.
+llvmUBSanTrapOverride ::
+  IsSymInterface sym =>
+  LLVMOverride p sym (EmptyCtx ::> BVType 8) UnitType
+llvmUBSanTrapOverride =
+  [llvmOvr| void @llvm.ubsantrap( i8 ) |]
+  (\_ops sym _args -> liftIO $ addFailedAssertion sym $ AssertFailureSimError "llvm.ubsantrap() called" "")
 
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr)

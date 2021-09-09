@@ -1,0 +1,8 @@
+#include <stdint.h>
+#include <stdio.h>
+
+int main() {
+  int32_t x = 2147483647 + 1;
+  printf("%d\n", x);
+  return 0;
+}

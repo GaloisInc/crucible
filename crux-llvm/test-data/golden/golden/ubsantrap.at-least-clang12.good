@@ -1,0 +1,4 @@
+[Crux] Found counterexample for verification goal
+[Crux]   internal: error: in main
+[Crux]   llvm.ubsantrap() called
+[Crux] Overall status: Invalid.

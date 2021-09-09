@@ -160,6 +160,7 @@ declare_overrides =
 
   , basic_llvm_override LLVM.llvmAssumeOverride
   , basic_llvm_override LLVM.llvmTrapOverride
+  , basic_llvm_override LLVM.llvmUBSanTrapOverride
 
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign
