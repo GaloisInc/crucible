@@ -136,3 +136,9 @@ translate_2015 lib/bigint/src/lib.rs --crate-name bigint
 
 # Need native versions of some libs for conc_eval oracle programs
 #compile_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
+
+# Special case: libcrucible_spec_macro is a proc macro, built against the host
+# libraries for linking against the compiler, so we can just compile it with
+# `cargo build` and copy it into place.
+cargo build --manifest-path lib/crucible_spec_macro/Cargo.toml --release
+cp lib/crucible_spec_macro/target/release/libcrucible_spec_macro.so rlibs/
