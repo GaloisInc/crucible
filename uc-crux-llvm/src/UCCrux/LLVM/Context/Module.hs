@@ -24,8 +24,10 @@ module UCCrux.LLVM.Context.Module
     defnTypes,
     declTypes,
     moduleTranslation,
+    moduleDecls,
     dataLayout,
     withTypeContext,
+    withModulePtrWidth,
 
     -- * Looking up CFGs
     CFGWithTypes (..),
@@ -48,7 +50,8 @@ import qualified Lang.Crucible.CFG.Core as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes hiding ((::>))
 
 import           Lang.Crucible.LLVM.DataLayout (DataLayout)
-import           Lang.Crucible.LLVM.Extension (LLVM)
+import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
+import           Lang.Crucible.LLVM.MemModel (HasPtrWidth, withPtrWidth)
 import           Lang.Crucible.LLVM.Translation (ModuleTranslation)
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Lang.Crucible.LLVM.TypeContext (TypeContext, llvmDataLayout)
@@ -126,6 +129,15 @@ makeModuleContext path llvmMod trans =
           Right $
             SomeModuleContext $
               ModuleContext path llvmMod' modTypes globTypes decTypes trans (allModuleDeclMap llvmMod')
+
+withModulePtrWidth ::
+  ModuleContext m arch ->
+  (HasPtrWidth (ArchWidth arch) => a) ->
+  a
+withModulePtrWidth modCtx computation =
+  LLVMTrans.llvmPtrWidth
+    (modCtx ^. moduleTranslation . LLVMTrans.transContext)
+    (\ptrW -> withPtrWidth ptrW computation)
 
 -- ------------------------------------------------------------------------------
 -- Looking up CFGs

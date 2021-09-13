@@ -77,11 +77,11 @@ data LLVMOverride p sym args ret =
   , llvmOverride_args    :: CtxRepr args -- ^ A representation of the argument types
   , llvmOverride_ret     :: TypeRepr ret -- ^ A representation of the return type
   , llvmOverride_def ::
-       forall ext rtp args' ret'.
+       forall rtp args' ret'.
          GlobalVar Mem ->
          sym ->
          Ctx.Assignment (RegEntry sym) args ->
-         OverrideSim p sym ext rtp args' ret' (RegValue sym ret)
+         OverrideSim p sym LLVM rtp args' ret' (RegValue sym ret)
     -- ^ The implementation of the intrinsic in the simulator monad
     -- (@OverrideSim@).
   }

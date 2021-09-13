@@ -85,6 +85,7 @@ import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBoun
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
 
+import qualified Check
 import qualified Utils
 {- ORMOLU_ENABLE -}
 
@@ -1524,7 +1525,8 @@ main =
   TT.defaultMain $
     TT.testGroup
       "uc-crux-llvm"
-      [ inFileTests,
+      [ Check.checkOverrideTests,
+        inFileTests,
         moduleTests,
         isUnimplemented
           "read_extern_global_unsized_array.c"
