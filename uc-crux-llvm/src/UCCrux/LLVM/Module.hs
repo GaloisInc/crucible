@@ -85,28 +85,36 @@ import           UCCrux.LLVM.Errors.Panic (panic)
 --------------------------------------------------------------------------------
 -- Maps
 
--- | Type level only
+-- | Type level only, should probably not get exported in order to preserve the
+-- opacity of the representation of 'DeclSymbol' and friends.
 data SymbolType
   = Decl
   | Defn
   | Global
 
--- | A name of a function or global from a specific LLVM module
+-- | A name of a function or global from a specific LLVM module.
+--
+-- Should probably not get exported in order to preserve the opacity of the
+-- representation of 'DeclSymbol' and friends.
 newtype Symbol m (t :: SymbolType) = Symbol {_getSymbol :: L.Symbol}
   deriving (Eq, Ord)
 
+-- | Constructor not exported to preserve opacity of representation.
 newtype DeclSymbol m = DeclSymbol
   {runDeclSymbol :: Symbol m 'Decl}
   deriving (Eq, Ord)
 
+-- | Constructor not exported to preserve opacity of representation.
 newtype DefnSymbol m = DefnSymbol
   {runDefnSymbol :: Symbol m 'Defn}
   deriving (Eq, Ord)
 
+-- | Constructor not exported to preserve opacity of representation.
 newtype GlobalSymbol m = GlobalSymbol
   {runGlobalSymbol :: Symbol m 'Global}
   deriving (Eq, Ord)
 
+-- | Constructor not exported to preserve opacity of representation.
 newtype SymbolMap m t a = SymbolMap
   {getSymbolMap :: Map (Symbol m t) a}
   deriving (Foldable, Functor, Traversable)
@@ -357,9 +365,7 @@ globalSymbol (GlobalSymbol sym) =
 makeGlobalSymbol :: GlobalMap m a -> L.Symbol -> Maybe (GlobalSymbol m)
 makeGlobalSymbol (GlobalMap (SymbolMap mp)) symbol =
   let gs = Symbol symbol
-   in case Map.lookup gs mp of
-        Just _ -> Just (GlobalSymbol gs)
-        Nothing -> Nothing
+   in GlobalSymbol gs <$ Map.lookup gs mp
 
 getGlobalSymbol :: GlobalSymbol m -> L.Symbol
 getGlobalSymbol (GlobalSymbol (Symbol s)) = s
