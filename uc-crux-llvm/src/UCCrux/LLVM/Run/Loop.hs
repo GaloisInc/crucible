@@ -205,7 +205,7 @@ loopOnFunction appCtx modCtx halloc cruxOpts llOpts fn =
             ptrW
             ( do
                 CFGWithTypes cfg argFTys _retTy _varArgs <-
-                  pure (findFun modCtx (FuncSymbol (Right fn)))
+                  pure (findFun modCtx (FuncDefnSymbol fn))
                 case makeFunctionContext modCtx fn argFTys (Crucible.cfgArgTypes cfg) of
                   Left err -> panic "loopOnFunction" [Text.unpack (ppFunctionContextError err)]
                   Right funCtx ->

@@ -195,8 +195,9 @@ funcMapDefns = lens _funcMapDefns (\s v -> s { _funcMapDefns = v })
 makeFuncMap :: DeclMap m a -> DefnMap m a -> FuncMap m a
 makeFuncMap = FuncMap
 
-newtype FuncSymbol m =
-  FuncSymbol { runFuncSymbol :: Either (DeclSymbol m) (DefnSymbol m) }
+data FuncSymbol m
+  = FuncDeclSymbol (DeclSymbol m)
+  | FuncDefnSymbol (DefnSymbol m)
   deriving (Eq, Ord)
 
 type instance Index (FuncMap m a) = FuncSymbol m
@@ -208,11 +209,11 @@ instance FunctorWithIndex (FuncSymbol m) (FuncMap m) where
     FuncMap
       { _funcMapDecls =
           imap
-            (\sym val -> f (FuncSymbol (Left sym)) val)
+            (\sym val -> f (FuncDeclSymbol sym) val)
             decls,
         _funcMapDefns =
           imap
-            (\sym val -> f (FuncSymbol (Right sym)) val)
+            (\sym val -> f (FuncDefnSymbol sym) val)
             defns
       }
 
@@ -220,17 +221,17 @@ instance FunctorWithIndex (FuncSymbol m) (FuncMap m) where
 instance FoldableWithIndex (FuncSymbol m) (FuncMap m) where
   ifoldMap f (FuncMap decls defns) =
     ifoldMap
-      (\sym val -> f (FuncSymbol (Left sym)) val)
+      (\sym val -> f (FuncDeclSymbol sym) val)
       decls
       <> ifoldMap
-           (\sym val -> f (FuncSymbol (Right sym)) val)
+           (\sym val -> f (FuncDefnSymbol sym) val)
            defns
 
 instance At (FuncMap m a) where
-  at symb =
-    case runFuncSymbol symb of
-      Left declSymb -> funcMapDecls . at declSymb
-      Right defnSymb -> funcMapDefns . at defnSymb
+  at =
+    \case
+      FuncDeclSymbol declSymb -> funcMapDecls . at declSymb
+      FuncDefnSymbol defnSymb -> funcMapDefns . at defnSymb
 
 instance Ixed (FuncMap m a) where
   ix = ixAt
@@ -319,8 +320,8 @@ makeFuncSymbol symbol@(L.Symbol name) (FuncMap decls defns) =
   case ( makeDeclSymbol symbol decls,
          makeDefnSymbol symbol defns
        ) of
-    (Just declSymb, Nothing) -> Just (FuncSymbol (Left declSymb))
-    (Nothing, Just defnSymb) -> Just (FuncSymbol (Right defnSymb))
+    (Just declSymb, Nothing) -> Just (FuncDeclSymbol declSymb)
+    (Nothing, Just defnSymb) -> Just (FuncDefnSymbol defnSymb)
     (Nothing, Nothing) -> Nothing
     (Just {}, Just {}) ->
       malformedLLVMModule
@@ -330,11 +331,14 @@ makeFuncSymbol symbol@(L.Symbol name) (FuncMap decls defns) =
 funcSymbol :: FuncSymbol m -> Lens' (FuncMap m a) a
 funcSymbol =
   \case
-    FuncSymbol (Left declSymb) -> funcMapDecls . declSymbol declSymb
-    FuncSymbol (Right defnSymb) -> funcMapDefns . defnSymbol defnSymb
+    FuncDeclSymbol declSymb -> funcMapDecls . declSymbol declSymb
+    FuncDefnSymbol defnSymb -> funcMapDefns . defnSymbol defnSymb
 
 getFuncSymbol :: FuncSymbol m -> L.Symbol
-getFuncSymbol = either getDeclSymbol getDefnSymbol . runFuncSymbol
+getFuncSymbol =
+  \case
+    FuncDeclSymbol declSymb -> getDeclSymbol declSymb
+    FuncDefnSymbol defnSymb -> getDefnSymbol defnSymb
 
 globalSymbol :: GlobalSymbol m -> Lens' (GlobalMap m a) a
 globalSymbol (GlobalSymbol sym) =
