@@ -215,6 +215,8 @@ instrResultType instr =
          tp <- liftMemType (L.typedType new)
          return (StructType (mkStructInfo dl False [tp, i1]))
 
+    L.Freeze x -> liftMemType (L.typedType x)
+
     _ -> throwError $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
 
 -- | Given an LLVM expression of vector type, select out the ith element.
@@ -1708,6 +1710,20 @@ generateInstr retType lab instr assign_f k =
                   k
 
            _ -> fail $ unwords ["Invalid argument type on atomicrw, expected pointer to integer type", show ptr]
+
+    -- We translate `freeze` instructions by simply passing the argument value
+    -- through unchanged. This doesn't quite adhere to LLVM's own semantics for
+    -- this instruction (https://releases.llvm.org/12.0.0/docs/LangRef.html#id323),
+    -- which state that if the argument is `undef` or `poison`, then `freeze`
+    -- should return an arbitrary value. We don't currently have the ability to
+    -- reliably determine whether a given value is `undef` or `poison`, however
+    -- (see https://github.com/GaloisInc/crucible/issues/366), so for now we
+    -- settle for a less accurate translation of `freeze`.
+    L.Freeze x -> do
+      tp' <- liftMemType' (L.typedType x)
+      x'  <- transValue tp' (L.typedValue x)
+      assign_f x'
+      k
 
     -- unwind, landingpad and resume are all exception-related, which we don't currently
     -- support
