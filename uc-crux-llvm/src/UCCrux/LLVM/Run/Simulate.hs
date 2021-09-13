@@ -12,6 +12,7 @@ Stability    : provisional
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -21,6 +22,8 @@ Stability    : provisional
 module UCCrux.LLVM.Run.Simulate
   ( UCCruxSimulationResult (..),
     CreateOverrideFn(..),
+    SymCreateOverrideFn(..),
+    symCreateOverrideFn,
     SimulatorHooks(..),
     SimulatorCallbacks(..),
     defaultCallbacks,
@@ -51,6 +54,8 @@ import           Data.Text (Text)
 import           Data.Traversable (for)
 import           Data.Void (Void)
 
+import           GHC.Exts (proxy#)
+
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Ctx (Ctx)
@@ -70,11 +75,11 @@ import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
 -- crucible-llvm
-import           Lang.Crucible.LLVM (llvmGlobalsToCtx)
+import           Lang.Crucible.LLVM (llvmGlobalsToCtx, registerModuleFn)
 import qualified Lang.Crucible.LLVM.Errors as LLVMErrors
 import qualified Lang.Crucible.LLVM.Intrinsics as LLVMIntrinsics
 import           Lang.Crucible.LLVM.MemModel (HasLLVMAnn, LLVMAnnMap, MemImpl, MemOptions)
-import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx)
+import           Lang.Crucible.LLVM.Translation (transContext, llvmMemVar, llvmTypeCtx, cfgMap, allModuleDeclares)
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Lang.Crucible.LLVM.MemModel.Partial (BoolAnn(BoolAnn))
@@ -89,8 +94,8 @@ import           Crux.Log (outputHandle)
 
  -- crux-llvm
 import           Crux.LLVM.Config (LLVMOptions(..))
-import           Crux.LLVM.Overrides (ArchOk)
-import           Crux.LLVM.Simulate (setupSimCtxt, registerFunctions)
+import           Crux.LLVM.Overrides (ArchOk, cruxLLVMOverrides)
+import           Crux.LLVM.Simulate (setupSimCtxt)
 
  -- local
 import           UCCrux.LLVM.Classify (classifyAssertion, classifyBadBehavior)
@@ -219,23 +224,22 @@ registerOverrides ::
   HasLLVMAnn sym =>
   AppContext ->
   ModuleContext m arch ->
-  [PolymorphicLLVMOverride arch p sym] ->
-  Crucible.OverrideSim p sym LLVM rtp l a ()
-registerOverrides appCtx modCtx overrides =
+  -- | One word description of what kind of override this is
+  Text ->
+  [LLVMIntrinsics.OverrideTemplate (personality sym) sym arch rtp l a] ->
+  Crucible.OverrideSim (personality sym) sym LLVM rtp l a ()
+registerOverrides appCtx modCtx kind overrides =
   do for_ overrides $
        \override ->
          liftIO $
            (appCtx ^. log) Hi $
              Text.unwords
-               [ "Registering override for",
-                 describeOverride (getPolymorphicLLVMOverride override)
-               ]
+               ["Registering", kind, "override for", describeOverride override]
 
-     LLVMIntrinsics.register_llvm_overrides
-       (modCtx ^. llvmModule . to getModule)
-       []
-       (map getPolymorphicLLVMOverride overrides)
+     LLVMIntrinsics.register_llvm_overrides_
        (modCtx ^. moduleTranslation . transContext)
+       overrides
+       (allModuleDeclares (modCtx ^. llvmModule . to getModule))
   where
     describeOverride :: LLVMIntrinsics.OverrideTemplate p sym arch rtp l a -> Text
     describeOverride override =
@@ -245,6 +249,25 @@ registerOverrides appCtx modCtx overrides =
           "functions with prefix " <> Text.pack nm
         LLVMIntrinsics.SubstringsMatch nms ->
           "functions with names containing " <> Text.pack (show nms)
+
+registerDefinedFns ::
+  (?intrinsicsOpts :: LLVMIntrinsics.IntrinsicsOptions) =>
+  (?memOpts :: MemOptions) =>
+  ArchOk arch =>
+  IsSymInterface sym =>
+  HasLLVMAnn sym =>
+  AppContext ->
+  ModuleContext m arch ->
+  Crucible.OverrideSim (personality sym) sym LLVM rtp l a ()
+registerDefinedFns appCtx modCtx =
+  do let trans = modCtx ^. moduleTranslation
+     let llvmCtxt = trans ^. transContext
+     for_ (Map.toList (cfgMap trans)) $
+       \(L.Symbol symb, cfg) ->
+         do liftIO $
+              (appCtx ^. log) Hi $
+                Text.unwords ["Registering definition of", Text.pack symb]
+            registerModuleFn llvmCtxt cfg
 
 mkCallbacks ::
   forall r m arch argTypes blocks ret msgs.
@@ -272,7 +295,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
        skipReturnValueAnns <- IORef.newIORef Map.empty
        skipOverrideRef <- IORef.newIORef Set.empty
        let ?lc = modCtx ^. moduleTranslation . transContext . llvmTypeCtx
-       (unsoundOverrideRef, mkUnsoundOverrides) <-
+       (unsoundOverrideRef, uOverrides) <-
          createUnsoundOverrides modCtx
 
        -- Hooks
@@ -280,14 +303,12 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
              \an bb -> IORef.modifyIORef bbMapRef (Map.insert an bb)
        SimulatorHooks overrides resHook <-
          getSimulatorCallbacks callbacks
-       let overrides' =
-             map symCreateOverrideFn mkUnsoundOverrides ++ overrides
 
        return $
          Crux.SimulatorHooks
            { Crux.setupHook =
              \sym _symOnline ->
-               setupHook sym overrides' skipOverrideRef memRef argRef argAnnRef argShapeRef skipReturnValueAnns
+               setupHook sym uOverrides overrides skipOverrideRef memRef argRef argAnnRef argShapeRef skipReturnValueAnns
            , Crux.onErrorHook =
              \sym ->
                return (onErrorHook sym skipOverrideRef memRef argRef argAnnRef argShapeRef bbMapRef explRef skipReturnValueAnns)
@@ -301,6 +322,9 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IsSymInterface sym =>
       HasLLVMAnn sym =>
       sym ->
+      -- | Unsound overrides
+      [CreateOverrideFn arch] ->
+      -- | Overrides that were passed in as arguments
       [SymCreateOverrideFn sym arch] ->
       IORef (Set SkipOverrideName) ->
       IORef (Maybe (MemImpl sym)) ->
@@ -309,7 +333,7 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
       IORef (Maybe (Assignment (Shape m (SymValue sym arch)) argTypes)) ->
       IORef (Map (Some (What4.SymAnnotation sym)) (Some (TypedSelector m arch argTypes))) ->
       IO (Crux.RunnableState sym)
-    setupHook sym overrideFns skipOverrideRef memRef argRef argAnnRef argShapeRef skipReturnValueAnnotations =
+    setupHook sym uOverrideFns overrideFns skipOverrideRef memRef argRef argAnnRef argShapeRef skipReturnValueAnnotations =
       do
         let trans = modCtx ^. moduleTranslation
         let llvmCtxt = trans ^. transContext
@@ -355,8 +379,42 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                     -- programs where the vast majority of functions wouldn't be
                     -- called from any particular function. Needs some
                     -- benchmarking.
-                    registerFunctions llvmOpts (modCtx ^. llvmModule . to getModule) trans Nothing
+                    --
+                    -- Register all the functions that are defined in the
+                    -- module. This happens first so that later overrides can
+                    -- replace definitions if needed.
+                    registerDefinedFns appCtx modCtx
+
+                    -- Register default LLVM overrides
+                    --
+                    -- Stuff like LLVM intrinsics, `free`, `malloc`
+                    let llMod = modCtx ^. llvmModule . to getModule
+                    LLVMIntrinsics.register_llvm_overrides llMod [] [] llvmCtxt
+
+                    -- These are aligned for easy reading in the logs
+                    let sCruxLLVM = "crux-llvm"
+                    let sUnsound  = "unsound  "
+                    let sArg      = "arg      "
+                    let sSkip     = "skip     "
+
+                    -- Crux-LLVM overrides, i.e., crucible_*
+                    registerOverrides appCtx modCtx sCruxLLVM (cruxLLVMOverrides proxy#)
+
                     overrides <- liftIO $ for overrideFns (($ sym) . runSymCreateOverrideFn)
+                    let overrides' = map getPolymorphicLLVMOverride overrides
+                    registerOverrides appCtx modCtx sArg overrides'
+
+                    -- Register unsound overrides, e.g., `getenv`
+                    uOverrides <-
+                      liftIO $ traverse (($ sym) . runCreateOverrideFn) uOverrideFns
+                    let uOverrides' = map getPolymorphicLLVMOverride uOverrides
+                    registerOverrides appCtx modCtx sUnsound uOverrides'
+
+                    -- NB: This should be run after all other overrides have
+                    -- been registered, since it creates and registers an
+                    -- override to skip each function that is
+                    -- declared-but-not-defined and doesn't yet have an override
+                    -- registered.
                     sOverrides <-
                       unsoundSkipOverrides
                         modCtx
@@ -366,7 +424,8 @@ mkCallbacks appCtx modCtx funCtx halloc callbacks constraints cfg llvmOpts =
                         skipReturnValueAnnotations
                         (constraints ^. returnConstraints)
                         (L.modDeclares (modCtx ^. llvmModule . to getModule))
-                    registerOverrides appCtx modCtx (overrides ++ sOverrides)
+                    let sOverrides' = map getPolymorphicLLVMOverride sOverrides
+                    registerOverrides appCtx modCtx sSkip sOverrides'
 
                     liftIO $ (appCtx ^. log) Hi $ "Running " <> funCtx ^. functionName <> " on arguments..."
                     printed <- ppRegMap modCtx funCtx sym mem args

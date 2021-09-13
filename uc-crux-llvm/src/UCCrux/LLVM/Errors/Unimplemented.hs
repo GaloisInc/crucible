@@ -36,6 +36,9 @@ data Unimplemented
   | GetHostNameSmallSize
   | NonEmptyUnboundedSizeArrays
   | CastIntegerToPointer
+  | CheckConstraintsPtrArray
+  | CheckConstraintsStruct
+  | CheckConstraintsGlobal
   deriving (Eq, Ord)
 
 ppUnimplemented :: Unimplemented -> String
@@ -50,6 +53,9 @@ ppUnimplemented =
     GetHostNameSmallSize -> "`gethostname` called with a small length"
     NonEmptyUnboundedSizeArrays -> "Generating arrays with unbounded size"
     CastIntegerToPointer -> "Value of integer type treated as/cast to a pointer"
+    CheckConstraintsPtrArray -> "Checking inferred precondition on an array"
+    CheckConstraintsStruct -> "Checking inferred precondition on a struct"
+    CheckConstraintsGlobal -> "Checking inferred precondition on a global"
 
 instance PanicComponent Unimplemented where
   panicComponentName _ = "uc-crux-llvm"
