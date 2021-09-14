@@ -85,7 +85,7 @@
         "check-updates": "ncu; (cd client && ncu); (cd server && ncu); (cd shared && ncu); (cd webview && ncu)",
         "upgrade": "ncu -u; (cd client && ncu -u); (cd server && ncu -u); (cd shared && ncu -u); (cd webview && ncu -u)",
         "compile": "webpack",
-        "lint": "eslint client/ server/ --ext .ts,.tsx || true",
+        "lint": "eslint .",
         "postinstall": "(cd client && npm install); (cd server && npm install); (cd shared && npm install); (cd webview && npm install)",
         "test-compile": "tsc -p ./",
         "vscode:prepublish": "webpack --mode production",
@@ -94,30 +94,30 @@
     "dependencies": {
         "css-loader": "^6.2.0",
         "style-loader": "^3.2.1",
-        "ws": "^8.0.0"
+        "ws": "^8.2.2"
     },
     "devDependencies": {
         "@types/mocha": "^9.0.0",
-        "@types/node": "^16.4.14",
+        "@types/node": "^16.9.1",
         "@types/webpack": "^5.28.0",
         "@types/ws": "^7.4.7",
-        "@typescript-eslint/eslint-plugin": "^4.29.1",
-        "@typescript-eslint/parser": "^4.29.1",
+        "@typescript-eslint/eslint-plugin": "^4.31.1",
+        "@typescript-eslint/parser": "^4.31.1",
         "copy-webpack-plugin": "^9.0.1",
         "eslint": "^7.32.0",
-        "eslint-import-resolver-typescript": "^2.4.0",
-        "eslint-plugin-import": "^2.24.0",
+        "eslint-import-resolver-typescript": "^2.5.0",
+        "eslint-plugin-import": "^2.24.2",
         "eslint-plugin-tsdoc": "^0.2.14",
-        "mocha": "^9.0.3",
-        "npm-check-updates": "^11.8.3",
+        "mocha": "^9.1.1",
+        "npm-check-updates": "^11.8.5",
         "ts-loader": "^9.2.5",
-        "ts-node": "^10.2.0",
+        "ts-node": "^10.2.1",
         "tsconfig-paths-webpack-plugin": "^3.5.1",
-        "typescript": "^4.3.5",
+        "typescript": "^4.4.3",
         "typescript-plugin-css-modules": "^3.4.0",
-        "vsce": "^1.96.1",
-        "webpack": "^5.50.0",
-        "webpack-cli": "^4.7.2",
-        "webpack-typings-for-css": "^0.6.4"
+        "vsce": "^1.99.0",
+        "webpack": "^5.52.1",
+        "webpack-cli": "^4.8.0",
+        "webpack-typings-for-css": "^0.7.0"
     }
 }

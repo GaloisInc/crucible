@@ -6,7 +6,44 @@
         "plugin:import/warnings",
         "plugin:import/typescript"
     ],
-    "root": true,
+    "overrides": [
+        {
+            "files": [
+                "shared/src/**/*.ts*"
+            ],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "vscode",
+                                "message": "You should not import vscode in this file, as it may be running in a Node context."
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": [
+                "webview/src/**/*.ts*"
+            ],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "@shared/check-executable",
+                                "message": "check-executable needs to run in a NodeJS context, which the webview is not."
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
     "parser": "@typescript-eslint/parser",
     "parserOptions": {
         "ecmaVersion": 6,
@@ -17,6 +54,7 @@
         "eslint-plugin-tsdoc",
         "import"
     ],
+    "root": true,
     "rules": {
         "@typescript-eslint/semi": [
             "warn",
@@ -85,6 +123,18 @@
         "no-throw-literal": "warn",
         "no-trailing-spaces": "error",
         "no-unused-vars": "off", // use @typescript-eslint/no-unused-vars
+        "no-use-before-define": "off", // use @typescript-eslint/no-use-before-define
+        "@typescript-eslint/no-use-before-define": [
+            "error",
+            {
+                "classes": true,
+                "enums": true,
+                "functions": false,
+                "ignoreTypeReferences": true,
+                "typedefs": true,
+                "variables": true
+            }
+        ],
         "prefer-template": "error",
         "quotes": [
             "warn",

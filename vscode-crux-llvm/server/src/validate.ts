@@ -30,11 +30,11 @@ export async function validateTextDocument(
     },
 ): Promise<ChildProcess.ChildProcessWithoutNullStreams> {
 
-    const cruxLLVM = configuration[Configuration.configCruxLLVM]
+    const cruxLLVM = configuration[Configuration.ConfigurationKeys.CruxLLVM]
 
     // we use a temporary directory to produce the report
     const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'temp-crux-llvm-'))
-    const includeDirs = configuration[Configuration.configIncludeDirs]
+    const includeDirs = configuration[Configuration.ConfigurationKeys.IncludeDirs]
 
     const includes = includeDirs.map(d => `--include-dirs=${d}`)
 
@@ -66,9 +66,9 @@ export async function validateTextDocument(
             detached: true,
             env: {
                 BLDDIR: tempDir,
-                CLANG: configuration[Configuration.configClang],
-                LLVM_LINK: configuration[Configuration.configLLVMLink],
-                PATH: configuration[Configuration.configPATH],
+                CLANG: configuration[Configuration.ConfigurationKeys.Clang],
+                LLVM_LINK: configuration[Configuration.ConfigurationKeys.LLVMLink],
+                PATH: configuration[Configuration.ConfigurationKeys.PATH],
             },
         })
 

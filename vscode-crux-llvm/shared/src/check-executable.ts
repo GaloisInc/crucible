@@ -8,9 +8,9 @@
 
 import * as ChildProcess from 'child_process'
 
-import { CheckCommandResult } from '../check-command-result'
-import { Configuration } from '../configuration'
-import { settingsName } from '../constants'
+import { CheckExecutableResult } from './check-executable-result'
+import * as Configuration from './configuration'
+import { settingsName } from './constants'
 
 /**
  * Tries to run the given command with the '--version' flag to check for its
@@ -23,16 +23,20 @@ import { settingsName } from '../constants'
  *
  * @returns true when command can be found, false otherwise
  */
-export function checkCommand<
-    Key extends keyof Configuration,
-    SubConfiguration extends Configuration & Record<Key, string>
->(
-    configuration: Configuration,
-    commandStr: Key,
-): CheckCommandResult {
+export function checkExecutable(
+    configuration: Configuration.Configuration,
+    executableKey: Configuration.KeyOfExecutable,
+): CheckExecutableResult {
+
+    let executable = configuration[executableKey]
+    // If the field is not set, use the key as the potential executable
+    if (executable === undefined) {
+        executable = executableKey
+    }
+
     try {
         const output = ChildProcess.execFileSync(
-            (configuration as SubConfiguration)[commandStr],
+            executable,
             ['--version'],
         )
         return {
@@ -42,9 +46,10 @@ export function checkCommand<
     } catch (e) { // ! e will be null
         return {
             check: false,
-            errorMessage: `${commandStr} could not be found.  Please set or update "${settingsName}.${commandStr}" correctly in your settings.json.\n${e}`,
+            errorMessage: `${executable} could not be found.  Please set or update "${settingsName}.${executableKey}" correctly in your settings.json.\n${e}`,
         }
     }
+
 }
 
 /**
@@ -54,10 +59,10 @@ export function checkCommand<
  * @param commandStr - a verbatim command name we expect to found in PATH
  * @returns true when command can be found, false otherwise
  */
-export function checkCommandViaPATH(
-    configuration: Configuration,
+export function checkExecutableViaPATH(
+    configuration: Configuration.Configuration,
     commandStr: string,
-): CheckCommandResult {
+): CheckExecutableResult {
     try {
         const output = ChildProcess.execFileSync(
             commandStr,

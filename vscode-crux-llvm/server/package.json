@@ -19,6 +19,6 @@
     "devDependencies": {
         "@types/debounce": "^1.2.0",
         "@types/websocket": "^1.0.4",
-        "npm-check-updates": "^11.8.3"
+        "npm-check-updates": "^11.8.5"
     }
 }

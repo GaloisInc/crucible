@@ -3,9 +3,9 @@
 /* eslint-disable */
 
 declare const styles = {
-    goalNumber: 'webview__goalNumber__LIsiw9xn7WoRukP_IlXn',
-    goalMessage: 'webview__goalMessage__J_8PMveb18LxQF5GP3Ga',
-    goalStatus: 'webview__goalStatus___dv7edCTry7n9N8oKA5h',
+    'goalNumber': 'webview__goalNumber__LIsiw9xn7WoRukP_IlXn',
+    'goalMessage': 'webview__goalMessage__J_8PMveb18LxQF5GP3Ga',
+    'goalStatus': 'webview__goalStatus___dv7edCTry7n9N8oKA5h',
 } as const;
 
 export type ClassName = string;

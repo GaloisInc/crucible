@@ -6,13 +6,15 @@
         "rootDir": "..",
     },
     "files": [
-        "src/check-command-result.ts",
+        "src/check-executable.ts",
+        "src/check-executable-result.ts",
         "src/configuration.ts",
         "src/constants.ts",
         "src/crux-llvm.d.ts",
         "src/extension-to-webview.ts",
-        "src/node/check-command.ts",
+        "src/lsp-extensions.ts",
         "src/report.ts",
         "src/types.ts",
+        "src/webview-to-extension.ts",
     ],
 }

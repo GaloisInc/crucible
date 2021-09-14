@@ -17,13 +17,14 @@
     },
     "dependencies": {
         "bytes": "^3.1.0",
+        "ts-essentials": "^8.1.0",
         "vscode-languageclient": "^7.0.0",
         "websocket": "^1.0.34"
     },
     "devDependencies": {
         "@types/bytes": "^3.1.1",
-        "@types/vscode": "^1.59.0",
+        "@types/vscode": "^1.60.0",
         "@types/websocket": "^1.0.4",
-        "npm-check-updates": "^11.8.3"
+        "npm-check-updates": "^11.8.5"
     }
 }

@@ -12,9 +12,13 @@
         "rootDir": "..",
     },
     "files": [
+        "src/configuration-watcher.ts",
+        "src/configuration.ts",
+        "src/crux-llvm-view-provider.ts",
         "src/crux-llvm.d.ts",
         "src/extension.ts",
         "src/websocket-server.ts",
+        "src/webview-message-handler.ts",
     ],
     "references": [
         {

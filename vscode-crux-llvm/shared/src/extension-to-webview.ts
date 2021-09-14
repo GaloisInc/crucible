@@ -1,9 +1,12 @@
 import { Diagnostic } from 'vscode-languageserver'
 
-import { CheckCommandResult } from './check-command-result'
+import { CheckExecutableResult } from './check-executable-result'
 import { Configuration } from './configuration'
 
+
 export const initialDataKey = 'initialData'
+
+
 export interface InitialData {
     readonly initialConfiguration: Configuration
     readonly initialContent: string
@@ -16,9 +19,26 @@ export interface InitialData {
     readonly initialValidationWarnings: ValidationWarning[]
 }
 
-export type ExtensionToWebview = (
-    ConfigurationChanged
+
+export enum Tags {
+    configurationChanged = 'ConfigurationChanged',
+    contentChanged = 'ContentChanged',
+    cruxLLVMAborted = 'CruxLLVMAborted',
+    cruxLLVMLogEntry = 'CruxLLVMLogEntry',
+    statusOfClang = 'StatusOfClang',
+    statusOfCruxLLVM = 'StatusOfCruxLLVM',
+    statusOfLLVMLink = 'StatusOfLLVMLink',
+    statusOfZ3 = 'StatusOfZ3',
+    validationDiagnostics = 'ValidationDiagnostics',
+    validationError = 'ValidationError',
+    validationWarning = 'ValidationWarning',
+}
+
+
+export type Message
+    = ConfigurationChanged
     | ContentChanged
+    | CruxLLVMAborted
     | CruxLLVMLogEntry
     | StatusOfClang
     | StatusOfCruxLLVM
@@ -27,85 +47,92 @@ export type ExtensionToWebview = (
     | ValidationDiagnostics
     | ValidationError
     | ValidationWarning
-)
 
-export const configurationChanged = 'ConfigurationChanged'
-export interface ConfigurationChanged {
-    readonly tag: typeof configurationChanged
+
+export type ConfigurationChanged = {
+    readonly tag: Tags.configurationChanged
     readonly newConfiguration: Configuration
 }
 
-export const contentChanged = 'ContentChanged'
-export interface ContentChanged {
-    readonly tag: typeof contentChanged
+export type ContentChanged = {
+    readonly tag: Tags.contentChanged
     readonly newContent: string
 }
 
-export const cruxLLVMLogEntry = 'CruxLLVMLogEntry'
-export interface CruxLLVMLogEntry {
-    readonly tag: typeof cruxLLVMLogEntry
+export type CruxLLVMAborted = {
+    readonly tag: Tags.cruxLLVMAborted
+}
+
+export type CruxLLVMLogEntry = {
+    readonly tag: Tags.cruxLLVMLogEntry
     readonly logEntry: CruxLLVMLogging
 }
 
-export const statusOfClang = 'StatusOfClang'
-export interface StatusOfClang {
-    readonly tag: typeof statusOfClang
-    readonly status: CheckCommandResult
-}
-export function makeStatusOfClang(status: CheckCommandResult): StatusOfClang {
-    return { tag: statusOfClang, status }
+
+export type StatusOfClang = {
+    readonly tag: Tags.statusOfClang
+    readonly status: CheckExecutableResult
 }
 
-export const statusOfCruxLLVM = 'StatusOfCruxLLVM'
-export interface StatusOfCruxLLVM {
-    readonly tag: typeof statusOfCruxLLVM
-    readonly status: CheckCommandResult
-}
-export function makeStatusOfCruxLLVM(status: CheckCommandResult): StatusOfCruxLLVM {
-    return { tag: statusOfCruxLLVM, status }
+export function makeStatusOfClang(status: CheckExecutableResult): StatusOfClang {
+    return { tag: Tags.statusOfClang, status }
 }
 
-export const statusOfLLVMLink = 'StatusOfLLVMLink'
-export interface StatusOfLLVMLink {
-    readonly tag: typeof statusOfLLVMLink
-    readonly status: CheckCommandResult
-}
-export function makeStatusOfLLVMLink(status: CheckCommandResult): StatusOfLLVMLink {
-    return { tag: statusOfLLVMLink, status }
+
+export type StatusOfCruxLLVM = {
+    readonly tag: Tags.statusOfCruxLLVM
+    readonly status: CheckExecutableResult
 }
 
-export const statusOfZ3 = 'StatusOfZ3'
-export interface StatusOfZ3 {
-    readonly tag: typeof statusOfZ3
-    readonly status: CheckCommandResult
-}
-export function makeStatusOfZ3(status: CheckCommandResult): StatusOfZ3 {
-    return { tag: statusOfZ3, status }
+export function makeStatusOfCruxLLVM(status: CheckExecutableResult): StatusOfCruxLLVM {
+    return { tag: Tags.statusOfCruxLLVM, status }
 }
 
-export const validationDiagnostics = 'ValidationDiagnostics'
-export interface ValidationDiagnostics {
-    readonly tag: typeof validationDiagnostics
+
+export type StatusOfLLVMLink = {
+    readonly tag: Tags.statusOfLLVMLink
+    readonly status: CheckExecutableResult
+}
+
+export function makeStatusOfLLVMLink(status: CheckExecutableResult): StatusOfLLVMLink {
+    return { tag: Tags.statusOfLLVMLink, status }
+}
+
+
+export type StatusOfZ3 = {
+    readonly tag: Tags.statusOfZ3
+    readonly status: CheckExecutableResult
+}
+
+export function makeStatusOfZ3(status: CheckExecutableResult): StatusOfZ3 {
+    return { tag: Tags.statusOfZ3, status }
+}
+
+export type ValidationDiagnostics = {
+    readonly tag: Tags.validationDiagnostics
     readonly diagnostics: Diagnostic[]
 }
+
 export function makeValidationDiagnostics(diagnostics: Diagnostic[]): ValidationDiagnostics {
-    return { tag: validationDiagnostics, diagnostics }
+    return { tag: Tags.validationDiagnostics, diagnostics }
 }
 
-export const validationError = 'ValidationError'
-export interface ValidationError {
-    readonly tag: typeof validationError
+
+export type ValidationError = {
+    readonly tag: Tags.validationError
     readonly error: string
 }
+
 export function makeValidationError(error: string): ValidationError {
-    return { tag: validationError, error }
+    return { tag: Tags.validationError, error }
 }
 
-export const validationWarning = 'ValidationWarning'
-export interface ValidationWarning {
-    readonly tag: typeof validationWarning
+
+export type ValidationWarning = {
+    readonly tag: Tags.validationWarning
     readonly warning: string
 }
+
 export function makeValidationWarning(warning: string): ValidationWarning {
-    return { tag: validationWarning, warning }
+    return { tag: Tags.validationWarning, warning }
 }

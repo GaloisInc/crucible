@@ -66,7 +66,7 @@ function handleCruxLogEntry(
                 }
                 return update(
                     goals,
-                    { [goalNumber]: { status: { $set: GoalStatus.GoalEnded } } },
+                    { [goalNumber]: { status: { $set: GoalStatus.GoalDone } } },
                 )
             })
             break
