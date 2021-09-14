@@ -17,7 +17,7 @@ where
 {- ORMOLU_DISABLE -}
 import           Prelude hiding (log, writeFile)
 
-import           Control.Lens ((.~), (^.))
+import           Control.Lens ((.~), (^.), to)
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race)
 import           Control.Scheduler (Comp(Par), traverseConcurrently)
@@ -49,9 +49,9 @@ import Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Newtypes.FunctionName (functionNameToString)
 import           UCCrux.LLVM.Context.App (AppContext, log)
-import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, declTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleFilePath, defnTypes)
 import           UCCrux.LLVM.Errors.Panic (panic)
-import           UCCrux.LLVM.FullType.Translation (DeclSymbol, getDeclSymbol, makeDeclSymbol)
+import           UCCrux.LLVM.Module (DefnSymbol, getDefnSymbol, makeDefnSymbol, getModule)
 import           UCCrux.LLVM.Logging (Verbosity(Low, Med, Hi))
 import           UCCrux.LLVM.Newtypes.Seconds (secondsToMicroseconds)
 import           UCCrux.LLVM.Run.Explore.Config (ExploreConfig)
@@ -76,11 +76,11 @@ exploreOne ::
   ExploreConfig ->
   Crucible.HandleAllocator ->
   FilePath ->
-  DeclSymbol m ->
+  DefnSymbol m ->
   IO Stats
-exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir declSym =
+exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir defnSym =
   do
-    let L.Symbol func = getDeclSymbol declSym
+    let L.Symbol func = getDefnSymbol defnSym
     let logFilePath = dir </> func -<.> ".summary.log"
     logExists <- doesPathExist logFilePath
     if -- If a log exists, then this function has already been
@@ -93,7 +93,7 @@ exploreOne appCtx modCtx cruxOpts llOpts exOpts halloc dir declSym =
         maybeResult <-
           withTimeout
             (secondsToMicroseconds (ExConfig.exploreTimeout exOpts))
-            (loopOnFunction appCtx modCtx halloc cruxOpts llOpts declSym)
+            (loopOnFunction appCtx modCtx halloc cruxOpts llOpts defnSym)
         case maybeResult of
           Right (Right (SomeBugfindingResult result _trace)) ->
             do
@@ -142,15 +142,15 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
             ((\(L.Symbol f) -> f) . L.defName)
             (take
               (ExConfig.exploreBudget exOpts)
-              (L.modDefines (modCtx ^. llvmModule)))
+              (L.modDefines (modCtx ^. llvmModule . to getModule)))
     let dir = bldDir cruxOpts </> takeFileName (modCtx ^. moduleFilePath) -<.> ""
     createDirectoryIfMissing True dir
     let toSkip = map functionNameToString (ExConfig.exploreSkipFunctions exOpts)
     let funcsToExplore = filter (`notElem` toSkip) functions
-    let declsToExplore =
+    let defnsToExplore =
           map
             (\func ->
-                case makeDeclSymbol (L.Symbol func) (modCtx ^. declTypes) of
+                case makeDefnSymbol (L.Symbol func) (modCtx ^. defnTypes) of
                   Just symb -> symb
                   Nothing ->
                     -- NB: This can't happen because this function name was
@@ -165,6 +165,6 @@ explore appCtx modCtx cruxOpts llOpts exOpts halloc =
             Par
             -- Disable logging during parallel exploration
             (doExplore (appCtx & log .~ (\_ _ -> pure ())))
-            declsToExplore
-        else for declsToExplore (doExplore appCtx)
+            defnsToExplore
+        else for defnsToExplore (doExplore appCtx)
     (appCtx ^. log) Low $ ppShow (ppStats (mconcat stats))

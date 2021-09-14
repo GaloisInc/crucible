@@ -81,6 +81,7 @@ import           UCCrux.LLVM.Context.Function (FunctionContext, functionName)
 import           UCCrux.LLVM.Context.Module (ModuleContext, llvmModule, moduleTranslation)
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Logging (Verbosity(Hi))
+import           UCCrux.LLVM.Module (getModule)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName, unsoundSkipOverrides)
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName, unsoundOverrides)
 import           UCCrux.LLVM.FullType.Type (FullType, MapToCrucibleType)
@@ -150,7 +151,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                   -- programs where the vast majority of functions wouldn't be
                   -- called from any particular function. Needs some
                   -- benchmarking.
-                  registerFunctions llvmOpts (modCtx ^. llvmModule) trans Nothing
+                  registerFunctions llvmOpts (modCtx ^. llvmModule . to getModule) trans Nothing
                   let uOverrides = unsoundOverrides trans unsoundOverrideRef
                   sOverrides <-
                     unsoundSkipOverrides
@@ -160,9 +161,9 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
                       skipOverrideRef
                       skipReturnValueAnnotations
                       (constraints ^. returnConstraints)
-                      (L.modDeclares (modCtx ^. llvmModule))
+                      (L.modDeclares (modCtx ^. llvmModule . to getModule))
                   register_llvm_overrides
-                    (modCtx ^. llvmModule)
+                    (modCtx ^. llvmModule . to getModule)
                     []
                     (uOverrides ++ sOverrides)
                     llvmCtxt

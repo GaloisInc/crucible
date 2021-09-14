@@ -60,6 +60,7 @@ module UCCrux.LLVM.FullType.Type
     -- * 'ModuleTypes'
     ModuleTypes,
     TypeLookupResult (..),
+    ModuleAndTypes(..),
     makeModuleTypes,
     lookupType,
     processingType,
@@ -106,6 +107,7 @@ import qualified Lang.Crucible.LLVM.MemType as MemType
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
+import           UCCrux.LLVM.Module (Module, makeSomeModule)
 import           UCCrux.LLVM.FullType.VarArgs
 {- ORMOLU_ENABLE -}
 
@@ -369,21 +371,35 @@ toFullType moduleTypes memType =
 -- ModuleTypes
 
 -- | The @m@ parameter represents an LLVM module, see comment on
--- 'UCCrux.LLVM.FullType.CrucibleType.TranslatedTypes'.
+-- "UCCrux.LLVM.Module".
 data ModuleTypes (m :: Type) = ModuleTypes
   { typeContext :: TypeContext,
     fullTypes :: Map L.Ident (Maybe (Some (FullTypeRepr m)))
   }
 
 -- | The @m@ parameter represents an LLVM module, see comment on
--- 'UCCrux.LLVM.FullType.CrucibleType.TranslatedTypes'.
+-- "UCCrux.LLVM.Module".
 data TypeLookupResult m
   = forall ft. Found (FullTypeRepr m ft)
   | Processing
   | Missing
 
-makeModuleTypes :: TypeContext -> Some ModuleTypes
-makeModuleTypes tc = Some (ModuleTypes tc Map.empty)
+-- | The existentially-quantified @m@ parameter represents an LLVM module, see
+-- comment on "UCCrux.LLVM.Module".
+data ModuleAndTypes =
+  forall m.
+  ModuleAndTypes
+    { moduleAndTypesModule :: Module m,
+      moduleAndTypesTypes :: ModuleTypes m
+    }
+
+-- | Take a module and its corresponding 'TypeContext', and reify their
+-- relationship via a phantom type parameter @m@. Precondition: This
+-- 'TypeContext' corresponds to this module.
+makeModuleTypes :: L.Module -> TypeContext -> ModuleAndTypes
+makeModuleTypes m tc =
+  case makeSomeModule m of
+    Some m' -> ModuleAndTypes m' (ModuleTypes tc Map.empty)
 
 lookupType :: ModuleTypes m -> L.Ident -> TypeLookupResult m
 lookupType mts ident =

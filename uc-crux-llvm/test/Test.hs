@@ -91,7 +91,7 @@ import           Paths_uc_crux_llvm (version)
 import qualified UCCrux.LLVM.Main as Main
 import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, defnTypes)
 import           UCCrux.LLVM.Equivalence (NonEmptyCrashDiff, reportDiffs, getCrashDiffs)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
@@ -268,7 +268,7 @@ findBugs llvmModule file fns =
         halloc
         cruxOpts
         llOpts
-        =<< makeEntryPointsOrThrow (modCtx ^. declTypes) fns
+        =<< makeEntryPointsOrThrow (modCtx ^. defnTypes) fns
 
 getCrashDiff ::
   FilePath ->

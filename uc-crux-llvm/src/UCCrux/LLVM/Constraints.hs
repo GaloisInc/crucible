@@ -79,12 +79,13 @@ import           Data.Parameterized.TraversableFC (allFC, fmapFC, toListFC)
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment, fromAlignment)
 
-import           UCCrux.LLVM.Context.Module (ModuleContext, declTypes, globalTypes, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, globalTypes, moduleTypes)
 import           UCCrux.LLVM.Cursor (Cursor, Selector(..), SomeInSelector(SomeInSelector), seekType, checkCompatibility)
 import           UCCrux.LLVM.Shape (Shape, ShapeSeekError)
 import qualified UCCrux.LLVM.Shape as Shape
-import           UCCrux.LLVM.FullType.Translation (GlobalSymbol, globalSymbol, getGlobalSymbol, DeclSymbol, declSymbol, getDeclSymbol, ftRetType)
+import           UCCrux.LLVM.FullType.Translation (ftRetType)
 import           UCCrux.LLVM.FullType.Type (FullType(..), FullTypeRepr(FTPtrRepr), ModuleTypes, asFullType)
+import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, getGlobalSymbol, FuncSymbol, funcSymbol, getFuncSymbol)
 
 -- See comment in below block of CPP
 #if __GLASGOW_HASKELL__ <= 810
@@ -192,7 +193,7 @@ data ConstrainedTypedValue m = forall ft.
 data Constraints m (argTypes :: Ctx (FullType m)) = Constraints
   { _argConstraints :: Ctx.Assignment (ConstrainedShape m) argTypes,
     _globalConstraints :: Map (GlobalSymbol m) (ConstrainedTypedValue m),
-    _returnConstraints :: Map (DeclSymbol m) (ConstrainedTypedValue m),
+    _returnConstraints :: Map (FuncSymbol m) (ConstrainedTypedValue m),
     _relationalConstraints :: [RelationalConstraint m argTypes]
   }
 
@@ -202,7 +203,7 @@ argConstraints = lens _argConstraints (\s v -> s {_argConstraints = v})
 globalConstraints :: Simple Lens (Constraints m globalTypes) (Map (GlobalSymbol m) (ConstrainedTypedValue m))
 globalConstraints = lens _globalConstraints (\s v -> s {_globalConstraints = v})
 
-returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (DeclSymbol m) (ConstrainedTypedValue m))
+returnConstraints :: Simple Lens (Constraints m returnTypes) (Map (FuncSymbol m) (ConstrainedTypedValue m))
 returnConstraints = lens _returnConstraints (\s v -> s {_returnConstraints = v})
 
 relationalConstraints :: Simple Lens (Constraints m argTypes) [RelationalConstraint m argTypes]
@@ -259,7 +260,7 @@ ppConstraints (Constraints args globs returnCs relCs) =
           Just $
             nestSep
               ( PP.pretty "Return values of skipped functions:" :
-                map (uncurry (ppLabeledValue getDeclSymbol)) (Map.toList returnCs)
+                map (uncurry (ppLabeledValue getFuncSymbol)) (Map.toList returnCs)
               ),
           -- These aren't yet generated anywhere
           if null relCs
@@ -524,7 +525,7 @@ addConstraint modCtx argTypes constraints =
         . fromMaybe (newGlobalShape symbol)
 
     constrainReturn ::
-      DeclSymbol m ->
+      FuncSymbol m ->
       Cursor m inTy atTy ->
       ( forall ft.
         FullTypeRepr m ft ->
@@ -552,14 +553,14 @@ addConstraint modCtx argTypes constraints =
             ft
             (minimalConstrainedShape ft)
 
-    newReturnValueShape :: DeclSymbol m -> ConstrainedTypedValue m
+    newReturnValueShape :: FuncSymbol m -> ConstrainedTypedValue m
     newReturnValueShape symbol =
-      case modCtx ^. declTypes . declSymbol symbol . to ftRetType of
+      case modCtx ^. funcTypes . funcSymbol symbol . to ftRetType of
         Nothing ->
           panic
             "addConstraint"
             [ "Constraint on return value of void function: "
-                ++ show (getDeclSymbol symbol)
+                ++ show (getFuncSymbol symbol)
             ]
         Just (Some ft) ->
           ConstrainedTypedValue

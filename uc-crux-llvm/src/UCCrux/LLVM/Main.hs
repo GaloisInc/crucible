@@ -77,7 +77,7 @@ import           Crux.LLVM.Simulate (parseLLVM)
 
 import           Paths_uc_crux_llvm (version)
 import           UCCrux.LLVM.Context.App (AppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation, declTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, SomeModuleContext(..), makeModuleContext, moduleTranslation, defnTypes)
 import           UCCrux.LLVM.Equivalence (checkEquiv)
 import qualified UCCrux.LLVM.Equivalence.Config as EqConfig
 import           UCCrux.LLVM.Errors.Panic (panic)
@@ -173,7 +173,7 @@ mainWithConfigs appCtx cruxOpts topConf =
       Config.RunOn ents ->
         do entries <-
              makeEntryPointsOrThrow
-               (modCtx ^. declTypes)
+               (modCtx ^. defnTypes)
                (NonEmpty.toList ents)
            results <-
              loopOnFunctions
