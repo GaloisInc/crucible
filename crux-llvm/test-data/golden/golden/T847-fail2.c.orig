@@ -1,0 +1,12 @@
+#include <limits.h>
+
+// LLVM 12+ will compile this into a call to llvm.abs.* if -O1 is enabled.
+int my_abs(int x) {
+  int a = x;
+  if (a < 0) a = -a;
+  return a;
+}
+
+int main() {
+  return my_abs(INT_MIN);
+}

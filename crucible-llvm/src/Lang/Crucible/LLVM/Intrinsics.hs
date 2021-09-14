@@ -200,6 +200,8 @@ declare_overrides =
       (\w -> SomeLLVMOverride (LLVM.llvmCtpop w))
   , polymorphic1_llvm_override "llvm.bitreverse"
       (\w -> SomeLLVMOverride (LLVM.llvmBitreverse w))
+  , polymorphic1_llvm_override "llvm.abs"
+      (\w -> SomeLLVMOverride (LLVM.llvmAbsOverride w))
 
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
@@ -259,6 +261,9 @@ declare_overrides =
   , basic_llvm_override Libc.llvmHtonsOverride
   , basic_llvm_override Libc.llvmNtohlOverride
   , basic_llvm_override Libc.llvmNtohsOverride
+  , basic_llvm_override Libc.llvmAbsOverride
+  , basic_llvm_override Libc.llvmLAbsOverride
+  , basic_llvm_override Libc.llvmLLAbsOverride
 
   , basic_llvm_override Libc.cxa_atexitOverride
   , basic_llvm_override Libc.posixMemalignOverride
