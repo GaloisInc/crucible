@@ -30,3 +30,12 @@ values.
 
 Thus the exact printed output, number of characters printed, etc,
 may not exactly match that of a conforming implementation.
+
+
+Floating-point accuracy
+=======================
+
+The implementations of some floating-point operations are imprecise with
+respect to NaN values. For example, `crucible-llvm`'s implementation of the
+`copysign` function will always return a positive, "quiet" NaN value if its
+first argument is a NaN, regardless of the sign of the second argument.

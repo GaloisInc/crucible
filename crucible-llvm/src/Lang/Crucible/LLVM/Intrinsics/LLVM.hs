@@ -554,6 +554,24 @@ llvmBSwapOverride widthRepr =
     }}}
 
 
+llvmCopysignOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmCopysignOverride_F32 =
+  [llvmOvr| float @llvm.copysign.f32( float, float ) |]
+  (\_memOpts sym args -> Ctx.uncurryAssignment (callCopysign sym) args)
+
+llvmCopysignOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmCopysignOverride_F64 =
+  [llvmOvr| double @llvm.copysign.f64( double, double ) |]
+  (\_memOpts sym args -> Ctx.uncurryAssignment (callCopysign sym) args)
+
 
 llvmFabsF32
   :: forall sym p
@@ -916,3 +934,24 @@ callBitreverse
   -> OverrideSim p sym ext r args ret (RegValue sym (BVType w))
 callBitreverse sym _mvar
   (regValue -> val) = liftIO $ bvBitreverse sym val
+
+-- | Strictly speaking, this doesn't quite conform to the C99 description of
+-- @copysign@, since @copysign(NaN, -1.0)@ should return @NaN@ with a negative
+-- sign bit. @libBF@ does not provide a way to distinguish between @NaN@ values
+-- with different sign bits, however, so @copysign@ will always turn a @NaN@
+-- argument into a positive, \"quiet\" @NaN@.
+callCopysign ::
+  forall fi p sym ext r args ret.
+  IsSymInterface sym =>
+  sym ->
+  RegEntry sym (FloatType fi) ->
+  RegEntry sym (FloatType fi) ->
+  OverrideSim p sym ext r args ret (RegValue sym (FloatType fi))
+callCopysign sym
+  (regValue -> x)
+  (regValue -> y) = liftIO $ do
+    xIsNeg    <- iFloatIsNeg @_ @fi sym x
+    yIsNeg    <- iFloatIsNeg @_ @fi sym y
+    signsSame <- eqPred sym xIsNeg yIsNeg
+    xNegated  <- iFloatNeg @_ @fi sym x
+    iFloatIte @_ @fi sym signsSame x xNegated
