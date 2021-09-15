@@ -70,7 +70,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: actions/setup-haskell@v1
+      - uses: haskell/actions/setup@v1
         id: setup-haskell
         with:
           ghc-version: ${{ matrix.ghc }}
