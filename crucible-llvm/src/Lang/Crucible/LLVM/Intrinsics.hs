@@ -262,7 +262,8 @@ declare_overrides =
   , basic_llvm_override Libc.llvmNtohlOverride
   , basic_llvm_override Libc.llvmNtohsOverride
   , basic_llvm_override Libc.llvmAbsOverride
-  , basic_llvm_override Libc.llvmLAbsOverride
+  , basic_llvm_override Libc.llvmLAbsOverride_32
+  , basic_llvm_override Libc.llvmLAbsOverride_64
   , basic_llvm_override Libc.llvmLLAbsOverride
 
   , basic_llvm_override Libc.cxa_atexitOverride
@@ -289,3 +290,20 @@ define_overrides =
   , Libcxx.register_cpp_override Libcxx.sentryOverride
   , Libcxx.register_cpp_override Libcxx.sentryBoolOverride
   ]
+
+{-
+Note [Overrides involving (unsigned) long]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Registering overrides for functions with `long` argument or result types is
+tricky, as the size of a `long` varies wildly between different operating
+systems and architectures. On Linux and macOS, `long` is 32 or 64 bits on
+32- or 64-bit architectures, respectively. On Windows, however, `long` is
+always 32 bits, regardless of architecture. There is a similar story for the
+`unsigned long` type as well.
+
+To ensure that overrides for functions involving `long` are (at least to some
+degree) portable, we register each override for `long`-using function twice:
+once where `long` is assumed to be 32 bits, and once again where `long` is
+assumed to be 64 bits. This is a somewhat heavy-handed solution, but it avoids
+the need to predict what size `long` will be on a given target ahead of time.
+-}

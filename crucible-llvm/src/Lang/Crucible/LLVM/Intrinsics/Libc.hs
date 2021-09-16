@@ -787,14 +787,26 @@ llvmAbsOverride =
   [llvmOvr| i32 @abs( i32 ) |]
   (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym (knownNat @32)) args)
 
-llvmLAbsOverride ::
-  (HasPtrWidth wptr, IsSymInterface sym, HasLLVMAnn sym) =>
+-- @labs@ uses `long` as its argument and result type, so we need two overrides
+-- for @labs@. See Note [Overrides involving (unsigned) long] in
+-- Lang.Crucible.LLVM.Intrinsics.
+llvmLAbsOverride_32 ::
+  (IsSymInterface sym, HasLLVMAnn sym) =>
   LLVMOverride p sym
-      (EmptyCtx ::> BVType wptr)
-      (BVType wptr)
-llvmLAbsOverride =
-  [llvmOvr| ssize_t @labs( ssize_t ) |]
-  (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym ?ptrWidth) args)
+      (EmptyCtx ::> BVType 32)
+      (BVType 32)
+llvmLAbsOverride_32 =
+  [llvmOvr| i32 @labs( i32 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym (knownNat @32)) args)
+
+llvmLAbsOverride_64 ::
+  (IsSymInterface sym, HasLLVMAnn sym) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 64)
+      (BVType 64)
+llvmLAbsOverride_64 =
+  [llvmOvr| i64 @labs( i64 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym (knownNat @64)) args)
 
 llvmLLAbsOverride ::
   (IsSymInterface sym, HasLLVMAnn sym) =>

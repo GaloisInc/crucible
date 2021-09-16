@@ -220,12 +220,22 @@ cbmcOverrides arch =
       [llvmOvr| i64 @nondet_uint64_t() |]
       (sv_comp_fresh_bits (knownNat @64))
 
+    -- @nondet_long@ returns a `long`, so we need two overrides for
+    -- @nondet_long@. Similarly for @nondet_ulong@.
+    -- See Note [Overrides involving (unsigned) long] in
+    -- crucible-llvm:Lang.Crucible.LLVM.Intrinsics.
   , basic_llvm_override $
-      [llvmOvr| size_t @nondet_long() |]
-      (sv_comp_fresh_bits ?ptrWidth)
+      [llvmOvr| i32 @nondet_long() |]
+      (sv_comp_fresh_bits (knownNat @32))
   , basic_llvm_override $
-      [llvmOvr| size_t @nondet_ulong() |]
-      (sv_comp_fresh_bits ?ptrWidth)
+      [llvmOvr| i64 @nondet_long() |]
+      (sv_comp_fresh_bits (knownNat @64))
+  , basic_llvm_override $
+      [llvmOvr| i32 @nondet_ulong() |]
+      (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+      [llvmOvr| i64 @nondet_ulong() |]
+      (sv_comp_fresh_bits (knownNat @64))
   , basic_llvm_override $
       [llvmOvr| size_t @nondet_size_t() |]
       (sv_comp_fresh_bits ?ptrWidth)
@@ -263,13 +273,23 @@ svCompOverrides =
         [llvmOvr| i64 @__VERIFIER_nondet_loff_t() |]
         (sv_comp_fresh_bits (knownNat @64))
 
+    -- @__VERIFIER_nondet_ulong@ returns an `unsigned long`, so we need two
+    -- overrides for @__VERIFIER_nondet_ulong@. Similarly for
+    -- @__VERIFIER_nondet_long@. See Note [Overrides involving (unsigned) long]
+    -- in crucible-llvm:Lang.Crucible.LLVM.Intrinsics.
   , basic_llvm_override $
-        [llvmOvr| size_t @__VERIFIER_nondet_ulong() |]
-        (sv_comp_fresh_bits ?ptrWidth)
+        [llvmOvr| i32 @__VERIFIER_nondet_ulong() |]
+        (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+        [llvmOvr| i64 @__VERIFIER_nondet_ulong() |]
+        (sv_comp_fresh_bits (knownNat @64))
 
   , basic_llvm_override $
-        [llvmOvr| size_t @__VERIFIER_nondet_long() |]
-        (sv_comp_fresh_bits ?ptrWidth)
+        [llvmOvr| i32 @__VERIFIER_nondet_long() |]
+        (sv_comp_fresh_bits (knownNat @32))
+  , basic_llvm_override $
+        [llvmOvr| i64 @__VERIFIER_nondet_long() |]
+        (sv_comp_fresh_bits (knownNat @64))
 
   , basic_llvm_override $
         [llvmOvr| i32 @__VERIFIER_nondet_unsigned() |]
