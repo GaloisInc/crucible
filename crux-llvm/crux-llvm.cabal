@@ -179,6 +179,7 @@ test-suite crux-llvm-test
   build-depends:
                 crux-llvm,
                 deepseq,
+                extra,
                 lumberjack,
                 parsec,
                 versions
