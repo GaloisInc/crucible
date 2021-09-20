@@ -78,15 +78,20 @@ export class CruxLLVMViewProvider implements vscode.WebviewViewProvider {
                 WebviewMessageHandler.makeHandler(this.client)
             ),
 
-            // When the LSP server aborts Crux-LLVM, we let the webview know.
-            this.client.onNotification(LSPExtensions.cruxLLVMAborted, () => {
-                webview.postMessage({
-                    tag: E2W.Tags.cruxLLVMAborted,
-                } as E2W.Message)
-            }),
-
         )
 
+        this.client.onReady().then(() => {
+
+            this.context.subscriptions.push(
+                // When the LSP server aborts Crux-LLVM, we let the webview know.
+                this.client.onNotification(LSPExtensions.cruxLLVMAborted, () => {
+                    webview.postMessage({
+                        tag: E2W.Tags.cruxLLVMAborted,
+                    } as E2W.Message)
+                }),
+            )
+
+        })
 
         // All URIs must be transformed from local filesystem URIs to webview
         // URIs.
