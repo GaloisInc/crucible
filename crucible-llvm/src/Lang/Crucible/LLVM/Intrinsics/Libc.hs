@@ -52,9 +52,13 @@ import           Lang.Crucible.Simulator.SimError
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
+import qualified Lang.Crucible.LLVM.Errors.Poison as Poison
+import qualified Lang.Crucible.LLVM.Errors.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.MalformedLLVMModule
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
+import           Lang.Crucible.LLVM.MemModel.Partial
 import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.QQ( llvmOvr )
 import           Lang.Crucible.LLVM.TypeContext
@@ -774,6 +778,45 @@ llvmNtohsOverride =
   [llvmOvr| i16 @ntohs( i16 ) |]
   (\_ sym args -> Ctx.uncurryAssignment (callBSwapIfLittleEndian sym (knownNat @2)) args)
 
+llvmAbsOverride ::
+  (IsSymInterface sym, HasLLVMAnn sym) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 32)
+      (BVType 32)
+llvmAbsOverride =
+  [llvmOvr| i32 @abs( i32 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym (knownNat @32)) args)
+
+-- @labs@ uses `long` as its argument and result type, so we need two overrides
+-- for @labs@. See Note [Overrides involving (unsigned) long] in
+-- Lang.Crucible.LLVM.Intrinsics.
+llvmLAbsOverride_32 ::
+  (IsSymInterface sym, HasLLVMAnn sym) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 32)
+      (BVType 32)
+llvmLAbsOverride_32 =
+  [llvmOvr| i32 @labs( i32 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym (knownNat @32)) args)
+
+llvmLAbsOverride_64 ::
+  (IsSymInterface sym, HasLLVMAnn sym) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 64)
+      (BVType 64)
+llvmLAbsOverride_64 =
+  [llvmOvr| i64 @labs( i64 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym (knownNat @64)) args)
+
+llvmLLAbsOverride ::
+  (IsSymInterface sym, HasLLVMAnn sym) =>
+  LLVMOverride p sym
+      (EmptyCtx ::> BVType 64)
+      (BVType 64)
+llvmLLAbsOverride =
+  [llvmOvr| i64 @llabs( i64 ) |]
+  (\_ sym args -> Ctx.uncurryAssignment (callLibcAbs sym (knownNat @64)) args)
+
 callBSwap ::
   (1 <= width, IsSymInterface sym) =>
   sym ->
@@ -781,6 +824,83 @@ callBSwap ::
   RegEntry sym (BVType (width * 8)) ->
   OverrideSim p sym ext r args ret (RegValue sym (BVType (width * 8)))
 callBSwap sym widthRepr (regValue -> vec) = liftIO $ bvSwap sym widthRepr vec
+
+-- | This determines under what circumstances @callAbs@ should check if its
+-- argument is equal to the smallest signed integer of a particular size
+-- (e.g., @INT_MIN@), and if it is equal to that value, what kind of error
+-- should be reported.
+data CheckAbsIntMin
+  = LibcAbsIntMinUB
+    -- ^ For the @abs@, @labs@, and @llabs@ functions, always check if the
+    --   argument is equal to @INT_MIN@. If so, report it as undefined
+    --   behavior per the C standard.
+  | LLVMAbsIntMinPoison Bool
+    -- ^ For the @llvm.abs.*@ family of LLVM intrinsics, check if the argument
+    --   is equal to @INT_MIN@ only when the 'Bool' argument is 'True'. If it
+    --   is 'True' and the argument is equal to @INT_MIN@, return poison.
+
+-- | The workhorse for the @abs@, @labs@, and @llabs@ functions, as well as the
+-- @llvm.abs.*@ family of overloaded intrinsics.
+callAbs ::
+  forall w p sym ext r args ret.
+  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  sym ->
+  CheckAbsIntMin ->
+  NatRepr w ->
+  RegEntry sym (BVType w) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callAbs sym checkIntMin widthRepr (regValue -> src) = liftIO $ do
+  bvIntMin    <- bvLit sym widthRepr (BV.minSigned widthRepr)
+  isNotIntMin <- notPred sym =<< bvEq sym src bvIntMin
+
+  when shouldCheckIntMin $ do
+    isNotIntMinUB <- annotateUB sym ub isNotIntMin
+    let err = AssertFailureSimError "Undefined behavior encountered" $
+              show $ UB.explain ub
+    assert sym isNotIntMinUB err
+
+  isSrcNegative <- bvIsNeg sym src
+  srcNegated    <- bvNeg sym src
+  bvIte sym isSrcNegative srcNegated src
+  where
+    shouldCheckIntMin :: Bool
+    shouldCheckIntMin =
+      case checkIntMin of
+        LibcAbsIntMinUB                 -> True
+        LLVMAbsIntMinPoison shouldCheck -> shouldCheck
+
+    ub :: UB.UndefinedBehavior (RegValue' sym)
+    ub = case checkIntMin of
+           LibcAbsIntMinUB ->
+             UB.AbsIntMin $ RV src
+           LLVMAbsIntMinPoison{} ->
+             UB.PoisonValueCreated $ Poison.LLVMAbsIntMin $ RV src
+
+callLibcAbs ::
+  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  sym ->
+  NatRepr w ->
+  RegEntry sym (BVType w) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callLibcAbs sym = callAbs sym LibcAbsIntMinUB
+
+callLLVMAbs ::
+  (1 <= w, IsSymInterface sym, HasLLVMAnn sym) =>
+  sym ->
+  NatRepr w ->
+  RegEntry sym (BVType w) ->
+  RegEntry sym (BVType 1) ->
+  OverrideSim p sym ext r args ret (RegValue sym (BVType w))
+callLLVMAbs sym widthRepr src (regValue -> isIntMinPoison) = do
+  shouldCheckIntMin <- liftIO $
+    -- Per https://releases.llvm.org/12.0.0/docs/LangRef.html#id451, the second
+    -- argument must be a constant.
+    case asBV isIntMinPoison of
+      Just bv -> pure (bv /= BV.zero (knownNat @1))
+      Nothing -> malformedLLVMModule
+                   "Call to llvm.abs.* with non-constant second argument"
+                   [printSymExpr isIntMinPoison]
+  callAbs sym (LLVMAbsIntMinPoison shouldCheckIntMin) widthRepr src
 
 -- | If the data layout is little-endian, run 'callBSwap' on the input.
 -- Otherwise, return the input unchanged. This is the workhorse for the

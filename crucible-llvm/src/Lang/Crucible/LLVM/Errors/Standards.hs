@@ -68,6 +68,7 @@ data LLVMRefVer =
   | LLVM6
   | LLVM7
   | LLVM8
+  | LLVM12
   deriving (Data, Eq, Enum, Generic, Ord, Read, Show, Typeable)
 
 ppLLVMRefVer :: LLVMRefVer -> Text
@@ -77,6 +78,7 @@ ppLLVMRefVer LLVM5  = "5"
 ppLLVMRefVer LLVM6  = "6"
 ppLLVMRefVer LLVM7  = "7"
 ppLLVMRefVer LLVM8  = "8"
+ppLLVMRefVer LLVM12 = "12"
 
 stdURL :: Standard -> Maybe Text
 stdURL (CStd   C11)     = Just "http://www.iso-9899.info/n1570.html"
@@ -87,6 +89,7 @@ stdURL (LLVMRef LLVM5)  = Just "https://releases.llvm.org/5.0.0/docs/LangRef.htm
 stdURL (LLVMRef LLVM6)  = Just "https://releases.llvm.org/6.0.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM7)  = Just "https://releases.llvm.org/7.0.0/docs/LangRef.html"
 stdURL (LLVMRef LLVM8)  = Just "https://releases.llvm.org/8.0.0/docs/LangRef.html"
+stdURL (LLVMRef LLVM12) = Just "https://releases.llvm.org/12.0.0/docs/LangRef.html"
 stdURL _                = Nothing
 
 ppStd :: Standard -> Text

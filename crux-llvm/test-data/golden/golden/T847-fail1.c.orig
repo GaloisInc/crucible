@@ -1,0 +1,14 @@
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+// Ensure that calling `abs` and friends on `INT_MIN` results in
+// undefined behavior.
+
+int main() {
+  int x = abs(INT_MIN);
+  long y = labs(LONG_MIN);
+  long long z = llabs(LLONG_MIN);
+
+  return 0;
+}

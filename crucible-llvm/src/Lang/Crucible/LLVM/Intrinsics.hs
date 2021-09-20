@@ -160,6 +160,7 @@ declare_overrides =
 
   , basic_llvm_override LLVM.llvmAssumeOverride
   , basic_llvm_override LLVM.llvmTrapOverride
+  , basic_llvm_override LLVM.llvmUBSanTrapOverride
 
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign
@@ -199,6 +200,8 @@ declare_overrides =
       (\w -> SomeLLVMOverride (LLVM.llvmCtpop w))
   , polymorphic1_llvm_override "llvm.bitreverse"
       (\w -> SomeLLVMOverride (LLVM.llvmBitreverse w))
+  , polymorphic1_llvm_override "llvm.abs"
+      (\w -> SomeLLVMOverride (LLVM.llvmAbsOverride w))
 
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
@@ -258,6 +261,10 @@ declare_overrides =
   , basic_llvm_override Libc.llvmHtonsOverride
   , basic_llvm_override Libc.llvmNtohlOverride
   , basic_llvm_override Libc.llvmNtohsOverride
+  , basic_llvm_override Libc.llvmAbsOverride
+  , basic_llvm_override Libc.llvmLAbsOverride_32
+  , basic_llvm_override Libc.llvmLAbsOverride_64
+  , basic_llvm_override Libc.llvmLLAbsOverride
 
   , basic_llvm_override Libc.cxa_atexitOverride
   , basic_llvm_override Libc.posixMemalignOverride
@@ -283,3 +290,20 @@ define_overrides =
   , Libcxx.register_cpp_override Libcxx.sentryOverride
   , Libcxx.register_cpp_override Libcxx.sentryBoolOverride
   ]
+
+{-
+Note [Overrides involving (unsigned) long]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Registering overrides for functions with `long` argument or result types is
+tricky, as the size of a `long` varies wildly between different operating
+systems and architectures. On Linux and macOS, `long` is 32 or 64 bits on
+32- or 64-bit architectures, respectively. On Windows, however, `long` is
+always 32 bits, regardless of architecture. There is a similar story for the
+`unsigned long` type as well.
+
+To ensure that overrides for functions involving `long` are (at least to some
+degree) portable, we register each override for `long`-using function twice:
+once where `long` is assumed to be 32 bits, and once again where `long` is
+assumed to be 64 bits. This is a somewhat heavy-handed solution, but it avoids
+the need to predict what size `long` will be on a given target ahead of time.
+-}
