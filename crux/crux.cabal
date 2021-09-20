@@ -54,7 +54,7 @@ library
     raw-strings-qq,
     simple-get-opt,
     config-value,
-    config-schema,
+    config-schema >= 1.2.2.0,
     semigroupoids,
     unordered-containers,
     xml,
