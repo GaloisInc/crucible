@@ -251,12 +251,33 @@ svCompOverrides ::
   [OverrideTemplate (personality sym) sym arch rtp l a]
 svCompOverrides =
   [ basic_llvm_override $
+        [llvmOvr| i64 @__VERIFIER_nondet_longlong() |]
+        (sv_comp_fresh_bits (knownNat @64))
+
+    -- loff_t is pretty Linux-specific, so we can't point to the C or POSIX
+    -- standards for justification about what size it should be. The man page
+    -- for lseek64 (https://linux.die.net/man/3/lseek64) is as close to a
+    -- definitive reference for this as I can find, which says
+    -- "The type loff_t is a 64-bit signed type".
+  , basic_llvm_override $
+        [llvmOvr| i64 @__VERIFIER_nondet_loff_t() |]
+        (sv_comp_fresh_bits (knownNat @64))
+
+  , basic_llvm_override $
         [llvmOvr| size_t @__VERIFIER_nondet_ulong() |]
         (sv_comp_fresh_bits ?ptrWidth)
 
   , basic_llvm_override $
         [llvmOvr| size_t @__VERIFIER_nondet_long() |]
         (sv_comp_fresh_bits ?ptrWidth)
+
+  , basic_llvm_override $
+        [llvmOvr| i32 @__VERIFIER_nondet_unsigned() |]
+        (sv_comp_fresh_bits (knownNat @32))
+
+  , basic_llvm_override $
+        [llvmOvr| i32 @__VERIFIER_nondet_u32() |]
+        (sv_comp_fresh_bits (knownNat @32))
 
   , basic_llvm_override $
         [llvmOvr| i32 @__VERIFIER_nondet_uint() |]
@@ -267,12 +288,20 @@ svCompOverrides =
         (sv_comp_fresh_bits (knownNat @32))
 
   , basic_llvm_override $
+        [llvmOvr| i16 @__VERIFIER_nondet_u16() |]
+        (sv_comp_fresh_bits (knownNat @16))
+
+  , basic_llvm_override $
         [llvmOvr| i16 @__VERIFIER_nondet_ushort() |]
         (sv_comp_fresh_bits (knownNat @16))
 
   , basic_llvm_override $
         [llvmOvr| i16 @__VERIFIER_nondet_short() |]
         (sv_comp_fresh_bits (knownNat @16))
+
+  , basic_llvm_override $
+        [llvmOvr| i8 @__VERIFIER_nondet_u8() |]
+        (sv_comp_fresh_bits (knownNat @8))
 
   , basic_llvm_override $
         [llvmOvr| i8 @__VERIFIER_nondet_uchar() |]
@@ -285,6 +314,10 @@ svCompOverrides =
   , basic_llvm_override $
         [llvmOvr| i1 @__VERIFIER_nondet_bool() |]
         (sv_comp_fresh_bits (knownNat @1))
+
+  , basic_llvm_override $
+        [llvmOvr| size_t @__VERIFIER_nondet_size_t() |]
+        (sv_comp_fresh_bits ?ptrWidth)
 
   , basic_llvm_override $
         [llvmOvr| float @__VERIFIER_nondet_float() |]

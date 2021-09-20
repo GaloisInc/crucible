@@ -89,7 +89,7 @@ library
   build-depends:
     aeson,
     bv-sized,
-    config-schema,
+    config-schema >= 1.2.2.0,
     data-binary-ieee754,
     logict,
     llvm-pretty,
