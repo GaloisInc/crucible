@@ -44,7 +44,7 @@ import Data.Time.LocalTime ( getZonedTime )
 import Data.Version ( showVersion )
 import GHC.Generics ( Generic )
 import System.Exit ( exitFailure, exitSuccess )
-import System.FilePath ( (</>), takeBaseName )
+import System.FilePath ( (</>) )
 
 -- crucible
 import Lang.Crucible.Backend ( CrucibleEvent(..) )
@@ -191,8 +191,7 @@ processInputFiles cruxOpts llvmOpts svOpts =
                    }
                  trivialCorrectnessWitness = mkWitness [(mkNode 0) { nodeEntry = Just True }] []
 
-             let witnessFileName = takeBaseName inputFile ++ "-witness.graphml"
-             writeFile witnessFileName $ ppWitness $ case witType of
+             writeFile (svcompWitnessOutput svOpts) $ ppWitness $ case witType of
                CorrectnessWitness -> trivialCorrectnessWitness
                ViolationWitness   -> let (nodes, edges) = mkViolationWitness $ fmap snd gls
                                      in mkWitness nodes edges
