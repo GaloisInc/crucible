@@ -23,8 +23,6 @@ Stability    : provisional
 
 module UCCrux.LLVM.Setup.Monad
   ( Setup,
-    SetupError (..),
-    ppSetupError,
     SetupState,
     SetupAssumption (..),
     SetupResult (..),
@@ -35,7 +33,6 @@ module UCCrux.LLVM.Setup.Monad
     getAnnotation,
     annotatePointer,
     runSetup,
-    storableType,
     sizeInBytes,
     sizeBv,
     mallocLocation,
@@ -48,7 +45,6 @@ where
 {- ORMOLU_DISABLE -}
 import           Control.Lens (to, (.=), (%=), (<+=), Simple, Lens, lens, (^.), view)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Control.Monad.Except (throwError, ExceptT, MonadError, runExceptT)
 import           Control.Monad.Reader (MonadReader, ask)
 import           Control.Monad.State.Strict (MonadState, gets)
 import           Control.Monad.Writer (MonadWriter, tell)
@@ -59,9 +55,6 @@ import qualified Data.Map as Map
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Text (Text)
 import qualified Data.Text.IO as TextIO
-import           Data.Void (Void)
-import qualified Prettyprinter as PP
-import           Prettyprinter (Doc)
 
 import qualified Text.LLVM.AST as L
 
@@ -81,7 +74,7 @@ import           Lang.Crucible.LLVM.DataLayout (noAlignment, maxAlignment)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
-import           Lang.Crucible.LLVM.MemType (MemType, memTypeSize)
+import           Lang.Crucible.LLVM.MemType (memTypeSize)
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Lang.Crucible.LLVM.TypeContext (TypeContext(llvmDataLayout))
 
@@ -92,6 +85,7 @@ import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(FTPtrRepr), ToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
+import           UCCrux.LLVM.FullType.StorageType (toStorageType)
 import           UCCrux.LLVM.Constraints (Constraint)
 {- ORMOLU_ENABLE -}
 
@@ -99,17 +93,6 @@ import           UCCrux.LLVM.Constraints (Constraint)
 -- compatibility.
 data TypedSelector m arch (argTypes :: Ctx (FullType m)) (ft :: FullType m)
   = TypedSelector (FullTypeRepr m ft) (SomeInSelector m argTypes ft)
-
--- NOTE(lb): The explicit kind signature here is necessary for GHC 8.8/8.6
--- compatibility.
-data SetupError m arch (argTypes :: Ctx (FullType m))
-  = SetupTypeTranslationError MemType
-
-ppSetupError :: SetupError m arch argTypes -> Doc Void
-ppSetupError =
-  \case
-    SetupTypeTranslationError memType ->
-      PP.pretty ("Couldn't translate MemType" :: Text) <> PP.viaShow memType
 
 data SetupAssumption m sym = SetupAssumption
   { assumptionReason :: Some (Constraint m),
@@ -142,19 +125,14 @@ symbolCounter = lens _symbolCounter (\s v -> s {_symbolCounter = v})
 -- compatibility.
 newtype Setup m arch sym (argTypes :: Ctx (FullType m)) a
   = Setup
-      ( ExceptT
-          (SetupError m arch argTypes)
-          ( RWST
-              (ModuleContext m arch)
-              [SetupAssumption m sym]
-              (SetupState m arch sym argTypes)
-              IO
-          )
+      ( RWST
+          (ModuleContext m arch)
+          [SetupAssumption m sym]
+          (SetupState m arch sym argTypes)
+          IO
           a
       )
   deriving (Applicative, Functor, Monad, MonadIO)
-
-deriving instance MonadError (SetupError m arch argTypes) (Setup m arch sym argTypes)
 
 deriving instance MonadState (SetupState m arch sym argTypes) (Setup m arch sym argTypes)
 
@@ -191,22 +169,20 @@ runSetup ::
   ModuleContext m arch ->
   LLVMMem.MemImpl sym ->
   Setup m arch sym argTypes a ->
-  f (Either (SetupError m arch argTypes) (SetupResult m arch sym argTypes, a))
+  f (SetupResult m arch sym argTypes, a)
 runSetup modCtx mem (Setup computation) = do
   result <-
     liftIO $
-      runRWST (runExceptT computation) modCtx (makeSetupState mem)
+      runRWST computation modCtx (makeSetupState mem)
   pure $
     case result of
-      (Left err, _, _) -> Left err
-      (Right result', state, assumptions) ->
-        Right
-          ( SetupResult
-              (state ^. setupMem)
-              (state ^. setupAnnotations)
-              assumptions,
-            result'
-          )
+      (result', state, assumptions) ->
+        ( SetupResult
+            (state ^. setupMem)
+            (state ^. setupAnnotations)
+            assumptions,
+          result'
+        )
 
 freshSymbol :: Setup m arch sym argTypes What4.SolverSymbol
 freshSymbol =
@@ -292,10 +268,6 @@ annotatePointer sym selector fullTypeRepr ptr =
           (annotation, ptr'') <- liftIO (LLVMPtr.annotatePointerOffset sym ptr)
           addAnnotation (Some annotation) selector fullTypeRepr
           pure ptr''
-
-storableType :: ArchOk arch => MemType -> Setup m arch sym argTypes LLVMMem.StorageType
-storableType memType =
-  maybe (throwError (SetupTypeTranslationError memType)) pure (LLVMMem.toStorableType memType)
 
 modifyMem ::
   (LLVMMem.MemImpl sym -> Setup m arch sym argTypes (a, LLVMMem.MemImpl sym)) ->
@@ -402,7 +374,7 @@ store ::
 store sym mts ptrRepr@(FTPtrRepr ptPtdTo) selector ptr regValue =
   do
     let ftPtdTo = asFullType mts ptPtdTo
-    storageType <- storableType (toMemType ftPtdTo)
+    let storageType = toStorageType ftPtdTo
     modifyMem $
       \mem ->
         do
@@ -425,7 +397,7 @@ storeGlobal ::
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
 storeGlobal sym ftRepr selector symb regValue =
   do
-    storageType <- storableType (toMemType ftRepr)
+    let storageType = toStorageType ftRepr
     mem <- gets (view setupMem)
     ptr <- liftIO $ LLVMMem.doResolveGlobal sym mem symb
     ptr' <- annotatePointer sym selector ftRepr ptr

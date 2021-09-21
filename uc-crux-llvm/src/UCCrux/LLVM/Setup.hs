@@ -61,7 +61,6 @@ import qualified Lang.Crucible.Types as CrucibleTypes
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.Globals as LLVMGlobals
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
-import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPointer
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 
 import           Crux.LLVM.Overrides (ArchOk)
@@ -78,6 +77,7 @@ import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, makeGlobalSymbol, getModule)
+import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
@@ -103,32 +103,9 @@ constrainHere ::
   Crucible.RegEntry sym (ToCrucibleType arch atTy) ->
   Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
 constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry _typeRepr regValue) =
-  case (fullTypeRepr, constraint) of
-    (_, Aligned alignment) ->
-      assumeOne =<< liftIO (LLVMMem.isAligned sym ?ptrWidth regValue alignment)
-    (FTIntRepr w, BVCmp op _ bv) ->
-      assumeOne
-        =<< liftIO
-          ( interpretOp op (LLVMPointer.llvmPointerOffset regValue)
-              =<< W4I.bvLit sym w bv
-          )
-  where
-    assumeOne :: W4I.Pred sym -> Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
-    assumeOne predicate = assume constraint predicate >> pure regEntry
-    interpretOp ::
-      forall w. 1 <= w => L.ICmpOp -> W4I.SymBV sym w -> W4I.SymBV sym w -> IO (W4I.Pred sym)
-    interpretOp =
-      \case
-        L.Ieq -> W4I.bvEq sym
-        L.Ine -> W4I.bvNe sym
-        L.Iult -> W4I.bvUlt sym
-        L.Iule -> W4I.bvUle sym
-        L.Iugt -> W4I.bvUgt sym
-        L.Iuge -> W4I.bvUge sym
-        L.Islt -> W4I.bvSlt sym
-        L.Isle -> W4I.bvSle sym
-        L.Isgt -> W4I.bvSgt sym
-        L.Isge -> W4I.bvSge sym
+  liftIO (constraintToPred (Proxy :: Proxy arch) sym constraint fullTypeRepr regValue) >>=
+    assume constraint >>
+    return regEntry
 
 -- | Generate a fresh symbolic value, recording its \"origin\", i.e. what part
 -- of which global variable or argument it is. That annotation will later be
@@ -477,13 +454,10 @@ setupExecution ::
   -- | Constraints and memory layouts of each argument and global
   Constraints m argTypes ->
   f
-    ( Either
-        (SetupError m arch argTypes)
-        ( SetupResult m arch sym argTypes,
-          ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
-            Crucible.RegMap sym (MapToCrucibleType arch argTypes)
-          )
-        )
+    ( SetupResult m arch sym argTypes,
+      ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
+        Crucible.RegMap sym (MapToCrucibleType arch argTypes)
+      )
     )
 setupExecution appCtx modCtx funCtx sym constraints = do
   let moduleTrans = modCtx ^. moduleTranslation

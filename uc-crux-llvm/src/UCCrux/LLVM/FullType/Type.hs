@@ -69,6 +69,7 @@ module UCCrux.LLVM.FullType.Type
     -- * Lookup
     asFullType',
     asFullType,
+    pointedToType,
   )
 where
 
@@ -456,6 +457,12 @@ asFullType mts ptRepr =
             "asFullType"
             ["Impossible: couldn't find definition for type alias: " <> name]
         _ -> panic "asFullType" ["Impossible case"]
+
+pointedToType ::
+  ModuleTypes m ->
+  FullTypeRepr m ('FTPtr ft) ->
+  FullTypeRepr m ft
+pointedToType mts (FTPtrRepr ptRepr) = asFullType mts ptRepr
 
 -- ------------------------------------------------------------------------------
 -- Instances

@@ -49,6 +49,7 @@ library
     UCCrux.LLVM.FullType.Translation
     UCCrux.LLVM.FullType.Type
     UCCrux.LLVM.FullType.ReturnType
+    UCCrux.LLVM.FullType.StorageType
     UCCrux.LLVM.FullType.VarArgs
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
@@ -69,6 +70,7 @@ library
     UCCrux.LLVM.Run.Unsoundness
     UCCrux.LLVM.Setup
     UCCrux.LLVM.Setup.Assume
+    UCCrux.LLVM.Setup.Constraints
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats

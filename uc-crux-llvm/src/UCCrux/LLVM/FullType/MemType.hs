@@ -31,6 +31,9 @@ import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), aliasOrFullType)
 import           UCCrux.LLVM.FullType.VarArgs (varArgsReprToBool)
 {- ORMOLU_ENABLE -}
 
+-- | Postcondition: The returned 'MemType' will not be a metadata type.
+--
+-- @toStorageType@ depends on this.
 toMemType :: FullTypeRepr m ft -> MemType
 toMemType =
   \case

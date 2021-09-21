@@ -89,7 +89,6 @@ import           UCCrux.LLVM.PP (ppRegMap)
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(Unsoundness))
 import           UCCrux.LLVM.Setup (setupExecution, SetupResult(SetupResult))
 import           UCCrux.LLVM.Setup.Assume (assume)
-import           UCCrux.LLVM.Setup.Monad (ppSetupError)
 {- ORMOLU_ENABLE -}
 
 simulateLLVM ::
@@ -128,8 +127,7 @@ simulateLLVM appCtx modCtx funCtx halloc explRef skipOverrideRef unsoundOverride
         liftIO $ setupExecution appCtx modCtx funCtx sym constraints
       (mem, argAnnotations, assumptions, argShapes, args) <-
         case setupResult of
-          Left err -> panic "setupExecution" [show (ppSetupError err)]
-          Right (SetupResult mem anns assumptions, (argShapes, args)) ->
+          (SetupResult mem anns assumptions, (argShapes, args)) ->
             pure (mem, anns, assumptions, argShapes, args)
 
       -- Assume all predicates necessary to satisfy the deduced preconditions
