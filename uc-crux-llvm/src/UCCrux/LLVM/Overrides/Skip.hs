@@ -65,7 +65,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
 import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalConstrainedShape)
-import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes)
 import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
@@ -217,7 +217,7 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl funcSym =
                 mem
                 ( generate
                     sym
-                    (modCtx ^. moduleTypes)
+                    modCtx
                     retFullType
                     ( SelectReturn
                         ( case modCtx ^. funcTypes . to (makeFuncSymbol symbolName) of

@@ -11,8 +11,6 @@ Stability    : provisional
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -33,8 +31,6 @@ module UCCrux.LLVM.Setup.Monad
     getAnnotation,
     annotatePointer,
     runSetup,
-    sizeInBytes,
-    sizeBv,
     mallocLocation,
     malloc,
     store,
@@ -49,7 +45,6 @@ import           Control.Monad.Reader (MonadReader, ask)
 import           Control.Monad.State.Strict (MonadState, gets)
 import           Control.Monad.Writer (MonadWriter, tell)
 import           Control.Monad.RWS (RWST, runRWST)
-import           Data.BitVector.Sized (mkBV)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Proxy (Proxy(Proxy))
@@ -69,12 +64,10 @@ import qualified What4.Interface as What4
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
 
-import           Lang.Crucible.LLVM.Bytes (bytesToInteger)
 import           Lang.Crucible.LLVM.DataLayout (noAlignment, maxAlignment)
 import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
 import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPtr
-import           Lang.Crucible.LLVM.MemType (memTypeSize)
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 import           Lang.Crucible.LLVM.TypeContext (TypeContext(llvmDataLayout))
 
@@ -84,7 +77,7 @@ import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
 import           UCCrux.LLVM.Cursor (Selector, SomeInSelector(..))
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import           UCCrux.LLVM.FullType.Type (FullType(FTPtr), FullTypeRepr(FTPtrRepr), ToCrucibleType, ToBaseType, ModuleTypes, asFullType)
-import           UCCrux.LLVM.FullType.MemType (toMemType)
+import           UCCrux.LLVM.FullType.Memory (sizeBv)
 import           UCCrux.LLVM.FullType.StorageType (toStorageType)
 import           UCCrux.LLVM.Constraints (Constraint)
 {- ORMOLU_ENABLE -}
@@ -284,30 +277,6 @@ _modifyMem_ ::
   Setup m arch sym argTypes ()
 _modifyMem_ f = modifyMem (fmap ((),) . f)
 
-sizeInBytes :: FullTypeRepr m ft -> Int -> Setup m arch sym argTypes Integer
-sizeInBytes ftRepr size =
-  do
-    moduleContext <- ask
-    let dl =
-          moduleContext
-            ^. moduleTranslation
-              . LLVMTrans.transContext
-              . LLVMTrans.llvmTypeCtx
-              . to llvmDataLayout
-    pure $ fromIntegral size * bytesToInteger (memTypeSize dl (toMemType ftRepr))
-
-sizeBv ::
-  ( Crucible.IsSymInterface sym,
-    ArchOk arch
-  ) =>
-  proxy arch ->
-  sym ->
-  FullTypeRepr m ft ->
-  Int ->
-  Setup m arch sym argTypes (What4.SymExpr sym (What4.BaseBVType (ArchWidth arch)))
-sizeBv _proxy sym ftRepr size =
-  liftIO . What4.bvLit sym ?ptrWidth . mkBV ?ptrWidth =<< sizeInBytes ftRepr size
-
 -- | This is exposed so that classification can check if a given allocation was
 -- generated during setup or during execution. A slightly heavier-weight
 -- alternative would be to keep track of the set of allocations made in the
@@ -325,13 +294,13 @@ malloc ::
   -- | Path to this pointer
   Selector m argTypes inTy ('FTPtr atTy) ->
   -- | Size, as in number of elements. Should be strictly positive.
-  Int ->
+  Integer ->
   Setup m arch sym argTypes (LLVMMem.LLVMPtr sym (ArchWidth arch))
 malloc sym fullTypeRepr selector size =
   do
-    moduleContext <- ask
+    modCtx <- ask
     let dl =
-          moduleContext
+          modCtx
             ^. moduleTranslation
               . LLVMTrans.transContext
               . LLVMTrans.llvmTypeCtx
@@ -340,7 +309,7 @@ malloc sym fullTypeRepr selector size =
       modifyMem $
         \mem ->
           do
-            sz <- sizeBv (Proxy :: Proxy arch) sym fullTypeRepr size
+            sz <- liftIO $ sizeBv modCtx sym fullTypeRepr size
             (p, mem') <-
               liftIO $
                 do
