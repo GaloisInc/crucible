@@ -29,12 +29,12 @@ where
 import           Prelude hiding (head, zip)
 
 import           Control.Lens ((^.), (%~), to, at)
-import           Control.Monad (forM, void)
+import           Control.Monad (void)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.List.NonEmpty (NonEmpty((:|)), head, zip, toList)
-import           Data.Foldable (for_)
+import           Data.Foldable (for_, toList)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(Compose))
+import           Data.Traversable.WithIndex (ifor)
 import           Data.Map (Map)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
@@ -45,6 +45,7 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Classes (IxedF' (ixF'))
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Fin as Fin
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+), LeqProof(LeqProof))
 import qualified Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some (Some(Some))
@@ -219,13 +220,20 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
       (Shape.ShapePtr _constraints (Shape.ShapeInitialized vec), FTPtrRepr ptPtdTo) ->
         do
           let num = Seq.length vec
+          Some numRepr <-
+            case NatRepr.mkNatRepr (fromIntegral num) of
+              Some nr ->
+                -- pointerRange adds 1 to the size, so we have to subtract 1.
+                case NatRepr.isZeroNat nr of
+                  NatRepr.ZeroNat -> panic "generate" ["Empty vector"]
+                  NatRepr.NonZeroNat -> return (Some (NatRepr.predNat nr))
           ptr <- malloc sym ftRepr selector (fromIntegral num)
           let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptPtdTo
           size <- liftIO $ sizeBv modCtx sym ftPtdTo 1
           -- For each offset, generate a value and store it there.
-          pointers <- liftIO $ pointerRange proxy sym ptr size num
+          pointers <- liftIO $ pointerRange proxy sym ptr size numRepr
           pointedTos <-
-            forM (zip (0 :| [1 .. num - 1]) pointers) $ \(i, ptrAtOffset) ->
+            ifor pointers $ \i ptrAtOffset ->
               do
                 let selector' = selector & selectorCursor %~ deepenPtr (modCtx ^. moduleTypes)
                 pointedTo <-
@@ -234,7 +242,9 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
                     modCtx
                     ftPtdTo
                     selector'
-                    (ConstrainedShape (vec `Seq.index` i))
+                    (ConstrainedShape
+                      (vec `Seq.index`
+                        fromIntegral (Fin.finToNat i)))
                 annotatedPtrAtOffset <-
                   store
                     sym
@@ -246,7 +256,7 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
                 pure (annotatedPtrAtOffset, pointedTo)
           -- Make sure we use the fully-annotated pointer in the return value,
           -- so that its annotations can be looked up during classification.
-          let annotatedPtr = fst (head pointedTos)
+          let annotatedPtr = fst (fst (PVec.uncons pointedTos))
           pure $
             Shape.ShapePtr
               (SymValue annotatedPtr)

@@ -7,8 +7,10 @@ Maintainer       : Langston Barrett <langston@galois.com>
 Stability        : provisional
 -}
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE TypeOperators #-}
 
 module UCCrux.LLVM.FullType.Memory
   ( sizeInBytes,
@@ -18,12 +20,11 @@ module UCCrux.LLVM.FullType.Memory
 where
 
 {- ORMOLU_DISABLE -}
-import           Prelude hiding (head, reverse, zip)
-
 import           Control.Lens ((^.), to)
-import           Control.Monad (foldM)
 import           Data.BitVector.Sized (mkBV)
-import           Data.List.NonEmpty (NonEmpty((:|)), reverse)
+
+import           Data.Parameterized.NatRepr (NatRepr, type (+))
+import qualified Data.Parameterized.Vector as PVec
 
 -- what4
 import qualified What4.Interface as What4
@@ -43,7 +44,6 @@ import           Lang.Crucible.LLVM.TypeContext (TypeContext(llvmDataLayout))
 import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Context.Module (ModuleContext, moduleTranslation)
-import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.MemType (toMemType)
 import           UCCrux.LLVM.FullType.Type (FullTypeRepr)
 {- ORMOLU_ENABLE -}
@@ -80,7 +80,8 @@ sizeBv ::
 sizeBv modCtx sym ftRepr size =
   What4.bvLit sym ?ptrWidth (mkBV ?ptrWidth (sizeInBytes modCtx ftRepr size))
 
--- | TODO document parameters
+-- | A vector of pointers created by repeatedly adding an offset to a given base
+-- pointer.
 pointerRange ::
   ( ArchOk arch,
     Crucible.IsSymInterface sym
@@ -91,19 +92,10 @@ pointerRange ::
   LLVMMem.LLVMPtr sym (ArchWidth arch) ->
   -- | Offset to add
   What4.SymBV sym (ArchWidth arch) ->
-  -- | Number of pointers to generate/times to add the offset
-  Int ->
-  IO (NonEmpty (LLVMMem.LLVMPtr sym (ArchWidth arch)))
-pointerRange _proxy sym ptr offset size =
-  if size == 0
-    then panic "pointerRange" ["Zero size"]
-    else
-      reverse
-        <$> foldM
-          ( \(p :| ps) () ->
-              do
-                p' <- LLVMMem.ptrAdd sym ?ptrWidth p offset
-                pure (p' :| (p : ps))
-          )
-          (ptr :| [])
-          (replicate (size - 1) ())
+  -- | Number of pointers to generate/times to add the offset, minus one
+  NatRepr n ->
+  IO (PVec.Vector (n + 1) (LLVMMem.LLVMPtr sym (ArchWidth arch)))
+pointerRange _proxy sym ptr offset size = PVec.iterateNM size addOffset ptr
+  where
+    addOffset p = LLVMMem.ptrAdd sym ?ptrWidth p offset
+         
