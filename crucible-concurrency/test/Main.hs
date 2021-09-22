@@ -66,6 +66,6 @@ testSimulator inFile outFile =
                                               Crux.checkPathSat = True
                                             },
                          defaultCrucesOptions)
-          let ?outputConfig = Crux.mkOutputConfig False outh outh
+          let ?outputConfig = Crux.mkOutputConfig (outh, False) (outh, False)
                                 Crux.cruxLogMessageToSayWhat $ Just (fst options)
           run options

@@ -112,19 +112,24 @@ import           Mir.TransTy
 import           Mir.Concurrency
 import           Paths_crux_mir (version)
 
-defaultOutputConfig :: Maybe Crux.CruxOptions -> OutputConfig MirLogging
+defaultOutputConfig :: IO (Maybe Crux.CruxOptions -> OutputConfig MirLogging)
 defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
 
 main :: IO ()
-main = mainWithOutputConfig defaultOutputConfig noExtraOverrides >>= exitWith
+main = do
+    mkOutCfg <- defaultOutputConfig
+    exitCode <- mainWithOutputConfig mkOutCfg noExtraOverrides
+    exitWith exitCode
 
 mainWithExtraOverrides :: BindExtraOverridesFn -> IO ()
-mainWithExtraOverrides bindExtra =
-    mainWithOutputConfig defaultOutputConfig bindExtra >>= exitWith
+mainWithExtraOverrides bindExtra = do
+    mkOutCfg <- defaultOutputConfig
+    exitCode <- mainWithOutputConfig mkOutCfg bindExtra
+    exitWith exitCode
 
 mainWithOutputTo :: Handle -> BindExtraOverridesFn -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig $
-    Crux.mkOutputConfig False h h mirLoggingToSayWhat
+    Crux.mkOutputConfig (h, False) (h, False) mirLoggingToSayWhat
 
 data MirLogging
     = LoggingCrux Crux.CruxLogMessage

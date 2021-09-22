@@ -205,7 +205,7 @@ withOptions llvmModule file fns k =
     withFile (testDir </> file <> ".output") WriteMode $ \h ->
       do
         let isRealFile = isNothing llvmModule
-        let mkOutCfg = Crux.mkOutputConfig False h h ucCruxLLVMTestLoggingToSayWhat
+        let mkOutCfg = Crux.mkOutputConfig (h, False) (h, False) ucCruxLLVMTestLoggingToSayWhat
         conf <- Config.FromEnv.ucCruxLLVMConfig
         Crux.loadOptions mkOutCfg "uc-crux-llvm" version conf $ \(cruxOpts, ucOpts) -> do
           let cruxOpts' =
