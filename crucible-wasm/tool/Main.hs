@@ -68,11 +68,10 @@ simulateWasm cruxOpts _wasmOpts = Crux.SimulatorCallback $ \sym _mOnline ->
       return (Crux.RunnableState initSt, \_ _ -> return mempty)
 
 main :: IO ()
-main =
+main = do
+  mkOutCfg <- Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
   Crux.withCruxLogMessage $
-  Crux.loadOptions
-    (Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat)
-    "crux-wasm" version cruxWasmConfig
-    $ \(cruxOpts, wasmOpts) ->
-      do res <- Crux.runSimulator cruxOpts (simulateWasm cruxOpts wasmOpts)
-         exitWith =<< Crux.postprocessSimResult True cruxOpts res
+    Crux.loadOptions mkOutCfg "crux-wasm" version cruxWasmConfig
+      $ \(cruxOpts, wasmOpts) ->
+        do res <- Crux.runSimulator cruxOpts (simulateWasm cruxOpts wasmOpts)
+           exitWith =<< Crux.postprocessSimResult True cruxOpts res

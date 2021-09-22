@@ -312,29 +312,28 @@ logMsg f o = o <$ f (_logMsg o)
 -- Front-ends that don't have specific output needs can simply use
 -- this function.  Alternative output functions can be used where
 -- useful (e.g. JSON output).
-logToStd :: Bool -> Handle -> Handle -> SayWhat -> IO ()
-logToStd withColors outH errH = \case
+logToStd :: (Handle, Bool) -> (Handle, Bool) -> SayWhat -> IO ()
+logToStd outSpec errSpec = \case
   SayWhat lvl frm msg ->
     let sayer = case lvl of
-                  OK -> colOut Green outH
-                  Warn -> colOut Yellow errH
-                  Fail -> colOut Red errH
-                  Simply -> straightOut outH
-                  Noisily -> straightOut outH
-        colOut clr =
-           if withColors
-           then \hndl l -> do bracket_
-                                (hSetSGR hndl [ SetConsoleIntensity BoldIntensity
-                                              , SetColor Foreground Vivid clr])
-                                (hSetSGR hndl [Reset])
-                                (TIO.hPutStr hndl $ "[" <> frm <> "] ")
-                              TIO.hPutStrLn hndl l
-           else straightOut
-        straightOut hndl l = do TIO.hPutStr hndl $ "[" <> frm <> "] "
-                                TIO.hPutStrLn hndl l
+                  OK -> colOut Green outSpec
+                  Warn -> colOut Yellow errSpec
+                  Fail -> colOut Red errSpec
+                  Simply -> straightOut outSpec
+                  Noisily -> straightOut outSpec
+        colOut clr (hndl, True) l =
+           do bracket_
+                (hSetSGR hndl [ SetConsoleIntensity BoldIntensity
+                              , SetColor Foreground Vivid clr])
+                (hSetSGR hndl [Reset])
+                (TIO.hPutStr hndl $ "[" <> frm <> "] ")
+              TIO.hPutStrLn hndl l
+        colOut _ hSpec@(_, False) l = straightOut hSpec l
+        straightOut (hndl, _) l = do TIO.hPutStr hndl $ "[" <> frm <> "] "
+                                     TIO.hPutStrLn hndl l
     in mapM_ sayer $ T.lines msg
-  SayMore s1 s2 -> do logToStd withColors outH errH s1
-                      logToStd withColors outH errH s2
+  SayMore s1 s2 -> do logToStd outSpec errSpec s1
+                      logToStd outSpec errSpec s2
   SayNothing -> return ()
 
 

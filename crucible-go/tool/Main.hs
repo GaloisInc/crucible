@@ -63,13 +63,12 @@ simulateGo copts _opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
 
 -- | Entry point, parse command line options
 main :: IO ()
-main =
+main = do
+  mkOutCfg <- Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
   Crux.withCruxLogMessage $
-  Crux.loadOptions
-    (Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat)
-    "crux-go" version cruxGoConfig
-    $ \(cruxOpts, goOpts) ->
-      exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
-        Crux.runSimulator (cruxOpts { Crux.outDir = "report"
-                                    , Crux.skipReport = False })
-        (simulateGo cruxOpts goOpts)
+    Crux.loadOptions mkOutCfg "crux-go" version cruxGoConfig
+      $ \(cruxOpts, goOpts) ->
+        exitWith =<< Crux.postprocessSimResult True cruxOpts =<<
+          Crux.runSimulator (cruxOpts { Crux.outDir = "report"
+                                      , Crux.skipReport = False })
+          (simulateGo cruxOpts goOpts)

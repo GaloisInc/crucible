@@ -90,7 +90,7 @@ runCrux rustFile outHandle mode =
                                             _ -> "",
                                         Crux.branchCoverage = (mode == RcmCoverage) } ,
                    Mir.defaultMirOptions { Mir.printResultOnly = (mode == RcmConcrete) })
-    let ?outputConfig = Crux.mkOutputConfig False outHandle outHandle Mir.mirLoggingToSayWhat $
+    let ?outputConfig = Crux.mkOutputConfig (outHandle, False) (outHandle, False) Mir.mirLoggingToSayWhat $
                         Just (fst options)
     _exitCode <- Mir.runTests options
     return ()

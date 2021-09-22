@@ -14,9 +14,8 @@ import Cruces.CrucesMain
 import Paths_crucible_concurrency (version)
 
 main :: IO ()
-main =
+main = do
+  mkOutCfg <- Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
   Crux.withCruxLogMessage $
-  Crux.loadOptions
-    (Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat)
-    "cruces" version cruciblesConfig
+    Crux.loadOptions mkOutCfg "cruces" version cruciblesConfig
     $ run

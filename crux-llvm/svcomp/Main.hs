@@ -98,7 +98,8 @@ main :: IO ()
 main = withSVCompLogging $ do
   cfg <- llvmCruxConfig
   let opts = Crux.cfgJoin cfg svcompOptions
-  Crux.loadOptions (Crux.defaultOutputConfig svCompLoggingToSayWhat) "crux-llvm-svcomp" version opts
+  mkOutCfg <- Crux.defaultOutputConfig svCompLoggingToSayWhat
+  Crux.loadOptions mkOutCfg "crux-llvm-svcomp" version opts
     $ \(co0,(lo0,svOpts)) ->
     do (cruxOpts, llvmOpts) <- processLLVMOptions (co0{ outDir = "results" </> "SVCOMP" },lo0)
        svOpts' <- processSVCOMPOptions svOpts
@@ -132,8 +133,8 @@ processInputFiles cruxOpts llvmOpts svOpts =
 
     evaluateBitCode :: FilePath -> FilePath -> IO ()
     evaluateBitCode inputFile bcFile = withSVCompLogging $ do
-      let ?outputConfig = Crux.defaultOutputConfig svCompLoggingToSayWhat $ Just cruxOpts
-
+      mkOutCfg <- Crux.defaultOutputConfig svCompLoggingToSayWhat
+      let ?outputConfig = mkOutCfg (Just cruxOpts)
       mres <- try $
                do res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
                   generateReport cruxOpts res

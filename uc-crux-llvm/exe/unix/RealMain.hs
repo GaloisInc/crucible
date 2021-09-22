@@ -21,5 +21,5 @@ main :: IO ()
 main =
   do
     installSIGTERMHandler
-    ec <- mainWithOutputConfig defaultOutputConfig
+    ec <- mainWithOutputConfig =<< defaultOutputConfig
     exitWith ec

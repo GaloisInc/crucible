@@ -40,7 +40,7 @@ import           Paths_crux_llvm (version)
 
 mainWithOutputTo :: Handle -> IO ExitCode
 mainWithOutputTo h = mainWithOutputConfig $
-  Crux.mkOutputConfig True h h cruxLLVMLoggingToSayWhat
+  Crux.mkOutputConfig (h, True) (h, True) cruxLLVMLoggingToSayWhat
 
 data CruxLLVMLogging
   = LoggingCrux Crux.CruxLogMessage
@@ -51,7 +51,7 @@ cruxLLVMLoggingToSayWhat :: CruxLLVMLogging -> Crux.SayWhat
 cruxLLVMLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
 cruxLLVMLoggingToSayWhat (LoggingCruxLLVM msg) = Log.cruxLLVMLogMessageToSayWhat msg
 
-defaultOutputConfig :: Maybe CruxOptions -> Log.OutputConfig CruxLLVMLogging
+defaultOutputConfig :: IO (Maybe CruxOptions -> Log.OutputConfig CruxLLVMLogging)
 defaultOutputConfig = Crux.defaultOutputConfig cruxLLVMLoggingToSayWhat
 
 withCruxLLVMLogging ::
