@@ -157,4 +157,6 @@ test-suite uc-crux-llvm-test
                 tasty-hunit      >= 0.10,
                 tasty-quickcheck >= 0.10,
                 text,
-                uc-crux-llvm
+                time,
+                uc-crux-llvm,
+                what4
