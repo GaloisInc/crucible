@@ -44,7 +44,7 @@ import Data.Time.LocalTime ( getZonedTime )
 import Data.Version ( showVersion )
 import GHC.Generics ( Generic )
 import System.Exit ( exitFailure, exitSuccess )
-import System.FilePath ( (</>), takeBaseName )
+import System.FilePath ( (</>) )
 
 -- crucible
 import Lang.Crucible.Backend ( CrucibleEvent(..) )
@@ -191,8 +191,7 @@ processInputFiles cruxOpts llvmOpts svOpts =
                    }
                  trivialCorrectnessWitness = mkWitness [(mkNode 0) { nodeEntry = Just True }] []
 
-             let witnessFileName = takeBaseName inputFile ++ "-witness.graphml"
-             writeFile witnessFileName $ ppWitness $ case witType of
+             writeFile (svcompWitnessOutput svOpts) $ ppWitness $ case witType of
                CorrectnessWitness -> trivialCorrectnessWitness
                ViolationWitness   -> let (nodes, edges) = mkViolationWitness $ fmap snd gls
                                      in mkWitness nodes edges
@@ -202,10 +201,16 @@ mkViolationWitness gs =
   case L.firstJust findNotProvedGoal $ toList gs of
     Nothing -> error "Could not find event log for counterexample"
     Just (_mv, events) ->
-      let locs  = -- Witness validators aren't hugely fond of using the same
+      let locs  = -- It is possible for certain LLVM instructions which do not
+                  -- directly map back to source locations to be given a line
+                  -- number of 0. (See #862 for an example.) Line number 0
+                  -- wreaks havoc on witness validators, so we filter out such
+                  -- locations to avoid this.
+                  filter ((/= Just 0) . programLocSourcePosLine) $
+                  -- Witness validators aren't hugely fond of using the same
                   -- line number multiple times successively, so remove
                   -- consecutive duplicates.
-                  removeRepeatsBy ((==) `on` (fmap fst . programLocSourcePos)) $
+                  removeRepeatsBy ((==) `on` programLocSourcePosLine) $
                   mapMaybe locationReachedEventLoc events
           edges = imap violationEdge locs
           nodes = violationNodes $ length edges
@@ -245,3 +250,6 @@ mkViolationWitness gs =
         BinaryPos{}     -> Nothing
         OtherPos{}      -> Nothing
         InternalPos     -> Nothing
+
+    programLocSourcePosLine :: ProgramLoc -> Maybe Int
+    programLocSourcePosLine = fmap fst . programLocSourcePos

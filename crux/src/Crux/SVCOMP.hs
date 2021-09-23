@@ -39,14 +39,14 @@ data SVCOMPOptions (f :: Type -> Type) = SVCOMPOptions
   { svcompBlacklist :: [FilePath]
       -- ^ Benchmarks to skip when evaluating in SV-COMP mode
 
-  , svcompArch       :: f Arch
+  , svcompArch :: f Arch
       -- ^ The architecture assumed for the verification task
 
-  , svcompSpec       :: f FilePath
+  , svcompSpec :: f FilePath
       -- ^ The file containing the specification text used to verify the program. Likely a .prp file.
 
-  , svcompWitnessDir :: FilePath
-      -- ^ The directory in which to output the witness automaton file
+  , svcompWitnessOutput :: FilePath
+      -- ^ Write the witness automaton to this filename
   }
 
 data Arch = Arch32 | Arch64
@@ -74,11 +74,11 @@ parseArch mk = \txt opts ->
 processSVCOMPOptions :: SVCOMPOptions Maybe -> IO (SVCOMPOptions Identity)
 processSVCOMPOptions
     (SVCOMPOptions{ svcompArch, svcompSpec
-                  , svcompBlacklist, svcompWitnessDir}) = do
+                  , svcompBlacklist, svcompWitnessOutput}) = do
   svcompArch' <- process "svcomp-arch" svcompArch
   svcompSpec' <- process "svcomp-spec" svcompSpec
   pure $ SVCOMPOptions{ svcompArch = svcompArch', svcompSpec = svcompSpec'
-                      , svcompBlacklist, svcompWitnessDir }
+                      , svcompBlacklist, svcompWitnessOutput }
   where
     process :: String -> Maybe a -> IO (Identity a)
     process optName = maybe (fail $ "A value for --" ++ optName ++ " must be provided") (pure . Identity)
@@ -98,9 +98,11 @@ svcompOptions = Config
            sectionMaybe "svcomp-spec" fileSpec
            "The file containing the specification text used to verify the program. Likely a .prp file."
 
-         svcompWitnessDir <-
-           section "svcomp-witness-dir" fileSpec "."
-           "The directory in which to output the witness automaton file."
+         svcompWitnessOutput <-
+           section "svcomp-witness-output" fileSpec "witness.graphml"
+           (Text.unwords [ "The file name to which the witness automaton file should be written"
+                         , "(default: witness.graphml)."
+                         ])
 
          return SVCOMPOptions{ .. }
 
@@ -118,10 +120,12 @@ svcompOptions = Config
         $ ReqArg "FILE"
         $ \f opts -> Right opts{ svcompSpec = Just f }
 
-      , Option [] ["svcomp-witness-dir"]
-        "The directory in which to output the witness automaton file."
-        $ ReqArg "DIR"
-        $ \d opts -> Right opts{ svcompWitnessDir = d }
+      , Option [] ["svcomp-witness-output"]
+        (unwords [ "The file name to which the witness automaton file should be written"
+                 , "(default: witness.graphml)."
+                 ])
+        $ ReqArg "FILE"
+        $ \f opts -> Right opts{ svcompWitnessOutput = f }
       ]
   }
 

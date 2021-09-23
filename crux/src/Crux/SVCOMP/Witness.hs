@@ -14,7 +14,7 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B (unpack)
 import qualified Data.List as L (intercalate)
 import           Data.Maybe (catMaybes)
-import           Data.Time.LocalTime (ZonedTime(..))
+import           Data.Time.LocalTime (LocalTime(..), TimeOfDay(..), ZonedTime(..))
 import           Text.XML.Light
 
 import Crux.SVCOMP (Arch(..))
@@ -24,7 +24,7 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 #else
 import Data.Fixed (Pico)
 import Data.Time.Calendar (Day, toGregorian)
-import Data.Time.LocalTime (LocalTime(..), TimeOfDay(..), TimeZone(..))
+import Data.Time.LocalTime (TimeZone(..))
 #endif
 
 -- | A witness automaton. Adheres to the format specified in
@@ -210,7 +210,18 @@ ppString :: String -> String
 ppString = id
 
 ppZonedTime :: ZonedTime -> String
-ppZonedTime = iso8601Show
+ppZonedTime = iso8601Show . roundNearestSecond
+  where
+    -- Round to the nearest second to ensure that we do not print out seconds
+    -- with a decimal component. This is an unforunate hack to work around
+    -- https://github.com/sosy-lab/sv-witnesses/issues/40.
+    roundNearestSecond :: ZonedTime -> ZonedTime
+    roundNearestSecond zt@ZonedTime{ zonedTimeToLocalTime =
+                       lt@LocalTime{ localTimeOfDay =
+                       tod@TimeOfDay{ todSec = sec }}} =
+      zt{ zonedTimeToLocalTime =
+      lt{ localTimeOfDay =
+      tod{ todSec = fromInteger (round sec) }}}
 
 type Id = String
 
