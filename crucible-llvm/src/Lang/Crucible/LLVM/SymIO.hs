@@ -53,6 +53,10 @@ module Lang.Crucible.LLVM.SymIO
   , LLVMFileSystem
   , SomeOverrideSim(..)
   , initialLLVMFileSystem
+  , openFile
+  , closeFile
+  , readFileHandle
+  , writeFileHandle
   )
   where
 
