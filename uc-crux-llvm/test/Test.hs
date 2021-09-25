@@ -63,7 +63,6 @@ import qualified Data.Text as Text
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as Set
-import qualified Data.Time as Time
 import           GHC.Generics (Generic)
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
@@ -222,7 +221,7 @@ withOptions llvmModule file k =
           let complain exc = do
                 sayUCCruxLLVMTest ClangTrouble
                 Log.logException exc
-                error "aborting"
+                error ("aborting: " ++ show exc)
            in if isNothing llvmModule
               then try (genBitCode cruxOpts llOpts) >>= either complain return
               else return "<fake-path>"
@@ -241,7 +240,6 @@ withOptions llvmModule file k =
 
         halloc <- newHandleAllocator
         memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
-        putStrLn $ "PATH: " ++ path
         Main.SomeModuleContext' modCtx <-
           case llvmModule of
             Just lMod -> translateLLVMModule llOpts halloc memVar path lMod
@@ -290,7 +288,7 @@ withOptions llvmModule file k =
         , Crux.goalTimeout =
             Just (fromRational (toRational (5 :: Int)))
         , Crux.profileOutputInterval =
-            Time.secondsToNominalDiffTime 1
+            fromRational (toRational (1.0 :: Double))
         , Crux.loopBound = Just 8
         , Crux.recursionBound = Just 8
         , Crux.makeCexes = False
