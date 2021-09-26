@@ -84,6 +84,7 @@ import qualified What4.FunctionName                    as W4
 
 -- crux
 import qualified Crux
+import qualified Crux.Config.Common as Crux
 import qualified Crux.Log as Log
 import qualified Crux.Model as Crux
 import qualified Crux.UI.JS as Crux
@@ -112,7 +113,7 @@ import           Mir.TransTy
 import           Mir.Concurrency
 import           Paths_crux_mir (version)
 
-defaultOutputConfig :: IO (Maybe Crux.CruxOptions -> OutputConfig MirLogging)
+defaultOutputConfig :: IO (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
 defaultOutputConfig = Crux.defaultOutputConfig mirLoggingToSayWhat
 
 main :: IO ()
@@ -151,7 +152,7 @@ withMirLogging computation =
         ?injectMirLogMessage = LoggingMir
      in computation
 
-mainWithOutputConfig :: (Maybe Crux.CruxOptions -> OutputConfig MirLogging)
+mainWithOutputConfig :: (Maybe Crux.OutputOptions -> OutputConfig MirLogging)
                      -> BindExtraOverridesFn -> IO ExitCode
 mainWithOutputConfig mkOutCfg bindExtra =
     withMirLogging $
@@ -203,7 +204,7 @@ runTestsWithExtraOverrides ::
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
 runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
-    let ?debug              = Crux.simVerbose cruxOpts
+    let ?debug              = Crux.simVerbose (view Crux.outputOptions cruxOpts)
     --let ?assertFalseOnError = assertFalse mirOpts
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
@@ -356,7 +357,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
           case simTest symOnline fnName of
             SomeTestOvr testFn features personality -> do
               let outH = view outputHandle ?outputConfig
-              setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
+              setSimulatorVerbosity (Crux.simVerbose (view Crux.outputOptions cruxOpts)) sym
               let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
                       (C.FnBindings C.emptyHandleMap) mirExtImpl personality
               return (Crux.RunnableStateWithExtensions

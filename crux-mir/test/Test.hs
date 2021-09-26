@@ -3,6 +3,7 @@
 {-# Language OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
+import           Control.Lens (over)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as BS8
 import           Data.Char (isSpace)
@@ -78,12 +79,16 @@ runCrux rustFile outHandle mode =
     -- regression (#627).  This keeps CI from breaking while we investigate.
     -- TODO: revert the timeout to 180 once performance is fixed
     let quiet = True
-    let options = (defaultCruxOptions { Crux.inputFiles = [rustFile],
-                                        Crux.simVerbose = 0,
+    let outOpts = over Crux.outputOptions
+                    (\o -> o { Crux.simVerbose = 0,
+                               Crux.quietMode = quiet
+                             })
+                    defaultCruxOptions
+    let options = (defaultCruxOptions { Crux._outputOptions = outOpts,
+                                        Crux.inputFiles = [rustFile],
                                         Crux.globalTimeout = Just 600,
                                         Crux.goalTimeout = Just 600,
                                         Crux.solver = "z3",
-                                        Crux.quietMode = quiet,
                                         Crux.checkPathSat = (mode == RcmCoverage),
                                         Crux.outDir = case mode of
                                             RcmCoverage -> getOutputDir rustFile

@@ -7,7 +7,7 @@ module Main (main) where
 import Control.Lens (makeLenses, set, view)
 import Crux (OutputConfig)
 import qualified Crux
-import Crux.Config.Common (CruxOptions)
+import Crux.Config.Common (OutputOptions)
 import Crux.LLVM.Config (LLVMOptions, llvmCruxConfig)
 import CruxLLVMMain
   ( CruxLLVMLogging,
@@ -74,7 +74,7 @@ forIDEConfig = do
       }
 
 mainWithOutputConfig ::
-  (Maybe CruxOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode
+  (Maybe OutputOptions -> OutputConfig CruxLLVMLogging) -> IO ExitCode
 mainWithOutputConfig mkOutCfg =
   CruxLLVMMain.withCruxLLVMLogging $
     do

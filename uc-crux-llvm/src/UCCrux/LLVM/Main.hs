@@ -98,7 +98,7 @@ mainWithOutputTo h =
   mainWithOutputConfig $
     Crux.mkOutputConfig (h, False) (h, False) ucCruxLLVMLoggingToSayWhat
 
-defaultOutputConfig :: IO (Maybe CruxOptions -> Log.OutputConfig UCCruxLLVMLogging)
+defaultOutputConfig :: IO (Maybe OutputOptions -> Log.OutputConfig UCCruxLLVMLogging)
 defaultOutputConfig = Crux.defaultOutputConfig ucCruxLLVMLoggingToSayWhat
 
 data UCCruxLLVMLogging
@@ -129,7 +129,7 @@ withUCCruxLLVMLogging computation =
 -- | Gather configuration options from the environment and pass them to
 -- 'mainWithConfigs'.
 mainWithOutputConfig ::
-  (Maybe CruxOptions -> Crux.OutputConfig UCCruxLLVMLogging) -> IO ExitCode
+  (Maybe OutputOptions -> Crux.OutputConfig UCCruxLLVMLogging) -> IO ExitCode
 mainWithOutputConfig mkOutCfg =
   do conf <- Config.FromEnv.ucCruxLLVMConfig
      withUCCruxLLVMLogging $

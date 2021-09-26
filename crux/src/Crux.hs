@@ -145,7 +145,7 @@ postprocessSimResult showFailedGoals opts res =
 --   its continuation.
 loadOptions ::
   SupportsCruxLogMessage msgs =>
-  (Maybe CruxOptions -> OutputConfig msgs) ->
+  (Maybe OutputOptions -> OutputConfig msgs) ->
   Text {- ^ Name -} ->
   Version ->
   Config opts ->
@@ -153,18 +153,19 @@ loadOptions ::
   IO a
 loadOptions mkOutCfg nm ver config cont =
   do let optSpec = cfgJoin cruxOptions config
-     opts <- Cfg.loadConfig nm optSpec
+     (copts, opts) <- Cfg.loadConfig nm optSpec
      case opts of
        Cfg.ShowHelp ->
-          do let ?outputConfig = mkOutCfg Nothing
+          do let ?outputConfig = mkOutCfg (Just (defaultOutputOptions copts))
              showHelp nm optSpec
              exitSuccess
        Cfg.ShowVersion ->
-          do let ?outputConfig = mkOutCfg Nothing
+          do let ?outputConfig = mkOutCfg (Just (defaultOutputOptions copts))
              showVersion nm ver
              exitSuccess
-       Cfg.Options (crux, os) files ->
-          do let ?outputConfig = mkOutCfg (Just crux)
+       Cfg.Options (cruxWithoutColorOptions, os) files ->
+          do let crux = set (outputOptions.colorOptions) copts cruxWithoutColorOptions
+             let ?outputConfig = mkOutCfg (Just (view outputOptions crux))
              crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
              cont (crux', os)
 
@@ -215,12 +216,13 @@ showVersion nm ver = sayCrux (Log.Version nm ver)
 mkOutputConfig ::
   JSON.ToJSON msgs =>
   (Handle, Bool) -> (Handle, Bool) ->
-  (msgs -> SayWhat) -> Maybe CruxOptions ->
+  (msgs -> SayWhat) -> Maybe OutputOptions ->
   OutputConfig msgs
 mkOutputConfig (outHandle, outWantsColor) (errHandle, errWantsColor) logMessageToSayWhat opts =
-  let consensusBetween wants maybeRefuses = wants && not (maybe False maybeRefuses opts)
-      outSpec = (outHandle, consensusBetween outWantsColor noColorsOut)
-      errSpec@(_, errShouldColor) = (errHandle, consensusBetween errWantsColor noColorsErr)
+  let consensusBetween wants maybeRefuses = wants && not (fromMaybe False maybeRefuses)
+      copts = view colorOptions <$> opts
+      outSpec = (outHandle, consensusBetween outWantsColor (view Cfg.noColorsOut <$> copts))
+      errSpec@(_, errShouldColor) = (errHandle, consensusBetween errWantsColor (view Cfg.noColorsErr <$> copts))
       lgWhat = let la = LJ.LogAction $ logToStd outSpec errSpec
                    -- TODO simVerbose may not be the best setting to use here...
                    baseline = if maybe False ((> 1) . simVerbose) opts
@@ -266,7 +268,7 @@ mkOutputConfig (outHandle, outWantsColor) (errHandle, errWantsColor) logMessageT
 
 defaultOutputConfig ::
   JSON.ToJSON msgs =>
-  (msgs -> SayWhat) -> IO (Maybe CruxOptions -> OutputConfig msgs)
+  (msgs -> SayWhat) -> IO (Maybe OutputOptions -> OutputConfig msgs)
 defaultOutputConfig logMessagesToSayWhat = do
   outWantsColor <- AC.hSupportsANSIColor stdout
   errWantsColor <- AC.hSupportsANSIColor stderr
@@ -453,11 +455,12 @@ setupSolver cruxOpts mInteractionFile sym = do
   -- Turn on hash-consing, if enabled
   when (hashConsing cruxOpts) (WEB.startCaching sym)
 
+  let outOpts = view outputOptions cruxOpts
   -- The simulator verbosity is one less than our verbosity.
   -- In this way, we can say things, without the simulator also
   -- being verbose
-  symCfg sym verbosity $ toInteger $ if simVerbose cruxOpts > 1
-                                       then simVerbose cruxOpts - 1
+  symCfg sym verbosity $ toInteger $ if simVerbose outOpts > 1
+                                       then simVerbose outOpts - 1
                                        else 0
 
 -- | A GADT to capture the online solver constraints when we need them

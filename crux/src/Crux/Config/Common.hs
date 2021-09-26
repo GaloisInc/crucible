@@ -3,8 +3,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
+module Crux.Config.Common (
+  OutputOptions(..),
+  CruxOptions(..),
+  PathStrategy(..),
+  cruxOptions,
+  colorOptions,
+  outputOptions,
+  defaultOutputOptions,
+  postprocessOptions,
+) where
 
+import Control.Lens (Lens', lens, over)
 import Data.Functor.Alt
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
@@ -14,6 +24,7 @@ import Data.Text (pack)
 import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config
+import Crux.Config.Load (ColorOptions, defaultColorOptions)
 import Crux.Log as Log
 import Config.Schema
 
@@ -70,6 +81,39 @@ checkBldDir crux = do
   return crux
 
 
+data OutputOptions = OutputOptions
+  { _colorOptions :: ColorOptions
+
+  , printFailures :: Bool
+    -- ^ Print errors regarding failed verification goals
+
+  , printSymbolicVars :: Bool
+    -- ^ Print values assigned to symbolic variables
+    --   when printing failed verification goals
+
+  , simVerbose :: Int
+    -- ^ Level of verbosity for the symbolic simulation
+
+  , quietMode :: Bool
+    -- ^ If true, produce minimal output
+
+}
+
+
+defaultOutputOptions :: ColorOptions -> OutputOptions
+defaultOutputOptions copts = OutputOptions
+  { _colorOptions = copts
+  , printFailures = False
+  , printSymbolicVars = False
+  , quietMode = False
+  , simVerbose = 0
+  }
+
+
+colorOptions :: Lens' OutputOptions ColorOptions
+colorOptions = lens _colorOptions (\o v -> o { _colorOptions = v })
+
+
 -- | Common options for Crux-based binaries.
 data CruxOptions = CruxOptions
   { inputFiles              :: [FilePath]
@@ -110,8 +154,6 @@ data CruxOptions = CruxOptions
     -- ^ Should we attempt to compute unsatisfiable cores for successful
     --   proofs?
 
-  , simVerbose               :: Int
-
   , solver                   :: String
     -- ^ Solver to use to discharge proof obligations
   , pathSatSolver            :: Maybe String
@@ -137,15 +179,6 @@ data CruxOptions = CruxOptions
   , floatMode                :: String
     -- ^ Tells the solver which representation to use for floating point values.
 
-  , noColorsOut              :: Bool
-    -- ^ Suppresses color codes in the output when set.
-
-  , noColorsErr              :: Bool
-    -- ^ Suppresses color codes in the errors when set.
-
-  , quietMode                :: Bool
-    -- ^ If true, produce minimal output
-
   , proofGoalsFailFast       :: Bool
     -- ^ If true, stop attempting to prove goals as soon as one is disproved
 
@@ -164,13 +197,14 @@ data CruxOptions = CruxOptions
   , onlineProblemFeatures    :: ProblemFeatures
     -- ^ Problem Features to force in online solvers
 
-  , printFailures            :: Bool
-    -- ^ Print errors regarding failed verification goals
+  , _outputOptions            :: OutputOptions
+    -- ^ Output options grouped together for easy transfer to the logger
 
-  , printSymbolicVars        :: Bool
-    -- ^ Print values assigned to symbolic variables
-    --   when printing failed verification goals
   }
+
+
+outputOptions :: Lens' CruxOptions OutputOptions
+outputOptions = lens _outputOptions (\o v -> o { _outputOptions = v })
 
 
 cruxOptions :: Config CruxOptions
@@ -298,18 +332,6 @@ cruxOptions = Config
             section "skip-incomplete-reports" yesOrNoSpec False
             "Skip reporting on proof obligations that arise from timeouts and resource exhaustion"
 
-          noColors <-
-            section "no-colors" yesOrNoSpec False
-            "Suppress color codes in both the output and the errors"
-
-          noColorsErr <-
-            section "no-colors-err" yesOrNoSpec False
-            "Suppress color codes in the errors"
-
-          noColorsOut <-
-            section "no-colors-out" yesOrNoSpec False
-            "Suppress color codes in the output"
-
           quietMode <-
             section "quiet-mode" yesOrNoSpec False
             "If true, produce minimal output"
@@ -321,8 +343,10 @@ cruxOptions = Config
           onlineProblemFeatures <- pure noFeatures
 
           pure CruxOptions
-            { noColorsErr = noColorsErr || noColors
-            , noColorsOut = noColorsOut || noColors
+            { _outputOptions = OutputOptions {
+                _colorOptions = defaultColorOptions
+              , ..
+              }
             , ..
             }
 
@@ -337,7 +361,7 @@ cruxOptions = Config
 
       [ Option "d" ["sim-verbose"]
         "Set simulator verbosity level."
-        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v opts -> opts { simVerbose = v }
+        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v -> over outputOptions (\ o -> o { simVerbose = v })
 
       , Option [] ["path-sat"]
         "Enable path satisfiability checking"
@@ -451,27 +475,15 @@ cruxOptions = Config
 
       , Option [] ["skip-print-failures"]
         "Skip printing messages related to failed verification goals"
-        $ NoArg $ \opts -> Right opts{ printFailures = False }
+        $ NoArg $ \opts -> Right (over outputOptions (\ o -> o { printFailures = False }) opts)
 
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
         $ NoArg $ \opts -> Right opts { proofGoalsFailFast = True }
 
-      , Option [] ["no-colors-err"]
-        "Suppress color codes in the errors"
-        $ NoArg $ \opts -> Right opts{ noColorsErr = True }
-
-      , Option [] ["no-colors-out"]
-        "Suppress color codes in the output"
-        $ NoArg $ \opts -> Right opts{ noColorsOut = True }
-
-      , Option [] ["no-colors"]
-        "Suppress color codes in both the output and the errors"
-        $ NoArg $ \opts -> Right opts{ noColorsErr = True, noColorsOut = True }
-
       , Option "q" ["quiet"]
         "Quiet mode; produce minimal output"
-        $ NoArg $ \opts -> Right opts{ quietMode = True }
+        $ NoArg $ \opts -> Right (over outputOptions (\o -> o { quietMode = True }) opts)
 
       , Option "f" ["floating-point"]
         ("Select floating point representation,"

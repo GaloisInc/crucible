@@ -29,6 +29,7 @@ import           Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import           Lang.Crucible.Backend
 
 import qualified Crux
+import qualified Crux.Config.Common as Crux
 
 import           Crucibles.SchedulingAlgorithm hiding (_exec, exec)
 import           Crucibles.Execution
@@ -120,9 +121,9 @@ exploreOvr symOnline cruxOpts mainAct =
         do sym <- getSymInterface
            ctx <- use stateContext
            todo <- liftIO $ getProofObligations sym
-           let cruxOpts' = cruxOpts { Crux.quietMode = True, Crux.simVerbose = 0 }
+           let cruxOpts' = over Crux.outputOptions (\o -> o { Crux.quietMode = True, Crux.simVerbose = 0 }) cruxOpts
            mkOutCfg <- liftIO $ Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
-           let ?outputConfig = mkOutCfg (Just cruxOpts')
+           let ?outputConfig = mkOutCfg (Just (view Crux.outputOptions cruxOpts'))
            (processed, _) <- liftIO $ proveGoalsOnline sym cruxOpts' ctx (\_ _ -> return mempty) todo
            let provedAll = totalProcessedGoals processed == provedGoals processed
            when provedAll $ liftIO $ clearProofObligations sym

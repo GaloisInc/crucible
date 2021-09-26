@@ -28,7 +28,7 @@ import           System.IO ( Handle )
 -- crux
 import qualified Crux
 import qualified Crux.Log as Log
-import           Crux.Config.Common (CruxOptions(..))
+import           Crux.Config.Common (CruxOptions(..), OutputOptions)
 
 -- local
 import           Crux.LLVM.Config
@@ -51,7 +51,7 @@ cruxLLVMLoggingToSayWhat :: CruxLLVMLogging -> Crux.SayWhat
 cruxLLVMLoggingToSayWhat (LoggingCrux msg) = Log.cruxLogMessageToSayWhat msg
 cruxLLVMLoggingToSayWhat (LoggingCruxLLVM msg) = Log.cruxLLVMLogMessageToSayWhat msg
 
-defaultOutputConfig :: IO (Maybe CruxOptions -> Log.OutputConfig CruxLLVMLogging)
+defaultOutputConfig :: IO (Maybe OutputOptions -> Log.OutputConfig CruxLLVMLogging)
 defaultOutputConfig = Crux.defaultOutputConfig cruxLLVMLoggingToSayWhat
 
 withCruxLLVMLogging ::
@@ -67,7 +67,7 @@ withCruxLLVMLogging a =
   in a
 
 mainWithOutputConfig ::
-  (Maybe CruxOptions -> Log.OutputConfig CruxLLVMLogging) ->
+  (Maybe OutputOptions -> Log.OutputConfig CruxLLVMLogging) ->
   IO ExitCode
 mainWithOutputConfig mkOutCfg = withCruxLLVMLogging $ do
   cfg <- llvmCruxConfig

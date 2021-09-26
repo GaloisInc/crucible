@@ -3,6 +3,7 @@
 module Crux.Config.Load where
 
 
+import Control.Lens (Lens', lens, over, set, view)
 import Control.Monad(foldM, (<=<))
 import Control.Exception(Exception(..),catch,catches,throwIO, Handler(..))
 import Data.Text (Text)
@@ -18,22 +19,49 @@ import Crux.Config
 
 -- | The result of loading a configuration.
 data Options opts =
-    ShowHelp  {- XXX: Add help strings -}  -- ^ Show help and exit
-  | ShowVersion               -- ^ Show version and exti
+    ShowHelp {- XXX: Add help strings -} -- ^ Show help and exit
+  | ShowVersion -- ^ Show version and exit
   | Options opts [FilePath]   -- ^ We loaded some options
+
+
+data ColorOptions = ColorOptions
+  { _noColorsErr :: Bool
+  , _noColorsOut :: Bool
+  }
+
+defaultColorOptions :: ColorOptions
+defaultColorOptions = ColorOptions
+  { _noColorsErr = False
+  , _noColorsOut = False
+  }
+
+noColors :: ColorOptions
+noColors = ColorOptions
+  { _noColorsErr = True
+  , _noColorsOut = True
+  }
+
+noColorsErr :: Lens' ColorOptions Bool
+noColorsErr = lens _noColorsErr (\o v -> o { _noColorsErr = v })
+noColorsOut :: Lens' ColorOptions Bool
+noColorsOut = lens _noColorsOut (\o v -> o { _noColorsOut = v })
 
 
 -- | Command line options processed before loading the configuration file.
 data EarlyConfig opts = EarlyConfig
-  { showHelp    :: Bool -- ^ Describe options & quit
-  , showVersion :: Bool -- ^ Show tool version & quit
-  , configFile  :: Maybe FilePath
+  { showHelp      :: Bool -- ^ Describe options & quit
+  , showVersion   :: Bool -- ^ Show tool version & quit
+  , configFile    :: Maybe FilePath
     -- ^ Load configuratoin from here.
     -- Other command line options override the settings in the file.
-
-  , options     :: OptSetter opts
-  , files       :: [FilePath]
+  , _colorOptions :: ColorOptions
+  , options       :: OptSetter opts
+  , files         :: [FilePath]
   }
+
+colorOptions :: Lens' (EarlyConfig opts) ColorOptions
+colorOptions = lens _colorOptions (\o v -> o { _colorOptions = v })
+
 
 commandLineOptions :: Config opts -> OptSpec (EarlyConfig opts)
 commandLineOptions cfg = OptSpec
@@ -41,6 +69,7 @@ commandLineOptions cfg = OptSpec
                      { showHelp    = False
                      , showVersion = False
                      , configFile  = Nothing
+                     , _colorOptions = defaultColorOptions
                      , options     = Right
                      , files       = []
                      }
@@ -57,6 +86,19 @@ commandLineOptions cfg = OptSpec
       , Option "" ["config"]
         "Load configuration from this file."
         $ ReqArg "FILE" $ \f opts -> Right opts { configFile = Just f }
+
+      , Option [] ["no-colors-err"]
+        "Suppress color codes in the errors"
+        $ NoArg $ \opts -> Right (over colorOptions (set noColorsErr True) opts)
+
+      , Option [] ["no-colors-out"]
+        "Suppress color codes in the output"
+        $ NoArg $ \opts -> Right (over colorOptions (set noColorsOut True) opts)
+
+      , Option [] ["no-colors"]
+        "Suppress color codes in both the output and the errors"
+        $ NoArg $ \opts -> Right (set colorOptions noColors opts)
+
       ] ++ map (mapOptDescr delayOpt) (cfgCmdLineFlag cfg)
 
   , progParamDocs = [("FILES", "Input files to process.")]
@@ -107,18 +149,19 @@ ppConfigError (InvalidCommandLine msg) =
 -- configuration file options (in that order) to get the overall
 -- Options configuration for running Crux. Throws 'ConfigError' on
 -- failure.
-loadConfig :: Text -> Config opts -> IO (Options opts)
+loadConfig :: Text -> Config opts -> IO (ColorOptions, Options opts)
 loadConfig nm cfg =
   do earlyOpts <- getOptsX (commandLineOptions cfg) `catch`
                   \(GetOptException errs) -> throwIO (InvalidCommandLine errs)
-     if | showHelp earlyOpts -> pure ShowHelp
-        | showVersion earlyOpts -> pure ShowVersion
+     let copts = view colorOptions earlyOpts
+     if | showHelp earlyOpts -> pure (copts, ShowHelp)
+        | showVersion earlyOpts -> pure (copts, ShowVersion)
         | otherwise ->
           do opts  <- fromFile nm cfg (configFile earlyOpts)
              opts1 <- foldM fromEnv opts (cfgEnv cfg)
              case options earlyOpts opts1 of
                Left err    -> throwIO (InvalidCommandLine [err])
-               Right opts2 -> pure (Options opts2 (reverse (files earlyOpts)))
+               Right opts2 -> pure (copts, Options opts2 (reverse (files earlyOpts)))
 
 
 -- | Load settings from a file, or from an empty configuration value.
@@ -149,6 +192,3 @@ fromEnv opts v =
                    Right opts1 -> pure opts1
                    Left err    -> throwIO (InvalidEnvVar (evName v) s err)
        Nothing -> pure opts
-
-
-
