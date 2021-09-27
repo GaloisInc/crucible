@@ -129,6 +129,7 @@ jobs:
         run: .github/ci.sh bundle_crux_mir_files
         if: startsWith(github.ref, 'refs/heads/release-')
         env:
+          OS_TAG: ${{ matrix.os }}
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           VERSION: ${{ needs.outputs.outputs.crux-mir-version }}
