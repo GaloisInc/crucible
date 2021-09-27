@@ -64,6 +64,7 @@ import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as Set
 import           GHC.Generics (Generic)
+import           System.Environment (lookupEnv)
 import           System.FilePath ((</>))
 import           System.IO (IOMode(WriteMode), withFile)
 
@@ -86,7 +87,7 @@ import           Lang.Crucible.LLVM.Translation as CLLVM (defaultTranslationOpti
 import qualified Lang.Crucible.LLVM.MemModel as CLLVM
 
 import qualified Crux
-import qualified Crux.Config.Common as Crux (PathStrategy(SplitAndExploreDepthFirst))
+import qualified Crux.Config.Common as Crux (PathStrategy(SplitAndExploreDepthFirst), postprocessOptions)
 import qualified Crux.Log as Log
 
 import           Crux.LLVM.Compile (genBitCode)
@@ -209,7 +210,7 @@ withOptions llvmModule file k =
     withFile (testDir </> file <> ".output") WriteMode $ \h ->
       do
         let appCtx = makeAppContext Log.Low
-        let llOpts = (mkLLOpts "") { CruxLLVM.noCompile = False }
+        llOpts <- (\ll -> ll { CruxLLVM.noCompile = False }) <$> mkLLOpts ""
         let cruxOpts = mkCruxOpts [testDir </> file]
         let ?outputConfig =
               Crux.mkOutputConfig
@@ -217,6 +218,7 @@ withOptions llvmModule file k =
                 (h, False)
                 ucCruxLLVMTestLoggingToSayWhat
                 (Just cruxOpts)
+        _ <- Crux.postprocessOptions cruxOpts -- Validate, create build directory
         path <-
           let complain exc = do
                 sayUCCruxLLVMTest ClangTrouble
@@ -225,7 +227,7 @@ withOptions llvmModule file k =
            in if isNothing llvmModule
               then try (genBitCode cruxOpts llOpts) >>= either complain return
               else return "<fake-path>"
-        let cruxOpts' = mkCruxOpts [path]
+        cruxOpts' <- Crux.postprocessOptions (mkCruxOpts [path])
 
         -- TODO(lb): It would be nice to print this only when the test fails
         -- putStrLn
@@ -248,29 +250,32 @@ withOptions llvmModule file k =
         k appCtx modCtx halloc cruxOpts' llOpts
 
   where
-    mkLLOpts :: FilePath -> CruxLLVM.LLVMOptions
+    mkLLOpts :: FilePath -> IO CruxLLVM.LLVMOptions
     mkLLOpts libDir =
-      CruxLLVM.LLVMOptions
-        { CruxLLVM.clangBin = "clang"
-        , CruxLLVM.linkBin = "llvm-link"
-        -- NB(lb): The -fno-wrapv here ensures that Clang will emit 'nsw' flags
-        -- even on platforms using nixpkgs, which injects -fno-strict-overflow
-        -- by default.
-        , CruxLLVM.clangOpts = ["-fno-wrapv"]
-        , CruxLLVM.libDir = libDir
-        , CruxLLVM.incDirs = []
-        , CruxLLVM.targetArch = Nothing
-        , CruxLLVM.ubSanitizers = []
-        , CruxLLVM.intrinsicsOpts = CLLVM.defaultIntrinsicsOptions
-        , CruxLLVM.memOpts = CLLVM.defaultMemOptions
-        , CruxLLVM.transOpts = CLLVM.defaultTranslationOptions
-        , CruxLLVM.entryPoint = "main"
-        , CruxLLVM.lazyCompile = False
-        , CruxLLVM.noCompile = True
-        , CruxLLVM.optLevel = 1
-        , CruxLLVM.symFSRoot = Nothing
-        , CruxLLVM.supplyMainArguments = CruxLLVM.NoArguments
-        }
+      do clang <- fromMaybe "clang" <$> lookupEnv "CLANG"
+         llvmLink <- fromMaybe "llvm-link" <$> lookupEnv "LLVM_LINK"
+         return $
+           CruxLLVM.LLVMOptions
+             { CruxLLVM.clangBin = clang
+             , CruxLLVM.linkBin = llvmLink
+             -- NB(lb): The -fno-wrapv here ensures that Clang will emit 'nsw' flags
+             -- even on platforms using nixpkgs, which injects -fno-strict-overflow
+             -- by default.
+             , CruxLLVM.clangOpts = ["-fno-wrapv"]
+             , CruxLLVM.libDir = libDir
+             , CruxLLVM.incDirs = []
+             , CruxLLVM.targetArch = Nothing
+             , CruxLLVM.ubSanitizers = []
+             , CruxLLVM.intrinsicsOpts = CLLVM.defaultIntrinsicsOptions
+             , CruxLLVM.memOpts = CLLVM.defaultMemOptions
+             , CruxLLVM.transOpts = CLLVM.defaultTranslationOptions
+             , CruxLLVM.entryPoint = "main"
+             , CruxLLVM.lazyCompile = False
+             , CruxLLVM.noCompile = True
+             , CruxLLVM.optLevel = 1
+             , CruxLLVM.symFSRoot = Nothing
+             , CruxLLVM.supplyMainArguments = CruxLLVM.NoArguments
+             }
 
     mkCruxOpts :: [FilePath] -> Crux.CruxOptions
     mkCruxOpts files =
