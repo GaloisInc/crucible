@@ -86,7 +86,7 @@ import           Lang.Crucible.LLVM.Translation as CLLVM (defaultTranslationOpti
 import qualified Lang.Crucible.LLVM.MemModel as CLLVM
 
 import qualified Crux
-import qualified Crux.Config.Common as Crux (PathStrategy(SplitAndExploreDepthFirst))
+import qualified Crux.Config.Common as Crux (PathStrategy(SplitAndExploreDepthFirst), postprocessOptions)
 import qualified Crux.Log as Log
 
 import           Crux.LLVM.Compile (genBitCode)
@@ -217,6 +217,7 @@ withOptions llvmModule file k =
                 (h, False)
                 ucCruxLLVMTestLoggingToSayWhat
                 (Just cruxOpts)
+        _ <- Crux.postprocessOptions cruxOpts -- Validate, create build directory
         path <-
           let complain exc = do
                 sayUCCruxLLVMTest ClangTrouble
@@ -225,7 +226,7 @@ withOptions llvmModule file k =
            in if isNothing llvmModule
               then try (genBitCode cruxOpts llOpts) >>= either complain return
               else return "<fake-path>"
-        let cruxOpts' = mkCruxOpts [path]
+        cruxOpts' <- Crux.postprocessOptions (mkCruxOpts [path])
 
         -- TODO(lb): It would be nice to print this only when the test fails
         -- putStrLn
