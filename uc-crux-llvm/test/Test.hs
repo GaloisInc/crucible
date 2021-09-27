@@ -41,9 +41,6 @@ a very real bug.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -55,18 +52,12 @@ module Main (main) where
 
 {- ORMOLU_DISABLE -}
 import           Control.Lens ((^.))
-import           Control.Exception ( try )
-import           Data.Aeson (ToJSON)
 import           Control.Monad (unless)
 import           Data.Foldable (for_)
 import qualified Data.Text as Text
 import qualified Data.Map as Map
-import           Data.Maybe (fromMaybe, isNothing)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
-import           GHC.Generics (Generic)
-import           System.Environment (lookupEnv)
-import           System.FilePath ((</>))
-import           System.IO (IOMode(WriteMode), withFile)
 
 import qualified Test.Tasty as TT
 import qualified Test.Tasty.HUnit as TH
@@ -77,35 +68,15 @@ import qualified Text.LLVM.AST as L
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr (NatRepr, knownNat)
 
-import qualified What4.ProblemFeatures as What4 (noFeatures)
-
-import           Lang.Crucible.FunctionHandle (HandleAllocator, newHandleAllocator)
-
-import           Lang.Crucible.LLVM.Intrinsics as CLLVM (defaultIntrinsicsOptions)
-import           Lang.Crucible.LLVM.MemModel (mkMemVar)
-import           Lang.Crucible.LLVM.Translation as CLLVM (defaultTranslationOptions)
-import qualified Lang.Crucible.LLVM.MemModel as CLLVM
-
-import qualified Crux
-import qualified Crux.Config.Common as Crux (PathStrategy(SplitAndExploreDepthFirst), postprocessOptions)
-import qualified Crux.Log as Log
-
-import           Crux.LLVM.Compile (genBitCode)
-import           Crux.LLVM.Config (LLVMOptions)
-import qualified Crux.LLVM.Config as CruxLLVM
-import qualified Crux.LLVM.Log as Log
-
 -- Code being tested
-import qualified UCCrux.LLVM.Main as Main
-import           UCCrux.LLVM.Main (loopOnFunctions, translateFile, translateLLVMModule)
-import           UCCrux.LLVM.Context.App (AppContext, makeAppContext)
-import           UCCrux.LLVM.Context.Module (ModuleContext, defnTypes)
+import           UCCrux.LLVM.Main (loopOnFunctions)
+import           UCCrux.LLVM.Context.App (AppContext)
+import           UCCrux.LLVM.Context.Module (defnTypes)
 import           UCCrux.LLVM.Equivalence (NonEmptyCrashDiff, reportDiffs, getCrashDiffs)
 import           UCCrux.LLVM.Errors.Unimplemented (catchUnimplemented)
 import           UCCrux.LLVM.Cursor (Cursor(..))
 import           UCCrux.LLVM.Classify.Types (partitionUncertainty)
 import           UCCrux.LLVM.FullType (FullType(..), FullTypeRepr(..))
-import qualified UCCrux.LLVM.Logging as Log
 import           UCCrux.LLVM.Newtypes.FunctionName (FunctionName, functionNameFromString)
 import           UCCrux.LLVM.Overrides.Skip (SkipOverrideName(..))
 import           UCCrux.LLVM.Overrides.Unsound (UnsoundOverrideName(..))
@@ -113,6 +84,8 @@ import           UCCrux.LLVM.Run.EntryPoints (makeEntryPointsOrThrow)
 import           UCCrux.LLVM.Run.Result (DidHitBounds(DidHitBounds, DidntHitBounds))
 import qualified UCCrux.LLVM.Run.Result as Result
 import           UCCrux.LLVM.Run.Unsoundness (Unsoundness(..))
+
+import qualified Utils
 {- ORMOLU_ENABLE -}
 
 -- Just test that a few things typecheck as expected
@@ -134,199 +107,13 @@ _exampleStruct =
     (Ctx.lastIndex Ctx.knownSize)
     exampleHere
 
-testDir :: FilePath
-testDir = "test/programs"
-
--- | Extra logging messages specific to this test suite
-
-data UCCruxLLVMTestLogMessage
-  = ClangTrouble
-  deriving (Generic, ToJSON)
-
-type SupportsUCCruxLLVMTestLogMessage msgs =
-  (?injectUCCruxLLVMTestLogMessage :: UCCruxLLVMTestLogMessage -> msgs)
-
-sayUCCruxLLVMTest ::
-  Crux.Logs msgs =>
-  (?injectUCCruxLLVMTestLogMessage :: UCCruxLLVMTestLogMessage -> msgs) =>
-  UCCruxLLVMTestLogMessage ->
-  IO ()
-sayUCCruxLLVMTest msg =
-  let ?injectMessage = ?injectUCCruxLLVMTestLogMessage
-   in Crux.say msg
-
-ucCruxLLVMTestLogMessageToSayWhat ::
-  UCCruxLLVMTestLogMessage ->
-  Crux.SayWhat
-ucCruxLLVMTestLogMessageToSayWhat ClangTrouble =
-  Crux.SayWhat Crux.Fail Log.ucCruxLLVMTag "Trouble when running Clang:"
-
--- | Logging data type joining test log messages and uc-crux-llvm log messages
-
-data UCCruxLLVMTestLogging
-  = LoggingViaUCCruxLLVM Main.UCCruxLLVMLogging
-  | LoggingUCCruxLLVMTest UCCruxLLVMTestLogMessage
-  deriving (Generic, ToJSON)
-
-ucCruxLLVMTestLoggingToSayWhat :: UCCruxLLVMTestLogging -> Log.SayWhat
-ucCruxLLVMTestLoggingToSayWhat (LoggingViaUCCruxLLVM msg) =
-  Main.ucCruxLLVMLoggingToSayWhat msg
-ucCruxLLVMTestLoggingToSayWhat (LoggingUCCruxLLVMTest msg) =
-  ucCruxLLVMTestLogMessageToSayWhat msg
-
-withUCCruxLLVMTestLogging ::
-  ( ( Log.SupportsCruxLogMessage UCCruxLLVMTestLogging,
-      Log.SupportsCruxLLVMLogMessage UCCruxLLVMTestLogging,
-      Log.SupportsUCCruxLLVMLogMessage UCCruxLLVMTestLogging,
-      SupportsUCCruxLLVMTestLogMessage UCCruxLLVMTestLogging
-    ) =>
-    computation
-  ) ->
-  computation
-withUCCruxLLVMTestLogging computation =
-  let ?injectCruxLogMessage = LoggingViaUCCruxLLVM . Main.LoggingCrux
-      ?injectCruxLLVMLogMessage = LoggingViaUCCruxLLVM . Main.LoggingCruxLLVM
-      ?injectUCCruxLLVMLogMessage = LoggingViaUCCruxLLVM . Main.LoggingUCCruxLLVM
-      ?injectUCCruxLLVMTestLogMessage = LoggingUCCruxLLVMTest
-   in computation
-
-withOptions ::
-  Maybe L.Module ->
-  FilePath ->
-  ( forall m arch.
-    Log.Logs UCCruxLLVMTestLogging =>
-    Log.SupportsCruxLogMessage UCCruxLLVMTestLogging =>
-    AppContext ->
-    ModuleContext m arch ->
-    HandleAllocator ->
-    Crux.CruxOptions ->
-    LLVMOptions ->
-    IO a
-  ) ->
-  IO a
-withOptions llvmModule file k =
-  withUCCruxLLVMTestLogging $
-  do
-    withFile (testDir </> file <> ".output") WriteMode $ \h ->
-      do
-        let appCtx = makeAppContext Log.Low
-        llOpts <- (\ll -> ll { CruxLLVM.noCompile = False }) <$> mkLLOpts ""
-        let cruxOpts = mkCruxOpts [testDir </> file]
-        let ?outputConfig =
-              Crux.mkOutputConfig
-                (h, False)
-                (h, False)
-                ucCruxLLVMTestLoggingToSayWhat
-                (Just cruxOpts)
-        _ <- Crux.postprocessOptions cruxOpts -- Validate, create build directory
-        path <-
-          let complain exc = do
-                sayUCCruxLLVMTest ClangTrouble
-                Log.logException exc
-                error ("aborting: " ++ show exc)
-           in if isNothing llvmModule
-              then try (genBitCode cruxOpts llOpts) >>= either complain return
-              else return "<fake-path>"
-        cruxOpts' <- Crux.postprocessOptions (mkCruxOpts [path])
-
-        -- TODO(lb): It would be nice to print this only when the test fails
-        -- putStrLn
-        --   ( unwords
-        --       [ "\nReproduce with:\n",
-        --         "cabal v2-run exe:uc-crux-llvm -- ",
-        --         "--entry-points",
-        --         intercalate " --entry-points " (map show fns),
-        --         testDir </> file
-        --       ]
-        --   )
-
-        halloc <- newHandleAllocator
-        memVar <- mkMemVar "uc-crux-llvm:test_llvm_memory" halloc
-        Main.SomeModuleContext' modCtx <-
-          case llvmModule of
-            Just lMod -> translateLLVMModule llOpts halloc memVar path lMod
-            Nothing -> translateFile llOpts halloc memVar path
-
-        k appCtx modCtx halloc cruxOpts' llOpts
-
-  where
-    mkLLOpts :: FilePath -> IO CruxLLVM.LLVMOptions
-    mkLLOpts libDir =
-      do clang <- fromMaybe "clang" <$> lookupEnv "CLANG"
-         llvmLink <- fromMaybe "llvm-link" <$> lookupEnv "LLVM_LINK"
-         return $
-           CruxLLVM.LLVMOptions
-             { CruxLLVM.clangBin = clang
-             , CruxLLVM.linkBin = llvmLink
-             -- NB(lb): The -fno-wrapv here ensures that Clang will emit 'nsw' flags
-             -- even on platforms using nixpkgs, which injects -fno-strict-overflow
-             -- by default.
-             , CruxLLVM.clangOpts = ["-fno-wrapv"]
-             , CruxLLVM.libDir = libDir
-             , CruxLLVM.incDirs = []
-             , CruxLLVM.targetArch = Nothing
-             , CruxLLVM.ubSanitizers = []
-             , CruxLLVM.intrinsicsOpts = CLLVM.defaultIntrinsicsOptions
-             , CruxLLVM.memOpts = CLLVM.defaultMemOptions
-             , CruxLLVM.transOpts = CLLVM.defaultTranslationOptions
-             , CruxLLVM.entryPoint = "main"
-             , CruxLLVM.lazyCompile = False
-             , CruxLLVM.noCompile = True
-             , CruxLLVM.optLevel = 1
-             , CruxLLVM.symFSRoot = Nothing
-             , CruxLLVM.supplyMainArguments = CruxLLVM.NoArguments
-             }
-
-    mkCruxOpts :: [FilePath] -> Crux.CruxOptions
-    mkCruxOpts files =
-      Crux.CruxOptions
-        { Crux.inputFiles = files
-        , Crux.outDir = "" -- no reports
-        , Crux.bldDir = "crux-build"
-        , Crux.checkPathSat = True
-        , Crux.profileCrucibleFunctions = False
-        , Crux.profileSolver = False
-        , Crux.branchCoverage = False
-        , Crux.pathStrategy = Crux.SplitAndExploreDepthFirst
-        , Crux.globalTimeout =
-            Just (fromRational (toRational (5 :: Int)))
-        , Crux.goalTimeout =
-            Just (fromRational (toRational (5 :: Int)))
-        , Crux.profileOutputInterval =
-            fromRational (toRational (1.0 :: Double))
-        , Crux.loopBound = Just 8
-        , Crux.recursionBound = Just 8
-        , Crux.makeCexes = False
-        , Crux.unsatCores = False
-        , Crux.simVerbose = 0
-        -- With Yices, cast_float_to_pointer_write.c hangs
-        , Crux.solver = "z3"
-        , Crux.pathSatSolver = Just "z3"
-        , Crux.forceOfflineGoalSolving = False
-        , Crux.pathSatSolverOutput = Nothing
-        , Crux.onlineSolverOutput = Nothing
-        , Crux.yicesMCSat = False
-        , Crux.floatMode = "default"
-        , Crux.quietMode = True
-        , Crux.proofGoalsFailFast = False
-        , Crux.skipReport = True
-        , Crux.skipSuccessReports = True
-        , Crux.skipIncompleteReports = True
-        , Crux.hashConsing = False
-        , Crux.onlineProblemFeatures = What4.noFeatures
-        , Crux.printFailures = False
-        , Crux.printSymbolicVars = False
-        , Crux.noColorsOut = False
-        , Crux.noColorsErr = False
-        }
-
 findBugs ::
   Maybe L.Module ->
   FilePath ->
   [FunctionName] ->
   IO (Map.Map String Result.SomeBugfindingResult)
 findBugs llvmModule file fns =
-  withOptions llvmModule file $
+  Utils.withOptions llvmModule file $
     \appCtx modCtx halloc cruxOpts llOpts ->
       loopOnFunctions
         appCtx
@@ -343,9 +130,9 @@ getCrashDiff ::
   L.Module ->
   IO (AppContext, ([(String, NonEmptyCrashDiff)], [(String, NonEmptyCrashDiff)]))
 getCrashDiff path1 mod1 path2 mod2 =
-  withOptions (Just mod1) path1 $
+  Utils.withOptions (Just mod1) path1 $
     \_ modCtx1 _ _ _ ->
-      withOptions (Just mod2) path2 $
+      Utils.withOptions (Just mod2) path2 $
         \appCtx modCtx2 halloc cruxOpts llOpts ->
            (appCtx,) <$>
              getCrashDiffs
