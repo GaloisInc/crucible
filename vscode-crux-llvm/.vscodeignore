@@ -1,22 +1,25 @@
-!client/node_modules/semver/**
-!client/node_modules/vscode-jsonrpc/**
-!client/node_modules/vscode-languageclient/**
-!client/node_modules/vscode-languageserver-protocol/**
-!client/node_modules/vscode-languageserver-types/**
-**/.envrc
-**/.eslintignore
-**/.gitignore
-**/.vscode
-**/*-workspace
-**/*.map
-**/*.ts
-**/shell.nix
-**/tsconfig.json
-client/node_modules/**
-client/src/
-dist/
+# This file should list ALL the directories/files that should NOT make it into
+# the VSIX file.  Because we use a bundler, it should pretty much be everything
+# but the `dist/` directory.  However, `vsce` is smart enough to not include the
+# VSIX itself.
+.envrc
+.eslintignore
+.gitignore
+.vscode/
+bin/
+client/
+crux-build/
+dist/**/*.d.ts
+dist/**/*.map
+examples/
 nix/
 node_modules/
-server/node_modules/**
-client/src/
-vsce
+results/
+server/
+shared/
+shell.nix
+static/
+tsconfig-common.json
+tsconfig.json
+webpack.config.ts
+webview/
