@@ -1,16 +1,16 @@
 {
-    "extends": "../tsconfig-common.json",
     "compilerOptions": {
         "composite": true,
         "module": "CommonJS",
         "outDir": "../dist",
         "paths": {
             "@shared/*": [
-                "../shared/src/*",
-            ],
+                "../shared/src/*"
+            ]
         },
-        "rootDir": "..",
+        "rootDir": ".."
     },
+    "extends": "../tsconfig-common.json",
     "files": [
         "src/configuration-watcher.ts",
         "src/configuration.ts",
@@ -18,11 +18,11 @@
         "src/crux-llvm.d.ts",
         "src/extension.ts",
         "src/websocket-server.ts",
-        "src/webview-message-handler.ts",
+        "src/webview-message-handler.ts"
     ],
     "references": [
         {
-            "path": "../shared",
-        },
-    ],
+            "path": "../shared"
+        }
+    ]
 }

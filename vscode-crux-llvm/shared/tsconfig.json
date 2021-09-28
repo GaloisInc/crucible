@@ -1,10 +1,10 @@
 {
-    "extends": "../tsconfig-common.json",
     "compilerOptions": {
         "composite": true,
         "outDir": "../dist",
-        "rootDir": "..",
+        "rootDir": ".."
     },
+    "extends": "../tsconfig-common.json",
     "files": [
         "src/check-executable.ts",
         "src/check-executable-result.ts",
@@ -15,6 +15,6 @@
         "src/lsp-extensions.ts",
         "src/report.ts",
         "src/types.ts",
-        "src/webview-to-extension.ts",
-    ],
+        "src/webview-to-extension.ts"
+    ]
 }

@@ -60,13 +60,19 @@ const sharedConfiguration: Configuration = {
     plugins: [
         new CopyWebpackPlugin({
             patterns: [
-                { from: 'webview/node_modules/vscode-codicons/dist', to: 'vscode-codicons' },
+                { from: 'node_modules/vscode-codicons/dist', to: 'vscode-codicons' },
                 { from: 'static', to: 'static' },
             ],
         }),
     ],
 
     resolve: {
+        alias: {
+            '@client': path.resolve(__dirname, 'client/src'),
+            '@server': path.resolve(__dirname, 'server/src'),
+            '@shared': path.resolve(__dirname, 'shared/src'),
+            '@webview': path.resolve(__dirname, 'webview/src'),
+        },
         extensions: ['.ts', '.tsx', '.js'],
         plugins: [
             new TsconfigPathsPlugin({

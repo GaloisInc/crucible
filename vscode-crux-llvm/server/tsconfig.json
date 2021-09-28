@@ -1,5 +1,4 @@
 {
-    "extends": "../tsconfig-common.json",
     "compilerOptions": {
         "composite": true,
         "lib": [
@@ -9,19 +8,20 @@
         "outDir": "../dist",
         "paths": {
             "@shared/*": [
-                "../shared/src/*",
-            ],
+                "../shared/src/*"
+            ]
         },
         "rootDir": "..",
-        "target": "ES6",
+        "target": "ES6"
     },
+    "extends": "../tsconfig-common.json",
     "files": [
         "src/validate.ts",
-        "src/server.ts",
+        "src/server.ts"
     ],
     "references": [
         {
-            "path": "../shared",
-        },
-    ],
+            "path": "../shared"
+        }
+    ]
 }

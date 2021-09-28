@@ -4,7 +4,7 @@
 pkgs.mkShell {
 
   buildInputs = [
-    pkgs.nodejs
+    pkgs.nodejs_latest
   ];
 
   name = "vscode-crux-llvm";
