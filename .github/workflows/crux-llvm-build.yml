@@ -249,6 +249,7 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh bundle_crux_llvm_files
+        if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
@@ -256,6 +257,7 @@ jobs:
           VERSION: ${{ needs.outputs.outputs.crux-llvm-version }}
 
       - uses: actions/upload-artifact@v2
+        if: github.repository == 'GaloisInc/crucible'
         with:
           path: crux-llvm-*.tar.gz*
           name: crux-llvm-${{ matrix.os }}-${{ matrix.ghc }}
