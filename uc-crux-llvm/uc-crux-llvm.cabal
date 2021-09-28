@@ -137,7 +137,10 @@ test-suite uc-crux-llvm-test
   hs-source-dirs: test
 
   main-is: Test.hs
-  other-modules: Paths_uc_crux_llvm
+  other-modules:
+    Logging
+    Paths_uc_crux_llvm
+    Utils
   autogen-modules: Paths_uc_crux_llvm
 
   build-depends:
