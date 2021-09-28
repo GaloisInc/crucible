@@ -52,12 +52,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
         vscode.window.registerWebviewViewProvider(
             CruxLLVMViewProvider.viewType,
-            new CruxLLVMViewProvider(context, client),
+            new CruxLLVMViewProvider(context, client, () => {
+                client.start()
+            }),
         ),
 
     )
-
-    client.start()
 
 }
 

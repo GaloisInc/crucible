@@ -15,6 +15,13 @@ export const websocketPort = 1234
 /** Promisified version of nodejs' filesystem API */
 const fsPromises = fs.promises
 
+
+export type OutstandingCruxLLVMProcess = {
+    process: ChildProcess.ChildProcess,
+    intendedKill: boolean,
+} | null
+
+
 /**
  * Runs crux-llvm on a given text document, reporting using the diagnostics API
  * @param textDocument - The text document to validate
@@ -28,7 +35,7 @@ export async function validateTextDocument(
         onExit: () => void,
         onWarning: (warning: string) => void,
     },
-): Promise<ChildProcess.ChildProcessWithoutNullStreams> {
+): Promise<OutstandingCruxLLVMProcess> {
 
     const cruxLLVM = configuration[Configuration.ConfigurationKeys.CruxLLVM]
 
@@ -84,14 +91,36 @@ export async function validateTextDocument(
         console.log(e)
     })
 
-    cruxLLVMProcess.on('exit', () => {
+    const outstandingCruxLLVMProcess = {
+        intendedKill: false,
+        process: cruxLLVMProcess,
+    }
+
+    cruxLLVMProcess.on('exit', code => {
 
         callbacks.onExit()
 
-        try {
-            console.log(cruxLLVMProcess.exitCode)
-            console.log(cruxLLVMProcess.signalCode)
+        console.log(`crux-llvm exit code: ${cruxLLVMProcess.exitCode}`)
+        console.log(`crux-llvm signal code: ${cruxLLVMProcess.signalCode}`)
+        console.log(`Temporary directory: ${tempDir}`)
 
+        // If we killed the process, we don't care about doing any report processing.
+        if (outstandingCruxLLVMProcess.intendedKill) {
+            return
+        }
+
+        /**
+         * Supposedly, crux-llvm returns:
+         * - 0 when it solves all goals
+         * - 1 when it fails to solve some goals
+         * Otherwise, I'm not sure what happened so bailing.
+         */
+        if (code === null || ![0, 1].some(c => c === code)) {
+            callbacks.onError(`crux-llvm process did not terminate correctly, code ${code}`)
+            return
+        }
+
+        try {
             // crux-llvm can generate huge reports, arbitrary cutoff
             const reportFile = `${tempDir}/report.json`
 
@@ -118,6 +147,6 @@ export async function validateTextDocument(
         }
     })
 
-    return cruxLLVMProcess
+    return outstandingCruxLLVMProcess
 
 }

@@ -132,7 +132,10 @@ async function checkConfiguration(): Promise<boolean> {
 * running at a given time.  This way, we can reuse the same websocket port, and
 * avoid mixing messages from two separate processes.
 */
-let outstandingCruxLLVMProcess: ChildProcess.ChildProcess | null = null
+let outstandingCruxLLVMProcess: {
+    process: ChildProcess.ChildProcess,
+    intendedKill: boolean,
+} | null = null
 
 
 /**
@@ -161,7 +164,10 @@ async function onChangedContent(
     }
 
     const abort = () => {
-        outstandingCruxLLVMProcess?.kill(SIGTERM)
+        if (outstandingCruxLLVMProcess) {
+            outstandingCruxLLVMProcess.intendedKill = true
+            outstandingCruxLLVMProcess.process.kill(SIGTERM)
+        }
         connection.sendNotification(LSPExtensions.cruxLLVMAborted, {})
         cleanup()
     }
@@ -182,7 +188,10 @@ async function onChangedContent(
     const filePath = document.uri.replace('file://', '')
 
     // If an old process is still running, kill it
-    outstandingCruxLLVMProcess?.kill(SIGKILL)
+    if (outstandingCruxLLVMProcess) {
+        outstandingCruxLLVMProcess.intendedKill = true
+        outstandingCruxLLVMProcess?.process.kill(SIGKILL)
+    }
 
     outstandingCruxLLVMProcess = await validateTextDocument(configuration, filePath, {
 

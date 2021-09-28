@@ -68,10 +68,12 @@ const sharedConfiguration: Configuration = {
 
     resolve: {
         extensions: ['.ts', '.tsx', '.js'],
-        plugins: [new TsconfigPathsPlugin({
-            // Options: https://www.npmjs.com/package/tsconfig-paths-webpack-plugin
-            logLevel: 'INFO',
-        })],
+        plugins: [
+            new TsconfigPathsPlugin({
+                // Options: https://www.npmjs.com/package/tsconfig-paths-webpack-plugin
+                logLevel: 'INFO',
+            }) as any,
+        ],
     },
 
     target: 'node',

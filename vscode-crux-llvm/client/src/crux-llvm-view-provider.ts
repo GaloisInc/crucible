@@ -20,6 +20,7 @@ export class CruxLLVMViewProvider implements vscode.WebviewViewProvider {
     constructor(
         private context: vscode.ExtensionContext,
         private client: lc.LanguageClient,
+        private onWebsocketServerReady: () => void,
     ) {
     }
 
@@ -62,6 +63,10 @@ export class CruxLLVMViewProvider implements vscode.WebviewViewProvider {
                 }
             }
         )
+        // The extension is waiting for the websocket to be ready before
+        // starting the server process, otherwise the server will try to connect
+        // too early.
+        this.onWebsocketServerReady()
 
         this.context.subscriptions.push(
 
