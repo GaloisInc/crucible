@@ -58,6 +58,10 @@ In addition, there are the following library/executable packages:
    running compiled JVM bytecode programs, in a similar vein
    to the `crux-llvm` package.
 
+ * **`crux-mir`**, a tool for executing Rust programs in the crucible symbolic
+   simulator.  This is the backend for the `cargo crux-test` command provided
+   by `mir-json`.  See the [`crux-mir` README](crux-mir/README.md) for details.
+
  * **`crucible-server`**, a standalone process that allows constructing
    and symbolically executing Crucible programs via [Protocol Buffers][pb].
    The crucible-server directory also contains a Java API for
