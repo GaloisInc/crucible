@@ -92,6 +92,7 @@ jobs:
         run: .github/ci.sh install_system_deps
         env:
           SOLVER_PKG_VERSION: "snapshot-20210917"
+          BIN_ZIP_FILE: ${{ matrix.os }}-bin.zip
 
       - name: Setup Environment Vars
         run: |
