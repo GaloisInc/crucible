@@ -74,8 +74,8 @@ jobs:
       - shell: bash
         run: .github/ci.sh install_system_deps
         env:
-          Z3_VERSION: "4.8.8"
-          YICES_VERSION: "2.6.2"
+          SOLVER_PKG_VERSION: "snapshot-20210917"
+          BIN_ZIP_FILE: ${{ matrix.os }}-bin.zip
 
       - name: Setup Environment Vars
         run: |
