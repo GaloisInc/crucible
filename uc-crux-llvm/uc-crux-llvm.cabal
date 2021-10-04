@@ -149,7 +149,7 @@ test-suite uc-crux-llvm-test
 
   build-depends:
                 aeson,
-                base             >= 4.7,
+                base >= 4.7,
                 containers,
                 crucible,
                 crucible-llvm,
@@ -160,8 +160,8 @@ test-suite uc-crux-llvm-test
                 llvm-pretty,
                 lumberjack,
                 parameterized-utils >= 2.1.4.0,
-                tasty            >= 0.10,
-                tasty-hunit      >= 0.10,
+                tasty >= 0.10,
+                tasty-hunit >= 0.10,
                 tasty-quickcheck >= 0.10,
                 text,
                 time,
