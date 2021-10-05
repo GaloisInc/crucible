@@ -76,7 +76,7 @@ install_llvm() {
 }
 
 install_solvers() {
-  (cd $BIN && curl -o bins.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/$SOLVER_PKG_VERSION/$BIN_ZIP_FILE" && unzip -o bins.zip && rm bins.zip)
+  (cd $BIN && curl -o bins.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/$SOLVER_PKG_VERSION/$RUNNER_OS-bin.zip" && unzip -o bins.zip && rm bins.zip)
   cp $BIN/yices_smt2$EXT $BIN/yices-smt2$EXT
   chmod +x $BIN/*
   export PATH=$BIN:$PATH
