@@ -127,7 +127,7 @@ jobs:
 
       - shell: bash
         run: .github/ci.sh bundle_crux_mir_files
-        if: startsWith(github.ref, 'refs/heads/release-')
+        if: github.repository == 'GaloisInc/crucible'
         env:
           OS_TAG: ${{ matrix.os }}
           SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
