@@ -177,6 +177,7 @@ bundle_crux_llvm_files() {
   cp crux-llvm/README.md dist/doc
   cp -r crux-llvm/c-src dist
   VERSION=${VERSION:-$DATE}
+  strip dist/bin/*
   zip_dist crux-llvm
 }
 
@@ -187,6 +188,7 @@ bundle_crux_mir_files() {
   cp -r crux-mir/rlibs dist
   (cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
   VERSION=${VERSION:-$DATE}
+  strip dist/bin/*
   zip_dist crux-mir
 }
 
