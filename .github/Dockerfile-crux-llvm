@@ -43,6 +43,7 @@ COPY --from=build /usr/local/bin/* /usr/local/bin
 ARG DIR=/crux-llvm
 WORKDIR ${DIR}
 ADD crux-llvm/c-src c-src
+# Use LLVM 9 bitcode file for libcxx until LLVM version is available
 RUN cp c-src/libcxx-9.0.0.bc c-src/libcxx-11.0.1.bc
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
