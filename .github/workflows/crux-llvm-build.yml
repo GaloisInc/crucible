@@ -126,6 +126,7 @@ jobs:
       - shell: bash
         run: |
           .github/ci.sh build exe:crux-llvm
+          .github/ci.sh build exe:crux-llvm-for-ide
           .github/ci.sh build exe:uc-crux-llvm
 
       - shell: bash
