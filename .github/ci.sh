@@ -170,6 +170,7 @@ zip_dist() {
 bundle_crux_llvm_files() {
   setup_dist
   extract_exe crux-llvm dist/bin
+  extract_exe crux-llvm-for-ide dist/bin
   if ! $IS_WIN; then
     extract_exe crux-llvm-svcomp dist/bin
   fi
