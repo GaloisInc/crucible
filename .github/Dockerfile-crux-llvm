@@ -1,54 +1,32 @@
-FROM debian:buster AS solvers
-
-# Install needed packages for building
-RUN apt-get update \
-    && apt-get install -y curl cmake gcc g++ git libreadline-dev unzip
-RUN useradd -m user
-RUN install -d -o user -g user /solvers
-USER user
-WORKDIR /solvers
-RUN mkdir -p rootfs/usr/local/bin
-
-# Get Z3 4.8.8 from GitHub
-RUN curl -L https://github.com/Z3Prover/z3/releases/download/z3-4.8.8/z3-4.8.8-x64-ubuntu-16.04.zip --output z3.zip
-RUN unzip z3.zip
-RUN mv z3-*/bin/z3 rootfs/usr/local/bin
-
-# Build Boolector release 3.2.1 from source
-RUN curl -L https://github.com/Boolector/boolector/archive/3.2.1.tar.gz | tar xz
-RUN cd boolector* && ./contrib/setup-lingeling.sh && ./contrib/setup-btor2tools.sh && ./configure.sh && cd build && make -j$(nproc)
-RUN cp boolector*/build/bin/boolector rootfs/usr/local/bin
-
-# Install Yices 2.6.2
-RUN curl -L https://yices.csl.sri.com/releases/2.6.2/yices-2.6.2-x86_64-pc-linux-gnu-static-gmp.tar.gz | tar xz
-RUN cp yices*/bin/yices-smt2 rootfs/usr/local/bin \
-    && cp yices*/bin/yices rootfs/usr/local/bin
-
-# Install CVC4 1.8
-RUN curl -L https://github.com/CVC4/CVC4/releases/download/1.8/cvc4-1.8-x86_64-linux-opt --output rootfs/usr/local/bin/cvc4
-
-# Set executable and run tests
-RUN chmod +x rootfs/usr/local/bin/*
-
 FROM haskell:8.8.4 AS build
 
-RUN apt-get update && apt-get install -y wget libncurses-dev unzip clang llvm
-COPY --from=solvers /solvers/rootfs /
+RUN echo "deb http://deb.debian.org/debian buster-backports main" >> /etc/apt/sources.list
+RUN apt-get update && apt-get install -y wget libncurses-dev unzip clang-11 llvm-11-tools
+
+WORKDIR /usr/local/bin
+RUN curl -o solvers.zip -sL "https://github.com/GaloisInc/what4-solvers/releases/download/snapshot-20210917/ubuntu-18.04-bin.zip"
+RUN unzip solvers.zip && rm solvers.zip && chmod +x *
+
+RUN cabal v2-update
 
 ARG DIR=/crux-llvm
+WORKDIR ${DIR}
 RUN mkdir -p ${DIR}/build
 ADD crucible ${DIR}/build/crucible
 ADD crucible-llvm ${DIR}/build/crucible-llvm
+ADD crucible-symio ${DIR}/build/crucible-symio
 ADD crux ${DIR}/build/crux
 ADD crux-llvm ${DIR}/build/crux-llvm
 ADD dependencies ${DIR}/build/dependencies
 ADD .github/cabal.project.crux-llvm ${DIR}/build/cabal.project
 ADD cabal.GHC-8.8.4.config ${DIR}/build/cabal.project.freeze
+RUN cp $DIR/build/crux-llvm/c-src/libcxx-9.0.0.bc $DIR/build/crux-llvm/c-src/libcxx-11.0.1.bc
 
 WORKDIR ${DIR}/build
-RUN cabal v2-update
 RUN cabal v2-build --only-dependencies crux-llvm
 RUN cabal v2-build crux-llvm
+ENV CLANG=clang-11
+ENV LLVM_LINK=llvm-link-11
 RUN cabal v2-test crux-llvm
 RUN cp `cabal v2-exec which crux-llvm` /usr/local/bin
 RUN cp `cabal v2-exec which crux-llvm-svcomp` /usr/local/bin
@@ -56,16 +34,19 @@ RUN cp `cabal v2-exec which crux-llvm-svcomp` /usr/local/bin
 FROM debian:buster-slim
 
 USER root
+RUN echo "deb http://deb.debian.org/debian buster-backports main" >> /etc/apt/sources.list
 RUN apt-get update
-RUN apt-get install -y libgmp10 zlibc zlib1g clang llvm
+RUN apt-get install -y libgmp10 zlibc zlib1g clang-11 llvm-11-tools unzip
+
+COPY --from=build /usr/local/bin/* /usr/local/bin
 
 ARG DIR=/crux-llvm
-COPY --from=solvers /solvers/rootfs /
-COPY --from=build /usr/local/bin/* /usr/local/bin/
-
 WORKDIR ${DIR}
 ADD crux-llvm/c-src c-src
-RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-7.0.1.bc
+# Use LLVM 9 bitcode file for libcxx until LLVM version is available
+RUN cp c-src/libcxx-9.0.0.bc c-src/libcxx-11.0.1.bc
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
+ENV CLANG=clang-11
+ENV LLVM_LINK=llvm-link-11
 ENTRYPOINT ["/usr/local/bin/crux-llvm"]
