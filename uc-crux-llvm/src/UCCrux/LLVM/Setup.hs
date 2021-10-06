@@ -9,7 +9,6 @@ Stability    : provisional
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -27,15 +26,15 @@ module UCCrux.LLVM.Setup
 where
 
 {- ORMOLU_DISABLE -}
-import           Prelude hiding (head, reverse, zip)
+import           Prelude hiding (head, zip)
 
 import           Control.Lens ((^.), (%~), to, at)
-import           Control.Monad (foldM, forM, void)
+import           Control.Monad (void)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.List.NonEmpty (NonEmpty((:|)), head, reverse, zip, toList)
-import           Data.Foldable (for_)
+import           Data.Foldable (for_, toList)
 import           Data.Function ((&))
 import           Data.Functor.Compose (Compose(Compose))
+import           Data.Traversable.WithIndex (ifor)
 import           Data.Map (Map)
 import           Data.Proxy (Proxy(Proxy))
 import           Data.Type.Equality ((:~:)(Refl), testEquality)
@@ -46,24 +45,27 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.Classes (IxedF' (ixF'))
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Fin as Fin
 import           Data.Parameterized.NatRepr (NatRepr, type (<=), type (+), LeqProof(LeqProof))
 import qualified Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some (Some(Some))
 import qualified Data.Parameterized.Vector as PVec
 
+-- what4
 import qualified What4.Interface as W4I
 import qualified What4.InterpretedFloatingPoint as W4IFP
 
+-- crucible
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Simulator as Crucible
 import qualified Lang.Crucible.Types as CrucibleTypes
 
-import           Lang.Crucible.LLVM.Extension (ArchWidth)
+-- crucible-llvm
 import qualified Lang.Crucible.LLVM.Globals as LLVMGlobals
 import qualified Lang.Crucible.LLVM.MemModel as LLVMMem
-import qualified Lang.Crucible.LLVM.MemModel.Pointer as LLVMPointer
 import qualified Lang.Crucible.LLVM.Translation as LLVMTrans
 
+-- crux
 import           Crux.LLVM.Overrides (ArchOk)
 
 import           UCCrux.LLVM.Constraints (Constraints, ConstrainedTypedValue(..), ConstrainedShape(..), Constraint(..), argConstraints, globalConstraints, minimalConstrainedShape)
@@ -75,9 +77,11 @@ import           UCCrux.LLVM.Errors.Unimplemented (unimplemented)
 import qualified UCCrux.LLVM.Errors.Unimplemented as Unimplemented
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
 import qualified UCCrux.LLVM.FullType.CrucibleType as FTCT
-import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, ModuleTypes, asFullType)
+import           UCCrux.LLVM.FullType.Memory (pointerRange, sizeBv)
+import           UCCrux.LLVM.FullType.Type (FullTypeRepr(..), ToCrucibleType, MapToCrucibleType, ToBaseType, asFullType)
 import           UCCrux.LLVM.Cursor (Selector(..), Cursor(..), selectorCursor, deepenStruct, deepenArray, deepenPtr)
 import           UCCrux.LLVM.Module (GlobalSymbol, globalSymbol, makeGlobalSymbol, getModule)
+import           UCCrux.LLVM.Setup.Constraints (constraintToPred)
 import           UCCrux.LLVM.Setup.Monad
 import           UCCrux.LLVM.Shape (Shape)
 import qualified UCCrux.LLVM.Shape as Shape
@@ -103,32 +107,9 @@ constrainHere ::
   Crucible.RegEntry sym (ToCrucibleType arch atTy) ->
   Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
 constrainHere sym _selector constraint fullTypeRepr regEntry@(Crucible.RegEntry _typeRepr regValue) =
-  case (fullTypeRepr, constraint) of
-    (_, Aligned alignment) ->
-      assumeOne =<< liftIO (LLVMMem.isAligned sym ?ptrWidth regValue alignment)
-    (FTIntRepr w, BVCmp op _ bv) ->
-      assumeOne
-        =<< liftIO
-          ( interpretOp op (LLVMPointer.llvmPointerOffset regValue)
-              =<< W4I.bvLit sym w bv
-          )
-  where
-    assumeOne :: W4I.Pred sym -> Setup m arch sym argTypes (Crucible.RegEntry sym (ToCrucibleType arch atTy))
-    assumeOne predicate = assume constraint predicate >> pure regEntry
-    interpretOp ::
-      forall w. 1 <= w => L.ICmpOp -> W4I.SymBV sym w -> W4I.SymBV sym w -> IO (W4I.Pred sym)
-    interpretOp =
-      \case
-        L.Ieq -> W4I.bvEq sym
-        L.Ine -> W4I.bvNe sym
-        L.Iult -> W4I.bvUlt sym
-        L.Iule -> W4I.bvUle sym
-        L.Iugt -> W4I.bvUgt sym
-        L.Iuge -> W4I.bvUge sym
-        L.Islt -> W4I.bvSlt sym
-        L.Isle -> W4I.bvSle sym
-        L.Isgt -> W4I.bvSgt sym
-        L.Isge -> W4I.bvSge sym
+  liftIO (constraintToPred (Proxy :: Proxy arch) sym constraint fullTypeRepr regValue) >>=
+    assume constraint >>
+    return regEntry
 
 -- | Generate a fresh symbolic value, recording its \"origin\", i.e. what part
 -- of which global variable or argument it is. That annotation will later be
@@ -170,33 +151,6 @@ annotatedLLVMPtr sym w fullTypeRepr selector =
         =<< liftIO (W4I.freshConstant sym symbol (W4I.BaseBVRepr w))
     annotatePointer sym selector fullTypeRepr ptr
 
-pointerRange ::
-  ( ArchOk arch,
-    Crucible.IsSymInterface sym
-  ) =>
-  proxy arch ->
-  sym ->
-  -- | Base pointer
-  LLVMMem.LLVMPtr sym (ArchWidth arch) ->
-  -- | Offset to add
-  W4I.SymBV sym (ArchWidth arch) ->
-  -- | Number of pointers to generate/times to add the offset
-  Int ->
-  IO (NonEmpty (LLVMMem.LLVMPtr sym (ArchWidth arch)))
-pointerRange _proxy sym ptr offset size =
-  if size == 0
-    then panic "pointerRange" ["Zero size"]
-    else
-      reverse
-        <$> foldM
-          ( \(p :| ps) () ->
-              do
-                p' <- LLVMMem.ptrAdd sym ?ptrWidth p offset
-                pure (p' :| (p : ps))
-          )
-          (ptr :| [])
-          (replicate (size - 1) ())
-
 generateM' ::
   forall m h a.
   Monad m =>
@@ -228,14 +182,14 @@ generate ::
     Crucible.IsSymInterface sym
   ) =>
   sym ->
-  ModuleTypes m ->
+  ModuleContext m arch ->
   FullTypeRepr m atTy ->
   -- | The argument or global variable to be generated
   Selector m argTypes inTy atTy ->
   -- | The set of constraints and memory layout of the value to be generated
   ConstrainedShape m atTy ->
   Setup m arch sym argTypes (Shape m (SymValue sym arch) atTy)
-generate sym mts ftRepr selector (ConstrainedShape shape) =
+generate sym modCtx ftRepr selector (ConstrainedShape shape) =
   constrain
     (shape ^. Shape.tag)
     =<< case (shape, ftRepr) of
@@ -261,26 +215,40 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
           <$> annotatedLLVMPtr sym ?ptrWidth ftRepr selector
       (Shape.ShapePtr _constraints (Shape.ShapeAllocated n), FTPtrRepr _ptdTo) ->
         Shape.ShapePtr
-          <$> (SymValue <$> malloc sym ftRepr selector n)
+          <$> (SymValue <$> malloc sym ftRepr selector (fromIntegral n))
           <*> pure (Shape.ShapeAllocated n)
       (Shape.ShapePtr _constraints (Shape.ShapeInitialized vec), FTPtrRepr ptPtdTo) ->
         do
           let num = Seq.length vec
-          ptr <- malloc sym ftRepr selector num
-          let ftPtdTo = asFullType mts ptPtdTo
-          size <- sizeBv proxy sym ftPtdTo 1
+          Some numRepr <-
+            case NatRepr.mkNatRepr (fromIntegral num) of
+              Some nr ->
+                -- pointerRange adds 1 to the size, so we have to subtract 1.
+                case NatRepr.isZeroNat nr of
+                  NatRepr.ZeroNat -> panic "generate" ["Empty vector"]
+                  NatRepr.NonZeroNat -> return (Some (NatRepr.predNat nr))
+          ptr <- malloc sym ftRepr selector (fromIntegral num)
+          let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptPtdTo
+          size <- liftIO $ sizeBv modCtx sym ftPtdTo 1
           -- For each offset, generate a value and store it there.
-          pointers <- liftIO $ pointerRange proxy sym ptr size num
+          pointers <- liftIO $ pointerRange proxy sym ptr size numRepr
           pointedTos <-
-            forM (zip (0 :| [1 .. num - 1]) pointers) $ \(i, ptrAtOffset) ->
+            ifor pointers $ \i ptrAtOffset ->
               do
-                let selector' = selector & selectorCursor %~ deepenPtr mts
+                let selector' = selector & selectorCursor %~ deepenPtr (modCtx ^. moduleTypes)
                 pointedTo <-
-                  generate sym mts ftPtdTo selector' (ConstrainedShape (vec `Seq.index` i))
+                  generate
+                    sym
+                    modCtx
+                    ftPtdTo
+                    selector'
+                    (ConstrainedShape
+                      (vec `Seq.index`
+                        fromIntegral (Fin.finToNat i)))
                 annotatedPtrAtOffset <-
                   store
                     sym
-                    mts
+                    (modCtx ^. moduleTypes)
                     ftRepr
                     selector
                     ptrAtOffset
@@ -288,7 +256,7 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
                 pure (annotatedPtrAtOffset, pointedTo)
           -- Make sure we use the fully-annotated pointer in the return value,
           -- so that its annotations can be looked up during classification.
-          let annotatedPtr = fst (head pointedTos)
+          let annotatedPtr = fst (fst (PVec.uncons pointedTos))
           pure $
             Shape.ShapePtr
               (SymValue annotatedPtr)
@@ -301,7 +269,7 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
                 generateM' n $ \idx ->
                   generate
                     sym
-                    mts
+                    modCtx
                     ftRepr'
                     (selector & selectorCursor %~ deepenArray idx n)
                     (ConstrainedShape (PVec.elemAt idx elems))
@@ -330,7 +298,7 @@ generate sym mts ftRepr selector (ConstrainedShape shape) =
               \idx ->
                 generate
                   sym
-                  mts
+                  modCtx
                   (fieldTypes ^. ixF' idx)
                   (selector & selectorCursor %~ deepenStruct idx)
                   (ConstrainedShape (fields ^. ixF' idx))
@@ -379,7 +347,7 @@ generateArgs _appCtx modCtx funCtx sym argSpecs =
             let ft = funCtx ^. argumentFullTypes . ixF' index
              in generate
                   sym
-                  (modCtx ^. moduleTypes)
+                  modCtx
                   ft
                   (SelectArgument index (Here ft))
                   (argSpecs Ctx.! index)
@@ -432,7 +400,7 @@ populateNonConstGlobals modCtx sym constrainedGlobals =
                 val <-
                   generate
                     sym
-                    (modCtx ^. moduleTypes)
+                    modCtx
                     fullTy
                     (SelectGlobal gSymb (Here fullTy))
                     ( case constrainedGlobals ^. at gSymb of
@@ -477,13 +445,10 @@ setupExecution ::
   -- | Constraints and memory layouts of each argument and global
   Constraints m argTypes ->
   f
-    ( Either
-        (SetupError m arch argTypes)
-        ( SetupResult m arch sym argTypes,
-          ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
-            Crucible.RegMap sym (MapToCrucibleType arch argTypes)
-          )
-        )
+    ( SetupResult m arch sym argTypes,
+      ( Ctx.Assignment (Shape m (SymValue sym arch)) argTypes,
+        Crucible.RegMap sym (MapToCrucibleType arch argTypes)
+      )
     )
 setupExecution appCtx modCtx funCtx sym constraints = do
   let moduleTrans = modCtx ^. moduleTranslation

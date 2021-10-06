@@ -46,9 +46,11 @@ library
     UCCrux.LLVM.FullType
     UCCrux.LLVM.FullType.CrucibleType
     UCCrux.LLVM.FullType.MemType
+    UCCrux.LLVM.FullType.Memory
     UCCrux.LLVM.FullType.Translation
     UCCrux.LLVM.FullType.Type
     UCCrux.LLVM.FullType.ReturnType
+    UCCrux.LLVM.FullType.StorageType
     UCCrux.LLVM.FullType.VarArgs
     UCCrux.LLVM.Logging
     UCCrux.LLVM.Main
@@ -69,6 +71,7 @@ library
     UCCrux.LLVM.Run.Unsoundness
     UCCrux.LLVM.Setup
     UCCrux.LLVM.Setup.Assume
+    UCCrux.LLVM.Setup.Constraints
     UCCrux.LLVM.Setup.Monad
     UCCrux.LLVM.Shape
     UCCrux.LLVM.Stats
@@ -93,12 +96,13 @@ library
     crux-llvm,
     directory,
     filepath,
+    indexed-traversable,
     lens,
     llvm-pretty,
     lumberjack >= 1.0 && < 1.1,
     mtl,
     panic,
-    parameterized-utils,
+    parameterized-utils >= 2.1.4.0,
     prettyprinter >= 1.7.0,
     scheduler,
     semigroupoids,
@@ -145,7 +149,7 @@ test-suite uc-crux-llvm-test
 
   build-depends:
                 aeson,
-                base             >= 4.7,
+                base >= 4.7,
                 containers,
                 crucible,
                 crucible-llvm,
@@ -155,9 +159,9 @@ test-suite uc-crux-llvm-test
                 lens,
                 llvm-pretty,
                 lumberjack,
-                parameterized-utils,
-                tasty            >= 0.10,
-                tasty-hunit      >= 0.10,
+                parameterized-utils >= 2.1.4.0,
+                tasty >= 0.10,
+                tasty-hunit >= 0.10,
                 tasty-quickcheck >= 0.10,
                 text,
                 time,

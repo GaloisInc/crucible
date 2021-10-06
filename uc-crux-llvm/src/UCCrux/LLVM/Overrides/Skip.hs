@@ -65,7 +65,7 @@ import           Crux.LLVM.Overrides (ArchOk)
 
 -- uc-crux-llvm
 import           UCCrux.LLVM.Constraints (ConstrainedTypedValue(..), minimalConstrainedShape)
-import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes, moduleTypes)
+import           UCCrux.LLVM.Context.Module (ModuleContext, funcTypes)
 import           UCCrux.LLVM.Cursor (Selector(SelectReturn), Cursor(Here))
 import           UCCrux.LLVM.Errors.Panic (panic)
 import           UCCrux.LLVM.FullType.CrucibleType (toCrucibleType)
@@ -73,7 +73,7 @@ import           UCCrux.LLVM.FullType.Translation (FunctionTypes, ftRetType)
 import           UCCrux.LLVM.Module (FuncSymbol, funcSymbol, makeFuncSymbol, isDebug)
 import           UCCrux.LLVM.Setup (SymValue(getSymValue), generate)
 import           UCCrux.LLVM.Setup.Assume (assume)
-import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, ppSetupError, resultAnnotations)
+import           UCCrux.LLVM.Setup.Monad (TypedSelector, runSetup, resultAssumptions, resultMem, resultAnnotations)
 import qualified UCCrux.LLVM.Shape as Shape
 {- ORMOLU_ENABLE -}
 
@@ -217,7 +217,7 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl funcSym =
                 mem
                 ( generate
                     sym
-                    (modCtx ^. moduleTypes)
+                    modCtx
                     retFullType
                     ( SelectReturn
                         ( case modCtx ^. funcTypes . to (makeFuncSymbol symbolName) of
@@ -246,14 +246,7 @@ createSkipOverride modCtx sym usedRef annotationRef postcondition decl funcSym =
                     )
                 )
                 >>= \case
-                  Left err ->
-                    panic
-                      "createSkipOverride"
-                      [ "Couldn't create return value for override "
-                          <> Text.unpack name,
-                        show (ppSetupError err)
-                      ]
-                  Right (result, value) ->
+                  (result, value) ->
                     do
                       assume name sym (resultAssumptions result)
                       -- The keys are nonces, so they'll never clash, so the
