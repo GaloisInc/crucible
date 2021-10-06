@@ -136,7 +136,8 @@ bundle_crux_mir_files() {
   extract_exe crux-mir dist/bin
   cp crux-mir/README.md dist/doc
   cp -r crux-mir/rlibs dist
-  (cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
+  # It's less fragile to have users install mir-json themselves
+  #(cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
   VERSION=${VERSION:-$DATE}
   strip dist/bin/*
   zip_dist crux-mir
