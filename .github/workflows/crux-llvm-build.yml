@@ -44,17 +44,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-18.04] # , macos-latest] # , windows-latest]
+        os: [ubuntu-20.04, ubuntu-18.04] # , macos-10.15] # , windows-latest]
         ghc: ["8.6.5", "8.8.4", "8.10.4"]
         allow-failure: [false]
         include:
-          - os: macos-latest
+          - os: macos-10.15
             ghc: 8.6.5
             allow-failure: true
-          - os: macos-latest
+          - os: macos-10.15
             ghc: 8.8.4
             allow-failure: true
-          - os: macos-latest
+          - os: macos-10.15
             ghc: 8.10.2
             allow-failure: true
         # Windows only seems to work on 8.6.5. Others result in
@@ -126,6 +126,7 @@ jobs:
       - shell: bash
         run: |
           .github/ci.sh build exe:crux-llvm
+          .github/ci.sh build exe:crux-llvm-for-ide
           .github/ci.sh build exe:uc-crux-llvm
 
       - shell: bash

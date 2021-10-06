@@ -120,12 +120,14 @@ zip_dist() {
 bundle_crux_llvm_files() {
   setup_dist
   extract_exe crux-llvm dist/bin
+  extract_exe crux-llvm-for-ide dist/bin
   if ! $IS_WIN; then
     extract_exe crux-llvm-svcomp dist/bin
   fi
   cp crux-llvm/README.md dist/doc
   cp -r crux-llvm/c-src dist
   VERSION=${VERSION:-$DATE}
+  strip dist/bin/*
   zip_dist crux-llvm
 }
 
@@ -136,6 +138,7 @@ bundle_crux_mir_files() {
   cp -r crux-mir/rlibs dist
   (cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
   VERSION=${VERSION:-$DATE}
+  strip dist/bin/*
   zip_dist crux-mir
 }
 
