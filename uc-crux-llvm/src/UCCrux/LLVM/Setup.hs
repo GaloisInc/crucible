@@ -215,19 +215,19 @@ generate sym modCtx ftRepr selector (ConstrainedShape shape) =
           <$> annotatedLLVMPtr sym ?ptrWidth ftRepr selector
       (Shape.ShapePtr _constraints (Shape.ShapeAllocated n), FTPtrRepr _ptdTo) ->
         Shape.ShapePtr
-          <$> (SymValue <$> malloc sym ftRepr selector (fromIntegral n))
+          <$> (SymValue <$> malloc sym ftRepr selector (toEnum n))
           <*> pure (Shape.ShapeAllocated n)
       (Shape.ShapePtr _constraints (Shape.ShapeInitialized vec), FTPtrRepr ptPtdTo) ->
         do
           let num = Seq.length vec
           Some numRepr <-
-            case NatRepr.mkNatRepr (fromIntegral num) of
+            case NatRepr.mkNatRepr (toEnum num) of
               Some nr ->
                 -- pointerRange adds 1 to the size, so we have to subtract 1.
                 case NatRepr.isZeroNat nr of
                   NatRepr.ZeroNat -> panic "generate" ["Empty vector"]
                   NatRepr.NonZeroNat -> return (Some (NatRepr.predNat nr))
-          ptr <- malloc sym ftRepr selector (fromIntegral num)
+          ptr <- malloc sym ftRepr selector (toEnum num)
           let ftPtdTo = asFullType (modCtx ^. moduleTypes) ptPtdTo
           size <- liftIO $ sizeBv modCtx sym ftPtdTo 1
           -- For each offset, generate a value and store it there.

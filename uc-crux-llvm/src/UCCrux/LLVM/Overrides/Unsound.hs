@@ -126,7 +126,7 @@ callGetHostName _proxy sym mvar (regValue -> ptr) (regValue -> len) =
     -- the ArchOk constraint guarantees that the pointer width is at least 16.
     -- if this override is changed to e.g. use really long hostnames it might
     -- be necessary to check that mkBV doesn't truncate the length here.
-    lenSmall <- lenLt (BV.mkBV ?ptrWidth (fromIntegral (BS.length hostname)))
+    lenSmall <- lenLt (BV.mkBV ?ptrWidth (toEnum (BS.length hostname)))
     Override.symbolicBranches
       emptyRegMap
       [ ( lenNeg,
@@ -178,7 +178,7 @@ callGetEnv _proxy sym mvar _ptr =
         do
           let val = LLVMMem.LLVMValString value
           let ty = LLVMMem.llvmValStorableType val
-          let lenBv = BV.mkBV ?ptrWidth (fromIntegral $ BS.length value)
+          let lenBv = BV.mkBV ?ptrWidth (toEnum (BS.length value))
           sz <- What4.bvLit sym ?ptrWidth lenBv
           (ptr', mem1) <-
             LLVMMem.doMalloc sym G.GlobalAlloc G.Mutable "getenv" mem sz noAlignment
