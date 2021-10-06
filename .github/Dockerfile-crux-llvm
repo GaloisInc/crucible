@@ -20,7 +20,8 @@ ADD crux-llvm ${DIR}/build/crux-llvm
 ADD dependencies ${DIR}/build/dependencies
 ADD .github/cabal.project.crux-llvm ${DIR}/build/cabal.project
 ADD cabal.GHC-8.8.4.config ${DIR}/build/cabal.project.freeze
-RUN cp $DIR/build/crux-llvm/c-src/libcxx-9.0.0.bc $DIR/build/crux-llvm/c-src/libcxx-11.0.1.bc
+# Workaround until we have an LLVM 11 build available
+RUN cp $DIR/build/crux-llvm/c-src/libcxx-7.1.0.bc $DIR/build/crux-llvm/c-src/libcxx-11.0.1.bc
 
 WORKDIR ${DIR}/build
 RUN cabal v2-build --only-dependencies crux-llvm
@@ -36,17 +37,22 @@ FROM debian:buster-slim
 USER root
 RUN echo "deb http://deb.debian.org/debian buster-backports main" >> /etc/apt/sources.list
 RUN apt-get update
-RUN apt-get install -y libgmp10 zlibc zlib1g clang-11 llvm-11-tools unzip
+RUN apt-get install -y libgmp10 zlibc zlib1g clang-11 llvm-11-tools unzip locales
 
 COPY --from=build /usr/local/bin/* /usr/local/bin
 
 ARG DIR=/crux-llvm
 WORKDIR ${DIR}
 ADD crux-llvm/c-src c-src
-# Use LLVM 9 bitcode file for libcxx until LLVM version is available
-RUN cp c-src/libcxx-9.0.0.bc c-src/libcxx-11.0.1.bc
+# Use LLVM 7 bitcode file for libcxx until LLVM version is available
+RUN cp c-src/libcxx-7.1.0.bc c-src/libcxx-11.0.1.bc
 
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
+    locale-gen
 ENV LD_LIBRARY_PATH=/usr/local/lib
 ENV CLANG=clang-11
 ENV LLVM_LINK=llvm-link-11
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
 ENTRYPOINT ["/usr/local/bin/crux-llvm"]
