@@ -1,6 +1,6 @@
 Cabal-version: 2.2
 Name:          crux
-Version:       0.4
+Version:       0.5.0.99
 Copyright:     (c) Galois, Inc. 2018-2021
 Author:        sweirich@galois.com
 Maintainer:    rdockins@galois.com
