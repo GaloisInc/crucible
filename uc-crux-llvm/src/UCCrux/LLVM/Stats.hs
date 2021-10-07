@@ -57,9 +57,9 @@ getStats :: BugfindingResult m arch argTypes -> Stats
 getStats result =
   let (missingAnns, failedAsserts, unimplementeds, unclass, unfixed, unfixable, timeouts') = partitionUncertainty (uncertainResults result)
    in Stats
-        { missingAnnotation = fromIntegral $ length missingAnns,
-          symbolicallyFailedAssert = fromIntegral $ length failedAsserts,
-          timeouts = fromIntegral $ length timeouts',
+        { missingAnnotation = toEnum $ length missingAnns,
+          symbolicallyFailedAssert = toEnum $ length failedAsserts,
+          timeouts = toEnum $ length timeouts',
           truePositiveFreq =
             case Result.summary result of
               Result.FoundBugs bugs -> frequencies (toList bugs)
