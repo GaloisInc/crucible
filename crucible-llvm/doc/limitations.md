@@ -32,14 +32,57 @@ Thus the exact printed output, number of characters printed, etc,
 may not exactly match that of a conforming implementation.
 
 
-Floating-point accuracy
-=======================
+Floating-point limitations
+==========================
+
+`crucible-llvm`'s handling of floating-point operations are imprecise in
+several aspects:
+
+## Floating-point accuracy
 
 The implementations of some floating-point operations are imprecise with
 respect to NaN values. For example, `crucible-llvm`'s implementation of the
 `copysign` function will always return a positive, "quiet" NaN value if its
 first argument is a NaN, regardless of the sign of the second argument.
 
+## Floating-point exceptions
+
+`crucible-llvm` currently makes no effort to model floating-point exceptions
+that arise from invoking certain floating-point operations. For instance,
+invoking the `sqrt` function on a negative value will never result in an
+invalid floating-point exception being raised.
+
+## Evaluation of floating-point functions
+
+`crucible-llvm` treats the following floating-point operations over `double`s
+as uninterpreted functions:
+
+* `sin`
+* `cos`
+* `tan`
+* `asin`
+* `atan`
+* `acos`
+* `sinh`
+* `cosh`
+* `tanh`
+* `asinh`
+* `acosh`
+* `atanh`
+* `hypot`
+* `atan2`
+* `exp`
+* `log`
+* `expm1`
+* `log1p`
+* `log2`
+* `exp10`
+* `log10`
+
+Similar treatment is given to the `float` counterparts of these functions (e.g.,
+`sinf`). Because they are treated as uninterpreted, `crucible-llvm`'s ability
+to reason about expressions involving these functions is limited to basic,
+syntactic equivalence checking.
 
 `freeze` instruction limitations
 ================================

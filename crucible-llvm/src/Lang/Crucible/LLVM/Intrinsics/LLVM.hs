@@ -41,6 +41,7 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
+import qualified What4.SpecialFunctions as W4
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
@@ -613,6 +614,150 @@ llvmFabsF64
 llvmFabsF64 =
   [llvmOvr| double @llvm.fabs.f64( double ) |]
   (\_memOps sym (Empty :> (regValue -> x)) -> liftIO (iFloatAbs @_ @DoubleFloat sym x))
+
+llvmSqrtOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmSqrtOverride_F32 =
+  [llvmOvr| float @llvm.sqrt.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSqrt sym) args)
+
+llvmSqrtOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmSqrtOverride_F64 =
+  [llvmOvr| double @llvm.sqrt.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSqrt sym) args)
+
+llvmSinOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmSinOverride_F32 =
+  [llvmOvr| float @llvm.sin.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Sin) args)
+
+llvmSinOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmSinOverride_F64 =
+  [llvmOvr| double @llvm.sin.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Sin) args)
+
+llvmCosOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmCosOverride_F32 =
+  [llvmOvr| float @llvm.cos.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Cos) args)
+
+llvmCosOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmCosOverride_F64 =
+  [llvmOvr| double @llvm.cos.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Cos) args)
+
+llvmExpOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmExpOverride_F32 =
+  [llvmOvr| float @llvm.exp.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Exp) args)
+
+llvmExpOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmExpOverride_F64 =
+  [llvmOvr| double @llvm.exp.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Exp) args)
+
+llvmLogOverride_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmLogOverride_F32 =
+  [llvmOvr| float @llvm.log.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Log) args)
+
+llvmLogOverride_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmLogOverride_F64 =
+  [llvmOvr| double @llvm.log.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Log) args)
+
+llvmExp2Override_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmExp2Override_F32 =
+  [llvmOvr| float @llvm.exp2.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Exp2) args)
+
+llvmExp2Override_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmExp2Override_F64 =
+  [llvmOvr| double @llvm.exp2.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Exp2) args)
+
+llvmLog2Override_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmLog2Override_F32 =
+  [llvmOvr| float @llvm.log2.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Log2) args)
+
+llvmLog2Override_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmLog2Override_F64 =
+  [llvmOvr| double @llvm.log2.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Log2) args)
+
+llvmLog10Override_F32 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType SingleFloat)
+     (FloatType SingleFloat)
+llvmLog10Override_F32 =
+  [llvmOvr| float @llvm.log10.f32( float ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Log10) args)
+
+llvmLog10Override_F64 ::
+  IsSymInterface sym =>
+  LLVMOverride p sym
+     (EmptyCtx ::> FloatType DoubleFloat)
+     (FloatType DoubleFloat)
+llvmLog10Override_F64 =
+  [llvmOvr| double @llvm.log10.f64( double ) |]
+  (\_memOps sym args -> Ctx.uncurryAssignment (Libc.callSpecialFunction1 sym W4.Log10) args)
 
 
 llvmX86_pclmulqdq
