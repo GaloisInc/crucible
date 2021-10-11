@@ -4,6 +4,7 @@
 --   reporting results, etc.
 
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE KindSignatures #-}
@@ -28,8 +29,13 @@ import qualified Data.Yaml as Yaml
 import           GHC.Generics (Generic)
 import           System.FilePath
 import qualified System.FilePath.Glob as Glob
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
+
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KM
+#else
+import qualified Data.HashMap.Strict as HM
+#endif
 
 import Crux.Config
 import Crux.Config.Common
@@ -227,19 +233,19 @@ loadVerificationTask fp =
  where
  decodeVT :: Yaml.Value -> IO VerificationTask
  decodeVT (Yaml.Object o) =
-  do case HM.lookup "format_version" o of
+  do case lookupKM "format_version" o of
        Just (Yaml.String "2.0") -> return ()
        _ -> fail $ unwords ["Expected verification task version 2.0 while parsing", show fp]
 
-     fs <- case HM.lookup "input_files" o of
+     fs <- case lookupKM "input_files" o of
              Just v -> getStrs v
              Nothing -> fail $ unwords ["No 'input_files' section while parsing", show fp]
 
-     ps <- case HM.lookup "properties" o of
+     ps <- case lookupKM "properties" o of
              Just v -> getProps v
              Nothing -> fail $ unwords ["No 'properties' section while parsing", show fp]
 
-     lang <- case HM.lookup "options" o of
+     lang <- case lookupKM "options" o of
                Just v -> getLang v
                Nothing -> fail $ unwords ["No 'options' section while parsing", show fp]
 
@@ -266,13 +272,13 @@ loadVerificationTask fp =
  getStrs v = fail $ unwords ["expected strings, but got:", show v]
 
  getProp (Yaml.Object o) =
-   do propf <- case HM.lookup "property_file" o of
+   do propf <- case lookupKM "property_file" o of
                  Just (Yaml.String f) -> return (Text.unpack f)
                  _ -> fail $ unwords ["expected string value in 'property_file' while parsing", show fp]
 
       prop <- decodeProp =<< Text.readFile (takeDirectory fp </> propf)
 
-      verdict <- case HM.lookup "expected_verdict" o of
+      verdict <- case lookupKM "expected_verdict" o of
                    Nothing -> return Nothing
                    Just (Yaml.Bool b) -> return (Just b)
                    Just (Yaml.String "true") -> return (Just True)
@@ -287,7 +293,7 @@ loadVerificationTask fp =
  getProps _v = fail $ unwords ["expected property array in 'properties' section when parsing", show fp]
 
  getLang (Yaml.Object o) =
-   case HM.lookup "language" o of
+   case lookupKM "language" o of
      Just (Yaml.String "C")    -> getCDataModel o
      Just (Yaml.String "Java") -> return Java
      _ -> fail $ unwords ["expected 'C' or 'Java' in 'language' while parsing", show fp]
@@ -295,10 +301,17 @@ loadVerificationTask fp =
  getLang _v = fail $ unwords ["expected object in 'options' section when parsing", show fp]
 
  getCDataModel o =
-   case HM.lookup "data_model" o of
+   case lookupKM "data_model" o of
      Just (Yaml.String "ILP32") -> return (C ILP32)
      Just (Yaml.String "LP64")  -> return (C LP64)
      _ -> fail $ unwords ["expected 'ILP32' or 'LP64' in 'data_model' while parsing", show fp]
+
+ -- TODO: When the ecosystem widely uses aeson-2.0.0.0 or later, remove this CPP.
+#if MIN_VERSION_aeson(2,0,0)
+ lookupKM = KM.lookup
+#else
+ lookupKM = HM.lookup
+#endif
 
 compilePats :: [Text] -> [Glob.Pattern]
 compilePats xs =
