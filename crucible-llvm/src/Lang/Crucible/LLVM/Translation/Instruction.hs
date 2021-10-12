@@ -47,6 +47,8 @@ import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.String
@@ -57,6 +59,7 @@ import           Prettyprinter (pretty)
 import GHC.Exts ( Proxy#, proxy# )
 
 import qualified Text.LLVM.AST as L
+import qualified Text.LLVM.PP as L
 
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx
@@ -1384,6 +1387,7 @@ generateInstr :: forall s arch ret a.
    (?transOpts :: TranslationOptions) =>
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
+   Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr        {- ^ The instruction to translate -} ->
    (LLVMExpr s arch -> LLVMGenerator s arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
@@ -1392,7 +1396,7 @@ generateInstr :: forall s arch ret a.
           Straightline instructions should enter this continuation,
           but block-terminating instructions should not. -} ->
    LLVMGenerator s arch ret a
-generateInstr retType lab instr assign_f k =
+generateInstr retType lab defSet instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
     L.Phi _ _ -> k
@@ -1575,12 +1579,12 @@ generateInstr retType lab instr assign_f k =
          k
 
     L.Call tailcall (L.PtrTo fnTy) fn args ->
-      callFunctionWithCont instr tailcall fnTy fn args assign_f k
+      callFunctionWithCont defSet instr tailcall fnTy fn args assign_f k
     L.Call _ ty _ _ ->
       fail $ unwords ["unexpected function type in call:", show ty]
 
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
-        callFunctionWithCont instr False fnTy fn args assign_f $ definePhiBlock lab normLabel
+        callFunctionWithCont defSet instr False fnTy fn args assign_f $ definePhiBlock lab normLabel
 
     L.Bit op x y ->
       do tp <- liftMemType' (L.typedType x)
@@ -1879,6 +1883,7 @@ callFunction instr _tailCall fnTy _fn _args _assign_f =
 -- instructions.
 callFunctionWithCont :: forall s arch ret a.
    (?transOpts :: TranslationOptions) =>
+   Set L.Ident {- ^ Set of usable identifiers -} ->
    L.Instr {- ^ Source instruction o the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
@@ -1887,11 +1892,11 @@ callFunctionWithCont :: forall s arch ret a.
    (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator s arch ret a {- ^ continuation for next instructions -} ->
    LLVMGenerator s arch ret a
-callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
+callFunctionWithCont defSet instr tailCall_ fnTy fn args assign_f k
 
      -- Supports LLVM 4-12
      | L.ValSymbol "llvm.dbg.declare" <- fn =
-       do mbArgs <- dbgArgs args
+       do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
               extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
@@ -1899,7 +1904,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
 
      -- Supports LLVM 6-12
      | L.ValSymbol "llvm.dbg.addr" <- fn =
-       do mbArgs <- dbgArgs args
+       do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
               extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
@@ -1907,7 +1912,7 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
 
      -- Supports LLVM 6-12 (earlier versions had an extra argument)
      | L.ValSymbol "llvm.dbg.value" <- fn =
-       do mbArgs <- dbgArgs args
+       do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ repr val, lv, di) ->
               extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di)) >> k
@@ -1941,9 +1946,10 @@ callFunctionWithCont instr tailCall_ fnTy fn args assign_f k
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
 dbgArgs ::
   (?transOpts :: TranslationOptions) =>
+  Set L.Ident {- ^ Set of usable identifiers -} ->
   [L.Typed L.Value] {- ^ debug call arguments -} ->
   LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs args
+dbgArgs defSet args
   | -- Why guard translating llvm.dbg statements behind its own option? It's
     -- because Clang can sometimes generate llvm.dbg statements with improperly
     -- scoped arguments—see https://bugs.llvm.org/show_bug.cgi?id=51155. This
@@ -1958,8 +1964,14 @@ dbgArgs args
               L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoLocalVariable lv))) ->
                 case diArg of
                   L.Typed _ (L.ValMd (L.ValMdDebugInfo (L.DebugInfoExpression di))) ->
-                    do v <- transTypedValue val
-                       pure (Right (v, lv, di))
+                    let unusableIdents = Set.difference (useTypedVal val) defSet
+                    in if Set.null unusableIdents then
+                         do v <- transTypedValue val
+                            pure (Right (v, lv, di))
+                       else
+                         do let msg = unwords (["Debug intrinsic def/use violation"] ++ map (show . L.ppIdent) (Set.toList unusableIdents))
+                            liftIO $ putStrLn $ msg
+                            pure (Left msg)
                   _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
               _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
           _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))

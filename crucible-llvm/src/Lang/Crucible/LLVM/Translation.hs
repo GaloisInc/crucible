@@ -91,11 +91,14 @@ import           Control.Lens hiding (op, (:>) )
 import           Control.Monad.Except
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Maybe
 import           Data.String
 import qualified Data.Text   as Text
 
 import qualified Text.LLVM.AST as L
+import qualified Text.LLVM.PP as L
 
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
@@ -192,21 +195,26 @@ buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
 generateStmts :: (?transOpts :: TranslationOptions)
         => TypeRepr ret
         -> L.BlockLabel
+        -> Set L.Ident {- ^ Set of usable identifiers -}
         -> [L.Stmt]
         -> LLVMGenerator s arch ret a
-generateStmts retType lab stmts = go (processDbgDeclare stmts)
- where go [] = fail "LLVM basic block ended without a terminating instruction"
-       go (x:xs) =
+generateStmts retType lab defSet0 stmts = go defSet0 (processDbgDeclare stmts)
+ where go _ [] = fail "LLVM basic block ended without a terminating instruction"
+       go defSet (x:xs) =
          case x of
            -- a result statement assigns the result of the instruction into a register
-           L.Result ident instr md -> do
-                 setLocation md
-                 generateInstr retType lab instr (assignLLVMReg ident) (go xs)
+           L.Result ident instr md ->
+              do setLocation md
+                 generateInstr retType lab defSet instr
+                   (assignLLVMReg ident)
+                   (go (Set.insert ident defSet) xs)
 
            -- an effect statement simply executes the instruction for its effects and discards the result
-           L.Effect instr md -> do
-                 setLocation md
-                 generateInstr retType lab instr (\_ -> return ()) (go xs)
+           L.Effect instr md ->
+              do setLocation md
+                 generateInstr retType lab defSet instr
+                   (\_ -> return ())
+                   (go defSet xs)
 
 -- | Search for calls to intrinsic 'llvm.dbg.declare' and copy the
 -- metadata onto the corresponding 'alloca' statement.  Also copy
@@ -317,7 +325,7 @@ defineLLVMBlock
         -> LLVMGenerator s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
-    Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
+    Just bi -> defineBlock (block_label bi) (generateStmts retType lab (block_use_set bi) stmts)
     Nothing -> fail $ unwords ["LLVM basic block not found in block info map", show lab]
 
 defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
@@ -351,8 +359,29 @@ genDefn defn retType =
       case Map.lookup entry_lab bim of
         Nothing -> fail $ unwords ["entry label not found in label map:", show entry_lab]
         Just entry_bi -> do
+          checkEntryPointUseSet nm entry_bi (L.defArgs defn)
           mapM_ (defineLLVMBlock retType bim) (L.defBody defn)
           jump (block_label entry_bi)
+
+
+-- | Check that the input LLVM CFG satisfies the def/use invariant,
+--   and raise an error if some virtual register has a use site that
+--   is not dominated by its definition site.
+checkEntryPointUseSet ::
+  String ->
+  LLVMBlockInfo s ->
+  [L.Typed L.Ident] ->
+  LLVMGenerator s arg ret ()
+checkEntryPointUseSet nm bi args
+  | Set.null unsatisfiedUses = return ()
+  | otherwise = fail $ unlines $
+      [ "Invalid input LLVM for function: " ++ nm
+      , "The following LLVM virtual registers are used before they are defined:"
+      ] ++ map (\i -> "   " ++ show (L.ppIdent i)) (Set.toList unsatisfiedUses)
+  where
+    argSet = Set.fromList (map L.typedValue args)
+    useSet = block_use_set bi
+    unsatisfiedUses = Set.difference useSet argSet
 
 ------------------------------------------------------------------------
 -- transDefine

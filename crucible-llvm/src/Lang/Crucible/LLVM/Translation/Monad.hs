@@ -40,6 +40,8 @@ module Lang.Crucible.LLVM.Translation.Monad
   , LLVMContext(..)
   , llvmTypeCtx
   , mkLLVMContext
+
+  , useTypedVal
   ) where
 
 import Control.Lens hiding (op, (:>), to, from )
