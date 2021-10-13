@@ -222,8 +222,9 @@ testBuildTranslation srcPath llvmTransTests =
       trans = do halloc <- newHandleAllocator
                  let ?transOpts = defaultTranslationOptions
                  memVar <- mkMemVar "buildTranslation_test_llvm_memory" halloc
-                 translateModule halloc memVar =<<
-                   (fromRight (error "parsing was already verified") <$> parseLLVM bcPath)
+                 (m, _warns) <- (translateModule halloc memVar =<<
+                   (fromRight (error "parsing was already verified") <$> parseLLVM bcPath))
+                 return m
 
       translate_bitcode =
         testCase translateName $ do

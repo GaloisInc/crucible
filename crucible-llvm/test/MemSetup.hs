@@ -62,7 +62,7 @@ withLLVMCtx mod' action =
         sym <- CBS.newSimpleBackend CBS.FloatRealRepr nonceGen
         let ?transOpts = LLVMTr.defaultTranslationOptions
         memVar <- LLVMM.mkMemVar "test_llvm_memory" halloc
-        Some (LLVMTr.ModuleTranslation _ ctx _ _) <- LLVMTr.translateModule halloc memVar mod'
+        (Some (LLVMTr.ModuleTranslation _ ctx _ _), _warns) <- LLVMTr.translateModule halloc memVar mod'
         case LLVMTr.llvmArch ctx            of { LLVME.X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do
