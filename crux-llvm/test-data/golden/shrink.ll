@@ -48,7 +48,7 @@ attributes #1 = { nounwind readnone speculatable willreturn }
 !llvm.module.flags = !{!6, !7, !8, !9}
 !llvm.ident = !{!10}
 
-!0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, producer: "clang version 11.1.0", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug, enums: !2, retainedTypes: !3, nameTableKind: None, sysroot: "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", sdk: "MacOSX.sdk")
+!0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, producer: "clang version 11.1.0", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug, enums: !2, retainedTypes: !3, nameTableKind: None)
 !1 = !DIFile(filename: "shrink.c", directory: "/Users/rdockins/code/crucible/crux-llvm", checksumkind: CSK_MD5, checksum: "c2c71a098178ba3175febc60f68f1a59")
 !2 = !{}
 !3 = !{!4, !5}
