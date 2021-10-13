@@ -219,7 +219,7 @@ translateLLVMModule ::
   IO SomeModuleContext'
 translateLLVMModule llOpts halloc memVar moduleFilePath llvmMod =
   do
-    Some trans <-
+    (Some trans, _warns) <- -- TODO? should we do something with these warnings?
       let ?transOpts = transOpts llOpts
        in translateModule halloc memVar llvmMod
     llvmPtrWidth
