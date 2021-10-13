@@ -27,8 +27,10 @@ module Lang.Crucible.LLVM.Ctors
   ) where
 
 import           Data.Data (Data)
+import           Data.IORef (newIORef)
 import           Data.String(fromString)
 import           Data.Typeable (Typeable)
+import qualified Data.Text as Text
 import           GHC.Generics (Generic)
 import           Data.Parameterized.Nonce
 
@@ -160,12 +162,15 @@ generatorToCFG :: forall arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth arch
                -> TypeRepr ret
                -> IO (Core.SomeCFG LLVM Core.EmptyCtx ret)
 generatorToCFG name halloc llvmctx gen ret = do
+  ref <- newIORef []
   let ?lc = _llvmTypeCtx llvmctx
   let def :: forall args. FunctionDef LLVM (LLVMState arch) args ret IO
       def _inputs = (state, gen)
         where state = LLVMState { _identMap     = empty
                                 , _blockInfoMap = empty
                                 , llvmContext   = llvmctx
+                                , _translationWarnings = ref
+                                , _functionSymbol = L.Symbol (Text.unpack name)
                                 }
 
   hand <- mkHandle' halloc (functionNameFromText name) Ctx.empty ret

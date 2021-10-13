@@ -1884,7 +1884,7 @@ callFunction instr _tailCall fnTy _fn _args _assign_f =
 callFunctionWithCont :: forall s arch ret a.
    (?transOpts :: TranslationOptions) =>
    Set L.Ident {- ^ Set of usable identifiers -} ->
-   L.Instr {- ^ Source instruction o the call -} ->
+   L.Instr {- ^ Source instruction of the call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
@@ -1895,34 +1895,41 @@ callFunctionWithCont :: forall s arch ret a.
 callFunctionWithCont defSet instr tailCall_ fnTy fn args assign_f k
 
      -- Supports LLVM 4-12
-     | L.ValSymbol "llvm.dbg.declare" <- fn =
+     | L.ValSymbol "llvm.dbg.declare" <- fn
+     , debugIntrinsics ?transOpts =
        do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
               extensionStmt (LLVM_Debug (LLVM_Dbg_Declare ptr lv di)) >> k
+            Left msg -> addWarning (Text.pack msg) >> k
             _ -> k
 
      -- Supports LLVM 6-12
-     | L.ValSymbol "llvm.dbg.addr" <- fn =
+     | L.ValSymbol "llvm.dbg.addr" <- fn
+     , debugIntrinsics ?transOpts =
        do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ PtrRepr ptr, lv, di) ->
               extensionStmt (LLVM_Debug (LLVM_Dbg_Addr ptr lv di)) >> k
+            Left msg -> addWarning (Text.pack msg) >> k
             _ -> k
 
      -- Supports LLVM 6-12 (earlier versions had an extra argument)
-     | L.ValSymbol "llvm.dbg.value" <- fn =
+     | L.ValSymbol "llvm.dbg.value" <- fn
+     , debugIntrinsics ?transOpts =
        do mbArgs <- dbgArgs defSet args
           case mbArgs of
             Right (asScalar -> Scalar _ repr val, lv, di) ->
               extensionStmt (LLVM_Debug (LLVM_Dbg_Value repr val lv di)) >> k
+            Left msg -> addWarning (Text.pack msg) >> k
             _ -> k
 
-     -- Skip calls to other debugging intrinsics.  We might want to support these in some way
-     -- in the future.  However, they take metadata values as arguments, which
-     -- would require some work to support.
+     -- Skip calls to other debugging intrinsics.
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.label"
+                 , "llvm.dbg.declare"
+                 , "llvm.dbg.addr"
+                 , "llvm.dbg.value"
                  , "llvm.lifetime.start"
                  , "llvm.lifetime.start.p0i8"
                  , "llvm.lifetime.end"
@@ -1945,18 +1952,11 @@ callFunctionWithCont defSet instr tailCall_ fnTy fn args assign_f k
 
 -- | Match the arguments used by @dbg.addr@, @dbg.declare@, and @dbg.value@.
 dbgArgs ::
-  (?transOpts :: TranslationOptions) =>
   Set L.Ident {- ^ Set of usable identifiers -} ->
   [L.Typed L.Value] {- ^ debug call arguments -} ->
   LLVMGenerator s arch ret (Either String (LLVMExpr s arch, L.DILocalVariable, L.DIExpression))
-dbgArgs defSet args
-  | -- Why guard translating llvm.dbg statements behind its own option? It's
-    -- because Clang can sometimes generate llvm.dbg statements with improperly
-    -- scoped arguments—see https://bugs.llvm.org/show_bug.cgi?id=51155. This
-    -- wreaks all sorts of havoc on Crucible's later analyses, so one can work
-    -- around the issue by not translating the llvm.dbg statements at all.
-    debugIntrinsics ?transOpts
-  = case args of
+dbgArgs defSet args =
+    case args of
       [valArg, lvArg, diArg] ->
         case valArg of
           L.Typed _ (L.ValMd (L.ValMdValue val)) ->
@@ -1969,15 +1969,13 @@ dbgArgs defSet args
                          do v <- transTypedValue val
                             pure (Right (v, lv, di))
                        else
-                         do let msg = unwords (["Debug intrinsic def/use violation"] ++ map (show . L.ppIdent) (Set.toList unusableIdents))
-                            liftIO $ putStrLn $ msg
+                         do let msg = unwords (["dbg intrinsic def/use violation for:"] ++
+                                       map (show . L.ppIdent) (Set.toList unusableIdents))
                             pure (Left msg)
                   _ -> pure (Left ("dbg: argument 3 expected DIExpression, got: " ++ show diArg))
               _ -> pure (Left ("dbg: argument 2 expected local variable metadata, got: " ++ show lvArg))
           _ -> pure (Left ("dbg: argument 1 expected value metadata, got: " ++ show valArg))
       _ -> pure (Left ("dbg: expected 3 arguments, got: " ++ show (length args)))
-  | otherwise
-  = pure (Left ("Not translating llvm.dbg statement due to debugIntrinsics not being enabled"))
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->

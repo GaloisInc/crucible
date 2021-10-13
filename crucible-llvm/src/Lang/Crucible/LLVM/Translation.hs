@@ -89,6 +89,7 @@ module Lang.Crucible.LLVM.Translation
 
 import           Control.Lens hiding (op, (:>) )
 import           Control.Monad.Except
+import           Data.IORef (IORef, newIORef, readIORef)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Set (Set)
@@ -391,9 +392,10 @@ transDefine :: forall arch wptr.
                (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
             => HandleAllocator
             -> LLVMContext arch
+            -> IORef [(L.Symbol, Position, Text.Text)]
             -> L.Define
             -> IO (L.Symbol, (L.Declare, C.AnyCFG LLVM))
-transDefine halloc ctx d = do
+transDefine halloc ctx warnRef d = do
   let ?lc = ctx^.llvmTypeCtx
   let decl = declareFromDefine d
   let symb@(L.Symbol symb_str) = L.defName d
@@ -403,7 +405,7 @@ transDefine halloc ctx d = do
     h <- mkHandle' halloc fn_name argTypes retType
     let def :: FunctionDef LLVM (LLVMState arch) args ret IO
         def inputs = (s, f)
-            where s = initialState d ctx argTypes inputs
+            where s = initialState d ctx argTypes inputs warnRef
                   f = genDefn d retType
     sng <- newIONonceGenerator
     (SomeCFG g, []) <- defineFunctionOpt InternalPos sng h def $ \ng cfg ->
@@ -415,19 +417,21 @@ transDefine halloc ctx d = do
 -- translateModule
 
 -- | Translate a module into Crucible control-flow graphs.
+-- Return the translated module and a list of warning messages
+-- generated during translation.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
 translateModule :: (?transOpts :: TranslationOptions)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
-                -> IO (Some ModuleTranslation)
+                -> IO (Some ModuleTranslation, [(L.Symbol, Position, Text.Text)])
 translateModule halloc mvar m = do
+  warnRef <- newIORef []
   Some ctx <- mkLLVMContext mvar m
   let nonceGen = haCounter halloc
-  llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
-    do pairs <- mapM (transDefine halloc ctx) (L.modDefines m)
-
+  mtrans <- llvmPtrWidth ctx $ \wptr -> withPtrWidth wptr $
+    do pairs <- mapM (transDefine halloc ctx warnRef) (L.modDefines m)
        let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
        let ctx' = ctx{ llvmGlobalAliases = globalAliases m
                      , llvmFunctionAliases = functionAliases m
@@ -438,3 +442,5 @@ translateModule halloc mvar m = do
                                        , _transContext = ctx'
                                        , modTransNonce = nonce
                                        }))
+  warns <- readIORef warnRef
+  return (mtrans, warns)

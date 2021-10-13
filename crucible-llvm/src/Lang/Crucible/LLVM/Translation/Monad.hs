@@ -25,6 +25,9 @@ module Lang.Crucible.LLVM.Translation.Monad
   , identMap
   , blockInfoMap
   , buildBlockInfoMap
+  , translationWarnings
+  , functionSymbol
+  , addWarning
   , IdentMap
   , LLVMBlockInfo(..)
   , initialState
@@ -47,6 +50,7 @@ module Lang.Crucible.LLVM.Translation.Monad
 import Control.Lens hiding (op, (:>), to, from )
 import Control.Monad.State.Strict
 import Data.Foldable (toList)
+import Data.IORef (IORef, modifyIORef)
 import Data.List (foldl')
 import Data.Maybe
 import Data.Map.Strict (Map)
@@ -55,6 +59,7 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Text (Text)
 
 import qualified Text.LLVM.AST as L
 
@@ -151,13 +156,28 @@ data LLVMState arch s
      _identMap :: !(IdentMap s)
    , _blockInfoMap :: !(Map L.BlockLabel (LLVMBlockInfo s))
    , llvmContext :: LLVMContext arch
+   , _translationWarnings :: IORef [(L.Symbol, Position, Text)]
+   , _functionSymbol :: L.Symbol
    }
 
-identMap :: Simple Lens (LLVMState arch s) (IdentMap s)
+identMap :: Lens' (LLVMState arch s) (IdentMap s)
 identMap = lens _identMap (\s v -> s { _identMap = v })
 
-blockInfoMap :: Simple Lens (LLVMState arch s) (Map L.BlockLabel (LLVMBlockInfo s))
+blockInfoMap :: Lens' (LLVMState arch s) (Map L.BlockLabel (LLVMBlockInfo s))
 blockInfoMap = lens _blockInfoMap (\s v -> s { _blockInfoMap = v })
+
+translationWarnings :: Lens' (LLVMState arch s) (IORef [(L.Symbol,Position,Text)])
+translationWarnings = lens _translationWarnings (\s v -> s { _translationWarnings = v })
+
+functionSymbol :: Lens' (LLVMState arch s) L.Symbol
+functionSymbol = lens _functionSymbol (\s v -> s{ _functionSymbol = v })
+
+addWarning :: Text -> LLVMGenerator s arch ret ()
+addWarning warn =
+  do r <- use translationWarnings
+     s <- use functionSymbol
+     p <- getPosition
+     liftIO (modifyIORef r ((s,p,warn):))
 
 -- | Information about an LLVM basic block computed before be we begin the
 --   translation proper.
@@ -169,7 +189,7 @@ data LLVMBlockInfo s
 
       -- | The computed "use" set for this block.  This is the set
       -- of identifiers that must be assigned prior to jumping to this
-      -- block.  They are either used directly in this block or used
+      -- block. They are either used directly in this block or used
       -- by a successor of this block.  Note! "metadata" nodes
       -- do not contribute to the use set.  Note! values referenced
       -- in phi nodes are also not included in this set, they are instead
@@ -177,11 +197,11 @@ data LLVMBlockInfo s
     , block_use_set :: !(Set L.Ident)
 
       -- | The predecessor blocks to this block (i.e., all those blocks
-      --   that can jump to this one).
+      -- that can jump to this one).
     , block_pred_set :: !(Set L.BlockLabel)
 
       -- | The successor blocks to this block (i.e., all those blocks
-      --   that this block can jump to).
+      -- that this block can jump to).
     , block_succ_set :: !(Set L.BlockLabel)
 
       -- | The statements defining this block
@@ -356,7 +376,7 @@ useVal v = case v of
   L.ValZeroInit -> mempty
   L.ValAsm{} -> mempty -- TODO! inline asm ...
 
-  -- NB! metadata values are not consiered as part of our use analysis
+  -- NB! metadata values are not considered as part of our use analysis
   L.ValMd _md -> mempty
 
 
@@ -408,10 +428,16 @@ initialState :: (?lc :: TypeContext, HasPtrWidth wptr)
              -> LLVMContext arch
              -> CtxRepr args
              -> Ctx.Assignment (Atom s) args
+             -> IORef [(L.Symbol,Position,Text)]
              -> LLVMState arch s
-initialState d llvmctx args asgn =
+initialState d llvmctx args asgn warnRef =
    let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in
-     LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
+     LLVMState { _identMap = m
+               , _blockInfoMap = Map.empty
+               , llvmContext = llvmctx
+               , _translationWarnings = warnRef
+               , _functionSymbol = L.defName d
+               }
 
 -- | Given an LLVM type and a type context and a register assignment,
 --   peel off the rightmost register from the assignment, which is

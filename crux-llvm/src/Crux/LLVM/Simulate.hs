@@ -33,11 +33,13 @@ import Data.Parameterized.Context (pattern Empty, pattern (:>))
 
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Text.LLVM as LLVM
+import qualified Text.LLVM.PP as LLVM
 import Prettyprinter
 
 -- what4
 import qualified What4.Expr.Builder as WEB
 import What4.Interface (bvLit, natLit)
+import What4.ProgramLoc
 
 -- crucible
 import Lang.Crucible.Backend
@@ -225,8 +227,9 @@ prepLLVMModule :: IsSymInterface sym
                -> IO (PreppedLLVM sym)
 prepLLVMModule llvmOpts halloc sym bcFile memVar = do
     llvmMod <- parseLLVM bcFile
-    Some trans <- let ?transOpts = transOpts llvmOpts
-                  in translateModule halloc memVar llvmMod
+    (Some trans, warns) <-
+        let ?transOpts = transOpts llvmOpts
+         in translateModule halloc memVar llvmMod
     mem <- let llvmCtxt = trans ^. transContext in
              let ?lc = llvmCtxt ^. llvmTypeCtx
                  ?memOpts = memOpts llvmOpts
@@ -235,7 +238,18 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
                Log.sayCruxLLVM (Log.UsingPointerWidthForFile (intValue ptrW) (Text.pack bcFile))
                populateAllGlobals sym (globalInitMap trans)
                  =<< initializeAllMemory sym llvmCtxt llvmMod
+    mapM_ sayTranslationWarning warns
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
+
+sayTranslationWarning ::
+  Crux.Logs msgs =>
+  Log.SupportsCruxLLVMLogMessage msgs =>
+  (LLVM.Symbol, Position, Text) ->
+  IO ()
+sayTranslationWarning (nm,p,msg) = Log.sayCruxLLVM (Log.TranslationWarning msg')
+  where
+  msg' = "Translation warning at " <> Text.pack (show p) <> " in "
+            <> (Text.pack (show (LLVM.ppSymbol nm))) <> ": " <> msg
 
 
 checkFun ::
