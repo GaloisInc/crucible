@@ -1,7 +1,7 @@
 -- |
 -- Module           : Lang.Crucible.LLVM.Translation
 -- Description      : Translation of LLVM AST into Crucible control-flow graph
--- Copyright        : (c) Galois, Inc 2014-2018
+-- Copyright        : (c) Galois, Inc 2014-2021
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
@@ -52,8 +52,7 @@
 --
 -- A (probably) partial list of things we intend to support, but do not yet:
 --
---  * Checking of alignment constraints on load, store, alloca, etc.
---  * Various vector instructions.  This includes a variety of instructions
+--  * Various vector instructions. This includes a variety of instructions
 --      that LLVM allows to take vector arguments, but are currently only
 --      defined on scalar (nonvector) arguments. (Progress has been made on
 --      this, but may not yet be complete).
@@ -97,6 +96,7 @@ import qualified Data.Set as Set
 import           Data.Maybe
 import           Data.String
 import qualified Data.Text   as Text
+import           Prettyprinter (pretty)
 
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as L
@@ -321,7 +321,7 @@ findFile _ = Nothing
 defineLLVMBlock
         :: (?transOpts :: TranslationOptions)
         => TypeRepr ret
-        -> Map L.BlockLabel (LLVMBlockInfo s)
+        -> LLVMBlockInfoMap s
         -> L.BasicBlock
         -> LLVMGenerator s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
@@ -375,10 +375,11 @@ checkEntryPointUseSet ::
   LLVMGenerator s arg ret ()
 checkEntryPointUseSet nm bi args
   | Set.null unsatisfiedUses = return ()
-  | otherwise = fail $ unlines $
-      [ "Invalid input LLVM for function: " ++ nm
-      , "The following LLVM virtual registers are used before they are defined:"
-      ] ++ map (\i -> "   " ++ show (L.ppIdent i)) (Set.toList unsatisfiedUses)
+  | otherwise =
+      malformedLLVMModule ("Invalid SSA form for function: " <> pretty nm)
+        ([ "The following LLVM virtual registers have at least one use site that"
+         , "is not dominated by the corresponding definition:" ] ++
+         [ "   " <> pretty (show (L.ppIdent i)) | i <- Set.toList unsatisfiedUses ])
   where
     argSet = Set.fromList (map L.typedValue args)
     useSet = block_use_set bi

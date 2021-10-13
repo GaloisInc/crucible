@@ -101,6 +101,7 @@ library
     Lang.Crucible.LLVM.MemModel.Options
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.MemModel.Value
+    Lang.Crucible.LLVM.Translation.BlockInfo
     Lang.Crucible.LLVM.Translation.Constant
     Lang.Crucible.LLVM.Translation.Expr
     Lang.Crucible.LLVM.Translation.Instruction
