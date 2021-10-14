@@ -39,7 +39,6 @@ import Prettyprinter
 -- what4
 import qualified What4.Expr.Builder as WEB
 import What4.Interface (bvLit, natLit)
-import What4.ProgramLoc
 
 -- crucible
 import Lang.Crucible.Backend
@@ -74,8 +73,8 @@ import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.LLVM.MemType (MemType(..), SymType(..), i8, memTypeAlign, memTypeSize)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
-        , transContext, cfgMap
-        , llvmPtrWidth, llvmTypeCtx
+        , transContext, cfgMap, llvmPtrWidth, llvmTypeCtx
+        , LLVMTranslationWarning(..)
         )
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, register_llvm_overrides )
@@ -242,15 +241,13 @@ prepLLVMModule llvmOpts halloc sym bcFile memVar = do
     return $ PreppedLLVM llvmMod (Some trans) memVar mem
 
 sayTranslationWarning ::
-  Crux.Logs msgs =>
   Log.SupportsCruxLLVMLogMessage msgs =>
-  (LLVM.Symbol, Position, Text) ->
-  IO ()
-sayTranslationWarning (nm,p,msg) = Log.sayCruxLLVM (Log.TranslationWarning msg')
+  Crux.Logs msgs =>
+  LLVMTranslationWarning -> IO ()
+sayTranslationWarning = Log.sayCruxLLVM . f
   where
-  msg' = "Translation warning at " <> Text.pack (show p) <> " in "
-            <> (Text.pack (show (LLVM.ppSymbol nm))) <> ": " <> msg
-
+    f (LLVMTranslationWarning s p msg) =
+        Log.TranslationWarning (Text.pack (show (LLVM.ppSymbol s))) (Text.pack (show p)) msg
 
 checkFun ::
   forall arch msgs personality sym.

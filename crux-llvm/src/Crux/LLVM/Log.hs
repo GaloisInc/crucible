@@ -25,7 +25,7 @@ data CruxLLVMLogMessage
   | FailedToBuildCounterexampleExecutable
   | SimulatingFunction Text
   | UsingPointerWidthForFile Integer Text
-  | TranslationWarning Text
+  | TranslationWarning Text Text Text -- Function name, position, msg
   deriving ( Generic, ToJSON )
 
 type SupportsCruxLLVMLogMessage msgs =
@@ -65,5 +65,13 @@ cruxLLVMLogMessageToSayWhat (UsingPointerWidthForFile width file) =
           file
         ]
     )
-cruxLLVMLogMessageToSayWhat (TranslationWarning msg) =
-  SayWhat Warn cruxLogTag msg
+cruxLLVMLogMessageToSayWhat (TranslationWarning nm p msg) =
+  SayWhat Warn cruxLogTag
+    ( Text.unwords
+        [ "Translation warning at"
+        , p
+        , "in"
+        , nm <> ":"
+        , msg
+        ]
+    )

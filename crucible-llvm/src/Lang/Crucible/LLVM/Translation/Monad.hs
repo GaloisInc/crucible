@@ -27,6 +27,7 @@ module Lang.Crucible.LLVM.Translation.Monad
   , translationWarnings
   , functionSymbol
   , addWarning
+  , LLVMTranslationWarning(..)
   , IdentMap
   , LLVMBlockInfo(..)
   , LLVMBlockInfoMap
@@ -145,13 +146,17 @@ getMemVar = llvmMemVar . llvmContext <$> get
 -- | Maps identifiers to an associated register or defined expression.
 type IdentMap s = Map L.Ident (Either (Some (Reg s)) (Some (Atom s)))
 
+-- | A warning generated during translation
+data LLVMTranslationWarning =
+  LLVMTranslationWarning L.Symbol Position Text
+
 data LLVMState arch s
    = LLVMState
    { -- | Map from identifiers to associated register shape
      _identMap :: !(IdentMap s)
    , _blockInfoMap :: !(LLVMBlockInfoMap s)
    , llvmContext :: LLVMContext arch
-   , _translationWarnings :: IORef [(L.Symbol, Position, Text)]
+   , _translationWarnings :: IORef [LLVMTranslationWarning]
    , _functionSymbol :: L.Symbol
    }
 
@@ -161,7 +166,7 @@ identMap = lens _identMap (\s v -> s { _identMap = v })
 blockInfoMap :: Lens' (LLVMState arch s) (LLVMBlockInfoMap s)
 blockInfoMap = lens _blockInfoMap (\s v -> s { _blockInfoMap = v })
 
-translationWarnings :: Lens' (LLVMState arch s) (IORef [(L.Symbol,Position,Text)])
+translationWarnings :: Lens' (LLVMState arch s) (IORef [LLVMTranslationWarning])
 translationWarnings = lens _translationWarnings (\s v -> s { _translationWarnings = v })
 
 functionSymbol :: Lens' (LLVMState arch s) L.Symbol
@@ -172,7 +177,7 @@ addWarning warn =
   do r <- use translationWarnings
      s <- use functionSymbol
      p <- getPosition
-     liftIO (modifyIORef r ((s,p,warn):))
+     liftIO (modifyIORef r ((LLVMTranslationWarning s p warn):))
 
 
 -- | Given a list of LLVM formal parameters and a corresponding crucible
@@ -210,7 +215,7 @@ initialState :: (?lc :: TypeContext, HasPtrWidth wptr)
              -> LLVMContext arch
              -> CtxRepr args
              -> Ctx.Assignment (Atom s) args
-             -> IORef [(L.Symbol,Position,Text)]
+             -> IORef [LLVMTranslationWarning]
              -> LLVMState arch s
 initialState d llvmctx args asgn warnRef =
    let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in

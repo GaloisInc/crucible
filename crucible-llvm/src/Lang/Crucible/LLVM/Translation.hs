@@ -80,6 +80,7 @@ module Lang.Crucible.LLVM.Translation
   , LLVMContext(..)
   , llvmTypeCtx
   , translateModule
+  , LLVMTranslationWarning(..)
 
   , module Lang.Crucible.LLVM.Translation.Constant
   , module Lang.Crucible.LLVM.Translation.Options
@@ -393,7 +394,7 @@ transDefine :: forall arch wptr.
                (HasPtrWidth wptr, wptr ~ ArchWidth arch, ?transOpts :: TranslationOptions)
             => HandleAllocator
             -> LLVMContext arch
-            -> IORef [(L.Symbol, Position, Text.Text)]
+            -> IORef [LLVMTranslationWarning]
             -> L.Define
             -> IO (L.Symbol, (L.Declare, C.AnyCFG LLVM))
 transDefine halloc ctx warnRef d = do
@@ -426,7 +427,7 @@ translateModule :: (?transOpts :: TranslationOptions)
                 => HandleAllocator -- ^ Generator for nonces.
                 -> GlobalVar Mem   -- ^ Memory model to associate with this context
                 -> L.Module        -- ^ Module to translate
-                -> IO (Some ModuleTranslation, [(L.Symbol, Position, Text.Text)])
+                -> IO (Some ModuleTranslation, [LLVMTranslationWarning])
 translateModule halloc mvar m = do
   warnRef <- newIORef []
   Some ctx <- mkLLVMContext mvar m
@@ -443,5 +444,5 @@ translateModule halloc mvar m = do
                                        , _transContext = ctx'
                                        , modTransNonce = nonce
                                        }))
-  warns <- readIORef warnRef
+  warns <- reverse <$> readIORef warnRef
   return (mtrans, warns)
