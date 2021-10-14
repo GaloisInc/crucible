@@ -25,7 +25,6 @@ module Main (main) where
 
 import Control.Applicative ( Alternative(..) )
 import Control.Exception ( SomeException, try )
-import Control.Lens ( view )
 import Control.Monad.Extra ( whenJust )
 import qualified Crypto.Hash.SHA256 as SHA256 ( hash )
 import Data.Aeson ( ToJSON )
@@ -135,7 +134,7 @@ processInputFiles cruxOpts llvmOpts svOpts =
     evaluateBitCode :: FilePath -> FilePath -> IO ()
     evaluateBitCode inputFile bcFile = withSVCompLogging $ do
       mkOutCfg <- Crux.defaultOutputConfig svCompLoggingToSayWhat
-      let ?outputConfig = mkOutCfg (Just (view outputOptions cruxOpts))
+      let ?outputConfig = mkOutCfg (Just (outputOptions cruxOpts))
       mres <- try $
                do res <- Crux.runSimulator cruxOpts (simulateLLVMFile bcFile llvmOpts)
                   generateReport cruxOpts res

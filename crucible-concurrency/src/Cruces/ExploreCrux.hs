@@ -4,15 +4,19 @@ Description      : Wrappers for driving Crucibles with Crux
 Copyright        : (c) Galois, Inc 2021
 Maintainer       : Alexander Bakst <abakst@galois.com>
 -}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
+
 module Cruces.ExploreCrux where
 
 import           Control.Monad.IO.Class
 import           Control.Monad (when)
 import           Control.Lens
+import           Data.Generics.Product.Fields (field)
 import qualified Data.Vector as V
 import qualified Data.Map.Strict as Map
 import           System.IO (Handle)
@@ -121,9 +125,9 @@ exploreOvr symOnline cruxOpts mainAct =
         do sym <- getSymInterface
            ctx <- use stateContext
            todo <- liftIO $ getProofObligations sym
-           let cruxOpts' = over Crux.outputOptions (\o -> o { Crux.quietMode = True, Crux.simVerbose = 0 }) cruxOpts
+           let cruxOpts' = over (field @"outputOptions") (setField @"quietMode" True . setField @"simVerbose" 0) cruxOpts
            mkOutCfg <- liftIO $ Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
-           let ?outputConfig = mkOutCfg (Just (view Crux.outputOptions cruxOpts'))
+           let ?outputConfig = mkOutCfg (Just (Crux.outputOptions cruxOpts'))
            (processed, _) <- liftIO $ proveGoalsOnline sym cruxOpts' ctx (\_ _ -> return mempty) todo
            let provedAll = totalProcessedGoals processed == provedGoals processed
            when provedAll $ liftIO $ clearProofObligations sym

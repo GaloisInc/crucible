@@ -1,26 +1,29 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
 
 module Crux.Config.Common (
   OutputOptions(..),
   CruxOptions(..),
   PathStrategy(..),
   cruxOptions,
-  colorOptions,
-  outputOptions,
   defaultOutputOptions,
   postprocessOptions,
 ) where
 
-import Control.Lens (Lens', lens, over)
+import Control.Lens (set)
 import Data.Functor.Alt
+import Data.Generics.Product.Fields (field)
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
 import Data.Word (Word64)
 import Data.Text (pack)
+import GHC.Generics (Generic)
 import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config
@@ -82,7 +85,7 @@ checkBldDir crux = do
 
 
 data OutputOptions = OutputOptions
-  { _colorOptions :: ColorOptions
+  { colorOptions :: ColorOptions
 
   , printFailures :: Bool
     -- ^ Print errors regarding failed verification goals
@@ -97,21 +100,18 @@ data OutputOptions = OutputOptions
   , quietMode :: Bool
     -- ^ If true, produce minimal output
 
-}
+  }
+  deriving (Generic)
 
 
 defaultOutputOptions :: ColorOptions -> OutputOptions
 defaultOutputOptions copts = OutputOptions
-  { _colorOptions = copts
+  { colorOptions = copts
   , printFailures = False
   , printSymbolicVars = False
   , quietMode = False
   , simVerbose = 0
   }
-
-
-colorOptions :: Lens' OutputOptions ColorOptions
-colorOptions = lens _colorOptions (\o v -> o { _colorOptions = v })
 
 
 -- | Common options for Crux-based binaries.
@@ -197,14 +197,12 @@ data CruxOptions = CruxOptions
   , onlineProblemFeatures    :: ProblemFeatures
     -- ^ Problem Features to force in online solvers
 
-  , _outputOptions            :: OutputOptions
+  , outputOptions            :: OutputOptions
     -- ^ Output options grouped together for easy transfer to the logger
 
   }
+  deriving (Generic)
 
-
-outputOptions :: Lens' CruxOptions OutputOptions
-outputOptions = lens _outputOptions (\o v -> o { _outputOptions = v })
 
 
 cruxOptions :: Config CruxOptions
@@ -343,8 +341,8 @@ cruxOptions = Config
           onlineProblemFeatures <- pure noFeatures
 
           pure CruxOptions
-            { _outputOptions = OutputOptions {
-                _colorOptions = defaultColorOptions
+            { outputOptions = OutputOptions {
+                colorOptions = defaultColorOptions
               , ..
               }
             , ..
@@ -361,7 +359,7 @@ cruxOptions = Config
 
       [ Option "d" ["sim-verbose"]
         "Set simulator verbosity level."
-        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v -> over outputOptions (\ o -> o { simVerbose = v })
+        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v -> set (field @"outputOptions" . field @"simVerbose") v
 
       , Option [] ["path-sat"]
         "Enable path satisfiability checking"
@@ -475,7 +473,7 @@ cruxOptions = Config
 
       , Option [] ["skip-print-failures"]
         "Skip printing messages related to failed verification goals"
-        $ NoArg $ \opts -> Right (over outputOptions (\ o -> o { printFailures = False }) opts)
+        $ NoArg $ Right . set (field @"outputOptions" . field @"printFailures") False
 
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
@@ -483,7 +481,7 @@ cruxOptions = Config
 
       , Option "q" ["quiet"]
         "Quiet mode; produce minimal output"
-        $ NoArg $ \opts -> Right (over outputOptions (\o -> o { quietMode = True }) opts)
+        $ NoArg $ Right . set (field @"outputOptions" . field @"quietMode") True
 
       , Option "f" ["floating-point"]
         ("Select floating point representation,"

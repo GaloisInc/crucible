@@ -1,12 +1,16 @@
-{-# Language MultiWayIf, OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# Language DeriveGeneric, MultiWayIf, OverloadedStrings #-}
 -- | This module deals with loading configurations.
 module Crux.Config.Load where
 
 
-import Control.Lens (Lens', lens, over, set, view)
+import Control.Lens (set)
 import Control.Monad(foldM, (<=<))
 import Control.Exception(Exception(..),catch,catches,throwIO, Handler(..))
+import Data.Generics.Product.Fields (field, setField)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 
 import System.Environment
 
@@ -25,26 +29,22 @@ data Options opts =
 
 
 data ColorOptions = ColorOptions
-  { _noColorsErr :: Bool
-  , _noColorsOut :: Bool
+  { noColorsErr :: Bool
+  , noColorsOut :: Bool
   }
+  deriving (Generic)
 
 defaultColorOptions :: ColorOptions
 defaultColorOptions = ColorOptions
-  { _noColorsErr = False
-  , _noColorsOut = False
+  { noColorsErr = False
+  , noColorsOut = False
   }
 
 noColors :: ColorOptions
 noColors = ColorOptions
-  { _noColorsErr = True
-  , _noColorsOut = True
+  { noColorsErr = True
+  , noColorsOut = True
   }
-
-noColorsErr :: Lens' ColorOptions Bool
-noColorsErr = lens _noColorsErr (\o v -> o { _noColorsErr = v })
-noColorsOut :: Lens' ColorOptions Bool
-noColorsOut = lens _noColorsOut (\o v -> o { _noColorsOut = v })
 
 
 -- | Command line options processed before loading the configuration file.
@@ -54,24 +54,22 @@ data EarlyConfig opts = EarlyConfig
   , configFile    :: Maybe FilePath
     -- ^ Load configuratoin from here.
     -- Other command line options override the settings in the file.
-  , _colorOptions :: ColorOptions
+  , colorOptions :: ColorOptions
   , options       :: OptSetter opts
   , files         :: [FilePath]
   }
-
-colorOptions :: Lens' (EarlyConfig opts) ColorOptions
-colorOptions = lens _colorOptions (\o v -> o { _colorOptions = v })
+  deriving (Generic)
 
 
 commandLineOptions :: Config opts -> OptSpec (EarlyConfig opts)
 commandLineOptions cfg = OptSpec
   { progDefaults = EarlyConfig
-                     { showHelp    = False
-                     , showVersion = False
-                     , configFile  = Nothing
-                     , _colorOptions = defaultColorOptions
-                     , options     = Right
-                     , files       = []
+                     { showHelp     = False
+                     , showVersion  = False
+                     , configFile   = Nothing
+                     , colorOptions = defaultColorOptions
+                     , options      = Right
+                     , files        = []
                      }
 
   , progOptions =
@@ -89,15 +87,15 @@ commandLineOptions cfg = OptSpec
 
       , Option [] ["no-colors-err"]
         "Suppress color codes in the errors"
-        $ NoArg $ \opts -> Right (over colorOptions (set noColorsErr True) opts)
+        $ NoArg $ Right . set (field @"colorOptions" . field @"noColorsErr") True
 
       , Option [] ["no-colors-out"]
         "Suppress color codes in the output"
-        $ NoArg $ \opts -> Right (over colorOptions (set noColorsOut True) opts)
+        $ NoArg $ Right . set (field @"colorOptions" . field @"noColorsOut") True
 
       , Option [] ["no-colors"]
         "Suppress color codes in both the output and the errors"
-        $ NoArg $ \opts -> Right (set colorOptions noColors opts)
+        $ NoArg $ Right . setField @"colorOptions" noColors
 
       ] ++ map (mapOptDescr delayOpt) (cfgCmdLineFlag cfg)
 
@@ -153,7 +151,7 @@ loadConfig :: Text -> Config opts -> IO (ColorOptions, Options opts)
 loadConfig nm cfg =
   do earlyOpts <- getOptsX (commandLineOptions cfg) `catch`
                   \(GetOptException errs) -> throwIO (InvalidCommandLine errs)
-     let copts = view colorOptions earlyOpts
+     let copts = colorOptions earlyOpts
      if | showHelp earlyOpts -> pure (copts, ShowHelp)
         | showVersion earlyOpts -> pure (copts, ShowVersion)
         | otherwise ->

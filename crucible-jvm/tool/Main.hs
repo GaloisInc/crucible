@@ -178,7 +178,7 @@ cruxJVMConfig = Crux.Config
 simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallback msgs
 simulateJVM copts opts = Crux.SimulatorCallback $ \sym _maybeOnline -> do
    let files = Crux.inputFiles copts
-   let verbosity = Crux.simVerbose (copts ^. Crux.outputOptions)
+   let verbosity = Crux.simVerbose (Crux.outputOptions copts)
    file <- case files of
              [file] -> return file
              _ -> fail "crux-jvm requires a single file name as an argument"

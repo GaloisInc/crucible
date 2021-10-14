@@ -204,7 +204,7 @@ runTestsWithExtraOverrides ::
     (Crux.CruxOptions, MIROptions) ->
     IO ExitCode
 runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
-    let ?debug              = Crux.simVerbose (view Crux.outputOptions cruxOpts)
+    let ?debug              = Crux.simVerbose (Crux.outputOptions cruxOpts)
     --let ?assertFalseOnError = assertFalse mirOpts
     let ?assertFalseOnError = True
     let ?printCrucible      = printCrucible mirOpts
@@ -357,7 +357,7 @@ runTestsWithExtraOverrides bindExtra (cruxOpts, mirOpts) = do
           case simTest symOnline fnName of
             SomeTestOvr testFn features personality -> do
               let outH = view outputHandle ?outputConfig
-              setSimulatorVerbosity (Crux.simVerbose (view Crux.outputOptions cruxOpts)) sym
+              setSimulatorVerbosity (Crux.simVerbose (Crux.outputOptions cruxOpts)) sym
               let simCtx = C.initSimContext sym mirIntrinsicTypes halloc outH
                       (C.FnBindings C.emptyHandleMap) mirExtImpl personality
               return (Crux.RunnableStateWithExtensions

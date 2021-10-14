@@ -33,6 +33,7 @@ import qualified Data.Aeson as JSON
 import           Data.Foldable
 import           Data.Functor.Contravariant ( (>$<) )
 import           Data.Functor.Contravariant.Divisible ( divide )
+import           Data.Generics.Product.Fields (field)
 import           Data.IORef
 import           Data.Maybe ( fromMaybe )
 import           Data.Proxy ( Proxy(..) )
@@ -164,8 +165,8 @@ loadOptions mkOutCfg nm ver config cont =
              showVersion nm ver
              exitSuccess
        Cfg.Options (cruxWithoutColorOptions, os) files ->
-          do let crux = set (outputOptions.colorOptions) copts cruxWithoutColorOptions
-             let ?outputConfig = mkOutCfg (Just (view outputOptions crux))
+          do let crux = set (field @"outputOptions" . field @"colorOptions") copts cruxWithoutColorOptions
+             let ?outputConfig = mkOutCfg (Just (outputOptions crux))
              crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
              cont (crux', os)
 
@@ -220,9 +221,9 @@ mkOutputConfig ::
   OutputConfig msgs
 mkOutputConfig (outHandle, outWantsColor) (errHandle, errWantsColor) logMessageToSayWhat opts =
   let consensusBetween wants maybeRefuses = wants && not (fromMaybe False maybeRefuses)
-      copts = view colorOptions <$> opts
-      outSpec = (outHandle, consensusBetween outWantsColor (view Cfg.noColorsOut <$> copts))
-      errSpec@(_, errShouldColor) = (errHandle, consensusBetween errWantsColor (view Cfg.noColorsErr <$> copts))
+      copts = colorOptions <$> opts
+      outSpec = (outHandle, consensusBetween outWantsColor (Cfg.noColorsOut <$> copts))
+      errSpec@(_, errShouldColor) = (errHandle, consensusBetween errWantsColor (Cfg.noColorsErr <$> copts))
       lgWhat = let la = LJ.LogAction $ logToStd outSpec errSpec
                    -- TODO simVerbose may not be the best setting to use here...
                    baseline = if maybe False ((> 1) . simVerbose) opts
@@ -455,7 +456,7 @@ setupSolver cruxOpts mInteractionFile sym = do
   -- Turn on hash-consing, if enabled
   when (hashConsing cruxOpts) (WEB.startCaching sym)
 
-  let outOpts = view outputOptions cruxOpts
+  let outOpts = outputOptions cruxOpts
   -- The simulator verbosity is one less than our verbosity.
   -- In this way, we can say things, without the simulator also
   -- being verbose
