@@ -139,7 +139,7 @@ updatePredSets bim0 = foldl' upd bim0 predEdges
                  , to <- Set.elems (block_succ_set bi)
      ]
 
--- | Compute use sets for each basic block. Thess sets list all the
+-- | Compute use sets for each basic block. These sets list all the
 -- virtual registers that must be assigned before jumping to a
 -- block.
 --
@@ -158,7 +158,7 @@ computeUseSets :: LLVMBlockInfoMap s -> LLVMBlockInfoMap s
 computeUseSets bim0 = loop bim0 (Map.keysSet bim0) -- start with all blocks in the workset
   where
   loop bim ws =
-    -- chose the largest remaining block label in the workset
+    -- choose the largest remaining block label in the workset
     case Set.maxView ws of
       -- if the workset is empty, we are done
       Nothing -> bim
@@ -248,28 +248,28 @@ useTypedVal tv = useVal (L.typedValue tv)
 
 -- | Compute the set of identifiers referenced by the given value
 useVal :: L.Value -> Set L.Ident
-useVal v = case v of
-  L.ValInteger{} -> mempty
-  L.ValBool{} -> mempty
-  L.ValFloat{} -> mempty
-  L.ValDouble{} -> mempty
-  L.ValFP80{} -> mempty
-  L.ValIdent i -> Set.singleton i
-  L.ValSymbol _s -> mempty
-  L.ValNull -> mempty
-  L.ValArray _tp vs -> Set.unions (map useVal vs)
-  L.ValVector _tp vs -> Set.unions (map useVal vs)
-  L.ValStruct vs -> Set.unions (map useTypedVal vs)
-  L.ValPackedStruct vs -> Set.unions (map useTypedVal vs)
-  L.ValString _ -> mempty
-  L.ValConstExpr{} -> mempty -- TODO? should we look through constant exprs?
-  L.ValUndef -> mempty
-  L.ValLabel _ -> mempty
-  L.ValZeroInit -> mempty
-  L.ValAsm{} -> mempty -- TODO! inline asm ...
+useVal v = Set.unions $ case v of
+  L.ValInteger{} ->  []
+  L.ValBool{} -> []
+  L.ValFloat{} -> []
+  L.ValDouble{} -> []
+  L.ValFP80{} -> []
+  L.ValIdent i -> [Set.singleton i]
+  L.ValSymbol _s -> []
+  L.ValNull -> []
+  L.ValArray _tp vs -> map useVal vs
+  L.ValVector _tp vs -> map useVal vs
+  L.ValStruct vs -> map useTypedVal vs
+  L.ValPackedStruct vs -> map useTypedVal vs
+  L.ValString _ -> []
+  L.ValConstExpr{} -> [] -- TODO? should we look through constant exprs?
+  L.ValUndef -> []
+  L.ValLabel _ -> []
+  L.ValZeroInit -> []
+  L.ValAsm{} -> [] -- TODO! inline asm ...
 
   -- NB! metadata values are not considered as part of our use analysis
-  L.ValMd _md -> mempty
+  L.ValMd _md -> []
 
 
 -- | Given the statements in a basic block, find all the phi instructions and
