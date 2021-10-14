@@ -41,7 +41,7 @@ import           Lang.Crucible.Panic ( panic )
 
 type LLVMBlockInfoMap s = Map L.BlockLabel (LLVMBlockInfo s)
 
--- | Information about an LLVM basic block computed before be we begin the
+-- | Information about an LLVM basic block computed before we begin the
 --   translation proper.
 data LLVMBlockInfo s
   = LLVMBlockInfo
@@ -49,10 +49,10 @@ data LLVMBlockInfo s
       -- | The crucible block label corresponding to this LLVM block
       block_label :: Label s
 
-      -- | The computed "use" set for this block.  This is the set
+      -- | The computed \"use\" set for this block.  This is the set
       -- of identifiers that must be assigned prior to jumping to this
       -- block. They are either used directly in this block or used
-      -- by a successor of this block.  Note! "metadata" nodes
+      -- by a successor of this block.  Note! \"metadata\" nodes
       -- do not contribute to the use set.  Note! values referenced
       -- in phi nodes are also not included in this set, they are instead
       -- handled when examining the terminal statements of predecessor blocks.
@@ -77,7 +77,7 @@ data LLVMBlockInfo s
     , block_phi_map :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
     }
 
--- | Construct the block info map for the given function definition.  This collections
+-- | Construct the block info map for the given function definition.  This collects
 --   information about phi-nodes, assigns crucible labels to each basic block, and
 --   computes use sets for each block.
 buildBlockInfoMap :: Monad m => L.Define -> Generator l s st ret m (LLVMBlockInfoMap s)
@@ -140,13 +140,13 @@ updatePredSets bim0 = foldl' upd bim0 predEdges
 -- This is essentially a backward fixpoint computation based on the
 -- identifiers used in the block statements.  We iterate the use/def
 -- transfer function until no more changes are made.  Because it is a
--- backward analysis, we (heuristicly) examine the blocks in
+-- backward analysis, we (heuristically) examine the blocks in
 -- descending order, and re-add blocks to the workset based on
 -- predecessor maps.
 --
 -- This fixpoint computation terminates for the usual reasons: the transfer
 -- function is monotonic (use sets only increase) and has no infinite
--- chains (in the worst case, all the finitely-many identifers in the
+-- chains (in the worst case, all the finitely-many identifiers in the
 -- function end up in every use set).
 computeUseSets :: LLVMBlockInfoMap s -> LLVMBlockInfoMap s
 computeUseSets bim0 = loop bim0 (Map.keysSet bim0) -- start with all blocks in the workset
