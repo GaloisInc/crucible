@@ -52,10 +52,16 @@ data LLVMBlockInfo s
       -- | The computed \"use\" set for this block.  This is the set
       -- of identifiers that must be assigned prior to jumping to this
       -- block. They are either used directly in this block or used
-      -- by a successor of this block.  Note! \"metadata\" nodes
-      -- do not contribute to the use set.  Note! values referenced
-      -- in phi nodes are also not included in this set, they are instead
-      -- handled when examining the terminal statements of predecessor blocks.
+      -- by a successor of this block.
+      --
+      -- Note! \"metadata\" nodes do not contribute to the use set.
+      -- This is because LLVM itself relaxes the usual use/def rules
+      -- for metadata to prevent debugging information from inhibiting
+      -- optimizations.  CF https://bugs.llvm.org/show_bug.cgi?id=51155
+      --
+      -- Note! values referenced in phi nodes are also not included in
+      -- this set, they are instead handled when examining the
+      -- terminal statements of predecessor blocks.
     , block_use_set :: !(Set L.Ident)
 
       -- | The predecessor blocks to this block (i.e., all those blocks
@@ -277,4 +283,3 @@ buildPhiMap ss = go ss Map.empty
 
        go' ident tp ((v, lbl) : xs) m = go' ident tp xs (Map.alter (f (ident,tp,v)) lbl m)
        go' _ _ [] m = m
-
