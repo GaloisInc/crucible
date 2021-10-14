@@ -33,6 +33,7 @@ import qualified Lang.Crucible.LLVM.MemModel as CLLVM
 import           Lang.Crucible.LLVM.Translation as CLLVM (defaultTranslationOptions)
 
 import qualified Crux
+import qualified Crux.Config.Load as Crux hiding (colorOptions)
 import qualified Crux.Config.Common as Crux
 import qualified Crux.Log as Log
 
@@ -78,7 +79,7 @@ withOptions llvmModule file k =
                 (h, False)
                 (h, False)
                 Log.ucCruxLLVMTestLoggingToSayWhat
-                (Just cruxOpts)
+                (Just (Crux.outputOptions cruxOpts))
         _ <- Crux.postprocessOptions cruxOpts -- Validate, create build directory
         path <-
           let complain exc = do
@@ -159,7 +160,6 @@ withOptions llvmModule file k =
         , Crux.recursionBound = Just 8
         , Crux.makeCexes = False
         , Crux.unsatCores = False
-        , Crux.simVerbose = 0
         -- With Yices, cast_float_to_pointer_write.c hangs
         , Crux.solver = "z3"
         , Crux.pathSatSolver = Just "z3"
@@ -168,15 +168,17 @@ withOptions llvmModule file k =
         , Crux.onlineSolverOutput = Nothing
         , Crux.yicesMCSat = False
         , Crux.floatMode = "default"
-        , Crux.quietMode = True
         , Crux.proofGoalsFailFast = False
         , Crux.skipReport = True
         , Crux.skipSuccessReports = True
         , Crux.skipIncompleteReports = True
         , Crux.hashConsing = False
         , Crux.onlineProblemFeatures = What4.noFeatures
-        , Crux.printFailures = False
-        , Crux.printSymbolicVars = False
-        , Crux.noColorsOut = False
-        , Crux.noColorsErr = False
+        , Crux.outputOptions = Crux.OutputOptions
+          { Crux.colorOptions = Crux.allColors
+          , Crux.printFailures = False
+          , Crux.printSymbolicVars = False
+          , Crux.quietMode = True
+          , Crux.simVerbose = 0
+          }
         }

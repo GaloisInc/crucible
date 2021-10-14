@@ -16,7 +16,7 @@ module Cruces.ExploreCrux where
 import           Control.Monad.IO.Class
 import           Control.Monad (when)
 import           Control.Lens
-import           Data.Generics.Product.Fields (field)
+import           Data.Generics.Product.Fields (field, setField)
 import qualified Data.Vector as V
 import qualified Data.Map.Strict as Map
 import           System.IO (Handle)

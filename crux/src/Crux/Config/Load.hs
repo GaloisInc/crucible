@@ -40,6 +40,12 @@ defaultColorOptions = ColorOptions
   , noColorsOut = False
   }
 
+allColors :: ColorOptions
+allColors = ColorOptions
+  { noColorsErr = False
+  , noColorsOut = False
+  }
+
 noColors :: ColorOptions
 noColors = ColorOptions
   { noColorsErr = True
@@ -54,7 +60,7 @@ data EarlyConfig opts = EarlyConfig
   , configFile    :: Maybe FilePath
     -- ^ Load configuratoin from here.
     -- Other command line options override the settings in the file.
-  , colorOptions :: ColorOptions
+  , colorOptions  :: ColorOptions
   , options       :: OptSetter opts
   , files         :: [FilePath]
   }
